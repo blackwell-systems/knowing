@@ -24,6 +24,18 @@
         "cached_at": "2026-05-15T02:27:28.561868-07:00"
       }
     },
+    "18cf065cf660cce5f874781e78af12ca": {
+      "build": {
+        "gate_type": "build",
+        "command": "go build ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-15T08:42:19.411657-07:00"
+      }
+    },
     "19b890c8138cfa7ddce982f8b2980bff": {
       "lint": {
         "gate_type": "lint",
@@ -108,6 +120,18 @@
         "cached_at": "2026-05-15T00:33:31.765373-07:00"
       }
     },
+    "40757a7e606fa61e8ea0458cfdd0efce": {
+      "lint": {
+        "gate_type": "lint",
+        "command": "go vet ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-15T08:42:19.810259-07:00"
+      }
+    },
     "43ea2bfb3e7acab7bca63e71b5c74f4a": {
       "build": {
         "gate_type": "build",
@@ -118,6 +142,18 @@
         "stderr": "",
         "from_cache": true,
         "cached_at": "2026-05-15T02:27:28.146598-07:00"
+      }
+    },
+    "4791737ed42a19c6d9af072fab99b08a": {
+      "test": {
+        "gate_type": "test",
+        "command": "go test ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "ok  \tgithub.com/blackwell-systems/knowing/cmd/knowing\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/daemon\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/goextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/treesitter\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/mcp\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/snapshot\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/store\t(cached)\n?   \tgithub.com/blackwell-systems/knowing/internal/types\t[no test files]\n",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-15T08:42:20.184529-07:00"
       }
     },
     "4b7a1d0a596a6875addd1cbc7188825b": {
@@ -252,6 +288,18 @@
         "cached_at": "2026-05-15T03:04:46.800189-07:00"
       }
     },
+    "b1745d93cdba005d5ce26ce8e2a72b09": {
+      "lint": {
+        "gate_type": "lint",
+        "command": "go vet ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-15T08:46:11.028488-07:00"
+      }
+    },
     "b774c40e675d4fbaa08e06b25ce5bf63": {
       "lint": {
         "gate_type": "lint",
@@ -262,6 +310,30 @@
         "stderr": "",
         "from_cache": true,
         "cached_at": "2026-05-15T02:27:28.918952-07:00"
+      }
+    },
+    "c4e6f28ac5d2f48d0b9f4438808f5d6b": {
+      "build": {
+        "gate_type": "build",
+        "command": "go build ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-15T08:46:10.568032-07:00"
+      }
+    },
+    "cacb13fe009233464d828203ee677690": {
+      "test": {
+        "gate_type": "test",
+        "command": "go test ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "ok  \tgithub.com/blackwell-systems/knowing/cmd/knowing\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/daemon\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/goextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/treesitter\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/mcp\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/snapshot\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/store\t(cached)\n?   \tgithub.com/blackwell-systems/knowing/internal/types\t[no test files]\n",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-15T08:46:11.477228-07:00"
       }
     },
     "e798addb559b3c7bc2e63e783acb432f": {
