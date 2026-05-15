@@ -11,8 +11,10 @@ import (
 	"syscall"
 
 	"github.com/blackwell-systems/knowing/internal/daemon"
+	"github.com/blackwell-systems/knowing/internal/enrichment"
 	"github.com/blackwell-systems/knowing/internal/indexer"
 	"github.com/blackwell-systems/knowing/internal/indexer/goextractor"
+	"github.com/blackwell-systems/knowing/internal/indexer/gotsextractor"
 	"github.com/blackwell-systems/knowing/internal/indexer/treesitter"
 	knowingmcp "github.com/blackwell-systems/knowing/internal/mcp"
 	"github.com/blackwell-systems/knowing/internal/snapshot"
@@ -81,8 +83,8 @@ func cmdServe(args []string) error {
 	snapMgr := snapshot.NewSnapshotManager(st)
 	idx := indexer.NewIndexer(st, snapMgr)
 
-	// Register extractors.
-	idx.Register(goextractor.NewGoExtractor())
+	// Register extractors (tree-sitter fast path by default).
+	idx.Register(gotsextractor.NewGoTreeSitterExtractor())
 	tsExt, err := treesitter.NewTreeSitterExtractor("python")
 	if err == nil {
 		idx.Register(tsExt)
@@ -137,6 +139,7 @@ func cmdIndex(args []string) error {
 	dbPath := fs.String("db", "knowing.db", "Path to the SQLite database")
 	repoURL := fs.String("url", "", "Repository URL (e.g. github.com/org/repo)")
 	commitHash := fs.String("commit", "HEAD", "Commit hash to record")
+	full := fs.Bool("full", false, "Use full type resolution (go/packages) instead of fast tree-sitter extraction")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -167,7 +170,11 @@ func cmdIndex(args []string) error {
 	idx := indexer.NewIndexer(st, snapMgr)
 
 	// Register extractors.
-	idx.Register(goextractor.NewGoExtractor())
+	if *full {
+		idx.Register(goextractor.NewGoExtractor())
+	} else {
+		idx.Register(gotsextractor.NewGoTreeSitterExtractor())
+	}
 	tsExt, err := treesitter.NewTreeSitterExtractor("python")
 	if err == nil {
 		idx.Register(tsExt)
@@ -184,6 +191,16 @@ func cmdIndex(args []string) error {
 	fmt.Printf("Repo:     %x\n", repoHash)
 	fmt.Printf("Snapshot: %x\n", snap.SnapshotHash)
 	fmt.Printf("Nodes: %d, Edges: %d\n", snap.NodeCount, snap.EdgeCount)
+
+	if !*full {
+		fmt.Println("Running LSP enrichment...")
+		enricher := enrichment.NewEnricher(st, repoPath)
+		if err := enricher.Run(ctx, repoHash); err != nil {
+			fmt.Fprintf(os.Stderr, "enrichment warning: %v\n", err)
+		}
+		enricher.Close(ctx)
+	}
+
 	return nil
 }
 
