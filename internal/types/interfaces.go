@@ -50,6 +50,11 @@ type ExtractOptions struct {
 	FileHash   Hash
 	Content    []byte
 	ModuleRoot string
+	// ModuleToRepoURL maps Go module paths to stored repo URLs.
+	// Populated by the indexer from the repos table so extractors can
+	// resolve cross-repo targets to the correct stored repo URL.
+	// Example: "github.com/org/repo" -> "/Users/user/code/repo"
+	ModuleToRepoURL map[string]string
 }
 
 // ExtractResult contains the nodes and edges produced by an extractor.

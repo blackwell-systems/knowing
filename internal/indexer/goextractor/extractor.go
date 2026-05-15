@@ -496,7 +496,14 @@ func resolveTargetRepoURL(opts types.ExtractOptions, targetPkg string, pkg *pack
 
 	// External package: try to get module path from imported package.
 	if importedPkg, ok := pkg.Imports[targetPkg]; ok && importedPkg.Module != nil {
-		return importedPkg.Module.Path
+		modulePath := importedPkg.Module.Path
+		// Check if we have a stored repo URL for this module path.
+		if opts.ModuleToRepoURL != nil {
+			if repoURL, ok := opts.ModuleToRepoURL[modulePath]; ok {
+				return repoURL
+			}
+		}
+		return modulePath
 	}
 
 	// Heuristic fallback.

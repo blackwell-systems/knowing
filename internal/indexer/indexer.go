@@ -1,12 +1,14 @@
 package indexer
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackwell-systems/knowing/internal/resolver"
@@ -149,6 +151,10 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 		return nil, fmt.Errorf("store repo: %w", err)
 	}
 
+	// Build module-to-repo-URL map from all indexed repos so extractors
+	// can resolve cross-repo targets to stored repo URLs.
+	moduleToRepo := idx.buildModuleToRepoMap(ctx)
+
 	// Get existing files for this repo to compare hashes.
 	existingFiles, err := idx.store.FilesByRepo(ctx, repoHash)
 	if err != nil {
@@ -217,13 +223,14 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 		fileHash := types.NewHash(fileHashInput)
 
 		opts := types.ExtractOptions{
-			RepoURL:    repoURL,
-			RepoHash:   repoHash,
-			CommitHash: commitHash,
-			FilePath:   relPath,
-			FileHash:   fileHash,
-			Content:    content,
-			ModuleRoot: repoPath,
+			RepoURL:         repoURL,
+			RepoHash:        repoHash,
+			CommitHash:       commitHash,
+			FilePath:         relPath,
+			FileHash:         fileHash,
+			Content:          content,
+			ModuleRoot:       repoPath,
+			ModuleToRepoURL: moduleToRepo,
 		}
 
 		result, file, err := idx.extractFile(ctx, opts)
@@ -284,4 +291,42 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 func (idx *Indexer) ResolveEdges(ctx context.Context) (*resolver.ResolveStats, error) {
 	r := resolver.NewResolver(idx.store)
 	return r.Resolve(ctx)
+}
+
+// buildModuleToRepoMap reads go.mod from each indexed repo to build a mapping
+// from Go module paths to stored repo URLs. This allows extractors to resolve
+// cross-repo call targets to the correct stored repo URL.
+func (idx *Indexer) buildModuleToRepoMap(ctx context.Context) map[string]string {
+	repos, err := idx.store.AllRepos(ctx)
+	if err != nil {
+		return nil
+	}
+
+	result := make(map[string]string, len(repos))
+	for _, repo := range repos {
+		modulePath := readModulePath(repo.RepoURL)
+		if modulePath != "" {
+			result[modulePath] = repo.RepoURL
+		}
+	}
+	return result
+}
+
+// readModulePath reads the module path from go.mod in the given directory.
+// Returns empty string if go.mod doesn't exist or can't be parsed.
+func readModulePath(repoPath string) string {
+	f, err := os.Open(filepath.Join(repoPath, "go.mod"))
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "module ") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "module"))
+		}
+	}
+	return ""
 }
