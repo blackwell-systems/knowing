@@ -19,6 +19,10 @@ type GraphStore interface {
 	NodesByName(ctx context.Context, qualifiedPrefix string) ([]Node, error)
 	EdgesFrom(ctx context.Context, sourceHash Hash, edgeType string) ([]Edge, error)
 	EdgesTo(ctx context.Context, targetHash Hash, edgeType string) ([]Edge, error)
+	DanglingEdges(ctx context.Context) ([]Edge, error)
+	AllRepos(ctx context.Context) ([]Repo, error)
+	NodesByQualifiedName(ctx context.Context, qualifiedName string) ([]Node, error)
+	DeleteEdge(ctx context.Context, hash Hash) error
 	TransitiveCallers(ctx context.Context, target Hash, maxDepth int, snapshot Hash) ([]CallerResult, error)
 	TransitiveCallees(ctx context.Context, source Hash, maxDepth int, snapshot Hash) ([]CalleeResult, error)
 	BlastRadius(ctx context.Context, target Hash, snapshot Hash) (*BlastRadiusResult, error)
