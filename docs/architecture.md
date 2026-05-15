@@ -402,11 +402,30 @@ func Migrate(db *sql.DB) error {
 - Content-addressing requires determinism (same content = same hash, always)
 - Two developers indexing the same repos independently get the same graph
 
-## 9. Storage: SQLite
+## 9. Storage: SQLite Ledger + Pebble Acceleration Index
 
-**Decision:** Use SQLite as the persistent backing store.
+**Decision:** Use SQLite as the authoritative persistent store (the artifact, the ledger) and Pebble as an adjacency-list acceleration index for graph traversal. Ship on SQLite alone; add Pebble when traversal benchmarks justify it.
 
-**Why:**
+**The two-layer model:**
+
+```
+SQLite (the artifact / ledger)
+├── repos, files, nodes, edges, edge_events, snapshots, schema_version
+├── derived_results (computation cache)
+├── Portable: copy one file, the artifact moves with it
+├── Debuggable: sqlite3 graph.db "SELECT ..."
+├── Authoritative: this is the source of truth
+└── Sufficient for graphs up to ~1M edges
+
+Pebble (acceleration index, derived from SQLite)
+├── edges/from/<node_hash>/<edge_hash> → edge data
+├── edges/to/<node_hash>/<edge_hash> → edge data
+├── Optimized: neighbors are physically co-located (prefix scan, not B-tree join)
+├── Rebuildable: losing the Pebble directory triggers a one-time rebuild from SQLite
+└── Required when traversal latency on SQLite exceeds interactive thresholds
+```
+
+**Why SQLite as the ledger:**
 
 - Single file, zero configuration, embedded in the binary
 - Handles tens of millions of rows without issues
@@ -414,11 +433,93 @@ func Migrate(db *sql.DB) error {
 - Known quantity (commitmux already uses SQLite with similar patterns)
 - Queryable with standard SQL for debugging
 - Backup = copy one file
+- The artifact boundary (decision #15) requires the graph to be a portable, self-contained file; SQLite is that file
 
-**Why not:**
+**Why SQLite alone is not enough:**
 
-- Not a graph database: joins for multi-hop traversal can be slow. Mitigated by materializing common paths (e.g., transitive callers up to N hops) and caching hot queries by root hash.
-- Single writer: only one process can write at a time. Acceptable for a daemon model where one process owns the graph.
+SQLite stores edges in B-trees indexed by hash. Finding all callers of a symbol is an indexed lookup on `idx_edges_target`, which is fast for a single hop. But multi-hop traversal (blast radius, transitive callers) requires recursive CTEs where each hop is a separate B-tree join. At depth 5 with wide fan-out, this means five random-access lookups per path, multiplied by the branching factor at each hop.
+
+For graphs under ~1M edges, this is tens of milliseconds. For larger graphs, it becomes seconds. The computation cache (decision #12) handles repeat queries, but the first query for a hot symbol after a snapshot change is the one that hurts.
+
+**Why Pebble as the acceleration layer:**
+
+Pebble (CockroachDB's LSM storage engine) stores data in sorted key order. By encoding edges as `edges/to/<target_hash>/<edge_hash>`, all inbound edges to a symbol are physically contiguous on disk. Finding all callers is a single prefix scan, a sequential read instead of a random-access join. Each hop in a multi-hop traversal is a prefix scan, not a B-tree lookup.
+
+Why Pebble specifically:
+- Embedded, single-binary (like SQLite)
+- Designed for high read throughput and range scans
+- Native snapshots (LSM snapshots) align with knowing's snapshot model
+- Battle-tested at scale in CockroachDB
+- Go-native (no CGo required)
+
+**The relationship between the two:**
+
+SQLite is authoritative. Pebble is derived. Every edge write goes to SQLite first, then to Pebble. If Pebble is lost or corrupted, it is rebuilt from SQLite's `edges` table. The `GraphStore` interface routes queries: point lookups and event log queries go to SQLite; traversal queries (`TransitiveCallers`, `TransitiveCallees`, `BlastRadius`) go to Pebble.
+
+```go
+type HybridStore struct {
+    ledger  *SQLiteStore   // authoritative: all reads and writes
+    accel   *PebbleStore   // acceleration: traversal reads only
+}
+
+func (h *HybridStore) PutEdge(ctx context.Context, e Edge) error {
+    // Write to ledger (authoritative)
+    if err := h.ledger.PutEdge(ctx, e); err != nil {
+        return err
+    }
+    // Write to acceleration index (derived)
+    return h.accel.IndexEdge(ctx, e)
+}
+
+func (h *HybridStore) TransitiveCallers(ctx context.Context, target Hash, maxDepth int, snapshot Hash) ([]CallerResult, error) {
+    if h.accel != nil {
+        // Pebble prefix scan: sequential reads, physically co-located neighbors
+        return h.accel.TransitiveCallers(ctx, target, maxDepth, snapshot)
+    }
+    // Fallback: SQLite recursive CTE
+    return h.ledger.TransitiveCallers(ctx, target, maxDepth, snapshot)
+}
+```
+
+**Pebble key encoding:**
+
+```
+Inbound edges (callers):
+  edges/to/<target_hash>/<edge_hash> → {source_hash, edge_type, confidence, provenance}
+
+Outbound edges (callees):
+  edges/from/<source_hash>/<edge_hash> → {target_hash, edge_type, confidence, provenance}
+
+Snapshot-scoped edges (for point-in-time traversal):
+  snapedges/<snapshot_hash>/to/<target_hash>/<edge_hash> → edge data
+```
+
+The `snapedges/` prefix enables point-in-time traversal without filtering: scan `snapedges/<snapshot>/to/<target>/` to get all callers at that snapshot. Storage cost is proportional to `edges * snapshots_retained`, mitigated by snapshot GC.
+
+**When to add Pebble:**
+
+The trigger is benchmark results, not speculation. The criteria:
+
+| Metric | SQLite-only threshold | Action |
+|--------|----------------------|--------|
+| p95 blast radius latency at depth 3 | < 200ms | Stay on SQLite |
+| p95 blast radius latency at depth 3 | 200ms - 1s | Add computation cache materialization, re-measure |
+| p95 blast radius latency at depth 3 | > 1s after caching | Add Pebble acceleration index |
+| Total edge count | < 1M | SQLite is fine |
+| Total edge count | 1M - 10M | Benchmark, likely need Pebble |
+| Total edge count | > 10M | Pebble required |
+
+**What about libSQL?**
+
+libSQL (SQLite fork by Turso) adds built-in replication and is wire-compatible with SQLite. It doesn't improve traversal performance (same B-tree engine), but its replication protocol could simplify the federated graph workstream (decision #14 in the roadmap). Evaluate when federation becomes a priority; it's a drop-in replacement for SQLite that adds sync, not a different storage model.
+
+**Alternatives considered and rejected:**
+
+- **DuckDB**: columnar, optimized for analytical scans. Wrong query pattern; knowing's hot path is point lookups and graph walks, not aggregation.
+- **In-memory graph (gortex pattern)**: fast traversal but loses the artifact portability story. The graph must survive process crashes and be copyable as a file. In-memory stores require all-or-nothing serialization and lose data on crash.
+- **External graph databases (Neo4j, Dgraph)**: native graph traversal but kills single-binary deployment, adds operational complexity, and doesn't natively support content-addressed storage.
+- **BoltDB/bbolt**: B+ tree, single-writer. Same traversal characteristics as SQLite but without SQL for debugging and without WAL concurrent reads. Strictly worse for knowing's use case.
+- **SQLite virtual tables**: custom storage for the edges table behind a virtual table interface. Clever but high implementation cost (requires CGo), and the "single file" artifact story gets complicated.
 
 **Schema:**
 
@@ -1129,7 +1230,7 @@ If its value survives after the system stops (the last snapshot is still queryab
 | Causal ordering | Cross-repo ordering is correct | Moderate (can approximate with timestamps initially) |
 | Schema migrations | Upgrades don't destroy data | Yes (no migrations = delete and rebuild) |
 | Deterministic reindexing | Same input = same output, always | Yes (non-determinism poisons the hash tree) |
-| SQLite | Single-binary, embedded, proven | No (storage backend is swappable) |
+| SQLite ledger + Pebble acceleration | Artifact portability (SQLite) with fast traversal (Pebble) | No (Pebble is derived, added when benchmarks justify) |
 | Storage interface | Backend is swappable without changing callers | No (clean boundary, introduce anytime before beta) |
 | Computation cache | Every derived result is a content-addressed, shareable artifact | Moderate (result-as-artifact framing must be early; tiers are incremental) |
 | Runtime trace ingestion | Ground truth from production, not just static analysis | Moderate (symbol-to-route mappings needed during indexing) |
