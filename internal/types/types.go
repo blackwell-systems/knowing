@@ -96,8 +96,11 @@ type EdgeProvenance struct {
 }
 
 // ComputeNodeHash computes the content-addressed hash for a node.
-func ComputeNodeHash(repoURL, packagePath string, contentHash Hash, symbolName, symbolKind string) Hash {
-	data := fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%s", repoURL, packagePath, contentHash, symbolName, symbolKind)
+// The contentHash parameter is accepted for API compatibility but is
+// not included in the hash computation. Node identity depends on
+// (repo, package, name, kind) only.
+func ComputeNodeHash(repoURL, packagePath string, _ Hash, symbolName, symbolKind string) Hash {
+	data := fmt.Sprintf("%s\x00%s\x00%s\x00%s", repoURL, packagePath, symbolName, symbolKind)
 	return NewHash([]byte(data))
 }
 
