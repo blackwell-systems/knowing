@@ -670,3 +670,93 @@ Post-merge: cmd/knowing/main.go signature cascade (IndexFunc + EnrichFunc with c
 The system now has a working incremental change pipeline: git-based detection, cleanup, extraction, edge events, snapshots, and scoped enrichment. The Merkle DAG, event sourcing, and snapshot diffing are real, not just schema.
 
 Next: runtime trace ingestion (the moat).
+
+### Incremental pipeline verified (2026-05-15)
+
+Tested the full incremental pipeline on knowing's own repo:
+
+| Metric | First index | Re-index (no changes) |
+|--------|------------|----------------------|
+| Nodes | 255 | 255 (unchanged) |
+| Edges | 888 | 888 (unchanged) |
+| Edge events | 1,034 (all "added") | 0 new events |
+| Enrichment | 888 upgraded, 33 new | 0 processed |
+| Time | ~5s + 4s enrichment | 2.1s |
+
+The system correctly skips unchanged files, records zero new events when nothing changed, and the enrichment pass processes zero edges. The Merkle DAG and event log are functional.
+
+---
+
+## Documentation Sprint (2026-05-15)
+
+Three background agents ran in parallel to bring the documentation up to production quality:
+
+**Architecture doc enhancement (627s):**
+- Added "Concepts" section defining all primitives from first principles (content-addressed storage, Merkle DAG, knowledge graph vs tree, nodes/edges/hashes, event sourcing, staleness, artifact boundary)
+- Added "Concurrency Model" section (goroutine architecture, RWMutex coordination, channel communication, worker pool, SQLite WAL mode)
+- Added "Data Flow" section tracing a single commit end-to-end through all system components with timing table
+
+**FEATURES.md (386s):**
+- 928-line comprehensive feature dump for AI consumption
+- 21 implemented features with packages, entry points, limitations
+- 7 interfaces with all methods and implementors mapped
+- 11 MCP tools with functional status
+- 25+ planned but NOT IMPLEMENTED features explicitly marked
+- Storage schema, edge types, node kinds, configuration, metrics
+
+**Doc comments (945s):**
+- 677 lines of documentation added across 22 Go files
+- Package-level doc comments for all 12 packages
+- Exported type and function doc comments throughout
+- Inline "why" comments for hash computation, recursive CTEs, tree-sitter matching, cross-repo resolution, Merkle construction, LSP enrichment flow, worker pool pattern, git HEAD parsing
+
+---
+
+## knowing-viz Repo Created (2026-05-15)
+
+Separate repo: `github.com/blackwell-systems/knowing-viz`
+
+Static site for graph visualization. Cytoscape.js galaxy view with repo clusters, cross-repo edge arcs, provenance coloring, confidence-based opacity, interactive node selection. Dark theme. No backend.
+
+Stack: Vite + TypeScript + Cytoscape.js. Deployed to GitHub Pages (future).
+
+The viz reads a JSON export from knowing (`knowing export > graph.json`). No code shared between repos. Screenshots from viz go into knowing's `assets/` for the README.
+
+Branch protection ruleset mirroring knowing applied.
+
+---
+
+## Runtime Trace Ingestion Design (2026-05-15)
+
+Comprehensive design document created at `docs/runtime-traces.md` (480 lines). This is the feature that makes knowing unique: production observability data as first-class graph edges.
+
+**What the design covers:**
+
+1. Data sources (OTel spans, gRPC metadata, HTTP logs, message queue traces, DB query logs)
+2. Pipeline architecture (collector tap, normalization, symbol resolution, aggregation, edge creation)
+3. Symbol resolution (the hard part): route-to-symbol mapping table built during static indexing
+4. Confidence scoring: observation-based (0.95 for high traffic down to 0.2 for stale, GC at 90 days)
+5. Edge hash computation: same formula as static edges, observation updates don't change hash
+6. Observation storage: new columns (observation_count, last_observed) on edges table
+7. Write lock contention: separate write queue, batches via indexCh, 128-slot buffer, drop oldest on overflow
+8. Snapshot strategy: runtime edges don't trigger snapshots (commit-aligned only)
+9. Service name mapping: knowing.yaml (primary), config service_map (fallback), heuristic (last resort)
+10. Framework-specific route extraction: patterns for net/http, chi, gin, echo, gorilla/mux, gRPC, NATS/Kafka
+11. Collector disconnect handling: exponential backoff, 4 health states, circuit breaker
+12. Capacity estimates: deduplication reduces millions of spans to thousands of unique edges; pre-aggregation for >10M spans/hour
+13. Artifact boundary compliance: edge creation is execution plane, traffic analysis is intelligence plane
+14. Migration path: "no data" vs "confirmed dead" distinguished by service instrumentation status
+15. TraceIngestor interface with DecayConfidence method
+16. Daemon integration as continuous background goroutine
+17. MCP tool changes (existing + 3 new: runtime_traffic, dead_routes, migration_progress)
+
+**Design decisions made:**
+
+- OTel is the primary data source (industry standard, most orgs already have a collector)
+- No application code changes required (tap existing collector)
+- Runtime edges coexist with static edges in the same graph, same SQLite file, same pipeline
+- Confidence decays over time without re-observation (edges go stale structurally)
+- Uninstrumented services show "no data" not "dead" (critical UX distinction)
+- Pre-aggregation in the collector for high-volume environments (knowing doesn't process raw spans at scale)
+
+**Status:** Design locked. Implementation not started. Depends on incremental change handling (completed).
