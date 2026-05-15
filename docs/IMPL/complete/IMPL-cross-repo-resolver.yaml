@@ -1,3 +1,4 @@
+completion_date: "2026-05-15"
 title: Cross-Repo Edge Resolver
 feature_slug: cross-repo-resolver
 verdict: SUITABLE
@@ -779,6 +780,7 @@ waves:
             - A
             - B
             - C
+      base_commit: ea94b777014cb380f6319abc0e76966577aabc3a
 quality_gates:
     level: standard
     gates:
@@ -840,6 +842,20 @@ completion_reports:
             - TestExtractHashInputs
         verification: PASS
         notes: Resolver package complete with local Store interface. Uses mock store for tests since DanglingEdges/AllRepos/DeleteEdge are being added by another agent. Fixed qualified name parsing to use LastIndex for :// separator since repo URLs contain ://.
+    D:
+        status: complete
+        branch: polywave/cross-repo-resolver/wave2-agent-D
+        commit: 8c18ebd
+        files_changed:
+            - internal/indexer/goextractor/extractor.go
+            - internal/indexer/goextractor/extractor_test.go
+            - internal/indexer/indexer.go
+            - internal/indexer/indexer_test.go
+        tests_added:
+            - TestCrossRepoCallEdgeHash
+            - TestIndexRepoResolvesEdges
+        verification: PASS
+        notes: Fixed extractor to use correct repo URL for cross-repo targets via resolveTargetRepoURL/inferRepoURL helpers. Wired resolver into IndexRepo as best-effort. All tests pass including full suite.
 pre_mortem:
     overall_risk: medium
     rows:
@@ -913,5 +929,5 @@ critic_report:
     summary: 'Re-reviewed all 4 agents across 10 files after IMPL fix. The previous error (Agent D missing mock stub instructions for 4 new GraphStore methods) is resolved: the Constraints section now explicitly instructs Agent D to add DanglingEdges, AllRepos, NodesByQualifiedName, and DeleteEdge stubs to mockStore. Two advisory warnings remain: (1) Agent D brief describes inserting ResolveEdges before extractFile, but extractFile is defined before IndexRepo in indexer.go (spatial ordering is inverted, though intent is clear); (2) Agent D owns 4 of 10 files (40%), at the advisory rebalancing threshold. No errors found.'
     reviewed_at: "2026-05-15T15:41:52Z"
     issue_count: 2
-state: REVIEWED
+state: COMPLETE
 injection_method: hook
