@@ -1,3 +1,4 @@
+completion_date: "2026-05-15"
 title: 'End-to-End: Make knowing index work on a real Go repository'
 feature_slug: e2e-index
 verdict: SUITABLE
@@ -486,6 +487,7 @@ waves:
             - B
             - C
             - D
+      base_commit: 88ba8478c6bf455fd303320d68e5fbddf4439834
 quality_gates:
     level: standard
     gates:
@@ -498,6 +500,11 @@ quality_gates:
         - type: test
           command: GOWORK=off go test ./...
           required: true
+post_merge_checklist:
+    groups:
+        - title: Background Service Initialization
+          items:
+            - description: Verify if e2e_test.go needs initialization in Server constructor
 completion_reports:
     A:
         status: complete
@@ -559,6 +566,18 @@ completion_reports:
             - TestCmdIndex_SimpleGoModule
         verification: PASS
         notes: 'GitHeadCommit implemented and tested (8/8 daemon tests pass). cmd/knowing builds once Agent C creates knowingmcp.SetIndexFunc. Out-of-scope dep: knowingmcp.SetIndexFunc called at cmd/knowing/main.go:94.'
+    E:
+        status: complete
+        branch: polywave/e2e-index/wave2-agent-E
+        commit: a8fdb56
+        files_changed:
+            - e2e_test.go
+        files_created:
+            - e2e_test.go
+        tests_added:
+            - TestE2E_IndexAndQuery
+        verification: PASS
+        notes: 'E2E test passes all 9 assertions: snapshot counts, Hello node lookup, caller resolution (main calls Hello), blast radius >= 1, implements edge (EnglishGreeter -> Greeter), and deterministic re-index with same snapshot hash.'
 pre_mortem:
     overall_risk: medium
     rows:
@@ -627,5 +646,5 @@ critic_report:
     summary: 'All briefs verified against the codebase. All file_existence checks pass (modify files exist, new file e2e_test.go does not exist). Symbol accuracy verified: all function names, types, method names, and code anchors match the actual codebase. Pattern accuracy confirmed: code patterns described in briefs (ComputeNodeHash body, RecordEdgeEvent anchor, handleIndexRepo stub, handleOwnership EdgesFrom/contains pattern, indexWorker HEAD string, RLock anchor) all match exactly. Interface contracts are syntactically valid and reference existing types. The treesitter extractor (internal/indexer/treesitter/extractor.go) also calls ComputeNodeHash with opts.FileHash but is not in file_ownership; this is functionally safe because Agent A''s fix makes the contentHash parameter ignored, but the inconsistency is noted as a warning. No disjoint ownership violations. No complexity balance issues.'
     reviewed_at: "2026-05-15T09:57:02Z"
     issue_count: 1
-state: REVIEWED
+state: COMPLETE
 injection_method: hook
