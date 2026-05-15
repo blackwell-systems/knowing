@@ -514,6 +514,73 @@ func (s *SQLiteStore) FileByPath(ctx context.Context, repoHash types.Hash, path 
 	return &f, nil
 }
 
+// ----- Resolver query methods -----
+
+func (s *SQLiteStore) DanglingEdges(ctx context.Context) ([]types.Edge, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT e.edge_hash, e.source_hash, e.target_hash, e.edge_type, e.confidence, e.provenance
+		 FROM edges e
+		 LEFT JOIN nodes n ON n.node_hash = e.target_hash
+		 WHERE n.node_hash IS NULL`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanEdges(rows)
+}
+
+func (s *SQLiteStore) AllRepos(ctx context.Context) ([]types.Repo, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT repo_hash, repo_url, last_commit, last_indexed FROM repos ORDER BY repo_url`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var repos []types.Repo
+	for rows.Next() {
+		var r types.Repo
+		var hashBytes []byte
+		var lastCommit sql.NullString
+		var lastIndexed sql.NullInt64
+		if err := rows.Scan(&hashBytes, &r.RepoURL, &lastCommit, &lastIndexed); err != nil {
+			return nil, err
+		}
+		copy(r.RepoHash[:], hashBytes)
+		if lastCommit.Valid {
+			r.LastCommit = lastCommit.String
+		}
+		if lastIndexed.Valid {
+			r.LastIndexed = lastIndexed.Int64
+		}
+		repos = append(repos, r)
+	}
+	return repos, rows.Err()
+}
+
+func (s *SQLiteStore) NodesByQualifiedName(ctx context.Context, qualifiedName string) ([]types.Node, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT node_hash, file_hash, qualified_name, kind, line, signature
+		 FROM nodes WHERE qualified_name = ?`,
+		qualifiedName,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanNodes(rows)
+}
+
+func (s *SQLiteStore) DeleteEdge(ctx context.Context, hash types.Hash) error {
+	_, err := s.db.ExecContext(ctx,
+		`DELETE FROM edges WHERE edge_hash = ?`,
+		hash[:],
+	)
+	return err
+}
+
 // ----- Scanner helpers -----
 
 type scannable interface {
