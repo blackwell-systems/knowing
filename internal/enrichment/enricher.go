@@ -34,12 +34,23 @@ func NewEnricher(store types.GraphStore, workspaceRoot string) *Enricher {
 	}
 }
 
+// enrichStats tracks enrichment progress for summary logging.
+type enrichStats struct {
+	edgesProcessed int
+	edgesUpgraded  int
+	edgesSkipped   int
+	edgeErrors     int
+	newEdges       int
+	filesProcessed int
+	fileErrors     int
+}
+
 // Run starts gopls, iterates edges with provenance "ast_inferred", queries
 // hover/definition for each edge source, and upgrades resolved edges to
 // provenance "lsp_resolved" with confidence 0.9. After edge upgrade, it
 // discovers new implements and references edges. Shuts down gopls on
 // completion or context cancellation. Best-effort: individual failures are
-// logged but do not abort the run.
+// counted but do not abort the run.
 func (e *Enricher) Run(ctx context.Context, repoHash types.Hash) error {
 	// Start gopls.
 	client := lsp.NewLSPClient("gopls", []string{})
@@ -76,11 +87,18 @@ func (e *Enricher) Run(ctx context.Context, repoHash types.Hash) error {
 		return fmt.Errorf("enrichment: collect edges: %w", err)
 	}
 
+	stats := &enrichStats{}
+
 	// Upgrade ast_inferred edges via LSP.
-	e.upgradeEdges(ctx, astEdges, filePathByHash)
+	e.upgradeEdges(ctx, astEdges, filePathByHash, stats)
 
 	// Discover new edges via LSP.
-	e.discoverNewEdges(ctx, files, filePathByHash)
+	e.discoverNewEdges(ctx, files, filePathByHash, stats)
+
+	// Log summary instead of per-edge noise.
+	log.Printf("enrichment complete: %d edges processed, %d upgraded, %d skipped, %d errors, %d new edges discovered, %d files scanned, %d file errors",
+		stats.edgesProcessed, stats.edgesUpgraded, stats.edgesSkipped, stats.edgeErrors,
+		stats.newEdges, stats.filesProcessed, stats.fileErrors)
 
 	return nil
 }
@@ -107,8 +125,6 @@ func (e *Enricher) collectASTInferredEdges(
 	repoHash types.Hash,
 	filePathByHash map[types.Hash]string,
 ) ([]edgeWithSource, error) {
-	// Get all nodes for this repo by querying nodes whose FileHash is in our file set.
-	// Since there's no NodesByFileHash, use NodesByName with repo URL prefix.
 	repo, err := e.store.GetRepo(ctx, repoHash)
 	if err != nil {
 		return nil, fmt.Errorf("get repo: %w", err)
@@ -124,14 +140,12 @@ func (e *Enricher) collectASTInferredEdges(
 
 	var result []edgeWithSource
 	for _, node := range nodes {
-		// Only process nodes belonging to files in this repo.
 		if _, ok := filePathByHash[node.FileHash]; !ok {
 			continue
 		}
 
 		edges, err := e.store.EdgesFrom(ctx, node.NodeHash, "")
 		if err != nil {
-			log.Printf("enrichment: edges from %s: %v", node.QualifiedName, err)
 			continue
 		}
 
@@ -165,47 +179,48 @@ func (e *Enricher) upgradeEdges(
 	ctx context.Context,
 	edges []edgeWithSource,
 	filePathByHash map[types.Hash]string,
+	stats *enrichStats,
 ) {
 	for _, ews := range edges {
 		if ctx.Err() != nil {
 			return
 		}
 
+		stats.edgesProcessed++
+
 		filePath, ok := filePathByHash[ews.node.FileHash]
 		if !ok {
-			log.Printf("enrichment: no file path for node %s", ews.node.QualifiedName)
+			stats.edgeErrors++
 			continue
 		}
 
 		uri := "file://" + filepath.Join(e.workspaceRoot, filePath)
-		// Node.Line is 1-indexed; LSP Position.Line is 0-indexed.
 		pos := lsptypes.Position{
 			Line:      ews.node.Line - 1,
 			Character: 0,
 		}
 
-		// Try to resolve the definition.
 		locs, err := e.client.GetDefinition(ctx, uri, pos)
 		if err != nil {
-			log.Printf("enrichment: definition for %s: %v", ews.node.QualifiedName, err)
+			stats.edgeErrors++
 			continue
 		}
 		if len(locs) == 0 {
-			// Could not resolve; leave edge unchanged.
+			stats.edgesSkipped++
 			continue
 		}
 
-		// Definition resolved: delete old edge and insert upgraded edge.
 		if err := e.store.DeleteEdge(ctx, ews.edge.EdgeHash); err != nil {
-			log.Printf("enrichment: delete edge %s: %v", ews.edge.EdgeHash, err)
+			stats.edgeErrors++
 			continue
 		}
 
 		newEdge := upgradeEdge(ews.edge)
 		if err := e.store.PutEdge(ctx, newEdge); err != nil {
-			log.Printf("enrichment: put edge %s: %v", newEdge.EdgeHash, err)
+			stats.edgeErrors++
 			continue
 		}
+		stats.edgesUpgraded++
 	}
 }
 
@@ -215,6 +230,7 @@ func (e *Enricher) discoverNewEdges(
 	ctx context.Context,
 	files []types.File,
 	filePathByHash map[types.Hash]string,
+	stats *enrichStats,
 ) {
 	for _, f := range files {
 		if ctx.Err() != nil {
@@ -225,15 +241,16 @@ func (e *Enricher) discoverNewEdges(
 			continue
 		}
 
+		stats.filesProcessed++
 		uri := "file://" + filepath.Join(e.workspaceRoot, f.Path)
 
 		symbols, err := e.client.GetDocumentSymbols(ctx, uri)
 		if err != nil {
-			log.Printf("enrichment: document symbols for %s: %v", f.Path, err)
+			stats.fileErrors++
 			continue
 		}
 
-		e.processSymbols(ctx, uri, symbols, f, filePathByHash)
+		e.processSymbols(ctx, uri, symbols, f, filePathByHash, stats)
 	}
 }
 
@@ -261,6 +278,7 @@ func (e *Enricher) processSymbols(
 	symbols []lsptypes.DocumentSymbol,
 	file types.File,
 	filePathByHash map[types.Hash]string,
+	stats *enrichStats,
 ) {
 	for _, sym := range symbols {
 		if ctx.Err() != nil {
@@ -273,29 +291,22 @@ func (e *Enricher) processSymbols(
 			Character: sym.SelectionRange.Start.Character,
 		}
 
-		// For type/interface nodes, query implementations.
 		if kind == "type" || kind == "interface" {
 			impls, err := e.client.GetImplementation(ctx, uri, pos)
-			if err != nil {
-				log.Printf("enrichment: implementations for %s: %v", sym.Name, err)
-			} else {
-				e.insertEdgesFromLocations(ctx, uri, pos, impls, "implements", file)
+			if err == nil {
+				e.insertEdgesFromLocations(ctx, uri, pos, impls, "implements", file, stats)
 			}
 		}
 
-		// For function/method nodes, query references.
 		if kind == "function" || kind == "method" {
 			refs, err := e.client.GetReferences(ctx, uri, pos, false)
-			if err != nil {
-				log.Printf("enrichment: references for %s: %v", sym.Name, err)
-			} else {
-				e.insertEdgesFromLocations(ctx, uri, pos, refs, "references", file)
+			if err == nil {
+				e.insertEdgesFromLocations(ctx, uri, pos, refs, "references", file, stats)
 			}
 		}
 
-		// Recurse into children (e.g., methods inside a type).
 		if len(sym.Children) > 0 {
-			e.processSymbols(ctx, uri, sym.Children, file, filePathByHash)
+			e.processSymbols(ctx, uri, sym.Children, file, filePathByHash, stats)
 		}
 	}
 }
@@ -309,19 +320,17 @@ func (e *Enricher) insertEdgesFromLocations(
 	locations []lsptypes.Location,
 	edgeType string,
 	sourceFile types.File,
+	stats *enrichStats,
 ) {
 	for _, loc := range locations {
 		if ctx.Err() != nil {
 			return
 		}
 
-		// Skip self-references.
 		if loc.URI == sourceURI && loc.Range.Start.Line == sourcePos.Line {
 			continue
 		}
 
-		// Compute source and target hashes based on positions.
-		// We use a synthetic hash since we don't have the full node identity.
 		sourceData := fmt.Sprintf("%s:%d:%d", sourceURI, sourcePos.Line, sourcePos.Character)
 		sourceHash := types.NewHash([]byte(sourceData))
 
@@ -331,10 +340,8 @@ func (e *Enricher) insertEdgesFromLocations(
 		provenance := "lsp_resolved"
 		edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, edgeType, provenance)
 
-		// Check if edge already exists.
 		existing, err := e.store.GetEdge(ctx, edgeHash)
 		if err != nil {
-			log.Printf("enrichment: check edge: %v", err)
 			continue
 		}
 		if existing != nil {
@@ -351,8 +358,8 @@ func (e *Enricher) insertEdgesFromLocations(
 		}
 
 		if err := e.store.PutEdge(ctx, edge); err != nil {
-			log.Printf("enrichment: put new edge: %v", err)
 			continue
 		}
+		stats.newEdges++
 	}
 }

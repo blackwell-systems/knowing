@@ -175,7 +175,7 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 		if d.IsDir() {
 			// Skip hidden directories and vendor.
 			name := d.Name()
-			if name == ".git" || name == "vendor" || name == "node_modules" {
+			if name == ".git" || name == ".claude" || name == "vendor" || name == "node_modules" || name == "testdata" {
 				return filepath.SkipDir
 			}
 			return nil
