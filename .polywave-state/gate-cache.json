@@ -1,0 +1,40 @@
+{
+  "entries": {
+    "4011fde50ad37930a8cf56b6cdfc5267": {
+      "build": {
+        "gate_type": "build",
+        "command": "go build ./...",
+        "passed": false,
+        "exit_code": 1,
+        "stdout": "",
+        "stderr": "go: reading go.work: open ../../workspace/code/scout-and-wave-go/go.work: no such file or directory\n",
+        "from_cache": true,
+        "cached_at": "2026-05-15T00:33:31.765373-07:00"
+      }
+    },
+    "7a3271f045655472a403f1e0ea83d7de": {
+      "test": {
+        "gate_type": "test",
+        "command": "go test ./...",
+        "passed": false,
+        "exit_code": 1,
+        "stdout": "",
+        "stderr": "go: reading go.work: open ../../workspace/code/scout-and-wave-go/go.work: no such file or directory\n",
+        "from_cache": true,
+        "cached_at": "2026-05-15T00:33:31.874806-07:00"
+      }
+    },
+    "8ea1ed0caeb27c1b0953d20aa5d98278": {
+      "lint": {
+        "gate_type": "lint",
+        "command": "go vet ./...",
+        "passed": false,
+        "exit_code": 1,
+        "stdout": "",
+        "stderr": "go: reading go.work: open ../../workspace/code/scout-and-wave-go/go.work: no such file or directory\n",
+        "from_cache": true,
+        "cached_at": "2026-05-15T00:33:32.014872-07:00"
+      }
+    }
+  }
+}
