@@ -24,14 +24,14 @@ type MCPServer interface {
 // interfaces and callbacks to avoid tight coupling to concrete packages.
 type DaemonConfig struct {
 	Store     types.GraphStore
-	IndexFunc func(ctx context.Context, repoURL, repoPath, commitHash string) error
+	IndexFunc func(ctx context.Context, repoURL, repoPath, commitHash string, changedFiles []string) error
 	MCPAddr   string
 	MCPServer MCPServer
 
 	// EnrichFunc is called in the background after each successful index run.
 	// It receives the repo hash and workspace root path to run LSP enrichment.
 	// If nil, enrichment is skipped.
-	EnrichFunc func(ctx context.Context, repoHash types.Hash, workspaceRoot string) error
+	EnrichFunc func(ctx context.Context, repoHash types.Hash, workspaceRoot string, changedFiles []string) error
 }
 
 // Daemon is the long-lived process that watches repositories for changes,
@@ -40,7 +40,7 @@ type Daemon struct {
 	cfg DaemonConfig
 
 	mu      sync.RWMutex
-	watcher *FileWatcher
+	watcher *GitWatcher
 	repos   map[string]string // repoPath -> repoURL
 
 	cancel context.CancelFunc
@@ -50,8 +50,9 @@ type Daemon struct {
 }
 
 type indexRequest struct {
-	repoURL  string
-	repoPath string
+	repoURL      string
+	repoPath     string
+	changedFiles []string
 }
 
 // NewDaemon creates a Daemon with the given configuration. Call Start to
@@ -69,16 +70,16 @@ func NewDaemon(cfg DaemonConfig) *Daemon {
 func (d *Daemon) Start(ctx context.Context) error {
 	ctx, d.cancel = context.WithCancel(ctx)
 
-	fw, err := NewFileWatcher(500 * time.Millisecond)
+	gw, err := NewGitWatcher(500 * time.Millisecond)
 	if err != nil {
 		return fmt.Errorf("daemon: create watcher: %w", err)
 	}
-	d.watcher = fw
+	d.watcher = gw
 
 	// Re-add any repos that were registered before Start.
 	d.mu.RLock()
 	for rp := range d.repos {
-		_ = fw.Add(rp)
+		_ = gw.Add(rp)
 	}
 	d.mu.RUnlock()
 
@@ -212,7 +213,7 @@ func (d *Daemon) shutdown() error {
 	return nil
 }
 
-// watchLoop reads debounced file events and enqueues index requests.
+// watchLoop reads commit events from GitWatcher and enqueues index requests.
 func (d *Daemon) watchLoop(ctx context.Context) {
 	if d.watcher == nil {
 		return
@@ -231,8 +232,17 @@ func (d *Daemon) watchLoop(ctx context.Context) {
 			if repoURL == "" {
 				repoURL = ev.RepoPath
 			}
+			// Combine all changed paths for downstream consumers.
+			allChanged := make([]string, 0, len(ev.ChangedFiles)+len(ev.AddedFiles)+len(ev.DeletedFiles))
+			allChanged = append(allChanged, ev.ChangedFiles...)
+			allChanged = append(allChanged, ev.AddedFiles...)
+			allChanged = append(allChanged, ev.DeletedFiles...)
 			select {
-			case d.indexQueue <- indexRequest{repoURL: repoURL, repoPath: ev.RepoPath}:
+			case d.indexQueue <- indexRequest{
+				repoURL:      repoURL,
+				repoPath:     ev.RepoPath,
+				changedFiles: allChanged,
+			}:
 			default:
 				// Queue full; skip this event.
 			}
@@ -257,7 +267,7 @@ func (d *Daemon) indexWorker(ctx context.Context) {
 		}
 		// Acquire write lock during indexing so readers wait.
 		d.mu.Lock()
-		indexErr := d.cfg.IndexFunc(ctx, req.repoURL, req.repoPath, commit)
+		indexErr := d.cfg.IndexFunc(ctx, req.repoURL, req.repoPath, commit, req.changedFiles)
 		d.mu.Unlock()
 
 		// Trigger background enrichment after successful index.
@@ -266,7 +276,7 @@ func (d *Daemon) indexWorker(ctx context.Context) {
 			d.wg.Add(1)
 			go func() {
 				defer d.wg.Done()
-				_ = d.cfg.EnrichFunc(ctx, repoHash, req.repoPath)
+				_ = d.cfg.EnrichFunc(ctx, repoHash, req.repoPath, req.changedFiles)
 			}()
 		}
 	}
