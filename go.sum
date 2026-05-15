@@ -1,3 +1,5 @@
+github.com/blackwell-systems/agent-lsp v0.11.1 h1:PCz/Ae1PNy2csoqbGHctKyfoXUN0dXmAMfcvcvne1Is=
+github.com/blackwell-systems/agent-lsp v0.11.1/go.mod h1:Zdvy/1wP4wHxU6n/FFy/lgWmBF4wINItNcYdPEY1/mg=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/dlclark/regexp2 v1.11.0 h1:G/nrcoOa7ZXlpoa/91N3X7mM3r8eIlMBBJZvsz/mxKI=

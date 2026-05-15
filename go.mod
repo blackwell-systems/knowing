@@ -11,6 +11,7 @@ require (
 )
 
 require (
+	github.com/blackwell-systems/agent-lsp v0.11.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/jsonschema-go v0.4.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
