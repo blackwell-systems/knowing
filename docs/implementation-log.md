@@ -353,3 +353,19 @@ Incremental index (no changes): **1.7 seconds**
 ### Target
 
 Cold index under 30 seconds (33x improvement). Single `go/packages.Load("./...")` call, worker pool for extraction, package result distribution.
+
+### Scout
+
+Scout analyzed the current per-file `go/packages.Load` bottleneck. Designed a 4-agent, 2-wave plan:
+
+**Wave 1 (3 parallel agents):**
+- Agent A: `BulkLoad()` in `goextractor/loader.go` (single `packages.Load("./...")` call, returns map of file path to loaded package)
+- Agent B: Refactor `goextractor/extractor.go` with `ExtractWithPackage()` (accepts pre-loaded package, avoids per-file Load)
+- Agent C: Worker pool in `indexer/worker.go` (`parallelExtract()` with `runtime.NumCPU()` workers)
+
+**Wave 2 (1 agent):**
+- Agent D: Wire everything together in `IndexRepo` (BulkLoad -> build work items -> parallelExtract)
+
+### Waves
+
+*(in progress)*
