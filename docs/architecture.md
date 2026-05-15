@@ -8,7 +8,8 @@ knowing is a persistent daemon that builds and serves a content-addressed knowle
 
 ```
 knowing daemon (long-lived)
-  ├── Indexer (crawls repos, parses ASTs, resolves types, builds Merkle DAG)
+  ├── Change Detector (git-based: post-commit hooks, .git/HEAD watch, polling fallback)
+  ├── Indexer (two-tier: tree-sitter extraction + LSP enrichment)
   ├── Graph Store (SQLite behind GraphStore interface, WAL mode)
   ├── MCP Server (stdio or HTTP, serves agent queries)
   ├── Snapshot Manager (computes Merkle roots, GCs old snapshots)
@@ -179,6 +180,137 @@ LSP enrichment uses `github.com/blackwell-systems/agent-lsp/pkg/lsp`, a pure Go 
 - **Local repositories (deep)**: Full two-tier extraction. tree-sitter for declarations and calls, LSP enrichment for type resolution and edge discovery. Every symbol, call, import, implements, and reference relationship is extracted.
 - **External dependencies (shallow)**: Public API surface only, ingested via SCIP indices or LSP queries. Enough to connect cross-repo edges without parsing all transitive source.
 
+### Change Detection and Incremental Indexing
+
+Changes to the graph are driven by git commits, not filesystem events. A commit is the atomic unit of source code change: it has a hash, a parent, a diff, and it's permanent. Everything else (editor autosaves, build artifacts, IDE metadata) is noise that the change pipeline must not react to.
+
+**Core principle:** The snapshot chain mirrors the git commit chain. Every snapshot's `CommitHash` field points to the git commit that produced it. The graph at any commit is reconstructable by looking up its snapshot.
+
+**Change detection (prioritized):**
+
+```
+1. Post-commit hook (primary)
+   │  Daemon installs a git hook that sends (repoPath, oldHead, newHead)
+   │  via unix socket. Instant, precise, zero polling overhead.
+   │
+2. .git/HEAD watch (fallback)
+   │  fsnotify on .git/HEAD + .git/refs/heads/* (one file descriptor,
+   │  not thousands). On change: read new HEAD, compare to last known.
+   │  For environments where hooks can't be installed.
+   │
+3. Polling (last resort)
+      Every N seconds: git rev-parse HEAD, compare to stored value.
+      For NFS, SMB, or other environments where neither hooks nor
+      fsnotify work reliably.
+```
+
+**Change resolution:**
+
+When a new commit is detected, the daemon resolves the exact change set from git:
+
+```go
+oldHead := repo.LastCommit          // stored in repos table
+newHead := gitRevParseHead(repoPath)
+changed := gitDiffFiles(repoPath, oldHead, newHead)     // modified files
+deleted := gitDiffFilesDeleted(repoPath, oldHead, newHead) // removed files
+added   := gitDiffFilesAdded(repoPath, oldHead, newHead)   // new files
+```
+
+No directory walking. No content hashing. No false positives. The change set comes directly from git's own diff, which is authoritative.
+
+**Incremental index pipeline:**
+
+```
+Commit detected (oldHead → newHead)
+    │
+    ▼
+1. Resolve changed/deleted/added files via git diff
+    │
+    ▼
+2. For deleted files:
+   ├── Delete all nodes where file_hash matches
+   ├── Delete all edges where source node was in deleted file
+   └── Record "removed" edge events in append-only log
+    │
+    ▼
+3. For changed files:
+   ├── Delete old nodes/edges (same as deleted files)
+   ├── Re-extract via tree-sitter (Tier 1)
+   ├── Compute edge diff (new edges vs. old edges for this file)
+   └── Record "added" and "removed" edge events
+    │
+    ▼
+4. For added files:
+   ├── Extract via tree-sitter (Tier 1)
+   └── Record "added" edge events
+    │
+    ▼
+5. Compute new snapshot
+   ├── Merkle root of all current edges
+   ├── Link to parent snapshot (previous snapshot for this repo)
+   └── Store commit hash in snapshot record
+    │
+    ▼
+6. Scoped LSP enrichment (Tier 2)
+   ├── Only enrich edges from changed/added files
+   ├── Skip unchanged files entirely
+   └── gopls already has workspace context from previous runs
+    │
+    ▼
+7. Cross-repo edge resolution
+   └── Resolve any new dangling edges created by the changes
+```
+
+**Why git-based, not filesystem-based:**
+
+| Concern | Filesystem watching | Git-based detection |
+|---------|-------------------|-------------------|
+| False positives | Editor autosaves, build artifacts, IDE metadata, temp files | Zero. Only committed changes. |
+| File descriptor pressure | One FD per watched file (hits ulimit on repos with 10K+ files) | One FD for .git/HEAD, or zero with hooks/polling |
+| Branch switch floods | Hundreds of events, debouncing required, still re-walks everything | One event: oldHead != newHead. git diff gives exact file set. |
+| Deleted file detection | Unreliable (depends on OS event ordering) | `git diff --diff-filter=D` gives exact list |
+| Change granularity | "This file's mtime changed" (no context) | "These files changed between commit A and commit B" |
+| Snapshot-commit alignment | Snapshots taken at arbitrary times based on when events fire | Every snapshot corresponds to exactly one commit |
+| History reconstruction | "Something changed around timestamp T" | "Commit abc123 produced snapshot xyz789 with these edge changes" |
+| Determinism | Different event ordering on different OSes | Same git diff on any machine produces the same change set |
+
+**Uncommitted changes:**
+
+The graph indexes committed state only. Uncommitted changes are transient (may be undone, stashed, or abandoned), violate determinism (same repo at same "state" produces different graphs depending on working tree), and create noise in the snapshot chain. For users who need to index working tree state, `knowing index --working-tree` creates a temporary snapshot not linked to the main chain.
+
+**Multi-repo change coordination:**
+
+Each repo has its own change detector. A commit in repo A triggers indexing of repo A only. After the new snapshot is computed, the cross-repo resolver runs to reconnect any edges that reference symbols in other repos. Repo B's subgraph is untouched unless repo B also commits.
+
+**Edge events (append-only log):**
+
+Every incremental index records edge events: which edges were added and which were removed, keyed by the snapshot hash. This is the data that makes `SnapshotDiff` work: comparing two snapshots is a range scan on edge_events filtered by snapshot hash. Without edge events, the Merkle DAG has roots but no record of what changed between them.
+
+```
+edge_events table:
+  event_id      INTEGER PRIMARY KEY
+  edge_hash     BLOB NOT NULL        -- which edge
+  event_type    TEXT NOT NULL         -- "added" or "removed"
+  snapshot_hash BLOB NOT NULL        -- which snapshot recorded this event
+  source_commit TEXT NOT NULL         -- git commit that caused this change
+  indexer_ver   TEXT NOT NULL         -- indexer version
+  timestamp     INTEGER NOT NULL     -- unix timestamp
+```
+
+**GraphStore methods for incremental cleanup:**
+
+```go
+// Delete all nodes derived from a specific file.
+DeleteNodesByFile(ctx context.Context, fileHash Hash) error
+
+// Delete all edges whose source node belongs to a specific file.
+DeleteEdgesBySourceFile(ctx context.Context, fileHash Hash) error
+
+// Get all edges whose source node belongs to a specific file.
+// Used to compute the "removed" set before deletion.
+EdgesBySourceFile(ctx context.Context, fileHash Hash) ([]Edge, error)
+```
+
 ### Edge Types
 
 The graph connects symbols with typed, provenance-annotated edges:
@@ -196,7 +328,7 @@ The graph connects symbols with typed, provenance-annotated edges:
 
 - **Content-addressed**: every graph state is a hash; history, staleness, and integrity are structural properties, not bolted-on features
 - **Two-tier extraction**: tree-sitter for fast AST parsing (seconds), LSP enrichment for type-resolved confidence (seconds more); graph is queryable after Tier 1
-- **Incremental**: git push triggers re-index of changed files only; unchanged file hashes skip re-parse entirely
+- **Git-driven incremental**: commits are the unit of change; git diff provides the exact changed file set; no filesystem walking or content hashing for change detection
 - **Language-aware at boundaries**: Go calling Go is straightforward; Go calling a Python service via HTTP needs route mapping
 - **MCP-native**: exposed as MCP tools, consumed by agents directly
 - **Fast**: optimized for interactive agent queries over large multi-repo graphs
