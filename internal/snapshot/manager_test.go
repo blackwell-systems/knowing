@@ -128,7 +128,11 @@ func (m *mockGraphStore) FileByPath(_ context.Context, _ types.Hash, _ string) (
 	return nil, nil
 }
 
-func (m *mockGraphStore) Close() error { return nil }
+func (m *mockGraphStore) DanglingEdges(_ context.Context) ([]types.Edge, error)              { return nil, nil }
+func (m *mockGraphStore) AllRepos(_ context.Context) ([]types.Repo, error)                    { return nil, nil }
+func (m *mockGraphStore) NodesByQualifiedName(_ context.Context, _ string) ([]types.Node, error) { return nil, nil }
+func (m *mockGraphStore) DeleteEdge(_ context.Context, _ types.Hash) error                    { return nil }
+func (m *mockGraphStore) Close() error                                                        { return nil }
 
 // --- Merkle tests ---
 

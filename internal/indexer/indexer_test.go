@@ -131,7 +131,11 @@ func (s *mockStore) FileByPath(_ context.Context, _ types.Hash, path string) (*t
 	}
 	return &f, nil
 }
-func (s *mockStore) Close() error { return nil }
+func (s *mockStore) DanglingEdges(_ context.Context) ([]types.Edge, error)              { return nil, nil }
+func (s *mockStore) AllRepos(_ context.Context) ([]types.Repo, error)                    { return nil, nil }
+func (s *mockStore) NodesByQualifiedName(_ context.Context, _ string) ([]types.Node, error) { return nil, nil }
+func (s *mockStore) DeleteEdge(_ context.Context, _ types.Hash) error                    { return nil }
+func (s *mockStore) Close() error                                                        { return nil }
 
 // mockSnapshotComputer is a test double for SnapshotComputer.
 type mockSnapshotComputer struct {
