@@ -9,7 +9,9 @@ Everything else depends on this. Must be solid before other workstreams begin.
 | Item | Description | Depends on | Status |
 |------|-------------|------------|--------|
 | Content-addressed store | SQLite backend behind `GraphStore` interface, Merkle DAG, snapshot chain | -- | planned |
-| Go cross-repo call graph | `go/packages` type resolution, symbol identity scheme, cross-module edges | store | planned |
+| Extractor framework | Language-agnostic extractor interface: any extractor produces nodes + edges, graph doesn't care about source language | store | planned |
+| Go extractor | `go/packages` type resolution, symbol identity scheme, cross-module call edges | extractor framework | planned |
+| tree-sitter extractors | Python, TypeScript, Java, Rust (and any future language via tree-sitter grammars) | extractor framework | planned |
 | Go package/module graph | Module dependency edges, import graph | store | planned |
 | Traversal cache | L1 in-memory LRU, L2 materialized closures, L3 bounded traversal with early termination | store | planned |
 | MCP server | `cross_repo_callers`, `blast_radius`, `trace_dataflow`, `repo_graph`, `stale_edges`, `snapshot_diff`, `index_repo`, `graph_query` | store, call graph | planned |
@@ -28,7 +30,6 @@ Parallelizable. Each edge type is independent and can be implemented by a separa
 | Schema edges | OpenAPI specs, JSON Schema, proto-as-schema references | store | planned |
 | Infrastructure edges | Terraform service references, K8s manifest relationships, docker-compose links | store | planned |
 | Ownership edges | CODEOWNERS, team annotations, service catalog metadata | store | planned |
-| Multi-language support | tree-sitter parsers for Python, TypeScript, Java, Rust | store | planned |
 
 ## Workstream: Runtime Intelligence
 
@@ -87,7 +88,7 @@ Everything below Graph Core can run in parallel once the core is solid.
 When using agentic workflows (polywave or similar), the following can be implemented simultaneously:
 
 **After Graph Core is complete:**
-- All eight edge types (SCIP, proto, HTTP, events, schemas, infrastructure, ownership, multi-language)
+- All seven edge types (SCIP, proto, HTTP, events, schemas, infrastructure, ownership)
 - Semantic PR diff
 - Graph-native test selection
 - Pending mutations

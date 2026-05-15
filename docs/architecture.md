@@ -49,9 +49,23 @@ knowing daemon (long-lived)
 +-----------------+   +------------------+
 ```
 
+### Language Model
+
+The graph model is language-agnostic. Symbols, edges, hashes, provenance, and snapshots carry no language-specific semantics. A Go function, a Python class, and a TypeScript route handler all produce the same node and edge structures, identified by the same hash scheme, stored in the same graph. The extractor produces them; the graph doesn't care what language they came from.
+
+Language-specific knowledge lives entirely in the extractors:
+
+| Language | Extractor | What it provides |
+|----------|-----------|-----------------|
+| Go | `go/packages` | Full type resolution, cross-module call edges, interface satisfaction |
+| Python, TypeScript, Java, Rust, etc. | tree-sitter | AST-level symbol extraction, call edges, import tracking |
+| Any language with SCIP support | SCIP ingest | Pre-built index from external toolchain (scip-go, scip-java, scip-typescript, etc.) |
+
+Adding a new language means writing an extractor that produces nodes and edges. No changes to the graph store, snapshot chain, MCP server, cache, or any other component.
+
 ### Indexing Tiers
 
-- **Tier 1 (deep)**: local repositories. Full AST parsing with type resolution via `go/packages` and tree-sitter. Every symbol, call, import, and type relationship is extracted.
+- **Tier 1 (deep)**: local repositories. Full AST parsing with type resolution (`go/packages` for Go, tree-sitter for other languages). Every symbol, call, import, and type relationship is extracted.
 - **Tier 2 (shallow)**: external dependencies. Public API surface only, ingested via SCIP indices or LSP queries. Enough to connect cross-repo edges without parsing all transitive source.
 
 ### Edge Types

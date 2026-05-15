@@ -32,7 +32,7 @@ knowing builds a boundary-aware relationship graph across repositories, services
 
 It is a persistent daemon with three components:
 
-- **Indexer**: crawls repositories, parses ASTs with full type resolution, computes content hashes, resolves cross-repo symbol references, and builds the graph. Watches for git changes and re-indexes incrementally.
+- **Indexer**: crawls repositories in any language, parses ASTs with full type resolution (`go/packages` for Go, tree-sitter for everything else), computes content hashes, resolves cross-repo symbol references, and builds the graph. The graph model is language-agnostic; extractors produce nodes and edges, the graph doesn't care what language they came from. Watches for git changes and re-indexes incrementally.
 - **Graph store**: owns the content-addressed graph in SQLite. Manages the snapshot chain, runs garbage collection, and handles traversal queries with a multi-tier cache.
 - **MCP server**: exposes the graph to agents over stdio or HTTP.
 
@@ -82,8 +82,8 @@ Five parallel workstreams, not sequential phases. See [docs/roadmap.md](docs/roa
 
 | Workstream | Focus |
 |------------|-------|
-| **Graph Core** | Content-addressed store, Go cross-repo call graph, traversal cache, MCP server, daemon |
-| **Edge Types** | SCIP, protobuf/gRPC, HTTP routes, events, schemas, infrastructure, ownership, multi-language |
+| **Graph Core** | Content-addressed store, language-agnostic extractor framework, Go + tree-sitter extractors, traversal cache, MCP server, daemon |
+| **Edge Types** | SCIP, protobuf/gRPC, HTTP routes, events, schemas, infrastructure, ownership |
 | **Runtime Intelligence** | OpenTelemetry trace ingestion, runtime symbol resolution, confidence decay |
 | **Developer Visibility** | Semantic PR diff, graph-native test selection, ownership routing, staleness dashboard |
 | **Agent Coordination** | Pending mutations, temporal reasoning, federated graphs |
