@@ -435,6 +435,7 @@ waves:
             - internal/daemon/daemon_test.go
             - cmd/knowing/main.go
             - cmd/knowing/main_test.go
+      base_commit: 79de37e39da7a23ce26393e0844917502ae0b4f5
     - number: 2
       agents:
         - id: E
@@ -497,6 +498,67 @@ quality_gates:
         - type: test
           command: GOWORK=off go test ./...
           required: true
+completion_reports:
+    A:
+        status: complete
+        branch: polywave/e2e-index/wave1-agent-A
+        commit: "1510783"
+        files_changed:
+            - internal/types/types.go
+            - internal/store/sqlite.go
+            - internal/store/sqlite_test.go
+        tests_added:
+            - TestBatchPutNodes
+            - TestBatchPutEdges
+            - TestBatchPutFiles
+            - TestBatchPutNodes_EmptySlice
+        verification: PASS
+        notes: Fixed ComputeNodeHash to exclude contentHash from hash computation. Added BatchPutNodes, BatchPutEdges, BatchPutFiles with transaction support. All 18 tests passing.
+    B:
+        status: complete
+        branch: polywave/e2e-index/wave1-agent-B
+        commit: 834ad1c
+        files_changed:
+            - internal/indexer/goextractor/extractor.go
+            - internal/indexer/indexer.go
+            - internal/indexer/goextractor/extractor_test.go
+            - internal/indexer/indexer_test.go
+        tests_added:
+            - TestGoExtractor_Extract_CrossFunctionCallEdges
+            - TestIndexRepo_MultiFileModule
+        verification: PASS
+        notes: All ComputeNodeHash calls now use EmptyHash for consistent hashing. Indexer refactored with batchStore interface, extractFile method, corrected FileHash (sha256 of repoHash||path||contentHash), and fixed ContentHash bug. All 23 tests pass across indexer packages.
+    C:
+        status: complete
+        branch: polywave/e2e-index/wave1-agent-C
+        commit: 0db3dbc
+        files_changed:
+            - internal/mcp/handlers.go
+            - internal/mcp/handlers_test.go
+            - internal/snapshot/manager.go
+            - internal/snapshot/manager_test.go
+        tests_added:
+            - TestHandleIndexRepo_WithIndexFunc
+            - TestHandleIndexRepo_NoIndexFunc
+            - TestHandleOwnership_WithData
+            - TestComputeSnapshot_WithRealData
+        verification: PASS
+        notes: All 4 owned files updated. handleIndexRepo now uses package-level indexFunc. handleOwnership replaced EdgesFrom contains approach with GetRepo+NodesByName grouping. Snapshot manager has TODO about synthetic file nodes.
+    D:
+        status: complete
+        branch: polywave/e2e-index/wave1-agent-D
+        commit: 0a65847
+        files_changed:
+            - internal/daemon/daemon.go
+            - internal/daemon/daemon_test.go
+            - cmd/knowing/main.go
+            - cmd/knowing/main_test.go
+        tests_added:
+            - TestGitHeadCommit
+            - TestGitHeadCommit_NotGitRepo
+            - TestCmdIndex_SimpleGoModule
+        verification: PASS
+        notes: 'GitHeadCommit implemented and tested (8/8 daemon tests pass). cmd/knowing builds once Agent C creates knowingmcp.SetIndexFunc. Out-of-scope dep: knowingmcp.SetIndexFunc called at cmd/knowing/main.go:94.'
 pre_mortem:
     overall_risk: medium
     rows:
@@ -565,5 +627,5 @@ critic_report:
     summary: 'All briefs verified against the codebase. All file_existence checks pass (modify files exist, new file e2e_test.go does not exist). Symbol accuracy verified: all function names, types, method names, and code anchors match the actual codebase. Pattern accuracy confirmed: code patterns described in briefs (ComputeNodeHash body, RecordEdgeEvent anchor, handleIndexRepo stub, handleOwnership EdgesFrom/contains pattern, indexWorker HEAD string, RLock anchor) all match exactly. Interface contracts are syntactically valid and reference existing types. The treesitter extractor (internal/indexer/treesitter/extractor.go) also calls ComputeNodeHash with opts.FileHash but is not in file_ownership; this is functionally safe because Agent A''s fix makes the contentHash parameter ignored, but the inconsistency is noted as a warning. No disjoint ownership violations. No complexity balance issues.'
     reviewed_at: "2026-05-15T09:57:02Z"
     issue_count: 1
-state: "REVIEWED"
+state: REVIEWED
 injection_method: hook

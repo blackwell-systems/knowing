@@ -1,5 +1,17 @@
 {
   "entries": {
+    "06b1f7c4aa9d386f411fb6b34f903040": {
+      "build": {
+        "gate_type": "build",
+        "command": "GOWORK=off go build ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-15T02:57:29.665901-07:00"
+      }
+    },
     "15d477e3162421b78ed0c2f1be80f099": {
       "test": {
         "gate_type": "test",
@@ -10,6 +22,30 @@
         "stderr": "",
         "from_cache": true,
         "cached_at": "2026-05-15T02:27:28.561868-07:00"
+      }
+    },
+    "21a8c29029be504fced32959b5a455d3": {
+      "lint": {
+        "gate_type": "lint",
+        "command": "GOWORK=off go vet ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-15T02:57:30.050597-07:00"
+      }
+    },
+    "2602712dd31c530d8a35c9eaeec4911a": {
+      "build": {
+        "gate_type": "build",
+        "command": "GOWORK=off go build ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-15T03:02:03.226337-07:00"
       }
     },
     "2fea678609be0efb1caa539a6939e1dd": {
@@ -72,6 +108,30 @@
         "cached_at": "2026-05-15T02:29:49.65487-07:00"
       }
     },
+    "5816e6eb2f1b3f4e790093df0f7a6e97": {
+      "test": {
+        "gate_type": "test",
+        "command": "GOWORK=off go test ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "ok  \tgithub.com/blackwell-systems/knowing/cmd/knowing\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/daemon\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/goextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/treesitter\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/mcp\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/snapshot\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/store\t(cached)\n?   \tgithub.com/blackwell-systems/knowing/internal/types\t[no test files]\n",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-15T03:02:03.955184-07:00"
+      }
+    },
+    "5a96677b96077b386c49856d9756a24d": {
+      "test": {
+        "gate_type": "test",
+        "command": "GOWORK=off go test ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "ok  \tgithub.com/blackwell-systems/knowing/cmd/knowing\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/daemon\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/goextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/treesitter\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/mcp\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/snapshot\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/store\t(cached)\n?   \tgithub.com/blackwell-systems/knowing/internal/types\t[no test files]\n",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-15T02:57:30.415068-07:00"
+      }
+    },
     "5aa8a751041b9d1f282e4d14017a9de3": {
       "test": {
         "gate_type": "test",
@@ -82,6 +142,18 @@
         "stderr": "",
         "from_cache": true,
         "cached_at": "2026-05-15T00:33:39.929739-07:00"
+      }
+    },
+    "663ba507ccad7a6e863e7f34823e764b": {
+      "lint": {
+        "gate_type": "lint",
+        "command": "GOWORK=off go vet ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-15T03:02:03.601934-07:00"
       }
     },
     "7a3271f045655472a403f1e0ea83d7de": {
