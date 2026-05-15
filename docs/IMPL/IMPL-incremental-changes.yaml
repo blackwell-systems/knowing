@@ -762,6 +762,7 @@ waves:
             - internal/daemon/gitdiff.go
             - internal/daemon/gitwatcher_test.go
             - internal/daemon/gitdiff_test.go
+      base_commit: 61a10bab604cd2bfc3a6aa9f95249d73bec93498
     - number: 2
       agents:
         - id: D
@@ -1280,6 +1281,58 @@ post_merge_checklist:
             - description: Verify edge_events table is populated after re-indexing a changed file
             - description: Verify GitWatcher detects commits and passes changed files to IndexFunc
             - description: Verify enrichment is scoped to changed files only when changedFiles is non-nil
+        - title: Background Service Initialization
+          items:
+            - description: Verify if gitwatcher.go needs initialization in Server constructor
+            - description: Verify if gitwatcher_test.go needs initialization in Server constructor
+completion_reports:
+    A:
+        status: complete
+        branch: polywave/incremental-changes/wave1-agent-A
+        commit: 8b44a92
+        files_changed:
+            - internal/types/interfaces.go
+            - internal/store/sqlite.go
+            - internal/store/sqlite_test.go
+        tests_added:
+            - TestDeleteNodesByFile
+            - TestDeleteEdgesBySourceFile
+            - TestEdgesBySourceFile
+        verification: PASS
+        notes: All 3 interface methods added and implemented. All 3 new tests plus all existing store tests pass. Build and vet clean on owned packages. Other packages have mock stores that need updating by their respective agents.
+    B:
+        status: complete
+        branch: polywave/incremental-changes/wave1-agent-B
+        commit: 33c4ee2
+        files_changed:
+            - internal/indexer/indexer.go
+            - internal/indexer/indexer_test.go
+        tests_added:
+            - TestIndexRepo_CleanupOnChange
+            - TestIndexRepo_LastChangedFiles
+        verification: PASS
+        notes: Implemented cleanupStore interface, cleanup logic in IndexRepo, edge event recording, and LastChangedFiles accessor. All tests pass including full suite.
+    C:
+        status: complete
+        branch: polywave/incremental-changes/wave1-agent-C
+        commit: a0d7dfc
+        files_changed:
+            - internal/daemon/gitdiff.go
+            - internal/daemon/gitwatcher.go
+            - internal/daemon/gitdiff_test.go
+            - internal/daemon/gitwatcher_test.go
+        files_created:
+            - internal/daemon/gitdiff.go
+            - internal/daemon/gitwatcher.go
+            - internal/daemon/gitdiff_test.go
+            - internal/daemon/gitwatcher_test.go
+        tests_added:
+            - TestGitDiffFiles_ModifyAddDelete
+            - TestGitDiffFiles_EmptyOldCommit
+            - TestGitWatcher_DetectsCommit
+            - TestGitWatcher_CloseShutdown
+        verification: PASS
+        notes: All 4 files created. GitDiffFiles parses git diff --name-status output. GitWatcher uses fsnotify on .git/HEAD and .git/refs/heads/ with per-repo debounce. All 4 tests pass. Full repo build/vet/test clean.
 pre_mortem:
     overall_risk: medium
     rows:
