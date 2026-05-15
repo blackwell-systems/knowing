@@ -1,6 +1,6 @@
 # knowing
 
-Cross-repository knowledge graph for agentic development.
+Persistent knowledge graph for software systems, built for agents.
 
 Agents today are blind at repository boundaries.
 
@@ -13,7 +13,7 @@ None of them answer the question agents actually need before making a distribute
 
 > If I change this symbol, API, route, schema, or data shape, what breaks across the rest of the system?
 
-`knowing` builds a symbol-level and boundary-aware graph across repositories, then exposes that graph through MCP so agents can reason about blast radius before they edit code.
+`knowing` builds a boundary-aware relationship graph across repositories, services, and infrastructure, then exposes that graph through MCP so agents can reason about blast radius before they edit code.
 
 ## Status
 
@@ -25,18 +25,23 @@ Early development. Architecture being scoped.
 
 `knowing` treats repositories as parts of one larger semantic system.
 
-It indexes local repositories deeply, ingests external dependency surfaces shallowly, and connects them with cross-repository edges:
+It indexes local repositories deeply, ingests external dependency surfaces shallowly, and connects them with cross-boundary edges:
 
-- Package imports
-- Function and method calls
+- Package imports and function/method calls
 - Generated code references
 - Protobuf/gRPC relationships
 - HTTP route producers and consumers
 - Event producers and consumers
-- Shared schema usage
+- Shared schema usage (OpenAPI, JSON Schema, protobuf)
 - Configuration references
+- Infrastructure-defined service relationships (Terraform, K8s manifests, docker-compose)
+- Ownership metadata (CODEOWNERS, team annotations)
 
 The result is a graph that agents can query before making changes.
+
+### Edge Freshness
+
+Edges have confidence. When source code changes, `knowing` tracks which relationships may be stale. An edge derived from a function call that was deleted yesterday is not the same as one confirmed by today's index run. Agents receive freshness metadata with query results so they can decide whether to trust an edge or re-verify.
 
 ## What It Answers
 
@@ -46,6 +51,8 @@ The result is a graph that agents can query before making changes.
 - "This event payload field is being renamed. Which consumers depend on it?"
 - "This internal package moved. Which downstream repos need a corresponding PR?"
 - "What is the full data flow of this value across functions, services, queues, and repositories?"
+- "Which team owns the consumers of this API?"
+- "Which edges in the graph are stale after this week's changes?"
 
 ## Design Goals
 
@@ -54,6 +61,7 @@ The result is a graph that agents can query before making changes.
 - **Language-aware at boundaries**: Go calling Go is straightforward; Go calling a Python service via HTTP needs route mapping
 - **MCP-native**: exposed as MCP tools, consumed by agents directly
 - **Fast**: optimized for interactive agent queries over large multi-repo graphs
+- **Staleness-aware**: every edge carries freshness metadata; stale edges are surfaced, not silently trusted
 
 ## Architecture
 
@@ -70,12 +78,21 @@ The result is a graph that agents can query before making changes.
 |   tree-sitter)   |     |   surface only)  |               |
 +--------+---------+     +---------+--------+               |
          |                         |                        |
-         v                         v                        |
-+--------+-------------------------+--------+               |
-|              Symbol Graph                  | <-------------+
-|  (definitions, references, call sites,    |   MCP tools
-|   type relationships, cross-repo edges)   |
-+--------------------------------------------+
+         +------------+------------+                        |
+                      v                                     |
+         +------------+------------+     +------------------+
+         |       Symbol Graph      |     |  Non-Code Ingest |
+         |  (definitions, refs,    |<----| (Terraform, K8s, |
+         |   call sites, types,    |     |  CODEOWNERS,     |
+         |   cross-repo edges)     |     |  OpenAPI specs)  |
+         +------------+------------+     +------------------+
+                      |
+                      v
+         +------------+------------+
+         |    Freshness Tracker    |
+         |  (git events, CI hooks, |
+         |   confidence scoring)   |
+         +-------------------------+
 ```
 
 ## Planned MCP Tools
@@ -87,6 +104,7 @@ The result is a graph that agents can query before making changes.
 | `trace_dataflow` | Follow a value across function and service boundaries |
 | `repo_graph` | Repository and package-level dependency relationships |
 | `stale_edges` | Edges that may be invalid due to recent changes |
+| `ownership` | Who owns the code/service/consumers affected by a change |
 | `index_repo` | Add a repo to the graph |
 | `graph_query` | Raw graph query (Cypher or similar) |
 
@@ -100,11 +118,13 @@ Agents need relationship-aware answers, not grep results.
 
 ## Relationship to agent-lsp
 
-`agent-lsp` gives agents semantic awareness inside a workspace.
+`agent-lsp` gives agents live semantic awareness inside a workspace: diagnostics, rename execution, edit simulation, symbol navigation.
 
-`knowing` extends that idea across repository boundaries.
+`knowing` gives agents persistent system-level awareness across repositories: relationships, impact, ownership, staleness.
 
 Where `agent-lsp` answers "where is this symbol used in this repo?", `knowing` answers "where is this contract used across the system?"
+
+`knowing` does not do live edits, diagnostics, file overlays, or workspace-scoped language server orchestration. Those remain agent-lsp's domain. `knowing` may ingest facts that agent-lsp produces, but it does not replicate agent-lsp's capabilities.
 
 ## Roadmap
 
@@ -113,7 +133,8 @@ Where `agent-lsp` answers "where is this symbol used in this repo?", `knowing` a
 3. SCIP ingest for external dependencies
 4. Protobuf/gRPC edges
 5. HTTP route edges
-6. Event/schema/dataflow edges
+6. Infrastructure and ownership ingest (Terraform, K8s, CODEOWNERS)
+7. Event/schema/dataflow edges
 
 ## Tech Stack
 
