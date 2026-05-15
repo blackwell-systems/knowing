@@ -137,6 +137,14 @@ func (g *GoExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (*
 		})
 	}
 
+	// Extract implements edges: concrete types that satisfy interfaces.
+	implEdges := g.extractImplementsEdges(opts, pkgPath, pkg)
+	edges = append(edges, implEdges...)
+
+	// Extract references edges: non-call identifier usages.
+	refEdges := g.extractReferenceEdges(opts, pkgPath, targetFile, pkg)
+	edges = append(edges, refEdges...)
+
 	// Sort nodes deterministically.
 	sort.Slice(nodes, func(i, j int) bool {
 		if nodes[i].QualifiedName != nodes[j].QualifiedName {
@@ -310,6 +318,133 @@ func (g *GoExtractor) extractCallEdges(opts types.ExtractOptions, pkgPath string
 
 		return true
 	})
+
+	return edges
+}
+
+// extractImplementsEdges detects concrete types that satisfy interfaces
+// declared in the same package and emits "implements" edges.
+func (g *GoExtractor) extractImplementsEdges(opts types.ExtractOptions, pkgPath string, pkg *packages.Package) []types.Edge {
+	if pkg.TypesInfo == nil || pkg.Types == nil {
+		return nil
+	}
+
+	// Collect all named interfaces and concrete types declared in this package.
+	scope := pkg.Types.Scope()
+	var ifaces []*gotypes.Named
+	var concretes []*gotypes.Named
+
+	for _, name := range scope.Names() {
+		obj := scope.Lookup(name)
+		named, ok := obj.Type().(*gotypes.Named)
+		if !ok {
+			continue
+		}
+		if gotypes.IsInterface(named) {
+			ifaces = append(ifaces, named)
+		} else {
+			concretes = append(concretes, named)
+		}
+	}
+
+	var edges []types.Edge
+	for _, concrete := range concretes {
+		for _, iface := range ifaces {
+			ifaceType := iface.Underlying().(*gotypes.Interface)
+			// Check both T and *T.
+			if gotypes.Implements(concrete, ifaceType) || gotypes.Implements(gotypes.NewPointer(concrete), ifaceType) {
+				concreteHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, opts.FileHash, concrete.Obj().Name(), "type")
+				ifaceHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, opts.FileHash, iface.Obj().Name(), "interface")
+				provenance := "ast_resolved"
+				edgeHash := types.ComputeEdgeHash(concreteHash, ifaceHash, "implements", provenance)
+				edges = append(edges, types.Edge{
+					EdgeHash:   edgeHash,
+					SourceHash: concreteHash,
+					TargetHash: ifaceHash,
+					EdgeType:   "implements",
+					Confidence: 1.0,
+					Provenance: provenance,
+				})
+			}
+		}
+	}
+	return edges
+}
+
+// extractReferenceEdges emits "references" edges for non-call identifier usages
+// in the target file (e.g., reading a variable, referencing a type in a signature).
+func (g *GoExtractor) extractReferenceEdges(opts types.ExtractOptions, pkgPath string, file *ast.File, pkg *packages.Package) []types.Edge {
+	if pkg.TypesInfo == nil {
+		return nil
+	}
+
+	// Collect call-expression function identifiers so we can skip them.
+	callIdents := make(map[*ast.Ident]bool)
+	ast.Inspect(file, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		switch fn := call.Fun.(type) {
+		case *ast.Ident:
+			callIdents[fn] = true
+		case *ast.SelectorExpr:
+			callIdents[fn.Sel] = true
+		}
+		return true
+	})
+
+	seen := make(map[types.Hash]struct{})
+	var edges []types.Edge
+
+	for ident, obj := range pkg.TypesInfo.Uses {
+		if callIdents[ident] {
+			continue
+		}
+		// Skip package names and builtins.
+		if _, isPkg := obj.(*gotypes.PkgName); isPkg {
+			continue
+		}
+		if obj.Pkg() == nil {
+			continue // builtin
+		}
+
+		targetName := obj.Name()
+		targetKind := "var"
+		switch obj.(type) {
+		case *gotypes.Func:
+			targetKind = "function"
+		case *gotypes.TypeName:
+			targetKind = "type"
+		case *gotypes.Const:
+			targetKind = "const"
+		}
+
+		targetPkg := pkgPath
+		if obj.Pkg() != nil && obj.Pkg().Path() != pkg.PkgPath {
+			targetPkg = obj.Pkg().Path()
+		}
+
+		// Use a synthetic file-level source for reference edges.
+		fileNodeHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, opts.FileHash, filepath.Base(opts.FilePath), "file")
+		targetHash := types.ComputeNodeHash(opts.RepoURL, targetPkg, types.EmptyHash, targetName, targetKind)
+		provenance := "ast_resolved"
+		edgeHash := types.ComputeEdgeHash(fileNodeHash, targetHash, "references", provenance)
+
+		if _, exists := seen[edgeHash]; exists {
+			continue
+		}
+		seen[edgeHash] = struct{}{}
+
+		edges = append(edges, types.Edge{
+			EdgeHash:   edgeHash,
+			SourceHash: fileNodeHash,
+			TargetHash: targetHash,
+			EdgeType:   "references",
+			Confidence: 1.0,
+			Provenance: provenance,
+		})
+	}
 
 	return edges
 }
