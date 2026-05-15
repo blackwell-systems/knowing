@@ -1,0 +1,1032 @@
+title: 'knowing Bootstrap: Content-Addressed Knowledge Graph Daemon'
+feature_slug: bootstrap
+verdict: SUITABLE
+suitability_assessment: |
+    Suitability gate (5 questions):
+
+    1. File decomposition: 6 concerns (types, store, snapshot, indexer, mcp, daemon)
+       map to 6+ packages with fully disjoint file ownership. The architecture doc
+       specifies clear package boundaries. No file is shared across agents.
+
+    2. Investigation-first items: None. All 15 architecture decisions are made and
+       binding. Interfaces are drafted. Schema is specified. No unknowns requiring
+       root-cause analysis.
+
+    3. Interface discoverability: GraphStore, Extractor, ComputationCache interfaces
+       are fully drafted in architecture.md with exact method signatures. Symbol
+       identity scheme, hash computation formulas, and domain types are specified.
+
+    4. Pre-implementation status: Greenfield project. No existing code. All items
+       are TODO.
+
+    5. Parallelization value: High. Go build/test cycles are substantial (go/packages
+       resolution, SQLite compilation, tree-sitter bindings). 6 agents in wave 1 with
+       2-5 files each. All agents are independent (single wave for implementation),
+       maximizing parallelization benefit.
+
+    Estimated times:
+    - Scout phase: ~10 min (architecture already designed; contracts need transcription)
+    - Agent execution: ~15 min (6 wave-1 agents x 10 min avg, parallel)
+    - Wave 2 wiring: ~5 min (1 agent)
+    - Merge and verification: ~5 min
+    Total Polywave time: ~35 min
+
+    Sequential baseline: ~70 min (7 agents x 10 min avg)
+    Time savings: ~35 min (50% faster)
+
+    Recommendation: Clear speedup. 6-way parallelism in wave 1 with substantial
+    per-agent work (SQLite backend, Go extractor with go/packages, tree-sitter
+    bindings, MCP server, daemon with file watching).
+test_command: go test ./...
+lint_command: go vet ./...
+file_ownership:
+    - file: internal/store/sqlite.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/store/sqlite_test.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/store/migrate.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/store/migrations/001_initial_schema.sql
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/snapshot/manager.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/snapshot/merkle.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/snapshot/manager_test.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/indexer/indexer.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/indexer/extractor.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/indexer/indexer_test.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/indexer/goextractor/extractor.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/indexer/goextractor/extractor_test.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/indexer/treesitter/extractor.go
+      agent: D
+      wave: 1
+      action: new
+    - file: internal/indexer/treesitter/extractor_test.go
+      agent: D
+      wave: 1
+      action: new
+    - file: internal/mcp/server.go
+      agent: E
+      wave: 1
+      action: new
+    - file: internal/mcp/handlers.go
+      agent: E
+      wave: 1
+      action: new
+    - file: internal/mcp/handlers_test.go
+      agent: E
+      wave: 1
+      action: new
+    - file: internal/daemon/daemon.go
+      agent: F
+      wave: 1
+      action: new
+    - file: internal/daemon/watcher.go
+      agent: F
+      wave: 1
+      action: new
+    - file: internal/daemon/daemon_test.go
+      agent: F
+      wave: 1
+      action: new
+    - file: cmd/knowing/main.go
+      agent: G
+      wave: 2
+      action: new
+    - file: cmd/knowing/main_test.go
+      agent: G
+      wave: 2
+      action: new
+interface_contracts:
+    - name: GraphStore
+      description: |
+        Abstract interface for all graph read/write operations. SQLite is the
+        first implementation. No SQL outside the SQLite backend.
+      definition: |
+        type GraphStore interface {
+            PutNode(ctx context.Context, n Node) error
+            PutEdge(ctx context.Context, e Edge) error
+            PutFile(ctx context.Context, f File) error
+            PutRepo(ctx context.Context, r Repo) error
+            RecordEdgeEvent(ctx context.Context, ev EdgeEvent) error
+            CreateSnapshot(ctx context.Context, s Snapshot) error
+            GetNode(ctx context.Context, hash Hash) (*Node, error)
+            GetEdge(ctx context.Context, hash Hash) (*Edge, error)
+            GetSnapshot(ctx context.Context, hash Hash) (*Snapshot, error)
+            GetRepo(ctx context.Context, hash Hash) (*Repo, error)
+            NodesByName(ctx context.Context, qualifiedPrefix string) ([]Node, error)
+            EdgesFrom(ctx context.Context, sourceHash Hash, edgeType string) ([]Edge, error)
+            EdgesTo(ctx context.Context, targetHash Hash, edgeType string) ([]Edge, error)
+            TransitiveCallers(ctx context.Context, target Hash, maxDepth int, snapshot Hash) ([]CallerResult, error)
+            TransitiveCallees(ctx context.Context, source Hash, maxDepth int, snapshot Hash) ([]CalleeResult, error)
+            BlastRadius(ctx context.Context, target Hash, snapshot Hash) (*BlastRadiusResult, error)
+            SnapshotDiff(ctx context.Context, oldRoot, newRoot Hash) (*DiffResult, error)
+            StaleEdges(ctx context.Context, snapshot Hash) ([]Edge, error)
+            LatestSnapshot(ctx context.Context, repoHash Hash) (*Snapshot, error)
+            FilesByRepo(ctx context.Context, repoHash Hash) ([]File, error)
+            FileByPath(ctx context.Context, repoHash Hash, path string) (*File, error)
+            Close() error
+        }
+      location: internal/types/interfaces.go
+    - name: Extractor
+      description: Language-agnostic extractor interface.
+      definition: |
+        type Extractor interface {
+            Name() string
+            CanHandle(path string) bool
+            Extract(ctx context.Context, opts ExtractOptions) (*ExtractResult, error)
+        }
+      location: internal/types/interfaces.go
+    - name: Hash
+      description: Content-addressed identifier type (SHA-256).
+      definition: |
+        type Hash [32]byte
+        func NewHash(data []byte) Hash
+        func ComputeNodeHash(repoURL, packagePath string, contentHash Hash, symbolName, symbolKind string) Hash
+        func ComputeEdgeHash(sourceHash, targetHash Hash, edgeType, provenanceJSON string) Hash
+      location: internal/types/types.go
+    - name: SQLiteStore
+      description: SQLite-backed GraphStore implementation with WAL mode and embedded migrations.
+      definition: |
+        type SQLiteStore struct { ... }
+        func NewSQLiteStore(dbPath string) (*SQLiteStore, error)
+      location: internal/store/sqlite.go
+    - name: SnapshotManager
+      description: Manages Merkle root computation, snapshot chain, diff, and GC.
+      definition: |
+        type SnapshotManager struct { ... }
+        func NewSnapshotManager(store types.GraphStore) *SnapshotManager
+        func (sm *SnapshotManager) ComputeSnapshot(ctx context.Context, repoHash types.Hash, commitHash string) (*types.Snapshot, error)
+        func (sm *SnapshotManager) Diff(ctx context.Context, oldHash, newHash types.Hash) (*types.DiffResult, error)
+        func (sm *SnapshotManager) GarbageCollect(ctx context.Context, repoHash types.Hash, keepCount int) (removed int, err error)
+      location: internal/snapshot/manager.go
+    - name: Indexer
+      description: Orchestrates extractors to index a repository.
+      definition: |
+        type Indexer struct { ... }
+        func NewIndexer(store types.GraphStore, snapshot SnapshotComputer) *Indexer
+        func (idx *Indexer) Register(ext types.Extractor)
+        func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash string) (*types.Snapshot, error)
+        func (idx *Indexer) IndexFile(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error)
+      location: internal/indexer/indexer.go
+    - name: GoExtractor
+      description: Go extractor using go/packages for full type resolution.
+      definition: |
+        type GoExtractor struct { ... }
+        func NewGoExtractor() *GoExtractor
+      location: internal/indexer/goextractor/extractor.go
+    - name: TreeSitterExtractor
+      description: Multi-language extractor using tree-sitter for AST parsing.
+      definition: |
+        type TreeSitterExtractor struct { ... }
+        func NewTreeSitterExtractor(language string) (*TreeSitterExtractor, error)
+      location: internal/indexer/treesitter/extractor.go
+    - name: MCPServer
+      description: MCP server exposing graph queries as tools over stdio and HTTP.
+      definition: |
+        type Server struct { ... }
+        func NewServer(store types.GraphStore) *Server
+        func (s *Server) ServeStdio(ctx context.Context) error
+        func (s *Server) ServeHTTP(ctx context.Context, addr string) error
+      location: internal/mcp/server.go
+    - name: Daemon
+      description: Long-lived daemon with file watching and reindex coordination.
+      definition: |
+        type Daemon struct { ... }
+        func NewDaemon(cfg DaemonConfig) *Daemon
+        func (d *Daemon) Start(ctx context.Context) error
+        func (d *Daemon) Stop() error
+        func (d *Daemon) WatchRepo(repoPath string) error
+      location: internal/daemon/daemon.go
+waves:
+    - number: 1
+      agents:
+        - id: A
+          task: |
+            ## What to Implement
+
+            SQLite-backed GraphStore implementation in `internal/store/`. This is the
+            authoritative persistent store for the content-addressed knowledge graph.
+            Uses WAL mode for concurrent read/write. All SQL is contained within this
+            package; no other package touches SQL directly.
+
+            ### Files to Create
+
+            1. `internal/store/sqlite.go` - SQLiteStore struct implementing types.GraphStore
+            2. `internal/store/sqlite_test.go` - Comprehensive tests
+            3. `internal/store/migrate.go` - Migration runner using go:embed
+            4. `internal/store/migrations/001_initial_schema.sql` - Initial schema
+
+            ### Implementation Details
+
+            **SQLiteStore** must implement every method of `types.GraphStore` from
+            `internal/types/interfaces.go`. Use `modernc.org/sqlite` (CGo-free SQLite).
+
+            **Database initialization:**
+            - Open with `database/sql` using driver `"sqlite"` from `modernc.org/sqlite`
+            - Enable WAL mode: `PRAGMA journal_mode=WAL`
+            - Run migrations on open via `Migrate()` function
+            - Use prepared statements for all queries
+
+            **Schema** (from architecture.md decision #9) - put this in
+            `internal/store/migrations/001_initial_schema.sql`:
+
+            ```sql
+            CREATE TABLE repos (
+                repo_hash   BLOB PRIMARY KEY,
+                repo_url    TEXT NOT NULL,
+                last_commit TEXT,
+                last_indexed INTEGER
+            );
+            CREATE TABLE files (
+                file_hash    BLOB PRIMARY KEY,
+                repo_hash    BLOB NOT NULL REFERENCES repos(repo_hash),
+                path         TEXT NOT NULL,
+                content_hash BLOB NOT NULL
+            );
+            CREATE TABLE nodes (
+                node_hash      BLOB PRIMARY KEY,
+                file_hash      BLOB NOT NULL REFERENCES files(file_hash),
+                qualified_name TEXT NOT NULL,
+                kind           TEXT NOT NULL,
+                line           INTEGER,
+                signature      TEXT
+            );
+            CREATE TABLE edges (
+                edge_hash    BLOB PRIMARY KEY,
+                source_hash  BLOB NOT NULL REFERENCES nodes(node_hash),
+                target_hash  BLOB NOT NULL REFERENCES nodes(node_hash),
+                edge_type    TEXT NOT NULL,
+                confidence   REAL NOT NULL DEFAULT 1.0,
+                provenance   TEXT NOT NULL DEFAULT 'ast_resolved'
+            );
+            CREATE TABLE edge_events (
+                event_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+                edge_hash     BLOB NOT NULL,
+                event_type    TEXT NOT NULL,
+                snapshot_hash BLOB NOT NULL,
+                source_commit TEXT NOT NULL,
+                indexer_ver   TEXT NOT NULL,
+                timestamp     INTEGER NOT NULL
+            );
+            CREATE TABLE snapshots (
+                snapshot_hash BLOB PRIMARY KEY,
+                parent_hash   BLOB REFERENCES snapshots(snapshot_hash),
+                repo_hash     BLOB NOT NULL REFERENCES repos(repo_hash),
+                commit_hash   TEXT NOT NULL,
+                timestamp     INTEGER NOT NULL,
+                node_count    INTEGER NOT NULL,
+                edge_count    INTEGER NOT NULL
+            );
+            CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
+            CREATE INDEX idx_nodes_qualified ON nodes(qualified_name);
+            CREATE INDEX idx_nodes_file ON nodes(file_hash);
+            CREATE INDEX idx_edges_source ON edges(source_hash);
+            CREATE INDEX idx_edges_target ON edges(target_hash);
+            CREATE INDEX idx_edges_type ON edges(edge_type);
+            CREATE INDEX idx_edge_events_snapshot ON edge_events(snapshot_hash);
+            CREATE INDEX idx_files_repo ON files(repo_hash);
+            ```
+
+            **Migration runner** (`migrate.go`):
+            - Use `//go:embed migrations/*.sql` to embed SQL files
+            - Read current version from `schema_version` table (handle table not existing)
+            - Apply all migrations > current version in order
+            - Update `schema_version` after each migration
+            - Wrap each migration in a transaction
+
+            **TransitiveCallers / TransitiveCallees**: Use recursive CTEs. Respect maxDepth.
+            **BlastRadius**: Call TransitiveCallers with max depth 5, group by repo URL.
+            **SnapshotDiff**: Compare edges via edge_events table between two snapshots.
+            **StaleEdges**: Find edges whose source node's file content_hash differs from current.
+
+            ## Interfaces to Implement
+            - `types.GraphStore` (all methods)
+
+            ## Interfaces to Call
+            - All types from `internal/types/`
+
+            ## Tests to Write
+            1. TestNewSQLiteStore_CreatesDatabase
+            2. TestPutNode_GetNode_RoundTrip
+            3. TestPutEdge_GetEdge_RoundTrip
+            4. TestEdgesFrom_FiltersByType
+            5. TestEdgesTo_FiltersByType
+            6. TestTransitiveCallers_DepthLimit
+            7. TestBlastRadius_GroupsByRepo
+            8. TestCreateSnapshot_ChainLinks
+            9. TestSnapshotDiff_DetectsChanges
+            10. TestMigrate_AppliesInOrder
+            11. TestStaleEdges_FindsMismatches
+            12. TestNodesByName_PrefixMatch
+
+            ## Verification Gate
+            ```bash
+            cd internal/store && go build ./... && go test ./... && go vet ./...
+            ```
+
+            Postconditions:
+            - `grep -c "func (s \*SQLiteStore)" internal/store/sqlite.go` >= 20
+            - `grep -c "func Test" internal/store/sqlite_test.go` >= 10
+            - `grep -q "go:embed" internal/store/migrate.go` succeeds
+
+            ## Constraints
+            - Do NOT modify files outside `internal/store/`.
+            - Do NOT use CGo. Use `modernc.org/sqlite` (pure Go).
+            - All Hash values stored as BLOB (raw bytes), not hex strings.
+            - Use upsert (INSERT OR REPLACE) for Put methods.
+          files:
+            - internal/store/sqlite.go
+            - internal/store/sqlite_test.go
+            - internal/store/migrate.go
+            - internal/store/migrations/001_initial_schema.sql
+        - id: B
+          task: |
+            ## What to Implement
+
+            Snapshot manager in `internal/snapshot/`. Merkle root computation,
+            snapshot chain management, diff, and garbage collection.
+
+            ### Files to Create
+            1. `internal/snapshot/manager.go` - SnapshotManager struct
+            2. `internal/snapshot/merkle.go` - Merkle tree construction and diff
+            3. `internal/snapshot/manager_test.go` - Tests
+
+            ### Implementation Details
+
+            **SnapshotManager** takes `types.GraphStore` to read edges for Merkle computation.
+
+            **Merkle root** (decision #1): `snapshot_hash = merkle_root(sorted(all_edge_hashes))`
+            - Collect all edge hashes for a repo, sort lexicographically
+            - Build binary Merkle tree, root hash = snapshot hash
+
+            **MerkleTree struct**: Build from sorted Hash slice. Support diff between trees.
+
+            **ComputeSnapshot**: Get edges from GraphStore, sort, compute Merkle root,
+            get latest snapshot for parent, count nodes/edges, store via CreateSnapshot.
+
+            **GarbageCollect**: Remove old snapshots keeping N most recent, preserving chain.
+
+            ## Interfaces to Call
+            - `types.GraphStore` (EdgesFrom, EdgesTo, CreateSnapshot, LatestSnapshot, etc.)
+
+            ## Tests to Write
+            1. TestMerkleRoot_Deterministic
+            2. TestMerkleRoot_EmptyEdges
+            3. TestMerkleDiff_IdentifiesChanges
+            4. TestComputeSnapshot_CreatesChain
+            5. TestComputeSnapshot_Deterministic
+            6. TestGarbageCollect_KeepsRecent
+            7. TestGarbageCollect_PreservesChainIntegrity
+
+            ## Verification Gate
+            ```bash
+            cd internal/snapshot && go build ./... && go test ./... && go vet ./...
+            ```
+
+            Postconditions:
+            - `grep -c "func (sm \*SnapshotManager)" internal/snapshot/manager.go` >= 3
+            - `grep -q "MerkleTree" internal/snapshot/merkle.go` succeeds
+            - `grep -c "func Test" internal/snapshot/manager_test.go` >= 5
+
+            ## Constraints
+            - Do NOT modify files outside `internal/snapshot/`.
+            - Do NOT access SQL directly. Use only `types.GraphStore`.
+            - Sorting: use `bytes.Compare`, never map iteration order.
+            - No timestamps in hash inputs. No randomness.
+          files:
+            - internal/snapshot/manager.go
+            - internal/snapshot/merkle.go
+            - internal/snapshot/manager_test.go
+        - id: C
+          task: |
+            ## What to Implement
+
+            Indexer framework and Go extractor in `internal/indexer/`.
+
+            ### Files to Create
+            1. `internal/indexer/indexer.go` - Indexer struct
+            2. `internal/indexer/extractor.go` - ExtractorRegistry
+            3. `internal/indexer/indexer_test.go` - Framework tests
+            4. `internal/indexer/goextractor/extractor.go` - Go extractor
+            5. `internal/indexer/goextractor/extractor_test.go` - Go extractor tests
+
+            ### Implementation Details
+
+            **ExtractorRegistry**: Maintains registered `types.Extractor` list.
+            `Register()` adds, `FindExtractor(path)` returns first match.
+
+            **Indexer**: Holds `types.GraphStore` and local `SnapshotComputer` interface:
+            ```go
+            type SnapshotComputer interface {
+                ComputeSnapshot(ctx context.Context, repoHash types.Hash, commitHash string) (*types.Snapshot, error)
+            }
+            ```
+
+            **IndexRepo**: Compute repo hash, store repo, walk directory, hash files,
+            compare with stored hashes, extract changed files, store results, record events.
+
+            **GoExtractor** (`goextractor/`): Uses `golang.org/x/tools/go/packages`.
+            - `Name()` returns `"go"`, `CanHandle()` matches `.go` (not `_test.go`, not vendor)
+            - Creates Node for each function/type/method/interface/const/var
+            - Creates Edge for calls/imports/implements/references
+            - Qualified name: `{repo}://{module_path}/{package_path}.{TypeName}.{MemberName}`
+            - Provenance: `"ast_resolved"`, confidence: `1.0`
+
+            **Determinism** (decision #8): Sort all output. No map iteration. No timestamps in hashes.
+
+            ## Tests to Write
+            1. TestExtractorRegistry_Register_FindsExtractor
+            2. TestExtractorRegistry_NoMatch_ReturnsNil
+            3. TestGoExtractor_CanHandle_GoFiles
+            4. TestGoExtractor_Extract_ProducesNodes
+            5. TestGoExtractor_Extract_ProducesCallEdges
+            6. TestGoExtractor_Extract_QualifiedName
+            7. TestGoExtractor_Extract_Deterministic
+            8. TestIndexer_IndexFile_StoresResults
+            9. TestIndexer_IndexRepo_SkipsUnchanged
+
+            ## Verification Gate
+            ```bash
+            cd internal/indexer && go build ./... && go test ./... && go vet ./...
+            ```
+
+            Postconditions:
+            - `grep -q "func (g \*GoExtractor) Extract" internal/indexer/goextractor/extractor.go`
+            - `grep -q "ExtractorRegistry" internal/indexer/extractor.go`
+            - `grep -q "func (idx \*Indexer) IndexRepo" internal/indexer/indexer.go`
+
+            ## Constraints
+            - Do NOT modify files outside `internal/indexer/` and subdirs.
+            - Do NOT create files in `internal/indexer/treesitter/` (owned by Agent D).
+            - Use `golang.org/x/tools/go/packages`, not `go/ast` alone.
+            - Define local SnapshotComputer interface; do not import internal/snapshot.
+            - Sort all output deterministically.
+          files:
+            - internal/indexer/indexer.go
+            - internal/indexer/extractor.go
+            - internal/indexer/indexer_test.go
+            - internal/indexer/goextractor/extractor.go
+            - internal/indexer/goextractor/extractor_test.go
+        - id: D
+          task: |
+            ## What to Implement
+
+            Tree-sitter extractor in `internal/indexer/treesitter/`. Proves the
+            Extractor interface works for non-Go languages. Targets Python.
+
+            ### Files to Create
+            1. `internal/indexer/treesitter/extractor.go`
+            2. `internal/indexer/treesitter/extractor_test.go`
+
+            ### Implementation Details
+
+            **TreeSitterExtractor** implements `types.Extractor`:
+            - `Name()` returns `"treesitter-python"`
+            - `CanHandle(path)` matches `.py` files
+            - Uses `github.com/smacker/go-tree-sitter` with Python grammar
+            - Extracts: function defs (Node kind "function"), class defs (kind "type"),
+              method defs (kind "method"), imports (Edge type "imports"), calls (Edge type "calls")
+            - Qualified names: `{repoURL}://{modulePath}/{filePath}.{ClassName}.{MethodName}`
+            - Provenance: `"ast_resolved"`, confidence: `1.0`
+            - Sort output deterministically
+
+            ## Tests to Write
+            1. TestTreeSitterExtractor_CanHandle_PythonFiles
+            2. TestTreeSitterExtractor_Extract_PythonFunction
+            3. TestTreeSitterExtractor_Extract_PythonClass
+            4. TestTreeSitterExtractor_Extract_PythonImport
+            5. TestTreeSitterExtractor_Extract_CallEdges
+            6. TestTreeSitterExtractor_Extract_Deterministic
+            7. TestTreeSitterExtractor_QualifiedName_Format
+
+            ## Verification Gate
+            ```bash
+            cd internal/indexer/treesitter && go build ./... && go test ./... && go vet ./...
+            ```
+
+            ## Constraints
+            - Do NOT modify files outside `internal/indexer/treesitter/`.
+            - Do NOT modify files in `internal/indexer/` root (owned by Agent C).
+            - Use `github.com/smacker/go-tree-sitter` for AST parsing.
+            - Sort all output deterministically. No map iteration in output.
+            - Python only. No other language extractors.
+          files:
+            - internal/indexer/treesitter/extractor.go
+            - internal/indexer/treesitter/extractor_test.go
+        - id: E
+          task: |
+            ## What to Implement
+
+            MCP server in `internal/mcp/`. Exposes graph queries as MCP tools.
+
+            ### Files to Create
+            1. `internal/mcp/server.go` - Server struct, stdio + HTTP transport
+            2. `internal/mcp/handlers.go` - Tool handler implementations
+            3. `internal/mcp/handlers_test.go` - Tests
+
+            ### Implementation Details
+
+            Uses `github.com/mark3labs/mcp-go`. Register 11 tools:
+            - Execution plane: `index_repo`, `cross_repo_callers`, `graph_query`, `repo_graph`
+            - Intelligence plane (read-only): `blast_radius`, `trace_dataflow`, `stale_edges`,
+              `snapshot_diff`, `semantic_diff`, `pr_impact`, `ownership`
+
+            Check mcp-go module source for exact API patterns. Import paths:
+            - `github.com/mark3labs/mcp-go/server`
+            - `github.com/mark3labs/mcp-go/mcp`
+
+            `index_repo` is a stub that records the request for the daemon.
+            Intelligence-plane handlers are read-only (never call Put*/Record*/Create*).
+
+            Use mock GraphStore in tests.
+
+            ## Tests to Write
+            1. TestHandleCrossRepoCallers_ReturnsCallers
+            2. TestHandleBlastRadius_ReturnsGroupedResults
+            3. TestHandleGraphQuery_NodesByPrefix
+            4. TestHandleSnapshotDiff_ReturnsChanges
+            5. TestHandleStaleEdges_FindsStale
+            6. TestNewServer_RegistersAllTools
+
+            ## Verification Gate
+            ```bash
+            cd internal/mcp && go build ./... && go test ./... && go vet ./...
+            ```
+
+            ## Constraints
+            - Do NOT modify files outside `internal/mcp/`.
+            - Do NOT import `internal/store`. Use `types.GraphStore` interface only.
+            - Intelligence-plane handlers MUST be read-only.
+          files:
+            - internal/mcp/server.go
+            - internal/mcp/handlers.go
+            - internal/mcp/handlers_test.go
+        - id: F
+          task: |
+            ## What to Implement
+
+            Daemon lifecycle in `internal/daemon/`. File watching, reindex, coordination.
+
+            ### Files to Create
+            1. `internal/daemon/daemon.go` - Daemon struct, Start/Stop
+            2. `internal/daemon/watcher.go` - FileWatcher (fsnotify)
+            3. `internal/daemon/daemon_test.go` - Tests
+
+            ### Implementation Details
+
+            **DaemonConfig**:
+            - `Store types.GraphStore`
+            - `IndexFunc func(ctx context.Context, repoURL, repoPath, commitHash string) error`
+            - `MCPAddr string`
+            - `MCPServer interface{ ServeStdio(context.Context) error; ServeHTTP(context.Context, string) error }`
+
+            **Start**: Launch watchers, start MCP server, block until ctx cancelled.
+            **Stop**: Graceful shutdown.
+            **WatchRepo/UnwatchRepo**: Manage watch list.
+
+            **Coordination**: `sync.RWMutex` for read/write. Queue index requests.
+
+            **FileWatcher**: fsnotify with 500ms debounce. `Events() <-chan WatchEvent`.
+            `WatchEvent{RepoPath string, Files []string}`.
+
+            ## Tests to Write
+            1. TestDaemon_StartStop
+            2. TestDaemon_WatchRepo_AddsWatcher
+            3. TestFileWatcher_DetectsChanges
+            4. TestFileWatcher_Debounces
+            5. TestDaemon_ConcurrentReads
+            6. TestDaemon_WriteBlocksReads
+
+            ## Verification Gate
+            ```bash
+            cd internal/daemon && go build ./... && go test ./... && go vet ./...
+            ```
+
+            ## Constraints
+            - Do NOT modify files outside `internal/daemon/`.
+            - Do NOT import internal/store, internal/indexer, internal/mcp, internal/snapshot.
+            - Use interfaces and callbacks only.
+            - Use `github.com/fsnotify/fsnotify`.
+            - Debounce: 500ms quiet threshold.
+          files:
+            - internal/daemon/daemon.go
+            - internal/daemon/watcher.go
+            - internal/daemon/daemon_test.go
+    - number: 2
+      agents:
+        - id: G
+          task: |
+            ## What to Implement
+
+            CLI entry point in `cmd/knowing/`. Wires all packages together.
+            Subcommands: `serve`, `index`, `query`, `version`.
+
+            ### Files to Create
+            1. `cmd/knowing/main.go`
+            2. `cmd/knowing/main_test.go`
+
+            ### Implementation Details
+
+            Use standard library `flag`. This is the ONLY file that imports concrete types:
+            ```go
+            import (
+                "github.com/blackwell-systems/knowing/internal/store"
+                "github.com/blackwell-systems/knowing/internal/snapshot"
+                "github.com/blackwell-systems/knowing/internal/indexer"
+                "github.com/blackwell-systems/knowing/internal/indexer/goextractor"
+                "github.com/blackwell-systems/knowing/internal/indexer/treesitter"
+                knowingmcp "github.com/blackwell-systems/knowing/internal/mcp"
+                "github.com/blackwell-systems/knowing/internal/daemon"
+            )
+            ```
+
+            **serve**: Open store, create snapshot mgr, indexer, register extractors,
+            create MCP server, create daemon, watch repos, start daemon. Handle SIGINT/SIGTERM.
+
+            **index**: Open store, create indexer, index repo, print results.
+
+            **query**: Open store, search by symbol prefix, print edges.
+
+            **version**: Print "knowing v0.1.0".
+
+            ## Tests to Write
+            1. TestVersionSubcommand
+            2. TestMainFunction_NoArgs_PrintsUsage
+
+            ## Verification Gate
+            ```bash
+            go build ./cmd/knowing/... && go test ./cmd/knowing/... && go vet ./cmd/knowing/...
+            ```
+
+            ## Constraints
+            - Do NOT modify files outside `cmd/knowing/`.
+            - This is the ONLY file importing concrete internal packages.
+            - No business logic here. Pure wiring.
+            - Use `os.Args`/`flag` only. No third-party CLI framework.
+          files:
+            - cmd/knowing/main.go
+            - cmd/knowing/main_test.go
+          dependencies:
+            - A
+            - B
+            - C
+            - D
+            - E
+            - F
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: go build ./...
+          required: true
+        - type: test
+          command: go test ./...
+          required: true
+        - type: lint
+          command: go vet ./...
+          required: false
+scaffolds:
+    - file_path: go.mod
+      contents: |
+        module github.com/blackwell-systems/knowing
+
+        go 1.23
+      import_path: github.com/blackwell-systems/knowing
+      status: committed (92a3d44)
+    - file_path: internal/types/types.go
+      contents: |
+        package types
+
+        import (
+            "crypto/sha256"
+            "encoding/hex"
+            "fmt"
+        )
+
+        // Hash is a content-addressed identifier (SHA-256).
+        type Hash [32]byte
+
+        // EmptyHash is the zero-value hash.
+        var EmptyHash Hash
+
+        // NewHash computes a SHA-256 hash from the given data.
+        func NewHash(data []byte) Hash {
+            return sha256.Sum256(data)
+        }
+
+        // String returns the hex-encoded hash.
+        func (h Hash) String() string {
+            return hex.EncodeToString(h[:])
+        }
+
+        // IsZero returns true if the hash is the zero value.
+        func (h Hash) IsZero() bool {
+            return h == EmptyHash
+        }
+
+        // Node represents a symbol in the knowledge graph.
+        type Node struct {
+            NodeHash      Hash   // sha256(repo || package_path || content_hash || symbol_name || symbol_kind)
+            FileHash      Hash   // reference to containing file
+            QualifiedName string // {repo}://{module_path}/{package_path}.{TypeName}.{MemberName}
+            Kind          string // function, type, method, interface, const, var
+            Line          int    // source line number
+            Signature     string // type signature for display
+        }
+
+        // Edge represents a relationship between two nodes.
+        type Edge struct {
+            EdgeHash   Hash    // sha256(source_node_hash || target_node_hash || edge_type || provenance_json)
+            SourceHash Hash    // source node hash
+            TargetHash Hash    // target node hash
+            EdgeType   string  // calls, imports, implements, references, etc.
+            Confidence float64 // 0.0 to 1.0
+            Provenance string  // provenance source (ast_resolved, scip_imported, etc.)
+        }
+
+        // File represents a tracked source file.
+        type File struct {
+            FileHash    Hash   // sha256(repo_hash || path || content_hash)
+            RepoHash    Hash   // reference to containing repo
+            Path        string // relative path within repo
+            ContentHash Hash   // sha256(file_contents)
+        }
+
+        // Repo represents a tracked repository.
+        type Repo struct {
+            RepoHash    Hash   // sha256(repo_url)
+            RepoURL     string
+            LastCommit  string
+            LastIndexed int64  // unix timestamp
+        }
+
+        // Snapshot represents a point-in-time graph state (Merkle root).
+        type Snapshot struct {
+            SnapshotHash Hash   // merkle_root(sorted(all_edge_hashes))
+            ParentHash   Hash   // previous snapshot in chain
+            RepoHash     Hash   // which repo this snapshot is for
+            CommitHash   string // git commit hash
+            Timestamp    int64  // unix timestamp
+            NodeCount    int
+            EdgeCount    int
+        }
+
+        // EdgeEvent represents an append-only edge event (event sourcing).
+        type EdgeEvent struct {
+            EventID      int64
+            EdgeHash     Hash
+            EventType    string // "added" or "removed"
+            SnapshotHash Hash
+            SourceCommit string
+            IndexerVer   string
+            Timestamp    int64
+        }
+
+        // EdgeProvenance captures how an edge was derived.
+        type EdgeProvenance struct {
+            Source         string  // ast_resolved, scip_imported, runtime_trace, etc.
+            Confidence     float64
+            IndexerVersion string
+            SourceCommit   string
+            SourceFileHash Hash
+            Timestamp      int64
+        }
+
+        // ComputeNodeHash computes the content-addressed hash for a node.
+        func ComputeNodeHash(repoURL, packagePath string, contentHash Hash, symbolName, symbolKind string) Hash {
+            data := fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%s", repoURL, packagePath, contentHash, symbolName, symbolKind)
+            return NewHash([]byte(data))
+        }
+
+        // ComputeEdgeHash computes the content-addressed hash for an edge.
+        func ComputeEdgeHash(sourceHash, targetHash Hash, edgeType, provenanceJSON string) Hash {
+            data := fmt.Sprintf("%s\x00%s\x00%s\x00%s", sourceHash, targetHash, edgeType, provenanceJSON)
+            return NewHash([]byte(data))
+        }
+      import_path: github.com/blackwell-systems/knowing/internal/types
+      status: committed (92a3d44)
+    - file_path: internal/types/interfaces.go
+      contents: |
+        package types
+
+        import "context"
+
+        // GraphStore defines the operations the graph engine requires from its
+        // backing store. SQLite implements this today; an adjacency-list or
+        // external graph backend can implement it tomorrow without changing callers.
+        type GraphStore interface {
+            PutNode(ctx context.Context, n Node) error
+            PutEdge(ctx context.Context, e Edge) error
+            PutFile(ctx context.Context, f File) error
+            PutRepo(ctx context.Context, r Repo) error
+            RecordEdgeEvent(ctx context.Context, ev EdgeEvent) error
+            CreateSnapshot(ctx context.Context, s Snapshot) error
+            GetNode(ctx context.Context, hash Hash) (*Node, error)
+            GetEdge(ctx context.Context, hash Hash) (*Edge, error)
+            GetSnapshot(ctx context.Context, hash Hash) (*Snapshot, error)
+            GetRepo(ctx context.Context, hash Hash) (*Repo, error)
+            NodesByName(ctx context.Context, qualifiedPrefix string) ([]Node, error)
+            EdgesFrom(ctx context.Context, sourceHash Hash, edgeType string) ([]Edge, error)
+            EdgesTo(ctx context.Context, targetHash Hash, edgeType string) ([]Edge, error)
+            TransitiveCallers(ctx context.Context, target Hash, maxDepth int, snapshot Hash) ([]CallerResult, error)
+            TransitiveCallees(ctx context.Context, source Hash, maxDepth int, snapshot Hash) ([]CalleeResult, error)
+            BlastRadius(ctx context.Context, target Hash, snapshot Hash) (*BlastRadiusResult, error)
+            SnapshotDiff(ctx context.Context, oldRoot, newRoot Hash) (*DiffResult, error)
+            StaleEdges(ctx context.Context, snapshot Hash) ([]Edge, error)
+            LatestSnapshot(ctx context.Context, repoHash Hash) (*Snapshot, error)
+            FilesByRepo(ctx context.Context, repoHash Hash) ([]File, error)
+            FileByPath(ctx context.Context, repoHash Hash, path string) (*File, error)
+            Close() error
+        }
+
+        // Extractor produces nodes and edges from source files.
+        type Extractor interface {
+            Name() string
+            CanHandle(path string) bool
+            Extract(ctx context.Context, opts ExtractOptions) (*ExtractResult, error)
+        }
+
+        // ExtractOptions contains the inputs for an extraction run.
+        type ExtractOptions struct {
+            RepoURL    string
+            RepoHash   Hash
+            CommitHash string
+            FilePath   string
+            FileHash   Hash
+            Content    []byte
+            ModuleRoot string
+        }
+
+        // ExtractResult contains the nodes and edges produced by an extractor.
+        type ExtractResult struct {
+            Nodes []Node
+            Edges []Edge
+        }
+
+        // ComputationCache manages content-addressed derived results.
+        // Interface defined now; implementation deferred per requirements.
+        type ComputationCache interface {
+            Get(ctx context.Context, resultHash Hash) (*DerivedResult, error)
+            GetByQuery(ctx context.Context, queryType string, params Hash, snapshot Hash) (*DerivedResult, error)
+            Put(ctx context.Context, result DerivedResult) error
+            Invalidate(ctx context.Context, oldSnapshot, newSnapshot Hash, diff DiffResult) (evicted int, err error)
+        }
+      import_path: github.com/blackwell-systems/knowing/internal/types
+      status: committed (92a3d44)
+    - file_path: internal/types/results.go
+      contents: |
+        package types
+
+        // CallerResult is a node with its distance from the query target.
+        type CallerResult struct {
+            Node  Node
+            Depth int
+        }
+
+        // CalleeResult is a node with its distance from the query source.
+        type CalleeResult struct {
+            Node  Node
+            Depth int
+        }
+
+        // BlastRadiusResult groups transitive callers by repository.
+        type BlastRadiusResult struct {
+            Target     Node
+            ByRepo     map[string][]CallerWithProvenance
+            TotalCount int
+            Truncated  bool
+        }
+
+        // CallerWithProvenance pairs a caller node with the edge provenance chain.
+        type CallerWithProvenance struct {
+            Caller     Node
+            Depth      int
+            Confidence float64
+            Provenance []EdgeProvenance
+        }
+
+        // DiffResult contains the structural diff between two snapshots.
+        type DiffResult struct {
+            OldSnapshot  Hash
+            NewSnapshot  Hash
+            EdgesAdded   []Edge
+            EdgesRemoved []Edge
+            NodesAdded   []Node
+            NodesRemoved []Node
+        }
+
+        // DerivedResult is a content-addressed computation result.
+        type DerivedResult struct {
+            ResultHash   Hash
+            QueryType    string
+            QueryParams  Hash
+            SnapshotRoot Hash
+            Data         []byte
+            ComputedAt   int64
+            ComputedBy   string
+        }
+
+        // TraversalOptions controls bounded traversal with early termination.
+        type TraversalOptions struct {
+            MaxDepth      int
+            MaxResults    int
+            MinConfidence float64
+        }
+      import_path: github.com/blackwell-systems/knowing/internal/types
+      status: committed (92a3d44)
+pre_mortem:
+    overall_risk: medium
+    rows:
+        - scenario: Scaffold types don't compile
+          likelihood: low
+          impact: high
+          mitigation: Types package imports only stdlib. Scaffold Agent runs go build before committing.
+        - scenario: go/packages needs valid module in isolated worktree
+          likelihood: medium
+          impact: high
+          mitigation: Agent C uses testdata dirs with valid go.mod or loads in a compatible mode.
+        - scenario: tree-sitter CGo dependency causes build failures
+          likelihood: medium
+          impact: medium
+          mitigation: go-tree-sitter handles CGo. Build-tag the extractor if CGo unavailable.
+        - scenario: Agent C and D both create internal/indexer/ files
+          likelihood: low
+          impact: high
+          mitigation: 'Disjoint ownership: C owns indexer/*.go and goextractor/*, D owns treesitter/* only.'
+        - scenario: mcp-go API differs from expected patterns
+          likelihood: medium
+          impact: medium
+          mitigation: Agent E checks mcp-go source/README for actual API before implementing.
+        - scenario: Wave 2 wiring fails due to compilation errors in wave 1 packages
+          likelihood: medium
+          impact: high
+          mitigation: Quality gate (go build ./...) runs post-merge before wave 2 starts.
+        - scenario: go.mod conflicts from multiple agents adding dependencies
+          likelihood: high
+          impact: low
+          mitigation: go.mod is scaffold-owned. Orchestrator runs go mod tidy post-merge.
+        - scenario: GraphStore interface too large for Agent A
+          likelihood: medium
+          impact: medium
+          mitigation: Stub complex traversal methods if needed, mark for follow-up.
+critic_report:
+    verdict: PASS
+    agent_reviews:
+        A:
+            agent_id: A
+            verdict: PASS
+        B:
+            agent_id: B
+            verdict: PASS
+        C:
+            agent_id: C
+            verdict: PASS
+        D:
+            agent_id: D
+            verdict: PASS
+        E:
+            agent_id: E
+            verdict: PASS
+        F:
+            agent_id: F
+            verdict: PASS
+        G:
+            agent_id: G
+            verdict: PASS
+    summary: All 7 agent briefs verified against the codebase. All 22 action:new files confirmed absent (Check 1). Symbol accuracy skipped per action:new exclusion (Check 2). Interface contracts in the IMPL match committed scaffold files exactly (Check 4). No disjoint ownership violations (Check 9). No agent exceeds 8 files or 40% of total (Check 7). External dependencies not yet in go.mod are expected for bootstrap; agents will go-get them and orchestrator runs go mod tidy post-merge. No issues found.
+    reviewed_at: "2026-05-15T07:33:11Z"
+    issue_count: 0
+state: SCOUT_PENDING
+injection_method: hook
