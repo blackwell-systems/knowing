@@ -863,5 +863,5 @@ critic_report:
     summary: 'Re-reviewed all 4 agents across 10 files after IMPL fix. The previous error (Agent D missing mock stub instructions for 4 new GraphStore methods) is resolved: the Constraints section now explicitly instructs Agent D to add DanglingEdges, AllRepos, NodesByQualifiedName, and DeleteEdge stubs to mockStore. Two advisory warnings remain: (1) Agent D brief describes inserting ResolveEdges before extractFile, but extractFile is defined before IndexRepo in indexer.go (spatial ordering is inverted, though intent is clear); (2) Agent D owns 4 of 10 files (40%), at the advisory rebalancing threshold. No errors found.'
     reviewed_at: "2026-05-15T15:41:52Z"
     issue_count: 2
-state: SCOUT_PENDING
+state: "REVIEWED"
 injection_method: hook
