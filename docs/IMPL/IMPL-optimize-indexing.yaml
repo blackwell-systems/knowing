@@ -492,6 +492,7 @@ waves:
             - internal/indexer/worker_test.go
             - internal/indexer/indexer.go
             - internal/indexer/indexer_test.go
+      base_commit: d00336df689890e155270c1d69fb8690b232d56e
     - number: 2
       type: integration
       agents:
@@ -640,6 +641,64 @@ quality_gates:
         - type: test
           command: go test ./...
           required: true
+post_merge_checklist:
+    groups:
+        - title: Background Service Initialization
+          items:
+            - description: Verify if loader_test.go needs initialization in Server constructor
+            - description: Verify if worker.go needs initialization in Server constructor
+            - description: Verify if worker_test.go needs initialization in Server constructor
+completion_reports:
+    A:
+        status: complete
+        branch: polywave/optimize-indexing/wave1-agent-A
+        commit: ca586f4
+        files_changed:
+            - internal/indexer/goextractor/loader.go
+            - internal/indexer/goextractor/loader_test.go
+        files_created:
+            - internal/indexer/goextractor/loader.go
+            - internal/indexer/goextractor/loader_test.go
+        tests_added:
+            - TestBulkLoad_SinglePackage
+            - TestBulkLoad_MultiPackage
+            - TestBulkLoad_SkipsTestFiles
+            - TestBulkLoad_EmptyModule
+        verification: PASS
+        notes: BulkLoad and LoadedPackages implemented per contract. Tests:true set in config so test files are included in FilePackages. All 4 tests pass.
+    B:
+        status: complete
+        branch: polywave/optimize-indexing/wave1-agent-B
+        commit: 0b9954f
+        files_changed:
+            - internal/indexer/goextractor/extractor.go
+            - internal/indexer/goextractor/extractor_test.go
+        tests_added:
+            - TestGoExtractor_ExtractWithPackage_MatchesExtract
+            - TestGoExtractor_ExtractWithPackage_NilSafety
+        verification: PASS
+        notes: Refactored Extract into extractFromPackage helper. Added ExtractWithPackage public method. All 12 tests pass including 2 new ones.
+    C:
+        status: complete
+        branch: polywave/optimize-indexing/wave1-agent-C
+        commit: 5061f9a
+        files_changed:
+            - internal/indexer/worker.go
+            - internal/indexer/indexer.go
+            - internal/indexer/worker_test.go
+            - internal/indexer/indexer_test.go
+        files_created:
+            - internal/indexer/worker.go
+            - internal/indexer/worker_test.go
+        tests_added:
+            - TestParallelExtract_Basic
+            - TestParallelExtract_PreservesOrder
+            - TestParallelExtract_PropagatesErrors
+            - TestParallelExtract_RespectsContext
+            - TestParallelExtract_SingleWorker
+            - TestIndexer_ConcurrencyField
+        verification: PASS
+        notes: Worker pool and Concurrency field complete. All 6 tests passing. Wave 2 Agent D wires parallelExtract into IndexRepo.
 pre_mortem:
     overall_risk: medium
     rows:
@@ -714,5 +773,5 @@ critic_report:
     summary: 'All four agent briefs verified against the codebase. File existence checks pass: the four new files (loader.go, loader_test.go, worker.go, worker_test.go) do not exist, and the four modify targets (extractor.go, extractor_test.go, indexer.go, indexer_test.go) do exist. Symbol accuracy is confirmed: Extract method signature, Indexer struct fields, ExtractorRegistry.extractors unexported field, packages.Load mode flags, and line number references in briefs all match the source. Pattern accuracy verified for the sequential extraction loop, batch insertion comment, and packages.Config usage. Interface contracts reference valid types from go/packages and internal/types. Import chains verified: golang.org/x/tools is in go.mod, all local packages exist. One advisory warning: Agent D may need to modify internal/indexer/extractor.go to add an Extractors() accessor, but that file is not in Agent D''s file_ownership; the brief offers the alternative of adding the accessor to indexer.go (which Agent D owns), so this is not blocking.'
     reviewed_at: "2026-05-15T17:01:34Z"
     issue_count: 1
-state: "REVIEWED"
+state: REVIEWED
 injection_method: hook

@@ -10,6 +10,50 @@ All notable changes to this project will be documented in this file.
 - Separated README into standard format (problem, usage, tools) with detailed docs in `docs/`
 - Changelog
 
+## 2026-05-15
+
+### Added
+
+- **Bootstrap implementation:** 8 packages, 26 files, 56+ tests. Single Go binary.
+  - `internal/types/`: Hash, Node, Edge, GraphStore, Extractor, ComputationCache interfaces
+  - `internal/store/`: SQLite-backed GraphStore (20 methods, WAL mode, go:embed migrations, recursive CTEs)
+  - `internal/snapshot/`: Merkle root computation, snapshot chain, diff, GC
+  - `internal/indexer/`: Language-agnostic extractor framework, Go extractor (go/packages), tree-sitter Python extractor
+  - `internal/mcp/`: MCP server with 11 tool handlers (stdio + HTTP transport)
+  - `internal/daemon/`: Persistent daemon, fsnotify file watcher, debounce, RWMutex coordination
+  - `cmd/knowing/`: CLI with serve, index, query, version subcommands
+- **End-to-end indexing:** Index real Go repos, store graph, compute snapshots, query callers
+  - Batch insert methods (BatchPutNodes, BatchPutEdges, BatchPutFiles)
+  - Git HEAD resolution (reads .git/HEAD directly, no git dependency)
+  - Functional MCP `index_repo` handler (not a stub)
+  - Integration test with 9 assertions covering full pipeline
+- **Cross-repo edge resolver:** `internal/resolver/` package
+  - 4 new GraphStore methods: DanglingEdges, AllRepos, NodesByQualifiedName, DeleteEdge
+  - Migration 002 for dangling edge support
+  - `resolveTargetRepoURL` in GoExtractor uses go/packages Module info
+  - `ModuleToRepoURL` map in ExtractOptions, populated from go.mod of indexed repos
+  - 228 cross-repo edges between polywave-web and polywave-go
+- **Indexing optimization (in progress):**
+  - `BulkLoad` in goextractor/loader.go (single `packages.Load("./...")` call)
+  - `ExtractWithPackage` method (accepts pre-loaded package, avoids per-file Load)
+  - Worker pool in indexer/worker.go (`parallelExtract` with runtime.NumCPU workers)
+- Deployment models documentation (`docs/deployment.md`)
+- Implementation log (`docs/implementation-log.md`) with polywave wave-by-wave details
+
+### Fixed
+
+- `ComputeNodeHash` no longer includes contentHash in hash computation (was causing all cross-package caller queries to return empty results)
+- GoExtractor uses `types.EmptyHash` consistently for node hash computation
+- `File.ContentHash` correctly set to `sha256(file_contents)` instead of FileHash
+- MCP `handleOwnership` uses NodesByName grouping instead of nonexistent "contains" edges
+
+### Changed
+
+- README expanded with vision statement, audience-segmented questions, broader positioning
+- Architecture doc expanded to 15 decisions (added storage interface, computation cache, runtime trace ingestion, semantic PR diff, artifact-boundary plane separation, SQLite+Pebble hybrid model)
+- GitHub repo description and topics updated to reflect broader vision
+- Branch protection ruleset added (mirroring agent-lsp)
+
 ## 2026-05-14
 
 ### Added

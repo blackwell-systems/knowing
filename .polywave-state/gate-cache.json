@@ -84,6 +84,18 @@
         "cached_at": "2026-05-15T03:02:21.020638-07:00"
       }
     },
+    "2e4d339405aeea4f9c30f3979b1b555f": {
+      "lint": {
+        "gate_type": "lint",
+        "command": "go vet ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-15T10:05:07.088969-07:00"
+      }
+    },
     "2fea678609be0efb1caa539a6939e1dd": {
       "build": {
         "gate_type": "build",
@@ -106,6 +118,18 @@
         "stderr": "",
         "from_cache": true,
         "cached_at": "2026-05-15T03:04:46.044554-07:00"
+      }
+    },
+    "36b05dedbbdacb0e0edfb1c97bbfa361": {
+      "test": {
+        "gate_type": "test",
+        "command": "go test ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "ok  \tgithub.com/blackwell-systems/knowing/cmd/knowing\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/daemon\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/goextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/treesitter\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/mcp\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/resolver\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/snapshot\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/store\t(cached)\n?   \tgithub.com/blackwell-systems/knowing/internal/types\t[no test files]\n",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-15T10:05:07.596436-07:00"
       }
     },
     "4011fde50ad37930a8cf56b6cdfc5267": {
@@ -166,6 +190,18 @@
         "stderr": "",
         "from_cache": true,
         "cached_at": "2026-05-15T00:33:40.174203-07:00"
+      }
+    },
+    "4c9f3eade98b82f07f8d62c3b8004773": {
+      "lint": {
+        "gate_type": "lint",
+        "command": "go vet ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-15T10:01:56.6049-07:00"
       }
     },
     "53ff2000a223909873a2e5803e3ece6b": {
@@ -312,6 +348,30 @@
         "cached_at": "2026-05-15T03:04:46.800189-07:00"
       }
     },
+    "99433806e1c3b500f9ed212f4736e6b9": {
+      "test": {
+        "gate_type": "test",
+        "command": "go test ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "ok  \tgithub.com/blackwell-systems/knowing/cmd/knowing\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/daemon\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/goextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/treesitter\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/mcp\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/resolver\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/snapshot\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/store\t(cached)\n?   \tgithub.com/blackwell-systems/knowing/internal/types\t[no test files]\n",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-15T10:01:57.107638-07:00"
+      }
+    },
+    "9ffb94eb83aaea668b474f37fe9a97fa": {
+      "build": {
+        "gate_type": "build",
+        "command": "go build ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-15T10:01:56.192645-07:00"
+      }
+    },
     "ac42672172f615643af751530a3667a7": {
       "lint": {
         "gate_type": "lint",
@@ -382,6 +442,18 @@
         "stderr": "",
         "from_cache": true,
         "cached_at": "2026-05-15T08:46:11.477228-07:00"
+      }
+    },
+    "cf853a78c384a4d01002943f4488072e": {
+      "build": {
+        "gate_type": "build",
+        "command": "go build ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-15T10:05:06.713157-07:00"
       }
     },
     "e10bee44670efd7a5fdd4222f1d660ed": {
