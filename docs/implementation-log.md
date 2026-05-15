@@ -366,6 +366,70 @@ Scout analyzed the current per-file `go/packages.Load` bottleneck. Designed a 4-
 **Wave 2 (1 agent):**
 - Agent D: Wire everything together in `IndexRepo` (BulkLoad -> build work items -> parallelExtract)
 
-### Waves
+### Wave 1 (3 parallel agents)
 
-*(in progress)*
+| Agent | Duration | Task |
+|-------|----------|------|
+| A | 130s | Created `goextractor/loader.go` with `BulkLoad()`: single `packages.Load("./...")` call, returns `LoadedPackages` map |
+| B | 118s | Refactored extractor: extracted shared logic into `extractFromPackage()`, added `ExtractWithPackage()` for pre-loaded packages |
+| C | 121s | Created `indexer/worker.go`: fan-out/fan-in worker pool with `runtime.GOMAXPROCS` goroutines, pre-sized results array, order-preserving |
+
+Merge: clean, no conflicts.
+
+### Wave 2 (1 agent)
+
+| Agent | Duration | Task |
+|-------|----------|------|
+| D | 189s | Wired BulkLoad + ExtractWithPackage + parallelExtract into IndexRepo, with fallback to per-file loading on BulkLoad failure |
+
+Merge: clean.
+
+### What changed (before vs after)
+
+**Before (per-file loading):**
+- `IndexRepo` walked all files sequentially
+- For each `.go` file, called `go/packages.Load(".")` in the file's directory
+- Each Load call independently resolved the full module dependency graph, ran the Go type checker, and built the AST
+- For polywave-go (~100 Go files across ~30 packages), this meant ~100 invocations of the full type checker
+- Each invocation redundantly re-resolved the same transitive dependencies
+
+**After (bulk loading + worker pool):**
+- `IndexRepo` calls `goextractor.BulkLoad("./...")` once to load all packages in the module
+- Builds a `LoadedPackages` map of file path to pre-loaded `*packages.Package`
+- Creates work items: Go files with a pre-loaded package use `ExtractWithPackage()` (skip Load), others use standard `Extract()`
+- Feeds work items to `parallelExtract()` with `runtime.GOMAXPROCS` workers
+- Workers extract ASTs, compute hashes, and produce nodes/edges in parallel
+- Results collected in submission order (deterministic)
+
+### Benchmark result: FAILED TO MEET TARGET
+
+| Metric | Before | After | Target |
+|--------|--------|-------|--------|
+| Cold index polywave-go | 16m 24s | ~12m+ (still running at 12m, didn't finish in time) | 30s |
+| CPU time | 594s user + 2358s sys | TBD | - |
+| Incremental (no changes) | 1.7s | 1.7s (unchanged) | - |
+
+**Why the optimization didn't work as expected:**
+
+The bottleneck was misidentified. We assumed the per-file `packages.Load` overhead was in redundant package resolution. The fix (single `packages.Load("./...")`) eliminated redundant per-file loads, but `packages.Load("./...")` itself is expensive for large repos.
+
+For polywave-go, `./...` loads every package in the module plus all transitive dependencies (hundreds of packages including stdlib, third-party deps). This single call does the full type-checking work that was previously spread across ~100 per-file calls. The total type-checking work is similar; it's just done once instead of 100 times. But Go's build cache already amortized much of the redundancy in the per-file approach.
+
+The worker pool parallelizes AST extraction (which was already fast), not the type-checking (which is the actual bottleneck). `go/packages.Load` is the bottleneck, and it's not parallelizable from our side.
+
+**Root cause:** `go/packages` is designed for IDE-like interactive use (load one package at a time) or build-system use (load everything once). For a repo indexer that needs type-resolved edges across all packages, neither granularity is ideal:
+- Per-file: too many redundant loads (~100x overhead)
+- Per-repo `./...`: one massive load that type-checks everything including all transitive deps (~12+ min for a repo with heavy deps)
+- Per-package: potentially the sweet spot (load each of ~30 packages once, shared dep type info cached by Go's build cache)
+
+### Next steps for indexing performance
+
+Options identified but not yet implemented:
+
+1. **Per-package loading** (medium effort): Load each unique package directory once instead of the whole repo. Go's build cache means shared dependencies are type-checked once. ~30 loads instead of 1 massive or 100 redundant.
+
+2. **Two-tier extraction** (medium effort): Fast AST-only pass (`go/parser`, no type resolution) for declarations and syntactic calls. Background type-resolution pass for implements/references edges. First index completes in seconds; full type info arrives later.
+
+3. **Incremental per-package** (low effort on top of option 1): Only load packages containing changed files. Most re-indexes after a single-file edit would load 1 package.
+
+4. **Reduced Load mode** (low effort): Use `NeedSyntax | NeedName` only (no type checking). Loses implements/references edges but gains massive speed. Could be a `--fast` flag.
