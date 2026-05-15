@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"golang.org/x/tools/go/packages"
+
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
@@ -477,5 +479,126 @@ func main() {
 			}
 		}
 		t.Fatal("no call edge found targeting DoThing with repoB's URL")
+	}
+}
+
+func TestGoExtractor_ExtractWithPackage_MatchesExtract(t *testing.T) {
+	ext := NewGoExtractor()
+	source := `package main
+
+func Hello() string {
+	return "hello"
+}
+
+type Greeter struct{}
+
+var Version = "1.0"
+
+const MaxRetries = 3
+`
+	dir, opts := setupTestModule(t, "main.go", source)
+	ctx := context.Background()
+
+	// Get the result from the standard Extract method.
+	extractResult, err := ext.Extract(ctx, opts)
+	if err != nil {
+		t.Fatalf("Extract failed: %v", err)
+	}
+
+	// Manually load the package the same way Extract does internally.
+	cfg := &packages.Config{
+		Mode: packages.NeedName | packages.NeedFiles | packages.NeedSyntax |
+			packages.NeedTypes | packages.NeedTypesInfo | packages.NeedImports |
+			packages.NeedModule,
+		Dir:     dir,
+		Context: ctx,
+	}
+	pkgs, err := packages.Load(cfg, ".")
+	if err != nil {
+		t.Fatalf("packages.Load failed: %v", err)
+	}
+	if len(pkgs) == 0 {
+		t.Fatal("packages.Load returned no packages")
+	}
+
+	// Get the result from ExtractWithPackage.
+	ewpResult, err := ext.ExtractWithPackage(ctx, opts, pkgs[0])
+	if err != nil {
+		t.Fatalf("ExtractWithPackage failed: %v", err)
+	}
+
+	// Compare nodes.
+	if len(extractResult.Nodes) != len(ewpResult.Nodes) {
+		t.Fatalf("node count mismatch: Extract=%d, ExtractWithPackage=%d",
+			len(extractResult.Nodes), len(ewpResult.Nodes))
+	}
+	for i, n := range extractResult.Nodes {
+		ewpN := ewpResult.Nodes[i]
+		if n.NodeHash != ewpN.NodeHash {
+			t.Errorf("node %d hash mismatch: %s vs %s", i, n.NodeHash, ewpN.NodeHash)
+		}
+		if n.QualifiedName != ewpN.QualifiedName {
+			t.Errorf("node %d qualified name mismatch: %q vs %q", i, n.QualifiedName, ewpN.QualifiedName)
+		}
+		if n.Kind != ewpN.Kind {
+			t.Errorf("node %d kind mismatch: %q vs %q", i, n.Kind, ewpN.Kind)
+		}
+	}
+
+	// Compare edges.
+	if len(extractResult.Edges) != len(ewpResult.Edges) {
+		t.Fatalf("edge count mismatch: Extract=%d, ExtractWithPackage=%d",
+			len(extractResult.Edges), len(ewpResult.Edges))
+	}
+	for i, e := range extractResult.Edges {
+		ewpE := ewpResult.Edges[i]
+		if e.EdgeHash != ewpE.EdgeHash {
+			t.Errorf("edge %d hash mismatch: %s vs %s", i, e.EdgeHash, ewpE.EdgeHash)
+		}
+		if e.EdgeType != ewpE.EdgeType {
+			t.Errorf("edge %d type mismatch: %q vs %q", i, e.EdgeType, ewpE.EdgeType)
+		}
+	}
+}
+
+func TestGoExtractor_ExtractWithPackage_NilSafety(t *testing.T) {
+	ext := NewGoExtractor()
+	source := `package main
+
+func Hello() string {
+	return "hello"
+}
+`
+	dir, opts := setupTestModule(t, "main.go", source)
+	ctx := context.Background()
+
+	// Load the package, then nil out TypesInfo to test nil safety.
+	cfg := &packages.Config{
+		Mode: packages.NeedName | packages.NeedFiles | packages.NeedSyntax |
+			packages.NeedTypes | packages.NeedTypesInfo | packages.NeedImports |
+			packages.NeedModule,
+		Dir:     dir,
+		Context: ctx,
+	}
+	pkgs, err := packages.Load(cfg, ".")
+	if err != nil {
+		t.Fatalf("packages.Load failed: %v", err)
+	}
+	if len(pkgs) == 0 {
+		t.Fatal("packages.Load returned no packages")
+	}
+
+	pkg := pkgs[0]
+	pkg.TypesInfo = nil
+
+	// Should not panic; may return fewer edges due to nil TypesInfo.
+	result, err := ext.ExtractWithPackage(ctx, opts, pkg)
+	if err != nil {
+		t.Fatalf("ExtractWithPackage with nil TypesInfo failed: %v", err)
+	}
+
+	// Should still produce nodes from AST declarations.
+	if len(result.Nodes) == 0 {
+		t.Error("expected at least one node even with nil TypesInfo")
 	}
 }
