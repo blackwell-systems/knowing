@@ -1,0 +1,569 @@
+title: 'End-to-End: Make knowing index work on a real Go repository'
+feature_slug: e2e-index
+verdict: SUITABLE
+suitability_assessment: |
+    Suitability gate passed on all five criteria:
+
+    1. File decomposition: 8+ files across 6 packages will change. Work decomposes
+       into at least 4 agents with disjoint file ownership.
+
+    2. Investigation-first: No unknown crashes or race conditions. All gaps are
+       identified through code review: hash mismatches, missing batch inserts,
+       stub handlers, no git integration, no integration test.
+
+    3. Interface discoverability: The GraphStore interface is already defined and
+       stable. Cross-agent contracts are the existing interface methods plus new
+       BatchPut methods. All signatures are known.
+
+    4. Pre-implementation status: The bootstrap skeleton is complete (all packages
+       exist, all interfaces defined, unit tests pass). Every file needs deepening,
+       not creation from scratch. The core bug is that ComputeNodeHash uses
+       contentHash for node declarations but EmptyHash for call edge targets,
+       making intra-repo cross-package edges produce dangling references.
+
+    5. Parallelization value: Build+test cycle is ~5s. 4 agents with 2-4 files
+       each, touching real logic (AST traversal, SQL batch operations, git
+       integration, integration testing). Clear speedup over sequential.
+
+    Estimated times:
+    - Scout phase: ~8 min
+    - Agent execution: ~8 min (4 agents x ~4 min avg, single wave)
+    - Merge and verification: ~3 min
+    Total Polywave time: ~19 min
+    Sequential baseline: ~25 min (4 agents x ~6 min avg)
+    Time savings: ~6 min (24% faster)
+    Recommendation: Clear speedup. Proceed.
+test_command: GOWORK=off go test ./...
+lint_command: GOWORK=off go vet ./...
+file_ownership:
+    - file: internal/types/types.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/store/sqlite.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/store/sqlite_test.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/goextractor/extractor.go
+      agent: B
+      wave: 1
+      action: modify
+    - file: internal/indexer/goextractor/extractor_test.go
+      agent: B
+      wave: 1
+      action: modify
+    - file: internal/indexer/indexer.go
+      agent: B
+      wave: 1
+      action: modify
+    - file: internal/indexer/indexer_test.go
+      agent: B
+      wave: 1
+      action: modify
+    - file: internal/mcp/handlers.go
+      agent: C
+      wave: 1
+      action: modify
+    - file: internal/mcp/handlers_test.go
+      agent: C
+      wave: 1
+      action: modify
+    - file: internal/snapshot/manager.go
+      agent: C
+      wave: 1
+      action: modify
+    - file: internal/snapshot/manager_test.go
+      agent: C
+      wave: 1
+      action: modify
+    - file: internal/daemon/daemon.go
+      agent: D
+      wave: 1
+      action: modify
+    - file: internal/daemon/daemon_test.go
+      agent: D
+      wave: 1
+      action: modify
+    - file: cmd/knowing/main.go
+      agent: D
+      wave: 1
+      action: modify
+    - file: cmd/knowing/main_test.go
+      agent: D
+      wave: 1
+      action: modify
+    - file: e2e_test.go
+      agent: E
+      wave: 2
+      action: new
+interface_contracts:
+    - name: ComputeNodeHash
+      description: |
+        Fix: node hash must NOT include file content hash. Currently nodes use
+        opts.FileHash but call edge targets use EmptyHash, causing permanent
+        hash mismatches. The fix is to ignore contentHash in the hash computation.
+      definition: |
+        func ComputeNodeHash(repoURL, packagePath string, _ Hash, symbolName, symbolKind string) Hash
+      location: internal/types/types.go
+    - name: BatchPutNodes
+      description: |
+        New methods on SQLiteStore for batch inserting within a single transaction.
+      definition: |
+        func (s *SQLiteStore) BatchPutNodes(ctx context.Context, nodes []types.Node) error
+        func (s *SQLiteStore) BatchPutEdges(ctx context.Context, edges []types.Edge) error
+        func (s *SQLiteStore) BatchPutFiles(ctx context.Context, files []types.File) error
+      location: internal/store/sqlite.go
+    - name: SetIndexFunc
+      description: |
+        Package-level function to wire real indexing into MCP handlers.
+      definition: |
+        func SetIndexFunc(fn func(ctx context.Context, repoURL, repoPath, commitHash string) error)
+      location: internal/mcp/handlers.go
+    - name: GitHeadCommit
+      description: |
+        Exported helper that reads HEAD commit hash from a git repository.
+      definition: |
+        func GitHeadCommit(repoPath string) (string, error)
+      location: internal/daemon/daemon.go
+waves:
+    - number: 1
+      agents:
+        - id: A
+          task: |
+            ## What to implement
+
+            Fix the node hash mismatch bug and add batch insert support to the SQLite store.
+
+            ### 1. Fix ComputeNodeHash (internal/types/types.go)
+
+            The core bug: ComputeNodeHash includes contentHash in the hash computation.
+            Node declarations pass opts.FileHash, but call edge targets pass EmptyHash.
+            These never match. Fix by removing contentHash from the computation.
+
+            Find this exact code in internal/types/types.go:
+            ```go
+            func ComputeNodeHash(repoURL, packagePath string, contentHash Hash, symbolName, symbolKind string) Hash {
+            	data := fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%s", repoURL, packagePath, contentHash, symbolName, symbolKind)
+            	return NewHash([]byte(data))
+            }
+            ```
+
+            Replace with:
+            ```go
+            // ComputeNodeHash computes the content-addressed hash for a node.
+            // The contentHash parameter is accepted for API compatibility but is
+            // not included in the hash computation. Node identity depends on
+            // (repo, package, name, kind) only.
+            func ComputeNodeHash(repoURL, packagePath string, _ Hash, symbolName, symbolKind string) Hash {
+            	data := fmt.Sprintf("%s\x00%s\x00%s\x00%s", repoURL, packagePath, symbolName, symbolKind)
+            	return NewHash([]byte(data))
+            }
+            ```
+
+            ### 2. Add batch insert methods (internal/store/sqlite.go)
+
+            Add three methods after RecordEdgeEvent, before CreateSnapshot.
+            Find this anchor:
+            ```go
+            func (s *SQLiteStore) RecordEdgeEvent(ctx context.Context, ev types.EdgeEvent) error {
+            	_, err := s.db.ExecContext(ctx,
+            		`INSERT INTO edge_events (edge_hash, event_type, snapshot_hash, source_commit, indexer_ver, timestamp)
+            		 VALUES (?, ?, ?, ?, ?, ?)`,
+            		ev.EdgeHash[:], ev.EventType, ev.SnapshotHash[:], ev.SourceCommit, ev.IndexerVer, ev.Timestamp,
+            	)
+            	return err
+            }
+            ```
+
+            Add BatchPutNodes, BatchPutEdges, BatchPutFiles. Each: begin tx,
+            prepare statement, loop exec, commit. On error, rollback.
+
+            ### 3. Add tests (internal/store/sqlite_test.go)
+
+            Add TestBatchPutNodes, TestBatchPutEdges, TestBatchPutFiles.
+            Insert 100+ items via batch, verify readable. Test rollback behavior.
+
+            ### Constraints
+            - Do NOT modify files outside ownership list
+            - Do NOT change ComputeNodeHash signature, only body
+            - Do NOT change ComputeEdgeHash
+            - Batch methods must use transactions
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/store/... ./internal/types/...
+            GOWORK=off go vet ./internal/store/... ./internal/types/...
+            GOWORK=off go test ./internal/store/... ./internal/types/... -count=1
+            ```
+          files:
+            - internal/types/types.go
+            - internal/store/sqlite.go
+            - internal/store/sqlite_test.go
+        - id: B
+          task: |
+            ## What to implement
+
+            Fix GoExtractor node hash calls and indexer batch inserts.
+
+            ### 1. Fix GoExtractor (internal/indexer/goextractor/extractor.go)
+
+            Change all ComputeNodeHash calls to use types.EmptyHash instead of
+            opts.FileHash. This ensures consistency with Agent A's fix.
+
+            Locations to change (find each exact line):
+
+            In funcDeclNode:
+            ```go
+            	nodeHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, opts.FileHash, name, kind)
+            ```
+            Change opts.FileHash to types.EmptyHash.
+
+            In genDeclNodes for TypeSpec:
+            ```go
+            			nodeHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, opts.FileHash, name, kind)
+            ```
+            Change opts.FileHash to types.EmptyHash.
+
+            In genDeclNodes for ValueSpec:
+            ```go
+            				nodeHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, opts.FileHash, name, kind)
+            ```
+            Change opts.FileHash to types.EmptyHash.
+
+            In extractImplementsEdges (two lines):
+            ```go
+            			concreteHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, opts.FileHash, concrete.Obj().Name(), "type")
+            			ifaceHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, opts.FileHash, iface.Obj().Name(), "interface")
+            ```
+            Change both opts.FileHash to types.EmptyHash.
+
+            In extractReferenceEdges:
+            ```go
+            		fileNodeHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, opts.FileHash, filepath.Base(opts.FilePath), "file")
+            ```
+            Change opts.FileHash to types.EmptyHash.
+
+            In Extract method (import edges):
+            ```go
+            		fileNodeHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, opts.FileHash, filepath.Base(opts.FilePath), "file")
+            ```
+            Change opts.FileHash to types.EmptyHash.
+
+            ### 2. Fix Indexer (internal/indexer/indexer.go)
+
+            Add batchStore interface after SnapshotComputer:
+            ```go
+            type batchStore interface {
+            	BatchPutNodes(ctx context.Context, nodes []types.Node) error
+            	BatchPutEdges(ctx context.Context, edges []types.Edge) error
+            	BatchPutFiles(ctx context.Context, files []types.File) error
+            }
+            ```
+
+            Add extractFile method (extracts without storing).
+
+            Refactor IndexRepo to:
+            1. Accumulate all results
+            2. Fix FileHash computation: sha256(repoHash || path || contentHash)
+            3. Fix ContentHash: use raw content hash, not FileHash
+            4. Batch insert via type assertion to batchStore
+
+            Fix IndexFile ContentHash bug. Find:
+            ```go
+            	file := types.File{
+            		FileHash:    opts.FileHash,
+            		RepoHash:    opts.RepoHash,
+            		Path:        opts.FilePath,
+            		ContentHash: opts.FileHash,
+            	}
+            ```
+            Replace with:
+            ```go
+            	contentHash := types.NewHash(opts.Content)
+            	file := types.File{
+            		FileHash:    opts.FileHash,
+            		RepoHash:    opts.RepoHash,
+            		Path:        opts.FilePath,
+            		ContentHash: contentHash,
+            	}
+            ```
+
+            ### 3. Add tests
+
+            In extractor_test.go: TestGoExtractor_Extract_CrossFunctionCallEdges
+            (two functions, one calls the other, verify edge target matches node hash).
+
+            In indexer_test.go: TestIndexRepo_MultiFileModule (temp Go module,
+            two files, verify cross-package edges and snapshot counts).
+
+            ### Constraints
+            - Do NOT modify types.GraphStore interface
+            - Do NOT modify types.go (owned by Agent A)
+            - Use local batchStore interface with type assertion
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/indexer/...
+            GOWORK=off go vet ./internal/indexer/...
+            GOWORK=off go test ./internal/indexer/... -count=1 -v
+            ```
+          files:
+            - internal/indexer/goextractor/extractor.go
+            - internal/indexer/goextractor/extractor_test.go
+            - internal/indexer/indexer.go
+            - internal/indexer/indexer_test.go
+        - id: C
+          task: |
+            ## What to implement
+
+            Fix MCP handlers and snapshot manager.
+
+            ### 1. Make index_repo handler functional (internal/mcp/handlers.go)
+
+            Add package-level indexFunc and SetIndexFunc:
+            ```go
+            var indexFunc func(ctx context.Context, repoURL, repoPath, commitHash string) error
+
+            func SetIndexFunc(fn func(ctx context.Context, repoURL, repoPath, commitHash string) error) {
+            	indexFunc = fn
+            }
+            ```
+
+            Replace handleIndexRepo stub. Find:
+            ```go
+            func (s *Server) handleIndexRepo(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+            ```
+            Note the underscore before context. Replace the entire function to
+            use indexFunc when available, return error when nil.
+
+            ### 2. Fix handleOwnership (internal/mcp/handlers.go)
+
+            Replace the "contains" edge approach. Find the handleOwnership function
+            that uses EdgesFrom with "contains" edge type. Replace with: get repo
+            via GetRepo, get all nodes via NodesByName(repo.RepoURL), group by
+            FileHash, pair with files from FilesByRepo.
+
+            ### 3. Add TODO to snapshot manager (internal/snapshot/manager.go)
+
+            After the NodesByName call in collectRepoEdges, add a TODO about
+            synthetic file nodes not being included in snapshots.
+
+            ### 4. Update tests
+
+            handlers_test.go: TestHandleIndexRepo_WithIndexFunc,
+            TestHandleIndexRepo_NoIndexFunc, TestHandleOwnership_WithData.
+
+            manager_test.go: TestComputeSnapshot_WithRealData (insert repo,
+            files, nodes, edges, compute snapshot, verify counts and determinism).
+
+            ### Constraints
+            - Do NOT modify server.go
+            - Do NOT modify GraphStore interface
+            - Use package-level variable for indexFunc
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/mcp/... ./internal/snapshot/...
+            GOWORK=off go vet ./internal/mcp/... ./internal/snapshot/...
+            GOWORK=off go test ./internal/mcp/... ./internal/snapshot/... -count=1 -v
+            ```
+          files:
+            - internal/mcp/handlers.go
+            - internal/mcp/handlers_test.go
+            - internal/snapshot/manager.go
+            - internal/snapshot/manager_test.go
+        - id: D
+          task: |
+            ## What to implement
+
+            Add real git integration and fix CLI wiring.
+
+            ### 1. Add GitHeadCommit (internal/daemon/daemon.go)
+
+            Add exported function after UnwatchRepo. Reads .git/HEAD, resolves
+            symbolic refs, handles packed-refs fallback. Add imports: "os",
+            "path/filepath", "strings" to the import block.
+
+            Find this anchor:
+            ```go
+            // RLock acquires a read lock, allowing concurrent readers.
+            func (d *Daemon) RLock() { d.mu.RLock() }
+            ```
+
+            Add GitHeadCommit before it.
+
+            ### 2. Use GitHeadCommit in indexWorker
+
+            Find:
+            ```go
+            		_ = d.cfg.IndexFunc(ctx, req.repoURL, req.repoPath, "HEAD")
+            ```
+            Replace with resolving commit via GitHeadCommit, fallback to "unknown".
+
+            ### 3. Fix CLI (cmd/knowing/main.go)
+
+            a) Resolve HEAD in cmdIndex after parsing args
+            b) Wire knowingmcp.SetIndexFunc in cmdServe after creating mcpServer
+            c) Make treesitter optional (if err == nil, register)
+            d) Print repo hash in cmdIndex output
+
+            ### 4. Tests
+
+            daemon_test.go: TestGitHeadCommit (git init, commit, verify hash),
+            TestGitHeadCommit_NotGitRepo (error case).
+
+            main_test.go: test cmdIndex on a simple Go module.
+
+            ### Constraints
+            - Do NOT modify files outside ownership
+            - Do NOT change DaemonConfig struct
+            - GitHeadCommit must NOT shell out to git
+            - Handle packed-refs
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./cmd/knowing/... ./internal/daemon/...
+            GOWORK=off go vet ./cmd/knowing/... ./internal/daemon/...
+            GOWORK=off go test ./cmd/knowing/... ./internal/daemon/... -count=1 -v
+            ```
+          files:
+            - internal/daemon/daemon.go
+            - internal/daemon/daemon_test.go
+            - cmd/knowing/main.go
+            - cmd/knowing/main_test.go
+    - number: 2
+      agents:
+        - id: E
+          task: |
+            ## What to implement
+
+            End-to-end integration test at repo root.
+
+            ### 1. Create e2e_test.go
+
+            Build tag: //go:build e2e
+            Package: knowing_test
+
+            Create temp multi-package Go module:
+            - go.mod (module testmod, go 1.23)
+            - main.go (calls pkg.Hello)
+            - pkg/lib.go (Hello function, imports fmt)
+            - pkg/types.go (Greeter interface)
+            - pkg/impl.go (EnglishGreeter implements Greeter)
+
+            Test TestE2E_IndexAndQuery:
+            1. Create temp module
+            2. Create SQLite store, SnapshotManager, Indexer
+            3. Register GoExtractor
+            4. IndexRepo
+            5. Assert snapshot NodeCount > 0, EdgeCount > 0
+            6. Find Hello node, verify callers include main
+            7. BlastRadius of Hello has TotalCount >= 1
+            8. Verify implements edge (EnglishGreeter -> Greeter)
+            9. Verify determinism (re-index, same snapshot hash)
+
+            ### Constraints
+            - Do NOT modify existing files
+            - Self-contained (creates own temp module)
+            - Only stdlib imports in test module (fmt)
+            - Use //go:build e2e tag
+
+            ### Verification
+            ```bash
+            GOWORK=off go build -tags e2e ./...
+            GOWORK=off go vet -tags e2e ./...
+            GOWORK=off go test -tags e2e -v -run TestE2E -count=1 .
+            ```
+          files:
+            - e2e_test.go
+          dependencies:
+            - A
+            - B
+            - C
+            - D
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: GOWORK=off go build ./...
+          required: true
+        - type: lint
+          command: GOWORK=off go vet ./...
+          required: true
+        - type: test
+          command: GOWORK=off go test ./...
+          required: true
+pre_mortem:
+    overall_risk: medium
+    rows:
+        - scenario: |
+            Agent A changes ComputeNodeHash but existing tests in other packages
+            depend on the old hash values, causing test failures on merge.
+          likelihood: medium
+          impact: medium
+          mitigation: |
+            Agent A's change makes contentHash ignored. Any value passed produces
+            the same hash. Existing tests pass any contentHash and will still work.
+        - scenario: |
+            Agent C's package-level indexFunc is not thread-safe.
+          likelihood: low
+          impact: low
+          mitigation: |
+            SetIndexFunc is called once at startup before concurrent access.
+        - scenario: |
+            Agent B's batchStore type assertion fails on mock stores in tests.
+          likelihood: medium
+          impact: low
+          mitigation: |
+            Fallback to individual Put calls preserves correctness.
+        - scenario: |
+            Agent D's GitHeadCommit fails on packed refs.
+          likelihood: medium
+          impact: medium
+          mitigation: |
+            Task explicitly requires packed-refs fallback implementation.
+        - scenario: |
+            Wave 2 e2e test needs network for go/packages.Load.
+          likelihood: medium
+          impact: high
+          mitigation: |
+            Test module uses only stdlib imports. No network needed.
+        - scenario: |
+            Cross-package call edges still mismatch after wave 1.
+          likelihood: low
+          impact: high
+          mitigation: |
+            Agent B's wave 1 tests verify hash matching explicitly.
+critic_report:
+    verdict: PASS
+    agent_reviews:
+        A:
+            agent_id: A
+            verdict: PASS
+            issues:
+                - check: caller_exhaustiveness
+                  severity: warning
+                  description: internal/indexer/treesitter/extractor.go calls ComputeNodeHash with opts.FileHash at lines 123, 200, 229 but is not in file_ownership. Functionally safe because the fix makes contentHash ignored, but the treesitter extractor will retain opts.FileHash calls while goextractor (Agent B) migrates to types.EmptyHash, creating an inconsistency.
+                  file: internal/indexer/treesitter/extractor.go
+                  symbol: ComputeNodeHash
+        B:
+            agent_id: B
+            verdict: PASS
+        C:
+            agent_id: C
+            verdict: PASS
+        D:
+            agent_id: D
+            verdict: PASS
+        E:
+            agent_id: E
+            verdict: PASS
+    summary: 'All briefs verified against the codebase. All file_existence checks pass (modify files exist, new file e2e_test.go does not exist). Symbol accuracy verified: all function names, types, method names, and code anchors match the actual codebase. Pattern accuracy confirmed: code patterns described in briefs (ComputeNodeHash body, RecordEdgeEvent anchor, handleIndexRepo stub, handleOwnership EdgesFrom/contains pattern, indexWorker HEAD string, RLock anchor) all match exactly. Interface contracts are syntactically valid and reference existing types. The treesitter extractor (internal/indexer/treesitter/extractor.go) also calls ComputeNodeHash with opts.FileHash but is not in file_ownership; this is functionally safe because Agent A''s fix makes the contentHash parameter ignored, but the inconsistency is noted as a warning. No disjoint ownership violations. No complexity balance issues.'
+    reviewed_at: "2026-05-15T09:57:02Z"
+    issue_count: 1
+state: SCOUT_PENDING
+injection_method: hook
