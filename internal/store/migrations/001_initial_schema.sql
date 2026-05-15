@@ -44,7 +44,6 @@ CREATE TABLE snapshots (
     node_count    INTEGER NOT NULL,
     edge_count    INTEGER NOT NULL
 );
-CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
 CREATE INDEX idx_nodes_qualified ON nodes(qualified_name);
 CREATE INDEX idx_nodes_file ON nodes(file_hash);
 CREATE INDEX idx_edges_source ON edges(source_hash);
