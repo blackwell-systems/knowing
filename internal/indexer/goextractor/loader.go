@@ -26,6 +26,7 @@ func BulkLoad(ctx context.Context, moduleRoot string) (*LoadedPackages, error) {
 			packages.NeedModule,
 		Dir:     moduleRoot,
 		Context: ctx,
+		Tests:   true,
 	}
 
 	pkgs, err := packages.Load(cfg, "./...")
