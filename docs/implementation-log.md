@@ -627,3 +627,46 @@ After runtime traces, the implementation path is:
 - Semantic PR diff (architecture decision #14, the most visible feature)
 - MCP server hardening (real implementations for stubbed handlers)
 - More language extractors (TypeScript, Rust, Java via declarative configs)
+
+### Scout completed, waves executed (2026-05-15)
+
+6 agents across 3 waves. Critic passed clean (0 errors, 0 warnings).
+
+**Wave 1 (3 parallel agents):**
+
+| Agent | Duration | Task |
+|-------|----------|------|
+| A | 102s | Added DeleteNodesByFile, DeleteEdgesBySourceFile, EdgesBySourceFile to GraphStore + SQLite implementation + tests |
+| B | 168s | Rewrote IndexRepo: tracks changed files, cleans up old nodes/edges before re-extract, records edge events (added/removed), added LastChangedFiles() accessor |
+| C | 162s | Created GitWatcher (.git/HEAD + .git/refs/heads/* via fsnotify, 1-2 FDs), GitDiffFiles (git diff --name-status), CommitEvent type, tests for both |
+
+Post-merge: mock cascade fix needed (3 packages, 30s). Same pattern as previous interface extensions.
+
+**Wave 2 (2 parallel agents):**
+
+| Agent | Duration | Task |
+|-------|----------|------|
+| D | 193s | Replaced FileWatcher with GitWatcher in daemon, rewrote watchLoop to consume CommitEvent, updated IndexFunc/EnrichFunc signatures to include changedFiles |
+| E | 164s | Added RunScoped to enricher, extracted runFiltered with fileFilter function, scoped openAllFiles/upgradeCallEdges/discoverNewEdges to accept filter |
+
+Post-merge: cmd/knowing/main.go signature cascade (IndexFunc + EnrichFunc with changedFiles). Fixed directly instead of Wave 3 agent.
+
+**What's now working that wasn't before:**
+
+1. **Edge events are recorded.** Every index run computes the diff between old and new edges per file and writes "added"/"removed" events to the edge_events table. The append-only log (architecture decision #3) is no longer empty.
+
+2. **Old symbols are cleaned up.** When a file changes, all nodes and edges from the previous version are deleted before re-extraction. No more ghost symbols from renamed or deleted functions.
+
+3. **GitWatcher replaces FileWatcher.** The daemon watches `.git/HEAD` and `.git/refs/heads/*` (1-2 file descriptors) instead of every source file (thousands of FDs). Change detection is commit-driven, not filesystem-event-driven.
+
+4. **Git diff resolves the change set.** `GitDiffFiles` calls `git diff --name-status oldHead newHead` to get the exact list of changed, added, and deleted files. No directory walking, no content hashing for change detection.
+
+5. **Scoped enrichment.** The enricher's `RunScoped` only processes edges from changed files. Unchanged files are skipped entirely in the LSP enrichment pass.
+
+6. **SnapshotDiff returns real data.** Since edge events are now recorded, `SnapshotDiff(oldRoot, newRoot)` returns the actual edges that were added and removed between two snapshots. The content-addressed history is functional.
+
+### Current state: 12,203 lines of Go across 39 files
+
+The system now has a working incremental change pipeline: git-based detection, cleanup, extraction, edge events, snapshots, and scoped enrichment. The Merkle DAG, event sourcing, and snapshot diffing are real, not just schema.
+
+Next: runtime trace ingestion (the moat).
