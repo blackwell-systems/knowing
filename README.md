@@ -2,28 +2,58 @@
 
 Cross-repository knowledge graph for agentic development.
 
-Agents today are blind at repository boundaries. LSP gives you symbol intelligence within a workspace. Tree-sitter gives you syntax within a file. Neither answers: "What breaks in other repos if I change this?"
+Agents today are blind at repository boundaries.
 
-knowing indexes symbol-level relationships across repositories and exposes them via MCP, giving agents the cross-repo awareness they need to operate safely across codebases.
+LSP can tell an agent where a symbol is used inside one workspace.
+Tree-sitter can tell an agent what syntax exists inside one file.
+Code search can find matching text across repositories.
+Dependency graphs can tell you which packages depend on which packages.
+
+None of them answer the question agents actually need before making a distributed change:
+
+> If I change this symbol, API, route, schema, or data shape, what breaks across the rest of the system?
+
+`knowing` builds a symbol-level and boundary-aware graph across repositories, then exposes that graph through MCP so agents can reason about blast radius before they edit code.
 
 ## Status
 
 Early development. Architecture being scoped.
 
+**v0 target:** cross-repo symbol/reference graph for Go repos, exposed through MCP.
+
+## Core Idea
+
+`knowing` treats repositories as parts of one larger semantic system.
+
+It indexes local repositories deeply, ingests external dependency surfaces shallowly, and connects them with cross-repository edges:
+
+- Package imports
+- Function and method calls
+- Generated code references
+- Protobuf/gRPC relationships
+- HTTP route producers and consumers
+- Event producers and consumers
+- Shared schema usage
+- Configuration references
+
+The result is a graph that agents can query before making changes.
+
+## What It Answers
+
+- "I'm changing this function signature. Which other repos call it?"
+- "This proto field is deprecated. Which services still read or write it?"
+- "This HTTP route is changing. Which clients construct requests to it?"
+- "This event payload field is being renamed. Which consumers depend on it?"
+- "This internal package moved. Which downstream repos need a corresponding PR?"
+- "What is the full data flow of this value across functions, services, queues, and repositories?"
+
 ## Design Goals
 
 - **Two-tier indexing**: deep AST-level index for local repos, shallow SCIP/LSP ingest for external dependencies
 - **Incremental**: git push triggers re-index of changed files only, not full re-walk
-- **Language-aware at boundaries**: Go calling Go is easy; Go calling a Python service via HTTP needs route mapping
+- **Language-aware at boundaries**: Go calling Go is straightforward; Go calling a Python service via HTTP needs route mapping
 - **MCP-native**: exposed as MCP tools, consumed by agents directly
-- **Fast**: sub-second queries over millions of symbols across thousands of repos
-
-## What It Answers
-
-- "I'm changing this function signature. Show me every consumer repo that calls it."
-- "This proto field is deprecated. Which services still reference it?"
-- "I refactored this internal API. Which downstream repos need a corresponding PR?"
-- "What's the full data flow of this value across service boundaries?"
+- **Fast**: optimized for interactive agent queries over large multi-repo graphs
 
 ## Architecture
 
@@ -55,10 +85,35 @@ Early development. Architecture being scoped.
 | `cross_repo_callers` | All callers of a symbol across indexed repos |
 | `blast_radius` | Full impact analysis for a proposed change |
 | `trace_dataflow` | Follow a value across function and service boundaries |
-| `dep_graph` | Dependency relationships between repos/packages |
+| `repo_graph` | Repository and package-level dependency relationships |
 | `stale_edges` | Edges that may be invalid due to recent changes |
 | `index_repo` | Add a repo to the graph |
-| `query` | Raw graph query (Cypher or similar) |
+| `graph_query` | Raw graph query (Cypher or similar) |
+
+## Why Not Just Use Code Search?
+
+Code search finds matching text. `knowing` tracks relationships.
+
+A call edge is not just a string match. A route consumer may be constructed through a client library. A protobuf field may flow through generated code. A service dependency may be declared in infrastructure instead of application code. A symbol may be renamed while preserving behavior, or reused in unrelated contexts.
+
+Agents need relationship-aware answers, not grep results.
+
+## Relationship to agent-lsp
+
+`agent-lsp` gives agents semantic awareness inside a workspace.
+
+`knowing` extends that idea across repository boundaries.
+
+Where `agent-lsp` answers "where is this symbol used in this repo?", `knowing` answers "where is this contract used across the system?"
+
+## Roadmap
+
+1. Go symbols across repos (v0)
+2. Go package/module dependency graph
+3. SCIP ingest for external dependencies
+4. Protobuf/gRPC edges
+5. HTTP route edges
+6. Event/schema/dataflow edges
 
 ## Tech Stack
 
