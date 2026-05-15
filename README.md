@@ -8,7 +8,9 @@
   <a href="https://github.com/blackwell-systems"><img src="https://raw.githubusercontent.com/blackwell-systems/blackwell-docs-theme/main/badge-trademark.svg" alt="Blackwell Systems"></a>
 </p>
 
-Persistent, content-addressed knowledge graph for software systems, built for agents.
+<p align="center">
+  <strong>Persistent, content-addressed knowledge graph for software systems, built for agents.</strong>
+</p>
 
 ## The Problem
 
