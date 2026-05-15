@@ -1,3 +1,4 @@
+completion_date: "2026-05-15"
 title: Runtime Trace Ingestion Pipeline
 feature_slug: runtime-traces
 verdict: SUITABLE
@@ -839,6 +840,7 @@ waves:
             - cmd/knowing/main.go
           dependencies:
             - C
+      base_commit: da6b0d117330bb275ac383d39a525bd45f6aff97
 quality_gates:
     level: standard
     gates:
@@ -857,6 +859,8 @@ post_merge_checklist:
           items:
             - description: Verify if sqlite_runtime_test.go needs initialization in Server constructor
             - description: Verify if resolver_test.go needs initialization in Server constructor
+            - description: Verify if ingestor.go needs initialization in Server constructor
+            - description: Verify if ingestor_test.go needs initialization in Server constructor
 scaffolds:
     - file_path: internal/trace/types.go
       contents: |
@@ -1030,6 +1034,38 @@ completion_reports:
             - TestDecayBracket
         verification: PASS
         notes: All 4 functions implemented as pure logic with no database imports. 29 test cases across 7 test functions all passing. ConfidenceFromCount reused from scaffold types.go.
+    F:
+        status: complete
+        branch: polywave/runtime-traces/wave2-agent-F
+        commit: 8d543c9
+        files_changed:
+            - internal/trace/ingestor.go
+            - internal/trace/ingestor_test.go
+            - internal/trace/otlp.go
+        files_created:
+            - internal/trace/ingestor.go
+            - internal/trace/ingestor_test.go
+            - internal/trace/otlp.go
+        tests_added:
+            - TestIngestSpans_NewEdge
+            - TestIngestSpans_ExistingEdge
+            - TestIngestSpans_HTTPRoute
+            - TestIngestSpans_GRPCMethod
+            - TestIngestHTTPLogs
+            - TestRuntimeEdgeStats
+            - TestDecayConfidence
+            - TestBatchAccumulation
+        verification: PASS
+        notes: All 8 required tests pass. OTLPReceiver uses placeholder implementation since OTel proto dependency not in go.mod yet; ExportSpans accepts pre-converted TraceSpan. When Agent G adds the gRPC/proto deps, Export should accept collectortrace.ExportTraceServiceRequest directly.
+    G:
+        status: complete
+        branch: polywave/runtime-traces/wave2-agent-G
+        commit: 5d3088f
+        files_changed:
+            - internal/daemon/daemon.go
+            - cmd/knowing/main.go
+        verification: PASS
+        notes: Added TraceIngestConfig struct and TraceConfig field to DaemonConfig. Wired traceIngestLoop goroutine into Start method. Added --trace, --trace-endpoint, --trace-batch-size CLI flags to serve command. All 13 daemon tests pass. No new tests needed as changes are config wiring only.
 pre_mortem:
     overall_risk: medium
     rows:
@@ -1120,5 +1156,5 @@ critic_report:
     summary: 'Re-review after fixing three errors from the first pass. All three fixes verified: (1) SymbolResolver contract now correctly uses *sql.DB matching Agent D brief, (2) RouteSymbolStore contract now correctly uses individual params + RouteSymbolRow matching Agent B brief, (3) RouteSymbolStore location correctly points to sqlite_runtime.go. Two advisory warnings remain: Agent F otlp.go requires gRPC/OTel proto dependencies in go.mod that no agent is assigned to add, and the OTLPReceiver contract specifies TraceIngestor interface but Agent F brief uses concrete *Ingestor type. Neither blocks compilation within the same package. All file existence, symbol accuracy, pattern accuracy, import chain, disjoint ownership, and complexity balance checks pass.'
     reviewed_at: "2026-05-15T20:18:25Z"
     issue_count: 2
-state: REVIEWED
+state: COMPLETE
 injection_method: hook
