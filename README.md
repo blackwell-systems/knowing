@@ -19,9 +19,7 @@ Unlike tools that maintain mutable current-state graphs, knowing is **content-ad
 
 ## Status
 
-Early development. Architecture being scoped.
-
-**v0 target:** cross-repo symbol/reference graph for Go repos, exposed through MCP.
+Early development. Architecture locked; implementation starting.
 
 ## Core Idea
 
@@ -166,13 +164,72 @@ Where `agent-lsp` answers "where is this symbol used in this repo?", `knowing` a
 
 ## Roadmap
 
-1. Go symbols across repos (v0)
-2. Go package/module dependency graph
-3. SCIP ingest for external dependencies
-4. Protobuf/gRPC edges
-5. HTTP route edges
-6. Infrastructure and ownership ingest (Terraform, K8s, CODEOWNERS)
-7. Event/schema/dataflow edges
+The system is designed as parallel workstreams, not sequential phases. The architecture (content-addressed storage, provenance model, storage interface, snapshot chain) supports all workstreams from day one. Implementation order is driven by dependency constraints, not cautious scoping.
+
+### Workstream: Graph Core (everything else depends on this)
+
+| Item | Description |
+|------|-------------|
+| Content-addressed store | SQLite backend behind `GraphStore` interface, Merkle DAG, snapshot chain |
+| Go cross-repo call graph | `go/packages` type resolution, symbol identity scheme, cross-module edges |
+| Go package/module graph | Module dependency edges, import graph |
+| Traversal cache | L1 in-memory LRU, L2 materialized closures, L3 bounded traversal with early termination |
+| MCP server | `cross_repo_callers`, `blast_radius`, `trace_dataflow`, `repo_graph`, `stale_edges`, `snapshot_diff`, `index_repo`, `graph_query` |
+| Daemon + file watcher | Persistent process, fsnotify/git hook triggers, incremental reindex on push |
+
+### Workstream: Edge Types (parallelizable, each is independent)
+
+| Item | Description |
+|------|-------------|
+| SCIP ingest | Tier 2 shallow indexing for external dependencies via SCIP indices |
+| Protobuf/gRPC edges | Proto field references, service-to-service RPC relationships |
+| HTTP route edges | Route producers (declarations) and consumers (client calls), route-to-symbol mappings |
+| Event edges | Kafka/NATS/SQS topic producers and consumers |
+| Schema edges | OpenAPI specs, JSON Schema, proto-as-schema references |
+| Infrastructure edges | Terraform service references, K8s manifest relationships, docker-compose links |
+| Ownership edges | CODEOWNERS, team annotations, service catalog metadata |
+| Multi-language support | tree-sitter parsers for Python, TypeScript, Java, Rust |
+
+### Workstream: Runtime Intelligence
+
+| Item | Description |
+|------|-------------|
+| Trace ingestion pipeline | OpenTelemetry span ingest, gRPC trace metadata, HTTP access logs |
+| Runtime symbol resolution | Map runtime identifiers (routes, service names, RPC methods) to graph nodes |
+| Runtime edge creation | `runtime_calls`, `runtime_rpc`, `runtime_produces`, `runtime_consumes` edges with observation-based confidence |
+| Confidence decay | Edge confidence degrades without re-confirmation; drives reindex priority |
+| Database query edges | Ingest DB query logs as `runtime_queries` edges to schema nodes |
+
+### Workstream: Developer Visibility
+
+| Item | Description |
+|------|-------------|
+| Semantic PR diff | Relationship-level impact diff on every PR (MCP tool + GitHub Action) |
+| Graph-native test selection | `knowing test-scope` computes exact affected tests from the relationship graph |
+| Ownership routing | "Who do I need to notify about this change?" computed from graph edges |
+| Staleness dashboard | Surface edges and subgraphs that haven't been re-verified recently |
+
+### Workstream: Agent Coordination
+
+| Item | Description |
+|------|-------------|
+| Pending mutations | Agents announce in-flight changes; other agents see proposed state alongside current state |
+| Temporal reasoning | Walk backward through snapshots to find when a cross-repo incompatibility was introduced |
+| Federated graphs | Independent knowing instances with cross-federation queries via Merkle diff exchange |
+
+### Dependency constraints
+
+```
+Graph Core ──────────────────────────────> all other workstreams
+HTTP route edges (route-to-symbol map) ──> Runtime symbol resolution
+Runtime symbol resolution ────────────────> Trace ingestion pipeline
+Snapshot chain + SnapshotDiff ────────────> Semantic PR diff
+Snapshot chain + SnapshotDiff ────────────> Temporal reasoning
+Edge provenance model ────────────────────> Confidence decay
+Ownership edges ──────────────────────────> Ownership routing
+```
+
+Everything below Graph Core can run in parallel once the core is solid.
 
 ## Tech Stack
 
