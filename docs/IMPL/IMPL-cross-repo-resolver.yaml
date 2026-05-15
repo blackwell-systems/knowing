@@ -1,0 +1,867 @@
+title: Cross-Repo Edge Resolver
+feature_slug: cross-repo-resolver
+verdict: SUITABLE
+suitability_assessment: |
+    Suitability gate:
+
+    1. File decomposition: The work decomposes into 4+ files across 3 packages
+       (types, store, resolver, extractor). No single file bottleneck. The resolver
+       is entirely new code; store/types changes are additive (new methods/queries);
+       extractor changes are localized to hash computation call sites.
+
+    2. Investigation-first items: None. The root cause is fully understood:
+       ComputeNodeHash(repoURL, targetPkg, ...) uses the calling repo's URL
+       for cross-repo targets, but nodes are stored with the defining repo's URL.
+       The fix path is clear.
+
+    3. Interface discoverability: Yes. The GraphStore interface is well-defined.
+       New methods (DanglingEdges, AllRepos) have clear signatures. The resolver
+       is a new package with a clean interface consuming GraphStore.
+
+    4. Pre-implementation status: No existing resolver code exists. The extractor
+       has the bug. All work is TODO.
+
+    5. Parallelization value: High. Build/test cycle is ~30s (go test requires
+       packages.Load). 3 agents in wave 1 working on independent packages
+       (types, store, resolver) benefit from parallel execution. Wave 2 fixes
+       the extractor and wires the resolver into the indexer.
+
+    Estimated times:
+    - Scout phase: ~8 min
+    - Agent execution: ~12 min (4 agents, 2 waves, ~5 min per agent with parallelism)
+    - Merge and verification: ~4 min
+    Total Polywave time: ~24 min
+
+    Sequential baseline: ~40 min (4 agents x 10 min avg)
+    Time savings: ~16 min (40% faster)
+
+    Recommendation: Clear speedup. Proceed.
+test_command: go test ./...
+lint_command: go vet ./...
+file_ownership:
+    - file: internal/types/interfaces.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/store/sqlite.go
+      agent: B
+      wave: 1
+      action: modify
+    - file: internal/store/sqlite_test.go
+      agent: B
+      wave: 1
+      action: modify
+    - file: internal/store/migrations/002_add_dangling_edge_support.sql
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/resolver/resolver.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/resolver/resolver_test.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/indexer/goextractor/extractor.go
+      agent: D
+      wave: 2
+      action: modify
+    - file: internal/indexer/goextractor/extractor_test.go
+      agent: D
+      wave: 2
+      action: modify
+    - file: internal/indexer/indexer.go
+      agent: D
+      wave: 2
+      action: modify
+    - file: internal/indexer/indexer_test.go
+      agent: D
+      wave: 2
+      action: modify
+interface_contracts:
+    - name: DanglingEdges
+      description: |
+        Returns all edges whose target_hash does not match any node in the nodes table.
+        This is the primary query for the resolver: find edges pointing to nonexistent targets.
+      definition: |
+        DanglingEdges(ctx context.Context) ([]Edge, error)
+      location: internal/types/interfaces.go
+    - name: AllRepos
+      description: |
+        Returns all repos in the store. Used by the resolver to iterate across repos
+        when searching for nodes by qualified name.
+      definition: |
+        AllRepos(ctx context.Context) ([]Repo, error)
+      location: internal/types/interfaces.go
+    - name: NodesByQualifiedName
+      description: |
+        Returns all nodes with an exact qualified name match (not prefix).
+        More precise than NodesByName for resolver lookups where the full
+        qualified name is known but the repo prefix differs.
+      definition: |
+        NodesByQualifiedName(ctx context.Context, qualifiedName string) ([]Node, error)
+      location: internal/types/interfaces.go
+    - name: DeleteEdge
+      description: |
+        Deletes an edge by hash. Used by the resolver to remove the old
+        dangling edge before inserting the corrected one.
+      definition: |
+        DeleteEdge(ctx context.Context, hash Hash) error
+      location: internal/types/interfaces.go
+    - name: ResolveResult
+      description: |
+        Result type for a single edge resolution attempt. Contains the original
+        edge, the resolved target node (if found), and the action taken.
+      definition: |
+        type ResolveResult struct {
+            OriginalEdge types.Edge
+            ResolvedNode *types.Node
+            Action       string  // "retargeted", "skipped"
+            Reason       string
+        }
+      location: internal/resolver/resolver.go
+    - name: ResolveStats
+      description: |
+        Aggregate statistics from a resolution pass.
+      definition: |
+        type ResolveStats struct {
+            TotalDangling int
+            Retargeted    int
+            Skipped       int
+            Errors        int
+        }
+      location: internal/resolver/resolver.go
+    - name: Resolve
+      description: |
+        Main entry point for the cross-repo edge resolver. Finds all dangling edges,
+        attempts to resolve each by searching for the target qualified name across all
+        repos, and either retargets the edge or skips gracefully.
+      definition: |
+        func (r *Resolver) Resolve(ctx context.Context) (*ResolveStats, error)
+      location: internal/resolver/resolver.go
+    - name: resolveTargetRepoURL
+      description: |
+        Helper in the extractor that determines the correct repo URL for a cross-repo
+        call target. Uses go/packages Module info when available, falls back to heuristic
+        for inferring repo URL from import path.
+      definition: |
+        func resolveTargetRepoURL(opts types.ExtractOptions, targetPkg string, pkg *packages.Package) string
+      location: internal/indexer/goextractor/extractor.go
+waves:
+    - number: 1
+      agents:
+        - id: A
+          task: |
+            ## Task: Extend GraphStore interface with resolver query methods
+
+            Add four new methods to the GraphStore interface in internal/types/interfaces.go:
+
+            1. `DanglingEdges(ctx context.Context) ([]Edge, error)` - returns all edges
+               whose target_hash has no matching node in the nodes table.
+            2. `AllRepos(ctx context.Context) ([]Repo, error)` - returns all repos.
+            3. `NodesByQualifiedName(ctx context.Context, qualifiedName string) ([]Node, error)` -
+               exact match on qualified_name (not prefix like NodesByName).
+            4. `DeleteEdge(ctx context.Context, hash Hash) error` - deletes an edge by hash.
+
+            ### Where to insert in interfaces.go
+
+            Insert the four new methods after the existing `EdgesTo` method and before
+            `TransitiveCallers`. Insert after this exact text:
+            ```go
+            	EdgesTo(ctx context.Context, targetHash Hash, edgeType string) ([]Edge, error)
+            ```
+
+            ### Constraints
+            - Do NOT modify any existing method signatures.
+            - Do NOT add any result types; ResolveResult and ResolveStats belong to the
+              resolver package (owned by Agent C).
+            - Do NOT modify files outside your ownership list.
+
+            ### Tests
+            No direct tests for interface changes (compile-time check is sufficient).
+
+            ### Verification
+            ```bash
+            go build ./internal/types/...
+            grep -c "DanglingEdges" internal/types/interfaces.go
+            # expect: 1
+            grep -c "AllRepos" internal/types/interfaces.go
+            # expect: 1
+            grep -c "NodesByQualifiedName" internal/types/interfaces.go
+            # expect: 1
+            grep -c "DeleteEdge" internal/types/interfaces.go
+            # expect: 1
+            ```
+          files:
+            - internal/types/interfaces.go
+        - id: B
+          task: |
+            ## Task: Implement resolver store queries in SQLite
+
+            Implement four new GraphStore methods on SQLiteStore plus a migration.
+
+            ### 1. Migration file: internal/store/migrations/002_add_dangling_edge_support.sql
+
+            Create this file. The index idx_edges_target already exists from migration 001
+            and covers the dangling edge query pattern (LEFT JOIN edges.target_hash against
+            nodes.node_hash). Make this migration a no-op:
+            ```sql
+            -- Migration 002: no-op, idx_edges_target from 001 covers dangling edge queries
+            SELECT 1;
+            ```
+
+            ### 2. Implement methods on SQLiteStore in sqlite.go
+
+            Add these methods after the existing FileByPath method and before the scanner
+            helpers section. Insert after the closing brace of the FileByPath function
+            and before this exact text:
+            ```go
+            // ----- Scanner helpers -----
+            ```
+
+            **DanglingEdges:**
+            ```sql
+            SELECT e.edge_hash, e.source_hash, e.target_hash, e.edge_type, e.confidence, e.provenance
+            FROM edges e
+            LEFT JOIN nodes n ON n.node_hash = e.target_hash
+            WHERE n.node_hash IS NULL
+            ```
+            Use the existing `scanEdges` helper for row scanning.
+
+            **AllRepos:**
+            ```sql
+            SELECT repo_hash, repo_url, last_commit, last_indexed FROM repos ORDER BY repo_url
+            ```
+            Scan each row following the pattern in GetRepo: use sql.NullString for
+            last_commit, sql.NullInt64 for last_indexed, and []byte for repo_hash.
+
+            **NodesByQualifiedName:**
+            ```sql
+            SELECT node_hash, file_hash, qualified_name, kind, line, signature
+            FROM nodes WHERE qualified_name = ?
+            ```
+            Use the existing `scanNodes` helper.
+
+            **DeleteEdge:**
+            ```sql
+            DELETE FROM edges WHERE edge_hash = ?
+            ```
+
+            ### 3. Tests in sqlite_test.go
+
+            Add test functions (do not modify existing tests):
+            - TestDanglingEdges: insert a node and an edge whose target_hash points to
+              a nonexistent node hash. Call DanglingEdges, verify the edge is returned.
+              Also verify that edges with valid targets are NOT returned.
+            - TestAllRepos: insert two repos, call AllRepos, verify both returned
+              in alphabetical order by repo_url.
+            - TestNodesByQualifiedName: insert two nodes with different qualified names,
+              query for one, verify only that one is returned (exact match, not prefix).
+            - TestDeleteEdge: insert an edge, delete it, verify GetEdge returns nil.
+
+            ### Constraints
+            - Do NOT modify existing methods or test functions.
+            - Do NOT modify files outside your ownership list.
+            - The SQLiteStore must satisfy the GraphStore interface. In isolation (before
+              Agent A's interface changes merge), these are just additional methods on
+              the concrete type. Post-merge they satisfy the expanded interface.
+            - Use the existing scan helpers (scanEdge, scanEdges, scanNode, scanNodes).
+            - For AllRepos, follow the exact pattern in GetRepo for handling NullString
+              and NullInt64 fields.
+
+            ### Verification
+            ```bash
+            go build ./internal/store/...
+            go test ./internal/store/... -run "TestDangling|TestAllRepos|TestNodesByQualifiedName|TestDeleteEdge" -v
+            grep -c "func (s \*SQLiteStore) DanglingEdges" internal/store/sqlite.go
+            # expect: 1
+            grep -c "func (s \*SQLiteStore) AllRepos" internal/store/sqlite.go
+            # expect: 1
+            grep -c "func (s \*SQLiteStore) NodesByQualifiedName" internal/store/sqlite.go
+            # expect: 1
+            grep -c "func (s \*SQLiteStore) DeleteEdge" internal/store/sqlite.go
+            # expect: 1
+            ```
+          files:
+            - internal/store/sqlite.go
+            - internal/store/sqlite_test.go
+            - internal/store/migrations/002_add_dangling_edge_support.sql
+        - id: C
+          task: |
+            ## Task: Implement the cross-repo edge resolver
+
+            Create the new package `internal/resolver/` with the resolver logic.
+
+            ### 1. internal/resolver/resolver.go
+
+            The resolver finds dangling edges and retargets them to the correct node
+            by matching across repos using hash recomputation.
+
+            **Core algorithm:**
+
+            The root cause: when repo A calls repo B's function, the extractor computes
+            the target hash as `ComputeNodeHash(repoA_URL, targetPkgPath, EmptyHash,
+            symbolName, symbolKind)`. But repo B's node was stored with hash
+            `ComputeNodeHash(repoB_URL, targetPkgPath, EmptyHash, symbolName, symbolKind)`.
+            The hashes differ only in the repo URL component.
+
+            Resolution approach:
+            1. Call `store.DanglingEdges(ctx)` to get all edges with no matching target.
+            2. Load all nodes from the store via `store.NodesByName(ctx, "")` (the LIKE
+               prefix query with empty string returns all nodes).
+            3. Identify all unique source repo URLs by looking up each dangling edge's
+               source node and extracting the repo URL from its QualifiedName (the part
+               before `://`).
+            4. Build a reverse lookup map. For each source repo URL found in step 3,
+               for each node loaded in step 2:
+               - Parse the node's QualifiedName to extract: nodeRepoURL (before `://`),
+                 remainder (after `://`), then split remainder on last `.` to get
+                 pkgPath and symbolName.
+               - Use the node's Kind field directly.
+               - Compute: wrongHash = ComputeNodeHash(sourceRepoURL, pkgPath, EmptyHash,
+                 symbolName, kind)
+               - Store in map: wrongHash -> *Node
+            5. For each dangling edge, look up edge.TargetHash in the map.
+               If found, retarget: delete old edge, create new edge with correct
+               target node hash.
+            6. For unmatched edges, skip gracefully with a reason string.
+
+            **Parsing QualifiedName:**
+            Format: `{repoURL}://{pkgPath}.{SymbolName}`
+            - Split on `://` to get repoURL and remainder
+            - For the remainder, find the last `.` to split pkgPath from symbolName
+            - For methods: `pkgPath.TypeName.MethodName`; the last `.`-separated
+              segment is the symbol name, everything before it (including the type)
+              is the package path as seen by ComputeNodeHash
+
+            Actually, examining ComputeNodeHash more carefully:
+            ```go
+            data := fmt.Sprintf("%s\x00%s\x00%s\x00%s", repoURL, packagePath, symbolName, symbolKind)
+            ```
+            And examining how the extractor calls it:
+            - For functions: `ComputeNodeHash(repoURL, pkgPath, EmptyHash, funcName, "function")`
+            - For methods: `ComputeNodeHash(repoURL, pkgPath, EmptyHash, methodName, "method")`
+              where pkgPath is the Go package import path (e.g., "github.com/org/repo/pkg")
+
+            So for a node with QualifiedName "repoURL://pkgPath.TypeName.MethodName":
+            - repoURL = "repoURL"
+            - packagePath = "pkgPath" (the Go import path, NOT including TypeName)
+            - symbolName = "MethodName" (just the method name)
+            - symbolKind = node.Kind
+
+            But wait: the extractor uses `name` not the full qualified portion.
+            For functions: name = funcName
+            For methods: name = methodName (just the method, not Type.Method)
+
+            So we need to extract the LAST dot-separated segment of the remainder
+            as the symbolName, and everything before the last dot as the pkgPath.
+
+            **However**, the pkgPath passed to ComputeNodeHash is the Go IMPORT path
+            (e.g., "github.com/org/repo/internal/pkg"), not the qualified name remainder.
+            The qualified name format is `repoURL://importPath.SymbolName`.
+
+            For `testmod://testmod/pkg.Hello`:
+            - repoURL = "testmod"
+            - The `://` split gives remainder = "testmod/pkg.Hello"
+            - Last `.` split gives pkgPath = "testmod/pkg", symbolName = "Hello"
+
+            For methods like `testmod://testmod/pkg.EnglishGreeter.Greet`:
+            - remainder = "testmod/pkg.EnglishGreeter.Greet"
+            - We need pkgPath = "testmod/pkg" and symbolName = "Greet"
+            - But the extractor calls ComputeNodeHash with symbolName = "Greet"
+              and pkgPath = "testmod/pkg"
+
+            Problem: splitting on last `.` gives pkgPath = "testmod/pkg.EnglishGreeter"
+            and symbolName = "Greet". But the actual pkgPath is "testmod/pkg".
+
+            Solution: split the remainder into path segments (separated by `/`) and
+            dot segments. The pkgPath is the portion that looks like an import path
+            (contains `/`). Specifically:
+            - Find the first `.` that is NOT preceded by a `/` segment containing a `.`
+            - Or simpler: split on `/`, the last segment contains dot-separated
+              identifiers. The import path is everything up to and including the last
+              `/`-containing prefix.
+
+            Even simpler: since we know the Go import path format, the pkgPath is
+            everything up to but not including the first uppercase-starting segment
+            after the last `/`. Actually this is getting complicated.
+
+            **Pragmatic approach:** Instead of parsing qualified names, iterate through
+            all nodes and for each node, try ALL possible (pkgPath, symbolName)
+            decompositions. But that is wasteful.
+
+            **Best approach:** For each node, recompute its hash using its ACTUAL
+            parameters (which produced the correct hash), then also compute what the
+            hash WOULD be with each source repo URL. We know the actual hash matches
+            `ComputeNodeHash(nodeRepoURL, actualPkgPath, EmptyHash, actualName, actualKind)`.
+            We need actualPkgPath and actualName.
+
+            Since we cannot extract those from the qualified name reliably for methods,
+            take a different approach: for each node, for each candidate source repo URL,
+            compute `ComputeNodeHash(candidateRepoURL, pkgPath, EmptyHash, name, kind)`
+            where pkgPath and name are the SAME values originally used to compute the
+            node's hash. We can recover these by noting:
+
+            The extractor creates qualified names as:
+            - Functions: `fmt.Sprintf("%s://%s.%s", opts.RepoURL, pkgPath, name)`
+            - Methods: `fmt.Sprintf("%s://%s.%s.%s", opts.RepoURL, pkgPath, recvType, name)`
+            - Types: `fmt.Sprintf("%s://%s.%s", opts.RepoURL, pkgPath, name)`
+
+            And ComputeNodeHash is called with:
+            - Functions: `ComputeNodeHash(repoURL, pkgPath, _, name, "function")`
+            - Methods: `ComputeNodeHash(repoURL, pkgPath, _, name, "method")`
+              NOTE: for methods, symbolName is just the method name, NOT Type.Method
+            - Types: `ComputeNodeHash(repoURL, pkgPath, _, name, kind)`
+
+            So the relationship between QualifiedName and hash inputs:
+            - QualifiedName = repoURL + "://" + pkgPath + "." + name (functions/types)
+            - QualifiedName = repoURL + "://" + pkgPath + "." + typeName + "." + name (methods)
+            - Hash inputs: (repoURL, pkgPath, name, kind)
+
+            For functions/types: name is the last dot-segment of the qualified remainder.
+            For methods: name is the last dot-segment, and pkgPath is everything in
+            the remainder before the SECOND-to-last dot.
+
+            But we don't know if it's a method or function from just the qualified name!
+            We DO know from node.Kind.
+
+            Algorithm for extracting hash inputs from a node:
+            ```go
+            func extractHashInputs(node types.Node) (repoURL, pkgPath, symbolName string) {
+                parts := strings.SplitN(node.QualifiedName, "://", 2)
+                if len(parts) != 2 {
+                    return "", "", ""
+                }
+                repoURL = parts[0]
+                remainder := parts[1]  // e.g., "testmod/pkg.Hello" or "testmod/pkg.Type.Method"
+
+                lastDot := strings.LastIndex(remainder, ".")
+                if lastDot < 0 {
+                    return repoURL, remainder, ""
+                }
+                symbolName = remainder[lastDot+1:]
+                prefix := remainder[:lastDot]  // e.g., "testmod/pkg" or "testmod/pkg.Type"
+
+                if node.Kind == "method" {
+                    // For methods, prefix contains "pkgPath.TypeName"
+                    // We need just pkgPath. Find the last dot in prefix.
+                    secondLastDot := strings.LastIndex(prefix, ".")
+                    if secondLastDot >= 0 {
+                        pkgPath = prefix[:secondLastDot]
+                    } else {
+                        pkgPath = prefix
+                    }
+                } else {
+                    pkgPath = prefix
+                }
+                return repoURL, pkgPath, symbolName
+            }
+            ```
+
+            Then verify: `ComputeNodeHash(repoURL, pkgPath, EmptyHash, symbolName, node.Kind)`
+            should equal `node.NodeHash`. If it doesn't, the parsing is wrong; skip.
+
+            **Define a local Store interface** to compile independently:
+            ```go
+            type Store interface {
+                DanglingEdges(ctx context.Context) ([]types.Edge, error)
+                AllRepos(ctx context.Context) ([]types.Repo, error)
+                GetNode(ctx context.Context, hash types.Hash) (*types.Node, error)
+                NodesByName(ctx context.Context, qualifiedPrefix string) ([]types.Node, error)
+                DeleteEdge(ctx context.Context, hash types.Hash) error
+                PutEdge(ctx context.Context, e types.Edge) error
+            }
+            ```
+
+            **Types:**
+            ```go
+            type ResolveResult struct {
+                OriginalEdge types.Edge
+                ResolvedNode *types.Node
+                Action       string  // "retargeted", "skipped"
+                Reason       string
+            }
+
+            type ResolveStats struct {
+                TotalDangling int
+                Retargeted    int
+                Skipped       int
+                Errors        int
+            }
+
+            type Resolver struct {
+                store Store
+            }
+
+            func NewResolver(store Store) *Resolver
+            func (r *Resolver) Resolve(ctx context.Context) (*ResolveStats, error)
+            func (r *Resolver) ResolveWithDetails(ctx context.Context) ([]ResolveResult, *ResolveStats, error)
+            ```
+
+            **Edge retargeting logic:**
+            ```go
+            newEdgeHash := types.ComputeEdgeHash(edge.SourceHash, resolvedNode.NodeHash, edge.EdgeType, edge.Provenance)
+            newEdge := types.Edge{
+                EdgeHash:   newEdgeHash,
+                SourceHash: edge.SourceHash,
+                TargetHash: resolvedNode.NodeHash,
+                EdgeType:   edge.EdgeType,
+                Confidence: edge.Confidence,
+                Provenance: edge.Provenance,
+            }
+            store.DeleteEdge(ctx, edge.EdgeHash)
+            store.PutEdge(ctx, newEdge)
+            ```
+
+            ### 2. internal/resolver/resolver_test.go
+
+            Test with a real SQLiteStore (import internal/store).
+            Create a helper that sets up the database and inserts test data.
+
+            **TestResolve_CrossRepo:**
+            - Create temp SQLite database
+            - Insert repoA (URL "https://github.com/org/repoA") and
+              repoB (URL "https://github.com/org/repoB")
+            - Insert files for each repo
+            - Insert a node in repo B:
+              nodeHash = ComputeNodeHash("https://github.com/org/repoB",
+                "github.com/org/repoB/pkg", EmptyHash, "DoThing", "function")
+              qualifiedName = "https://github.com/org/repoB://github.com/org/repoB/pkg.DoThing"
+              kind = "function"
+            - Insert a source node in repo A:
+              sourceHash = ComputeNodeHash("https://github.com/org/repoA",
+                "github.com/org/repoA/cmd", EmptyHash, "main", "function")
+              qualifiedName = "https://github.com/org/repoA://github.com/org/repoA/cmd.main"
+            - Insert a dangling edge:
+              targetHash = ComputeNodeHash("https://github.com/org/repoA",
+                "github.com/org/repoB/pkg", EmptyHash, "DoThing", "function")
+              (this is the bug: repoA URL used instead of repoB)
+            - Run resolver.Resolve()
+            - Verify stats: TotalDangling=1, Retargeted=1
+            - Verify the new edge targets repoB's node
+
+            **TestResolve_NoDangling:**
+            - All edges have valid targets
+            - Stats: all zeros
+
+            **TestResolve_NoMatchSkipped:**
+            - Dangling edge where no node matches in any repo
+            - Stats: Skipped=1
+
+            ### Constraints
+            - Do NOT modify any files outside internal/resolver/.
+            - Do NOT create stub nodes for unresolved edges. Skip gracefully.
+            - Use types.ComputeNodeHash and types.ComputeEdgeHash for all hash
+              computations. Do not reimplement hash logic.
+            - The local Store interface must match the method signatures from
+              the interface contracts exactly.
+
+            ### Verification
+            ```bash
+            go build ./internal/resolver/...
+            go test ./internal/resolver/... -v
+            grep -c "func (r \*Resolver) Resolve" internal/resolver/resolver.go
+            # expect >= 1
+            grep -c "Retargeted" internal/resolver/resolver.go
+            # expect >= 1
+            grep -c "func TestResolve" internal/resolver/resolver_test.go
+            # expect >= 2
+            ```
+          files:
+            - internal/resolver/resolver.go
+            - internal/resolver/resolver_test.go
+    - number: 2
+      agents:
+        - id: D
+          task: |
+            ## Task: Fix extractor hash computation and wire resolver into indexer
+
+            Two sub-tasks: (1) fix the extractor to use correct repo URL for cross-repo
+            call targets, and (2) wire the resolver into the indexer's IndexRepo flow.
+
+            ### 1. Fix extractCallEdges in extractor.go
+
+            The bug is in internal/indexer/goextractor/extractor.go. Three call sites
+            compute target hashes using `opts.RepoURL` (the calling repo's URL) instead
+            of the target's actual repo URL.
+
+            **a. Add packages.NeedModule to the config.**
+            Find this exact text:
+            ```go
+            	cfg := &packages.Config{
+            		Mode: packages.NeedName | packages.NeedFiles | packages.NeedSyntax |
+            			packages.NeedTypes | packages.NeedTypesInfo | packages.NeedImports,
+            ```
+            Replace with:
+            ```go
+            	cfg := &packages.Config{
+            		Mode: packages.NeedName | packages.NeedFiles | packages.NeedSyntax |
+            			packages.NeedTypes | packages.NeedTypesInfo | packages.NeedImports |
+            			packages.NeedModule,
+            ```
+
+            **b. Add two helper functions** before the `deduplicateEdges` function.
+            Insert before this exact text:
+            ```go
+            // deduplicateEdges removes duplicate edges based on EdgeHash.
+            ```
+
+            Add:
+            ```go
+            // resolveTargetRepoURL determines the correct repo URL for a cross-repo
+            // call target. For local packages (same module), returns opts.RepoURL.
+            // For external packages, uses Module info from go/packages when available,
+            // falling back to heuristic inference from the import path.
+            func resolveTargetRepoURL(opts types.ExtractOptions, targetPkg string, pkg *packages.Package) string {
+                // Local package: same module as the source.
+                if pkg.Module != nil && strings.HasPrefix(targetPkg, pkg.Module.Path) {
+                    return opts.RepoURL
+                }
+
+                // External package: try to get module path from imported package.
+                if importedPkg, ok := pkg.Imports[targetPkg]; ok && importedPkg.Module != nil {
+                    return importedPkg.Module.Path
+                }
+
+                // Heuristic fallback.
+                return inferRepoURL(targetPkg)
+            }
+
+            // inferRepoURL extracts the probable repository URL from a Go import path.
+            // For "github.com/org/repo/pkg/sub" it returns "github.com/org/repo".
+            // For stdlib paths (no dots in first segment) it returns "stdlib".
+            func inferRepoURL(importPath string) string {
+                parts := strings.Split(importPath, "/")
+                if len(parts) == 0 {
+                    return importPath
+                }
+                // stdlib: no dots in first segment (e.g., "fmt", "net/http")
+                if !strings.Contains(parts[0], ".") {
+                    return "stdlib"
+                }
+                // github.com, gitlab.com, bitbucket.org: first 3 segments
+                if len(parts) >= 3 {
+                    return strings.Join(parts[:3], "/")
+                }
+                // golang.org/x/foo or similar with fewer segments
+                if len(parts) >= 2 {
+                    return strings.Join(parts[:2], "/")
+                }
+                return importPath
+            }
+            ```
+
+            **c. Fix extractCallEdges.** Find this exact text:
+            ```go
+            		targetHash := types.ComputeNodeHash(opts.RepoURL, targetPkg, types.EmptyHash, targetName, targetKind)
+            		provenance := "ast_resolved"
+            		edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "calls", provenance)
+            ```
+            Replace with:
+            ```go
+            		targetRepoURL := resolveTargetRepoURL(opts, targetPkg, pkg)
+            		targetHash := types.ComputeNodeHash(targetRepoURL, targetPkg, types.EmptyHash, targetName, targetKind)
+            		provenance := "ast_resolved"
+            		edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "calls", provenance)
+            ```
+
+            **d. Fix import edges.** Find this exact text:
+            ```go
+            		impHash := types.ComputeNodeHash(opts.RepoURL, impPath, types.EmptyHash, impPath, "package")
+            ```
+            Replace with:
+            ```go
+            		impRepoURL := resolveTargetRepoURL(opts, impPath, pkg)
+            		impHash := types.ComputeNodeHash(impRepoURL, impPath, types.EmptyHash, impPath, "package")
+            ```
+
+            **e. Fix extractReferenceEdges.** Find this exact text (in the extractReferenceEdges method):
+            ```go
+            		targetHash := types.ComputeNodeHash(opts.RepoURL, targetPkg, types.EmptyHash, targetName, targetKind)
+            ```
+            Replace with:
+            ```go
+            		targetRepoURL := resolveTargetRepoURL(opts, targetPkg, pkg)
+            		targetHash := types.ComputeNodeHash(targetRepoURL, targetPkg, types.EmptyHash, targetName, targetKind)
+            ```
+
+            ### 2. Wire resolver into IndexRepo in indexer.go
+
+            **a. Add import.** Add to the import block in indexer.go:
+            ```go
+            "github.com/blackwell-systems/knowing/internal/resolver"
+            ```
+
+            **b. Add ResolveEdges method.** Insert after the IndexRepo function
+            (after the line `return snap, nil` and its closing `}`), before the
+            unexported `extractFile` method:
+            ```go
+            // ResolveEdges runs the cross-repo edge resolver to retarget dangling edges
+            // whose target hashes were computed with the wrong repo URL.
+            func (idx *Indexer) ResolveEdges(ctx context.Context) (*resolver.ResolveStats, error) {
+                r := resolver.NewResolver(idx.store)
+                return r.Resolve(ctx)
+            }
+            ```
+
+            **c. Call ResolveEdges at the end of IndexRepo.** Insert after this exact text:
+            ```go
+            	snap, err := idx.snapshot.ComputeSnapshot(ctx, repoHash, commitHash)
+            	if err != nil {
+            		return nil, fmt.Errorf("compute snapshot: %w", err)
+            	}
+            ```
+            Add before `return snap, nil`:
+            ```go
+
+            	// Resolve cross-repo dangling edges (best-effort, does not fail indexing).
+            	_, _ = idx.ResolveEdges(ctx)
+            ```
+
+            ### 3. Tests
+
+            **extractor_test.go - TestCrossRepoCallEdgeHash:**
+            Test that the extractor produces correct target hashes for cross-repo calls.
+            This requires two Go modules where one imports the other. Since go/packages
+            needs real module resolution:
+            - Create tmpDir with two subdirectories: repoA/ and repoB/
+            - repoB has go.mod "module github.com/test/repoB" and pkg/lib.go with
+              an exported function DoThing()
+            - repoA has go.mod with require + replace directive pointing to ../repoB,
+              and main.go that calls repoB.DoThing()
+            - Extract repoA's main.go with RepoURL="github.com/test/repoA"
+            - Find the call edge to DoThing
+            - Verify edge.TargetHash equals ComputeNodeHash("github.com/test/repoB",
+              "github.com/test/repoB/pkg", EmptyHash, "DoThing", "function")
+            - This confirms the extractor now uses repoB's URL, not repoA's
+
+            **indexer_test.go - TestIndexRepoResolvesEdges:**
+            - Set up store with pre-existing repoB node
+            - Index repoA (which calls repoB's function)
+            - After IndexRepo completes, verify no dangling edges remain
+              (the resolver ran automatically)
+
+            ### Constraints
+            - Do NOT modify ComputeNodeHash in types/types.go.
+            - Do NOT modify store code (merged from wave 1).
+            - Do NOT modify types/interfaces.go (merged from wave 1).
+            - The resolver package (created by Agent C in wave 1) is available.
+            - Pass the `pkg *packages.Package` parameter to resolveTargetRepoURL;
+              it has `Imports map[string]*Package` and `Module *Module` fields.
+            - The `packages.NeedModule` flag is needed for Module to be populated.
+
+            ### Verification
+            ```bash
+            go build ./internal/indexer/...
+            go build ./internal/indexer/goextractor/...
+            go test ./internal/indexer/goextractor/... -v -run TestCrossRepo
+            go test ./internal/indexer/... -v -run TestResolve
+            grep -c "resolveTargetRepoURL" internal/indexer/goextractor/extractor.go
+            # expect >= 3
+            grep -c "ResolveEdges" internal/indexer/indexer.go
+            # expect >= 2
+            grep -c "inferRepoURL" internal/indexer/goextractor/extractor.go
+            # expect >= 1
+            ```
+          files:
+            - internal/indexer/goextractor/extractor.go
+            - internal/indexer/goextractor/extractor_test.go
+            - internal/indexer/indexer.go
+            - internal/indexer/indexer_test.go
+          dependencies:
+            - A
+            - B
+            - C
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: go build ./...
+          required: true
+        - type: lint
+          command: go vet ./...
+          required: true
+        - type: test
+          command: go test ./...
+          required: true
+pre_mortem:
+    overall_risk: medium
+    rows:
+        - scenario: |
+            Agent C's resolver.Store interface drifts from Agent A's GraphStore additions,
+            causing compilation failure at merge.
+          likelihood: low
+          impact: high
+          mitigation: |
+            Interface contracts specify exact signatures. Agent C uses a local Store
+            interface with the same method signatures. Post-merge, SQLiteStore satisfies both.
+        - scenario: |
+            The go/packages Module field is nil for vendored or replaced dependencies,
+            causing resolveTargetRepoURL to fall back to heuristic for all cross-repo calls.
+          likelihood: medium
+          impact: low
+          mitigation: |
+            The inferRepoURL heuristic handles github.com/org/repo patterns correctly,
+            which covers the vast majority of Go dependencies. The resolver also handles
+            any remaining dangling edges as a post-processing step.
+        - scenario: |
+            The resolver's reverse lookup map building is too slow for large graphs
+            with many nodes (>100K).
+          likelihood: low
+          impact: medium
+          mitigation: |
+            For the 4,712 dangling edges mentioned in the feature description, even with
+            100K nodes the map building is a single pass. The lookup is O(1) per edge.
+        - scenario: |
+            DanglingEdges returns edges to stdlib functions that were never indexed,
+            creating noise in resolution stats.
+          likelihood: medium
+          impact: low
+          mitigation: |
+            The resolver skips edges whose inferred target looks like stdlib (no dots
+            in the first path segment). Stats track skipped vs retargeted.
+        - scenario: |
+            Deterministic reindexing (architecture decision 8) breaks because the resolver
+            modifies edges after snapshot computation.
+          likelihood: medium
+          impact: high
+          mitigation: |
+            The resolver runs AFTER snapshot computation. Resolved edges are not included
+            in the snapshot hash. The snapshot reflects raw indexer output. Resolution
+            is best-effort post-processing. This must be documented in code comments.
+            Future work may recompute snapshot after resolution if needed.
+critic_report:
+    verdict: ISSUES
+    agent_reviews:
+        A:
+            agent_id: A
+            verdict: PASS
+        B:
+            agent_id: B
+            verdict: PASS
+        C:
+            agent_id: C
+            verdict: PASS
+        D:
+            agent_id: D
+            verdict: ISSUES
+            issues:
+                - check: symbol_accuracy
+                  severity: error
+                  description: After Agent A adds DanglingEdges, AllRepos, NodesByQualifiedName, and DeleteEdge to the GraphStore interface in wave 1, the mockStore in indexer_test.go will fail to compile because it does not implement these 4 new methods. Agent D owns indexer_test.go but the brief does not instruct adding stub implementations for these methods on mockStore.
+                  file: internal/indexer/indexer_test.go
+                  symbol: mockStore
+                - check: pattern_accuracy
+                  severity: warning
+                  description: Brief says to insert ResolveEdges method after IndexRepo and before the unexported extractFile method, but extractFile is defined at line 112, BEFORE IndexRepo which starts at line 136. IndexRepo is the last function in the file (ends at line 276). The insertion point description is spatially incorrect, though the intent (add after IndexRepo) is clear.
+                  file: internal/indexer/indexer.go
+                  symbol: extractFile
+                - check: complexity_balance
+                  severity: warning
+                  description: Agent D owns 4 of 10 total files (40%), at the advisory rebalancing threshold.
+    summary: 'Reviewed 4 agents across 10 files. Found 1 error and 2 warnings. Agent D has a compilation-breaking gap: the mockStore in indexer_test.go implements types.GraphStore but the brief does not instruct Agent D to add stub methods for the 4 new GraphStore methods added by Agent A in wave 1 (DanglingEdges, AllRepos, NodesByQualifiedName, DeleteEdge). This will cause a compile failure during wave 2. Additionally, Agent D''s brief incorrectly describes the insertion point for ResolveEdges (says before extractFile, but extractFile is defined before IndexRepo in the file). Agent D also owns 4 of 10 files (40%), at the advisory threshold.'
+    reviewed_at: "2026-05-15T15:39:21Z"
+    issue_count: 3
+state: SCOUT_PENDING
+injection_method: hook
