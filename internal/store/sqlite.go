@@ -58,9 +58,10 @@ func (s *SQLiteStore) PutNode(ctx context.Context, n types.Node) error {
 
 func (s *SQLiteStore) PutEdge(ctx context.Context, e types.Edge) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT OR REPLACE INTO edges (edge_hash, source_hash, target_hash, edge_type, confidence, provenance)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
+		`INSERT OR REPLACE INTO edges (edge_hash, source_hash, target_hash, edge_type, confidence, provenance, callsite_line, callsite_col, callsite_file)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		e.EdgeHash[:], e.SourceHash[:], e.TargetHash[:], e.EdgeType, e.Confidence, e.Provenance,
+		e.CallSiteLine, e.CallSiteCol, e.CallSiteFile,
 	)
 	return err
 }
@@ -125,15 +126,15 @@ func (s *SQLiteStore) BatchPutEdges(ctx context.Context, edges []types.Edge) err
 	defer tx.Rollback() //nolint:errcheck
 
 	stmt, err := tx.PrepareContext(ctx,
-		`INSERT OR REPLACE INTO edges (edge_hash, source_hash, target_hash, edge_type, confidence, provenance)
-		 VALUES (?, ?, ?, ?, ?, ?)`)
+		`INSERT OR REPLACE INTO edges (edge_hash, source_hash, target_hash, edge_type, confidence, provenance, callsite_line, callsite_col, callsite_file)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("prepare: %w", err)
 	}
 	defer stmt.Close()
 
 	for _, e := range edges {
-		if _, err := stmt.ExecContext(ctx, e.EdgeHash[:], e.SourceHash[:], e.TargetHash[:], e.EdgeType, e.Confidence, e.Provenance); err != nil {
+		if _, err := stmt.ExecContext(ctx, e.EdgeHash[:], e.SourceHash[:], e.TargetHash[:], e.EdgeType, e.Confidence, e.Provenance, e.CallSiteLine, e.CallSiteCol, e.CallSiteFile); err != nil {
 			return fmt.Errorf("exec edge %s: %w", e.EdgeHash, err)
 		}
 	}
@@ -185,7 +186,7 @@ func (s *SQLiteStore) GetNode(ctx context.Context, hash types.Hash) (*types.Node
 
 func (s *SQLiteStore) GetEdge(ctx context.Context, hash types.Hash) (*types.Edge, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT edge_hash, source_hash, target_hash, edge_type, confidence, provenance FROM edges WHERE edge_hash = ?`,
+		`SELECT edge_hash, source_hash, target_hash, edge_type, confidence, provenance, callsite_line, callsite_col, callsite_file FROM edges WHERE edge_hash = ?`,
 		hash[:],
 	)
 	return scanEdge(row)
@@ -241,7 +242,7 @@ func (s *SQLiteStore) NodesByName(ctx context.Context, qualifiedPrefix string) (
 }
 
 func (s *SQLiteStore) EdgesFrom(ctx context.Context, sourceHash types.Hash, edgeType string) ([]types.Edge, error) {
-	query := `SELECT edge_hash, source_hash, target_hash, edge_type, confidence, provenance
+	query := `SELECT edge_hash, source_hash, target_hash, edge_type, confidence, provenance, callsite_line, callsite_col, callsite_file
 		 FROM edges WHERE source_hash = ?`
 	args := []interface{}{sourceHash[:]}
 	if edgeType != "" {
@@ -257,7 +258,7 @@ func (s *SQLiteStore) EdgesFrom(ctx context.Context, sourceHash types.Hash, edge
 }
 
 func (s *SQLiteStore) EdgesTo(ctx context.Context, targetHash types.Hash, edgeType string) ([]types.Edge, error) {
-	query := `SELECT edge_hash, source_hash, target_hash, edge_type, confidence, provenance
+	query := `SELECT edge_hash, source_hash, target_hash, edge_type, confidence, provenance, callsite_line, callsite_col, callsite_file
 		 FROM edges WHERE target_hash = ?`
 	args := []interface{}{targetHash[:]}
 	if edgeType != "" {
@@ -397,7 +398,7 @@ func (s *SQLiteStore) SnapshotDiff(ctx context.Context, oldRoot, newRoot types.H
 
 	// Edges added: events in the new snapshot that are "added" and not in old.
 	addedRows, err := s.db.QueryContext(ctx, `
-		SELECT e.edge_hash, e.source_hash, e.target_hash, e.edge_type, e.confidence, e.provenance
+		SELECT e.edge_hash, e.source_hash, e.target_hash, e.edge_type, e.confidence, e.provenance, e.callsite_line, e.callsite_col, e.callsite_file
 		FROM edge_events ev
 		JOIN edges e ON e.edge_hash = ev.edge_hash
 		WHERE ev.snapshot_hash = ? AND ev.event_type = 'added'`,
@@ -414,7 +415,7 @@ func (s *SQLiteStore) SnapshotDiff(ctx context.Context, oldRoot, newRoot types.H
 
 	// Edges removed: events in the new snapshot that are "removed".
 	removedRows, err := s.db.QueryContext(ctx, `
-		SELECT e.edge_hash, e.source_hash, e.target_hash, e.edge_type, e.confidence, e.provenance
+		SELECT e.edge_hash, e.source_hash, e.target_hash, e.edge_type, e.confidence, e.provenance, e.callsite_line, e.callsite_col, e.callsite_file
 		FROM edge_events ev
 		JOIN edges e ON e.edge_hash = ev.edge_hash
 		WHERE ev.snapshot_hash = ? AND ev.event_type = 'removed'`,
@@ -439,7 +440,7 @@ func (s *SQLiteStore) StaleEdges(ctx context.Context, snapshot types.Hash) ([]ty
 	// file with the same repo+path combination but a different content hash.
 	// Simplified: find edges whose source node's file has been updated.
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT DISTINCT e.edge_hash, e.source_hash, e.target_hash, e.edge_type, e.confidence, e.provenance
+		SELECT DISTINCT e.edge_hash, e.source_hash, e.target_hash, e.edge_type, e.confidence, e.provenance, e.callsite_line, e.callsite_col, e.callsite_file
 		FROM edges e
 		JOIN nodes n ON n.node_hash = e.source_hash
 		JOIN files f ON f.file_hash = n.file_hash
@@ -518,7 +519,7 @@ func (s *SQLiteStore) FileByPath(ctx context.Context, repoHash types.Hash, path 
 
 func (s *SQLiteStore) DanglingEdges(ctx context.Context) ([]types.Edge, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT e.edge_hash, e.source_hash, e.target_hash, e.edge_type, e.confidence, e.provenance
+		`SELECT e.edge_hash, e.source_hash, e.target_hash, e.edge_type, e.confidence, e.provenance, e.callsite_line, e.callsite_col, e.callsite_file
 		 FROM edges e
 		 LEFT JOIN nodes n ON n.node_hash = e.target_hash
 		 WHERE n.node_hash IS NULL`,
@@ -604,7 +605,7 @@ func scanNode(row scannable) (*types.Node, error) {
 func scanEdge(row scannable) (*types.Edge, error) {
 	var e types.Edge
 	var edgeHash, sourceHash, targetHash []byte
-	if err := row.Scan(&edgeHash, &sourceHash, &targetHash, &e.EdgeType, &e.Confidence, &e.Provenance); err != nil {
+	if err := row.Scan(&edgeHash, &sourceHash, &targetHash, &e.EdgeType, &e.Confidence, &e.Provenance, &e.CallSiteLine, &e.CallSiteCol, &e.CallSiteFile); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -621,7 +622,7 @@ func scanEdges(rows *sql.Rows) ([]types.Edge, error) {
 	for rows.Next() {
 		var e types.Edge
 		var edgeHash, sourceHash, targetHash []byte
-		if err := rows.Scan(&edgeHash, &sourceHash, &targetHash, &e.EdgeType, &e.Confidence, &e.Provenance); err != nil {
+		if err := rows.Scan(&edgeHash, &sourceHash, &targetHash, &e.EdgeType, &e.Confidence, &e.Provenance, &e.CallSiteLine, &e.CallSiteCol, &e.CallSiteFile); err != nil {
 			return nil, err
 		}
 		copy(e.EdgeHash[:], edgeHash)

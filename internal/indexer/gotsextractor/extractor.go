@@ -411,6 +411,10 @@ func walkForCalls(node *sitter.Node, opts types.ExtractOptions, pkgPath string, 
 		if funcNode != nil {
 			edge := resolveCallEdge(funcNode, opts, pkgPath, sourceHash, imports)
 			if edge != nil {
+				// Store call-site position for LSP enrichment.
+				edge.CallSiteLine = int(node.StartPoint().Row) + 1 // tree-sitter is 0-indexed, we store 1-indexed
+				edge.CallSiteCol = int(node.StartPoint().Column)
+				edge.CallSiteFile = opts.FilePath
 				*edges = append(*edges, *edge)
 			}
 		}

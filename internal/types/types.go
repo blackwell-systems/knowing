@@ -45,6 +45,12 @@ type Edge struct {
 	EdgeType   string  // calls, imports, implements, references, etc.
 	Confidence float64 // 0.0 to 1.0
 	Provenance string  // provenance source (ast_resolved, scip_imported, etc.)
+	// CallSite stores the source location of the call expression (not the
+	// declaration). Used by LSP enrichment to confirm edge targets via
+	// gopls GetDefinition. Zero values mean no call-site info available.
+	CallSiteLine int    // 1-indexed line of the call expression
+	CallSiteCol  int    // 0-indexed column of the call expression
+	CallSiteFile string // relative file path containing the call
 }
 
 // File represents a tracked source file.

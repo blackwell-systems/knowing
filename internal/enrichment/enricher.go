@@ -84,17 +84,18 @@ func (e *Enricher) Run(ctx context.Context, repoHash types.Hash) error {
 
 	stats := &enrichStats{}
 
+	// Open all Go files so gopls has full workspace knowledge.
+	// Required before any GetDefinition, GetImplementation, or GetReferences call.
+	e.openAllFiles(ctx, files)
+
+	// Upgrade ast_inferred call edges that have call-site positions.
+	e.upgradeCallEdges(ctx, repoHash, filePathByHash, stats)
+
 	// Discover new implements and references edges via LSP document symbols.
-	// This is the primary enrichment path: gopls provides type-resolved
-	// symbol information that tree-sitter cannot.
-	//
-	// Note: per-edge upgrade (resolving ast_inferred call edges individually)
-	// is not implemented because call-site positions are not stored in edges.
-	// The tree-sitter pass stores the source node's declaration line, not
-	// the call site line. Without call-site positions, gopls GetDefinition
-	// returns the declaration itself, not useful for edge validation.
-	// Future: store call-site line/col in edges to enable per-edge upgrade.
 	e.discoverNewEdges(ctx, files, filePathByHash, stats)
+
+	// Close all opened documents.
+	e.closeAllFiles(ctx, files)
 
 	// Log summary instead of per-edge noise.
 	log.Printf("enrichment complete: %d edges processed, %d upgraded, %d skipped, %d errors, %d new edges discovered, %d files scanned, %d file errors",
@@ -129,48 +130,127 @@ func upgradeEdge(old types.Edge) types.Edge {
 	}
 }
 
+// upgradeCallEdges finds ast_inferred edges with call-site positions and
+// queries gopls GetDefinition at those positions to confirm targets.
+// Successfully resolved edges are upgraded to lsp_resolved with confidence 0.9.
+func (e *Enricher) upgradeCallEdges(
+	ctx context.Context,
+	repoHash types.Hash,
+	filePathByHash map[types.Hash]string,
+	stats *enrichStats,
+) {
+	repo, err := e.store.GetRepo(ctx, repoHash)
+	if err != nil || repo == nil {
+		return
+	}
+
+	nodes, err := e.store.NodesByName(ctx, repo.RepoURL)
+	if err != nil {
+		return
+	}
+
+	for _, node := range nodes {
+		if ctx.Err() != nil {
+			return
+		}
+		if _, ok := filePathByHash[node.FileHash]; !ok {
+			continue
+		}
+
+		edges, err := e.store.EdgesFrom(ctx, node.NodeHash, "")
+		if err != nil {
+			continue
+		}
+
+		for _, edge := range edges {
+			if edge.Provenance != "ast_inferred" {
+				continue
+			}
+			if edge.CallSiteLine == 0 || edge.CallSiteFile == "" {
+				continue
+			}
+
+			stats.edgesProcessed++
+
+			uri := "file://" + filepath.Join(e.workspaceRoot, edge.CallSiteFile)
+			pos := lsptypes.Position{
+				Line:      edge.CallSiteLine - 1, // 1-indexed to 0-indexed
+				Character: edge.CallSiteCol,
+			}
+
+			locs, err := e.client.GetDefinition(ctx, uri, pos)
+			if err != nil {
+				stats.edgeErrors++
+				continue
+			}
+			if len(locs) == 0 {
+				stats.edgesSkipped++
+				continue
+			}
+
+			// gopls confirmed a definition exists at this call site.
+			// Upgrade the edge.
+			if err := e.store.DeleteEdge(ctx, edge.EdgeHash); err != nil {
+				stats.edgeErrors++
+				continue
+			}
+
+			upgraded := upgradeEdge(edge)
+			upgraded.CallSiteLine = edge.CallSiteLine
+			upgraded.CallSiteCol = edge.CallSiteCol
+			upgraded.CallSiteFile = edge.CallSiteFile
+			if err := e.store.PutEdge(ctx, upgraded); err != nil {
+				stats.edgeErrors++
+				continue
+			}
+			stats.edgesUpgraded++
+		}
+	}
+}
+
+// openAllFiles opens all Go source files via textDocument/didOpen so gopls
+// has full workspace knowledge for cross-package resolution.
+func (e *Enricher) openAllFiles(ctx context.Context, files []types.File) {
+	for _, f := range files {
+		if ctx.Err() != nil {
+			return
+		}
+		if !strings.HasSuffix(f.Path, ".go") || strings.HasSuffix(f.Path, "_test.go") {
+			continue
+		}
+		absPath := filepath.Join(e.workspaceRoot, f.Path)
+		content, err := os.ReadFile(absPath)
+		if err != nil {
+			continue
+		}
+		uri := "file://" + absPath
+		_ = e.client.OpenDocument(ctx, uri, string(content), "go")
+	}
+}
+
+// closeAllFiles closes all opened Go source files.
+func (e *Enricher) closeAllFiles(ctx context.Context, files []types.File) {
+	for _, f := range files {
+		if strings.HasSuffix(f.Path, ".go") && !strings.HasSuffix(f.Path, "_test.go") {
+			uri := "file://" + filepath.Join(e.workspaceRoot, f.Path)
+			_ = e.client.CloseDocument(ctx, uri)
+		}
+	}
+}
+
 // discoverNewEdges uses LSP to find implements and references edges not
-// found by tree-sitter. Opens each file via textDocument/didOpen before
-// querying, which is required for gopls to resolve cross-package references.
+// found by tree-sitter. Assumes files are already opened via openAllFiles.
 func (e *Enricher) discoverNewEdges(
 	ctx context.Context,
 	files []types.File,
 	filePathByHash map[types.Hash]string,
 	stats *enrichStats,
 ) {
-	// First pass: open all Go files so gopls has full workspace knowledge.
 	for _, f := range files {
 		if ctx.Err() != nil {
 			return
 		}
-		if !strings.HasSuffix(f.Path, ".go") {
-			continue
-		}
-		if strings.HasSuffix(f.Path, "_test.go") {
-			continue
-		}
-
-		absPath := filepath.Join(e.workspaceRoot, f.Path)
-		content, err := os.ReadFile(absPath)
-		if err != nil {
-			continue
-		}
-
-		uri := "file://" + absPath
-		if err := e.client.OpenDocument(ctx, uri, string(content), "go"); err != nil {
-			continue
-		}
-	}
-
-	// Second pass: query symbols and discover edges.
-	for _, f := range files {
-		if ctx.Err() != nil {
-			return
-		}
-		if !strings.HasSuffix(f.Path, ".go") {
-			continue
-		}
-		if strings.HasSuffix(f.Path, "_test.go") {
+		if !strings.HasSuffix(f.Path, ".go") || strings.HasSuffix(f.Path, "_test.go") {
 			continue
 		}
 
@@ -184,14 +264,6 @@ func (e *Enricher) discoverNewEdges(
 		}
 
 		e.processSymbols(ctx, uri, symbols, f, filePathByHash, stats)
-	}
-
-	// Close all opened documents.
-	for _, f := range files {
-		if strings.HasSuffix(f.Path, ".go") && !strings.HasSuffix(f.Path, "_test.go") {
-			uri := "file://" + filepath.Join(e.workspaceRoot, f.Path)
-			_ = e.client.CloseDocument(ctx, uri)
-		}
 	}
 }
 
