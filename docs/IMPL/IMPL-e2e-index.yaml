@@ -565,5 +565,5 @@ critic_report:
     summary: 'All briefs verified against the codebase. All file_existence checks pass (modify files exist, new file e2e_test.go does not exist). Symbol accuracy verified: all function names, types, method names, and code anchors match the actual codebase. Pattern accuracy confirmed: code patterns described in briefs (ComputeNodeHash body, RecordEdgeEvent anchor, handleIndexRepo stub, handleOwnership EdgesFrom/contains pattern, indexWorker HEAD string, RLock anchor) all match exactly. Interface contracts are syntactically valid and reference existing types. The treesitter extractor (internal/indexer/treesitter/extractor.go) also calls ComputeNodeHash with opts.FileHash but is not in file_ownership; this is functionally safe because Agent A''s fix makes the contentHash parameter ignored, but the inconsistency is noted as a warning. No disjoint ownership violations. No complexity balance issues.'
     reviewed_at: "2026-05-15T09:57:02Z"
     issue_count: 1
-state: SCOUT_PENDING
+state: "REVIEWED"
 injection_method: hook
