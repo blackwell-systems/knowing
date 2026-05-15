@@ -90,6 +90,7 @@ The graph connects symbols with typed, provenance-annotated edges:
 - **MCP-native**: exposed as MCP tools, consumed by agents directly
 - **Fast**: optimized for interactive agent queries over large multi-repo graphs
 - **Deterministic**: same input at same commit always produces the same graph (verifiable via hash)
+- **Computation cache as a primitive**: every derived result (traversals, blast radius, semantic diffs) is a content-addressed artifact that can be stored, shared, synced, and referenced with the same guarantees as the graph itself
 
 ---
 
@@ -534,15 +535,6 @@ The interface lets us:
 | Query depth limits | Caller passes `maxDepth`; backend respects it |
 | Provenance filtering | Caller can post-filter; backend may optimize |
 
-**Cache layer (built into the SQLite backend, not the interface):**
-
-The content-addressed design makes query caching structurally correct: results keyed by `(query_params, snapshot_root_hash)` are guaranteed valid until the root changes. The SQLite backend implements two cache tiers internally:
-
-- **L1 (in-memory):** LRU cache of traversal results keyed by `(target_hash, query_type, snapshot_root)`. Serves repeat queries without touching disk. Invalidated when a new snapshot is created.
-- **L2 (materialized closures):** For high-fan-in symbols, the backend precomputes and stores transitive caller sets in a `transitive_callers` table. Recomputation is triggered only when the Merkle diff between snapshots touches the relevant subgraph.
-
-Other backends implement their own caching strategies (or none, if adjacency-list traversal is fast enough without it).
-
 **Hard to retrofit?** No. The interface is a clean boundary that can be introduced at any point before the first beta. But defining it now ensures no SQL leaks into the indexer, MCP handlers, or snapshot logic during development.
 
 ## 11. Process Model
@@ -568,28 +560,34 @@ knowing daemon (long-lived)
 
 **MCP transport:** stdio for single-agent use (Claude Code, Cursor), HTTP for multi-agent or remote access.
 
-## 12. Traversal Cache
+## 12. Content-Addressed Computation Cache
 
-**Decision:** Graph traversal results are cached in two tiers, with invalidation driven by content-addressed hash comparison rather than TTLs or heuristics.
+**Decision:** Every derived result in knowing (traversals, blast radius analyses, semantic diffs, runtime aggregations) is a content-addressed artifact: keyed by `(query_params, snapshot_root_hash)`, deterministically reproducible, and shareable across machines with the same guarantees as the graph itself. Caching is not an optimization layer; it is a core architectural primitive that enables distribution, collaboration, and scalability.
 
-**Why this is different from normal caching:**
+**Why this is not normal caching:**
 
-Most cache invalidation is a guessing game: TTL-based expiry hopes data hasn't changed, event-driven invalidation hopes no events were missed, version counters hope nothing incremented out of band. Content-addressed storage eliminates guessing. A query result computed against snapshot root `R` is valid for all time; when a new snapshot `R'` is created, the Merkle diff between `R` and `R'` identifies exactly which subtrees changed. Only cached results that touch changed subtrees are invalidated. Everything else remains valid without re-verification.
+Most cache invalidation is a guessing game: TTL-based expiry hopes data hasn't changed, event-driven invalidation hopes no events were missed, version counters hope nothing incremented out of band. Content-addressed storage eliminates guessing entirely. A query result computed against snapshot root `R` is valid for all time. It is not "probably still fresh"; it is provably correct by construction. When a new snapshot `R'` is created, the Merkle diff between `R` and `R'` identifies exactly which subtrees changed. Only results that touch changed subtrees are invalidated. Everything else remains valid without re-verification.
+
+This property transforms caching from a performance concern into a distribution and collaboration primitive.
+
+### The reframing
+
+The graph itself is a cache. Source code is the truth. The graph is a content-addressed, queryable, provenance-tracked cache of what the source code *means*. Every query result is a further derivation from that cache, and those derivations are themselves cacheable, storable, shareable, and referenceable with the same integrity guarantees.
+
+This means knowing's scalability story is not "SQLite with some LRU on top." It is a content-addressed computation cache where every derived result is a verifiable artifact.
+
+### Cache tiers
 
 **L1: In-Memory LRU (Process-Scoped)**
 
 ```go
-// CacheKey uniquely identifies a traversal result.
 type CacheKey struct {
     TargetHash   Hash
-    QueryType    string // "transitive_callers", "transitive_callees", "blast_radius"
+    QueryType    string // "transitive_callers", "blast_radius", "semantic_diff", etc.
     MaxDepth     int
     SnapshotRoot Hash
 }
 
-// L1Cache is an LRU cache of traversal results held in the daemon process.
-// Sized by entry count (not bytes) since traversal results are small
-// relative to the graph.
 type L1Cache struct {
     mu       sync.RWMutex
     entries  map[CacheKey]*cacheEntry
@@ -598,102 +596,129 @@ type L1Cache struct {
 }
 ```
 
-**Behavior:**
+Keyed by `(target_hash, query_type, max_depth, snapshot_root)`. Same query against the same snapshot always returns the same result. On snapshot creation, the Merkle diff evicts only entries whose nodes fall within changed subtrees. Entries outside the diff survive across snapshots. Eviction is a performance choice, never a correctness one.
 
-- Keyed by `(target_hash, query_type, max_depth, snapshot_root)`. Same query against the same snapshot always returns the same result; no recomputation needed.
-- On snapshot creation, the daemon computes the Merkle diff and evicts only entries whose target node (or any node in the cached result set) falls within a changed subtree. Entries outside the diff survive across snapshots.
-- If memory pressure is a concern, the LRU evicts least-recently-used entries. But eviction is a performance choice, never a correctness one: re-querying always produces the same answer.
-- Cache hit rate is expected to be high because agents typically query the same symbols repeatedly during a single editing session, and most snapshots change a small fraction of the graph.
+**L2: Materialized Results (SQLite, Persisted)**
 
-**L2: Materialized Transitive Closures (SQLite, Persisted)**
-
-For high-fan-in symbols (utility functions, shared interfaces, popular library exports), precompute the full transitive caller set and store it in the database:
+For high-fan-in symbols and expensive computations, precompute and store results in the database:
 
 ```sql
-CREATE TABLE transitive_callers (
-    target_hash    BLOB NOT NULL,
-    caller_hash    BLOB NOT NULL,
-    depth          INTEGER NOT NULL,
-    min_confidence REAL NOT NULL,     -- lowest confidence along the path
-    snapshot_hash  BLOB NOT NULL,
-    computed_at    INTEGER NOT NULL,  -- unix timestamp (for GC, not invalidation)
-    PRIMARY KEY (target_hash, caller_hash, snapshot_hash)
+CREATE TABLE derived_results (
+    result_hash    BLOB PRIMARY KEY,    -- hash(query_params + snapshot_root)
+    query_type     TEXT NOT NULL,       -- "transitive_callers", "blast_radius", "semantic_diff"
+    query_params   BLOB NOT NULL,       -- content-addressed query parameters
+    snapshot_hash  BLOB NOT NULL,       -- snapshot this was computed against
+    result_data    BLOB NOT NULL,       -- the computed result
+    computed_at    INTEGER NOT NULL,    -- unix timestamp (for GC, not invalidation)
+    computed_by    TEXT NOT NULL        -- node identity (for distributed provenance)
 );
 
-CREATE INDEX idx_tc_snapshot ON transitive_callers(snapshot_hash);
-CREATE INDEX idx_tc_target ON transitive_callers(target_hash, snapshot_hash);
+CREATE INDEX idx_dr_snapshot ON derived_results(snapshot_hash);
+CREATE INDEX idx_dr_query ON derived_results(query_type, snapshot_hash);
 ```
 
-**When to materialize:**
-
-Not every symbol needs a precomputed closure. The decision is based on fan-in:
-
-```go
-// MaterializationPolicy determines which symbols get precomputed closures.
-type MaterializationPolicy struct {
-    // Symbols with more than this many direct callers get materialized.
-    // Default: 50. At this threshold, recursive CTE cost is noticeable
-    // and the symbol is likely to be queried again.
-    FanInThreshold int
-
-    // Maximum depth for materialized closures.
-    // Default: 5. Covers the vast majority of practical blast-radius queries.
-    MaxDepth int
-
-    // Maximum number of materialized symbols per snapshot.
-    // Prevents runaway storage for graphs where many symbols are popular.
-    // Default: 1,000.
-    MaxMaterialized int
-}
-```
-
-**Materialization lifecycle:**
-
-1. After a new snapshot is created, the daemon identifies candidate symbols (direct caller count > threshold).
-2. For each candidate, check whether the Merkle diff touches any node in its existing closure. If not, the existing materialization is still valid; skip it.
-3. For invalidated or new candidates, run the recursive CTE once and write the result to `transitive_callers`. This is background work; it doesn't block queries.
-4. Queries check L2 before falling back to a live CTE. An L2 miss is always safe; it just means the query runs the CTE directly.
-5. Old materializations (from snapshots that have been garbage collected) are cleaned up by the snapshot GC process.
+Materialization is triggered by fan-in (symbols with > 50 direct callers), by CI pipelines (semantic PR diff results), or by explicit request (organizational standing queries). Invalidation is structural: the Merkle diff identifies which results to recompute.
 
 **L3: Bounded Traversal with Early Termination**
 
 For interactive queries where latency matters more than completeness:
 
 ```go
-// TraversalOptions controls how deep and wide a traversal goes.
 type TraversalOptions struct {
-    MaxDepth    int  // hard cap on hops (default: 5)
-    MaxResults  int  // stop after collecting this many callers (default: 500)
+    MaxDepth      int     // hard cap on hops (default: 5)
+    MaxResults    int     // stop after collecting this many results (default: 500)
     MinConfidence float64 // prune paths below this confidence (default: 0.0)
 }
 ```
 
-When either limit is hit, the result includes `Truncated: true` and the agent can decide whether to request a deeper traversal. This keeps the common case (2-3 hops, narrow fan-out) fast regardless of graph size, and avoids accidentally traversing the entire graph for a symbol at the root of a deep call tree.
+When any limit is hit, the result includes `Truncated: true`. The common case (2-3 hops, narrow fan-out) stays fast regardless of graph size.
 
 **Query resolution order:**
 
 ```
-1. Check L1 (in-memory LRU) for exact key match
-   → hit: return immediately
-2. Check L2 (materialized closure) for target + snapshot match
-   → hit: filter by depth/confidence, populate L1, return
-3. Run live recursive CTE with TraversalOptions bounds
-   → populate L1 (and L2 if fan-in exceeds threshold), return
+1. L1 (in-memory) exact key match → return immediately
+2. L2 (persisted) query_type + snapshot match → filter, populate L1, return
+3. Live computation with TraversalOptions bounds → populate L1 and L2, return
 ```
 
-**What this costs:**
+### Beyond performance: caching as a distribution primitive
 
-- L1: memory proportional to cache size (10K entries ~= tens of MB). Freed on daemon restart.
-- L2: disk proportional to materialized closures. For 1,000 symbols with average closure size of 200, that's ~200K rows. Negligible for SQLite.
-- Background materialization: CPU time after each snapshot. Bounded by `MaxMaterialized` and skipped for unchanged subtrees. Expected to complete in under a second for typical snapshot diffs.
+The content-addressed property enables six capabilities that go beyond traditional caching:
 
-**What this does NOT do:**
+**1. Query results as first-class graph artifacts**
 
-- Does not cache node/edge lookups. Those are primary key lookups in SQLite, already O(1). Caching them would add complexity for no measurable gain.
-- Does not cache across daemon restarts. L1 is process-scoped. L2 persists but is tied to specific snapshots; after restart, the daemon revalidates against the current snapshot. This is a deliberate choice: cold start should be fast (L2 is already on disk), and L1 warms up quickly during normal use.
-- Does not attempt distributed caching. If multiple machines run knowing, each maintains its own cache. Cross-machine sync is handled at the snapshot level (Merkle diff exchange), not the cache level.
+A blast radius result is not just a cache entry. It is a content-addressed object stored in the graph with its own hash and provenance: "computed by knowing v0.4 against snapshot abc123 on machine X at time T." An SRE asking "what was the blast radius at deploy time?" gets the stored artifact from the CI run, not a recomputation. Query results become part of the ledger.
 
-**Hard to retrofit?** No. The cache is an optimization layer inside the storage backend. The `GraphStore` interface doesn't expose cache details; callers just call `TransitiveCallers` or `BlastRadius` and get results. The cache can be added, tuned, or removed without changing any code outside the SQLite backend implementation.
+**2. Cross-machine cache sharing via Merkle sync**
+
+Two developers indexing the same repos at the same commit produce the same graph (deterministic reindexing, decision #8). Their query results against the same snapshot are also identical by construction. The Merkle sync mechanism designed for graph exchange also works for exchanging precomputed results. A team lead runs a comprehensive analysis; every developer on the team gets the result via cache sync, with cryptographic proof it's correct.
+
+**3. Organizational materialized views**
+
+Standing queries materialized as content-addressed subgraphs: "everything team X owns and all inbound cross-repo edges" or "all services that touch the payments domain." Kept current by Merkle diff (recompute only when the relevant subtree changes). These become always-consistent organizational dashboards. The cache becomes the product for non-agent audiences.
+
+**4. Agent working set accumulation**
+
+An agent working on auth middleware runs 15 queries that map out a neighborhood of the graph. That working set is a subgraph with a content hash. The next agent touching the same area gets the working set pre-loaded, with a Merkle diff check to confirm currency. Agent sessions build on each other's exploration rather than starting cold.
+
+**5. CI pipeline result caching**
+
+Semantic PR diff results cached by `(base_snapshot_root, head_snapshot_root)`. A rebase that doesn't change the effective diff is free. Multiple PRs against the same base share the base-side computation. Graph-native test selection results are cached the same way. This makes knowing's CI integration fast enough to run on every push.
+
+**6. Runtime trace aggregation caching**
+
+Raw trace ingestion produces millions of spans. Aggregated results ("service A called service B 14,000 times this week") are expensive to compute but stable within a time window. Cached by `(time_window, snapshot_root)`. When a new snapshot doesn't change the relevant static edges, the aggregation carries forward.
+
+### Interface
+
+The computation cache is not hidden inside the storage backend. It is a first-class system component:
+
+```go
+// ComputationCache manages content-addressed derived results.
+type ComputationCache interface {
+    // Get retrieves a cached result by its content hash.
+    Get(ctx context.Context, resultHash Hash) (*DerivedResult, error)
+
+    // GetByQuery retrieves a cached result by query parameters and snapshot.
+    GetByQuery(ctx context.Context, queryType string, params Hash, snapshot Hash) (*DerivedResult, error)
+
+    // Put stores a derived result. The result hash is computed from
+    // (query_type, query_params, snapshot_root).
+    Put(ctx context.Context, result DerivedResult) error
+
+    // Invalidate removes results whose dependency sets intersect with
+    // the changed subtrees between two snapshots.
+    Invalidate(ctx context.Context, oldSnapshot, newSnapshot Hash, diff MerkleDiff) (evicted int, err error)
+
+    // Sync exchanges derived results with a remote cache via Merkle diff.
+    // Only results not present locally are transferred.
+    Sync(ctx context.Context, remote RemoteCache, snapshot Hash) (received int, err error)
+
+    // Materialize precomputes and stores results for a set of standing queries.
+    Materialize(ctx context.Context, queries []StandingQuery, snapshot Hash) error
+}
+
+// DerivedResult is a content-addressed computation result.
+type DerivedResult struct {
+    ResultHash   Hash
+    QueryType    string
+    QueryParams  Hash   // hash of the query parameters
+    SnapshotRoot Hash
+    Data         []byte // the result payload
+    ComputedAt   time.Time
+    ComputedBy   string // node identity
+}
+
+// StandingQuery is a query that is automatically re-materialized on each snapshot.
+type StandingQuery struct {
+    Name       string // human-readable identifier
+    QueryType  string
+    Params     Hash
+    Schedule   string // "on_snapshot", "hourly", "daily"
+}
+```
+
+**Hard to retrofit?** The L1/L2/L3 performance cache is easy to add at any time. The elevated capabilities (cross-machine sync, standing queries, agent working sets, CI result caching) require the `ComputationCache` interface and the `derived_results` table to be designed in, but can be implemented incrementally. The key decision that must be made early is treating derived results as content-addressed artifacts with their own hashes, not as opaque cache entries. That framing shapes the storage schema and the sync protocol.
 
 ## 13. Runtime Trace Ingestion
 
@@ -995,7 +1020,7 @@ jobs:
 | Deterministic reindexing | Same input = same output, always | Yes (non-determinism poisons the hash tree) |
 | SQLite | Single-binary, embedded, proven | No (storage backend is swappable) |
 | Storage interface | Backend is swappable without changing callers | No (clean boundary, introduce anytime before beta) |
-| Traversal cache | Content-addressed invalidation, no TTL heuristics | No (optimization layer, add when benchmarks justify) |
+| Computation cache | Every derived result is a content-addressed, shareable artifact | Moderate (result-as-artifact framing must be early; tiers are incremental) |
 | Runtime trace ingestion | Ground truth from production, not just static analysis | Moderate (symbol-to-route mappings needed during indexing) |
 | Semantic PR diff | Relationship impact visible on every PR | No (read-only consumer of snapshot chain) |
 | Daemon process model | Graph outlives agent sessions | No (can start as CLI, add daemon later) |
