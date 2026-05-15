@@ -217,3 +217,60 @@ The IMPL brief explicitly listed `implements` and `references` edges as required
 Scout wrote `agent: scaffold` / `wave: 0` in file_ownership entries, which the validator rejects (expects uppercase agent IDs, wave > 0). Scaffold files should only appear in the scaffolds section, not in file_ownership.
 
 **Lesson:** Minor YAML fix, but shows the scout's bootstrap template handling could be tighter. Validator caught it immediately.
+
+---
+
+## E2E Index (2026-05-15)
+
+Implemented using `/polywave scout "end-to-end: make knowing index work on a real Go repository"`.
+
+### Scout
+
+Scout read all 11 source files and the architecture doc. Found a critical bug: `ComputeNodeHash` included `contentHash` in the hash, but call edge targets used `EmptyHash` for that field, so cross-package caller queries returned nothing. This would never have been caught without trying to index a real repo.
+
+Produced IMPL with 5 agents across 2 waves.
+
+### Wave 1 (4 parallel agents)
+
+| Agent | Task | Duration | Key changes |
+|-------|------|----------|-------------|
+| A | Fix hash + batch inserts | 124s | Removed contentHash from ComputeNodeHash, added BatchPutNodes/Edges/Files to SQLiteStore |
+| B | Fix extractor + indexer | 201s | Changed all ComputeNodeHash calls to use EmptyHash, added batch insert to indexer, fixed FileHash/ContentHash computation |
+| C | MCP + snapshot fixes | 184s | Made index_repo handler functional (not a stub), fixed ownership handler, added real-data snapshot test |
+| D | Git integration + CLI | 242s | Added GitHeadCommit (reads .git/HEAD directly, no git dependency), wired MCP indexFunc, made tree-sitter optional |
+
+**Merge:** All 4 branches merged clean. No go.mod conflicts this time (no new dependencies added). Zero friction.
+
+**Post-merge:** All tests pass across all 8 packages.
+
+### Wave 2 (integration test)
+
+Single agent (E) created `e2e_test.go` at repo root. The test:
+1. Creates a temp multi-package Go module (main.go, pkg/lib.go, pkg/types.go, pkg/impl.go)
+2. Indexes it end-to-end (store, indexer, snapshot)
+3. Verifies nodes and edges exist
+4. Queries cross-package callers (main calls pkg.Hello)
+5. Queries blast radius
+6. Verifies implements edges (EnglishGreeter implements Greeter)
+7. Re-indexes and confirms identical snapshot hash (deterministic)
+
+All 9 assertions pass. Duration: 126s.
+
+### Dogfood: knowing indexed itself
+
+```
+$ knowing index /Users/dayna.blackwell/code/knowing
+Nodes: 231, Edges: 672
+```
+
+The system works. 231 symbols and 672 relationships extracted from its own codebase.
+
+### Friction
+
+**None.** This was the cleanest polywave run of the session:
+- Scout: 674s, found the real bug, designed correct fix
+- Critic: passed clean (1 advisory warning, non-blocking)
+- Wave prep: no validate --fix needed (user fixed the polywave-tools schema disagreement between runs)
+- Wave 1 merge: zero conflicts (no new dependencies)
+- Wave 2: clean
+- Total wall time: ~20 minutes from scout to self-indexing
