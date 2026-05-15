@@ -75,7 +75,28 @@ func (g *GoExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (*
 	}
 
 	pkg := pkgs[0]
+	return g.extractFromPackage(opts, pkg)
+}
 
+// ExtractWithPackage extracts nodes and edges from a Go file using a
+// pre-loaded package. This avoids the per-file packages.Load overhead.
+// The pkg parameter must contain Syntax, TypesInfo, and Fset for the
+// target file.
+func (g *GoExtractor) ExtractWithPackage(
+	ctx context.Context,
+	opts types.ExtractOptions,
+	pkg *packages.Package,
+) (*types.ExtractResult, error) {
+	return g.extractFromPackage(opts, pkg)
+}
+
+// extractFromPackage contains the shared extraction logic used by both
+// Extract and ExtractWithPackage. It finds the target AST file by base
+// name, walks declarations for nodes, and extracts all edge types.
+func (g *GoExtractor) extractFromPackage(
+	opts types.ExtractOptions,
+	pkg *packages.Package,
+) (*types.ExtractResult, error) {
 	// Find the AST file matching our target.
 	baseName := filepath.Base(opts.FilePath)
 	var targetFile *ast.File
