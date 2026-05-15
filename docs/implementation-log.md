@@ -274,3 +274,82 @@ The system works. 231 symbols and 672 relationships extracted from its own codeb
 - Wave 1 merge: zero conflicts (no new dependencies)
 - Wave 2: clean
 - Total wall time: ~20 minutes from scout to self-indexing
+
+---
+
+## Cross-Repo Resolver (2026-05-15)
+
+Implemented using `/polywave scout "Cross-repo edge resolver"`.
+
+### Problem
+
+After indexing polywave-go and polywave-web, cross-repo edges showed 0. When repo A calls repo B's function, the extractor computed the target hash using repo A's URL, but the node was stored with repo B's URL. 4,712 dangling edges from polywave-web.
+
+### Scout
+
+Identified the root cause in `goextractor/extractor.go` line 306: `ComputeNodeHash(opts.RepoURL, targetPkg, ...)` uses the calling repo's URL for all targets. Designed a two-pronged fix: preventive (extractor resolves correct repo URL) + corrective (new resolver package retargets dangling edges).
+
+### Waves
+
+**Wave 1 (3 agents):**
+
+| Agent | Duration | Task |
+|-------|----------|------|
+| A | 38s | Added 4 methods to GraphStore interface (DanglingEdges, AllRepos, NodesByQualifiedName, DeleteEdge) |
+| B | 124s | SQLite implementations + migration 002 + tests |
+| C | 203s | New `internal/resolver/` package with reverse hash lookup |
+
+**Post-merge issue:** 4 packages had mock GraphStores that didn't implement the new methods. Repair agent fixed all 4 mocks + schema version assertion in 33s.
+
+**Wave 2 (1 agent):**
+
+| Agent | Duration | Task |
+|-------|----------|------|
+| D | 276s | Fixed extractor hash computation, wired resolver into IndexRepo |
+
+### Post-IMPL manual fix
+
+Cross-repo edges still showed 0 after the IMPL because `resolveTargetRepoURL` returned Go module paths (`github.com/org/repo`) but nodes were stored with filesystem paths (`/Users/.../repo`). Added `ModuleToRepoURL` map to `ExtractOptions`, populated by reading `go.mod` from each indexed repo. Single targeted fix.
+
+### Result
+
+```
+$ knowing index polywave-go   # 6,340 nodes, 17,232 edges
+$ knowing index polywave-web  # 1,569 nodes, 5,939 edges
+Cross-repo edges: 228
+```
+
+polywave-web's `runAnalyzeDeps` calls polywave-go's `analyzer.BuildGraph`. polywave-web's `runScaffold` calls polywave-go's `engine.RunScaffold`. The system correctly identifies cross-repo function calls.
+
+### Friction
+
+1. **Critic caught a real issue:** Agent D's mock missing 4 new GraphStore methods. Would have broken Wave 2 compilation. Worth the 2-minute critic overhead.
+2. **Cascading mock breakage:** Extending a shared interface breaks every mock in the codebase. 4 packages needed stubs. This is the #1 cascading issue with interface changes in polywave.
+3. **Module path vs filesystem path:** The scout correctly identified the hash mismatch but didn't anticipate that repo URLs in the store are filesystem paths while `go/packages` returns module paths. Required a manual fix after the IMPL. Only surfaced by testing on real repos.
+
+### Polywave post-rebrand note
+
+This entire session was the first real usage of polywave after a massive rebranding refactor (scout-and-wave to polywave). Several bugs surfaced that were missed configuration paths from the rebrand:
+- `check_scout_boundaries` hook: relative vs absolute path comparison (line 40)
+- `prepare-wave`/`validate` schema disagreement: `original_branch` key not in validator schema
+- `SCOUT_COMPLETE` as invalid state value (not in allowed state enum)
+- `cbm-code-discovery-gate` hook (leftover from MCP server demo, not rebrand-related)
+
+All bugs were in the configuration layer, hooks, and state machine labels. Polywave's core coordination logic (worktrees, briefs, merge, verify) worked correctly throughout.
+
+---
+
+## Optimize Indexing (2026-05-15, in progress)
+
+### Baseline benchmark
+
+Cold index of polywave-go (6,340 nodes, 17,232 edges):
+- **16 minutes 24 seconds** wall time
+- 594s user + 2,358s system CPU (300% utilization)
+- Root cause: `go/packages.Load` called once per file (~100+ invocations of the full Go type checker)
+
+Incremental index (no changes): **1.7 seconds**
+
+### Target
+
+Cold index under 30 seconds (33x improvement). Single `go/packages.Load("./...")` call, worker pool for extraction, package result distribution.
