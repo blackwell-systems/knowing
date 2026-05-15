@@ -9,6 +9,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/blackwell-systems/knowing/internal/resolver"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
@@ -272,5 +273,15 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 		return nil, fmt.Errorf("compute snapshot: %w", err)
 	}
 
+	// Resolve cross-repo dangling edges (best-effort, does not fail indexing).
+	_, _ = idx.ResolveEdges(ctx)
+
 	return snap, nil
+}
+
+// ResolveEdges runs the cross-repo edge resolver to retarget dangling edges
+// whose target hashes were computed with the wrong repo URL.
+func (idx *Indexer) ResolveEdges(ctx context.Context) (*resolver.ResolveStats, error) {
+	r := resolver.NewResolver(idx.store)
+	return r.Resolve(ctx)
 }
