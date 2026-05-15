@@ -2,6 +2,7 @@ package indexer
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -90,8 +91,14 @@ func (s *mockStore) GetRepo(_ context.Context, h types.Hash) (*types.Repo, error
 	}
 	return &r, nil
 }
-func (s *mockStore) NodesByName(_ context.Context, _ string) ([]types.Node, error) {
-	return nil, nil
+func (s *mockStore) NodesByName(_ context.Context, prefix string) ([]types.Node, error) {
+	var result []types.Node
+	for _, n := range s.nodes {
+		if prefix == "" || n.QualifiedName == prefix {
+			result = append(result, n)
+		}
+	}
+	return result, nil
 }
 func (s *mockStore) EdgesFrom(_ context.Context, _ types.Hash, _ string) ([]types.Edge, error) {
 	return nil, nil
@@ -131,10 +138,36 @@ func (s *mockStore) FileByPath(_ context.Context, _ types.Hash, path string) (*t
 	}
 	return &f, nil
 }
-func (s *mockStore) DanglingEdges(_ context.Context) ([]types.Edge, error)              { return nil, nil }
-func (s *mockStore) AllRepos(_ context.Context) ([]types.Repo, error)                    { return nil, nil }
-func (s *mockStore) NodesByQualifiedName(_ context.Context, _ string) ([]types.Node, error) { return nil, nil }
-func (s *mockStore) DeleteEdge(_ context.Context, _ types.Hash) error                    { return nil }
+func (s *mockStore) DanglingEdges(_ context.Context) ([]types.Edge, error) {
+	// Return edges whose target hash does not match any node.
+	var dangling []types.Edge
+	for _, e := range s.edges {
+		if _, exists := s.nodes[e.TargetHash]; !exists {
+			dangling = append(dangling, e)
+		}
+	}
+	return dangling, nil
+}
+func (s *mockStore) AllRepos(_ context.Context) ([]types.Repo, error) {
+	var result []types.Repo
+	for _, r := range s.repos {
+		result = append(result, r)
+	}
+	return result, nil
+}
+func (s *mockStore) NodesByQualifiedName(_ context.Context, qualifiedName string) ([]types.Node, error) {
+	var result []types.Node
+	for _, n := range s.nodes {
+		if n.QualifiedName == qualifiedName {
+			result = append(result, n)
+		}
+	}
+	return result, nil
+}
+func (s *mockStore) DeleteEdge(_ context.Context, h types.Hash) error {
+	delete(s.edges, h)
+	return nil
+}
 func (s *mockStore) Close() error                                                        { return nil }
 
 // mockSnapshotComputer is a test double for SnapshotComputer.
@@ -368,5 +401,118 @@ func main() {
 	// Verify there are edges in general (calls, imports, references).
 	if len(store.edges) == 0 {
 		t.Error("expected at least some edges stored")
+	}
+}
+
+func TestIndexRepoResolvesEdges(t *testing.T) {
+	// This test verifies that IndexRepo automatically resolves dangling
+	// cross-repo edges via the resolver. We set up two repos: repoB has
+	// a node pre-loaded in the store, and repoA calls repoB's function.
+	// After IndexRepo on repoA, the resolver should retarget any dangling
+	// edges that used the wrong repo URL.
+
+	tmpDir := t.TempDir()
+
+	// Set up repoB as a Go module on disk (needed for go/packages).
+	repoBDir := filepath.Join(tmpDir, "repoB")
+	repoBPkgDir := filepath.Join(repoBDir, "pkg")
+	if err := os.MkdirAll(repoBPkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoBDir, "go.mod"),
+		[]byte("module github.com/test/repoB\n\ngo 1.23\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoBPkgDir, "lib.go"),
+		[]byte("package pkg\n\nfunc DoThing() string { return \"done\" }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Set up repoA that imports repoB.
+	repoADir := filepath.Join(tmpDir, "repoA")
+	if err := os.MkdirAll(repoADir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	repoAMod := fmt.Sprintf(`module github.com/test/repoA
+
+go 1.23
+
+require github.com/test/repoB v0.0.0
+
+replace github.com/test/repoB => %s
+`, repoBDir)
+	if err := os.WriteFile(filepath.Join(repoADir, "go.mod"), []byte(repoAMod), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	repoAMain := `package main
+
+import "github.com/test/repoB/pkg"
+
+func main() {
+	pkg.DoThing()
+}
+`
+	if err := os.WriteFile(filepath.Join(repoADir, "main.go"), []byte(repoAMain), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	store := newMockStore()
+	snapComp := &mockSnapshotComputer{}
+
+	// Pre-load repoB's node and repo record in the store so the resolver
+	// can find it when retargeting.
+	repoBRepoHash := types.NewHash([]byte("github.com/test/repoB"))
+	store.repos[repoBRepoHash] = types.Repo{
+		RepoHash:    repoBRepoHash,
+		RepoURL:     "github.com/test/repoB",
+		LastCommit:  "bbb111",
+		LastIndexed: 1,
+	}
+	repoBNodeHash := types.ComputeNodeHash(
+		"github.com/test/repoB",
+		"github.com/test/repoB/pkg",
+		types.EmptyHash,
+		"DoThing",
+		"function",
+	)
+	store.nodes[repoBNodeHash] = types.Node{
+		NodeHash:      repoBNodeHash,
+		QualifiedName: "github.com/test/repoB://github.com/test/repoB/pkg.DoThing",
+		Kind:          "function",
+	}
+
+	idx := NewIndexer(store, snapComp)
+	idx.Register(goextractor.NewGoExtractor())
+
+	ctx := context.Background()
+	snap, err := idx.IndexRepo(ctx, "github.com/test/repoA", repoADir, "aaa111")
+	if err != nil {
+		t.Fatalf("IndexRepo failed: %v", err)
+	}
+	if snap == nil {
+		t.Fatal("expected non-nil snapshot")
+	}
+
+	// The extractor should have already used the correct repoB URL for
+	// the call edge target (thanks to the extractor fix). Verify no
+	// dangling edges remain.
+	dangling, err := store.DanglingEdges(ctx)
+	if err != nil {
+		t.Fatalf("DanglingEdges failed: %v", err)
+	}
+
+	// Filter for call edges only (imports to repoB package node might be dangling
+	// if we didn't pre-load a package node).
+	var danglingCalls []types.Edge
+	for _, e := range dangling {
+		if e.EdgeType == "calls" {
+			danglingCalls = append(danglingCalls, e)
+		}
+	}
+	if len(danglingCalls) > 0 {
+		for _, e := range danglingCalls {
+			t.Logf("dangling call edge: source=%s target=%s", e.SourceHash, e.TargetHash)
+		}
+		t.Errorf("expected no dangling call edges after IndexRepo + resolve, got %d", len(danglingCalls))
 	}
 }
