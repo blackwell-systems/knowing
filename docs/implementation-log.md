@@ -551,3 +551,38 @@ Tree-sitter pass: ~1.5 seconds. Graph queryable almost instantly. gopls enrichme
 3. Call-site positions in edges (enables per-edge LSP confirmation)
 4. Opening all files before querying (gopls needs workspace context)
 5. Single-pass architecture: tree-sitter + enrichment in one `knowing index` command
+
+---
+
+## Incremental Change Handling (2026-05-15, in progress)
+
+### Problem
+
+The content-addressed Merkle DAG, append-only edge event log, and snapshot diffing are core architectural decisions (#1, #3, #14). But they're currently hollow: the infrastructure exists in the schema but no data flows through it.
+
+**What's broken:**
+
+| Component | Architecture decision | Current state |
+|-----------|---------------------|---------------|
+| Edge event log | Decision #3: append-only, never lose history | **Always empty.** IndexRepo batch-inserts edges directly, never calls RecordEdgeEvent. |
+| Snapshot diff | Decision #1: compare two root hashes to see what changed | **Always returns empty.** SnapshotDiff queries edge_events which is empty. |
+| Staleness detection | Decision #1: hash mismatch = stale | **Detects but doesn't act.** StaleEdges finds mismatches but nothing cleans up stale data. |
+| Old symbol cleanup | Decision #5: content-addressed file identity | **Not implemented.** Changed files get re-extracted but old nodes/edges from the previous version remain as ghosts. |
+| Incremental enrichment | Decision #12: two-tier extraction | **Enricher runs on all edges every time.** No way to enrich only changed files. |
+
+**The consequence:** Re-indexing a repo accumulates garbage. If a function is renamed from `Foo` to `Bar`, the graph has both `Foo` (ghost from old extraction) and `Bar` (new extraction). Blast radius queries return stale callers. The event log can't answer "when did this edge appear?" because it has no events. Snapshot diffs can't show "what changed since the last deploy?" because they depend on the event log.
+
+This is the gap between "architecture on paper" and "architecture in practice." The decisions are correct; the implementation doesn't honor them yet.
+
+### What needs to change
+
+1. **GraphStore: add DeleteNodesByFile, DeleteEdgesBySourceFile** to remove all symbols from a changed file before re-extracting
+2. **IndexRepo: cleanup before re-extract.** For each changed file, delete old nodes/edges, then extract fresh, then compute edge diff (what was added, what was removed) and record events
+3. **Edge events: record on every index run.** After computing the diff between old and new edges for a file, write "added" and "removed" events to the edge_events table
+4. **Snapshot diff: works once edge events are populated.** No code change needed; it already queries edge_events correctly
+5. **Enricher: accept changed file set.** Only enrich edges from files that changed, not the entire repo
+6. **Daemon: pass changed file list.** The file watcher knows which files changed; pass that to the enricher
+
+### Scout
+
+Launched. Analyzing the codebase to design the IMPL.
