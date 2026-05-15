@@ -402,6 +402,124 @@ func TestHandleSnapshotDiff_ReturnsChanges(t *testing.T) {
 	}
 }
 
+func TestHandleIndexRepo_WithIndexFunc(t *testing.T) {
+	store := newMockGraphStore()
+	srv := NewServer(store)
+
+	var calledURL, calledPath, calledCommit string
+	SetIndexFunc(func(_ context.Context, repoURL, repoPath, commitHash string) error {
+		calledURL = repoURL
+		calledPath = repoPath
+		calledCommit = commitHash
+		return nil
+	})
+	defer SetIndexFunc(nil) // clean up global state
+
+	req := makeCallToolRequest("index_repo", map[string]any{
+		"repo_url":    "https://github.com/example/repo",
+		"repo_path":   "/tmp/repo",
+		"commit_hash": "abc123",
+	})
+
+	result, err := srv.handleIndexRepo(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("expected success, got error: %v", result.Content)
+	}
+	if calledURL != "https://github.com/example/repo" {
+		t.Errorf("expected repo URL to be passed, got %q", calledURL)
+	}
+	if calledPath != "/tmp/repo" {
+		t.Errorf("expected repo path to be passed, got %q", calledPath)
+	}
+	if calledCommit != "abc123" {
+		t.Errorf("expected commit hash to be passed, got %q", calledCommit)
+	}
+}
+
+func TestHandleIndexRepo_NoIndexFunc(t *testing.T) {
+	store := newMockGraphStore()
+	srv := NewServer(store)
+
+	// Ensure indexFunc is nil.
+	SetIndexFunc(nil)
+
+	req := makeCallToolRequest("index_repo", map[string]any{
+		"repo_url":  "https://github.com/example/repo",
+		"repo_path": "/tmp/repo",
+	})
+
+	result, err := srv.handleIndexRepo(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error result when indexFunc is nil")
+	}
+}
+
+func TestHandleOwnership_WithData(t *testing.T) {
+	store := newMockGraphStore()
+
+	repoHash := testHash("repo1")
+	store.repos[repoHash] = &types.Repo{
+		RepoHash: repoHash,
+		RepoURL:  "https://github.com/example/repo",
+	}
+
+	fileHash := testHash("file1")
+	store.filesByRepo[repoHash] = []types.File{
+		{FileHash: fileHash, RepoHash: repoHash, Path: "pkg/main.go"},
+	}
+
+	node1 := types.Node{
+		NodeHash:      testHash("node1"),
+		FileHash:      fileHash,
+		QualifiedName: "https://github.com/example/repo://pkg.Foo",
+		Kind:          "function",
+	}
+	node2 := types.Node{
+		NodeHash:      testHash("node2"),
+		FileHash:      fileHash,
+		QualifiedName: "https://github.com/example/repo://pkg.Bar",
+		Kind:          "type",
+	}
+	store.nodesByName["https://github.com/example/repo"] = []types.Node{node1, node2}
+
+	srv := NewServer(store)
+	req := makeCallToolRequest("ownership", map[string]any{
+		"repo_hash": hashHex(repoHash),
+	})
+
+	result, err := srv.handleOwnership(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("expected success, got error")
+	}
+
+	text := result.Content[0].(mcp.TextContent).Text
+	var ownership []struct {
+		File  types.File   `json:"file"`
+		Nodes []types.Node `json:"nodes"`
+	}
+	if err := json.Unmarshal([]byte(text), &ownership); err != nil {
+		t.Fatalf("failed to unmarshal ownership: %v", err)
+	}
+	if len(ownership) != 1 {
+		t.Fatalf("expected 1 file entry, got %d", len(ownership))
+	}
+	if ownership[0].File.Path != "pkg/main.go" {
+		t.Errorf("expected file path pkg/main.go, got %q", ownership[0].File.Path)
+	}
+	if len(ownership[0].Nodes) != 2 {
+		t.Errorf("expected 2 nodes, got %d", len(ownership[0].Nodes))
+	}
+}
+
 func TestHandleStaleEdges_FindsStale(t *testing.T) {
 	store := newMockGraphStore()
 	store.staleEdgesResult = []types.Edge{
