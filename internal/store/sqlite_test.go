@@ -801,6 +801,134 @@ func TestDeleteEdge(t *testing.T) {
 	}
 }
 
+func TestDeleteNodesByFile(t *testing.T) {
+	s := tempDB(t)
+	ctx := context.Background()
+	repo := makeRepo(t, s, "https://example.com/repo")
+	file1 := makeFile(t, s, repo, "main.go")
+	file2 := makeFile(t, s, repo, "other.go")
+
+	// Two nodes in file1, one node in file2.
+	n1 := makeNode(t, s, file1, "main.Foo", "function")
+	n2 := makeNode(t, s, file1, "main.Bar", "function")
+	n3 := makeNode(t, s, file2, "other.Baz", "function")
+
+	count, err := s.DeleteNodesByFile(ctx, file1.FileHash)
+	if err != nil {
+		t.Fatalf("DeleteNodesByFile: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("expected 2 deleted, got %d", count)
+	}
+
+	// Verify file1 nodes are gone.
+	got1, err := s.GetNode(ctx, n1.NodeHash)
+	if err != nil {
+		t.Fatalf("GetNode n1: %v", err)
+	}
+	if got1 != nil {
+		t.Error("n1 should be deleted")
+	}
+	got2, err := s.GetNode(ctx, n2.NodeHash)
+	if err != nil {
+		t.Fatalf("GetNode n2: %v", err)
+	}
+	if got2 != nil {
+		t.Error("n2 should be deleted")
+	}
+
+	// Verify file2 node remains.
+	got3, err := s.GetNode(ctx, n3.NodeHash)
+	if err != nil {
+		t.Fatalf("GetNode n3: %v", err)
+	}
+	if got3 == nil {
+		t.Error("n3 should still exist")
+	}
+}
+
+func TestDeleteEdgesBySourceFile(t *testing.T) {
+	s := tempDB(t)
+	ctx := context.Background()
+	repo := makeRepo(t, s, "https://example.com/repo")
+	file1 := makeFile(t, s, repo, "main.go")
+	file2 := makeFile(t, s, repo, "other.go")
+
+	// Nodes in file1 and file2.
+	src1 := makeNode(t, s, file1, "main.Caller", "function")
+	src2 := makeNode(t, s, file2, "other.Caller", "function")
+	tgt := makeNode(t, s, file1, "main.Target", "function")
+
+	// Edge from file1's node, edge from file2's node.
+	e1 := makeEdge(t, s, src1, tgt, "calls")
+	e2 := makeEdge(t, s, src2, tgt, "calls")
+
+	deleted, err := s.DeleteEdgesBySourceFile(ctx, file1.FileHash)
+	if err != nil {
+		t.Fatalf("DeleteEdgesBySourceFile: %v", err)
+	}
+	if len(deleted) != 1 {
+		t.Fatalf("expected 1 deleted edge, got %d", len(deleted))
+	}
+	if deleted[0].EdgeHash != e1.EdgeHash {
+		t.Errorf("wrong edge returned; got %v, want %v", deleted[0].EdgeHash, e1.EdgeHash)
+	}
+
+	// Verify e1 is gone.
+	got1, err := s.GetEdge(ctx, e1.EdgeHash)
+	if err != nil {
+		t.Fatalf("GetEdge e1: %v", err)
+	}
+	if got1 != nil {
+		t.Error("e1 should be deleted")
+	}
+
+	// Verify e2 remains.
+	got2, err := s.GetEdge(ctx, e2.EdgeHash)
+	if err != nil {
+		t.Fatalf("GetEdge e2: %v", err)
+	}
+	if got2 == nil {
+		t.Error("e2 should still exist")
+	}
+}
+
+func TestEdgesBySourceFile(t *testing.T) {
+	s := tempDB(t)
+	ctx := context.Background()
+	repo := makeRepo(t, s, "https://example.com/repo")
+	file1 := makeFile(t, s, repo, "main.go")
+	file2 := makeFile(t, s, repo, "other.go")
+
+	src1 := makeNode(t, s, file1, "main.Caller", "function")
+	src2 := makeNode(t, s, file2, "other.Caller", "function")
+	tgt := makeNode(t, s, file1, "main.Target", "function")
+
+	e1 := makeEdge(t, s, src1, tgt, "calls")
+	makeEdge(t, s, src2, tgt, "calls")
+
+	// Query edges by source file.
+	edges, err := s.EdgesBySourceFile(ctx, file1.FileHash)
+	if err != nil {
+		t.Fatalf("EdgesBySourceFile: %v", err)
+	}
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(edges))
+	}
+	if edges[0].EdgeHash != e1.EdgeHash {
+		t.Errorf("wrong edge returned")
+	}
+
+	// Verify read-only: edges should still be in the store.
+	got, err := s.GetEdge(ctx, e1.EdgeHash)
+	if err != nil {
+		t.Fatalf("GetEdge after EdgesBySourceFile: %v", err)
+	}
+	if got == nil {
+		t.Error("edge should still exist after read-only query")
+	}
+}
+
 func TestGetNode_NotFound(t *testing.T) {
 	s := tempDB(t)
 	ctx := context.Background()
