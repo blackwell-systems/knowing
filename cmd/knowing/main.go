@@ -100,12 +100,19 @@ func cmdServe(args []string) error {
 
 	d := daemon.NewDaemon(daemon.DaemonConfig{
 		Store: st,
-		IndexFunc: func(ctx context.Context, repoURL, repoPath, commitHash string) error {
+		IndexFunc: func(ctx context.Context, repoURL, repoPath, commitHash string, changedFiles []string) error {
 			_, err := idx.IndexRepo(ctx, repoURL, repoPath, commitHash)
 			return err
 		},
 		MCPAddr:   *addr,
 		MCPServer: mcpServer,
+		EnrichFunc: func(ctx context.Context, repoHash types.Hash, workspaceRoot string, changedFiles []string) error {
+			enricher := enrichment.NewEnricher(st, workspaceRoot)
+			if len(changedFiles) > 0 {
+				return enricher.RunScoped(ctx, repoHash, changedFiles)
+			}
+			return enricher.Run(ctx, repoHash)
+		},
 	})
 
 	// Watch requested repos.

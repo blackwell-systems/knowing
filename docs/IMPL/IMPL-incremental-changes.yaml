@@ -1112,6 +1112,7 @@ waves:
             - internal/enrichment/enricher_test.go
           dependencies:
             - A
+      base_commit: 0e9f492323ef60d274b993179cb55fe8bd466b4b
     - number: 3
       type: integration
       agents:
@@ -1333,6 +1334,30 @@ completion_reports:
             - TestGitWatcher_CloseShutdown
         verification: PASS
         notes: All 4 files created. GitDiffFiles parses git diff --name-status output. GitWatcher uses fsnotify on .git/HEAD and .git/refs/heads/ with per-repo debounce. All 4 tests pass. Full repo build/vet/test clean.
+    D:
+        status: complete
+        branch: polywave/incremental-changes/wave2-agent-D
+        commit: 3ec021c
+        files_changed:
+            - internal/daemon/daemon.go
+            - internal/daemon/watcher.go
+            - internal/daemon/daemon_test.go
+        tests_added:
+            - TestDaemon_GitWatcherIntegration
+        verification: PASS
+        notes: All 13 daemon package tests pass. Build/vet clean for internal/daemon. cmd/knowing/main.go uses old IndexFunc signature (Agent F Wave 3 scope).
+    E:
+        status: complete
+        branch: polywave/incremental-changes/wave2-agent-E
+        commit: 8abb459
+        files_changed:
+            - internal/enrichment/enricher.go
+            - internal/enrichment/enricher_test.go
+        tests_added:
+            - TestRunScoped_EmptyChangedFilesDelegatesToRun
+            - TestUpgradeCallEdges_WithFileFilter
+        verification: PASS
+        notes: RunScoped method added. Run delegates to runFiltered(nil) for backward compatibility. upgradeCallEdges, discoverNewEdges, openAllFiles all accept fileFilter param. All tests pass, build clean, vet clean.
 pre_mortem:
     overall_risk: medium
     rows:
