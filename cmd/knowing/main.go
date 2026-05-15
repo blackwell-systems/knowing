@@ -84,12 +84,17 @@ func cmdServe(args []string) error {
 	// Register extractors.
 	idx.Register(goextractor.NewGoExtractor())
 	tsExt, err := treesitter.NewTreeSitterExtractor("python")
-	if err != nil {
-		return fmt.Errorf("creating tree-sitter extractor: %w", err)
+	if err == nil {
+		idx.Register(tsExt)
 	}
-	idx.Register(tsExt)
 
 	mcpServer := knowingmcp.NewServer(st)
+
+	// Wire the real index function into MCP handlers so index_repo tool works.
+	knowingmcp.SetIndexFunc(func(ctx context.Context, repoURL, repoPath, commitHash string) error {
+		_, err := idx.IndexRepo(ctx, repoURL, repoPath, commitHash)
+		return err
+	})
 
 	d := daemon.NewDaemon(daemon.DaemonConfig{
 		Store: st,
@@ -145,6 +150,13 @@ func cmdIndex(args []string) error {
 		*repoURL = repoPath
 	}
 
+	// Resolve HEAD commit hash if not explicitly provided.
+	if *commitHash == "HEAD" {
+		if resolved, err := daemon.GitHeadCommit(repoPath); err == nil {
+			*commitHash = resolved
+		}
+	}
+
 	st, err := store.NewSQLiteStore(*dbPath)
 	if err != nil {
 		return fmt.Errorf("opening store: %w", err)
@@ -157,10 +169,9 @@ func cmdIndex(args []string) error {
 	// Register extractors.
 	idx.Register(goextractor.NewGoExtractor())
 	tsExt, err := treesitter.NewTreeSitterExtractor("python")
-	if err != nil {
-		return fmt.Errorf("creating tree-sitter extractor: %w", err)
+	if err == nil {
+		idx.Register(tsExt)
 	}
-	idx.Register(tsExt)
 
 	ctx := context.Background()
 	snap, err := idx.IndexRepo(ctx, *repoURL, repoPath, *commitHash)
@@ -168,7 +179,9 @@ func cmdIndex(args []string) error {
 		return fmt.Errorf("indexing: %w", err)
 	}
 
+	repoHash := types.NewHash([]byte(*repoURL))
 	fmt.Printf("Indexed %s\n", repoPath)
+	fmt.Printf("Repo:     %x\n", repoHash)
 	fmt.Printf("Snapshot: %x\n", snap.SnapshotHash)
 	fmt.Printf("Nodes: %d, Edges: %d\n", snap.NodeCount, snap.EdgeCount)
 	return nil
