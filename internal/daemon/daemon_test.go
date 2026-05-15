@@ -3,12 +3,18 @@ package daemon
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 )
+
+func execCommandHelper(name string, args ...string) *exec.Cmd {
+	return exec.Command(name, args...)
+}
 
 // TestDaemon_StartStop verifies that the daemon starts and stops cleanly.
 func TestDaemon_StartStop(t *testing.T) {
@@ -184,6 +190,65 @@ func TestDaemon_ConcurrentReads(t *testing.T) {
 	if m := atomic.LoadInt64(&maxActive); m < 2 {
 		t.Errorf("expected concurrent readers > 1, got %d", m)
 	}
+}
+
+// TestGitHeadCommit verifies that GitHeadCommit reads the HEAD commit from
+// a real git repository.
+func TestGitHeadCommit(t *testing.T) {
+	dir := t.TempDir()
+
+	// Initialize a git repo and make a commit.
+	runGit := func(args ...string) {
+		t.Helper()
+		cmd := append([]string{"-C", dir}, args...)
+		out, err := execCommand("git", cmd...)
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+
+	runGit("init")
+	runGit("config", "user.email", "test@test.com")
+	runGit("config", "user.name", "Test")
+
+	// Write a file and commit.
+	if err := os.WriteFile(filepath.Join(dir, "hello.txt"), []byte("hello"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit("add", "hello.txt")
+	runGit("commit", "-m", "initial")
+
+	// Get expected commit hash.
+	expected, err := execCommand("git", "-C", dir, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatalf("rev-parse: %v", err)
+	}
+	expected = strings.TrimSpace(string(expected))
+
+	got, err := GitHeadCommit(dir)
+	if err != nil {
+		t.Fatalf("GitHeadCommit: %v", err)
+	}
+	if got != expected {
+		t.Errorf("got %q, want %q", got, expected)
+	}
+}
+
+// TestGitHeadCommit_NotGitRepo verifies that GitHeadCommit returns an error
+// for a directory that is not a git repository.
+func TestGitHeadCommit_NotGitRepo(t *testing.T) {
+	dir := t.TempDir()
+	_, err := GitHeadCommit(dir)
+	if err == nil {
+		t.Fatal("expected error for non-git directory")
+	}
+}
+
+// execCommand runs a command and returns its combined output.
+func execCommand(name string, args ...string) (string, error) {
+	cmd := execCommandHelper(name, args...)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
 }
 
 // TestDaemon_WriteBlocksReads verifies that write-lock acquisition during
