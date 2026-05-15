@@ -47,6 +47,24 @@ func TestDaemon_StartStop(t *testing.T) {
 func TestDaemon_WatchRepo_AddsWatcher(t *testing.T) {
 	dir := t.TempDir()
 
+	// GitWatcher requires a git repo with at least one commit.
+	runGit := func(args ...string) {
+		t.Helper()
+		cmd := append([]string{"-C", dir}, args...)
+		out, err := execCommand("git", cmd...)
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	runGit("init")
+	runGit("config", "user.email", "test@test.com")
+	runGit("config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(dir, "init.txt"), []byte("init"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit("add", "init.txt")
+	runGit("commit", "-m", "initial")
+
 	d := NewDaemon(DaemonConfig{})
 
 	ctx, cancel := context.WithCancel(context.Background())
