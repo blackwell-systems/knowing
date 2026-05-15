@@ -9,26 +9,30 @@
 </p>
 
 <p align="center">
-  <strong>Persistent, content-addressed knowledge graph for software systems, built for agents.</strong>
+  <strong>The system of record for how software systems behave, change, and relate over time.</strong>
 </p>
 
 ## Vision
 
-Any agent, before making any change, can query the full graph of relationships across every repository, service, infrastructure definition, and runtime behavior in the organization, and get back a confidence-scored, provenance-tracked answer about what will break, who owns it, and whether it's actually used in production.
+Git is the system of record for source code. knowing is the system of record for what that source code *means* in the context of a running organization.
 
-No grepping. No guessing. No asking the user "do you have other repos that use this?" The agent knows, because the graph knows.
+Software organizations have no single place that captures how their systems actually connect, who owns what, what changed since the last deploy, or whether production behavior matches what the code declares. That knowledge lives in people's heads, incident postmortems, and tribal memory. When someone leaves or an incident happens at 3 AM, it's gone.
+
+knowing builds a **versioned, content-addressed ledger of software system relationships**: code, infrastructure, ownership, and runtime behavior. Every state is a hash. Every edge has provenance. Every question has an auditable answer.
+
+Agents are the first consumer. But the actual audience is anyone who needs to understand a software organization as a system: platform teams, SREs, architects, security, compliance.
 
 ## The Problem
 
 Agents today are blind at repository boundaries. LSP tells you where a symbol is used inside one workspace. Code search finds matching text. Dependency graphs tell you which packages depend on which.
 
-None of them answer the question agents actually need before making a distributed change:
+None of them answer the questions that actually matter:
 
-> If I change this symbol, API, route, schema, or data shape, what breaks across the rest of the system?
+> If I change this symbol, what breaks across the rest of the system? Is this route actually called in production? When did this cross-repo dependency appear? Who do I need to notify? What did the system look like when we deployed on Tuesday?
 
 ## What knowing Does
 
-knowing builds a boundary-aware relationship graph across repositories, services, and infrastructure, then exposes that graph through MCP so agents can reason about blast radius before they edit code.
+knowing builds a boundary-aware relationship graph across repositories, services, and infrastructure. It fuses static analysis with runtime observation to create a single, trustworthy model of how a software system actually works.
 
 It is a persistent daemon with three components:
 
@@ -36,21 +40,37 @@ It is a persistent daemon with three components:
 - **Graph store**: owns the content-addressed graph in SQLite. Manages the snapshot chain, runs garbage collection, and handles traversal queries with a multi-tier cache.
 - **MCP server**: exposes the graph to agents over stdio or HTTP.
 
-Unlike tools that maintain mutable current-state graphs, knowing is **content-addressed**: every node, edge, and graph snapshot is a hash. The graph has history, staleness is a hash mismatch (not a heuristic), integrity is provable, and point-in-time queries are free.
+Unlike tools that maintain mutable current-state graphs, knowing is **content-addressed**: every node, edge, and graph snapshot is a hash. This means:
+
+- **History**: the graph has a full audit trail; every previous state is queryable
+- **Staleness**: a hash mismatch is a structural fact, not a heuristic guess
+- **Integrity**: any graph state is provably derived from specific source commits
+- **Runtime ground truth**: production traces fused with static analysis tell you what actually runs, not just what the code declares
 
 The Git analogy is exact: Git is a content-addressed graph of source code. knowing is a content-addressed graph of source code *relationships*.
 
 ## What It Answers
 
+**For agents:**
 - "I'm changing this function signature. Which other repos call it?"
-- "This proto field is deprecated. Which services still read or write it?"
-- "This HTTP route is changing. Which clients construct requests to it?"
-- "This event payload field is being renamed. Which consumers depend on it?"
-- "Is this route actually called in production, or just declared?"
+- "What is the blast radius of this change, and how confident are we in each edge?"
 - "What is the full data flow of this value across functions, services, queues, and repositories?"
-- "Which team owns the consumers of this API?"
+
+**For platform teams and SREs:**
 - "What did the dependency graph look like when we deployed on Tuesday?"
-- "What changed in the relationship graph since the last deploy?"
+- "When did this cross-repo incompatibility first appear?"
+- "Is this route actually called in production, or just declared in code?"
+- "Static analysis says 47 callers; how many are active in production?"
+
+**For architects and tech leads:**
+- "This PR adds 3 new cross-repo dependencies and spans 3 teams. Here's who to notify."
+- "What edges in the graph are stale after this week's changes?"
+- "This proto field has zero runtime reads in 90 days. Safe to deprecate."
+
+**For security and compliance:**
+- "Prove that this graph was derived from these specific source commits."
+- "Show me every service that touches PII, traced through the actual runtime call graph."
+- "What changed in the system's dependency structure between these two audit dates?"
 
 ## MCP Tools
 
@@ -72,9 +92,9 @@ The Git analogy is exact: Git is a content-addressed graph of source code. knowi
 
 `agent-lsp` gives agents live semantic awareness inside a workspace: diagnostics, rename execution, edit simulation, symbol navigation.
 
-`knowing` gives agents persistent system-level awareness across repositories: relationships, impact, ownership, staleness.
+`knowing` gives agents (and humans) persistent system-level awareness across repositories: relationships, impact, ownership, staleness, and runtime behavior.
 
-Where `agent-lsp` answers "where is this symbol used in this repo?", `knowing` answers "where is this contract used across the system?"
+Where `agent-lsp` answers "where is this symbol used in this repo?", `knowing` answers "where is this contract used across the system, who owns the consumers, and is it actually called in production?"
 
 ## Roadmap
 
