@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/blackwell-systems/knowing/internal/daemon"
 	"github.com/blackwell-systems/knowing/internal/enrichment"
@@ -79,6 +80,9 @@ func cmdServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	dbPath := fs.String("db", "knowing.db", "Path to the SQLite database")
 	addr := fs.String("addr", ":8080", "HTTP address for MCP server")
+	traceEnabled := fs.Bool("trace", false, "Enable runtime trace ingestion")
+	traceEndpoint := fs.String("trace-endpoint", "localhost:4317", "OTLP gRPC endpoint for trace ingestion")
+	traceBatchSize := fs.Int("trace-batch-size", 1000, "Number of spans per batch")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -117,6 +121,17 @@ func cmdServe(args []string) error {
 		},
 		MCPAddr:   *addr,
 		MCPServer: mcpServer,
+		TraceConfig: func() *daemon.TraceIngestConfig {
+			if !*traceEnabled {
+				return nil
+			}
+			return &daemon.TraceIngestConfig{
+				Enabled:       true,
+				OTLPEndpoint:  *traceEndpoint,
+				BatchSize:     *traceBatchSize,
+				BatchInterval: 10 * time.Second,
+			}
+		}(),
 		EnrichFunc: func(ctx context.Context, repoHash types.Hash, workspaceRoot string, changedFiles []string) error {
 			enricher := enrichment.NewEnricher(st, workspaceRoot)
 			if len(changedFiles) > 0 {

@@ -43,6 +43,18 @@ type DaemonConfig struct {
 	// It receives the repo hash and workspace root path to run LSP enrichment.
 	// If nil, enrichment is skipped.
 	EnrichFunc func(ctx context.Context, repoHash types.Hash, workspaceRoot string, changedFiles []string) error
+
+	// TraceConfig holds configuration for the runtime trace ingestion pipeline.
+	// If nil or Enabled is false, trace ingestion is not started.
+	TraceConfig *TraceIngestConfig
+}
+
+// TraceIngestConfig holds configuration for the runtime trace ingestion pipeline.
+type TraceIngestConfig struct {
+	Enabled       bool
+	OTLPEndpoint  string
+	BatchSize     int
+	BatchInterval time.Duration
 }
 
 // Daemon is the long-lived process that watches repositories for changes,
@@ -114,6 +126,15 @@ func (d *Daemon) Start(ctx context.Context) error {
 		go func() {
 			defer d.wg.Done()
 			_ = d.cfg.MCPServer.ServeHTTP(ctx, d.cfg.MCPAddr)
+		}()
+	}
+
+	// Trace ingestor goroutine (if configured).
+	if d.cfg.TraceConfig != nil && d.cfg.TraceConfig.Enabled {
+		d.wg.Add(1)
+		go func() {
+			defer d.wg.Done()
+			d.traceIngestLoop(ctx)
 		}()
 	}
 
@@ -223,6 +244,15 @@ func (d *Daemon) RLock() { d.mu.RLock() }
 
 // RUnlock releases the read lock.
 func (d *Daemon) RUnlock() { d.mu.RUnlock() }
+
+// traceIngestLoop runs the trace ingestion pipeline. Currently a placeholder
+// that blocks until context cancellation. The real implementation will create
+// an OTLPReceiver and Ingestor once the trace package is fully integrated.
+func (d *Daemon) traceIngestLoop(ctx context.Context) {
+	// TODO: Wire OTLPReceiver and Ingestor here.
+	// For now, block until context is cancelled.
+	<-ctx.Done()
+}
 
 // shutdown cleans up watcher and waits for goroutines.
 func (d *Daemon) shutdown() error {
