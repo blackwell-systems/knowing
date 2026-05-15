@@ -92,6 +92,78 @@ func (s *SQLiteStore) RecordEdgeEvent(ctx context.Context, ev types.EdgeEvent) e
 	return err
 }
 
+// BatchPutNodes inserts multiple nodes in a single transaction.
+func (s *SQLiteStore) BatchPutNodes(ctx context.Context, nodes []types.Node) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	stmt, err := tx.PrepareContext(ctx,
+		`INSERT OR REPLACE INTO nodes (node_hash, file_hash, qualified_name, kind, line, signature)
+		 VALUES (?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return fmt.Errorf("prepare: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, n := range nodes {
+		if _, err := stmt.ExecContext(ctx, n.NodeHash[:], n.FileHash[:], n.QualifiedName, n.Kind, n.Line, n.Signature); err != nil {
+			return fmt.Errorf("exec node %s: %w", n.QualifiedName, err)
+		}
+	}
+	return tx.Commit()
+}
+
+// BatchPutEdges inserts multiple edges in a single transaction.
+func (s *SQLiteStore) BatchPutEdges(ctx context.Context, edges []types.Edge) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	stmt, err := tx.PrepareContext(ctx,
+		`INSERT OR REPLACE INTO edges (edge_hash, source_hash, target_hash, edge_type, confidence, provenance)
+		 VALUES (?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return fmt.Errorf("prepare: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, e := range edges {
+		if _, err := stmt.ExecContext(ctx, e.EdgeHash[:], e.SourceHash[:], e.TargetHash[:], e.EdgeType, e.Confidence, e.Provenance); err != nil {
+			return fmt.Errorf("exec edge %s: %w", e.EdgeHash, err)
+		}
+	}
+	return tx.Commit()
+}
+
+// BatchPutFiles inserts multiple files in a single transaction.
+func (s *SQLiteStore) BatchPutFiles(ctx context.Context, files []types.File) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	stmt, err := tx.PrepareContext(ctx,
+		`INSERT OR REPLACE INTO files (file_hash, repo_hash, path, content_hash)
+		 VALUES (?, ?, ?, ?)`)
+	if err != nil {
+		return fmt.Errorf("prepare: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, f := range files {
+		if _, err := stmt.ExecContext(ctx, f.FileHash[:], f.RepoHash[:], f.Path, f.ContentHash[:]); err != nil {
+			return fmt.Errorf("exec file %s: %w", f.Path, err)
+		}
+	}
+	return tx.Commit()
+}
+
 func (s *SQLiteStore) CreateSnapshot(ctx context.Context, snap types.Snapshot) error {
 	_, err := s.db.ExecContext(ctx,
 		`INSERT OR REPLACE INTO snapshots (snapshot_hash, parent_hash, repo_hash, commit_hash, timestamp, node_count, edge_count)

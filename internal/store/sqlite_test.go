@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -528,6 +529,149 @@ func TestFilesByRepo_And_FileByPath(t *testing.T) {
 	}
 	if missing != nil {
 		t.Error("expected nil for missing path")
+	}
+}
+
+func TestBatchPutNodes(t *testing.T) {
+	s := tempDB(t)
+	ctx := context.Background()
+	repo := makeRepo(t, s, "https://example.com/repo")
+	file := makeFile(t, s, repo, "main.go")
+
+	// Build 150 nodes.
+	nodes := make([]types.Node, 150)
+	for i := range nodes {
+		name := fmt.Sprintf("main.Func%d", i)
+		nodes[i] = types.Node{
+			NodeHash:      types.ComputeNodeHash("test", "pkg", file.ContentHash, name, "function"),
+			FileHash:      file.FileHash,
+			QualifiedName: name,
+			Kind:          "function",
+			Line:          i + 1,
+			Signature:     "func " + name + "()",
+		}
+	}
+
+	if err := s.BatchPutNodes(ctx, nodes); err != nil {
+		t.Fatalf("BatchPutNodes: %v", err)
+	}
+
+	// Verify all nodes are readable.
+	for i, n := range nodes {
+		got, err := s.GetNode(ctx, n.NodeHash)
+		if err != nil {
+			t.Fatalf("GetNode[%d]: %v", i, err)
+		}
+		if got == nil {
+			t.Fatalf("GetNode[%d] returned nil", i)
+		}
+		if got.QualifiedName != n.QualifiedName {
+			t.Errorf("GetNode[%d] name = %q, want %q", i, got.QualifiedName, n.QualifiedName)
+		}
+	}
+
+	// Verify count via prefix query.
+	all, err := s.NodesByName(ctx, "main.Func")
+	if err != nil {
+		t.Fatalf("NodesByName: %v", err)
+	}
+	if len(all) != 150 {
+		t.Fatalf("expected 150 nodes, got %d", len(all))
+	}
+}
+
+func TestBatchPutEdges(t *testing.T) {
+	s := tempDB(t)
+	ctx := context.Background()
+	repo := makeRepo(t, s, "https://example.com/repo")
+	file := makeFile(t, s, repo, "main.go")
+
+	// Create source and 100 target nodes, then batch insert edges.
+	src := makeNode(t, s, file, "main.Caller", "function")
+	edges := make([]types.Edge, 100)
+	for i := range edges {
+		tgtName := fmt.Sprintf("main.Target%d", i)
+		tgt := makeNode(t, s, file, tgtName, "function")
+		edges[i] = types.Edge{
+			EdgeHash:   types.ComputeEdgeHash(src.NodeHash, tgt.NodeHash, "calls", "{}"),
+			SourceHash: src.NodeHash,
+			TargetHash: tgt.NodeHash,
+			EdgeType:   "calls",
+			Confidence: 0.9,
+			Provenance: "ast_resolved",
+		}
+	}
+
+	if err := s.BatchPutEdges(ctx, edges); err != nil {
+		t.Fatalf("BatchPutEdges: %v", err)
+	}
+
+	// Verify all edges are readable.
+	got, err := s.EdgesFrom(ctx, src.NodeHash, "calls")
+	if err != nil {
+		t.Fatalf("EdgesFrom: %v", err)
+	}
+	if len(got) != 100 {
+		t.Fatalf("expected 100 edges, got %d", len(got))
+	}
+}
+
+func TestBatchPutFiles(t *testing.T) {
+	s := tempDB(t)
+	ctx := context.Background()
+	repo := makeRepo(t, s, "https://example.com/repo")
+
+	files := make([]types.File, 120)
+	for i := range files {
+		path := fmt.Sprintf("pkg/file%d.go", i)
+		content := []byte(fmt.Sprintf("content-%d", i))
+		files[i] = types.File{
+			FileHash:    types.NewHash(append(repo.RepoHash[:], []byte(path)...)),
+			RepoHash:    repo.RepoHash,
+			Path:        path,
+			ContentHash: types.NewHash(content),
+		}
+	}
+
+	if err := s.BatchPutFiles(ctx, files); err != nil {
+		t.Fatalf("BatchPutFiles: %v", err)
+	}
+
+	// Verify all files are readable.
+	got, err := s.FilesByRepo(ctx, repo.RepoHash)
+	if err != nil {
+		t.Fatalf("FilesByRepo: %v", err)
+	}
+	if len(got) != 120 {
+		t.Fatalf("expected 120 files, got %d", len(got))
+	}
+
+	// Spot check a specific file.
+	f, err := s.FileByPath(ctx, repo.RepoHash, "pkg/file42.go")
+	if err != nil {
+		t.Fatalf("FileByPath: %v", err)
+	}
+	if f == nil {
+		t.Fatal("FileByPath returned nil for pkg/file42.go")
+	}
+	if f.Path != "pkg/file42.go" {
+		t.Errorf("Path = %q, want pkg/file42.go", f.Path)
+	}
+}
+
+func TestBatchPutNodes_EmptySlice(t *testing.T) {
+	s := tempDB(t)
+	ctx := context.Background()
+
+	// Empty batch should succeed without error.
+	if err := s.BatchPutNodes(ctx, nil); err != nil {
+		t.Fatalf("BatchPutNodes(nil): %v", err)
+	}
+	if err := s.BatchPutEdges(ctx, nil); err != nil {
+		t.Fatalf("BatchPutEdges(nil): %v", err)
+	}
+	if err := s.BatchPutFiles(ctx, nil); err != nil {
+		t.Fatalf("BatchPutFiles(nil): %v", err)
 	}
 }
 
