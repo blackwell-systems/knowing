@@ -94,8 +94,8 @@ func TestBulkLoad_MultiPackage(t *testing.T) {
 }
 
 func TestBulkLoad_SkipsTestFiles(t *testing.T) {
-	// Verify that _test.go files are NOT excluded from FilePackages.
-	// The loader loads everything; filtering is the extractor's job.
+	// Verify that _test.go files are excluded from FilePackages.
+	// The loader only discovers non-test .go files for package loading.
 	dir := createTempModule(t, map[string]string{
 		"pkg/a/a.go":      "package a\n\nfunc Hello() string { return \"hello\" }\n",
 		"pkg/a/a_test.go": "package a\n\nimport \"testing\"\n\nfunc TestHello(t *testing.T) {}\n",
@@ -107,9 +107,8 @@ func TestBulkLoad_SkipsTestFiles(t *testing.T) {
 	}
 
 	testPath := filepath.Join(dir, "pkg/a/a_test.go")
-	if _, ok := result.FilePackages[testPath]; !ok {
-		t.Errorf("expected FilePackages to contain test file %s (loader should not filter test files), got keys: %v",
-			testPath, keys(result.FilePackages))
+	if _, ok := result.FilePackages[testPath]; ok {
+		t.Errorf("expected FilePackages to NOT contain test file %s", testPath)
 	}
 
 	srcPath := filepath.Join(dir, "pkg/a/a.go")
