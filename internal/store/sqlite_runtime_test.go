@@ -167,6 +167,119 @@ func TestRuntimeEdgesByProvenance(t *testing.T) {
 	}
 }
 
+func TestRuntimeEdgesByProvenance_Empty(t *testing.T) {
+	s := tempDB(t)
+	ctx := context.Background()
+
+	// Query with no matching edges should return empty slice, not error.
+	edges, err := s.RuntimeEdgesByProvenance(ctx, "otel_")
+	if err != nil {
+		t.Fatalf("RuntimeEdgesByProvenance: %v", err)
+	}
+	if len(edges) != 0 {
+		t.Errorf("expected 0 edges, got %d", len(edges))
+	}
+}
+
+func TestRuntimeEdgesByProvenance_MultipleMatches(t *testing.T) {
+	s := tempDB(t)
+	ctx := context.Background()
+	repo := makeRepo(t, s, "https://example.com/repo")
+	file := makeFile(t, s, repo, "main.go")
+	src1 := makeNode(t, s, file, "main.A", "function")
+	tgt1 := makeNode(t, s, file, "main.B", "function")
+	src2 := makeNode(t, s, file, "main.C", "function")
+	tgt2 := makeNode(t, s, file, "main.D", "function")
+
+	now := time.Now().Unix()
+
+	// Two otel edges with different sub-provenances.
+	hash1 := types.ComputeEdgeHash(src1.NodeHash, tgt1.NodeHash, "calls", "otel_trace")
+	_, err := s.db.ExecContext(ctx,
+		`INSERT OR REPLACE INTO edges (edge_hash, source_hash, target_hash, edge_type, confidence, provenance, callsite_line, callsite_col, callsite_file, observation_count, last_observed)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		hash1[:], src1.NodeHash[:], tgt1.NodeHash[:], "calls", 0.8, "otel_trace", 0, 0, "", 5, now,
+	)
+	if err != nil {
+		t.Fatalf("insert edge 1: %v", err)
+	}
+
+	hash2 := types.ComputeEdgeHash(src2.NodeHash, tgt2.NodeHash, "calls", "otel_http")
+	_, err = s.db.ExecContext(ctx,
+		`INSERT OR REPLACE INTO edges (edge_hash, source_hash, target_hash, edge_type, confidence, provenance, callsite_line, callsite_col, callsite_file, observation_count, last_observed)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		hash2[:], src2.NodeHash[:], tgt2.NodeHash[:], "calls", 0.7, "otel_http", 0, 0, "", 3, now,
+	)
+	if err != nil {
+		t.Fatalf("insert edge 2: %v", err)
+	}
+
+	edges, err := s.RuntimeEdgesByProvenance(ctx, "otel_")
+	if err != nil {
+		t.Fatalf("RuntimeEdgesByProvenance: %v", err)
+	}
+	if len(edges) != 2 {
+		t.Fatalf("expected 2 otel edges, got %d", len(edges))
+	}
+}
+
+func TestRuntimeDecayConfidence_NoMatch(t *testing.T) {
+	s := tempDB(t)
+	ctx := context.Background()
+
+	// No edges at all; decay should return 0.
+	updated, err := s.DecayRuntimeConfidence(ctx, 30, 0.3)
+	if err != nil {
+		t.Fatalf("DecayRuntimeConfidence: %v", err)
+	}
+	if updated != 0 {
+		t.Errorf("expected 0 updated, got %d", updated)
+	}
+}
+
+func TestRuntimeDecayConfidence_AlreadyDecayed(t *testing.T) {
+	s := tempDB(t)
+	ctx := context.Background()
+	repo := makeRepo(t, s, "https://example.com/repo")
+	file := makeFile(t, s, repo, "main.go")
+	src := makeNode(t, s, file, "main.A", "function")
+	tgt := makeNode(t, s, file, "main.B", "function")
+
+	oldTime := time.Now().Unix() - 100*86400
+
+	// Insert an edge already at low confidence.
+	hash := types.ComputeEdgeHash(src.NodeHash, tgt.NodeHash, "calls", "otel_trace_low")
+	_, err := s.db.ExecContext(ctx,
+		`INSERT OR REPLACE INTO edges (edge_hash, source_hash, target_hash, edge_type, confidence, provenance, callsite_line, callsite_col, callsite_file, observation_count, last_observed)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		hash[:], src.NodeHash[:], tgt.NodeHash[:], "calls", 0.3, "otel_trace", 0, 0, "", 1, oldTime,
+	)
+	if err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	// Decaying to 0.3 should not match (confidence already at 0.3).
+	updated, err := s.DecayRuntimeConfidence(ctx, 30, 0.3)
+	if err != nil {
+		t.Fatalf("DecayRuntimeConfidence: %v", err)
+	}
+	if updated != 0 {
+		t.Errorf("expected 0 updated (already at target), got %d", updated)
+	}
+}
+
+func TestRuntimeUpdateObservation_NonexistentEdge(t *testing.T) {
+	s := tempDB(t)
+	ctx := context.Background()
+
+	// Updating a non-existent edge should not error (UPDATE matches 0 rows).
+	fakeHash := types.NewHash([]byte("does-not-exist"))
+	err := s.UpdateObservation(ctx, fakeHash, 10, time.Now().Unix(), 0.5)
+	if err != nil {
+		t.Fatalf("UpdateObservation on non-existent edge: %v", err)
+	}
+}
+
 func TestRuntimeDecayConfidence(t *testing.T) {
 	s := tempDB(t)
 	ctx := context.Background()

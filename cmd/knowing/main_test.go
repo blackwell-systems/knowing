@@ -189,6 +189,86 @@ func TestCmdIndex_DefaultUsesTreeSitter(t *testing.T) {
 	}
 }
 
+// TestUnknownSubcommand verifies that an unknown subcommand returns an error.
+func TestUnknownSubcommand(t *testing.T) {
+	// Capture stderr where usage is printed.
+	old := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+
+	err = run([]string{"nonexistent"})
+
+	w.Close()
+	os.Stderr = old
+
+	// Drain the pipe to avoid deadlock.
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+
+	if err == nil {
+		t.Fatal("expected error for unknown subcommand")
+	}
+	if !strings.Contains(err.Error(), "unknown subcommand") {
+		t.Errorf("expected 'unknown subcommand' in error, got %q", err.Error())
+	}
+}
+
+// TestCmdQuery_NoArgs verifies that query without arguments returns an error.
+func TestCmdQuery_NoArgs(t *testing.T) {
+	err := cmdQuery([]string{})
+	if err == nil {
+		t.Fatal("expected error for query without arguments")
+	}
+	if !strings.Contains(err.Error(), "usage") {
+		t.Errorf("expected 'usage' in error, got %q", err.Error())
+	}
+}
+
+// TestCmdIndex_NoArgs verifies that index without arguments returns an error.
+func TestCmdIndex_NoArgs(t *testing.T) {
+	err := cmdIndex([]string{})
+	if err == nil {
+		t.Fatal("expected error for index without arguments")
+	}
+	if !strings.Contains(err.Error(), "usage") {
+		t.Errorf("expected 'usage' in error, got %q", err.Error())
+	}
+}
+
+// TestCmdQuery_NoResults verifies that query with no matches prints "No nodes found."
+func TestCmdQuery_NoResults(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	// Capture stdout.
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+
+	err = cmdQuery([]string{"-db", dbPath, "nonexistent.Symbol"})
+
+	w.Close()
+	os.Stdout = old
+
+	if err != nil {
+		t.Fatalf("cmdQuery: %v", err)
+	}
+
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	output := buf.String()
+
+	if !strings.Contains(output, "No nodes found") {
+		t.Errorf("expected 'No nodes found' in output, got %q", output)
+	}
+}
+
 // TestCmdIndex_SimpleGoModule verifies that cmdIndex can index a simple Go module.
 func TestCmdIndex_SimpleGoModule(t *testing.T) {
 	dir := t.TempDir()

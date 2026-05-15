@@ -327,6 +327,217 @@ func TestDaemon_WriteBlocksReads(t *testing.T) {
 	cancel()
 }
 
+// TestDaemon_TraceConfigNil verifies that daemon starts without trace config.
+func TestDaemon_TraceConfigNil(t *testing.T) {
+	d := NewDaemon(DaemonConfig{
+		TraceConfig: nil,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- d.Start(ctx)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("Start returned error: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Start did not return after context cancel")
+	}
+}
+
+// TestDaemon_TraceConfigDisabled verifies that daemon starts with trace disabled.
+func TestDaemon_TraceConfigDisabled(t *testing.T) {
+	d := NewDaemon(DaemonConfig{
+		TraceConfig: &TraceIngestConfig{
+			Enabled:      false,
+			OTLPEndpoint: "localhost:4317",
+			BatchSize:    1000,
+		},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- d.Start(ctx)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("Start returned error: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Start did not return after context cancel")
+	}
+}
+
+// TestDaemon_TraceConfigEnabled verifies that daemon starts with trace enabled
+// and the trace ingest loop runs until context cancellation.
+func TestDaemon_TraceConfigEnabled(t *testing.T) {
+	d := NewDaemon(DaemonConfig{
+		TraceConfig: &TraceIngestConfig{
+			Enabled:       true,
+			OTLPEndpoint:  "localhost:4317",
+			BatchSize:     1000,
+			BatchInterval: 10 * time.Second,
+		},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- d.Start(ctx)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("Start returned error: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Start did not return after context cancel")
+	}
+}
+
+// TestGitHeadCommit_DetachedHead verifies that GitHeadCommit works in detached
+// HEAD state (raw commit hash in .git/HEAD).
+func TestGitHeadCommit_DetachedHead(t *testing.T) {
+	dir := t.TempDir()
+
+	// Initialize a git repo and make a commit.
+	runGit := func(args ...string) {
+		t.Helper()
+		cmd := append([]string{"-C", dir}, args...)
+		out, err := execCommand("git", cmd...)
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+
+	runGit("init")
+	runGit("config", "user.email", "test@test.com")
+	runGit("config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("hello"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit("add", "a.txt")
+	runGit("commit", "-m", "initial")
+
+	// Get the commit hash.
+	expected, err := execCommand("git", "-C", dir, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatalf("rev-parse: %v", err)
+	}
+	expected = strings.TrimSpace(expected)
+
+	// Detach HEAD.
+	runGit("checkout", "--detach")
+
+	got, err := GitHeadCommit(dir)
+	if err != nil {
+		t.Fatalf("GitHeadCommit in detached state: %v", err)
+	}
+	if got != expected {
+		t.Errorf("got %q, want %q", got, expected)
+	}
+}
+
+// TestNewDaemon_DefaultState verifies the initial state of a new daemon.
+func TestNewDaemon_DefaultState(t *testing.T) {
+	d := NewDaemon(DaemonConfig{})
+	if d == nil {
+		t.Fatal("NewDaemon returned nil")
+	}
+	if d.repos == nil {
+		t.Error("repos map should be initialized")
+	}
+	if d.indexQueue == nil {
+		t.Error("indexQueue should be initialized")
+	}
+}
+
+// TestDaemon_WatchRepo_BeforeStart verifies that WatchRepo before Start
+// registers the repo but doesn't add to watcher (watcher is nil).
+func TestDaemon_WatchRepo_BeforeStart(t *testing.T) {
+	d := NewDaemon(DaemonConfig{})
+
+	// WatchRepo before Start should not error (watcher is nil, just registers).
+	if err := d.WatchRepo("/tmp/somerepo"); err != nil {
+		t.Fatalf("WatchRepo before Start: %v", err)
+	}
+
+	d.mu.RLock()
+	_, ok := d.repos["/tmp/somerepo"]
+	d.mu.RUnlock()
+	if !ok {
+		t.Error("expected repo to be registered")
+	}
+}
+
+// TestDaemon_UnwatchRepo_BeforeStart verifies UnwatchRepo before Start.
+func TestDaemon_UnwatchRepo_BeforeStart(t *testing.T) {
+	d := NewDaemon(DaemonConfig{})
+
+	if err := d.WatchRepo("/tmp/repo"); err != nil {
+		t.Fatalf("WatchRepo: %v", err)
+	}
+	if err := d.UnwatchRepo("/tmp/repo"); err != nil {
+		t.Fatalf("UnwatchRepo: %v", err)
+	}
+
+	d.mu.RLock()
+	_, ok := d.repos["/tmp/repo"]
+	d.mu.RUnlock()
+	if ok {
+		t.Error("expected repo to be removed")
+	}
+}
+
+// TestDaemon_Stop_BeforeStart verifies that Stop before Start doesn't panic.
+func TestDaemon_Stop_BeforeStart(t *testing.T) {
+	d := NewDaemon(DaemonConfig{})
+
+	// Stop before Start should be safe (cancel is nil).
+	if err := d.Stop(); err != nil {
+		t.Fatalf("Stop before Start: %v", err)
+	}
+}
+
+// TestDaemon_IndexWorker_NilIndexFunc verifies that the index worker skips
+// requests when IndexFunc is nil.
+func TestDaemon_IndexWorker_NilIndexFunc(t *testing.T) {
+	d := NewDaemon(DaemonConfig{
+		IndexFunc: nil,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	go func() { _ = d.Start(ctx) }()
+	time.Sleep(50 * time.Millisecond)
+
+	// Send an index request; it should be silently skipped.
+	d.indexQueue <- indexRequest{repoURL: "test", repoPath: "/tmp"}
+	time.Sleep(50 * time.Millisecond)
+
+	cancel()
+}
+
 // TestDaemon_GitWatcherIntegration verifies that the daemon detects git commits
 // via GitWatcher and passes changed files to IndexFunc.
 func TestDaemon_GitWatcherIntegration(t *testing.T) {
