@@ -750,6 +750,11 @@ waves:
             - Pass the `pkg *packages.Package` parameter to resolveTargetRepoURL;
               it has `Imports map[string]*Package` and `Module *Module` fields.
             - The `packages.NeedModule` flag is needed for Module to be populated.
+            - In indexer_test.go, the mockStore must implement ALL GraphStore methods
+              including the 4 new ones added by Agent A in wave 1: DanglingEdges,
+              AllRepos, NodesByQualifiedName, DeleteEdge. Add stub implementations
+              that return nil/empty values for any methods not needed by your tests.
+              Without these stubs, the mock won't compile.
 
             ### Verification
             ```bash
@@ -832,7 +837,7 @@ pre_mortem:
             is best-effort post-processing. This must be documented in code comments.
             Future work may recompute snapshot after resolution if needed.
 critic_report:
-    verdict: ISSUES
+    verdict: PASS
     agent_reviews:
         A:
             agent_id: A
@@ -845,13 +850,8 @@ critic_report:
             verdict: PASS
         D:
             agent_id: D
-            verdict: ISSUES
+            verdict: PASS
             issues:
-                - check: symbol_accuracy
-                  severity: error
-                  description: After Agent A adds DanglingEdges, AllRepos, NodesByQualifiedName, and DeleteEdge to the GraphStore interface in wave 1, the mockStore in indexer_test.go will fail to compile because it does not implement these 4 new methods. Agent D owns indexer_test.go but the brief does not instruct adding stub implementations for these methods on mockStore.
-                  file: internal/indexer/indexer_test.go
-                  symbol: mockStore
                 - check: pattern_accuracy
                   severity: warning
                   description: Brief says to insert ResolveEdges method after IndexRepo and before the unexported extractFile method, but extractFile is defined at line 112, BEFORE IndexRepo which starts at line 136. IndexRepo is the last function in the file (ends at line 276). The insertion point description is spatially incorrect, though the intent (add after IndexRepo) is clear.
@@ -860,8 +860,8 @@ critic_report:
                 - check: complexity_balance
                   severity: warning
                   description: Agent D owns 4 of 10 total files (40%), at the advisory rebalancing threshold.
-    summary: 'Reviewed 4 agents across 10 files. Found 1 error and 2 warnings. Agent D has a compilation-breaking gap: the mockStore in indexer_test.go implements types.GraphStore but the brief does not instruct Agent D to add stub methods for the 4 new GraphStore methods added by Agent A in wave 1 (DanglingEdges, AllRepos, NodesByQualifiedName, DeleteEdge). This will cause a compile failure during wave 2. Additionally, Agent D''s brief incorrectly describes the insertion point for ResolveEdges (says before extractFile, but extractFile is defined before IndexRepo in the file). Agent D also owns 4 of 10 files (40%), at the advisory threshold.'
-    reviewed_at: "2026-05-15T15:39:21Z"
-    issue_count: 3
+    summary: 'Re-reviewed all 4 agents across 10 files after IMPL fix. The previous error (Agent D missing mock stub instructions for 4 new GraphStore methods) is resolved: the Constraints section now explicitly instructs Agent D to add DanglingEdges, AllRepos, NodesByQualifiedName, and DeleteEdge stubs to mockStore. Two advisory warnings remain: (1) Agent D brief describes inserting ResolveEdges before extractFile, but extractFile is defined before IndexRepo in indexer.go (spatial ordering is inverted, though intent is clear); (2) Agent D owns 4 of 10 files (40%), at the advisory rebalancing threshold. No errors found.'
+    reviewed_at: "2026-05-15T15:41:52Z"
+    issue_count: 2
 state: SCOUT_PENDING
 injection_method: hook
