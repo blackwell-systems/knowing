@@ -710,5 +710,5 @@ pre_mortem:
             extractor must reconstruct it from go.mod module path + directory. Agent A
             should write a test comparing pkgPath derivation against a known module
             structure.
-state: SCOUT_PENDING
+state: "REVIEWED"
 injection_method: hook
