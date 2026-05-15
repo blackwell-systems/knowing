@@ -1,3 +1,84 @@
+# Architecture
+
+## Overview
+
+knowing is a persistent daemon that builds and serves a content-addressed knowledge graph of cross-repository code relationships.
+
+### Components
+
+```
+knowing daemon (long-lived)
+  ├── Indexer (crawls repos, parses ASTs, resolves types, builds Merkle DAG)
+  ├── Graph Store (SQLite behind GraphStore interface, WAL mode)
+  ├── MCP Server (stdio or HTTP, serves agent queries)
+  ├── Snapshot Manager (computes Merkle roots, GCs old snapshots)
+  └── Trace Ingestor (OTel spans, HTTP logs → runtime edges)
+```
+
+### System Diagram
+
+```
++------------------+     +------------------+     +------------------+
+|   Local Repos    |     |  External Deps   |     |   Agent (MCP)    |
+|  (Tier 1: deep)  |     | (Tier 2: shallow)|     |                  |
++--------+---------+     +--------+---------+     +--------+---------+
+         |                         |                        |
+         v                         v                        |
++--------+---------+     +---------+--------+               |
+|  AST Parser      |     |  SCIP/LSP Ingest |               |
+|  (go/packages,   |     |  (public API     |               |
+|   tree-sitter)   |     |   surface only)  |               |
++--------+---------+     +---------+--------+               |
+         |                         |                        |
+         +------------+------------+                        |
+                      v                                     |
+         +------------+------------+     +------------------+
+         |   Content-Addressed     |     |  Non-Code Ingest |
+         |      Graph Store        |<----| (Terraform, K8s, |
+         |  (Merkle DAG, SQLite)   |     |  CODEOWNERS,     |
+         |                         |     |  OpenAPI specs)  |
+         +------------+------------+     +------------------+
+                      |
+              +-------+-------+
+              v               v
++-------------+---+   +------+-----------+
+| Snapshot Chain  |   | Runtime Ingest   |
+| (root hashes    |   | (OTel traces,    |
+|  linked like    |   |  production      |
+|  git commits)   |   |  traffic logs)   |
++-----------------+   +------------------+
+```
+
+### Indexing Tiers
+
+- **Tier 1 (deep)**: local repositories. Full AST parsing with type resolution via `go/packages` and tree-sitter. Every symbol, call, import, and type relationship is extracted.
+- **Tier 2 (shallow)**: external dependencies. Public API surface only, ingested via SCIP indices or LSP queries. Enough to connect cross-repo edges without parsing all transitive source.
+
+### Edge Types
+
+The graph connects symbols with typed, provenance-annotated edges:
+
+| Category | Edge types |
+|----------|-----------|
+| Code | `calls`, `imports`, `implements`, `references` |
+| Protocol | `rpc_calls`, `produces_event`, `consumes_event` |
+| Schema | `reads_field`, `writes_field`, `declares_route`, `consumes_route` |
+| Infrastructure | `deploys`, `connects_to`, `depends_on_service` |
+| Ownership | `owned_by_team`, `owned_by_user` |
+| Runtime | `runtime_calls`, `runtime_rpc`, `runtime_produces`, `runtime_consumes`, `runtime_queries` |
+
+### Design Goals
+
+- **Content-addressed**: every graph state is a hash; history, staleness, and integrity are structural properties, not bolted-on features
+- **Two-tier indexing**: deep AST-level index for local repos, shallow SCIP/LSP ingest for external dependencies
+- **Incremental**: git push triggers re-index of changed files only; unchanged file hashes skip re-parse entirely
+- **Language-aware at boundaries**: Go calling Go is straightforward; Go calling a Python service via HTTP needs route mapping
+- **MCP-native**: exposed as MCP tools, consumed by agents directly
+- **Fast**: optimized for interactive agent queries over large multi-repo graphs
+- **Deterministic**: same input at same commit always produces the same graph (verifiable via hash)
+
+---
+
 # Architecture Decisions
 
 This document records foundational design decisions for knowing. These choices are made early because they are expensive or impossible to retrofit later.
