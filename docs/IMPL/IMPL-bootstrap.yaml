@@ -644,6 +644,7 @@ waves:
             - internal/daemon/daemon.go
             - internal/daemon/watcher.go
             - internal/daemon/daemon_test.go
+      base_commit: 0dedd288dd75ff168c2f34761f4c0369fe4ece23
     - number: 2
       agents:
         - id: G
@@ -966,6 +967,74 @@ scaffolds:
         }
       import_path: github.com/blackwell-systems/knowing/internal/types
       status: committed (92a3d44)
+completion_reports:
+    A:
+        status: complete
+        branch: polywave/bootstrap/wave1-agent-A
+        commit: a3f7d1264eb2a2f1eb574d9123ba63da1f87e933
+        notes: 'SQLite GraphStore: 20 methods, 14 tests, WAL mode, go:embed migrations, recursive CTEs'
+    B:
+        status: complete
+        branch: polywave/bootstrap/wave1-agent-B
+        commit: cd70e268f6aa928840a156106d3e8469db946c7e
+        notes: 'Snapshot manager: ComputeSnapshot, Diff, GC, Merkle tree, 7 tests'
+    C:
+        status: complete
+        branch: polywave/bootstrap/wave1-agent-C
+        commit: c47782b2697d8dc6812d5a0f7195df799b1a1a03
+        notes: 'Indexer + Go extractor: ExtractorRegistry, GoExtractor with implements/references edges, 12 tests'
+    D:
+        status: complete
+        branch: polywave/bootstrap/wave1-agent-D
+        commit: ee84281
+        files_changed:
+            - internal/indexer/treesitter/extractor.go
+            - internal/indexer/treesitter/extractor_test.go
+            - go.mod
+            - go.sum
+        files_created:
+            - internal/indexer/treesitter/extractor.go
+            - internal/indexer/treesitter/extractor_test.go
+        tests_added:
+            - TestTreeSitterExtractor_CanHandle_PythonFiles
+            - TestTreeSitterExtractor_Extract_PythonFunction
+            - TestTreeSitterExtractor_Extract_PythonClass
+            - TestTreeSitterExtractor_Extract_PythonImport
+            - TestTreeSitterExtractor_Extract_CallEdges
+            - TestTreeSitterExtractor_Extract_Deterministic
+            - TestTreeSitterExtractor_QualifiedName_Format
+            - TestNewTreeSitterExtractor_UnsupportedLanguage
+            - TestTreeSitterExtractor_Name
+        verification: PASS
+        notes: TreeSitterExtractor implements types.Extractor for Python using go-tree-sitter. All 9 tests passing. Deterministic output. go.mod/go.sum updated with tree-sitter dependency.
+    E:
+        status: complete
+        branch: polywave/bootstrap/wave1-agent-E
+        commit: bac28c1f112d4406895c3be2ffc4ee6aee094ee1
+        notes: 'MCP server: 11 tools, stdio + HTTP, read-only intelligence handlers, 6 tests'
+    F:
+        status: complete
+        branch: polywave/bootstrap/wave1-agent-F
+        commit: 3ff9d26
+        files_changed:
+            - internal/daemon/daemon.go
+            - internal/daemon/watcher.go
+            - internal/daemon/daemon_test.go
+            - go.mod
+            - go.sum
+        files_created:
+            - internal/daemon/daemon.go
+            - internal/daemon/watcher.go
+            - internal/daemon/daemon_test.go
+        tests_added:
+            - TestDaemon_StartStop
+            - TestDaemon_WatchRepo_AddsWatcher
+            - TestFileWatcher_DetectsChanges
+            - TestFileWatcher_Debounces
+            - TestDaemon_ConcurrentReads
+            - TestDaemon_WriteBlocksReads
+        verification: PASS
+        notes: All 6 tests pass. Daemon uses interfaces/callbacks only, no direct imports of store/indexer/mcp/snapshot. fsnotify with 500ms debounce. sync.RWMutex for read/write coordination.
 pre_mortem:
     overall_risk: medium
     rows:
@@ -1028,6 +1097,6 @@ critic_report:
     summary: All 7 agent briefs verified against the codebase. All 22 action:new files confirmed absent (Check 1). Symbol accuracy skipped per action:new exclusion (Check 2). Interface contracts in the IMPL match committed scaffold files exactly (Check 4). No disjoint ownership violations (Check 9). No agent exceeds 8 files or 40% of total (Check 7). External dependencies not yet in go.mod are expected for bootstrap; agents will go-get them and orchestrator runs go mod tidy post-merge. No issues found.
     reviewed_at: "2026-05-15T07:33:11Z"
     issue_count: 0
-state: "REVIEWED"
+state: WAVE_EXECUTING
 original_branch: main
 injection_method: hook

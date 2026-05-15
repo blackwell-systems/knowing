@@ -12,6 +12,30 @@
         "cached_at": "2026-05-15T00:33:31.765373-07:00"
       }
     },
+    "4b7a1d0a596a6875addd1cbc7188825b": {
+      "lint": {
+        "gate_type": "lint",
+        "command": "go vet ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-15T00:33:40.174203-07:00"
+      }
+    },
+    "5aa8a751041b9d1f282e4d14017a9de3": {
+      "test": {
+        "gate_type": "test",
+        "command": "go test ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "?   \tgithub.com/blackwell-systems/knowing/internal/types\t[no test files]\n",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-15T00:33:39.929739-07:00"
+      }
+    },
     "7a3271f045655472a403f1e0ea83d7de": {
       "test": {
         "gate_type": "test",
@@ -34,6 +58,18 @@
         "stderr": "go: reading go.work: open ../../workspace/code/scout-and-wave-go/go.work: no such file or directory\n",
         "from_cache": true,
         "cached_at": "2026-05-15T00:33:32.014872-07:00"
+      }
+    },
+    "e798addb559b3c7bc2e63e783acb432f": {
+      "build": {
+        "gate_type": "build",
+        "command": "go build ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-15T00:33:39.677755-07:00"
       }
     }
   }
