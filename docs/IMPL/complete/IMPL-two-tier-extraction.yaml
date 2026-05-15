@@ -1,3 +1,4 @@
+completion_date: "2026-05-15"
 title: Two-tier extraction for fast cold indexing
 feature_slug: two-tier-extraction
 verdict: SUITABLE
@@ -658,6 +659,7 @@ waves:
             - internal/daemon/daemon.go
           dependencies:
             - B
+      base_commit: fb333c6912b1820167d267fab1e3c82ba8824ca6
 quality_gates:
     level: standard
     gates:
@@ -724,6 +726,26 @@ completion_reports:
             - TestRunReturnsErrorWhenNoSnapshot
         verification: PASS
         notes: LSP enrichment pass complete. Enricher starts gopls, collects ast_inferred edges, upgrades to lsp_resolved via definition resolution, and discovers new implements/references edges. All 6 tests pass. Full repo build/vet/test clean.
+    C:
+        status: complete
+        branch: polywave/two-tier-extraction/wave2-agent-C
+        commit: ba5917b
+        files_changed:
+            - cmd/knowing/main.go
+            - cmd/knowing/main_test.go
+        tests_added:
+            - TestCmdIndex_FullFlagParses
+            - TestCmdIndex_DefaultUsesTreeSitter
+        verification: PASS
+        notes: Wired GoTreeSitterExtractor as default in cmdIndex and cmdServe. Added --full flag to cmdIndex for go/packages fallback. Synchronous LSP enrichment runs after tree-sitter indexing. All 5 tests pass.
+    D:
+        status: complete
+        branch: polywave/two-tier-extraction/wave2-agent-D
+        commit: 7f67409
+        files_changed:
+            - internal/daemon/daemon.go
+        verification: PASS
+        notes: Added EnrichFunc field to DaemonConfig and async enrichment trigger in indexWorker. All tests pass including daemon tests.
 pre_mortem:
     overall_risk: medium
     rows:
@@ -765,5 +787,5 @@ pre_mortem:
             extractor must reconstruct it from go.mod module path + directory. Agent A
             should write a test comparing pkgPath derivation against a known module
             structure.
-state: REVIEWED
+state: COMPLETE
 injection_method: hook
