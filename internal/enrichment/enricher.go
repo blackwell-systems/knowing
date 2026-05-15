@@ -81,18 +81,18 @@ func (e *Enricher) Run(ctx context.Context, repoHash types.Hash) error {
 		filePathByHash[f.FileHash] = f.Path
 	}
 
-	// Collect all ast_inferred edges by iterating nodes reachable from repo files.
-	astEdges, err := e.collectASTInferredEdges(ctx, repoHash, filePathByHash)
-	if err != nil {
-		return fmt.Errorf("enrichment: collect edges: %w", err)
-	}
-
 	stats := &enrichStats{}
 
-	// Upgrade ast_inferred edges via LSP.
-	e.upgradeEdges(ctx, astEdges, filePathByHash, stats)
-
-	// Discover new edges via LSP.
+	// Discover new implements and references edges via LSP document symbols.
+	// This is the primary enrichment path: gopls provides type-resolved
+	// symbol information that tree-sitter cannot.
+	//
+	// Note: per-edge upgrade (resolving ast_inferred call edges individually)
+	// is not implemented because call-site positions are not stored in edges.
+	// The tree-sitter pass stores the source node's declaration line, not
+	// the call site line. Without call-site positions, gopls GetDefinition
+	// returns the declaration itself, not useful for edge validation.
+	// Future: store call-site line/col in edges to enable per-edge upgrade.
 	e.discoverNewEdges(ctx, files, filePathByHash, stats)
 
 	// Log summary instead of per-edge noise.
@@ -112,54 +112,9 @@ func (e *Enricher) Close(ctx context.Context) error {
 	return nil
 }
 
-// edgeWithSource pairs an edge with the source node for LSP lookups.
-type edgeWithSource struct {
-	edge types.Edge
-	node types.Node
-}
-
-// collectASTInferredEdges finds all edges with provenance "ast_inferred"
-// for nodes belonging to the given repo's files.
-func (e *Enricher) collectASTInferredEdges(
-	ctx context.Context,
-	repoHash types.Hash,
-	filePathByHash map[types.Hash]string,
-) ([]edgeWithSource, error) {
-	repo, err := e.store.GetRepo(ctx, repoHash)
-	if err != nil {
-		return nil, fmt.Errorf("get repo: %w", err)
-	}
-	if repo == nil {
-		return nil, fmt.Errorf("repo not found: %s", repoHash)
-	}
-
-	nodes, err := e.store.NodesByName(ctx, repo.RepoURL)
-	if err != nil {
-		return nil, fmt.Errorf("list nodes: %w", err)
-	}
-
-	var result []edgeWithSource
-	for _, node := range nodes {
-		if _, ok := filePathByHash[node.FileHash]; !ok {
-			continue
-		}
-
-		edges, err := e.store.EdgesFrom(ctx, node.NodeHash, "")
-		if err != nil {
-			continue
-		}
-
-		for _, edge := range edges {
-			if edge.Provenance == "ast_inferred" {
-				result = append(result, edgeWithSource{edge: edge, node: node})
-			}
-		}
-	}
-
-	return result, nil
-}
-
 // upgradeEdge creates a new lsp_resolved edge from an ast_inferred edge.
+// Used by discoverNewEdges when it finds an existing ast_inferred edge
+// that can be confirmed by LSP.
 func upgradeEdge(old types.Edge) types.Edge {
 	newProvenance := "lsp_resolved"
 	newEdgeHash := types.ComputeEdgeHash(old.SourceHash, old.TargetHash, old.EdgeType, newProvenance)
@@ -170,57 +125,6 @@ func upgradeEdge(old types.Edge) types.Edge {
 		EdgeType:   old.EdgeType,
 		Confidence: 0.9,
 		Provenance: newProvenance,
-	}
-}
-
-// upgradeEdges attempts to resolve each ast_inferred edge via LSP and
-// upgrades successfully resolved edges.
-func (e *Enricher) upgradeEdges(
-	ctx context.Context,
-	edges []edgeWithSource,
-	filePathByHash map[types.Hash]string,
-	stats *enrichStats,
-) {
-	for _, ews := range edges {
-		if ctx.Err() != nil {
-			return
-		}
-
-		stats.edgesProcessed++
-
-		filePath, ok := filePathByHash[ews.node.FileHash]
-		if !ok {
-			stats.edgeErrors++
-			continue
-		}
-
-		uri := "file://" + filepath.Join(e.workspaceRoot, filePath)
-		pos := lsptypes.Position{
-			Line:      ews.node.Line - 1,
-			Character: 0,
-		}
-
-		locs, err := e.client.GetDefinition(ctx, uri, pos)
-		if err != nil {
-			stats.edgeErrors++
-			continue
-		}
-		if len(locs) == 0 {
-			stats.edgesSkipped++
-			continue
-		}
-
-		if err := e.store.DeleteEdge(ctx, ews.edge.EdgeHash); err != nil {
-			stats.edgeErrors++
-			continue
-		}
-
-		newEdge := upgradeEdge(ews.edge)
-		if err := e.store.PutEdge(ctx, newEdge); err != nil {
-			stats.edgeErrors++
-			continue
-		}
-		stats.edgesUpgraded++
 	}
 }
 
