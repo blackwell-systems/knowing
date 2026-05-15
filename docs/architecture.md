@@ -53,20 +53,73 @@ knowing daemon (long-lived)
 
 The graph model is language-agnostic. Symbols, edges, hashes, provenance, and snapshots carry no language-specific semantics. A Go function, a Python class, and a TypeScript route handler all produce the same node and edge structures, identified by the same hash scheme, stored in the same graph. The extractor produces them; the graph doesn't care what language they came from.
 
-Language-specific knowledge lives entirely in the extractors:
+Adding a new language means writing a tree-sitter extractor that produces nodes and edges. No changes to the graph store, snapshot chain, MCP server, cache, or any other component.
 
-| Language | Extractor | What it provides |
-|----------|-----------|-----------------|
-| Go | `go/packages` | Full type resolution, cross-module call edges, interface satisfaction |
-| Python, TypeScript, Java, Rust, etc. | tree-sitter | AST-level symbol extraction, call edges, import tracking |
-| Any language with SCIP support | SCIP ingest | Pre-built index from external toolchain (scip-go, scip-java, scip-typescript, etc.) |
+### Two-Tier Extraction
 
-Adding a new language means writing an extractor that produces nodes and edges. No changes to the graph store, snapshot chain, MCP server, cache, or any other component.
+Indexing uses a two-tier architecture that separates fast symbol extraction from expensive type resolution. The graph is queryable after Tier 1 completes (seconds); Tier 2 enriches it with type-resolved confidence (seconds more).
 
-### Indexing Tiers
+```
+Tier 1: tree-sitter (fast, all languages)
+  ├── Parse AST via tree-sitter grammar
+  ├── Extract declaration nodes (functions, types, methods, interfaces)
+  ├── Extract syntactic call edges (string-matched, not type-resolved)
+  ├── Extract import edges
+  ├── Store call-site positions (line, column, file) on each call edge
+  ├── Provenance: "ast_inferred", confidence: 0.7
+  └── Completes in ~1.5 seconds for a 6,000-node repo
 
-- **Tier 1 (deep)**: local repositories. Full AST parsing with type resolution (`go/packages` for Go, tree-sitter for other languages). Every symbol, call, import, and type relationship is extracted.
-- **Tier 2 (shallow)**: external dependencies. Public API surface only, ingested via SCIP indices or LSP queries. Enough to connect cross-repo edges without parsing all transitive source.
+Tier 2: LSP enrichment (type-resolved, per-language)
+  ├── Start language server (gopls, pyright, rust-analyzer)
+  ├── Open all source files (textDocument/didOpen)
+  ├── Upgrade call edges: query GetDefinition at call-site positions
+  │   └── Confirmed edges upgraded to "lsp_resolved", confidence: 0.9
+  ├── Discover new edges: query GetImplementation, GetReferences on symbols
+  │   └── implements and references edges (tree-sitter cannot produce these)
+  ├── Close all files, shutdown language server
+  └── Completes in ~8 seconds for a 6,000-node repo
+```
+
+**Why two tiers instead of one:**
+
+Full type resolution via `go/packages` (or equivalent per-language) requires loading and type-checking the entire transitive dependency graph. For a Go repo with heavy dependencies, this takes 16+ minutes. The cost is proportional to the dependency graph size, not the repo size, and cannot be parallelized from the caller's side.
+
+tree-sitter parses syntax without type checking. It produces the same declaration nodes and most of the same call edges in seconds. The edges have lower confidence (syntactic string matching vs. type-resolved targeting) but are correct for the vast majority of direct calls.
+
+LSP enrichment bridges the gap. Language servers (gopls, pyright, etc.) perform type checking incrementally on opened files rather than in a single batch pass. gopls resolves 8,600+ edges in ~8 seconds because it processes files incrementally as they're opened, leveraging its own internal caching.
+
+**Call-site positions:**
+
+Edges carry `CallSiteLine`, `CallSiteCol`, and `CallSiteFile` fields that store the source location of the call expression (not the declaration). tree-sitter provides these naturally from the AST node positions. The enricher uses them to query `GetDefinition` at the exact call site, confirming that the syntactic call target matches the type-resolved target.
+
+**Extractors by language:**
+
+| Language | Tier 1 (fast) | Tier 2 (enrichment) | LSP server |
+|----------|--------------|--------------------|-----------| 
+| Go | `gotsextractor` (tree-sitter Go grammar) | `enrichment` (agent-lsp pkg/lsp) | gopls |
+| Python | `treesitter` (tree-sitter Python grammar) | enrichment | pyright |
+| TypeScript | tree-sitter TS grammar | enrichment | tsserver |
+| Rust | tree-sitter Rust grammar | enrichment | rust-analyzer |
+| Go (legacy) | `goextractor` (go/packages, `--full` flag) | n/a (already type-resolved) | n/a |
+
+The Go tree-sitter extractor (`gotsextractor`) is the default. The go/packages extractor (`goextractor`) is available via `knowing index --full` for cases requiring guaranteed type resolution at the cost of 16+ minutes.
+
+**LSP client:**
+
+LSP enrichment uses `github.com/blackwell-systems/agent-lsp/pkg/lsp`, a pure Go LSP client library with no CGo dependencies. It manages language server subprocess lifecycles (spawn, initialize, request/response, shutdown) and supports multi-server routing for polyglot repos. The enricher opens all source files before querying to give the language server full workspace context, then queries GetDefinition (edge upgrade), GetImplementation (implements edges), and GetReferences (references edges).
+
+**Provenance tiers after two-tier extraction:**
+
+| Provenance | Confidence | Source | When |
+|-----------|-----------|--------|------|
+| `ast_inferred` | 0.7 | tree-sitter syntactic matching | After Tier 1 (seconds) |
+| `lsp_resolved` | 0.9 | LSP GetDefinition confirmation | After Tier 2 (seconds more) |
+| `ast_resolved` | 1.0 | go/packages full type resolution | `--full` flag only (minutes) |
+
+### Indexing Tiers (Repository Scope)
+
+- **Local repositories (deep)**: Full two-tier extraction. tree-sitter for declarations and calls, LSP enrichment for type resolution and edge discovery. Every symbol, call, import, implements, and reference relationship is extracted.
+- **External dependencies (shallow)**: Public API surface only, ingested via SCIP indices or LSP queries. Enough to connect cross-repo edges without parsing all transitive source.
 
 ### Edge Types
 
@@ -84,7 +137,7 @@ The graph connects symbols with typed, provenance-annotated edges:
 ### Design Goals
 
 - **Content-addressed**: every graph state is a hash; history, staleness, and integrity are structural properties, not bolted-on features
-- **Two-tier indexing**: deep AST-level index for local repos, shallow SCIP/LSP ingest for external dependencies
+- **Two-tier extraction**: tree-sitter for fast AST parsing (seconds), LSP enrichment for type-resolved confidence (seconds more); graph is queryable after Tier 1
 - **Incremental**: git push triggers re-index of changed files only; unchanged file hashes skip re-parse entirely
 - **Language-aware at boundaries**: Go calling Go is straightforward; Go calling a Python service via HTTP needs route mapping
 - **MCP-native**: exposed as MCP tools, consumed by agents directly
