@@ -582,6 +582,61 @@ func (s *SQLiteStore) DeleteEdge(ctx context.Context, hash types.Hash) error {
 	return err
 }
 
+func (s *SQLiteStore) DeleteNodesByFile(ctx context.Context, fileHash types.Hash) (int, error) {
+	result, err := s.db.ExecContext(ctx,
+		`DELETE FROM nodes WHERE file_hash = ?`,
+		fileHash[:],
+	)
+	if err != nil {
+		return 0, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return int(n), nil
+}
+
+func (s *SQLiteStore) DeleteEdgesBySourceFile(ctx context.Context, fileHash types.Hash) ([]types.Edge, error) {
+	// First, read the edges that will be deleted.
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT edge_hash, source_hash, target_hash, edge_type, confidence, provenance, callsite_line, callsite_col, callsite_file
+		 FROM edges WHERE source_hash IN (SELECT node_hash FROM nodes WHERE file_hash = ?)`,
+		fileHash[:],
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	edges, err := scanEdges(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	// Then delete them.
+	_, err = s.db.ExecContext(ctx,
+		`DELETE FROM edges WHERE source_hash IN (SELECT node_hash FROM nodes WHERE file_hash = ?)`,
+		fileHash[:],
+	)
+	if err != nil {
+		return nil, err
+	}
+	return edges, nil
+}
+
+func (s *SQLiteStore) EdgesBySourceFile(ctx context.Context, fileHash types.Hash) ([]types.Edge, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT edge_hash, source_hash, target_hash, edge_type, confidence, provenance, callsite_line, callsite_col, callsite_file
+		 FROM edges WHERE source_hash IN (SELECT node_hash FROM nodes WHERE file_hash = ?)`,
+		fileHash[:],
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanEdges(rows)
+}
+
 // ----- Scanner helpers -----
 
 type scannable interface {
