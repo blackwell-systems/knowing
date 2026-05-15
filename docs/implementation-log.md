@@ -160,3 +160,60 @@ internal/
 ```
 
 8 packages. 26 files. 56+ tests. Single Go binary.
+
+### Friction and Lessons
+
+**1. Leftover MCP server hook blocked scout agent (~20 min wasted)**
+
+A PreToolUse hook (`cbm-code-discovery-gate`) left over from an MCP server demo blocked subagents' first file access per process. The scout read all files, designed the full manifest, then couldn't write the IMPL doc. Not a polywave issue; an environment artifact. Deleted the hook and relaunched.
+
+**Lesson:** Audit PreToolUse hooks before running polywave. Any hook that gates Read/Write/Glob/Grep on first invocation per process will hit every subagent independently.
+
+**2. `prepare-wave` / `validate` schema disagreement (recurring, ~4 min wasted total)**
+
+`prepare-wave` writes operational state keys into the IMPL YAML (e.g., `original_branch`, state transitions) that `validate`'s schema rejects as `V013_UNKNOWN_KEY`. The `validate_agent_launch` hook (H5) calls `validate` before allowing agent launches, blocking every launch attempt.
+
+**Root cause:** Schema disagreement between two `polywave-tools` subcommands. `prepare-wave` writes keys that `validate` doesn't recognize.
+
+**Workaround:** Run `polywave-tools validate --fix` between `prepare-wave` and agent launch. Required for every wave (Wave 1 and Wave 2 both hit this).
+
+**Fix options:** (a) Validator allowlists keys that `prepare-wave` writes, (b) `prepare-wave` writes operational state to `.polywave-state/` instead of the IMPL doc, (c) H5 hook skips V013 errors for known operational keys.
+
+**3. Stale `GOWORK` env var (recurring environment issue)**
+
+A `GOWORK` environment variable pointing to a non-existent `go.work` file from another project caused `go build`, `go test`, and baseline gates to fail. Required `GOWORK=off` on every go command and in agent launch prompts.
+
+**Lesson:** Polywave's baseline gates surface environment issues clearly (the error message was unambiguous), but agents need to be told about workarounds explicitly in their launch prompts.
+
+**4. Computer crash mid-Wave 1**
+
+Machine went down while 4 of 6 agents were running. All 6 had committed implementation code to branches, but 3 agents (B, C, E) hadn't written test files and agent C hadn't added implements/references edges.
+
+**Recovery process:**
+1. `polywave-tools agent-status` identified which agents had completion reports
+2. `polywave-tools reconcile-state` advanced IMPL state based on branch evidence
+3. Parallel review agents verified each branch against the IMPL spec
+4. Single repair agent added missing tests and edges across 3 branches
+5. Manual completion reports via `polywave-tools set-completion`
+
+**Lesson:** Branch-per-agent model is crash-resilient. No agent work was lost. Recovery was mechanical (~20 min) rather than requiring re-runs. Agents should commit incrementally (after each file, not just at the end) to minimize loss window.
+
+**5. go.mod/go.sum merge conflicts (expected, flagged in pre-mortem)**
+
+4 of 6 Wave 1 merges had go.mod/go.sum conflicts because each agent added its own dependencies. The scout's pre-mortem predicted this as "high likelihood, low impact."
+
+**Resolution:** `git checkout --theirs go.mod go.sum && go mod tidy` for each conflict. `finalize-wave` couldn't handle this automatically (blocked on conflict prediction). Had to merge manually then run `finalize-wave --skip-merge`.
+
+**Lesson:** For Go projects with multiple agents adding dependencies, go.mod conflicts are inevitable. A `--auto-resolve-gomod` flag on `finalize-wave` would eliminate this manual step.
+
+**6. Agent C missed required edge types**
+
+The IMPL brief explicitly listed `implements` and `references` edges as required. Agent C implemented calls and imports but skipped the other two. Caught by post-crash code review, not by any automated check.
+
+**Lesson:** Postcondition checks in the IMPL brief (e.g., `grep -q "implements" extractor.go`) would have caught this during agent verification. The current postconditions checked method count and struct names but not behavioral completeness.
+
+**7. Scout used invalid file_ownership format for scaffolds**
+
+Scout wrote `agent: scaffold` / `wave: 0` in file_ownership entries, which the validator rejects (expects uppercase agent IDs, wave > 0). Scaffold files should only appear in the scaffolds section, not in file_ownership.
+
+**Lesson:** Minor YAML fix, but shows the scout's bootstrap template handling could be tighter. Validator caught it immediately.
