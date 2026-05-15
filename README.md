@@ -132,6 +132,20 @@ The Git analogy is exact: Git is a content-addressed graph of source code. knowi
 | `index_repo` | Add a repo to the graph |
 | `graph_query` | Raw graph query (Cypher or similar) |
 
+## Why Content-Addressed?
+
+Most code intelligence tools maintain a mutable "current state" graph. When you query them, you get today's answer. The old answer is gone. This means:
+
+- No way to ask "what did the graph look like at the last deploy?"
+- Staleness is heuristic (timestamps, TTLs) rather than structural
+- No way to prove a graph was derived from specific source commits
+- No deduplication across repos (same symbol stored N times)
+- Cache invalidation requires guessing
+
+Content-addressed storage solves all of these at the data structure level. Merkle DAGs have been proven at planetary scale for software artifacts (billions of files, hundreds of millions of commits). The same structure that makes git reliable for source history makes knowing reliable for relationship history.
+
+The tradeoff is implementation complexity and storage cost. knowing accepts that tradeoff because agents making distributed changes need trust, not just answers.
+
 ## Why Not Just Use Code Search?
 
 Code search finds matching text. `knowing` tracks relationships.
