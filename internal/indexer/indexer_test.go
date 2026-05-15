@@ -34,10 +34,11 @@ func (m *mockExtractor) Extract(ctx context.Context, opts types.ExtractOptions) 
 
 // mockStore is a minimal test double for types.GraphStore.
 type mockStore struct {
-	nodes map[types.Hash]types.Node
-	edges map[types.Hash]types.Edge
-	files map[string]types.File
-	repos map[types.Hash]types.Repo
+	nodes      map[types.Hash]types.Node
+	edges      map[types.Hash]types.Edge
+	files      map[string]types.File
+	repos      map[types.Hash]types.Repo
+	edgeEvents []types.EdgeEvent
 }
 
 func newMockStore() *mockStore {
@@ -65,7 +66,10 @@ func (s *mockStore) PutRepo(_ context.Context, r types.Repo) error {
 	s.repos[r.RepoHash] = r
 	return nil
 }
-func (s *mockStore) RecordEdgeEvent(_ context.Context, _ types.EdgeEvent) error { return nil }
+func (s *mockStore) RecordEdgeEvent(_ context.Context, ev types.EdgeEvent) error {
+	s.edgeEvents = append(s.edgeEvents, ev)
+	return nil
+}
 func (s *mockStore) CreateSnapshot(_ context.Context, _ types.Snapshot) error   { return nil }
 func (s *mockStore) GetNode(_ context.Context, h types.Hash) (*types.Node, error) {
 	n, ok := s.nodes[h]
@@ -168,7 +172,42 @@ func (s *mockStore) DeleteEdge(_ context.Context, h types.Hash) error {
 	delete(s.edges, h)
 	return nil
 }
-func (s *mockStore) Close() error                                                        { return nil }
+func (s *mockStore) Close() error { return nil }
+
+// cleanupStore interface methods for file-level cleanup.
+func (s *mockStore) DeleteNodesByFile(_ context.Context, fileHash types.Hash) (int, error) {
+	count := 0
+	for h, n := range s.nodes {
+		if n.FileHash == fileHash {
+			delete(s.nodes, h)
+			count++
+		}
+	}
+	return count, nil
+}
+
+func (s *mockStore) DeleteEdgesBySourceFile(_ context.Context, fileHash types.Hash) ([]types.Edge, error) {
+	var removed []types.Edge
+	for _, e := range s.edges {
+		if src, ok := s.nodes[e.SourceHash]; ok && src.FileHash == fileHash {
+			removed = append(removed, e)
+		}
+	}
+	for _, e := range removed {
+		delete(s.edges, e.EdgeHash)
+	}
+	return removed, nil
+}
+
+func (s *mockStore) EdgesBySourceFile(_ context.Context, fileHash types.Hash) ([]types.Edge, error) {
+	var result []types.Edge
+	for _, e := range s.edges {
+		if src, ok := s.nodes[e.SourceHash]; ok && src.FileHash == fileHash {
+			result = append(result, e)
+		}
+	}
+	return result, nil
+}
 
 // mockSnapshotComputer is a test double for SnapshotComputer.
 type mockSnapshotComputer struct {
@@ -531,5 +570,207 @@ func TestIndexer_ConcurrencyField(t *testing.T) {
 	idx.Concurrency = 4
 	if idx.Concurrency != 4 {
 		t.Fatalf("expected Concurrency == 4 after setting, got %d", idx.Concurrency)
+	}
+}
+
+func TestIndexRepo_CleanupOnChange(t *testing.T) {
+	store := newMockStore()
+	snapComp := &mockSnapshotComputer{}
+	idx := NewIndexer(store, snapComp)
+
+	callCount := 0
+	idx.Register(&mockExtractor{
+		name:      "test",
+		canHandle: func(p string) bool { return p == "main.go" },
+		extract: func(_ context.Context, opts types.ExtractOptions) (*types.ExtractResult, error) {
+			callCount++
+			if callCount == 1 {
+				// First call: return node "Foo" and an edge.
+				fooNode := types.Node{
+					NodeHash:      types.NewHash([]byte("foo-node")),
+					QualifiedName: "test://pkg.Foo",
+					Kind:          "function",
+					FileHash:      opts.FileHash,
+				}
+				fooEdge := types.Edge{
+					EdgeHash:   types.NewHash([]byte("foo-edge")),
+					SourceHash: fooNode.NodeHash,
+					TargetHash: types.NewHash([]byte("some-target")),
+					EdgeType:   "calls",
+					Confidence: 1.0,
+					Provenance: "ast_resolved",
+				}
+				return &types.ExtractResult{
+					Nodes: []types.Node{fooNode},
+					Edges: []types.Edge{fooEdge},
+				}, nil
+			}
+			// Second call: return node "Bar" and a different edge.
+			barNode := types.Node{
+				NodeHash:      types.NewHash([]byte("bar-node")),
+				QualifiedName: "test://pkg.Bar",
+				Kind:          "function",
+				FileHash:      opts.FileHash,
+			}
+			barEdge := types.Edge{
+				EdgeHash:   types.NewHash([]byte("bar-edge")),
+				SourceHash: barNode.NodeHash,
+				TargetHash: types.NewHash([]byte("other-target")),
+				EdgeType:   "calls",
+				Confidence: 1.0,
+				Provenance: "ast_resolved",
+			}
+			return &types.ExtractResult{
+				Nodes: []types.Node{barNode},
+				Edges: []types.Edge{barEdge},
+			}, nil
+		},
+	})
+
+	dir := t.TempDir()
+	mainPath := filepath.Join(dir, "main.go")
+	if err := os.WriteFile(mainPath, []byte("package main\nfunc Foo() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+
+	// First run: index with "Foo".
+	_, err := idx.IndexRepo(ctx, "test://repo", dir, "commit1")
+	if err != nil {
+		t.Fatalf("first IndexRepo failed: %v", err)
+	}
+
+	// Verify "Foo" node and edge exist.
+	fooHash := types.NewHash([]byte("foo-node"))
+	if _, ok := store.nodes[fooHash]; !ok {
+		t.Fatal("expected Foo node after first indexing")
+	}
+	fooEdgeHash := types.NewHash([]byte("foo-edge"))
+	if _, ok := store.edges[fooEdgeHash]; !ok {
+		t.Fatal("expected foo-edge after first indexing")
+	}
+
+	// Modify file content so hash changes.
+	if err := os.WriteFile(mainPath, []byte("package main\nfunc Bar() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Second run: index with "Bar".
+	_, err = idx.IndexRepo(ctx, "test://repo", dir, "commit2")
+	if err != nil {
+		t.Fatalf("second IndexRepo failed: %v", err)
+	}
+
+	// Verify "Foo" node is gone.
+	if _, ok := store.nodes[fooHash]; ok {
+		t.Error("expected Foo node to be removed after re-indexing")
+	}
+
+	// Verify "Bar" node exists.
+	barHash := types.NewHash([]byte("bar-node"))
+	if _, ok := store.nodes[barHash]; !ok {
+		t.Error("expected Bar node after second indexing")
+	}
+
+	// Verify old edge is gone.
+	if _, ok := store.edges[fooEdgeHash]; ok {
+		t.Error("expected foo-edge to be removed after re-indexing")
+	}
+
+	// Verify new edge exists.
+	barEdgeHash := types.NewHash([]byte("bar-edge"))
+	if _, ok := store.edges[barEdgeHash]; !ok {
+		t.Error("expected bar-edge after second indexing")
+	}
+
+	// Verify edge events were recorded.
+	hasRemoved := false
+	hasAdded := false
+	for _, ev := range store.edgeEvents {
+		if ev.EventType == "removed" {
+			hasRemoved = true
+		}
+		if ev.EventType == "added" {
+			hasAdded = true
+		}
+	}
+	if !hasRemoved {
+		t.Error("expected at least one 'removed' edge event")
+	}
+	if !hasAdded {
+		t.Error("expected at least one 'added' edge event")
+	}
+}
+
+func TestIndexRepo_LastChangedFiles(t *testing.T) {
+	store := newMockStore()
+	snapComp := &mockSnapshotComputer{}
+	idx := NewIndexer(store, snapComp)
+
+	idx.Register(&mockExtractor{
+		name: "test",
+		canHandle: func(p string) bool {
+			return p == "main.go" || p == "other.go"
+		},
+		extract: func(_ context.Context, opts types.ExtractOptions) (*types.ExtractResult, error) {
+			return &types.ExtractResult{
+				Nodes: []types.Node{{
+					NodeHash:      types.NewHash([]byte("node-" + opts.FilePath)),
+					QualifiedName: "test://pkg." + opts.FilePath,
+					Kind:          "function",
+					FileHash:      opts.FileHash,
+				}},
+			}, nil
+		},
+	})
+
+	dir := t.TempDir()
+	mainPath := filepath.Join(dir, "main.go")
+	otherPath := filepath.Join(dir, "other.go")
+
+	if err := os.WriteFile(mainPath, []byte("package main\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(otherPath, []byte("package main\nvar x int\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+
+	// First IndexRepo: both files should be changed.
+	_, err := idx.IndexRepo(ctx, "test://repo", dir, "commit1")
+	if err != nil {
+		t.Fatalf("first IndexRepo failed: %v", err)
+	}
+	changed := idx.LastChangedFiles()
+	if len(changed) != 2 {
+		t.Fatalf("expected 2 changed files on first run, got %d: %v", len(changed), changed)
+	}
+
+	// Second IndexRepo with same content: no files changed.
+	_, err = idx.IndexRepo(ctx, "test://repo", dir, "commit2")
+	if err != nil {
+		t.Fatalf("second IndexRepo failed: %v", err)
+	}
+	changed = idx.LastChangedFiles()
+	if len(changed) != 0 {
+		t.Fatalf("expected 0 changed files on unchanged content, got %d: %v", len(changed), changed)
+	}
+
+	// Modify one file and re-index.
+	if err := os.WriteFile(mainPath, []byte("package main\nfunc main() { println() }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err = idx.IndexRepo(ctx, "test://repo", dir, "commit3")
+	if err != nil {
+		t.Fatalf("third IndexRepo failed: %v", err)
+	}
+	changed = idx.LastChangedFiles()
+	if len(changed) != 1 {
+		t.Fatalf("expected 1 changed file after modification, got %d: %v", len(changed), changed)
+	}
+	if changed[0] != "main.go" {
+		t.Fatalf("expected changed file 'main.go', got %q", changed[0])
 	}
 }
