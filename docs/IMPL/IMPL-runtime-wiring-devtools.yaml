@@ -966,3 +966,4 @@ critic_report:
     reviewed_at: "2026-05-15T20:51:19Z"
     issue_count: 1
 state: REVIEWED
+injection_method: hook
