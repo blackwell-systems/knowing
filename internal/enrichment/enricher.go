@@ -53,6 +53,30 @@ type enrichStats struct {
 // completion or context cancellation. Best-effort: individual failures are
 // counted but do not abort the run.
 func (e *Enricher) Run(ctx context.Context, repoHash types.Hash) error {
+	return e.runFiltered(ctx, repoHash, nil)
+}
+
+// RunScoped runs enrichment only for edges originating from the given file
+// paths. If changedFiles is empty or nil, it falls back to full Run behavior.
+func (e *Enricher) RunScoped(ctx context.Context, repoHash types.Hash, changedFiles []string) error {
+	if len(changedFiles) == 0 {
+		return e.runFiltered(ctx, repoHash, nil)
+	}
+	changedSet := make(map[string]struct{}, len(changedFiles))
+	for _, f := range changedFiles {
+		changedSet[f] = struct{}{}
+	}
+	fileFilter := func(path string) bool {
+		_, ok := changedSet[path]
+		return ok
+	}
+	return e.runFiltered(ctx, repoHash, fileFilter)
+}
+
+// runFiltered is the core enrichment logic shared by Run and RunScoped.
+// When fileFilter is nil, all files are processed (full enrichment).
+// When non-nil, only files passing the filter are processed.
+func (e *Enricher) runFiltered(ctx context.Context, repoHash types.Hash, fileFilter func(string) bool) error {
 	// Start gopls.
 	client := lsp.NewLSPClient("gopls", []string{})
 	if err := client.Initialize(ctx, e.workspaceRoot); err != nil {
@@ -84,15 +108,15 @@ func (e *Enricher) Run(ctx context.Context, repoHash types.Hash) error {
 
 	stats := &enrichStats{}
 
-	// Open all Go files so gopls has full workspace knowledge.
-	// Required before any GetDefinition, GetImplementation, or GetReferences call.
-	e.openAllFiles(ctx, files)
+	// Open Go files so gopls has workspace knowledge.
+	// When fileFilter is set, only changed files are opened to reduce memory.
+	e.openAllFiles(ctx, files, fileFilter)
 
 	// Upgrade ast_inferred call edges that have call-site positions.
-	e.upgradeCallEdges(ctx, repoHash, filePathByHash, stats)
+	e.upgradeCallEdges(ctx, repoHash, filePathByHash, stats, fileFilter)
 
 	// Discover new implements and references edges via LSP document symbols.
-	e.discoverNewEdges(ctx, files, filePathByHash, stats)
+	e.discoverNewEdges(ctx, files, filePathByHash, stats, fileFilter)
 
 	// Close all opened documents.
 	e.closeAllFiles(ctx, files)
@@ -138,6 +162,7 @@ func (e *Enricher) upgradeCallEdges(
 	repoHash types.Hash,
 	filePathByHash map[types.Hash]string,
 	stats *enrichStats,
+	fileFilter func(string) bool,
 ) {
 	repo, err := e.store.GetRepo(ctx, repoHash)
 	if err != nil || repo == nil {
@@ -167,6 +192,9 @@ func (e *Enricher) upgradeCallEdges(
 				continue
 			}
 			if edge.CallSiteLine == 0 || edge.CallSiteFile == "" {
+				continue
+			}
+			if fileFilter != nil && !fileFilter(edge.CallSiteFile) {
 				continue
 			}
 
@@ -208,14 +236,18 @@ func (e *Enricher) upgradeCallEdges(
 	}
 }
 
-// openAllFiles opens all Go source files via textDocument/didOpen so gopls
-// has full workspace knowledge for cross-package resolution.
-func (e *Enricher) openAllFiles(ctx context.Context, files []types.File) {
+// openAllFiles opens Go source files via textDocument/didOpen so gopls
+// has workspace knowledge for cross-package resolution. When fileFilter is
+// non-nil, only files passing the filter are opened (reduces gopls memory).
+func (e *Enricher) openAllFiles(ctx context.Context, files []types.File, fileFilter func(string) bool) {
 	for _, f := range files {
 		if ctx.Err() != nil {
 			return
 		}
 		if !strings.HasSuffix(f.Path, ".go") || strings.HasSuffix(f.Path, "_test.go") {
+			continue
+		}
+		if fileFilter != nil && !fileFilter(f.Path) {
 			continue
 		}
 		absPath := filepath.Join(e.workspaceRoot, f.Path)
@@ -245,12 +277,16 @@ func (e *Enricher) discoverNewEdges(
 	files []types.File,
 	filePathByHash map[types.Hash]string,
 	stats *enrichStats,
+	fileFilter func(string) bool,
 ) {
 	for _, f := range files {
 		if ctx.Err() != nil {
 			return
 		}
 		if !strings.HasSuffix(f.Path, ".go") || strings.HasSuffix(f.Path, "_test.go") {
+			continue
+		}
+		if fileFilter != nil && !fileFilter(f.Path) {
 			continue
 		}
 
