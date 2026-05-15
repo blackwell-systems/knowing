@@ -1,5 +1,91 @@
 # Architecture
 
+## Concepts
+
+This section defines every term used in the rest of this document. Read it before proceeding.
+
+### Content-Addressed Storage
+
+In content-addressed storage, data is identified by its content, not by a name or location. The identifier is a cryptographic hash (SHA-256) of the data itself. Two pieces of identical data always produce the same hash. Different data always produces different hashes.
+
+This has three consequences:
+
+1. **Deduplication is automatic.** If the same function appears in two repos, it gets the same hash. Store it once.
+2. **Integrity is verifiable.** Recompute the hash from the data. If it matches the stored hash, the data is uncorrupted. If it doesn't, something changed.
+3. **Cache invalidation is structural.** A query result computed against hash X is valid for all time. When the underlying data changes, it gets a new hash Y. Results keyed to X are still correct for X; results for Y must be recomputed.
+
+knowing uses content-addressed storage for nodes, edges, files, snapshots, and derived computation results. Every piece of data in the system is identified by its hash.
+
+### Merkle DAG
+
+A Merkle DAG (Directed Acyclic Graph) is a data structure where every node contains the cryptographic hash of its children. The root hash summarizes the entire structure: if any leaf changes, the root hash changes.
+
+**The Git analogy:** Git is a Merkle DAG. A commit hash summarizes the entire repository state at that point. If a single byte changes in any file, the commit hash changes. You can verify the integrity of the entire repository by checking the root hash.
+
+knowing works the same way. A snapshot hash is the Merkle root of all edge hashes in the graph at a point in time. If any edge changes, the snapshot hash changes. Two snapshots with the same hash contain exactly the same graph. Two snapshots with different hashes differ in at least one edge.
+
+**How it works in knowing:**
+
+```
+                    snapshot_hash (Merkle root)
+                   /                           \
+            hash(h1+h2)                   hash(h3+h4)
+           /          \                  /          \
+    edge_hash_1  edge_hash_2    edge_hash_3  edge_hash_4
+```
+
+Edge hashes are sorted lexicographically, then paired and hashed upward until a single root remains. Diffing two snapshots is a tree comparison: only changed subtrees need traversal.
+
+### Knowledge Graph vs. Tree vs. Table
+
+A **table** stores flat records. Good for lookups, bad for relationships. "Find all callers of function X" requires a join for each hop.
+
+A **tree** stores hierarchical data (like a file system). Every node has one parent. But code relationships are not hierarchical: function A calls function B, which implements interface C, which is consumed by service D in another repository. A tree cannot represent this.
+
+A **graph** stores nodes connected by edges with no structural constraint on connectivity. A node can have many inbound and outbound edges of different types. This matches the reality of code: a function is called by many callers, implements an interface, lives in a file owned by a team, and is invoked at runtime by three services.
+
+knowing is a knowledge graph because code relationships are inherently graph-shaped. The graph is content-addressed (every node and edge is identified by its hash) and typed (edges carry a type like `calls`, `implements`, or `references`).
+
+### Domain Primitives
+
+| Primitive | What it is | Hash computation |
+|-----------|-----------|-----------------|
+| **Node** | A symbol in source code (function, type, method, interface, constant, variable). Identified by qualified name. | `sha256(repo \|\| package_path \|\| symbol_name \|\| symbol_kind)` |
+| **Edge** | A relationship between two nodes (calls, imports, implements, references). Carries a type, confidence score, and provenance. | `sha256(source_hash \|\| target_hash \|\| edge_type \|\| provenance)` |
+| **Hash** | A 32-byte SHA-256 digest used as the content-addressed identifier for every entity. | n/a |
+| **Snapshot** | A point-in-time graph state. The Merkle root of all sorted edge hashes. Links to a parent snapshot (forming a chain like git commits) and records the git commit that produced it. | `merkle_root(sorted(all_edge_hashes))` |
+| **Provenance** | Metadata on an edge describing how it was derived, by which indexer version, at what confidence, from which commit. Provenance is what lets agents distinguish "confirmed by type checker" from "guessed from string matching." | Included in edge hash input. |
+
+### Event Sourcing
+
+Edges are never mutated in place. Every change to the graph is recorded as an event: an edge was "added" or an edge was "removed," keyed by the snapshot hash that recorded the event. The current graph state is the result of replaying all events (or equivalently, reading the materialized edge table).
+
+This means:
+- "When did this edge first appear?" is a query on the event log.
+- "What changed between snapshot A and snapshot B?" is a range scan on events filtered by snapshot hash.
+- Rolling back to a previous state means pointing to an older snapshot, not undoing mutations.
+
+### Staleness
+
+**Structural staleness:** A file's content hash changed, so all nodes derived from it have stale hashes, and all edges originating from those nodes are suspect. This is detected automatically by hash comparison; no heuristic is needed.
+
+**Heuristic staleness:** An edge has not been re-confirmed by the indexer for N days, or a runtime edge has not been observed in production for N days. This requires time-based reasoning on top of the structural property.
+
+Both forms of staleness are exposed through the `StaleEdges` API. Structural staleness is authoritative. Heuristic staleness is advisory.
+
+### Artifact Boundary
+
+knowing decomposes into two planes separated by an artifact boundary:
+
+- The **execution plane** produces the graph (indexer, daemon, trace ingestion, graph store).
+- The **intelligence plane** interprets the graph (semantic diff, blast radius, staleness analysis, ownership routing).
+
+The **artifact** is the content-addressed graph itself: a SQLite file containing nodes, edges, snapshots, and edge events. It is portable (copy one file), self-contained, and queryable by any tool that understands the schema.
+
+The bright-line rule: intelligence features never write edges, nodes, or snapshots back into the graph. They read the artifact and may produce derived results (which are themselves content-addressed artifacts stored separately). A buggy intelligence feature produces a bad report, not a bad graph.
+
+---
+
 ## Overview
 
 knowing is a persistent daemon that builds and serves a content-addressed knowledge graph of cross-repository code relationships.
@@ -324,7 +410,265 @@ The graph connects symbols with typed, provenance-annotated edges:
 | Ownership | `owned_by_team`, `owned_by_user` |
 | Runtime | `runtime_calls`, `runtime_rpc`, `runtime_produces`, `runtime_consumes`, `runtime_queries` |
 
-### Design Goals
+---
+
+## Concurrency Model
+
+The daemon is a single process with concurrent goroutines, not a distributed system. All coordination is in-process using Go's standard concurrency primitives.
+
+### Goroutine Architecture
+
+The daemon runs three primary goroutines, plus optional goroutines for MCP serving and LSP enrichment:
+
+```
+┌───────────────────────────────────────────────────────────┐
+│                     Daemon Process                         │
+│                                                           │
+│  ┌─────────────┐   indexCh    ┌──────────────┐            │
+│  │  watchLoop   │────────────>│  indexWorker  │            │
+│  │  goroutine   │  (buffered  │  goroutine    │            │
+│  │              │   chan, 128) │              │            │
+│  └──────┬───────┘             └──────┬───────┘            │
+│         │                            │                    │
+│    reads from                   on success:               │
+│    GitWatcher.Events()          spawns background          │
+│    (fsnotify loop)              enrichment goroutine       │
+│         │                            │                    │
+│  ┌──────┴───────┐             ┌──────┴───────┐            │
+│  │  GitWatcher   │             │  enrichment  │            │
+│  │  event loop   │             │  goroutine   │            │
+│  │  (debounce)   │             │  (per index) │            │
+│  └───────────────┘             └──────────────┘            │
+│                                                           │
+│  ┌───────────────┐                                        │
+│  │  MCP Server   │  (optional, serves agent queries)      │
+│  │  goroutine    │                                        │
+│  └───────────────┘                                        │
+│                                                           │
+│  main goroutine: blocks on <-ctx.Done(), then shutdown()  │
+└───────────────────────────────────────────────────────────┘
+```
+
+**watchLoop goroutine:** Reads `CommitEvent` values from the `GitWatcher.Events()` channel. For each event, it combines changed, added, and deleted file lists into a single `indexRequest` and sends it to `indexCh`. If the channel is full (128-item buffer), the event is dropped. This goroutine never blocks on indexing; it only enqueues.
+
+**indexWorker goroutine:** Reads `indexRequest` values from `indexCh` sequentially. For each request, it resolves the HEAD commit, acquires the daemon's write lock, calls `IndexFunc`, and releases the write lock. On success, it spawns a background goroutine for LSP enrichment. Requests are processed one at a time; there is never concurrent indexing.
+
+**main goroutine:** Calls `Start()`, which launches all goroutines, then blocks on `<-ctx.Done()`. When the context is cancelled (via `Stop()` or external signal), it calls `shutdown()`, which closes `indexCh`, closes the `GitWatcher`, and calls `wg.Wait()` to block until all goroutines have exited.
+
+### Read/Write Coordination
+
+The daemon uses `sync.RWMutex` to coordinate between indexing (writes) and MCP queries (reads):
+
+```
+            ┌──────────────┐        ┌──────────────┐
+            │  indexWorker  │        │  MCP handler  │
+            │              │        │   (query)     │
+            └──────┬───────┘        └──────┬───────┘
+                   │                       │
+            d.mu.Lock()              d.mu.RLock()
+                   │                       │
+            ┌──────┴───────┐        ┌──────┴───────┐
+            │  run IndexFunc│        │  read graph   │
+            │  (write lock) │        │  (read lock)  │
+            └──────┬───────┘        └──────┬───────┘
+                   │                       │
+            d.mu.Unlock()            d.mu.RUnlock()
+```
+
+- **Queries hold the read lock.** Multiple agents can query the graph concurrently.
+- **Indexing holds the write lock.** While the indexer is running, all queries wait. This guarantees that queries never see a partially-indexed state.
+- **Enrichment does not hold the write lock.** After indexing completes and the write lock is released, a background goroutine runs LSP enrichment. Enrichment writes individual edges to the store (via `PutEdge`/`DeleteEdge`), relying on SQLite's WAL mode for concurrent access rather than the daemon-level mutex.
+
+### Channel-Based Communication
+
+| Channel | Direction | Buffer | Purpose |
+|---------|-----------|--------|---------|
+| `GitWatcher.events` | GitWatcher loop → watchLoop | 64 | Carries `CommitEvent` values (repo path, old/new commit, file lists) |
+| `Daemon.indexQueue` | watchLoop → indexWorker | 128 | Carries `indexRequest` values (repo URL, path, changed files) |
+| `GitWatcher.done` | GitWatcher loop → Close() | 0 (signal) | Signals that the event loop has exited; `Close()` blocks on `<-done` |
+
+Both the `events` and `indexQueue` channels use non-blocking sends. If the consumer falls behind, events are dropped rather than blocking the producer. This is a deliberate choice: a stale commit event is worthless because the next commit event will supersede it.
+
+### Clean Shutdown
+
+All goroutines are tracked with `sync.WaitGroup`. The shutdown sequence is:
+
+1. Context is cancelled (via `Stop()` or signal).
+2. `shutdown()` closes `indexCh`, causing `indexWorker` to drain and exit.
+3. `shutdown()` closes the `GitWatcher`, causing the fsnotify loop and `watchLoop` to exit.
+4. `shutdown()` calls `wg.Wait()`, blocking until all goroutines (including any in-flight enrichment goroutines) have exited.
+
+Enrichment goroutines check `ctx.Err()` at each loop iteration and exit promptly on cancellation.
+
+### Worker Pool for Extraction
+
+Tier 1 extraction (tree-sitter) uses a fan-out/fan-in worker pool:
+
+```
+┌──────────────────────────────────────────────────────┐
+│  parallelExtract(work, numWorkers)                    │
+│                                                      │
+│  work channel (pre-buffered, all items enqueued)      │
+│       │  │  │  │                                     │
+│       ▼  ▼  ▼  ▼                                     │
+│  ┌────┐ ┌────┐ ┌────┐ ┌────┐                         │
+│  │ W1 │ │ W2 │ │ W3 │ │ W4 │  (GOMAXPROCS workers)  │
+│  └──┬─┘ └──┬─┘ └──┬─┘ └──┬─┘                         │
+│     │      │      │      │                           │
+│     ▼      ▼      ▼      ▼                           │
+│  results[0]  results[1]  results[2]  results[3]       │
+│  (pre-sized array, indexed by submission order)       │
+└──────────────────────────────────────────────────────┘
+```
+
+Key properties:
+- **No shared mutable state.** Each worker writes to its own index in a pre-allocated results array. No locks on the output path.
+- **Deterministic output.** Results are ordered by submission index, not completion order. Same input always produces same output order.
+- **Bounded concurrency.** Worker count is `min(runtime.GOMAXPROCS, len(work))`.
+- **Context-aware.** Workers check `ctx.Err()` before each extraction and return the context error for remaining items on cancellation.
+
+### LSP Enrichment is Sequential
+
+Language servers (gopls, pyright, rust-analyzer) do not support concurrent requests from the same client. The LSP protocol is request-response with a single message stream per client connection. The enricher processes edges and files sequentially:
+
+1. Open all Go source files via `textDocument/didOpen` (sequential).
+2. For each `ast_inferred` edge with call-site positions, query `GetDefinition` (sequential).
+3. For each file, query `GetDocumentSymbols`, then `GetImplementation`/`GetReferences` per symbol (sequential).
+4. Close all files and shut down the language server.
+
+This is an inherent limitation of the LSP protocol, not a design choice. The enricher could use multiple language server instances for parallelism, but the memory cost of multiple gopls instances (each loading the full module graph) outweighs the latency benefit for typical repo sizes.
+
+### SQLite WAL Mode
+
+The graph store uses SQLite in Write-Ahead Logging (WAL) mode:
+
+- **Concurrent readers:** Multiple goroutines (MCP handlers, enrichment reads) can read simultaneously without blocking each other.
+- **Single writer:** Only one goroutine can write at a time. SQLite serializes writes internally. The daemon-level `sync.RWMutex` ensures the indexer is the sole writer during bulk indexing; enrichment writes individual edges after the mutex is released.
+- **No read-write blocking:** Readers do not block writers, and writers do not block readers. A reader sees a consistent snapshot of the database as of the moment it started reading, even if a writer commits during the read.
+
+### Why This Model
+
+The daemon is a single process on a single machine. It does not need distributed consensus, message brokers, or coordination services. Go's goroutines, channels, and mutexes provide exactly the concurrency primitives needed:
+
+- Channels for producer-consumer pipelines (watcher to indexer).
+- `sync.RWMutex` for read/write partitioning (queries vs. indexing).
+- `sync.WaitGroup` for clean shutdown (all goroutines tracked).
+- Worker pools for CPU-bound parallelism (tree-sitter extraction).
+- Sequential processing where the external system requires it (LSP).
+
+---
+
+## Data Flow
+
+This section traces a single change from developer commit to fully-enriched graph state.
+
+### End-to-End: One Commit, One Graph Update
+
+```
+Developer commits code
+        │
+        ▼
+┌───────────────────────────────────────────────────────┐
+│ 1. GitWatcher detects .git/HEAD change (fsnotify)      │
+│    ├── Debounce timer fires after 500ms of quiet       │
+│    ├── Read new HEAD commit hash from .git/HEAD        │
+│    ├── Compare to last known commit (stored in repos)  │
+│    └── If different: resolve file diff via git         │
+└───────────────────────────┬───────────────────────────┘
+                            │
+                            ▼
+┌───────────────────────────────────────────────────────┐
+│ 2. GitDiffFiles resolves changed/added/deleted files   │
+│    ├── Runs: git diff --name-status oldCommit newCommit│
+│    ├── Parses status codes: M (modified), A (added),   │
+│    │   D (deleted), R (renamed → delete old + add new) │
+│    └── Returns three slices: changed, added, deleted   │
+└───────────────────────────┬───────────────────────────┘
+                            │
+                            ▼
+┌───────────────────────────────────────────────────────┐
+│ 3. CommitEvent sent to watchLoop via GitWatcher.events │
+│    ├── watchLoop combines changed + added + deleted    │
+│    │   into a single indexRequest                      │
+│    └── Sends indexRequest to indexCh (non-blocking)    │
+└───────────────────────────┬───────────────────────────┘
+                            │
+                            ▼
+┌───────────────────────────────────────────────────────┐
+│ 4. indexWorker receives indexRequest from indexCh       │
+│    ├── Resolves HEAD commit hash                       │
+│    └── Acquires daemon write lock (d.mu.Lock())        │
+└───────────────────────────┬───────────────────────────┘
+                            │
+                            ▼
+┌───────────────────────────────────────────────────────┐
+│ 5. IndexFunc runs (write lock held)                    │
+│                                                       │
+│  For deleted files:                                    │
+│    ├── EdgesBySourceFile() to capture "removed" set    │
+│    ├── DeleteEdgesBySourceFile()                       │
+│    ├── DeleteNodesByFile()                             │
+│    └── Record "removed" edge events                    │
+│                                                       │
+│  For changed files:                                    │
+│    ├── Delete old nodes/edges (same as deleted)        │
+│    ├── Re-extract via tree-sitter worker pool          │
+│    ├── Compute edge diff (old vs. new)                 │
+│    └── Record "added" and "removed" edge events        │
+│                                                       │
+│  For added files:                                      │
+│    ├── Extract via tree-sitter worker pool             │
+│    └── Record "added" edge events                      │
+│                                                       │
+│  Batch insert all new nodes, edges, and files          │
+│  Compute new snapshot (Merkle root of all edge hashes) │
+│  Link snapshot to parent; store commit hash            │
+│  Resolve cross-repo dangling edges                     │
+└───────────────────────────┬───────────────────────────┘
+                            │
+                            ▼
+┌───────────────────────────────────────────────────────┐
+│ 6. Release write lock (d.mu.Unlock())                  │
+│    Graph is now queryable with ast_inferred edges.     │
+│    MCP queries resume immediately.                     │
+└───────────────────────────┬───────────────────────────┘
+                            │
+                            ▼
+┌───────────────────────────────────────────────────────┐
+│ 7. Trigger scoped LSP enrichment (background goroutine)│
+│    No write lock held; enrichment uses SQLite WAL mode │
+│                                                       │
+│    ├── Start gopls language server                     │
+│    ├── Open changed/added files (textDocument/didOpen) │
+│    ├── Edge upgrade pass:                              │
+│    │   For each ast_inferred edge in changed files:    │
+│    │     Query GetDefinition at call-site position     │
+│    │     If confirmed: delete old edge, insert         │
+│    │     lsp_resolved edge (confidence 0.9)            │
+│    ├── Edge discovery pass:                            │
+│    │   For each changed file:                          │
+│    │     GetDocumentSymbols                            │
+│    │     For types: GetImplementation → implements     │
+│    │     For funcs: GetReferences → references         │
+│    ├── Close all files                                 │
+│    └── Shutdown gopls                                  │
+└───────────────────────────────────────────────────────┘
+```
+
+### Timing Summary
+
+| Phase | Duration (6,000-node repo) | Lock held | Queries blocked |
+|-------|---------------------------|-----------|-----------------|
+| Git diff resolution | ~10ms | None | No |
+| Tier 1 extraction (tree-sitter) | ~1.5s | Write lock | Yes |
+| Snapshot computation | ~5ms | Write lock | Yes |
+| Tier 2 enrichment (LSP) | ~8s | None (WAL) | No |
+
+The write lock is held only during Tier 1 extraction and snapshot computation. Queries are blocked for approximately 1.5 seconds per commit. Enrichment runs in the background without blocking anything.
+
+---
+
+## Design Goals
 
 - **Content-addressed**: every graph state is a hash; history, staleness, and integrity are structural properties, not bolted-on features
 - **Two-tier extraction**: tree-sitter for fast AST parsing (seconds), LSP enrichment for type-resolved confidence (seconds more); graph is queryable after Tier 1
