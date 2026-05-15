@@ -1,8 +1,12 @@
 package daemon
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -135,6 +139,58 @@ func (d *Daemon) UnwatchRepo(repoPath string) error {
 	return nil
 }
 
+// GitHeadCommit reads the HEAD commit hash from a git repository without
+// shelling out to git. It resolves symbolic refs and falls back to packed-refs
+// when loose ref files are missing.
+func GitHeadCommit(repoPath string) (string, error) {
+	gitDir := filepath.Join(repoPath, ".git")
+
+	headBytes, err := os.ReadFile(filepath.Join(gitDir, "HEAD"))
+	if err != nil {
+		return "", fmt.Errorf("reading .git/HEAD: %w", err)
+	}
+	head := strings.TrimSpace(string(headBytes))
+
+	// Detached HEAD: HEAD contains a raw commit hash.
+	if !strings.HasPrefix(head, "ref: ") {
+		if len(head) >= 40 {
+			return head[:40], nil
+		}
+		return "", fmt.Errorf("unexpected HEAD content: %s", head)
+	}
+
+	// Symbolic ref: resolve to commit hash.
+	ref := strings.TrimPrefix(head, "ref: ")
+
+	// Try loose ref file first.
+	looseRef := filepath.Join(gitDir, ref)
+	if data, err := os.ReadFile(looseRef); err == nil {
+		return strings.TrimSpace(string(data)), nil
+	}
+
+	// Fall back to packed-refs.
+	packedRefsPath := filepath.Join(gitDir, "packed-refs")
+	f, err := os.Open(packedRefsPath)
+	if err != nil {
+		return "", fmt.Errorf("ref %s not found in loose refs or packed-refs: %w", ref, err)
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "#") || strings.HasPrefix(line, "^") {
+			continue
+		}
+		parts := strings.SplitN(line, " ", 2)
+		if len(parts) == 2 && parts[1] == ref {
+			return parts[0], nil
+		}
+	}
+
+	return "", fmt.Errorf("ref %s not found in packed-refs", ref)
+}
+
 // RLock acquires a read lock, allowing concurrent readers.
 func (d *Daemon) RLock() { d.mu.RLock() }
 
@@ -189,9 +245,14 @@ func (d *Daemon) indexWorker(ctx context.Context) {
 		if d.cfg.IndexFunc == nil {
 			continue
 		}
+		// Resolve HEAD commit hash; fall back to "unknown" if not a git repo.
+		commit, err := GitHeadCommit(req.repoPath)
+		if err != nil {
+			commit = "unknown"
+		}
 		// Acquire write lock during indexing so readers wait.
 		d.mu.Lock()
-		_ = d.cfg.IndexFunc(ctx, req.repoURL, req.repoPath, "HEAD")
+		_ = d.cfg.IndexFunc(ctx, req.repoURL, req.repoPath, commit)
 		d.mu.Unlock()
 	}
 }
