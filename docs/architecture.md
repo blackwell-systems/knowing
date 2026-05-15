@@ -221,7 +221,7 @@ A snapshot chain links root hashes like git commits (each snapshot points to its
 
 **Alternatives considered:**
 
-- Mutable relational tables with `updated_at` timestamps (gortex pattern): loses history, staleness is heuristic
+- Mutable relational tables with `updated_at` timestamps: loses history, staleness is heuristic
 - Append-only log without content addressing: gets history but not integrity or deduplication
 - External graph database (Neo4j, Dgraph): too heavy, not embeddable, kills single-binary deployment
 
@@ -516,7 +516,7 @@ libSQL (SQLite fork by Turso) adds built-in replication and is wire-compatible w
 **Alternatives considered and rejected:**
 
 - **DuckDB**: columnar, optimized for analytical scans. Wrong query pattern; knowing's hot path is point lookups and graph walks, not aggregation.
-- **In-memory graph (gortex pattern)**: fast traversal but loses the artifact portability story. The graph must survive process crashes and be copyable as a file. In-memory stores require all-or-nothing serialization and lose data on crash.
+- **In-memory graph**: fast traversal but loses the artifact portability story. The graph must survive process crashes and be copyable as a file. In-memory stores require all-or-nothing serialization and lose data on crash.
 - **External graph databases (Neo4j, Dgraph)**: native graph traversal but kills single-binary deployment, adds operational complexity, and doesn't natively support content-addressed storage.
 - **BoltDB/bbolt**: B+ tree, single-writer. Same traversal characteristics as SQLite but without SQL for debugging and without WAL concurrent reads. Strictly worse for knowing's use case.
 - **SQLite virtual tables**: custom storage for the edges table behind a virtual table interface. Clever but high implementation cost (requires CGo), and the "single file" artifact story gets complicated.

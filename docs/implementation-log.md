@@ -439,6 +439,6 @@ The only viable approach for fast cold indexing:
 
 **Tier 2 (slow, background):** `go/packages` type resolution OR LSP enrichment via `github.com/blackwell-systems/agent-lsp/pkg/lsp` (pure Go LSP client library, already exists). Upgrades `ast_inferred` edges to `ast_resolved` or `lsp_resolved`. Adds `implements` and `references` edges that require type info. Runs asynchronously after the graph is already queryable.
 
-The graph is usable immediately after Tier 1. Tier 2 improves accuracy over time. This is the same model gortex uses (tree-sitter + optional LSP enrichment).
+The graph is usable immediately after Tier 1. Tier 2 improves accuracy over time. This is a well-established pattern in code intelligence tools (tree-sitter for speed, LSP for accuracy).
 
 agent-lsp's `pkg/lsp` package provides a battle-tested LSP client (hover, definition, references, implementations, call hierarchy) with no CGo dependencies. knowing can import it directly for Tier 2 enrichment instead of building its own LSP client.
