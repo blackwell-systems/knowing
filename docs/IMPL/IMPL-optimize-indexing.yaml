@@ -1,0 +1,718 @@
+title: 'Optimize indexing performance: bulk load + worker pool'
+feature_slug: optimize-indexing
+verdict: SUITABLE
+suitability_assessment: |
+    The bottleneck is go/packages.Load called once per file in GoExtractor.Extract
+    (internal/indexer/goextractor/extractor.go:69). For polywave-go with ~6,340 nodes,
+    this spawns hundreds of independent go/packages.Load calls, each taking 1-3 seconds.
+    Total: 16m24s cold index.
+
+    Fix decomposes into three independent concerns with disjoint file ownership:
+    1. Bulk package loader: new file that calls go/packages.Load("./...") once and
+       indexes the results by file path.
+    2. Extractor refactor: modify GoExtractor to accept pre-loaded *packages.Package
+       data instead of calling packages.Load itself, plus a fallback for single-file mode.
+    3. Indexer parallelization: add worker pool to IndexRepo to extract files concurrently
+       using pre-loaded package data.
+
+    All three concerns touch different files. The extractor refactor is the interface
+    boundary: the loader produces data the extractor consumes, and the indexer orchestrates
+    concurrency. Contracts are well-defined (Go types).
+
+    Estimated times:
+    - Scout phase: ~8 min (dependency mapping, interface contracts, IMPL doc)
+    - Agent execution: ~10 min (3 agents x 8 min avg, single wave)
+    - Merge and verification: ~3 min
+    Total Polywave time: ~21 min
+
+    Sequential baseline: ~24 min (3 tasks x 8 min avg)
+    Time savings: ~3 min (12% faster)
+
+    Recommendation: Clear coordination value. The interface contracts between loader,
+    extractor, and indexer are the primary benefit; agents implement against binding
+    signatures. Speed gain is moderate but the work is cleanly parallelizable.
+
+    Pre-implementation status: all three components are TODO (no prior work on bulk
+    loading or worker pool).
+test_command: go test ./...
+lint_command: go vet ./...
+file_ownership:
+    - file: internal/indexer/goextractor/loader.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/indexer/goextractor/loader_test.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/indexer/goextractor/extractor.go
+      agent: B
+      wave: 1
+      action: modify
+    - file: internal/indexer/goextractor/extractor_test.go
+      agent: B
+      wave: 1
+      action: modify
+    - file: internal/indexer/indexer.go
+      agent: C
+      wave: 1
+      action: modify
+    - file: internal/indexer/indexer_test.go
+      agent: C
+      wave: 1
+      action: modify
+    - file: internal/indexer/worker.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/indexer/worker_test.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/indexer/indexer.go
+      agent: D
+      wave: 2
+      action: modify
+    - file: internal/indexer/indexer_test.go
+      agent: D
+      wave: 2
+      action: modify
+interface_contracts:
+    - name: LoadedPackages
+      description: |
+        Result type from bulk loading all packages in a module. Maps absolute file
+        paths to their containing *packages.Package so extractors can look up
+        pre-loaded type info without calling packages.Load again.
+      definition: |
+        // LoadedPackages holds the result of a bulk go/packages.Load("./...") call.
+        // FilePackages maps absolute file paths to their containing package.
+        type LoadedPackages struct {
+            Fset         *token.FileSet
+            FilePackages map[string]*packages.Package // abs path -> package
+        }
+      location: internal/indexer/goextractor/loader.go
+    - name: BulkLoad
+      description: |
+        Loads all packages under a module root in a single go/packages.Load call.
+        Returns a LoadedPackages that the indexer distributes to per-file extraction.
+      definition: |
+        // BulkLoad loads all Go packages under moduleRoot using a single
+        // go/packages.Load("./...") call. Returns LoadedPackages mapping each
+        // .go file to its containing package, or an error if the load fails.
+        func BulkLoad(ctx context.Context, moduleRoot string) (*LoadedPackages, error)
+      location: internal/indexer/goextractor/loader.go
+    - name: ExtractWithPackage
+      description: |
+        New method on GoExtractor that accepts a pre-loaded *packages.Package
+        instead of calling packages.Load internally. The existing Extract method
+        becomes a fallback that calls packages.Load for single-file use cases.
+      definition: |
+        // ExtractWithPackage extracts nodes and edges from a Go file using a
+        // pre-loaded package. This avoids the per-file packages.Load overhead.
+        // The pkg parameter must contain Syntax, TypesInfo, and Fset for the
+        // target file.
+        func (g *GoExtractor) ExtractWithPackage(
+            ctx context.Context,
+            opts types.ExtractOptions,
+            pkg *packages.Package,
+        ) (*types.ExtractResult, error)
+      location: internal/indexer/goextractor/extractor.go
+    - name: ExtractFileFunc
+      description: |
+        Function type used by the parallel indexer to extract a single file.
+        Allows the indexer to pass either the old Extract path or the new
+        ExtractWithPackage path depending on whether bulk loading succeeded.
+      definition: |
+        // ExtractFileFunc extracts nodes and edges from a single file.
+        // Used as the unit of work in the parallel worker pool.
+        type ExtractFileFunc func(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error)
+      location: internal/indexer/indexer.go
+waves:
+    - number: 1
+      agents:
+        - id: A
+          task: |
+            ## Agent A: Bulk Package Loader
+
+            ### What to implement
+
+            Create `internal/indexer/goextractor/loader.go` with two exports:
+
+            1. **`LoadedPackages` struct** holding:
+               - `Fset *token.FileSet`
+               - `FilePackages map[string]*packages.Package` (absolute file path to package)
+
+            2. **`BulkLoad(ctx context.Context, moduleRoot string) (*LoadedPackages, error)`** that:
+               - Calls `packages.Load` with config:
+                 ```go
+                 cfg := &packages.Config{
+                     Mode: packages.NeedName | packages.NeedFiles | packages.NeedSyntax |
+                         packages.NeedTypes | packages.NeedTypesInfo | packages.NeedImports |
+                         packages.NeedModule,
+                     Dir:     moduleRoot,
+                     Context: ctx,
+                 }
+                 pkgs, err := packages.Load(cfg, "./...")
+                 ```
+               - Iterates all returned packages and their `GoFiles` to build the
+                 `FilePackages` map (key = absolute file path, value = *packages.Package).
+               - Also iterates `pkg.Syntax` (AST files) and maps each via
+                 `pkg.Fset.Position(f.Pos()).Filename` to verify file path association.
+               - Returns the populated `LoadedPackages` or an error.
+               - Logs (or returns) any `packages.Error` entries from loaded packages
+                 without failing the entire load (partial success is acceptable; some
+                 files may have build errors).
+
+            The `packages.Load` mode flags MUST match exactly what the existing
+            `GoExtractor.Extract` uses (line 61-63 of extractor.go):
+            ```go
+            Mode: packages.NeedName | packages.NeedFiles | packages.NeedSyntax |
+                packages.NeedTypes | packages.NeedTypesInfo | packages.NeedImports |
+                packages.NeedModule,
+            ```
+
+            ### Tests
+
+            Create `internal/indexer/goextractor/loader_test.go` with:
+
+            1. `TestBulkLoad_SinglePackage`: Create a temp module with one package,
+               call BulkLoad, verify FilePackages contains the expected .go file paths.
+
+            2. `TestBulkLoad_MultiPackage`: Create a temp module with two packages
+               (e.g., `pkg/a/a.go` and `pkg/b/b.go`), call BulkLoad, verify both
+               packages' files appear in FilePackages.
+
+            3. `TestBulkLoad_SkipsTestFiles`: Verify that `_test.go` files are NOT
+               excluded from FilePackages (the loader loads everything; filtering is
+               the extractor's job).
+
+            4. `TestBulkLoad_EmptyModule`: Create a module with no .go files, verify
+               BulkLoad returns an empty FilePackages map (not an error).
+
+            ### Verification gate
+
+            ```bash
+            cd /Users/dayna.blackwell/code/knowing && go build ./internal/indexer/goextractor/... && go test ./internal/indexer/goextractor/... -run TestBulkLoad -v
+            ```
+
+            Postconditions:
+            ```bash
+            # LoadedPackages struct exists
+            grep -c "type LoadedPackages struct" internal/indexer/goextractor/loader.go
+            # Expected: 1
+
+            # BulkLoad function exists
+            grep -c "func BulkLoad" internal/indexer/goextractor/loader.go
+            # Expected: 1
+
+            # Uses ./... pattern for bulk load
+            grep -c '"./..."' internal/indexer/goextractor/loader.go
+            # Expected: 1
+            ```
+
+            ### Constraints
+            - Do NOT modify extractor.go; that file is owned by Agent B.
+            - Do NOT modify any file in internal/indexer/ outside the goextractor subdirectory.
+            - Do NOT add any fields to types.ExtractOptions or any types in internal/types/.
+          files:
+            - internal/indexer/goextractor/loader.go
+            - internal/indexer/goextractor/loader_test.go
+        - id: B
+          task: |
+            ## Agent B: Extractor Refactor (ExtractWithPackage)
+
+            ### What to implement
+
+            Modify `internal/indexer/goextractor/extractor.go` to add a new public method
+            `ExtractWithPackage` that accepts a pre-loaded `*packages.Package` instead of
+            calling `packages.Load` internally.
+
+            1. **Add `ExtractWithPackage` method** with signature:
+               ```go
+               func (g *GoExtractor) ExtractWithPackage(
+                   ctx context.Context,
+                   opts types.ExtractOptions,
+                   pkg *packages.Package,
+               ) (*types.ExtractResult, error)
+               ```
+
+            2. **Refactor the existing `Extract` method** to extract the shared logic
+               into a private method, then have both `Extract` and `ExtractWithPackage`
+               call it. The shared logic is everything after `packages.Load` in the
+               current `Extract` method (lines 80-177):
+               - Finding the target AST file by base name
+               - Walking AST declarations for nodes
+               - Extracting call edges, import edges, implements edges, reference edges
+               - Sorting and deduplicating
+
+               Suggested approach:
+               ```go
+               // extractFromPackage contains the shared extraction logic.
+               func (g *GoExtractor) extractFromPackage(
+                   opts types.ExtractOptions,
+                   pkg *packages.Package,
+               ) (*types.ExtractResult, error) {
+                   // ... all shared logic from current Extract, starting at line 80
+               }
+               ```
+
+               Then `Extract` becomes:
+               ```go
+               func (g *GoExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error) {
+                   // existing packages.Load code (lines 57-76)
+                   pkg := pkgs[0]
+                   return g.extractFromPackage(opts, pkg)
+               }
+               ```
+
+               And `ExtractWithPackage` becomes:
+               ```go
+               func (g *GoExtractor) ExtractWithPackage(ctx context.Context, opts types.ExtractOptions, pkg *packages.Package) (*types.ExtractResult, error) {
+                   return g.extractFromPackage(opts, pkg)
+               }
+               ```
+
+            3. **Preserve the existing Extract behavior exactly.** The current Extract
+               method calls `packages.Load` with `Dir: filepath.Dir(absPath)` and
+               pattern `"."`. This must remain unchanged for single-file/fallback use.
+
+            ### Current code context for Extract method (lines 55-76):
+            ```go
+            func (g *GoExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error) {
+                // Determine the package directory from the file path.
+                absPath := filepath.Join(opts.ModuleRoot, opts.FilePath)
+                dir := filepath.Dir(absPath)
+
+                cfg := &packages.Config{
+                    Mode: packages.NeedName | packages.NeedFiles | packages.NeedSyntax |
+                        packages.NeedTypes | packages.NeedTypesInfo | packages.NeedImports |
+                        packages.NeedModule,
+                    Dir:     dir,
+                    Context: ctx,
+                }
+
+                pkgs, err := packages.Load(cfg, ".")
+                if err != nil {
+                    return nil, fmt.Errorf("load packages: %w", err)
+                }
+
+                if len(pkgs) == 0 {
+                    return &types.ExtractResult{}, nil
+                }
+
+                pkg := pkgs[0]
+            ```
+
+            ### Tests
+
+            Add to `internal/indexer/goextractor/extractor_test.go`:
+
+            1. `TestGoExtractor_ExtractWithPackage_MatchesExtract`: For a sample Go file,
+               call both `Extract` and `ExtractWithPackage` (loading the package manually
+               first) and verify they produce identical nodes and edges. This is the
+               critical correctness test.
+
+            2. `TestGoExtractor_ExtractWithPackage_NilSafety`: Call ExtractWithPackage
+               with a package that has nil TypesInfo; verify it returns a result (possibly
+               empty) without panicking.
+
+            Add these tests AFTER the existing tests in the file. Do not modify existing
+            test functions.
+
+            ### Verification gate
+
+            ```bash
+            cd /Users/dayna.blackwell/code/knowing && go build ./internal/indexer/goextractor/... && go test ./internal/indexer/goextractor/... -v
+            ```
+
+            Postconditions:
+            ```bash
+            # ExtractWithPackage method exists
+            grep -c "func (g \*GoExtractor) ExtractWithPackage" internal/indexer/goextractor/extractor.go
+            # Expected: 1
+
+            # extractFromPackage helper exists
+            grep -c "func (g \*GoExtractor) extractFromPackage" internal/indexer/goextractor/extractor.go
+            # Expected: 1
+
+            # Original Extract method still exists
+            grep -c "func (g \*GoExtractor) Extract(" internal/indexer/goextractor/extractor.go
+            # Expected: 1
+            ```
+
+            ### Constraints
+            - Do NOT create loader.go; that file is owned by Agent A.
+            - Do NOT modify files in internal/indexer/ (parent directory). Only modify
+              files in internal/indexer/goextractor/.
+            - Do NOT import the LoadedPackages type. ExtractWithPackage takes a raw
+              *packages.Package parameter, keeping it decoupled from the loader.
+            - Do NOT change any existing public method signatures. Extract must retain
+              its current signature exactly.
+            - Do NOT modify existing test functions. Only ADD new test functions.
+          files:
+            - internal/indexer/goextractor/extractor.go
+            - internal/indexer/goextractor/extractor_test.go
+        - id: C
+          task: |
+            ## Agent C: Worker Pool and Parallel IndexRepo Preparation
+
+            ### What to implement
+
+            Create `internal/indexer/worker.go` with a generic worker pool, and modify
+            `internal/indexer/indexer.go` to prepare the infrastructure for parallel
+            file extraction. The actual wiring to BulkLoad and ExtractWithPackage
+            happens in Wave 2 (Agent D) after Agents A and B merge.
+
+            #### 1. Create `internal/indexer/worker.go`
+
+            Implement a worker pool that processes extraction work items concurrently:
+
+            ```go
+            package indexer
+
+            import (
+                "context"
+                "sync"
+
+                "github.com/blackwell-systems/knowing/internal/types"
+            )
+
+            // extractWork represents a single file extraction work item.
+            type extractWork struct {
+                opts    types.ExtractOptions
+                extract func(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error)
+            }
+
+            // extractResult holds the output of a single file extraction.
+            type extractResult struct {
+                result *types.ExtractResult
+                file   *types.File
+                err    error
+            }
+
+            // parallelExtract runs extraction work items across numWorkers goroutines.
+            // Returns all results in submission order. If ctx is cancelled, workers
+            // drain and return context errors for remaining items.
+            func parallelExtract(ctx context.Context, work []extractWork, numWorkers int) []extractResult
+            ```
+
+            The implementation should:
+            - Use a channel to distribute work items to workers
+            - Collect results in a slice indexed by work item position (preserve order
+              for deterministic output)
+            - Use `sync.WaitGroup` to wait for all workers to finish
+            - Respect context cancellation: if ctx is done, workers should stop
+              processing new items
+            - Default numWorkers: use `runtime.GOMAXPROCS(0)` if numWorkers <= 0
+
+            #### 2. Modify `internal/indexer/indexer.go`
+
+            Add a `Concurrency` field to the `Indexer` struct to control worker count:
+
+            Insert after the existing `registry` field (find this text in indexer.go):
+            ```go
+            type Indexer struct {
+                store    types.GraphStore
+                snapshot SnapshotComputer
+                registry *ExtractorRegistry
+            }
+            ```
+
+            Change to:
+            ```go
+            type Indexer struct {
+                store       types.GraphStore
+                snapshot    SnapshotComputer
+                registry    *ExtractorRegistry
+                Concurrency int // 0 means use runtime.GOMAXPROCS
+            }
+            ```
+
+            Do NOT change IndexRepo's sequential extraction loop yet. That wiring
+            happens in Wave 2 after the bulk loader and ExtractWithPackage are merged.
+
+            ### Tests
+
+            Create `internal/indexer/worker_test.go`:
+
+            1. `TestParallelExtract_Basic`: Submit 10 work items, verify all 10 results
+               are returned, no errors.
+
+            2. `TestParallelExtract_PreservesOrder`: Submit work items that return
+               distinct results, verify result[i] corresponds to work[i].
+
+            3. `TestParallelExtract_PropagatesErrors`: Submit a work item that returns
+               an error, verify the error appears in the corresponding result slot.
+
+            4. `TestParallelExtract_RespectsContext`: Cancel context mid-flight, verify
+               workers stop and remaining items have context.Canceled errors.
+
+            5. `TestParallelExtract_SingleWorker`: numWorkers=1, verify sequential
+               behavior produces correct results.
+
+            Modify `internal/indexer/indexer_test.go`:
+
+            Add one test:
+            1. `TestIndexer_ConcurrencyField`: Verify that NewIndexer returns an Indexer
+               with Concurrency == 0 (default). Verify the field can be set.
+
+            Add this test AFTER the existing tests. Do not modify existing test functions.
+
+            ### Verification gate
+
+            ```bash
+            cd /Users/dayna.blackwell/code/knowing && go build ./internal/indexer/... && go test ./internal/indexer/... -run "TestParallelExtract|TestIndexer_Concurrency" -v
+            ```
+
+            Postconditions:
+            ```bash
+            # parallelExtract function exists
+            grep -c "func parallelExtract" internal/indexer/worker.go
+            # Expected: 1
+
+            # Concurrency field added to Indexer
+            grep -c "Concurrency" internal/indexer/indexer.go
+            # Expected: at least 1
+
+            # worker.go is in package indexer
+            grep -c "^package indexer" internal/indexer/worker.go
+            # Expected: 1
+            ```
+
+            ### Constraints
+            - Do NOT modify internal/indexer/goextractor/ files. Those are owned by
+              Agents A and B.
+            - Do NOT modify the IndexRepo method's extraction loop. Keep the sequential
+              loop as-is. Wave 2 Agent D handles the wiring.
+            - Do NOT import goextractor package. The worker pool is generic; it takes
+              function values, not concrete extractor types.
+            - Do NOT modify existing test functions in indexer_test.go. Only ADD new ones.
+          files:
+            - internal/indexer/worker.go
+            - internal/indexer/worker_test.go
+            - internal/indexer/indexer.go
+            - internal/indexer/indexer_test.go
+    - number: 2
+      type: integration
+      agents:
+        - id: D
+          task: |
+            ## Agent D: Wire BulkLoad + ExtractWithPackage into IndexRepo
+
+            ### What to implement
+
+            Modify `internal/indexer/indexer.go` to use the bulk loader and parallel
+            worker pool in `IndexRepo`. This is the integration step that connects
+            Agent A's loader, Agent B's ExtractWithPackage, and Agent C's worker pool.
+
+            #### Changes to IndexRepo method
+
+            Find the file-processing loop in IndexRepo. The current code (starting at
+            the comment "Accumulate all results for batch insertion"):
+            ```go
+            // Accumulate all results for batch insertion.
+            var allNodes []types.Node
+            var allEdges []types.Edge
+            var allFiles []types.File
+
+            for _, absPath := range filePaths {
+            ```
+
+            Replace the sequential loop with:
+
+            1. **Before the loop**, call `goextractor.BulkLoad`:
+               ```go
+               loaded, bulkErr := goextractor.BulkLoad(ctx, repoPath)
+               if bulkErr != nil {
+                   // Log warning but continue with fallback (per-file loading)
+                   loaded = nil
+               }
+               ```
+
+            2. **Build work items** for the parallel extractor. For each file that
+               passes the unchanged-content check:
+               - If `loaded != nil` and the file exists in `loaded.FilePackages`,
+                 create a work item that calls `goExtractor.ExtractWithPackage(ctx, opts, pkg)`.
+               - Otherwise, fall back to `ext.Extract(ctx, opts)` (the old per-file path).
+
+            3. **Run parallel extraction** using `parallelExtract(ctx, work, idx.Concurrency)`.
+
+            4. **Collect results** from parallelExtract into allNodes, allEdges, allFiles
+               (same as the current sequential accumulation).
+
+            #### Finding the GoExtractor
+
+            The indexer needs to identify which registered extractor is the GoExtractor
+            to call ExtractWithPackage on it. Add a type assertion in the extraction
+            setup:
+
+            ```go
+            // Try to find the GoExtractor for bulk loading.
+            var goExt *goextractor.GoExtractor
+            for _, ext := range idx.registry.extractors {
+                if ge, ok := ext.(*goextractor.GoExtractor); ok {
+                    goExt = ge
+                    break
+                }
+            }
+            ```
+
+            Note: `idx.registry.extractors` is currently unexported (lowercase field).
+            Add an accessor method to ExtractorRegistry in indexer.go or extractor.go
+            (Agent C owns indexer.go in wave 1, but you are in wave 2 and own it now):
+
+            ```go
+            // Extractors returns all registered extractors.
+            func (r *ExtractorRegistry) Extractors() []types.Extractor {
+                return r.extractors
+            }
+            ```
+
+            Or add it in internal/indexer/extractor.go (the ExtractorRegistry file).
+
+            #### Import additions
+
+            Add to indexer.go imports:
+            ```go
+            "runtime"
+            "github.com/blackwell-systems/knowing/internal/indexer/goextractor"
+            ```
+
+            ### Tests
+
+            Modify `internal/indexer/indexer_test.go`:
+
+            1. `TestIndexRepo_UsesParallelExtraction`: Create a temp multi-package Go
+               module (similar to TestIndexRepo_MultiFileModule), index it, verify the
+               same nodes/edges are produced. This validates that bulk load + parallel
+               extraction produces identical results to the sequential path.
+
+            2. `TestIndexRepo_FallbackOnBulkLoadFailure`: Index a directory that is not
+               a valid Go module (e.g., contains .go files but no go.mod). Verify
+               IndexRepo still succeeds by falling back to per-file extraction.
+
+            ### Verification gate
+
+            ```bash
+            cd /Users/dayna.blackwell/code/knowing && go build ./... && go test ./internal/indexer/... -v && go test ./internal/indexer/goextractor/... -v
+            ```
+
+            Postconditions:
+            ```bash
+            # BulkLoad is called in IndexRepo
+            grep -c "goextractor.BulkLoad" internal/indexer/indexer.go
+            # Expected: 1
+
+            # ExtractWithPackage is called in IndexRepo
+            grep -c "ExtractWithPackage" internal/indexer/indexer.go
+            # Expected: at least 1
+
+            # parallelExtract is called in IndexRepo
+            grep -c "parallelExtract" internal/indexer/indexer.go
+            # Expected: at least 1
+            ```
+
+            ### Constraints
+            - Do NOT modify files in internal/indexer/goextractor/ (except adding the
+              Extractors accessor to internal/indexer/extractor.go if needed).
+            - Do NOT change the batch store insertion logic (BatchPutNodes etc.) at the
+              bottom of IndexRepo.
+            - Do NOT break the incremental (unchanged file skip) behavior. The content
+              hash check must remain.
+            - Preserve deterministic output: sort allNodes and allEdges the same way
+              as the current code does before batch insertion.
+          files:
+            - internal/indexer/indexer.go
+            - internal/indexer/indexer_test.go
+          dependencies:
+            - A
+            - B
+            - C
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: go build ./...
+          required: true
+        - type: lint
+          command: go vet ./...
+          required: true
+        - type: test
+          command: go test ./...
+          required: true
+pre_mortem:
+    overall_risk: medium
+    rows:
+        - scenario: |
+            BulkLoad packages.Load("./...") returns errors for some packages in a
+            large repo (e.g., packages with cgo, build constraints, or missing deps).
+            This could cause partial extraction loss compared to per-file loading.
+          likelihood: medium
+          impact: medium
+          mitigation: |
+            Agent A implements BulkLoad to log package errors without failing.
+            Agent D implements fallback: files not found in LoadedPackages fall back
+            to per-file Extract. Integration test in Agent D verifies fallback path.
+        - scenario: |
+            ExtractWithPackage produces different nodes/edges than Extract for the
+            same file because the bulk-loaded package has a different Fset or the
+            file lookup logic differs subtly.
+          likelihood: medium
+          impact: high
+          mitigation: |
+            Agent B writes TestGoExtractor_ExtractWithPackage_MatchesExtract that
+            compares output of both methods on the same input. Both methods call
+            the shared extractFromPackage helper, minimizing divergence.
+        - scenario: |
+            Worker pool goroutine leak or deadlock under context cancellation,
+            causing test hangs or resource exhaustion.
+          likelihood: low
+          impact: high
+          mitigation: |
+            Agent C writes TestParallelExtract_RespectsContext with a timeout.
+            Worker pool uses buffered channels and WaitGroup; no select without
+            default that could block indefinitely.
+        - scenario: |
+            Race condition in parallel extraction: multiple goroutines writing to
+            shared types.ExtractOptions fields (e.g., ModuleToRepoURL map).
+          likelihood: low
+          impact: high
+          mitigation: |
+            Each work item gets its own ExtractOptions copy (struct value, not pointer).
+            ModuleToRepoURL is read-only during extraction (built once before the loop).
+            Agent C's worker pool takes extractWork by value.
+        - scenario: |
+            Wave 2 merge conflict on indexer.go because Agent C added Concurrency
+            field and Agent D modifies IndexRepo in the same file.
+          likelihood: low
+          impact: low
+          mitigation: |
+            Agent C only adds the Concurrency field and does not touch IndexRepo's
+            extraction loop. Agent D (wave 2) works on the merged result of wave 1,
+            so there is no concurrent edit.
+critic_report:
+    verdict: PASS
+    agent_reviews:
+        A:
+            agent_id: A
+            verdict: PASS
+        B:
+            agent_id: B
+            verdict: PASS
+        C:
+            agent_id: C
+            verdict: PASS
+        D:
+            agent_id: D
+            verdict: PASS
+            issues:
+                - check: file_existence
+                  severity: warning
+                  description: Agent D brief mentions modifying internal/indexer/extractor.go to add an Extractors() accessor to ExtractorRegistry, but that file is not in Agent D file_ownership. The brief does offer the alternative of adding the accessor in indexer.go (which Agent D owns), so this is not blocking, but the brief should clarify which file to use.
+                  file: internal/indexer/extractor.go
+                  symbol: Extractors
+    summary: 'All four agent briefs verified against the codebase. File existence checks pass: the four new files (loader.go, loader_test.go, worker.go, worker_test.go) do not exist, and the four modify targets (extractor.go, extractor_test.go, indexer.go, indexer_test.go) do exist. Symbol accuracy is confirmed: Extract method signature, Indexer struct fields, ExtractorRegistry.extractors unexported field, packages.Load mode flags, and line number references in briefs all match the source. Pattern accuracy verified for the sequential extraction loop, batch insertion comment, and packages.Config usage. Interface contracts reference valid types from go/packages and internal/types. Import chains verified: golang.org/x/tools is in go.mod, all local packages exist. One advisory warning: Agent D may need to modify internal/indexer/extractor.go to add an Extractors() accessor, but that file is not in Agent D''s file_ownership; the brief offers the alternative of adding the accessor to indexer.go (which Agent D owns), so this is not blocking.'
+    reviewed_at: "2026-05-15T17:01:34Z"
+    issue_count: 1
+state: SCOUT_PENDING
+injection_method: hook
