@@ -1,0 +1,1378 @@
+title: Git-based incremental change handling
+feature_slug: incremental-changes
+verdict: SUITABLE
+suitability_assessment: |
+    SUITABLE. The work decomposes cleanly into 6 agents across 3 waves with
+    disjoint file ownership. The dependency graph has a clear layered structure:
+
+    Wave 1 builds the store/interface layer (Agent A), the indexer incremental
+    pipeline with edge event recording (Agent B), and replaces the fsnotify
+    file watcher with a git-based .git/HEAD watcher plus git diff utilities
+    (Agent C) -- all three are independent.
+
+    Wave 2 wires the daemon to use the new GitWatcher and pass changed files
+    from git diff through to IndexFunc/EnrichFunc (Agent D), and adds scoped
+    enrichment to the Enricher (Agent E) -- both depend on Wave 1 interfaces
+    but are independent of each other.
+
+    Wave 3 (integration) fixes cascading signature changes in main.go, MCP
+    handlers, and mock implementations (Agent F).
+
+    File decomposition: 15+ files across 7 packages (types, store, indexer,
+    enrichment, daemon, mcp, cmd/knowing) with clear ownership boundaries.
+
+    Investigation-first items: None. The architecture is fully specified in
+    docs/architecture.md under "Change Detection and Incremental Indexing".
+    The issues are well-understood: edge_events table is never populated,
+    no delete-before-reinsert logic, enricher has no file-scoping, watcher
+    uses fsnotify on all files instead of .git/HEAD.
+
+    Interface discoverability: All cross-agent interfaces can be defined upfront.
+    The new GraphStore methods, git diff functions, GitWatcher type, and
+    Enricher.RunScoped all have clear signatures.
+
+    Pre-implementation status: All items are TODO. The store has RecordEdgeEvent
+    and SnapshotDiff methods but they are never called by the indexer, so
+    edge_events is always empty. GitHeadCommit already exists in daemon.go.
+
+    Parallelization value: High. Build+test cycle is ~5s. 6 agents across
+    3 waves with 2-3 files each. Clear independence in Wave 1 (store vs
+    indexer vs watcher), and Wave 2 (daemon wiring vs enricher scoping).
+
+    Estimated times:
+    - Scout phase: ~10 min
+    - Agent execution: ~15 min (6 agents, 3 waves, ~5 min avg per wave)
+    - Merge and verification: ~5 min
+    Total Polywave time: ~30 min
+    Sequential baseline: ~45 min (6 agents x ~7.5 min avg)
+    Time savings: ~15 min (33% faster)
+    Recommendation: Clear speedup with coordination value from the IMPL doc.
+test_command: GOWORK=off go test ./...
+lint_command: GOWORK=off go vet ./...
+file_ownership:
+    - file: internal/types/interfaces.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/store/sqlite.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/store/sqlite_test.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/indexer.go
+      agent: B
+      wave: 1
+      action: modify
+    - file: internal/indexer/indexer_test.go
+      agent: B
+      wave: 1
+      action: modify
+    - file: internal/daemon/gitwatcher.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/daemon/gitdiff.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/daemon/gitwatcher_test.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/daemon/gitdiff_test.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/daemon/daemon.go
+      agent: D
+      wave: 2
+      action: modify
+    - file: internal/daemon/watcher.go
+      agent: D
+      wave: 2
+      action: modify
+    - file: internal/daemon/daemon_test.go
+      agent: D
+      wave: 2
+      action: modify
+    - file: internal/enrichment/enricher.go
+      agent: E
+      wave: 2
+      action: modify
+    - file: internal/enrichment/enricher_test.go
+      agent: E
+      wave: 2
+      action: modify
+    - file: cmd/knowing/main.go
+      agent: F
+      wave: 3
+      action: modify
+    - file: internal/mcp/handlers.go
+      agent: F
+      wave: 3
+      action: modify
+    - file: internal/mcp/handlers_test.go
+      agent: F
+      wave: 3
+      action: modify
+    - file: internal/snapshot/manager_test.go
+      agent: F
+      wave: 3
+      action: modify
+interface_contracts:
+    - name: GraphStore.DeleteNodesByFile
+      description: Delete all nodes whose file_hash matches the given file hash
+      definition: |
+        DeleteNodesByFile(ctx context.Context, fileHash Hash) (int, error)
+        // Returns count of deleted nodes. SQL: DELETE FROM nodes WHERE file_hash = ?
+      location: internal/types/interfaces.go
+    - name: GraphStore.DeleteEdgesBySourceFile
+      description: Delete all edges whose source node belongs to the given file
+      definition: |
+        DeleteEdgesBySourceFile(ctx context.Context, fileHash Hash) ([]Edge, error)
+        // Returns the deleted edges (needed for recording 'removed' edge events).
+        // SQL: DELETE FROM edges WHERE source_hash IN (SELECT node_hash FROM nodes WHERE file_hash = ?)
+        // Must SELECT before DELETE to capture the edge list.
+      location: internal/types/interfaces.go
+    - name: GraphStore.EdgesBySourceFile
+      description: Query all edges whose source node belongs to the given file (read-only)
+      definition: |
+        EdgesBySourceFile(ctx context.Context, fileHash Hash) ([]Edge, error)
+        // SQL: SELECT ... FROM edges WHERE source_hash IN (SELECT node_hash FROM nodes WHERE file_hash = ?)
+      location: internal/types/interfaces.go
+    - name: GitDiffFiles
+      description: Resolve changed/deleted/added files between two commits using git diff
+      definition: |
+        // GitDiffFiles returns files modified between oldCommit and newCommit.
+        func GitDiffFiles(repoPath, oldCommit, newCommit string) (changed, added, deleted []string, err error)
+        // Shells out to: git diff --name-status oldCommit newCommit
+        // Parses output lines: M/A/D prefix determines category.
+        // Returns relative paths. If oldCommit is empty, returns all files as added.
+      location: internal/daemon/gitdiff.go
+    - name: GitWatcher
+      description: Watches .git/HEAD and .git/refs/heads/* for commit changes via fsnotify
+      definition: |
+        // GitWatcher monitors .git/HEAD for changes, resolves old/new commit
+        // hashes, and emits CommitEvents with the changed file list from git diff.
+        type GitWatcher struct { ... }
+
+        type CommitEvent struct {
+            RepoPath     string
+            OldCommit    string
+            NewCommit    string
+            ChangedFiles []string  // relative paths, union of changed+added+deleted
+            AddedFiles   []string
+            DeletedFiles []string
+        }
+
+        func NewGitWatcher(debounce time.Duration) (*GitWatcher, error)
+        func (gw *GitWatcher) Add(repoPath string) error
+        func (gw *GitWatcher) Remove(repoPath string) error
+        func (gw *GitWatcher) Events() <-chan CommitEvent
+        func (gw *GitWatcher) Close() error
+      location: internal/daemon/gitwatcher.go
+    - name: Enricher.RunScoped
+      description: Run enrichment only for edges originating from the given file paths
+      definition: |
+        RunScoped(ctx context.Context, repoHash Hash, changedFiles []string) error
+        // If changedFiles is empty, falls back to full Run behavior.
+        // Filters the file list to only open/process files matching changedFiles.
+      location: internal/enrichment/enricher.go
+    - name: DaemonConfig.IndexFunc signature change
+      description: IndexFunc gains a changedFiles parameter for the indexer to know which files changed
+      definition: |
+        IndexFunc func(ctx context.Context, repoURL, repoPath, commitHash string, changedFiles []string) error
+        // The daemon passes relative file paths from git diff.
+      location: internal/daemon/daemon.go
+    - name: DaemonConfig.EnrichFunc signature change
+      description: EnrichFunc gains a changedFiles parameter
+      definition: |
+        EnrichFunc func(ctx context.Context, repoHash types.Hash, workspaceRoot string, changedFiles []string) error
+        // The daemon passes the list of changed file paths (relative to repo root)
+        // from the CommitEvent to EnrichFunc so enrichment is scoped.
+      location: internal/daemon/daemon.go
+    - name: SetIndexFunc signature change
+      description: MCP handler SetIndexFunc gains changedFiles parameter to match DaemonConfig.IndexFunc
+      definition: |
+        func SetIndexFunc(fn func(ctx context.Context, repoURL, repoPath, commitHash string, changedFiles []string) error)
+      location: internal/mcp/handlers.go
+waves:
+    - number: 1
+      agents:
+        - id: A
+          task: |
+            ## Agent A: Store layer and GraphStore interface additions
+
+            ### What to implement
+
+            Add three new methods to the GraphStore interface and implement them
+            in SQLiteStore. These methods enable the indexer to clean up old
+            nodes/edges before re-extracting a changed file, and to query edges
+            by source file for computing edge diffs.
+
+            **1. Add methods to GraphStore interface in `internal/types/interfaces.go`.**
+
+            Insert after this exact text in the interface:
+            ```go
+            	DeleteEdge(ctx context.Context, hash Hash) error
+            ```
+
+            Add these three methods:
+            ```go
+            	DeleteNodesByFile(ctx context.Context, fileHash Hash) (int, error)
+            	DeleteEdgesBySourceFile(ctx context.Context, fileHash Hash) ([]Edge, error)
+            	EdgesBySourceFile(ctx context.Context, fileHash Hash) ([]Edge, error)
+            ```
+
+            **2. Implement in `internal/store/sqlite.go`.**
+
+            Add after the existing `DeleteEdge` method. Find this exact text:
+            ```go
+            func (s *SQLiteStore) DeleteEdge(ctx context.Context, hash types.Hash) error {
+            	_, err := s.db.ExecContext(ctx,
+            		`DELETE FROM edges WHERE edge_hash = ?`,
+            		hash[:],
+            	)
+            	return err
+            }
+            ```
+
+            Add the three new methods after it:
+
+            `DeleteNodesByFile`: Execute `DELETE FROM nodes WHERE file_hash = ?`
+            and return the rows affected count via `result.RowsAffected()`.
+
+            `DeleteEdgesBySourceFile`: First SELECT all matching edges using the
+            subquery pattern, then DELETE them. Must return the list of deleted
+            edges so callers can record "removed" edge events. Implementation:
+            ```go
+            func (s *SQLiteStore) DeleteEdgesBySourceFile(ctx context.Context, fileHash types.Hash) ([]types.Edge, error) {
+                // First, read the edges that will be deleted.
+                rows, err := s.db.QueryContext(ctx,
+                    `SELECT edge_hash, source_hash, target_hash, edge_type, confidence, provenance, callsite_line, callsite_col, callsite_file
+                     FROM edges WHERE source_hash IN (SELECT node_hash FROM nodes WHERE file_hash = ?)`,
+                    fileHash[:],
+                )
+                if err != nil {
+                    return nil, err
+                }
+                defer rows.Close()
+                edges, err := scanEdges(rows)
+                if err != nil {
+                    return nil, err
+                }
+
+                // Then delete them.
+                _, err = s.db.ExecContext(ctx,
+                    `DELETE FROM edges WHERE source_hash IN (SELECT node_hash FROM nodes WHERE file_hash = ?)`,
+                    fileHash[:],
+                )
+                if err != nil {
+                    return nil, err
+                }
+                return edges, nil
+            }
+            ```
+
+            `EdgesBySourceFile`: Read-only query, same SELECT as above without DELETE.
+            Use `scanEdges` helper.
+
+            **3. Add tests in `internal/store/sqlite_test.go`.**
+
+            Add test functions (do not modify existing tests):
+
+            `TestDeleteNodesByFile`: Create a repo, file, two nodes in that file,
+            one node in a different file. Call DeleteNodesByFile on the first file.
+            Verify count=2, verify those nodes are gone via GetNode returning nil,
+            verify the other file's node remains.
+
+            `TestDeleteEdgesBySourceFile`: Create nodes in two files, create edges
+            where source is a node from file1. Call DeleteEdgesBySourceFile for file1.
+            Verify returned edges match the expected set, verify those edges are
+            gone from store, verify edges from file2's nodes remain.
+
+            `TestEdgesBySourceFile`: Similar setup to above, call EdgesBySourceFile,
+            verify correct edges returned, verify no edges were deleted (read-only).
+
+            ### Interface contracts
+            - `DeleteNodesByFile(ctx context.Context, fileHash Hash) (int, error)`
+            - `DeleteEdgesBySourceFile(ctx context.Context, fileHash Hash) ([]Edge, error)`
+            - `EdgesBySourceFile(ctx context.Context, fileHash Hash) ([]Edge, error)`
+
+            ### Constraints
+            - Do NOT modify any existing method signatures or existing tests.
+            - Do NOT touch files outside your ownership list.
+            - Add the new interface methods in the exact position specified (after DeleteEdge).
+            - Use the `edges` table schema: columns are edge_hash, source_hash, target_hash,
+              edge_type, confidence, provenance, callsite_line, callsite_col, callsite_file.
+          files:
+            - internal/types/interfaces.go
+            - internal/store/sqlite.go
+            - internal/store/sqlite_test.go
+        - id: B
+          task: |
+            ## Agent B: Indexer cleanup and edge event recording
+
+            ### What to implement
+
+            Modify IndexRepo in `internal/indexer/indexer.go` to:
+            1. Delete old nodes and edges for changed files before re-extracting
+            2. Compute edge diffs (added/removed) and record edge events after batch insert
+            3. Track which files actually changed for downstream consumers
+
+            **IMPORTANT:** Agent A (same wave) is adding `DeleteNodesByFile`,
+            `DeleteEdgesBySourceFile`, and `EdgesBySourceFile` to the GraphStore
+            interface. Your branch will NOT have these methods available at compile
+            time. You must use a local interface with type assertion, matching the
+            existing `batchStore` pattern. Define this near the top of indexer.go:
+
+            ```go
+            // cleanupStore is an optional interface for stores that support
+            // file-level cleanup operations.
+            type cleanupStore interface {
+                DeleteNodesByFile(ctx context.Context, fileHash types.Hash) (int, error)
+                DeleteEdgesBySourceFile(ctx context.Context, fileHash types.Hash) ([]types.Edge, error)
+                EdgesBySourceFile(ctx context.Context, fileHash types.Hash) ([]types.Edge, error)
+            }
+            ```
+
+            Insert after this exact text:
+            ```go
+            // batchStore is an optional interface for stores that support batch inserts.
+            type batchStore interface {
+            	BatchPutNodes(ctx context.Context, nodes []types.Node) error
+            	BatchPutEdges(ctx context.Context, edges []types.Edge) error
+            	BatchPutFiles(ctx context.Context, files []types.File) error
+            }
+            ```
+
+            **1. Modify IndexRepo in `internal/indexer/indexer.go`.**
+
+            Add tracking variables before the file loop. Insert before this exact text:
+            ```go
+            	for _, absPath := range filePaths {
+            ```
+
+            Add:
+            ```go
+            	// Track removed edges for event recording and changed file paths.
+            	var removedEdges []types.Edge
+            	var changedFilePaths []string
+            	cs, hasCleanup := idx.store.(cleanupStore)
+            ```
+
+            In the file processing loop, after the "Skip unchanged files" check at
+            this exact text:
+            ```go
+            		// Skip unchanged files.
+            		if oldHash, exists := existingByPath[relPath]; exists && oldHash == contentHash {
+            			continue
+            		}
+            ```
+
+            Add cleanup logic:
+            ```go
+            		changedFilePaths = append(changedFilePaths, relPath)
+
+            		// Clean up old nodes/edges for changed files.
+            		if hasCleanup {
+            			if _, exists := existingByPath[relPath]; exists {
+            				oldFile, err := idx.store.FileByPath(ctx, repoHash, relPath)
+            				if err == nil && oldFile != nil {
+            					removed, err := cs.DeleteEdgesBySourceFile(ctx, oldFile.FileHash)
+            					if err == nil {
+            						removedEdges = append(removedEdges, removed...)
+            					}
+            					_, _ = cs.DeleteNodesByFile(ctx, oldFile.FileHash)
+            				}
+            			}
+            		}
+            ```
+
+            After the snapshot computation, add edge event recording. Insert after
+            this exact text:
+            ```go
+            	snap, err := idx.snapshot.ComputeSnapshot(ctx, repoHash, commitHash)
+            	if err != nil {
+            		return nil, fmt.Errorf("compute snapshot: %w", err)
+            	}
+            ```
+
+            Add:
+            ```go
+            	// Record edge events for the diff between old and new edges.
+            	if hasCleanup && snap != nil {
+            		// Build set of removed edge hashes for O(1) lookup.
+            		removedSet := make(map[types.Hash]bool, len(removedEdges))
+            		for _, e := range removedEdges {
+            			removedSet[e.EdgeHash] = true
+            		}
+
+            		// Collect new edges from changed files.
+            		newEdgeSet := make(map[types.Hash]bool)
+            		for _, f := range allFiles {
+            			newEdges, err := cs.EdgesBySourceFile(ctx, f.FileHash)
+            			if err != nil {
+            				continue
+            			}
+            			for _, e := range newEdges {
+            				newEdgeSet[e.EdgeHash] = true
+            			}
+            		}
+
+            		now := time.Now().Unix()
+
+            		// Record "removed" events for edges that were deleted and not re-added.
+            		for _, e := range removedEdges {
+            			if !newEdgeSet[e.EdgeHash] {
+            				_ = idx.store.RecordEdgeEvent(ctx, types.EdgeEvent{
+            					EdgeHash:     e.EdgeHash,
+            					EventType:    "removed",
+            					SnapshotHash: snap.SnapshotHash,
+            					SourceCommit: commitHash,
+            					IndexerVer:   "v1",
+            					Timestamp:    now,
+            				})
+            			}
+            		}
+
+            		// Record "added" events for new edges that were not in the removed set.
+            		for _, e := range allEdges {
+            			if !removedSet[e.EdgeHash] {
+            				_ = idx.store.RecordEdgeEvent(ctx, types.EdgeEvent{
+            					EdgeHash:     e.EdgeHash,
+            					EventType:    "added",
+            					SnapshotHash: snap.SnapshotHash,
+            					SourceCommit: commitHash,
+            					IndexerVer:   "v1",
+            					Timestamp:    now,
+            				})
+            			}
+            		}
+            	}
+            ```
+
+            Add a `LastChangedFiles` method and backing field. Add to the Indexer struct
+            (find the struct definition):
+            ```go
+            type Indexer struct {
+            	store       types.GraphStore
+            	snapshot    SnapshotComputer
+            	registry    *ExtractorRegistry
+            	Concurrency int // 0 means use runtime.GOMAXPROCS
+
+            	changedMu        sync.Mutex
+            	lastChangedFiles []string
+            }
+            ```
+
+            At the end of IndexRepo (before the final return), store the changed paths:
+            ```go
+            	idx.changedMu.Lock()
+            	idx.lastChangedFiles = changedFilePaths
+            	idx.changedMu.Unlock()
+            ```
+
+            Add the accessor method:
+            ```go
+            // LastChangedFiles returns the file paths that changed in the most
+            // recent IndexRepo call.
+            func (idx *Indexer) LastChangedFiles() []string {
+            	idx.changedMu.Lock()
+            	defer idx.changedMu.Unlock()
+            	result := make([]string, len(idx.lastChangedFiles))
+            	copy(result, idx.lastChangedFiles)
+            	return result
+            }
+            ```
+
+            Add `"sync"` to the import block.
+
+            **2. Update mockStore in `internal/indexer/indexer_test.go`.**
+
+            Add these methods to mockStore to satisfy the `cleanupStore` interface:
+            ```go
+            func (s *mockStore) DeleteNodesByFile(_ context.Context, fileHash types.Hash) (int, error) {
+                count := 0
+                for h, n := range s.nodes {
+                    if n.FileHash == fileHash {
+                        delete(s.nodes, h)
+                        count++
+                    }
+                }
+                return count, nil
+            }
+
+            func (s *mockStore) DeleteEdgesBySourceFile(_ context.Context, fileHash types.Hash) ([]types.Edge, error) {
+                var removed []types.Edge
+                for _, e := range s.edges {
+                    if src, ok := s.nodes[e.SourceHash]; ok && src.FileHash == fileHash {
+                        removed = append(removed, e)
+                    }
+                }
+                for _, e := range removed {
+                    delete(s.edges, e.EdgeHash)
+                }
+                return removed, nil
+            }
+
+            func (s *mockStore) EdgesBySourceFile(_ context.Context, fileHash types.Hash) ([]types.Edge, error) {
+                var result []types.Edge
+                for _, e := range s.edges {
+                    if src, ok := s.nodes[e.SourceHash]; ok && src.FileHash == fileHash {
+                        result = append(result, e)
+                    }
+                }
+                return result, nil
+            }
+            ```
+
+            Also add an `edgeEvents` field to mockStore struct and update RecordEdgeEvent:
+            ```go
+            // In struct definition, add:
+            edgeEvents []types.EdgeEvent
+
+            // Replace existing RecordEdgeEvent:
+            func (s *mockStore) RecordEdgeEvent(_ context.Context, ev types.EdgeEvent) error {
+                s.edgeEvents = append(s.edgeEvents, ev)
+                return nil
+            }
+            ```
+
+            **3. Add test `TestIndexRepo_CleanupOnChange` in `internal/indexer/indexer_test.go`.**
+
+            Test scenario:
+            - Create a temp dir with `main.go` containing a Go source file
+            - Register a mock extractor returning a node "Foo" and an edge on first call
+            - IndexRepo (first run): verify node "Foo" and edge stored
+            - Modify `main.go` content (write different bytes so content hash changes)
+            - Update the mock extractor to return node "Bar" and a different edge
+            - IndexRepo (second run): verify "Foo" node is gone, "Bar" node exists,
+              old edge is gone, new edge exists
+            - Verify edge events: at least one "removed" and one "added" event
+              in mockStore.edgeEvents
+
+            **4. Add test `TestIndexRepo_LastChangedFiles`.**
+
+            - Create temp dir with two files (main.go, other.go)
+            - Register mock extractor that handles both
+            - First IndexRepo: verify LastChangedFiles returns both file paths
+            - Second IndexRepo with same content: verify LastChangedFiles is empty
+            - Modify one file, IndexRepo again: verify LastChangedFiles contains
+              only the modified file
+
+            ### Interface contracts
+            - `cleanupStore` local interface (type-asserted, not added to GraphStore)
+            - `LastChangedFiles() []string` on Indexer
+
+            ### Constraints
+            - Do NOT modify the GraphStore interface; that is Agent A's job.
+            - Do NOT modify files outside your ownership list.
+            - Use type assertion to `cleanupStore` interface, matching the pattern
+              already used for `batchStore`.
+            - Do NOT change IndexRepo's return signature `(*types.Snapshot, error)`.
+          files:
+            - internal/indexer/indexer.go
+            - internal/indexer/indexer_test.go
+        - id: C
+          task: |
+            ## Agent C: Git-based watcher and git diff utilities
+
+            ### What to implement
+
+            Create two new files in the daemon package that implement git-based
+            change detection per the architecture spec. The GitWatcher replaces
+            the current fsnotify-on-everything approach by watching only
+            `.git/HEAD` and `.git/refs/heads/*`, then resolving the exact change
+            set via `git diff --name-status`.
+
+            **1. Create `internal/daemon/gitdiff.go`.**
+
+            This file provides utility functions for resolving changed files from git.
+
+            ```go
+            package daemon
+
+            import (
+                "fmt"
+                "os/exec"
+                "strings"
+            )
+
+            // GitDiffFiles resolves changed, added, and deleted files between two
+            // commits using git diff --name-status. If oldCommit is empty, all
+            // tracked files are returned as added (initial index).
+            // Returns paths relative to repoPath.
+            func GitDiffFiles(repoPath, oldCommit, newCommit string) (changed, added, deleted []string, err error) {
+                if oldCommit == "" {
+                    // No previous commit: treat all tracked files as added.
+                    cmd := exec.Command("git", "-C", repoPath, "ls-files")
+                    out, err := cmd.Output()
+                    if err != nil {
+                        return nil, nil, nil, fmt.Errorf("git ls-files: %w", err)
+                    }
+                    for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+                        if line != "" {
+                            added = append(added, line)
+                        }
+                    }
+                    return nil, added, nil, nil
+                }
+
+                cmd := exec.Command("git", "-C", repoPath, "diff", "--name-status", oldCommit, newCommit)
+                out, err := cmd.Output()
+                if err != nil {
+                    return nil, nil, nil, fmt.Errorf("git diff: %w", err)
+                }
+
+                for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+                    if line == "" {
+                        continue
+                    }
+                    parts := strings.SplitN(line, "\t", 2)
+                    if len(parts) != 2 {
+                        continue
+                    }
+                    status, path := parts[0], parts[1]
+                    switch {
+                    case strings.HasPrefix(status, "M"):
+                        changed = append(changed, path)
+                    case strings.HasPrefix(status, "A"):
+                        added = append(added, path)
+                    case strings.HasPrefix(status, "D"):
+                        deleted = append(deleted, path)
+                    case strings.HasPrefix(status, "R"):
+                        // Renamed: treat as delete old + add new
+                        renameParts := strings.SplitN(path, "\t", 2)
+                        if len(renameParts) == 2 {
+                            deleted = append(deleted, renameParts[0])
+                            added = append(added, renameParts[1])
+                        }
+                    }
+                }
+                return changed, added, deleted, nil
+            }
+            ```
+
+            **2. Create `internal/daemon/gitwatcher.go`.**
+
+            This replaces the role of watcher.go. It uses fsnotify on only
+            `.git/HEAD` and `.git/refs/heads/` (one or two file descriptors,
+            not thousands). When HEAD changes, it resolves the old and new commit
+            hashes and runs git diff to produce a CommitEvent.
+
+            ```go
+            package daemon
+
+            import (
+                "path/filepath"
+                "sync"
+                "time"
+
+                "github.com/fsnotify/fsnotify"
+            )
+
+            // CommitEvent describes a commit-level change detected in a repository.
+            type CommitEvent struct {
+                RepoPath     string
+                OldCommit    string
+                NewCommit    string
+                ChangedFiles []string // modified files (relative paths)
+                AddedFiles   []string // new files (relative paths)
+                DeletedFiles []string // removed files (relative paths)
+            }
+
+            // GitWatcher monitors repositories for git commits by watching .git/HEAD
+            // and .git/refs/heads/*. It uses fsnotify on these specific paths (one or
+            // two file descriptors per repo) rather than watching all files.
+            type GitWatcher struct {
+                debounce time.Duration
+                watcher  *fsnotify.Watcher
+                events   chan CommitEvent
+                done     chan struct{}
+
+                mu          sync.Mutex
+                repos       map[string]string // repoPath -> last known commit hash
+            }
+            ```
+
+            Implement `NewGitWatcher`, `Add`, `Remove`, `Events`, `Close`, and the
+            internal `loop` method.
+
+            Key behaviors:
+            - `Add(repoPath)`: Read current HEAD commit via `GitHeadCommit(repoPath)`
+              (already exists in daemon.go), store it as last known. Watch
+              `filepath.Join(repoPath, ".git", "HEAD")` and
+              `filepath.Join(repoPath, ".git", "refs", "heads")` via fsnotify.
+            - `loop()`: On any fsnotify event for watched paths, debounce, then:
+              1. Determine which repo the event belongs to
+              2. Read new HEAD commit via GitHeadCommit
+              3. Compare to stored last known commit
+              4. If changed: call `GitDiffFiles(repoPath, oldCommit, newCommit)`
+              5. Update stored commit hash
+              6. Emit CommitEvent on the events channel
+            - The debounce logic should be similar to the existing FileWatcher pattern
+              (timer per repo, reset on rapid events).
+            - If GitHeadCommit or GitDiffFiles fail, log and skip (best-effort).
+
+            **3. Create `internal/daemon/gitdiff_test.go`.**
+
+            Test `GitDiffFiles`:
+            - Initialize a git repo in a temp dir
+            - Create file, commit (commit1)
+            - Modify file, add a new file, commit (commit2)
+            - Call GitDiffFiles(dir, commit1, commit2)
+            - Verify: changed contains the modified file, added contains the new file
+            - Delete a file, commit (commit3)
+            - Call GitDiffFiles(dir, commit2, commit3)
+            - Verify: deleted contains the removed file
+
+            Test `GitDiffFiles` with empty oldCommit:
+            - Call GitDiffFiles(dir, "", commit1)
+            - Verify all tracked files are in the added list
+
+            **4. Create `internal/daemon/gitwatcher_test.go`.**
+
+            Test `GitWatcher` end-to-end:
+            - Initialize a git repo, make an initial commit
+            - Create GitWatcher, Add the repo
+            - Make a new commit (modify a file)
+            - Wait for CommitEvent on Events() channel
+            - Verify: OldCommit and NewCommit are different, ChangedFiles contains
+              the modified file
+            - Test that Close() shuts down cleanly
+
+            ### Interface contracts
+            - `GitDiffFiles(repoPath, oldCommit, newCommit string) (changed, added, deleted []string, err error)`
+            - `CommitEvent` struct as defined above
+            - `GitWatcher` with Add/Remove/Events/Close API
+
+            ### Constraints
+            - Do NOT modify `internal/daemon/watcher.go`; that will be handled by Agent D.
+            - Do NOT modify `internal/daemon/daemon.go`; that will be handled by Agent D.
+            - Do NOT modify any other existing files.
+            - Use `GitHeadCommit` from daemon.go (it is in the same package, so
+              you can call it directly).
+            - Use fsnotify (already a dependency) for watching .git/HEAD.
+          files:
+            - internal/daemon/gitwatcher.go
+            - internal/daemon/gitdiff.go
+            - internal/daemon/gitwatcher_test.go
+            - internal/daemon/gitdiff_test.go
+    - number: 2
+      agents:
+        - id: D
+          task: |
+            ## Agent D: Daemon wiring (replace FileWatcher with GitWatcher)
+
+            ### What to implement
+
+            Replace the daemon's use of FileWatcher with the new GitWatcher
+            from Wave 1, and update IndexFunc/EnrichFunc signatures to pass
+            changed file lists.
+
+            **1. Update `DaemonConfig` in `internal/daemon/daemon.go`.**
+
+            Change the `IndexFunc` signature. Find this exact text:
+            ```go
+            	IndexFunc func(ctx context.Context, repoURL, repoPath, commitHash string) error
+            ```
+
+            Replace with:
+            ```go
+            	IndexFunc func(ctx context.Context, repoURL, repoPath, commitHash string, changedFiles []string) error
+            ```
+
+            Change the `EnrichFunc` signature. Find this exact text:
+            ```go
+            	EnrichFunc func(ctx context.Context, repoHash types.Hash, workspaceRoot string) error
+            ```
+
+            Replace with:
+            ```go
+            	EnrichFunc func(ctx context.Context, repoHash types.Hash, workspaceRoot string, changedFiles []string) error
+            ```
+
+            **2. Replace `watcher *FileWatcher` with `watcher *GitWatcher` in the Daemon struct.**
+
+            Find this exact text:
+            ```go
+            	mu      sync.RWMutex
+            	watcher *FileWatcher
+            	repos   map[string]string // repoPath -> repoURL
+            ```
+
+            Replace with:
+            ```go
+            	mu      sync.RWMutex
+            	watcher *GitWatcher
+            	repos   map[string]string // repoPath -> repoURL
+            ```
+
+            **3. Update `indexRequest` struct to carry changed files.**
+
+            Find this exact text:
+            ```go
+            type indexRequest struct {
+            	repoURL  string
+            	repoPath string
+            }
+            ```
+
+            Replace with:
+            ```go
+            type indexRequest struct {
+            	repoURL      string
+            	repoPath     string
+            	changedFiles []string
+            }
+            ```
+
+            **4. Update `Start` method to create GitWatcher instead of FileWatcher.**
+
+            Find this exact text:
+            ```go
+            	fw, err := NewFileWatcher(500 * time.Millisecond)
+            	if err != nil {
+            		return fmt.Errorf("daemon: create watcher: %w", err)
+            	}
+            	d.watcher = fw
+            ```
+
+            Replace with:
+            ```go
+            	gw, err := NewGitWatcher(500 * time.Millisecond)
+            	if err != nil {
+            		return fmt.Errorf("daemon: create watcher: %w", err)
+            	}
+            	d.watcher = gw
+            ```
+
+            Also update the re-add loop. Find:
+            ```go
+            	d.mu.RLock()
+            	for rp := range d.repos {
+            		_ = fw.Add(rp)
+            	}
+            	d.mu.RUnlock()
+            ```
+
+            Replace with:
+            ```go
+            	d.mu.RLock()
+            	for rp := range d.repos {
+            		_ = gw.Add(rp)
+            	}
+            	d.mu.RUnlock()
+            ```
+
+            **5. Update `watchLoop` to consume CommitEvents instead of WatchEvents.**
+
+            Replace the entire `watchLoop` method. The new version reads from
+            `d.watcher.Events()` which now returns `<-chan CommitEvent`. Build the
+            changedFiles as the union of ChangedFiles, AddedFiles, and DeletedFiles
+            from the CommitEvent:
+
+            ```go
+            func (d *Daemon) watchLoop(ctx context.Context) {
+            	if d.watcher == nil {
+            		return
+            	}
+            	for {
+            		select {
+            		case <-ctx.Done():
+            			return
+            		case ev, ok := <-d.watcher.Events():
+            			if !ok {
+            				return
+            			}
+            			d.mu.RLock()
+            			repoURL := d.repos[ev.RepoPath]
+            			d.mu.RUnlock()
+            			if repoURL == "" {
+            				repoURL = ev.RepoPath
+            			}
+            			// Combine all changed paths for downstream consumers.
+            			allChanged := make([]string, 0, len(ev.ChangedFiles)+len(ev.AddedFiles)+len(ev.DeletedFiles))
+            			allChanged = append(allChanged, ev.ChangedFiles...)
+            			allChanged = append(allChanged, ev.AddedFiles...)
+            			allChanged = append(allChanged, ev.DeletedFiles...)
+            			select {
+            			case d.indexQueue <- indexRequest{
+            				repoURL:      repoURL,
+            				repoPath:     ev.RepoPath,
+            				changedFiles: allChanged,
+            			}:
+            			default:
+            				// Queue full; skip this event.
+            			}
+            		}
+            	}
+            }
+            ```
+
+            **6. Update `indexWorker` to pass changed files through.**
+
+            Find this exact text:
+            ```go
+            		indexErr := d.cfg.IndexFunc(ctx, req.repoURL, req.repoPath, commit)
+            ```
+
+            Replace with:
+            ```go
+            		indexErr := d.cfg.IndexFunc(ctx, req.repoURL, req.repoPath, commit, req.changedFiles)
+            ```
+
+            Find this exact text:
+            ```go
+            				_ = d.cfg.EnrichFunc(ctx, repoHash, req.repoPath)
+            ```
+
+            Replace with:
+            ```go
+            				_ = d.cfg.EnrichFunc(ctx, repoHash, req.repoPath, req.changedFiles)
+            ```
+
+            **7. Deprecate watcher.go (soft deprecation).**
+
+            Edit `internal/daemon/watcher.go` to add a deprecation comment at the
+            top of the file, after the package doc comment. Do NOT delete the file
+            (existing tests or callers may reference it during transition). Add:
+            ```go
+            // Deprecated: FileWatcher is replaced by GitWatcher (gitwatcher.go).
+            // This file is retained for backward compatibility during transition.
+            // Remove after all references are updated.
+            ```
+
+            **8. Update tests in `internal/daemon/daemon_test.go`.**
+
+            Update `TestDaemon_WriteBlocksReads` which uses the old IndexFunc signature.
+            Find this exact text:
+            ```go
+            		IndexFunc: func(ctx context.Context, repoURL, repoPath, commitHash string) error {
+            ```
+
+            Replace with:
+            ```go
+            		IndexFunc: func(ctx context.Context, repoURL, repoPath, commitHash string, changedFiles []string) error {
+            ```
+
+            The FileWatcher-specific tests (`TestFileWatcher_DetectsChanges`,
+            `TestFileWatcher_Debounces`) should remain as-is since FileWatcher still
+            exists. Add a new test:
+
+            `TestDaemon_GitWatcherIntegration`:
+            - Create a temp dir, init git repo, make initial commit
+            - Create daemon with DaemonConfig including IndexFunc that captures
+              the changedFiles argument
+            - WatchRepo the temp dir
+            - Start daemon
+            - Modify a file and make a new commit
+            - Wait for IndexFunc to be called
+            - Verify changedFiles contains the modified file path
+
+            ### Interface contracts
+            - `IndexFunc func(ctx context.Context, repoURL, repoPath, commitHash string, changedFiles []string) error`
+            - `EnrichFunc func(ctx context.Context, repoHash types.Hash, workspaceRoot string, changedFiles []string) error`
+            - Daemon now uses GitWatcher instead of FileWatcher
+
+            ### Constraints
+            - Do NOT modify `internal/daemon/gitwatcher.go` or `internal/daemon/gitdiff.go`;
+              those are Agent C's files from Wave 1.
+            - Do NOT delete `internal/daemon/watcher.go`; only add deprecation comment.
+            - Do NOT update cmd/knowing/main.go or internal/mcp/handlers.go;
+              those are owned by Agent F in Wave 3.
+          files:
+            - internal/daemon/daemon.go
+            - internal/daemon/watcher.go
+            - internal/daemon/daemon_test.go
+          dependencies:
+            - A
+            - C
+        - id: E
+          task: |
+            ## Agent E: Enricher scoped mode
+
+            ### What to implement
+
+            Add a `RunScoped` method to the Enricher that only processes edges from
+            specified changed files, and modify the existing `Run` to delegate to it.
+
+            **1. Add `RunScoped` to `internal/enrichment/enricher.go`.**
+
+            Insert after the existing `Run` method. The method signature:
+            ```go
+            func (e *Enricher) RunScoped(ctx context.Context, repoHash types.Hash, changedFiles []string) error
+            ```
+
+            Implementation:
+            - If changedFiles is nil or empty, delegate to `e.Run(ctx, repoHash)`
+              (full enrichment, backward compatible).
+            - Build a set of changed file paths for O(1) lookup.
+            - Refactor the core logic into a private method that accepts an optional
+              file filter function `func(path string) bool`.
+
+            The cleanest approach: extract the body of `Run` (after gopls startup
+            and before the summary log) into:
+            ```go
+            func (e *Enricher) runFiltered(ctx context.Context, repoHash types.Hash, fileFilter func(string) bool) error
+            ```
+
+            Then `Run` calls `runFiltered` with `nil` filter (process all files),
+            and `RunScoped` calls it with a closure checking the changed set.
+
+            Modify `upgradeCallEdges` to accept a `fileFilter func(string) bool`
+            parameter. When fileFilter is non-nil, skip edges whose `CallSiteFile`
+            does not pass the filter. Add the parameter after `stats`:
+            ```go
+            func (e *Enricher) upgradeCallEdges(
+                ctx context.Context,
+                repoHash types.Hash,
+                filePathByHash map[types.Hash]string,
+                stats *enrichStats,
+                fileFilter func(string) bool,
+            )
+            ```
+
+            In the edge iteration loop, after checking `edge.Provenance != "ast_inferred"`,
+            add:
+            ```go
+            if fileFilter != nil && !fileFilter(edge.CallSiteFile) {
+                continue
+            }
+            ```
+
+            Modify `discoverNewEdges` similarly to accept a `fileFilter` parameter.
+            When non-nil, skip files whose `f.Path` does not pass the filter:
+            ```go
+            func (e *Enricher) discoverNewEdges(
+                ctx context.Context,
+                files []types.File,
+                filePathByHash map[types.Hash]string,
+                stats *enrichStats,
+                fileFilter func(string) bool,
+            )
+            ```
+
+            Add early in the file loop:
+            ```go
+            if fileFilter != nil && !fileFilter(f.Path) {
+                continue
+            }
+            ```
+
+            Also modify `openAllFiles` to accept and apply the file filter, so
+            RunScoped only opens changed files (reduces gopls memory usage):
+            ```go
+            func (e *Enricher) openAllFiles(ctx context.Context, files []types.File, fileFilter func(string) bool)
+            ```
+
+            Note: `closeAllFiles` should still close all opened files. Track which
+            files were opened or just close all Go files (current behavior is fine).
+
+            **2. Update tests in `internal/enrichment/enricher_test.go`.**
+
+            Add the three new GraphStore methods as stubs on the mockStore to satisfy
+            the updated interface (Agent A added these to GraphStore in Wave 1):
+            ```go
+            func (m *mockStore) DeleteNodesByFile(_ context.Context, _ types.Hash) (int, error) {
+                return 0, nil
+            }
+            func (m *mockStore) DeleteEdgesBySourceFile(_ context.Context, _ types.Hash) ([]types.Edge, error) {
+                return nil, nil
+            }
+            func (m *mockStore) EdgesBySourceFile(_ context.Context, _ types.Hash) ([]types.Edge, error) {
+                return nil, nil
+            }
+            ```
+
+            Add test `TestUpgradeCallEdges_WithFileFilter`: create a mock store with
+            nodes and ast_inferred edges from two different files. Call upgradeCallEdges
+            with a fileFilter that only accepts one file. Verify only edges from that
+            file were processed (check stats.edgesProcessed count).
+
+            Since upgradeCallEdges is a private method, you can test it by calling
+            `RunScoped` with a changedFiles list, or by making the test in the same
+            package (it already is, since enricher_test.go is in package enrichment).
+
+            ### Interface contracts
+            - `RunScoped(ctx context.Context, repoHash Hash, changedFiles []string) error`
+
+            ### Constraints
+            - Do NOT modify the GraphStore interface; Agent A did that in Wave 1.
+            - Do NOT modify files outside your ownership list.
+            - Preserve backward compatibility: `Run` must continue to work exactly
+              as before (full enrichment).
+          files:
+            - internal/enrichment/enricher.go
+            - internal/enrichment/enricher_test.go
+          dependencies:
+            - A
+    - number: 3
+      type: integration
+      agents:
+        - id: F
+          task: |
+            ## Agent F: Integration wiring (cascade signature fixes)
+
+            ### What to implement
+
+            After Waves 1 and 2, several files outside the previous agents'
+            ownership break due to:
+            1. GraphStore interface gained 3 new methods (mock implementations
+               in other test files need stubs)
+            2. DaemonConfig.IndexFunc and EnrichFunc signatures changed (callers
+               in main.go and MCP handlers need updating)
+
+            **1. Update `cmd/knowing/main.go`.**
+
+            Find all IndexFunc callback definitions. There are two occurrences.
+
+            First occurrence (MCP handler registration). Find this exact text:
+            ```go
+            	knowingmcp.SetIndexFunc(func(ctx context.Context, repoURL, repoPath, commitHash string) error {
+            ```
+
+            Replace with:
+            ```go
+            	knowingmcp.SetIndexFunc(func(ctx context.Context, repoURL, repoPath, commitHash string, changedFiles []string) error {
+            ```
+
+            Second occurrence (DaemonConfig). Find this exact text:
+            ```go
+            		IndexFunc: func(ctx context.Context, repoURL, repoPath, commitHash string) error {
+            ```
+
+            Replace with:
+            ```go
+            		IndexFunc: func(ctx context.Context, repoURL, repoPath, commitHash string, changedFiles []string) error {
+            ```
+
+            Also wire up EnrichFunc in the DaemonConfig to use RunScoped.
+            The daemon config currently has no EnrichFunc set in cmdServe.
+            Add it after the IndexFunc field. Insert after:
+            ```go
+            		MCPAddr:   *addr,
+            		MCPServer: mcpServer,
+            ```
+
+            Add (before the closing `})`):
+            ```go
+            		EnrichFunc: func(ctx context.Context, repoHash types.Hash, workspaceRoot string, changedFiles []string) error {
+            			enricher := enrichment.NewEnricher(st, workspaceRoot)
+            			defer enricher.Close(ctx)
+            			return enricher.RunScoped(ctx, repoHash, changedFiles)
+            		},
+            ```
+
+            **2. Update `internal/mcp/handlers.go`.**
+
+            Find the package-level variable. Find this exact text:
+            ```go
+            var indexFunc func(ctx context.Context, repoURL, repoPath, commitHash string) error
+            ```
+
+            Replace with:
+            ```go
+            var indexFunc func(ctx context.Context, repoURL, repoPath, commitHash string, changedFiles []string) error
+            ```
+
+            Find the SetIndexFunc function. Find this exact text:
+            ```go
+            func SetIndexFunc(fn func(ctx context.Context, repoURL, repoPath, commitHash string) error) {
+            ```
+
+            Replace with:
+            ```go
+            func SetIndexFunc(fn func(ctx context.Context, repoURL, repoPath, commitHash string, changedFiles []string) error) {
+            ```
+
+            Update the call site in handleIndexRepo. Find this exact text:
+            ```go
+            	if err := indexFunc(ctx, repoURL, repoPath, commitHash); err != nil {
+            ```
+
+            Replace with (MCP-triggered indexing is full re-index, pass nil):
+            ```go
+            	if err := indexFunc(ctx, repoURL, repoPath, commitHash, nil); err != nil {
+            ```
+
+            **3. Update `internal/mcp/handlers_test.go`.**
+
+            Update the mockGraphStore to add the three new interface methods:
+            ```go
+            func (m *mockGraphStore) DeleteNodesByFile(_ context.Context, _ types.Hash) (int, error) {
+                return 0, nil
+            }
+            func (m *mockGraphStore) DeleteEdgesBySourceFile(_ context.Context, _ types.Hash) ([]types.Edge, error) {
+                return nil, nil
+            }
+            func (m *mockGraphStore) EdgesBySourceFile(_ context.Context, _ types.Hash) ([]types.Edge, error) {
+                return nil, nil
+            }
+            ```
+
+            Update any test that calls SetIndexFunc to use the new signature.
+            Find this exact text:
+            ```go
+            	SetIndexFunc(func(_ context.Context, repoURL, repoPath, commitHash string) error {
+            ```
+
+            Replace with:
+            ```go
+            	SetIndexFunc(func(_ context.Context, repoURL, repoPath, commitHash string, changedFiles []string) error {
+            ```
+
+            **4. Update `internal/snapshot/manager_test.go`.**
+
+            Add the three new interface methods to the mockGraphStore:
+            ```go
+            func (m *mockGraphStore) DeleteNodesByFile(_ context.Context, _ types.Hash) (int, error) {
+                return 0, nil
+            }
+            func (m *mockGraphStore) DeleteEdgesBySourceFile(_ context.Context, _ types.Hash) ([]types.Edge, error) {
+                return nil, nil
+            }
+            func (m *mockGraphStore) EdgesBySourceFile(_ context.Context, _ types.Hash) ([]types.Edge, error) {
+                return nil, nil
+            }
+            ```
+
+            ### Constraints
+            - Do NOT modify files outside your ownership list.
+            - Do NOT modify any business logic; this is purely wiring/signature updates.
+            - For MCP-triggered re-indexing, pass `nil` for changedFiles (full re-index).
+            - All changes are mechanical: add parameter to signatures, add stub methods
+              to mock implementations.
+          files:
+            - cmd/knowing/main.go
+            - internal/mcp/handlers.go
+            - internal/mcp/handlers_test.go
+            - internal/snapshot/manager_test.go
+          dependencies:
+            - A
+            - D
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: GOWORK=off go build ./...
+          required: true
+        - type: lint
+          command: GOWORK=off go vet ./...
+          required: true
+        - type: test
+          command: GOWORK=off go test ./...
+          required: true
+post_merge_checklist:
+    groups:
+        - title: Build verification
+          items:
+            - description: Run GOWORK=off go build ./... to verify all packages compile
+              command: GOWORK=off go build ./...
+            - description: Run GOWORK=off go test ./... to verify all tests pass
+              command: GOWORK=off go test ./...
+        - title: Functional verification
+          items:
+            - description: Verify edge_events table is populated after re-indexing a changed file
+            - description: Verify GitWatcher detects commits and passes changed files to IndexFunc
+            - description: Verify enrichment is scoped to changed files only when changedFiles is non-nil
+pre_mortem:
+    overall_risk: medium
+    rows:
+        - scenario: Agent B's branch won't compile because GraphStore lacks the new methods
+          likelihood: low
+          impact: low
+          mitigation: |
+            Agent B uses a local cleanupStore interface with type assertion, matching
+            the existing batchStore pattern. The branch compiles without the new
+            GraphStore methods. At merge time, the store will implement both interfaces.
+        - scenario: mockStore in multiple test files falls out of sync with new GraphStore methods
+          likelihood: high
+          impact: medium
+          mitigation: |
+            Agent B adds stubs to indexer mockStore. Agent E adds stubs to enricher
+            mockStore. Agent F adds stubs to mcp and snapshot mockGraphStores. All are
+            explicitly instructed with exact stub code. Post-merge compilation will
+            catch any missed methods immediately.
+        - scenario: GitWatcher tests are flaky due to fsnotify timing on macOS
+          likelihood: medium
+          impact: low
+          mitigation: |
+            Agent C should use generous timeouts (3+ seconds) and debounce intervals
+            in tests. The test creates real git commits, which produce deterministic
+            .git/HEAD changes. If flaky, the test can be marked with a build tag.
+        - scenario: git diff shell-out fails in CI environments without git
+          likelihood: low
+          impact: medium
+          mitigation: |
+            All tests use temp dirs with real git repos initialized. CI environments
+            have git available. GitDiffFiles returns an error if git is not found,
+            and the daemon handles this gracefully (falls back to full re-index).
+        - scenario: Edge event recording uses wrong snapshot hash or empty hash
+          likelihood: low
+          impact: low
+          mitigation: |
+            Agent B records edge events after ComputeSnapshot returns, using the
+            actual snapshot hash. If ComputeSnapshot fails, IndexRepo returns an
+            error and no events are recorded, which is correct behavior.
+        - scenario: Enricher RunScoped requires gopls running, making unit tests fragile
+          likelihood: medium
+          impact: low
+          mitigation: |
+            Agent E tests filtering logic at the unit level (verifying file filter
+            application on upgradeCallEdges) without starting gopls. Integration
+            testing of the full enrichment pipeline is separate.
+        - scenario: MCP handler invokes IndexFunc with nil changedFiles, causing nil pointer in downstream code
+          likelihood: medium
+          impact: medium
+          mitigation: |
+            Agent F passes nil for changedFiles in MCP-triggered indexing. Agent B's
+            cleanup logic checks hasCleanup (store implements cleanupStore) and only
+            runs cleanup when files are in existingByPath. The changedFilePaths slice
+            is built from the loop, not from the parameter. No nil dereference risk.
+        - scenario: Daemon test TestDaemon_GitWatcherIntegration flaky on slow CI
+          likelihood: medium
+          impact: low
+          mitigation: |
+            Agent D should use generous timeouts and ensure git commits are
+            fully written before asserting. The test pattern follows the existing
+            TestGitHeadCommit pattern which works reliably.
+known_issues:
+    - title: resolver_test.go mockStore does not implement GraphStore
+      description: The resolver_test.go mockStore uses a local Store interface (not GraphStore) and does not need updating.
+      status: not_applicable
+      workaround: No action needed; resolver.Store is a separate interface from types.GraphStore.
+    - title: watcher.go soft-deprecated but not removed
+      description: watcher.go is soft-deprecated but not removed; FileWatcher tests still pass.
+      status: deferred
+      workaround: Remove watcher.go and its tests in a future cleanup pass after confirming no external callers.
+critic_report:
+    verdict: PASS
+    agent_reviews:
+        A:
+            agent_id: A
+            verdict: PASS
+        B:
+            agent_id: B
+            verdict: PASS
+        C:
+            agent_id: C
+            verdict: PASS
+        D:
+            agent_id: D
+            verdict: PASS
+        E:
+            agent_id: E
+            verdict: PASS
+        F:
+            agent_id: F
+            verdict: PASS
+    summary: 'All 6 agent briefs verified against the codebase. Every exact-text anchor referenced in find/replace instructions matches the current source. File existence checks pass: all modify-action files exist, all new-action files (Agent C) do not yet exist. Symbol accuracy confirmed for all referenced functions, structs, interfaces, and methods across all agents. Pattern accuracy verified: batchStore type-assertion pattern in indexer.go matches Agent B''s cleanupStore approach; FileWatcher API in watcher.go matches Agent D''s replacement targets; enricher method signatures match Agent E''s modification targets. Interface contracts are syntactically valid Go and reference types that exist in the codebase. Import chains for Agent C''s new files resolve to stdlib or existing go.mod dependencies. Side-effect completeness confirmed: all registration sites for IndexFunc/EnrichFunc are in file_ownership (Agent D for daemon, Agent F for main.go and handlers.go). Caller exhaustiveness confirmed: all callers of IndexFunc, EnrichFunc, and SetIndexFunc are covered. No i1 disjoint ownership violations. No complexity_balance warnings (max 4 files per agent). The resolver_test.go mockStore uses a local Store interface and does not need updating, consistent with known_issues.'
+    reviewed_at: "2026-05-15T19:13:49Z"
+    issue_count: 0
+state: REVIEWED
+injection_method: hook
