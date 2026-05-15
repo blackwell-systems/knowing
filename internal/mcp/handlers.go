@@ -84,10 +84,20 @@ func optionalHash(req mcp.CallToolRequest, name string) (types.Hash, *mcp.CallTo
 	return h, nil
 }
 
+// indexFunc is the package-level function that performs actual indexing.
+// When nil, handleIndexRepo returns an error indicating no indexer is configured.
+var indexFunc func(ctx context.Context, repoURL, repoPath, commitHash string) error
+
+// SetIndexFunc sets the package-level indexing function used by the index_repo handler.
+func SetIndexFunc(fn func(ctx context.Context, repoURL, repoPath, commitHash string) error) {
+	indexFunc = fn
+}
+
 // --- Execution plane handlers ---
 
-// handleIndexRepo is a stub that records an index request for the daemon.
-func (s *Server) handleIndexRepo(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+// handleIndexRepo indexes a repository using the configured indexFunc.
+// Returns an error if no indexing function has been configured via SetIndexFunc.
+func (s *Server) handleIndexRepo(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	repoURL, errResult := requireStringArg(req, "repo_url")
 	if errResult != nil {
 		return errResult, nil
@@ -98,9 +108,16 @@ func (s *Server) handleIndexRepo(_ context.Context, req mcp.CallToolRequest) (*m
 	}
 	commitHash := getStringArg(req, "commit_hash")
 
-	// Stub: record the request. The daemon will pick this up.
+	if indexFunc == nil {
+		return mcp.NewToolResultError("index_repo: no indexing function configured; call SetIndexFunc first"), nil
+	}
+
+	if err := indexFunc(ctx, repoURL, repoPath, commitHash); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("index_repo failed: %v", err)), nil
+	}
+
 	return mcp.NewToolResultText(fmt.Sprintf(
-		"index_repo queued: repo_url=%s repo_path=%s commit=%s",
+		"index_repo complete: repo_url=%s repo_path=%s commit=%s",
 		repoURL, repoPath, commitHash,
 	)), nil
 }
@@ -358,12 +375,35 @@ func (s *Server) handlePRImpact(ctx context.Context, req mcp.CallToolRequest) (*
 }
 
 // handleOwnership lists all files and top-level symbols for a repository.
+// It retrieves the repo, queries all nodes via NodesByName using the repo URL,
+// groups nodes by FileHash, and pairs them with files from FilesByRepo.
 func (s *Server) handleOwnership(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	repoHash, errResult := requireHash(req, "repo_hash")
 	if errResult != nil {
 		return errResult, nil
 	}
 
+	repo, err := s.store.GetRepo(ctx, repoHash)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("GetRepo failed: %v", err)), nil
+	}
+	if repo == nil {
+		return mcp.NewToolResultError(fmt.Sprintf("repo not found: %s", repoHash)), nil
+	}
+
+	// Get all nodes for this repo using the repo URL as prefix.
+	allNodes, err := s.store.NodesByName(ctx, repo.RepoURL)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("NodesByName failed: %v", err)), nil
+	}
+
+	// Group nodes by their FileHash.
+	nodesByFile := make(map[types.Hash][]types.Node)
+	for _, n := range allNodes {
+		nodesByFile[n.FileHash] = append(nodesByFile[n.FileHash], n)
+	}
+
+	// Get all files for the repo.
 	files, err := s.store.FilesByRepo(ctx, repoHash)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("FilesByRepo failed: %v", err)), nil
@@ -376,20 +416,10 @@ func (s *Server) handleOwnership(ctx context.Context, req mcp.CallToolRequest) (
 
 	var ownership []fileOwnership
 	for _, f := range files {
-		// Get nodes that belong to this file by looking up edges from the file hash.
-		edges, err := s.store.EdgesFrom(ctx, f.FileHash, "contains")
-		if err != nil {
-			continue
-		}
-		var nodes []types.Node
-		for _, e := range edges {
-			node, err := s.store.GetNode(ctx, e.TargetHash)
-			if err != nil || node == nil {
-				continue
-			}
-			nodes = append(nodes, *node)
-		}
-		ownership = append(ownership, fileOwnership{File: f, Nodes: nodes})
+		ownership = append(ownership, fileOwnership{
+			File:  f,
+			Nodes: nodesByFile[f.FileHash],
+		})
 	}
 
 	result, err := mcp.NewToolResultJSON(ownership)
