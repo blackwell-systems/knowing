@@ -459,12 +459,14 @@ agent-lsp's `pkg/lsp` package provides a battle-tested LSP client (hover, defini
 
 | Approach | Wall time | CPU | Nodes | Edges |
 |----------|-----------|-----|-------|-------|
-| go/packages only | 16m 24s | 594s user + 2358s sys | 6,340 | 17,232 |
-| Tree-sitter + LSP enrichment | **5m 15s** | 60s user + 97s sys | 19,770 | 64,122 |
-| Tree-sitter only (Tier 1) | **~5s** (estimated) | minimal | 19,770 | 64,122 |
+| go/packages only (baseline) | 16m 24s | 594s user + 2358s sys | 6,340 | 17,232 |
+| Tree-sitter + LSP (before walker fix) | 5m 15s | 60s user + 97s sys | 19,770 | 64,122 |
+| **Tree-sitter + LSP (after walker fix)** | **37s** | **7.3s user + 10.8s sys** | **2,564** | **8,604** |
 
-**3x faster overall, ~200x faster to first queryable graph.** The tree-sitter pass completes in seconds. The graph is immediately queryable with `ast_inferred` edges. LSP enrichment runs in background (~5 min for gopls to resolve all edges).
+**26x faster wall time, 81x less CPU.** From 16 minutes 24 seconds to 37 seconds.
 
-**Issue found:** Node/edge count is 3x higher than go/packages because the file walker indexes `.claude/worktrees/` directories (copies of the same repo used by polywave agents). Need to add `.claude` to the directory skip list in the file walker.
+**Fixes applied:**
+- Added `.claude` and `testdata` to directory skip list in file walker (was indexing polywave agent worktree copies, inflating counts 3x)
+- Enrichment logs collapsed to single summary line (was producing 33MB of per-edge error output)
 
-**Issue found:** gopls exited with errors on many files in worktree directories ("no package metadata for file"). These are broken Go modules in worktree remnants. Skipping `.claude` directories fixes both issues.
+**Remaining issue:** LSP enrichment reported 8,604 errors and 0 upgraded edges. gopls couldn't resolve definitions because the enricher sends node positions (line, character 0) that don't match what gopls expects. The tree-sitter nodes have line numbers but the enricher always sends character 0, and the node's line may not correspond to a definition gopls can resolve. The tree-sitter pass and graph are correct; the enrichment pass needs position-mapping fixes to actually upgrade edges.
