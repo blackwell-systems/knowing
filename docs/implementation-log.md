@@ -583,6 +583,34 @@ This is the gap between "architecture on paper" and "architecture in practice." 
 5. **Enricher: accept changed file set.** Only enrich edges from files that changed, not the entire repo
 6. **Daemon: pass changed file list.** The file watcher knows which files changed; pass that to the enricher
 
-### Scout
+### Design pivot: git-based change detection
 
-Launched. Analyzing the codebase to design the IMPL.
+The first scout designed around the existing fsnotify watcher. During review, we identified a fundamental problem: **knowing indexes git repositories, not filesystems.** Watching individual files reacts to editor saves, build artifacts, temp files, and branch switches. The meaningful unit of change is a commit.
+
+**Decision: replace fsnotify-on-everything with git-commit-driven detection.**
+
+The insight: `git diff --name-only oldHead newHead` gives the exact set of changed files with zero false positives. No directory walking, no content hashing, no debouncing, no file descriptor pressure. One file descriptor on `.git/HEAD` instead of thousands on source files.
+
+**Why this matters architecturally:**
+
+1. **Snapshot-commit alignment.** If indexing is triggered by commits, every snapshot corresponds to exactly one commit. Point-in-time queries ("what did the graph look like at this commit?") become a simple lookup by commit hash. The snapshot chain becomes a parallel history to the git commit chain.
+
+2. **Determinism.** Same commit always produces the same change set. Filesystem events are OS-dependent and non-deterministic (different event ordering on macOS vs Linux, different handling of atomic saves).
+
+3. **Deleted file handling.** fsnotify DELETE events are unreliable and OS-dependent. `git diff --diff-filter=D` gives the exact list of deleted files every time.
+
+4. **Incremental enrichment scope.** The changed file list from git diff is the exact input the enricher needs. No guessing, no over-enrichment.
+
+**Three detection methods (prioritized):**
+
+1. **Post-commit hook (primary):** Daemon installs a git hook that sends (repoPath, oldHead, newHead) via unix socket. Instant, zero polling.
+2. **.git/HEAD watch (fallback):** fsnotify on one file instead of thousands. When HEAD changes, read new value, compare to stored.
+3. **Polling (last resort):** `git rev-parse HEAD` every N seconds. For NFS/SMB environments.
+
+**Uncommitted changes decision:** The graph indexes committed state only. Uncommitted changes are transient, violate determinism, and create noise in the snapshot chain. `knowing index --working-tree` is available as an opt-in for temporary snapshots not linked to the main chain.
+
+**First scout discarded.** The IMPL it produced was designed around fsnotify events. Re-scouted with the git-based architecture as a binding constraint.
+
+### Scout (re-launched)
+
+Analyzing the codebase against the git-based change detection architecture documented in `docs/architecture.md`. The IMPL must implement: .git/HEAD watcher, git diff change resolution, incremental cleanup (DeleteNodesByFile, DeleteEdgesBySourceFile), edge event recording, scoped enrichment, and snapshot-commit alignment.
