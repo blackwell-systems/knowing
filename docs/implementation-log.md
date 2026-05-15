@@ -49,6 +49,114 @@ Snapshot chain + Merkle sync ─────────────> Federated 
 
 ---
 
-## Bootstrap
+## Bootstrap (2026-05-15)
 
-*Pending: `/polywave bootstrap "knowing: content-addressed knowledge graph daemon in Go"`*
+Implemented using `/polywave bootstrap "knowing: content-addressed knowledge graph daemon in Go"`.
+
+### Scout
+
+Scout read the architecture doc (1100 lines), requirements, roadmap, and README. Produced a 1100-line IMPL manifest decomposing the project into 6 concerns, 7 agents, and 26 files across 2 waves.
+
+**Decomposition:**
+
+| Wave | Agent | Package | Files | Responsibility |
+|------|-------|---------|-------|----------------|
+| 0 | scaffold | `internal/types/` | 4 | Hash, Node, Edge, GraphStore, Extractor, ComputationCache interfaces |
+| 1 | A | `internal/store/` | 4 | SQLite GraphStore (WAL mode, migrations, recursive CTE traversal) |
+| 1 | B | `internal/snapshot/` | 3 | Merkle tree, snapshot chain, diff, GC |
+| 1 | C | `internal/indexer/` + `goextractor/` | 5 | ExtractorRegistry, Indexer, Go extractor (go/packages) |
+| 1 | D | `internal/indexer/treesitter/` | 2 | tree-sitter Python extractor (proof of Extractor interface) |
+| 1 | E | `internal/mcp/` | 3 | MCP server with 11 tool handlers (stdio + HTTP) |
+| 1 | F | `internal/daemon/` | 3 | Daemon lifecycle, fsnotify watcher, debounce, RWMutex coordination |
+| 2 | G | `cmd/knowing/` | 2 | CLI wiring (serve, index, query, version) |
+
+### Scaffold
+
+4 files committed: `go.mod`, `internal/types/types.go`, `internal/types/interfaces.go`, `internal/types/results.go`. All shared interfaces and domain types established as contracts before any agent started.
+
+Duration: 72 seconds.
+
+### Critic
+
+Triggered (6 agents exceeds 3-agent threshold). All 10 checks passed. Zero errors, zero warnings. Correctly noted external deps not yet in go.mod (expected for bootstrap).
+
+Duration: 66 seconds.
+
+### Wave 1
+
+6 agents launched in parallel, each in its own git worktree.
+
+**Agent results:**
+
+| Agent | Duration | Tests | Key implementation details |
+|-------|----------|-------|--------------------------|
+| A (SQLite store) | ~5 min | 14 pass | All 20 GraphStore methods, WAL mode, go:embed migrations, recursive CTEs for transitive callers |
+| B (Snapshot mgr) | ~5 min | 7 pass | Merkle root from sorted edge hashes, bytes.Compare sorting, snapshot chain with parent pointers |
+| C (Indexer + Go) | ~5 min | 12 pass | ExtractorRegistry, local SnapshotComputer interface, go/packages type resolution, implements + references edges |
+| D (tree-sitter) | 175s | 9 pass | Python extractor via go-tree-sitter, functions/classes/methods/imports/calls extraction |
+| E (MCP server) | ~5 min | 6 pass | 11 tools registered, stdio + HTTP transport, intelligence handlers are read-only |
+| F (Daemon) | 183s | 6 pass | DaemonConfig with callbacks, fsnotify with 500ms debounce, sync.RWMutex coordination |
+
+**Incident:** Computer crash mid-wave killed agents A, B, C, E while running. All had committed implementation code to their branches but B, C, E were missing test files and C was missing implements/references edge extraction.
+
+**Recovery:** Reviewed all 4 incomplete branches against the IMPL spec using parallel review agents. Launched a single repair agent that added missing tests to B (7 tests), tests + implements/references edges to C (12 tests), and tests to E (6 tests). Set completion reports manually via `polywave-tools set-completion`.
+
+**Merge:** Agent A fast-forwarded. Agent B merged clean. Agents C, D, E, F had go.mod/go.sum conflicts (each added its own dependencies). Resolved with `git checkout --theirs go.mod go.sum && go mod tidy` for each.
+
+**Post-merge verification:** `go build ./...` PASS, `go test ./...` ALL 7 packages pass, `go vet ./...` PASS.
+
+### Wave 2
+
+Single agent (G) wired all packages together in `cmd/knowing/main.go`.
+
+Duration: 112 seconds. 2 files, 2 tests. Clean merge, no conflicts.
+
+**Subcommands:** `serve` (daemon with MCP server), `index` (one-shot repo indexing), `query` (symbol search), `version`.
+
+**Post-merge verification:** All 8 packages build and test clean. 56+ tests total.
+
+### Final State
+
+IMPL closed and archived to `docs/IMPL/complete/IMPL-bootstrap.yaml`.
+
+```
+cmd/
+  knowing/
+    main.go              <- CLI entry point (serve, index, query, version)
+    main_test.go
+internal/
+  types/
+    types.go             <- Hash, Node, Edge, File, Repo, Snapshot, EdgeEvent, provenance
+    interfaces.go        <- GraphStore, Extractor, ComputationCache interfaces
+    results.go           <- CallerResult, BlastRadiusResult, DiffResult, DerivedResult
+  store/
+    sqlite.go            <- SQLiteStore implementing GraphStore (20 methods)
+    sqlite_test.go       <- 14 tests
+    migrate.go           <- Migration runner (go:embed)
+    migrations/
+      001_initial_schema.sql
+  snapshot/
+    manager.go           <- SnapshotManager: Merkle root, chain, diff, GC
+    merkle.go            <- Merkle tree construction and diff
+    manager_test.go      <- 7 tests
+  indexer/
+    indexer.go           <- Indexer: orchestrates extractors
+    extractor.go         <- ExtractorRegistry
+    indexer_test.go      <- 4 tests
+    goextractor/
+      extractor.go       <- Go extractor (go/packages, implements, references)
+      extractor_test.go  <- 8 tests
+    treesitter/
+      extractor.go       <- tree-sitter Python extractor
+      extractor_test.go  <- 9 tests
+  mcp/
+    server.go            <- MCP server (stdio + HTTP)
+    handlers.go          <- 11 tool handlers
+    handlers_test.go     <- 6 tests
+  daemon/
+    daemon.go            <- Daemon lifecycle, coordination
+    watcher.go           <- fsnotify file watcher with debounce
+    daemon_test.go       <- 6 tests
+```
+
+8 packages. 26 files. 56+ tests. Single Go binary.
