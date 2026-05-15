@@ -88,9 +88,67 @@ tree-sitter parses syntax without type checking. It produces the same declaratio
 
 LSP enrichment bridges the gap. Language servers (gopls, pyright, etc.) perform type checking incrementally on opened files rather than in a single batch pass. gopls resolves 8,600+ edges in ~8 seconds because it processes files incrementally as they're opened, leveraging its own internal caching.
 
+**Data flow:**
+
+```
+Repository on disk
+    │
+    ▼
+Tier 1: tree-sitter extraction
+    │  ├── File walker (skips .git, .claude, vendor, node_modules, testdata)
+    │  ├── Content hash comparison (skip unchanged files)
+    │  ├── Worker pool (runtime.GOMAXPROCS goroutines, fan-out/fan-in)
+    │  │   └── Each worker: parse file → extract nodes + edges → return results
+    │  ├── Batch insert (nodes, edges, files in single transaction)
+    │  └── Snapshot computation (Merkle root of sorted edge hashes)
+    │
+    ▼
+Graph is queryable (ast_inferred edges, confidence 0.7)
+    │
+    ▼
+Tier 2: LSP enrichment
+    │  ├── Start language server (gopls for Go, pyright for Python, etc.)
+    │  ├── Open ALL source files (textDocument/didOpen) ← required for cross-package resolution
+    │  ├── Edge upgrade pass:
+    │  │   ├── For each ast_inferred edge with call-site position:
+    │  │   │   ├── Query GetDefinition at (CallSiteFile, CallSiteLine, CallSiteCol)
+    │  │   │   ├── If definition resolved: upgrade to lsp_resolved (0.9)
+    │  │   │   └── If not resolved: leave as ast_inferred (0.7)
+    │  │   └── Preserves call-site positions on upgraded edges
+    │  ├── Edge discovery pass:
+    │  │   ├── For each file: GetDocumentSymbols
+    │  │   ├── For types/interfaces: GetImplementation → implements edges
+    │  │   └── For functions/methods: GetReferences → references edges
+    │  ├── Close all files, shutdown language server
+    │  └── New edges stored as lsp_resolved (0.9)
+    │
+    ▼
+Graph is fully enriched (all edges lsp_resolved or ast_resolved)
+```
+
+**Worker pool (Tier 1):**
+
+File extraction is parallelized across `runtime.GOMAXPROCS` goroutines using a fan-out/fan-in pattern. Work items are buffered into a channel; workers pull items and write results to a pre-sized array indexed by submission order (no locks, deterministic output). The worker pool handles tree-sitter extraction only; LSP enrichment is sequential (language servers are not designed for concurrent requests from the same client).
+
 **Call-site positions:**
 
-Edges carry `CallSiteLine`, `CallSiteCol`, and `CallSiteFile` fields that store the source location of the call expression (not the declaration). tree-sitter provides these naturally from the AST node positions. The enricher uses them to query `GetDefinition` at the exact call site, confirming that the syntactic call target matches the type-resolved target.
+Edges carry `CallSiteLine` (1-indexed), `CallSiteCol` (0-indexed), and `CallSiteFile` (relative path) fields that store the source location of the call expression, not the declaration. tree-sitter provides these naturally from AST node positions. The enricher uses them to query `GetDefinition` at the exact call site, confirming that the syntactic call target matches the type-resolved target. Without call-site positions, LSP enrichment cannot upgrade existing edges (it can only discover new ones).
+
+**textDocument/didOpen requirement:**
+
+LSP servers require files to be opened via `textDocument/didOpen` before they can resolve cross-package references. This is an LSP protocol requirement, not a gopls-specific behavior. The enricher opens all source files before any query pass and closes them after completion. Without this step, `GetDefinition`, `GetImplementation`, and `GetReferences` return empty results or errors for cross-package targets.
+
+**What tree-sitter cannot do (explicit limitations):**
+
+| Capability | Why tree-sitter can't | How LSP enrichment covers it |
+|-----------|----------------------|---------------------------|
+| Resolve interface satisfaction | Requires type checker to compare method sets | GetImplementation queries |
+| Resolve non-call references | Requires TypesInfo.Uses from type checker | GetReferences queries |
+| Disambiguate overloaded names | Requires type resolution for receiver types | GetDefinition at call site |
+| Resolve aliased imports | Matches string alias to import path, may guess wrong | GetDefinition confirms the actual target |
+| Detect embedded type methods | Requires understanding type embedding | GetImplementation covers promoted methods |
+
+These limitations exist only between Tier 1 and Tier 2 completion. After enrichment, all limitations are resolved.
 
 **Extractors by language:**
 
@@ -102,7 +160,7 @@ Edges carry `CallSiteLine`, `CallSiteCol`, and `CallSiteFile` fields that store 
 | Rust | tree-sitter Rust grammar | enrichment | rust-analyzer |
 | Go (legacy) | `goextractor` (go/packages, `--full` flag) | n/a (already type-resolved) | n/a |
 
-The Go tree-sitter extractor (`gotsextractor`) is the default. The go/packages extractor (`goextractor`) is available via `knowing index --full` for cases requiring guaranteed type resolution at the cost of 16+ minutes.
+The Go tree-sitter extractor (`gotsextractor`) is the default. The go/packages extractor (`goextractor`) is available via `knowing index --full` as a deliberate escape hatch for cases requiring guaranteed single-pass type resolution at the cost of 16+ minutes. This is a design choice: two-tier is the architecture, `--full` exists for validation and edge cases where LSP enrichment is unavailable (air-gapped environments, missing gopls).
 
 **LSP client:**
 
