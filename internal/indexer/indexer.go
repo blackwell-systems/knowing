@@ -31,9 +31,10 @@ type batchStore interface {
 // Indexer orchestrates extractors to index a repository's source code
 // into the knowledge graph.
 type Indexer struct {
-	store    types.GraphStore
-	snapshot SnapshotComputer
-	registry *ExtractorRegistry
+	store       types.GraphStore
+	snapshot    SnapshotComputer
+	registry    *ExtractorRegistry
+	Concurrency int // 0 means use runtime.GOMAXPROCS
 }
 
 // NewIndexer creates an Indexer with the given store and snapshot computer.

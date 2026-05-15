@@ -516,3 +516,20 @@ func main() {
 		t.Errorf("expected no dangling call edges after IndexRepo + resolve, got %d", len(danglingCalls))
 	}
 }
+
+func TestIndexer_ConcurrencyField(t *testing.T) {
+	store := newMockStore()
+	snap := &mockSnapshotComputer{}
+	idx := NewIndexer(store, snap)
+
+	// Default Concurrency should be 0 (meaning use runtime.GOMAXPROCS).
+	if idx.Concurrency != 0 {
+		t.Fatalf("expected default Concurrency == 0, got %d", idx.Concurrency)
+	}
+
+	// Verify the field can be set.
+	idx.Concurrency = 4
+	if idx.Concurrency != 4 {
+		t.Fatalf("expected Concurrency == 4 after setting, got %d", idx.Concurrency)
+	}
+}
