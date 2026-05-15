@@ -614,3 +614,16 @@ The insight: `git diff --name-only oldHead newHead` gives the exact set of chang
 ### Scout (re-launched)
 
 Analyzing the codebase against the git-based change detection architecture documented in `docs/architecture.md`. The IMPL must implement: .git/HEAD watcher, git diff change resolution, incremental cleanup (DeleteNodesByFile, DeleteEdgesBySourceFile), edge event recording, scoped enrichment, and snapshot-commit alignment.
+
+### Priority chain after this IMPL
+
+**1. Change detection (this IMPL)** makes the content-addressed history real. Without it, the Merkle DAG has roots but no record of what changed between them. The event log is empty. Snapshot diffs return nothing. This is the first differentiator: a versioned ledger of software relationships with structural staleness detection.
+
+**2. Runtime trace ingestion (next)** makes the graph unique. OTel spans as graph edges with observation-based confidence. "Is this route actually called in production?" is a query only knowing can answer. This is the second differentiator: ground truth from production, not just static analysis.
+
+The order matters because runtime trace edges flow through the same pipeline as static edges: stored in SQLite, included in snapshots, diffable between snapshots, subject to staleness detection. If the incremental change pipeline doesn't work, runtime edges accumulate garbage the same way static edges do now. Change detection must ship first.
+
+After runtime traces, the implementation path is:
+- Semantic PR diff (architecture decision #14, the most visible feature)
+- MCP server hardening (real implementations for stubbed handlers)
+- More language extractors (TypeScript, Rust, Java via declarative configs)
