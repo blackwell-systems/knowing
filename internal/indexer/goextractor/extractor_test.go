@@ -2,6 +2,7 @@ package goextractor
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -368,5 +369,113 @@ func PrintVersion() string {
 			edgeTypes[e.EdgeType]++
 		}
 		t.Errorf("expected a 'references' edge for Version usage, got edge types: %v", edgeTypes)
+	}
+}
+
+func TestCrossRepoCallEdgeHash(t *testing.T) {
+	// Set up two modules: repoB provides a library, repoA calls it.
+	tmpDir := t.TempDir()
+
+	// repoB: module github.com/test/repoB with an exported function.
+	repoBDir := filepath.Join(tmpDir, "repoB")
+	repoBPkgDir := filepath.Join(repoBDir, "pkg")
+	if err := os.MkdirAll(repoBPkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoBDir, "go.mod"),
+		[]byte("module github.com/test/repoB\n\ngo 1.23\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoBPkgDir, "lib.go"),
+		[]byte("package pkg\n\nfunc DoThing() string { return \"done\" }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// repoA: module github.com/test/repoA that imports repoB.
+	repoADir := filepath.Join(tmpDir, "repoA")
+	if err := os.MkdirAll(repoADir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	repoAMod := fmt.Sprintf(`module github.com/test/repoA
+
+go 1.23
+
+require github.com/test/repoB v0.0.0
+
+replace github.com/test/repoB => %s
+`, repoBDir)
+	if err := os.WriteFile(filepath.Join(repoADir, "go.mod"), []byte(repoAMod), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	repoAMain := `package main
+
+import "github.com/test/repoB/pkg"
+
+func main() {
+	pkg.DoThing()
+}
+`
+	if err := os.WriteFile(filepath.Join(repoADir, "main.go"), []byte(repoAMain), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Extract repoA's main.go.
+	ext := NewGoExtractor()
+	content, err := os.ReadFile(filepath.Join(repoADir, "main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fileHash := types.NewHash(content)
+	repoHash := types.NewHash([]byte("github.com/test/repoA"))
+	opts := types.ExtractOptions{
+		RepoURL:    "github.com/test/repoA",
+		RepoHash:   repoHash,
+		CommitHash: "abc123",
+		FilePath:   "main.go",
+		FileHash:   fileHash,
+		Content:    content,
+		ModuleRoot: repoADir,
+	}
+
+	result, err := ext.Extract(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Extract failed: %v", err)
+	}
+
+	// The expected target hash should use repoB's URL, not repoA's.
+	expectedTargetHash := types.ComputeNodeHash(
+		"github.com/test/repoB",
+		"github.com/test/repoB/pkg",
+		types.EmptyHash,
+		"DoThing",
+		"function",
+	)
+
+	// Find the call edge to DoThing.
+	found := false
+	for _, e := range result.Edges {
+		if e.EdgeType == "calls" && e.TargetHash == expectedTargetHash {
+			found = true
+			break
+		}
+	}
+	if !found {
+		// Show what we got for debugging.
+		wrongHash := types.ComputeNodeHash(
+			"github.com/test/repoA",
+			"github.com/test/repoB/pkg",
+			types.EmptyHash,
+			"DoThing",
+			"function",
+		)
+		for _, e := range result.Edges {
+			if e.EdgeType == "calls" {
+				if e.TargetHash == wrongHash {
+					t.Fatalf("call edge to DoThing uses repoA's URL (wrong); expected repoB's URL")
+				}
+				t.Logf("call edge target hash: %s", e.TargetHash)
+			}
+		}
+		t.Fatal("no call edge found targeting DoThing with repoB's URL")
 	}
 }
