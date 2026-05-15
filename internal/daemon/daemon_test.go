@@ -258,7 +258,7 @@ func TestDaemon_WriteBlocksReads(t *testing.T) {
 	indexDone := make(chan struct{})
 
 	d := NewDaemon(DaemonConfig{
-		IndexFunc: func(ctx context.Context, repoURL, repoPath, commitHash string) error {
+		IndexFunc: func(ctx context.Context, repoURL, repoPath, commitHash string, changedFiles []string) error {
 			close(indexStarted)
 			<-indexDone
 			return nil
@@ -304,6 +304,93 @@ func TestDaemon_WriteBlocksReads(t *testing.T) {
 		// Read lock acquired after write released.
 	case <-time.After(3 * time.Second):
 		t.Fatal("read lock never acquired after write released")
+	}
+
+	cancel()
+}
+
+// TestDaemon_GitWatcherIntegration verifies that the daemon detects git commits
+// via GitWatcher and passes changed files to IndexFunc.
+func TestDaemon_GitWatcherIntegration(t *testing.T) {
+	dir := t.TempDir()
+
+	// Initialize a git repo with an initial commit.
+	runGit := func(args ...string) {
+		t.Helper()
+		cmd := append([]string{"-C", dir}, args...)
+		out, err := execCommand("git", cmd...)
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+
+	runGit("init")
+	runGit("config", "user.email", "test@test.com")
+	runGit("config", "user.name", "Test")
+
+	// Create initial file and commit.
+	if err := os.WriteFile(filepath.Join(dir, "initial.txt"), []byte("hello"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit("add", "initial.txt")
+	runGit("commit", "-m", "initial commit")
+
+	// Set up daemon with IndexFunc that captures changedFiles.
+	var capturedFiles []string
+	var capturedMu sync.Mutex
+	indexCalled := make(chan struct{}, 1)
+
+	d := NewDaemon(DaemonConfig{
+		IndexFunc: func(ctx context.Context, repoURL, repoPath, commitHash string, changedFiles []string) error {
+			capturedMu.Lock()
+			capturedFiles = changedFiles
+			capturedMu.Unlock()
+			select {
+			case indexCalled <- struct{}{}:
+			default:
+			}
+			return nil
+		},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Register repo before starting.
+	if err := d.WatchRepo(dir); err != nil {
+		t.Fatalf("WatchRepo: %v", err)
+	}
+
+	go func() { _ = d.Start(ctx) }()
+	time.Sleep(200 * time.Millisecond) // let watcher initialize
+
+	// Modify a file and make a new commit.
+	if err := os.WriteFile(filepath.Join(dir, "changed.txt"), []byte("world"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit("add", "changed.txt")
+	runGit("commit", "-m", "add changed.txt")
+
+	// Wait for IndexFunc to be called.
+	select {
+	case <-indexCalled:
+		capturedMu.Lock()
+		files := capturedFiles
+		capturedMu.Unlock()
+
+		// Verify changedFiles contains the modified file path.
+		found := false
+		for _, f := range files {
+			if strings.Contains(f, "changed.txt") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected changedFiles to contain 'changed.txt', got %v", files)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for IndexFunc to be called")
 	}
 
 	cancel()
