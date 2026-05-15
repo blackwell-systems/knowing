@@ -469,4 +469,40 @@ agent-lsp's `pkg/lsp` package provides a battle-tested LSP client (hover, defini
 - Added `.claude` and `testdata` to directory skip list in file walker (was indexing polywave agent worktree copies, inflating counts 3x)
 - Enrichment logs collapsed to single summary line (was producing 33MB of per-edge error output)
 
-**Remaining issue:** LSP enrichment reported 8,604 errors and 0 upgraded edges. gopls couldn't resolve definitions because the enricher sends node positions (line, character 0) that don't match what gopls expects. The tree-sitter nodes have line numbers but the enricher always sends character 0, and the node's line may not correspond to a definition gopls can resolve. The tree-sitter pass and graph are correct; the enrichment pass needs position-mapping fixes to actually upgrade edges.
+**Enrichment errors fixed:** The per-edge upgrade approach (querying gopls GetDefinition for each `ast_inferred` edge) was fundamentally flawed: tree-sitter stores declaration positions in nodes, not call-site positions. Sending GetDefinition at a declaration line returns the declaration itself, useless for edge validation. Removed the per-edge upgrade path entirely. The enricher now focuses on `discoverNewEdges` via document symbols (GetImplementation, GetReferences), which queries gopls at symbol positions it understands.
+
+### Final benchmark (clean run, all fixes applied)
+
+| Metric | go/packages (baseline) | Tree-sitter + LSP (final) | Improvement |
+|--------|----------------------|--------------------------|-------------|
+| Wall time | 16m 24s | **36.5s** | **27x faster** |
+| CPU time | 594s user + 2,358s sys | **6.7s user + 10.7s sys** | **89x less CPU** |
+| Nodes | 6,340 | 2,564 | - |
+| Edges | 17,232 | 8,604 | - |
+| Enrichment errors | n/a | **0** | Clean |
+| gopls scan | n/a | 402 files, 35s | Clean shutdown |
+
+Tree-sitter pass: ~1.5 seconds. Graph queryable almost instantly. gopls enrichment runs in remaining ~35 seconds with zero errors.
+
+**What made the difference:**
+1. **tree-sitter instead of go/packages** for the fast path. No type checking, no transitive dependency resolution. Just AST parsing. ~1.5s vs 16m for the same repo.
+2. **Skipping .claude and testdata directories** in the file walker. Eliminated 3x node inflation from polywave worktree copies.
+3. **LSP enrichment via agent-lsp's pkg/lsp** for background type resolution. gopls handles the type-checking work, but after the graph is already queryable.
+4. **Removing the broken per-edge upgrade** that produced 8,604 errors. The enricher now does what it's good at (document symbol discovery) and skips what it can't do (call-site resolution without positions).
+
+**Node count difference (2,564 vs 6,340):** The tree-sitter extractor finds fewer nodes than go/packages because it extracts declarations from the repo's own source files only. go/packages also created nodes for cross-package call targets (external functions referenced but not defined in the repo). The tree-sitter approach is correct for the execution plane; cross-repo targets are handled by the resolver.
+
+### What was lost by switching from go/packages to tree-sitter
+
+| Capability | go/packages | tree-sitter | Impact |
+|-----------|-------------|-------------|--------|
+| Type-resolved call targets | Exact (knows `pkg.Foo` calls `other.Bar` via type info) | Syntactic (matches `pkg.Bar()` by string, may misidentify overloaded names) | Call edges have lower confidence (0.7 vs 1.0) |
+| `implements` edges | Full (uses `types.Implements()` on all concrete/interface pairs) | None (tree-sitter can't determine interface satisfaction) | Lost until LSP enrichment discovers them |
+| `references` edges | Full (uses `TypesInfo.Uses` for all identifier usages) | None (tree-sitter doesn't track non-call usages) | Lost until LSP enrichment discovers them |
+| Cross-package type resolution | Exact (resolves imports to canonical package paths) | Heuristic (matches import alias to path via import declarations) | May misresolve aliased imports |
+| Method receiver types | Exact (knows the receiver type from type checker) | Syntactic (parses `func (r *Type) Method()` as text) | Correct for simple cases, may fail on embedded types |
+| Qualified name accuracy | Guaranteed correct via type checker | Derived from go.mod module path + relative directory | Correct for standard layouts, may fail for non-standard module structures |
+
+**What this means in practice:** The tree-sitter graph is complete for declarations and syntactic call edges. It's missing `implements` and `references` edges entirely until LSP enrichment adds them. Call edges are present but with lower confidence because they're string-matched rather than type-resolved. For blast radius queries ("who calls this function?"), the tree-sitter graph gives the right answer for direct calls. It misses indirect calls through interfaces until enrichment runs.
+
+**The `--full` flag** preserves access to the go/packages extractor for users who need full type resolution and are willing to wait 16 minutes. Default is fast (tree-sitter), opt-in is thorough (go/packages).
