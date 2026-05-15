@@ -114,6 +114,10 @@ func (sm *SnapshotManager) collectRepoEdges(ctx context.Context, repoHash types.
 		return nil, 0, 0, fmt.Errorf("querying nodes by name: %w", err)
 	}
 
+	// TODO: Synthetic file nodes (files without extracted symbols) are not included
+	// in snapshots because NodesByName only returns nodes with qualified names.
+	// Consider including file-level hashes in the Merkle tree for completeness.
+
 	// Collect all edges from each node (using empty edge type to get all types).
 	edgeSeen := make(map[types.Hash]struct{})
 	var edgeHashes []types.Hash
