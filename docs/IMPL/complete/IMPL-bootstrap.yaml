@@ -1,3 +1,4 @@
+completion_date: "2026-05-15"
 title: 'knowing Bootstrap: Content-Addressed Knowledge Graph Daemon'
 feature_slug: bootstrap
 verdict: SUITABLE
@@ -706,6 +707,7 @@ waves:
             - D
             - E
             - F
+      base_commit: 31706c71a006a7895121914961afc6900a86633f
 quality_gates:
     level: standard
     gates:
@@ -718,6 +720,21 @@ quality_gates:
         - type: lint
           command: go vet ./...
           required: false
+post_merge_checklist:
+    groups:
+        - title: Background Service Initialization
+          items:
+            - description: Verify if sqlite_test.go needs initialization in Server constructor
+            - description: Verify if manager_test.go needs initialization in Server constructor
+            - description: Verify if indexer_test.go needs initialization in Server constructor
+            - description: Verify if extractor_test.go needs initialization in Server constructor
+            - description: Verify if extractor_test.go needs initialization in Server constructor
+            - description: Verify if server.go needs initialization in Server constructor
+            - description: Verify if handlers_test.go needs initialization in Server constructor
+            - description: Verify if daemon.go needs initialization in Server constructor
+            - description: Verify if watcher.go needs initialization in Server constructor
+            - description: Verify if daemon_test.go needs initialization in Server constructor
+            - description: Verify if main.go needs initialization in Server constructor
 scaffolds:
     - file_path: go.mod
       contents: |
@@ -1035,6 +1052,21 @@ completion_reports:
             - TestDaemon_WriteBlocksReads
         verification: PASS
         notes: All 6 tests pass. Daemon uses interfaces/callbacks only, no direct imports of store/indexer/mcp/snapshot. fsnotify with 500ms debounce. sync.RWMutex for read/write coordination.
+    G:
+        status: complete
+        branch: polywave/bootstrap/wave2-agent-G
+        commit: 1aa072e
+        files_changed:
+            - cmd/knowing/main.go
+            - cmd/knowing/main_test.go
+        files_created:
+            - cmd/knowing/main.go
+            - cmd/knowing/main_test.go
+        tests_added:
+            - TestVersionSubcommand
+            - TestMainFunction_NoArgs_PrintsUsage
+        verification: PASS
+        notes: CLI entry point complete. Wires store, snapshot, indexer, extractors, MCP server, and daemon. All subcommands (serve, index, query, version) implemented. Build, test, and vet pass.
 pre_mortem:
     overall_risk: medium
     rows:
@@ -1097,6 +1129,5 @@ critic_report:
     summary: All 7 agent briefs verified against the codebase. All 22 action:new files confirmed absent (Check 1). Symbol accuracy skipped per action:new exclusion (Check 2). Interface contracts in the IMPL match committed scaffold files exactly (Check 4). No disjoint ownership violations (Check 9). No agent exceeds 8 files or 40% of total (Check 7). External dependencies not yet in go.mod are expected for bootstrap; agents will go-get them and orchestrator runs go mod tidy post-merge. No issues found.
     reviewed_at: "2026-05-15T07:33:11Z"
     issue_count: 0
-state: WAVE_EXECUTING
-original_branch: main
+state: COMPLETE
 injection_method: hook
