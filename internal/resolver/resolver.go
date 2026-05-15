@@ -186,12 +186,14 @@ func (r *Resolver) ResolveWithDetails(ctx context.Context) ([]ResolveResult, *Re
 //   - Methods:         (repoURL, pkgPath, _, methodName, kind)
 //     where pkgPath is the Go import path (does NOT include the type name)
 func extractHashInputs(node types.Node) (repoURL, pkgPath, symbolName string) {
-	parts := strings.SplitN(node.QualifiedName, "://", 2)
-	if len(parts) != 2 {
+	// Use the LAST "://" as the separator, since repo URLs themselves may
+	// contain "://" (e.g., "https://github.com/org/repo://pkg.Func").
+	sep := strings.LastIndex(node.QualifiedName, "://")
+	if sep < 0 {
 		return "", "", ""
 	}
-	repoURL = parts[0]
-	remainder := parts[1] // e.g., "testmod/pkg.Hello" or "testmod/pkg.Type.Method"
+	repoURL = node.QualifiedName[:sep]
+	remainder := node.QualifiedName[sep+3:] // e.g., "testmod/pkg.Hello" or "testmod/pkg.Type.Method"
 
 	lastDot := strings.LastIndex(remainder, ".")
 	if lastDot < 0 {
