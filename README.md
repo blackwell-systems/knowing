@@ -12,6 +12,12 @@
   <strong>Persistent, content-addressed knowledge graph for software systems, built for agents.</strong>
 </p>
 
+## Vision
+
+Any agent, before making any change, can query the full graph of relationships across every repository, service, infrastructure definition, and runtime behavior in the organization, and get back a confidence-scored, provenance-tracked answer about what will break, who owns it, and whether it's actually used in production.
+
+No grepping. No guessing. No asking the user "do you have other repos that use this?" The agent knows, because the graph knows.
+
 ## The Problem
 
 Agents today are blind at repository boundaries. LSP tells you where a symbol is used inside one workspace. Code search finds matching text. Dependency graphs tell you which packages depend on which.
