@@ -59,7 +59,8 @@ func (g *GoExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (*
 
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedSyntax |
-			packages.NeedTypes | packages.NeedTypesInfo | packages.NeedImports,
+			packages.NeedTypes | packages.NeedTypesInfo | packages.NeedImports |
+			packages.NeedModule,
 		Dir:     dir,
 		Context: ctx,
 	}
@@ -119,7 +120,8 @@ func (g *GoExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (*
 	// Add import edges from the file to imported packages.
 	for _, imp := range targetFile.Imports {
 		impPath := strings.Trim(imp.Path.Value, `"`)
-		impHash := types.ComputeNodeHash(opts.RepoURL, impPath, types.EmptyHash, impPath, "package")
+		impRepoURL := resolveTargetRepoURL(opts, impPath, pkg)
+		impHash := types.ComputeNodeHash(impRepoURL, impPath, types.EmptyHash, impPath, "package")
 
 		// Create an edge from each function/type in this file to the import.
 		// For simplicity, create a single file-level import edge using a
@@ -303,7 +305,8 @@ func (g *GoExtractor) extractCallEdges(opts types.ExtractOptions, pkgPath string
 			return true
 		}
 
-		targetHash := types.ComputeNodeHash(opts.RepoURL, targetPkg, types.EmptyHash, targetName, targetKind)
+		targetRepoURL := resolveTargetRepoURL(opts, targetPkg, pkg)
+		targetHash := types.ComputeNodeHash(targetRepoURL, targetPkg, types.EmptyHash, targetName, targetKind)
 		provenance := "ast_resolved"
 		edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "calls", provenance)
 
@@ -427,7 +430,8 @@ func (g *GoExtractor) extractReferenceEdges(opts types.ExtractOptions, pkgPath s
 
 		// Use a synthetic file-level source for reference edges.
 		fileNodeHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, filepath.Base(opts.FilePath), "file")
-		targetHash := types.ComputeNodeHash(opts.RepoURL, targetPkg, types.EmptyHash, targetName, targetKind)
+		targetRepoURL := resolveTargetRepoURL(opts, targetPkg, pkg)
+		targetHash := types.ComputeNodeHash(targetRepoURL, targetPkg, types.EmptyHash, targetName, targetKind)
 		provenance := "ast_resolved"
 		edgeHash := types.ComputeEdgeHash(fileNodeHash, targetHash, "references", provenance)
 
@@ -478,6 +482,48 @@ func formatFuncSignature(decl *ast.FuncDecl) string {
 	sb.WriteString(decl.Name.Name)
 	sb.WriteString("()")
 	return sb.String()
+}
+
+// resolveTargetRepoURL determines the correct repo URL for a cross-repo
+// call target. For local packages (same module), returns opts.RepoURL.
+// For external packages, uses Module info from go/packages when available,
+// falling back to heuristic inference from the import path.
+func resolveTargetRepoURL(opts types.ExtractOptions, targetPkg string, pkg *packages.Package) string {
+	// Local package: same module as the source.
+	if pkg.Module != nil && strings.HasPrefix(targetPkg, pkg.Module.Path) {
+		return opts.RepoURL
+	}
+
+	// External package: try to get module path from imported package.
+	if importedPkg, ok := pkg.Imports[targetPkg]; ok && importedPkg.Module != nil {
+		return importedPkg.Module.Path
+	}
+
+	// Heuristic fallback.
+	return inferRepoURL(targetPkg)
+}
+
+// inferRepoURL extracts the probable repository URL from a Go import path.
+// For "github.com/org/repo/pkg/sub" it returns "github.com/org/repo".
+// For stdlib paths (no dots in first segment) it returns "stdlib".
+func inferRepoURL(importPath string) string {
+	parts := strings.Split(importPath, "/")
+	if len(parts) == 0 {
+		return importPath
+	}
+	// stdlib: no dots in first segment (e.g., "fmt", "net/http")
+	if !strings.Contains(parts[0], ".") {
+		return "stdlib"
+	}
+	// github.com, gitlab.com, bitbucket.org: first 3 segments
+	if len(parts) >= 3 {
+		return strings.Join(parts[:3], "/")
+	}
+	// golang.org/x/foo or similar with fewer segments
+	if len(parts) >= 2 {
+		return strings.Join(parts[:2], "/")
+	}
+	return importPath
 }
 
 // deduplicateEdges removes duplicate edges based on EdgeHash.
