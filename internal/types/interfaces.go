@@ -23,6 +23,9 @@ type GraphStore interface {
 	AllRepos(ctx context.Context) ([]Repo, error)
 	NodesByQualifiedName(ctx context.Context, qualifiedName string) ([]Node, error)
 	DeleteEdge(ctx context.Context, hash Hash) error
+	DeleteNodesByFile(ctx context.Context, fileHash Hash) (int, error)
+	DeleteEdgesBySourceFile(ctx context.Context, fileHash Hash) ([]Edge, error)
+	EdgesBySourceFile(ctx context.Context, fileHash Hash) ([]Edge, error)
 	TransitiveCallers(ctx context.Context, target Hash, maxDepth int, snapshot Hash) ([]CallerResult, error)
 	TransitiveCallees(ctx context.Context, source Hash, maxDepth int, snapshot Hash) ([]CalleeResult, error)
 	BlastRadius(ctx context.Context, target Hash, snapshot Hash) (*BlastRadiusResult, error)
