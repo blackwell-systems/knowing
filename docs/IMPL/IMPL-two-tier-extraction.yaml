@@ -425,6 +425,7 @@ waves:
           files:
             - internal/enrichment/enricher.go
             - internal/enrichment/enricher_test.go
+      base_commit: 227279b54c6578f40d985eb633a775876acb82c0
     - number: 2
       agents:
         - id: C
@@ -669,6 +670,60 @@ quality_gates:
         - type: test
           command: GOWORK=off go test ./...
           required: true
+post_merge_checklist:
+    groups:
+        - title: Background Service Initialization
+          items:
+            - description: Verify if extractor_test.go needs initialization in Server constructor
+            - description: Verify if enricher_test.go needs initialization in Server constructor
+completion_reports:
+    A:
+        status: complete
+        branch: polywave/two-tier-extraction/wave1-agent-A
+        commit: bbcfff0
+        files_changed:
+            - internal/indexer/gotsextractor/extractor.go
+            - internal/indexer/gotsextractor/extractor_test.go
+        files_created:
+            - internal/indexer/gotsextractor/extractor.go
+            - internal/indexer/gotsextractor/extractor_test.go
+        tests_added:
+            - TestGoTreeSitterExtractor_Name
+            - TestGoTreeSitterExtractor_CanHandle
+            - TestGoTreeSitterExtractor_ExtractFunctions
+            - TestGoTreeSitterExtractor_ExtractMethods
+            - TestGoTreeSitterExtractor_ExtractTypes
+            - TestGoTreeSitterExtractor_ExtractConstsAndVars
+            - TestGoTreeSitterExtractor_ExtractCallEdges
+            - TestGoTreeSitterExtractor_ExtractImportEdges
+            - TestGoTreeSitterExtractor_EdgeProvenanceAndConfidence
+            - TestGoTreeSitterExtractor_SubdirectoryPackagePath
+            - TestGoTreeSitterExtractor_ImportAliasResolution
+            - TestGoTreeSitterExtractor_EmptyFile
+            - TestBuildImportMap
+        verification: PASS
+        notes: GoTreeSitterExtractor complete. All 13 tests pass. All verification gates (build, vet, test) pass across entire repo. go.mod updated with go-tree-sitter/golang dependency via go get.
+    B:
+        status: complete
+        branch: polywave/two-tier-extraction/wave1-agent-B
+        commit: 9c7280d
+        files_changed:
+            - internal/enrichment/enricher.go
+            - internal/enrichment/enricher_test.go
+            - go.mod
+            - go.sum
+        files_created:
+            - internal/enrichment/enricher.go
+            - internal/enrichment/enricher_test.go
+        tests_added:
+            - TestNewEnricher_Fields
+            - TestUpgradeEdge_ProducesLSPResolved
+            - TestCollectASTInferredEdges_FiltersCorrectly
+            - TestCollectASTInferredEdges_IgnoresOtherRepoFiles
+            - TestUpgradeEdge_PreservesEdgeType
+            - TestRunReturnsErrorWhenNoSnapshot
+        verification: PASS
+        notes: LSP enrichment pass complete. Enricher starts gopls, collects ast_inferred edges, upgrades to lsp_resolved via definition resolution, and discovers new implements/references edges. All 6 tests pass. Full repo build/vet/test clean.
 pre_mortem:
     overall_risk: medium
     rows:
@@ -710,5 +765,5 @@ pre_mortem:
             extractor must reconstruct it from go.mod module path + directory. Agent A
             should write a test comparing pkgPath derivation against a known module
             structure.
-state: "REVIEWED"
+state: REVIEWED
 injection_method: hook
