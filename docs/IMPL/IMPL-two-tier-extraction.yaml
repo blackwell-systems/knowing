@@ -1,0 +1,714 @@
+title: Two-tier extraction for fast cold indexing
+feature_slug: two-tier-extraction
+verdict: SUITABLE
+suitability_assessment: |
+    1. File decomposition: The work decomposes cleanly into 5+ disjoint files across
+       3 logical areas: (a) Go tree-sitter extractor (new package), (b) LSP enrichment
+       pass (new package), (c) CLI/daemon wiring. No conflicting modifications needed.
+
+    2. Investigation-first items: None. The current go/packages extractor is well understood.
+       Tree-sitter Go bindings exist in the smacker/go-tree-sitter library already used
+       for Python. The agent-lsp pkg/lsp API is documented and stable.
+
+    3. Interface discoverability: Yes. The Extractor interface is already defined
+       (types.Extractor). The enrichment pass consumes the graph store (types.GraphStore)
+       and agent-lsp's LSPClient. All interfaces are known.
+
+    4. Pre-implementation status: No prior implementation of Go tree-sitter extraction
+       or LSP enrichment exists. The Python tree-sitter extractor provides a template.
+       The provenance/confidence model already supports tiered edges ("ast_inferred",
+       "ast_resolved", etc. with float64 confidence).
+
+    5. Parallelization value: High. Build/test cycle is ~15s (GOWORK=off go test ./...).
+       4 agents with 2-5 files each across 2 waves. Clear speedup over sequential.
+
+    Estimated times:
+    - Scout phase: ~8 min
+    - Agent execution: ~12 min (4 agents, ~6 min avg, 2 waves)
+    - Merge and verification: ~4 min
+    Total Polywave time: ~24 min
+
+    Sequential baseline: ~30 min (4 agents x ~7.5 min avg)
+    Time savings: ~6 min (20% faster)
+
+    Recommendation: Clear speedup. The agents are independent within waves and the
+    test cycle is meaningful enough to justify parallelization.
+test_command: GOWORK=off go test ./...
+lint_command: GOWORK=off go vet ./...
+file_ownership:
+    - file: internal/indexer/gotsextractor/extractor.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/indexer/gotsextractor/extractor_test.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/enrichment/enricher.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/enrichment/enricher_test.go
+      agent: B
+      wave: 1
+      action: new
+    - file: cmd/knowing/main.go
+      agent: C
+      wave: 2
+      action: modify
+      depends_on:
+        - A
+        - B
+    - file: cmd/knowing/main_test.go
+      agent: C
+      wave: 2
+      action: modify
+      depends_on:
+        - A
+    - file: internal/daemon/daemon.go
+      agent: D
+      wave: 2
+      action: modify
+      depends_on:
+        - B
+interface_contracts:
+    - name: GoTreeSitterExtractor
+      description: |
+        Tree-sitter based Go extractor implementing types.Extractor. Produces
+        function/type/method/interface/const/var declaration nodes and syntactic
+        call edges with provenance "ast_inferred" and confidence 0.7. Does NOT
+        perform type resolution, implements edges, or reference edges.
+      definition: |
+        package gotsextractor
+
+        type GoTreeSitterExtractor struct{}
+
+        func NewGoTreeSitterExtractor() *GoTreeSitterExtractor
+        func (e *GoTreeSitterExtractor) Name() string              // returns "go-treesitter"
+        func (e *GoTreeSitterExtractor) CanHandle(path string) bool // same logic as GoExtractor
+        func (e *GoTreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error)
+
+        // Edges produced use:
+        //   Provenance: "ast_inferred"
+        //   Confidence: 0.7
+        // Node hash computation uses the same types.ComputeNodeHash as GoExtractor
+        // so that LSP enrichment can match and upgrade edges by hash.
+      location: internal/indexer/gotsextractor/extractor.go
+    - name: Enricher
+      description: |
+        Background LSP enrichment pass. Starts gopls via agent-lsp/pkg/lsp,
+        iterates over ast_inferred edges in the store, queries hover/definition
+        to resolve targets, and upgrades edges to "lsp_resolved" confidence 0.9.
+        Also discovers implements and references edges not found by tree-sitter.
+      definition: |
+        package enrichment
+
+        type Enricher struct{}
+
+        func NewEnricher(store types.GraphStore, workspaceRoot string) *Enricher
+        func (e *Enricher) Run(ctx context.Context, repoHash types.Hash) error
+        // Run starts gopls, iterates edges with provenance "ast_inferred",
+        // queries hover/definition for each edge target, and:
+        //   - If resolved: deletes old edge, inserts new edge with
+        //     provenance "lsp_resolved", confidence 0.9
+        //   - If unresolvable: leaves edge unchanged
+        // After edge upgrade, queries implementations and references to
+        // add new "implements" and "references" edges with provenance
+        // "lsp_resolved", confidence 0.9.
+        // Shuts down gopls on completion or context cancellation.
+
+        func (e *Enricher) Close(ctx context.Context) error
+      location: internal/enrichment/enricher.go
+    - name: IndexRepoFast
+      description: |
+        Modified IndexRepo path that uses GoTreeSitterExtractor by default.
+        The --full flag on the CLI selects the existing GoExtractor instead.
+      definition: |
+        // No new function signature. IndexRepo behavior changes based on which
+        // extractor is registered. The CLI wiring changes which extractor is
+        // registered based on the --full flag.
+        //
+        // cmdIndex gains: --full flag (bool, default false)
+        //   --full=false -> register GoTreeSitterExtractor (fast path)
+        //   --full=true  -> register GoExtractor (full type resolution)
+      location: cmd/knowing/main.go
+    - name: EnrichAfterIndex
+      description: |
+        Daemon triggers enrichment after each index run completes.
+      definition: |
+        // DaemonConfig gains:
+        //   EnrichFunc func(ctx context.Context, repoHash types.Hash, workspaceRoot string) error
+        //
+        // After indexWorker calls IndexFunc, if EnrichFunc is non-nil, it spawns
+        // a goroutine calling EnrichFunc. The enrichment runs in the background
+        // without holding the daemon write lock.
+      location: internal/daemon/daemon.go
+waves:
+    - number: 1
+      agents:
+        - id: A
+          task: |
+            ## Goal
+            Create a Go tree-sitter extractor that implements types.Extractor for Go files.
+            This is the fast-path extractor: AST-only, no type resolution, completes in
+            milliseconds per file.
+
+            ## Package
+            Create new package: `internal/indexer/gotsextractor`
+
+            ## Files to create
+            - `internal/indexer/gotsextractor/extractor.go`
+            - `internal/indexer/gotsextractor/extractor_test.go`
+
+            ## Implementation details
+
+            ### extractor.go
+
+            **GoTreeSitterExtractor struct:**
+            - Holds a `*sitter.Parser` configured with `golang.GetLanguage()` from
+              `github.com/smacker/go-tree-sitter/golang`
+            - `NewGoTreeSitterExtractor() *GoTreeSitterExtractor` creates the parser
+
+            **Name():** returns `"go-treesitter"`
+
+            **CanHandle(path string) bool:** Same logic as the existing GoExtractor:
+            - Must end in `.go`
+            - Must NOT end in `_test.go`
+            - Must NOT be in a `vendor` directory
+
+            Reference the existing implementation in `internal/indexer/goextractor/extractor.go`
+            lines 36-51.
+
+            **Extract(ctx, opts) (*types.ExtractResult, error):**
+            1. Parse `opts.Content` with tree-sitter
+            2. Determine pkgPath by reading the `package` clause from the AST root.
+               The package clause is the first `package_clause` child of `source_file`.
+               Extract the package name from its child node.
+               Compute full pkgPath as the directory portion of opts.FilePath (relative path
+               within the module), prepended with the module path from opts.ModuleRoot's go.mod.
+               For simplicity, read go.mod from opts.ModuleRoot to get the module path,
+               then join with the directory of opts.FilePath.
+            3. Walk the tree-sitter AST and extract:
+
+            **Nodes (declarations):**
+            - `function_declaration` -> kind "function"
+              - Name from the `name` field child
+              - QualifiedName: `{opts.RepoURL}://{pkgPath}.{name}`
+              - Signature: `func {name}()`
+            - `method_declaration` -> kind "method"
+              - Name from the `name` field child
+              - Receiver type from the `receiver` field child (extract type name from
+                parameter_list -> parameter_declaration -> type)
+              - QualifiedName: `{opts.RepoURL}://{pkgPath}.{receiverType}.{name}`
+              - Signature: `func ({receiverType}) {name}()`
+            - `type_declaration` -> walk `type_spec` children:
+              - If type body is `interface_type` -> kind "interface"
+              - Otherwise -> kind "type"
+              - QualifiedName: `{opts.RepoURL}://{pkgPath}.{name}`
+            - `const_declaration` / `var_declaration` -> walk `const_spec` / `var_spec`:
+              - kind "const" or "var"
+              - QualifiedName: `{opts.RepoURL}://{pkgPath}.{name}`
+
+            Use `types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, name, kind)`
+            for node hashes, matching GoExtractor convention.
+
+            **Edges (syntactic calls):**
+            - Walk function/method bodies for `call_expression` nodes
+            - For each call_expression:
+              - If function child is `identifier`: local call, targetPkg = pkgPath
+              - If function child is `selector_expression`: qualified call
+                - operand is `identifier` (package name or receiver)
+                - field is the function name
+                - Without type info, treat the operand as a package import name.
+                  Look up the import name in the file's import list to get the full
+                  import path. If not found, use the operand name as-is for targetPkg.
+              - Compute targetHash with types.ComputeNodeHash
+              - Create Edge with:
+                - EdgeType: "calls"
+                - Confidence: 0.7
+                - Provenance: "ast_inferred"
+
+            **Import edges:**
+            - Walk `import_declaration` -> `import_spec` children
+            - Extract import path (strip quotes)
+            - Create file-level import edge (same pattern as GoExtractor)
+            - Use Provenance "ast_inferred", Confidence 0.7
+
+            **Import name resolution helper:**
+            Build a map of import alias -> import path from the file's imports.
+            For imports without an alias, the alias is the last path segment.
+            Use this map to resolve selector expression operands to full package paths.
+
+            **Sorting and deduplication:**
+            Sort nodes by QualifiedName then Kind. Sort edges by SourceHash, TargetHash,
+            EdgeType. Deduplicate edges by EdgeHash (same pattern as GoExtractor).
+
+            ### extractor_test.go
+
+            Write tests covering:
+            1. CanHandle: .go files accepted, _test.go rejected, vendor rejected
+            2. Extract function declarations: verify node count, kind, qualified name
+            3. Extract method declarations: verify receiver type in qualified name
+            4. Extract type declarations: struct vs interface kind
+            5. Extract call edges: local calls and qualified calls (pkg.Func)
+            6. Extract import edges
+            7. Confidence 0.7 and provenance "ast_inferred" on all edges
+
+            Use the same test pattern as `internal/indexer/treesitter/extractor_test.go`
+            and `internal/indexer/goextractor/extractor_test.go`: create in-memory Go
+            source strings, pass them as opts.Content, and verify the result.
+
+            ### Dependencies
+            - `github.com/smacker/go-tree-sitter` (already in go.mod)
+            - `github.com/smacker/go-tree-sitter/golang` (add to go.mod; this is the
+              Go language grammar for tree-sitter)
+            - `github.com/blackwell-systems/knowing/internal/types`
+
+            Run `GOWORK=off go get github.com/smacker/go-tree-sitter/golang` to add
+            the Go grammar binding.
+
+            ### Constraints
+            - Do NOT modify any existing files. Only create new files in gotsextractor/.
+            - Do NOT add type resolution, implements edges, or reference edges. Those
+              are handled by the enrichment pass (Agent B).
+            - Do NOT modify go.mod directly with a text editor. Use `go get` to add
+              dependencies, then `go mod tidy`.
+            - Node hashes MUST use the same ComputeNodeHash arguments as GoExtractor
+              so that enrichment can match nodes across extractors.
+          files:
+            - internal/indexer/gotsextractor/extractor.go
+            - internal/indexer/gotsextractor/extractor_test.go
+        - id: B
+          task: |
+            ## Goal
+            Create the LSP enrichment pass that upgrades ast_inferred edges to
+            lsp_resolved by querying gopls via the agent-lsp public API.
+
+            ## Package
+            Create new package: `internal/enrichment`
+
+            ## Files to create
+            - `internal/enrichment/enricher.go`
+            - `internal/enrichment/enricher_test.go`
+
+            ## Implementation details
+
+            ### enricher.go
+
+            ```go
+            package enrichment
+
+            import (
+                "context"
+                "fmt"
+                "path/filepath"
+                "strings"
+
+                "github.com/blackwell-systems/agent-lsp/pkg/lsp"
+                "github.com/blackwell-systems/knowing/internal/types"
+            )
+            ```
+
+            **Enricher struct:**
+            ```go
+            type Enricher struct {
+                store         types.GraphStore
+                workspaceRoot string
+                client        *lsp.LSPClient
+            }
+            ```
+
+            **NewEnricher(store types.GraphStore, workspaceRoot string) *Enricher**
+
+            **Run(ctx context.Context, repoHash types.Hash) error:**
+
+            1. Start gopls:
+               ```go
+               client := lsp.NewLSPClient("gopls", []string{})
+               if err := client.Initialize(ctx, e.workspaceRoot); err != nil {
+                   return fmt.Errorf("enrichment: start gopls: %w", err)
+               }
+               e.client = client
+               ```
+
+            2. Get the latest snapshot for this repo:
+               ```go
+               snap, err := e.store.LatestSnapshot(ctx, repoHash)
+               ```
+
+            3. Find all edges with provenance "ast_inferred" by iterating files:
+               - Get all files for the repo: `e.store.FilesByRepo(ctx, repoHash)`
+               - For each file, get nodes via the store
+               - For each node, get outgoing edges: `e.store.EdgesFrom(ctx, nodeHash, "")`
+               - Filter edges where Provenance == "ast_inferred"
+
+            4. For each ast_inferred "calls" edge:
+               - Look up the source node to get its file path and line number
+               - Convert the file path to a URI: `"file://" + filepath.Join(e.workspaceRoot, node.FilePath)`
+                 (Note: you'll need to look up the source node's file to get the path)
+               - Use `client.GetInfoOnLocation(ctx, uri, types.Position{Line: node.Line - 1, Character: 0})`
+                 to get hover info
+               - Use `client.GetDefinition(ctx, uri, types.Position{Line: node.Line - 1, Character: 0})`
+                 to resolve the definition location
+               - If definition resolves successfully:
+                 - Delete the old edge: `e.store.DeleteEdge(ctx, edge.EdgeHash)`
+                 - Insert upgraded edge with Provenance "lsp_resolved", Confidence 0.9
+               - If definition fails to resolve: leave edge unchanged
+
+            5. After edge upgrades, discover new edges:
+               - For each file in the repo, get document symbols via gopls
+               - For type nodes, query `GetImplementation` to find implements edges
+               - For function/method nodes, query `GetReferences` to find reference edges
+               - Insert new edges with Provenance "lsp_resolved", Confidence 0.9
+               - Skip edges that already exist (check EdgeHash)
+
+            6. Shut down gopls: `client.Shutdown(ctx)`
+
+            **Close(ctx context.Context) error:**
+            Shuts down the LSP client if running.
+
+            **Important design decisions:**
+            - The enricher is best-effort. If gopls fails on a specific edge, log it
+              and continue to the next edge. Do not fail the entire enrichment run.
+            - Use a batch approach: collect all edges to upgrade, then process them.
+              This is more efficient than interleaving store reads and gopls queries.
+            - The enricher uses types.Position from agent-lsp/pkg/lsp which uses
+              0-indexed line numbers. Node.Line in knowing is 1-indexed.
+              Subtract 1 when creating Position.
+
+            ### enricher_test.go
+
+            Write tests that verify:
+            1. NewEnricher creates an Enricher with correct fields
+            2. Edge upgrade logic: given a mock store with ast_inferred edges, verify
+               the enricher would delete old edges and insert lsp_resolved edges
+            3. Test that edges with provenance != "ast_inferred" are left alone
+
+            For testing, use a mock store (similar to indexer_test.go's mockStore).
+            Do NOT start a real gopls instance in unit tests. Instead, test the
+            edge-filtering and upgrade logic in isolation. Integration testing
+            with real gopls is out of scope for this agent.
+
+            To test without a real LSP client, extract the edge filtering/upgrade
+            logic into a helper function that can be tested with a mock store:
+            ```go
+            // upgradeEdge creates a new lsp_resolved edge from an ast_inferred edge.
+            func upgradeEdge(old types.Edge) types.Edge {
+                newProvenance := "lsp_resolved"
+                newEdgeHash := types.ComputeEdgeHash(old.SourceHash, old.TargetHash, old.EdgeType, newProvenance)
+                return types.Edge{
+                    EdgeHash:   newEdgeHash,
+                    SourceHash: old.SourceHash,
+                    TargetHash: old.TargetHash,
+                    EdgeType:   old.EdgeType,
+                    Confidence: 0.9,
+                    Provenance: newProvenance,
+                }
+            }
+            ```
+
+            ### Dependencies
+            - `github.com/blackwell-systems/agent-lsp/pkg/lsp`
+            - `github.com/blackwell-systems/knowing/internal/types`
+
+            Run `GOWORK=off go get github.com/blackwell-systems/agent-lsp/pkg/lsp` to
+            add the dependency.
+
+            ### Constraints
+            - Do NOT modify any existing files. Only create new files in enrichment/.
+            - Do NOT import internal packages from agent-lsp. Only use the public API
+              at `github.com/blackwell-systems/agent-lsp/pkg/lsp`.
+            - Do NOT make enrichment synchronous/blocking in the indexing path. The
+              enricher is designed to run asynchronously after indexing completes.
+            - The types.Position used by agent-lsp uses 0-indexed lines. knowing's
+              Node.Line is 1-indexed. Always subtract 1.
+          files:
+            - internal/enrichment/enricher.go
+            - internal/enrichment/enricher_test.go
+    - number: 2
+      agents:
+        - id: C
+          task: |
+            ## Goal
+            Wire the Go tree-sitter extractor as the default for `knowing index`
+            and add the `--full` flag to opt into the existing go/packages extractor.
+            Also wire enrichment into the `serve` command.
+
+            ## Files to modify
+            - `cmd/knowing/main.go`
+            - `cmd/knowing/main_test.go`
+
+            ## Implementation details
+
+            ### main.go changes
+
+            **1. Add imports:**
+            Insert after the existing import block's last knowing import. The current
+            imports end with:
+            ```go
+            knowingmcp "github.com/blackwell-systems/knowing/internal/mcp"
+            "github.com/blackwell-systems/knowing/internal/snapshot"
+            "github.com/blackwell-systems/knowing/internal/store"
+            "github.com/blackwell-systems/knowing/internal/types"
+            ```
+
+            Add:
+            ```go
+            "github.com/blackwell-systems/knowing/internal/enrichment"
+            "github.com/blackwell-systems/knowing/internal/indexer/gotsextractor"
+            ```
+
+            **2. Modify cmdIndex function:**
+
+            Add `--full` flag to the flag set. Find this exact text in cmdIndex:
+            ```go
+            fs := flag.NewFlagSet("index", flag.ExitOnError)
+            dbPath := fs.String("db", "knowing.db", "Path to the SQLite database")
+            repoURL := fs.String("url", "", "Repository URL (e.g. github.com/org/repo)")
+            commitHash := fs.String("commit", "HEAD", "Commit hash to record")
+            ```
+
+            Add after the commitHash line:
+            ```go
+            full := fs.Bool("full", false, "Use full type resolution (go/packages) instead of fast tree-sitter extraction")
+            ```
+
+            Find the extractor registration block in cmdIndex:
+            ```go
+            // Register extractors.
+            idx.Register(goextractor.NewGoExtractor())
+            tsExt, err := treesitter.NewTreeSitterExtractor("python")
+            if err == nil {
+                idx.Register(tsExt)
+            }
+            ```
+
+            Replace with:
+            ```go
+            // Register extractors.
+            if *full {
+                idx.Register(goextractor.NewGoExtractor())
+            } else {
+                idx.Register(gotsextractor.NewGoTreeSitterExtractor())
+            }
+            tsExt, err := treesitter.NewTreeSitterExtractor("python")
+            if err == nil {
+                idx.Register(tsExt)
+            }
+            ```
+
+            **3. After the IndexRepo call and output in cmdIndex, trigger enrichment
+            if NOT in --full mode:**
+
+            Find this exact text at the end of cmdIndex:
+            ```go
+            fmt.Printf("Nodes: %d, Edges: %d\n", snap.NodeCount, snap.EdgeCount)
+            return nil
+            ```
+
+            Insert before `return nil`:
+            ```go
+            // Trigger background LSP enrichment for tree-sitter extracted graphs.
+            if !*full {
+                fmt.Println("Starting background LSP enrichment...")
+                enricher := enrichment.NewEnricher(st, repoPath)
+                go func() {
+                    if err := enricher.Run(context.Background(), repoHash); err != nil {
+                        fmt.Fprintf(os.Stderr, "enrichment: %v\n", err)
+                    }
+                    enricher.Close(context.Background())
+                }()
+            }
+            ```
+
+            Wait: for CLI `index` command, enrichment should actually run synchronously
+            (the process exits after). Change to:
+            ```go
+            if !*full {
+                fmt.Println("Running LSP enrichment...")
+                enricher := enrichment.NewEnricher(st, repoPath)
+                if err := enricher.Run(ctx, repoHash); err != nil {
+                    fmt.Fprintf(os.Stderr, "enrichment warning: %v\n", err)
+                }
+                enricher.Close(ctx)
+            }
+            ```
+
+            **4. Modify cmdServe function:**
+
+            In cmdServe, change the extractor registration to use tree-sitter by default.
+            Find this exact text:
+            ```go
+            // Register extractors.
+            idx.Register(goextractor.NewGoExtractor())
+            tsExt, err := treesitter.NewTreeSitterExtractor("python")
+            if err == nil {
+                idx.Register(tsExt)
+            }
+            ```
+
+            Replace with:
+            ```go
+            // Register extractors (tree-sitter fast path by default).
+            idx.Register(gotsextractor.NewGoTreeSitterExtractor())
+            tsExt, err := treesitter.NewTreeSitterExtractor("python")
+            if err == nil {
+                idx.Register(tsExt)
+            }
+            ```
+
+            **5. Update printUsage:**
+
+            Find:
+            ```go
+            fmt.Fprintln(os.Stderr, "  index    Index a repository")
+            ```
+
+            No change needed here; the --full flag is self-documented via flag.PrintDefaults.
+
+            ### main_test.go changes
+
+            Add a test verifying that the --full flag parses correctly. Examine the
+            existing test structure in main_test.go and follow its conventions.
+
+            ### Constraints
+            - Do NOT remove the goextractor import. It is still used when --full is set.
+            - Do NOT change the Extractor interface or any types.
+            - Do NOT modify files outside your ownership list.
+          files:
+            - cmd/knowing/main.go
+            - cmd/knowing/main_test.go
+          dependencies:
+            - A
+            - B
+        - id: D
+          task: |
+            ## Goal
+            Wire the enrichment pass into the daemon so it triggers automatically
+            after each index run completes.
+
+            ## Files to modify
+            - `internal/daemon/daemon.go`
+
+            ## Implementation details
+
+            ### daemon.go changes
+
+            **1. Add EnrichFunc to DaemonConfig:**
+
+            Find this exact text:
+            ```go
+            type DaemonConfig struct {
+            	Store     types.GraphStore
+            	IndexFunc func(ctx context.Context, repoURL, repoPath, commitHash string) error
+            	MCPAddr   string
+            	MCPServer MCPServer
+            }
+            ```
+
+            Add after the MCPServer field:
+            ```go
+            	// EnrichFunc is called in the background after each successful index run.
+            	// It receives the repo hash and workspace root path to run LSP enrichment.
+            	// If nil, enrichment is skipped.
+            	EnrichFunc func(ctx context.Context, repoHash types.Hash, workspaceRoot string) error
+            ```
+
+            **2. Modify indexWorker to trigger enrichment after successful indexing:**
+
+            Find this exact text in the indexWorker method:
+            ```go
+            // Acquire write lock during indexing so readers wait.
+            d.mu.Lock()
+            _ = d.cfg.IndexFunc(ctx, req.repoURL, req.repoPath, commit)
+            d.mu.Unlock()
+            ```
+
+            Replace with:
+            ```go
+            // Acquire write lock during indexing so readers wait.
+            d.mu.Lock()
+            indexErr := d.cfg.IndexFunc(ctx, req.repoURL, req.repoPath, commit)
+            d.mu.Unlock()
+
+            // Trigger background enrichment after successful index.
+            if indexErr == nil && d.cfg.EnrichFunc != nil {
+                repoHash := types.NewHash([]byte(req.repoURL))
+                d.wg.Add(1)
+                go func() {
+                    defer d.wg.Done()
+                    _ = d.cfg.EnrichFunc(ctx, repoHash, req.repoPath)
+                }()
+            }
+            ```
+
+            This runs enrichment asynchronously without holding the write lock,
+            so the graph is queryable immediately after indexing completes while
+            enrichment upgrades edges in the background.
+
+            ### Constraints
+            - Do NOT modify the indexWorker loop structure beyond the enrichment trigger.
+            - Do NOT make enrichment synchronous (blocking the index worker).
+            - Do NOT hold the write lock during enrichment.
+            - Do NOT modify files outside your ownership list.
+            - The EnrichFunc field is optional (nil means no enrichment). Existing
+              callers that don't set it must continue to work unchanged.
+          files:
+            - internal/daemon/daemon.go
+          dependencies:
+            - B
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: GOWORK=off go build ./...
+          required: true
+        - type: lint
+          command: GOWORK=off go vet ./...
+          required: true
+        - type: test
+          command: GOWORK=off go test ./...
+          required: true
+pre_mortem:
+    overall_risk: medium
+    rows:
+        - scenario: go-tree-sitter/golang grammar binding not available or incompatible
+          likelihood: low
+          impact: high
+          mitigation: |
+            The smacker/go-tree-sitter library ships with Go grammar support.
+            Agent A should verify `go get github.com/smacker/go-tree-sitter/golang`
+            works before proceeding. If it fails, fall back to using the Go grammar
+            from the tree-sitter-go project.
+        - scenario: Node hash mismatch between GoTreeSitterExtractor and GoExtractor
+          likelihood: medium
+          impact: high
+          mitigation: |
+            Both extractors must use identical arguments to types.ComputeNodeHash.
+            The key inputs are (repoURL, pkgPath, symbolName, kind). Agent A must
+            derive pkgPath the same way: reading go.mod module path + relative directory.
+            Tests should verify hash compatibility with a known Go source.
+        - scenario: agent-lsp dependency adds too many transitive dependencies
+          likelihood: medium
+          impact: medium
+          mitigation: |
+            Agent B should run `go mod tidy` after adding the dependency and check
+            the delta. If it pulls in hundreds of packages, consider defining a
+            minimal interface locally and using agent-lsp only in the main wiring.
+        - scenario: Enrichment fails to start gopls in daemon context
+          likelihood: medium
+          impact: low
+          mitigation: |
+            The enricher is best-effort. Failure to start gopls logs a warning
+            but does not block indexing. The graph remains queryable with
+            ast_inferred edges.
+        - scenario: pkgPath derivation differs between tree-sitter and go/packages
+          likelihood: medium
+          impact: high
+          mitigation: |
+            GoExtractor gets pkgPath from go/packages PkgPath field. The tree-sitter
+            extractor must reconstruct it from go.mod module path + directory. Agent A
+            should write a test comparing pkgPath derivation against a known module
+            structure.
+state: SCOUT_PENDING
+injection_method: hook

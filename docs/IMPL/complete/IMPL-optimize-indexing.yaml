@@ -1,3 +1,4 @@
+completion_date: "2026-05-15"
 title: 'Optimize indexing performance: bulk load + worker pool'
 feature_slug: optimize-indexing
 verdict: SUITABLE
@@ -629,6 +630,7 @@ waves:
             - A
             - B
             - C
+      base_commit: e024e77aca7c071bb7f7cb0ca639e152f0e51832
 quality_gates:
     level: standard
     gates:
@@ -699,6 +701,18 @@ completion_reports:
             - TestIndexer_ConcurrencyField
         verification: PASS
         notes: Worker pool and Concurrency field complete. All 6 tests passing. Wave 2 Agent D wires parallelExtract into IndexRepo.
+    D:
+        status: complete
+        branch: polywave/optimize-indexing/wave2-agent-D
+        commit: cccde32
+        files_changed:
+            - internal/indexer/indexer.go
+            - internal/indexer/indexer_test.go
+        tests_added:
+            - TestIndexRepo_UsesParallelExtraction
+            - TestIndexRepo_FallbackOnBulkLoadFailure
+        verification: PASS
+        notes: Wired BulkLoad + ExtractWithPackage + parallelExtract into IndexRepo. Added Extractors() accessor to ExtractorRegistry in indexer.go. All tests pass including existing ones.
 pre_mortem:
     overall_risk: medium
     rows:
@@ -773,5 +787,5 @@ critic_report:
     summary: 'All four agent briefs verified against the codebase. File existence checks pass: the four new files (loader.go, loader_test.go, worker.go, worker_test.go) do not exist, and the four modify targets (extractor.go, extractor_test.go, indexer.go, indexer_test.go) do exist. Symbol accuracy is confirmed: Extract method signature, Indexer struct fields, ExtractorRegistry.extractors unexported field, packages.Load mode flags, and line number references in briefs all match the source. Pattern accuracy verified for the sequential extraction loop, batch insertion comment, and packages.Config usage. Interface contracts reference valid types from go/packages and internal/types. Import chains verified: golang.org/x/tools is in go.mod, all local packages exist. One advisory warning: Agent D may need to modify internal/indexer/extractor.go to add an Extractors() accessor, but that file is not in Agent D''s file_ownership; the brief offers the alternative of adding the accessor to indexer.go (which Agent D owns), so this is not blocking.'
     reviewed_at: "2026-05-15T17:01:34Z"
     issue_count: 1
-state: REVIEWED
+state: COMPLETE
 injection_method: hook

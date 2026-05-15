@@ -7,3 +7,5 @@
   - IMPL doc: docs/IMPL/complete/IMPL-e2e-index.yaml
 - **cross-repo-resolver**: completed 2026-05-15, 2 waves, 4 agents
   - IMPL doc: docs/IMPL/complete/IMPL-cross-repo-resolver.yaml
+- **optimize-indexing**: completed 2026-05-15, 2 waves, 4 agents
+  - IMPL doc: docs/IMPL/complete/IMPL-optimize-indexing.yaml
