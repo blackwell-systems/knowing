@@ -27,6 +27,11 @@ type DaemonConfig struct {
 	IndexFunc func(ctx context.Context, repoURL, repoPath, commitHash string) error
 	MCPAddr   string
 	MCPServer MCPServer
+
+	// EnrichFunc is called in the background after each successful index run.
+	// It receives the repo hash and workspace root path to run LSP enrichment.
+	// If nil, enrichment is skipped.
+	EnrichFunc func(ctx context.Context, repoHash types.Hash, workspaceRoot string) error
 }
 
 // Daemon is the long-lived process that watches repositories for changes,
@@ -252,7 +257,17 @@ func (d *Daemon) indexWorker(ctx context.Context) {
 		}
 		// Acquire write lock during indexing so readers wait.
 		d.mu.Lock()
-		_ = d.cfg.IndexFunc(ctx, req.repoURL, req.repoPath, commit)
+		indexErr := d.cfg.IndexFunc(ctx, req.repoURL, req.repoPath, commit)
 		d.mu.Unlock()
+
+		// Trigger background enrichment after successful index.
+		if indexErr == nil && d.cfg.EnrichFunc != nil {
+			repoHash := types.NewHash([]byte(req.repoURL))
+			d.wg.Add(1)
+			go func() {
+				defer d.wg.Done()
+				_ = d.cfg.EnrichFunc(ctx, repoHash, req.repoPath)
+			}()
+		}
 	}
 }
