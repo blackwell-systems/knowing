@@ -1,9 +1,14 @@
-# knowing
+<p align="center">
+  <img src="assets/knowing-banner.png" alt="knowing" width="600">
+</p>
+
+<p align="center">
+  <a href="#mcp-tools"><img src="https://img.shields.io/badge/MCP_tools-11-brightgreen.svg" alt="MCP Tools"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
+  <a href="https://github.com/blackwell-systems"><img src="https://raw.githubusercontent.com/blackwell-systems/blackwell-docs-theme/main/badge-trademark.svg" alt="Blackwell Systems"></a>
+</p>
 
 Persistent, content-addressed knowledge graph for software systems, built for agents.
-
-[![Status](https://img.shields.io/badge/status-early%20development-orange)]()
-[![License](https://img.shields.io/badge/license-MIT-blue)]()
 
 ## The Problem
 
