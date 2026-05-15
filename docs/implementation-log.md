@@ -822,4 +822,120 @@ Warnings (non-blocking):
 
 ### Scaffold
 
-Deploying `internal/trace/types.go` (shared types for all wave 1 agents).
+Deployed `internal/trace/types.go` (shared types for all wave 1 agents). 85 seconds. Build verified clean.
+
+### Wave 1 (5 parallel agents)
+
+| Agent | Duration | Task | Tests |
+|-------|----------|------|-------|
+| A | 73s | Types (no-op, scaffold already deployed) | - |
+| B | 159s | Migration 004, 5 store methods in sqlite_runtime.go, RouteSymbolRow struct | 6 |
+| C | 53s | Edge struct: added ObservationCount + LastObserved fields | - |
+| D | 159s | SymbolResolver with Resolve + ResolveSpan, in-memory SQLite tests | 4 |
+| E | 97s | ComputeConfidence, ShouldGarbageCollect, DecayBracket, BuildProvenance | 7 (29 cases) |
+
+**Post-merge fix:** `TestNewSQLiteStore_CreatesDatabase` expected schema version 3, Agent B's migration 004 bumped it to 4. One-line fix.
+
+**No mock cascade this time.** Agent B deliberately created `sqlite_runtime.go` with its own scan helpers instead of modifying `sqlite.go` or the GraphStore interface. This avoided the mock breakage that hit every previous interface extension. The scout's design decision to keep runtime methods off the interface paid off.
+
+### Wave 2 (2 parallel agents)
+
+| Agent | Duration | Task | Tests |
+|-------|----------|------|-------|
+| F | 230s | Core Ingestor (IngestSpans, IngestHTTPLogs, RuntimeEdgeStats, DecayConfidence, batch accumulation), OTLP receiver (placeholder, no OTel proto deps yet) | 8 |
+| G | 99s | DaemonConfig.TraceConfig, traceIngestLoop goroutine, CLI flags (--trace, --trace-endpoint, --trace-batch-size) | existing pass |
+
+**Merge:** Clean, zero conflicts. All 13 packages build and test.
+
+### What's now implemented
+
+The runtime trace ingestion pipeline from the design doc is now code:
+
+1. **TraceSpan normalization.** Any observability source (OTel spans, HTTP logs) normalizes to a common `TraceSpan` struct.
+
+2. **Symbol resolution.** `SymbolResolver` maps runtime identifiers (HTTP routes like "POST /api/users", gRPC methods like "UserService.GetUser") to graph node hashes via the `route_symbols` table. Unresolved routes get synthetic UNRESOLVED nodes with 0.3 confidence.
+
+3. **Span-to-edge conversion.** `Ingestor.IngestSpans` resolves each span, determines edge type (runtime_calls, runtime_rpc, runtime_produces/consumes), computes a stable edge hash, and either creates a new edge or increments the observation count on an existing one.
+
+4. **Confidence scoring.** Observation-based: 0.95 (>1000 observations), 0.85 (100+), 0.7 (10+), 0.5 (1+), 0.2 (stale). Decays over time without re-observation. GC-eligible after 90 days.
+
+5. **Batch accumulation.** `AddToBatch` + `FlushBatch` for high-throughput ingestion with configurable batch size.
+
+6. **Store layer.** Migration 004 adds `observation_count` and `last_observed` columns to edges, creates `route_symbols` table with composite PK. Five new methods on SQLiteStore in a separate file (no interface changes).
+
+7. **Daemon integration.** Trace goroutine lifecycle managed by WaitGroup, gated on `--trace` CLI flag. Placeholder loop blocks on context cancellation.
+
+8. **OTLP receiver.** Placeholder struct with Start/Stop/Health/ExportSpans. Real gRPC implementation requires adding OTel proto dependencies (future work).
+
+### What's NOT yet wired
+
+- OTLP gRPC server (needs `go.opentelemetry.io/proto/otlp` and `google.golang.org/grpc` in go.mod)
+- Route-to-symbol mapping during static indexing (the `route_symbols` table exists but nothing populates it yet)
+- Daemon's `traceIngestLoop` is a placeholder (blocks on ctx.Done(), doesn't create an Ingestor)
+- MCP tools for runtime traffic queries (runtime_traffic, dead_routes, migration_progress)
+
+### Final state: 14,601 lines of Go across 49 files
+
+| Package | Files | Purpose |
+|---------|-------|---------|
+| `cmd/knowing` | 2 | CLI (serve, index, query, version) |
+| `internal/types` | 3 | Hash, Node, Edge, GraphStore, Extractor interfaces |
+| `internal/store` | 6 | SQLite GraphStore + runtime methods, migrations 001-004 |
+| `internal/snapshot` | 3 | Merkle tree, snapshot chain, diff, GC |
+| `internal/indexer` | 3 | Indexer, ExtractorRegistry, worker pool |
+| `internal/indexer/goextractor` | 3 | Go packages extractor (--full flag) |
+| `internal/indexer/gotsextractor` | 2 | Go tree-sitter extractor (default fast path) |
+| `internal/indexer/treesitter` | 2 | tree-sitter Python extractor |
+| `internal/enrichment` | 2 | LSP enrichment via agent-lsp pkg/lsp |
+| `internal/mcp` | 3 | MCP server (11 tools, stdio + HTTP) |
+| `internal/daemon` | 4 | Daemon lifecycle, GitWatcher, git diff |
+| `internal/resolver` | 2 | Cross-repo edge resolver |
+| `internal/trace` | 8 | Runtime trace ingestion pipeline |
+
+13 packages. 49 files. 14,601 LOC. Single Go binary.
+
+### Friction
+
+**1. GOWORK env var (recurring, ~5 min wasted)**
+
+Same stale `GOWORK` pointing to a non-existent `go.work` file. Baseline gates failed on first `prepare-wave` attempt. Fixed by adding `GOWORK=off` to quality gates in the IMPL doc. This is the third IMPL where this has been an issue.
+
+**2. Critic caught contract-vs-brief mismatches (3 errors, valuable)**
+
+The scout designed package decoupling in the briefs (Agent B uses individual params to avoid importing trace, Agent D uses `*sql.DB` to avoid importing store) but wrote the interface contracts with the wrong signatures. The critic caught all three:
+- SymbolResolver contract said `types.GraphStore`, brief said `*sql.DB`
+- PutRouteSymbol contract said `trace.RouteMapping` struct, brief said individual params
+- GetRouteSymbol contract said `*trace.RouteMapping` return, brief said local `RouteSymbolRow`
+
+Without the critic, Agent B and Agent F would have implemented against different signatures. Worth the 2-minute overhead.
+
+**3. Agent A was a no-op (wasted slot)**
+
+The scaffold already deployed `internal/trace/types.go`. Agent A launched, verified the scaffold was correct, and reported complete without changing anything. The scout should not create a wave 1 agent for work the scaffold already handles.
+
+**4. Schema version assertion (1 test failure, 30s fix)**
+
+`TestNewSQLiteStore_CreatesDatabase` hardcodes the expected schema version. Agent B's migration 004 bumped it from 3 to 4. Post-merge fix: change `3` to `4`. This test is fragile by design (it verifies all migrations ran) but it breaks on every new migration.
+
+---
+
+## CI/CD and Distribution (2026-05-15)
+
+Created GitHub Actions workflows and release pipeline adapted from agent-lsp:
+
+**`.github/workflows/ci.yml`**: Build, vet, test on push/PR to main. Binary smoke test.
+
+**`.github/workflows/release.yml`**: Full release pipeline on `v*` tags:
+- GoReleaser: 6 platform binaries (linux/darwin/windows x amd64/arm64)
+- Homebrew formula via blackwell-systems/homebrew-tap
+- Docker multi-arch images (GHCR + Docker Hub)
+- Winget auto-publish
+- npm: 7-package publish (root + 6 platform-specific)
+- PyPI: platform-specific wheels
+- MCP Registry: GitHub OIDC auto-publish
+
+**`.github/workflows/docs.yml`**: mkdocs-material to GitHub Pages.
+
+**`.goreleaser.yml`**: GoReleaser v2 config with Homebrew formula, Docker manifests, changelog filtering.
+
+**`docs/DISTRIBUTION.md`**: Complete distribution strategy covering all channels (Homebrew, Scoop, Winget, npm, PyPI, Docker, MCP registries, go install, curl|sh, self-update, uninstall).

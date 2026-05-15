@@ -1,0 +1,147 @@
+version: 2
+
+project_name: knowing
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: knowing
+    main: ./cmd/knowing
+    binary: knowing
+    env:
+      - CGO_ENABLED=0
+      - GOWORK=off
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.Version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+
+archives:
+  - id: knowing
+    ids:
+      - knowing
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - README.md
+      - CHANGELOG.md
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  use: git
+  sort: asc
+  filters:
+    exclude:
+      - "^chore:"
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - Merge pull request
+      - Merge branch
+
+brews:
+  - name: knowing
+    repository:
+      owner: blackwell-systems
+      name: homebrew-tap
+      token: "{{ .Env.GORELEASER_TAP_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/blackwell-systems/knowing"
+    description: "Content-addressed knowledge graph daemon for software systems"
+    license: "MIT"
+    install: |
+      bin.install "knowing"
+    caveats: |
+      Index a repository:
+
+        knowing index /path/to/repo
+
+      Start the daemon with MCP server:
+
+        knowing serve /path/to/repo
+
+      Query the knowledge graph:
+
+        knowing query "pkg.FunctionName"
+
+      Documentation: https://github.com/blackwell-systems/knowing
+    test: |
+      system "#{bin}/knowing", "version"
+
+dockers:
+  # Base image (amd64)
+  - image_templates:
+      - "ghcr.io/blackwell-systems/knowing:latest-amd64"
+      - "ghcr.io/blackwell-systems/knowing:{{ .Version }}-amd64"
+      - "ghcr.io/blackwell-systems/knowing:{{ .Major }}.{{ .Minor }}-amd64"
+      - "{{ .Env.DOCKERHUB_USERNAME }}/knowing:latest-amd64"
+      - "{{ .Env.DOCKERHUB_USERNAME }}/knowing:{{ .Version }}-amd64"
+      - "{{ .Env.DOCKERHUB_USERNAME }}/knowing:{{ .Major }}.{{ .Minor }}-amd64"
+    goarch: amd64
+    dockerfile: docker/Dockerfile
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--cache-from=type=gha"
+      - "--cache-to=type=gha,mode=max"
+
+  # Base image (arm64)
+  - image_templates:
+      - "ghcr.io/blackwell-systems/knowing:latest-arm64"
+      - "ghcr.io/blackwell-systems/knowing:{{ .Version }}-arm64"
+      - "ghcr.io/blackwell-systems/knowing:{{ .Major }}.{{ .Minor }}-arm64"
+      - "{{ .Env.DOCKERHUB_USERNAME }}/knowing:latest-arm64"
+      - "{{ .Env.DOCKERHUB_USERNAME }}/knowing:{{ .Version }}-arm64"
+      - "{{ .Env.DOCKERHUB_USERNAME }}/knowing:{{ .Major }}.{{ .Minor }}-arm64"
+    goarch: arm64
+    dockerfile: docker/Dockerfile
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--cache-from=type=gha"
+      - "--cache-to=type=gha,mode=max"
+
+docker_manifests:
+  - name_template: "ghcr.io/blackwell-systems/knowing:latest"
+    image_templates:
+      - "ghcr.io/blackwell-systems/knowing:latest-amd64"
+      - "ghcr.io/blackwell-systems/knowing:latest-arm64"
+  - name_template: "ghcr.io/blackwell-systems/knowing:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/blackwell-systems/knowing:{{ .Version }}-amd64"
+      - "ghcr.io/blackwell-systems/knowing:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/blackwell-systems/knowing:{{ .Major }}.{{ .Minor }}"
+    image_templates:
+      - "ghcr.io/blackwell-systems/knowing:{{ .Major }}.{{ .Minor }}-amd64"
+      - "ghcr.io/blackwell-systems/knowing:{{ .Major }}.{{ .Minor }}-arm64"
+  - name_template: "{{ .Env.DOCKERHUB_USERNAME }}/knowing:latest"
+    image_templates:
+      - "{{ .Env.DOCKERHUB_USERNAME }}/knowing:latest-amd64"
+      - "{{ .Env.DOCKERHUB_USERNAME }}/knowing:latest-arm64"
+  - name_template: "{{ .Env.DOCKERHUB_USERNAME }}/knowing:{{ .Version }}"
+    image_templates:
+      - "{{ .Env.DOCKERHUB_USERNAME }}/knowing:{{ .Version }}-amd64"
+      - "{{ .Env.DOCKERHUB_USERNAME }}/knowing:{{ .Version }}-arm64"
+  - name_template: "{{ .Env.DOCKERHUB_USERNAME }}/knowing:{{ .Major }}.{{ .Minor }}"
+    image_templates:
+      - "{{ .Env.DOCKERHUB_USERNAME }}/knowing:{{ .Major }}.{{ .Minor }}-amd64"
+      - "{{ .Env.DOCKERHUB_USERNAME }}/knowing:{{ .Major }}.{{ .Minor }}-arm64"
+
+release:
+  github:
+    owner: blackwell-systems
+    name: knowing
+  name_template: "v{{ .Version }}"
+  draft: false
+  prerelease: auto
