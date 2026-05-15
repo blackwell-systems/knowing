@@ -3,6 +3,7 @@ module github.com/blackwell-systems/knowing
 go 1.25.5
 
 require (
+	github.com/blackwell-systems/agent-lsp v0.11.1
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/mark3labs/mcp-go v0.54.0
 	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82
@@ -11,7 +12,6 @@ require (
 )
 
 require (
-	github.com/blackwell-systems/agent-lsp v0.11.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/jsonschema-go v0.4.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect

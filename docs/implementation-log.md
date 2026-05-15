@@ -760,3 +760,66 @@ Comprehensive design document created at `docs/runtime-traces.md` (480 lines). T
 - Pre-aggregation in the collector for high-volume environments (knowing doesn't process raw spans at scale)
 
 **Status:** Design locked. Implementation not started. Depends on incremental change handling (completed).
+
+---
+
+## Runtime Trace Ingestion Implementation (2026-05-15)
+
+Implementing the OTel-based runtime trace ingestion pipeline from the design doc at `docs/runtime-traces.md`. This is the feature that makes knowing unique: production observability data as first-class graph edges with observation-based confidence scoring.
+
+### Scout
+
+Scout analyzed all 39 source files and the 480-line design doc. Produced IMPL-runtime-traces with 7 agents across 2 waves, 14 files (11 new, 3 modified).
+
+**Decomposition:**
+
+| Wave | Agent | Package | Files | Responsibility |
+|------|-------|---------|-------|----------------|
+| 1 | A | `internal/trace/` | 1 | Shared types: TraceSpan, TraceIngestor interface, ConfidenceFromCount, HealthState, TraceIngestConfig |
+| 1 | B | `internal/store/` | 3 | Migration 004 (observation_count, last_observed columns + route_symbols table), runtime store methods |
+| 1 | C | `internal/types/` | 1 | Edge struct extension: ObservationCount and LastObserved fields |
+| 1 | D | `internal/trace/` | 2 | Symbol resolver: route-to-node mapping via route_symbols table, span attribute extraction |
+| 1 | E | `internal/trace/` | 2 | Confidence scoring, decay logic, provenance building (pure business logic, no DB) |
+| 2 | F | `internal/trace/` | 3 | Core ingestor (span-to-edge conversion), OTLP gRPC receiver, batch accumulation |
+| 2 | G | `internal/daemon/` + `cmd/` | 2 | Daemon trace goroutine lifecycle, CLI flags (--trace, --trace-endpoint, --trace-batch-size) |
+
+**Key design decisions in the IMPL:**
+- Agent B creates `sqlite_runtime.go` with runtime-specific scan helpers, avoiding modifications to `sqlite.go` and the cascade of mock breakage we've seen in every previous interface extension
+- Agent D's resolver uses `*sql.DB` directly, not the store package, keeping `internal/trace` independent
+- Agent G's daemon integration is a placeholder goroutine (blocks on `ctx.Done()`), avoiding a cross-package dependency on trace from daemon; full wiring is a future integration step
+- Agent F's OTLP receiver uses an abstraction layer so the core ingestor works without OTel proto dependencies
+
+### Validation
+
+Pre-wave validation caught 3 fixable issues:
+1. Scout wrote `file:` instead of `file_path:` in scaffolds section
+2. Scout used `SCOUT_COMPLETE` as state value (not in allowed enum, should be `REVIEWED`)
+3. Scout assigned Agent A's types.go to wave 0 instead of wave 1
+
+All fixed in-place, re-validation passed clean.
+
+### Critic
+
+Triggered (5 agents exceeds 3-agent threshold).
+
+**First pass: ISSUES (3 errors, 1 warning)**
+
+All errors were contract-vs-brief signature mismatches where the scout wrote contracts that contradicted its own brief's deliberate decoupling decisions:
+
+1. **SymbolResolver contract** said `NewSymbolResolver(store types.GraphStore)` but Agent D's brief said `NewSymbolResolver(db *sql.DB)`. The brief was right: using `*sql.DB` directly keeps `internal/trace` independent of `internal/store`.
+
+2. **PutRouteSymbol contract** said `PutRouteSymbol(ctx, m trace.RouteMapping)` (single struct param) but Agent B's brief used individual params. The brief was right: if the store package imported `trace.RouteMapping`, it would create a circular dependency (trace imports store's DB, store imports trace's types).
+
+3. **GetRouteSymbol contract** said return `*trace.RouteMapping` but Agent B's brief used a local `RouteSymbolRow` struct. Same reason as #2.
+
+**Fix:** Updated all three contracts to match the briefs. The pattern: when the scout designs package decoupling in the briefs but forgets to propagate those decisions to the contracts section.
+
+**Second pass: PASS (0 errors, 2 advisory warnings)**
+
+Warnings (non-blocking):
+- Agent F references gRPC/OTel proto deps that no agent owns in `go.mod`
+- Agent F's OTLP receiver uses concrete `*Ingestor` instead of `TraceIngestor` interface (fine within same package)
+
+### Scaffold
+
+Deploying `internal/trace/types.go` (shared types for all wave 1 agents).
