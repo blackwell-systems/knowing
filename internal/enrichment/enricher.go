@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -129,19 +130,47 @@ func upgradeEdge(old types.Edge) types.Edge {
 }
 
 // discoverNewEdges uses LSP to find implements and references edges not
-// found by tree-sitter.
+// found by tree-sitter. Opens each file via textDocument/didOpen before
+// querying, which is required for gopls to resolve cross-package references.
 func (e *Enricher) discoverNewEdges(
 	ctx context.Context,
 	files []types.File,
 	filePathByHash map[types.Hash]string,
 	stats *enrichStats,
 ) {
+	// First pass: open all Go files so gopls has full workspace knowledge.
 	for _, f := range files {
 		if ctx.Err() != nil {
 			return
 		}
-
 		if !strings.HasSuffix(f.Path, ".go") {
+			continue
+		}
+		if strings.HasSuffix(f.Path, "_test.go") {
+			continue
+		}
+
+		absPath := filepath.Join(e.workspaceRoot, f.Path)
+		content, err := os.ReadFile(absPath)
+		if err != nil {
+			continue
+		}
+
+		uri := "file://" + absPath
+		if err := e.client.OpenDocument(ctx, uri, string(content), "go"); err != nil {
+			continue
+		}
+	}
+
+	// Second pass: query symbols and discover edges.
+	for _, f := range files {
+		if ctx.Err() != nil {
+			return
+		}
+		if !strings.HasSuffix(f.Path, ".go") {
+			continue
+		}
+		if strings.HasSuffix(f.Path, "_test.go") {
 			continue
 		}
 
@@ -155,6 +184,14 @@ func (e *Enricher) discoverNewEdges(
 		}
 
 		e.processSymbols(ctx, uri, symbols, f, filePathByHash, stats)
+	}
+
+	// Close all opened documents.
+	for _, f := range files {
+		if strings.HasSuffix(f.Path, ".go") && !strings.HasSuffix(f.Path, "_test.go") {
+			uri := "file://" + filepath.Join(e.workspaceRoot, f.Path)
+			_ = e.client.CloseDocument(ctx, uri)
+		}
 	}
 }
 
