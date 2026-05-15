@@ -1,3 +1,4 @@
+completion_date: "2026-05-15"
 title: Git-based incremental change handling
 feature_slug: incremental-changes
 verdict: SUITABLE
@@ -1452,5 +1453,5 @@ critic_report:
     summary: 'All 6 agent briefs verified against the codebase. Every exact-text anchor referenced in find/replace instructions matches the current source. File existence checks pass: all modify-action files exist, all new-action files (Agent C) do not yet exist. Symbol accuracy confirmed for all referenced functions, structs, interfaces, and methods across all agents. Pattern accuracy verified: batchStore type-assertion pattern in indexer.go matches Agent B''s cleanupStore approach; FileWatcher API in watcher.go matches Agent D''s replacement targets; enricher method signatures match Agent E''s modification targets. Interface contracts are syntactically valid Go and reference types that exist in the codebase. Import chains for Agent C''s new files resolve to stdlib or existing go.mod dependencies. Side-effect completeness confirmed: all registration sites for IndexFunc/EnrichFunc are in file_ownership (Agent D for daemon, Agent F for main.go and handlers.go). Caller exhaustiveness confirmed: all callers of IndexFunc, EnrichFunc, and SetIndexFunc are covered. No i1 disjoint ownership violations. No complexity_balance warnings (max 4 files per agent). The resolver_test.go mockStore uses a local Store interface and does not need updating, consistent with known_issues.'
     reviewed_at: "2026-05-15T19:13:49Z"
     issue_count: 0
-state: REVIEWED
+state: COMPLETE
 injection_method: hook

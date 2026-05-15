@@ -11,3 +11,5 @@
   - IMPL doc: docs/IMPL/complete/IMPL-optimize-indexing.yaml
 - **two-tier-extraction**: completed 2026-05-15, 2 waves, 4 agents
   - IMPL doc: docs/IMPL/complete/IMPL-two-tier-extraction.yaml
+- **incremental-changes**: completed 2026-05-15, 3 waves, 6 agents
+  - IMPL doc: docs/IMPL/complete/IMPL-incremental-changes.yaml
