@@ -81,6 +81,9 @@ type Edge struct {
 	CallSiteLine int    // 1-indexed line of the call expression in the source file
 	CallSiteCol  int    // 0-indexed column of the call expression
 	CallSiteFile string // relative file path (within the repo) containing the call expression
+	// Runtime observation fields. Zero values for static edges.
+	ObservationCount int   // total observations in current window (0 for static edges)
+	LastObserved     int64 // unix timestamp of last observation (0 for static edges)
 }
 
 // File represents a tracked source file within a repository. The FileHash
