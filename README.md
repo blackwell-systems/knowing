@@ -1,6 +1,6 @@
 # knowing
 
-Persistent knowledge graph for software systems, built for agents.
+Persistent, content-addressed knowledge graph for software systems, built for agents.
 
 Agents today are blind at repository boundaries.
 
@@ -14,6 +14,8 @@ None of them answer the question agents actually need before making a distribute
 > If I change this symbol, API, route, schema, or data shape, what breaks across the rest of the system?
 
 `knowing` builds a boundary-aware relationship graph across repositories, services, and infrastructure, then exposes that graph through MCP so agents can reason about blast radius before they edit code.
+
+Unlike tools that maintain mutable current-state graphs, knowing is **content-addressed**: every node, edge, and graph snapshot is a hash. This means the graph has history, staleness is a hash mismatch (not a heuristic), integrity is provable, and point-in-time queries are free.
 
 ## Status
 
@@ -37,11 +39,29 @@ It indexes local repositories deeply, ingests external dependency surfaces shall
 - Infrastructure-defined service relationships (Terraform, K8s manifests, docker-compose)
 - Ownership metadata (CODEOWNERS, team annotations)
 
-The result is a graph that agents can query before making changes.
+The result is a persistent, versioned graph that agents can query before making changes.
 
-### Edge Freshness
+## Content-Addressed Architecture
 
-Edges have confidence. When source code changes, `knowing` tracks which relationships may be stale. An edge derived from a function call that was deleted yesterday is not the same as one confirmed by today's index run. Agents receive freshness metadata with query results so they can decide whether to trust an edge or re-verify.
+The graph is a Merkle DAG. Every node, edge, and snapshot is content-addressed:
+
+- **Node hash** = `hash(repo + path + content_hash + symbol_name + kind)`
+- **Edge hash** = `hash(source_hash + target_hash + edge_type + provenance)`
+- **Snapshot root** = Merkle root over all edges at a point in time
+
+This gives you:
+
+| Property | How |
+|----------|-----|
+| **Point-in-time queries** | Look up any previous root hash |
+| **Staleness detection** | File content hash changed → derived nodes are stale → their edges are suspect |
+| **Structural diffing** | Compare two root hashes to see exactly what changed in the graph |
+| **Deduplication** | Same symbol in multiple repos = same hash = stored once |
+| **Integrity verification** | Prove a graph was derived from specific source commits |
+| **Incremental sync** | Exchange only hash differences between machines |
+| **Cache invalidation** | Query results cached by root hash; hash changes = stale |
+
+The Git analogy is exact: Git is a content-addressed graph of source code. knowing is a content-addressed graph of source code *relationships*.
 
 ## What It Answers
 
@@ -52,16 +72,19 @@ Edges have confidence. When source code changes, `knowing` tracks which relation
 - "This internal package moved. Which downstream repos need a corresponding PR?"
 - "What is the full data flow of this value across functions, services, queues, and repositories?"
 - "Which team owns the consumers of this API?"
-- "Which edges in the graph are stale after this week's changes?"
+- "What edges in the graph are stale after this week's changes?"
+- "What did the dependency graph look like when we deployed on Tuesday?"
+- "When did this cross-repo edge first appear?"
 
 ## Design Goals
 
+- **Content-addressed**: every graph state is a hash; history, staleness, and integrity are structural properties, not bolted-on features
 - **Two-tier indexing**: deep AST-level index for local repos, shallow SCIP/LSP ingest for external dependencies
-- **Incremental**: git push triggers re-index of changed files only, not full re-walk
+- **Incremental**: git push triggers re-index of changed files only; unchanged file hashes skip re-parse entirely
 - **Language-aware at boundaries**: Go calling Go is straightforward; Go calling a Python service via HTTP needs route mapping
 - **MCP-native**: exposed as MCP tools, consumed by agents directly
 - **Fast**: optimized for interactive agent queries over large multi-repo graphs
-- **Staleness-aware**: every edge carries freshness metadata; stale edges are surfaced, not silently trusted
+- **Deterministic**: same input at same commit always produces the same graph (verifiable via hash)
 
 ## Architecture
 
@@ -81,17 +104,17 @@ Edges have confidence. When source code changes, `knowing` tracks which relation
          +------------+------------+                        |
                       v                                     |
          +------------+------------+     +------------------+
-         |       Symbol Graph      |     |  Non-Code Ingest |
-         |  (definitions, refs,    |<----| (Terraform, K8s, |
-         |   call sites, types,    |     |  CODEOWNERS,     |
-         |   cross-repo edges)     |     |  OpenAPI specs)  |
+         |   Content-Addressed     |     |  Non-Code Ingest |
+         |      Graph Store        |<----| (Terraform, K8s, |
+         |  (Merkle DAG, SQLite)   |     |  CODEOWNERS,     |
+         |                         |     |  OpenAPI specs)  |
          +------------+------------+     +------------------+
                       |
                       v
          +------------+------------+
-         |    Freshness Tracker    |
-         |  (git events, CI hooks, |
-         |   confidence scoring)   |
+         |     Snapshot Chain      |
+         |  (root hashes linked    |
+         |   like git commits)     |
          +-------------------------+
 ```
 
@@ -103,8 +126,9 @@ Edges have confidence. When source code changes, `knowing` tracks which relation
 | `blast_radius` | Full impact analysis for a proposed change |
 | `trace_dataflow` | Follow a value across function and service boundaries |
 | `repo_graph` | Repository and package-level dependency relationships |
-| `stale_edges` | Edges that may be invalid due to recent changes |
+| `stale_edges` | Edges invalidated by recent source changes (hash mismatch) |
 | `ownership` | Who owns the code/service/consumers affected by a change |
+| `snapshot_diff` | What changed in the graph between two points in time |
 | `index_repo` | Add a repo to the graph |
 | `graph_query` | Raw graph query (Cypher or similar) |
 
@@ -141,7 +165,7 @@ Where `agent-lsp` answers "where is this symbol used in this repo?", `knowing` a
 - Go (indexer, graph store, MCP server)
 - tree-sitter (multi-language AST parsing)
 - SCIP (ingest external indices)
-- Persistent graph store (TBD: embedded or external)
+- SQLite (content-addressed persistent store)
 - MCP over stdio/HTTP
 
 ## License
