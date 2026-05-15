@@ -13,6 +13,17 @@ import (
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
+// The Daemon is the long-running process that ties together file watching,
+// incremental reindexing, LSP enrichment, and MCP query serving. It runs
+// three concurrent goroutines:
+//
+//  1. watchLoop: reads CommitEvents from GitWatcher and enqueues index requests
+//  2. indexWorker: processes index requests sequentially (holding a write lock)
+//  3. MCP server: serves graph queries over HTTP (concurrent reads allowed)
+//
+// The write lock ensures readers always see a consistent graph state:
+// queries block during indexing, and indexing blocks during queries.
+
 // MCPServer abstracts the MCP transport so the daemon does not import the
 // MCP package directly.
 type MCPServer interface {
@@ -39,14 +50,14 @@ type DaemonConfig struct {
 type Daemon struct {
 	cfg DaemonConfig
 
-	mu      sync.RWMutex
+	mu      sync.RWMutex       // protects graph consistency: write lock during indexing, read lock during queries
 	watcher *GitWatcher
-	repos   map[string]string // repoPath -> repoURL
+	repos   map[string]string  // repoPath -> repoURL
 
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	cancel context.CancelFunc // cancels the daemon's root context
+	wg     sync.WaitGroup     // tracks all daemon goroutines for graceful shutdown
 
-	indexQueue chan indexRequest
+	indexQueue chan indexRequest // buffered channel of pending index requests
 }
 
 type indexRequest struct {
@@ -148,6 +159,14 @@ func (d *Daemon) UnwatchRepo(repoPath string) error {
 // GitHeadCommit reads the HEAD commit hash from a git repository without
 // shelling out to git. It resolves symbolic refs and falls back to packed-refs
 // when loose ref files are missing.
+//
+// Git HEAD resolution works in two stages:
+//  1. Read .git/HEAD. If it contains a raw 40-char hex hash, the repo is in
+//     "detached HEAD" state and that hash is returned directly.
+//  2. If HEAD contains "ref: refs/heads/main" (a symbolic ref), resolve the
+//     ref to a commit hash by reading the loose ref file (.git/refs/heads/main).
+//     If the loose file is missing (git may pack refs for performance), fall
+//     back to scanning .git/packed-refs for the ref.
 func GitHeadCommit(repoPath string) (string, error) {
 	gitDir := filepath.Join(repoPath, ".git")
 
@@ -157,7 +176,7 @@ func GitHeadCommit(repoPath string) (string, error) {
 	}
 	head := strings.TrimSpace(string(headBytes))
 
-	// Detached HEAD: HEAD contains a raw commit hash.
+	// Detached HEAD: HEAD contains a raw 40-character commit hash.
 	if !strings.HasPrefix(head, "ref: ") {
 		if len(head) >= 40 {
 			return head[:40], nil
@@ -165,16 +184,18 @@ func GitHeadCommit(repoPath string) (string, error) {
 		return "", fmt.Errorf("unexpected HEAD content: %s", head)
 	}
 
-	// Symbolic ref: resolve to commit hash.
+	// Symbolic ref (e.g., "ref: refs/heads/main"): resolve to commit hash.
 	ref := strings.TrimPrefix(head, "ref: ")
 
-	// Try loose ref file first.
+	// Try the loose ref file first (most common case after a commit).
 	looseRef := filepath.Join(gitDir, ref)
 	if data, err := os.ReadFile(looseRef); err == nil {
 		return strings.TrimSpace(string(data)), nil
 	}
 
-	// Fall back to packed-refs.
+	// Fall back to packed-refs. Git packs loose refs into this single file
+	// during gc operations. Each line is "<hash> <ref>" with comment lines
+	// starting with "#" and peel lines starting with "^".
 	packedRefsPath := filepath.Join(gitDir, "packed-refs")
 	f, err := os.Open(packedRefsPath)
 	if err != nil {
@@ -250,8 +271,10 @@ func (d *Daemon) watchLoop(ctx context.Context) {
 	}
 }
 
-// indexWorker processes index requests sequentially, holding a write lock
-// during indexing to block concurrent reads.
+// indexWorker processes index requests sequentially from the indexQueue channel.
+// It holds the daemon's write lock during indexing to ensure readers see a
+// consistent graph state. After each successful index, it spawns a background
+// goroutine for LSP enrichment (which does not hold the write lock).
 func (d *Daemon) indexWorker(ctx context.Context) {
 	for req := range d.indexQueue {
 		if ctx.Err() != nil {

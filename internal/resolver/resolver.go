@@ -89,9 +89,15 @@ func (r *Resolver) ResolveWithDetails(ctx context.Context) ([]ResolveResult, *Re
 		repoURLs = append(repoURLs, repo.RepoURL)
 	}
 
-	// Build reverse lookup: for each node, for each candidate repo URL,
-	// compute what the hash WOULD be if the node's repo URL were replaced
-	// with the candidate URL. Map that "wrong" hash to the actual node.
+	// Build a reverse lookup table for cross-repo resolution. The core idea:
+	// when repo A calls repo B's function, the extractor in repo A may compute
+	// the target hash using A's URL instead of B's URL. So for every node in
+	// every repo, we compute what its hash WOULD be if it belonged to each
+	// other repo. If a dangling edge's target hash matches one of these "wrong"
+	// hashes, we know the edge should point to the actual node.
+	//
+	// Example: node "B://pkg.Func" has hash H_B. If repo A computed the target
+	// as "A://pkg.Func" (hash H_A), we store wrongHashToNode[H_A] = node_B.
 	wrongHashToNode := make(map[types.Hash]*types.Node)
 
 	for i := range allNodes {
@@ -101,17 +107,20 @@ func (r *Resolver) ResolveWithDetails(ctx context.Context) ([]ResolveResult, *Re
 			continue
 		}
 
-		// Verify our parsing by recomputing the node's own hash.
+		// Verify our qualified-name parsing by recomputing the node's own hash.
+		// If it does not match, our parsing logic is wrong for this node's
+		// naming pattern; skip it to avoid false matches.
 		recomputed := types.ComputeNodeHash(nodeRepoURL, pkgPath, types.EmptyHash, symbolName, node.Kind)
 		if recomputed != node.NodeHash {
-			// Parsing is wrong for this node; skip it.
 			continue
 		}
 
 		for _, candidateURL := range repoURLs {
 			if candidateURL == nodeRepoURL {
-				continue // Same repo, no mismatch possible.
+				continue // Same repo; no mismatch possible.
 			}
+			// Compute the "wrong" hash: what would this node's hash be if
+			// someone used candidateURL instead of nodeRepoURL?
 			wrongHash := types.ComputeNodeHash(candidateURL, pkgPath, types.EmptyHash, symbolName, node.Kind)
 			wrongHashToNode[wrongHash] = node
 		}
@@ -175,7 +184,8 @@ func (r *Resolver) ResolveWithDetails(ctx context.Context) ([]ResolveResult, *Re
 }
 
 // extractHashInputs parses a node's QualifiedName and Kind to recover the
-// parameters originally passed to ComputeNodeHash.
+// parameters originally passed to ComputeNodeHash. This is the inverse of
+// the qualified name construction in the extractors.
 //
 // QualifiedName formats:
 //   - Functions/types: "{repoURL}://{pkgPath}.{symbolName}"
@@ -185,9 +195,10 @@ func (r *Resolver) ResolveWithDetails(ctx context.Context) ([]ResolveResult, *Re
 //   - Functions/types: (repoURL, pkgPath, _, symbolName, kind)
 //   - Methods:         (repoURL, pkgPath, _, methodName, kind)
 //     where pkgPath is the Go import path (does NOT include the type name)
+//
+// The parsing uses LastIndex("://") because the repoURL itself may contain
+// "://" (e.g., local paths do not, but hypothetical HTTPS URLs would).
 func extractHashInputs(node types.Node) (repoURL, pkgPath, symbolName string) {
-	// Use the LAST "://" as the separator, since repo URLs themselves may
-	// contain "://" (e.g., "https://github.com/org/repo://pkg.Func").
 	sep := strings.LastIndex(node.QualifiedName, "://")
 	if sep < 0 {
 		return "", "", ""
@@ -203,8 +214,8 @@ func extractHashInputs(node types.Node) (repoURL, pkgPath, symbolName string) {
 	prefix := remainder[:lastDot] // e.g., "testmod/pkg" or "testmod/pkg.Type"
 
 	if node.Kind == "method" {
-		// For methods, prefix contains "pkgPath.TypeName".
-		// We need just pkgPath, so find the last dot in prefix.
+		// For methods, prefix is "pkgPath.TypeName". We need just pkgPath,
+		// so strip the last dot-separated segment (the type name).
 		secondLastDot := strings.LastIndex(prefix, ".")
 		if secondLastDot >= 0 {
 			pkgPath = prefix[:secondLastDot]

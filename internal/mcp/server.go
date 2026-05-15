@@ -1,4 +1,22 @@
-// Package mcp exposes the knowing graph as MCP tools over stdio and HTTP.
+// Package mcp exposes the knowing knowledge graph as MCP (Model Context
+// Protocol) tools over stdio and HTTP transports.
+//
+// The server registers 11 tools organized into two planes:
+//
+// Execution plane (write operations):
+//   - index_repo: trigger indexing of a repository
+//   - cross_repo_callers: find transitive callers across all repos
+//   - graph_query: search nodes by qualified name prefix
+//   - repo_graph: list all files in a repository
+//
+// Intelligence plane (read-only analytics):
+//   - blast_radius: compute all transitive callers of a symbol, grouped by repo
+//   - trace_dataflow: follow all transitive callees from a symbol
+//   - stale_edges: find edges invalidated by file changes
+//   - snapshot_diff: raw structural diff between two snapshots
+//   - semantic_diff: enriched diff with summary statistics
+//   - pr_impact: blast radius analysis of all symbols changed between snapshots
+//   - ownership: list files and their symbols for code ownership analysis
 package mcp
 
 import (
@@ -11,7 +29,9 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
 
-// Server wraps an MCP server that exposes graph queries as tools.
+// Server wraps an MCP server that exposes graph queries as tools. It holds
+// a reference to the GraphStore for executing queries and delegates transport
+// handling to the mcp-go library.
 type Server struct {
 	store     types.GraphStore
 	mcpServer *mcpserver.MCPServer

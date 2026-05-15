@@ -22,15 +22,20 @@ type CommitEvent struct {
 
 // GitWatcher monitors repositories for git commits by watching .git/HEAD
 // and .git/refs/heads/*. It uses fsnotify on these specific paths (one or
-// two file descriptors per repo) rather than watching all files.
+// two file descriptors per repo) rather than watching all source files,
+// keeping the descriptor count low even for large repositories.
+//
+// The watch flow: fsnotify fires on .git/HEAD or ref file writes -> debounce
+// coalesces rapid writes (e.g., rebase) -> re-read HEAD -> if commit hash
+// changed, run git diff to determine changed files -> emit CommitEvent.
 type GitWatcher struct {
-	debounce time.Duration
+	debounce time.Duration       // quiet period before emitting an event
 	watcher  *fsnotify.Watcher
-	events   chan CommitEvent
-	done     chan struct{}
+	events   chan CommitEvent    // outbound commit events
+	done     chan struct{}       // closed when the event loop exits
 
 	mu    sync.Mutex
-	repos map[string]string // repoPath -> last known commit hash
+	repos map[string]string     // repoPath -> last known commit hash
 }
 
 // NewGitWatcher creates a GitWatcher with the given debounce duration.
@@ -133,7 +138,10 @@ func (gw *GitWatcher) repoForPath(watchedPath string) string {
 }
 
 // loop is the main event loop. It collects fsnotify events, debounces them
-// per repository, then resolves the commit diff and emits CommitEvents.
+// per repository using per-repo timers, then resolves the commit diff and
+// emits CommitEvents. Debouncing is necessary because a single git operation
+// (commit, rebase, merge) can trigger multiple file writes to .git/ in rapid
+// succession; the debounce timer ensures we process the final state once.
 func (gw *GitWatcher) loop() {
 	defer close(gw.done)
 	defer close(gw.events)

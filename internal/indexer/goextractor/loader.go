@@ -13,11 +13,13 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-// LoadedPackages holds the result of bulk package loading.
-// FilePackages maps absolute file paths to their containing package.
+// LoadedPackages holds the result of bulk package loading. It provides
+// a mapping from absolute file paths to their containing *packages.Package,
+// allowing the indexer to call ExtractWithPackage for each file without
+// re-invoking the Go compiler.
 type LoadedPackages struct {
-	Fset         *token.FileSet
-	FilePackages map[string]*packages.Package // abs path -> package
+	Fset         *token.FileSet                // shared file set across all loaded packages
+	FilePackages map[string]*packages.Package // absolute file path -> containing package
 }
 
 // BulkLoad loads all Go packages under moduleRoot by discovering unique
@@ -41,8 +43,10 @@ func BulkLoad(ctx context.Context, moduleRoot string) (*LoadedPackages, error) {
 		FilePackages: make(map[string]*packages.Package),
 	}
 
-	// Load each package directory individually.
-	// Go's build cache ensures shared dependencies are type-checked once.
+	// Load each package directory individually rather than using "./...".
+	// Go's build cache ensures shared dependency type info is computed once
+	// and reused across packages, so per-directory loading avoids the memory
+	// spike of loading the entire module graph in a single pass.
 	for _, dir := range pkgDirs {
 		if err := ctx.Err(); err != nil {
 			return result, err

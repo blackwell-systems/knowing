@@ -1,3 +1,15 @@
+// Package snapshot manages Merkle-based graph snapshots for the knowing
+// knowledge graph.
+//
+// Each snapshot represents a point-in-time fingerprint of all edges in a
+// repository's graph. The fingerprint is a Merkle root computed by sorting
+// all edge hashes lexicographically and building a binary hash tree. Two
+// snapshots with different roots are guaranteed to have different edge sets,
+// enabling efficient change detection.
+//
+// Snapshots form a singly-linked chain (each snapshot points to its parent),
+// supporting garbage collection of old snapshots while preserving chain
+// integrity for the most recent N snapshots.
 package snapshot
 
 import (
@@ -9,7 +21,7 @@ import (
 )
 
 // SnapshotManager manages Merkle root computation, snapshot chain
-// management, diff, and garbage collection.
+// maintenance, diff operations, and garbage collection of old snapshots.
 type SnapshotManager struct {
 	store types.GraphStore
 }

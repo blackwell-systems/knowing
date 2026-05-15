@@ -9,10 +9,13 @@ import (
 )
 
 // MerkleTree represents a binary Merkle tree built from sorted hashes.
-// It supports efficient diff detection between two trees.
+// The tree is constructed bottom-up: leaves are sorted edge hashes, and
+// each internal node is SHA-256(left_child || right_child). The root
+// hash uniquely identifies the set of leaves. Comparing two roots in O(1)
+// determines whether the edge sets are identical.
 type MerkleTree struct {
-	Root   types.Hash
-	Leaves []types.Hash
+	Root   types.Hash   // the Merkle root (top of the tree)
+	Leaves []types.Hash // sorted leaf hashes (the input edge hashes)
 }
 
 // BuildMerkleTree constructs a binary Merkle tree from a slice of edge hashes.
@@ -34,6 +37,9 @@ func BuildMerkleTree(hashes []types.Hash) *MerkleTree {
 }
 
 // computeMerkleRoot recursively computes the Merkle root from sorted hashes.
+// At each level, adjacent pairs are combined via combineHashes. If the count
+// is odd, the last hash is paired with itself (standard Merkle tree padding).
+// Recursion terminates when a single hash remains: the root.
 func computeMerkleRoot(hashes []types.Hash) types.Hash {
 	if len(hashes) == 1 {
 		return hashes[0]
@@ -45,7 +51,7 @@ func computeMerkleRoot(hashes []types.Hash) types.Hash {
 			combined := combineHashes(hashes[i], hashes[i+1])
 			nextLevel = append(nextLevel, combined)
 		} else {
-			// Odd leaf: promote to next level (pair with itself)
+			// Odd leaf: pair with itself so every level has an even count.
 			combined := combineHashes(hashes[i], hashes[i])
 			nextLevel = append(nextLevel, combined)
 		}
@@ -54,7 +60,10 @@ func computeMerkleRoot(hashes []types.Hash) types.Hash {
 	return computeMerkleRoot(nextLevel)
 }
 
-// combineHashes produces a parent hash from two child hashes.
+// combineHashes produces a parent node hash from two child hashes by
+// concatenating them (left || right, 64 bytes total) and computing SHA-256.
+// The concatenation is order-dependent, so swapping left and right produces
+// a different parent hash, preserving tree structure.
 func combineHashes(left, right types.Hash) types.Hash {
 	var data [64]byte
 	copy(data[:32], left[:])

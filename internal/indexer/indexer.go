@@ -16,6 +16,16 @@ import (
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
+// The Indexer is the top-level orchestrator for building the knowledge graph.
+// It walks a repository's files, dispatches each to the appropriate Extractor,
+// stores the resulting nodes and edges, computes a Merkle snapshot, records
+// edge events for diffing, and runs the cross-repo edge resolver.
+//
+// Incremental indexing: on re-index, files whose content hash has not changed
+// are skipped entirely. For changed files, old nodes and edges are deleted
+// before new ones are inserted, and "removed"/"added" edge events are recorded
+// for the snapshot diff.
+
 // SnapshotComputer computes a point-in-time snapshot for a repository.
 // Defined locally to avoid importing internal/snapshot.
 type SnapshotComputer interface {
@@ -38,13 +48,17 @@ type cleanupStore interface {
 }
 
 // Indexer orchestrates extractors to index a repository's source code
-// into the knowledge graph.
+// into the knowledge graph. It manages the full lifecycle: file discovery,
+// content-based change detection, extraction dispatch, batch storage,
+// snapshot computation, edge event recording, and cross-repo resolution.
 type Indexer struct {
 	store       types.GraphStore
 	snapshot    SnapshotComputer
 	registry    *ExtractorRegistry
-	Concurrency int // 0 means use runtime.GOMAXPROCS
+	Concurrency int // number of parallel extraction workers; 0 means use runtime.GOMAXPROCS
 
+	// changedMu protects lastChangedFiles, which is read by the daemon to
+	// determine which files need LSP enrichment after an index run.
 	changedMu        sync.Mutex
 	lastChangedFiles []string
 }
@@ -150,7 +164,8 @@ func (idx *Indexer) extractFile(ctx context.Context, opts types.ExtractOptions) 
 // IndexRepo indexes all source files in a repository, skipping files
 // whose content hash has not changed since the last index.
 func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash string) (*types.Snapshot, error) {
-	// Compute repo hash from URL.
+	// Repo identity is sha256(repoURL); this is the same computation used
+	// by ComputeNodeHash and everywhere else that needs the repo hash.
 	repoHash := types.NewHash([]byte(repoURL))
 
 	// Store repo record.
@@ -164,8 +179,9 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 		return nil, fmt.Errorf("store repo: %w", err)
 	}
 
-	// Build module-to-repo-URL map from all indexed repos so extractors
-	// can resolve cross-repo targets to stored repo URLs.
+	// Build a module-to-repo-URL map by reading go.mod from each indexed repo.
+	// This lets extractors resolve cross-repo call targets to the correct stored
+	// repo URL instead of using heuristic inference from the import path.
 	moduleToRepo := idx.buildModuleToRepoMap(ctx)
 
 	// Get existing files for this repo to compare hashes.
@@ -251,7 +267,9 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 			}
 		}
 
-		// Compute FileHash as sha256(repoHash || path || contentHash).
+		// FileHash = sha256(repoHash || relativePath || contentHash).
+		// This mirrors the formula in types.File and ensures the file's
+		// identity changes whenever its content or location changes.
 		fileHashInput := append(repoHash[:], []byte(relPath)...)
 		fileHashInput = append(fileHashInput, contentHash[:]...)
 		fileHash := types.NewHash(fileHashInput)
@@ -314,7 +332,9 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 		return nil, fmt.Errorf("compute snapshot: %w", err)
 	}
 
-	// Record edge events for the diff between old and new edges.
+	// Record edge events for the diff between old and new edges. These
+	// events power SnapshotDiff: "removed" events for edges that disappeared
+	// and "added" events for edges that are new in this snapshot.
 	if hasCleanup && snap != nil {
 		// Build set of removed edge hashes for O(1) lookup.
 		removedSet := make(map[types.Hash]bool, len(removedEdges))
@@ -365,12 +385,15 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 		}
 	}
 
-	// Store changed files for downstream consumers.
+	// Store changed files for downstream consumers (the daemon reads this
+	// list to scope LSP enrichment to only the files that actually changed).
 	idx.changedMu.Lock()
 	idx.lastChangedFiles = changedFilePaths
 	idx.changedMu.Unlock()
 
-	// Resolve cross-repo dangling edges (best-effort, does not fail indexing).
+	// Resolve cross-repo dangling edges. Best-effort: failures here do not
+	// fail the overall index run because the graph is still usable with
+	// dangling edges (they just won't link across repos).
 	_, _ = idx.ResolveEdges(ctx)
 
 	return snap, nil

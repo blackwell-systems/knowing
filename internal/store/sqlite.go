@@ -1,3 +1,14 @@
+// Package store provides the SQLite-backed implementation of types.GraphStore.
+//
+// SQLiteStore is the sole persistent storage backend for the knowing knowledge
+// graph. It stores nodes, edges, files, repos, snapshots, and edge events in
+// a single SQLite database using WAL mode for concurrent read access. All
+// graph traversals (transitive callers/callees, blast radius) are implemented
+// as recursive CTEs executed directly in SQLite.
+//
+// The schema is managed by embedded SQL migrations (see migrate.go). Batch
+// insert methods (BatchPutNodes, BatchPutEdges, BatchPutFiles) wrap multiple
+// inserts in a single transaction for performance during full-repo indexing.
 package store
 
 import (
@@ -11,7 +22,9 @@ import (
 )
 
 // SQLiteStore implements types.GraphStore backed by a SQLite database.
-// It uses WAL mode for concurrent readers with a single writer.
+// It uses WAL (Write-Ahead Logging) mode, which allows concurrent readers
+// while a single writer is active. All hash columns store raw 32-byte
+// blobs; the Go layer handles hex encoding/decoding.
 type SQLiteStore struct {
 	db *sql.DB
 }
@@ -46,7 +59,10 @@ func (s *SQLiteStore) Close() error {
 }
 
 // ----- Put methods -----
+// All Put methods use INSERT OR REPLACE (upsert) semantics. If a row with
+// the same primary key (hash) already exists, it is replaced entirely.
 
+// PutNode upserts a single node into the nodes table.
 func (s *SQLiteStore) PutNode(ctx context.Context, n types.Node) error {
 	_, err := s.db.ExecContext(ctx,
 		`INSERT OR REPLACE INTO nodes (node_hash, file_hash, qualified_name, kind, line, signature)
@@ -56,6 +72,7 @@ func (s *SQLiteStore) PutNode(ctx context.Context, n types.Node) error {
 	return err
 }
 
+// PutEdge upserts a single edge into the edges table.
 func (s *SQLiteStore) PutEdge(ctx context.Context, e types.Edge) error {
 	_, err := s.db.ExecContext(ctx,
 		`INSERT OR REPLACE INTO edges (edge_hash, source_hash, target_hash, edge_type, confidence, provenance, callsite_line, callsite_col, callsite_file)
@@ -66,6 +83,7 @@ func (s *SQLiteStore) PutEdge(ctx context.Context, e types.Edge) error {
 	return err
 }
 
+// PutFile upserts a single file record into the files table.
 func (s *SQLiteStore) PutFile(ctx context.Context, f types.File) error {
 	_, err := s.db.ExecContext(ctx,
 		`INSERT OR REPLACE INTO files (file_hash, repo_hash, path, content_hash)
@@ -75,6 +93,7 @@ func (s *SQLiteStore) PutFile(ctx context.Context, f types.File) error {
 	return err
 }
 
+// PutRepo upserts a repo record into the repos table.
 func (s *SQLiteStore) PutRepo(ctx context.Context, r types.Repo) error {
 	_, err := s.db.ExecContext(ctx,
 		`INSERT OR REPLACE INTO repos (repo_hash, repo_url, last_commit, last_indexed)
@@ -84,6 +103,8 @@ func (s *SQLiteStore) PutRepo(ctx context.Context, r types.Repo) error {
 	return err
 }
 
+// RecordEdgeEvent appends an edge mutation event (added/removed) to the
+// edge_events table. These events are append-only and power snapshot diffing.
 func (s *SQLiteStore) RecordEdgeEvent(ctx context.Context, ev types.EdgeEvent) error {
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO edge_events (edge_hash, event_type, snapshot_hash, source_commit, indexer_ver, timestamp)
@@ -165,6 +186,7 @@ func (s *SQLiteStore) BatchPutFiles(ctx context.Context, files []types.File) err
 	return tx.Commit()
 }
 
+// CreateSnapshot upserts a snapshot record into the snapshots table.
 func (s *SQLiteStore) CreateSnapshot(ctx context.Context, snap types.Snapshot) error {
 	_, err := s.db.ExecContext(ctx,
 		`INSERT OR REPLACE INTO snapshots (snapshot_hash, parent_hash, repo_hash, commit_hash, timestamp, node_count, edge_count)
@@ -175,7 +197,10 @@ func (s *SQLiteStore) CreateSnapshot(ctx context.Context, snap types.Snapshot) e
 }
 
 // ----- Get methods -----
+// All Get methods return (nil, nil) when the requested entity is not found,
+// following the convention that "not found" is not an error.
 
+// GetNode retrieves a node by its content-addressed hash. Returns nil if not found.
 func (s *SQLiteStore) GetNode(ctx context.Context, hash types.Hash) (*types.Node, error) {
 	row := s.db.QueryRowContext(ctx,
 		`SELECT node_hash, file_hash, qualified_name, kind, line, signature FROM nodes WHERE node_hash = ?`,
@@ -184,6 +209,7 @@ func (s *SQLiteStore) GetNode(ctx context.Context, hash types.Hash) (*types.Node
 	return scanNode(row)
 }
 
+// GetEdge retrieves an edge by its content-addressed hash. Returns nil if not found.
 func (s *SQLiteStore) GetEdge(ctx context.Context, hash types.Hash) (*types.Edge, error) {
 	row := s.db.QueryRowContext(ctx,
 		`SELECT edge_hash, source_hash, target_hash, edge_type, confidence, provenance, callsite_line, callsite_col, callsite_file FROM edges WHERE edge_hash = ?`,
@@ -192,6 +218,7 @@ func (s *SQLiteStore) GetEdge(ctx context.Context, hash types.Hash) (*types.Edge
 	return scanEdge(row)
 }
 
+// GetSnapshot retrieves a snapshot by its Merkle root hash. Returns nil if not found.
 func (s *SQLiteStore) GetSnapshot(ctx context.Context, hash types.Hash) (*types.Snapshot, error) {
 	row := s.db.QueryRowContext(ctx,
 		`SELECT snapshot_hash, parent_hash, repo_hash, commit_hash, timestamp, node_count, edge_count
@@ -201,6 +228,7 @@ func (s *SQLiteStore) GetSnapshot(ctx context.Context, hash types.Hash) (*types.
 	return scanSnapshot(row)
 }
 
+// GetRepo retrieves a repo by its hash (sha256 of repo URL). Returns nil if not found.
 func (s *SQLiteStore) GetRepo(ctx context.Context, hash types.Hash) (*types.Repo, error) {
 	row := s.db.QueryRowContext(ctx,
 		`SELECT repo_hash, repo_url, last_commit, last_indexed FROM repos WHERE repo_hash = ?`,
@@ -228,6 +256,9 @@ func (s *SQLiteStore) GetRepo(ctx context.Context, hash types.Hash) (*types.Repo
 
 // ----- Query methods -----
 
+// NodesByName returns all nodes whose qualified name starts with the given
+// prefix. Used by the indexer to find all nodes for a repo (prefix = repoURL)
+// and by the query CLI to search by symbol name.
 func (s *SQLiteStore) NodesByName(ctx context.Context, qualifiedPrefix string) ([]types.Node, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT node_hash, file_hash, qualified_name, kind, line, signature
@@ -241,6 +272,8 @@ func (s *SQLiteStore) NodesByName(ctx context.Context, qualifiedPrefix string) (
 	return scanNodes(rows)
 }
 
+// EdgesFrom returns all edges originating from the given source node.
+// If edgeType is non-empty, only edges of that type are returned.
 func (s *SQLiteStore) EdgesFrom(ctx context.Context, sourceHash types.Hash, edgeType string) ([]types.Edge, error) {
 	query := `SELECT edge_hash, source_hash, target_hash, edge_type, confidence, provenance, callsite_line, callsite_col, callsite_file
 		 FROM edges WHERE source_hash = ?`
@@ -257,6 +290,8 @@ func (s *SQLiteStore) EdgesFrom(ctx context.Context, sourceHash types.Hash, edge
 	return scanEdges(rows)
 }
 
+// EdgesTo returns all edges pointing to the given target node.
+// If edgeType is non-empty, only edges of that type are returned.
 func (s *SQLiteStore) EdgesTo(ctx context.Context, targetHash types.Hash, edgeType string) ([]types.Edge, error) {
 	query := `SELECT edge_hash, source_hash, target_hash, edge_type, confidence, provenance, callsite_line, callsite_col, callsite_file
 		 FROM edges WHERE target_hash = ?`
@@ -273,6 +308,15 @@ func (s *SQLiteStore) EdgesTo(ctx context.Context, targetHash types.Hash, edgeTy
 	return scanEdges(rows)
 }
 
+// TransitiveCallers finds all nodes that transitively call the target node,
+// up to maxDepth hops. The snapshot parameter is accepted for API compatibility
+// but is not currently used for filtering.
+//
+// Implementation: a recursive CTE walks the "calls" edges backwards from the
+// target. The base case selects all direct callers (depth=1), and the recursive
+// step joins each caller against edges pointing to it, incrementing depth.
+// UNION (not UNION ALL) deduplicates cycles. Results are joined back to the
+// nodes table for full node data and ordered by depth then qualified name.
 func (s *SQLiteStore) TransitiveCallers(ctx context.Context, target types.Hash, maxDepth int, snapshot types.Hash) ([]types.CallerResult, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		WITH RECURSIVE callers(node_hash, depth) AS (
@@ -309,6 +353,13 @@ func (s *SQLiteStore) TransitiveCallers(ctx context.Context, target types.Hash, 
 	return results, rows.Err()
 }
 
+// TransitiveCallees finds all nodes that are transitively called by the
+// source node, up to maxDepth hops. This is the forward traversal
+// counterpart to TransitiveCallers.
+//
+// Implementation: a recursive CTE walks "calls" edges forward from the
+// source. The base case selects all direct callees (depth=1), and the
+// recursive step follows outgoing call edges from each callee.
 func (s *SQLiteStore) TransitiveCallees(ctx context.Context, source types.Hash, maxDepth int, snapshot types.Hash) ([]types.CalleeResult, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		WITH RECURSIVE callees(node_hash, depth) AS (
@@ -345,6 +396,10 @@ func (s *SQLiteStore) TransitiveCallees(ctx context.Context, source types.Hash, 
 	return results, rows.Err()
 }
 
+// BlastRadius computes the blast radius of a target symbol: all functions
+// that transitively call it, grouped by repository. It combines
+// TransitiveCallers with a repo lookup for each caller to produce the
+// grouped result. The traversal is capped at 5 levels deep.
 func (s *SQLiteStore) BlastRadius(ctx context.Context, target types.Hash, snapshot types.Hash) (*types.BlastRadiusResult, error) {
 	// Get the target node itself.
 	targetNode, err := s.GetNode(ctx, target)
@@ -390,6 +445,10 @@ func (s *SQLiteStore) BlastRadius(ctx context.Context, target types.Hash, snapsh
 	return result, nil
 }
 
+// SnapshotDiff computes the structural diff between two snapshots by
+// querying edge_events recorded during the newer snapshot's index run.
+// Added edges are events with type "added" in the new snapshot;
+// removed edges are events with type "removed".
 func (s *SQLiteStore) SnapshotDiff(ctx context.Context, oldRoot, newRoot types.Hash) (*types.DiffResult, error) {
 	diff := &types.DiffResult{
 		OldSnapshot: oldRoot,
@@ -433,12 +492,16 @@ func (s *SQLiteStore) SnapshotDiff(ctx context.Context, oldRoot, newRoot types.H
 	return diff, nil
 }
 
+// StaleEdges finds edges whose source file has been updated since the edge
+// was created. An edge is stale when its source node's file_hash points to
+// a File record whose content_hash no longer matches the latest file at that
+// repo+path. This indicates the source file has changed and the edge may
+// no longer be valid.
+//
+// Implementation: joins edges -> nodes -> files, then uses an EXISTS subquery
+// to find any other file at the same (repo, path) with a different content
+// hash. If such a file exists, the edge is stale.
 func (s *SQLiteStore) StaleEdges(ctx context.Context, snapshot types.Hash) ([]types.Edge, error) {
-	// A stale edge is one whose source node's file has a content_hash that
-	// no longer matches the file currently stored. We detect this by finding
-	// edges where the source node's file content_hash differs from any other
-	// file with the same repo+path combination but a different content hash.
-	// Simplified: find edges whose source node's file has been updated.
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT DISTINCT e.edge_hash, e.source_hash, e.target_hash, e.edge_type, e.confidence, e.provenance, e.callsite_line, e.callsite_col, e.callsite_file
 		FROM edges e
@@ -458,6 +521,8 @@ func (s *SQLiteStore) StaleEdges(ctx context.Context, snapshot types.Hash) ([]ty
 	return scanEdges(rows)
 }
 
+// LatestSnapshot returns the most recent snapshot for a repository, ordered
+// by timestamp descending. Returns nil if no snapshots exist for the repo.
 func (s *SQLiteStore) LatestSnapshot(ctx context.Context, repoHash types.Hash) (*types.Snapshot, error) {
 	row := s.db.QueryRowContext(ctx,
 		`SELECT snapshot_hash, parent_hash, repo_hash, commit_hash, timestamp, node_count, edge_count
@@ -471,6 +536,7 @@ func (s *SQLiteStore) LatestSnapshot(ctx context.Context, repoHash types.Hash) (
 	return snap, nil
 }
 
+// FilesByRepo returns all files belonging to a repository, ordered by path.
 func (s *SQLiteStore) FilesByRepo(ctx context.Context, repoHash types.Hash) ([]types.File, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT file_hash, repo_hash, path, content_hash FROM files WHERE repo_hash = ? ORDER BY path`,
@@ -496,6 +562,8 @@ func (s *SQLiteStore) FilesByRepo(ctx context.Context, repoHash types.Hash) ([]t
 	return files, rows.Err()
 }
 
+// FileByPath looks up a single file by repo hash and relative path.
+// Returns nil if no matching file exists.
 func (s *SQLiteStore) FileByPath(ctx context.Context, repoHash types.Hash, path string) (*types.File, error) {
 	row := s.db.QueryRowContext(ctx,
 		`SELECT file_hash, repo_hash, path, content_hash FROM files WHERE repo_hash = ? AND path = ?`,
@@ -517,6 +585,9 @@ func (s *SQLiteStore) FileByPath(ctx context.Context, repoHash types.Hash, path 
 
 // ----- Resolver query methods -----
 
+// DanglingEdges returns all edges whose target_hash does not match any
+// existing node. These are cross-repo edges where the target was computed
+// with the wrong repo URL. The resolver uses this to find and retarget them.
 func (s *SQLiteStore) DanglingEdges(ctx context.Context) ([]types.Edge, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT e.edge_hash, e.source_hash, e.target_hash, e.edge_type, e.confidence, e.provenance, e.callsite_line, e.callsite_col, e.callsite_file
@@ -531,6 +602,7 @@ func (s *SQLiteStore) DanglingEdges(ctx context.Context) ([]types.Edge, error) {
 	return scanEdges(rows)
 }
 
+// AllRepos returns all tracked repositories ordered by URL.
 func (s *SQLiteStore) AllRepos(ctx context.Context) ([]types.Repo, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT repo_hash, repo_url, last_commit, last_indexed FROM repos ORDER BY repo_url`,
@@ -561,6 +633,7 @@ func (s *SQLiteStore) AllRepos(ctx context.Context) ([]types.Repo, error) {
 	return repos, rows.Err()
 }
 
+// NodesByQualifiedName returns all nodes with an exact qualified name match.
 func (s *SQLiteStore) NodesByQualifiedName(ctx context.Context, qualifiedName string) ([]types.Node, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT node_hash, file_hash, qualified_name, kind, line, signature
@@ -574,6 +647,9 @@ func (s *SQLiteStore) NodesByQualifiedName(ctx context.Context, qualifiedName st
 	return scanNodes(rows)
 }
 
+// DeleteEdge removes an edge by its hash. Used by the enricher to replace
+// ast_inferred edges with lsp_resolved edges, and by the resolver to
+// retarget dangling edges.
 func (s *SQLiteStore) DeleteEdge(ctx context.Context, hash types.Hash) error {
 	_, err := s.db.ExecContext(ctx,
 		`DELETE FROM edges WHERE edge_hash = ?`,
@@ -582,6 +658,9 @@ func (s *SQLiteStore) DeleteEdge(ctx context.Context, hash types.Hash) error {
 	return err
 }
 
+// DeleteNodesByFile removes all nodes belonging to a file. Returns the count
+// of deleted nodes. Used during incremental re-indexing to clear stale nodes
+// before inserting fresh ones from the updated file.
 func (s *SQLiteStore) DeleteNodesByFile(ctx context.Context, fileHash types.Hash) (int, error) {
 	result, err := s.db.ExecContext(ctx,
 		`DELETE FROM nodes WHERE file_hash = ?`,
@@ -597,8 +676,11 @@ func (s *SQLiteStore) DeleteNodesByFile(ctx context.Context, fileHash types.Hash
 	return int(n), nil
 }
 
+// DeleteEdgesBySourceFile removes all edges whose source node belongs to
+// the given file. Returns the deleted edges so the indexer can record
+// "removed" edge events for snapshot diffing.
 func (s *SQLiteStore) DeleteEdgesBySourceFile(ctx context.Context, fileHash types.Hash) ([]types.Edge, error) {
-	// First, read the edges that will be deleted.
+	// Read the edges before deleting so we can return them for event recording.
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT edge_hash, source_hash, target_hash, edge_type, confidence, provenance, callsite_line, callsite_col, callsite_file
 		 FROM edges WHERE source_hash IN (SELECT node_hash FROM nodes WHERE file_hash = ?)`,
@@ -624,6 +706,7 @@ func (s *SQLiteStore) DeleteEdgesBySourceFile(ctx context.Context, fileHash type
 	return edges, nil
 }
 
+// EdgesBySourceFile returns all edges whose source node belongs to the given file.
 func (s *SQLiteStore) EdgesBySourceFile(ctx context.Context, fileHash types.Hash) ([]types.Edge, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT edge_hash, source_hash, target_hash, edge_type, confidence, provenance, callsite_line, callsite_col, callsite_file
@@ -638,7 +721,13 @@ func (s *SQLiteStore) EdgesBySourceFile(ctx context.Context, fileHash types.Hash
 }
 
 // ----- Scanner helpers -----
+// These functions handle the conversion between SQLite BLOB columns (raw
+// byte slices) and Go types.Hash ([32]byte fixed arrays). SQLite stores
+// hashes as variable-length BLOBs, so we scan into []byte and copy into
+// the fixed-size array.
 
+// scannable abstracts *sql.Row and *sql.Rows so the same scan logic works
+// for both single-row and multi-row queries.
 type scannable interface {
 	Scan(dest ...interface{}) error
 }

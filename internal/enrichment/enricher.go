@@ -2,6 +2,26 @@
 // ast_inferred edges to lsp_resolved by querying gopls via the agent-lsp
 // public API. It also discovers new implements and references edges not
 // found by tree-sitter.
+//
+// The enrichment pipeline works in three phases:
+//
+//  1. Open files: all (or scoped) Go files are sent to gopls via
+//     textDocument/didOpen so it has full workspace knowledge. Files must
+//     be opened before any queries because gopls indexes lazily.
+//
+//  2. Upgrade call edges: for each ast_inferred edge that has call-site
+//     position data, query gopls GetDefinition at (file, line, col). If
+//     gopls returns a location, the edge is confirmed and upgraded to
+//     lsp_resolved with confidence 0.9. The original ast_inferred edge
+//     is deleted first because provenance is part of the edge hash.
+//
+//  3. Discover new edges: for each opened file, retrieve document symbols
+//     and query GetImplementation (for types/interfaces) and GetReferences
+//     (for functions/methods) to find edges that tree-sitter missed.
+//
+// All operations are best-effort: individual failures are counted but do
+// not abort the run. The enricher is designed to run in the background
+// after each index run.
 package enrichment
 
 import (
@@ -108,8 +128,10 @@ func (e *Enricher) runFiltered(ctx context.Context, repoHash types.Hash, fileFil
 
 	stats := &enrichStats{}
 
-	// Open Go files so gopls has workspace knowledge.
-	// When fileFilter is set, only changed files are opened to reduce memory.
+	// Open Go files via textDocument/didOpen so gopls builds its index.
+	// gopls requires files to be opened before it can resolve definitions
+	// and references within them. When fileFilter is set, only changed files
+	// are opened to reduce gopls memory consumption.
 	e.openAllFiles(ctx, files, fileFilter)
 
 	// Upgrade ast_inferred call edges that have call-site positions.
@@ -201,8 +223,10 @@ func (e *Enricher) upgradeCallEdges(
 			stats.edgesProcessed++
 
 			uri := "file://" + filepath.Join(e.workspaceRoot, edge.CallSiteFile)
+			// Convert from knowing's 1-indexed lines to LSP's 0-indexed lines.
+			// Column is already 0-indexed (matching tree-sitter and LSP conventions).
 			pos := lsptypes.Position{
-				Line:      edge.CallSiteLine - 1, // 1-indexed to 0-indexed
+				Line:      edge.CallSiteLine - 1,
 				Character: edge.CallSiteCol,
 			}
 
@@ -217,7 +241,9 @@ func (e *Enricher) upgradeCallEdges(
 			}
 
 			// gopls confirmed a definition exists at this call site.
-			// Upgrade the edge.
+			// Delete the old ast_inferred edge and create a new lsp_resolved
+			// edge. We must delete first because the provenance string is part
+			// of the edge hash; changing provenance produces a new hash.
 			if err := e.store.DeleteEdge(ctx, edge.EdgeHash); err != nil {
 				stats.edgeErrors++
 				continue
@@ -303,16 +329,18 @@ func (e *Enricher) discoverNewEdges(
 	}
 }
 
-// symbolKindName maps LSP SymbolKind constants to knowing node kinds.
+// symbolKindName maps LSP SymbolKind numeric constants to knowing's node
+// kind strings. Only types that we want to discover new edges for are
+// mapped; all others return "" and are skipped.
 func symbolKindName(kind lsptypes.SymbolKind) string {
 	switch kind {
-	case 5: // Class
+	case 5: // LSP SymbolKind.Class
 		return "type"
-	case 11: // Interface
+	case 11: // LSP SymbolKind.Interface
 		return "interface"
-	case 12: // Function
+	case 12: // LSP SymbolKind.Function
 		return "function"
-	case 6: // Method
+	case 6: // LSP SymbolKind.Method
 		return "method"
 	default:
 		return ""
@@ -361,7 +389,9 @@ func (e *Enricher) processSymbols(
 }
 
 // insertEdgesFromLocations creates lsp_resolved edges from LSP location
-// results, skipping edges that already exist.
+// results, skipping edges that already exist. Source and target hashes are
+// computed from the LSP URIs and positions (not from qualified names),
+// because we may not have a matching Node record for every location.
 func (e *Enricher) insertEdgesFromLocations(
 	ctx context.Context,
 	sourceURI string,

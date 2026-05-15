@@ -6,6 +6,11 @@ import (
 	"strings"
 )
 
+// gitdiff.go resolves the set of changed, added, and deleted files between
+// two git commits. This powers the daemon's incremental indexing: after
+// detecting a new commit via GitWatcher, the daemon calls GitDiffFiles to
+// determine which files need re-extraction.
+
 // GitDiffFiles resolves changed, added, and deleted files between two
 // commits using git diff --name-status. If oldCommit is empty, all
 // tracked files are returned as added (initial index).

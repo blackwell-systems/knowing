@@ -9,6 +9,11 @@ import (
 	"strings"
 )
 
+// migrationFS embeds all SQL migration files from the migrations/ directory.
+// Files are named with a numeric prefix (e.g., "001_initial_schema.sql") and
+// are applied in lexicographic order. Each migration runs in its own
+// transaction so a failure in migration N does not roll back migration N-1.
+//
 //go:embed migrations/*.sql
 var migrationFS embed.FS
 
@@ -81,6 +86,8 @@ func Migrate(db *sql.DB) error {
 	return nil
 }
 
+// currentVersion reads the highest applied migration version from the
+// schema_version table. Returns 0 if no migrations have been applied.
 func currentVersion(db *sql.DB) (int, error) {
 	var v int
 	err := db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_version`).Scan(&v)

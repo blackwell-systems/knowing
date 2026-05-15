@@ -1,5 +1,15 @@
 // Package treesitter provides a tree-sitter based extractor for non-Go languages.
 // Currently supports Python.
+//
+// The extractor walks the tree-sitter AST to find function_definition,
+// class_definition, import_statement, and call nodes (using Python grammar
+// node type names). Qualified names follow the convention:
+//
+//	{repoURL}://{moduleRoot}/{filePath}.{ClassName}.{SymbolName}
+//
+// All edges have provenance "ast_resolved" and confidence 1.0, though
+// cross-module call targets may be unresolved (dangling) if the target
+// module is not indexed.
 package treesitter
 
 import (
@@ -86,11 +96,17 @@ func (e *TreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractOpt
 }
 
 // walkNode recursively walks the tree-sitter AST and extracts symbols.
+// The classContext parameter tracks whether we are inside a class body;
+// if non-empty, functions are treated as methods and calls are scoped
+// to the class context.
 func (e *TreeSitterExtractor) walkNode(node *sitter.Node, opts types.ExtractOptions, classContext string, result *types.ExtractResult) {
 	if node == nil {
 		return
 	}
 
+	// Match against Python grammar node type names. Tree-sitter node types
+	// are strings defined by the language grammar (e.g., "function_definition"
+	// for Python's "def foo():").
 	switch node.Type() {
 	case "function_definition":
 		e.extractFunction(node, opts, classContext, result)

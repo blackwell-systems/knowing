@@ -1,5 +1,13 @@
 // Package main is the entry point for the knowing CLI.
-// It wires all internal packages together and dispatches subcommands.
+//
+// The CLI provides three subcommands:
+//   - serve: starts the daemon with file watching, reindexing, and MCP server
+//   - index: one-shot indexing of a repository with optional LSP enrichment
+//   - query: search the knowledge graph by symbol name prefix
+//
+// The serve command wires together the full pipeline: SQLite store, snapshot
+// manager, indexer (with tree-sitter and optional Python extractors), MCP
+// server, and daemon (with git watching and background enrichment).
 package main
 
 import (
@@ -64,6 +72,9 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  version  Print version information")
 }
 
+// cmdServe starts the daemon: opens the database, creates the indexer with
+// tree-sitter extractors, launches the MCP server, watches repos, and blocks
+// until SIGINT/SIGTERM.
 func cmdServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	dbPath := fs.String("db", "knowing.db", "Path to the SQLite database")
@@ -141,6 +152,10 @@ func cmdServe(args []string) error {
 	return d.Stop()
 }
 
+// cmdIndex performs a one-shot index of a repository. By default it uses
+// the fast tree-sitter extractor; pass -full to use the Go packages extractor
+// with full type resolution. After indexing, it runs LSP enrichment (unless
+// -full was used, since the full extractor already produces high-confidence edges).
 func cmdIndex(args []string) error {
 	fs := flag.NewFlagSet("index", flag.ExitOnError)
 	dbPath := fs.String("db", "knowing.db", "Path to the SQLite database")
@@ -211,6 +226,8 @@ func cmdIndex(args []string) error {
 	return nil
 }
 
+// cmdQuery searches the knowledge graph for nodes matching a qualified name
+// prefix and prints each node with its outgoing edges.
 func cmdQuery(args []string) error {
 	fs := flag.NewFlagSet("query", flag.ExitOnError)
 	dbPath := fs.String("db", "knowing.db", "Path to the SQLite database")
@@ -254,5 +271,6 @@ func cmdQuery(args []string) error {
 	return nil
 }
 
-// Ensure types import is used (referenced by daemon.DaemonConfig.Store field type).
+// Compile-time assertion that SQLiteStore implements GraphStore. This also
+// ensures the types import is used.
 var _ types.GraphStore = (*store.SQLiteStore)(nil)

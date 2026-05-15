@@ -1,5 +1,11 @@
 package mcp
 
+// handlers.go implements the MCP tool handler functions. Each handler
+// extracts arguments from the MCP request, calls the appropriate GraphStore
+// method, and returns the result as JSON. Error handling follows the MCP
+// convention: tool-level errors are returned as mcp.CallToolResult with
+// IsError=true, while transport-level errors are returned as Go errors.
+
 import (
 	"context"
 	"encoding/hex"
@@ -316,7 +322,10 @@ func (s *Server) handleSemanticDiff(ctx context.Context, req mcp.CallToolRequest
 	return result, nil
 }
 
-// handlePRImpact analyzes the impact of changes between two snapshots.
+// handlePRImpact analyzes the impact of changes between two snapshots by
+// computing the blast radius of each removed node. Removed nodes represent
+// potential breaking changes; their blast radius shows which callers would
+// be affected.
 func (s *Server) handlePRImpact(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	oldHash, errResult := requireHash(req, "old_snapshot")
 	if errResult != nil {

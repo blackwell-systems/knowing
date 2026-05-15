@@ -1,5 +1,18 @@
 // Package goextractor provides a Go language extractor that uses
 // golang.org/x/tools/go/packages for full type resolution.
+//
+// Unlike the tree-sitter extractor (gotsextractor), this extractor loads
+// full type information via the Go compiler, enabling precise resolution of:
+//   - Cross-package function calls (via TypesInfo.Uses)
+//   - Interface implementations (via go/types.Implements)
+//   - Non-call identifier references (variable reads, type references)
+//
+// The tradeoff is speed: loading packages requires invoking the Go compiler,
+// which is significantly slower than tree-sitter parsing. Use the -full flag
+// on "knowing index" to select this extractor.
+//
+// All edges produced by this extractor have provenance "ast_resolved" and
+// confidence 1.0 because type resolution confirms the target.
 package goextractor
 
 import (
@@ -118,7 +131,8 @@ func (g *GoExtractor) extractFromPackage(
 	var nodes []types.Node
 	var edges []types.Edge
 
-	// Walk AST declarations.
+	// Walk AST declarations. ast.Inspect visits every node in the tree;
+	// we only care about top-level FuncDecl and GenDecl nodes.
 	ast.Inspect(targetFile, func(n ast.Node) bool {
 		switch decl := n.(type) {
 		case *ast.FuncDecl:
@@ -138,15 +152,15 @@ func (g *GoExtractor) extractFromPackage(
 		return true
 	})
 
-	// Add import edges from the file to imported packages.
+	// Add import edges from a synthetic "file" node to each imported package.
+	// We use a synthetic file-level node (kind="file") as the source rather
+	// than creating N edges from every function in the file, keeping the
+	// graph manageable while still recording the dependency.
 	for _, imp := range targetFile.Imports {
 		impPath := strings.Trim(imp.Path.Value, `"`)
 		impRepoURL := resolveTargetRepoURL(opts, impPath, pkg)
 		impHash := types.ComputeNodeHash(impRepoURL, impPath, types.EmptyHash, impPath, "package")
 
-		// Create an edge from each function/type in this file to the import.
-		// For simplicity, create a single file-level import edge using a
-		// synthetic source node.
 		fileNodeHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, filepath.Base(opts.FilePath), "file")
 		provenance := "ast_resolved"
 		edgeHash := types.ComputeEdgeHash(fileNodeHash, impHash, "imports", provenance)
@@ -297,17 +311,19 @@ func (g *GoExtractor) extractCallEdges(opts types.ExtractOptions, pkgPath string
 			targetPkg = pkgPath
 
 		case *ast.SelectorExpr:
-			// Qualified call (pkg.Func or receiver.Method).
+			// Qualified call: either pkg.Func or receiver.Method.
 			targetName = fn.Sel.Name
 			targetKind = "function"
 			if ident, ok := fn.X.(*ast.Ident); ok {
-				// Check if this is a package qualifier using TypesInfo.
+				// Use TypesInfo to distinguish package qualifiers from method
+				// receivers. If the identifier resolves to a PkgName, this is
+				// a cross-package call; otherwise it is a method call on a local
+				// variable and we keep the target in the same package.
 				if pkg.TypesInfo != nil {
 					if obj, exists := pkg.TypesInfo.Uses[ident]; exists {
 						if pkgName, isPkg := obj.(*gotypes.PkgName); isPkg {
 							targetPkg = pkgName.Imported().Path()
 						} else {
-							// Method call on a variable.
 							targetKind = "method"
 							targetPkg = pkgPath
 						}
@@ -353,7 +369,9 @@ func (g *GoExtractor) extractImplementsEdges(opts types.ExtractOptions, pkgPath 
 		return nil
 	}
 
-	// Collect all named interfaces and concrete types declared in this package.
+	// Collect all named interfaces and concrete types in the package scope.
+	// We only check within the same package; cross-package implements edges
+	// are discovered later by the LSP enricher.
 	scope := pkg.Types.Scope()
 	var ifaces []*gotypes.Named
 	var concretes []*gotypes.Named
@@ -375,7 +393,8 @@ func (g *GoExtractor) extractImplementsEdges(opts types.ExtractOptions, pkgPath 
 	for _, concrete := range concretes {
 		for _, iface := range ifaces {
 			ifaceType := iface.Underlying().(*gotypes.Interface)
-			// Check both T and *T.
+			// Check both T and *T because pointer receivers satisfy interfaces
+			// that value receivers do not.
 			if gotypes.Implements(concrete, ifaceType) || gotypes.Implements(gotypes.NewPointer(concrete), ifaceType) {
 				concreteHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, concrete.Obj().Name(), "type")
 				ifaceHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, iface.Obj().Name(), "interface")
@@ -402,7 +421,9 @@ func (g *GoExtractor) extractReferenceEdges(opts types.ExtractOptions, pkgPath s
 		return nil
 	}
 
-	// Collect call-expression function identifiers so we can skip them.
+	// Collect call-expression function identifiers so we can exclude them
+	// from "references" edges. Call targets already get "calls" edges;
+	// emitting a "references" edge for the same identifier would be redundant.
 	callIdents := make(map[*ast.Ident]bool)
 	ast.Inspect(file, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
@@ -506,16 +527,21 @@ func formatFuncSignature(decl *ast.FuncDecl) string {
 }
 
 // resolveTargetRepoURL determines the correct repo URL for a cross-repo
-// call target. For local packages (same module), returns opts.RepoURL.
-// For external packages, uses Module info from go/packages when available,
-// falling back to heuristic inference from the import path.
+// call target. The resolution strategy has three tiers:
+//
+//  1. Local package: if targetPkg is within the same Go module, use opts.RepoURL.
+//  2. Known external: if the imported package has Module info, look up its module
+//     path in opts.ModuleToRepoURL (populated from the repos table). This ensures
+//     edges point to the repo URL actually stored in the database.
+//  3. Heuristic fallback: infer the repo URL from the import path structure
+//     (e.g., "github.com/org/repo/pkg" -> "github.com/org/repo").
 func resolveTargetRepoURL(opts types.ExtractOptions, targetPkg string, pkg *packages.Package) string {
 	// Local package: same module as the source.
 	if pkg.Module != nil && strings.HasPrefix(targetPkg, pkg.Module.Path) {
 		return opts.RepoURL
 	}
 
-	// External package: try to get module path from imported package.
+	// External package: try to get module path from the imported package.
 	if importedPkg, ok := pkg.Imports[targetPkg]; ok && importedPkg.Module != nil {
 		modulePath := importedPkg.Module.Path
 		// Check if we have a stored repo URL for this module path.
@@ -527,7 +553,7 @@ func resolveTargetRepoURL(opts types.ExtractOptions, targetPkg string, pkg *pack
 		return modulePath
 	}
 
-	// Heuristic fallback.
+	// Heuristic fallback: infer from import path structure.
 	return inferRepoURL(targetPkg)
 }
 

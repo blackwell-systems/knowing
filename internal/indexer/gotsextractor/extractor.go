@@ -1,6 +1,17 @@
 // Package gotsextractor provides a Go language extractor using tree-sitter
 // for fast AST-only parsing. It implements types.Extractor and produces
 // declaration nodes and syntactic call/import edges without type resolution.
+//
+// This is the default (fast-path) extractor for Go files. It completes in
+// milliseconds per file because it uses tree-sitter's incremental parser
+// rather than the Go compiler. The tradeoff is lower-confidence edges:
+// without type information, cross-package calls are resolved heuristically
+// from import aliases, so edges have provenance "ast_inferred" and
+// confidence 0.7. The LSP enrichment pass (internal/enrichment) later
+// upgrades confirmed edges to "lsp_resolved" with confidence 0.9.
+//
+// Call-site positions (line, column, file) are recorded on every call edge
+// so the enricher can query gopls GetDefinition at the exact location.
 package gotsextractor
 
 import (
@@ -85,7 +96,9 @@ func (e *GoTreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractO
 	var nodes []types.Node
 	var edges []types.Edge
 
-	// Walk top-level declarations.
+	// Walk top-level children of the root node. Tree-sitter represents Go
+	// source as a flat list of top-level declarations under the root. Each
+	// child's Type() string corresponds to a Go grammar rule name.
 	for i := 0; i < int(root.ChildCount()); i++ {
 		child := root.Child(i)
 		switch child.Type() {
@@ -148,8 +161,10 @@ func (e *GoTreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractO
 	}, nil
 }
 
-// computePkgPath determines the full package path by reading the package
-// clause from the AST and the module path from go.mod.
+// computePkgPath determines the full Go package path by combining the module
+// path from go.mod with the file's directory relative to the module root.
+// For example, if the module is "github.com/org/repo" and the file is at
+// "internal/store/sqlite.go", the package path is "github.com/org/repo/internal/store".
 func computePkgPath(root *sitter.Node, opts types.ExtractOptions) (string, error) {
 	// Get the directory portion of the file path relative to module root.
 	relDir := filepath.Dir(opts.FilePath)
@@ -273,12 +288,13 @@ func extractMethodDecl(node *sitter.Node, opts types.ExtractOptions, pkgPath str
 }
 
 // extractReceiverType extracts the type name from a method receiver
-// parameter list node.
+// parameter list node. In tree-sitter's Go grammar, the receiver is
+// a "parameter_list" containing one "parameter_declaration" whose "type"
+// field is the receiver type (possibly wrapped in pointer_type).
 func extractReceiverType(receiver *sitter.Node, content []byte) string {
 	if receiver == nil {
 		return "Unknown"
 	}
-	// receiver is a parameter_list containing parameter_declaration(s)
 	for i := 0; i < int(receiver.ChildCount()); i++ {
 		child := receiver.Child(i)
 		if child.Type() == "parameter_declaration" {
@@ -288,15 +304,16 @@ func extractReceiverType(receiver *sitter.Node, content []byte) string {
 	return "Unknown"
 }
 
-// extractTypeName gets the base type name from a type node, stripping
-// pointer indirection.
+// extractTypeName gets the base type name from a tree-sitter type node,
+// stripping pointer indirection and generic type parameters. This handles
+// the common patterns in Go receiver types: T, *T, and Generic[T].
 func extractTypeName(typeNode *sitter.Node, content []byte) string {
 	if typeNode == nil {
 		return "Unknown"
 	}
 	switch typeNode.Type() {
 	case "pointer_type":
-		// *T -> T
+		// *T -> T: skip the "*" child and recurse into the inner type.
 		for i := 0; i < int(typeNode.ChildCount()); i++ {
 			child := typeNode.Child(i)
 			if child.Type() != "*" {
@@ -411,8 +428,11 @@ func walkForCalls(node *sitter.Node, opts types.ExtractOptions, pkgPath string, 
 		if funcNode != nil {
 			edge := resolveCallEdge(funcNode, opts, pkgPath, sourceHash, imports)
 			if edge != nil {
-				// Store call-site position for LSP enrichment.
-				edge.CallSiteLine = int(node.StartPoint().Row) + 1 // tree-sitter is 0-indexed, we store 1-indexed
+				// Store the call-site position so the LSP enricher can query
+				// gopls GetDefinition at exactly this location. Tree-sitter
+				// rows are 0-indexed; we convert to 1-indexed lines to match
+				// the LSP protocol and our own Node.Line convention.
+				edge.CallSiteLine = int(node.StartPoint().Row) + 1
 				edge.CallSiteCol = int(node.StartPoint().Column)
 				edge.CallSiteFile = opts.FilePath
 				*edges = append(*edges, *edge)
@@ -531,11 +551,20 @@ func makeImportEdge(spec *sitter.Node, opts types.ExtractOptions, pkgPath string
 	}
 }
 
-// inferRepoURL determines the repo URL for a target package. If the
-// target package starts with the same module prefix as opts.RepoURL,
-// it is local. Otherwise, use heuristic inference from the import path.
+// inferRepoURL determines the repo URL for a target package using heuristics
+// (since tree-sitter does not provide Go module information).
+//
+// Resolution strategy:
+//  1. Check opts.ModuleToRepoURL for an exact module-path prefix match.
+//     This uses the map built from all indexed repos' go.mod files.
+//  2. If the target and local package share the first 3 path segments
+//     (e.g., "github.com/org/repo"), assume they are in the same repo.
+//  3. Stdlib check: if the first segment has no dots (e.g., "fmt", "net"),
+//     return "stdlib".
+//  4. External: take the first 3 segments as the repo URL
+//     (e.g., "github.com/org/repo").
 func inferRepoURL(opts types.ExtractOptions, targetPkg, localPkg string) string {
-	// If it matches a known module mapping, use that.
+	// Tier 1: known module mapping from indexed repos.
 	if opts.ModuleToRepoURL != nil {
 		for modulePath, repoURL := range opts.ModuleToRepoURL {
 			if strings.HasPrefix(targetPkg, modulePath) {
@@ -544,8 +573,7 @@ func inferRepoURL(opts types.ExtractOptions, targetPkg, localPkg string) string 
 		}
 	}
 
-	// If it shares a common prefix with the local package, assume same repo.
-	// This is a heuristic since we do not have module info from go/packages.
+	// Tier 2: common prefix heuristic (same first 3 path segments = same repo).
 	if localPkg != "" {
 		localParts := strings.Split(localPkg, "/")
 		targetParts := strings.Split(targetPkg, "/")
@@ -555,13 +583,13 @@ func inferRepoURL(opts types.ExtractOptions, targetPkg, localPkg string) string 
 		}
 	}
 
-	// Stdlib check: no dots in first segment.
+	// Tier 3: stdlib (no dots in first segment means standard library).
 	parts := strings.Split(targetPkg, "/")
 	if len(parts) > 0 && !strings.Contains(parts[0], ".") {
 		return "stdlib"
 	}
 
-	// External: first 3 segments.
+	// Tier 4: external package; first 3 segments form the repo URL.
 	if len(parts) >= 3 {
 		return strings.Join(parts[:3], "/")
 	}

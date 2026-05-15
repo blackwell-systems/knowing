@@ -1,10 +1,22 @@
 // Package indexer orchestrates source code extraction and graph indexing.
+//
+// The indexer walks repository files, dispatches them to the appropriate
+// language-specific Extractor, stores the resulting nodes and edges, computes
+// Merkle snapshots, and runs cross-repo edge resolution. It supports
+// incremental re-indexing by skipping files whose content hash has not changed.
+//
+// Key components:
+//   - Indexer: top-level orchestrator (indexer.go)
+//   - ExtractorRegistry: dispatches files to the first matching extractor (this file)
+//   - parallelExtract: worker pool for concurrent file extraction (worker.go)
 package indexer
 
 import "github.com/blackwell-systems/knowing/internal/types"
 
-// ExtractorRegistry maintains a list of registered extractors and finds
-// the appropriate extractor for a given file path.
+// ExtractorRegistry maintains an ordered list of registered extractors and
+// dispatches files to the first extractor whose CanHandle returns true.
+// Extractors are checked in registration order, so more specific extractors
+// should be registered before generic ones.
 type ExtractorRegistry struct {
 	extractors []types.Extractor
 }
