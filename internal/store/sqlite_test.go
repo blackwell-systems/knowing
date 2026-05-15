@@ -675,6 +675,132 @@ func TestBatchPutNodes_EmptySlice(t *testing.T) {
 	}
 }
 
+func TestDanglingEdges(t *testing.T) {
+	s := tempDB(t)
+	ctx := context.Background()
+	repo := makeRepo(t, s, "https://example.com/repo")
+	file := makeFile(t, s, repo, "main.go")
+
+	src := makeNode(t, s, file, "main.Caller", "function")
+	tgt := makeNode(t, s, file, "main.Callee", "function")
+
+	// Edge with a valid target (should NOT appear in dangling).
+	makeEdge(t, s, src, tgt, "calls")
+
+	// Edge with a nonexistent target (should appear in dangling).
+	fakeTargetHash := types.NewHash([]byte("nonexistent-target"))
+	danglingEdge := types.Edge{
+		EdgeHash:   types.ComputeEdgeHash(src.NodeHash, fakeTargetHash, "calls", "{}"),
+		SourceHash: src.NodeHash,
+		TargetHash: fakeTargetHash,
+		EdgeType:   "calls",
+		Confidence: 0.8,
+		Provenance: "heuristic",
+	}
+	if err := s.PutEdge(ctx, danglingEdge); err != nil {
+		t.Fatalf("PutEdge dangling: %v", err)
+	}
+
+	edges, err := s.DanglingEdges(ctx)
+	if err != nil {
+		t.Fatalf("DanglingEdges: %v", err)
+	}
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 dangling edge, got %d", len(edges))
+	}
+	if edges[0].EdgeHash != danglingEdge.EdgeHash {
+		t.Errorf("wrong dangling edge returned")
+	}
+}
+
+func TestAllRepos(t *testing.T) {
+	s := tempDB(t)
+	ctx := context.Background()
+
+	makeRepo(t, s, "https://example.com/beta")
+	makeRepo(t, s, "https://example.com/alpha")
+
+	repos, err := s.AllRepos(ctx)
+	if err != nil {
+		t.Fatalf("AllRepos: %v", err)
+	}
+	if len(repos) != 2 {
+		t.Fatalf("expected 2 repos, got %d", len(repos))
+	}
+	// Should be sorted alphabetically by repo_url.
+	if repos[0].RepoURL != "https://example.com/alpha" {
+		t.Errorf("first repo = %q, want https://example.com/alpha", repos[0].RepoURL)
+	}
+	if repos[1].RepoURL != "https://example.com/beta" {
+		t.Errorf("second repo = %q, want https://example.com/beta", repos[1].RepoURL)
+	}
+}
+
+func TestNodesByQualifiedName(t *testing.T) {
+	s := tempDB(t)
+	ctx := context.Background()
+	repo := makeRepo(t, s, "https://example.com/repo")
+	file := makeFile(t, s, repo, "main.go")
+
+	makeNode(t, s, file, "main.FooBar", "function")
+	makeNode(t, s, file, "main.FooBaz", "function")
+
+	// Exact match, not prefix.
+	nodes, err := s.NodesByQualifiedName(ctx, "main.FooBar")
+	if err != nil {
+		t.Fatalf("NodesByQualifiedName: %v", err)
+	}
+	if len(nodes) != 1 {
+		t.Fatalf("expected 1 node, got %d", len(nodes))
+	}
+	if nodes[0].QualifiedName != "main.FooBar" {
+		t.Errorf("QualifiedName = %q, want main.FooBar", nodes[0].QualifiedName)
+	}
+
+	// A prefix that doesn't exactly match should return nothing.
+	none, err := s.NodesByQualifiedName(ctx, "main.Foo")
+	if err != nil {
+		t.Fatalf("NodesByQualifiedName prefix: %v", err)
+	}
+	if len(none) != 0 {
+		t.Fatalf("expected 0 nodes for prefix match, got %d", len(none))
+	}
+}
+
+func TestDeleteEdge(t *testing.T) {
+	s := tempDB(t)
+	ctx := context.Background()
+	repo := makeRepo(t, s, "https://example.com/repo")
+	file := makeFile(t, s, repo, "main.go")
+	src := makeNode(t, s, file, "main.A", "function")
+	tgt := makeNode(t, s, file, "main.B", "function")
+
+	edge := makeEdge(t, s, src, tgt, "calls")
+
+	// Verify edge exists.
+	got, err := s.GetEdge(ctx, edge.EdgeHash)
+	if err != nil {
+		t.Fatalf("GetEdge before delete: %v", err)
+	}
+	if got == nil {
+		t.Fatal("edge should exist before delete")
+	}
+
+	// Delete it.
+	if err := s.DeleteEdge(ctx, edge.EdgeHash); err != nil {
+		t.Fatalf("DeleteEdge: %v", err)
+	}
+
+	// Verify it's gone.
+	got, err = s.GetEdge(ctx, edge.EdgeHash)
+	if err != nil {
+		t.Fatalf("GetEdge after delete: %v", err)
+	}
+	if got != nil {
+		t.Error("edge should be nil after delete")
+	}
+}
+
 func TestGetNode_NotFound(t *testing.T) {
 	s := tempDB(t)
 	ctx := context.Background()
