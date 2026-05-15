@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/blackwell-systems/knowing/internal/resolver"
@@ -28,6 +29,14 @@ type batchStore interface {
 	BatchPutFiles(ctx context.Context, files []types.File) error
 }
 
+// cleanupStore is an optional interface for stores that support
+// file-level cleanup operations.
+type cleanupStore interface {
+	DeleteNodesByFile(ctx context.Context, fileHash types.Hash) (int, error)
+	DeleteEdgesBySourceFile(ctx context.Context, fileHash types.Hash) ([]types.Edge, error)
+	EdgesBySourceFile(ctx context.Context, fileHash types.Hash) ([]types.Edge, error)
+}
+
 // Indexer orchestrates extractors to index a repository's source code
 // into the knowledge graph.
 type Indexer struct {
@@ -35,6 +44,9 @@ type Indexer struct {
 	snapshot    SnapshotComputer
 	registry    *ExtractorRegistry
 	Concurrency int // 0 means use runtime.GOMAXPROCS
+
+	changedMu        sync.Mutex
+	lastChangedFiles []string
 }
 
 // NewIndexer creates an Indexer with the given store and snapshot computer.
@@ -195,6 +207,11 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 	var allEdges []types.Edge
 	var allFiles []types.File
 
+	// Track removed edges for event recording and changed file paths.
+	var removedEdges []types.Edge
+	var changedFilePaths []string
+	cs, hasCleanup := idx.store.(cleanupStore)
+
 	for _, absPath := range filePaths {
 		relPath, err := filepath.Rel(repoPath, absPath)
 		if err != nil {
@@ -216,6 +233,22 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 		// Skip unchanged files.
 		if oldHash, exists := existingByPath[relPath]; exists && oldHash == contentHash {
 			continue
+		}
+
+		changedFilePaths = append(changedFilePaths, relPath)
+
+		// Clean up old nodes/edges for changed files.
+		if hasCleanup {
+			if _, exists := existingByPath[relPath]; exists {
+				oldFile, err := idx.store.FileByPath(ctx, repoHash, relPath)
+				if err == nil && oldFile != nil {
+					removed, err := cs.DeleteEdgesBySourceFile(ctx, oldFile.FileHash)
+					if err == nil {
+						removedEdges = append(removedEdges, removed...)
+					}
+					_, _ = cs.DeleteNodesByFile(ctx, oldFile.FileHash)
+				}
+			}
 		}
 
 		// Compute FileHash as sha256(repoHash || path || contentHash).
@@ -281,6 +314,62 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 		return nil, fmt.Errorf("compute snapshot: %w", err)
 	}
 
+	// Record edge events for the diff between old and new edges.
+	if hasCleanup && snap != nil {
+		// Build set of removed edge hashes for O(1) lookup.
+		removedSet := make(map[types.Hash]bool, len(removedEdges))
+		for _, e := range removedEdges {
+			removedSet[e.EdgeHash] = true
+		}
+
+		// Collect new edges from changed files.
+		newEdgeSet := make(map[types.Hash]bool)
+		for _, f := range allFiles {
+			newEdges, err := cs.EdgesBySourceFile(ctx, f.FileHash)
+			if err != nil {
+				continue
+			}
+			for _, e := range newEdges {
+				newEdgeSet[e.EdgeHash] = true
+			}
+		}
+
+		now := time.Now().Unix()
+
+		// Record "removed" events for edges that were deleted and not re-added.
+		for _, e := range removedEdges {
+			if !newEdgeSet[e.EdgeHash] {
+				_ = idx.store.RecordEdgeEvent(ctx, types.EdgeEvent{
+					EdgeHash:     e.EdgeHash,
+					EventType:    "removed",
+					SnapshotHash: snap.SnapshotHash,
+					SourceCommit: commitHash,
+					IndexerVer:   "v1",
+					Timestamp:    now,
+				})
+			}
+		}
+
+		// Record "added" events for new edges that were not in the removed set.
+		for _, e := range allEdges {
+			if !removedSet[e.EdgeHash] {
+				_ = idx.store.RecordEdgeEvent(ctx, types.EdgeEvent{
+					EdgeHash:     e.EdgeHash,
+					EventType:    "added",
+					SnapshotHash: snap.SnapshotHash,
+					SourceCommit: commitHash,
+					IndexerVer:   "v1",
+					Timestamp:    now,
+				})
+			}
+		}
+	}
+
+	// Store changed files for downstream consumers.
+	idx.changedMu.Lock()
+	idx.lastChangedFiles = changedFilePaths
+	idx.changedMu.Unlock()
+
 	// Resolve cross-repo dangling edges (best-effort, does not fail indexing).
 	_, _ = idx.ResolveEdges(ctx)
 
@@ -310,6 +399,16 @@ func (idx *Indexer) buildModuleToRepoMap(ctx context.Context) map[string]string 
 			result[modulePath] = repo.RepoURL
 		}
 	}
+	return result
+}
+
+// LastChangedFiles returns the file paths that changed in the most
+// recent IndexRepo call.
+func (idx *Indexer) LastChangedFiles() []string {
+	idx.changedMu.Lock()
+	defer idx.changedMu.Unlock()
+	result := make([]string, len(idx.lastChangedFiles))
+	copy(result, idx.lastChangedFiles)
 	return result
 }
 
