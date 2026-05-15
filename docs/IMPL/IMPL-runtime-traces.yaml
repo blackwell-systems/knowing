@@ -1,0 +1,1050 @@
+title: Runtime Trace Ingestion Pipeline
+feature_slug: runtime-traces
+verdict: SUITABLE
+suitability_assessment: |
+    All five suitability gate questions resolve cleanly:
+
+    1. File decomposition: The work decomposes into 7+ distinct new files across
+       separate packages (internal/trace/, internal/store/migrations/, internal/mcp/)
+       plus modifications to existing files (types/types.go, daemon/daemon.go,
+       cmd/knowing/main.go). No two agents need conflicting modifications to the
+       same file. Disjoint ownership is achievable.
+
+    2. Investigation-first items: None. The design doc (docs/runtime-traces.md)
+       fully specifies all components including interfaces, SQL schema, confidence
+       scoring rules, and integration points. No unknowns requiring investigation.
+
+    3. Interface discoverability: Yes. The TraceIngestor interface, TraceSpan
+       struct, confidence scoring table, and SQL schema are fully specified in the
+       design doc. Cross-agent interfaces can be defined as binding contracts.
+
+    4. Pre-implementation status: No existing runtime trace code exists. All items
+       are TODO status. The Edge struct needs two new fields (ObservationCount,
+       LastObserved); the edges table needs two new columns via migration 004.
+
+    5. Parallelization value: High. Build+test cycle is ~15s (Go project with
+       SQLite). 5 agents in wave 1 with 2-4 files each, independent work. Wave 2
+       handles integration (daemon wiring, CLI flags, MCP tools). Clear speedup
+       over sequential implementation.
+
+    Estimated times:
+    - Scout phase: ~8 min (dependency mapping, interface contracts, IMPL doc)
+    - Agent execution: ~15 min (5 wave-1 agents x 8 min avg, parallel)
+    - Wave 2 execution: ~10 min (2 agents x 8 min avg, parallel)
+    - Merge and verification: ~5 min per wave
+    Total Polywave time: ~43 min
+
+    Sequential baseline: ~56 min (7 agents x 8 min avg sequential)
+    Time savings: ~13 min (23% faster)
+
+    Recommendation: Clear speedup. Wave 1 agents are fully independent
+    (new packages with no cross-dependencies). Proceed.
+test_command: go test ./...
+lint_command: go vet ./...
+file_ownership:
+    - file: internal/trace/types.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/store/migrations/004_add_runtime_columns.sql
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/store/sqlite_runtime.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/store/sqlite_runtime_test.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/types/types.go
+      agent: C
+      wave: 1
+      action: modify
+    - file: internal/trace/resolver.go
+      agent: D
+      wave: 1
+      action: new
+    - file: internal/trace/resolver_test.go
+      agent: D
+      wave: 1
+      action: new
+    - file: internal/trace/confidence.go
+      agent: E
+      wave: 1
+      action: new
+    - file: internal/trace/confidence_test.go
+      agent: E
+      wave: 1
+      action: new
+    - file: internal/trace/ingestor.go
+      agent: F
+      wave: 2
+      action: new
+    - file: internal/trace/ingestor_test.go
+      agent: F
+      wave: 2
+      action: new
+    - file: internal/trace/otlp.go
+      agent: F
+      wave: 2
+      action: new
+    - file: internal/daemon/daemon.go
+      agent: G
+      wave: 2
+      action: modify
+    - file: cmd/knowing/main.go
+      agent: G
+      wave: 2
+      action: modify
+interface_contracts:
+    - name: TraceIngestor
+      description: |
+        Interface for converting raw observability data into graph edges.
+        Implemented by the OTel-based ingestor in internal/trace/ingestor.go.
+      definition: |
+        type TraceIngestor interface {
+            IngestSpans(ctx context.Context, spans []TraceSpan) (IngestResult, error)
+            IngestHTTPLogs(ctx context.Context, entries []HTTPLogEntry) (IngestResult, error)
+            RuntimeEdgeStats(ctx context.Context, snapshot types.Hash) (*RuntimeStats, error)
+            DecayConfidence(ctx context.Context) (updated int, err error)
+        }
+      location: internal/trace/types.go
+    - name: SymbolResolver
+      description: |
+        Resolves runtime identifiers (routes, RPC methods) to graph node hashes
+        using the route_symbols table built during static indexing.
+      definition: |
+        type SymbolResolver struct {
+            store types.GraphStore
+        }
+        func NewSymbolResolver(store types.GraphStore) *SymbolResolver
+        func (r *SymbolResolver) Resolve(ctx context.Context, serviceName, routePattern, mappingType string) (types.Hash, float64, error)
+      location: internal/trace/resolver.go
+    - name: RouteSymbolStore
+      description: |
+        Extended store methods for route_symbols table operations.
+        Added to SQLiteStore, not to the GraphStore interface (keeps interface stable).
+      definition: |
+        func (s *SQLiteStore) PutRouteSymbol(ctx context.Context, m trace.RouteMapping) error
+        func (s *SQLiteStore) GetRouteSymbol(ctx context.Context, serviceName, routePattern, mappingType string) (*trace.RouteMapping, error)
+        func (s *SQLiteStore) UpdateObservation(ctx context.Context, edgeHash types.Hash, count int, lastObserved int64, confidence float64) error
+        func (s *SQLiteStore) RuntimeEdgesByProvenance(ctx context.Context, provenance string) ([]types.Edge, error)
+        func (s *SQLiteStore) DecayRuntimeConfidence(ctx context.Context, staleDays int, newConfidence float64) (int, error)
+      location: internal/store/sqlite.go
+    - name: Edge struct extension
+      description: |
+        Two new fields added to the Edge struct for runtime observation tracking.
+        Static edges use default zero values for both fields.
+      definition: |
+        // Added to types.Edge:
+        ObservationCount int   // total observations in current window (0 for static edges)
+        LastObserved     int64 // unix timestamp of last observation (0 for static edges)
+      location: internal/types/types.go
+    - name: OTLPReceiver
+      description: |
+        gRPC server that implements the OTLP trace receiver protocol.
+        Receives ExportTraceServiceRequest, normalizes spans to TraceSpan,
+        and passes them to the TraceIngestor.
+      definition: |
+        type OTLPReceiver struct {
+            ingestor TraceIngestor
+            addr     string
+        }
+        func NewOTLPReceiver(addr string, ingestor TraceIngestor) *OTLPReceiver
+        func (r *OTLPReceiver) Start(ctx context.Context) error
+        func (r *OTLPReceiver) Stop() error
+      location: internal/trace/otlp.go
+waves:
+    - number: 1
+      agents:
+        - id: A
+          task: |
+            # Scaffold: Shared Types for Runtime Trace Ingestion
+
+            Create the `internal/trace/types.go` file containing all shared types
+            used by the runtime trace ingestion pipeline. This is a scaffold task:
+            define types only, no logic beyond the ConfidenceFromCount helper.
+
+            ## What to implement
+
+            File: `internal/trace/types.go`
+
+            Package declaration: `package trace`
+
+            Types to define (exact definitions in the scaffolds section above):
+            - `TraceSpan` struct: normalized span representation
+            - `HTTPLogEntry` struct: HTTP access log entry
+            - `RuntimeStats` struct: aggregated runtime edge statistics
+            - `IngestResult` struct: batch ingestion outcome (Created, Updated int)
+            - `RouteMapping` struct: route-to-node mapping entry
+            - `HealthState` type (string) with constants: CONNECTED, RECONNECTING, DISCONNECTED, DISABLED
+            - `TraceIngestConfig` struct: configuration for the pipeline
+            - `ConfidenceFromCount(count int) float64` function: implements the
+              confidence scoring table from the design doc
+            - `TraceIngestor` interface with methods: IngestSpans, IngestHTTPLogs,
+              RuntimeEdgeStats, DecayConfidence
+
+            ## Interfaces consumed
+            - `types.Hash` from `github.com/blackwell-systems/knowing/internal/types`
+
+            ## Tests
+            No test file needed for type definitions. ConfidenceFromCount is tested
+            by Agent E in internal/trace/confidence_test.go.
+
+            ## Verification gate
+            ```bash
+            go build ./internal/trace/...
+            ```
+            Postconditions:
+            - `grep -c "type TraceSpan struct" internal/trace/types.go` => 1
+            - `grep -c "type TraceIngestor interface" internal/trace/types.go` => 1
+            - `grep -c "func ConfidenceFromCount" internal/trace/types.go` => 1
+
+            ## Constraints
+            - Do NOT add any implementation logic beyond ConfidenceFromCount.
+            - Do NOT create files outside internal/trace/types.go.
+            - Do NOT import any external OTel dependencies; these types are
+              knowing-internal representations, not OTel protobuf types.
+          files:
+            - internal/trace/types.go
+        - id: B
+          task: |
+            # Store Layer: Runtime Columns Migration and Route Symbol Methods
+
+            Add the SQLite migration for runtime observation columns on the edges
+            table and the route_symbols table. Implement store methods for route
+            symbol CRUD and runtime edge observation updates.
+
+            ## What to implement
+
+            ### File 1: internal/store/migrations/004_add_runtime_columns.sql
+
+            ```sql
+            ALTER TABLE edges ADD COLUMN observation_count INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE edges ADD COLUMN last_observed INTEGER NOT NULL DEFAULT 0;
+
+            CREATE TABLE route_symbols (
+                service_name  TEXT NOT NULL,
+                route_pattern TEXT NOT NULL,
+                node_hash     BLOB NOT NULL,
+                mapping_type  TEXT NOT NULL,
+                created_at    INTEGER NOT NULL,
+                PRIMARY KEY (service_name, route_pattern, mapping_type)
+            );
+
+            CREATE INDEX idx_route_symbols_node ON route_symbols(node_hash);
+            CREATE INDEX idx_edges_provenance ON edges(provenance);
+            CREATE INDEX idx_edges_last_observed ON edges(last_observed);
+            ```
+
+            ### File 2: internal/store/sqlite_runtime.go
+
+            Package `store`. Methods on `*SQLiteStore`:
+
+            - `PutRouteSymbol(ctx, serviceName, routePattern, nodeHash types.Hash, mappingType string) error`
+              INSERT OR REPLACE into route_symbols with created_at = now.
+
+            - `GetRouteSymbol(ctx, serviceName, routePattern, mappingType string) (*RouteSymbolRow, error)`
+              Returns nil, nil if not found. RouteSymbolRow is a local struct:
+              `type RouteSymbolRow struct { ServiceName, RoutePattern, MappingType string; NodeHash types.Hash; CreatedAt int64 }`
+
+            - `UpdateObservation(ctx, edgeHash types.Hash, observationCount int, lastObserved int64, confidence float64) error`
+              UPDATE edges SET observation_count=?, last_observed=?, confidence=?
+              WHERE edge_hash=?
+
+            - `RuntimeEdgesByProvenance(ctx, provenancePrefix string) ([]types.Edge, error)`
+              SELECT ... FROM edges WHERE provenance LIKE provenancePrefix+'%'
+              Must scan all edge columns including observation_count and last_observed.
+
+            - `DecayRuntimeConfidence(ctx, staleDays int, newConfidence float64) (int, error)`
+              UPDATE edges SET confidence=? WHERE provenance LIKE 'otel_%'
+              AND last_observed < (unix_now - staleDays*86400) AND last_observed > 0
+              AND confidence > ?. Returns rows affected.
+
+            ### File 3: internal/store/sqlite_runtime_test.go
+
+            Test all five methods. Use the existing `tempDB` helper pattern from
+            sqlite_test.go. Test PutRouteSymbol + GetRouteSymbol round-trip, test
+            UpdateObservation modifies the correct edge, test
+            DecayRuntimeConfidence only affects otel_ edges older than threshold.
+
+            ## Important: Edge scanning must handle new columns
+
+            The existing `scanEdge` / `scanEdges` helpers in sqlite.go scan 9 columns.
+            Your new methods that return `[]types.Edge` must scan 11 columns
+            (including observation_count and last_observed). Define local scan
+            helpers in sqlite_runtime.go that scan all 11 columns:
+            `scanEdgeRuntime(row scannable) (*types.Edge, error)` and
+            `scanEdgesRuntime(rows *sql.Rows) ([]types.Edge, error)`.
+
+            Note: Agent C will add ObservationCount and LastObserved fields to the
+            Edge struct in types.go. Your scan helpers should populate those fields.
+            The scaffold for internal/trace/types.go will be available.
+
+            ## Verification gate
+            ```bash
+            go build ./internal/store/...
+            go test ./internal/store/ -run TestRuntime -v
+            ```
+            Postconditions:
+            - `grep -c "route_symbols" internal/store/migrations/004_add_runtime_columns.sql` => >= 1
+            - `grep -c "PutRouteSymbol" internal/store/sqlite_runtime.go` => >= 1
+            - `grep -c "DecayRuntimeConfidence" internal/store/sqlite_runtime.go` => >= 1
+
+            ## Constraints
+            - Do NOT modify internal/store/sqlite.go. Put all new methods in the
+              new sqlite_runtime.go file.
+            - Do NOT modify the existing scanEdge/scanEdges helpers. Define new
+              local scan helpers that handle all 11 columns.
+            - Do NOT modify files outside your ownership list.
+          files:
+            - internal/store/migrations/004_add_runtime_columns.sql
+            - internal/store/sqlite_runtime.go
+            - internal/store/sqlite_runtime_test.go
+        - id: C
+          task: |
+            # Types: Add Observation Fields to Edge Struct
+
+            Extend the Edge struct with two new fields for runtime observation
+            tracking. Static edges use default zero values for both.
+
+            ## What to implement
+
+            File: `internal/types/types.go`
+
+            Add two fields to the `Edge` struct, after the existing CallSiteFile field:
+
+            Insert after this exact text:
+            ```go
+            	CallSiteFile string // relative file path (within the repo) containing the call expression
+            ```
+
+            Add:
+            ```go
+            	// Runtime observation fields. Zero values for static edges.
+            	ObservationCount int   // total observations in current window (0 for static edges)
+            	LastObserved     int64 // unix timestamp of last observation (0 for static edges)
+            ```
+
+            These fields are not included in edge hash computation (observation
+            updates do not change edge identity). The existing ComputeEdgeHash
+            function remains unchanged.
+
+            ## Tests
+            No new tests needed. Existing tests continue to pass because the new
+            fields default to zero values. Agent B tests the fields via store
+            round-trips in sqlite_runtime_test.go.
+
+            ## Verification gate
+            ```bash
+            go build ./...
+            go test ./internal/types/...
+            ```
+            Postconditions:
+            - `grep -c "ObservationCount" internal/types/types.go` => 1
+            - `grep -c "LastObserved" internal/types/types.go` => 1
+
+            ## Constraints
+            - Do NOT change ComputeEdgeHash or ComputeNodeHash.
+            - Do NOT modify any file other than internal/types/types.go.
+            - Do NOT change any existing field order or type. Only append new fields
+              to the Edge struct.
+
+            IMPORTANT: After adding these fields, the existing scanEdge/scanEdges
+            helpers in sqlite.go will still work because they scan 9 columns from
+            the SELECT statement (edge_hash through callsite_file). The new columns
+            are not in those SELECTs, so existing scan helpers do not break. Agent B
+            creates separate scan helpers for runtime queries that include all 11
+            columns.
+          files:
+            - internal/types/types.go
+        - id: D
+          task: |
+            # Symbol Resolver: Route-to-Node Mapping
+
+            Implement the symbol resolver that maps runtime identifiers (HTTP routes,
+            gRPC methods, queue topics) to graph node hashes using the route_symbols
+            table.
+
+            ## What to implement
+
+            ### File 1: internal/trace/resolver.go
+
+            Package `trace`.
+
+            ```go
+            type SymbolResolver struct {
+                db *sql.DB
+            }
+
+            func NewSymbolResolver(db *sql.DB) *SymbolResolver
+            ```
+
+            Methods:
+
+            - `Resolve(ctx, serviceName, routePattern, mappingType string) (types.Hash, float64, error)`
+              Query route_symbols for exact match on (service_name, route_pattern,
+              mapping_type). If found, return (nodeHash, 1.0, nil). If not found,
+              create a synthetic unresolved node hash:
+              `types.ComputeNodeHash(serviceName, "UNRESOLVED", types.EmptyHash, routePattern, "runtime_endpoint")`
+              Return (syntheticHash, 0.3, nil).
+
+            - `ResolveSpan(ctx, span TraceSpan) (sourceHash, targetHash types.Hash, confidence float64, err error)`
+              Extract runtime identifiers from span attributes:
+              1. Source: serviceName -> compute node hash via
+                 `types.ComputeNodeHash(span.ServiceName, "", types.EmptyHash, span.ServiceName, "service")`
+              2. Target: determine mapping type from attributes:
+                 - If `http.method` and `http.route` present: mappingType="http_route",
+                   routePattern = method + " " + route (e.g., "POST /api/v2/users")
+                 - If `rpc.service` and `rpc.method` present: mappingType="grpc_method",
+                   routePattern = service + "." + method
+                 - Otherwise: use span.OperationName as routePattern, mappingType="unknown"
+              3. If span.PeerService is non-empty, resolve target against PeerService.
+                 Otherwise, resolve against span.ServiceName.
+              4. Call Resolve for the target. Return sourceHash, targetHash, confidence.
+
+            ### File 2: internal/trace/resolver_test.go
+
+            Tests:
+            - TestResolve_ExactMatch: insert a route_symbol row, resolve it, verify hash matches
+            - TestResolve_Unresolved: resolve a non-existent route, verify synthetic hash and 0.3 confidence
+            - TestResolveSpan_HTTP: create span with http.method="POST", http.route="/api/users",
+              verify correct route pattern construction
+            - TestResolveSpan_GRPC: create span with rpc.service="UserService", rpc.method="GetUser"
+
+            Use an in-memory SQLite database for tests. Create the route_symbols
+            table directly in the test setup (copy the CREATE TABLE from migration 004).
+
+            ## Verification gate
+            ```bash
+            go build ./internal/trace/...
+            go test ./internal/trace/ -run TestResolve -v
+            ```
+            Postconditions:
+            - `grep -c "func.*Resolve(" internal/trace/resolver.go` => >= 2
+            - `grep -c "UNRESOLVED" internal/trace/resolver.go` => >= 1
+
+            ## Constraints
+            - Do NOT import the store package. Use *sql.DB directly for database
+              access. This keeps the trace package independent of the store package.
+            - Do NOT modify files outside your ownership list.
+            - Do NOT duplicate the TraceSpan type; import it from internal/trace
+              (the scaffold types.go will be available).
+          files:
+            - internal/trace/resolver.go
+            - internal/trace/resolver_test.go
+        - id: E
+          task: |
+            # Confidence Scoring and Decay Logic
+
+            Implement the confidence scoring computation and decay logic for runtime
+            edges. This is pure business logic with no database dependencies.
+
+            ## What to implement
+
+            ### File 1: internal/trace/confidence.go
+
+            Package `trace`.
+
+            Functions:
+
+            - `ComputeConfidence(observationCount int, daysSinceLastObserved int) float64`
+              Combines observation volume and recency:
+              1. If daysSinceLastObserved > 90: return 0.0 (GC eligible)
+              2. If daysSinceLastObserved > 30: return 0.2 (stale)
+              3. Otherwise: return ConfidenceFromCount(observationCount) from types.go
+
+            - `ShouldGarbageCollect(lastObserved int64, gcThresholdDays int) bool`
+              Returns true if time.Now().Unix() - lastObserved > gcThresholdDays * 86400
+
+            - `DecayBracket(daysSinceLastObserved int) string`
+              Returns a human-readable decay bracket for diagnostics:
+              "active" (0-7 days), "recent" (8-30 days), "stale" (31-90 days),
+              "gc_eligible" (>90 days)
+
+            - `BuildProvenance(traceIDs []string) string`
+              Returns the provenance string for runtime edges:
+              `otel_trace:{"trace_ids":["id1","id2"]}` (max 5 trace IDs, truncate if more).
+              If traceIDs is empty, return "otel_trace".
+
+            ### File 2: internal/trace/confidence_test.go
+
+            Tests:
+            - TestConfidenceFromCount: table-driven test covering all brackets
+              (>1000, 100-1000, 10-100, 1-9, 0) from the design doc
+            - TestComputeConfidence: test interaction of count and recency
+            - TestComputeConfidence_Stale: daysSinceLastObserved > 30 returns 0.2
+            - TestComputeConfidence_GCEligible: daysSinceLastObserved > 90 returns 0.0
+            - TestShouldGarbageCollect: edge cases around threshold
+            - TestBuildProvenance: empty, few, and >5 trace IDs
+            - TestDecayBracket: all four brackets
+
+            ## Verification gate
+            ```bash
+            go build ./internal/trace/...
+            go test ./internal/trace/ -run TestConfidence -v
+            go test ./internal/trace/ -run TestShouldGarbageCollect -v
+            go test ./internal/trace/ -run TestBuildProvenance -v
+            go test ./internal/trace/ -run TestDecayBracket -v
+            ```
+            Postconditions:
+            - `grep -c "func ComputeConfidence" internal/trace/confidence.go` => 1
+            - `grep -c "func BuildProvenance" internal/trace/confidence.go` => 1
+
+            ## Constraints
+            - Do NOT import database/sql or the store package. This is pure logic.
+            - Do NOT duplicate ConfidenceFromCount; import it from the scaffold types.go.
+            - Do NOT modify files outside your ownership list.
+          files:
+            - internal/trace/confidence.go
+            - internal/trace/confidence_test.go
+    - number: 2
+      agents:
+        - id: F
+          task: |
+            # Trace Ingestor and OTLP Receiver
+
+            Implement the core TraceIngestor that processes span batches into graph
+            edges, and the OTLP gRPC receiver that accepts spans from OTel collectors.
+
+            ## What to implement
+
+            ### File 1: internal/trace/ingestor.go
+
+            Package `trace`. Implements the TraceIngestor interface.
+
+            ```go
+            type Ingestor struct {
+                db       *sql.DB
+                resolver *SymbolResolver
+                config   TraceIngestConfig
+                mu       sync.Mutex  // protects pendingBatch
+                pending  []TraceSpan
+            }
+
+            func NewIngestor(db *sql.DB, resolver *SymbolResolver, config TraceIngestConfig) *Ingestor
+            ```
+
+            Methods:
+
+            - `IngestSpans(ctx, spans []TraceSpan) (IngestResult, error)`
+              For each span:
+              1. Call resolver.ResolveSpan to get sourceHash, targetHash, confidence
+              2. Determine edge type from span attributes:
+                 - http.method present -> "runtime_calls"
+                 - rpc.service present -> "runtime_rpc"
+                 - messaging.system present -> "runtime_produces" or "runtime_consumes"
+                 - default -> "runtime_calls"
+              3. Build provenance string via BuildProvenance with sample trace IDs
+              4. Compute edge hash: types.ComputeEdgeHash(sourceHash, targetHash, edgeType, "otel_trace")
+                 Note: provenance in hash computation is always "otel_trace" (not the
+                 JSON-enriched provenance string). This ensures the same relationship
+                 always maps to the same edge hash regardless of sampled trace IDs.
+              5. Check if edge exists (SELECT edge_hash FROM edges WHERE edge_hash=?)
+                 - If exists: UPDATE observation_count, last_observed, confidence.
+                   Increment observation_count. Update confidence from ComputeConfidence.
+                 - If not exists: INSERT new edge with full provenance string.
+                   Record an "added" EdgeEvent.
+              Return IngestResult with counts.
+
+            - `IngestHTTPLogs(ctx, entries []HTTPLogEntry) (IngestResult, error)`
+              Convert each entry to a TraceSpan (method+path -> operationName,
+              serviceName from entry) and delegate to IngestSpans.
+
+            - `RuntimeEdgeStats(ctx, snapshot types.Hash) (*RuntimeStats, error)`
+              Query edges WHERE provenance LIKE 'otel_%'. Aggregate by edge_type
+              for BySourceType. Count active (last_observed within 7 days), stale
+              (no observations in 30 days), gc_eligible (no observations in 90 days).
+
+            - `DecayConfidence(ctx) (int, error)`
+              Call DecayRuntimeConfidence on the store: all otel_ edges not observed
+              in 30+ days get confidence set to 0.2. Return count of updated edges.
+
+            - `FlushBatch(ctx) error`
+              If pending spans exist, call IngestSpans with the pending batch and clear it.
+
+            - `AddToBatch(span TraceSpan)`
+              Append span to pending batch (mutex-protected). If len(pending) >= config.BatchSize,
+              trigger FlushBatch.
+
+            ### File 2: internal/trace/ingestor_test.go
+
+            Tests:
+            - TestIngestSpans_NewEdge: ingest a span, verify edge created with correct
+              provenance, observation_count=1, confidence=0.5
+            - TestIngestSpans_ExistingEdge: ingest same span twice, verify
+              observation_count incremented, edge hash unchanged
+            - TestIngestSpans_HTTPRoute: span with http.method/http.route attributes
+            - TestIngestSpans_GRPCMethod: span with rpc.service/rpc.method attributes
+            - TestIngestHTTPLogs: convert HTTP log entry to span and ingest
+            - TestRuntimeEdgeStats: create mixed static/runtime edges, verify stats
+            - TestDecayConfidence: create old runtime edge, run decay, verify confidence
+            - TestBatchAccumulation: add spans via AddToBatch, verify FlushBatch works
+
+            Use in-memory SQLite with migrations applied. Use the existing migration
+            SQL to set up tables in tests.
+
+            ### File 3: internal/trace/otlp.go
+
+            Package `trace`. OTLP gRPC receiver.
+
+            ```go
+            type OTLPReceiver struct {
+                ingestor *Ingestor
+                addr     string
+                server   *grpc.Server
+                health   HealthState
+                mu       sync.RWMutex
+            }
+
+            func NewOTLPReceiver(addr string, ingestor *Ingestor) *OTLPReceiver
+            ```
+
+            Methods:
+
+            - `Start(ctx context.Context) error`
+              Create a gRPC server, register the OTLP trace service
+              (implement Export method from collectortrace.TraceServiceServer).
+              Listen on addr. Set health to CONNECTED.
+
+            - `Stop() error`
+              GracefulStop the gRPC server. Set health to DISABLED.
+
+            - `Health() HealthState`
+              Return current health state (mutex-protected read).
+
+            - `Export(ctx, req *collectortrace.ExportTraceServiceRequest) (*collectortrace.ExportTraceServiceResponse, error)`
+              Convert OTLP ResourceSpans -> []TraceSpan:
+              - Extract service.name from Resource attributes
+              - For each InstrumentationLibrarySpans -> Spans:
+                - Map Name to OperationName
+                - Map Attributes to TraceSpan.Attributes
+                - Extract http.method, http.route, rpc.service, rpc.method, etc.
+                - Extract peer service from span links or attributes
+              Call ingestor.AddToBatch for each span.
+              Return empty response (success).
+
+            Dependencies needed in go.mod (Agent G will add these):
+            - go.opentelemetry.io/proto/otlp v1.5.0
+            - google.golang.org/grpc v1.72.0
+
+            For now, use build tags or interface abstraction so the package compiles
+            without the OTel proto dependency. Define a local interface:
+
+            ```go
+            // otlpSpanData abstracts the OTLP span for testability.
+            // The real implementation wraps collectortrace types.
+            type otlpSpanData interface {
+                GetTraceId() []byte
+                GetSpanId() []byte
+                GetParentSpanId() []byte
+                GetName() string
+                GetAttributes() []otlpAttribute
+                GetStartTimeUnixNano() uint64
+                GetEndTimeUnixNano() uint64
+            }
+            ```
+
+            Actually, for wave 2 the OTel proto dependency should be available.
+            Agent G adds the dependency in go.mod. If the dependency is not yet
+            available when you compile, define a placeholder interface and document
+            what the real implementation should look like.
+
+            ## Verification gate
+            ```bash
+            go build ./internal/trace/...
+            go test ./internal/trace/ -run TestIngest -v
+            go test ./internal/trace/ -run TestBatch -v
+            ```
+            Postconditions:
+            - `grep -c "func.*IngestSpans" internal/trace/ingestor.go` => >= 1
+            - `grep -c "func.*FlushBatch" internal/trace/ingestor.go` => >= 1
+            - `grep -c "OTLPReceiver" internal/trace/otlp.go` => >= 1
+
+            ## Constraints
+            - Do NOT modify any files outside your ownership list.
+            - Do NOT duplicate types from internal/trace/types.go; import them.
+            - Do NOT duplicate store methods; use *sql.DB directly for queries
+              that Agent B's store methods would handle, using the same SQL patterns.
+            - The OTLP receiver (otlp.go) may use a simplified implementation if
+              the OTel proto dependency is not available. Document what needs to
+              change when the dependency is added.
+          files:
+            - internal/trace/ingestor.go
+            - internal/trace/ingestor_test.go
+            - internal/trace/otlp.go
+          dependencies:
+            - A
+            - B
+            - C
+            - D
+            - E
+        - id: G
+          task: |
+            # Daemon Integration and CLI Wiring
+
+            Wire the trace ingestor into the daemon's goroutine lifecycle and add
+            CLI flags for trace ingestion configuration.
+
+            ## What to implement
+
+            ### File 1: internal/daemon/daemon.go (modify)
+
+            Add trace ingestor support to the daemon:
+
+            1. Add to DaemonConfig struct, after the EnrichFunc field:
+
+            Insert after this exact text:
+            ```go
+            	// EnrichFunc is called in the background after each successful index run.
+            	// It receives the repo hash and workspace root path to run LSP enrichment.
+            	// If nil, enrichment is skipped.
+            	EnrichFunc func(ctx context.Context, repoHash types.Hash, workspaceRoot string, changedFiles []string) error
+            ```
+
+            Add:
+            ```go
+            	// TraceConfig holds configuration for the runtime trace ingestion pipeline.
+            	// If nil or Enabled is false, trace ingestion is not started.
+            	TraceConfig *TraceIngestConfig
+            ```
+
+            Where TraceIngestConfig is:
+            ```go
+            type TraceIngestConfig struct {
+            	Enabled       bool
+            	OTLPEndpoint  string
+            	BatchSize     int
+            	BatchInterval time.Duration
+            }
+            ```
+            Define this struct in daemon.go (not imported from trace package, to
+            avoid the daemon depending on trace).
+
+            2. In the Start method, after the MCP server goroutine block, add a
+            trace ingestor goroutine:
+
+            Insert after this exact text:
+            ```go
+            	// MCP server goroutine (if configured).
+            	if d.cfg.MCPServer != nil && d.cfg.MCPAddr != "" {
+            		d.wg.Add(1)
+            		go func() {
+            			defer d.wg.Done()
+            			_ = d.cfg.MCPServer.ServeHTTP(ctx, d.cfg.MCPAddr)
+            		}()
+            	}
+            ```
+
+            Add:
+            ```go
+            	// Trace ingestor goroutine (if configured).
+            	if d.cfg.TraceConfig != nil && d.cfg.TraceConfig.Enabled {
+            		d.wg.Add(1)
+            		go func() {
+            			defer d.wg.Done()
+            			d.traceIngestLoop(ctx)
+            		}()
+            	}
+            ```
+
+            3. Add a new method `traceIngestLoop(ctx context.Context)`:
+            - This is a placeholder that logs "trace ingestion started" and blocks
+              on ctx.Done(). The real implementation will create an OTLPReceiver and
+              Ingestor once the trace package is fully integrated.
+            - For now, it serves as the hook point. The method signature and goroutine
+              wiring are the important parts.
+
+            ```go
+            func (d *Daemon) traceIngestLoop(ctx context.Context) {
+            	// TODO: Wire OTLPReceiver and Ingestor here.
+            	// For now, block until context is cancelled.
+            	<-ctx.Done()
+            }
+            ```
+
+            ### File 2: cmd/knowing/main.go (modify)
+
+            Add trace ingestion flags to the serve command:
+
+            1. In cmdServe, after the existing flag definitions:
+
+            Insert after this exact text:
+            ```go
+            	dbPath := fs.String("db", "knowing.db", "Path to the SQLite database")
+            	addr := fs.String("addr", ":8080", "HTTP address for MCP server")
+            ```
+
+            Add:
+            ```go
+            	traceEnabled := fs.Bool("trace", false, "Enable runtime trace ingestion")
+            	traceEndpoint := fs.String("trace-endpoint", "localhost:4317", "OTLP gRPC endpoint for trace ingestion")
+            	traceBatchSize := fs.Int("trace-batch-size", 1000, "Number of spans per batch")
+            ```
+
+            2. When constructing the DaemonConfig, add the TraceConfig:
+
+            Insert after this exact text in the daemon.NewDaemon call:
+            ```go
+            		MCPServer: mcpServer,
+            ```
+
+            Add (before the EnrichFunc):
+            ```go
+            		TraceConfig: func() *daemon.TraceIngestConfig {
+            			if !*traceEnabled {
+            				return nil
+            			}
+            			return &daemon.TraceIngestConfig{
+            				Enabled:       true,
+            				OTLPEndpoint:  *traceEndpoint,
+            				BatchSize:     *traceBatchSize,
+            				BatchInterval: 10 * time.Second,
+            			}
+            		}(),
+            ```
+
+            3. Add "time" to the imports if not already present.
+
+            4. Update the printUsage function to mention trace flags:
+            No change needed; the flag.FlagSet handles --help automatically.
+
+            ## Verification gate
+            ```bash
+            go build ./cmd/knowing/...
+            go build ./internal/daemon/...
+            go test ./internal/daemon/ -v
+            ```
+            Postconditions:
+            - `grep -c "TraceConfig" internal/daemon/daemon.go` => >= 2
+            - `grep -c "trace-endpoint" cmd/knowing/main.go` => >= 1
+            - `grep -c "traceIngestLoop" internal/daemon/daemon.go` => >= 1
+
+            ## Constraints
+            - Do NOT import the internal/trace package from daemon. The daemon uses
+              its own TraceIngestConfig struct to avoid the dependency. The real
+              wiring will be done in a future integration step.
+            - Do NOT modify the indexWorker method or the existing goroutine structure.
+            - Do NOT modify files outside your ownership list.
+            - The traceIngestLoop is intentionally a placeholder. Do not attempt to
+              create a full OTLP connection here.
+          files:
+            - internal/daemon/daemon.go
+            - cmd/knowing/main.go
+          dependencies:
+            - C
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: go build ./...
+          required: true
+        - type: lint
+          command: go vet ./...
+          required: true
+        - type: test
+          command: go test ./...
+          required: true
+scaffolds:
+    - file_path: internal/trace/types.go
+      contents: |
+        package trace
+
+        import (
+            "time"
+            "github.com/blackwell-systems/knowing/internal/types"
+        )
+
+        // TraceSpan is a normalized representation of a single span from any
+        // tracing system.
+        type TraceSpan struct {
+            TraceID       string
+            SpanID        string
+            ParentSpanID  string
+            ServiceName   string
+            OperationName string
+            PeerService   string
+            Attributes    map[string]string
+            StartTime     time.Time
+            Duration      time.Duration
+        }
+
+        // HTTPLogEntry represents a single HTTP access log line.
+        type HTTPLogEntry struct {
+            Timestamp   time.Time
+            Method      string
+            Path        string
+            StatusCode  int
+            ServiceName string
+            ClientIP    string
+            Duration    time.Duration
+        }
+
+        // RuntimeStats holds aggregated statistics for runtime edges.
+        type RuntimeStats struct {
+            TotalEdges    int
+            BySourceType  map[string]int
+            ActiveCount   int   // edges with observations in last 7 days
+            StaleCount    int   // edges with no observations in last 30 days
+            GCEligible    int   // edges with no observations in last 90 days
+        }
+
+        // IngestResult reports the outcome of a batch ingestion.
+        type IngestResult struct {
+            Created int
+            Updated int
+        }
+
+        // ConfidenceFromCount computes confidence score from observation count
+        // within the last 7 days, per the design doc scoring table.
+        func ConfidenceFromCount(count int) float64 {
+            switch {
+            case count > 1000:
+                return 0.95
+            case count >= 100:
+                return 0.85
+            case count >= 10:
+                return 0.7
+            case count >= 1:
+                return 0.5
+            default:
+                return 0.2
+            }
+        }
+
+        // RouteMapping represents a mapping from a runtime identifier (HTTP route,
+        // gRPC method, queue topic) to a graph node.
+        type RouteMapping struct {
+            ServiceName  string
+            RoutePattern string
+            NodeHash     types.Hash
+            MappingType  string // "http_route", "grpc_method", "queue_topic"
+        }
+
+        // HealthState represents the connection health of the trace ingestor.
+        type HealthState string
+
+        const (
+            HealthConnected    HealthState = "CONNECTED"
+            HealthReconnecting HealthState = "RECONNECTING"
+            HealthDisconnected HealthState = "DISCONNECTED"
+            HealthDisabled     HealthState = "DISABLED"
+        )
+
+        // TraceIngestConfig holds configuration for the trace ingestion pipeline.
+        type TraceIngestConfig struct {
+            Enabled                bool
+            OTLPEndpoint           string
+            BatchSize              int
+            BatchInterval          time.Duration
+            ConfidenceDecayInterval time.Duration
+            GCThresholdDays        int
+            ServiceMap             map[string]string // OTel name -> knowing repo name
+        }
+      import_path: github.com/blackwell-systems/knowing/internal/trace
+      status: pending
+pre_mortem:
+    overall_risk: medium
+    rows:
+        - scenario: |
+            Agent B's migration adds columns to edges table, but the existing
+            scanEdge/scanEdges helpers in sqlite.go only scan 9 columns. If Agent B
+            accidentally modifies sqlite.go, it conflicts with other store work.
+          likelihood: medium
+          impact: high
+          mitigation: |
+            Agent B is explicitly constrained to NOT modify sqlite.go. New scan helpers
+            are defined in sqlite_runtime.go. Existing queries continue to SELECT only
+            the original 9 columns and work unchanged.
+        - scenario: |
+            Agent F's ingestor tests need an in-memory SQLite database with all
+            migrations applied (including migration 004 from Agent B). If Agent B's
+            migration SQL has issues, Agent F's tests fail.
+          likelihood: low
+          impact: medium
+          mitigation: |
+            Agent F creates the schema directly in test setup using raw SQL, not
+            the migration system. This makes Agent F's tests independent of the
+            migration file format.
+        - scenario: |
+            The OTel proto dependency (go.opentelemetry.io/proto/otlp) pulls in a
+            large transitive dependency tree that causes go.sum conflicts or version
+            incompatibilities with existing dependencies.
+          likelihood: medium
+          impact: medium
+          mitigation: |
+            Agent F's otlp.go uses an abstraction layer. If the OTel dependency causes
+            issues, the receiver can be compiled with a build tag. The core ingestor
+            and resolver work without OTel protos.
+        - scenario: |
+            Agent C modifies types.go (adding fields to Edge struct) but existing
+            tests that construct Edge literals break because Go requires all fields
+            in struct literals to be named or all to be present.
+          likelihood: low
+          impact: low
+          mitigation: |
+            Existing test code uses named field initialization (e.g., Edge{EdgeHash: ...,
+            SourceHash: ...}), not positional initialization. Adding new fields with
+            zero defaults does not break named-field construction.
+        - scenario: |
+            Agent D's resolver imports internal/trace for TraceSpan type, creating
+            a same-package dependency that compiles fine but couples the resolver
+            to the types file.
+          likelihood: low
+          impact: low
+          mitigation: |
+            Both are in the same package (internal/trace). The scaffold types.go is
+            created before wave 1 agents run, so Agent D's imports resolve correctly.
+critic_report:
+    verdict: ISSUES
+    agent_reviews:
+        A:
+            agent_id: A
+            verdict: PASS
+        B:
+            agent_id: B
+            verdict: ISSUES
+            issues:
+                - check: interface_consistency
+                  severity: error
+                  description: Interface contract RouteSymbolStore defines PutRouteSymbol(ctx context.Context, m trace.RouteMapping) error, but Agent B brief specifies PutRouteSymbol(ctx, serviceName, routePattern, nodeHash types.Hash, mappingType string) error. The function signature (single struct vs individual params) does not match the contract.
+                  file: internal/store/sqlite_runtime.go
+                  symbol: PutRouteSymbol
+                - check: interface_consistency
+                  severity: error
+                  description: Interface contract RouteSymbolStore defines GetRouteSymbol returning (*trace.RouteMapping, error) but Agent B brief returns (*RouteSymbolRow, error) using a local struct. Return type mismatch with the contract.
+                  file: internal/store/sqlite_runtime.go
+                  symbol: GetRouteSymbol
+        C:
+            agent_id: C
+            verdict: PASS
+        D:
+            agent_id: D
+            verdict: ISSUES
+            issues:
+                - check: interface_consistency
+                  severity: error
+                  description: Interface contract SymbolResolver defines NewSymbolResolver(store types.GraphStore) *SymbolResolver with a GraphStore field, but Agent D brief specifies NewSymbolResolver(db *sql.DB) *SymbolResolver with a *sql.DB field. Any consumer referencing the contract (e.g. Agent F) will expect GraphStore, not *sql.DB.
+                  file: internal/trace/resolver.go
+                  symbol: NewSymbolResolver
+        E:
+            agent_id: E
+            verdict: PASS
+        F:
+            agent_id: F
+            verdict: ISSUES
+            issues:
+                - check: side_effect_completeness
+                  severity: warning
+                  description: Agent F otlp.go requires google.golang.org/grpc and go.opentelemetry.io/proto/otlp dependencies in go.mod. The brief states Agent G will add these, but Agent G brief contains no mention of adding go.mod dependencies. No agent owns go.mod in file_ownership.
+                  file: go.mod
+                  symbol: google.golang.org/grpc
+        G:
+            agent_id: G
+            verdict: PASS
+    summary: Three interface contract vs agent brief signature mismatches found. The SymbolResolver contract specifies types.GraphStore but Agent D uses *sql.DB. The RouteSymbolStore contract specifies PutRouteSymbol taking trace.RouteMapping and GetRouteSymbol returning *trace.RouteMapping, but Agent B uses individual parameters and returns a local RouteSymbolRow struct. Additionally, Agent F references gRPC/OTel proto dependencies that no agent is assigned to add to go.mod. The contract mismatches will cause downstream consumers (Agent F) to hit compilation errors when calling the resolver and store methods with the wrong signatures.
+    reviewed_at: "2026-05-15T20:16:16Z"
+    issue_count: 4
+state: REVIEWED
