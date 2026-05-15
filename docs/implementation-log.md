@@ -403,10 +403,10 @@ Merge: clean.
 
 ### Benchmark result: FAILED TO MEET TARGET
 
-| Metric | Before | After | Target |
-|--------|--------|-------|--------|
-| Cold index polywave-go | 16m 24s | ~12m+ (still running at 12m, didn't finish in time) | 30s |
-| CPU time | 594s user + 2358s sys | TBD | - |
+| Metric | Before (per-file) | After (bulk ./...) | After (per-package) | Target |
+|--------|-------------------|--------------------|--------------------|--------|
+| Cold index polywave-go | 16m 24s | ~12m+ (killed) | **16m 31s** | 30s |
+| CPU time | 594s user + 2358s sys | TBD | 595s user + 2409s sys | - |
 | Incremental (no changes) | 1.7s | 1.7s (unchanged) | - |
 
 **Why the optimization didn't work as expected:**
@@ -417,19 +417,28 @@ For polywave-go, `./...` loads every package in the module plus all transitive d
 
 The worker pool parallelizes AST extraction (which was already fast), not the type-checking (which is the actual bottleneck). `go/packages.Load` is the bottleneck, and it's not parallelizable from our side.
 
-**Root cause:** `go/packages` is designed for IDE-like interactive use (load one package at a time) or build-system use (load everything once). For a repo indexer that needs type-resolved edges across all packages, neither granularity is ideal:
-- Per-file: too many redundant loads (~100x overhead)
-- Per-repo `./...`: one massive load that type-checks everything including all transitive deps (~12+ min for a repo with heavy deps)
-- Per-package: potentially the sweet spot (load each of ~30 packages once, shared dep type info cached by Go's build cache)
+**Root cause:** `go/packages` with `NeedTypes | NeedTypesInfo` triggers the full Go type checker, which resolves all transitive dependencies for every package loaded. This is the same work regardless of whether you load per-file, per-package, or per-repo. The type-checking cost is proportional to the dependency graph size, not the number of Load calls.
 
-### Next steps for indexing performance
+For polywave-go, the transitive dependency graph includes hundreds of packages (stdlib + third-party). Type-checking all of them takes ~600s of CPU time no matter how we invoke `go/packages`. The per-file approach (16m24s), bulk `./...` approach (~12m+), and per-package approach (16m31s) all converge to the same total work.
 
-Options identified but not yet implemented:
+**Attempted approaches and results:**
 
-1. **Per-package loading** (medium effort): Load each unique package directory once instead of the whole repo. Go's build cache means shared dependencies are type-checked once. ~30 loads instead of 1 massive or 100 redundant.
+| Approach | Wall time | Why it didn't help |
+|----------|-----------|-------------------|
+| Per-file Load (100+ calls) | 16m 24s | Baseline. Redundant loads but Go build cache partially amortizes. |
+| Bulk `./...` Load (1 call) + worker pool | ~12m+ (killed) | Single Load is still expensive. Workers parallelize extraction (fast) not type-checking (slow). |
+| Per-package Load (~30 calls) + worker pool | 16m 31s | Each package load still type-checks its transitive deps. No improvement over baseline. |
 
-2. **Two-tier extraction** (medium effort): Fast AST-only pass (`go/parser`, no type resolution) for declarations and syntactic calls. Background type-resolution pass for implements/references edges. First index completes in seconds; full type info arrives later.
+**Conclusion:** The `go/packages` type checker is the fundamental bottleneck. No loading strategy can avoid the cost of type-checking the transitive dependency graph. The only path to fast cold indexing is avoiding full type-checking on the critical path.
 
-3. **Incremental per-package** (low effort on top of option 1): Only load packages containing changed files. Most re-indexes after a single-file edit would load 1 package.
+### Next step: two-tier extraction
 
-4. **Reduced Load mode** (low effort): Use `NeedSyntax | NeedName` only (no type checking). Loses implements/references edges but gains massive speed. Could be a `--fast` flag.
+The only viable approach for fast cold indexing:
+
+**Tier 1 (fast, immediate):** tree-sitter or `go/parser` AST-only pass. No type resolution. Produces function/type/method declarations and syntactic call expressions. Edges get provenance `ast_inferred` with lower confidence. Index completes in seconds.
+
+**Tier 2 (slow, background):** `go/packages` type resolution OR LSP enrichment via `github.com/blackwell-systems/agent-lsp/pkg/lsp` (pure Go LSP client library, already exists). Upgrades `ast_inferred` edges to `ast_resolved` or `lsp_resolved`. Adds `implements` and `references` edges that require type info. Runs asynchronously after the graph is already queryable.
+
+The graph is usable immediately after Tier 1. Tier 2 improves accuracy over time. This is the same model gortex uses (tree-sitter + optional LSP enrichment).
+
+agent-lsp's `pkg/lsp` package provides a battle-tested LSP client (hover, definition, references, implementations, call hierarchy) with no CGo dependencies. knowing can import it directly for Tier 2 enrichment instead of building its own LSP client.
