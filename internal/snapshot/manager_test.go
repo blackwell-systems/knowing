@@ -349,6 +349,130 @@ func TestGarbageCollect_KeepsRecent(t *testing.T) {
 	}
 }
 
+func TestComputeSnapshot_WithRealData(t *testing.T) {
+	store := newMockGraphStore()
+	ctx := context.Background()
+
+	// Set up repo.
+	repoHash := types.NewHash([]byte("https://github.com/example/repo"))
+	store.repos[repoHash] = &types.Repo{
+		RepoHash: repoHash,
+		RepoURL:  "https://github.com/example/repo",
+	}
+
+	// Create files (stored for reference; snapshot uses nodes/edges).
+	file1 := types.File{
+		FileHash:    types.NewHash([]byte("file-1")),
+		RepoHash:    repoHash,
+		Path:        "pkg/main.go",
+		ContentHash: types.NewHash([]byte("content-1")),
+	}
+	file2 := types.File{
+		FileHash:    types.NewHash([]byte("file-2")),
+		RepoHash:    repoHash,
+		Path:        "pkg/util.go",
+		ContentHash: types.NewHash([]byte("content-2")),
+	}
+	store.files[repoHash] = []types.File{file1, file2}
+
+	// Create nodes belonging to the repo.
+	node1 := types.Node{
+		NodeHash:      types.NewHash([]byte("node-1")),
+		FileHash:      file1.FileHash,
+		QualifiedName: "https://github.com/example/repo://pkg.Main",
+		Kind:          "function",
+	}
+	node2 := types.Node{
+		NodeHash:      types.NewHash([]byte("node-2")),
+		FileHash:      file1.FileHash,
+		QualifiedName: "https://github.com/example/repo://pkg.Init",
+		Kind:          "function",
+	}
+	node3 := types.Node{
+		NodeHash:      types.NewHash([]byte("node-3")),
+		FileHash:      file2.FileHash,
+		QualifiedName: "https://github.com/example/repo://pkg.Helper",
+		Kind:          "function",
+	}
+
+	store.nodes[node1.NodeHash] = &node1
+	store.nodes[node2.NodeHash] = &node2
+	store.nodes[node3.NodeHash] = &node3
+	store.nodesByNameResult = []types.Node{node1, node2, node3}
+
+	// Create edges between the nodes.
+	edge1 := types.Edge{
+		EdgeHash:   types.NewHash([]byte("edge-1")),
+		SourceHash: node1.NodeHash,
+		TargetHash: node2.NodeHash,
+		EdgeType:   "calls",
+	}
+	edge2 := types.Edge{
+		EdgeHash:   types.NewHash([]byte("edge-2")),
+		SourceHash: node1.NodeHash,
+		TargetHash: node3.NodeHash,
+		EdgeType:   "calls",
+	}
+	edge3 := types.Edge{
+		EdgeHash:   types.NewHash([]byte("edge-3")),
+		SourceHash: node2.NodeHash,
+		TargetHash: node3.NodeHash,
+		EdgeType:   "calls",
+	}
+
+	store.edges[edge1.EdgeHash] = &edge1
+	store.edges[edge2.EdgeHash] = &edge2
+	store.edges[edge3.EdgeHash] = &edge3
+
+	store.edgesFromResult[node1.NodeHash] = []types.Edge{edge1, edge2}
+	store.edgesFromResult[node2.NodeHash] = []types.Edge{edge3}
+	// node3 has no outgoing edges
+
+	sm := NewSnapshotManager(store)
+
+	// Compute snapshot.
+	snap, err := sm.ComputeSnapshot(ctx, repoHash, "abc123")
+	if err != nil {
+		t.Fatalf("ComputeSnapshot failed: %v", err)
+	}
+
+	// Verify counts.
+	if snap.NodeCount != 3 {
+		t.Errorf("expected 3 nodes, got %d", snap.NodeCount)
+	}
+	if snap.EdgeCount != 3 {
+		t.Errorf("expected 3 edges, got %d", snap.EdgeCount)
+	}
+	if snap.CommitHash != "abc123" {
+		t.Errorf("expected commit abc123, got %s", snap.CommitHash)
+	}
+	if snap.SnapshotHash.IsZero() {
+		t.Error("snapshot hash should not be zero")
+	}
+	if !snap.ParentHash.IsZero() {
+		t.Error("first snapshot should have zero parent hash")
+	}
+
+	// Verify determinism: compute again with fresh store, same data.
+	store2 := newMockGraphStore()
+	store2.repos[repoHash] = store.repos[repoHash]
+	store2.nodes = store.nodes
+	store2.edges = store.edges
+	store2.nodesByNameResult = store.nodesByNameResult
+	store2.edgesFromResult = store.edgesFromResult
+
+	sm2 := NewSnapshotManager(store2)
+	snap2, err := sm2.ComputeSnapshot(ctx, repoHash, "different-commit")
+	if err != nil {
+		t.Fatalf("second ComputeSnapshot failed: %v", err)
+	}
+
+	if snap.SnapshotHash != snap2.SnapshotHash {
+		t.Errorf("same graph data should produce same snapshot hash: %s vs %s",
+			snap.SnapshotHash, snap2.SnapshotHash)
+	}
+}
+
 func TestGarbageCollect_PreservesChainIntegrity(t *testing.T) {
 	store := newMockGraphStore()
 	repoHash := types.NewHash([]byte("https://github.com/example/repo"))
