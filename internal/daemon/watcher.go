@@ -2,6 +2,10 @@
 // lifecycle management for the knowing system of record.
 package daemon
 
+// Deprecated: FileWatcher is replaced by GitWatcher (gitwatcher.go).
+// This file is retained for backward compatibility during transition.
+// Remove after all references are updated.
+
 import (
 	"path/filepath"
 	"sync"
