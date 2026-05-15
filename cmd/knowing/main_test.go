@@ -78,6 +78,117 @@ func TestMainFunction_NoArgs_PrintsUsage(t *testing.T) {
 	}
 }
 
+// TestCmdIndex_FullFlagParses verifies that the --full flag is accepted by cmdIndex.
+func TestCmdIndex_FullFlagParses(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	// Create a minimal Go module.
+	repoDir := filepath.Join(dir, "myrepo")
+	if err := os.MkdirAll(repoDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "go.mod"), []byte("module example.com/myrepo\n\ngo 1.21\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "main.go"), []byte("package main\n\nfunc main() {}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Capture stdout.
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+
+	err = cmdIndex([]string{"-db", dbPath, "-url", "example.com/myrepo", "-commit", "abc123", "-full", repoDir})
+
+	w.Close()
+	os.Stdout = old
+
+	if err != nil {
+		t.Fatalf("cmdIndex with --full: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(r); err != nil {
+		t.Fatal(err)
+	}
+	output := buf.String()
+
+	if !strings.Contains(output, "Indexed") {
+		t.Errorf("expected 'Indexed' in output, got %q", output)
+	}
+	// With --full, enrichment should NOT run.
+	if strings.Contains(output, "LSP enrichment") {
+		t.Errorf("--full mode should not trigger LSP enrichment, got %q", output)
+	}
+}
+
+// TestCmdIndex_DefaultUsesTreeSitter verifies that without --full, the default
+// tree-sitter path is used and enrichment is triggered.
+func TestCmdIndex_DefaultUsesTreeSitter(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	// Create a minimal Go module.
+	repoDir := filepath.Join(dir, "myrepo")
+	if err := os.MkdirAll(repoDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "go.mod"), []byte("module example.com/myrepo\n\ngo 1.21\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "main.go"), []byte("package main\n\nfunc main() {}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Capture stdout and stderr.
+	oldOut := os.Stdout
+	oldErr := os.Stderr
+	rOut, wOut, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rErr, wErr, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = wOut
+	os.Stderr = wErr
+
+	err = cmdIndex([]string{"-db", dbPath, "-url", "example.com/myrepo", "-commit", "abc123", repoDir})
+
+	wOut.Close()
+	wErr.Close()
+	os.Stdout = oldOut
+	os.Stderr = oldErr
+
+	if err != nil {
+		t.Fatalf("cmdIndex without --full: %v", err)
+	}
+
+	var bufOut bytes.Buffer
+	if _, err := bufOut.ReadFrom(rOut); err != nil {
+		t.Fatal(err)
+	}
+	var bufErr bytes.Buffer
+	if _, err := bufErr.ReadFrom(rErr); err != nil {
+		t.Fatal(err)
+	}
+	output := bufOut.String()
+
+	if !strings.Contains(output, "Indexed") {
+		t.Errorf("expected 'Indexed' in output, got %q", output)
+	}
+	// Default mode should print enrichment message.
+	if !strings.Contains(output, "Running LSP enrichment") {
+		t.Errorf("expected 'Running LSP enrichment' in output, got %q", output)
+	}
+}
+
 // TestCmdIndex_SimpleGoModule verifies that cmdIndex can index a simple Go module.
 func TestCmdIndex_SimpleGoModule(t *testing.T) {
 	dir := t.TempDir()
