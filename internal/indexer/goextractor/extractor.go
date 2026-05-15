@@ -124,7 +124,7 @@ func (g *GoExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (*
 		// Create an edge from each function/type in this file to the import.
 		// For simplicity, create a single file-level import edge using a
 		// synthetic source node.
-		fileNodeHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, opts.FileHash, filepath.Base(opts.FilePath), "file")
+		fileNodeHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, filepath.Base(opts.FilePath), "file")
 		provenance := "ast_resolved"
 		edgeHash := types.ComputeEdgeHash(fileNodeHash, impHash, "imports", provenance)
 		edges = append(edges, types.Edge{
@@ -189,7 +189,7 @@ func (g *GoExtractor) funcDeclNode(opts types.ExtractOptions, pkgPath string, fs
 	sig := formatFuncSignature(decl)
 	pos := fset.Position(decl.Pos())
 
-	nodeHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, opts.FileHash, name, kind)
+	nodeHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, name, kind)
 
 	return types.Node{
 		NodeHash:      nodeHash,
@@ -215,7 +215,7 @@ func (g *GoExtractor) genDeclNodes(opts types.ExtractOptions, pkgPath string, fs
 			name := s.Name.Name
 			qualifiedName := fmt.Sprintf("%s://%s.%s", opts.RepoURL, pkgPath, name)
 			pos := fset.Position(s.Pos())
-			nodeHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, opts.FileHash, name, kind)
+			nodeHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, name, kind)
 			nodes = append(nodes, types.Node{
 				NodeHash:      nodeHash,
 				FileHash:      opts.FileHash,
@@ -237,7 +237,7 @@ func (g *GoExtractor) genDeclNodes(opts types.ExtractOptions, pkgPath string, fs
 				name := ident.Name
 				qualifiedName := fmt.Sprintf("%s://%s.%s", opts.RepoURL, pkgPath, name)
 				pos := fset.Position(ident.Pos())
-				nodeHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, opts.FileHash, name, kind)
+				nodeHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, name, kind)
 				nodes = append(nodes, types.Node{
 					NodeHash:      nodeHash,
 					FileHash:      opts.FileHash,
@@ -353,8 +353,8 @@ func (g *GoExtractor) extractImplementsEdges(opts types.ExtractOptions, pkgPath 
 			ifaceType := iface.Underlying().(*gotypes.Interface)
 			// Check both T and *T.
 			if gotypes.Implements(concrete, ifaceType) || gotypes.Implements(gotypes.NewPointer(concrete), ifaceType) {
-				concreteHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, opts.FileHash, concrete.Obj().Name(), "type")
-				ifaceHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, opts.FileHash, iface.Obj().Name(), "interface")
+				concreteHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, concrete.Obj().Name(), "type")
+				ifaceHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, iface.Obj().Name(), "interface")
 				provenance := "ast_resolved"
 				edgeHash := types.ComputeEdgeHash(concreteHash, ifaceHash, "implements", provenance)
 				edges = append(edges, types.Edge{
@@ -426,7 +426,7 @@ func (g *GoExtractor) extractReferenceEdges(opts types.ExtractOptions, pkgPath s
 		}
 
 		// Use a synthetic file-level source for reference edges.
-		fileNodeHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, opts.FileHash, filepath.Base(opts.FilePath), "file")
+		fileNodeHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, filepath.Base(opts.FilePath), "file")
 		targetHash := types.ComputeNodeHash(opts.RepoURL, targetPkg, types.EmptyHash, targetName, targetKind)
 		provenance := "ast_resolved"
 		edgeHash := types.ComputeEdgeHash(fileNodeHash, targetHash, "references", provenance)

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/blackwell-systems/knowing/internal/indexer/goextractor"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
@@ -282,5 +283,86 @@ func TestIndexer_IndexRepo_SkipsUnchanged(t *testing.T) {
 	}
 	if extractCount != 0 {
 		t.Fatalf("expected 0 extractions on unchanged content, got %d", extractCount)
+	}
+}
+
+func TestIndexRepo_MultiFileModule(t *testing.T) {
+	// Create a temporary Go module with two files in different packages.
+	dir := t.TempDir()
+
+	modContent := "module testmulti\n\ngo 1.23\n"
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(modContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Package "greet" with a Greet function.
+	greetDir := filepath.Join(dir, "greet")
+	if err := os.MkdirAll(greetDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	greetSrc := `package greet
+
+func Greet() string {
+	return "hello"
+}
+`
+	if err := os.WriteFile(filepath.Join(greetDir, "greet.go"), []byte(greetSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Package "main" that imports and calls greet.Greet.
+	mainSrc := `package main
+
+import "testmulti/greet"
+
+func main() {
+	greet.Greet()
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(mainSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	store := newMockStore()
+	snapComp := &mockSnapshotComputer{}
+	idx := NewIndexer(store, snapComp)
+	idx.Register(goextractor.NewGoExtractor())
+
+	ctx := context.Background()
+	snap, err := idx.IndexRepo(ctx, "test://multi", dir, "abc123")
+	if err != nil {
+		t.Fatalf("IndexRepo failed: %v", err)
+	}
+
+	// Verify snapshot was returned.
+	if snap == nil {
+		t.Fatal("expected non-nil snapshot")
+	}
+
+	// We should have files for both greet/greet.go and main.go.
+	if len(store.files) < 2 {
+		t.Errorf("expected at least 2 files stored, got %d", len(store.files))
+	}
+
+	// We should have nodes from both packages.
+	if len(store.nodes) < 2 {
+		t.Errorf("expected at least 2 nodes (Greet func + main func), got %d", len(store.nodes))
+	}
+
+	// Verify there is a cross-package call edge: main calls greet.Greet.
+	hasCallEdge := false
+	for _, e := range store.edges {
+		if e.EdgeType == "calls" {
+			hasCallEdge = true
+			break
+		}
+	}
+	if !hasCallEdge {
+		t.Error("expected at least one cross-package 'calls' edge (main -> greet.Greet)")
+	}
+
+	// Verify there are edges in general (calls, imports, references).
+	if len(store.edges) == 0 {
+		t.Error("expected at least some edges stored")
 	}
 }

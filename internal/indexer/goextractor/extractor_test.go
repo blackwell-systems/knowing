@@ -284,6 +284,53 @@ func (d Dog) Speak() string {
 	}
 }
 
+func TestGoExtractor_Extract_CrossFunctionCallEdges(t *testing.T) {
+	ext := NewGoExtractor()
+	source := `package main
+
+func Helper() string {
+	return "help"
+}
+
+func Caller() string {
+	return Helper()
+}
+`
+	_, opts := setupTestModule(t, "main.go", source)
+	ctx := context.Background()
+
+	result, err := ext.Extract(ctx, opts)
+	if err != nil {
+		t.Fatalf("Extract failed: %v", err)
+	}
+
+	// Find the Helper node hash.
+	var helperNodeHash types.Hash
+	for _, n := range result.Nodes {
+		if n.Kind == "function" && n.QualifiedName == "test://repo://testmodule.Helper" {
+			helperNodeHash = n.NodeHash
+			break
+		}
+	}
+	if helperNodeHash.IsZero() {
+		t.Fatal("Helper node not found")
+	}
+
+	// Find the call edge from Caller to Helper and verify its target matches
+	// the Helper node hash exactly.
+	found := false
+	for _, e := range result.Edges {
+		if e.EdgeType == "calls" && e.TargetHash == helperNodeHash {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected a 'calls' edge whose target matches Helper node hash; " +
+			"this verifies node hashes and call edge target hashes are computed consistently")
+	}
+}
+
 func TestGoExtractor_Extract_ReferencesEdges(t *testing.T) {
 	ext := NewGoExtractor()
 	source := `package main

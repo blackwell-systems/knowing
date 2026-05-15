@@ -2,7 +2,6 @@ package indexer
 
 import (
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"io/fs"
 	"os"
@@ -17,6 +16,13 @@ import (
 // Defined locally to avoid importing internal/snapshot.
 type SnapshotComputer interface {
 	ComputeSnapshot(ctx context.Context, repoHash types.Hash, commitHash string) (*types.Snapshot, error)
+}
+
+// batchStore is an optional interface for stores that support batch inserts.
+type batchStore interface {
+	BatchPutNodes(ctx context.Context, nodes []types.Node) error
+	BatchPutEdges(ctx context.Context, edges []types.Edge) error
+	BatchPutFiles(ctx context.Context, files []types.File) error
 }
 
 // Indexer orchestrates extractors to index a repository's source code
@@ -74,11 +80,12 @@ func (idx *Indexer) IndexFile(ctx context.Context, opts types.ExtractOptions) (*
 	})
 
 	// Store file record.
+	contentHash := types.NewHash(opts.Content)
 	file := types.File{
 		FileHash:    opts.FileHash,
 		RepoHash:    opts.RepoHash,
 		Path:        opts.FilePath,
-		ContentHash: opts.FileHash,
+		ContentHash: contentHash,
 	}
 	if err := idx.store.PutFile(ctx, file); err != nil {
 		return nil, fmt.Errorf("store file %s: %w", opts.FilePath, err)
@@ -99,6 +106,29 @@ func (idx *Indexer) IndexFile(ctx context.Context, opts types.ExtractOptions) (*
 	}
 
 	return result, nil
+}
+
+// extractFile extracts nodes and edges from a single file without storing them.
+func (idx *Indexer) extractFile(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, *types.File, error) {
+	ext := idx.registry.FindExtractor(opts.FilePath)
+	if ext == nil {
+		return &types.ExtractResult{}, nil, nil
+	}
+
+	result, err := ext.Extract(ctx, opts)
+	if err != nil {
+		return nil, nil, fmt.Errorf("extract %s: %w", opts.FilePath, err)
+	}
+
+	contentHash := types.NewHash(opts.Content)
+	file := &types.File{
+		FileHash:    opts.FileHash,
+		RepoHash:    opts.RepoHash,
+		Path:        opts.FilePath,
+		ContentHash: contentHash,
+	}
+
+	return result, file, nil
 }
 
 // IndexRepo indexes all source files in a repository, skipping files
@@ -152,6 +182,11 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 	// Sort file paths for deterministic processing.
 	sort.Strings(filePaths)
 
+	// Accumulate all results for batch insertion.
+	var allNodes []types.Node
+	var allEdges []types.Edge
+	var allFiles []types.File
+
 	for _, absPath := range filePaths {
 		relPath, err := filepath.Rel(repoPath, absPath)
 		if err != nil {
@@ -163,18 +198,22 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 			continue
 		}
 
-		// Read file content and compute hash.
+		// Read file content and compute content hash.
 		content, err := os.ReadFile(absPath)
 		if err != nil {
 			continue
 		}
-		contentHash := sha256.Sum256(content)
-		fileHash := types.Hash(contentHash)
+		contentHash := types.NewHash(content)
 
 		// Skip unchanged files.
-		if oldHash, exists := existingByPath[relPath]; exists && oldHash == fileHash {
+		if oldHash, exists := existingByPath[relPath]; exists && oldHash == contentHash {
 			continue
 		}
+
+		// Compute FileHash as sha256(repoHash || path || contentHash).
+		fileHashInput := append(repoHash[:], []byte(relPath)...)
+		fileHashInput = append(fileHashInput, contentHash[:]...)
+		fileHash := types.NewHash(fileHashInput)
 
 		opts := types.ExtractOptions{
 			RepoURL:    repoURL,
@@ -186,8 +225,44 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 			ModuleRoot: repoPath,
 		}
 
-		if _, err := idx.IndexFile(ctx, opts); err != nil {
-			return nil, fmt.Errorf("index file %s: %w", relPath, err)
+		result, file, err := idx.extractFile(ctx, opts)
+		if err != nil {
+			return nil, fmt.Errorf("extract file %s: %w", relPath, err)
+		}
+
+		allNodes = append(allNodes, result.Nodes...)
+		allEdges = append(allEdges, result.Edges...)
+		if file != nil {
+			allFiles = append(allFiles, *file)
+		}
+	}
+
+	// Batch insert if the store supports it, otherwise fall back to individual inserts.
+	if bs, ok := idx.store.(batchStore); ok {
+		if err := bs.BatchPutFiles(ctx, allFiles); err != nil {
+			return nil, fmt.Errorf("batch store files: %w", err)
+		}
+		if err := bs.BatchPutNodes(ctx, allNodes); err != nil {
+			return nil, fmt.Errorf("batch store nodes: %w", err)
+		}
+		if err := bs.BatchPutEdges(ctx, allEdges); err != nil {
+			return nil, fmt.Errorf("batch store edges: %w", err)
+		}
+	} else {
+		for _, f := range allFiles {
+			if err := idx.store.PutFile(ctx, f); err != nil {
+				return nil, fmt.Errorf("store file %s: %w", f.Path, err)
+			}
+		}
+		for _, n := range allNodes {
+			if err := idx.store.PutNode(ctx, n); err != nil {
+				return nil, fmt.Errorf("store node %s: %w", n.QualifiedName, err)
+			}
+		}
+		for _, e := range allEdges {
+			if err := idx.store.PutEdge(ctx, e); err != nil {
+				return nil, fmt.Errorf("store edge: %w", err)
+			}
 		}
 	}
 
