@@ -947,7 +947,7 @@ scaffolds:
             ServiceMap             map[string]string // OTel name -> knowing repo name
         }
       import_path: github.com/blackwell-systems/knowing/internal/trace
-      status: pending
+      status: committed (d5562c7)
 pre_mortem:
     overall_risk: medium
     rows:
@@ -1039,3 +1039,4 @@ critic_report:
     reviewed_at: "2026-05-15T20:18:25Z"
     issue_count: 2
 state: REVIEWED
+injection_method: hook
