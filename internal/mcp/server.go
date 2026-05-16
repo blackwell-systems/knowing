@@ -61,6 +61,7 @@ func NewServer(store types.GraphStore) *Server {
 		"0.1.0",
 	)
 	s.registerTools()
+	s.registerPrompts()
 	return s
 }
 
