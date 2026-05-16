@@ -1,0 +1,618 @@
+title: Infrastructure and schema language extractors
+feature_slug: infra-schema-extractors
+verdict: SUITABLE
+suitability_assessment: |
+    Suitability gate analysis:
+
+    1. File decomposition: The work decomposes cleanly into 4 independent extractor
+       packages (terraformextractor, sqlextractor, k8sextractor, cssextractor), each
+       in its own subdirectory with disjoint file ownership. One integration agent
+       handles registration in cmd/knowing/main.go and doc updates. Total: 5 agents
+       across 2 waves.
+
+    2. Investigation-first items: None. The existing extractors (rustextractor,
+       javaextractor, csharpextractor, tsextractor) provide clear reference patterns.
+       The smacker/go-tree-sitter library includes bindings for HCL, SQL, and CSS.
+       The K8s extractor uses gopkg.in/yaml.v3 (already an indirect dependency).
+
+    3. Interface discoverability: The types.Extractor interface is well-defined with
+       Name(), CanHandle(), and Extract() methods. ExtractOptions, ExtractResult,
+       Node, and Edge types are stable. All cross-agent contracts are fully specified.
+
+    4. Pre-implementation status: All four extractors are new (TODO). No existing
+       partial implementations. The existing multi-lang extractors (TS, Rust, Java,
+       C#) are present but not registered in main.go; the integration agent will
+       also register those while adding the new ones.
+
+    5. Parallelization value: High. Four independent agents each creating 2 files
+       (extractor.go + extractor_test.go) with non-trivial logic (AST walking,
+       YAML parsing, reference detection). Build/test cycle is ~30s. All 4 agents
+       run in parallel (single wave), maximizing speedup.
+
+    Estimated times:
+    - Scout phase: ~8 min
+    - Agent execution: ~15 min (4 agents x 15 min avg, fully parallel = ~15 min wave 1, ~8 min wave 2)
+    - Merge & verification: ~3 min
+    Total Polywave time: ~26 min
+
+    Sequential baseline: ~75 min (5 agents x 15 min avg)
+    Time savings: ~49 min (65% faster)
+
+    Recommendation: Clear speedup. Proceed.
+test_command: GOWORK=off go test ./... -timeout 5m
+lint_command: GOWORK=off go vet ./...
+file_ownership:
+    - file: internal/indexer/terraformextractor/extractor.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/indexer/terraformextractor/extractor_test.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/indexer/sqlextractor/extractor.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/indexer/sqlextractor/extractor_test.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/indexer/k8sextractor/extractor.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/indexer/k8sextractor/extractor_test.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/indexer/cssextractor/extractor.go
+      agent: D
+      wave: 1
+      action: new
+    - file: internal/indexer/cssextractor/extractor_test.go
+      agent: D
+      wave: 1
+      action: new
+    - file: cmd/knowing/main.go
+      agent: E
+      wave: 2
+      action: modify
+      depends_on:
+        - A
+        - B
+        - C
+        - D
+    - file: docs/CLI.md
+      agent: E
+      wave: 2
+      action: modify
+    - file: docs/MCP-TOOLS.md
+      agent: E
+      wave: 2
+      action: modify
+    - file: docs/FEATURES.md
+      agent: E
+      wave: 2
+      action: modify
+    - file: docs/architecture.md
+      agent: E
+      wave: 2
+      action: modify
+interface_contracts:
+    - name: TerraformExtractor
+      description: Tree-sitter HCL extractor for Terraform files
+      definition: |
+        package terraformextractor
+
+        type TerraformExtractor struct { parser *sitter.Parser }
+
+        func NewTerraformExtractor() *TerraformExtractor
+        func (e *TerraformExtractor) Name() string                    // returns "treesitter-terraform"
+        func (e *TerraformExtractor) CanHandle(path string) bool      // .tf files, excludes .terraform/
+        func (e *TerraformExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error)
+
+        // Node kinds produced: "resource", "data", "module", "variable", "output"
+        // Edge types produced: "depends_on" (resource-to-resource refs), "calls" (module calls)
+        // Provenance: "ast_inferred", Confidence: 0.7
+      location: internal/indexer/terraformextractor/extractor.go
+    - name: SQLExtractor
+      description: Tree-sitter SQL extractor for database schema files
+      definition: |
+        package sqlextractor
+
+        type SQLExtractor struct { parser *sitter.Parser }
+
+        func NewSQLExtractor() *SQLExtractor
+        func (e *SQLExtractor) Name() string                    // returns "treesitter-sql"
+        func (e *SQLExtractor) CanHandle(path string) bool      // .sql files
+        func (e *SQLExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error)
+
+        // Node kinds produced: "table", "view", "function", "procedure"
+        // Edge types produced: "references" (table refs in queries), "calls" (procedure calls),
+        //                      "depends_on" (view-to-table dependencies)
+        // Provenance: "ast_inferred", Confidence: 0.7
+      location: internal/indexer/sqlextractor/extractor.go
+    - name: K8sExtractor
+      description: YAML-based extractor for Kubernetes manifest files
+      definition: |
+        package k8sextractor
+
+        type K8sExtractor struct{}
+
+        func NewK8sExtractor() *K8sExtractor
+        func (e *K8sExtractor) Name() string                    // returns "k8s-yaml"
+        func (e *K8sExtractor) CanHandle(path string) bool      // .yaml/.yml in kubernetes/ or k8s/ dirs, or containing apiVersion
+        func (e *K8sExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error)
+
+        // Node kinds produced: "deployment", "service", "configmap", "ingress"
+        //   (also "statefulset", "daemonset", "job", "cronjob" if encountered)
+        // Edge types produced: "deploys" (service-to-deployment), "exposes" (ingress-to-service),
+        //                      "configures" (configmap-to-deployment)
+        // Provenance: "ast_inferred", Confidence: 0.7
+        // Uses gopkg.in/yaml.v3 for parsing (NOT tree-sitter)
+      location: internal/indexer/k8sextractor/extractor.go
+    - name: CSSExtractor
+      description: Tree-sitter CSS extractor for stylesheets
+      definition: |
+        package cssextractor
+
+        type CSSExtractor struct { parser *sitter.Parser }
+
+        func NewCSSExtractor() *CSSExtractor
+        func (e *CSSExtractor) Name() string                    // returns "treesitter-css"
+        func (e *CSSExtractor) CanHandle(path string) bool      // .css/.scss files, excludes node_modules/
+        func (e *CSSExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error)
+
+        // Node kinds produced: "class_selector", "id_selector", "custom_property"
+        // Edge types produced: "imports" (@import), "depends_on" (var() refs to custom properties)
+        // Provenance: "ast_inferred", Confidence: 0.7
+      location: internal/indexer/cssextractor/extractor.go
+waves:
+    - number: 1
+      agents:
+        - id: A
+          task: |
+            ## Terraform HCL Extractor
+
+            Create `internal/indexer/terraformextractor/extractor.go` and
+            `internal/indexer/terraformextractor/extractor_test.go`.
+
+            ### What to implement
+
+            A tree-sitter HCL extractor that implements `types.Extractor`. Use the
+            `github.com/smacker/go-tree-sitter/hcl` grammar.
+
+            **CanHandle:** Return true for files ending in `.tf`. Exclude files whose path
+            contains `.terraform/` directory segment.
+
+            **Extract:** Walk the tree-sitter AST and extract:
+            - `resource` blocks as nodes with kind "resource". Qualified name:
+              `{repoURL}://{filePath}.resource.{type}.{name}` (e.g., `repo://main.tf.resource.aws_instance.web`)
+            - `data` blocks as nodes with kind "data". QN: `{repoURL}://{filePath}.data.{type}.{name}`
+            - `module` blocks as nodes with kind "module". QN: `{repoURL}://{filePath}.module.{name}`
+            - `variable` blocks as nodes with kind "variable". QN: `{repoURL}://{filePath}.variable.{name}`
+            - `output` blocks as nodes with kind "output". QN: `{repoURL}://{filePath}.output.{name}`
+
+            **Edges:**
+            - Resource-to-resource references via string interpolation patterns like
+              `${aws_instance.web.id}` produce "depends_on" edges from the containing
+              resource to the referenced resource.
+            - Module calls produce "calls" edges from the module node to the source module.
+            - Detect provider types from resource type prefixes (e.g., "aws_" -> provider "aws").
+
+            **Constants:** provenance = "ast_inferred", confidence = 0.7
+
+            Follow the pattern established by `internal/indexer/rustextractor/extractor.go`:
+            - Same import structure with `sitter` and types packages
+            - Same `Name()`, `CanHandle()`, `Extract()` pattern
+            - Deterministic output via `sort.Slice` on nodes
+            - Proper context handling
+
+            ### Tests
+
+            Write comprehensive tests in `extractor_test.go`:
+            - TestTerraformExtractor_Name
+            - TestTerraformExtractor_CanHandle (positive: .tf files; negative: .tfvars, .terraform/ paths)
+            - TestTerraformExtractor_ExtractResources (resource block with type + name)
+            - TestTerraformExtractor_ExtractDataSources
+            - TestTerraformExtractor_ExtractModules
+            - TestTerraformExtractor_ExtractVariablesAndOutputs
+            - TestTerraformExtractor_ExtractDependsOnEdges (interpolation references)
+            - TestTerraformExtractor_ExtractModuleCallEdges
+
+            Use real HCL content snippets (valid Terraform syntax).
+
+            ### Verification gate
+            ```bash
+            GOWORK=off go build ./internal/indexer/terraformextractor/... && \
+            GOWORK=off go vet ./internal/indexer/terraformextractor/... && \
+            GOWORK=off go test ./internal/indexer/terraformextractor/... -v
+            ```
+
+            Postconditions:
+            - `grep -c "func.*TerraformExtractor" internal/indexer/terraformextractor/extractor.go` returns >= 4
+            - `grep -c "func Test" internal/indexer/terraformextractor/extractor_test.go` returns >= 6
+
+            ### Constraints
+            - Do NOT modify any files outside your ownership list.
+            - Do NOT import packages other than stdlib, go-tree-sitter, and internal/types.
+            - Do NOT register this extractor in main.go (that is Agent E's job in wave 2).
+          files:
+            - internal/indexer/terraformextractor/extractor.go
+            - internal/indexer/terraformextractor/extractor_test.go
+        - id: B
+          task: |
+            ## SQL Extractor
+
+            Create `internal/indexer/sqlextractor/extractor.go` and
+            `internal/indexer/sqlextractor/extractor_test.go`.
+
+            ### What to implement
+
+            A tree-sitter SQL extractor that implements `types.Extractor`. Use the
+            `github.com/smacker/go-tree-sitter/sql` grammar.
+
+            **CanHandle:** Return true for files ending in `.sql`.
+
+            **Extract:** Walk the tree-sitter AST and extract:
+            - CREATE TABLE statements as nodes with kind "table".
+              QN: `{repoURL}://{filePath}.table.{name}`
+            - CREATE VIEW statements as nodes with kind "view".
+              QN: `{repoURL}://{filePath}.view.{name}`
+            - CREATE FUNCTION statements as nodes with kind "function".
+              QN: `{repoURL}://{filePath}.function.{name}`
+            - CREATE PROCEDURE statements as nodes with kind "procedure".
+              QN: `{repoURL}://{filePath}.procedure.{name}`
+
+            **Edges:**
+            - Table references in SELECT/INSERT/UPDATE/DELETE queries produce "references"
+              edges from the containing object (view, function, procedure) to the referenced table.
+            - Procedure/function calls (CALL or EXEC statements, or function invocations)
+              produce "calls" edges.
+            - View-to-table dependencies produce "depends_on" edges from the view to
+              each table referenced in its SELECT body.
+
+            **Constants:** provenance = "ast_inferred", confidence = 0.7
+
+            Follow the pattern established by `internal/indexer/javaextractor/extractor.go`.
+
+            ### Tests
+
+            Write comprehensive tests in `extractor_test.go`:
+            - TestSQLExtractor_Name
+            - TestSQLExtractor_CanHandle (positive: .sql; negative: .go, .py)
+            - TestSQLExtractor_ExtractTables (CREATE TABLE with columns)
+            - TestSQLExtractor_ExtractViews (CREATE VIEW with SELECT referencing tables)
+            - TestSQLExtractor_ExtractFunctions
+            - TestSQLExtractor_ExtractProcedures
+            - TestSQLExtractor_ExtractReferencesEdges (table refs in queries)
+            - TestSQLExtractor_ExtractViewDependsOn
+
+            Use real SQL content snippets (valid SQL syntax).
+
+            ### Verification gate
+            ```bash
+            GOWORK=off go build ./internal/indexer/sqlextractor/... && \
+            GOWORK=off go vet ./internal/indexer/sqlextractor/... && \
+            GOWORK=off go test ./internal/indexer/sqlextractor/... -v
+            ```
+
+            Postconditions:
+            - `grep -c "func.*SQLExtractor" internal/indexer/sqlextractor/extractor.go` returns >= 4
+            - `grep -c "func Test" internal/indexer/sqlextractor/extractor_test.go` returns >= 6
+
+            ### Constraints
+            - Do NOT modify any files outside your ownership list.
+            - Do NOT import packages other than stdlib, go-tree-sitter, and internal/types.
+            - Do NOT register this extractor in main.go (that is Agent E's job in wave 2).
+          files:
+            - internal/indexer/sqlextractor/extractor.go
+            - internal/indexer/sqlextractor/extractor_test.go
+        - id: C
+          task: |
+            ## Kubernetes YAML Extractor
+
+            Create `internal/indexer/k8sextractor/extractor.go` and
+            `internal/indexer/k8sextractor/extractor_test.go`.
+
+            ### What to implement
+
+            A YAML-based extractor for Kubernetes manifests that implements `types.Extractor`.
+            Use `gopkg.in/yaml.v3` for parsing (NOT tree-sitter). This package is already
+            an indirect dependency in go.mod; you will need to promote it to a direct
+            dependency via import.
+
+            **CanHandle:** Return true when ANY of:
+            - File has .yaml or .yml extension AND path contains "kubernetes/" or "k8s/" directory
+            - File has .yaml or .yml extension AND file content (opts.Content) contains "apiVersion:"
+
+            Note: Since CanHandle only receives the path (not content), use path-based checks
+            first. For the apiVersion check, implement a two-phase approach: CanHandle checks
+            path patterns only (.yaml/.yml in kubernetes/ or k8s/ dirs). In Extract, also
+            handle files that were dispatched to this extractor. If CanHandle needs content
+            inspection, read the first 512 bytes looking for "apiVersion:" as a heuristic
+            (this matches the types.Extractor interface which only passes path to CanHandle).
+
+            Actually, looking at the interface: `CanHandle(path string) bool` only receives
+            the path. So use path-based detection: .yaml/.yml files in kubernetes/, k8s/,
+            manifests/, deploy/, or helm/ directories. This covers the common case. Files
+            outside those directories but containing apiVersion will be caught by a future
+            content-aware dispatcher enhancement.
+
+            **Extract:** Parse YAML (handle multi-document files with `---` separators).
+            For each document with `kind` field:
+            - Deployment/StatefulSet/DaemonSet/Job/CronJob: node with kind "deployment"
+              (or specific kind). QN: `{repoURL}://{filePath}.{kind}.{namespace}/{name}`
+            - Service: node with kind "service". QN: same pattern.
+            - ConfigMap/Secret: node with kind "configmap". QN: same pattern.
+            - Ingress: node with kind "ingress". QN: same pattern.
+
+            **Edges:**
+            - Service with selector matching a Deployment's labels: "deploys" edge from
+              service to deployment (match within the same file or use qualified names).
+            - Ingress backend service references: "exposes" edge from ingress to service.
+            - Pod spec volumes referencing ConfigMaps: "configures" edge from configmap
+              to deployment.
+            - Pod spec envFrom referencing ConfigMaps/Secrets: "configures" edge.
+
+            **Constants:** provenance = "ast_inferred", confidence = 0.7
+
+            ### Tests
+
+            Write comprehensive tests in `extractor_test.go`:
+            - TestK8sExtractor_Name
+            - TestK8sExtractor_CanHandle (positive: k8s/*.yaml, kubernetes/deploy.yml;
+              negative: config.yaml outside k8s dirs, .go files)
+            - TestK8sExtractor_ExtractDeployment
+            - TestK8sExtractor_ExtractService
+            - TestK8sExtractor_ExtractConfigMap
+            - TestK8sExtractor_ExtractIngress
+            - TestK8sExtractor_ExtractDeploysEdge (service selector -> deployment)
+            - TestK8sExtractor_ExtractExposesEdge (ingress -> service)
+            - TestK8sExtractor_ExtractConfiguresEdge (configmap -> deployment)
+            - TestK8sExtractor_MultiDocument (YAML with --- separators)
+
+            Use real Kubernetes manifest snippets.
+
+            ### Verification gate
+            ```bash
+            GOWORK=off go build ./internal/indexer/k8sextractor/... && \
+            GOWORK=off go vet ./internal/indexer/k8sextractor/... && \
+            GOWORK=off go test ./internal/indexer/k8sextractor/... -v
+            ```
+
+            Postconditions:
+            - `grep -c "func.*K8sExtractor" internal/indexer/k8sextractor/extractor.go` returns >= 4
+            - `grep -c "func Test" internal/indexer/k8sextractor/extractor_test.go` returns >= 8
+
+            ### Constraints
+            - Do NOT modify any files outside your ownership list.
+            - Do NOT use tree-sitter for this extractor. Use gopkg.in/yaml.v3 only.
+            - Do NOT register this extractor in main.go (that is Agent E's job in wave 2).
+            - Do NOT modify go.mod directly; the build system will handle dependency resolution.
+          files:
+            - internal/indexer/k8sextractor/extractor.go
+            - internal/indexer/k8sextractor/extractor_test.go
+        - id: D
+          task: |
+            ## CSS Extractor
+
+            Create `internal/indexer/cssextractor/extractor.go` and
+            `internal/indexer/cssextractor/extractor_test.go`.
+
+            ### What to implement
+
+            A tree-sitter CSS extractor that implements `types.Extractor`. Use the
+            `github.com/smacker/go-tree-sitter/css` grammar.
+
+            **CanHandle:** Return true for files ending in `.css` or `.scss`. Exclude files
+            whose path contains `node_modules/` directory segment.
+
+            **Extract:** Walk the tree-sitter AST and extract:
+            - Class selectors (`.classname`) as nodes with kind "class_selector".
+              QN: `{repoURL}://{filePath}.class.{name}`
+            - ID selectors (`#idname`) as nodes with kind "id_selector".
+              QN: `{repoURL}://{filePath}.id.{name}`
+            - Custom property definitions (`--varname: value`) as nodes with kind
+              "custom_property". QN: `{repoURL}://{filePath}.property.{name}`
+
+            **Edges:**
+            - `@import` rules produce "imports" edges from the file node to the imported path.
+            - `var(--name)` references produce "depends_on" edges from the containing rule's
+              selector node to the custom property definition node.
+
+            **Constants:** provenance = "ast_inferred", confidence = 0.7
+
+            Follow the pattern established by `internal/indexer/tsextractor/extractor.go`
+            for the node_modules exclusion pattern.
+
+            ### Tests
+
+            Write comprehensive tests in `extractor_test.go`:
+            - TestCSSExtractor_Name
+            - TestCSSExtractor_CanHandle (positive: .css, .scss; negative: .js, node_modules/ paths)
+            - TestCSSExtractor_ExtractClassSelectors
+            - TestCSSExtractor_ExtractIDSelectors
+            - TestCSSExtractor_ExtractCustomProperties
+            - TestCSSExtractor_ExtractImportEdges (@import "file.css")
+            - TestCSSExtractor_ExtractVarDependsOn (var(--color-primary) reference)
+            - TestCSSExtractor_ExcludesNodeModules
+
+            Use real CSS content snippets.
+
+            ### Verification gate
+            ```bash
+            GOWORK=off go build ./internal/indexer/cssextractor/... && \
+            GOWORK=off go vet ./internal/indexer/cssextractor/... && \
+            GOWORK=off go test ./internal/indexer/cssextractor/... -v
+            ```
+
+            Postconditions:
+            - `grep -c "func.*CSSExtractor" internal/indexer/cssextractor/extractor.go` returns >= 4
+            - `grep -c "func Test" internal/indexer/cssextractor/extractor_test.go` returns >= 6
+
+            ### Constraints
+            - Do NOT modify any files outside your ownership list.
+            - Do NOT import packages other than stdlib, go-tree-sitter/css, and internal/types.
+            - Do NOT register this extractor in main.go (that is Agent E's job in wave 2).
+          files:
+            - internal/indexer/cssextractor/extractor.go
+            - internal/indexer/cssextractor/extractor_test.go
+    - number: 2
+      type: integration
+      agents:
+        - id: E
+          task: |
+            ## Integration: Register extractors and update docs
+
+            ### What to implement
+
+            **1. Register all new extractors in cmd/knowing/main.go.**
+
+            Add imports for all new extractor packages AND the previously unregistered
+            multi-lang extractors. Add these imports to the import block:
+
+            ```go
+            "github.com/blackwell-systems/knowing/internal/indexer/csharpextractor"
+            "github.com/blackwell-systems/knowing/internal/indexer/cssextractor"
+            "github.com/blackwell-systems/knowing/internal/indexer/javaextractor"
+            "github.com/blackwell-systems/knowing/internal/indexer/k8sextractor"
+            "github.com/blackwell-systems/knowing/internal/indexer/rustextractor"
+            "github.com/blackwell-systems/knowing/internal/indexer/sqlextractor"
+            "github.com/blackwell-systems/knowing/internal/indexer/terraformextractor"
+            "github.com/blackwell-systems/knowing/internal/indexer/tsextractor"
+            ```
+
+            Register extractors in each of the three places where extractors are registered
+            (cmdServe around line 120, cmdIndex around line 250, cmdReindex around line 539).
+            After the existing Python tree-sitter registration, add:
+
+            ```go
+            idx.Register(tsextractor.NewTypeScriptExtractor())
+            idx.Register(rustextractor.NewRustExtractor())
+            idx.Register(javaextractor.NewJavaExtractor())
+            idx.Register(csharpextractor.NewCSharpExtractor())
+            idx.Register(terraformextractor.NewTerraformExtractor())
+            idx.Register(sqlextractor.NewSQLExtractor())
+            idx.Register(k8sextractor.NewK8sExtractor())
+            idx.Register(cssextractor.NewCSSExtractor())
+            ```
+
+            Insert after this exact text in cmdServe (around lines 121-124):
+            ```go
+            tsExt, err := treesitter.NewTreeSitterExtractor("python")
+            if err == nil {
+            	idx.Register(tsExt)
+            }
+            ```
+
+            Repeat the same pattern for cmdIndex (non-full branch) and cmdReindex (non-full branch).
+
+            **2. Update docs/architecture.md**
+
+            In the "Extractors by language" table (around line 302), add rows for:
+            - Terraform | `terraformextractor` (tree-sitter HCL grammar) | enrichment | terraform-ls
+            - SQL | `sqlextractor` (tree-sitter SQL grammar) | n/a | n/a
+            - Kubernetes YAML | `k8sextractor` (gopkg.in/yaml.v3) | n/a | n/a
+            - CSS | `cssextractor` (tree-sitter CSS grammar) | enrichment | css-languageserver
+
+            Update any references to "6 languages" to "10 languages" (Go, Python,
+            TypeScript/JS, Rust, Java, C#, Terraform, SQL, Kubernetes YAML, CSS).
+
+            **3. Update docs/CLI.md**
+
+            Add a note about supported languages in the index command section mentioning
+            all 10 supported languages.
+
+            **4. Update docs/MCP-TOOLS.md**
+
+            If there are references to supported language counts, update to 10.
+
+            **5. Update docs/FEATURES.md**
+
+            Add entries for the four new extractors following the existing pattern for
+            TypeScript/Rust/Java/C# extractors. Update the language count from 6 to 10.
+
+            ### Verification gate
+            ```bash
+            GOWORK=off go build ./cmd/knowing/... && \
+            GOWORK=off go vet ./cmd/knowing/...
+            ```
+
+            Postconditions:
+            - `grep -c "terraformextractor\|sqlextractor\|k8sextractor\|cssextractor" cmd/knowing/main.go` returns >= 8
+            - `grep -c "10" docs/architecture.md` returns >= 1 (language count updated)
+
+            ### Constraints
+            - Do NOT modify any extractor implementation files (those are owned by wave 1 agents).
+            - Do NOT change the order of existing extractor registrations.
+            - Register new extractors AFTER existing ones to maintain priority order.
+          files:
+            - cmd/knowing/main.go
+            - docs/CLI.md
+            - docs/MCP-TOOLS.md
+            - docs/FEATURES.md
+            - docs/architecture.md
+          dependencies:
+            - A
+            - B
+            - C
+            - D
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: GOWORK=off go build ./...
+          required: true
+        - type: lint
+          command: GOWORK=off go vet ./...
+          required: true
+        - type: test
+          command: GOWORK=off go test ./... -timeout 5m
+          required: true
+pre_mortem:
+    overall_risk: low
+    rows:
+        - scenario: Tree-sitter HCL grammar node types differ from expected names
+          likelihood: medium
+          impact: medium
+          mitigation: |
+            Agent A should inspect the HCL grammar's node-types.json or test with
+            small snippets to discover actual node type names (block, attribute, etc.)
+            before writing the full extractor.
+        - scenario: SQL grammar varies by dialect; CREATE PROCEDURE may not parse
+          likelihood: medium
+          impact: low
+          mitigation: |
+            Agent B should use standard ANSI SQL constructs in tests. The tree-sitter
+            SQL grammar supports common DDL/DML. Dialect-specific features can be
+            added later.
+        - scenario: K8s extractor CanHandle cannot inspect file content
+          likelihood: high
+          impact: low
+          mitigation: |
+            Agent C uses path-based detection only (kubernetes/, k8s/, manifests/,
+            deploy/, helm/ directories). Content-based apiVersion detection is
+            deferred to a future content-aware dispatcher.
+        - scenario: CSS tree-sitter grammar does not parse SCSS syntax
+          likelihood: medium
+          impact: low
+          mitigation: |
+            Agent D should test with pure CSS first. SCSS support may require
+            the SCSS-specific grammar. If .scss fails, limit CanHandle to .css
+            only and document the limitation.
+        - scenario: go.mod needs gopkg.in/yaml.v3 promoted from indirect to direct
+          likelihood: high
+          impact: low
+          mitigation: |
+            Running `go mod tidy` after Agent C's code compiles will automatically
+            promote the dependency. Agent E's build gate will catch this.
+critic_report:
+    verdict: PASS
+    agent_reviews: {}
+    summary: Skipped by operator (--skip-critic)
+    reviewed_at: "2026-05-16T21:00:16Z"
+    issue_count: 0
+state: REVIEWED
+injection_method: hook
