@@ -72,6 +72,9 @@ func (e *TreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractOpt
 	// Walk the AST and extract symbols.
 	e.walkNode(root, opts, "", result)
 
+	// Detect Python web framework routes (Flask, FastAPI, Django).
+	e.extractPythonRoutes(root, opts, result)
+
 	// Sort nodes deterministically by qualified name then kind.
 	sort.Slice(result.Nodes, func(i, j int) bool {
 		if result.Nodes[i].QualifiedName != result.Nodes[j].QualifiedName {
@@ -284,5 +287,251 @@ func parseImportModule(importText string) string {
 		return ""
 	}
 
+	return ""
+}
+
+// pythonRouteDecorators maps decorator method names to HTTP methods.
+// Shared by Flask and FastAPI (both use @app.get, @app.post, etc.)
+var pythonRouteDecorators = map[string]string{
+	"get":     "GET",
+	"post":    "POST",
+	"put":     "PUT",
+	"delete":  "DELETE",
+	"patch":   "PATCH",
+	"route":   "ANY",
+	"head":    "HEAD",
+	"options": "OPTIONS",
+}
+
+// extractPythonRoutes detects Flask/FastAPI/Django route patterns and creates
+// route_handler nodes with handles_route edges.
+func (e *TreeSitterExtractor) extractPythonRoutes(root *sitter.Node, opts types.ExtractOptions, result *types.ExtractResult) {
+	// Walk top-level looking for decorated function definitions.
+	// Pattern: @app.get("/path") or @router.post("/path") followed by def handler():
+	for i := 0; i < int(root.ChildCount()); i++ {
+		child := root.Child(i)
+		if child.Type() == "decorated_definition" {
+			e.tryExtractPythonDecoratedRoute(child, opts, "", result)
+		}
+		// Also check inside class bodies (Django class-based views, FastAPI routers).
+		if child.Type() == "class_definition" {
+			nameNode := child.ChildByFieldName("name")
+			className := ""
+			if nameNode != nil {
+				className = nameNode.Content(opts.Content)
+			}
+			body := child.ChildByFieldName("body")
+			if body != nil {
+				for j := 0; j < int(body.ChildCount()); j++ {
+					member := body.Child(j)
+					if member.Type() == "decorated_definition" {
+						e.tryExtractPythonDecoratedRoute(member, opts, className, result)
+					}
+				}
+			}
+		}
+	}
+
+	// Django urls.py: path('url/', view_func) calls.
+	if strings.Contains(opts.FilePath, "urls") {
+		e.extractDjangoURLPatterns(root, opts, result)
+	}
+}
+
+// tryExtractPythonDecoratedRoute checks if a decorated_definition has a route decorator.
+func (e *TreeSitterExtractor) tryExtractPythonDecoratedRoute(node *sitter.Node, opts types.ExtractOptions, classContext string, result *types.ExtractResult) {
+	// A decorated_definition has decorator children followed by the definition.
+	var decoratorText string
+	var funcName string
+
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		switch child.Type() {
+		case "decorator":
+			decoratorText = child.Content(opts.Content)
+		case "function_definition":
+			nameNode := child.ChildByFieldName("name")
+			if nameNode != nil {
+				funcName = nameNode.Content(opts.Content)
+			}
+		}
+	}
+
+	if decoratorText == "" || funcName == "" {
+		return
+	}
+
+	// Match @app.get("/path"), @router.post("/path"), @bp.route("/path")
+	httpMethod, routePath := parsePythonRouteDecorator(decoratorText)
+	if httpMethod == "" {
+		return
+	}
+
+	routeSig := httpMethod + " " + routePath
+	qnamePrefix := fmt.Sprintf("%s/%s", opts.ModuleRoot, opts.FilePath)
+
+	// Create route_handler node.
+	nodeHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, routeSig, "route_handler")
+	routeNode := types.Node{
+		NodeHash:      nodeHash,
+		FileHash:      opts.FileHash,
+		QualifiedName: fmt.Sprintf("%s://%s.%s", opts.RepoURL, qnamePrefix, routeSig),
+		Kind:          "route_handler",
+		Signature:     routeSig,
+	}
+	result.Nodes = append(result.Nodes, routeNode)
+
+	// Create handles_route edge to the handler function.
+	handlerQName := e.qualifiedName(opts, classContext, funcName)
+	handlerHash := types.ComputeNodeHash(opts.RepoURL, opts.ModuleRoot, types.EmptyHash, handlerQName, "function")
+	edgeHash := types.ComputeEdgeHash(nodeHash, handlerHash, "handles_route", "ast_inferred")
+	result.Edges = append(result.Edges, types.Edge{
+		EdgeHash:   edgeHash,
+		SourceHash: nodeHash,
+		TargetHash: handlerHash,
+		EdgeType:   "handles_route",
+		Confidence: 0.7,
+		Provenance: "ast_inferred",
+	})
+}
+
+// parsePythonRouteDecorator parses @app.get("/users") style decorators.
+// Returns the HTTP method and route path, or empty strings if not a route decorator.
+func parsePythonRouteDecorator(text string) (string, string) {
+	// Remove leading @
+	text = strings.TrimPrefix(text, "@")
+
+	// Find the method name: everything after the last dot, before the paren.
+	// e.g., "app.get('/users')" -> method="get", or "router.post('/items')" -> method="post"
+	parenIdx := strings.Index(text, "(")
+	if parenIdx < 0 {
+		return "", ""
+	}
+	prefix := text[:parenIdx]
+	dotIdx := strings.LastIndex(prefix, ".")
+	if dotIdx < 0 {
+		return "", ""
+	}
+	methodName := prefix[dotIdx+1:]
+
+	httpMethod, ok := pythonRouteDecorators[methodName]
+	if !ok {
+		return "", ""
+	}
+
+	// Extract the route path from the first string argument.
+	argPart := text[parenIdx+1:]
+	endParen := strings.LastIndex(argPart, ")")
+	if endParen >= 0 {
+		argPart = argPart[:endParen]
+	}
+
+	// Find first quoted string.
+	routePath := extractQuotedString(argPart)
+	if routePath == "" {
+		return "", ""
+	}
+
+	return httpMethod, routePath
+}
+
+// extractDjangoURLPatterns extracts route patterns from Django urls.py files.
+// Looks for path('url/', view_func) or re_path(r'^url/$', view_func) calls.
+func (e *TreeSitterExtractor) extractDjangoURLPatterns(root *sitter.Node, opts types.ExtractOptions, result *types.ExtractResult) {
+	// Walk looking for call expressions where the function is "path" or "re_path".
+	e.walkForDjangoURLs(root, opts, result)
+}
+
+func (e *TreeSitterExtractor) walkForDjangoURLs(node *sitter.Node, opts types.ExtractOptions, result *types.ExtractResult) {
+	if node == nil {
+		return
+	}
+	if node.Type() == "call" {
+		funcNode := node.ChildByFieldName("function")
+		if funcNode != nil {
+			funcName := funcNode.Content(opts.Content)
+			if funcName == "path" || funcName == "re_path" {
+				e.tryExtractDjangoPath(node, opts, result)
+			}
+		}
+	}
+	for i := 0; i < int(node.ChildCount()); i++ {
+		e.walkForDjangoURLs(node.Child(i), opts, result)
+	}
+}
+
+func (e *TreeSitterExtractor) tryExtractDjangoPath(callNode *sitter.Node, opts types.ExtractOptions, result *types.ExtractResult) {
+	argsNode := callNode.ChildByFieldName("arguments")
+	if argsNode == nil {
+		return
+	}
+
+	// First arg is the URL pattern, second is the view.
+	var urlPattern, viewName string
+	argIdx := 0
+	for i := 0; i < int(argsNode.ChildCount()); i++ {
+		child := argsNode.Child(i)
+		t := child.Type()
+		if t == "," || t == "(" || t == ")" {
+			continue
+		}
+		argIdx++
+		if argIdx == 1 {
+			// URL pattern (string).
+			text := child.Content(opts.Content)
+			urlPattern = strings.Trim(text, `"'`)
+		} else if argIdx == 2 {
+			// View function or class.
+			viewName = child.Content(opts.Content)
+			break
+		}
+	}
+
+	if urlPattern == "" || viewName == "" {
+		return
+	}
+
+	if !strings.HasPrefix(urlPattern, "/") {
+		urlPattern = "/" + urlPattern
+	}
+
+	routeSig := "ANY " + urlPattern
+	qnamePrefix := fmt.Sprintf("%s/%s", opts.ModuleRoot, opts.FilePath)
+
+	nodeHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, routeSig, "route_handler")
+	routeNode := types.Node{
+		NodeHash:      nodeHash,
+		FileHash:      opts.FileHash,
+		QualifiedName: fmt.Sprintf("%s://%s.%s", opts.RepoURL, qnamePrefix, routeSig),
+		Kind:          "route_handler",
+		Signature:     routeSig,
+	}
+	result.Nodes = append(result.Nodes, routeNode)
+
+	// Edge to the view function.
+	handlerQName := e.qualifiedName(opts, "", viewName)
+	handlerHash := types.ComputeNodeHash(opts.RepoURL, opts.ModuleRoot, types.EmptyHash, handlerQName, "function")
+	edgeHash := types.ComputeEdgeHash(nodeHash, handlerHash, "handles_route", "ast_inferred")
+	result.Edges = append(result.Edges, types.Edge{
+		EdgeHash:   edgeHash,
+		SourceHash: nodeHash,
+		TargetHash: handlerHash,
+		EdgeType:   "handles_route",
+		Confidence: 0.7,
+		Provenance: "ast_inferred",
+	})
+}
+
+// extractQuotedString finds the first single or double quoted string in text.
+func extractQuotedString(text string) string {
+	for _, q := range []byte{'"', '\''} {
+		start := strings.IndexByte(text, q)
+		if start >= 0 {
+			end := strings.IndexByte(text[start+1:], q)
+			if end >= 0 {
+				return text[start+1 : start+1+end]
+			}
+		}
+	}
 	return ""
 }

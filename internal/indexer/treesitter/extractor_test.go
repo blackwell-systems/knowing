@@ -293,3 +293,178 @@ func TestTreeSitterExtractor_Name(t *testing.T) {
 		t.Errorf("Name() = %q, want %q", got, "treesitter-python")
 	}
 }
+
+func makeOptsWithPath(content, filePath string) types.ExtractOptions {
+	return types.ExtractOptions{
+		RepoURL:    "github.com/example/repo",
+		RepoHash:   types.NewHash([]byte("github.com/example/repo")),
+		CommitHash: "abc123",
+		FilePath:   filePath,
+		FileHash:   types.NewHash([]byte(content)),
+		Content:    []byte(content),
+		ModuleRoot: "src",
+	}
+}
+
+func TestTreeSitterExtractor_FlaskRoutes(t *testing.T) {
+	ext := mustExtractor(t)
+	source := `from flask import Flask
+app = Flask(__name__)
+
+@app.get("/users")
+def get_users():
+    return []
+
+@app.post("/users")
+def create_user():
+    return {"id": 1}
+`
+	opts := makeOptsWithPath(source, "app.py")
+	result, err := ext.Extract(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Extract() error: %v", err)
+	}
+
+	var routeNodes []types.Node
+	for _, n := range result.Nodes {
+		if n.Kind == "route_handler" {
+			routeNodes = append(routeNodes, n)
+		}
+	}
+
+	if len(routeNodes) != 2 {
+		t.Fatalf("expected 2 route_handler nodes, got %d", len(routeNodes))
+	}
+
+	patterns := make(map[string]bool)
+	for _, n := range routeNodes {
+		patterns[n.Signature] = true
+	}
+	if !patterns["GET /users"] {
+		t.Errorf("missing 'GET /users', got %v", patterns)
+	}
+	if !patterns["POST /users"] {
+		t.Errorf("missing 'POST /users', got %v", patterns)
+	}
+
+	// Check handles_route edges.
+	var routeEdges []types.Edge
+	for _, e := range result.Edges {
+		if e.EdgeType == "handles_route" {
+			routeEdges = append(routeEdges, e)
+		}
+	}
+	if len(routeEdges) != 2 {
+		t.Fatalf("expected 2 handles_route edges, got %d", len(routeEdges))
+	}
+}
+
+func TestTreeSitterExtractor_FastAPIRoutes(t *testing.T) {
+	ext := mustExtractor(t)
+	source := `from fastapi import FastAPI
+app = FastAPI()
+
+@app.get("/items/{item_id}")
+async def read_item(item_id: int):
+    return {"item_id": item_id}
+
+@app.post("/items")
+async def create_item(item: dict):
+    return item
+
+@app.delete("/items/{item_id}")
+async def delete_item(item_id: int):
+    return {"deleted": True}
+`
+	opts := makeOptsWithPath(source, "main.py")
+	result, err := ext.Extract(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Extract() error: %v", err)
+	}
+
+	var routeNodes []types.Node
+	for _, n := range result.Nodes {
+		if n.Kind == "route_handler" {
+			routeNodes = append(routeNodes, n)
+		}
+	}
+
+	if len(routeNodes) != 3 {
+		t.Fatalf("expected 3 route_handler nodes for FastAPI, got %d", len(routeNodes))
+	}
+
+	patterns := make(map[string]bool)
+	for _, n := range routeNodes {
+		patterns[n.Signature] = true
+	}
+	if !patterns["GET /items/{item_id}"] {
+		t.Errorf("missing 'GET /items/{item_id}', got %v", patterns)
+	}
+	if !patterns["POST /items"] {
+		t.Errorf("missing 'POST /items', got %v", patterns)
+	}
+	if !patterns["DELETE /items/{item_id}"] {
+		t.Errorf("missing 'DELETE /items/{item_id}', got %v", patterns)
+	}
+}
+
+func TestTreeSitterExtractor_DjangoURLPatterns(t *testing.T) {
+	ext := mustExtractor(t)
+	source := `from django.urls import path
+from . import views
+
+urlpatterns = [
+    path('users/', views.user_list),
+    path('users/<int:pk>/', views.user_detail),
+]
+`
+	opts := makeOptsWithPath(source, "myapp/urls.py")
+	result, err := ext.Extract(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Extract() error: %v", err)
+	}
+
+	var routeNodes []types.Node
+	for _, n := range result.Nodes {
+		if n.Kind == "route_handler" {
+			routeNodes = append(routeNodes, n)
+		}
+	}
+
+	if len(routeNodes) != 2 {
+		t.Fatalf("expected 2 route_handler nodes for Django, got %d", len(routeNodes))
+	}
+
+	patterns := make(map[string]bool)
+	for _, n := range routeNodes {
+		patterns[n.Signature] = true
+	}
+	if !patterns["ANY /users/"] {
+		t.Errorf("missing 'ANY /users/', got %v", patterns)
+	}
+	if !patterns["ANY /users/<int:pk>/"] {
+		t.Errorf("missing 'ANY /users/<int:pk>/', got %v", patterns)
+	}
+}
+
+func TestTreeSitterExtractor_NoRoutesInPlainPython(t *testing.T) {
+	ext := mustExtractor(t)
+	source := `def process_data(data):
+    return data.strip()
+
+class DataProcessor:
+    def run(self):
+        return self.process()
+`
+	opts := makeOpts(source)
+	result, err := ext.Extract(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Extract() error: %v", err)
+	}
+
+	for _, n := range result.Nodes {
+		if n.Kind == "route_handler" {
+			t.Errorf("unexpected route_handler node in plain Python: %+v", n)
+		}
+	}
+}
