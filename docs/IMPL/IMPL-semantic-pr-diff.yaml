@@ -643,7 +643,7 @@ scaffolds:
             RiskLevel            string `json:"risk_level"`
         }
       import_path: github.com/blackwell-systems/knowing/internal/diff
-      status: pending
+      status: committed (a494613)
 pre_mortem:
     overall_risk: medium
     rows:
@@ -701,3 +701,4 @@ critic_report:
     reviewed_at: "2026-05-16T01:26:49Z"
     issue_count: 0
 state: REVIEWED
+injection_method: hook
