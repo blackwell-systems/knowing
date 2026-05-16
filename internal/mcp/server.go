@@ -216,8 +216,8 @@ func snapshotDiffTool() mcp.Tool {
 	return mcp.NewTool("snapshot_diff",
 		mcp.WithDescription("Compute the structural diff between two snapshots."),
 		mcp.WithReadOnlyHintAnnotation(true),
-		mcp.WithString("old_snapshot", mcp.Required(), mcp.Description("Hash of the old snapshot (64-char hex, e.g. a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2)")),
-		mcp.WithString("new_snapshot", mcp.Required(), mcp.Description("Hash of the new snapshot (64-char hex, e.g. a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2)")),
+		mcp.WithString("old_snapshot", mcp.Required(), mcp.Description("Hash of the old snapshot (64-char hex, e.g. a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2)"), Examples("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2")),
+		mcp.WithString("new_snapshot", mcp.Required(), mcp.Description("Hash of the new snapshot (64-char hex, e.g. a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2)"), Examples("c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4")),
 	)
 }
 
@@ -225,8 +225,8 @@ func semanticDiffTool() mcp.Tool {
 	return mcp.NewTool("semantic_diff",
 		mcp.WithDescription("Compute semantic diff between two snapshots, including added/removed nodes and edges with context."),
 		mcp.WithReadOnlyHintAnnotation(true),
-		mcp.WithString("old_snapshot", mcp.Required(), mcp.Description("Hash of the old snapshot (64-char hex, e.g. a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2)")),
-		mcp.WithString("new_snapshot", mcp.Required(), mcp.Description("Hash of the new snapshot (64-char hex, e.g. a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2)")),
+		mcp.WithString("old_snapshot", mcp.Required(), mcp.Description("Hash of the old snapshot (64-char hex, e.g. a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2)"), Examples("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2")),
+		mcp.WithString("new_snapshot", mcp.Required(), mcp.Description("Hash of the new snapshot (64-char hex, e.g. a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2)"), Examples("c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4")),
 	)
 }
 
@@ -234,8 +234,8 @@ func prImpactTool() mcp.Tool {
 	return mcp.NewTool("pr_impact",
 		mcp.WithDescription("Analyze the impact of changes between two snapshots, including blast radius of all changed symbols."),
 		mcp.WithReadOnlyHintAnnotation(true),
-		mcp.WithString("old_snapshot", mcp.Required(), mcp.Description("Hash of the old (base) snapshot (64-char hex, e.g. a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2)")),
-		mcp.WithString("new_snapshot", mcp.Required(), mcp.Description("Hash of the new (head) snapshot (64-char hex, e.g. a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2)")),
+		mcp.WithString("old_snapshot", mcp.Required(), mcp.Description("Hash of the old (base) snapshot (64-char hex, e.g. a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2)"), Examples("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2")),
+		mcp.WithString("new_snapshot", mcp.Required(), mcp.Description("Hash of the new (head) snapshot (64-char hex, e.g. a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2)"), Examples("c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4")),
 	)
 }
 
@@ -243,7 +243,7 @@ func ownershipTool() mcp.Tool {
 	return mcp.NewTool("ownership",
 		mcp.WithDescription("List all files and top-level symbols in a repository, useful for understanding code ownership."),
 		mcp.WithReadOnlyHintAnnotation(true),
-		mcp.WithString("repo_hash", mcp.Required(), mcp.Description("Hash of the repository (64-char hex, e.g. a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2)")),
+		mcp.WithString("repo_hash", mcp.Required(), mcp.Description("Hash of the repository (64-char hex, e.g. a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2)"), Examples("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2")),
 	)
 }
 
@@ -251,8 +251,8 @@ func runtimeTrafficTool() mcp.Tool {
 	return mcp.NewTool("runtime_traffic",
 		mcp.WithDescription("Query runtime-observed edges filtered by service name and optional route pattern. Returns edges with observation counts from OTLP trace data."),
 		mcp.WithReadOnlyHintAnnotation(true),
-		mcp.WithString("service_name", mcp.Required(), mcp.Description("Service name to filter edges by (e.g. user-service)")),
-		mcp.WithString("route_pattern", mcp.Description("Optional route pattern filter, SQL LIKE syntax (e.g. /api/v1/%)")),
+		mcp.WithString("service_name", mcp.Required(), mcp.Description("Service name to filter edges by (e.g. user-service)"), Examples("user-service")),
+		mcp.WithString("route_pattern", mcp.Description("Optional route pattern filter, SQL LIKE syntax (e.g. /api/v1/%)"), Examples("/api/v1/%")),
 		mcp.WithInteger("limit", mcp.Description("Maximum number of edges to return (default 100)")),
 	)
 }
