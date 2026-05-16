@@ -1,0 +1,32 @@
+site_name: knowing
+site_description: Content-addressed knowledge graph for software systems
+site_url: https://blackwell-systems.github.io/knowing
+repo_url: https://github.com/blackwell-systems/knowing
+repo_name: blackwell-systems/knowing
+
+theme:
+  name: material
+  palette:
+    - scheme: slate
+      primary: black
+      accent: indigo
+  features:
+    - navigation.sections
+    - navigation.expand
+    - content.code.copy
+
+nav:
+  - Home: index.md
+  - Architecture: architecture.md
+  - CLI Reference: CLI.md
+  - MCP Tools: MCP-TOOLS.md
+  - Runtime Traces: runtime-traces.md
+  - Distribution: DISTRIBUTION.md
+  - Roadmap: roadmap.md
+  - Features: FEATURES.md
+  - Changelog: CHANGELOG.md
+
+markdown_extensions:
+  - tables
+  - fenced_code
+  - codehilite
