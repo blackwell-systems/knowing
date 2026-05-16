@@ -142,14 +142,22 @@ func (s *Server) ServeHTTP(ctx context.Context, addr string) error {
 	}
 }
 
+// Examples returns a PropertyOption that sets JSON Schema "examples" on the property.
+// This satisfies mcp-assert W103 which requires enum, pattern, example, or default.
+func Examples(values ...string) mcp.PropertyOption {
+	return func(m map[string]any) {
+		m["examples"] = values
+	}
+}
+
 // --- Tool definitions ---
 
 func indexRepoTool() mcp.Tool {
 	return mcp.NewTool("index_repo",
 		mcp.WithDescription("Index a repository to build the knowledge graph. Records the request for the daemon to process."),
-		mcp.WithString("repo_url", mcp.Required(), mcp.Description("URL of the repository to index")),
-		mcp.WithString("repo_path", mcp.Required(), mcp.Description("Local filesystem path to the repository")),
-		mcp.WithString("commit_hash", mcp.Description("Git commit hash to index (defaults to HEAD)")),
+		mcp.WithString("repo_url", mcp.Required(), mcp.Description("URL of the repository to index (e.g. https://github.com/org/repo)"), Examples("https://github.com/org/repo")),
+		mcp.WithString("repo_path", mcp.Required(), mcp.Description("Local filesystem path to the repository (e.g. /home/user/code/my-repo)"), Examples("/home/user/code/my-repo")),
+		mcp.WithString("commit_hash", mcp.Description("Git commit hash to index, defaults to HEAD (e.g. a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2)"), Examples("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2")),
 	)
 }
 
@@ -157,7 +165,7 @@ func crossRepoCallersTool() mcp.Tool {
 	return mcp.NewTool("cross_repo_callers",
 		mcp.WithDescription("Find all transitive callers of a symbol across repositories."),
 		mcp.WithReadOnlyHintAnnotation(true),
-		mcp.WithString("target_hash", mcp.Required(), mcp.Description("Hash of the target node")),
+		mcp.WithString("target_hash", mcp.Required(), mcp.Description("Hash of the target node (64-char hex, e.g. a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2)"), Examples("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2")),
 		mcp.WithInteger("max_depth", mcp.Description("Maximum traversal depth (default 5)")),
 	)
 }
@@ -166,7 +174,7 @@ func graphQueryTool() mcp.Tool {
 	return mcp.NewTool("graph_query",
 		mcp.WithDescription("Query graph nodes by qualified name prefix."),
 		mcp.WithReadOnlyHintAnnotation(true),
-		mcp.WithString("prefix", mcp.Required(), mcp.Description("Qualified name prefix to search for")),
+		mcp.WithString("prefix", mcp.Required(), mcp.Description("Qualified name prefix to search for (e.g. github.com/org/repo://pkg.FunctionName)"), Examples("github.com/org/repo://pkg.FunctionName")),
 	)
 }
 
@@ -174,7 +182,7 @@ func repoGraphTool() mcp.Tool {
 	return mcp.NewTool("repo_graph",
 		mcp.WithDescription("Get all files and their nodes for a repository."),
 		mcp.WithReadOnlyHintAnnotation(true),
-		mcp.WithString("repo_hash", mcp.Required(), mcp.Description("Hash of the repository")),
+		mcp.WithString("repo_hash", mcp.Required(), mcp.Description("Hash of the repository (64-char hex, e.g. a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2)"), Examples("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2")),
 	)
 }
 
@@ -182,8 +190,8 @@ func blastRadiusTool() mcp.Tool {
 	return mcp.NewTool("blast_radius",
 		mcp.WithDescription("Compute the blast radius of a symbol: all transitive callers grouped by repository."),
 		mcp.WithReadOnlyHintAnnotation(true),
-		mcp.WithString("target_hash", mcp.Required(), mcp.Description("Hash of the target node")),
-		mcp.WithString("snapshot_hash", mcp.Description("Snapshot hash for point-in-time query")),
+		mcp.WithString("target_hash", mcp.Required(), mcp.Description("Hash of the target node (64-char hex, e.g. a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2)"), Examples("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2")),
+		mcp.WithString("snapshot_hash", mcp.Description("Snapshot hash for point-in-time query (64-char hex, e.g. a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2)"), Examples("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2")),
 	)
 }
 
@@ -191,7 +199,7 @@ func traceDataflowTool() mcp.Tool {
 	return mcp.NewTool("trace_dataflow",
 		mcp.WithDescription("Trace data flow from a symbol: all transitive callees."),
 		mcp.WithReadOnlyHintAnnotation(true),
-		mcp.WithString("source_hash", mcp.Required(), mcp.Description("Hash of the source node")),
+		mcp.WithString("source_hash", mcp.Required(), mcp.Description("Hash of the source node (64-char hex, e.g. a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2)"), Examples("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2")),
 		mcp.WithInteger("max_depth", mcp.Description("Maximum traversal depth (default 5)")),
 	)
 }
@@ -200,7 +208,7 @@ func staleEdgesTool() mcp.Tool {
 	return mcp.NewTool("stale_edges",
 		mcp.WithDescription("Find edges in the graph that are stale (no longer valid in the latest snapshot)."),
 		mcp.WithReadOnlyHintAnnotation(true),
-		mcp.WithString("snapshot_hash", mcp.Required(), mcp.Description("Snapshot hash to check for staleness")),
+		mcp.WithString("snapshot_hash", mcp.Required(), mcp.Description("Snapshot hash to check for staleness (64-char hex, e.g. a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2)"), Examples("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2")),
 	)
 }
 
@@ -208,8 +216,8 @@ func snapshotDiffTool() mcp.Tool {
 	return mcp.NewTool("snapshot_diff",
 		mcp.WithDescription("Compute the structural diff between two snapshots."),
 		mcp.WithReadOnlyHintAnnotation(true),
-		mcp.WithString("old_snapshot", mcp.Required(), mcp.Description("Hash of the old snapshot")),
-		mcp.WithString("new_snapshot", mcp.Required(), mcp.Description("Hash of the new snapshot")),
+		mcp.WithString("old_snapshot", mcp.Required(), mcp.Description("Hash of the old snapshot (64-char hex, e.g. a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2)")),
+		mcp.WithString("new_snapshot", mcp.Required(), mcp.Description("Hash of the new snapshot (64-char hex, e.g. a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2)")),
 	)
 }
 
@@ -217,8 +225,8 @@ func semanticDiffTool() mcp.Tool {
 	return mcp.NewTool("semantic_diff",
 		mcp.WithDescription("Compute semantic diff between two snapshots, including added/removed nodes and edges with context."),
 		mcp.WithReadOnlyHintAnnotation(true),
-		mcp.WithString("old_snapshot", mcp.Required(), mcp.Description("Hash of the old snapshot")),
-		mcp.WithString("new_snapshot", mcp.Required(), mcp.Description("Hash of the new snapshot")),
+		mcp.WithString("old_snapshot", mcp.Required(), mcp.Description("Hash of the old snapshot (64-char hex, e.g. a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2)")),
+		mcp.WithString("new_snapshot", mcp.Required(), mcp.Description("Hash of the new snapshot (64-char hex, e.g. a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2)")),
 	)
 }
 
@@ -226,8 +234,8 @@ func prImpactTool() mcp.Tool {
 	return mcp.NewTool("pr_impact",
 		mcp.WithDescription("Analyze the impact of changes between two snapshots, including blast radius of all changed symbols."),
 		mcp.WithReadOnlyHintAnnotation(true),
-		mcp.WithString("old_snapshot", mcp.Required(), mcp.Description("Hash of the old (base) snapshot")),
-		mcp.WithString("new_snapshot", mcp.Required(), mcp.Description("Hash of the new (head) snapshot")),
+		mcp.WithString("old_snapshot", mcp.Required(), mcp.Description("Hash of the old (base) snapshot (64-char hex, e.g. a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2)")),
+		mcp.WithString("new_snapshot", mcp.Required(), mcp.Description("Hash of the new (head) snapshot (64-char hex, e.g. a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2)")),
 	)
 }
 
@@ -235,7 +243,7 @@ func ownershipTool() mcp.Tool {
 	return mcp.NewTool("ownership",
 		mcp.WithDescription("List all files and top-level symbols in a repository, useful for understanding code ownership."),
 		mcp.WithReadOnlyHintAnnotation(true),
-		mcp.WithString("repo_hash", mcp.Required(), mcp.Description("Hash of the repository")),
+		mcp.WithString("repo_hash", mcp.Required(), mcp.Description("Hash of the repository (64-char hex, e.g. a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2)")),
 	)
 }
 
@@ -243,8 +251,8 @@ func runtimeTrafficTool() mcp.Tool {
 	return mcp.NewTool("runtime_traffic",
 		mcp.WithDescription("Query runtime-observed edges filtered by service name and optional route pattern. Returns edges with observation counts from OTLP trace data."),
 		mcp.WithReadOnlyHintAnnotation(true),
-		mcp.WithString("service_name", mcp.Required(), mcp.Description("Service name to filter edges by")),
-		mcp.WithString("route_pattern", mcp.Description("Optional route pattern filter (SQL LIKE syntax)")),
+		mcp.WithString("service_name", mcp.Required(), mcp.Description("Service name to filter edges by (e.g. user-service)")),
+		mcp.WithString("route_pattern", mcp.Description("Optional route pattern filter, SQL LIKE syntax (e.g. /api/v1/%)")),
 		mcp.WithInteger("limit", mcp.Description("Maximum number of edges to return (default 100)")),
 	)
 }
