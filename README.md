@@ -4,6 +4,7 @@
 
 <p align="center">
   <a href="#mcp-tools"><img src="https://img.shields.io/badge/MCP_tools-16-brightgreen.svg" alt="MCP Tools"></a>
+  <a href="#languages"><img src="https://img.shields.io/badge/languages-10-blue.svg" alt="Languages"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
   <a href="https://github.com/blackwell-systems"><img src="https://raw.githubusercontent.com/blackwell-systems/blackwell-docs-theme/main/badge-trademark.svg" alt="Blackwell Systems"></a>
 </p>
@@ -12,65 +13,61 @@
   <strong>The system of record for how software systems behave, change, and relate over time.</strong>
 </p>
 
-## Vision
+---
 
-Git is the system of record for source code. knowing is the system of record for what that source code *means* in the context of a running organization.
+## What This Is
 
-Software organizations have no single place that captures how their systems actually connect, who owns what, what changed since the last deploy, or whether production behavior matches what the code declares. That knowledge lives in people's heads, incident postmortems, and tribal memory. When someone leaves or an incident happens at 3 AM, it's gone.
+knowing is a **content-addressed knowledge graph** that fuses static analysis, infrastructure declarations, and runtime traces into a single queryable structure. It indexes code in 10 languages, watches for git changes, ingests OpenTelemetry traces, and serves the result over MCP.
 
-knowing builds a **versioned, content-addressed ledger of software system relationships**: code, infrastructure, ownership, and runtime behavior. Every state is a hash. Every edge has provenance. Every question has an auditable answer.
+Every node, edge, and snapshot is a SHA-256 hash. The graph has full history, provable integrity, and a clear answer to "when did this relationship appear and how confident are we in it?"
 
-Agents are the first consumer. But the actual audience is anyone who needs to understand a software organization as a system: platform teams, SREs, architects, security, compliance.
+## Why It Exists
 
-## The Problem
+Software organizations have no single place that captures how their systems actually connect. That knowledge lives in people's heads, incident postmortems, and tribal memory. Existing tools operate at the wrong granularity:
 
-Agents today are blind at repository boundaries. LSP tells you where a symbol is used inside one workspace. Code search finds matching text. Dependency graphs tell you which packages depend on which.
+- LSP tells you where a symbol is used inside one workspace
+- Code search finds matching text
+- Dependency graphs tell you which packages depend on which
 
-None of them answer the questions that actually matter:
+None of them answer: *if I change this symbol, what breaks across the rest of the system? Is this route actually called in production? What did the graph look like when we deployed on Tuesday?*
 
-> If I change this symbol, what breaks across the rest of the system? Is this route actually called in production? When did this cross-repo dependency appear? Who do I need to notify? What did the system look like when we deployed on Tuesday?
+knowing answers those questions with provenance and confidence scores on every edge.
 
-## What knowing Does
+## Architecture
 
-knowing builds a boundary-aware relationship graph across repositories, services, and infrastructure. It fuses static analysis with runtime observation to create a single, trustworthy model of how a software system actually works.
+```
+┌──────────────────────────────────────────────────────────┐
+│                     knowing daemon                         │
+├──────────────┬───────────────────┬───────────────────────┤
+│   Indexer    │   Graph Store     │     MCP Server        │
+│              │                   │                       │
+│ 10 languages │ Content-addressed │ 16 tools + 3 prompts │
+│ tree-sitter  │ SQLite + Merkle   │ stdio / HTTP          │
+│ go/packages  │ Snapshot chain    │ KWF wire format       │
+│ OTel ingest  │ Edge events       │                       │
+└──────────────┴───────────────────┴───────────────────────┘
+```
 
-It is a persistent daemon with three components:
+Three components, one binary:
 
-- **Indexer**: crawls repositories in any language, parses ASTs with full type resolution (`go/packages` for Go, tree-sitter for everything else), computes content hashes, resolves cross-repo symbol references, and builds the graph. The graph model is language-agnostic; extractors produce nodes and edges, the graph doesn't care what language they came from. Watches for git changes and re-indexes incrementally.
-- **Graph store**: owns the content-addressed graph in SQLite. Manages the snapshot chain, runs garbage collection, and handles traversal queries with a multi-tier cache.
-- **MCP server**: exposes the graph to agents over stdio or HTTP.
+- **Indexer**: parses ASTs across 10 languages, resolves cross-repo references, ingests OTel traces, watches git for incremental re-indexing
+- **Graph store**: content-addressed SQLite with Merkle snapshot chain, edge event sourcing, runtime confidence decay
+- **MCP server**: 16 tools + 3 prompts over stdio/HTTP, with KWF wire format (76% token savings vs JSON)
 
-Unlike tools that maintain mutable current-state graphs, knowing is **content-addressed**: every node, edge, and graph snapshot is a hash. This means:
+## Languages
 
-- **History**: the graph has a full audit trail; every previous state is queryable
-- **Staleness**: a hash mismatch is a structural fact, not a heuristic guess
-- **Integrity**: any graph state is provably derived from specific source commits
-- **Runtime ground truth**: production traces fused with static analysis tell you what actually runs, not just what the code declares
-
-The Git analogy is exact: Git is a content-addressed graph of source code. knowing is a content-addressed graph of source code *relationships*.
-
-## What It Answers
-
-**For agents:**
-- "I'm changing this function signature. Which other repos call it?"
-- "What is the blast radius of this change, and how confident are we in each edge?"
-- "What is the full data flow of this value across functions, services, queues, and repositories?"
-
-**For platform teams and SREs:**
-- "What did the dependency graph look like when we deployed on Tuesday?"
-- "When did this cross-repo incompatibility first appear?"
-- "Is this route actually called in production, or just declared in code?"
-- "Static analysis says 47 callers; how many are active in production?"
-
-**For architects and tech leads:**
-- "This PR adds 3 new cross-repo dependencies and spans 3 teams. Here's who to notify."
-- "What edges in the graph are stale after this week's changes?"
-- "This proto field has zero runtime reads in 90 days. Safe to deprecate."
-
-**For security and compliance:**
-- "Prove that this graph was derived from these specific source commits."
-- "Show me every service that touches PII, traced through the actual runtime call graph."
-- "What changed in the system's dependency structure between these two audit dates?"
+| Language | Extractor | Framework Detection |
+|----------|-----------|-------------------|
+| Go | tree-sitter + `go/packages` | net/http, gin, echo, chi, fiber |
+| TypeScript/JS | tree-sitter | Express.js |
+| Python | tree-sitter | Flask, FastAPI, Django |
+| Rust | tree-sitter | Actix, Axum, Rocket |
+| Java | tree-sitter | Spring |
+| C# | tree-sitter | ASP.NET |
+| Terraform (HCL) | tree-sitter | resource/module/variable declarations |
+| SQL | tree-sitter | tables, views, procedures |
+| Kubernetes YAML | yaml.v3 | deployments, services, configmaps, ingress |
+| CSS/SCSS | tree-sitter | selectors, custom properties, imports |
 
 ## MCP Tools
 
@@ -82,36 +79,32 @@ The Git analogy is exact: Git is a content-addressed graph of source code. knowi
 | `blast_radius` | Full impact analysis for a proposed change |
 | `trace_dataflow` | Follow a value across function and service boundaries |
 | `repo_graph` | Repository and package-level dependency relationships |
-| `stale_edges` | Edges invalidated by recent source changes (hash mismatch) |
+| `stale_edges` | Edges invalidated by recent source changes |
 | `ownership` | Who owns the code/service/consumers affected by a change |
 | `snapshot_diff` | What changed in the graph between two points in time |
 | `semantic_diff` | Relationship-level diff between any two snapshots |
-| `pr_impact` | Semantic diff specialized for a PR (resolves base/head from git) |
+| `pr_impact` | Semantic diff specialized for a PR |
 | `runtime_traffic` | Runtime-observed edges filtered by service and route |
 | `dead_routes` | Routes with no production traffic in N days |
 | `trace_stats` | Aggregate statistics on runtime-derived edges |
-| `context_for_task` | Graph-ranked, token-budgeted context for a task description |
-| `context_for_files` | Blast radius context for a set of changed files |
+| `context_for_task` | Graph-ranked, token-budgeted context for a task |
+| `context_for_files` | Blast radius context for changed files |
 
-## Relationship to agent-lsp
+**MCP Prompts:** `refactor_safely`, `review_pr`, `investigate_dead_code`
 
-`agent-lsp` gives agents live semantic awareness inside a workspace: diagnostics, rename execution, edit simulation, symbol navigation.
+## Wire Formats
 
-`knowing` gives agents (and humans) persistent system-level awareness across repositories: relationships, impact, ownership, staleness, and runtime behavior.
+knowing serves responses in three encodings, selected per request:
 
-Where `agent-lsp` answers "where is this symbol used in this repo?", `knowing` answers "where is this contract used across the system, who owns the consumers, and is it actually called in production?"
+| Format | Use Case | Savings vs JSON |
+|--------|----------|-----------------|
+| **KWF** (Knowing Wire Format) | LLM consumption | 76.7% fewer tokens |
+| **KWB** (Knowing Wire Binary) | Service transport, caching | 74% fewer bytes |
+| **JSON** | Human debugging, generic APIs | Baseline |
 
-## Roadmap
-
-Five parallel workstreams, not sequential phases. See [docs/roadmap.md](docs/roadmap.md) for the full breakdown with dependency graph and parallelization notes.
-
-| Workstream | Focus |
-|------------|-------|
-| **Graph Core** | Content-addressed store, language-agnostic extractor framework, Go + tree-sitter extractors, traversal cache, MCP server, daemon |
-| **Edge Types** | SCIP, protobuf/gRPC, HTTP routes, events, schemas, infrastructure, ownership |
-| **Runtime Intelligence** | OpenTelemetry trace ingestion, runtime symbol resolution, confidence decay |
-| **Developer Visibility** | Semantic PR diff, graph-native test selection, ownership routing, staleness dashboard |
-| **Agent Coordination** | Pending mutations, temporal reasoning, federated graphs |
+```bash
+knowing context -task "refactor auth" -format kwf
+```
 
 ## Quick Start
 
@@ -126,10 +119,13 @@ knowing index ./path/to/repo
 knowing query "MyService"
 
 # Generate context for an agent task
-knowing context -task "refactor auth middleware" -budget 50000
+knowing context -task "refactor auth middleware" -format kwf
 
-# Start the MCP server for agent integration (stdio)
+# Start the MCP server (stdio)
 knowing mcp -db knowing.db
+
+# Start the daemon (watches git, serves MCP over HTTP)
+knowing serve -repo ./path/to/repo -addr :8100
 ```
 
 ### Agent Integration (.mcp.json)
@@ -146,12 +142,44 @@ knowing mcp -db knowing.db
 }
 ```
 
+## What It Answers
+
+**For agents:**
+- "I'm changing this function signature. Which other repos call it?"
+- "What is the blast radius of this change, and how confident are we in each edge?"
+- "Give me the most relevant context for this task, packed into 5000 tokens."
+
+**For platform teams:**
+- "What did the dependency graph look like when we deployed on Tuesday?"
+- "Is this route actually called in production, or just declared in code?"
+- "Static analysis says 47 callers; how many are active in production?"
+
+**For security and compliance:**
+- "Prove that this graph was derived from these specific source commits."
+- "Show me every service that touches PII, traced through the runtime call graph."
+- "What changed in the system's dependency structure between these two audit dates?"
+
+## Content Addressing
+
+The Git analogy is exact: Git is a content-addressed graph of source code. knowing is a content-addressed graph of source code *relationships*.
+
+- **History**: every previous graph state is queryable by snapshot hash
+- **Staleness**: a hash mismatch between snapshots is a structural fact, not a heuristic
+- **Integrity**: any graph state is provably derived from specific source commits
+- **Deduplication**: identical relationships across repos share a single edge record
+
 ## Documentation
 
-- [Architecture](docs/architecture.md): design decisions, system overview, schemas, interfaces
-- [CLI Reference](docs/CLI.md): all commands with flags and examples
-- [MCP Tools](docs/MCP-TOOLS.md): all 16 tools with parameters and return formats
-- [Roadmap](docs/roadmap.md): workstreams, dependencies, parallelization notes
+| Doc | Contents |
+|-----|----------|
+| [Architecture](docs/architecture.md) | System design, schemas, content addressing, interfaces |
+| [Wire Formats](docs/wire-formats.md) | KWF/KWB specs, grammar, benchmarks, codec registry |
+| [CLI Reference](docs/CLI.md) | All commands with flags and examples |
+| [MCP Tools](docs/MCP-TOOLS.md) | All 16 tools with parameters and return formats |
+| [Edge Types](docs/edge-types.md) | The 9 relationship types and their semantics |
+| [Context Packing](docs/context-packing.md) | RWR algorithm, scoring, token budgeting |
+| [Runtime Traces](docs/runtime-traces.md) | OTel ingestion, confidence scoring, decay |
+| [Roadmap](docs/roadmap.md) | Workstreams, priorities, next steps |
 
 ## License
 
