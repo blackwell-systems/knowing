@@ -1,3 +1,4 @@
+completion_date: "2026-05-15"
 title: Runtime Wiring and Developer Tools Batch
 feature_slug: runtime-wiring-devtools
 verdict: SUITABLE
@@ -885,6 +886,7 @@ waves:
             - internal/mcp/server.go
           dependencies:
             - C
+      base_commit: d799f14cea7d15abcb55a0b74bff9c5589c6a827
 quality_gates:
     level: standard
     gates:
@@ -948,6 +950,33 @@ completion_reports:
             - TestCmdExport_InUsageOutput
         verification: PASS
         notes: All runtime store query methods and export CLI implemented. Full test suite passes. MCP handlers (Wave 2) will consume RuntimeEdgesByService, DeadRoutes, RuntimeEdgeStatsAggregate.
+    D:
+        status: complete
+        branch: polywave/runtime-wiring-devtools/wave2-agent-D
+        commit: 7c91644
+        files_changed:
+            - internal/daemon/daemon.go
+            - internal/daemon/daemon_test.go
+        tests_added:
+            - TestTraceIngestLoop_StartsAndStops
+            - TestTraceIngestLoop_Disabled
+        verification: PASS
+        notes: 'Replaced placeholder traceIngestLoop with real wiring: SymbolResolver, Ingestor, OTLPReceiver, FlushBatch/DecayConfidence ticker loop. Added DBPath field to DaemonConfig. Out-of-scope: cmd/knowing/main.go must set DBPath when constructing DaemonConfig (Agent C or post-merge integration).'
+    E:
+        status: complete
+        branch: polywave/runtime-wiring-devtools/wave2-agent-E
+        commit: 72a997b
+        files_changed:
+            - internal/mcp/server.go
+            - internal/mcp/handlers.go
+            - internal/mcp/handlers_test.go
+        tests_added:
+            - TestHandleRuntimeTraffic
+            - TestHandleDeadRoutes
+            - TestHandleTraceStats
+            - TestRuntimeToolsUnavailable
+        verification: PASS
+        notes: All 3 runtime MCP tool handlers implemented. Server struct gains sqlStore field via type assertion. 14 tools now registered. All tests pass including full suite.
 pre_mortem:
     overall_risk: medium
     rows:
@@ -1015,5 +1044,5 @@ critic_report:
     summary: All five agent briefs verified against the codebase. All action:modify files exist. Function signatures (NewOTLPReceiver, NewSymbolResolver, NewIngestor, FlushBatch, DecayConfidence, walkForCalls, extractCallEdges) match actual code. Pattern insertion points in main.go (case "query" at line 58, usage text at line 72) and server.go (ownershipTool() at line 67) are accurate. The daemon TraceIngestConfig has fewer fields than trace.TraceIngestConfig but the brief correctly maps only the overlapping fields. The DBPath wiring gap (Agent D adds field, Agent C owns main.go) is documented in post_merge_checklist. No disjoint ownership violations. No complexity balance issues.
     reviewed_at: "2026-05-15T20:51:19Z"
     issue_count: 1
-state: REVIEWED
+state: COMPLETE
 injection_method: hook
