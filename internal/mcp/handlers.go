@@ -437,3 +437,71 @@ func (s *Server) handleOwnership(ctx context.Context, req mcp.CallToolRequest) (
 	}
 	return result, nil
 }
+
+// --- Runtime trace query handlers ---
+
+// handleRuntimeTraffic returns runtime-observed edges filtered by service name
+// and optional route pattern. Requires the underlying store to be a SQLiteStore.
+func (s *Server) handleRuntimeTraffic(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if s.sqlStore == nil {
+		return mcp.NewToolResultError("runtime queries not available: store does not support runtime methods"), nil
+	}
+
+	serviceName, errResult := requireStringArg(req, "service_name")
+	if errResult != nil {
+		return errResult, nil
+	}
+	routePattern := getStringArg(req, "route_pattern")
+	limit := getIntArg(req, "limit", 100)
+
+	edges, err := s.sqlStore.RuntimeEdgesByService(ctx, serviceName, routePattern, limit)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("RuntimeEdgesByService failed: %v", err)), nil
+	}
+
+	result, err := mcp.NewToolResultJSON(edges)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to marshal result: %v", err)), nil
+	}
+	return result, nil
+}
+
+// handleDeadRoutes returns route symbols with no recent runtime observations.
+// Requires the underlying store to be a SQLiteStore.
+func (s *Server) handleDeadRoutes(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if s.sqlStore == nil {
+		return mcp.NewToolResultError("runtime queries not available: store does not support runtime methods"), nil
+	}
+
+	staleDays := getIntArg(req, "stale_days", 30)
+
+	routes, err := s.sqlStore.DeadRoutes(ctx, staleDays)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("DeadRoutes failed: %v", err)), nil
+	}
+
+	result, err := mcp.NewToolResultJSON(routes)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to marshal result: %v", err)), nil
+	}
+	return result, nil
+}
+
+// handleTraceStats returns aggregate statistics about runtime-derived edges.
+// Requires the underlying store to be a SQLiteStore.
+func (s *Server) handleTraceStats(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if s.sqlStore == nil {
+		return mcp.NewToolResultError("runtime queries not available: store does not support runtime methods"), nil
+	}
+
+	stats, err := s.sqlStore.RuntimeEdgeStatsAggregate(ctx)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("RuntimeEdgeStatsAggregate failed: %v", err)), nil
+	}
+
+	result, err := mcp.NewToolResultJSON(stats)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to marshal result: %v", err)), nil
+	}
+	return result, nil
+}
