@@ -1,0 +1,164 @@
+# Fixture: context_for_files response (15 symbols from 3 files, 12 edges)
+# Simulates: knowing context --files "internal/mcp/server.go,internal/context/context.go"
+tool: context_for_files
+tokens_used: 3100
+token_budget: 6000
+
+symbols:
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/mcp.NewServer"
+    kind: function
+    score: 0.92
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func NewServer(store types.GraphStore) *Server"
+    components: { blast_radius: 0.42, confidence: 0.28, recency: 0.08, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/mcp.Server"
+    kind: type
+    score: 0.88
+    provenance: lsp_resolved
+    distance: 0
+    signature: "type Server struct"
+    components: { blast_radius: 0.38, confidence: 0.28, recency: 0.08, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/mcp.Server.registerTools"
+    kind: method
+    score: 0.85
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func (s *Server) registerTools()"
+    components: { blast_radius: 0.35, confidence: 0.25, recency: 0.08, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/mcp.Server.registerPrompts"
+    kind: method
+    score: 0.82
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func (s *Server) registerPrompts()"
+    components: { blast_radius: 0.32, confidence: 0.25, recency: 0.08, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/mcp.Server.handleBlastRadius"
+    kind: method
+    score: 0.78
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func (s *Server) handleBlastRadius(ctx context.Context, args map[string]any) (*mcp.CallToolResult, error)"
+    components: { blast_radius: 0.28, confidence: 0.25, recency: 0.08, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/mcp.Server.handleContextForTask"
+    kind: method
+    score: 0.75
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func (s *Server) handleContextForTask(ctx context.Context, args map[string]any) (*mcp.CallToolResult, error)"
+    components: { blast_radius: 0.28, confidence: 0.22, recency: 0.08, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/mcp.Server.handleSemanticDiff"
+    kind: method
+    score: 0.72
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func (s *Server) handleSemanticDiff(ctx context.Context, args map[string]any) (*mcp.CallToolResult, error)"
+    components: { blast_radius: 0.25, confidence: 0.22, recency: 0.08, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/context.ContextEngine"
+    kind: type
+    score: 0.68
+    provenance: lsp_resolved
+    distance: 0
+    signature: "type ContextEngine struct"
+    components: { blast_radius: 0.25, confidence: 0.20, recency: 0.06, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/context.ContextEngine.ForTask"
+    kind: method
+    score: 0.65
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func (e *ContextEngine) ForTask(ctx context.Context, opts TaskOptions) (*ContextBlock, error)"
+    components: { blast_radius: 0.22, confidence: 0.20, recency: 0.06, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/context.ContextEngine.ForFiles"
+    kind: method
+    score: 0.62
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func (e *ContextEngine) ForFiles(ctx context.Context, opts FileOptions) (*ContextBlock, error)"
+    components: { blast_radius: 0.22, confidence: 0.18, recency: 0.06, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/types.GraphStore"
+    kind: interface
+    score: 0.55
+    provenance: lsp_resolved
+    distance: 1
+    signature: "type GraphStore interface"
+    components: { blast_radius: 0.18, confidence: 0.15, recency: 0.04, distance: 0.10 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore"
+    kind: type
+    score: 0.52
+    provenance: lsp_resolved
+    distance: 1
+    signature: "type SQLiteStore struct"
+    components: { blast_radius: 0.18, confidence: 0.14, recency: 0.04, distance: 0.10 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/cmd/knowing.cmdServe"
+    kind: function
+    score: 0.48
+    provenance: ast_inferred
+    distance: 1
+    signature: "func cmdServe(db *store.SQLiteStore, repoDir string)"
+    components: { blast_radius: 0.15, confidence: 0.12, recency: 0.06, distance: 0.10 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/cmd/knowing.cmdMCP"
+    kind: function
+    score: 0.45
+    provenance: ast_inferred
+    distance: 1
+    signature: "func cmdMCP(db *store.SQLiteStore)"
+    components: { blast_radius: 0.14, confidence: 0.12, recency: 0.04, distance: 0.10 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/context.RandomWalkWithRestart"
+    kind: function
+    score: 0.42
+    provenance: lsp_resolved
+    distance: 1
+    signature: "func RandomWalkWithRestart(ctx context.Context, store types.GraphStore, seeds []types.Hash, alpha float64, maxIter int) (map[types.Hash]float64, error)"
+    components: { blast_radius: 0.15, confidence: 0.12, recency: 0.04, distance: 0.10 }
+
+edges:
+  - source: "github.com/blackwell-systems/knowing/internal/mcp.NewServer"
+    target: "github.com/blackwell-systems/knowing/internal/mcp.Server.registerTools"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/mcp.NewServer"
+    target: "github.com/blackwell-systems/knowing/internal/mcp.Server.registerPrompts"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/mcp.Server.handleContextForTask"
+    target: "github.com/blackwell-systems/knowing/internal/context.ContextEngine.ForTask"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/mcp.Server.handleBlastRadius"
+    target: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore"
+    type: references
+  - source: "github.com/blackwell-systems/knowing/internal/context.ContextEngine.ForTask"
+    target: "github.com/blackwell-systems/knowing/internal/context.RandomWalkWithRestart"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/context.ContextEngine.ForFiles"
+    target: "github.com/blackwell-systems/knowing/internal/context.RandomWalkWithRestart"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/cmd/knowing.cmdServe"
+    target: "github.com/blackwell-systems/knowing/internal/mcp.NewServer"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/cmd/knowing.cmdMCP"
+    target: "github.com/blackwell-systems/knowing/internal/mcp.NewServer"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore"
+    target: "github.com/blackwell-systems/knowing/internal/types.GraphStore"
+    type: implements
+  - source: "github.com/blackwell-systems/knowing/internal/mcp.NewServer"
+    target: "github.com/blackwell-systems/knowing/internal/types.GraphStore"
+    type: references
+  - source: "github.com/blackwell-systems/knowing/internal/mcp.Server"
+    target: "github.com/blackwell-systems/knowing/internal/context.ContextEngine"
+    type: references
+  - source: "github.com/blackwell-systems/knowing/internal/mcp.Server.handleSemanticDiff"
+    target: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore"
+    type: references

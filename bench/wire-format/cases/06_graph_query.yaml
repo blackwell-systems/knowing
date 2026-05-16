@@ -1,0 +1,213 @@
+# Fixture: graph_query response (20 symbols from prefix search, 15 edges)
+# Simulates: knowing query --prefix "github.com/blackwell-systems/knowing/internal/store"
+tool: graph_query
+tokens_used: 3800
+token_budget: 8000
+
+symbols:
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore"
+    kind: type
+    score: 1.00
+    provenance: lsp_resolved
+    distance: 0
+    signature: "type SQLiteStore struct"
+    components: { blast_radius: 0.50, confidence: 0.30, recency: 0.10, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/store.NewSQLiteStore"
+    kind: function
+    score: 0.95
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func NewSQLiteStore(dbPath string) (*SQLiteStore, error)"
+    components: { blast_radius: 0.45, confidence: 0.30, recency: 0.10, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.PutNode"
+    kind: method
+    score: 0.90
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func (s *SQLiteStore) PutNode(ctx context.Context, node types.Node) error"
+    components: { blast_radius: 0.40, confidence: 0.28, recency: 0.10, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.PutEdge"
+    kind: method
+    score: 0.88
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func (s *SQLiteStore) PutEdge(ctx context.Context, edge types.Edge) error"
+    components: { blast_radius: 0.38, confidence: 0.28, recency: 0.10, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.GetNode"
+    kind: method
+    score: 0.85
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func (s *SQLiteStore) GetNode(ctx context.Context, hash types.Hash) (*types.Node, error)"
+    components: { blast_radius: 0.35, confidence: 0.28, recency: 0.08, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.EdgesFrom"
+    kind: method
+    score: 0.82
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func (s *SQLiteStore) EdgesFrom(ctx context.Context, hash types.Hash, edgeType string) ([]types.Edge, error)"
+    components: { blast_radius: 0.32, confidence: 0.28, recency: 0.08, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.EdgesTo"
+    kind: method
+    score: 0.80
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func (s *SQLiteStore) EdgesTo(ctx context.Context, hash types.Hash, edgeType string) ([]types.Edge, error)"
+    components: { blast_radius: 0.30, confidence: 0.28, recency: 0.08, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.NodesByPrefix"
+    kind: method
+    score: 0.78
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func (s *SQLiteStore) NodesByPrefix(ctx context.Context, prefix string) ([]types.Node, error)"
+    components: { blast_radius: 0.28, confidence: 0.28, recency: 0.08, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.BlastRadius"
+    kind: method
+    score: 0.75
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func (s *SQLiteStore) BlastRadius(ctx context.Context, nodeHash types.Hash, snapshotHash types.Hash) (*types.BlastRadiusResult, error)"
+    components: { blast_radius: 0.25, confidence: 0.28, recency: 0.08, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.TransitiveCallers"
+    kind: method
+    score: 0.72
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func (s *SQLiteStore) TransitiveCallers(ctx context.Context, hash types.Hash, depth int, snapshotHash types.Hash) ([]types.CallerResult, error)"
+    components: { blast_radius: 0.22, confidence: 0.28, recency: 0.08, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.TransitiveCallees"
+    kind: method
+    score: 0.70
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func (s *SQLiteStore) TransitiveCallees(ctx context.Context, hash types.Hash, depth int, snapshotHash types.Hash) ([]types.CalleeResult, error)"
+    components: { blast_radius: 0.20, confidence: 0.28, recency: 0.08, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.SnapshotDiff"
+    kind: method
+    score: 0.68
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func (s *SQLiteStore) SnapshotDiff(ctx context.Context, fromHash, toHash types.Hash) (*types.DiffResult, error)"
+    components: { blast_radius: 0.20, confidence: 0.25, recency: 0.08, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.TruncateGraph"
+    kind: method
+    score: 0.65
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func (s *SQLiteStore) TruncateGraph(ctx context.Context) error"
+    components: { blast_radius: 0.18, confidence: 0.22, recency: 0.12, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.CreateSnapshot"
+    kind: method
+    score: 0.62
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func (s *SQLiteStore) CreateSnapshot(ctx context.Context, repoHash types.Hash) (*types.Snapshot, error)"
+    components: { blast_radius: 0.18, confidence: 0.22, recency: 0.08, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.LatestSnapshot"
+    kind: method
+    score: 0.58
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func (s *SQLiteStore) LatestSnapshot(ctx context.Context, repoHash types.Hash) (*types.Snapshot, error)"
+    components: { blast_radius: 0.16, confidence: 0.20, recency: 0.08, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.IngestTrace"
+    kind: method
+    score: 0.55
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func (s *SQLiteStore) IngestTrace(ctx context.Context, spans []types.TraceSpan) error"
+    components: { blast_radius: 0.15, confidence: 0.18, recency: 0.10, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.DecayEdges"
+    kind: method
+    score: 0.52
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func (s *SQLiteStore) DecayEdges(ctx context.Context, before time.Time, factor float64) (int64, error)"
+    components: { blast_radius: 0.14, confidence: 0.16, recency: 0.08, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.Close"
+    kind: method
+    score: 0.48
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func (s *SQLiteStore) Close() error"
+    components: { blast_radius: 0.12, confidence: 0.14, recency: 0.06, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.migrate"
+    kind: method
+    score: 0.44
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func (s *SQLiteStore) migrate() error"
+    components: { blast_radius: 0.10, confidence: 0.12, recency: 0.06, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.RecordEdgeEvent"
+    kind: method
+    score: 0.40
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func (s *SQLiteStore) RecordEdgeEvent(ctx context.Context, event types.EdgeEvent) error"
+    components: { blast_radius: 0.10, confidence: 0.12, recency: 0.06, distance: 0.15 }
+
+edges:
+  - source: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore"
+    target: "github.com/blackwell-systems/knowing/internal/types.GraphStore"
+    type: implements
+  - source: "github.com/blackwell-systems/knowing/internal/store.NewSQLiteStore"
+    target: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.migrate"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.PutNode"
+    target: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.RecordEdgeEvent"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.PutEdge"
+    target: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.RecordEdgeEvent"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.BlastRadius"
+    target: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.EdgesFrom"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.BlastRadius"
+    target: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.EdgesTo"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.TransitiveCallers"
+    target: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.EdgesTo"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.TransitiveCallees"
+    target: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.EdgesFrom"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.SnapshotDiff"
+    target: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.GetNode"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.CreateSnapshot"
+    target: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.PutEdge"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.IngestTrace"
+    target: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.PutEdge"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.IngestTrace"
+    target: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.PutNode"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.TruncateGraph"
+    target: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.Close"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.DecayEdges"
+    target: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.EdgesFrom"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.CreateSnapshot"
+    target: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.LatestSnapshot"
+    type: calls

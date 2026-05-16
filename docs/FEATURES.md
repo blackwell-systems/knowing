@@ -1,6 +1,6 @@
 # FEATURES.md -- Comprehensive Feature Dump for AI Reference
 
-Generated: 2026-05-15 (updated: 2026-05-15)
+Generated: 2026-05-15 (updated: 2026-05-16)
 Source: code inspection of all Go files across internal/, cmd/, and config
 Repo: github.com/blackwell-systems/knowing
 
@@ -242,7 +242,7 @@ Repo: github.com/blackwell-systems/knowing
 
 - **Package(s):** `internal/mcp`
 - **Entry point:** `mcp.NewServer(store GraphStore) *Server`
-- **What it does:** Wraps `mcp-go` server library. Registers 14 tools across three planes (execution, intelligence, runtime). Supports stdio and HTTP transports. Tool definitions include parameter schemas with descriptions and required flags. The Server holds a `sqlStore *SQLiteStore` (populated via type assertion from GraphStore) for runtime query tools.
+- **What it does:** Wraps `mcp-go` server library. Registers 16 tools across three planes (execution, intelligence, runtime) and 3 prompts (refactor_safely, review_pr, investigate_dead_code). Supports stdio and HTTP transports. Tool definitions include parameter schemas with descriptions and required flags. The Server holds a `sqlStore *SQLiteStore` (populated via type assertion from GraphStore) for runtime query tools.
 - **Inputs:** GraphStore (runtime tools additionally require `*SQLiteStore`).
 - **Outputs:** Serves MCP protocol over stdio or HTTP.
 - **Limitations/known gaps:**
@@ -257,7 +257,7 @@ Repo: github.com/blackwell-systems/knowing
 
 - **Package(s):** `cmd/knowing`
 - **Entry point:** `main.main() -> run(args)`
-- **What it does:** Dispatches to subcommands: `serve`, `index`, `query`, `export`, `version`. Wires together all internal packages.
+- **What it does:** Dispatches to subcommands: `serve`, `index`, `query`, `export`, `mcp`, `reindex`, `version`. Wires together all internal packages.
 - **Inputs:** CLI arguments and flags.
 - **Outputs:** Stdout text (query results, JSON export), SQLite database file.
 - **Dependencies:** All internal packages.
@@ -383,7 +383,7 @@ Repo: github.com/blackwell-systems/knowing
   1. `runtime_traffic`: Queries runtime-observed edges by service name and optional route pattern (LIKE syntax). Parameters: `service_name` (required), `route_pattern` (optional), `limit` (optional, default 100). Calls `SQLiteStore.RuntimeEdgesByService`.
   2. `dead_routes`: Finds route symbols with no runtime observations in N days. Parameters: `stale_days` (optional, default 30). Calls `SQLiteStore.DeadRoutes`.
   3. `trace_stats`: Returns aggregate statistics about runtime-derived edges (total, active, stale, GC-eligible, by edge type). No parameters. Calls `SQLiteStore.RuntimeEdgeStatsAggregate`.
-  Total MCP tools: 14 (11 original + 3 runtime).
+  Total MCP tools: 16 (13 original + 3 runtime). Also registers 3 MCP prompts (refactor_safely, review_pr, investigate_dead_code).
 - **Limitations/known gaps:**
   - Runtime tools return "runtime queries not available: store does not support runtime methods" if the store is not a `*SQLiteStore`.
   - No authentication or rate limiting on runtime queries.
@@ -418,6 +418,86 @@ Repo: github.com/blackwell-systems/knowing
   - Docker images reference `docker/Dockerfile` which is not in the file inventory above.
   - npm/PyPI publish scripts referenced but not documented here.
 - **Dependencies:** GitHub Actions, GoReleaser v2, Docker, mkdocs-material.
+
+### 31. Wire Format System (Pluggable Codec Registry)
+
+- **Package(s):** `internal/wire`
+- **Entry point:** `wire.EncodeWith(name string, p *Payload) (string, error)`, `wire.DecodeWith(name string, input string) (*Payload, error)`
+- **What it does:** Provides a pluggable codec registry with 3 built-in encoders for graph payloads:
+  1. **KWF (Knowing Wire Format):** Text-only, graph-native encoding optimized for LLM token consumption. Uses local IDs (`@0`, `@1`), positional encoding, kind abbreviations, and group headers to achieve **76.7% median token savings** over JSON. Supports session statefulness for progressive vocabulary building across tool calls.
+  2. **Binary (KWB1):** Compact binary encoding using varint integers, enum IDs (1 byte), float32 scores, index-based edge references, and length-prefixed strings. Optimized for transport between services and persistent caching (~89% byte savings vs JSON).
+  3. **JSON:** Standard JSON serialization for maximum compatibility and debuggability.
+  Codecs are registered at init time. Custom codecs can be added via `wire.Register()`. The MCP tools and CLI pass the `format` parameter directly to the registry, making new codecs immediately available to all consumers.
+- **Inputs:** `*Payload` struct containing tool name, token counts, symbols (with scores, kinds, provenance, components), and edges.
+- **Outputs:** Encoded string (KWF or JSON) or binary bytes. Decode returns `*Payload`.
+- **Benchmark results:** 6 fixture cases (8 to 30 symbols) with encode p99 latency of 64 microseconds on Apple M4 Pro.
+- **Limitations/known gaps:**
+  - Binary codec requires version bump for extensibility (KWF can append new fields freely).
+  - Binary codec registered in its own init() separately from the other two.
+  - Session statefulness (previously-transmitted node references) is defined in the format spec but implementation details are in the MCP layer.
+- **Dependencies:** None beyond stdlib.
+
+### 32. Terraform (HCL) Extractor
+
+- **Package(s):** `internal/indexer/terraformextractor`
+- **Entry point:** `terraformextractor.NewTerraformExtractor() *TerraformExtractor`
+- **What it does:** Parses `.tf` files (HCL syntax) and extracts infrastructure-as-code relationships: resources, data sources, modules, variables, outputs, and dependency edges between them.
+- **Dependencies:** HCL parser.
+
+### 33. SQL Extractor
+
+- **Package(s):** `internal/indexer/sqlextractor`
+- **Entry point:** `sqlextractor.NewSQLExtractor() *SQLExtractor`
+- **What it does:** Parses `.sql` files and extracts schema relationships: tables, views, columns, foreign keys, and dependency edges between them.
+- **Dependencies:** SQL parser.
+
+### 34. Kubernetes YAML Extractor
+
+- **Package(s):** `internal/indexer/k8sextractor`
+- **Entry point:** `k8sextractor.NewK8sExtractor() *K8sExtractor`
+- **What it does:** Parses Kubernetes manifest files (`.yaml`/`.yml` with K8s resource kinds) and extracts deployments, services, configmaps, secrets, and their inter-resource references.
+- **Dependencies:** YAML parser.
+
+### 35. CSS Extractor
+
+- **Package(s):** `internal/indexer/cssextractor`
+- **Entry point:** `cssextractor.NewCSSExtractor() *CSSExtractor`
+- **What it does:** Parses `.css` files and extracts selectors, custom properties (variables), and relationships between them.
+- **Dependencies:** CSS parser.
+
+### 36. MCP Self-Dogfooding (.mcp.json)
+
+- **Package(s):** Repository root
+- **Entry point:** `.mcp.json` in repo root
+- **What it does:** Configures knowing to serve its own knowledge graph via MCP. Allows AI agents working in the knowing codebase to query the graph using knowing's own MCP tools, creating a self-referential development loop.
+- **Limitations/known gaps:** Requires knowing to be built and available on PATH or configured as a local server.
+- **Dependencies:** `knowing mcp` subcommand.
+
+### 37. MCP Prompts
+
+- **Package(s):** `internal/mcp`
+- **Entry point:** `Server.registerPrompts()` (called from `NewServer`)
+- **What it does:** Registers 3 MCP prompts that provide structured workflows for common tasks:
+  1. **refactor_safely:** Guides agents through blast-radius analysis, speculative preview, apply, and verify steps for safe refactoring.
+  2. **review_pr:** Structured PR review workflow using graph context to identify affected symbols and ownership.
+  3. **investigate_dead_code:** Workflow for finding and confirming dead code using reference analysis and runtime traffic data.
+- **Dependencies:** `github.com/mark3labs/mcp-go`, MCP Server.
+
+### 38. `knowing mcp` Subcommand (Stdio MCP Server)
+
+- **Package(s):** `cmd/knowing`
+- **Entry point:** `knowing mcp [flags]`
+- **What it does:** Launches the MCP server in stdio transport mode. Reads JSON-RPC messages from stdin, writes responses to stdout. Designed for use as a subprocess MCP server (e.g., configured in `.mcp.json` or Claude Desktop). Provides all 16 MCP tools and 3 prompts over stdio without requiring HTTP.
+- **Flags:** `--db` (default: `knowing.db`): SQLite database path.
+- **Dependencies:** `internal/mcp`, `internal/store`.
+
+### 39. `knowing reindex` Subcommand
+
+- **Package(s):** `cmd/knowing`
+- **Entry point:** `knowing reindex [flags]`
+- **What it does:** Clears all nodes, edges, and edge events from the store, then re-indexes the specified repository from scratch. Useful when extractor logic has changed or when the graph has accumulated stale data that incremental indexing cannot clean up.
+- **Flags:** `--db` (default: `knowing.db`), repository path (positional).
+- **Dependencies:** `internal/store`, `internal/indexer`.
 
 ### GraphStore (`internal/types/interfaces.go`)
 
@@ -463,7 +543,7 @@ All 27 methods:
 | CanHandle | `(path string) bool` |
 | Extract | `(ctx, ExtractOptions) (*ExtractResult, error)` |
 
-Implementors: `gotsextractor.GoTreeSitterExtractor`, `goextractor.GoExtractor`, `treesitter.TreeSitterExtractor`
+Implementors: `gotsextractor.GoTreeSitterExtractor`, `goextractor.GoExtractor`, `treesitter.TreeSitterExtractor`, `terraformextractor.TerraformExtractor`, `sqlextractor.SQLExtractor`, `k8sextractor.K8sExtractor`, `cssextractor.CSSExtractor`
 Consumers: `indexer.ExtractorRegistry`, `indexer.Indexer`
 
 ### ComputationCache (`internal/types/interfaces.go`)
@@ -564,6 +644,8 @@ Subset interface of GraphStore for resolver decoupling:
 | 12 | `runtime_traffic` | `handleRuntimeTraffic` | FUNCTIONAL | `SQLiteStore.RuntimeEdgesByService` | Queries runtime edges by service and route pattern |
 | 13 | `dead_routes` | `handleDeadRoutes` | FUNCTIONAL | `SQLiteStore.DeadRoutes` | Finds routes with no observations in N days |
 | 14 | `trace_stats` | `handleTraceStats` | FUNCTIONAL | `SQLiteStore.RuntimeEdgeStatsAggregate` | Aggregate runtime edge statistics |
+| 15 | `context_for_task` | `handleContextForTask` | FUNCTIONAL | `NodesByName`, graph traversal | Returns ranked symbols relevant to a natural-language task description, encoded via wire format codec |
+| 16 | `context_for_files` | `handleContextForFiles` | FUNCTIONAL | `NodesByName`, `EdgesFrom`, file lookups | Returns symbols and edges relevant to specified file paths, encoded via wire format codec |
 
 Parameters per tool:
 
@@ -581,6 +663,8 @@ Parameters per tool:
 - `runtime_traffic`: service_name (required), route_pattern (optional, LIKE syntax), limit (optional, default 100)
 - `dead_routes`: stale_days (optional, default 30)
 - `trace_stats`: (no parameters)
+- `context_for_task`: task (required), token_budget (optional), format (optional, default "json")
+- `context_for_files`: files (required, array of file paths), token_budget (optional), format (optional, default "json")
 
 ---
 
@@ -590,8 +674,8 @@ Parameters per tool:
 
 - **Flags:** `--db` (default: `knowing.db`), `--addr` (default: `:8080`), `--trace` (enable trace ingestion), `--trace-endpoint` (default: `localhost:4317`), `--trace-batch-size` (default: 1000)
 - **Positional args:** repo paths to watch (0 or more)
-- **What it does:** Opens SQLite store, creates snapshot manager and indexer, registers Go tree-sitter and Python extractors, creates MCP server (14 tools), creates daemon with GitWatcher, optionally starts trace ingestion pipeline (OTLPReceiver + Ingestor + periodic flush/decay), watches listed repos, blocks until SIGINT/SIGTERM.
-- **Extractors registered:** `gotsextractor` (Go, tree-sitter), `treesitter` (Python).
+- **What it does:** Opens SQLite store, creates snapshot manager and indexer, registers all extractors (Go, Python, Terraform, SQL, K8s, CSS), creates MCP server (16 tools, 3 prompts), creates daemon with GitWatcher, optionally starts trace ingestion pipeline (OTLPReceiver + Ingestor + periodic flush/decay), watches listed repos, blocks until SIGINT/SIGTERM.
+- **Extractors registered:** `gotsextractor` (Go, tree-sitter), `treesitter` (Python), `terraformextractor` (Terraform HCL), `sqlextractor` (SQL), `k8sextractor` (Kubernetes YAML), `cssextractor` (CSS).
 - **Enrichment:** Background EnrichFunc wired with scoped or full enrichment.
 - **Trace ingestion:** When `--trace` is set, launches a fourth daemon goroutine that opens a dedicated DB connection, creates SymbolResolver + Ingestor + OTLPReceiver, flushes batches every 10s, and decays confidence every 1h.
 
@@ -612,6 +696,18 @@ Parameters per tool:
 - **Flags:** `--db` (default: `knowing.db`), `--format` (default: `json`), `--repo` (filter by repo URL), `--snapshot` (filter label, cosmetic only)
 - **No positional args.**
 - **What it does:** Exports the full knowledge graph (or a repo-scoped subset) as JSON to stdout. Outputs nodes with their qualified names, kinds, and signatures; edges with source/target hashes, types, confidence, and provenance; and metadata with counts and export timestamp.
+
+### `knowing mcp`
+
+- **Flags:** `--db` (default: `knowing.db`)
+- **No positional args.**
+- **What it does:** Launches the MCP server in stdio transport mode. Reads JSON-RPC messages from stdin and writes responses to stdout. Provides all 16 tools and 3 prompts. Designed for subprocess MCP usage (configured in `.mcp.json` or Claude Desktop).
+
+### `knowing reindex`
+
+- **Flags:** `--db` (default: `knowing.db`)
+- **Positional args:** repo-path (required)
+- **What it does:** Clears all nodes, edges, and edge events from the store, then re-indexes the specified repository from scratch. Useful when extractor logic has changed or when the graph has accumulated stale data.
 
 ### `knowing version`
 
@@ -820,10 +916,18 @@ Primary key: `(service_name, route_pattern, mapping_type)`.
 Configured in `cmd/knowing/main.go`. Default mode (`serve` and `index` without `--full`):
 - `gotsextractor.NewGoTreeSitterExtractor()` (Go files)
 - `treesitter.NewTreeSitterExtractor("python")` (Python files)
+- `terraformextractor.NewTerraformExtractor()` (Terraform HCL files)
+- `sqlextractor.NewSQLExtractor()` (SQL files)
+- `k8sextractor.NewK8sExtractor()` (Kubernetes YAML manifests)
+- `cssextractor.NewCSSExtractor()` (CSS files)
 
 Full mode (`index --full`):
 - `goextractor.NewGoExtractor()` (Go files)
 - `treesitter.NewTreeSitterExtractor("python")` (Python files)
+- `terraformextractor.NewTerraformExtractor()` (Terraform HCL files)
+- `sqlextractor.NewSQLExtractor()` (SQL files)
+- `k8sextractor.NewK8sExtractor()` (Kubernetes YAML manifests)
+- `cssextractor.NewCSSExtractor()` (CSS files)
 
 ### File Walker Skip Directories
 
@@ -875,8 +979,8 @@ Hardcoded in `cmd/knowing/main.go` via daemon startup: `500 * time.Millisecond`.
 
 ### Infrastructure Edge Extraction (Terraform, K8s)
 - **Roadmap: Edge Types workstream.**
-- **What's needed:** Terraform HCL parser, K8s manifest parser, `deploys`/`connects_to`/`depends_on_service` edges.
-- **No code exists.**
+- **Status: PARTIALLY IMPLEMENTED.** Terraform extractor (`internal/indexer/terraformextractor`) and Kubernetes extractor (`internal/indexer/k8sextractor`) exist and extract nodes and edges from HCL and K8s manifests respectively. See Features #32 and #34.
+- **Remaining gaps:** `deploys`/`connects_to`/`depends_on_service` edge types from the architecture are not yet produced. Cross-resource dependency resolution is basic.
 
 ### Ownership Edge Extraction (CODEOWNERS)
 - **Roadmap: Edge Types workstream.**
@@ -943,7 +1047,7 @@ Hardcoded in `cmd/knowing/main.go` via daemon startup: `500 * time.Millisecond`.
 ### TypeScript/Rust/Java Tree-Sitter Extractors
 - **Architecture lists as planned.**
 - **What's needed:** Tree-sitter grammar binding, extractor implementing Extractor interface.
-- **No code exists.** Only Go (tree-sitter + go/packages) and Python (tree-sitter) extractors.
+- **No code exists for TypeScript/Rust/Java.** Current language support (10 total): Go (tree-sitter + go/packages), Python (tree-sitter), Terraform (HCL), SQL, Kubernetes YAML, CSS, plus route detection for 5 HTTP frameworks.
 
 ### CI Integration (GitHub Action)
 - **Architecture decision #14.**
@@ -1069,6 +1173,28 @@ internal/indexer/
   treesitter/
     extractor.go                   -- TreeSitterExtractor (Python): functions, classes, imports, calls
     extractor_test.go
+  terraformextractor/
+    extractor.go                   -- TerraformExtractor: HCL resources, data sources, modules, variables, outputs
+    extractor_test.go
+  sqlextractor/
+    extractor.go                   -- SQLExtractor: tables, views, columns, foreign keys
+    extractor_test.go
+  k8sextractor/
+    extractor.go                   -- K8sExtractor: deployments, services, configmaps, secrets
+    extractor_test.go
+  cssextractor/
+    extractor.go                   -- CSSExtractor: selectors, custom properties
+    extractor_test.go
+
+internal/wire/
+  registry.go                      -- Codec registry: Register, Get, List, EncodeWith, DecodeWith
+  kwf.go                           -- KWF text encoder (graph-native, LLM-optimized)
+  kwf_decode.go                    -- KWF text decoder
+  json.go                          -- JSON codec (encode/decode via standard library)
+  binary.go                        -- Binary codec (varint + length-prefixed, KWB1 format)
+  kwf_test.go
+  registry_test.go
+  binary_test.go
 
 internal/enrichment/
   enricher.go                      -- Enricher: LSP edge upgrade + edge discovery via gopls
@@ -1083,8 +1209,9 @@ internal/daemon/
   gitdiff_test.go
 
 internal/mcp/
-  server.go                        -- MCP Server: 14 tool definitions (execution + intelligence + runtime planes), stdio + HTTP transport
-  handlers.go                      -- 14 handler implementations (11 original + 3 runtime: runtime_traffic, dead_routes, trace_stats)
+  server.go                        -- MCP Server: 16 tool definitions (execution + intelligence + runtime + context planes), stdio + HTTP transport
+  handlers.go                      -- 16 handler implementations (11 original + 3 runtime + 2 context: context_for_task, context_for_files)
+  prompts.go                       -- 3 MCP prompts: refactor_safely, review_pr, investigate_dead_code
   handlers_test.go
 
 internal/resolver/
@@ -1099,6 +1226,11 @@ e2e_test.go                        -- End-to-end integration test (multi-package
   docs.yml                         -- Docs: mkdocs-material -> GitHub Pages
 
 .goreleaser.yml                    -- GoReleaser v2 config: multi-platform builds, Docker manifests, Homebrew tap
+.mcp.json                          -- MCP self-dogfooding: knowing serves its own graph to agents working in this repo
+
+bench/wire-format/
+  scorecard.md                     -- Auto-generated benchmark comparison table (6 fixture cases)
+  (benchmark harness files)        -- Fixture generation, encode/decode benchmarks
 ```
 
 ---

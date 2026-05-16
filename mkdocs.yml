@@ -18,8 +18,11 @@ theme:
 nav:
   - Home: index.md
   - Architecture: architecture.md
+  - Wire Formats: wire-formats.md
   - CLI Reference: CLI.md
   - MCP Tools: MCP-TOOLS.md
+  - Edge Types: edge-types.md
+  - Context Packing: context-packing.md
   - Runtime Traces: runtime-traces.md
   - Distribution: DISTRIBUTION.md
   - Roadmap: roadmap.md

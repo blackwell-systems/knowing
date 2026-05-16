@@ -1,0 +1,152 @@
+# Fixture: small context_for_task response (10 symbols, 8 edges)
+# Simulates: knowing context --task "fix MCP server registration"
+tool: context_for_task
+tokens_used: 1847
+token_budget: 5000
+
+symbols:
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/mcp.requireHash"
+    kind: function
+    score: 0.78
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func requireHash(args map[string]any, key string) (types.Hash, error)"
+    components:
+      blast_radius: 0.40
+      confidence: 0.25
+      recency: 0.06
+      distance: 0.15
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/mcp.Server.registerTools"
+    kind: method
+    score: 0.74
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func (s *Server) registerTools()"
+    components:
+      blast_radius: 0.35
+      confidence: 0.22
+      recency: 0.08
+      distance: 0.15
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/mcp.requireStringArg"
+    kind: function
+    score: 0.67
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func requireStringArg(args map[string]any, key string) (string, error)"
+    components:
+      blast_radius: 0.30
+      confidence: 0.20
+      recency: 0.05
+      distance: 0.15
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/mcp.getIntArg"
+    kind: function
+    score: 0.66
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func getIntArg(args map[string]any, key string, defaultVal int) int"
+    components:
+      blast_radius: 0.28
+      confidence: 0.20
+      recency: 0.05
+      distance: 0.15
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/mcp.NewServer"
+    kind: function
+    score: 0.54
+    provenance: lsp_resolved
+    distance: 1
+    signature: "func NewServer(store types.GraphStore) *Server"
+    components:
+      blast_radius: 0.22
+      confidence: 0.15
+      recency: 0.04
+      distance: 0.10
+
+  - qualified_name: "github.com/blackwell-systems/knowing/cmd/knowing.cmdServe"
+    kind: function
+    score: 0.51
+    provenance: ast_inferred
+    distance: 1
+    signature: "func cmdServe(db *store.SQLiteStore, repoDir string)"
+    components:
+      blast_radius: 0.18
+      confidence: 0.12
+      recency: 0.10
+      distance: 0.10
+
+  - qualified_name: "github.com/blackwell-systems/knowing/cmd/knowing.cmdMCP"
+    kind: function
+    score: 0.46
+    provenance: ast_inferred
+    distance: 1
+    signature: "func cmdMCP(db *store.SQLiteStore)"
+    components:
+      blast_radius: 0.15
+      confidence: 0.12
+      recency: 0.08
+      distance: 0.10
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/mcp.Server"
+    kind: type
+    score: 0.42
+    provenance: lsp_resolved
+    distance: 2
+    signature: "type Server struct"
+    components:
+      blast_radius: 0.20
+      confidence: 0.15
+      recency: 0.03
+      distance: 0.05
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/types.GraphStore"
+    kind: interface
+    score: 0.38
+    provenance: lsp_resolved
+    distance: 2
+    signature: "type GraphStore interface"
+    components:
+      blast_radius: 0.18
+      confidence: 0.12
+      recency: 0.02
+      distance: 0.05
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore"
+    kind: type
+    score: 0.35
+    provenance: lsp_resolved
+    distance: 2
+    signature: "type SQLiteStore struct"
+    components:
+      blast_radius: 0.16
+      confidence: 0.10
+      recency: 0.04
+      distance: 0.05
+
+edges:
+  - source: "github.com/blackwell-systems/knowing/internal/mcp.NewServer"
+    target: "github.com/blackwell-systems/knowing/internal/mcp.requireHash"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/cmd/knowing.cmdServe"
+    target: "github.com/blackwell-systems/knowing/internal/mcp.requireHash"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/cmd/knowing.cmdMCP"
+    target: "github.com/blackwell-systems/knowing/internal/mcp.requireHash"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/mcp.NewServer"
+    target: "github.com/blackwell-systems/knowing/internal/mcp.Server.registerTools"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/cmd/knowing.cmdServe"
+    target: "github.com/blackwell-systems/knowing/internal/mcp.requireStringArg"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/cmd/knowing.cmdMCP"
+    target: "github.com/blackwell-systems/knowing/internal/mcp.requireStringArg"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore"
+    target: "github.com/blackwell-systems/knowing/internal/types.GraphStore"
+    type: implements
+  - source: "github.com/blackwell-systems/knowing/internal/mcp.NewServer"
+    target: "github.com/blackwell-systems/knowing/internal/types.GraphStore"
+    type: references

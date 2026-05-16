@@ -1,0 +1,96 @@
+# Fixture: blast_radius response (8 symbols, deep call chain)
+# Simulates: knowing blast-radius for a high-traffic function
+tool: blast_radius
+tokens_used: 1200
+token_budget: 4000
+
+symbols:
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.PutNode"
+    kind: method
+    score: 1.00
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func (s *SQLiteStore) PutNode(ctx context.Context, node types.Node) error"
+    components: { blast_radius: 0.50, confidence: 0.30, recency: 0.10, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/indexer.Indexer.processFile"
+    kind: method
+    score: 0.82
+    provenance: lsp_resolved
+    distance: 1
+    signature: "func (idx *Indexer) processFile(ctx context.Context, path string) error"
+    components: { blast_radius: 0.35, confidence: 0.22, recency: 0.08, distance: 0.10 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/indexer.Indexer.IndexRepo"
+    kind: method
+    score: 0.75
+    provenance: lsp_resolved
+    distance: 1
+    signature: "func (idx *Indexer) IndexRepo(ctx context.Context, repoPath string) error"
+    components: { blast_radius: 0.30, confidence: 0.20, recency: 0.08, distance: 0.10 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/indexer/goextractor.Extract"
+    kind: function
+    score: 0.68
+    provenance: lsp_resolved
+    distance: 1
+    signature: "func Extract(ctx context.Context, path string, src []byte) ([]types.Node, []types.Edge, error)"
+    components: { blast_radius: 0.25, confidence: 0.18, recency: 0.08, distance: 0.10 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/indexer/tsextractor.Extract"
+    kind: function
+    score: 0.62
+    provenance: lsp_resolved
+    distance: 1
+    signature: "func Extract(ctx context.Context, path string, src []byte) ([]types.Node, []types.Edge, error)"
+    components: { blast_radius: 0.22, confidence: 0.16, recency: 0.08, distance: 0.10 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/cmd/knowing.cmdIndex"
+    kind: function
+    score: 0.55
+    provenance: ast_inferred
+    distance: 2
+    signature: "func cmdIndex(db *store.SQLiteStore, repoDir string)"
+    components: { blast_radius: 0.18, confidence: 0.12, recency: 0.08, distance: 0.05 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/daemon.Daemon.onCommit"
+    kind: method
+    score: 0.48
+    provenance: lsp_resolved
+    distance: 2
+    signature: "func (d *Daemon) onCommit(ctx context.Context) error"
+    components: { blast_radius: 0.15, confidence: 0.12, recency: 0.06, distance: 0.05 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.PutEdge"
+    kind: method
+    score: 0.42
+    provenance: lsp_resolved
+    distance: 1
+    signature: "func (s *SQLiteStore) PutEdge(ctx context.Context, edge types.Edge) error"
+    components: { blast_radius: 0.15, confidence: 0.12, recency: 0.04, distance: 0.05 }
+
+edges:
+  - source: "github.com/blackwell-systems/knowing/internal/indexer.Indexer.processFile"
+    target: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.PutNode"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/indexer.Indexer.IndexRepo"
+    target: "github.com/blackwell-systems/knowing/internal/indexer.Indexer.processFile"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/indexer/goextractor.Extract"
+    target: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.PutNode"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/indexer/tsextractor.Extract"
+    target: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.PutNode"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/cmd/knowing.cmdIndex"
+    target: "github.com/blackwell-systems/knowing/internal/indexer.Indexer.IndexRepo"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/daemon.Daemon.onCommit"
+    target: "github.com/blackwell-systems/knowing/internal/indexer.Indexer.IndexRepo"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/indexer.Indexer.processFile"
+    target: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.PutEdge"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/indexer/goextractor.Extract"
+    target: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.PutEdge"
+    type: calls

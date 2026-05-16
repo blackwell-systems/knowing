@@ -1,0 +1,323 @@
+# Fixture: medium context_for_task response (30 symbols, 25 edges)
+# Simulates: knowing context --task "refactor context engine scoring"
+tool: context_for_task
+tokens_used: 4200
+token_budget: 8000
+
+symbols:
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/context.ContextEngine.ForTask"
+    kind: method
+    score: 0.95
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func (e *ContextEngine) ForTask(ctx context.Context, opts TaskOptions) (*ContextBlock, error)"
+    components: { blast_radius: 0.45, confidence: 0.30, recency: 0.10, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/context.RankSymbols"
+    kind: function
+    score: 0.91
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func RankSymbols(nodes []types.Node, scores map[types.Hash]float64, store types.GraphStore) []RankedSymbol"
+    components: { blast_radius: 0.42, confidence: 0.28, recency: 0.08, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/context.RandomWalkWithRestart"
+    kind: function
+    score: 0.88
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func RandomWalkWithRestart(ctx context.Context, store types.GraphStore, seeds []types.Hash, alpha float64, maxIter int) (map[types.Hash]float64, error)"
+    components: { blast_radius: 0.38, confidence: 0.28, recency: 0.12, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/context.extractKeywords"
+    kind: function
+    score: 0.85
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func extractKeywords(task string) []string"
+    components: { blast_radius: 0.35, confidence: 0.25, recency: 0.10, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/context.ScoreComponents"
+    kind: type
+    score: 0.82
+    provenance: lsp_resolved
+    distance: 0
+    signature: "type ScoreComponents struct"
+    components: { blast_radius: 0.32, confidence: 0.25, recency: 0.08, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/context.RankedSymbol"
+    kind: type
+    score: 0.80
+    provenance: lsp_resolved
+    distance: 0
+    signature: "type RankedSymbol struct"
+    components: { blast_radius: 0.30, confidence: 0.25, recency: 0.08, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/context.ContextBlock"
+    kind: type
+    score: 0.78
+    provenance: lsp_resolved
+    distance: 0
+    signature: "type ContextBlock struct"
+    components: { blast_radius: 0.28, confidence: 0.25, recency: 0.08, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/context.packIntoBudget"
+    kind: function
+    score: 0.76
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func packIntoBudget(ranked []RankedSymbol, budget int, format string) *ContextBlock"
+    components: { blast_radius: 0.28, confidence: 0.22, recency: 0.08, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/context.TaskOptions"
+    kind: type
+    score: 0.73
+    provenance: lsp_resolved
+    distance: 0
+    signature: "type TaskOptions struct"
+    components: { blast_radius: 0.25, confidence: 0.22, recency: 0.08, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/context.FormatContextBlock"
+    kind: function
+    score: 0.70
+    provenance: lsp_resolved
+    distance: 0
+    signature: "func FormatContextBlock(block *ContextBlock, format string) (string, error)"
+    components: { blast_radius: 0.25, confidence: 0.20, recency: 0.08, distance: 0.15 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/context.buildAdjacencyMap"
+    kind: function
+    score: 0.65
+    provenance: lsp_resolved
+    distance: 1
+    signature: "func buildAdjacencyMap(ctx context.Context, store types.GraphStore, seeds []types.Hash) (adjFrom, adjTo map[types.Hash][]types.Edge, err error)"
+    components: { blast_radius: 0.22, confidence: 0.18, recency: 0.06, distance: 0.10 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/context.ContextEngine.ForFiles"
+    kind: method
+    score: 0.62
+    provenance: lsp_resolved
+    distance: 1
+    signature: "func (e *ContextEngine) ForFiles(ctx context.Context, opts FileOptions) (*ContextBlock, error)"
+    components: { blast_radius: 0.22, confidence: 0.18, recency: 0.06, distance: 0.10 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/context.FileOptions"
+    kind: type
+    score: 0.58
+    provenance: lsp_resolved
+    distance: 1
+    signature: "type FileOptions struct"
+    components: { blast_radius: 0.18, confidence: 0.16, recency: 0.06, distance: 0.10 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/context.NewContextEngine"
+    kind: function
+    score: 0.55
+    provenance: lsp_resolved
+    distance: 1
+    signature: "func NewContextEngine(store types.GraphStore) *ContextEngine"
+    components: { blast_radius: 0.18, confidence: 0.15, recency: 0.04, distance: 0.10 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/context.splitIdentifier"
+    kind: function
+    score: 0.52
+    provenance: lsp_resolved
+    distance: 1
+    signature: "func splitIdentifier(s string) []string"
+    components: { blast_radius: 0.15, confidence: 0.14, recency: 0.04, distance: 0.10 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/types.Node"
+    kind: type
+    score: 0.48
+    provenance: lsp_resolved
+    distance: 1
+    signature: "type Node struct"
+    components: { blast_radius: 0.18, confidence: 0.12, recency: 0.04, distance: 0.10 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/types.Edge"
+    kind: type
+    score: 0.46
+    provenance: lsp_resolved
+    distance: 1
+    signature: "type Edge struct"
+    components: { blast_radius: 0.16, confidence: 0.12, recency: 0.04, distance: 0.10 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/types.Hash"
+    kind: type
+    score: 0.44
+    provenance: lsp_resolved
+    distance: 1
+    signature: "type Hash [32]byte"
+    components: { blast_radius: 0.16, confidence: 0.12, recency: 0.04, distance: 0.10 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/types.GraphStore"
+    kind: interface
+    score: 0.42
+    provenance: lsp_resolved
+    distance: 1
+    signature: "type GraphStore interface"
+    components: { blast_radius: 0.15, confidence: 0.12, recency: 0.03, distance: 0.10 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.NodesByPrefix"
+    kind: method
+    score: 0.40
+    provenance: lsp_resolved
+    distance: 2
+    signature: "func (s *SQLiteStore) NodesByPrefix(ctx context.Context, prefix string) ([]types.Node, error)"
+    components: { blast_radius: 0.15, confidence: 0.10, recency: 0.05, distance: 0.05 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.EdgesFrom"
+    kind: method
+    score: 0.38
+    provenance: lsp_resolved
+    distance: 2
+    signature: "func (s *SQLiteStore) EdgesFrom(ctx context.Context, hash types.Hash, edgeType string) ([]types.Edge, error)"
+    components: { blast_radius: 0.14, confidence: 0.10, recency: 0.04, distance: 0.05 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.EdgesTo"
+    kind: method
+    score: 0.36
+    provenance: lsp_resolved
+    distance: 2
+    signature: "func (s *SQLiteStore) EdgesTo(ctx context.Context, hash types.Hash, edgeType string) ([]types.Edge, error)"
+    components: { blast_radius: 0.14, confidence: 0.10, recency: 0.04, distance: 0.05 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/mcp.Server.handleContextForTask"
+    kind: method
+    score: 0.34
+    provenance: lsp_resolved
+    distance: 2
+    signature: "func (s *Server) handleContextForTask(ctx context.Context, args map[string]any) (*mcp.CallToolResult, error)"
+    components: { blast_radius: 0.12, confidence: 0.10, recency: 0.04, distance: 0.05 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/mcp.Server.handleContextForFiles"
+    kind: method
+    score: 0.32
+    provenance: lsp_resolved
+    distance: 2
+    signature: "func (s *Server) handleContextForFiles(ctx context.Context, args map[string]any) (*mcp.CallToolResult, error)"
+    components: { blast_radius: 0.12, confidence: 0.10, recency: 0.03, distance: 0.05 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.BlastRadius"
+    kind: method
+    score: 0.30
+    provenance: lsp_resolved
+    distance: 2
+    signature: "func (s *SQLiteStore) BlastRadius(ctx context.Context, nodeHash types.Hash, snapshotHash types.Hash) (*types.BlastRadiusResult, error)"
+    components: { blast_radius: 0.12, confidence: 0.08, recency: 0.04, distance: 0.05 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/cmd/knowing.cmdContext"
+    kind: function
+    score: 0.28
+    provenance: ast_inferred
+    distance: 2
+    signature: "func cmdContext(db *store.SQLiteStore, repoDir string)"
+    components: { blast_radius: 0.10, confidence: 0.08, recency: 0.03, distance: 0.05 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/context.formatXML"
+    kind: function
+    score: 0.26
+    provenance: lsp_resolved
+    distance: 2
+    signature: "func formatXML(block *ContextBlock) (string, error)"
+    components: { blast_radius: 0.08, confidence: 0.08, recency: 0.03, distance: 0.05 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/context.formatMarkdown"
+    kind: function
+    score: 0.24
+    provenance: lsp_resolved
+    distance: 2
+    signature: "func formatMarkdown(block *ContextBlock) (string, error)"
+    components: { blast_radius: 0.08, confidence: 0.06, recency: 0.03, distance: 0.05 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/context.formatJSON"
+    kind: function
+    score: 0.22
+    provenance: lsp_resolved
+    distance: 2
+    signature: "func formatJSON(block *ContextBlock) (string, error)"
+    components: { blast_radius: 0.08, confidence: 0.06, recency: 0.03, distance: 0.05 }
+
+  - qualified_name: "github.com/blackwell-systems/knowing/internal/context.stopWords"
+    kind: var
+    score: 0.20
+    provenance: lsp_resolved
+    distance: 2
+    signature: "var stopWords map[string]bool"
+    components: { blast_radius: 0.06, confidence: 0.06, recency: 0.03, distance: 0.05 }
+
+edges:
+  - source: "github.com/blackwell-systems/knowing/internal/context.ContextEngine.ForTask"
+    target: "github.com/blackwell-systems/knowing/internal/context.extractKeywords"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/context.ContextEngine.ForTask"
+    target: "github.com/blackwell-systems/knowing/internal/context.RandomWalkWithRestart"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/context.ContextEngine.ForTask"
+    target: "github.com/blackwell-systems/knowing/internal/context.RankSymbols"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/context.ContextEngine.ForTask"
+    target: "github.com/blackwell-systems/knowing/internal/context.packIntoBudget"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/context.RankSymbols"
+    target: "github.com/blackwell-systems/knowing/internal/context.ScoreComponents"
+    type: references
+  - source: "github.com/blackwell-systems/knowing/internal/context.RankSymbols"
+    target: "github.com/blackwell-systems/knowing/internal/context.RankedSymbol"
+    type: references
+  - source: "github.com/blackwell-systems/knowing/internal/context.RandomWalkWithRestart"
+    target: "github.com/blackwell-systems/knowing/internal/context.buildAdjacencyMap"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/context.packIntoBudget"
+    target: "github.com/blackwell-systems/knowing/internal/context.ContextBlock"
+    type: references
+  - source: "github.com/blackwell-systems/knowing/internal/context.packIntoBudget"
+    target: "github.com/blackwell-systems/knowing/internal/context.FormatContextBlock"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/context.ContextEngine.ForFiles"
+    target: "github.com/blackwell-systems/knowing/internal/context.RankSymbols"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/context.ContextEngine.ForFiles"
+    target: "github.com/blackwell-systems/knowing/internal/context.packIntoBudget"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/context.buildAdjacencyMap"
+    target: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.EdgesFrom"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/context.buildAdjacencyMap"
+    target: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.EdgesTo"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/mcp.Server.handleContextForTask"
+    target: "github.com/blackwell-systems/knowing/internal/context.ContextEngine.ForTask"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/mcp.Server.handleContextForFiles"
+    target: "github.com/blackwell-systems/knowing/internal/context.ContextEngine.ForFiles"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/cmd/knowing.cmdContext"
+    target: "github.com/blackwell-systems/knowing/internal/context.ContextEngine.ForTask"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/context.extractKeywords"
+    target: "github.com/blackwell-systems/knowing/internal/context.splitIdentifier"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/context.extractKeywords"
+    target: "github.com/blackwell-systems/knowing/internal/context.stopWords"
+    type: references
+  - source: "github.com/blackwell-systems/knowing/internal/context.FormatContextBlock"
+    target: "github.com/blackwell-systems/knowing/internal/context.formatXML"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/context.FormatContextBlock"
+    target: "github.com/blackwell-systems/knowing/internal/context.formatMarkdown"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/context.FormatContextBlock"
+    target: "github.com/blackwell-systems/knowing/internal/context.formatJSON"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore"
+    target: "github.com/blackwell-systems/knowing/internal/types.GraphStore"
+    type: implements
+  - source: "github.com/blackwell-systems/knowing/internal/context.ContextEngine.ForTask"
+    target: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.NodesByPrefix"
+    type: calls
+  - source: "github.com/blackwell-systems/knowing/internal/context.NewContextEngine"
+    target: "github.com/blackwell-systems/knowing/internal/types.GraphStore"
+    type: references
+  - source: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.BlastRadius"
+    target: "github.com/blackwell-systems/knowing/internal/store.SQLiteStore.EdgesFrom"
+    type: calls

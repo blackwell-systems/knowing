@@ -153,14 +153,6 @@ knowing mcp -db knowing.db
 - [MCP Tools](docs/MCP-TOOLS.md): all 16 tools with parameters and return formats
 - [Roadmap](docs/roadmap.md): workstreams, dependencies, parallelization notes
 
-## Tech Stack
-
-- Go (indexer, graph store, MCP server)
-- tree-sitter (multi-language AST parsing)
-- SCIP (ingest external indices)
-- SQLite (content-addressed persistent store)
-- MCP over stdio/HTTP
-
 ## License
 
 MIT

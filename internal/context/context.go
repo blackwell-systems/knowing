@@ -31,12 +31,20 @@ type FileOptions struct {
 }
 
 // ContextBlock is the result of a context query: a ranked list of symbols
-// that fit within a token budget.
+// that fit within a token budget, plus the edges between them.
 type ContextBlock struct {
 	Symbols     []RankedSymbol
+	Edges       []ContextEdge
 	Format      string
 	TokensUsed  int
 	TokenBudget int
+}
+
+// ContextEdge is an edge between two symbols in the context block.
+type ContextEdge struct {
+	Source   string // qualified name of source
+	Target   string // qualified name of target
+	EdgeType string
 }
 
 // RankedSymbol is a graph node paired with its computed relevance score
