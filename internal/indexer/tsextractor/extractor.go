@@ -83,9 +83,11 @@ func (e *TypeScriptExtractor) Extract(ctx context.Context, opts types.ExtractOpt
 	// Compute the base qualified name prefix.
 	qnamePrefix := computeQNamePrefix(opts)
 
-	// Collect import sources to detect Express.js usage.
+	// Collect import sources to detect framework usage.
 	importSources := collectImportSources(root, opts.Content)
-	hasExpress := importSources["express"]
+	hasExpress := importSources["express"] || importSources["fastify"] ||
+		importSources["hono"] || importSources["@hono/hono"] ||
+		importSources["@nestjs/common"] || importSources["next"]
 
 	var nodes []types.Node
 	var edges []types.Edge
@@ -97,6 +99,17 @@ func (e *TypeScriptExtractor) Extract(ctx context.Context, opts types.ExtractOpt
 	for i := 0; i < int(root.ChildCount()); i++ {
 		child := root.Child(i)
 		e.extractNode(child, opts, qnamePrefix, "", fileNodeHash, hasExpress, &nodes, &edges)
+	}
+
+	// NestJS: detect @Controller('prefix') + @Get/@Post decorators on methods.
+	if importSources["@nestjs/common"] {
+		extractNestJSRoutes(root, opts, qnamePrefix, &nodes, &edges)
+	}
+
+	// Next.js App Router: detect exported GET/POST/PUT/DELETE/PATCH functions
+	// in route.ts/route.js files.
+	if isNextJSRouteFile(opts.FilePath) {
+		extractNextJSRoutes(root, opts, qnamePrefix, &nodes, &edges)
 	}
 
 	// Sort nodes by QualifiedName then Kind.
@@ -537,8 +550,9 @@ func resolveCallEdge(funcNode, callNode *sitter.Node, opts types.ExtractOptions,
 	}
 }
 
-// expressRouteMethods is the set of Express.js route registration methods.
-var expressRouteMethods = map[string]bool{
+// routeRegistrationMethods is the set of HTTP method names used by Express.js,
+// Fastify, Hono, and other frameworks that share the app.method('/path', handler) pattern.
+var routeRegistrationMethods = map[string]bool{
 	"get":    true,
 	"post":   true,
 	"put":    true,
@@ -546,10 +560,13 @@ var expressRouteMethods = map[string]bool{
 	"patch":  true,
 	"all":    true,
 	"use":    true,
+	"head":   true,
+	"options": true,
 }
 
-// tryExtractExpressRoute checks if a call_expression is an Express.js route
-// registration and returns a route_handler node and handles_route edge if so.
+// tryExtractRoute checks if a call_expression is a framework route registration
+// (Express.js, Fastify, Hono, or similar) and returns a route_handler node and
+// handles_route edge if so.
 func tryExtractExpressRoute(callNode *sitter.Node, opts types.ExtractOptions, qnamePrefix string) (*types.Node, *types.Edge) {
 	funcNode := callNode.ChildByFieldName("function")
 	if funcNode == nil || funcNode.Type() != "member_expression" {
@@ -561,7 +578,7 @@ func tryExtractExpressRoute(callNode *sitter.Node, opts types.ExtractOptions, qn
 		return nil, nil
 	}
 	methodName := prop.Content(opts.Content)
-	if !expressRouteMethods[methodName] {
+	if !routeRegistrationMethods[methodName] {
 		return nil, nil
 	}
 
@@ -665,6 +682,262 @@ func extractSecondArgNameTS(argsNode *sitter.Node, content []byte) string {
 		}
 	}
 	return ""
+}
+
+// nestJSHTTPDecorators maps NestJS route decorator names to HTTP methods.
+var nestJSHTTPDecorators = map[string]string{
+	"Get":     "GET",
+	"Post":    "POST",
+	"Put":     "PUT",
+	"Delete":  "DELETE",
+	"Patch":   "PATCH",
+	"Head":    "HEAD",
+	"Options": "OPTIONS",
+	"All":     "ALL",
+}
+
+// extractNestJSRoutes finds @Controller('prefix') classes with @Get/@Post method decorators.
+func extractNestJSRoutes(root *sitter.Node, opts types.ExtractOptions, qnamePrefix string, nodes *[]types.Node, edges *[]types.Edge) {
+	for i := 0; i < int(root.ChildCount()); i++ {
+		child := root.Child(i)
+		if child.Type() != "class_declaration" {
+			continue
+		}
+
+		// Check for @Controller decorator with route prefix.
+		controllerPrefix := extractNestControllerPrefix(child, opts.Content)
+		if controllerPrefix == "" {
+			continue
+		}
+
+		// Walk class body for decorated methods.
+		body := child.ChildByFieldName("body")
+		if body == nil {
+			continue
+		}
+
+		className := ""
+		nameNode := child.ChildByFieldName("name")
+		if nameNode != nil {
+			className = nameNode.Content(opts.Content)
+		}
+
+		for j := 0; j < int(body.ChildCount()); j++ {
+			method := body.Child(j)
+			if method.Type() != "method_definition" {
+				continue
+			}
+
+			httpMethod, routePath := extractNestMethodDecorator(method, opts.Content)
+			if httpMethod == "" {
+				continue
+			}
+
+			fullRoute := controllerPrefix + routePath
+			routeSig := httpMethod + " " + fullRoute
+
+			methodName := ""
+			mNameNode := method.ChildByFieldName("name")
+			if mNameNode != nil {
+				methodName = mNameNode.Content(opts.Content)
+			}
+
+			// Create route_handler node.
+			nodeHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, routeSig, "route_handler")
+			routeNode := types.Node{
+				NodeHash:      nodeHash,
+				FileHash:      opts.FileHash,
+				QualifiedName: fmt.Sprintf("%s://%s.%s", opts.RepoURL, qnamePrefix, routeSig),
+				Kind:          "route_handler",
+				Signature:     routeSig,
+			}
+			*nodes = append(*nodes, routeNode)
+
+			// Create handles_route edge from route to handler method.
+			if methodName != "" && className != "" {
+				handlerQName := className + "." + methodName
+				handlerHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, handlerQName, "method")
+				edgeHash := types.ComputeEdgeHash(nodeHash, handlerHash, "handles_route", "ast_inferred")
+				*edges = append(*edges, types.Edge{
+					EdgeHash:   edgeHash,
+					SourceHash: nodeHash,
+					TargetHash: handlerHash,
+					EdgeType:   "handles_route",
+					Confidence: 0.7,
+					Provenance: "ast_inferred",
+				})
+			}
+		}
+	}
+}
+
+// extractNestControllerPrefix extracts the route prefix from @Controller('prefix').
+func extractNestControllerPrefix(classNode *sitter.Node, content []byte) string {
+	// Look for decorators on the class (preceding siblings or decorator field).
+	// tree-sitter puts decorators as preceding siblings of the class declaration.
+	parent := classNode.Parent()
+	if parent == nil {
+		return ""
+	}
+
+	// Find the decorator that precedes this class node.
+	for i := 0; i < int(parent.ChildCount()); i++ {
+		child := parent.Child(i)
+		if child == classNode {
+			break
+		}
+		if child.Type() == "decorator" {
+			text := child.Content(content)
+			if strings.HasPrefix(text, "@Controller(") {
+				// Extract the string argument.
+				prefix := extractDecoratorStringArg(text)
+				if prefix != "" {
+					return prefix
+				}
+				return "/"
+			}
+		}
+	}
+	return ""
+}
+
+// extractNestMethodDecorator checks if a method has a NestJS HTTP decorator.
+// Returns the HTTP method and sub-route path.
+func extractNestMethodDecorator(methodNode *sitter.Node, content []byte) (string, string) {
+	parent := methodNode.Parent()
+	if parent == nil {
+		return "", ""
+	}
+
+	// Find decorators preceding this method in the class body.
+	for i := 0; i < int(parent.ChildCount()); i++ {
+		child := parent.Child(i)
+		if child == methodNode {
+			break
+		}
+		if child.Type() == "decorator" {
+			text := child.Content(content)
+			for decorName, httpMethod := range nestJSHTTPDecorators {
+				if strings.HasPrefix(text, "@"+decorName+"(") || text == "@"+decorName {
+					path := extractDecoratorStringArg(text)
+					return httpMethod, path
+				}
+			}
+		}
+	}
+	return "", ""
+}
+
+// extractDecoratorStringArg extracts a string literal from a decorator call.
+// e.g., @Get('/users') -> "/users", @Controller('api') -> "/api"
+func extractDecoratorStringArg(decoratorText string) string {
+	start := strings.Index(decoratorText, "(")
+	end := strings.LastIndex(decoratorText, ")")
+	if start < 0 || end <= start {
+		return ""
+	}
+	arg := strings.TrimSpace(decoratorText[start+1 : end])
+	arg = strings.Trim(arg, `"'`)
+	if arg == "" {
+		return ""
+	}
+	if !strings.HasPrefix(arg, "/") {
+		arg = "/" + arg
+	}
+	return arg
+}
+
+// nextJSHTTPMethods are function names that Next.js App Router treats as route handlers.
+var nextJSHTTPMethods = map[string]string{
+	"GET":     "GET",
+	"POST":    "POST",
+	"PUT":     "PUT",
+	"DELETE":  "DELETE",
+	"PATCH":   "PATCH",
+	"HEAD":    "HEAD",
+	"OPTIONS": "OPTIONS",
+}
+
+// isNextJSRouteFile returns true if the file path matches Next.js App Router conventions.
+func isNextJSRouteFile(filePath string) bool {
+	base := filepath.Base(filePath)
+	return base == "route.ts" || base == "route.js" || base == "route.tsx" || base == "route.jsx"
+}
+
+// extractNextJSRoutes creates route_handler nodes for exported HTTP method functions
+// in Next.js App Router route files. The route path is derived from the file's directory.
+func extractNextJSRoutes(root *sitter.Node, opts types.ExtractOptions, qnamePrefix string, nodes *[]types.Node, edges *[]types.Edge) {
+	// Derive route path from file directory.
+	// e.g., "app/api/users/route.ts" -> "/api/users"
+	routePath := deriveNextJSRoutePath(opts.FilePath)
+
+	for i := 0; i < int(root.ChildCount()); i++ {
+		child := root.Child(i)
+
+		// Look for: export async function GET(...) or export function POST(...)
+		if child.Type() == "export_statement" {
+			for j := 0; j < int(child.ChildCount()); j++ {
+				decl := child.Child(j)
+				if decl.Type() == "function_declaration" {
+					nameNode := decl.ChildByFieldName("name")
+					if nameNode == nil {
+						continue
+					}
+					funcName := nameNode.Content(opts.Content)
+					httpMethod, isRoute := nextJSHTTPMethods[funcName]
+					if !isRoute {
+						continue
+					}
+
+					routeSig := httpMethod + " " + routePath
+					nodeHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, routeSig, "route_handler")
+					routeNode := types.Node{
+						NodeHash:      nodeHash,
+						FileHash:      opts.FileHash,
+						QualifiedName: fmt.Sprintf("%s://%s.%s", opts.RepoURL, qnamePrefix, routeSig),
+						Kind:          "route_handler",
+						Signature:     routeSig,
+					}
+					*nodes = append(*nodes, routeNode)
+
+					// Edge from route to the handler function.
+					handlerHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, funcName, "function")
+					edgeHash := types.ComputeEdgeHash(nodeHash, handlerHash, "handles_route", "ast_inferred")
+					*edges = append(*edges, types.Edge{
+						EdgeHash:   edgeHash,
+						SourceHash: nodeHash,
+						TargetHash: handlerHash,
+						EdgeType:   "handles_route",
+						Confidence: 0.7,
+						Provenance: "ast_inferred",
+					})
+				}
+			}
+		}
+	}
+}
+
+// deriveNextJSRoutePath extracts the route path from a Next.js file path.
+// "app/api/users/route.ts" -> "/api/users"
+// "src/app/api/auth/[id]/route.ts" -> "/api/auth/[id]"
+func deriveNextJSRoutePath(filePath string) string {
+	dir := filepath.Dir(filePath)
+	parts := strings.Split(filepath.ToSlash(dir), "/")
+
+	// Find "app" directory and take everything after it.
+	appIdx := -1
+	for i, p := range parts {
+		if p == "app" {
+			appIdx = i
+			break
+		}
+	}
+	if appIdx < 0 || appIdx >= len(parts)-1 {
+		return "/" + filepath.Base(filepath.Dir(filePath))
+	}
+
+	routeParts := parts[appIdx+1:]
+	return "/" + strings.Join(routeParts, "/")
 }
 
 // deduplicateEdges removes duplicate edges based on EdgeHash.

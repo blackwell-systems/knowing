@@ -506,6 +506,143 @@ function doWork() {
 	}
 }
 
+func TestTypeScriptExtractor_FastifyRoutes(t *testing.T) {
+	ext := NewTypeScriptExtractor()
+	source := `import Fastify from 'fastify';
+const app = Fastify();
+
+function getUsers(req, reply) {
+  return reply.send([]);
+}
+
+app.get('/users', getUsers);
+app.post('/users', getUsers);
+`
+	opts := makeOpts(t, "server.ts", source)
+
+	result, err := ext.Extract(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Extract() error: %v", err)
+	}
+
+	var routeNodes []types.Node
+	for _, n := range result.Nodes {
+		if n.Kind == "route_handler" {
+			routeNodes = append(routeNodes, n)
+		}
+	}
+
+	if len(routeNodes) != 2 {
+		t.Fatalf("expected 2 route_handler nodes, got %d", len(routeNodes))
+	}
+
+	patterns := make(map[string]bool)
+	for _, n := range routeNodes {
+		patterns[n.Signature] = true
+	}
+	if !patterns["GET /users"] {
+		t.Errorf("missing 'GET /users', got %v", patterns)
+	}
+	if !patterns["POST /users"] {
+		t.Errorf("missing 'POST /users', got %v", patterns)
+	}
+}
+
+func TestTypeScriptExtractor_HonoRoutes(t *testing.T) {
+	ext := NewTypeScriptExtractor()
+	source := `import { Hono } from 'hono';
+const app = new Hono();
+
+app.get('/api/health', (c) => c.json({ status: 'ok' }));
+app.post('/api/items', (c) => c.json({ created: true }));
+app.delete('/api/items/:id', (c) => c.json({ deleted: true }));
+`
+	opts := makeOpts(t, "index.ts", source)
+
+	result, err := ext.Extract(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Extract() error: %v", err)
+	}
+
+	var routeNodes []types.Node
+	for _, n := range result.Nodes {
+		if n.Kind == "route_handler" {
+			routeNodes = append(routeNodes, n)
+		}
+	}
+
+	if len(routeNodes) != 3 {
+		t.Fatalf("expected 3 route_handler nodes, got %d", len(routeNodes))
+	}
+
+	patterns := make(map[string]bool)
+	for _, n := range routeNodes {
+		patterns[n.Signature] = true
+	}
+	if !patterns["GET /api/health"] {
+		t.Errorf("missing 'GET /api/health', got %v", patterns)
+	}
+	if !patterns["POST /api/items"] {
+		t.Errorf("missing 'POST /api/items', got %v", patterns)
+	}
+	if !patterns["DELETE /api/items/:id"] {
+		t.Errorf("missing 'DELETE /api/items/:id', got %v", patterns)
+	}
+}
+
+func TestTypeScriptExtractor_NextJSRoutes(t *testing.T) {
+	ext := NewTypeScriptExtractor()
+	source := `import { NextResponse } from 'next/server';
+
+export async function GET(request: Request) {
+  return NextResponse.json({ users: [] });
+}
+
+export async function POST(request: Request) {
+  return NextResponse.json({ created: true });
+}
+`
+	opts := makeOpts(t, "app/api/users/route.ts", source)
+
+	result, err := ext.Extract(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Extract() error: %v", err)
+	}
+
+	var routeNodes []types.Node
+	for _, n := range result.Nodes {
+		if n.Kind == "route_handler" {
+			routeNodes = append(routeNodes, n)
+		}
+	}
+
+	if len(routeNodes) != 2 {
+		t.Fatalf("expected 2 route_handler nodes for Next.js, got %d", len(routeNodes))
+	}
+
+	patterns := make(map[string]bool)
+	for _, n := range routeNodes {
+		patterns[n.Signature] = true
+	}
+	if !patterns["GET /api/users"] {
+		t.Errorf("missing 'GET /api/users', got %v", patterns)
+	}
+	if !patterns["POST /api/users"] {
+		t.Errorf("missing 'POST /api/users', got %v", patterns)
+	}
+
+	// Should also have handles_route edges.
+	var routeEdges []types.Edge
+	for _, e := range result.Edges {
+		if e.EdgeType == "handles_route" {
+			routeEdges = append(routeEdges, e)
+		}
+	}
+	if len(routeEdges) != 2 {
+		t.Fatalf("expected 2 handles_route edges for Next.js, got %d", len(routeEdges))
+	}
+}
+
 func TestTypeScriptExtractor_EmptyFile(t *testing.T) {
 	ext := NewTypeScriptExtractor()
 	source := ``
