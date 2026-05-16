@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -200,8 +202,26 @@ func cmdIndex(args []string) error {
 	}
 	repoPath := fs.Arg(0)
 
+	// Resolve repo URL to a stable canonical form.
+	// Priority: explicit --url flag > go.mod module path > absolute filesystem path.
 	if *repoURL == "" {
-		*repoURL = repoPath
+		// Try to read module path from go.mod in the repo.
+		if modData, err := os.ReadFile(repoPath + "/go.mod"); err == nil {
+			for _, line := range strings.Split(string(modData), "\n") {
+				if strings.HasPrefix(line, "module ") {
+					*repoURL = strings.TrimSpace(strings.TrimPrefix(line, "module "))
+					break
+				}
+			}
+		}
+		// Fallback: resolve to absolute path for consistency.
+		if *repoURL == "" {
+			if abs, err := filepath.Abs(repoPath); err == nil {
+				*repoURL = abs
+			} else {
+				*repoURL = repoPath
+			}
+		}
 	}
 
 	// Resolve HEAD commit hash if not explicitly provided.
