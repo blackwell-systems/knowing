@@ -572,6 +572,332 @@ func TestResolve_MultipleReposCrossEdges(t *testing.T) {
 	}
 }
 
+// TestResolve_ThreeReposWithDanglingEdgesToTwo verifies that a single repo
+// with dangling edges to two different repos resolves both correctly.
+func TestResolve_ThreeReposWithDanglingEdgesToTwo(t *testing.T) {
+	ctx := context.Background()
+	ms := newMockStore()
+
+	repoAURL := "https://github.com/org/serviceA"
+	repoBURL := "https://github.com/org/libB"
+	repoCURL := "https://github.com/org/libC"
+
+	ms.addRepo(types.Repo{RepoHash: types.NewHash([]byte(repoAURL)), RepoURL: repoAURL})
+	ms.addRepo(types.Repo{RepoHash: types.NewHash([]byte(repoBURL)), RepoURL: repoBURL})
+	ms.addRepo(types.Repo{RepoHash: types.NewHash([]byte(repoCURL)), RepoURL: repoCURL})
+
+	// Source node in repo A.
+	sourceHash := types.ComputeNodeHash(repoAURL, "github.com/org/serviceA/cmd", types.EmptyHash, "Run", "function")
+	ms.addNode(types.Node{
+		NodeHash:      sourceHash,
+		QualifiedName: repoAURL + "://github.com/org/serviceA/cmd.Run",
+		Kind:          "function",
+	})
+
+	// Target 1 in repo B.
+	targetB := types.ComputeNodeHash(repoBURL, "github.com/org/libB/auth", types.EmptyHash, "Authenticate", "function")
+	ms.addNode(types.Node{
+		NodeHash:      targetB,
+		QualifiedName: repoBURL + "://github.com/org/libB/auth.Authenticate",
+		Kind:          "function",
+	})
+
+	// Target 2 in repo C.
+	targetC := types.ComputeNodeHash(repoCURL, "github.com/org/libC/log", types.EmptyHash, "Info", "function")
+	ms.addNode(types.Node{
+		NodeHash:      targetC,
+		QualifiedName: repoCURL + "://github.com/org/libC/log.Info",
+		Kind:          "function",
+	})
+
+	// Dangling edge 1: repoA -> repoB, but hash computed with repoA URL.
+	wrongB := types.ComputeNodeHash(repoAURL, "github.com/org/libB/auth", types.EmptyHash, "Authenticate", "function")
+	ms.addEdge(types.Edge{
+		EdgeHash:   types.ComputeEdgeHash(sourceHash, wrongB, "calls", "ast_resolved"),
+		SourceHash: sourceHash,
+		TargetHash: wrongB,
+		EdgeType:   "calls",
+		Confidence: 0.9,
+		Provenance: "ast_resolved",
+	})
+
+	// Dangling edge 2: repoA -> repoC, but hash computed with repoA URL.
+	wrongC := types.ComputeNodeHash(repoAURL, "github.com/org/libC/log", types.EmptyHash, "Info", "function")
+	ms.addEdge(types.Edge{
+		EdgeHash:   types.ComputeEdgeHash(sourceHash, wrongC, "calls", "ast_resolved"),
+		SourceHash: sourceHash,
+		TargetHash: wrongC,
+		EdgeType:   "calls",
+		Confidence: 0.85,
+		Provenance: "ast_resolved",
+	})
+
+	r := NewResolver(ms)
+	results, stats, err := r.ResolveWithDetails(ctx)
+	if err != nil {
+		t.Fatalf("ResolveWithDetails: %v", err)
+	}
+
+	if stats.TotalDangling != 2 {
+		t.Errorf("TotalDangling = %d, want 2", stats.TotalDangling)
+	}
+	if stats.Retargeted != 2 {
+		t.Errorf("Retargeted = %d, want 2", stats.Retargeted)
+	}
+	if stats.Skipped != 0 {
+		t.Errorf("Skipped = %d, want 0", stats.Skipped)
+	}
+
+	resolvedTargets := make(map[types.Hash]bool)
+	for _, res := range results {
+		if res.Action != "retargeted" {
+			t.Errorf("expected retargeted, got %q", res.Action)
+		}
+		if res.ResolvedNode != nil {
+			resolvedTargets[res.ResolvedNode.NodeHash] = true
+		}
+	}
+	if !resolvedTargets[targetB] {
+		t.Error("expected Authenticate in libB to be resolved")
+	}
+	if !resolvedTargets[targetC] {
+		t.Error("expected Info in libC to be resolved")
+	}
+}
+
+// TestResolve_DifferentQualifiedNameVariant verifies that the resolver does NOT
+// match a node when the target exists under a different naming variant (e.g.,
+// different package path). The resolver only matches by recomputing the hash
+// with different repo URLs, not by fuzzy name matching.
+func TestResolve_DifferentQualifiedNameVariant(t *testing.T) {
+	ctx := context.Background()
+	ms := newMockStore()
+
+	repoAURL := "https://github.com/org/repoA"
+	repoBURL := "https://github.com/org/repoB"
+
+	ms.addRepo(types.Repo{RepoHash: types.NewHash([]byte(repoAURL)), RepoURL: repoAURL})
+	ms.addRepo(types.Repo{RepoHash: types.NewHash([]byte(repoBURL)), RepoURL: repoBURL})
+
+	// Source node in repo A.
+	sourceHash := types.ComputeNodeHash(repoAURL, "github.com/org/repoA/cmd", types.EmptyHash, "main", "function")
+	ms.addNode(types.Node{
+		NodeHash:      sourceHash,
+		QualifiedName: repoAURL + "://github.com/org/repoA/cmd.main",
+		Kind:          "function",
+	})
+
+	// Node in repo B with a different package path variant.
+	// The function "Process" exists but in "github.com/org/repoB/v2/handler" not
+	// "github.com/org/repoB/handler" that the dangling edge references.
+	targetHash := types.ComputeNodeHash(repoBURL, "github.com/org/repoB/v2/handler", types.EmptyHash, "Process", "function")
+	ms.addNode(types.Node{
+		NodeHash:      targetHash,
+		QualifiedName: repoBURL + "://github.com/org/repoB/v2/handler.Process",
+		Kind:          "function",
+	})
+
+	// Dangling edge: target computed using repoA's URL AND a different pkg path
+	// ("handler" instead of "v2/handler"). This should NOT resolve because
+	// recomputing with repoB's URL + "handler" won't match "v2/handler".
+	wrongTarget := types.ComputeNodeHash(repoAURL, "github.com/org/repoB/handler", types.EmptyHash, "Process", "function")
+	ms.addEdge(types.Edge{
+		EdgeHash:   types.ComputeEdgeHash(sourceHash, wrongTarget, "calls", "ast_resolved"),
+		SourceHash: sourceHash,
+		TargetHash: wrongTarget,
+		EdgeType:   "calls",
+		Confidence: 0.7,
+		Provenance: "ast_resolved",
+	})
+
+	r := NewResolver(ms)
+	stats, err := r.Resolve(ctx)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	if stats.TotalDangling != 1 {
+		t.Errorf("TotalDangling = %d, want 1", stats.TotalDangling)
+	}
+	// Should be skipped because the package path doesn't match any existing node.
+	if stats.Skipped != 1 {
+		t.Errorf("Skipped = %d, want 1", stats.Skipped)
+	}
+	if stats.Retargeted != 0 {
+		t.Errorf("Retargeted = %d, want 0", stats.Retargeted)
+	}
+}
+
+// TestResolve_DifferentEdgeTypes verifies that edges with different types
+// (calls vs imports) are all resolved correctly.
+func TestResolve_DifferentEdgeTypes(t *testing.T) {
+	ctx := context.Background()
+	ms := newMockStore()
+
+	repoAURL := "https://github.com/org/repoA"
+	repoBURL := "https://github.com/org/repoB"
+
+	ms.addRepo(types.Repo{RepoHash: types.NewHash([]byte(repoAURL)), RepoURL: repoAURL})
+	ms.addRepo(types.Repo{RepoHash: types.NewHash([]byte(repoBURL)), RepoURL: repoBURL})
+
+	// Source node in repo A.
+	sourceHash := types.ComputeNodeHash(repoAURL, "github.com/org/repoA/cmd", types.EmptyHash, "main", "function")
+	ms.addNode(types.Node{
+		NodeHash:      sourceHash,
+		QualifiedName: repoAURL + "://github.com/org/repoA/cmd.main",
+		Kind:          "function",
+	})
+
+	// Target node in repo B.
+	targetHash := types.ComputeNodeHash(repoBURL, "github.com/org/repoB/pkg", types.EmptyHash, "Service", "function")
+	ms.addNode(types.Node{
+		NodeHash:      targetHash,
+		QualifiedName: repoBURL + "://github.com/org/repoB/pkg.Service",
+		Kind:          "function",
+	})
+
+	wrongTarget := types.ComputeNodeHash(repoAURL, "github.com/org/repoB/pkg", types.EmptyHash, "Service", "function")
+
+	// Dangling edge with type "calls".
+	ms.addEdge(types.Edge{
+		EdgeHash:   types.ComputeEdgeHash(sourceHash, wrongTarget, "calls", "ast_resolved"),
+		SourceHash: sourceHash,
+		TargetHash: wrongTarget,
+		EdgeType:   "calls",
+		Confidence: 0.9,
+		Provenance: "ast_resolved",
+	})
+
+	// Dangling edge with type "imports".
+	ms.addEdge(types.Edge{
+		EdgeHash:   types.ComputeEdgeHash(sourceHash, wrongTarget, "imports", "ast_resolved"),
+		SourceHash: sourceHash,
+		TargetHash: wrongTarget,
+		EdgeType:   "imports",
+		Confidence: 1.0,
+		Provenance: "ast_resolved",
+	})
+
+	r := NewResolver(ms)
+	results, stats, err := r.ResolveWithDetails(ctx)
+	if err != nil {
+		t.Fatalf("ResolveWithDetails: %v", err)
+	}
+
+	if stats.TotalDangling != 2 {
+		t.Errorf("TotalDangling = %d, want 2", stats.TotalDangling)
+	}
+	if stats.Retargeted != 2 {
+		t.Errorf("Retargeted = %d, want 2", stats.Retargeted)
+	}
+
+	// Verify that both edge types are preserved in the new edges.
+	edgeTypes := make(map[string]bool)
+	for _, e := range ms.edges {
+		if e.TargetHash == targetHash {
+			edgeTypes[e.EdgeType] = true
+		}
+	}
+	if !edgeTypes["calls"] {
+		t.Error("expected retargeted edge with type 'calls'")
+	}
+	if !edgeTypes["imports"] {
+		t.Error("expected retargeted edge with type 'imports'")
+	}
+
+	// Verify each result was retargeted to the same node.
+	for _, res := range results {
+		if res.Action != "retargeted" {
+			t.Errorf("expected retargeted, got %q", res.Action)
+		}
+		if res.ResolvedNode == nil || res.ResolvedNode.NodeHash != targetHash {
+			t.Errorf("expected resolved to targetHash, got %v", res.ResolvedNode)
+		}
+	}
+}
+
+// TestResolve_ValidEdgesNotModified verifies that the resolver does not modify
+// edges that already point to valid targets.
+func TestResolve_ValidEdgesNotModified(t *testing.T) {
+	ctx := context.Background()
+	ms := newMockStore()
+
+	repoAURL := "https://github.com/org/repoA"
+	repoBURL := "https://github.com/org/repoB"
+
+	ms.addRepo(types.Repo{RepoHash: types.NewHash([]byte(repoAURL)), RepoURL: repoAURL})
+	ms.addRepo(types.Repo{RepoHash: types.NewHash([]byte(repoBURL)), RepoURL: repoBURL})
+
+	// Nodes in repo A.
+	fnA := types.ComputeNodeHash(repoAURL, "github.com/org/repoA/pkg", types.EmptyHash, "FuncA", "function")
+	fnB := types.ComputeNodeHash(repoAURL, "github.com/org/repoA/pkg", types.EmptyHash, "FuncB", "function")
+	ms.addNode(types.Node{
+		NodeHash:      fnA,
+		QualifiedName: repoAURL + "://github.com/org/repoA/pkg.FuncA",
+		Kind:          "function",
+	})
+	ms.addNode(types.Node{
+		NodeHash:      fnB,
+		QualifiedName: repoAURL + "://github.com/org/repoA/pkg.FuncB",
+		Kind:          "function",
+	})
+
+	// Valid edge within repo A (target exists).
+	validEdgeHash := types.ComputeEdgeHash(fnA, fnB, "calls", "ast_resolved")
+	ms.addEdge(types.Edge{
+		EdgeHash:   validEdgeHash,
+		SourceHash: fnA,
+		TargetHash: fnB,
+		EdgeType:   "calls",
+		Confidence: 1.0,
+		Provenance: "ast_resolved",
+	})
+
+	// Cross-repo valid edge: source in A, target in B (target exists).
+	targetB := types.ComputeNodeHash(repoBURL, "github.com/org/repoB/pkg", types.EmptyHash, "Helper", "function")
+	ms.addNode(types.Node{
+		NodeHash:      targetB,
+		QualifiedName: repoBURL + "://github.com/org/repoB/pkg.Helper",
+		Kind:          "function",
+	})
+	crossEdgeHash := types.ComputeEdgeHash(fnA, targetB, "calls", "ast_resolved")
+	ms.addEdge(types.Edge{
+		EdgeHash:   crossEdgeHash,
+		SourceHash: fnA,
+		TargetHash: targetB,
+		EdgeType:   "calls",
+		Confidence: 0.95,
+		Provenance: "ast_resolved",
+	})
+
+	r := NewResolver(ms)
+	stats, err := r.Resolve(ctx)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	// No dangling edges, so nothing should happen.
+	if stats.TotalDangling != 0 {
+		t.Errorf("TotalDangling = %d, want 0", stats.TotalDangling)
+	}
+	if stats.Retargeted != 0 {
+		t.Errorf("Retargeted = %d, want 0", stats.Retargeted)
+	}
+
+	// Verify the valid edges are still intact and unchanged.
+	if _, ok := ms.edges[validEdgeHash]; !ok {
+		t.Error("valid intra-repo edge was unexpectedly deleted")
+	}
+	if _, ok := ms.edges[crossEdgeHash]; !ok {
+		t.Error("valid cross-repo edge was unexpectedly deleted")
+	}
+
+	// Verify edge count hasn't changed (no spurious edges created).
+	if len(ms.edges) != 2 {
+		t.Errorf("edge count = %d, want 2", len(ms.edges))
+	}
+}
+
 // TestExtractHashInputs verifies the internal parsing of qualified names.
 func TestExtractHashInputs(t *testing.T) {
 	tests := []struct {

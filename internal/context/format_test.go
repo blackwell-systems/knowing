@@ -258,6 +258,92 @@ func TestFormatXML_DefaultFormat(t *testing.T) {
 	}
 }
 
+func TestFormatJSON_RoundTrip(t *testing.T) {
+	// Format a ContextBlock to JSON, parse it back, and verify all fields survive.
+	block := &ContextBlock{
+		TokensUsed:  3500,
+		TokenBudget: 80000,
+		Symbols: []RankedSymbol{
+			makeRankedSymbol("github.com/org/repo/pkg.Handler", "function", "func Handler(w http.ResponseWriter, r *http.Request)", "runtime_observed", 0.92, 0, ScoreComponents{BlastRadius: 0.35, Confidence: 0.30, Recency: 0.15, Distance: 0.12}),
+			makeRankedSymbol("github.com/org/repo/pkg.Validate", "function", "func Validate(input string) error", "ast_resolved", 0.78, 1, ScoreComponents{BlastRadius: 0.20, Confidence: 0.25, Recency: 0.18, Distance: 0.15}),
+			makeRankedSymbol("github.com/org/repo/internal.Cache", "type", "type Cache struct{}", "ast_inferred", 0.55, 2, ScoreComponents{BlastRadius: 0.10, Confidence: 0.15, Recency: 0.20, Distance: 0.10}),
+		},
+	}
+
+	output, err := FormatContextBlock(block, "json")
+	if err != nil {
+		t.Fatalf("FormatContextBlock(json): %v", err)
+	}
+
+	var parsed jsonOutput
+	if err := json.Unmarshal([]byte(output), &parsed); err != nil {
+		t.Fatalf("JSON unmarshal failed: %v", err)
+	}
+
+	// Verify top-level fields.
+	if parsed.TokensUsed != 3500 {
+		t.Errorf("tokens_used = %d, want 3500", parsed.TokensUsed)
+	}
+	if parsed.TokenBudget != 80000 {
+		t.Errorf("token_budget = %d, want 80000", parsed.TokenBudget)
+	}
+	if len(parsed.Symbols) != 3 {
+		t.Fatalf("symbols count = %d, want 3", len(parsed.Symbols))
+	}
+
+	// Verify each symbol round-trips correctly.
+	expectations := []struct {
+		name       string
+		kind       string
+		sig        string
+		prov       string
+		score      float64
+		dist       int
+		blastR     float64
+		confidence float64
+		recency    float64
+		distComp   float64
+	}{
+		{"github.com/org/repo/pkg.Handler", "function", "func Handler(w http.ResponseWriter, r *http.Request)", "runtime_observed", 0.92, 0, 0.35, 0.30, 0.15, 0.12},
+		{"github.com/org/repo/pkg.Validate", "function", "func Validate(input string) error", "ast_resolved", 0.78, 1, 0.20, 0.25, 0.18, 0.15},
+		{"github.com/org/repo/internal.Cache", "type", "type Cache struct{}", "ast_inferred", 0.55, 2, 0.10, 0.15, 0.20, 0.10},
+	}
+
+	for i, want := range expectations {
+		got := parsed.Symbols[i]
+		if got.QualifiedName != want.name {
+			t.Errorf("symbol[%d].qualified_name = %q, want %q", i, got.QualifiedName, want.name)
+		}
+		if got.Kind != want.kind {
+			t.Errorf("symbol[%d].kind = %q, want %q", i, got.Kind, want.kind)
+		}
+		if got.Signature != want.sig {
+			t.Errorf("symbol[%d].signature = %q, want %q", i, got.Signature, want.sig)
+		}
+		if got.Provenance != want.prov {
+			t.Errorf("symbol[%d].provenance = %q, want %q", i, got.Provenance, want.prov)
+		}
+		if got.Score != want.score {
+			t.Errorf("symbol[%d].score = %f, want %f", i, got.Score, want.score)
+		}
+		if got.Distance != want.dist {
+			t.Errorf("symbol[%d].distance = %d, want %d", i, got.Distance, want.dist)
+		}
+		if got.Components.BlastRadius != want.blastR {
+			t.Errorf("symbol[%d].components.blast_radius = %f, want %f", i, got.Components.BlastRadius, want.blastR)
+		}
+		if got.Components.Confidence != want.confidence {
+			t.Errorf("symbol[%d].components.confidence = %f, want %f", i, got.Components.Confidence, want.confidence)
+		}
+		if got.Components.Recency != want.recency {
+			t.Errorf("symbol[%d].components.recency = %f, want %f", i, got.Components.Recency, want.recency)
+		}
+		if got.Components.Distance != want.distComp {
+			t.Errorf("symbol[%d].components.distance = %f, want %f", i, got.Components.Distance, want.distComp)
+		}
+	}
+}
+
 func TestFormatXML_EscapesSpecialChars(t *testing.T) {
 	block := &ContextBlock{
 		TokensUsed:  100,

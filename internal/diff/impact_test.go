@@ -351,5 +351,81 @@ func TestParseHash_WrongLength(t *testing.T) {
 	}
 }
 
+func TestPRImpact_DeepCallChain(t *testing.T) {
+	// Chain: A -> B -> C -> D. Remove D (simulate by removing edge C->D).
+	// B and C should be affected as modified nodes.
+	s := newTestStore(t)
+	ctx := context.Background()
+	repo := putRepo(t, s, "https://example.com/repo")
+	file := putFile(t, s, repo, "main.go")
+
+	nodeA := putNode(t, s, file, "main.FuncA", "function")
+	nodeB := putNode(t, s, file, "main.FuncB", "function")
+	nodeC := putNode(t, s, file, "main.FuncC", "function")
+	nodeD := putNode(t, s, file, "main.FuncD", "function")
+
+	edgeAB := putEdge(t, s, nodeA, nodeB, "calls")
+	edgeBC := putEdge(t, s, nodeB, nodeC, "calls")
+	edgeCD := putEdge(t, s, nodeC, nodeD, "calls")
+
+	oldSnap := types.NewHash([]byte("deep-old"))
+	newSnap := types.NewHash([]byte("deep-new"))
+
+	// Baseline: all edges exist in old snapshot.
+	recordEdgeEvent(t, s, edgeAB, "added", oldSnap)
+	recordEdgeEvent(t, s, edgeBC, "added", oldSnap)
+	recordEdgeEvent(t, s, edgeCD, "added", oldSnap)
+
+	// In new snapshot, D is removed (edge C->D removed).
+	recordEdgeEvent(t, s, edgeCD, "removed", newSnap)
+
+	result, err := PRImpact(ctx, s, oldSnap, newSnap)
+	if err != nil {
+		t.Fatalf("PRImpact: %v", err)
+	}
+
+	// C should be modified (its outgoing edge was removed).
+	foundC := false
+	for _, sym := range result.ChangedSymbols {
+		if sym.Symbol.QualifiedName == "main.FuncC" && sym.ChangeType == "modified" {
+			foundC = true
+			// C should have callers (at least B calls C via blast radius).
+			if sym.CallerCount < 1 {
+				t.Errorf("expected at least 1 caller for FuncC, got %d", sym.CallerCount)
+			}
+			break
+		}
+	}
+	if !foundC {
+		t.Errorf("expected main.FuncC as modified symbol, got: %+v", result.ChangedSymbols)
+	}
+
+	// Verify affected edges include the removed edge.
+	if len(result.AffectedEdges) < 1 {
+		t.Errorf("expected at least 1 affected edge, got %d", len(result.AffectedEdges))
+	}
+}
+
+func TestPRImpact_RiskLevelExactBoundaries(t *testing.T) {
+	// Test exact boundary values: 0, 5, 20, 21 callers.
+	tests := []struct {
+		callers   int
+		wantLevel string
+	}{
+		{0, "low"},
+		{5, "low"},
+		{20, "medium"},
+		{21, "high"},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%d_callers", tt.callers), func(t *testing.T) {
+			got := riskLevel(tt.callers)
+			if got != tt.wantLevel {
+				t.Errorf("riskLevel(%d) = %q, want %q", tt.callers, got, tt.wantLevel)
+			}
+		})
+	}
+}
+
 // unused import guard: time is used by recordEdgeEvent in semantic_test.go (same package)
 var _ = time.Now

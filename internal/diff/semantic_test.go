@@ -395,6 +395,102 @@ func TestNodeToChange_PreservesFields(t *testing.T) {
 	}
 }
 
+func TestSemanticDiff_OnlyEdgeAdditions(t *testing.T) {
+	// Verify that when there are only edge additions (no removals), the diff
+	// reports edges added correctly and no edges removed.
+	s := newTestStore(t)
+	ctx := context.Background()
+	repo := putRepo(t, s, "https://example.com/repo")
+	file := putFile(t, s, repo, "main.go")
+
+	src1 := putNode(t, s, file, "main.A", "function")
+	src2 := putNode(t, s, file, "main.B", "function")
+	tgt1 := putNode(t, s, file, "main.X", "function")
+	tgt2 := putNode(t, s, file, "main.Y", "function")
+
+	e1 := putEdge(t, s, src1, tgt1, "calls")
+	e2 := putEdge(t, s, src2, tgt2, "calls")
+	e3 := putEdge(t, s, src1, tgt2, "calls")
+
+	oldSnap := types.NewHash([]byte("add-only-old"))
+	newSnap := types.NewHash([]byte("add-only-new"))
+
+	recordEdgeEvent(t, s, e1, "added", newSnap)
+	recordEdgeEvent(t, s, e2, "added", newSnap)
+	recordEdgeEvent(t, s, e3, "added", newSnap)
+
+	result, err := SemanticDiff(ctx, s, oldSnap, newSnap)
+	if err != nil {
+		t.Fatalf("SemanticDiff: %v", err)
+	}
+
+	if result.Summary.EdgesAdded != 3 {
+		t.Errorf("EdgesAdded: want 3, got %d", result.Summary.EdgesAdded)
+	}
+	if result.Summary.EdgesRemoved != 0 {
+		t.Errorf("EdgesRemoved: want 0, got %d", result.Summary.EdgesRemoved)
+	}
+	// src1 has two new outgoing edges, src2 has one: both should be modified.
+	if result.Summary.NodesModified != 2 {
+		t.Errorf("NodesModified: want 2, got %d", result.Summary.NodesModified)
+	}
+	// Verify that the modified nodes have only EdgesAdded, no EdgesRemoved.
+	for _, mod := range result.NodesModified {
+		if len(mod.EdgesRemoved) != 0 {
+			t.Errorf("modified node %s has %d edges removed, want 0", mod.QualifiedName, len(mod.EdgesRemoved))
+		}
+		if len(mod.EdgesAdded) == 0 {
+			t.Errorf("modified node %s has 0 edges added, want >0", mod.QualifiedName)
+		}
+	}
+}
+
+func TestSemanticDiff_ManyModifiedNodes(t *testing.T) {
+	// 6 distinct source nodes each get a new outgoing edge, verifying that
+	// 5+ modified nodes are correctly tracked.
+	s := newTestStore(t)
+	ctx := context.Background()
+	repo := putRepo(t, s, "https://example.com/repo")
+	file := putFile(t, s, repo, "main.go")
+
+	target := putNode(t, s, file, "main.SharedDep", "function")
+
+	oldSnap := types.NewHash([]byte("many-mod-old"))
+	newSnap := types.NewHash([]byte("many-mod-new"))
+
+	const nodeCount = 6
+	expectedNames := make(map[string]bool)
+	for i := 0; i < nodeCount; i++ {
+		name := fmt.Sprintf("main.Modifier%d", i)
+		src := putNode(t, s, file, name, "function")
+		e := putEdge(t, s, src, target, "calls")
+		recordEdgeEvent(t, s, e, "added", newSnap)
+		expectedNames[name] = true
+	}
+
+	result, err := SemanticDiff(ctx, s, oldSnap, newSnap)
+	if err != nil {
+		t.Fatalf("SemanticDiff: %v", err)
+	}
+
+	if result.Summary.NodesModified != nodeCount {
+		t.Fatalf("NodesModified: want %d, got %d", nodeCount, result.Summary.NodesModified)
+	}
+
+	for _, mod := range result.NodesModified {
+		if !expectedNames[mod.QualifiedName] {
+			t.Errorf("unexpected modified node: %s", mod.QualifiedName)
+		}
+		// Each source has exactly one added edge and no removed edges.
+		if len(mod.EdgesAdded) != 1 {
+			t.Errorf("node %s: want 1 edge added, got %d", mod.QualifiedName, len(mod.EdgesAdded))
+		}
+		if len(mod.EdgesRemoved) != 0 {
+			t.Errorf("node %s: want 0 edges removed, got %d", mod.QualifiedName, len(mod.EdgesRemoved))
+		}
+	}
+}
+
 func TestSemanticDiff_EdgeRemoved(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
