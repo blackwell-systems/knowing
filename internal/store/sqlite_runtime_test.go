@@ -280,6 +280,203 @@ func TestRuntimeUpdateObservation_NonexistentEdge(t *testing.T) {
 	}
 }
 
+func TestRuntimeEdgesByService(t *testing.T) {
+	s := tempDB(t)
+	ctx := context.Background()
+	repo := makeRepo(t, s, "https://example.com/repo")
+	file := makeFile(t, s, repo, "main.go")
+	src := makeNode(t, s, file, "main.Caller", "function")
+	tgt := makeNode(t, s, file, "main.Handler", "function")
+
+	// Insert a route symbol mapping tgt to a service.
+	if err := s.PutRouteSymbol(ctx, "order-svc", "GET /orders", tgt.NodeHash, "http_route"); err != nil {
+		t.Fatalf("PutRouteSymbol: %v", err)
+	}
+
+	// Insert a runtime edge targeting tgt.
+	now := time.Now().Unix()
+	edgeHash := types.ComputeEdgeHash(src.NodeHash, tgt.NodeHash, "calls", "otel_trace")
+	_, err := s.db.ExecContext(ctx,
+		`INSERT OR REPLACE INTO edges (edge_hash, source_hash, target_hash, edge_type, confidence, provenance, callsite_line, callsite_col, callsite_file, observation_count, last_observed)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		edgeHash[:], src.NodeHash[:], tgt.NodeHash[:], "calls", 0.8, "otel_trace", 0, 0, "", 10, now,
+	)
+	if err != nil {
+		t.Fatalf("insert otel edge: %v", err)
+	}
+
+	// Query by service name.
+	edges, err := s.RuntimeEdgesByService(ctx, "order-svc", "", 100)
+	if err != nil {
+		t.Fatalf("RuntimeEdgesByService: %v", err)
+	}
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(edges))
+	}
+	if edges[0].ObservationCount != 10 {
+		t.Errorf("ObservationCount = %d, want 10", edges[0].ObservationCount)
+	}
+
+	// Query by service name + route pattern.
+	edges, err = s.RuntimeEdgesByService(ctx, "order-svc", "GET%", 100)
+	if err != nil {
+		t.Fatalf("RuntimeEdgesByService with route: %v", err)
+	}
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 edge with route filter, got %d", len(edges))
+	}
+
+	// Query with non-matching service.
+	edges, err = s.RuntimeEdgesByService(ctx, "nonexistent-svc", "", 100)
+	if err != nil {
+		t.Fatalf("RuntimeEdgesByService nonexistent: %v", err)
+	}
+	if len(edges) != 0 {
+		t.Errorf("expected 0 edges for nonexistent service, got %d", len(edges))
+	}
+}
+
+func TestDeadRoutes(t *testing.T) {
+	s := tempDB(t)
+	ctx := context.Background()
+	repo := makeRepo(t, s, "https://example.com/repo")
+	file := makeFile(t, s, repo, "main.go")
+
+	// Route 1: has a recent observation (should NOT be dead).
+	tgt1 := makeNode(t, s, file, "main.ActiveHandler", "function")
+	if err := s.PutRouteSymbol(ctx, "svc", "GET /active", tgt1.NodeHash, "http_route"); err != nil {
+		t.Fatalf("PutRouteSymbol active: %v", err)
+	}
+	src1Hash := types.NewHash([]byte("src1"))
+	recentHash := types.ComputeEdgeHash(src1Hash, tgt1.NodeHash, "calls", "otel_trace_active")
+	_, err := s.db.ExecContext(ctx,
+		`INSERT OR REPLACE INTO edges (edge_hash, source_hash, target_hash, edge_type, confidence, provenance, callsite_line, callsite_col, callsite_file, observation_count, last_observed)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		recentHash[:], src1Hash[:], tgt1.NodeHash[:], "calls", 0.8, "otel_trace", 0, 0, "", 5, time.Now().Unix(),
+	)
+	if err != nil {
+		t.Fatalf("insert active edge: %v", err)
+	}
+
+	// Route 2: has no observation (should be dead).
+	tgt2 := makeNode(t, s, file, "main.DeadHandler", "function")
+	if err := s.PutRouteSymbol(ctx, "svc", "GET /dead", tgt2.NodeHash, "http_route"); err != nil {
+		t.Fatalf("PutRouteSymbol dead: %v", err)
+	}
+
+	// Route 3: has an old observation (should be dead).
+	tgt3 := makeNode(t, s, file, "main.StaleHandler", "function")
+	if err := s.PutRouteSymbol(ctx, "svc", "GET /stale", tgt3.NodeHash, "http_route"); err != nil {
+		t.Fatalf("PutRouteSymbol stale: %v", err)
+	}
+	oldTime := time.Now().Unix() - 100*86400
+	src3Hash := types.NewHash([]byte("src3"))
+	staleHash := types.ComputeEdgeHash(src3Hash, tgt3.NodeHash, "calls", "otel_trace_stale")
+	_, err = s.db.ExecContext(ctx,
+		`INSERT OR REPLACE INTO edges (edge_hash, source_hash, target_hash, edge_type, confidence, provenance, callsite_line, callsite_col, callsite_file, observation_count, last_observed)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		staleHash[:], src3Hash[:], tgt3.NodeHash[:], "calls", 0.3, "otel_trace", 0, 0, "", 1, oldTime,
+	)
+	if err != nil {
+		t.Fatalf("insert stale edge: %v", err)
+	}
+
+	dead, err := s.DeadRoutes(ctx, 30)
+	if err != nil {
+		t.Fatalf("DeadRoutes: %v", err)
+	}
+	if len(dead) != 2 {
+		t.Fatalf("expected 2 dead routes, got %d", len(dead))
+	}
+
+	// Verify dead routes are the expected ones.
+	patterns := map[string]bool{}
+	for _, r := range dead {
+		patterns[r.RoutePattern] = true
+	}
+	if !patterns["GET /dead"] {
+		t.Error("expected GET /dead in dead routes")
+	}
+	if !patterns["GET /stale"] {
+		t.Error("expected GET /stale in dead routes")
+	}
+}
+
+func TestRuntimeEdgeStatsAggregate(t *testing.T) {
+	s := tempDB(t)
+	ctx := context.Background()
+	repo := makeRepo(t, s, "https://example.com/repo")
+	file := makeFile(t, s, repo, "main.go")
+
+	now := time.Now().Unix()
+
+	// Active edge (observed recently).
+	src1 := makeNode(t, s, file, "main.A", "function")
+	tgt1 := makeNode(t, s, file, "main.B", "function")
+	h1 := types.ComputeEdgeHash(src1.NodeHash, tgt1.NodeHash, "calls", "otel_trace_1")
+	_, err := s.db.ExecContext(ctx,
+		`INSERT OR REPLACE INTO edges (edge_hash, source_hash, target_hash, edge_type, confidence, provenance, callsite_line, callsite_col, callsite_file, observation_count, last_observed)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		h1[:], src1.NodeHash[:], tgt1.NodeHash[:], "calls", 0.9, "otel_trace", 0, 0, "", 10, now,
+	)
+	if err != nil {
+		t.Fatalf("insert active edge: %v", err)
+	}
+
+	// Stale edge (observed 60 days ago).
+	src2 := makeNode(t, s, file, "main.C", "function")
+	tgt2 := makeNode(t, s, file, "main.D", "function")
+	h2 := types.ComputeEdgeHash(src2.NodeHash, tgt2.NodeHash, "imports", "otel_http_2")
+	_, err = s.db.ExecContext(ctx,
+		`INSERT OR REPLACE INTO edges (edge_hash, source_hash, target_hash, edge_type, confidence, provenance, callsite_line, callsite_col, callsite_file, observation_count, last_observed)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		h2[:], src2.NodeHash[:], tgt2.NodeHash[:], "imports", 0.5, "otel_http", 0, 0, "", 3, now-60*86400,
+	)
+	if err != nil {
+		t.Fatalf("insert stale edge: %v", err)
+	}
+
+	// GC-eligible edge (observed 100 days ago).
+	src3 := makeNode(t, s, file, "main.E", "function")
+	tgt3 := makeNode(t, s, file, "main.F", "function")
+	h3 := types.ComputeEdgeHash(src3.NodeHash, tgt3.NodeHash, "calls", "otel_trace_3")
+	_, err = s.db.ExecContext(ctx,
+		`INSERT OR REPLACE INTO edges (edge_hash, source_hash, target_hash, edge_type, confidence, provenance, callsite_line, callsite_col, callsite_file, observation_count, last_observed)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		h3[:], src3.NodeHash[:], tgt3.NodeHash[:], "calls", 0.3, "otel_trace", 0, 0, "", 1, now-100*86400,
+	)
+	if err != nil {
+		t.Fatalf("insert gc-eligible edge: %v", err)
+	}
+
+	// Static edge (should be excluded, not otel_ provenance).
+	staticEdge := makeEdge(t, s, src1, tgt2, "calls")
+	_ = staticEdge
+
+	stats, err := s.RuntimeEdgeStatsAggregate(ctx)
+	if err != nil {
+		t.Fatalf("RuntimeEdgeStatsAggregate: %v", err)
+	}
+	if stats.TotalEdges != 3 {
+		t.Errorf("TotalEdges = %d, want 3", stats.TotalEdges)
+	}
+	if stats.ActiveEdges != 1 {
+		t.Errorf("ActiveEdges = %d, want 1", stats.ActiveEdges)
+	}
+	if stats.StaleEdges != 2 {
+		t.Errorf("StaleEdges = %d, want 2", stats.StaleEdges)
+	}
+	if stats.GCEligible != 1 {
+		t.Errorf("GCEligible = %d, want 1", stats.GCEligible)
+	}
+	if stats.ByEdgeType["calls"] != 2 {
+		t.Errorf("ByEdgeType[calls] = %d, want 2", stats.ByEdgeType["calls"])
+	}
+	if stats.ByEdgeType["imports"] != 1 {
+		t.Errorf("ByEdgeType[imports] = %d, want 1", stats.ByEdgeType["imports"])
+	}
+}
+
 func TestRuntimeDecayConfidence(t *testing.T) {
 	s := tempDB(t)
 	ctx := context.Background()
