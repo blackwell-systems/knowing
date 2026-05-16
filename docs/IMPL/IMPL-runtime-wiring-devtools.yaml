@@ -551,6 +551,7 @@ waves:
             - internal/store/sqlite_runtime_test.go
             - cmd/knowing/main.go
             - cmd/knowing/main_test.go
+      base_commit: 55a8de7536b34b7cd376ad81ce7fa3f0958d8d90
     - number: 2
       agents:
         - id: D
@@ -898,6 +899,55 @@ quality_gates:
           required: true
 post_merge_checklist:
     groups: []
+completion_reports:
+    A:
+        status: complete
+        branch: polywave/runtime-wiring-devtools/wave1-agent-A
+        commit: ede0e1e
+        files_changed:
+            - internal/indexer/gotsextractor/extractor.go
+            - internal/indexer/gotsextractor/extractor_test.go
+        tests_added:
+            - TestExtractRouteSymbols_HttpHandleFunc
+            - TestExtractRouteSymbols_ChiRouter
+            - TestExtractRouteSymbols_NoRoutes
+        verification: PASS
+        notes: HTTP route extraction complete. Supports net/http, chi, gin, echo, gorilla/mux. All 14 package tests pass. Build, vet, and full test suite green.
+    B:
+        status: complete
+        branch: polywave/runtime-wiring-devtools/wave1-agent-B
+        commit: 02c99d2
+        files_changed:
+            - internal/trace/otlp.go
+            - internal/trace/otlp_test.go
+            - go.mod
+            - go.sum
+        tests_added:
+            - TestOTLPReceiver_Export_gRPC
+            - TestOTLPReceiver_Export_NotConnected
+            - TestOTLPReceiver_Export_EmptyRequest
+            - TestOTLPReceiver_ListenAddr
+        verification: PASS
+        notes: Real gRPC OTLPReceiver implemented with coltracepb.TraceServiceServer. Export converts ResourceSpans to TraceSpan via extractServiceName and convertOTLPSpan. ExportSpans kept for backward compatibility. All 14 OTLP tests pass. Full build/vet/test suite green.
+    C:
+        status: complete
+        branch: polywave/runtime-wiring-devtools/wave1-agent-C
+        commit: 12ef1e4
+        files_changed:
+            - internal/store/sqlite_runtime.go
+            - internal/store/sqlite_runtime_test.go
+            - cmd/knowing/main.go
+            - cmd/knowing/main_test.go
+        tests_added:
+            - TestRuntimeEdgesByService
+            - TestDeadRoutes
+            - TestRuntimeEdgeStatsAggregate
+            - TestCmdExport_EmptyDB
+            - TestCmdExport_UnsupportedFormat
+            - TestCmdExport_NoArgs
+            - TestCmdExport_InUsageOutput
+        verification: PASS
+        notes: All runtime store query methods and export CLI implemented. Full test suite passes. MCP handlers (Wave 2) will consume RuntimeEdgesByService, DeadRoutes, RuntimeEdgeStatsAggregate.
 pre_mortem:
     overall_risk: medium
     rows:
