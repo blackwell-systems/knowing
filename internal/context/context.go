@@ -2,6 +2,7 @@ package context
 
 import (
 	stdctx "context"
+	"sort"
 	"strings"
 
 	"github.com/blackwell-systems/knowing/internal/types"
@@ -62,9 +63,60 @@ func NewContextEngine(store types.GraphStore) *ContextEngine {
 }
 
 // stopWords is the set of words filtered from task descriptions during keyword extraction.
+// Includes both English stop words and common Go/programming terms that match too broadly.
 var stopWords = map[string]bool{
-	"the": true, "a": true, "in": true, "to": true, "for": true,
-	"is": true, "of": true, "and": true, "or": true,
+	// English
+	"the": true, "a": true, "an": true, "in": true, "to": true, "for": true,
+	"is": true, "of": true, "and": true, "or": true, "on": true, "at": true,
+	"by": true, "it": true, "be": true, "as": true, "do": true, "no": true,
+	"if": true, "so": true, "up": true, "my": true, "we": true, "all": true,
+	"this": true, "that": true, "with": true, "from": true, "what": true,
+	"how": true, "can": true, "will": true, "should": true, "would": true,
+	"about": true, "into": true, "when": true, "where": true, "which": true,
+	// Programming terms that match too many symbols
+	"new": true, "get": true, "set": true, "add": true, "make": true,
+	"init": true, "has": true, "err": true, "func": true, "type": true,
+	"var": true, "const": true, "return": true, "import": true,
+	"package": true, "struct": true, "interface": true, "string": true,
+	"int": true, "bool": true, "error": true, "nil": true,
+	// Action words that describe intent but don't identify code
+	"refactor": true, "fix": true, "update": true, "change": true,
+	"modify": true, "implement": true, "create": true, "delete": true,
+	"remove": true, "move": true, "rename": true, "improve": true,
+	"optimize": true, "debug": true, "test": true, "review": true,
+}
+
+// abbreviations maps common Go/programming abbreviations to their expansions.
+// Used during keyword extraction to improve matching against qualified names.
+var abbreviations = map[string]string{
+	"ctx":    "context",
+	"fmt":    "format",
+	"req":    "request",
+	"resp":   "response",
+	"res":    "response",
+	"cfg":    "config",
+	"conf":   "config",
+	"msg":    "message",
+	"db":     "database",
+	"srv":    "server",
+	"svc":    "service",
+	"mgr":    "manager",
+	"pkg":    "package",
+	"idx":    "index",
+	"iter":   "iterator",
+	"buf":    "buffer",
+	"conn":   "connection",
+	"addr":   "address",
+	"auth":   "auth",
+	"mux":    "multiplexer",
+	"cmd":    "command",
+	"args":   "arguments",
+	"opts":   "options",
+	"params": "parameters",
+	"desc":   "description",
+	"info":   "information",
+	"stat":   "statistics",
+	"stats":  "statistics",
 }
 
 // ForTask produces ranked context for a task description by finding relevant
@@ -294,22 +346,92 @@ func (e *ContextEngine) ForFiles(ctx stdctx.Context, opts FileOptions) (*Context
 
 // extractKeywords splits a task description into deduplicated, lowercase keywords
 // with stop words removed.
+// extractKeywords processes a task description into searchable terms.
+// It splits CamelCase/snake_case identifiers, expands abbreviations,
+// filters stop words, and returns terms ordered by specificity (longer first).
 func extractKeywords(desc string) []string {
 	words := strings.Fields(desc)
 	seen := make(map[string]bool)
 	var result []string
+
 	for _, w := range words {
+		// Strip punctuation from edges.
+		w = strings.Trim(w, ".,;:!?\"'`()[]{}#")
+		if w == "" {
+			continue
+		}
+
+		// Split CamelCase and snake_case into components.
+		parts := splitIdentifier(w)
+		for _, p := range parts {
+			lower := strings.ToLower(p)
+			if len(lower) < 2 {
+				continue
+			}
+			if stopWords[lower] {
+				continue
+			}
+			if seen[lower] {
+				continue
+			}
+			seen[lower] = true
+			result = append(result, lower)
+
+			// Also add abbreviation expansion if available.
+			if expanded, ok := abbreviations[lower]; ok && !seen[expanded] {
+				seen[expanded] = true
+				result = append(result, expanded)
+			}
+		}
+
+		// Keep the original compound term too (if multi-part) for exact matching.
 		lower := strings.ToLower(w)
-		if stopWords[lower] {
-			continue
+		if strings.Contains(lower, "_") || len(parts) > 1 {
+			if !seen[lower] && !stopWords[lower] {
+				seen[lower] = true
+				result = append(result, lower)
+			}
 		}
-		if seen[lower] {
-			continue
-		}
-		seen[lower] = true
-		result = append(result, lower)
 	}
+
+	// Sort by length descending: longer (more specific) terms first.
+	sort.Slice(result, func(i, j int) bool {
+		return len(result[i]) > len(result[j])
+	})
+
 	return result
+}
+
+// splitIdentifier splits a CamelCase or snake_case identifier into component words.
+func splitIdentifier(s string) []string {
+	// Handle snake_case.
+	if strings.Contains(s, "_") {
+		parts := strings.Split(s, "_")
+		var result []string
+		for _, p := range parts {
+			if p != "" {
+				result = append(result, p)
+			}
+		}
+		return result
+	}
+
+	// Handle CamelCase.
+	var parts []string
+	current := strings.Builder{}
+	for i, r := range s {
+		if i > 0 && r >= 'A' && r <= 'Z' {
+			if current.Len() > 0 {
+				parts = append(parts, current.String())
+				current.Reset()
+			}
+		}
+		current.WriteRune(r)
+	}
+	if current.Len() > 0 {
+		parts = append(parts, current.String())
+	}
+	return parts
 }
 
 // packIntoBudget iterates over ranked symbols and accumulates them until the
