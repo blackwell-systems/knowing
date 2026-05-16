@@ -1,3 +1,4 @@
+completion_date: "2026-05-15"
 title: Multi-language tree-sitter extractors
 feature_slug: multi-lang-extractors
 verdict: SUITABLE
@@ -875,6 +876,7 @@ waves:
             - B
             - C
             - D
+      base_commit: f3ab2a33b8d99cf92ed187634e4605348fe1f416
 quality_gates:
     level: standard
     gates:
@@ -1001,6 +1003,14 @@ completion_reports:
             - TestCSharpExtractor_EmptyFile
         verification: PASS
         notes: C# tree-sitter extractor complete. All 14 tests passing. Supports classes, structs, interfaces, enums, methods, constructors, using directives, invocations, object creation, and ASP.NET route detection. Registration in main.go is Agent E scope (Wave 2).
+    E:
+        status: complete
+        branch: polywave/multi-lang-extractors/wave2-agent-E
+        commit: 2fbf95a
+        files_changed:
+            - cmd/knowing/main.go
+        verification: PASS
+        notes: Registered all four new extractors (TypeScript, Rust, Java, C#) in both cmdServe and cmdIndex. Restructured cmdIndex so multi-language extractors register in both -full and default modes. All tests pass.
 pre_mortem:
     overall_risk: low
     rows:
@@ -1065,5 +1075,5 @@ critic_report:
     summary: 'All five agent briefs verified against the codebase. Agents A-D create new extractor packages in directories that do not yet exist, with correct import paths to smacker/go-tree-sitter language subpackages (all confirmed present in module cache). The types.Extractor interface, ExtractOptions, ExtractResult, ComputeNodeHash, ComputeEdgeHash, and EmptyHash symbols all exist with matching signatures. One warning for Agent E: the brief incorrectly describes the Python extractor registration in cmdIndex as being inside the else branch, when it is actually at the top level of the function. The final replacement block is still workable, so this is advisory only.'
     reviewed_at: "2026-05-16T03:33:42Z"
     issue_count: 1
-state: REVIEWED
+state: COMPLETE
 injection_method: hook
