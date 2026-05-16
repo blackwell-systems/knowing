@@ -1306,3 +1306,1148 @@ func TestRuntimeToolsUnavailable(t *testing.T) {
 		})
 	}
 }
+
+// --- Missing handler coverage ---
+
+func TestHandleTraceDataflow_ReturnsCallees(t *testing.T) {
+	s := newMockGraphStore()
+	calleeNode := types.Node{
+		NodeHash:      testHash("callee1"),
+		QualifiedName: "github.com/example/pkg.Helper",
+		Kind:          "function",
+	}
+	s.transitiveCallees = []types.CalleeResult{
+		{Node: calleeNode, Depth: 1},
+	}
+
+	srv := NewServer(s)
+	req := makeCallToolRequest("trace_dataflow", map[string]any{
+		"source_hash": hashHex(testHash("source")),
+		"max_depth":   float64(3),
+	})
+
+	result, err := srv.handleTraceDataflow(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("expected success, got error")
+	}
+
+	text := result.Content[0].(mcp.TextContent).Text
+	var callees []types.CalleeResult
+	if err := json.Unmarshal([]byte(text), &callees); err != nil {
+		t.Fatalf("failed to unmarshal callees: %v", err)
+	}
+	if len(callees) != 1 {
+		t.Fatalf("expected 1 callee, got %d", len(callees))
+	}
+	if callees[0].Depth != 1 {
+		t.Errorf("expected depth 1, got %d", callees[0].Depth)
+	}
+	if callees[0].Node.QualifiedName != "github.com/example/pkg.Helper" {
+		t.Errorf("unexpected callee name: %s", callees[0].Node.QualifiedName)
+	}
+}
+
+func TestHandleTraceDataflow_EmptyResult(t *testing.T) {
+	s := newMockGraphStore()
+	s.transitiveCallees = nil
+
+	srv := NewServer(s)
+	req := makeCallToolRequest("trace_dataflow", map[string]any{
+		"source_hash": hashHex(testHash("isolated-node")),
+	})
+
+	result, err := srv.handleTraceDataflow(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("expected success, got error")
+	}
+
+	text := result.Content[0].(mcp.TextContent).Text
+	if text != "null" {
+		var callees []types.CalleeResult
+		if err := json.Unmarshal([]byte(text), &callees); err != nil {
+			t.Fatalf("failed to unmarshal: %v", err)
+		}
+		if len(callees) != 0 {
+			t.Errorf("expected 0 callees, got %d", len(callees))
+		}
+	}
+}
+
+func TestHandleTraceDataflow_MissingSourceHash(t *testing.T) {
+	srv := NewServer(newMockGraphStore())
+	req := makeCallToolRequest("trace_dataflow", map[string]any{})
+
+	result, err := srv.handleTraceDataflow(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error result for missing source_hash")
+	}
+	text := result.Content[0].(mcp.TextContent).Text
+	if text != "missing required argument: source_hash" {
+		t.Errorf("unexpected error text: %q", text)
+	}
+}
+
+func TestHandleRepoGraph_ReturnsFiles(t *testing.T) {
+	s := newMockGraphStore()
+	repoHash := testHash("repo1")
+	s.filesByRepo[repoHash] = []types.File{
+		{FileHash: testHash("f1"), RepoHash: repoHash, Path: "main.go"},
+		{FileHash: testHash("f2"), RepoHash: repoHash, Path: "util.go"},
+	}
+
+	srv := NewServer(s)
+	req := makeCallToolRequest("repo_graph", map[string]any{
+		"repo_hash": hashHex(repoHash),
+	})
+
+	result, err := srv.handleRepoGraph(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("expected success, got error")
+	}
+
+	text := result.Content[0].(mcp.TextContent).Text
+	var files []types.File
+	if err := json.Unmarshal([]byte(text), &files); err != nil {
+		t.Fatalf("failed to unmarshal files: %v", err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("expected 2 files, got %d", len(files))
+	}
+	if files[0].Path != "main.go" {
+		t.Errorf("expected main.go, got %q", files[0].Path)
+	}
+}
+
+func TestHandleRepoGraph_EmptyRepo(t *testing.T) {
+	s := newMockGraphStore()
+	repoHash := testHash("empty-repo")
+
+	srv := NewServer(s)
+	req := makeCallToolRequest("repo_graph", map[string]any{
+		"repo_hash": hashHex(repoHash),
+	})
+
+	result, err := srv.handleRepoGraph(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("expected success, got error")
+	}
+
+	text := result.Content[0].(mcp.TextContent).Text
+	if text != "null" {
+		var files []types.File
+		if err := json.Unmarshal([]byte(text), &files); err != nil {
+			t.Fatalf("failed to unmarshal: %v", err)
+		}
+		if len(files) != 0 {
+			t.Errorf("expected 0 files, got %d", len(files))
+		}
+	}
+}
+
+func TestHandleRepoGraph_MissingRepoHash(t *testing.T) {
+	srv := NewServer(newMockGraphStore())
+	req := makeCallToolRequest("repo_graph", map[string]any{})
+
+	result, err := srv.handleRepoGraph(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error result for missing repo_hash")
+	}
+}
+
+// --- Error paths: invalid hashes ---
+
+func TestHandleCrossRepoCallers_InvalidHash(t *testing.T) {
+	srv := NewServer(newMockGraphStore())
+	req := makeCallToolRequest("cross_repo_callers", map[string]any{
+		"target_hash": "not-a-valid-hex",
+	})
+
+	result, err := srv.handleCrossRepoCallers(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error result for invalid hash")
+	}
+}
+
+func TestHandleCrossRepoCallers_ShortHash(t *testing.T) {
+	srv := NewServer(newMockGraphStore())
+	// Valid hex but only 16 bytes instead of 32.
+	req := makeCallToolRequest("cross_repo_callers", map[string]any{
+		"target_hash": "aabbccddaabbccddaabbccddaabbccdd",
+	})
+
+	result, err := srv.handleCrossRepoCallers(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error result for short hash (16 bytes)")
+	}
+}
+
+func TestHandleCrossRepoCallers_MissingTargetHash(t *testing.T) {
+	srv := NewServer(newMockGraphStore())
+	req := makeCallToolRequest("cross_repo_callers", map[string]any{})
+
+	result, err := srv.handleCrossRepoCallers(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error result for missing target_hash")
+	}
+	text := result.Content[0].(mcp.TextContent).Text
+	if text != "missing required argument: target_hash" {
+		t.Errorf("unexpected error text: %q", text)
+	}
+}
+
+func TestHandleBlastRadius_MissingTargetHash(t *testing.T) {
+	srv := NewServer(newMockGraphStore())
+	req := makeCallToolRequest("blast_radius", map[string]any{})
+
+	result, err := srv.handleBlastRadius(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error for missing target_hash")
+	}
+}
+
+func TestHandleBlastRadius_InvalidSnapshotHash(t *testing.T) {
+	srv := NewServer(newMockGraphStore())
+	req := makeCallToolRequest("blast_radius", map[string]any{
+		"target_hash":   hashHex(testHash("target")),
+		"snapshot_hash": "zzz-not-hex",
+	})
+
+	result, err := srv.handleBlastRadius(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error for invalid snapshot_hash")
+	}
+}
+
+func TestHandleGraphQuery_MissingPrefix(t *testing.T) {
+	srv := NewServer(newMockGraphStore())
+	req := makeCallToolRequest("graph_query", map[string]any{})
+
+	result, err := srv.handleGraphQuery(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error for missing prefix")
+	}
+}
+
+func TestHandleGraphQuery_EmptyResults(t *testing.T) {
+	srv := NewServer(newMockGraphStore())
+	req := makeCallToolRequest("graph_query", map[string]any{
+		"prefix": "nonexistent.prefix",
+	})
+
+	result, err := srv.handleGraphQuery(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("expected success, got error")
+	}
+
+	text := result.Content[0].(mcp.TextContent).Text
+	if text != "null" {
+		var nodes []types.Node
+		if err := json.Unmarshal([]byte(text), &nodes); err != nil {
+			t.Fatalf("failed to unmarshal: %v", err)
+		}
+		if len(nodes) != 0 {
+			t.Errorf("expected 0 nodes, got %d", len(nodes))
+		}
+	}
+}
+
+func TestHandleStaleEdges_MissingSnapshotHash(t *testing.T) {
+	srv := NewServer(newMockGraphStore())
+	req := makeCallToolRequest("stale_edges", map[string]any{})
+
+	result, err := srv.handleStaleEdges(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error for missing snapshot_hash")
+	}
+}
+
+func TestHandleStaleEdges_EmptyResult(t *testing.T) {
+	s := newMockGraphStore()
+	s.staleEdgesResult = nil
+
+	srv := NewServer(s)
+	req := makeCallToolRequest("stale_edges", map[string]any{
+		"snapshot_hash": hashHex(testHash("clean-snap")),
+	})
+
+	result, err := srv.handleStaleEdges(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("expected success, got error")
+	}
+}
+
+func TestHandleSnapshotDiff_MissingOldSnapshot(t *testing.T) {
+	srv := NewServer(newMockGraphStore())
+	req := makeCallToolRequest("snapshot_diff", map[string]any{
+		"new_snapshot": hashHex(testHash("new")),
+	})
+
+	result, err := srv.handleSnapshotDiff(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error for missing old_snapshot")
+	}
+}
+
+func TestHandleSnapshotDiff_MissingNewSnapshot(t *testing.T) {
+	srv := NewServer(newMockGraphStore())
+	req := makeCallToolRequest("snapshot_diff", map[string]any{
+		"old_snapshot": hashHex(testHash("old")),
+	})
+
+	result, err := srv.handleSnapshotDiff(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error for missing new_snapshot")
+	}
+}
+
+func TestHandleSemanticDiff_MissingOldSnapshot(t *testing.T) {
+	srv := NewServer(newMockGraphStore())
+	req := makeCallToolRequest("semantic_diff", map[string]any{
+		"new_snapshot": hashHex(testHash("new")),
+	})
+
+	result, err := srv.handleSemanticDiff(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error for missing old_snapshot")
+	}
+}
+
+func TestHandleSemanticDiff_InvalidHash(t *testing.T) {
+	srv := NewServer(newMockGraphStore())
+	req := makeCallToolRequest("semantic_diff", map[string]any{
+		"old_snapshot": "bad-hex",
+		"new_snapshot": hashHex(testHash("new")),
+	})
+
+	result, err := srv.handleSemanticDiff(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error for invalid hash")
+	}
+}
+
+func TestHandlePRImpact_MissingSnapshots(t *testing.T) {
+	srv := NewServer(newMockGraphStore())
+
+	t.Run("missing_old", func(t *testing.T) {
+		req := makeCallToolRequest("pr_impact", map[string]any{
+			"new_snapshot": hashHex(testHash("new")),
+		})
+		result, err := srv.handlePRImpact(context.Background(), req)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.IsError {
+			t.Fatal("expected error for missing old_snapshot")
+		}
+	})
+
+	t.Run("missing_new", func(t *testing.T) {
+		req := makeCallToolRequest("pr_impact", map[string]any{
+			"old_snapshot": hashHex(testHash("old")),
+		})
+		result, err := srv.handlePRImpact(context.Background(), req)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.IsError {
+			t.Fatal("expected error for missing new_snapshot")
+		}
+	})
+}
+
+func TestHandleOwnership_RepoNotFound(t *testing.T) {
+	s := newMockGraphStore()
+	srv := NewServer(s)
+	req := makeCallToolRequest("ownership", map[string]any{
+		"repo_hash": hashHex(testHash("nonexistent-repo")),
+	})
+
+	result, err := srv.handleOwnership(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error when repo not found")
+	}
+	text := result.Content[0].(mcp.TextContent).Text
+	if text == "" {
+		t.Error("expected non-empty error message")
+	}
+}
+
+func TestHandleOwnership_MissingRepoHash(t *testing.T) {
+	srv := NewServer(newMockGraphStore())
+	req := makeCallToolRequest("ownership", map[string]any{})
+
+	result, err := srv.handleOwnership(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error for missing repo_hash")
+	}
+}
+
+func TestHandleOwnership_EmptyRepo(t *testing.T) {
+	s := newMockGraphStore()
+	repoHash := testHash("empty-repo")
+	s.repos[repoHash] = &types.Repo{
+		RepoHash: repoHash,
+		RepoURL:  "https://github.com/example/empty",
+	}
+	// No files, no nodes.
+
+	srv := NewServer(s)
+	req := makeCallToolRequest("ownership", map[string]any{
+		"repo_hash": hashHex(repoHash),
+	})
+
+	result, err := srv.handleOwnership(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("expected success, got error")
+	}
+}
+
+func TestHandleIndexRepo_MissingRequiredArgs(t *testing.T) {
+	srv := NewServer(newMockGraphStore())
+	SetIndexFunc(func(_ context.Context, _, _, _ string) error { return nil })
+	defer SetIndexFunc(nil)
+
+	t.Run("missing_repo_url", func(t *testing.T) {
+		req := makeCallToolRequest("index_repo", map[string]any{
+			"repo_path": "/tmp/repo",
+		})
+		result, err := srv.handleIndexRepo(context.Background(), req)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.IsError {
+			t.Fatal("expected error for missing repo_url")
+		}
+	})
+
+	t.Run("missing_repo_path", func(t *testing.T) {
+		req := makeCallToolRequest("index_repo", map[string]any{
+			"repo_url": "https://github.com/example/repo",
+		})
+		result, err := srv.handleIndexRepo(context.Background(), req)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.IsError {
+			t.Fatal("expected error for missing repo_path")
+		}
+	})
+}
+
+func TestHandleIndexRepo_IndexFuncError(t *testing.T) {
+	srv := NewServer(newMockGraphStore())
+	SetIndexFunc(func(_ context.Context, _, _, _ string) error {
+		return fmt.Errorf("disk full")
+	})
+	defer SetIndexFunc(nil)
+
+	req := makeCallToolRequest("index_repo", map[string]any{
+		"repo_url":  "https://github.com/example/repo",
+		"repo_path": "/tmp/repo",
+	})
+
+	result, err := srv.handleIndexRepo(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error when indexFunc returns error")
+	}
+	text := result.Content[0].(mcp.TextContent).Text
+	if text != "index_repo failed: disk full" {
+		t.Errorf("unexpected error text: %q", text)
+	}
+}
+
+func TestHandleRuntimeTraffic_MissingServiceName(t *testing.T) {
+	srv, _ := newTestSQLiteServer(t)
+	req := makeCallToolRequest("runtime_traffic", map[string]any{})
+
+	result, err := srv.handleRuntimeTraffic(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error for missing service_name")
+	}
+}
+
+func TestHandleRuntimeTraffic_EmptyResults(t *testing.T) {
+	srv, _ := newTestSQLiteServer(t)
+	req := makeCallToolRequest("runtime_traffic", map[string]any{
+		"service_name": "nonexistent-service",
+	})
+
+	result, err := srv.handleRuntimeTraffic(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("expected success, got error: %v", result.Content)
+	}
+}
+
+func TestHandleRuntimeTraffic_WithRoutePattern(t *testing.T) {
+	srv, ss := newTestSQLiteServer(t)
+	ctx := context.Background()
+
+	// Insert two route symbols for same service but different routes.
+	target1 := testHash("handler-get")
+	target2 := testHash("handler-post")
+	for _, n := range []types.Node{
+		{NodeHash: target1, QualifiedName: "api.GetHandler", Kind: "function"},
+		{NodeHash: target2, QualifiedName: "api.PostHandler", Kind: "function"},
+	} {
+		if err := ss.PutNode(ctx, n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := ss.PutRouteSymbol(ctx, "api-svc", "GET /items", target1, "http_route"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ss.PutRouteSymbol(ctx, "api-svc", "POST /items", target2, "http_route"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Insert runtime edges targeting both.
+	now := time.Now().Unix()
+	for i, tgt := range []types.Hash{target1, target2} {
+		eh := testHash(fmt.Sprintf("rt-edge-%d", i))
+		if err := ss.PutEdge(ctx, types.Edge{
+			EdgeHash: eh, SourceHash: testHash(fmt.Sprintf("rt-src-%d", i)),
+			TargetHash: tgt, EdgeType: "calls", Confidence: 0.9, Provenance: "otel_trace",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := ss.UpdateObservation(ctx, eh, 10, now, 0.9); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Query with route_pattern filter.
+	req := makeCallToolRequest("runtime_traffic", map[string]any{
+		"service_name":  "api-svc",
+		"route_pattern": "GET%",
+	})
+
+	result, err := srv.handleRuntimeTraffic(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("expected success, got error: %v", result.Content)
+	}
+
+	text := result.Content[0].(mcp.TextContent).Text
+	var edges []types.Edge
+	if err := json.Unmarshal([]byte(text), &edges); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 edge with GET route filter, got %d", len(edges))
+	}
+}
+
+func TestHandleRuntimeTraffic_WithLimit(t *testing.T) {
+	srv, ss := newTestSQLiteServer(t)
+	ctx := context.Background()
+
+	// Insert multiple runtime edges for the same service.
+	now := time.Now().Unix()
+	target := testHash("limit-handler")
+	if err := ss.PutNode(ctx, types.Node{
+		NodeHash: target, QualifiedName: "api.LimitHandler", Kind: "function",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ss.PutRouteSymbol(ctx, "limit-svc", "GET /limit", target, "http_route"); err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < 5; i++ {
+		eh := testHash(fmt.Sprintf("limit-edge-%d", i))
+		if err := ss.PutEdge(ctx, types.Edge{
+			EdgeHash: eh, SourceHash: testHash(fmt.Sprintf("limit-src-%d", i)),
+			TargetHash: target, EdgeType: "calls", Confidence: 0.9, Provenance: "otel_trace",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := ss.UpdateObservation(ctx, eh, i+1, now, 0.9); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	req := makeCallToolRequest("runtime_traffic", map[string]any{
+		"service_name": "limit-svc",
+		"limit":        float64(2),
+	})
+
+	result, err := srv.handleRuntimeTraffic(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("expected success, got error: %v", result.Content)
+	}
+
+	text := result.Content[0].(mcp.TextContent).Text
+	var edges []types.Edge
+	if err := json.Unmarshal([]byte(text), &edges); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	if len(edges) > 2 {
+		t.Errorf("expected at most 2 edges with limit=2, got %d", len(edges))
+	}
+}
+
+func TestHandleDeadRoutes_DefaultStaleDays(t *testing.T) {
+	srv, ss := newTestSQLiteServer(t)
+	ctx := context.Background()
+
+	target := testHash("dead-default")
+	if err := ss.PutNode(ctx, types.Node{
+		NodeHash: target, QualifiedName: "api.DeadDefault", Kind: "function",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ss.PutRouteSymbol(ctx, "svc", "GET /dead", target, "http_route"); err != nil {
+		t.Fatal(err)
+	}
+
+	// No stale_days argument; should use default of 30.
+	req := makeCallToolRequest("dead_routes", map[string]any{})
+
+	result, err := srv.handleDeadRoutes(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("expected success, got error: %v", result.Content)
+	}
+
+	text := result.Content[0].(mcp.TextContent).Text
+	var routes []store.RouteSymbolRow
+	if err := json.Unmarshal([]byte(text), &routes); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	if len(routes) < 1 {
+		t.Errorf("expected at least 1 dead route with default stale_days, got %d", len(routes))
+	}
+}
+
+func TestHandleTraceStats_EmptyStore(t *testing.T) {
+	srv, _ := newTestSQLiteServer(t)
+	req := makeCallToolRequest("trace_stats", map[string]any{})
+
+	result, err := srv.handleTraceStats(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("expected success, got error: %v", result.Content)
+	}
+
+	text := result.Content[0].(mcp.TextContent).Text
+	var stats store.RuntimeStatsRow
+	if err := json.Unmarshal([]byte(text), &stats); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	if stats.TotalEdges != 0 {
+		t.Errorf("expected 0 total edges in empty store, got %d", stats.TotalEdges)
+	}
+}
+
+// --- Large result set tests ---
+
+func TestHandleGraphQuery_LargeResultSet(t *testing.T) {
+	s := newMockGraphStore()
+	nodes := make([]types.Node, 100)
+	for i := range nodes {
+		nodes[i] = types.Node{
+			NodeHash:      testHash(fmt.Sprintf("large-node-%d", i)),
+			QualifiedName: fmt.Sprintf("github.com/example/pkg.Func%d", i),
+			Kind:          "function",
+		}
+	}
+	s.nodesByName["github.com/example/pkg"] = nodes
+
+	srv := NewServer(s)
+	req := makeCallToolRequest("graph_query", map[string]any{
+		"prefix": "github.com/example/pkg",
+	})
+
+	result, err := srv.handleGraphQuery(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("expected success, got error")
+	}
+
+	text := result.Content[0].(mcp.TextContent).Text
+	var returnedNodes []types.Node
+	if err := json.Unmarshal([]byte(text), &returnedNodes); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	if len(returnedNodes) != 100 {
+		t.Errorf("expected 100 nodes, got %d", len(returnedNodes))
+	}
+}
+
+func TestHandleCrossRepoCallers_LargeResultSet(t *testing.T) {
+	s := newMockGraphStore()
+	callers := make([]types.CallerResult, 50)
+	for i := range callers {
+		callers[i] = types.CallerResult{
+			Node: types.Node{
+				NodeHash:      testHash(fmt.Sprintf("large-caller-%d", i)),
+				QualifiedName: fmt.Sprintf("github.com/repo%d/pkg.Func", i),
+				Kind:          "function",
+			},
+			Depth: (i % 5) + 1,
+		}
+	}
+	s.transitiveCallers = callers
+
+	srv := NewServer(s)
+	req := makeCallToolRequest("cross_repo_callers", map[string]any{
+		"target_hash": hashHex(testHash("popular-target")),
+	})
+
+	result, err := srv.handleCrossRepoCallers(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("expected success, got error")
+	}
+
+	text := result.Content[0].(mcp.TextContent).Text
+	var returnedCallers []types.CallerResult
+	if err := json.Unmarshal([]byte(text), &returnedCallers); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	if len(returnedCallers) != 50 {
+		t.Errorf("expected 50 callers, got %d", len(returnedCallers))
+	}
+}
+
+// --- SemanticDiff and PRImpact with edge events via real SQLite ---
+
+func TestHandleSemanticDiff_EmptyDiff(t *testing.T) {
+	srv, ss := newTestSQLiteServer(t)
+	ctx := context.Background()
+
+	repoHash := testHash("empty-diff-repo")
+	if err := ss.PutRepo(ctx, types.Repo{RepoHash: repoHash, RepoURL: "https://example.com/empty-diff"}); err != nil {
+		t.Fatal(err)
+	}
+
+	oldSnap := testHash("empty-old")
+	newSnap := testHash("empty-new")
+	for _, snap := range []types.Snapshot{
+		{SnapshotHash: oldSnap, RepoHash: repoHash, CommitHash: "c1", Timestamp: time.Now().Unix()},
+		{SnapshotHash: newSnap, RepoHash: repoHash, CommitHash: "c2", Timestamp: time.Now().Unix()},
+	} {
+		if err := ss.CreateSnapshot(ctx, snap); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// No edge events between snapshots: diff should be empty.
+	req := makeCallToolRequest("semantic_diff", map[string]any{
+		"old_snapshot": hashHex(oldSnap),
+		"new_snapshot": hashHex(newSnap),
+	})
+
+	result, err := srv.handleSemanticDiff(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("expected success, got error: %v", result.Content)
+	}
+
+	text := result.Content[0].(mcp.TextContent).Text
+	var out map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(text), &out); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+
+	// Summary should show zero changes.
+	var summary map[string]interface{}
+	if err := json.Unmarshal(out["summary"], &summary); err != nil {
+		t.Fatalf("failed to unmarshal summary: %v", err)
+	}
+	if v, ok := summary["nodes_added"].(float64); !ok || int(v) != 0 {
+		t.Errorf("expected nodes_added=0, got %v", summary["nodes_added"])
+	}
+}
+
+func TestHandlePRImpact_EmptyDiff(t *testing.T) {
+	srv, ss := newTestSQLiteServer(t)
+	ctx := context.Background()
+
+	repoHash := testHash("empty-impact-repo")
+	if err := ss.PutRepo(ctx, types.Repo{RepoHash: repoHash, RepoURL: "https://example.com/empty-impact"}); err != nil {
+		t.Fatal(err)
+	}
+
+	oldSnap := testHash("empty-impact-old")
+	newSnap := testHash("empty-impact-new")
+	for _, snap := range []types.Snapshot{
+		{SnapshotHash: oldSnap, RepoHash: repoHash, CommitHash: "c1", Timestamp: time.Now().Unix()},
+		{SnapshotHash: newSnap, RepoHash: repoHash, CommitHash: "c2", Timestamp: time.Now().Unix()},
+	} {
+		if err := ss.CreateSnapshot(ctx, snap); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	req := makeCallToolRequest("pr_impact", map[string]any{
+		"old_snapshot": hashHex(oldSnap),
+		"new_snapshot": hashHex(newSnap),
+	})
+
+	result, err := srv.handlePRImpact(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("expected success, got error: %v", result.Content)
+	}
+
+	text := result.Content[0].(mcp.TextContent).Text
+	var out map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(text), &out); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+
+	var summary map[string]interface{}
+	if err := json.Unmarshal(out["summary"], &summary); err != nil {
+		t.Fatalf("failed to unmarshal summary: %v", err)
+	}
+	if v := summary["total_symbols_changed"].(float64); int(v) != 0 {
+		t.Errorf("expected 0 changed symbols, got %v", v)
+	}
+}
+
+// --- Helper function unit tests ---
+
+func TestParseHash_Valid(t *testing.T) {
+	h := testHash("test")
+	hexStr := hashHex(h)
+	parsed, err := parseHash(hexStr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if parsed != h {
+		t.Errorf("hash mismatch")
+	}
+}
+
+func TestParseHash_InvalidHex(t *testing.T) {
+	_, err := parseHash("not-valid-hex-string!")
+	if err == nil {
+		t.Fatal("expected error for invalid hex")
+	}
+}
+
+func TestParseHash_WrongLength(t *testing.T) {
+	_, err := parseHash("aabb") // 2 bytes, not 32
+	if err == nil {
+		t.Fatal("expected error for wrong length")
+	}
+}
+
+func TestGetStringArg(t *testing.T) {
+	req := makeCallToolRequest("test", map[string]any{
+		"name": "value",
+	})
+	if v := getStringArg(req, "name"); v != "value" {
+		t.Errorf("expected 'value', got %q", v)
+	}
+	if v := getStringArg(req, "missing"); v != "" {
+		t.Errorf("expected empty string for missing arg, got %q", v)
+	}
+}
+
+func TestGetStringArg_NilArgs(t *testing.T) {
+	req := makeCallToolRequest("test", nil)
+	if v := getStringArg(req, "name"); v != "" {
+		t.Errorf("expected empty string for nil args, got %q", v)
+	}
+}
+
+func TestGetIntArg(t *testing.T) {
+	req := makeCallToolRequest("test", map[string]any{
+		"count": float64(42),
+	})
+	if v := getIntArg(req, "count", 10); v != 42 {
+		t.Errorf("expected 42, got %d", v)
+	}
+	if v := getIntArg(req, "missing", 10); v != 10 {
+		t.Errorf("expected default 10, got %d", v)
+	}
+}
+
+func TestGetIntArg_NilArgs(t *testing.T) {
+	req := makeCallToolRequest("test", nil)
+	if v := getIntArg(req, "count", 99); v != 99 {
+		t.Errorf("expected default 99, got %d", v)
+	}
+}
+
+func TestGetIntArg_WrongType(t *testing.T) {
+	req := makeCallToolRequest("test", map[string]any{
+		"count": "not-a-number",
+	})
+	if v := getIntArg(req, "count", 5); v != 5 {
+		t.Errorf("expected default 5 for wrong type, got %d", v)
+	}
+}
+
+func TestRequireStringArg_Present(t *testing.T) {
+	req := makeCallToolRequest("test", map[string]any{"key": "val"})
+	v, errResult := requireStringArg(req, "key")
+	if errResult != nil {
+		t.Fatalf("unexpected error result")
+	}
+	if v != "val" {
+		t.Errorf("expected 'val', got %q", v)
+	}
+}
+
+func TestRequireStringArg_Missing(t *testing.T) {
+	req := makeCallToolRequest("test", map[string]any{})
+	_, errResult := requireStringArg(req, "key")
+	if errResult == nil {
+		t.Fatal("expected error result for missing arg")
+	}
+	if !errResult.IsError {
+		t.Error("expected IsError=true")
+	}
+}
+
+func TestRequireHash_Valid(t *testing.T) {
+	h := testHash("hash-test")
+	req := makeCallToolRequest("test", map[string]any{"h": hashHex(h)})
+	parsed, errResult := requireHash(req, "h")
+	if errResult != nil {
+		t.Fatalf("unexpected error result")
+	}
+	if parsed != h {
+		t.Error("hash mismatch")
+	}
+}
+
+func TestRequireHash_Missing(t *testing.T) {
+	req := makeCallToolRequest("test", map[string]any{})
+	_, errResult := requireHash(req, "h")
+	if errResult == nil {
+		t.Fatal("expected error result for missing hash")
+	}
+}
+
+func TestRequireHash_Invalid(t *testing.T) {
+	req := makeCallToolRequest("test", map[string]any{"h": "zzzz"})
+	_, errResult := requireHash(req, "h")
+	if errResult == nil {
+		t.Fatal("expected error result for invalid hash")
+	}
+}
+
+func TestOptionalHash_Present(t *testing.T) {
+	h := testHash("opt-hash")
+	req := makeCallToolRequest("test", map[string]any{"h": hashHex(h)})
+	parsed, errResult := optionalHash(req, "h")
+	if errResult != nil {
+		t.Fatalf("unexpected error result")
+	}
+	if parsed != h {
+		t.Error("hash mismatch")
+	}
+}
+
+func TestOptionalHash_Absent(t *testing.T) {
+	req := makeCallToolRequest("test", map[string]any{})
+	h, errResult := optionalHash(req, "h")
+	if errResult != nil {
+		t.Fatalf("unexpected error result")
+	}
+	if h != types.EmptyHash {
+		t.Error("expected EmptyHash when absent")
+	}
+}
+
+func TestOptionalHash_Invalid(t *testing.T) {
+	req := makeCallToolRequest("test", map[string]any{"h": "bad!"})
+	_, errResult := optionalHash(req, "h")
+	if errResult == nil {
+		t.Fatal("expected error result for invalid hash")
+	}
+}
+
+// --- Integration: RepoGraph with real SQLite ---
+
+func TestHandleRepoGraph_Integration(t *testing.T) {
+	srv, ss := newTestSQLiteServer(t)
+	ctx := context.Background()
+
+	repoHash := testHash("rg-repo")
+	if err := ss.PutRepo(ctx, types.Repo{RepoHash: repoHash, RepoURL: "https://example.com/rg"}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		if err := ss.PutFile(ctx, types.File{
+			FileHash:    testHash(fmt.Sprintf("rg-file-%d", i)),
+			RepoHash:    repoHash,
+			Path:        fmt.Sprintf("pkg/file%d.go", i),
+			ContentHash: testHash(fmt.Sprintf("rg-content-%d", i)),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	req := makeCallToolRequest("repo_graph", map[string]any{
+		"repo_hash": hashHex(repoHash),
+	})
+
+	result, err := srv.handleRepoGraph(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("expected success, got error: %v", result.Content)
+	}
+
+	text := result.Content[0].(mcp.TextContent).Text
+	var files []types.File
+	if err := json.Unmarshal([]byte(text), &files); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	if len(files) != 3 {
+		t.Errorf("expected 3 files, got %d", len(files))
+	}
+}
+
+// --- Integration: Ownership with real SQLite ---
+
+func TestHandleOwnership_Integration(t *testing.T) {
+	srv, ss := newTestSQLiteServer(t)
+	ctx := context.Background()
+
+	repoHash := testHash("own-repo")
+	if err := ss.PutRepo(ctx, types.Repo{RepoHash: repoHash, RepoURL: "https://example.com/own"}); err != nil {
+		t.Fatal(err)
+	}
+
+	fileHash := testHash("own-file")
+	if err := ss.PutFile(ctx, types.File{
+		FileHash: fileHash, RepoHash: repoHash, Path: "main.go",
+		ContentHash: testHash("own-content"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ss.PutNode(ctx, types.Node{
+		NodeHash: testHash("own-node"), FileHash: fileHash,
+		QualifiedName: "https://example.com/own://main.Handler",
+		Kind: "function", Line: 10,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	req := makeCallToolRequest("ownership", map[string]any{
+		"repo_hash": hashHex(repoHash),
+	})
+
+	result, err := srv.handleOwnership(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("expected success, got error: %v", result.Content)
+	}
+
+	text := result.Content[0].(mcp.TextContent).Text
+	var ownership []struct {
+		File  types.File   `json:"file"`
+		Nodes []types.Node `json:"nodes"`
+	}
+	if err := json.Unmarshal([]byte(text), &ownership); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	if len(ownership) != 1 {
+		t.Fatalf("expected 1 file entry, got %d", len(ownership))
+	}
+	if len(ownership[0].Nodes) != 1 {
+		t.Errorf("expected 1 node, got %d", len(ownership[0].Nodes))
+	}
+}
