@@ -38,12 +38,12 @@ func TestRankSymbols_SingleSymbol(t *testing.T) {
 	}
 
 	r := result[0]
-	// blast_radius: min(1.0, 10/50) * 0.40 = 0.2 * 0.40 = 0.08
+	// blast_radius: (10/10) * 0.40 = 0.40 (single element, max=self)
 	// confidence: 0.9 * 0.25 = 0.225
 	// recency: 1.0 * 0.20 = 0.20 (within 1 day)
 	// distance: (1/(1+0)) * 0.15 = 0.15
-	// total: 0.08 + 0.225 + 0.20 + 0.15 = 0.655
-	wantScore := 0.655
+	// total: 0.40 + 0.225 + 0.20 + 0.15 = 0.975
+	wantScore := 0.975
 	if math.Abs(r.Score-wantScore) > 0.001 {
 		t.Errorf("Score = %f, want %f", r.Score, wantScore)
 	}
@@ -160,8 +160,9 @@ func TestRankSymbols_RecencyWeight(t *testing.T) {
 			}
 		}
 		if r.Node.QualifiedName == "pkg.Never" {
-			if math.Abs(r.Components.Recency-0.0) > 0.001 {
-				t.Errorf("Never Recency = %f, want 0.0", r.Components.Recency)
+			// Static-only edges get base recency of 0.3 * 0.20 = 0.06
+			if math.Abs(r.Components.Recency-0.06) > 0.001 {
+				t.Errorf("Never Recency = %f, want 0.06", r.Components.Recency)
 			}
 		}
 	}
@@ -269,11 +270,11 @@ func TestRankSymbols_ComponentBreakdown(t *testing.T) {
 	}
 
 	r := result[0]
-	// blast_radius: min(1.0, 25/50) * 0.40 = 0.5 * 0.40 = 0.20
+	// blast_radius: (25/25) * 0.40 = 1.0 * 0.40 = 0.40 (single element, max=self)
 	// confidence: 0.8 * 0.25 = 0.20
 	// recency: 0.8 * 0.20 = 0.16 (within 7 days)
 	// distance: (1/(1+1)) * 0.15 = 0.5 * 0.15 = 0.075
-	wantBR := 0.20
+	wantBR := 0.40
 	wantConf := 0.20
 	wantRec := 0.16
 	wantDist := 0.075
