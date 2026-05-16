@@ -209,6 +209,8 @@ func TestNewServer_RegistersAllTools(t *testing.T) {
 		"runtime_traffic",
 		"dead_routes",
 		"trace_stats",
+		"context_for_task",
+		"context_for_files",
 	}
 
 	names := srv.ToolNames()
