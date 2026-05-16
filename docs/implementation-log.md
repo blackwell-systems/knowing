@@ -939,3 +939,137 @@ Created GitHub Actions workflows and release pipeline adapted from agent-lsp:
 **`.goreleaser.yml`**: GoReleaser v2 config with Homebrew formula, Docker manifests, changelog filtering.
 
 **`docs/DISTRIBUTION.md`**: Complete distribution strategy covering all channels (Homebrew, Scoop, Winget, npm, PyPI, Docker, MCP registries, go install, curl|sh, self-update, uninstall).
+
+---
+
+## Runtime Wiring and Developer Tools Batch (2026-05-15)
+
+The second polywave IMPL of the session. Wires up the runtime trace pipeline end-to-end, adds developer-facing query tools and export CLI.
+
+### Scout
+
+Scout analyzed 49 source files and produced IMPL-runtime-wiring-devtools with 5 agents across 2 waves.
+
+**Decomposition:**
+
+| Wave | Agent | Package | Files | Responsibility |
+|------|-------|---------|-------|----------------|
+| 1 | A | `gotsextractor/` | 2 | HTTP route extraction: detect HandleFunc, chi, gin, echo, gorilla/mux patterns, create route_handler nodes + handles_route edges, populate route_symbols |
+| 1 | B | `internal/trace/` + `go.mod` | 4 | Real OTLP gRPC receiver: replace placeholder with collectortrace.TraceServiceServer, add OTel proto + gRPC deps |
+| 1 | C | `internal/store/` + `cmd/` | 4 | Store runtime queries (RuntimeEdgesByService, DeadRoutes, RuntimeEdgeStatsAggregate) + `knowing export` CLI command |
+| 2 | D | `internal/daemon/` | 2 | Real traceIngestLoop: SymbolResolver + Ingestor + OTLPReceiver lifecycle, periodic flush + decay |
+| 2 | E | `internal/mcp/` | 3 | MCP runtime tools: runtime_traffic, dead_routes, trace_stats (14 total tools now) |
+
+### Validation and Critic
+
+Validation caught a YAML parse error: `post_merge_checklist` used a sequence of objects where polywave-tools expected a different format. Fixed in-place.
+
+Critic passed clean on first run (0 errors, 1 advisory warning about the known DBPath integration gap between Agent D and Agent C).
+
+### Wave 1 (3 parallel agents)
+
+| Agent | Duration | Task | Tests |
+|-------|----------|------|-------|
+| A | 173s | HTTP route extraction for 5 router packages | 3 new |
+| B | 287s | Real OTLP gRPC receiver with OTel proto deps | 4 new |
+| C | 281s | Store runtime queries + export CLI | 6 new |
+
+**Rate limit incident:** All 3 agents hit a rate limit on first launch (0 work done, 0 commits). Worktrees were untouched. Relaunched all 3 after limit reset; all completed successfully on second attempt.
+
+**Merge:** Clean, zero conflicts. 2 integration gaps noted (expected: `NewOTLPReceiver` and `RuntimeEdgesByProvenance` wired by Wave 2).
+
+### Wave 2 (2 parallel agents)
+
+| Agent | Duration | Task | Tests |
+|-------|----------|------|-------|
+| D | 160s | Real daemon traceIngestLoop with dedicated DB connection | 2 new |
+| E | 246s | MCP runtime_traffic, dead_routes, trace_stats handlers | 4 new |
+
+**Merge:** Clean, zero conflicts. Zero integration gaps.
+
+**Post-merge fix:** Wired `DBPath: *dbPath` in `cmd/knowing/main.go` cmdServe (known integration gap from IMPL pre-mortem). One-line change.
+
+### What's now end-to-end functional
+
+The full runtime trace pipeline is wired:
+
+```
+Static indexing
+  └─ tree-sitter detects http.HandleFunc("/api/users", handler)
+  └─ creates route_handler node + handles_route edge
+  └─ writes route_symbols entry: ("service", "GET /api/users", handlerHash)
+
+knowing serve --trace --trace-endpoint localhost:4317
+  └─ traceIngestLoop starts
+  └─ OTLPReceiver listens on :4317 (gRPC)
+  └─ OTel collector sends spans
+  └─ Ingestor resolves spans via route_symbols
+  └─ Creates/updates runtime edges with observation counts
+  └─ Periodic FlushBatch (configurable) + DecayConfidence (hourly)
+
+MCP tools (14 total)
+  └─ runtime_traffic: "show me traffic to /api/users"
+  └─ dead_routes: "which routes haven't been called in 30 days?"
+  └─ trace_stats: "how many runtime edges, active vs stale?"
+
+knowing export --format json
+  └─ dumps full graph for knowing-viz consumption
+```
+
+### Friction
+
+**1. Rate limit killed all 3 Wave 1 agents (lost ~15 min waiting)**
+
+All agents launched, hit rate limit immediately, returned with no work done. Worktrees were untouched, so relaunch was clean. This is the first time rate limiting affected a polywave run.
+
+**2. YAML parse error in post_merge_checklist (30s fix)**
+
+Scout wrote `post_merge_checklist` as a sequence of objects with `description` keys. polywave-tools expected a `items` key with string values. Minor schema mismatch.
+
+**3. Zero friction on the actual implementation**
+
+No mock cascades (runtime methods added to sqlite_runtime.go, not the GraphStore interface). No merge conflicts. No test failures. Critic passed on first run. The cleanest IMPL of the session.
+
+---
+
+## Documentation Update (2026-05-15)
+
+Two background agents updated the documentation to reflect all new features:
+
+**architecture.md**: Added runtime trace ingestion pipeline architecture, HTTP route extraction, traceIngestLoop goroutine documentation, expanded MCP tools (11 to 14), schema evolution (migration 004), provenance tiers (otel_trace), export CLI.
+
+**FEATURES.md**: 9 new feature sections (#22-30), updated MCP tools, storage schema, edge types, node kinds, interfaces, file inventory, moved runtime trace items from "planned" to "implemented".
+
+---
+
+## Session Summary (2026-05-15)
+
+### What was built today
+
+Two polywave IMPLs implementing the runtime trace ingestion pipeline from design to working code:
+
+1. **IMPL-runtime-traces** (7 agents, 2 waves): Core pipeline components: types, store migration, symbol resolver, confidence scoring, ingestor, OTLP placeholder, daemon CLI flags.
+
+2. **IMPL-runtime-wiring-devtools** (5 agents, 2 waves): End-to-end wiring: HTTP route extraction, real OTLP gRPC receiver, daemon lifecycle, MCP runtime tools, export CLI.
+
+Plus: integration test, test coverage (33 new tests), CI/CD workflows, distribution doc, roadmap update, architecture and features doc updates.
+
+### By the numbers
+
+| Metric | Start of session | End of session |
+|--------|-----------------|----------------|
+| Go LOC | 12,203 | ~17,000+ |
+| Files | 39 | 50+ |
+| Packages | 11 | 13 |
+| MCP tools | 11 | 14 |
+| Migrations | 3 | 4 |
+| Tests | ~80 | ~130+ |
+
+### Polywave stats for this session
+
+| IMPL | Agents | Waves | Wall time (approx) | Friction |
+|------|--------|-------|-------------------|----------|
+| runtime-traces | 7 | 2 | ~25 min | GOWORK, critic caught 3 errors, schema version test |
+| runtime-wiring-devtools | 5 | 2 | ~30 min (includes rate limit wait) | Rate limit, YAML parse, DBPath wiring |
+
+12 agents total across 4 waves. Zero merge conflicts in either IMPL. One rate limit incident. Two post-merge fixes (both one-liners).
