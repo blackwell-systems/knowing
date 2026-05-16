@@ -720,6 +720,24 @@ func (s *SQLiteStore) EdgesBySourceFile(ctx context.Context, fileHash types.Hash
 	return scanEdges(rows)
 }
 
+// TruncateGraph deletes all nodes, edges, and edge events from the database.
+// This is used by the reindex command to clear stale data before re-indexing.
+func (s *SQLiteStore) TruncateGraph(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM edge_events`)
+	if err != nil {
+		return fmt.Errorf("truncate edge_events: %w", err)
+	}
+	_, err = s.db.ExecContext(ctx, `DELETE FROM edges`)
+	if err != nil {
+		return fmt.Errorf("truncate edges: %w", err)
+	}
+	_, err = s.db.ExecContext(ctx, `DELETE FROM nodes`)
+	if err != nil {
+		return fmt.Errorf("truncate nodes: %w", err)
+	}
+	return nil
+}
+
 // ----- Scanner helpers -----
 // These functions handle the conversion between SQLite BLOB columns (raw
 // byte slices) and Go types.Hash ([32]byte fixed arrays). SQLite stores

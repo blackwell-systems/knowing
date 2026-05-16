@@ -68,6 +68,8 @@ func run(args []string) error {
 		return cmdContext(args[1:])
 	case "mcp":
 		return cmdMCP(args[1:])
+	case "reindex":
+		return cmdReindex(args[1:])
 	default:
 		printUsage()
 		return fmt.Errorf("unknown subcommand: %s", args[0])
@@ -85,6 +87,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  diff     Compute semantic diff between two snapshots")
 	fmt.Fprintln(os.Stderr, "  context  Generate graph-aware context for a task or files")
 	fmt.Fprintln(os.Stderr, "  export   Export the graph as JSON")
+	fmt.Fprintln(os.Stderr, "  reindex  Clear and re-index a repository from scratch")
 	fmt.Fprintln(os.Stderr, "  version  Print version information")
 }
 
@@ -468,6 +471,94 @@ func cmdExport(args []string) error {
 		return fmt.Errorf("marshaling JSON: %w", err)
 	}
 	fmt.Println(string(out))
+	return nil
+}
+
+// cmdReindex clears all nodes, edges, and edge events, then re-indexes the
+// repository from scratch. This solves stale data and duplicate prefix issues.
+func cmdReindex(args []string) error {
+	fs := flag.NewFlagSet("reindex", flag.ExitOnError)
+	dbPath := fs.String("db", "knowing.db", "Path to the SQLite database")
+	repoURL := fs.String("url", "", "Repository URL (e.g. github.com/org/repo)")
+	commitHash := fs.String("commit", "HEAD", "Commit hash to record")
+	full := fs.Bool("full", false, "Use full type resolution (go/packages) instead of fast tree-sitter extraction")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	if fs.NArg() < 1 {
+		return fmt.Errorf("usage: knowing reindex [flags] <repo-path>")
+	}
+	repoPath := fs.Arg(0)
+
+	// Resolve repo URL (same logic as cmdIndex).
+	if *repoURL == "" {
+		if modData, err := os.ReadFile(repoPath + "/go.mod"); err == nil {
+			for _, line := range strings.Split(string(modData), "\n") {
+				if strings.HasPrefix(line, "module ") {
+					*repoURL = strings.TrimSpace(strings.TrimPrefix(line, "module "))
+					break
+				}
+			}
+		}
+		if *repoURL == "" {
+			if abs, err := filepath.Abs(repoPath); err == nil {
+				*repoURL = abs
+			} else {
+				*repoURL = repoPath
+			}
+		}
+	}
+
+	// Resolve HEAD commit hash if not explicitly provided.
+	if *commitHash == "HEAD" {
+		if resolved, err := daemon.GitHeadCommit(repoPath); err == nil {
+			*commitHash = resolved
+		}
+	}
+
+	st, err := store.NewSQLiteStore(*dbPath)
+	if err != nil {
+		return fmt.Errorf("opening store: %w", err)
+	}
+	defer st.Close()
+
+	// Clear all existing graph data.
+	ctx := context.Background()
+	if err := st.TruncateGraph(ctx); err != nil {
+		return fmt.Errorf("clearing database: %w", err)
+	}
+
+	// Re-run the full index pipeline.
+	snapMgr := snapshot.NewSnapshotManager(st)
+	idx := indexer.NewIndexer(st, snapMgr)
+
+	if *full {
+		idx.Register(goextractor.NewGoExtractor())
+	} else {
+		idx.Register(gotsextractor.NewGoTreeSitterExtractor())
+	}
+	tsExt, err := treesitter.NewTreeSitterExtractor("python")
+	if err == nil {
+		idx.Register(tsExt)
+	}
+
+	snap, err := idx.IndexRepo(ctx, *repoURL, repoPath, *commitHash)
+	if err != nil {
+		return fmt.Errorf("indexing: %w", err)
+	}
+
+	fmt.Printf("Reindexed: %d nodes, %d edges (previous data cleared)\n", snap.NodeCount, snap.EdgeCount)
+
+	if !*full {
+		fmt.Println("Running LSP enrichment...")
+		enricher := enrichment.NewEnricher(st, repoPath)
+		if err := enricher.Run(ctx, types.NewHash([]byte(*repoURL))); err != nil {
+			fmt.Fprintf(os.Stderr, "enrichment warning: %v\n", err)
+		}
+		enricher.Close(ctx)
+	}
+
 	return nil
 }
 

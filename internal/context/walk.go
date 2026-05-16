@@ -29,6 +29,14 @@ func RandomWalkWithRestart(ctx stdctx.Context, store types.GraphStore, seeds []t
 		maxIter = 20
 	}
 
+	// Pre-load edges for the reachable subgraph (seeds + 2-hop neighbors)
+	// into an in-memory adjacency map. This avoids per-node DB queries during
+	// the iteration loop.
+	adjFrom, adjTo, err := buildAdjacencyMap(ctx, store, seeds)
+	if err != nil {
+		return nil, err
+	}
+
 	// Initialize: uniform probability across seeds.
 	seedWeight := 1.0 / float64(len(seeds))
 	seedVec := make(map[types.Hash]float64, len(seeds))
@@ -67,18 +75,8 @@ func RandomWalkWithRestart(ctx stdctx.Context, store types.GraphStore, seeds []t
 				continue // skip negligible nodes
 			}
 
-			// Get outgoing edges (calls, implements, etc.).
-			edges, err := store.EdgesFrom(ctx, node, "")
-			if err != nil {
-				return nil, err
-			}
-
-			// Also get incoming edges (who calls this node).
-			incoming, err := store.EdgesTo(ctx, node, "")
-			if err != nil {
-				return nil, err
-			}
-			edges = append(edges, incoming...)
+			// Get edges from the pre-loaded adjacency map (no DB queries).
+			edges := append(adjFrom[node], adjTo[node]...)
 
 			if len(edges) == 0 {
 				// Dead end: redistribute to seeds (effectively a restart).
@@ -145,6 +143,60 @@ func RandomWalkWithRestart(ctx stdctx.Context, store types.GraphStore, seeds []t
 	}
 
 	return prob, nil
+}
+
+// buildAdjacencyMap pre-loads all edges for the entire reachable subgraph
+// (BFS from seeds until no new nodes are discovered) into in-memory maps,
+// so the RWR iteration loop requires zero database queries.
+func buildAdjacencyMap(ctx stdctx.Context, store types.GraphStore, seeds []types.Hash) (adjFrom, adjTo map[types.Hash][]types.Edge, err error) {
+	adjFrom = make(map[types.Hash][]types.Edge)
+	adjTo = make(map[types.Hash][]types.Edge)
+
+	// BFS from seeds, expanding until no new nodes are found.
+	visited := make(map[types.Hash]bool, len(seeds)*4)
+	frontier := make([]types.Hash, len(seeds))
+	copy(frontier, seeds)
+	for _, s := range seeds {
+		visited[s] = true
+	}
+
+	for len(frontier) > 0 {
+		var nextFrontier []types.Hash
+		for _, node := range frontier {
+			// Load outgoing edges for this node (once).
+			if _, loaded := adjFrom[node]; !loaded {
+				from, qErr := store.EdgesFrom(ctx, node, "")
+				if qErr != nil {
+					return nil, nil, qErr
+				}
+				adjFrom[node] = from
+				for _, e := range from {
+					if !visited[e.TargetHash] {
+						visited[e.TargetHash] = true
+						nextFrontier = append(nextFrontier, e.TargetHash)
+					}
+				}
+			}
+
+			// Load incoming edges for this node (once).
+			if _, loaded := adjTo[node]; !loaded {
+				to, qErr := store.EdgesTo(ctx, node, "")
+				if qErr != nil {
+					return nil, nil, qErr
+				}
+				adjTo[node] = to
+				for _, e := range to {
+					if !visited[e.SourceHash] {
+						visited[e.SourceHash] = true
+						nextFrontier = append(nextFrontier, e.SourceHash)
+					}
+				}
+			}
+		}
+		frontier = nextFrontier
+	}
+
+	return adjFrom, adjTo, nil
 }
 
 func abs(x float64) float64 {
