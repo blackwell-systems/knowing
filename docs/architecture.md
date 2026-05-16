@@ -73,6 +73,68 @@ This means:
 
 Both forms of staleness are exposed through the `StaleEdges` API. Structural staleness is authoritative. Heuristic staleness is advisory.
 
+### Why Content Addressing Eliminates Re-Indexing
+
+Every other code intelligence tool in the market requires explicit re-indexing. You change a file, and the tool must re-scan the entire codebase to update its model. Some are faster than others, but the fundamental operation is "throw away old state, rebuild from scratch."
+
+knowing never re-indexes unchanged code. The content-addressed architecture makes this structural, not heuristic:
+
+**1. File identity is a content hash.**
+
+When knowing indexes a file, it computes `sha256(file_contents)` and stores it as the file's identity. On the next index run, it recomputes this hash. If the hash matches, the file has not changed. All nodes and edges derived from it are still valid. Skip it entirely.
+
+This is the same mechanism git uses for its blob store: `git hash-object` computes the SHA of a file's contents. If two files have the same hash, they have the same content, regardless of where they live or what they're named.
+
+**2. Changed files scope the work.**
+
+When `.git/HEAD` changes (a new commit), knowing runs `git diff --name-status oldHead newHead` to get the exact set of changed, added, and deleted files. Only these files are re-processed:
+
+- **Changed files:** delete old nodes/edges derived from this file, re-extract, record edge events for what was added/removed
+- **Added files:** extract and insert (no cleanup needed)
+- **Deleted files:** delete all nodes/edges derived from this file, record removal events
+
+Everything else is untouched. In a typical commit that changes 3 files in a 10,000-file codebase, knowing processes 3 files. A full re-indexer processes 10,000.
+
+**3. The Merkle root detects drift without scanning.**
+
+The snapshot hash is the Merkle root of all edge hashes. If you have the previous snapshot hash and the current snapshot hash, you know instantly whether the graph changed. You don't need to scan edges to find out.
+
+More importantly: if you have two snapshot hashes and they're identical, you know the graph is in the exact same state. This is a structural guarantee that no other representation can provide. A mutable graph database can't tell you "nothing changed" without scanning everything.
+
+**4. Edge events make diffs O(changes), not O(graph).**
+
+When knowing adds or removes an edge during incremental indexing, it records an event in the append-only edge_events table: `{edge_hash, snapshot_hash, event_type: "added"|"removed"}`. Computing the diff between any two snapshots is a range scan on this table filtered by snapshot hash. It returns exactly the edges that changed.
+
+Without event sourcing, diffing two graph states requires loading both, computing set differences on all edges, and comparing them. That's O(total_edges). With event sourcing, it's O(changed_edges). For a graph with 100,000 edges where 50 changed, that's a 2,000x difference.
+
+**5. The snapshot chain mirrors the git commit chain.**
+
+Every snapshot links to its parent snapshot, forming a chain:
+
+```
+snapshot_C (head=abc123) --> snapshot_B (head=def456) --> snapshot_A (head=789xyz)
+```
+
+Each snapshot records which git commit produced it. This means:
+
+- "What did the graph look like at commit X?" is a lookup by commit hash, not a reconstruction
+- "What changed between deploy A and deploy B?" is a diff between two snapshot hashes
+- Rollback to a previous state means pointing to an older snapshot, not undoing mutations
+- Branching and merging git branches could (in theory) branch and merge the graph
+
+This is the exact data model git uses for its commit chain. knowing extends the same principle from "versioned source code" to "versioned code relationships."
+
+**6. Cache invalidation is solved, not approximated.**
+
+In a mutable graph, cache invalidation is the classic hard problem. "Is this blast radius result still valid?" requires re-running the query. In knowing, query results are keyed to snapshot hashes. A result computed against snapshot hash X is valid forever for snapshot X. When the graph changes, it gets a new snapshot hash Y. You know to recompute for Y without checking whether the specific edges in your query changed.
+
+This property enables:
+- Sharing computation results across teams (if we have the same snapshot hash, we have the same graph, and your precomputed blast radius is valid for me)
+- Caching derived results indefinitely (they never expire, they become irrelevant when a new snapshot supersedes them)
+- Verifying graph integrity after network transfer (recompute the Merkle root from the edges; if it matches, the transfer was lossless)
+
+**The bottom line:** every competitor requires explicit re-indexing because they use mutable state. Knowing requires no re-indexing because the architecture makes staleness detectable, changes scopeable, and history structural. This is not an optimization on top of a mutable design; it's a different data model that makes the re-indexing problem structurally impossible.
+
 ### Artifact Boundary
 
 knowing decomposes into two planes separated by an artifact boundary:
