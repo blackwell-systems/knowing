@@ -97,7 +97,7 @@ knowing daemon (long-lived)
   ├── Change Detector (git-based: post-commit hooks, .git/HEAD watch, polling fallback)
   ├── Indexer (two-tier: tree-sitter extraction + LSP enrichment)
   ├── Graph Store (SQLite behind GraphStore interface, WAL mode)
-  ├── MCP Server (stdio or HTTP, 14 tools across execution/intelligence/runtime planes)
+  ├── MCP Server (stdio or HTTP, 16 tools across execution/intelligence/runtime/context planes)
   ├── Snapshot Manager (computes Merkle roots, GCs old snapshots)
   └── Trace Ingestor (OTel spans, HTTP logs → runtime edges)
 ```
@@ -243,8 +243,10 @@ These limitations exist only between Tier 1 and Tier 2 completion. After enrichm
 |----------|--------------|--------------------|-----------| 
 | Go | `gotsextractor` (tree-sitter Go grammar) | `enrichment` (agent-lsp pkg/lsp) | gopls |
 | Python | `treesitter` (tree-sitter Python grammar) | enrichment | pyright |
-| TypeScript | tree-sitter TS grammar | enrichment | tsserver |
-| Rust | tree-sitter Rust grammar | enrichment | rust-analyzer |
+| TypeScript/JS | `tsextractor` (tree-sitter TS grammar) | enrichment | tsserver |
+| Rust | `rustextractor` (tree-sitter Rust grammar) | enrichment | rust-analyzer |
+| Java | `javaextractor` (tree-sitter Java grammar) | enrichment | jdtls |
+| C# | `csharpextractor` (tree-sitter C# grammar) | enrichment | OmniSharp |
 | Go (legacy) | `goextractor` (go/packages, `--full` flag) | n/a (already type-resolved) | n/a |
 
 The Go tree-sitter extractor (`gotsextractor`) is the default. The go/packages extractor (`goextractor`) is available via `knowing index --full` as a deliberate escape hatch for cases requiring guaranteed single-pass type resolution at the cost of 16+ minutes. This is a design choice: two-tier is the architecture, `--full` exists for validation and edge cases where LSP enrichment is unavailable (air-gapped environments, missing gopls).
@@ -864,6 +866,60 @@ Filters:
 
 ---
 
+## Context Packing (`internal/context/`)
+
+The context packing subsystem produces token-budgeted, graph-ranked context blocks for agent consumption. It answers: "given a task or a set of changed files, which symbols from the knowledge graph should an agent see?" Two entry points exist: task-based (keyword search from a description) and file-based (blast-radius expansion from changed files).
+
+### Architecture
+
+```
+internal/context/
+├── context.go       ContextEngine: ForTask, ForFiles entry points
+├── ranking.go       RankSymbols: weighted scoring formula
+├── tokens.go        EstimateNodeTokens: per-symbol token cost estimation
+└── format.go        FormatContextBlock: XML, Markdown, JSON output
+```
+
+### Scoring Formula
+
+Each candidate symbol receives a weighted score from four components:
+
+| Component | Weight | Source |
+|-----------|--------|--------|
+| Blast radius | 0.40 | `min(1.0, callerCount/50)` |
+| Confidence | 0.25 | Maximum edge confidence on the symbol |
+| Recency | 0.20 | Time decay from `last_observed` field |
+| Distance | 0.15 | `1 / (1 + hops_from_target)` |
+
+Symbols are sorted by total score descending, then packed greedily into the token budget.
+
+### ForTask Flow
+
+1. Extract keywords from the task description (stop-word filtered, deduplicated).
+2. Query `NodesByName` with substring matching for each keyword.
+3. For each candidate node, retrieve callers and callees (distance-0 and distance-1 neighborhood).
+4. Score all candidates via `RankSymbols`.
+5. Pack into token budget via `EstimateNodeTokens`.
+6. Format output as XML, Markdown, or JSON.
+
+### ForFiles Flow
+
+1. Resolve each file path to a `File` record via `FileByPath`.
+2. Find all nodes in each file (by `FileHash` match).
+3. Expand the blast radius by one hop (all callers of each node).
+4. Score and pack identically to ForTask.
+
+### Integration Points
+
+- **MCP tools**: `context_for_task` and `context_for_files` in `internal/mcp/context_handlers.go` delegate to `ContextEngine`.
+- **CLI**: `knowing context` subcommand (in `cmd/knowing/context.go`) provides the same functionality from the command line with `--task` or `--files` flags.
+
+### Token Estimation
+
+`EstimateNodeTokens` computes a rough token cost per symbol based on the length of the qualified name, signature, and kind. This is an approximation sufficient for budget enforcement without requiring a tokenizer dependency.
+
+---
+
 ## Design Goals
 
 - **Content-addressed**: every graph state is a hash; history, staleness, and integrity are structural properties, not bolted-on features
@@ -884,7 +940,7 @@ knowing decomposes into three planes separated by an artifact boundary. This sep
 Execution Plane (produces the artifact)
 ├── Indexer
 │   ├── Go extractor (go/packages, full type resolution)
-│   ├── tree-sitter extractors (Python, TypeScript, Java, Rust, etc.)
+│   ├── tree-sitter extractors (Go, Python, TypeScript/JS, Rust, Java, C#)
 │   └── SCIP ingest (external dependency surfaces)
 ├── Trace ingestion pipeline
 │   ├── OTel span ingest
@@ -942,7 +998,7 @@ The intelligence plane does not need the same trust. It interprets the graph but
 | Control flow test | Do they affect what the indexer produces? | No. They read the graph; they don't write to it. |
 | Trust test | Would users trust the graph if these features were proprietary? | Yes. The graph is content-addressed and verifiable regardless. |
 
-**The MCP tool split (14 tools):**
+**The MCP tool split (16 tools):**
 
 | Tool | Plane | Why |
 |------|-------|-----|
@@ -960,8 +1016,10 @@ The intelligence plane does not need the same trust. It interprets the graph but
 | `runtime_traffic` | Runtime | Query runtime-observed edges by service and route pattern |
 | `dead_routes` | Runtime | Find route symbols with no recent observations |
 | `trace_stats` | Runtime | Aggregate statistics about runtime-derived edges |
+| `context_for_task` | Context | Token-budgeted context packing for a task description |
+| `context_for_files` | Context | Blast-radius context for a set of changed files |
 
-Basic graph reads (`cross_repo_callers`, `graph_query`, `repo_graph`) are execution-plane operations: they return what the graph contains without interpretation. Intelligence-plane tools compute, classify, compare, or aggregate, and they produce derived results that are themselves content-addressed artifacts.
+Basic graph reads (`cross_repo_callers`, `graph_query`, `repo_graph`) are execution-plane operations: they return what the graph contains without interpretation. Intelligence-plane tools compute, classify, compare, or aggregate, and they produce derived results that are themselves content-addressed artifacts. Context-plane tools (`context_for_task`, `context_for_files`) are a specialized form of intelligence: they score and rank symbols from the graph, then pack them into a token budget for agent consumption.
 
 **Runtime plane tools** require the underlying store to be a `SQLiteStore` (not just any `GraphStore` implementation). The MCP server obtains a `*SQLiteStore` via type assertion at construction time (`store.(*knowingstore.SQLiteStore)`), avoiding an import of the store package from the MCP handlers. If the assertion fails (e.g., when running against a mock store in tests), the runtime tools return an error indicating runtime queries are not available. This pattern keeps the MCP server decoupled from the concrete store implementation while providing access to runtime-specific query methods (`RuntimeEdgesByService`, `DeadRoutes`, `RuntimeEdgeStatsAggregate`) that are not part of the `GraphStore` interface.
 
@@ -1962,7 +2020,7 @@ type OwnershipDelta struct {
 }
 ```
 
-**Planned MCP tool addition:**
+**MCP tools (implemented):**
 
 | Tool | Purpose |
 |------|---------|
