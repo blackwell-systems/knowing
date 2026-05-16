@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"testing"
+	"time"
 
+	"github.com/blackwell-systems/knowing/internal/store"
 	"github.com/blackwell-systems/knowing/internal/types"
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -203,6 +206,9 @@ func TestNewServer_RegistersAllTools(t *testing.T) {
 		"semantic_diff",
 		"pr_impact",
 		"ownership",
+		"runtime_traffic",
+		"dead_routes",
+		"trace_stats",
 	}
 
 	names := srv.ToolNames()
@@ -581,5 +587,229 @@ func TestHandleStaleEdges_FindsStale(t *testing.T) {
 	}
 	if edges[0].EdgeType != "calls" {
 		t.Errorf("expected edge type 'calls', got %q", edges[0].EdgeType)
+	}
+}
+
+// --- Runtime trace query handler tests ---
+
+// newTestSQLiteServer creates an MCP server backed by a real in-memory SQLiteStore.
+func newTestSQLiteServer(t *testing.T) (*Server, *store.SQLiteStore) {
+	t.Helper()
+	ss, err := store.NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create SQLiteStore: %v", err)
+	}
+	t.Cleanup(func() { ss.Close() })
+	srv := NewServer(ss)
+	return srv, ss
+}
+
+func TestHandleRuntimeTraffic(t *testing.T) {
+	srv, ss := newTestSQLiteServer(t)
+	ctx := context.Background()
+
+	// Insert a node as a target.
+	targetHash := testHash("handler-node")
+	if err := ss.PutNode(ctx, types.Node{
+		NodeHash:      targetHash,
+		QualifiedName: "github.com/example/api.GetUser",
+		Kind:          "function",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Insert a route symbol mapping.
+	if err := ss.PutRouteSymbol(ctx, "user-service", "GET /users/:id", targetHash, "http_route"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Insert a runtime edge targeting that node.
+	sourceHash := testHash("caller-node")
+	edgeHash := testHash("runtime-edge-1")
+	if err := ss.PutEdge(ctx, types.Edge{
+		EdgeHash:   edgeHash,
+		SourceHash: sourceHash,
+		TargetHash: targetHash,
+		EdgeType:   "calls",
+		Confidence: 0.9,
+		Provenance: "otel_trace",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Update observation count so it looks like a runtime edge.
+	now := time.Now().Unix()
+	if err := ss.UpdateObservation(ctx, edgeHash, 42, now, 0.9); err != nil {
+		t.Fatal(err)
+	}
+
+	req := makeCallToolRequest("runtime_traffic", map[string]any{
+		"service_name": "user-service",
+	})
+
+	result, err := srv.handleRuntimeTraffic(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("expected success, got error: %v", result.Content)
+	}
+
+	text := result.Content[0].(mcp.TextContent).Text
+	var edges []types.Edge
+	if err := json.Unmarshal([]byte(text), &edges); err != nil {
+		t.Fatalf("failed to unmarshal edges: %v", err)
+	}
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(edges))
+	}
+	if edges[0].ObservationCount != 42 {
+		t.Errorf("expected observation_count 42, got %d", edges[0].ObservationCount)
+	}
+}
+
+func TestHandleDeadRoutes(t *testing.T) {
+	srv, ss := newTestSQLiteServer(t)
+	ctx := context.Background()
+
+	// Insert a route symbol with no matching runtime edges (dead route).
+	deadTarget := testHash("dead-handler")
+	if err := ss.PutNode(ctx, types.Node{
+		NodeHash:      deadTarget,
+		QualifiedName: "github.com/example/api.OldEndpoint",
+		Kind:          "function",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ss.PutRouteSymbol(ctx, "api-service", "DELETE /legacy", deadTarget, "http_route"); err != nil {
+		t.Fatal(err)
+	}
+
+	req := makeCallToolRequest("dead_routes", map[string]any{
+		"stale_days": float64(30),
+	})
+
+	result, err := srv.handleDeadRoutes(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("expected success, got error: %v", result.Content)
+	}
+
+	text := result.Content[0].(mcp.TextContent).Text
+	var routes []store.RouteSymbolRow
+	if err := json.Unmarshal([]byte(text), &routes); err != nil {
+		t.Fatalf("failed to unmarshal routes: %v", err)
+	}
+	if len(routes) != 1 {
+		t.Fatalf("expected 1 dead route, got %d", len(routes))
+	}
+	if routes[0].ServiceName != "api-service" {
+		t.Errorf("expected service_name 'api-service', got %q", routes[0].ServiceName)
+	}
+	if routes[0].RoutePattern != "DELETE /legacy" {
+		t.Errorf("expected route_pattern 'DELETE /legacy', got %q", routes[0].RoutePattern)
+	}
+}
+
+func TestHandleTraceStats(t *testing.T) {
+	srv, ss := newTestSQLiteServer(t)
+	ctx := context.Background()
+
+	// Insert runtime edges with different observation ages.
+	now := time.Now().Unix()
+	for i, lastObs := range []int64{
+		now,                  // active (within 7 days)
+		now - 40*86400,       // stale (30+ days)
+		now - 100*86400,      // GC eligible (90+ days)
+	} {
+		edgeHash := testHash(fmt.Sprintf("stats-edge-%d", i))
+		if err := ss.PutEdge(ctx, types.Edge{
+			EdgeHash:   edgeHash,
+			SourceHash: testHash(fmt.Sprintf("src-%d", i)),
+			TargetHash: testHash(fmt.Sprintf("tgt-%d", i)),
+			EdgeType:   "calls",
+			Confidence: 0.8,
+			Provenance: "otel_trace",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := ss.UpdateObservation(ctx, edgeHash, i+1, lastObs, 0.8); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	req := makeCallToolRequest("trace_stats", map[string]any{})
+
+	result, err := srv.handleTraceStats(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("expected success, got error: %v", result.Content)
+	}
+
+	text := result.Content[0].(mcp.TextContent).Text
+	var stats store.RuntimeStatsRow
+	if err := json.Unmarshal([]byte(text), &stats); err != nil {
+		t.Fatalf("failed to unmarshal stats: %v", err)
+	}
+	if stats.TotalEdges != 3 {
+		t.Errorf("expected 3 total edges, got %d", stats.TotalEdges)
+	}
+	if stats.ActiveEdges != 1 {
+		t.Errorf("expected 1 active edge, got %d", stats.ActiveEdges)
+	}
+	if stats.StaleEdges != 2 {
+		t.Errorf("expected 2 stale edges, got %d", stats.StaleEdges)
+	}
+	if stats.GCEligible != 1 {
+		t.Errorf("expected 1 GC eligible edge, got %d", stats.GCEligible)
+	}
+}
+
+func TestRuntimeToolsUnavailable(t *testing.T) {
+	// Use mock store which is not a SQLiteStore; sqlStore should be nil.
+	mockStore := newMockGraphStore()
+	srv := NewServer(mockStore)
+	ctx := context.Background()
+
+	tests := []struct {
+		name    string
+		handler func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error)
+		args    map[string]any
+	}{
+		{
+			name:    "runtime_traffic",
+			handler: srv.handleRuntimeTraffic,
+			args:    map[string]any{"service_name": "test"},
+		},
+		{
+			name:    "dead_routes",
+			handler: srv.handleDeadRoutes,
+			args:    map[string]any{},
+		},
+		{
+			name:    "trace_stats",
+			handler: srv.handleTraceStats,
+			args:    map[string]any{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := makeCallToolRequest(tt.name, tt.args)
+			result, err := tt.handler(ctx, req)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !result.IsError {
+				t.Fatal("expected error result when sqlStore is nil")
+			}
+			text := result.Content[0].(mcp.TextContent).Text
+			if text != "runtime queries not available: store does not support runtime methods" {
+				t.Errorf("unexpected error message: %q", text)
+			}
+		})
 	}
 }

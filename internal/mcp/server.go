@@ -1,7 +1,7 @@
 // Package mcp exposes the knowing knowledge graph as MCP (Model Context
 // Protocol) tools over stdio and HTTP transports.
 //
-// The server registers 11 tools organized into two planes:
+// The server registers 14 tools organized into three planes:
 //
 // Execution plane (write operations):
 //   - index_repo: trigger indexing of a repository
@@ -17,6 +17,11 @@
 //   - semantic_diff: enriched diff with summary statistics
 //   - pr_impact: blast radius analysis of all symbols changed between snapshots
 //   - ownership: list files and their symbols for code ownership analysis
+//
+// Runtime plane (runtime trace queries, requires SQLiteStore):
+//   - runtime_traffic: query runtime-observed edges by service and route
+//   - dead_routes: find route symbols with no recent observations
+//   - trace_stats: aggregate statistics about runtime-derived edges
 package mcp
 
 import (
@@ -24,6 +29,7 @@ import (
 	"net/http"
 	"os"
 
+	knowingstore "github.com/blackwell-systems/knowing/internal/store"
 	"github.com/blackwell-systems/knowing/internal/types"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -35,12 +41,17 @@ import (
 type Server struct {
 	store     types.GraphStore
 	mcpServer *mcpserver.MCPServer
+	sqlStore  *knowingstore.SQLiteStore // populated via type assertion for runtime queries
 }
 
 // NewServer creates a new MCP server backed by the given GraphStore.
-// It registers all 11 tools (execution and intelligence planes).
+// It registers all 14 tools (execution, intelligence, and runtime planes).
 func NewServer(store types.GraphStore) *Server {
 	s := &Server{store: store}
+	// Try to get SQLiteStore for runtime queries.
+	if ss, ok := store.(*knowingstore.SQLiteStore); ok {
+		s.sqlStore = ss
+	}
 	s.mcpServer = mcpserver.NewMCPServer(
 		"knowing",
 		"0.1.0",
@@ -49,7 +60,7 @@ func NewServer(store types.GraphStore) *Server {
 	return s
 }
 
-// registerTools registers all 11 MCP tools on the server.
+// registerTools registers all 14 MCP tools on the server.
 func (s *Server) registerTools() {
 	// Execution plane tools
 	s.mcpServer.AddTool(indexRepoTool(), s.handleIndexRepo)
@@ -65,6 +76,11 @@ func (s *Server) registerTools() {
 	s.mcpServer.AddTool(semanticDiffTool(), s.handleSemanticDiff)
 	s.mcpServer.AddTool(prImpactTool(), s.handlePRImpact)
 	s.mcpServer.AddTool(ownershipTool(), s.handleOwnership)
+
+	// Runtime trace query tools
+	s.mcpServer.AddTool(runtimeTrafficTool(), s.handleRuntimeTraffic)
+	s.mcpServer.AddTool(deadRoutesTool(), s.handleDeadRoutes)
+	s.mcpServer.AddTool(traceStatsTool(), s.handleTraceStats)
 }
 
 // ToolNames returns the names of all registered tools, useful for testing.
@@ -81,6 +97,9 @@ func (s *Server) ToolNames() []string {
 		"semantic_diff",
 		"pr_impact",
 		"ownership",
+		"runtime_traffic",
+		"dead_routes",
+		"trace_stats",
 	}
 }
 
@@ -206,5 +225,30 @@ func ownershipTool() mcp.Tool {
 		mcp.WithDescription("List all files and top-level symbols in a repository, useful for understanding code ownership."),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithString("repo_hash", mcp.Required(), mcp.Description("Hash of the repository")),
+	)
+}
+
+func runtimeTrafficTool() mcp.Tool {
+	return mcp.NewTool("runtime_traffic",
+		mcp.WithDescription("Query runtime-observed edges filtered by service name and optional route pattern. Returns edges with observation counts from OTLP trace data."),
+		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithString("service_name", mcp.Required(), mcp.Description("Service name to filter edges by")),
+		mcp.WithString("route_pattern", mcp.Description("Optional route pattern filter (SQL LIKE syntax)")),
+		mcp.WithInteger("limit", mcp.Description("Maximum number of edges to return (default 100)")),
+	)
+}
+
+func deadRoutesTool() mcp.Tool {
+	return mcp.NewTool("dead_routes",
+		mcp.WithDescription("Find route symbols that have no runtime observations in the specified number of days, indicating potentially dead routes."),
+		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithInteger("stale_days", mcp.Description("Number of days without observations to consider a route dead (default 30)")),
+	)
+}
+
+func traceStatsTool() mcp.Tool {
+	return mcp.NewTool("trace_stats",
+		mcp.WithDescription("Get aggregate statistics about runtime-derived edges, including counts of active, stale, and GC-eligible edges by type."),
+		mcp.WithReadOnlyHintAnnotation(true),
 	)
 }
