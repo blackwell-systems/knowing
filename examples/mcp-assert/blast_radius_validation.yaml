@@ -1,0 +1,11 @@
+name: blast_radius requires target_hash
+server:
+  command: ./knowing
+  args: [mcp, -db, knowing.db]
+assert:
+  tool: blast_radius
+  args: {}
+  expect:
+    is_error: true
+    contains: ["target_hash"]
+timeout: 30s

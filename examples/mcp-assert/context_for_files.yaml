@@ -1,0 +1,11 @@
+name: context_for_files handles missing files gracefully
+server:
+  command: ./knowing
+  args: [mcp, -db, knowing.db]
+assert:
+  tool: context_for_files
+  args:
+    files: "nonexistent.go"
+  expect:
+    not_error: true
+timeout: 30s

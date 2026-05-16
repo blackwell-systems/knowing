@@ -1,0 +1,12 @@
+name: graph_query returns results for known prefix
+server:
+  command: ./knowing
+  args: [mcp, -db, knowing.db]
+assert:
+  tool: graph_query
+  args:
+    prefix: "github.com/blackwell-systems/knowing"
+  expect:
+    not_error: true
+    contains: ["knowing"]
+timeout: 30s

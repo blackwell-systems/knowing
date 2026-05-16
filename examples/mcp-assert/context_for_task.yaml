@@ -1,0 +1,13 @@
+name: context_for_task returns XML context
+server:
+  command: ./knowing
+  args: [mcp, -db, knowing.db]
+assert:
+  tool: context_for_task
+  args:
+    task_description: "MCP server handlers"
+    token_budget: 2000
+  expect:
+    not_error: true
+    contains: ["<context"]
+timeout: 30s

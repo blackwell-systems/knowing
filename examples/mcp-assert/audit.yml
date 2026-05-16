@@ -1,3 +1,0 @@
-server: "knowing mcp -db knowing.db"
-mode: audit
-include_writes: true

@@ -1,0 +1,11 @@
+name: dead_routes returns without error
+server:
+  command: ./knowing
+  args: [mcp, -db, knowing.db]
+assert:
+  tool: dead_routes
+  args:
+    stale_days: 30
+  expect:
+    not_error: true
+timeout: 30s

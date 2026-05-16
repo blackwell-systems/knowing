@@ -1,0 +1,10 @@
+name: trace_stats returns without error
+server:
+  command: ./knowing
+  args: [mcp, -db, knowing.db]
+assert:
+  tool: trace_stats
+  args: {}
+  expect:
+    not_error: true
+timeout: 30s
