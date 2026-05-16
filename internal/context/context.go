@@ -160,25 +160,50 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 		}
 	}
 
-	// Build scoring inputs for direct matches and their neighbors.
+	// Run Random Walk with Restart from seed nodes to compute relevance
+	// scores across the entire reachable subgraph. This replaces manual
+	// neighbor expansion with a principled graph-based relevance signal.
+	seedHashes := make([]types.Hash, 0, len(candidates))
+	seedSet := make(map[types.Hash]bool)
+	for _, c := range candidates {
+		seedHashes = append(seedHashes, c.NodeHash)
+		seedSet[c.NodeHash] = true
+	}
+
+	rwrScores, err := RandomWalkWithRestart(ctx, e.store, seedHashes, 0.2, 20)
+	if err != nil {
+		return nil, err
+	}
+
+	// Build scoring inputs from all nodes that received a non-trivial RWR score.
 	var inputs []ScoringInput
-	inputSeen := make(map[types.Hash]bool)
+	for nodeHash, rwrScore := range rwrScores {
+		if rwrScore < 0.05 {
+			continue // skip negligible nodes
+		}
 
-	for _, node := range candidates {
-		callers, err := e.store.EdgesTo(ctx, node.NodeHash, "calls")
+		node, err := e.store.GetNode(ctx, nodeHash)
 		if err != nil {
 			return nil, err
 		}
-		callees, err := e.store.EdgesFrom(ctx, node.NodeHash, "calls")
+		if node == nil {
+			continue
+		}
+
+		// Determine distance: 0 if seed (direct keyword match), 1 otherwise.
+		distance := 1
+		if seedSet[nodeHash] {
+			distance = 0
+		}
+
+		// Get edge metadata for confidence and recency.
+		edges, err := e.store.EdgesTo(ctx, nodeHash, "")
 		if err != nil {
 			return nil, err
 		}
-
-		// Determine confidence and last observed from edges.
 		confidence := 0.5
 		var lastObserved int64
-		allEdges := append(callers, callees...)
-		for _, edge := range allEdges {
+		for _, edge := range edges {
 			if edge.Confidence > confidence {
 				confidence = edge.Confidence
 			}
@@ -187,60 +212,17 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 			}
 		}
 
-		if !inputSeen[node.NodeHash] {
-			inputSeen[node.NodeHash] = true
-			inputs = append(inputs, ScoringInput{
-				Node:               node,
-				CallerCount:        len(callers),
-				Confidence:         confidence,
-				LastObserved:       lastObserved,
-				DistanceFromTarget: 0,
-			})
-		}
+		// Use RWR score as the caller count proxy. Scale to an integer
+		// range that the ranking algorithm can normalize (0-100).
+		callerProxy := int(rwrScore * 100)
 
-		// Add callers as distance-1 candidates.
-		for _, edge := range callers {
-			if inputSeen[edge.SourceHash] {
-				continue
-			}
-			callerNode, err := e.store.GetNode(ctx, edge.SourceHash)
-			if err != nil {
-				return nil, err
-			}
-			if callerNode == nil {
-				continue
-			}
-			inputSeen[edge.SourceHash] = true
-			inputs = append(inputs, ScoringInput{
-				Node:               *callerNode,
-				CallerCount:        0,
-				Confidence:         edge.Confidence,
-				LastObserved:       edge.LastObserved,
-				DistanceFromTarget: 1,
-			})
-		}
-
-		// Add callees as distance-1 candidates.
-		for _, edge := range callees {
-			if inputSeen[edge.TargetHash] {
-				continue
-			}
-			calleeNode, err := e.store.GetNode(ctx, edge.TargetHash)
-			if err != nil {
-				return nil, err
-			}
-			if calleeNode == nil {
-				continue
-			}
-			inputSeen[edge.TargetHash] = true
-			inputs = append(inputs, ScoringInput{
-				Node:               *calleeNode,
-				CallerCount:        0,
-				Confidence:         edge.Confidence,
-				LastObserved:       edge.LastObserved,
-				DistanceFromTarget: 1,
-			})
-		}
+		inputs = append(inputs, ScoringInput{
+			Node:               *node,
+			CallerCount:        callerProxy,
+			Confidence:         confidence,
+			LastObserved:       lastObserved,
+			DistanceFromTarget: distance,
+		})
 	}
 
 	// Rank and pack into budget.
