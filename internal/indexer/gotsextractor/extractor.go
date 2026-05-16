@@ -105,14 +105,26 @@ func (e *GoTreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractO
 		case "function_declaration":
 			node := extractFuncDecl(child, opts, pkgPath)
 			nodes = append(nodes, node)
-			callEdges := extractCallEdges(child.ChildByFieldName("body"), opts, pkgPath, node.NodeHash, imports)
+			body := child.ChildByFieldName("body")
+			callEdges := extractCallEdges(body, opts, pkgPath, node.NodeHash, imports)
 			edges = append(edges, callEdges...)
+			// Extract HTTP route registrations from function bodies.
+			routes := extractRouteSymbols(body, opts, pkgPath, imports)
+			rn, re := routeSymbolsToNodesAndEdges(routes, opts, pkgPath)
+			nodes = append(nodes, rn...)
+			edges = append(edges, re...)
 
 		case "method_declaration":
 			node := extractMethodDecl(child, opts, pkgPath)
 			nodes = append(nodes, node)
-			callEdges := extractCallEdges(child.ChildByFieldName("body"), opts, pkgPath, node.NodeHash, imports)
+			body := child.ChildByFieldName("body")
+			callEdges := extractCallEdges(body, opts, pkgPath, node.NodeHash, imports)
 			edges = append(edges, callEdges...)
+			// Extract HTTP route registrations from method bodies.
+			routes := extractRouteSymbols(body, opts, pkgPath, imports)
+			rn, re := routeSymbolsToNodesAndEdges(routes, opts, pkgPath)
+			nodes = append(nodes, rn...)
+			edges = append(edges, re...)
 
 		case "type_declaration":
 			typeNodes := extractTypeDecl(child, opts, pkgPath)
@@ -597,6 +609,290 @@ func inferRepoURL(opts types.ExtractOptions, targetPkg, localPkg string) string 
 		return strings.Join(parts[:2], "/")
 	}
 	return targetPkg
+}
+
+// routeSymbol represents an HTTP route handler registration detected in source.
+type routeSymbol struct {
+	ServiceName  string
+	RoutePattern string
+	HandlerHash  types.Hash
+	MappingType  string // "http_route"
+}
+
+// httpRouterPackages maps known HTTP router import paths to a set of method
+// names that register route handlers. The first string argument of these calls
+// is the route pattern, and the second is the handler function reference.
+var httpRouterPackages = map[string]map[string]bool{
+	"net/http": {
+		"HandleFunc": true,
+		"Handle":     true,
+	},
+	"github.com/go-chi/chi": {
+		"Get":    true,
+		"Post":   true,
+		"Put":    true,
+		"Delete": true,
+		"Patch":  true,
+	},
+	"github.com/go-chi/chi/v5": {
+		"Get":    true,
+		"Post":   true,
+		"Put":    true,
+		"Delete": true,
+		"Patch":  true,
+	},
+	"github.com/gin-gonic/gin": {
+		"GET":    true,
+		"POST":   true,
+		"PUT":    true,
+		"DELETE": true,
+		"PATCH":  true,
+	},
+	"github.com/labstack/echo": {
+		"GET":    true,
+		"POST":   true,
+		"PUT":    true,
+		"DELETE": true,
+		"PATCH":  true,
+	},
+	"github.com/labstack/echo/v4": {
+		"GET":    true,
+		"POST":   true,
+		"PUT":    true,
+		"DELETE": true,
+		"PATCH":  true,
+	},
+	"github.com/gorilla/mux": {
+		"HandleFunc": true,
+		"Handle":     true,
+	},
+}
+
+// allRouteMethodNames is the union of all method names across all router
+// packages. Used as a fast pre-filter before checking the import map.
+var allRouteMethodNames map[string]bool
+
+func init() {
+	allRouteMethodNames = make(map[string]bool)
+	for _, methods := range httpRouterPackages {
+		for m := range methods {
+			allRouteMethodNames[m] = true
+		}
+	}
+}
+
+// extractRouteSymbols walks a function body for HTTP route registration
+// patterns and returns detected route symbols.
+func extractRouteSymbols(body *sitter.Node, opts types.ExtractOptions, pkgPath string, imports map[string]string) []routeSymbol {
+	if body == nil {
+		return nil
+	}
+	var routes []routeSymbol
+	walkForRoutes(body, opts, pkgPath, imports, &routes)
+	return routes
+}
+
+// walkForRoutes recursively walks nodes looking for HTTP route registration
+// call expressions (e.g., http.HandleFunc("/path", handler)).
+func walkForRoutes(node *sitter.Node, opts types.ExtractOptions, pkgPath string, imports map[string]string, routes *[]routeSymbol) {
+	if node == nil {
+		return
+	}
+	if node.Type() == "call_expression" {
+		funcNode := node.ChildByFieldName("function")
+		if funcNode != nil && funcNode.Type() == "selector_expression" {
+			if rs := tryExtractRoute(funcNode, node, opts, pkgPath, imports); rs != nil {
+				*routes = append(*routes, *rs)
+			}
+		}
+	}
+	for i := 0; i < int(node.ChildCount()); i++ {
+		walkForRoutes(node.Child(i), opts, pkgPath, imports, routes)
+	}
+}
+
+// tryExtractRoute checks if a selector_expression call is an HTTP route
+// registration and extracts the route symbol if so.
+func tryExtractRoute(funcNode, callNode *sitter.Node, opts types.ExtractOptions, pkgPath string, imports map[string]string) *routeSymbol {
+	content := opts.Content
+
+	fieldNode := funcNode.ChildByFieldName("field")
+	if fieldNode == nil {
+		return nil
+	}
+	methodName := fieldNode.Content(content)
+
+	// Fast pre-filter: skip if method name is not a known route method.
+	if !allRouteMethodNames[methodName] {
+		return nil
+	}
+
+	operandNode := funcNode.ChildByFieldName("operand")
+	if operandNode == nil {
+		return nil
+	}
+
+	// Resolve the operand to an import path.
+	var importPath string
+	if operandNode.Type() == "identifier" {
+		alias := operandNode.Content(content)
+		if ip, ok := imports[alias]; ok {
+			importPath = ip
+		}
+	}
+
+	// If not resolved via import map, it could be a local variable (e.g., r := chi.NewRouter()).
+	// For local variables, we check if the method name is in any router package's method set.
+	// This is a heuristic: if the method name matches AND the file imports a router package,
+	// we treat it as a route registration.
+	if importPath == "" {
+		importPath = inferRouterPackageFromContext(methodName, imports)
+	}
+
+	if importPath == "" {
+		return nil
+	}
+
+	// Check if this import path is a known router package with this method.
+	methods, ok := httpRouterPackages[importPath]
+	if !ok || !methods[methodName] {
+		return nil
+	}
+
+	// Extract the route pattern from the first argument.
+	argsNode := callNode.ChildByFieldName("arguments")
+	if argsNode == nil {
+		return nil
+	}
+	routePattern := extractFirstStringArg(argsNode, content)
+	if routePattern == "" {
+		return nil
+	}
+
+	// Extract the handler reference from the second argument for hash computation.
+	handlerName := extractSecondArgName(argsNode, content)
+
+	// Compute the handler hash. If the handler is a simple identifier, hash it
+	// as a function in the current package.
+	var handlerHash types.Hash
+	if handlerName != "" {
+		handlerHash = types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, handlerName, "function")
+	}
+
+	// Derive HTTP method from the router method name.
+	httpMethod := deriveHTTPMethod(methodName)
+
+	return &routeSymbol{
+		ServiceName:  pkgPath,
+		RoutePattern: httpMethod + " " + routePattern,
+		HandlerHash:  handlerHash,
+		MappingType:  "http_route",
+	}
+}
+
+// inferRouterPackageFromContext checks if any imported package is a known
+// router package that supports the given method name. This handles cases
+// where the router is stored in a local variable (e.g., r := chi.NewRouter()).
+func inferRouterPackageFromContext(methodName string, imports map[string]string) string {
+	for _, importPath := range imports {
+		if methods, ok := httpRouterPackages[importPath]; ok && methods[methodName] {
+			return importPath
+		}
+	}
+	return ""
+}
+
+// extractFirstStringArg extracts the string value from the first argument in
+// an argument_list node. Returns empty string if the first arg is not a string literal.
+func extractFirstStringArg(argsNode *sitter.Node, content []byte) string {
+	for i := 0; i < int(argsNode.ChildCount()); i++ {
+		child := argsNode.Child(i)
+		if child.Type() == "interpreted_string_literal" || child.Type() == "raw_string_literal" {
+			val := child.Content(content)
+			return strings.Trim(val, `"` + "`")
+		}
+	}
+	return ""
+}
+
+// extractSecondArgName returns the identifier name of the second argument,
+// if it is a simple identifier. Otherwise returns empty string.
+func extractSecondArgName(argsNode *sitter.Node, content []byte) string {
+	argIdx := 0
+	for i := 0; i < int(argsNode.ChildCount()); i++ {
+		child := argsNode.Child(i)
+		// Skip punctuation (commas, parens).
+		if child.Type() == "," || child.Type() == "(" || child.Type() == ")" {
+			continue
+		}
+		argIdx++
+		if argIdx == 2 {
+			if child.Type() == "identifier" {
+				return child.Content(content)
+			}
+			return ""
+		}
+	}
+	return ""
+}
+
+// deriveHTTPMethod maps a router method name to an HTTP method string.
+func deriveHTTPMethod(methodName string) string {
+	switch methodName {
+	case "Get", "GET":
+		return "GET"
+	case "Post", "POST":
+		return "POST"
+	case "Put", "PUT":
+		return "PUT"
+	case "Delete", "DELETE":
+		return "DELETE"
+	case "Patch", "PATCH":
+		return "PATCH"
+	case "HandleFunc", "Handle":
+		// For HandleFunc/Handle, we don't know the HTTP method.
+		return "ANY"
+	default:
+		return "ANY"
+	}
+}
+
+// routeSymbolsToNodesAndEdges converts detected route symbols into graph nodes
+// and edges. Each route symbol becomes a "route_handler" node and a
+// "handles_route" edge pointing to the handler function node.
+func routeSymbolsToNodesAndEdges(routes []routeSymbol, opts types.ExtractOptions, pkgPath string) ([]types.Node, []types.Edge) {
+	var nodes []types.Node
+	var edges []types.Edge
+
+	for _, rs := range routes {
+		// Create a route_handler node whose QualifiedName encodes the method and path.
+		qname := fmt.Sprintf("%s://%s.%s", opts.RepoURL, pkgPath, rs.RoutePattern)
+		nodeHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, rs.RoutePattern, "route_handler")
+
+		nodes = append(nodes, types.Node{
+			NodeHash:      nodeHash,
+			FileHash:      opts.FileHash,
+			QualifiedName: qname,
+			Kind:          "route_handler",
+			Signature:     rs.RoutePattern,
+		})
+
+		// If we have a handler hash, create an edge from the route node to the handler.
+		if rs.HandlerHash != types.EmptyHash {
+			provenance := "ast_inferred"
+			edgeHash := types.ComputeEdgeHash(nodeHash, rs.HandlerHash, "handles_route", provenance)
+			edges = append(edges, types.Edge{
+				EdgeHash:   edgeHash,
+				SourceHash: nodeHash,
+				TargetHash: rs.HandlerHash,
+				EdgeType:   "handles_route",
+				Confidence: 0.7,
+				Provenance: provenance,
+			})
+		}
+	}
+
+	return nodes, edges
 }
 
 // deduplicateEdges removes duplicate edges based on EdgeHash.
