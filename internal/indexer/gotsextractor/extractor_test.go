@@ -613,6 +613,342 @@ func main() {
 	}
 }
 
+func TestExtractRouteSymbols_GinRouter(t *testing.T) {
+	ext := NewGoTreeSitterExtractor()
+	source := `package main
+
+import "github.com/gin-gonic/gin"
+
+func setupRoutes() {
+	r := gin.Default()
+	r.GET("/ping", pingHandler)
+	r.POST("/submit", submitHandler)
+	r.PUT("/update", updateHandler)
+}
+
+func pingHandler(c *gin.Context) {}
+func submitHandler(c *gin.Context) {}
+func updateHandler(c *gin.Context) {}
+`
+	_, opts := setupTestModule(t, "main.go", source)
+
+	result, err := ext.Extract(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Extract() error: %v", err)
+	}
+
+	var routeNodes []types.Node
+	for _, n := range result.Nodes {
+		if n.Kind == "route_handler" {
+			routeNodes = append(routeNodes, n)
+		}
+	}
+
+	if len(routeNodes) != 3 {
+		t.Fatalf("expected 3 route_handler nodes, got %d", len(routeNodes))
+	}
+
+	patterns := make(map[string]bool)
+	for _, n := range routeNodes {
+		patterns[n.Signature] = true
+	}
+	if !patterns["GET /ping"] {
+		t.Errorf("missing route pattern 'GET /ping', got %v", patterns)
+	}
+	if !patterns["POST /submit"] {
+		t.Errorf("missing route pattern 'POST /submit', got %v", patterns)
+	}
+	if !patterns["PUT /update"] {
+		t.Errorf("missing route pattern 'PUT /update', got %v", patterns)
+	}
+
+	var routeEdges []types.Edge
+	for _, e := range result.Edges {
+		if e.EdgeType == "handles_route" {
+			routeEdges = append(routeEdges, e)
+		}
+	}
+	if len(routeEdges) != 3 {
+		t.Fatalf("expected 3 handles_route edges, got %d", len(routeEdges))
+	}
+}
+
+func TestExtractRouteSymbols_MultipleRoutesInOneFunction(t *testing.T) {
+	ext := NewGoTreeSitterExtractor()
+	source := `package main
+
+import "net/http"
+
+func setupAll() {
+	http.HandleFunc("/a", handlerA)
+	http.HandleFunc("/b", handlerB)
+	http.HandleFunc("/c", handlerC)
+	http.HandleFunc("/d", handlerD)
+}
+
+func handlerA(w http.ResponseWriter, r *http.Request) {}
+func handlerB(w http.ResponseWriter, r *http.Request) {}
+func handlerC(w http.ResponseWriter, r *http.Request) {}
+func handlerD(w http.ResponseWriter, r *http.Request) {}
+`
+	_, opts := setupTestModule(t, "main.go", source)
+
+	result, err := ext.Extract(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Extract() error: %v", err)
+	}
+
+	var routeNodes []types.Node
+	for _, n := range result.Nodes {
+		if n.Kind == "route_handler" {
+			routeNodes = append(routeNodes, n)
+		}
+	}
+
+	if len(routeNodes) != 4 {
+		t.Fatalf("expected 4 route_handler nodes, got %d", len(routeNodes))
+	}
+
+	patterns := make(map[string]bool)
+	for _, n := range routeNodes {
+		patterns[n.Signature] = true
+	}
+	for _, p := range []string{"ANY /a", "ANY /b", "ANY /c", "ANY /d"} {
+		if !patterns[p] {
+			t.Errorf("missing route pattern %q, got %v", p, patterns)
+		}
+	}
+
+	var routeEdges []types.Edge
+	for _, e := range result.Edges {
+		if e.EdgeType == "handles_route" {
+			routeEdges = append(routeEdges, e)
+		}
+	}
+	if len(routeEdges) != 4 {
+		t.Fatalf("expected 4 handles_route edges, got %d", len(routeEdges))
+	}
+}
+
+func TestGoTreeSitterExtractor_FileWithOnlyImports(t *testing.T) {
+	ext := NewGoTreeSitterExtractor()
+	source := `package main
+
+import (
+	"fmt"
+	"os"
+	"strings"
+)
+`
+	_, opts := setupTestModule(t, "main.go", source)
+
+	result, err := ext.Extract(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Extract() error: %v", err)
+	}
+
+	// No declaration nodes should be produced.
+	if len(result.Nodes) != 0 {
+		t.Errorf("expected 0 nodes, got %d: %+v", len(result.Nodes), result.Nodes)
+	}
+
+	// Import edges should still be created.
+	var importEdges []types.Edge
+	for _, e := range result.Edges {
+		if e.EdgeType == "imports" {
+			importEdges = append(importEdges, e)
+		}
+	}
+	if len(importEdges) != 3 {
+		t.Errorf("expected 3 import edges, got %d", len(importEdges))
+	}
+
+	// No route_handler nodes.
+	for _, n := range result.Nodes {
+		if n.Kind == "route_handler" {
+			t.Errorf("unexpected route_handler node: %+v", n)
+		}
+	}
+}
+
+func TestGoTreeSitterExtractor_MethodExtractionDetails(t *testing.T) {
+	ext := NewGoTreeSitterExtractor()
+	source := `package main
+
+type Handler struct{}
+
+func (h *Handler) ServeHTTP() {}
+func (h Handler) Reset() {}
+
+type Logger struct{}
+
+func (l *Logger) Info() {}
+`
+	_, opts := setupTestModule(t, "main.go", source)
+
+	result, err := ext.Extract(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Extract() error: %v", err)
+	}
+
+	// Expect: Handler (type), Logger (type), ServeHTTP (method), Reset (method), Info (method)
+	var methods []types.Node
+	var typeNodes []types.Node
+	for _, n := range result.Nodes {
+		switch n.Kind {
+		case "method":
+			methods = append(methods, n)
+		case "type":
+			typeNodes = append(typeNodes, n)
+		}
+	}
+
+	if len(methods) != 3 {
+		t.Fatalf("expected 3 methods, got %d", len(methods))
+	}
+	if len(typeNodes) != 2 {
+		t.Fatalf("expected 2 types, got %d", len(typeNodes))
+	}
+
+	// Verify qualified names encode receiver type.
+	qnames := make(map[string]bool)
+	for _, m := range methods {
+		qnames[m.QualifiedName] = true
+	}
+	wantSuffix := []string{
+		"testmodule.Handler.ServeHTTP",
+		"testmodule.Handler.Reset",
+		"testmodule.Logger.Info",
+	}
+	for _, suffix := range wantSuffix {
+		found := false
+		for q := range qnames {
+			if strings.HasSuffix(q, suffix) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("no method QualifiedName ending with %q; got %v", suffix, qnames)
+		}
+	}
+
+	// Verify signatures have receiver type.
+	sigs := make(map[string]bool)
+	for _, m := range methods {
+		sigs[m.Signature] = true
+	}
+	if !sigs["func (Handler) ServeHTTP()"] {
+		t.Errorf("missing signature 'func (Handler) ServeHTTP()', got %v", sigs)
+	}
+	if !sigs["func (Logger) Info()"] {
+		t.Errorf("missing signature 'func (Logger) Info()', got %v", sigs)
+	}
+}
+
+func TestGoTreeSitterExtractor_CallEdgeCrossPackage(t *testing.T) {
+	ext := NewGoTreeSitterExtractor()
+	source := `package main
+
+import (
+	"fmt"
+	"github.com/org/other/pkg"
+)
+
+func Run() {
+	fmt.Println("start")
+	pkg.DoWork()
+	localHelper()
+}
+
+func localHelper() {}
+`
+	_, opts := setupTestModule(t, "main.go", source)
+
+	result, err := ext.Extract(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Extract() error: %v", err)
+	}
+
+	var callEdges []types.Edge
+	for _, e := range result.Edges {
+		if e.EdgeType == "calls" {
+			callEdges = append(callEdges, e)
+		}
+	}
+
+	// Expect 3 call edges: fmt.Println, pkg.DoWork, localHelper
+	if len(callEdges) != 3 {
+		t.Fatalf("expected 3 call edges, got %d", len(callEdges))
+	}
+
+	// Verify cross-package edge targets.
+	// fmt.Println should target stdlib.
+	stdlibTarget := types.ComputeNodeHash("stdlib", "fmt", types.EmptyHash, "Println", "function")
+	// pkg.DoWork should target the external repo.
+	externalTarget := types.ComputeNodeHash("github.com/org/other", "github.com/org/other/pkg", types.EmptyHash, "DoWork", "function")
+	// localHelper: targetPkg is "testmodule" which has no dots, so inferRepoURL
+	// classifies it as stdlib (tier 3 heuristic).
+	localTarget := types.ComputeNodeHash("stdlib", "testmodule", types.EmptyHash, "localHelper", "function")
+
+	targetHashes := make(map[types.Hash]bool)
+	for _, e := range callEdges {
+		targetHashes[e.TargetHash] = true
+	}
+
+	if !targetHashes[stdlibTarget] {
+		t.Errorf("missing call edge targeting stdlib fmt.Println")
+	}
+	if !targetHashes[externalTarget] {
+		t.Errorf("missing call edge targeting external github.com/org/other/pkg.DoWork")
+	}
+	if !targetHashes[localTarget] {
+		t.Errorf("missing call edge targeting local testmodule.localHelper")
+	}
+
+	// All call edges should have call-site positions.
+	for _, e := range callEdges {
+		if e.CallSiteLine == 0 {
+			t.Errorf("call edge has CallSiteLine=0, expected non-zero")
+		}
+		if e.CallSiteFile != "main.go" {
+			t.Errorf("call edge CallSiteFile = %q, want %q", e.CallSiteFile, "main.go")
+		}
+	}
+}
+
+func TestGoTreeSitterExtractor_NoRouteRegistrations(t *testing.T) {
+	ext := NewGoTreeSitterExtractor()
+	source := `package main
+
+import (
+	"net/http"
+)
+
+func handler(w http.ResponseWriter, r *http.Request) {
+	w.Write([]byte("hello"))
+}
+`
+	_, opts := setupTestModule(t, "main.go", source)
+
+	result, err := ext.Extract(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Extract() error: %v", err)
+	}
+
+	// File imports net/http but does not call HandleFunc/Handle.
+	for _, n := range result.Nodes {
+		if n.Kind == "route_handler" {
+			t.Errorf("unexpected route_handler node: %+v", n)
+		}
+	}
+	for _, e := range result.Edges {
+		if e.EdgeType == "handles_route" {
+			t.Errorf("unexpected handles_route edge: %+v", e)
+		}
+	}
+}
+
 func TestBuildImportMap(t *testing.T) {
 	ext := NewGoTreeSitterExtractor()
 	source := `package main
