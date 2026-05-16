@@ -1,0 +1,49 @@
+# mcp-assert tool correctness assertions for knowing
+# Run with: mcp-assert ci --suite examples/mcp-assert --server "knowing mcp -db knowing.db"
+
+- name: graph_query returns results for known prefix
+  tool: graph_query
+  args:
+    prefix: "github.com/blackwell-systems/knowing"
+  assert:
+    - type: not_error
+    - type: content_contains
+      value: "knowing"
+
+- name: context_for_task returns XML context
+  tool: context_for_task
+  args:
+    task_description: "MCP server handlers"
+    token_budget: 2000
+  assert:
+    - type: not_error
+    - type: content_contains
+      value: "<context"
+
+- name: context_for_files handles empty gracefully
+  tool: context_for_files
+  args:
+    files: "nonexistent.go"
+  assert:
+    - type: not_error
+
+- name: dead_routes returns without error
+  tool: dead_routes
+  args:
+    stale_days: 30
+  assert:
+    - type: not_error
+
+- name: trace_stats returns without error
+  tool: trace_stats
+  args: {}
+  assert:
+    - type: not_error
+
+- name: blast_radius requires target_hash
+  tool: blast_radius
+  args: {}
+  assert:
+    - type: is_error
+    - type: content_contains
+      value: "target_hash"
