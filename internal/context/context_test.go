@@ -94,7 +94,7 @@ func toLower(s string) string {
 func (m *mockStore) EdgesFrom(_ stdctx.Context, sourceHash types.Hash, edgeType string) ([]types.Edge, error) {
 	var result []types.Edge
 	for _, e := range m.edges {
-		if e.SourceHash == sourceHash && e.EdgeType == edgeType {
+		if e.SourceHash == sourceHash && (edgeType == "" || e.EdgeType == edgeType) {
 			result = append(result, e)
 		}
 	}
@@ -104,7 +104,7 @@ func (m *mockStore) EdgesFrom(_ stdctx.Context, sourceHash types.Hash, edgeType 
 func (m *mockStore) EdgesTo(_ stdctx.Context, targetHash types.Hash, edgeType string) ([]types.Edge, error) {
 	var result []types.Edge
 	for _, e := range m.edges {
-		if e.TargetHash == targetHash && e.EdgeType == edgeType {
+		if e.TargetHash == targetHash && (edgeType == "" || e.EdgeType == edgeType) {
 			result = append(result, e)
 		}
 	}
@@ -335,5 +335,101 @@ func TestForFiles_NoMatchingFiles(t *testing.T) {
 	}
 	if len(block.Symbols) != 0 {
 		t.Errorf("expected 0 symbols for empty file list, got %d", len(block.Symbols))
+	}
+}
+
+func TestForTask_WithRWR(t *testing.T) {
+	// Build a small graph: seed node "handler" calls "service" which calls "repo".
+	// RWR should produce differentiated (non-flat) scores.
+	handlerNode := types.Node{
+		NodeHash:      types.NewHash([]byte("handler-node")),
+		QualifiedName: "github.com/org/repo://pkg.Handler",
+		Kind:          "function",
+		Signature:     "func Handler()",
+	}
+	serviceNode := types.Node{
+		NodeHash:      types.NewHash([]byte("service-node")),
+		QualifiedName: "github.com/org/repo://pkg.Service",
+		Kind:          "function",
+		Signature:     "func Service()",
+	}
+	repoNode := types.Node{
+		NodeHash:      types.NewHash([]byte("repo-node")),
+		QualifiedName: "github.com/org/repo://pkg.Repository",
+		Kind:          "function",
+		Signature:     "func Repository()",
+	}
+
+	edges := []types.Edge{
+		{
+			EdgeHash:     types.NewHash([]byte("e-handler-service")),
+			SourceHash:   handlerNode.NodeHash,
+			TargetHash:   serviceNode.NodeHash,
+			EdgeType:     "calls",
+			Confidence:   0.9,
+			LastObserved: time.Now().Unix(),
+		},
+		{
+			EdgeHash:     types.NewHash([]byte("e-service-repo")),
+			SourceHash:   serviceNode.NodeHash,
+			TargetHash:   repoNode.NodeHash,
+			EdgeType:     "calls",
+			Confidence:   0.9,
+			LastObserved: time.Now().Unix(),
+		},
+	}
+
+	store := &mockStore{
+		nodes: []types.Node{handlerNode, serviceNode, repoNode},
+		edges: edges,
+	}
+	engine := NewContextEngine(store)
+
+	block, err := engine.ForTask(stdctx.Background(), TaskOptions{
+		TaskDescription: "Handler",
+		TokenBudget:     50000,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(block.Symbols) == 0 {
+		t.Fatal("expected symbols from RWR walk")
+	}
+
+	// Scores should be differentiated: not all the same value.
+	if len(block.Symbols) > 1 {
+		first := block.Symbols[0].Score
+		allSame := true
+		for _, s := range block.Symbols[1:] {
+			if s.Score != first {
+				allSame = false
+				break
+			}
+		}
+		if allSame {
+			t.Error("expected differentiated scores from RWR, got all identical")
+		}
+	}
+}
+
+func TestForFiles_EmptyDB(t *testing.T) {
+	// A completely empty store (no nodes, no files, no edges) should
+	// return gracefully with zero symbols and no error.
+	store := &mockStore{}
+	engine := NewContextEngine(store)
+
+	block, err := engine.ForFiles(stdctx.Background(), FileOptions{
+		Files:       []string{"nonexistent/file.go", "another/missing.go"},
+		RepoURL:     "github.com/org/repo",
+		TokenBudget: 10000,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(block.Symbols) != 0 {
+		t.Errorf("expected 0 symbols for empty DB, got %d", len(block.Symbols))
+	}
+	if block.TokenBudget != 10000 {
+		t.Errorf("expected budget 10000, got %d", block.TokenBudget)
 	}
 }
