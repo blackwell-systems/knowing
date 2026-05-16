@@ -59,7 +59,7 @@ Three components, one binary:
 | Language | Extractor | Framework Detection |
 |----------|-----------|-------------------|
 | Go | tree-sitter + `go/packages` | net/http, gin, echo, chi, fiber |
-| TypeScript/JS | tree-sitter | Express.js |
+| TypeScript/JS | tree-sitter | Express.js, Fastify, Hono, NestJS, Next.js |
 | Python | tree-sitter | Flask, FastAPI, Django |
 | Rust | tree-sitter | Actix, Axum, Rocket |
 | Java | tree-sitter | Spring |
