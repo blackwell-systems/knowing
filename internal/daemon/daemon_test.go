@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +11,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	_ "modernc.org/sqlite"
 )
 
 func execCommandHelper(name string, args ...string) *exec.Cmd {
@@ -487,6 +490,145 @@ func TestDaemon_WatchRepo_BeforeStart(t *testing.T) {
 	d.mu.RUnlock()
 	if !ok {
 		t.Error("expected repo to be registered")
+	}
+}
+
+// createTestDB creates a temporary SQLite database file with the schema needed
+// by the trace pipeline. Returns the file path.
+func createTestDB(t *testing.T) string {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	schema := `
+		CREATE TABLE repos (
+			repo_hash   BLOB PRIMARY KEY,
+			repo_url    TEXT NOT NULL,
+			last_commit TEXT,
+			last_indexed INTEGER
+		);
+		CREATE TABLE files (
+			file_hash    BLOB PRIMARY KEY,
+			repo_hash    BLOB NOT NULL,
+			path         TEXT NOT NULL,
+			content_hash BLOB NOT NULL
+		);
+		CREATE TABLE nodes (
+			node_hash      BLOB PRIMARY KEY,
+			file_hash      BLOB NOT NULL,
+			qualified_name TEXT NOT NULL,
+			kind           TEXT NOT NULL,
+			line           INTEGER,
+			signature      TEXT
+		);
+		CREATE TABLE edges (
+			edge_hash    BLOB PRIMARY KEY,
+			source_hash  BLOB NOT NULL,
+			target_hash  BLOB NOT NULL,
+			edge_type    TEXT NOT NULL,
+			confidence   REAL NOT NULL DEFAULT 1.0,
+			provenance   TEXT NOT NULL DEFAULT 'ast_resolved',
+			callsite_line INTEGER NOT NULL DEFAULT 0,
+			callsite_col  INTEGER NOT NULL DEFAULT 0,
+			callsite_file TEXT NOT NULL DEFAULT '',
+			observation_count INTEGER NOT NULL DEFAULT 0,
+			last_observed INTEGER NOT NULL DEFAULT 0
+		);
+		CREATE TABLE edge_events (
+			event_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+			edge_hash     BLOB NOT NULL,
+			event_type    TEXT NOT NULL,
+			snapshot_hash BLOB NOT NULL,
+			source_commit TEXT NOT NULL,
+			indexer_ver   TEXT NOT NULL,
+			timestamp     INTEGER NOT NULL
+		);
+		CREATE TABLE snapshots (
+			snapshot_hash BLOB PRIMARY KEY,
+			parent_hash   BLOB,
+			repo_hash     BLOB NOT NULL,
+			commit_hash   TEXT NOT NULL,
+			timestamp     INTEGER NOT NULL,
+			node_count    INTEGER NOT NULL,
+			edge_count    INTEGER NOT NULL
+		);
+		CREATE TABLE route_symbols (
+			service_name  TEXT NOT NULL,
+			route_pattern TEXT NOT NULL,
+			node_hash     BLOB NOT NULL,
+			mapping_type  TEXT NOT NULL,
+			created_at    INTEGER NOT NULL,
+			PRIMARY KEY (service_name, route_pattern, mapping_type)
+		);
+		CREATE INDEX idx_edges_provenance ON edges(provenance);
+		CREATE INDEX idx_edges_last_observed ON edges(last_observed);
+	`
+	if _, err := db.Exec(schema); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+	return dbPath
+}
+
+// TestTraceIngestLoop_StartsAndStops verifies that the trace ingest loop starts
+// with a valid TraceConfig and temp SQLite database, runs the gRPC receiver,
+// and shuts down cleanly when the context is cancelled.
+func TestTraceIngestLoop_StartsAndStops(t *testing.T) {
+	dbPath := createTestDB(t)
+
+	d := NewDaemon(DaemonConfig{
+		TraceConfig: &TraceIngestConfig{
+			Enabled:       true,
+			OTLPEndpoint:  "localhost:0", // random port
+			BatchSize:     100,
+			BatchInterval: 1 * time.Second,
+		},
+		DBPath: dbPath,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan struct{})
+	go func() {
+		d.traceIngestLoop(ctx)
+		close(done)
+	}()
+
+	// Give the loop time to start the gRPC server and enter the ticker loop.
+	time.Sleep(200 * time.Millisecond)
+
+	// Cancel context to trigger shutdown.
+	cancel()
+
+	select {
+	case <-done:
+		// Clean shutdown.
+	case <-time.After(5 * time.Second):
+		t.Fatal("traceIngestLoop did not return after context cancel")
+	}
+}
+
+// TestTraceIngestLoop_Disabled verifies that traceIngestLoop returns immediately
+// when TraceConfig is nil.
+func TestTraceIngestLoop_Disabled(t *testing.T) {
+	d := NewDaemon(DaemonConfig{
+		TraceConfig: nil,
+	})
+
+	done := make(chan struct{})
+	go func() {
+		d.traceIngestLoop(context.Background())
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Returned immediately as expected.
+	case <-time.After(1 * time.Second):
+		t.Fatal("traceIngestLoop should return immediately when TraceConfig is nil")
 	}
 }
 
