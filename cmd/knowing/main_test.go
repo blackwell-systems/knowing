@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -266,6 +267,139 @@ func TestCmdQuery_NoResults(t *testing.T) {
 
 	if !strings.Contains(output, "No nodes found") {
 		t.Errorf("expected 'No nodes found' in output, got %q", output)
+	}
+}
+
+// TestCmdExport_EmptyDB verifies that export from an empty database produces valid JSON.
+func TestCmdExport_EmptyDB(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	// Capture stdout.
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+
+	err = cmdExport([]string{"-db", dbPath})
+
+	w.Close()
+	os.Stdout = old
+
+	if err != nil {
+		t.Fatalf("cmdExport: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(r); err != nil {
+		t.Fatal(err)
+	}
+
+	output := buf.String()
+
+	// Verify it's valid JSON.
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		t.Fatalf("invalid JSON output: %v\noutput: %s", err, output)
+	}
+
+	// Check metadata.
+	metadata, ok := result["metadata"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected metadata in output")
+	}
+	if metadata["node_count"].(float64) != 0 {
+		t.Errorf("expected 0 nodes, got %v", metadata["node_count"])
+	}
+	if metadata["edge_count"].(float64) != 0 {
+		t.Errorf("expected 0 edges, got %v", metadata["edge_count"])
+	}
+
+	// Check nodes and edges arrays exist.
+	nodes, ok := result["nodes"].([]interface{})
+	if !ok {
+		t.Fatal("expected nodes array in output")
+	}
+	if len(nodes) != 0 {
+		t.Errorf("expected 0 nodes, got %d", len(nodes))
+	}
+}
+
+// TestCmdExport_UnsupportedFormat verifies that an unsupported format returns an error.
+func TestCmdExport_UnsupportedFormat(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	err := cmdExport([]string{"-db", dbPath, "-format", "yaml"})
+	if err == nil {
+		t.Fatal("expected error for unsupported format")
+	}
+	if !strings.Contains(err.Error(), "unsupported format") {
+		t.Errorf("expected 'unsupported format' in error, got %q", err.Error())
+	}
+}
+
+// TestCmdExport_NoArgs verifies that export works with just default args (no filters).
+func TestCmdExport_NoArgs(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	// Capture stdout.
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+
+	err = cmdExport([]string{"-db", dbPath})
+
+	w.Close()
+	os.Stdout = old
+
+	if err != nil {
+		t.Fatalf("cmdExport with no filters: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(r); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify valid JSON.
+	var result map[string]interface{}
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	metadata := result["metadata"].(map[string]interface{})
+	if metadata["repo"].(string) != "all" {
+		t.Errorf("expected repo=all, got %q", metadata["repo"])
+	}
+}
+
+// TestCmdExport_InUsageOutput verifies that the export command appears in usage.
+func TestCmdExport_InUsageOutput(t *testing.T) {
+	old := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+
+	_ = run([]string{})
+
+	w.Close()
+	os.Stderr = old
+
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	output := buf.String()
+
+	if !strings.Contains(output, "export") {
+		t.Errorf("expected 'export' in usage output, got %q", output)
 	}
 }
 
