@@ -12,6 +12,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -57,6 +58,8 @@ func run(args []string) error {
 		return cmdIndex(args[1:])
 	case "query":
 		return cmdQuery(args[1:])
+	case "export":
+		return cmdExport(args[1:])
 	default:
 		printUsage()
 		return fmt.Errorf("unknown subcommand: %s", args[0])
@@ -70,6 +73,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  serve    Start the daemon with MCP server and file watching")
 	fmt.Fprintln(os.Stderr, "  index    Index a repository")
 	fmt.Fprintln(os.Stderr, "  query    Query the knowledge graph")
+	fmt.Fprintln(os.Stderr, "  export   Export the graph as JSON")
 	fmt.Fprintln(os.Stderr, "  version  Print version information")
 }
 
@@ -283,6 +287,157 @@ func cmdQuery(args []string) error {
 			fmt.Printf("  -> %x [%s]\n", e.TargetHash, e.EdgeType)
 		}
 	}
+	return nil
+}
+
+// cmdExport exports the knowledge graph as JSON to stdout. Supports filtering
+// by repo URL and snapshot hash.
+func cmdExport(args []string) error {
+	fs := flag.NewFlagSet("export", flag.ExitOnError)
+	dbPath := fs.String("db", "knowing.db", "Path to the SQLite database")
+	format := fs.String("format", "json", "Output format (only json supported)")
+	repoFilter := fs.String("repo", "", "Filter by repo URL")
+	snapshotFilter := fs.String("snapshot", "", "Filter by snapshot hash")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	if *format != "json" {
+		return fmt.Errorf("unsupported format: %s", *format)
+	}
+
+	st, err := store.NewSQLiteStore(*dbPath)
+	if err != nil {
+		return fmt.Errorf("opening store: %w", err)
+	}
+	defer st.Close()
+
+	ctx := context.Background()
+
+	// Collect nodes. If repo filter is specified, find nodes by repo prefix.
+	// Otherwise, get all nodes.
+	var nodes []types.Node
+	if *repoFilter != "" {
+		// Find nodes associated with the repo by querying with empty prefix
+		// (all nodes), then filtering by repo. This is a simple approach;
+		// a future optimization could add a NodesByRepo store method.
+		allNodes, err := st.NodesByName(ctx, "")
+		if err != nil {
+			return fmt.Errorf("querying nodes: %w", err)
+		}
+		// Get files for this repo to filter nodes.
+		repoHash := types.NewHash([]byte(*repoFilter))
+		files, err := st.FilesByRepo(ctx, repoHash)
+		if err != nil {
+			return fmt.Errorf("querying files: %w", err)
+		}
+		fileSet := make(map[types.Hash]bool, len(files))
+		for _, f := range files {
+			fileSet[f.FileHash] = true
+		}
+		for _, n := range allNodes {
+			if fileSet[n.FileHash] {
+				nodes = append(nodes, n)
+			}
+		}
+	} else {
+		nodes, err = st.NodesByName(ctx, "")
+		if err != nil {
+			return fmt.Errorf("querying nodes: %w", err)
+		}
+	}
+
+	// Collect edges from each node.
+	edgeSet := make(map[types.Hash]bool)
+	var edges []types.Edge
+	for _, n := range nodes {
+		outgoing, err := st.EdgesFrom(ctx, n.NodeHash, "")
+		if err != nil {
+			return fmt.Errorf("querying edges from %x: %w", n.NodeHash, err)
+		}
+		for _, e := range outgoing {
+			if !edgeSet[e.EdgeHash] {
+				edgeSet[e.EdgeHash] = true
+				edges = append(edges, e)
+			}
+		}
+	}
+
+	// Build export structure.
+	type exportNode struct {
+		NodeHash      string `json:"node_hash"`
+		QualifiedName string `json:"qualified_name"`
+		Kind          string `json:"kind"`
+		Line          int    `json:"line"`
+		Signature     string `json:"signature"`
+	}
+	type exportEdge struct {
+		EdgeHash   string  `json:"edge_hash"`
+		SourceHash string  `json:"source_hash"`
+		TargetHash string  `json:"target_hash"`
+		EdgeType   string  `json:"edge_type"`
+		Confidence float64 `json:"confidence"`
+		Provenance string  `json:"provenance"`
+	}
+	type exportMetadata struct {
+		Repo       string `json:"repo"`
+		Snapshot   string `json:"snapshot"`
+		ExportedAt string `json:"exported_at"`
+		NodeCount  int    `json:"node_count"`
+		EdgeCount  int    `json:"edge_count"`
+	}
+	type exportData struct {
+		Nodes    []exportNode   `json:"nodes"`
+		Edges    []exportEdge   `json:"edges"`
+		Metadata exportMetadata `json:"metadata"`
+	}
+
+	repoLabel := "all"
+	if *repoFilter != "" {
+		repoLabel = *repoFilter
+	}
+	snapLabel := "latest"
+	if *snapshotFilter != "" {
+		snapLabel = *snapshotFilter
+	}
+
+	export := exportData{
+		Nodes: make([]exportNode, 0, len(nodes)),
+		Edges: make([]exportEdge, 0, len(edges)),
+		Metadata: exportMetadata{
+			Repo:       repoLabel,
+			Snapshot:   snapLabel,
+			ExportedAt: time.Now().UTC().Format(time.RFC3339),
+			NodeCount:  len(nodes),
+			EdgeCount:  len(edges),
+		},
+	}
+
+	for _, n := range nodes {
+		export.Nodes = append(export.Nodes, exportNode{
+			NodeHash:      fmt.Sprintf("%x", n.NodeHash),
+			QualifiedName: n.QualifiedName,
+			Kind:          n.Kind,
+			Line:          n.Line,
+			Signature:     n.Signature,
+		})
+	}
+	for _, e := range edges {
+		export.Edges = append(export.Edges, exportEdge{
+			EdgeHash:   fmt.Sprintf("%x", e.EdgeHash),
+			SourceHash: fmt.Sprintf("%x", e.SourceHash),
+			TargetHash: fmt.Sprintf("%x", e.TargetHash),
+			EdgeType:   e.EdgeType,
+			Confidence: e.Confidence,
+			Provenance: e.Provenance,
+		})
+	}
+
+	out, err := json.MarshalIndent(export, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshaling JSON: %w", err)
+	}
+	fmt.Println(string(out))
 	return nil
 }
 

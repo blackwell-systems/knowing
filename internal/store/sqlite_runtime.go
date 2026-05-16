@@ -122,6 +122,136 @@ func scanEdgeRuntime(row scannable) (*types.Edge, error) {
 	return &e, nil
 }
 
+// RuntimeStatsRow contains aggregate statistics about runtime-derived edges.
+type RuntimeStatsRow struct {
+	TotalEdges  int
+	ActiveEdges int            // observed in last 7 days
+	StaleEdges  int            // not observed in 30+ days
+	GCEligible  int            // not observed in 90+ days
+	ByEdgeType  map[string]int // counts keyed by edge_type
+}
+
+// RuntimeEdgesByService returns runtime edges filtered by service name and
+// optional route pattern. Only edges with provenance starting with "otel_" are
+// returned. If serviceName is empty, all runtime edges are returned (up to
+// limit). If routePattern is non-empty, it is used as a LIKE filter on the
+// route_symbols.route_pattern column.
+func (s *SQLiteStore) RuntimeEdgesByService(ctx context.Context, serviceName string, routePattern string, limit int) ([]types.Edge, error) {
+	query := `SELECT e.edge_hash, e.source_hash, e.target_hash, e.edge_type,
+	                  e.confidence, e.provenance, e.callsite_line, e.callsite_col,
+	                  e.callsite_file, e.observation_count, e.last_observed
+	           FROM edges e`
+
+	var args []interface{}
+
+	if serviceName != "" {
+		query += ` JOIN route_symbols rs ON rs.node_hash = e.target_hash`
+	}
+
+	query += ` WHERE e.provenance LIKE 'otel_%'`
+
+	if serviceName != "" {
+		query += ` AND rs.service_name = ?`
+		args = append(args, serviceName)
+	}
+	if routePattern != "" {
+		if serviceName == "" {
+			query += ` AND EXISTS (SELECT 1 FROM route_symbols rs WHERE rs.node_hash = e.target_hash AND rs.route_pattern LIKE ?)`
+		} else {
+			query += ` AND rs.route_pattern LIKE ?`
+		}
+		args = append(args, routePattern)
+	}
+
+	if limit > 0 {
+		query += ` LIMIT ?`
+		args = append(args, limit)
+	}
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanEdgesRuntime(rows)
+}
+
+// DeadRoutes returns route symbols that have no runtime observations in the
+// last staleDays days (or have never been observed at all).
+func (s *SQLiteStore) DeadRoutes(ctx context.Context, staleDays int) ([]RouteSymbolRow, error) {
+	threshold := time.Now().Unix() - int64(staleDays)*86400
+
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT rs.service_name, rs.route_pattern, rs.node_hash, rs.mapping_type, rs.created_at
+		 FROM route_symbols rs
+		 LEFT JOIN edges e ON rs.node_hash = e.target_hash AND e.provenance LIKE 'otel_%'
+		 WHERE e.last_observed IS NULL OR e.last_observed < ?
+		 GROUP BY rs.service_name, rs.route_pattern, rs.mapping_type`,
+		threshold,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []RouteSymbolRow
+	for rows.Next() {
+		var r RouteSymbolRow
+		var nodeHash []byte
+		if err := rows.Scan(&r.ServiceName, &r.RoutePattern, &nodeHash, &r.MappingType, &r.CreatedAt); err != nil {
+			return nil, err
+		}
+		copy(r.NodeHash[:], nodeHash)
+		result = append(result, r)
+	}
+	return result, rows.Err()
+}
+
+// RuntimeEdgeStatsAggregate returns aggregate statistics about runtime-derived
+// edges (those with provenance starting with "otel_").
+func (s *SQLiteStore) RuntimeEdgeStatsAggregate(ctx context.Context) (*RuntimeStatsRow, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT edge_type, observation_count, last_observed
+		 FROM edges WHERE provenance LIKE 'otel_%'`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	now := time.Now().Unix()
+	sevenDaysAgo := now - 7*86400
+	thirtyDaysAgo := now - 30*86400
+	ninetyDaysAgo := now - 90*86400
+
+	stats := &RuntimeStatsRow{
+		ByEdgeType: make(map[string]int),
+	}
+
+	for rows.Next() {
+		var edgeType string
+		var obsCount int
+		var lastObs int64
+		if err := rows.Scan(&edgeType, &obsCount, &lastObs); err != nil {
+			return nil, err
+		}
+
+		stats.TotalEdges++
+		stats.ByEdgeType[edgeType]++
+
+		if lastObs >= sevenDaysAgo {
+			stats.ActiveEdges++
+		}
+		if lastObs > 0 && lastObs < thirtyDaysAgo {
+			stats.StaleEdges++
+		}
+		if lastObs > 0 && lastObs < ninetyDaysAgo {
+			stats.GCEligible++
+		}
+	}
+	return stats, rows.Err()
+}
+
 // scanEdgesRuntime scans multiple rows with all 11 edge columns including
 // observation_count and last_observed.
 func scanEdgesRuntime(rows *sql.Rows) ([]types.Edge, error) {
