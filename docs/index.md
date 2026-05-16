@@ -25,8 +25,11 @@ knowing diff <old-snapshot> <new-snapshot>
 # Export the graph
 knowing export --format json
 
-# Start the daemon with MCP server
+# Start the daemon with MCP server (HTTP)
 knowing serve /path/to/repo
+
+# Start the MCP server over stdio (for .mcp.json)
+knowing mcp -db knowing.db
 ```
 
 ## What It Does
@@ -36,7 +39,7 @@ knowing builds a content-addressed knowledge graph of software relationships and
 - **6 languages**: Go, TypeScript/JS, Rust, Java, C#, Python
 - **10+ web frameworks**: route detection for net/http, chi, gin, echo, gorilla/mux, Express.js, Actix, Axum, Rocket, Spring, ASP.NET
 - **16 MCP tools**: graph queries, runtime traffic, semantic diff, PR impact, context packing
-- **7 CLI commands**: serve, index, query, export, diff, context, version
+- **8 CLI commands**: serve, index, query, export, diff, context, mcp, version
 - **Runtime intelligence**: OTel trace ingestion with observation-based confidence scoring
 - **Incremental updates**: git-based change detection, re-indexes only changed files
 - **Content-addressed**: every node, edge, and snapshot is a hash with full audit trail

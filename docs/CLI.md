@@ -13,7 +13,7 @@ See [DISTRIBUTION.md](DISTRIBUTION.md) for installation instructions.
 knowing <subcommand> [flags]
 ```
 
-Subcommands: `serve`, `index`, `query`, `export`, `diff`, `version`.
+Subcommands: `serve`, `index`, `query`, `export`, `diff`, `context`, `mcp`, `version`.
 
 ## Environment
 
@@ -277,6 +277,100 @@ knowing diff -db /var/lib/knowing/data.db abc123...old abc123...new
 - JSON output is pretty-printed with two-space indentation.
 - Snapshot hashes are displayed as shortened 8-character prefixes in text
   output headers.
+
+---
+
+### context
+
+Generate graph-aware context for a task or set of changed files.
+
+```
+knowing context [flags]
+```
+
+Queries the knowledge graph, ranks symbols by structural importance (blast
+radius, confidence, recency, graph distance), and formats the output within a
+token budget. Use `-task` for task-based context or `-files` for file-based
+blast radius context. Exactly one of the two must be specified.
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `-db` | string | `knowing.db` | Path to the SQLite database |
+| `-task` | string | *(empty)* | Task description for context generation |
+| `-files` | string | *(empty)* | Comma-separated list of changed file paths |
+| `-budget` | int | `50000` | Token budget |
+| `-format` | string | `xml` | Output format: `xml`, `markdown`, or `json` |
+| `-repo` | string | *(empty)* | Repository URL for file resolution (used with `-files`) |
+
+**Examples:**
+
+```bash
+# Generate context for a task description
+knowing context -task "refactor auth middleware" -budget 50000
+
+# Generate blast radius context for changed files
+knowing context -files "internal/auth/handler.go,internal/auth/middleware.go" -repo github.com/org/repo
+
+# Output as JSON with a smaller budget
+knowing context -task "add caching to user lookup" -budget 20000 -format json
+```
+
+**Notes:**
+
+- Specify either `-task` or `-files`, not both.
+- Output is written to stdout. Pipe or redirect as needed.
+- The token budget controls how much context is included. The engine ranks
+  symbols by relevance and packs them greedily until the budget is exhausted.
+
+---
+
+### mcp
+
+Run the MCP server over stdio.
+
+```
+knowing mcp [flags]
+```
+
+This is the mode used by AI agents via `.mcp.json` configuration. Opens the
+database and serves MCP tool calls over stdin/stdout until the input stream
+closes or SIGINT/SIGTERM is received. All 16 MCP tools are available.
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `-db` | string | `knowing.db` | Path to the SQLite database |
+
+**Examples:**
+
+```bash
+# Start the stdio MCP server (used by agent tooling, not invoked directly)
+knowing mcp -db knowing.db
+```
+
+**`.mcp.json` configuration for Claude Code:**
+
+```json
+{
+  "mcpServers": {
+    "knowing": {
+      "command": "knowing",
+      "args": ["mcp", "-db", "/path/to/knowing.db"],
+      "transport": "stdio"
+    }
+  }
+}
+```
+
+**Notes:**
+
+- Requires a pre-built database. Run `knowing index` first.
+- The server blocks until stdin is closed or a signal is received.
+- This subcommand replaces direct use of `knowing serve` for agent integrations
+  that only need stdio MCP access without the HTTP server or file watcher.
 
 ---
 

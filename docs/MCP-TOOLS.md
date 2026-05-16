@@ -1,6 +1,6 @@
 # knowing MCP Tools Reference
 
-Complete reference for the 14 MCP tools exposed by knowing's MCP server.
+Complete reference for the 16 MCP tools exposed by knowing's MCP server.
 
 ## Connecting to the Server
 
@@ -16,7 +16,7 @@ knowing exposes its MCP server over two transports:
   "mcpServers": {
     "knowing": {
       "command": "knowing",
-      "args": ["--db", "/path/to/knowing.db"],
+      "args": ["mcp", "-db", "/path/to/knowing.db"],
       "transport": "stdio"
     }
   }
@@ -47,6 +47,7 @@ Most tools operate on the static knowledge graph (nodes, edges, snapshots) built
 | Snapshot | No |
 | Analysis | No |
 | Ownership | No |
+| Context | No |
 | Runtime | **Yes** |
 
 ---
@@ -667,6 +668,87 @@ Array of objects pairing each `File` with its `Node` list. Files with no extract
   "tool": "ownership",
   "arguments": {
     "repo_hash": "abcdef01..."
+  }
+}
+```
+
+---
+
+## Context
+
+### `context_for_task`
+
+Generate graph-ranked, token-budgeted context for a task description.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `task` | string | yes | Natural language description of the task |
+| `budget` | integer | no | Token budget (default 50000) |
+| `format` | string | no | Output format: `xml`, `markdown`, or `json` (default `xml`) |
+
+**Return format:**
+
+```json
+{
+  "content": "<context>...</context>",
+  "token_count": 12345,
+  "symbols_included": 42,
+  "symbols_available": 200
+}
+```
+
+Returns a formatted context block containing ranked symbols from the graph, packed within the specified token budget.
+
+**Example:**
+
+```json
+{
+  "tool": "context_for_task",
+  "arguments": {
+    "task": "refactor auth middleware to use new token validation",
+    "budget": 30000,
+    "format": "xml"
+  }
+}
+```
+
+### `context_for_files`
+
+Generate blast radius context for a set of changed files.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `files` | array of strings | yes | List of changed file paths |
+| `repo_url` | string | no | Repository URL for file resolution |
+| `budget` | integer | no | Token budget (default 50000) |
+| `format` | string | no | Output format: `xml`, `markdown`, or `json` (default `xml`) |
+
+**Return format:**
+
+```json
+{
+  "content": "<context>...</context>",
+  "token_count": 8000,
+  "symbols_included": 25,
+  "symbols_available": 80
+}
+```
+
+Returns context focused on the blast radius of the specified files: symbols defined in those files, their callers, and related symbols ranked by confidence and graph distance.
+
+**Example:**
+
+```json
+{
+  "tool": "context_for_files",
+  "arguments": {
+    "files": ["internal/auth/handler.go", "internal/auth/middleware.go"],
+    "repo_url": "github.com/org/repo",
+    "budget": 40000
   }
 }
 ```

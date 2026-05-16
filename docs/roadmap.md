@@ -18,7 +18,7 @@ Everything else depends on this. Solid and functional.
 | Incremental change detection | Git-based .git/HEAD watching, file cleanup before re-extract, edge event recording | store, indexer | **done** |
 | Snapshot diff | Functional once edge events are recorded; returns added/removed edges between snapshots | store, edge events | **done** |
 | Cross-repo edge resolution | Module-to-repo URL mapping, dangling edge retargeting | store, indexer | **done** |
-| MCP server | 14 tools over stdio + HTTP (graph queries, runtime tools, semantic diff, PR impact) | store, call graph | **done** |
+| MCP server | 16 tools over stdio + HTTP (graph queries, runtime tools, semantic diff, PR impact, context packing) | store, call graph | **done** |
 | Daemon + git watcher | Persistent process, .git/HEAD watching (1-2 FDs), incremental reindex on commit | store, indexer | **done** |
 | Traversal cache | L1 in-memory LRU, L2 materialized closures, L3 bounded traversal with early termination | store | planned |
 

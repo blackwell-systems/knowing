@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="#mcp-tools"><img src="https://img.shields.io/badge/MCP_tools-11-brightgreen.svg" alt="MCP Tools"></a>
+  <a href="#mcp-tools"><img src="https://img.shields.io/badge/MCP_tools-16-brightgreen.svg" alt="MCP Tools"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
   <a href="https://github.com/blackwell-systems"><img src="https://raw.githubusercontent.com/blackwell-systems/blackwell-docs-theme/main/badge-trademark.svg" alt="Blackwell Systems"></a>
 </p>
@@ -76,6 +76,8 @@ The Git analogy is exact: Git is a content-addressed graph of source code. knowi
 
 | Tool | Purpose |
 |------|---------|
+| `index_repo` | Add a repo to the graph |
+| `graph_query` | Query nodes by qualified name prefix |
 | `cross_repo_callers` | All callers of a symbol across indexed repos |
 | `blast_radius` | Full impact analysis for a proposed change |
 | `trace_dataflow` | Follow a value across function and service boundaries |
@@ -85,8 +87,11 @@ The Git analogy is exact: Git is a content-addressed graph of source code. knowi
 | `snapshot_diff` | What changed in the graph between two points in time |
 | `semantic_diff` | Relationship-level diff between any two snapshots |
 | `pr_impact` | Semantic diff specialized for a PR (resolves base/head from git) |
-| `index_repo` | Add a repo to the graph |
-| `graph_query` | Raw graph query (Cypher or similar) |
+| `runtime_traffic` | Runtime-observed edges filtered by service and route |
+| `dead_routes` | Routes with no production traffic in N days |
+| `trace_stats` | Aggregate statistics on runtime-derived edges |
+| `context_for_task` | Graph-ranked, token-budgeted context for a task description |
+| `context_for_files` | Blast radius context for a set of changed files |
 
 ## Relationship to agent-lsp
 
@@ -108,9 +113,44 @@ Five parallel workstreams, not sequential phases. See [docs/roadmap.md](docs/roa
 | **Developer Visibility** | Semantic PR diff, graph-native test selection, ownership routing, staleness dashboard |
 | **Agent Coordination** | Pending mutations, temporal reasoning, federated graphs |
 
+## Quick Start
+
+```bash
+# Install
+brew install blackwell-systems/tap/knowing
+
+# Index a repository
+knowing index ./path/to/repo
+
+# Query the graph
+knowing query "MyService"
+
+# Generate context for an agent task
+knowing context -task "refactor auth middleware" -budget 50000
+
+# Start the MCP server for agent integration (stdio)
+knowing mcp -db knowing.db
+```
+
+### Agent Integration (.mcp.json)
+
+```json
+{
+  "mcpServers": {
+    "knowing": {
+      "command": "knowing",
+      "args": ["mcp", "-db", "/path/to/knowing.db"],
+      "transport": "stdio"
+    }
+  }
+}
+```
+
 ## Documentation
 
 - [Architecture](docs/architecture.md): design decisions, system overview, schemas, interfaces
+- [CLI Reference](docs/CLI.md): all commands with flags and examples
+- [MCP Tools](docs/MCP-TOOLS.md): all 16 tools with parameters and return formats
 - [Roadmap](docs/roadmap.md): workstreams, dependencies, parallelization notes
 
 ## Tech Stack
