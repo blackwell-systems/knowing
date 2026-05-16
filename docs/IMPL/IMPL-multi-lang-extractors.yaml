@@ -765,6 +765,7 @@ waves:
           files:
             - internal/indexer/csharpextractor/extractor.go
             - internal/indexer/csharpextractor/extractor_test.go
+      base_commit: be31d7b83b4b1fe26b07726f4f51873f5ce7139d
     - number: 2
       type: integration
       agents:
@@ -886,6 +887,120 @@ quality_gates:
         - type: test
           command: GOWORK=off go test ./... -timeout 5m
           required: true
+post_merge_checklist:
+    groups:
+        - title: Background Service Initialization
+          items:
+            - description: Verify if extractor_test.go needs initialization in Server constructor
+            - description: Verify if extractor_test.go needs initialization in Server constructor
+            - description: Verify if extractor_test.go needs initialization in Server constructor
+            - description: Verify if extractor_test.go needs initialization in Server constructor
+completion_reports:
+    A:
+        status: complete
+        branch: polywave/multi-lang-extractors/wave1-agent-A
+        commit: 2e30ac6
+        files_changed:
+            - internal/indexer/tsextractor/extractor.go
+            - internal/indexer/tsextractor/extractor_test.go
+        files_created:
+            - internal/indexer/tsextractor/extractor.go
+            - internal/indexer/tsextractor/extractor_test.go
+        tests_added:
+            - TestTypeScriptExtractor_Name
+            - TestTypeScriptExtractor_CanHandle
+            - TestTypeScriptExtractor_ExtractFunctions
+            - TestTypeScriptExtractor_ExtractClasses
+            - TestTypeScriptExtractor_ExtractInterfaces
+            - TestTypeScriptExtractor_ExtractImports
+            - TestTypeScriptExtractor_ExtractRequire
+            - TestTypeScriptExtractor_ExtractCallEdges
+            - TestTypeScriptExtractor_ExtractArrowFunctions
+            - TestTypeScriptExtractor_ExpressRoutes
+            - TestTypeScriptExtractor_NoRoutes
+            - TestTypeScriptExtractor_EdgeProvenanceAndConfidence
+            - TestTypeScriptExtractor_EmptyFile
+        verification: PASS
+        notes: TypeScript/JavaScript extractor complete with all 13 required tests passing. Extracts functions, classes, methods, interfaces, arrow functions, ES6 imports, CommonJS require, call edges with positions, and Express.js routes. All edges use ast_inferred/0.7. Registration in main.go is Agent E scope (Wave 2).
+    B:
+        status: complete
+        branch: polywave/multi-lang-extractors/wave1-agent-B
+        commit: 4a65657
+        files_changed:
+            - internal/indexer/rustextractor/extractor.go
+            - internal/indexer/rustextractor/extractor_test.go
+        files_created:
+            - internal/indexer/rustextractor/extractor.go
+            - internal/indexer/rustextractor/extractor_test.go
+        tests_added:
+            - TestRustExtractor_Name
+            - TestRustExtractor_CanHandle
+            - TestRustExtractor_ExtractFunctions
+            - TestRustExtractor_ExtractStructsAndEnums
+            - TestRustExtractor_ExtractTraits
+            - TestRustExtractor_ExtractImplMethods
+            - TestRustExtractor_ExtractUseStatements
+            - TestRustExtractor_ExtractCallEdges
+            - TestRustExtractor_ExtractMacroInvocations
+            - TestRustExtractor_ActixRoutes
+            - TestRustExtractor_AxumRoutes
+            - TestRustExtractor_EdgeProvenanceAndConfidence
+            - TestRustExtractor_EmptyFile
+        verification: PASS
+        notes: All 13 tests passing. Handles function items, structs, enums, traits, impl blocks, use declarations, call expressions, macro invocations, and Actix/Rocket attribute-based route detection. Axum .route() chain detection is best-effort. Registration in main.go is Agent E scope in Wave 2.
+    C:
+        status: complete
+        branch: polywave/multi-lang-extractors/wave1-agent-C
+        commit: a6f33ff
+        files_changed:
+            - internal/indexer/javaextractor/extractor.go
+            - internal/indexer/javaextractor/extractor_test.go
+        files_created:
+            - internal/indexer/javaextractor/extractor.go
+            - internal/indexer/javaextractor/extractor_test.go
+        tests_added:
+            - TestJavaExtractor_Name
+            - TestJavaExtractor_CanHandle
+            - TestJavaExtractor_ExtractClasses
+            - TestJavaExtractor_ExtractMethods
+            - TestJavaExtractor_ExtractInterfaces
+            - TestJavaExtractor_ExtractEnums
+            - TestJavaExtractor_ExtractConstructors
+            - TestJavaExtractor_ExtractImports
+            - TestJavaExtractor_ExtractMethodInvocations
+            - TestJavaExtractor_SpringRoutes
+            - TestJavaExtractor_NoRoutes
+            - TestJavaExtractor_EdgeProvenanceAndConfidence
+            - TestJavaExtractor_EmptyFile
+        verification: PASS
+        notes: Java tree-sitter extractor complete. All 13 tests passing. Handles classes, interfaces, enums, methods, constructors, imports, method invocations, object creation, and Spring route annotations. Registration in main.go is Agent E's scope in Wave 2.
+    D:
+        status: complete
+        branch: polywave/multi-lang-extractors/wave1-agent-D
+        commit: 0f72bfa
+        files_changed:
+            - internal/indexer/csharpextractor/extractor.go
+            - internal/indexer/csharpextractor/extractor_test.go
+        files_created:
+            - internal/indexer/csharpextractor/extractor.go
+            - internal/indexer/csharpextractor/extractor_test.go
+        tests_added:
+            - TestCSharpExtractor_Name
+            - TestCSharpExtractor_CanHandle
+            - TestCSharpExtractor_ExtractClasses
+            - TestCSharpExtractor_ExtractMethods
+            - TestCSharpExtractor_ExtractInterfaces
+            - TestCSharpExtractor_ExtractStructs
+            - TestCSharpExtractor_ExtractEnums
+            - TestCSharpExtractor_ExtractConstructors
+            - TestCSharpExtractor_ExtractUsingDirectives
+            - TestCSharpExtractor_ExtractInvocations
+            - TestCSharpExtractor_AspNetRoutes
+            - TestCSharpExtractor_NoRoutes
+            - TestCSharpExtractor_EdgeProvenanceAndConfidence
+            - TestCSharpExtractor_EmptyFile
+        verification: PASS
+        notes: C# tree-sitter extractor complete. All 14 tests passing. Supports classes, structs, interfaces, enums, methods, constructors, using directives, invocations, object creation, and ASP.NET route detection. Registration in main.go is Agent E scope (Wave 2).
 pre_mortem:
     overall_risk: low
     rows:
