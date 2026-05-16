@@ -951,4 +951,4 @@ critic_report:
     reviewed_at: "2026-05-16T03:33:42Z"
     issue_count: 1
 state: REVIEWED
-injection_method: manual-fallback
+injection_method: hook
