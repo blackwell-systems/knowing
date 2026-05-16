@@ -1054,16 +1054,104 @@ Two polywave IMPLs implementing the runtime trace ingestion pipeline from design
 
 Plus: integration test, test coverage (33 new tests), CI/CD workflows, distribution doc, roadmap update, architecture and features doc updates.
 
+---
+
+## Semantic PR Diff (2026-05-15)
+
+The most visible developer feature. Relationship-level impact analysis for pull requests: instead of "you changed 3 files," it shows "you removed `ValidateToken` which has 8 callers across 4 packages, risk: high."
+
+### Scout
+
+Scout analyzed 51 source files and produced IMPL-semantic-pr-diff with 4 agents across 2 waves, 10 files (7 new, 3 modified).
+
+**Decomposition:**
+
+| Wave | Agent | Package | Files | Responsibility |
+|------|-------|---------|-------|----------------|
+| 1 | A | `internal/diff/` | 4 | SemanticDiff (enriches raw SnapshotDiff with node metadata, detects modifications) + PRImpact (blast radius for changed symbols, risk classification) |
+| 1 | B | `cmd/knowing/` | 2 | `knowing diff` CLI subcommand with JSON and human-readable output |
+| 1 | C | `.github/workflows/` | 1 | GitHub Action: indexes both branches, computes diff, posts/updates PR comment |
+| 2 | D | `internal/mcp/` + `cmd/` | 3 | Wire diff package into MCP handlers (replace stubs), wire cmdDiff into main.go |
+
+### Validation and Critic
+
+Scout missed `GOWORK=off` on build and lint gates (had it on test but not the others). Fourth time this session. Fixed in-place.
+
+Critic passed clean on first run: 0 errors, 0 warnings.
+
+### Scaffold
+
+Deployed `internal/diff/types.go` with shared result types: SemanticDiffResult, PRImpactResult, NodeChange, EdgeChange, SymbolImpact, ImpactSummary, DiffSummary.
+
+### Wave 1 (3 parallel agents)
+
+| Agent | Duration | Task | Tests |
+|-------|----------|------|-------|
+| A | 236s | SemanticDiff + PRImpact with enrichment and risk classification | 7 |
+| B | 131s | `knowing diff` CLI with JSON and text output | 4 |
+| C | 84s | GitHub Action workflow (pr-semantic-diff.yml) | - |
+
+**Merge:** Clean, zero conflicts. Zero integration gaps.
+
+### Wave 2 (1 agent)
+
+| Agent | Duration | Task | Tests |
+|-------|----------|------|-------|
+| D | 169s | Replaced MCP stubs with real diff.SemanticDiff and diff.PRImpact calls, wired cmdDiff into main.go | 2 |
+
+**Merge:** Clean. All 14 packages pass.
+
+### What the semantic diff provides
+
+**SemanticDiff** takes two snapshot hashes and returns:
+- Nodes added/removed (with qualified names, kinds, signatures)
+- Modified nodes (detected from edge changes: nodes whose relationships changed without the node itself being added/removed)
+- Edges added/removed (with source/target qualified names, edge types, confidence)
+- Summary counts
+
+**PRImpact** builds on SemanticDiff and adds:
+- For each changed symbol: list of callers (blast radius) and callees (transitive, depth 3)
+- Risk level: low (0-5 affected callers), medium (6-20), high (>20)
+- Impact summary with unique caller/callee counts
+
+**GitHub Action** (`pr-semantic-diff.yml`):
+- Triggers on PR open/synchronize against main
+- Indexes both base and head branches into separate DBs
+- Merges base data into head DB for cross-snapshot queries
+- Runs `knowing diff` and posts a formatted comment with symbol tables, edge changes, and risk assessment
+- Updates existing comment on subsequent pushes (finds by marker)
+
+### Friction
+
+**Zero.** Cleanest IMPL of the session. No merge conflicts, no test failures, no post-merge fixes. Critic passed first try. Only issue was the recurring GOWORK omission in quality gates.
+
+---
+
+## Session Summary (2026-05-15)
+
+### What was built today
+
+Three polywave IMPLs implementing the runtime trace pipeline, developer tools, and semantic PR diff:
+
+1. **IMPL-runtime-traces** (7 agents, 2 waves): Core pipeline components: types, store migration, symbol resolver, confidence scoring, ingestor, OTLP placeholder, daemon CLI flags.
+
+2. **IMPL-runtime-wiring-devtools** (5 agents, 2 waves): End-to-end wiring: HTTP route extraction, real OTLP gRPC receiver, daemon lifecycle, MCP runtime tools, export CLI.
+
+3. **IMPL-semantic-pr-diff** (4 agents, 2 waves): Relationship-level impact analysis: SemanticDiff, PRImpact, `knowing diff` CLI, MCP handler upgrades, GitHub Action for PR comments.
+
+Plus: integration test, test coverage (33 new tests), CI/CD workflows, distribution doc, roadmap update, architecture and features doc updates.
+
 ### By the numbers
 
 | Metric | Start of session | End of session |
 |--------|-----------------|----------------|
-| Go LOC | 12,203 | ~17,000+ |
-| Files | 39 | 50+ |
-| Packages | 11 | 13 |
+| Go LOC | 12,203 | 19,030 |
+| Files | 39 | 58 |
+| Packages | 11 | 14 |
 | MCP tools | 11 | 14 |
 | Migrations | 3 | 4 |
-| Tests | ~80 | ~130+ |
+| CLI subcommands | 4 | 6 |
+| Tests | ~80 | ~150+ |
 
 ### Polywave stats for this session
 
@@ -1071,5 +1159,6 @@ Plus: integration test, test coverage (33 new tests), CI/CD workflows, distribut
 |------|--------|-------|-------------------|----------|
 | runtime-traces | 7 | 2 | ~25 min | GOWORK, critic caught 3 errors, schema version test |
 | runtime-wiring-devtools | 5 | 2 | ~30 min (includes rate limit wait) | Rate limit, YAML parse, DBPath wiring |
+| semantic-pr-diff | 4 | 2 | ~20 min | GOWORK in quality gates (recurring) |
 
-12 agents total across 4 waves. Zero merge conflicts in either IMPL. One rate limit incident. Two post-merge fixes (both one-liners).
+16 agents total across 6 waves. Zero merge conflicts across all 3 IMPLs. One rate limit incident. Two post-merge fixes (both one-liners). No stubs, no placeholders, no unwired symbols remaining.
