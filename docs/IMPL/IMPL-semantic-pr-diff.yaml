@@ -355,6 +355,7 @@ waves:
               subcommand because it is built from the merged codebase.
           files:
             - .github/workflows/pr-semantic-diff.yml
+      base_commit: e31f24f48d472da338660b04844299086bce84d8
     - number: 2
       agents:
         - id: D
@@ -562,6 +563,14 @@ quality_gates:
         - type: test
           command: GOWORK=off go test ./... -timeout 5m
           required: true
+post_merge_checklist:
+    groups:
+        - title: Background Service Initialization
+          items:
+            - description: Verify if semantic_test.go needs initialization in Server constructor
+            - description: Verify if impact_test.go needs initialization in Server constructor
+            - description: Verify if diff.go needs initialization in Server constructor
+            - description: Verify if diff_test.go needs initialization in Server constructor
 scaffolds:
     - file_path: internal/diff/types.go
       contents: |
@@ -644,6 +653,58 @@ scaffolds:
         }
       import_path: github.com/blackwell-systems/knowing/internal/diff
       status: committed (a494613)
+completion_reports:
+    A:
+        status: complete
+        branch: polywave/semantic-pr-diff/wave1-agent-A
+        commit: 7b5438a
+        files_changed:
+            - internal/diff/semantic.go
+            - internal/diff/impact.go
+            - internal/diff/semantic_test.go
+            - internal/diff/impact_test.go
+        files_created:
+            - internal/diff/semantic.go
+            - internal/diff/impact.go
+            - internal/diff/semantic_test.go
+            - internal/diff/impact_test.go
+        tests_added:
+            - TestSemanticDiff_EdgeChanges
+            - TestSemanticDiff_EmptyDiff
+            - TestSemanticDiff_EdgeRemoved
+            - TestPRImpact_RemovedNodeShowsCallers
+            - TestPRImpact_RiskLevelCalculation
+            - TestPRImpact_EmptyDiff
+            - TestPRImpact_MultipleEdgeChanges
+        verification: PASS
+        notes: 'Both SemanticDiff and PRImpact implemented. 7 tests passing. Note: SnapshotDiff from the store only returns edge changes (NodesAdded/NodesRemoved are empty), so modified-node detection from edge changes is the primary enrichment path. Node add/remove enrichment is wired up for when the store populates those fields.'
+    B:
+        status: complete
+        branch: polywave/semantic-pr-diff/wave1-agent-B
+        commit: 7594d35
+        files_changed:
+            - cmd/knowing/diff.go
+            - cmd/knowing/diff_test.go
+        files_created:
+            - cmd/knowing/diff.go
+            - cmd/knowing/diff_test.go
+        tests_added:
+            - TestCmdDiff_NoArgs
+            - TestCmdDiff_InvalidHash
+            - TestCmdDiff_EmptyDB
+            - TestCmdDiff_UnsupportedFormat
+        verification: PASS
+        notes: cmdDiff implementation complete with text/JSON output, hash parsing, and 4 tests. Build fails only on diff.SemanticDiff which is Agent A's scope. Wiring into main.go run() switch is wave 2 scope.
+    C:
+        status: complete
+        branch: polywave/semantic-pr-diff/wave1-agent-C
+        commit: d894772
+        files_changed:
+            - .github/workflows/pr-semantic-diff.yml
+        files_created:
+            - .github/workflows/pr-semantic-diff.yml
+        verification: PASS
+        notes: Workflow triggers on PR open/synchronize, indexes base+head, merges DBs, runs knowing diff, posts/updates comment. YAML validated. All quality gates pass (build, vet, test).
 pre_mortem:
     overall_risk: medium
     rows:
