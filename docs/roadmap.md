@@ -61,18 +61,70 @@ Bridges the static/dynamic gap. Gives the graph production ground truth, not jus
 
 **The strategic move.** Collapses two market tiers (knowledge graphs and context packing) into one tool. No other tool has both a structural graph AND runtime data to produce task-specific, token-budgeted context for agents.
 
-The insight: instead of agents making 5-10 tool calls to understand a codebase area, knowing produces a single pre-computed context block ranked by blast radius, confidence, recency, and runtime traffic. Works with any agent framework that can call an MCP tool.
+The insight: instead of agents making 5-10 tool calls to understand a codebase area, knowing produces a single pre-computed context block ranked by structural importance and runtime traffic. Works with any agent framework that can call an MCP tool.
 
 | Item | Description | Depends on | Status |
 |------|-------------|------------|--------|
-| `knowing context` CLI | `knowing context --task "description" --budget 50000` produces graph-ranked, token-budgeted context | graph core, runtime intelligence | **next** |
-| `context_for_task` MCP tool | Accepts task description + token budget, returns optimal context window | knowing context | **next** |
-| `context_for_files` MCP tool | Accepts changed files, returns blast radius context with runtime weights | knowing context | **next** |
+| `knowing context` CLI | `knowing context --task "description" --budget 50000` produces graph-ranked, token-budgeted context | graph core, runtime intelligence | **done** |
+| `context_for_task` MCP tool | Accepts task description + token budget, returns optimal context window | knowing context | **done** |
+| `context_for_files` MCP tool | Accepts changed files, returns blast radius context with runtime weights | knowing context | **done** |
+| Relevance retrieval pipeline | Multi-stage pipeline: identifier extraction, graph walk, hub/authority scoring, budget packing (see below) | graph core | **next** |
 | `context_for_pr` MCP tool | Accepts PR (changed files + diff), returns relationship-aware review context | knowing context, semantic diff | planned |
-| Graph-ranked relevance | Rank symbols by: blast radius (callers), confidence (static vs runtime), recency (last observed), distance from task target | graph core, runtime intelligence | **next** |
-| Token budget optimization | Pack the highest-ranked symbols into a token budget, XML-structured for agent consumption | relevance ranking | **next** |
 | MCP resources | `knowing://context/<scope>` subscribable resources that update when graph changes | MCP server | planned |
 | MCP prompts | Pre-built reasoning templates for common tasks (refactor, review, debug) | MCP server | planned |
+
+### Relevance Retrieval Pipeline (v2)
+
+The current context engine uses naive keyword substring matching, producing flat, undifferentiated scores. The v2 pipeline replaces this with a multi-stage approach that leverages the graph structure for relevance:
+
+**Stage 1: Identifier Extraction + Seed Selection**
+
+Extract candidate identifiers from the task description using:
+- CamelCase/snake_case splitting into component words ("refactorAuthMiddleware" -> ["refactor", "auth", "middleware"])
+- Abbreviation expansion via a maintained map (~50 entries: ctx/context, fmt/format, req/request, resp/response, err/error, cfg/config, etc.)
+- Code stop word filtering (remove: new, get, set, make, init, is, has, err, the, a, an, for, to, from, with, this, that)
+- Package path matching: if any extracted term matches a package directory name, boost symbols in that package 2x
+- Exported symbol preference: public symbols get 1.5x boost over unexported
+
+Score qualified names with BM25-style term frequency, boosted by call graph in-degree (log2(indegree) multiplier). Top N (default 20) become **seed nodes** for stage 2.
+
+**Stage 2: Random Walk with Restart (RWR)**
+
+From the seed nodes identified in stage 1, run Random Walk with Restart across the call/import graph:
+- Restart probability: 0.2 (returns to seed nodes with 20% probability each step)
+- Edge weights by type: `calls` edges propagate 1.0, `imports` edges propagate 0.5, `implements` edges propagate 0.8, `handles_route` edges propagate 0.7
+- Convergence: iterate until delta < 0.001 or 20 iterations (whichever first)
+- The stationary distribution assigns a relevance score to every reachable node
+
+For graphs under 50K nodes, this completes in under 50ms. The result naturally captures transitive relevance: if you seed from `HandleRequest`, RWR surfaces its helper functions, the types it operates on, and the middleware that calls it, without explicitly querying for them.
+
+**Stage 3: Hub/Authority Reranking (HITS)**
+
+On the subgraph of nodes with RWR score above a threshold (top 200), run HITS (Hyperlink-Induced Topic Search):
+- **Authority** nodes: heavily called symbols (the core business logic)
+- **Hub** nodes: symbols that call many others (orchestrators, entry points)
+- For most tasks, return authorities first (the logic you need to understand), then hubs (the entry points that wire things together)
+- 5-10 iterations on a 200-node subgraph, converges instantly
+
+Combine: `final_score = 0.5 * rwr_score + 0.3 * authority_score + 0.2 * secondary_signals` where secondary signals are confidence, recency, and runtime observation count.
+
+**Stage 4: Density-Ranked Knapsack Packing**
+
+Pack scored symbols into the token budget using a greedy density heuristic:
+- Score each symbol as `final_score / estimated_token_cost`
+- Sort descending, greedily include until budget exhausted
+- Hierarchy rule: if a method is included, include its parent type signature at 0.3x cost weight
+- Partial inclusion: for large symbols, include signature + first-line doc, not full body
+- Token estimation: 4 chars per token (existing heuristic)
+
+This outperforms uniform inclusion by maximizing information density per token spent.
+
+**Why this pipeline:**
+- No external dependencies (no embedding model, no vector DB, no LLM calls)
+- Deterministic (same task description + same graph state = same output, always)
+- Fast (all stages combined < 100ms for 10K-node graphs)
+- Leverages the graph structure we already have (edges, provenance, confidence)
+- Produces meaningfully differentiated scores (hub nodes score higher than leaf functions)
 
 ## Workstream: Developer Visibility
 
@@ -101,11 +153,12 @@ Turns knowing from a query layer into a coordination layer for multi-agent workf
 
 ```
 Graph Core ──────────────────────────────> all other workstreams          ✓ DONE
-Edge types (6 languages + routes) ───────> Context ranking               ✓ DONE
-Runtime intelligence (traces + decay) ───> Context ranking               ✓ DONE
-Context ranking ─────────────────────────> Graph-aware context packing   ← NEXT
-Semantic PR diff ────────────────────────> PR context tool               ✓ DONE (diff done, context planned)
-Context packing + MCP ───────────────────> Claude Code hooks             planned
+Edge types (6 languages + routes) ───────> Context packing v1            ✓ DONE
+Runtime intelligence (traces + decay) ───> Context packing v1            ✓ DONE
+Context packing v1 ──────────────────────> Relevance pipeline v2         ← NEXT
+Relevance pipeline v2 ───────────────────> Claude Code hooks             planned
+Relevance pipeline v2 ───────────────────> context_for_pr                planned
+Semantic PR diff ────────────────────────> context_for_pr                ✓ DONE
 Trace ingestion pipeline ────────────────> Database query edges          planned
 Call graph + traversal ──────────────────> Graph-native test selection   planned
 Ownership edges ─────────────────────────> Ownership routing             planned
@@ -115,11 +168,11 @@ Snapshot chain + Merkle sync ────────────> Federated gra
 
 ## What's next (priority order)
 
-1. **Graph-aware context packing.** The highest-leverage feature. `knowing context --task "refactor auth" --budget 50000` produces a single, token-budgeted context block ranked by graph relationships and runtime traffic. This is the wedge for adoption: zero infrastructure, works with any agent, instant value. Collapses Tier 1 (knowledge graphs) and Tier 3 (context packing) into one tool.
+1. **Relevance retrieval pipeline v2.** The current context engine finds symbols by naive keyword substring matching, producing flat undifferentiated scores. The v2 pipeline (detailed above) replaces this with: identifier extraction with stop-word filtering -> Random Walk with Restart from seed nodes -> HITS hub/authority reranking -> density-ranked knapsack packing. This is the single change that makes context packing actually useful. No external model needed, deterministic, fast.
 
-2. **MCP expansion.** Add `context_for_task`, `context_for_files`, `context_for_pr` tools. Add MCP resources for subscribable context. Add MCP prompts for common agent tasks. Target: 25+ tools (currently 14).
+2. **Claude Code hooks.** PreToolUse hook that automatically injects relevant context before agent edits. PostToolUse hook that validates changes against the graph. This is the zero-effort adoption path: install knowing, and every agent edit gets structural awareness without the agent doing anything.
 
-3. **Claude Code hooks.** PreToolUse hook that automatically injects relevant context before agent edits. PostToolUse hook that validates changes against the graph. This is what GitNexus does and it drives their adoption.
+3. **`context_for_pr` MCP tool.** Accepts a PR (changed files + diff), runs the retrieval pipeline seeded from changed symbols, returns relationship-aware review context. Depends on the v2 pipeline being good enough.
 
 4. **More edge types.** Protobuf/gRPC edges, event edges (Kafka/NATS), schema edges (OpenAPI). Each extends the graph's coverage without changing the architecture.
 
@@ -129,15 +182,17 @@ Snapshot chain + Merkle sync ────────────> Federated gra
 
 When using agentic workflows (polywave or similar), the following can be implemented simultaneously:
 
-**Now (all foundations complete):**
-- `knowing context` CLI + relevance ranking + token budgeting (the core)
-- `context_for_task` MCP tool
-- `context_for_files` MCP tool
-- More MCP tools (symbol search, path finding, subgraph extraction)
-- Claude Code hooks (PreToolUse/PostToolUse)
+**Now (context packing v1 complete, pipeline v2 is next):**
+- Identifier extraction + stop-word filter (new file in internal/context/)
+- Random Walk with Restart implementation (new file in internal/context/)
+- HITS hub/authority scoring (new file in internal/context/)
+- Density-ranked knapsack packer (modify existing format/packing logic)
 
-**After context packing:**
-- `context_for_pr` MCP tool (needs both context packing and semantic diff)
+These four components of the v2 pipeline are independent algorithms that compose sequentially but can be implemented in parallel (each is a pure function with defined inputs/outputs).
+
+**After v2 pipeline:**
+- Claude Code hooks (PreToolUse/PostToolUse auto-context injection)
+- `context_for_pr` MCP tool
 - MCP resources (subscribable context)
 - MCP prompts (reasoning templates)
 
@@ -146,3 +201,4 @@ When using agentic workflows (polywave or similar), the following can be impleme
 - Graph-native test selection
 - Traversal cache
 - Database query edges
+- More MCP tools (symbol search, path finding, subgraph extraction)
