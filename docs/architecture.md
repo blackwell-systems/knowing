@@ -97,7 +97,7 @@ knowing daemon (long-lived)
   ├── Change Detector (git-based: post-commit hooks, .git/HEAD watch, polling fallback)
   ├── Indexer (two-tier: tree-sitter extraction + LSP enrichment)
   ├── Graph Store (SQLite behind GraphStore interface, WAL mode)
-  ├── MCP Server (stdio or HTTP, serves agent queries)
+  ├── MCP Server (stdio or HTTP, 14 tools across execution/intelligence/runtime planes)
   ├── Snapshot Manager (computes Merkle roots, GCs old snapshots)
   └── Trace Ingestor (OTel spans, HTTP logs → runtime edges)
 ```
@@ -261,6 +261,29 @@ LSP enrichment uses `github.com/blackwell-systems/agent-lsp/pkg/lsp`, a pure Go 
 | `lsp_resolved` | 0.9 | LSP GetDefinition confirmation | After Tier 2 (seconds more) |
 | `ast_resolved` | 1.0 | go/packages full type resolution | `--full` flag only (minutes) |
 
+### HTTP Route Extraction
+
+During Tier 1 tree-sitter extraction, the Go extractor (`gotsextractor`) detects HTTP route handler registrations and creates graph nodes and edges that bridge static analysis and runtime trace ingestion.
+
+**Detection:** The extractor walks function and method bodies for call expressions matching known HTTP router registration patterns. It recognizes five router packages:
+
+| Package | Methods detected |
+|---------|-----------------|
+| `net/http` | `HandleFunc`, `Handle` |
+| `github.com/go-chi/chi` (v1 and v5) | `Get`, `Post`, `Put`, `Delete`, `Patch` |
+| `github.com/gin-gonic/gin` | `GET`, `POST`, `PUT`, `DELETE`, `PATCH` |
+| `github.com/labstack/echo` (v1 and v4) | `GET`, `POST`, `PUT`, `DELETE`, `PATCH` |
+| `github.com/gorilla/mux` | `HandleFunc`, `Handle` |
+
+Detection uses a fast pre-filter (method name must be in the union of all known route methods) followed by import path verification. For local variables (e.g., `r := chi.NewRouter()`), the extractor infers the router package from the file's import set.
+
+**Graph output:** Each detected route registration produces:
+
+1. A `route_handler` node whose `QualifiedName` encodes the repo, package, HTTP method, and route pattern (e.g., `github.com/org/repo://api.GET /users/:id`). The `Signature` field stores the route pattern.
+2. A `handles_route` edge from the route handler node to the handler function node, with provenance `ast_inferred` and confidence `0.7`.
+
+**Route symbols table:** The route handler nodes are the static-analysis side of a bridge to runtime traces. After indexing, the `route_symbols` table maps `(service_name, route_pattern, mapping_type)` to the route handler node's hash. The runtime trace `SymbolResolver` looks up this table to connect observed HTTP traffic to the correct graph node. Without route extraction during indexing, the resolver falls back to synthetic unresolved nodes with confidence `0.3`.
+
 ### Indexing Tiers (Repository Scope)
 
 - **Local repositories (deep)**: Full two-tier extraction. tree-sitter for declarations and calls, LSP enrichment for type resolution and edge discovery. Every symbol, call, import, implements, and reference relationship is extracted.
@@ -404,6 +427,7 @@ The graph connects symbols with typed, provenance-annotated edges:
 | Category | Edge types |
 |----------|-----------|
 | Code | `calls`, `imports`, `implements`, `references` |
+| Route | `handles_route` (route handler node to handler function, from static extraction) |
 | Protocol | `rpc_calls`, `produces_event`, `consumes_event` |
 | Schema | `reads_field`, `writes_field`, `declares_route`, `consumes_route` |
 | Infrastructure | `deploys`, `connects_to`, `depends_on_service` |
@@ -418,40 +442,44 @@ The daemon is a single process with concurrent goroutines, not a distributed sys
 
 ### Goroutine Architecture
 
-The daemon runs three primary goroutines, plus optional goroutines for MCP serving and LSP enrichment:
+The daemon runs three primary goroutines, plus optional goroutines for MCP serving, LSP enrichment, and trace ingestion:
 
 ```
-┌───────────────────────────────────────────────────────────┐
-│                     Daemon Process                         │
-│                                                           │
-│  ┌─────────────┐   indexCh    ┌──────────────┐            │
-│  │  watchLoop   │────────────>│  indexWorker  │            │
-│  │  goroutine   │  (buffered  │  goroutine    │            │
-│  │              │   chan, 128) │              │            │
-│  └──────┬───────┘             └──────┬───────┘            │
-│         │                            │                    │
-│    reads from                   on success:               │
-│    GitWatcher.Events()          spawns background          │
-│    (fsnotify loop)              enrichment goroutine       │
-│         │                            │                    │
-│  ┌──────┴───────┐             ┌──────┴───────┐            │
-│  │  GitWatcher   │             │  enrichment  │            │
-│  │  event loop   │             │  goroutine   │            │
-│  │  (debounce)   │             │  (per index) │            │
-│  └───────────────┘             └──────────────┘            │
-│                                                           │
-│  ┌───────────────┐                                        │
-│  │  MCP Server   │  (optional, serves agent queries)      │
-│  │  goroutine    │                                        │
-│  └───────────────┘                                        │
-│                                                           │
-│  main goroutine: blocks on <-ctx.Done(), then shutdown()  │
-└───────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                          Daemon Process                               │
+│                                                                      │
+│  ┌─────────────┐   indexCh    ┌──────────────┐                       │
+│  │  watchLoop   │────────────>│  indexWorker  │                       │
+│  │  goroutine   │  (buffered  │  goroutine    │                       │
+│  │              │   chan, 128) │              │                       │
+│  └──────┬───────┘             └──────┬───────┘                       │
+│         │                            │                               │
+│    reads from                   on success:                          │
+│    GitWatcher.Events()          spawns background                     │
+│    (fsnotify loop)              enrichment goroutine                  │
+│         │                            │                               │
+│  ┌──────┴───────┐             ┌──────┴───────┐                       │
+│  │  GitWatcher   │             │  enrichment  │                       │
+│  │  event loop   │             │  goroutine   │                       │
+│  │  (debounce)   │             │  (per index) │                       │
+│  └───────────────┘             └──────────────┘                       │
+│                                                                      │
+│  ┌───────────────┐            ┌───────────────────────────────────┐   │
+│  │  MCP Server   │  (opt.)    │  traceIngestLoop goroutine (opt.) │   │
+│  │  goroutine    │            │  ├── OTLPReceiver (gRPC server)   │   │
+│  └───────────────┘            │  ├── batchTicker (FlushBatch)     │   │
+│                               │  └── decayTicker (DecayConfidence)│   │
+│                               └───────────────────────────────────┘   │
+│                                                                      │
+│  main goroutine: blocks on <-ctx.Done(), then shutdown()             │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 **watchLoop goroutine:** Reads `CommitEvent` values from the `GitWatcher.Events()` channel. For each event, it combines changed, added, and deleted file lists into a single `indexRequest` and sends it to `indexCh`. If the channel is full (128-item buffer), the event is dropped. This goroutine never blocks on indexing; it only enqueues.
 
 **indexWorker goroutine:** Reads `indexRequest` values from `indexCh` sequentially. For each request, it resolves the HEAD commit, acquires the daemon's write lock, calls `IndexFunc`, and releases the write lock. On success, it spawns a background goroutine for LSP enrichment. Requests are processed one at a time; there is never concurrent indexing.
+
+**traceIngestLoop goroutine (optional):** Runs when `TraceConfig` is enabled. Opens a dedicated SQLite database connection (separate from the main store connection), creates a `SymbolResolver`, `Ingestor`, and `OTLPReceiver`, then starts the gRPC receiver. The goroutine runs two periodic tickers: a `BatchInterval` ticker that calls `FlushBatch` to ingest accumulated spans, and an hourly ticker that calls `DecayConfidence` to reduce confidence on stale runtime edges. On context cancellation, it performs a final `FlushBatch` with a background context to drain any remaining spans, then stops the `OTLPReceiver` and closes the database connection.
 
 **main goroutine:** Calls `Start()`, which launches all goroutines, then blocks on `<-ctx.Done()`. When the context is cancelled (via `Stop()` or external signal), it calls `shutdown()`, which closes `indexCh`, closes the `GitWatcher`, and calls `wg.Wait()` to block until all goroutines have exited.
 
@@ -668,6 +696,174 @@ The write lock is held only during Tier 1 extraction and snapshot computation. Q
 
 ---
 
+## Runtime Trace Ingestion
+
+The runtime trace ingestion subsystem creates graph edges from production observability data. It bridges the gap between static analysis (what the code declares) and runtime behavior (what the code actually does in production). Runtime edges coexist with static edges in the same SQLite database and the same graph pipeline, distinguished by their `otel_trace` provenance prefix.
+
+### Pipeline
+
+```
+OTel-instrumented services
+        │
+        ▼
+┌───────────────────────────────────────────────────────┐
+│ OTLPReceiver (gRPC server, OTLP trace protocol)       │
+│   Listens on configurable endpoint (default :4317)    │
+│   Implements coltracepb.TraceServiceServer             │
+│   Receives ExportTraceServiceRequest messages          │
+└───────────────────────────┬───────────────────────────┘
+                            │
+                            ▼
+┌───────────────────────────────────────────────────────┐
+│ Span Normalization                                     │
+│   Extracts service.name from Resource attributes       │
+│   Converts OTLP Span proto to internal TraceSpan      │
+│   Extracts: TraceID, SpanID, ServiceName, Attributes   │
+│   Extracts peer.service for cross-service edges        │
+└───────────────────────────┬───────────────────────────┘
+                            │
+                            ▼
+┌───────────────────────────────────────────────────────┐
+│ Batch Accumulation (AddToBatch)                        │
+│   Spans buffered in memory (mutex-protected slice)     │
+│   Auto-flush when batch reaches configured BatchSize   │
+│   Periodic flush on BatchInterval ticker               │
+└───────────────────────────┬───────────────────────────┘
+                            │
+                            ▼
+┌───────────────────────────────────────────────────────┐
+│ Symbol Resolution (SymbolResolver.ResolveSpan)         │
+│   Source: ComputeNodeHash from span.ServiceName        │
+│   Target: resolve from span attributes:                │
+│     http.method + http.route  → http_route lookup      │
+│     rpc.service + rpc.method  → grpc_method lookup     │
+│   Queries route_symbols table for target node hash     │
+│   Falls back to synthetic unresolved node (conf 0.3)   │
+└───────────────────────────┬───────────────────────────┘
+                            │
+                            ▼
+┌───────────────────────────────────────────────────────┐
+│ Edge Creation / Deduplication                          │
+│   Edge hash: sha256(source + target + type + "otel_trace") │
+│   If edge exists: increment observation_count,         │
+│     update last_observed, recompute confidence          │
+│   If new: INSERT edge + record "added" edge event      │
+│   Provenance: "otel_trace:{trace_ids:[...]}"           │
+└───────────────────────────────────────────────────────┘
+```
+
+### Edge Type Classification
+
+The ingestor determines edge type from span attributes:
+
+| Attributes present | Edge type |
+|-------------------|-----------|
+| `http.method` | `runtime_calls` |
+| `rpc.service` | `runtime_rpc` |
+| `messaging.system` + `messaging.destination` | `runtime_produces` |
+| `messaging.system` (no destination) | `runtime_consumes` |
+| (default) | `runtime_calls` |
+
+### Confidence Scoring
+
+Runtime edge confidence is computed from two factors: observation volume and recency. The `ComputeConfidence` function combines both.
+
+**Observation-based scoring (within last 7 days):**
+
+| Observation count | Confidence |
+|------------------|------------|
+| > 1000 | 0.95 |
+| 100 - 1000 | 0.85 |
+| 10 - 99 | 0.7 |
+| 1 - 9 | 0.5 |
+| 0 | 0.2 |
+
+**Time-based decay:**
+
+| Days since last observed | Effect |
+|-------------------------|--------|
+| 0 - 7 | Active; confidence from observation count |
+| 8 - 30 | Recent; confidence from observation count |
+| 31 - 90 | Stale; confidence forced to 0.2 |
+| > 90 | GC-eligible; confidence 0.0 |
+
+The daemon runs `DecayConfidence` hourly. This updates all `otel_`-provenance edges that have not been observed in 30+ days, setting their confidence to 0.2. Edges not observed in 90+ days are candidates for garbage collection.
+
+**Decay brackets (diagnostic labels):**
+
+| Bracket | Days since last observed |
+|---------|------------------------|
+| `active` | 0 - 7 |
+| `recent` | 8 - 30 |
+| `stale` | 31 - 90 |
+| `gc_eligible` | > 90 |
+
+### Symbol Resolution
+
+The `SymbolResolver` connects runtime identifiers (HTTP routes, gRPC methods) to graph nodes using the `route_symbols` table. This table is populated during static indexing by the HTTP route extraction pass (see "HTTP Route Extraction" above).
+
+**Resolution flow:**
+
+```
+Span attributes → (service_name, route_pattern, mapping_type)
+    │
+    ▼
+route_symbols table lookup (composite PK: service_name + route_pattern + mapping_type)
+    │
+    ├── Found: return node_hash with confidence 1.0
+    └── Not found: return synthetic hash (ComputeNodeHash with "UNRESOLVED" package)
+                   with confidence 0.3
+```
+
+**Source resolution:** The source hash is always a synthetic service node computed from `span.ServiceName`. This represents the calling service, not a specific function.
+
+**Target resolution:** The target is resolved via `route_symbols` using the peer service name (or the span's own service if no peer). The mapping type is determined from span attributes: `http_route` for HTTP calls, `grpc_method` for gRPC calls, `unknown` for unrecognized patterns.
+
+### Edge Deduplication
+
+Runtime edges are deduplicated by their hash. The edge hash uses `"otel_trace"` as a fixed provenance string (not the specific trace ID), so the same source-target-type relationship always maps to the same hash regardless of which trace sampled it.
+
+When a duplicate edge arrives:
+- `observation_count` is incremented
+- `last_observed` is updated to the current timestamp
+- `confidence` is recomputed from the new count and zero days since observation
+
+This means high-traffic routes accumulate higher confidence over time, while low-traffic routes remain at lower confidence until enough observations arrive.
+
+### Batch Accumulation
+
+The `Ingestor` supports two ingestion modes:
+
+1. **Direct:** `IngestSpans` processes a slice of spans immediately.
+2. **Batched:** `AddToBatch` appends spans to a pending slice (mutex-protected). The batch is flushed when it reaches `BatchSize` (auto-flush) or when the daemon's `BatchInterval` ticker fires.
+
+The batch pattern avoids per-span database writes during high-throughput ingestion. The `OTLPReceiver.Export` method uses `AddToBatch` for each span in an OTLP request, letting the ingestor accumulate spans across multiple gRPC calls before flushing to the database.
+
+### HTTP Log Ingestion
+
+The ingestor also accepts HTTP access log entries via `IngestHTTPLogs`. Each `HTTPLogEntry` is converted to a `TraceSpan` with `http.method` and `http.route` attributes, then delegated to `IngestSpans`. This provides an ingestion path for environments that do not use OTel tracing but do produce standard HTTP access logs.
+
+### Runtime and Static Edge Coexistence
+
+Runtime edges and static edges share the same `edges` table. They are distinguished by provenance: static edges carry `ast_inferred`, `lsp_resolved`, or `ast_resolved` provenance; runtime edges carry `otel_trace` provenance. This design means:
+
+- All graph queries (blast radius, transitive callers, dataflow tracing) automatically include runtime edges alongside static edges.
+- The `observation_count` and `last_observed` columns (added by migration 004) default to 0 for static edges, which do not use observation-based scoring.
+- Runtime edge statistics are computed by filtering on `provenance LIKE 'otel_%'`.
+
+---
+
+## Export CLI
+
+The `knowing export` subcommand exports the knowledge graph as JSON to stdout. The export structure contains three top-level fields: `nodes` (with hash, qualified name, kind, line, signature), `edges` (with hash, source, target, type, confidence, provenance), and `metadata` (with repo, snapshot, export timestamp, and counts).
+
+Filters:
+- `--repo <url>`: filter nodes and edges to a single repository (by matching file hashes against repo files)
+- `--snapshot <hash>`: record the snapshot in metadata (filtering by snapshot is informational)
+- `--format json`: the only supported format (default)
+
+---
+
 ## Design Goals
 
 - **Content-addressed**: every graph state is a hash; history, staleness, and integrity are structural properties, not bolted-on features
@@ -746,13 +942,14 @@ The intelligence plane does not need the same trust. It interprets the graph but
 | Control flow test | Do they affect what the indexer produces? | No. They read the graph; they don't write to it. |
 | Trust test | Would users trust the graph if these features were proprietary? | Yes. The graph is content-addressed and verifiable regardless. |
 
-**The MCP tool split:**
+**The MCP tool split (14 tools):**
 
 | Tool | Plane | Why |
 |------|-------|-----|
 | `index_repo` | Execution | Produces graph state |
 | `cross_repo_callers` | Execution | Direct graph traversal (basic read) |
 | `graph_query` | Execution | Direct graph query (basic read) |
+| `repo_graph` | Execution | Direct graph read (repo-level view) |
 | `blast_radius` | Intelligence | Computed analysis over the graph |
 | `trace_dataflow` | Intelligence | Multi-hop interpreted traversal |
 | `semantic_diff` | Intelligence | Snapshot comparison with classification |
@@ -760,9 +957,13 @@ The intelligence plane does not need the same trust. It interprets the graph but
 | `snapshot_diff` | Intelligence | Structural diff between graph states |
 | `stale_edges` | Intelligence | Staleness analysis |
 | `ownership` | Intelligence | Cross-referencing graph with ownership metadata |
-| `repo_graph` | Execution | Direct graph read (repo-level view) |
+| `runtime_traffic` | Runtime | Query runtime-observed edges by service and route pattern |
+| `dead_routes` | Runtime | Find route symbols with no recent observations |
+| `trace_stats` | Runtime | Aggregate statistics about runtime-derived edges |
 
 Basic graph reads (`cross_repo_callers`, `graph_query`, `repo_graph`) are execution-plane operations: they return what the graph contains without interpretation. Intelligence-plane tools compute, classify, compare, or aggregate, and they produce derived results that are themselves content-addressed artifacts.
+
+**Runtime plane tools** require the underlying store to be a `SQLiteStore` (not just any `GraphStore` implementation). The MCP server obtains a `*SQLiteStore` via type assertion at construction time (`store.(*knowingstore.SQLiteStore)`), avoiding an import of the store package from the MCP handlers. If the assertion fails (e.g., when running against a mock store in tests), the runtime tools return an error indicating runtime queries are not available. This pattern keeps the MCP server decoupled from the concrete store implementation while providing access to runtime-specific query methods (`RuntimeEdgesByService`, `DeadRoutes`, `RuntimeEdgeStatsAggregate`) that are not part of the `GraphStore` interface.
 
 **The trace ingestion boundary:**
 
@@ -904,6 +1105,7 @@ If you start with INSERT/UPDATE/DELETE (mutable state), you can never recover th
 | `inferred_from_import` | 0.7 | Inferred from import statement (no call site found) |
 | `openapi_declared` | 0.7 | Declared in OpenAPI/proto spec |
 | `text_matched` | 0.3 | Matched by text heuristic (string literal, comment) |
+| `otel_trace` | 0.2 - 0.95 | Observed in production via OpenTelemetry traces; confidence varies by observation count and recency |
 | `manual` | 1.0 | Manually declared by user |
 
 **Why:**
@@ -950,8 +1152,9 @@ Each repo maintains a monotonically increasing counter (Lamport clock). When rep
 ```
 internal/store/migrations/
   001_initial_schema.sql
-  002_add_provenance_fields.sql
-  003_add_ownership_table.sql
+  002_add_dangling_edge_support.sql
+  003_add_callsite_columns.sql
+  004_add_runtime_columns.sql
 ```
 
 **Why:**
@@ -1144,7 +1347,9 @@ CREATE TABLE edges (
     target_hash  BLOB NOT NULL REFERENCES nodes(node_hash),
     edge_type    TEXT NOT NULL,  -- calls, imports, implements, produces, consumes
     confidence   REAL NOT NULL DEFAULT 1.0,
-    provenance   TEXT NOT NULL DEFAULT 'ast_resolved'
+    provenance   TEXT NOT NULL DEFAULT 'ast_resolved',
+    observation_count INTEGER NOT NULL DEFAULT 0,  -- runtime: incremented per observation
+    last_observed     INTEGER NOT NULL DEFAULT 0   -- runtime: unix timestamp of last observation
 );
 
 -- Append-only event log
@@ -1174,14 +1379,27 @@ CREATE TABLE schema_version (
     version INTEGER PRIMARY KEY
 );
 
+-- Route symbol mappings (runtime identifier -> graph node)
+CREATE TABLE route_symbols (
+    service_name  TEXT NOT NULL,
+    route_pattern TEXT NOT NULL,
+    node_hash     BLOB NOT NULL,
+    mapping_type  TEXT NOT NULL,  -- http_route, grpc_method, queue_topic
+    created_at    INTEGER NOT NULL,
+    PRIMARY KEY (service_name, route_pattern, mapping_type)
+);
+
 -- Indexes for common query patterns
 CREATE INDEX idx_nodes_qualified ON nodes(qualified_name);
 CREATE INDEX idx_nodes_file ON nodes(file_hash);
 CREATE INDEX idx_edges_source ON edges(source_hash);
 CREATE INDEX idx_edges_target ON edges(target_hash);
 CREATE INDEX idx_edges_type ON edges(edge_type);
+CREATE INDEX idx_edges_provenance ON edges(provenance);
+CREATE INDEX idx_edges_last_observed ON edges(last_observed);
 CREATE INDEX idx_edge_events_snapshot ON edge_events(snapshot_hash);
 CREATE INDEX idx_files_repo ON files(repo_hash);
+CREATE INDEX idx_route_symbols_node ON route_symbols(node_hash);
 ```
 
 ## 10. Storage Interface (Backend Swappability)
