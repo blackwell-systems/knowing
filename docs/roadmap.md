@@ -168,7 +168,7 @@ Snapshot chain + Merkle sync ────────────> Federated gra
 
 ## What's next (priority order)
 
-1. **KG1: Graph-native wire format.** A compact, tokenizer-aware wire format designed for graph-shaped MCP responses. Existing approaches use columnar TSV (table formats), achieving ~27% token savings. KG1 goes further by exploiting graph structure: nodes declared once with local IDs, edges as references, session-stateful deduplication. Target: 40-50% token savings on context responses, 100% round-trip integrity. See detailed spec below.
+1. **KWF: Graph-native wire format.** A compact, tokenizer-aware wire format designed for graph-shaped MCP responses. Existing approaches use columnar TSV (table formats), achieving ~27% token savings. KWF goes further by exploiting graph structure: nodes declared once with local IDs, edges as references, session-stateful deduplication. Target: 40-50% token savings on context responses, 100% round-trip integrity. See detailed spec below.
 
 2. **Claude Code hooks.** PreToolUse hook that automatically injects relevant context before agent edits. PostToolUse hook that validates changes against the graph. Zero-effort adoption path.
 
@@ -178,11 +178,11 @@ Snapshot chain + Merkle sync ────────────> Federated gra
 
 5. **More edge types.** Protobuf/gRPC edges, event edges (Kafka/NATS), schema edges (OpenAPI).
 
-### KG1: Graph-Native Wire Format
+### KWF: Graph-Native Wire Format
 
 The current industry approach to compact MCP responses is table-oriented: declare column names in a header, emit rows as TSV. This saves ~27% tokens vs JSON by eliminating repeated field names. But it treats graph data as flat tables, losing structural information.
 
-KG1 is designed specifically for knowledge graph responses. It exploits three properties that table formats cannot:
+KWF is designed specifically for knowledge graph responses. It exploits three properties that table formats cannot:
 
 **1. Referential identity.** Every node has a hash. Once transmitted, it can be referenced by a short local ID (`@0`, `@1`, ...) instead of re-serializing. Within a single response, edges reference nodes by ID rather than repeating qualified names. Across responses in a session, previously-transmitted nodes can be referenced without retransmission.
 
@@ -194,7 +194,7 @@ KG1 is designed specifically for knowledge graph responses. It exploits three pr
 
 ```
 payload       = header { node-line | edge-line | group-line | comment } ;
-header        = "KG1" SP "tool=" token { SP key-value } LF ;
+header        = "KWF" SP "tool=" token { SP key-value } LF ;
 group-line    = "##" SP text LF ;
 node-line     = "@" id SP kind SP qname SP score [ SP provenance ] [ SP metadata ] LF ;
 edge-line     = "@" target "<" "@" source SP edge-type [ SP metadata ] LF ;
@@ -210,7 +210,7 @@ metadata      = key "=" value { SP key "=" value } ;
 **Example (context_for_task response):**
 
 ```
-KG1 tool=context_for_task budget=5000 tokens=1847 symbols=12
+KWF tool=context_for_task budget=5000 tokens=1847 symbols=12
 ## targets
 @0 fn github.com/blackwell-systems/knowing/internal/mcp.requireHash 0.78 lsp_resolved callers=18
 @1 method github.com/blackwell-systems/knowing/internal/mcp.Server.registerTools 0.74 lsp_resolved out=16
@@ -242,7 +242,7 @@ KG1 tool=context_for_task budget=5000 tokens=1847 symbols=12
 **Token comparison (estimated):**
 - JSON: ~450 tokens for 12 symbols with edges
 - GCX1 (table format): ~330 tokens (27% savings)
-- KG1 (graph format): ~220 tokens (51% savings)
+- KWF (graph format): ~220 tokens (51% savings)
 
 The savings come from:
 - No repeated field names (like GCX1)
@@ -251,12 +251,12 @@ The savings come from:
 - Group headers instead of per-row distance fields
 - Kind abbreviations (`fn`, `method`, `iface`) instead of full strings
 
-**Session statefulness (KG1-session extension):**
+**Session statefulness (KWF-session extension):**
 
 When the format is used across multiple tool calls in a session, the server can maintain a "transmitted nodes" set. If `@0` (requireHash) was already sent in a previous response, subsequent responses can reference it without re-declaring:
 
 ```
-KG1 tool=context_for_files tokens=800 symbols=5 session=true
+KWF tool=context_for_files tokens=800 symbols=5 session=true
 ## targets
 @0  # previously transmitted
 @7 fn github.com/blackwell-systems/knowing/internal/mcp.handleBlastRadius 0.62 lsp_resolved
@@ -267,18 +267,18 @@ KG1 tool=context_for_files tokens=800 symbols=5 session=true
 This makes multi-call workflows (agent calls context_for_task, then blast_radius, then context_for_files) progressively cheaper as the session builds up a shared vocabulary of known symbols.
 
 **Implementation plan:**
-- `internal/wire/kg1.go`: encoder (ContextBlock -> KG1 text)
-- `internal/wire/kg1_decode.go`: decoder (KG1 text -> ContextBlock) for round-trip testing
+- `internal/wire/kg1.go`: encoder (ContextBlock -> KWF text)
+- `internal/wire/kg1_decode.go`: decoder (KWF text -> ContextBlock) for round-trip testing
 - `internal/wire/kg1_test.go`: encode/decode round-trip, token counting comparison vs JSON
 - Add `format: "kg1"` option to context_for_task and context_for_files MCP tools
 - Add `--format kg1` to `knowing context` CLI
-- Benchmark harness comparing JSON vs KG1 token counts on real graph data
+- Benchmark harness comparing JSON vs KWF token counts on real graph data
 
 **Design principles:**
 - Text-only (debuggable, no binary encoding)
 - Round-trippable (encode -> decode -> re-encode produces identical output)
 - Tokenizer-aware (delimiters chosen to minimize tiktoken token count)
-- Backwards compatible (JSON remains the default; KG1 is opt-in via `format` parameter)
+- Backwards compatible (JSON remains the default; KWF is opt-in via `format` parameter)
 - Session-stateful is opt-in (stateless mode works standalone)
 - Extensible (new kind abbreviations and metadata keys can be added without version bump)
 
@@ -301,8 +301,8 @@ bench/wire-format/
 ```
 
 For each fixture case, the harness measures:
-- **Bytes:** raw UTF-8 byte length (JSON vs KG1)
-- **Tokens:** tiktoken cl100k_base token count (JSON vs KG1) (this is the metric that matters)
+- **Bytes:** raw UTF-8 byte length (JSON vs KWF)
+- **Tokens:** tiktoken cl100k_base token count (JSON vs KWF) (this is the metric that matters)
 - **Round-trip integrity:** encode -> decode -> re-encode, compare to original (must be 100%)
 - **Encode latency:** time to serialize (must be < 1ms for typical responses)
 - **Decode latency:** time to parse back (must be < 1ms)
@@ -310,14 +310,14 @@ For each fixture case, the harness measures:
 Acceptance criteria (must all pass before shipping):
 - Median token savings >= 35% vs JSON across all fixture cases
 - Round-trip integrity: 100% (zero cases fail)
-- No case where KG1 is LARGER than JSON (degenerate cases use JSON fallback)
+- No case where KWF is LARGER than JSON (degenerate cases use JSON fallback)
 - Encode/decode latency < 1ms p99 for responses under 500 symbols
 
 The benchmark runs in CI (`go test -bench ./bench/wire-format/`) so regressions are caught automatically. The scorecard is regenerated on every change to the encoder.
 
 **CLI integration:**
 ```bash
-knowing context --task "refactor auth" --format kg1    # output in KG1
+knowing context --task "refactor auth" --format kg1    # output in KWF
 knowing context --task "refactor auth" --format json   # output in JSON (default)
 knowing bench-format                                    # run the benchmark, print scorecard
 ```
