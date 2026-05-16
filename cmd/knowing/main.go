@@ -118,7 +118,8 @@ func cmdServe(args []string) error {
 	})
 
 	d := daemon.NewDaemon(daemon.DaemonConfig{
-		Store: st,
+		Store:  st,
+		DBPath: *dbPath,
 		IndexFunc: func(ctx context.Context, repoURL, repoPath, commitHash string, changedFiles []string) error {
 			_, err := idx.IndexRepo(ctx, repoURL, repoPath, commitHash)
 			return err
