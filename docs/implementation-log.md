@@ -1168,11 +1168,85 @@ Three rounds of integration testing, all against real SQLite (no mocks):
 
 ---
 
+## Multi-Language Extractors (2026-05-15)
+
+Going from 2 languages (Go + Python) to 6 (adding TypeScript/JS, Rust, Java, C#). Each extractor follows the gotsextractor pattern: tree-sitter AST walking, declarations + imports + call edges with positions, framework-specific route detection.
+
+### Scout
+
+Scout analyzed the existing extractors and produced IMPL-multi-lang-extractors with 5 agents across 2 waves. Each language gets its own package under `internal/indexer/`.
+
+**Decomposition:**
+
+| Wave | Agent | Language | Route detection | Files |
+|------|-------|----------|----------------|-------|
+| 1 | A | TypeScript/JS | Express.js | tsextractor/ (2) |
+| 1 | B | Rust | Actix, Axum, Rocket | rustextractor/ (2) |
+| 1 | C | Java | Spring annotations | javaextractor/ (2) |
+| 1 | D | C# | ASP.NET attributes | csharpextractor/ (2) |
+| 2 | E | (wiring) | - | cmd/knowing/main.go |
+
+### Critic
+
+Passed clean (0 errors, 1 advisory warning about Python extractor registration scope in the brief).
+
+### Wave 1 (4 parallel agents)
+
+| Agent | Language | Duration | LOC | Tests |
+|-------|----------|----------|-----|-------|
+| A | TypeScript/JS | 232s | 1,007 | 13 |
+| B | Rust | 244s | 988 | 13 |
+| C | Java | 248s | 1,080 | 13 |
+| D | C# | 221s | 943 | 14 |
+
+All 4 agents implemented: struct/class/interface/enum declarations, method extraction, import/use/require parsing, call edges with call-site positions (line, column, file), framework-specific HTTP route detection, and provenance `ast_inferred` at confidence 0.7.
+
+**Merge:** Clean, zero conflicts. All 18 packages pass (4 new extractor packages).
+
+### Wave 2 (1 agent)
+
+| Agent | Duration | Task |
+|-------|----------|------|
+| E | 93s | Registered all 4 extractors in cmdServe and cmdIndex |
+
+**Merge:** Clean. All 18 packages pass.
+
+### Language support matrix
+
+| Language | Extensions | Route detection | Extractor package |
+|----------|-----------|----------------|-------------------|
+| Go | .go | net/http, chi, gin, echo, gorilla/mux | gotsextractor (+ LSP enrichment) |
+| Python | .py | none | treesitter |
+| TypeScript/JS | .ts, .tsx, .js, .jsx | Express.js | tsextractor |
+| Rust | .rs | Actix, Axum, Rocket | rustextractor |
+| Java | .java | Spring annotations | javaextractor |
+| C# | .cs | ASP.NET attributes | csharpextractor |
+
+### Friction
+
+**Zero.** Cleanest IMPL of the session. 4 independent extractors in parallel, no shared files, no conflicts, no test failures. The extractor interface is well-designed for this kind of parallel work.
+
+---
+
+## Test Coverage Push (2026-05-15)
+
+4 parallel agents targeted the lowest-coverage packages:
+
+| Package | Before | After | New tests |
+|---------|--------|-------|-----------|
+| mcp | 5 | 62 | +45 (all 14 handlers, error paths, helpers) |
+| daemon | 9 | 27 | +18 (git diff, watcher lifecycle, trace config) |
+| diff | 6 | 21 | +15 (risk boundaries, large diffs, parse helpers) |
+| resolver | 8 | 12 | +4 (empty store, cross-repo, no-match) |
+| gotsextractor | 9 | 16 | +7 (gin routes, multi-route, methods, cross-pkg calls) |
+
+---
+
 ## Final Session Summary (2026-05-15)
 
 ### What was built today
 
-Three polywave IMPLs plus extensive testing and documentation:
+Four polywave IMPLs plus extensive testing, documentation, and competitive analysis:
 
 1. **IMPL-runtime-traces** (7 agents, 2 waves): Core pipeline components: types, store migration, symbol resolver, confidence scoring, ingestor, OTLP placeholder, daemon CLI flags.
 
@@ -1180,19 +1254,22 @@ Three polywave IMPLs plus extensive testing and documentation:
 
 3. **IMPL-semantic-pr-diff** (4 agents, 2 waves): Relationship-level impact analysis: SemanticDiff, PRImpact, `knowing diff` CLI, MCP handler upgrades, GitHub Action for PR comments.
 
-Plus: 9 integration tests, 33 unit test coverage additions, CI/CD workflows, distribution doc, roadmap update, architecture doc, features doc, CLI reference, MCP tools reference.
+4. **IMPL-multi-lang-extractors** (5 agents, 2 waves): TypeScript/JS, Rust, Java, C# extractors with framework-specific route detection. knowing now supports 6 languages.
+
+Plus: integration tests, test coverage (95+ new tests across 4 rounds), CI/CD workflows, distribution doc, roadmap update, architecture doc, features doc, CLI reference, MCP tools reference, competitive analysis.
 
 ### By the numbers
 
 | Metric | Start of session | End of session |
 |--------|-----------------|----------------|
-| Go LOC | 12,203 | 19,938 |
-| Files | 39 | 59 |
-| Packages | 11 | 14 |
+| Go LOC | 12,203 | 27,387 |
+| Files | 39 | 67 |
+| Packages | 11 | 18 |
+| Languages supported | 2 | 6 |
 | MCP tools | 11 | 14 |
 | Migrations | 3 | 4 |
 | CLI subcommands | 4 | 6 |
-| Passing tests | ~80 | 228 |
+| Passing tests | ~80 | 376 |
 
 ### Polywave stats for this session
 
@@ -1201,5 +1278,6 @@ Plus: 9 integration tests, 33 unit test coverage additions, CI/CD workflows, dis
 | runtime-traces | 7 | 2 | ~25 min | GOWORK, critic caught 3 errors, schema version test |
 | runtime-wiring-devtools | 5 | 2 | ~30 min (includes rate limit wait) | Rate limit, YAML parse, DBPath wiring |
 | semantic-pr-diff | 4 | 2 | ~20 min | GOWORK in quality gates (recurring) |
+| multi-lang-extractors | 5 | 2 | ~15 min | Zero friction |
 
-16 agents total across 6 waves. Zero merge conflicts across all 3 IMPLs. One rate limit incident. Two post-merge fixes (both one-liners). No stubs, no placeholders, no unwired symbols remaining. 228 tests passing across 14 packages.
+21 agents total across 8 waves. Zero merge conflicts across all 4 IMPLs. One rate limit incident. Two post-merge fixes (both one-liners). No stubs, no placeholders, no unwired symbols remaining. 376 tests passing across 18 packages.
