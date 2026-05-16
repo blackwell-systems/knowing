@@ -1,0 +1,1053 @@
+title: Graph-Aware Context Packing
+feature_slug: graph-context-packing
+verdict: SUITABLE
+suitability_assessment: |
+    All five suitability questions resolve cleanly:
+
+    1. File decomposition: The work decomposes into 12 files across 3 distinct packages
+       (internal/context, internal/mcp, cmd/knowing). No two agents need conflicting
+       modifications to the same file. The context engine is a new package; CLI and MCP
+       changes add to existing files but in disjoint sections.
+
+    2. Investigation-first items: None. The architecture is well-established (GraphStore
+       interface, MCP server pattern, CLI subcommand pattern). All foundations exist.
+
+    3. Interface discoverability: Yes. The GraphStore interface is stable, the MCP handler
+       pattern is clear from 14 existing tools, and the CLI subcommand pattern is
+       well-established. Cross-agent interfaces can be fully defined.
+
+    4. Pre-implementation status: No existing context packing code exists. The roadmap
+       marks this as "next" with status planned. This is greenfield implementation
+       building on established infrastructure.
+
+    5. Parallelization value: High. Build+test cycle is ~30s (go build + go test with
+       SQLite). Agents own 3-6 files each. Wave 1 has 2 independent agents working in
+       disjoint files within the same new package. Wave 2 has 2 agents in completely
+       separate packages (cmd vs internal/mcp).
+
+    Estimated times:
+    - Scout phase: ~8 min (dependency mapping, interface contracts, IMPL doc)
+    - Agent execution: ~10 min (4 agents across 2 waves, ~5 min avg per agent, parallel)
+    - Merge and verification: ~3 min
+    Total Polywave time: ~21 min
+
+    Sequential baseline: ~40 min (4 agents x 10 min avg sequential)
+    Time savings: ~19 min (48% faster)
+
+    Recommendation: Clear speedup. Proceed with parallel execution.
+test_command: GOWORK=off go test ./... -timeout 5m
+lint_command: go vet ./...
+file_ownership:
+    - file: internal/context/context.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/context/ranking.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/context/tokens.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/context/context_test.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/context/ranking_test.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/context/tokens_test.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/context/format.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/context/format_test.go
+      agent: B
+      wave: 1
+      action: new
+    - file: cmd/knowing/context.go
+      agent: C
+      wave: 2
+      action: new
+    - file: cmd/knowing/context_test.go
+      agent: C
+      wave: 2
+      action: new
+    - file: cmd/knowing/main.go
+      agent: C
+      wave: 2
+      action: modify
+    - file: internal/mcp/context_handlers.go
+      agent: D
+      wave: 2
+      action: new
+    - file: internal/mcp/context_handlers_test.go
+      agent: D
+      wave: 2
+      action: new
+    - file: internal/mcp/server.go
+      agent: D
+      wave: 2
+      action: modify
+interface_contracts:
+    - name: NewContextEngine
+      description: Constructor for the context engine, accepts a GraphStore
+      definition: |
+        func NewContextEngine(store types.GraphStore) *ContextEngine
+      location: internal/context/context.go
+    - name: ContextEngine.ForTask
+      description: Produces ranked context for a task description by finding relevant symbols
+      definition: |
+        func (e *ContextEngine) ForTask(ctx context.Context, opts TaskOptions) (*ContextBlock, error)
+
+        type TaskOptions struct {
+          TaskDescription string
+          TokenBudget     int    // default 50000
+          Format          string // "xml", "markdown", "json"
+          DBPath          string // path to knowing.db (for CLI usage)
+        }
+      location: internal/context/context.go
+    - name: ContextEngine.ForFiles
+      description: Produces blast-radius context weighted by runtime observations for changed files
+      definition: |
+        func (e *ContextEngine) ForFiles(ctx context.Context, opts FileOptions) (*ContextBlock, error)
+
+        type FileOptions struct {
+          Files       []string // relative file paths
+          RepoURL     string   // repo URL for resolving file hashes
+          TokenBudget int      // default 50000
+          Format      string   // "xml", "markdown", "json"
+        }
+      location: internal/context/context.go
+    - name: RankSymbols
+      description: 'Core ranking algorithm: scores symbols by blast_radius (40%), confidence (25%), recency (20%), distance (15%)'
+      definition: |
+        func RankSymbols(symbols []ScoringInput) []RankedSymbol
+
+        type ScoringInput struct {
+          Node            types.Node
+          CallerCount     int     // number of transitive callers (blast radius)
+          Confidence      float64 // provenance tier confidence (0.0-1.0)
+          LastObserved    int64   // unix timestamp of last runtime observation (0 = static only)
+          DistanceFromTarget int  // hops from the task target symbol
+        }
+      location: internal/context/ranking.go
+    - name: EstimateTokens
+      description: 'Token estimation heuristic: 4 chars per token for code'
+      definition: |
+        func EstimateTokens(text string) int
+      location: internal/context/tokens.go
+    - name: FormatContextBlock
+      description: Renders a ContextBlock into the requested format (xml/markdown/json)
+      definition: |
+        func FormatContextBlock(block *ContextBlock, format string) (string, error)
+      location: internal/context/format.go
+    - name: handleContextForTask
+      description: MCP tool handler for context_for_task
+      definition: |
+        func (s *Server) handleContextForTask(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error)
+      location: internal/mcp/context_handlers.go
+    - name: handleContextForFiles
+      description: MCP tool handler for context_for_files
+      definition: |
+        func (s *Server) handleContextForFiles(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error)
+      location: internal/mcp/context_handlers.go
+waves:
+    - number: 1
+      agents:
+        - id: A
+          task: |
+            ## Context: Graph-Aware Context Packing - Core Engine + Ranking + Tokens
+
+            Implement the core context engine in `internal/context/`. This is a new package
+            that queries the knowing knowledge graph to produce task-specific, token-budgeted
+            context blocks ranked by graph relationships and runtime traffic.
+
+            ### What to implement
+
+            **File: `internal/context/context.go`**
+
+            Package declaration and core types:
+            ```go
+            package context
+            ```
+
+            Types to define:
+            - `ContextEngine` struct holding a `types.GraphStore` field (unexported field `store`)
+            - `TaskOptions` struct with fields: TaskDescription string, TokenBudget int, Format string, DBPath string
+            - `FileOptions` struct with fields: Files []string, RepoURL string, TokenBudget int, Format string
+            - `ContextBlock` struct with fields: Symbols []RankedSymbol, Format string, TokensUsed int, TokenBudget int
+            - `RankedSymbol` struct with fields: Node types.Node, Score float64, Components ScoreComponents, Provenance string, Distance int
+            - `ScoreComponents` struct with fields: BlastRadius float64, Confidence float64, Recency float64, Distance float64
+
+            Functions:
+            - `NewContextEngine(store types.GraphStore) *ContextEngine` - constructor
+            - `(e *ContextEngine) ForTask(ctx context.Context, opts TaskOptions) (*ContextBlock, error)` - main entry point for task-based context
+            - `(e *ContextEngine) ForFiles(ctx context.Context, opts FileOptions) (*ContextBlock, error)` - main entry point for file-based context
+
+            ForTask logic:
+            1. If TokenBudget is 0, default to 50000
+            2. Extract keywords from TaskDescription (split on spaces, filter stop words like "the", "a", "in", "to", "for", "is", "of", "and", "or")
+            3. Deduplicate keywords, convert to lowercase
+            4. Use store.NodesByName with each keyword as prefix to find candidate symbols
+            5. Deduplicate candidates by NodeHash
+            6. For each candidate (up to 100 to limit work), query blast radius:
+               - Call store.EdgesTo(ctx, node.NodeHash, "calls") to count callers
+               - Call store.EdgesFrom(ctx, node.NodeHash, "calls") to find callees
+               - Use the first edge's Confidence and LastObserved as representative values
+            7. Build ScoringInput for each symbol:
+               - CallerCount = len(callers)
+               - Confidence = max confidence from incoming edges (or 0.5 if no edges)
+               - LastObserved = max LastObserved from any connected edge
+               - DistanceFromTarget = 0 for direct keyword matches
+            8. Also add callers (Distance=1) and callees (Distance=1) as additional candidates
+            9. Call RankSymbols to score and sort all candidates
+            10. Pack into ContextBlock respecting TokenBudget:
+                - Iterate ranked symbols, accumulate token cost via EstimateNodeTokens
+                - Stop adding when budget would be exceeded
+                - Set TokensUsed to actual accumulated tokens
+
+            ForFiles logic:
+            1. If TokenBudget is 0, default to 50000
+            2. Compute repoHash from RepoURL: types.NewHash([]byte(opts.RepoURL))
+            3. For each file path, call store.FileByPath(ctx, repoHash, path)
+            4. For each found file, call store.NodesByName(ctx, "") and filter results where Node.FileHash matches file.FileHash
+               (Note: this is a simplification; ideally we'd have a NodesByFile query, but the existing API works via prefix search filtered client-side)
+            5. For each node found in the files:
+               - Query callers via store.EdgesTo(ctx, node.NodeHash, "calls")
+               - Get runtime observation data from edges (ObservationCount, LastObserved)
+               - Build ScoringInput with Distance=0
+            6. For each caller of file nodes, also build ScoringInput with Distance=1
+            7. Call RankSymbols, then pack into ContextBlock respecting budget
+
+            **File: `internal/context/ranking.go`**
+
+            The ranking algorithm implementation:
+
+            ```go
+            package context
+            ```
+
+            Types:
+            - `ScoringInput` struct with fields: Node types.Node, CallerCount int, Confidence float64, LastObserved int64, DistanceFromTarget int
+
+            Functions:
+            - `RankSymbols(symbols []ScoringInput) []RankedSymbol` - scores, sorts descending by Score, returns results
+
+            Scoring formula (each symbol gets a Score from 0.0 to 1.0):
+            - blast_radius_score = min(1.0, float64(CallerCount) / 50.0) * 0.40
+            - confidence_score = Confidence * 0.25
+            - recency_score = recencyFromTimestamp(LastObserved) * 0.20
+            - distance_score = (1.0 / (1.0 + float64(DistanceFromTarget))) * 0.15
+            - Total Score = blast_radius_score + confidence_score + recency_score + distance_score
+
+            Helper function (unexported):
+            ```go
+            func recencyFromTimestamp(ts int64) float64
+            ```
+            - If ts == 0: return 0.0 (static-only edge, no runtime observation)
+            - If within 1 day of now: return 1.0
+            - If within 7 days: return 0.8
+            - If within 30 days: return 0.5
+            - If older: return 0.2
+
+            Sort by Score descending using sort.Slice. Populate each RankedSymbol with:
+            - Node from ScoringInput.Node
+            - Score = total computed score
+            - Components = ScoreComponents{BlastRadius: blast_radius_score, Confidence: confidence_score, Recency: recency_score, Distance: distance_score}
+            - Provenance = Node's provenance if available (empty string if not applicable at this level)
+            - Distance = ScoringInput.DistanceFromTarget
+
+            **File: `internal/context/tokens.go`**
+
+            Token estimation:
+
+            ```go
+            package context
+            ```
+
+            Functions:
+            - `EstimateTokens(text string) int` - returns len(text) / 4 (integer division)
+            - `EstimateNodeTokens(n types.Node) int` - estimates tokens for a node's full representation:
+              Returns EstimateTokens(n.QualifiedName + " " + n.Kind + " " + n.Signature)
+
+            **File: `internal/context/context_test.go`**
+
+            Unit tests for ForTask and ForFiles using a mock GraphStore:
+
+            ```go
+            package context
+            ```
+
+            Create a minimal mock that implements only the GraphStore methods used:
+            ```go
+            type mockStore struct {
+              nodes []types.Node
+              edges []types.Edge
+              files []types.File
+            }
+            ```
+            Implement: NodesByName, EdgesFrom, EdgesTo, FileByPath, GetNode.
+            Other methods can return nil/empty (they won't be called).
+
+            Test cases:
+            - TestForTask_EmptyDescription: empty task returns empty block (no symbols)
+            - TestForTask_MatchingKeywords: seed store with nodes whose QualifiedName contains "auth", call ForTask with "refactor auth", verify symbols returned
+            - TestForTask_TokenBudgetRespected: seed many nodes, use tiny budget (100), verify TokensUsed <= TokenBudget
+            - TestForTask_DefaultBudget: call with TokenBudget=0, verify defaults to 50000
+            - TestForFiles_ValidFiles: seed store with files and nodes, verify symbols found
+            - TestForFiles_NoMatchingFiles: empty file list returns empty block
+
+            **File: `internal/context/ranking_test.go`**
+
+            Comprehensive tests for the ranking algorithm:
+
+            ```go
+            package context
+            ```
+
+            Test cases:
+            - TestRankSymbols_Empty: empty input returns empty/nil output
+            - TestRankSymbols_SingleSymbol: single symbol gets correct score breakdown
+            - TestRankSymbols_BlastRadiusWeight: symbol with CallerCount=50 scores higher on BlastRadius component (0.40) than one with CallerCount=1 (0.008)
+            - TestRankSymbols_ConfidenceWeight: Confidence=1.0 gives component 0.25; Confidence=0.7 gives 0.175
+            - TestRankSymbols_RecencyWeight: recently observed (time.Now().Unix()) gives component 0.20; never-observed (0) gives 0.0
+            - TestRankSymbols_DistanceWeight: distance 0 gives component 0.15; distance 3 gives 0.0375
+            - TestRankSymbols_Ordering: verify results are sorted by Score descending
+            - TestRankSymbols_ComponentBreakdown: known inputs produce exact expected ScoreComponents values
+            - TestRankSymbols_MaxBlastRadius: CallerCount=100 (>50) caps blast radius component at 0.40
+
+            **File: `internal/context/tokens_test.go`**
+
+            Tests for token estimation:
+
+            ```go
+            package context
+            ```
+
+            Test cases:
+            - TestEstimateTokens_Empty: "" returns 0
+            - TestEstimateTokens_Short: "hello" (5 chars) returns 1
+            - TestEstimateTokens_Long: 400-char string returns 100
+            - TestEstimateTokens_CodeSnippet: a realistic Go function signature
+            - TestEstimateNodeTokens_Basic: verify includes QualifiedName + Kind + Signature
+
+            ### Interfaces
+
+            Import from `github.com/blackwell-systems/knowing/internal/types`:
+            - `types.GraphStore` interface (the store dependency)
+            - `types.Node`, `types.Edge`, `types.Hash`, `types.File` (data types)
+            - `types.CallerResult` (from TransitiveCallers)
+
+            Standard library: `context`, `sort`, `strings`, `time`, `testing`
+
+            ### Verification gate
+
+            ```bash
+            cd /Users/dayna.blackwell/code/knowing && go build ./internal/context/... && go test ./internal/context/... -run "TestForTask|TestForFiles|TestRankSymbols|TestEstimateTokens" -v -count=1
+            ```
+
+            Postconditions:
+            ```bash
+            # ContextEngine type exists
+            grep -c "type ContextEngine struct" internal/context/context.go
+            # Expected: 1
+
+            # RankSymbols function exists
+            grep -c "func RankSymbols" internal/context/ranking.go
+            # Expected: 1
+
+            # EstimateTokens function exists
+            grep -c "func EstimateTokens" internal/context/tokens.go
+            # Expected: 1
+
+            # Ranking tests exist
+            grep -c "func TestRankSymbols" internal/context/ranking_test.go
+            # Expected: 9
+
+            # Token tests exist
+            grep -c "func TestEstimateTokens" internal/context/tokens_test.go
+            # Expected: at least 4
+            ```
+
+            ### Constraints
+            - Do NOT modify any existing files. All files are new in internal/context/.
+            - Do NOT import or call FormatContextBlock; formatting is handled by Agent B in format.go.
+            - Do NOT add MCP handlers or CLI commands; those are Wave 2.
+            - Use the package name `context` (not `ctx` or `contextpacking`). The import path
+              will be `github.com/blackwell-systems/knowing/internal/context` and callers will
+              use a named import like `knowingctx` to avoid collision with stdlib context.
+            - For stdlib context usage within the package, use the identifier directly since
+              the package IS named context. For the stdlib context.Context type in method
+              signatures, use the full standard library import since Go allows importing
+              the stdlib `context` even when the package is named `context` (the local
+              package name takes precedence for unqualified references, but stdlib imports
+              work via full path). Alternatively, use a named import for stdlib:
+              `stdctx "context"` and use `stdctx.Context` in signatures.
+          files:
+            - internal/context/context.go
+            - internal/context/ranking.go
+            - internal/context/tokens.go
+            - internal/context/context_test.go
+            - internal/context/ranking_test.go
+            - internal/context/tokens_test.go
+        - id: B
+          task: |
+            ## Context: Graph-Aware Context Packing - Output Formatting
+
+            Implement the output formatting for context blocks in `internal/context/format.go`.
+            This file handles rendering ranked symbols into XML, Markdown, or JSON format
+            suitable for agent consumption.
+
+            ### What to implement
+
+            **File: `internal/context/format.go`**
+
+            Package: `context` (same package as the engine)
+
+            Since this file is in the same Go package as context.go but you are working in
+            an isolated worktree without Agent A's files, you must define the types you
+            reference. Define them identically to Agent A's definitions so they merge cleanly:
+
+            At the top of format.go, you need these types to exist for compilation.
+            Since Agent A creates them in context.go (same package), you should NOT
+            redefine them. Instead, structure your code to work with what will exist
+            after merge. For your isolated compilation, create a minimal `types_format.go`
+            file that Agent A's context.go will supersede at merge time.
+
+            IMPORTANT: Actually, do NOT create types_format.go. Instead, define ALL types
+            in format.go itself using build tags or conditional compilation. Actually, the
+            simplest approach: since both files are in the same package and will be merged,
+            just write format.go assuming the types exist (they will after merge). Your
+            worktree won't compile in isolation, but that's OK because the build gate runs
+            post-merge.
+
+            REVISED: To ensure compilation in isolation, include the type definitions in
+            format.go as well. Go allows identical type definitions to coexist only if
+            they're in the same declaration. Since that won't work, take this approach:
+
+            **Create `internal/context/format.go` with the format function that references
+            types defined in a companion file `internal/context/format_types.go`.**
+
+            Wait, that still has the same problem. The cleanest approach for isolated
+            compilation:
+
+            **Final approach: Define the shared types in format.go itself.** Agent A will
+            define them in context.go. At merge time, one of the two definitions must be
+            removed. To avoid this merge conflict, Agent B should structure format.go to
+            accept the ContextBlock type by defining it locally with the EXACT same structure.
+
+            Actually, the right answer is simpler: **Agent B should just write format.go
+            and format_test.go assuming the types from context.go exist.** The build
+            verification gate for Agent B is: `go vet ./internal/context/...` will fail
+            in isolation but succeed post-merge. Agent B's verification gate should be
+            adjusted to only check for syntax correctness, not compilation.
+
+            FINAL DECISION: Write format.go referencing ContextBlock, RankedSymbol, and
+            ScoreComponents as if they exist (they will, from Agent A's context.go in the
+            same package). For your isolated worktree to compile, also create a small
+            `internal/context/format_deps.go` stub file containing ONLY the type definitions
+            needed. Mark it clearly with a comment that it will be superseded by context.go.
+            Actually this causes duplicate type errors at merge.
+
+            THE ACTUAL SOLUTION: Agent B creates format.go that imports and uses the types
+            from the types package (types.Node) and defines its own format-local types for
+            the input. The FormatContextBlock function signature will be:
+
+            ```go
+            // FormatBlock formats a context block into the specified format.
+            // This is the package-level entry point called by CLI and MCP handlers.
+            type FormatInput struct {
+              Symbols     []FormatSymbol
+              TokensUsed  int
+              TokenBudget int
+            }
+
+            type FormatSymbol struct {
+              QualifiedName string
+              Kind          string
+              Signature     string
+              Score         float64
+              Confidence    float64
+              Provenance    string
+              Distance      int
+              Components    FormatComponents
+              // Runtime fields
+              ObservationCount int
+              LastObserved     int64
+            }
+
+            type FormatComponents struct {
+              BlastRadius float64
+              Confidence  float64
+              Recency     float64
+              Distance    float64
+            }
+
+            func FormatOutput(input FormatInput, format string) (string, error)
+            ```
+
+            NO. This breaks the interface contract. Let me reconsider the architecture.
+
+            ============================================================
+            CORRECT APPROACH: Since both Agent A and Agent B are creating files in the
+            same package that will be merged together, and Go requires all files in a
+            package to compile together, we handle this as follows:
+
+            Agent B writes format.go WITH the shared type definitions included at the top.
+            Agent A writes context.go WITH the same shared type definitions.
+            At merge time, the duplicate type definitions will cause a compile error.
+            The orchestrator resolves this by removing the duplicate definitions from
+            format.go (keeping them only in context.go).
+
+            BUT the better engineering solution that avoids merge pain is:
+
+            **Agent B creates format.go using ONLY types.Node from the types package
+            plus its own local format types. The `FormatContextBlock` function accepts
+            a `*ContextBlock` parameter but since ContextBlock is in the same package,
+            it compiles only after merge. Agent B's verification gate skips build.**
+
+            Let me just be direct about what to do:
+            ============================================================
+
+            Create `internal/context/format.go` with:
+
+            ```go
+            package context
+            ```
+
+            The function `FormatContextBlock(block *ContextBlock, format string) (string, error)`
+            references ContextBlock (defined by Agent A in context.go). In your isolated
+            worktree, this will NOT compile because context.go doesn't exist yet. This is
+            expected. Your verification gate checks syntax only via `gofmt -e`.
+
+            Implementation of FormatContextBlock:
+            - Switch on format: "xml", "markdown", "json"
+            - Default format is "xml" if empty string
+            - Return error for unknown format
+
+            **XML format** (optimized for agent consumption):
+            Use fmt.Fprintf with a strings.Builder to construct XML. Group symbols by Distance:
+            - Distance 0 -> <target_symbols> section
+            - Distance 1 -> <direct_callers> and <direct_callees> (distinguish by relationship context; since we don't track caller vs callee in RankedSymbol, put all Distance=1 in <related_symbols>)
+            - Distance 2+ -> <extended_context> section
+
+            XML structure:
+            ```xml
+            <context tokens_used="N" token_budget="M">
+              <target_symbols>
+                <symbol name="..." kind="..." score="0.XX" confidence="0.XX" provenance="..." distance="0">
+                  <signature>...</signature>
+                </symbol>
+              </target_symbols>
+              <related_symbols>
+                <symbol name="..." kind="..." score="0.XX" confidence="0.XX" provenance="..." distance="1">
+                  <signature>...</signature>
+                </symbol>
+              </related_symbols>
+              <extended_context>
+                <symbol name="..." kind="..." score="0.XX" distance="2">
+                  <signature>...</signature>
+                </symbol>
+              </extended_context>
+              <relationship_summary>
+                <total_symbols>N</total_symbols>
+                <by_distance>
+                  <distance hop="0" count="X"/>
+                  <distance hop="1" count="Y"/>
+                  <distance hop="2" count="Z"/>
+                </by_distance>
+              </relationship_summary>
+            </context>
+            ```
+
+            **Markdown format**:
+            ```
+            # Context (N/M tokens)
+
+            ## Target Symbols
+            - `qualified.Name` (kind, score: 0.XX, confidence: 0.XX)
+              Signature: `func Name(...) ...`
+
+            ## Related Symbols (distance: 1)
+            - `qualified.Name` (kind, score: 0.XX)
+
+            ## Extended Context (distance: 2+)
+            - `qualified.Name` (kind, score: 0.XX)
+            ```
+
+            **JSON format**: Use local wrapper types with JSON struct tags:
+            ```go
+            type jsonOutput struct {
+              TokensUsed  int          `json:"tokens_used"`
+              TokenBudget int          `json:"token_budget"`
+              Symbols     []jsonSymbol `json:"symbols"`
+            }
+            type jsonSymbol struct {
+              QualifiedName string         `json:"qualified_name"`
+              Kind          string         `json:"kind"`
+              Score         float64        `json:"score"`
+              Signature     string         `json:"signature"`
+              Provenance    string         `json:"provenance"`
+              Distance      int            `json:"distance"`
+              Components    jsonComponents `json:"components"`
+            }
+            type jsonComponents struct {
+              BlastRadius float64 `json:"blast_radius"`
+              Confidence  float64 `json:"confidence"`
+              Recency     float64 `json:"recency"`
+              Distance    float64 `json:"distance"`
+            }
+            ```
+            Convert ContextBlock.Symbols to jsonOutput and marshal with json.MarshalIndent.
+
+            **File: `internal/context/format_test.go`**
+
+            ```go
+            package context
+            ```
+
+            Since tests also need ContextBlock and RankedSymbol types (from Agent A's context.go),
+            the tests will also not compile in isolation. Write them assuming the types exist.
+
+            Test cases (construct ContextBlock literals directly in tests):
+            - TestFormatXML_Basic: create a ContextBlock with 2 symbols (distance 0 and 1), format as XML, verify output contains <context>, <target_symbols>, <related_symbols>
+            - TestFormatMarkdown_Basic: same block, format as markdown, verify "# Context" header and symbol entries
+            - TestFormatJSON_Basic: format as JSON, verify json.Unmarshal succeeds on output
+            - TestFormatUnknown: format="invalid" returns error
+            - TestFormatEmpty: empty ContextBlock produces valid output (no panic)
+            - TestFormatXML_Grouping: 3 symbols at distances 0, 1, 2 are grouped into correct sections
+
+            ### Verification gate
+
+            Since this code cannot compile in isolation (depends on Agent A's types in same package),
+            the verification gate for Agent B is syntax checking only:
+
+            ```bash
+            cd /Users/dayna.blackwell/code/knowing && gofmt -e internal/context/format.go && gofmt -e internal/context/format_test.go && echo "PASS: syntax OK"
+            ```
+
+            The post-merge gate will verify full compilation: `go build ./internal/context/...`
+
+            Postconditions:
+            ```bash
+            # FormatContextBlock function exists
+            grep -c "func FormatContextBlock" internal/context/format.go
+            # Expected: 1
+
+            # Three format cases handled
+            grep -c 'case "xml"' internal/context/format.go
+            # Expected: 1
+            grep -c 'case "markdown"' internal/context/format.go
+            # Expected: 1
+            grep -c 'case "json"' internal/context/format.go
+            # Expected: 1
+            ```
+
+            ### Constraints
+            - Do NOT create context.go, ranking.go, or tokens.go (owned by Agent A).
+            - Do NOT define ContextEngine, TaskOptions, FileOptions, ScoringInput, or
+              RankSymbols. These are Agent A's responsibility.
+            - DO define ContextBlock, RankedSymbol, and ScoreComponents in format.go IF AND
+              ONLY IF you cannot compile without them. If you do, use EXACTLY the same field
+              names and types as specified in the interface contracts above. This will cause
+              a duplicate definition at merge time that the orchestrator will resolve by keeping
+              Agent A's definition (in context.go) and removing yours.
+            - PREFERRED: Write code that references these types without defining them. Accept
+              that your worktree won't compile. The post-merge build gate validates compilation.
+            - Do NOT import the mcp package or cmd package.
+          files:
+            - internal/context/format.go
+            - internal/context/format_test.go
+    - number: 2
+      agents:
+        - id: C
+          task: |
+            ## Context: Graph-Aware Context Packing - CLI Subcommand
+
+            Implement the `knowing context` CLI subcommand in `cmd/knowing/context.go`
+            and wire it into the main command dispatch.
+
+            ### What to implement
+
+            **File: `cmd/knowing/context.go`**
+
+            Package: `main`
+
+            Function: `cmdContext(args []string) error`
+
+            Flags (use flag.NewFlagSet("context", flag.ExitOnError)):
+            - `-task` (string): task description for context generation
+            - `-files` (string): comma-separated list of changed file paths
+            - `-budget` (int, default 50000): token budget
+            - `-format` (string, default "xml"): output format (xml/markdown/json)
+            - `-db` (string, default "knowing.db"): path to SQLite database
+            - `-repo` (string): repository URL for file resolution
+
+            Logic:
+            1. Parse flags with fs.Parse(args)
+            2. Validate: either -task or -files must be provided, but not both
+               - If neither: return fmt.Errorf("either --task or --files must be specified")
+               - If both non-empty: return fmt.Errorf("specify either --task or --files, not both")
+            3. Open SQLite store: store.NewSQLiteStore(*dbPath)
+            4. defer store.Close()
+            5. Create engine: knowingctx.NewContextEngine(st)
+            6. If *task != "":
+               - block, err := engine.ForTask(ctx, knowingctx.TaskOptions{
+                   TaskDescription: *task,
+                   TokenBudget:     *budget,
+                   Format:          *format,
+                 })
+            7. If *files != "":
+               - fileList := strings.Split(*files, ",")
+               - block, err := engine.ForFiles(ctx, knowingctx.FileOptions{
+                   Files:       fileList,
+                   RepoURL:     *repo,
+                   TokenBudget: *budget,
+                   Format:      *format,
+                 })
+            8. Format: output, err := knowingctx.FormatContextBlock(block, *format)
+            9. fmt.Print(output) (no trailing newline from format; or fmt.Println if format doesn't add one)
+            10. return nil
+
+            Import the context package with a named import to avoid collision with stdlib:
+            ```go
+            import (
+              stdctx "context"
+              "flag"
+              "fmt"
+              "strings"
+
+              knowingctx "github.com/blackwell-systems/knowing/internal/context"
+              "github.com/blackwell-systems/knowing/internal/store"
+            )
+            ```
+
+            **File: `cmd/knowing/main.go`** (edit)
+
+            Add "context" case to the switch in the `run` function. Insert after this exact text:
+            ```go
+            	case "diff":
+            		return cmdDiff(args[1:])
+            ```
+
+            Add:
+            ```go
+            	case "context":
+            		return cmdContext(args[1:])
+            ```
+
+            Also add to `printUsage()`. Insert after this exact text:
+            ```go
+            	fmt.Fprintln(os.Stderr, "  diff     Compute semantic diff between two snapshots")
+            ```
+
+            Add:
+            ```go
+            	fmt.Fprintln(os.Stderr, "  context  Generate graph-aware context for a task or files")
+            ```
+
+            **File: `cmd/knowing/context_test.go`**
+
+            Package: `main`
+
+            Integration-style tests using a temp database:
+
+            Helper function:
+            ```go
+            func seedContextTestDB(t *testing.T) string {
+              // Creates a temp dir, opens a SQLiteStore, seeds with test data, returns db path
+            }
+            ```
+
+            Seed with:
+            - 1 repo (URL: "test-repo", hash computed from URL)
+            - 2 files (paths: "pkg/auth/auth.go", "pkg/handler/handler.go")
+            - 4 nodes: "test-repo://pkg/auth.Login" (function), "test-repo://pkg/auth.Validate" (function),
+              "test-repo://pkg/handler.HandleLogin" (function), "test-repo://pkg/handler.Middleware" (function)
+            - 3 edges: HandleLogin calls Login, Login calls Validate, Middleware calls Validate
+
+            Test cases:
+            - TestCmdContext_NoArgs: cmdContext([]string{}) returns error containing "either"
+            - TestCmdContext_BothArgs: cmdContext([]string{"-task", "foo", "-files", "bar.go"}) returns error containing "not both"
+            - TestCmdContext_TaskFlag: cmdContext([]string{"-task", "auth login", "-db", dbPath}) returns nil, capture stdout
+            - TestCmdContext_FilesFlag: cmdContext([]string{"-files", "pkg/auth/auth.go", "-db", dbPath, "-repo", "test-repo"}) returns nil
+            - TestCmdContext_JSONFormat: cmdContext([]string{"-task", "auth", "-db", dbPath, "-format", "json"}) produces valid JSON
+            - TestCmdContext_BudgetFlag: cmdContext([]string{"-task", "auth", "-db", dbPath, "-budget", "100"}) respects small budget
+
+            ### Interfaces
+
+            Imports:
+            - `github.com/blackwell-systems/knowing/internal/store` (NewSQLiteStore, BatchPutNodes, BatchPutEdges, BatchPutFiles)
+            - `knowingctx "github.com/blackwell-systems/knowing/internal/context"` (referenced types)
+            - `github.com/blackwell-systems/knowing/internal/types` (Node, Edge, File, Hash, etc. for seeding)
+
+            ### Verification gate
+
+            ```bash
+            cd /Users/dayna.blackwell/code/knowing && go build ./cmd/knowing/... && go test ./cmd/knowing/... -run "TestCmdContext" -v -count=1
+            ```
+
+            Postconditions:
+            ```bash
+            # context subcommand is wired in main.go
+            grep -c 'case "context"' cmd/knowing/main.go
+            # Expected: 1
+
+            # cmdContext function exists
+            grep -c "func cmdContext" cmd/knowing/context.go
+            # Expected: 1
+
+            # printUsage includes context
+            grep "context" cmd/knowing/main.go | grep -c Fprintln
+            # Expected: 1
+            ```
+
+            ### Constraints
+            - Do NOT modify cmd/knowing/diff.go or cmd/knowing/diff_test.go.
+            - Do NOT modify internal/context/ files (owned by Wave 1 agents).
+            - Do NOT add MCP tool registrations (that is Agent D's job).
+            - Keep the same flag parsing pattern used by cmdDiff and cmdIndex (flag.NewFlagSet).
+            - Do NOT modify any files in internal/mcp/.
+          files:
+            - cmd/knowing/context.go
+            - cmd/knowing/context_test.go
+            - cmd/knowing/main.go
+          dependencies:
+            - A
+            - B
+        - id: D
+          task: |
+            ## Context: Graph-Aware Context Packing - MCP Tools
+
+            Implement the `context_for_task` and `context_for_files` MCP tools by adding
+            handlers and tool definitions. Place handlers in a new file to avoid conflicts
+            with existing handlers.go.
+
+            ### What to implement
+
+            **File: `internal/mcp/context_handlers.go`**
+
+            Package: `mcp`
+
+            Two handler functions and two tool definition functions:
+
+            ```go
+            // handleContextForTask handles the context_for_task MCP tool.
+            func (s *Server) handleContextForTask(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error)
+            ```
+
+            Logic:
+            1. Extract "task_description" via requireStringArg(req, "task_description")
+            2. Extract "token_budget" via getIntArg(req, "token_budget", 50000)
+            3. Create engine: knowingctx.NewContextEngine(s.store)
+            4. Call engine.ForTask(ctx, knowingctx.TaskOptions{TaskDescription: taskDesc, TokenBudget: tokenBudget, Format: "xml"})
+            5. If err != nil: return mcp.NewToolResultError(fmt.Sprintf("context_for_task failed: %v", err)), nil
+            6. Format: output, err := knowingctx.FormatContextBlock(block, "xml")
+            7. If err != nil: return mcp.NewToolResultError(fmt.Sprintf("format failed: %v", err)), nil
+            8. Return mcp.NewToolResultText(output), nil
+
+            ```go
+            // handleContextForFiles handles the context_for_files MCP tool.
+            func (s *Server) handleContextForFiles(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error)
+            ```
+
+            Logic:
+            1. Extract "files" via requireStringArg(req, "files") - comma-separated string
+            2. Extract "repo_url" via getStringArg(req, "repo_url") - optional, defaults to ""
+            3. Extract "token_budget" via getIntArg(req, "token_budget", 50000)
+            4. Split files: fileList := strings.Split(filesStr, ",")
+            5. Trim whitespace from each file path
+            6. Create engine: knowingctx.NewContextEngine(s.store)
+            7. Call engine.ForFiles(ctx, knowingctx.FileOptions{Files: fileList, RepoURL: repoURL, TokenBudget: tokenBudget, Format: "xml"})
+            8. If err != nil: return mcp.NewToolResultError(...), nil
+            9. Format and return as text
+
+            Tool definitions (in the same file):
+            ```go
+            func contextForTaskTool() mcp.Tool {
+              return mcp.NewTool("context_for_task",
+                mcp.WithDescription("Generate graph-ranked, token-budgeted context for a task description. Returns symbols ranked by blast radius, confidence, recency, and graph distance in XML format."),
+                mcp.WithReadOnlyHintAnnotation(true),
+                mcp.WithString("task_description", mcp.Required(), mcp.Description("Description of the task to generate context for")),
+                mcp.WithInteger("token_budget", mcp.Description("Maximum token budget for the context block (default 50000)")),
+              )
+            }
+
+            func contextForFilesTool() mcp.Tool {
+              return mcp.NewTool("context_for_files",
+                mcp.WithDescription("Generate blast-radius context weighted by runtime observations for a set of changed files. Returns related symbols ranked by graph proximity and runtime traffic in XML format."),
+                mcp.WithReadOnlyHintAnnotation(true),
+                mcp.WithString("files", mcp.Required(), mcp.Description("Comma-separated list of changed file paths relative to repo root")),
+                mcp.WithString("repo_url", mcp.Description("Repository URL for resolving file hashes")),
+                mcp.WithInteger("token_budget", mcp.Description("Maximum token budget for the context block (default 50000)")),
+              )
+            }
+            ```
+
+            Imports for context_handlers.go:
+            ```go
+            import (
+              "context"
+              "fmt"
+              "strings"
+
+              knowingctx "github.com/blackwell-systems/knowing/internal/context"
+              "github.com/mark3labs/mcp-go/mcp"
+            )
+            ```
+
+            **File: `internal/mcp/server.go`** (edit)
+
+            Register the two new tools in the `registerTools()` method.
+
+            Insert after this exact text:
+            ```go
+            	// Runtime trace query tools
+            	s.mcpServer.AddTool(runtimeTrafficTool(), s.handleRuntimeTraffic)
+            	s.mcpServer.AddTool(deadRoutesTool(), s.handleDeadRoutes)
+            	s.mcpServer.AddTool(traceStatsTool(), s.handleTraceStats)
+            ```
+
+            Add:
+            ```go
+
+            	// Context packing tools
+            	s.mcpServer.AddTool(contextForTaskTool(), s.handleContextForTask)
+            	s.mcpServer.AddTool(contextForFilesTool(), s.handleContextForFiles)
+            ```
+
+            Update the `ToolNames()` method return slice. Insert after this exact text:
+            ```go
+            		"trace_stats",
+            ```
+
+            Add:
+            ```go
+            		"context_for_task",
+            		"context_for_files",
+            ```
+
+            Update the package comment. Change "14 tools" to "16 tools" in the package
+            doc comment (line 3 area: "The server registers 14 tools organized into three planes:").
+
+            Update the NewServer doc comment (line 49 area: "It registers all 14 tools"):
+            change "14 tools" to "16 tools".
+
+            Add to the package doc comment, after the "Runtime plane" section (after line 24):
+            ```
+            // Context plane (graph-aware context packing):
+            //   - context_for_task: generate token-budgeted context for a task description
+            //   - context_for_files: generate blast-radius context for changed files
+            ```
+
+            **File: `internal/mcp/context_handlers_test.go`**
+
+            Package: `mcp`
+
+            Tests following the same pattern as the existing handlers_test.go. Look at
+            handlers_test.go to understand the test helper patterns (store creation, etc.).
+
+            Test cases:
+            - TestHandleContextForTask_MissingArg: call handleContextForTask with empty arguments, verify error result containing "missing required argument"
+            - TestHandleContextForTask_Valid: seed a SQLiteStore with nodes, create Server with that store, call handler with valid task_description, verify result is not error and contains XML
+            - TestHandleContextForFiles_MissingArg: call handleContextForFiles with empty arguments, verify error
+            - TestHandleContextForFiles_Valid: seed store with files and nodes, call with valid files string, verify result
+            - TestContextToolRegistration: create NewServer, call ToolNames(), verify "context_for_task" and "context_for_files" are in the returned list
+
+            Imports:
+            ```go
+            import (
+              "context"
+              "testing"
+
+              "github.com/blackwell-systems/knowing/internal/store"
+              "github.com/blackwell-systems/knowing/internal/types"
+              "github.com/mark3labs/mcp-go/mcp"
+            )
+            ```
+
+            ### Verification gate
+
+            ```bash
+            cd /Users/dayna.blackwell/code/knowing && go build ./internal/mcp/... && go test ./internal/mcp/... -run "TestHandleContext|TestContextTool" -v -count=1
+            ```
+
+            Postconditions:
+            ```bash
+            # context_for_task tool is registered in server.go
+            grep -c "context_for_task" internal/mcp/server.go
+            # Expected: at least 2 (AddTool + ToolNames)
+
+            # context_for_files tool is registered in server.go
+            grep -c "context_for_files" internal/mcp/server.go
+            # Expected: at least 2
+
+            # Handler file exists with both handlers
+            grep -c "func (s \*Server) handleContext" internal/mcp/context_handlers.go
+            # Expected: 2
+            ```
+
+            ### Constraints
+            - Do NOT modify internal/mcp/handlers.go (existing handlers, different scope).
+            - Do NOT modify internal/context/ files (owned by Wave 1 agents).
+            - Do NOT modify cmd/knowing/ files (that is Agent C's job).
+            - Follow the exact same handler pattern used in handlers.go (getStringArg, getIntArg,
+              requireStringArg helper functions). These are package-level functions already
+              defined in handlers.go and accessible from context_handlers.go since both
+              files are in package mcp.
+            - The import for stdlib context in handler signatures: since the package is named
+              `mcp` (not `context`), you can use `"context"` directly for stdlib context.
+          files:
+            - internal/mcp/context_handlers.go
+            - internal/mcp/context_handlers_test.go
+            - internal/mcp/server.go
+          dependencies:
+            - A
+            - B
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: go build ./...
+          required: true
+        - type: lint
+          command: go vet ./...
+          required: true
+        - type: test
+          command: GOWORK=off go test ./... -timeout 5m
+          required: true
+pre_mortem:
+    overall_risk: medium
+    rows:
+        - scenario: Agent A and B both in Wave 1 working in the same package (internal/context/) causes type definition conflicts at merge
+          likelihood: medium
+          impact: high
+          mitigation: Agent B is instructed to reference types without defining them (won't compile in isolation, but compiles post-merge). Agent B's verification gate is syntax-only (gofmt). Post-merge gate validates full compilation.
+        - scenario: Wave 2 agents import internal/context but Wave 1 has not yet merged
+          likelihood: low
+          impact: low
+          mitigation: Wave 2 depends on Wave 1 completion. Standard wave sequencing ensures code exists before import.
+        - scenario: Agent B's format_test.go cannot compile in isolation due to missing types
+          likelihood: high
+          impact: low
+          mitigation: Expected behavior. Agent B's verification gate checks syntax only (gofmt -e). Full build/test runs post-merge when both A and B's code is present.
+        - scenario: server.go edit conflicts between Agent D's changes and existing code
+          likelihood: low
+          impact: medium
+          mitigation: Agent D adds lines at specific append points (after trace tools section). Exact text anchors provided with surrounding context.
+        - scenario: Package name 'context' collides with stdlib context import
+          likelihood: medium
+          impact: medium
+          mitigation: Agent A instructed to use named import (stdctx "context") for stdlib context.Context in method signatures. Wave 2 callers use named import knowingctx for the package.
+        - scenario: Token estimation is too simplistic for production use
+          likelihood: high
+          impact: low
+          mitigation: The 4-chars-per-token heuristic is specified in requirements. Intentionally simple. Can be upgraded later without changing the interface.
+state: REVIEWED
+injection_method: hook
