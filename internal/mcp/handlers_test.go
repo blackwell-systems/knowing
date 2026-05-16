@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -2451,5 +2452,386 @@ func TestHandleOwnership_Integration(t *testing.T) {
 	}
 	if len(ownership[0].Nodes) != 1 {
 		t.Errorf("expected 1 node, got %d", len(ownership[0].Nodes))
+	}
+}
+
+// --- Additional coverage tests ---
+
+func TestHandleContextForTask_WithSQLiteStore_MultipleNodes(t *testing.T) {
+	ss, err := store.NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create SQLiteStore: %v", err)
+	}
+	t.Cleanup(func() { ss.Close() })
+
+	ctx := context.Background()
+
+	// Seed multiple nodes matching different keywords.
+	nodes := []types.Node{
+		{NodeHash: testHash("auth-handler"), QualifiedName: "api.AuthenticateUser", Kind: "function", Signature: "func AuthenticateUser(token string) error"},
+		{NodeHash: testHash("auth-middleware"), QualifiedName: "middleware.AuthCheck", Kind: "function", Signature: "func AuthCheck(next http.Handler) http.Handler"},
+		{NodeHash: testHash("db-connect"), QualifiedName: "db.Connect", Kind: "function", Signature: "func Connect(dsn string) (*DB, error)"},
+	}
+	for _, n := range nodes {
+		if err := ss.PutNode(ctx, n); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Add edges between them so graph ranking has something to work with.
+	edge := types.Edge{
+		EdgeHash:   types.ComputeEdgeHash(nodes[1].NodeHash, nodes[0].NodeHash, "calls", "ast_resolved"),
+		SourceHash: nodes[1].NodeHash,
+		TargetHash: nodes[0].NodeHash,
+		EdgeType:   "calls",
+		Confidence: 1.0,
+		Provenance: "ast_resolved",
+	}
+	if err := ss.PutEdge(ctx, edge); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := NewServer(ss)
+
+	req := makeCallToolRequest("context_for_task", map[string]any{
+		"task_description": "fix authentication middleware",
+		"token_budget":     float64(80000),
+	})
+
+	result, err := srv.handleContextForTask(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		text := result.Content[0].(mcp.TextContent).Text
+		t.Fatalf("expected success, got error: %s", text)
+	}
+
+	text := result.Content[0].(mcp.TextContent).Text
+	if text == "" {
+		t.Fatal("expected non-empty context output")
+	}
+	// Should be well-formed XML context.
+	if !strings.Contains(text, "<context") {
+		t.Errorf("expected XML context block, got: %.100s", text)
+	}
+}
+
+func TestHandleContextForFiles_WithSQLiteStore_MultipleFiles(t *testing.T) {
+	ss, err := store.NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create SQLiteStore: %v", err)
+	}
+	t.Cleanup(func() { ss.Close() })
+
+	ctx := context.Background()
+
+	repoURL := "https://github.com/example/myapp"
+	repoHash := types.NewHash([]byte(repoURL))
+	if err := ss.PutRepo(ctx, types.Repo{RepoHash: repoHash, RepoURL: repoURL}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Seed two files with nodes.
+	file1Hash := testHash("file-handler")
+	file2Hash := testHash("file-service")
+	if err := ss.PutFile(ctx, types.File{FileHash: file1Hash, RepoHash: repoHash, Path: "handler.go"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ss.PutFile(ctx, types.File{FileHash: file2Hash, RepoHash: repoHash, Path: "service.go"}); err != nil {
+		t.Fatal(err)
+	}
+
+	node1 := types.Node{NodeHash: testHash("handler-func"), FileHash: file1Hash, QualifiedName: "pkg.HandleRequest", Kind: "function", Signature: "func HandleRequest(w http.ResponseWriter, r *http.Request)"}
+	node2 := types.Node{NodeHash: testHash("service-func"), FileHash: file2Hash, QualifiedName: "pkg.ProcessData", Kind: "function", Signature: "func ProcessData(data []byte) error"}
+	for _, n := range []types.Node{node1, node2} {
+		if err := ss.PutNode(ctx, n); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Edge: handler calls service.
+	edge := types.Edge{
+		EdgeHash:   types.ComputeEdgeHash(node1.NodeHash, node2.NodeHash, "calls", "ast_resolved"),
+		SourceHash: node1.NodeHash,
+		TargetHash: node2.NodeHash,
+		EdgeType:   "calls",
+		Confidence: 1.0,
+		Provenance: "ast_resolved",
+	}
+	if err := ss.PutEdge(ctx, edge); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := NewServer(ss)
+
+	req := makeCallToolRequest("context_for_files", map[string]any{
+		"files":        "handler.go, service.go",
+		"repo_url":     repoURL,
+		"token_budget": float64(60000),
+	})
+
+	result, err := srv.handleContextForFiles(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		text := result.Content[0].(mcp.TextContent).Text
+		t.Fatalf("expected success, got error: %s", text)
+	}
+
+	text := result.Content[0].(mcp.TextContent).Text
+	if !strings.Contains(text, "<context") {
+		t.Errorf("expected XML context block, got: %.100s", text)
+	}
+}
+
+func TestHandleTraceStats_WithPopulatedRuntimeEdges(t *testing.T) {
+	srv, ss := newTestSQLiteServer(t)
+	ctx := context.Background()
+
+	now := time.Now().Unix()
+
+	// Insert runtime edges with varying ages and types.
+	type edgeSpec struct {
+		id       string
+		edgeType string
+		lastObs  int64
+		count    int
+	}
+	specs := []edgeSpec{
+		{"active-call-1", "calls", now - 3600, 100},          // active (1 hour ago)
+		{"active-call-2", "calls", now - 86400, 50},          // active (1 day ago)
+		{"stale-call-1", "calls", now - 45*86400, 20},        // stale (45 days)
+		{"gc-eligible-1", "calls", now - 120*86400, 5},       // GC eligible (120 days)
+		{"gc-eligible-2", "imports", now - 100*86400, 2},     // GC eligible (100 days)
+	}
+
+	for i, spec := range specs {
+		edgeHash := testHash(spec.id)
+		if err := ss.PutEdge(ctx, types.Edge{
+			EdgeHash:   edgeHash,
+			SourceHash: testHash(fmt.Sprintf("src-ts-%d", i)),
+			TargetHash: testHash(fmt.Sprintf("tgt-ts-%d", i)),
+			EdgeType:   spec.edgeType,
+			Confidence: 0.85,
+			Provenance: "otel_trace",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := ss.UpdateObservation(ctx, edgeHash, spec.count, spec.lastObs, 0.85); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	req := makeCallToolRequest("trace_stats", map[string]any{})
+
+	result, err := srv.handleTraceStats(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("expected success, got error: %v", result.Content)
+	}
+
+	text := result.Content[0].(mcp.TextContent).Text
+	var stats store.RuntimeStatsRow
+	if err := json.Unmarshal([]byte(text), &stats); err != nil {
+		t.Fatalf("failed to unmarshal stats: %v", err)
+	}
+	if stats.TotalEdges != 5 {
+		t.Errorf("expected 5 total edges, got %d", stats.TotalEdges)
+	}
+	if stats.ActiveEdges != 2 {
+		t.Errorf("expected 2 active edges, got %d", stats.ActiveEdges)
+	}
+	if stats.GCEligible < 2 {
+		t.Errorf("expected at least 2 GC eligible edges, got %d", stats.GCEligible)
+	}
+}
+
+func TestHandleDeadRoutes_MixActiveAndDead(t *testing.T) {
+	srv, ss := newTestSQLiteServer(t)
+	ctx := context.Background()
+
+	now := time.Now().Unix()
+
+	// Create an active route (has recent runtime observations).
+	activeTarget := testHash("active-handler")
+	if err := ss.PutNode(ctx, types.Node{
+		NodeHash:      activeTarget,
+		QualifiedName: "api.GetUsers",
+		Kind:          "function",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ss.PutRouteSymbol(ctx, "user-svc", "GET /users", activeTarget, "http_route"); err != nil {
+		t.Fatal(err)
+	}
+	// Add a runtime edge with recent observation.
+	activeEdge := testHash("active-edge")
+	if err := ss.PutEdge(ctx, types.Edge{
+		EdgeHash:   activeEdge,
+		SourceHash: testHash("gateway"),
+		TargetHash: activeTarget,
+		EdgeType:   "calls",
+		Confidence: 0.95,
+		Provenance: "otel_trace",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ss.UpdateObservation(ctx, activeEdge, 500, now-3600, 0.95); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create two dead routes (no recent runtime observations).
+	dead1 := testHash("dead-handler-1")
+	dead2 := testHash("dead-handler-2")
+	if err := ss.PutNode(ctx, types.Node{NodeHash: dead1, QualifiedName: "api.OldEndpoint", Kind: "function"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ss.PutNode(ctx, types.Node{NodeHash: dead2, QualifiedName: "api.DeprecatedAction", Kind: "function"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ss.PutRouteSymbol(ctx, "user-svc", "DELETE /legacy", dead1, "http_route"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ss.PutRouteSymbol(ctx, "admin-svc", "POST /admin/reset", dead2, "http_route"); err != nil {
+		t.Fatal(err)
+	}
+
+	req := makeCallToolRequest("dead_routes", map[string]any{
+		"stale_days": float64(7),
+	})
+
+	result, err := srv.handleDeadRoutes(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("expected success, got error: %v", result.Content)
+	}
+
+	text := result.Content[0].(mcp.TextContent).Text
+	var routes []store.RouteSymbolRow
+	if err := json.Unmarshal([]byte(text), &routes); err != nil {
+		t.Fatalf("failed to unmarshal routes: %v", err)
+	}
+
+	// Should have 2 dead routes; the active one should be excluded.
+	if len(routes) != 2 {
+		t.Fatalf("expected 2 dead routes (active excluded), got %d", len(routes))
+	}
+
+	// Collect route patterns.
+	patterns := make(map[string]bool)
+	for _, r := range routes {
+		patterns[r.RoutePattern] = true
+	}
+	if !patterns["DELETE /legacy"] {
+		t.Error("expected dead route 'DELETE /legacy' to be present")
+	}
+	if !patterns["POST /admin/reset"] {
+		t.Error("expected dead route 'POST /admin/reset' to be present")
+	}
+	if patterns["GET /users"] {
+		t.Error("active route 'GET /users' should NOT be in dead routes")
+	}
+}
+
+func TestHandleRuntimeTraffic_WithRoutePatternFilter(t *testing.T) {
+	srv, ss := newTestSQLiteServer(t)
+	ctx := context.Background()
+
+	now := time.Now().Unix()
+
+	// Set up multiple route symbols for the same service.
+	targets := []struct {
+		id      string
+		name    string
+		route   string
+		service string
+	}{
+		{"target-users", "api.GetUsers", "GET /users", "api-svc"},
+		{"target-user-id", "api.GetUserByID", "GET /users/:id", "api-svc"},
+		{"target-orders", "api.GetOrders", "GET /orders", "api-svc"},
+		{"target-other", "api.OtherService", "GET /other", "other-svc"},
+	}
+
+	for _, tgt := range targets {
+		nodeHash := testHash(tgt.id)
+		if err := ss.PutNode(ctx, types.Node{
+			NodeHash:      nodeHash,
+			QualifiedName: tgt.name,
+			Kind:          "function",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := ss.PutRouteSymbol(ctx, tgt.service, tgt.route, nodeHash, "http_route"); err != nil {
+			t.Fatal(err)
+		}
+
+		// Add a runtime edge for each.
+		edgeHash := testHash("edge-" + tgt.id)
+		if err := ss.PutEdge(ctx, types.Edge{
+			EdgeHash:   edgeHash,
+			SourceHash: testHash("caller-" + tgt.id),
+			TargetHash: nodeHash,
+			EdgeType:   "calls",
+			Confidence: 0.9,
+			Provenance: "otel_trace",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := ss.UpdateObservation(ctx, edgeHash, 10, now, 0.9); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Query by service_name only.
+	req := makeCallToolRequest("runtime_traffic", map[string]any{
+		"service_name": "api-svc",
+	})
+
+	result, err := srv.handleRuntimeTraffic(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("expected success, got error: %v", result.Content)
+	}
+
+	text := result.Content[0].(mcp.TextContent).Text
+	var edges []types.Edge
+	if err := json.Unmarshal([]byte(text), &edges); err != nil {
+		t.Fatalf("failed to unmarshal edges: %v", err)
+	}
+	// Should return 3 edges for api-svc (not the other-svc one).
+	if len(edges) != 3 {
+		t.Errorf("expected 3 edges for api-svc, got %d", len(edges))
+	}
+
+	// Query with route_pattern filter.
+	req2 := makeCallToolRequest("runtime_traffic", map[string]any{
+		"service_name":  "api-svc",
+		"route_pattern": "%users%",
+	})
+
+	result2, err := srv.handleRuntimeTraffic(ctx, req2)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result2.IsError {
+		t.Fatalf("expected success, got error: %v", result2.Content)
+	}
+
+	text2 := result2.Content[0].(mcp.TextContent).Text
+	var edges2 []types.Edge
+	if err := json.Unmarshal([]byte(text2), &edges2); err != nil {
+		t.Fatalf("failed to unmarshal edges: %v", err)
+	}
+	// Should return only the users-related edges (2 of them).
+	if len(edges2) != 2 {
+		t.Errorf("expected 2 edges matching '%%users%%' pattern, got %d", len(edges2))
 	}
 }
