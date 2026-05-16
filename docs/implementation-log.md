@@ -1258,20 +1258,101 @@ Four polywave IMPLs plus extensive testing, documentation, and competitive analy
 
 Plus: integration tests, test coverage (95+ new tests across 4 rounds), CI/CD workflows, distribution doc, roadmap update, architecture doc, features doc, CLI reference, MCP tools reference, competitive analysis.
 
+---
+
+## Graph-Aware Context Packing (2026-05-15)
+
+5th polywave IMPL. Implements the context engine that produces task-specific, token-budgeted context blocks ranked by graph relationships.
+
+**Wave 1 (2 parallel agents):**
+- Agent A: Core engine (ContextEngine, ForTask, ForFiles), ranking algorithm, token estimation (6 files)
+- Agent B: Output formatting (XML/Markdown/JSON renderers) (2 files)
+
+**Wave 2 (2 parallel agents):**
+- Agent C: `knowing context` CLI subcommand with --task, --files, --budget, --format, --db
+- Agent D: `context_for_task` and `context_for_files` MCP tools (16 total tools now)
+
+**Post-merge fix:** Agent B's format.go used flat field access (`sym.QualifiedName`) instead of nested (`sym.Node.QualifiedName`). Same pattern as the trace IMPL: agents in the same package assumed struct layouts that didn't match.
+
+---
+
+## Relevance Pipeline v2 (2026-05-16)
+
+Iterative improvement to the context engine's keyword extraction and ranking, driven by dogfooding knowing on itself.
+
+### Problem
+
+The v1 context engine returned flat, undifferentiated scores (0.38 for everything). "add a new MCP tool" matched `NewHash`, `NewEnricher`, `NewDaemon` alongside `NewServer` and `registerTools` because the keyword "new" hit half the codebase.
+
+### Stage 1: Keyword Extraction
+
+- Added 50+ code-aware stop words (filters "new", "get", "set", "add", action verbs like "refactor", "fix", "update")
+- CamelCase/snake_case splitting into component words
+- Abbreviation expansion map (ctx/context, fmt/format, req/request, etc.)
+- Longer (more specific) terms sorted first for better seed selection
+- Results: scores improved from flat 0.38 to differentiated 0.84/0.64/0.44/0.33
+
+### Stage 2: Random Walk with Restart
+
+Replaced manual neighbor expansion (count direct callers per symbol) with RWR from seed nodes:
+- Start at symbols matched by keywords (seed set)
+- Walk along edges (calls 1.0, implements 0.8, handles_route 0.7, imports 0.5) with 80% probability
+- Restart at seeds with 20% probability
+- After convergence, the stationary distribution assigns relevance scores
+- Hub nodes (called by many things) naturally accumulate probability
+- Parameters: alpha=0.2, maxIter=20, convergence threshold 0.001
+
+Results for "add a new MCP tool":
+- `requireHash` (18 callers): 0.78 (highest, most-connected hub)
+- `registerTools` (16 outgoing, central wiring): 0.74
+- `requireStringArg` (9 callers): 0.67
+- `*Tool()` functions: 0.60-0.64
+- `NewServer` (3 callers): 0.54
+- `ServeHTTP` (0 internal callers): 0.51
+
+The scores reflect real structural importance, verified against actual caller counts in the database.
+
+### Duplicate Node Fix
+
+Discovered that multiple index runs with different repo URL formats (`.`, `/Users/.../knowing`, `github.com/...`) produced duplicate nodes with different qualified name prefixes. Every query result had the same symbol appearing 2-3 times.
+
+**Root cause:** `cmdIndex` used the raw `repoPath` argument as `repoURL` when `--url` wasn't provided. Running `knowing index .` produced `.://...` prefixes; running with the full path produced `/Users/.../knowing://...` prefixes.
+
+**Fix:** `cmdIndex` now reads the module path from `go.mod` (e.g., `github.com/blackwell-systems/knowing`) as the canonical repo URL. Fallback chain: explicit `--url` flag > go.mod module path > absolute filesystem path.
+
+### Dogfooding: knowing serving its own graph
+
+Wired knowing as its own MCP server via `.mcp.json` + `knowing mcp` subcommand. The agent (me) now has 16 knowing tools available and uses `context_for_task` before making changes to the codebase. The loop is closed: knowing indexes itself, serves its own graph, and agents consume it.
+
+---
+
+## Session 2 Summary (2026-05-16)
+
+### What was built
+
+5th polywave IMPL (graph-aware context packing) plus iterative improvements:
+- Context engine: ForTask, ForFiles, RankSymbols, EstimateTokens, FormatContextBlock
+- `knowing context` CLI and `knowing mcp` subcommand
+- `context_for_task` and `context_for_files` MCP tools
+- Random Walk with Restart for graph-based relevance
+- Smart keyword extraction with stop words, CamelCase splitting, abbreviations
+- Duplicate node fix (go.mod module path resolution)
+- CHANGELOG.md, architecture doc updates, competitive analysis research
+
 ### By the numbers
 
-| Metric | Start of session | End of session |
-|--------|-----------------|----------------|
-| Go LOC | 12,203 | 27,387 |
-| Files | 39 | 67 |
-| Packages | 11 | 18 |
+| Metric | Start of session 1 | End of session 2 |
+|--------|-------------------|-----------------|
+| Go LOC | 12,203 | ~28,500 |
+| Files | 39 | 70+ |
+| Packages | 11 | 19 |
 | Languages supported | 2 | 6 |
-| MCP tools | 11 | 14 |
+| MCP tools | 11 | 16 |
 | Migrations | 3 | 4 |
-| CLI subcommands | 4 | 6 |
-| Passing tests | ~80 | 376 |
+| CLI subcommands | 4 | 8 (serve, index, query, export, diff, context, mcp, version) |
+| Passing tests | ~80 | 376+ |
 
-### Polywave stats for this session
+### Polywave stats (both sessions combined)
 
 | IMPL | Agents | Waves | Wall time (approx) | Friction |
 |------|--------|-------|-------------------|----------|
@@ -1279,5 +1360,6 @@ Plus: integration tests, test coverage (95+ new tests across 4 rounds), CI/CD wo
 | runtime-wiring-devtools | 5 | 2 | ~30 min (includes rate limit wait) | Rate limit, YAML parse, DBPath wiring |
 | semantic-pr-diff | 4 | 2 | ~20 min | GOWORK in quality gates (recurring) |
 | multi-lang-extractors | 5 | 2 | ~15 min | Zero friction |
+| graph-context-packing | 4 | 2 | ~20 min | format.go struct mismatch, tool count assertion |
 
-21 agents total across 8 waves. Zero merge conflicts across all 4 IMPLs. One rate limit incident. Two post-merge fixes (both one-liners). No stubs, no placeholders, no unwired symbols remaining. 376 tests passing across 18 packages.
+25 agents total across 10 waves. Zero merge conflicts across all 5 IMPLs. The context engine went from unusable (flat scores) to correctly ranking symbols by structural importance in two incremental iterations.
