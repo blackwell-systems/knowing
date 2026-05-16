@@ -2,6 +2,7 @@ package diff
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -178,6 +179,219 @@ func TestSemanticDiff_EmptyDiff(t *testing.T) {
 	}
 	if result.Summary.EdgesRemoved != 0 {
 		t.Errorf("expected 0 edges removed, got %d", result.Summary.EdgesRemoved)
+	}
+}
+
+func TestSemanticDiff_OnlyNodeAdditions(t *testing.T) {
+	// When SnapshotDiff returns nodes in NodesAdded (via store), SemanticDiff
+	// should enrich them. With the current SQLite store, NodesAdded comes from
+	// the store's DiffResult. We create edge events that indirectly show new
+	// nodes, but the store only tracks edge-level events. This test verifies
+	// that when no edge events exist, the diff is empty (no node-only tracking).
+	s := newTestStore(t)
+	ctx := context.Background()
+	repo := putRepo(t, s, "https://example.com/repo")
+	file := putFile(t, s, repo, "main.go")
+
+	// Create nodes but no edge events.
+	_ = putNode(t, s, file, "main.NewFunc1", "function")
+	_ = putNode(t, s, file, "main.NewFunc2", "function")
+
+	oldSnap := types.NewHash([]byte("add-old"))
+	newSnap := types.NewHash([]byte("add-new"))
+
+	result, err := SemanticDiff(ctx, s, oldSnap, newSnap)
+	if err != nil {
+		t.Fatalf("SemanticDiff: %v", err)
+	}
+
+	// SQLite SnapshotDiff does not track node-level events, so NodesAdded is empty.
+	if len(result.NodesAdded) != 0 {
+		t.Errorf("expected 0 nodes added (store does not track node events), got %d", len(result.NodesAdded))
+	}
+	if result.Summary.NodesAdded != 0 {
+		t.Errorf("summary NodesAdded: want 0, got %d", result.Summary.NodesAdded)
+	}
+	if result.Summary.NodesRemoved != 0 {
+		t.Errorf("summary NodesRemoved: want 0, got %d", result.Summary.NodesRemoved)
+	}
+}
+
+func TestSemanticDiff_OnlyNodeRemovals(t *testing.T) {
+	// Similar to additions: the SQLite store does not produce node-level diff
+	// entries. When nodes are removed but no edge events reference the snapshot,
+	// NodesRemoved stays empty.
+	s := newTestStore(t)
+	ctx := context.Background()
+	repo := putRepo(t, s, "https://example.com/repo")
+	file := putFile(t, s, repo, "main.go")
+
+	_ = putNode(t, s, file, "main.OldFunc", "function")
+
+	oldSnap := types.NewHash([]byte("rm-old"))
+	newSnap := types.NewHash([]byte("rm-new"))
+
+	result, err := SemanticDiff(ctx, s, oldSnap, newSnap)
+	if err != nil {
+		t.Fatalf("SemanticDiff: %v", err)
+	}
+
+	if len(result.NodesRemoved) != 0 {
+		t.Errorf("expected 0 nodes removed (store does not track node events), got %d", len(result.NodesRemoved))
+	}
+	if result.Summary.NodesRemoved != 0 {
+		t.Errorf("summary NodesRemoved: want 0, got %d", result.Summary.NodesRemoved)
+	}
+}
+
+func TestSemanticDiff_MultipleModifiedNodes(t *testing.T) {
+	// Edge changes from different source nodes should produce multiple modified nodes.
+	s := newTestStore(t)
+	ctx := context.Background()
+	repo := putRepo(t, s, "https://example.com/repo")
+	file := putFile(t, s, repo, "main.go")
+
+	// Three source nodes, each with a new outgoing edge to a shared target.
+	src1 := putNode(t, s, file, "main.Src1", "function")
+	src2 := putNode(t, s, file, "main.Src2", "function")
+	src3 := putNode(t, s, file, "main.Src3", "function")
+	target := putNode(t, s, file, "main.Target", "function")
+
+	e1 := putEdge(t, s, src1, target, "calls")
+	e2 := putEdge(t, s, src2, target, "calls")
+	e3 := putEdge(t, s, src3, target, "calls")
+
+	oldSnap := types.NewHash([]byte("multi-old"))
+	newSnap := types.NewHash([]byte("multi-new"))
+
+	recordEdgeEvent(t, s, e1, "added", newSnap)
+	recordEdgeEvent(t, s, e2, "added", newSnap)
+	recordEdgeEvent(t, s, e3, "added", newSnap)
+
+	result, err := SemanticDiff(ctx, s, oldSnap, newSnap)
+	if err != nil {
+		t.Fatalf("SemanticDiff: %v", err)
+	}
+
+	if len(result.EdgesAdded) != 3 {
+		t.Fatalf("expected 3 added edges, got %d", len(result.EdgesAdded))
+	}
+	// All three source nodes should be marked as modified.
+	if len(result.NodesModified) != 3 {
+		t.Fatalf("expected 3 modified nodes, got %d", len(result.NodesModified))
+	}
+	if result.Summary.NodesModified != 3 {
+		t.Errorf("summary NodesModified: want 3, got %d", result.Summary.NodesModified)
+	}
+
+	// Collect modified node names and verify all three sources are present.
+	modNames := make(map[string]bool)
+	for _, mod := range result.NodesModified {
+		modNames[mod.QualifiedName] = true
+	}
+	for _, want := range []string{"main.Src1", "main.Src2", "main.Src3"} {
+		if !modNames[want] {
+			t.Errorf("expected %s in modified nodes, got %v", want, modNames)
+		}
+	}
+}
+
+func TestSemanticDiff_LargeDiff(t *testing.T) {
+	// Verify that 12 edge changes are handled correctly.
+	s := newTestStore(t)
+	ctx := context.Background()
+	repo := putRepo(t, s, "https://example.com/repo")
+	file := putFile(t, s, repo, "main.go")
+
+	const edgeCount = 12
+	sources := make([]types.Node, edgeCount)
+	targets := make([]types.Node, edgeCount)
+	edges := make([]types.Edge, edgeCount)
+
+	for i := 0; i < edgeCount; i++ {
+		sources[i] = putNode(t, s, file, fmt.Sprintf("main.Src%d", i), "function")
+		targets[i] = putNode(t, s, file, fmt.Sprintf("main.Tgt%d", i), "function")
+		edges[i] = putEdge(t, s, sources[i], targets[i], "calls")
+	}
+
+	oldSnap := types.NewHash([]byte("large-old"))
+	newSnap := types.NewHash([]byte("large-new"))
+
+	// Half added, half removed.
+	for i := 0; i < edgeCount/2; i++ {
+		recordEdgeEvent(t, s, edges[i], "added", newSnap)
+	}
+	for i := edgeCount / 2; i < edgeCount; i++ {
+		recordEdgeEvent(t, s, edges[i], "removed", newSnap)
+	}
+
+	result, err := SemanticDiff(ctx, s, oldSnap, newSnap)
+	if err != nil {
+		t.Fatalf("SemanticDiff: %v", err)
+	}
+
+	if result.Summary.EdgesAdded != edgeCount/2 {
+		t.Errorf("summary EdgesAdded: want %d, got %d", edgeCount/2, result.Summary.EdgesAdded)
+	}
+	if result.Summary.EdgesRemoved != edgeCount/2 {
+		t.Errorf("summary EdgesRemoved: want %d, got %d", edgeCount/2, result.Summary.EdgesRemoved)
+	}
+	// All 12 source nodes should be modified (none were added/removed as nodes).
+	if result.Summary.NodesModified != edgeCount {
+		t.Errorf("summary NodesModified: want %d, got %d", edgeCount, result.Summary.NodesModified)
+	}
+}
+
+func TestNodeToChange_ZeroValues(t *testing.T) {
+	// nodeToChange with a zero-value Node should produce a valid NodeChange
+	// with empty strings and zero ints.
+	n := types.Node{}
+	change := nodeToChange(n)
+
+	if change.QualifiedName != "" {
+		t.Errorf("expected empty QualifiedName, got %q", change.QualifiedName)
+	}
+	if change.Kind != "" {
+		t.Errorf("expected empty Kind, got %q", change.Kind)
+	}
+	if change.Line != 0 {
+		t.Errorf("expected Line 0, got %d", change.Line)
+	}
+	if change.Signature != "" {
+		t.Errorf("expected empty Signature, got %q", change.Signature)
+	}
+	// NodeHash should be the hex encoding of a zero hash (64 hex zeros).
+	if len(change.NodeHash) != 64 {
+		t.Errorf("expected 64-char hex hash, got %d chars: %q", len(change.NodeHash), change.NodeHash)
+	}
+}
+
+func TestNodeToChange_PreservesFields(t *testing.T) {
+	// Verify all fields are carried through from Node to NodeChange.
+	n := types.Node{
+		NodeHash:      types.NewHash([]byte("test-node")),
+		QualifiedName: "pkg.MyFunc",
+		Kind:          "method",
+		Line:          99,
+		Signature:     "func (s *S) MyFunc(ctx context.Context) error",
+	}
+	change := nodeToChange(n)
+
+	if change.QualifiedName != "pkg.MyFunc" {
+		t.Errorf("QualifiedName: got %q, want %q", change.QualifiedName, "pkg.MyFunc")
+	}
+	if change.Kind != "method" {
+		t.Errorf("Kind: got %q, want %q", change.Kind, "method")
+	}
+	if change.Line != 99 {
+		t.Errorf("Line: got %d, want 99", change.Line)
+	}
+	if change.Signature != "func (s *S) MyFunc(ctx context.Context) error" {
+		t.Errorf("Signature: got %q", change.Signature)
+	}
+	// File is not set on the Node, so it should be empty.
+	if change.File != "" {
+		t.Errorf("File: got %q, want empty", change.File)
 	}
 }
 
