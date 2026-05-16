@@ -21,3 +21,5 @@
   - IMPL doc: docs/IMPL/complete/IMPL-semantic-pr-diff.yaml
 - **multi-lang-extractors**: completed 2026-05-15, 2 waves, 5 agents
   - IMPL doc: docs/IMPL/complete/IMPL-multi-lang-extractors.yaml
+- **graph-context-packing**: completed 2026-05-15, 2 waves, 4 agents
+  - IMPL doc: docs/IMPL/complete/IMPL-graph-context-packing.yaml

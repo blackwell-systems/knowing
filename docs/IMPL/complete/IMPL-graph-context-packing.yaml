@@ -1,3 +1,4 @@
+completion_date: "2026-05-15"
 title: Graph-Aware Context Packing
 feature_slug: graph-context-packing
 verdict: SUITABLE
@@ -1011,6 +1012,7 @@ waves:
           dependencies:
             - A
             - B
+      base_commit: 9a486cfe38db41a847fdc8a5c87567abf0c66493
 quality_gates:
     level: standard
     gates:
@@ -1023,6 +1025,12 @@ quality_gates:
         - type: test
           command: GOWORK=off go test ./... -timeout 5m
           required: true
+post_merge_checklist:
+    groups:
+        - title: Background Service Initialization
+          items:
+            - description: Verify if context_test.go needs initialization in Server constructor
+            - description: Verify if context_handlers_test.go needs initialization in Server constructor
 completion_reports:
     A:
         status: complete
@@ -1086,6 +1094,45 @@ completion_reports:
             - TestFormatXML_EscapesSpecialChars
         verification: PASS
         notes: FormatContextBlock implemented with XML/Markdown/JSON output. Code references ContextBlock, RankedSymbol, ScoreComponents types from Agent A (context.go) which do not exist in this worktree. Syntax passes via gofmt -e. Full compilation requires merge with Agent A's types.
+    C:
+        status: complete
+        branch: polywave/graph-context-packing/wave2-agent-C
+        commit: c83df75
+        files_changed:
+            - cmd/knowing/context.go
+            - cmd/knowing/context_test.go
+            - cmd/knowing/main.go
+        files_created:
+            - cmd/knowing/context.go
+            - cmd/knowing/context_test.go
+        tests_added:
+            - TestCmdContext_NoArgs
+            - TestCmdContext_BothArgs
+            - TestCmdContext_TaskFlag
+            - TestCmdContext_FilesFlag
+            - TestCmdContext_JSONFormat
+            - TestCmdContext_BudgetFlag
+        verification: PASS
+        notes: CLI subcommand complete. All 6 tests pass. Full test suite passes. Postconditions verified.
+    D:
+        status: complete
+        branch: polywave/graph-context-packing/wave2-agent-D
+        commit: f0e3945
+        files_changed:
+            - internal/mcp/context_handlers.go
+            - internal/mcp/context_handlers_test.go
+            - internal/mcp/server.go
+        files_created:
+            - internal/mcp/context_handlers.go
+            - internal/mcp/context_handlers_test.go
+        tests_added:
+            - TestHandleContextForTask_MissingArg
+            - TestHandleContextForTask_Valid
+            - TestHandleContextForFiles_MissingArg
+            - TestHandleContextForFiles_Valid
+            - TestContextToolRegistration
+        verification: PASS
+        notes: 'Both handlers implemented and registered. All 5 new tests pass. Build and vet clean. Out-of-scope: TestNewServer_RegistersAllTools in handlers_test.go hardcodes 14 tools and needs update to 16 at integration.'
 pre_mortem:
     overall_risk: medium
     rows:
@@ -1113,5 +1160,5 @@ pre_mortem:
           likelihood: high
           impact: low
           mitigation: The 4-chars-per-token heuristic is specified in requirements. Intentionally simple. Can be upgraded later without changing the interface.
-state: REVIEWED
+state: COMPLETE
 injection_method: hook
