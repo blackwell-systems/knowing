@@ -60,6 +60,8 @@ func run(args []string) error {
 		return cmdQuery(args[1:])
 	case "export":
 		return cmdExport(args[1:])
+	case "diff":
+		return cmdDiff(args[1:])
 	default:
 		printUsage()
 		return fmt.Errorf("unknown subcommand: %s", args[0])
@@ -73,6 +75,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  serve    Start the daemon with MCP server and file watching")
 	fmt.Fprintln(os.Stderr, "  index    Index a repository")
 	fmt.Fprintln(os.Stderr, "  query    Query the knowledge graph")
+	fmt.Fprintln(os.Stderr, "  diff     Compute semantic diff between two snapshots")
 	fmt.Fprintln(os.Stderr, "  export   Export the graph as JSON")
 	fmt.Fprintln(os.Stderr, "  version  Print version information")
 }

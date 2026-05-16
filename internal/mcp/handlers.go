@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"fmt"
 
+	"github.com/blackwell-systems/knowing/internal/diff"
 	"github.com/blackwell-systems/knowing/internal/types"
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -274,8 +275,8 @@ func (s *Server) handleSnapshotDiff(ctx context.Context, req mcp.CallToolRequest
 	return result, nil
 }
 
-// handleSemanticDiff computes a semantic diff between two snapshots.
-// This is similar to snapshot_diff but provides added context about what changed.
+// handleSemanticDiff computes a semantic diff between two snapshots using
+// the diff package for enriched output with qualified names and context.
 func (s *Server) handleSemanticDiff(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	oldHash, errResult := requireHash(req, "old_snapshot")
 	if errResult != nil {
@@ -286,46 +287,20 @@ func (s *Server) handleSemanticDiff(ctx context.Context, req mcp.CallToolRequest
 		return errResult, nil
 	}
 
-	// Semantic diff is built on top of snapshot diff with richer output.
-	diff, err := s.store.SnapshotDiff(ctx, oldHash, newHash)
+	semDiff, err := diff.SemanticDiff(ctx, s.store, oldHash, newHash)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("SnapshotDiff failed: %v", err)), nil
+		return mcp.NewToolResultError(fmt.Sprintf("SemanticDiff failed: %v", err)), nil
 	}
 
-	// Build a semantic summary from the raw diff.
-	semantic := struct {
-		OldSnapshot  string       `json:"old_snapshot"`
-		NewSnapshot  string       `json:"new_snapshot"`
-		NodesAdded   []types.Node `json:"nodes_added"`
-		NodesRemoved []types.Node `json:"nodes_removed"`
-		EdgesAdded   []types.Edge `json:"edges_added"`
-		EdgesRemoved []types.Edge `json:"edges_removed"`
-		Summary      string       `json:"summary"`
-	}{
-		OldSnapshot:  oldHash.String(),
-		NewSnapshot:  newHash.String(),
-		NodesAdded:   diff.NodesAdded,
-		NodesRemoved: diff.NodesRemoved,
-		EdgesAdded:   diff.EdgesAdded,
-		EdgesRemoved: diff.EdgesRemoved,
-		Summary: fmt.Sprintf(
-			"%d nodes added, %d nodes removed, %d edges added, %d edges removed",
-			len(diff.NodesAdded), len(diff.NodesRemoved),
-			len(diff.EdgesAdded), len(diff.EdgesRemoved),
-		),
-	}
-
-	result, err := mcp.NewToolResultJSON(semantic)
+	result, err := mcp.NewToolResultJSON(semDiff)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to marshal result: %v", err)), nil
 	}
 	return result, nil
 }
 
-// handlePRImpact analyzes the impact of changes between two snapshots by
-// computing the blast radius of each removed node. Removed nodes represent
-// potential breaking changes; their blast radius shows which callers would
-// be affected.
+// handlePRImpact analyzes the impact of changes between two snapshots,
+// computing blast radius for all changed symbols using the diff package.
 func (s *Server) handlePRImpact(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	oldHash, errResult := requireHash(req, "old_snapshot")
 	if errResult != nil {
@@ -336,47 +311,12 @@ func (s *Server) handlePRImpact(ctx context.Context, req mcp.CallToolRequest) (*
 		return errResult, nil
 	}
 
-	diff, err := s.store.SnapshotDiff(ctx, oldHash, newHash)
+	impact, err := diff.PRImpact(ctx, s.store, oldHash, newHash)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("SnapshotDiff failed: %v", err)), nil
+		return mcp.NewToolResultError(fmt.Sprintf("PRImpact failed: %v", err)), nil
 	}
 
-	// For each added/removed node, compute its blast radius to assess impact.
-	type nodeImpact struct {
-		Node        types.Node              `json:"node"`
-		BlastRadius *types.BlastRadiusResult `json:"blast_radius,omitempty"`
-	}
-
-	var impacts []nodeImpact
-	// Compute blast radius for removed nodes (these represent breaking changes).
-	for _, node := range diff.NodesRemoved {
-		br, brErr := s.store.BlastRadius(ctx, node.NodeHash, oldHash)
-		if brErr != nil {
-			// Skip nodes where blast radius cannot be computed.
-			continue
-		}
-		impacts = append(impacts, nodeImpact{Node: node, BlastRadius: br})
-	}
-
-	prResult := struct {
-		OldSnapshot     string       `json:"old_snapshot"`
-		NewSnapshot     string       `json:"new_snapshot"`
-		NodesAdded      int          `json:"nodes_added"`
-		NodesRemoved    int          `json:"nodes_removed"`
-		EdgesAdded      int          `json:"edges_added"`
-		EdgesRemoved    int          `json:"edges_removed"`
-		BreakingImpacts []nodeImpact `json:"breaking_impacts,omitempty"`
-	}{
-		OldSnapshot:     oldHash.String(),
-		NewSnapshot:     newHash.String(),
-		NodesAdded:      len(diff.NodesAdded),
-		NodesRemoved:    len(diff.NodesRemoved),
-		EdgesAdded:      len(diff.EdgesAdded),
-		EdgesRemoved:    len(diff.EdgesRemoved),
-		BreakingImpacts: impacts,
-	}
-
-	result, err := mcp.NewToolResultJSON(prResult)
+	result, err := mcp.NewToolResultJSON(impact)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to marshal result: %v", err)), nil
 	}

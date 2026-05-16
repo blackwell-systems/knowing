@@ -768,6 +768,190 @@ func TestHandleTraceStats(t *testing.T) {
 	}
 }
 
+func TestHandleSemanticDiff_ReturnsEnrichedResult(t *testing.T) {
+	s := newMockGraphStore()
+
+	addedNode := types.Node{
+		NodeHash:      testHash("added-node"),
+		QualifiedName: "github.com/example/pkg.NewFunc",
+		Kind:          "function",
+		Line:          42,
+		Signature:     "func NewFunc()",
+	}
+	removedNode := types.Node{
+		NodeHash:      testHash("removed-node"),
+		QualifiedName: "github.com/example/pkg.OldFunc",
+		Kind:          "function",
+		Line:          10,
+	}
+	addedEdge := types.Edge{
+		EdgeHash:   testHash("added-edge"),
+		SourceHash: testHash("added-node"),
+		TargetHash: testHash("some-target"),
+		EdgeType:   "calls",
+		Confidence: 0.95,
+	}
+
+	s.snapshotDiffResult = &types.DiffResult{
+		OldSnapshot:  testHash("old"),
+		NewSnapshot:  testHash("new"),
+		NodesAdded:   []types.Node{addedNode},
+		NodesRemoved: []types.Node{removedNode},
+		EdgesAdded:   []types.Edge{addedEdge},
+		EdgesRemoved: []types.Edge{},
+	}
+
+	// Populate nodes so GetNode resolves them for edge enrichment.
+	s.nodes[addedNode.NodeHash] = &addedNode
+	s.nodes[removedNode.NodeHash] = &removedNode
+
+	srv := NewServer(s)
+	req := makeCallToolRequest("semantic_diff", map[string]any{
+		"old_snapshot": hashHex(testHash("old")),
+		"new_snapshot": hashHex(testHash("new")),
+	})
+
+	result, err := srv.handleSemanticDiff(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("expected success, got error: %v", result.Content)
+	}
+
+	text := result.Content[0].(mcp.TextContent).Text
+
+	// Unmarshal into a generic map to verify enriched fields.
+	var out map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(text), &out); err != nil {
+		t.Fatalf("failed to unmarshal result: %v", err)
+	}
+
+	// Verify key fields exist.
+	for _, key := range []string{"nodes_added", "edges_added", "summary"} {
+		if _, ok := out[key]; !ok {
+			t.Errorf("missing expected field %q in result", key)
+		}
+	}
+
+	// Verify summary has structured counts.
+	var summary map[string]interface{}
+	if err := json.Unmarshal(out["summary"], &summary); err != nil {
+		t.Fatalf("failed to unmarshal summary: %v", err)
+	}
+	if v, ok := summary["nodes_added"].(float64); !ok || int(v) != 1 {
+		t.Errorf("expected summary.nodes_added=1, got %v", summary["nodes_added"])
+	}
+
+	// Verify nodes_added has enriched data.
+	var nodesAdded []map[string]interface{}
+	if err := json.Unmarshal(out["nodes_added"], &nodesAdded); err != nil {
+		t.Fatalf("failed to unmarshal nodes_added: %v", err)
+	}
+	if len(nodesAdded) != 1 {
+		t.Fatalf("expected 1 node added, got %d", len(nodesAdded))
+	}
+	if nodesAdded[0]["qualified_name"] != "github.com/example/pkg.NewFunc" {
+		t.Errorf("expected qualified_name, got %v", nodesAdded[0]["qualified_name"])
+	}
+}
+
+func TestHandlePRImpact_ReturnsImpactAnalysis(t *testing.T) {
+	s := newMockGraphStore()
+
+	removedNode := types.Node{
+		NodeHash:      testHash("removed-node"),
+		QualifiedName: "github.com/example/pkg.OldFunc",
+		Kind:          "function",
+		Line:          10,
+	}
+	callerNode := types.Node{
+		NodeHash:      testHash("caller-node"),
+		QualifiedName: "github.com/example/pkg.Caller",
+		Kind:          "function",
+	}
+
+	s.snapshotDiffResult = &types.DiffResult{
+		OldSnapshot:  testHash("old"),
+		NewSnapshot:  testHash("new"),
+		NodesAdded:   []types.Node{},
+		NodesRemoved: []types.Node{removedNode},
+		EdgesAdded:   []types.Edge{},
+		EdgesRemoved: []types.Edge{},
+	}
+
+	// Populate nodes for GetNode calls.
+	s.nodes[removedNode.NodeHash] = &removedNode
+	s.nodes[callerNode.NodeHash] = &callerNode
+
+	// Set blast radius result for the removed node.
+	s.blastRadiusResult = &types.BlastRadiusResult{
+		Target: removedNode,
+		ByRepo: map[string][]types.CallerWithProvenance{
+			"github.com/example/repo": {
+				{
+					Caller:     callerNode,
+					Depth:      1,
+					Confidence: 1.0,
+				},
+			},
+		},
+		TotalCount: 1,
+	}
+
+	srv := NewServer(s)
+	req := makeCallToolRequest("pr_impact", map[string]any{
+		"old_snapshot": hashHex(testHash("old")),
+		"new_snapshot": hashHex(testHash("new")),
+	})
+
+	result, err := srv.handlePRImpact(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("expected success, got error: %v", result.Content)
+	}
+
+	text := result.Content[0].(mcp.TextContent).Text
+
+	// Unmarshal into a generic map to verify key fields.
+	var out map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(text), &out); err != nil {
+		t.Fatalf("failed to unmarshal result: %v", err)
+	}
+
+	for _, key := range []string{"changed_symbols", "summary"} {
+		if _, ok := out[key]; !ok {
+			t.Errorf("missing expected field %q in result", key)
+		}
+	}
+
+	// Verify summary has risk_level and counts.
+	var summary map[string]interface{}
+	if err := json.Unmarshal(out["summary"], &summary); err != nil {
+		t.Fatalf("failed to unmarshal summary: %v", err)
+	}
+	if v, ok := summary["total_symbols_changed"].(float64); !ok || int(v) != 1 {
+		t.Errorf("expected total_symbols_changed=1, got %v", summary["total_symbols_changed"])
+	}
+	if _, ok := summary["risk_level"]; !ok {
+		t.Error("expected risk_level in summary")
+	}
+
+	// Verify changed_symbols has the removed node with callers.
+	var symbols []map[string]interface{}
+	if err := json.Unmarshal(out["changed_symbols"], &symbols); err != nil {
+		t.Fatalf("failed to unmarshal changed_symbols: %v", err)
+	}
+	if len(symbols) != 1 {
+		t.Fatalf("expected 1 changed symbol, got %d", len(symbols))
+	}
+	if symbols[0]["change_type"] != "removed" {
+		t.Errorf("expected change_type=removed, got %v", symbols[0]["change_type"])
+	}
+}
+
 func TestRuntimeToolsUnavailable(t *testing.T) {
 	// Use mock store which is not a SQLiteStore; sqlStore should be nil.
 	mockStore := newMockGraphStore()
