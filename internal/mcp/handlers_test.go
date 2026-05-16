@@ -952,6 +952,315 @@ func TestHandlePRImpact_ReturnsImpactAnalysis(t *testing.T) {
 	}
 }
 
+// --- Integration tests using real SQLite ---
+
+// TestHandleSemanticDiff_Integration creates a real SQLite store with edge events
+// and two snapshots, calls the semantic_diff handler, and verifies the response
+// contains enriched node names (not just hashes).
+func TestHandleSemanticDiff_Integration(t *testing.T) {
+	srv, ss := newTestSQLiteServer(t)
+	ctx := context.Background()
+
+	// Set up a repo, file, and two nodes.
+	repoHash := testHash("integ-repo")
+	if err := ss.PutRepo(ctx, types.Repo{
+		RepoHash: repoHash,
+		RepoURL:  "https://example.com/integ",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	fileHash := testHash("integ-file")
+	if err := ss.PutFile(ctx, types.File{
+		FileHash:    fileHash,
+		RepoHash:    repoHash,
+		Path:        "service.go",
+		ContentHash: testHash("content-1"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	nodeA := types.Node{
+		NodeHash:      testHash("node-alpha"),
+		FileHash:      fileHash,
+		QualifiedName: "pkg.Alpha",
+		Kind:          "function",
+		Line:          10,
+		Signature:     "func Alpha()",
+	}
+	nodeB := types.Node{
+		NodeHash:      testHash("node-beta"),
+		FileHash:      fileHash,
+		QualifiedName: "pkg.Beta",
+		Kind:          "function",
+		Line:          20,
+		Signature:     "func Beta()",
+	}
+	for _, n := range []types.Node{nodeA, nodeB} {
+		if err := ss.PutNode(ctx, n); err != nil {
+			t.Fatalf("PutNode %s: %v", n.QualifiedName, err)
+		}
+	}
+
+	// Create an edge: Alpha calls Beta.
+	edgeAB := types.Edge{
+		EdgeHash:   types.ComputeEdgeHash(nodeA.NodeHash, nodeB.NodeHash, "calls", "ast_resolved"),
+		SourceHash: nodeA.NodeHash,
+		TargetHash: nodeB.NodeHash,
+		EdgeType:   "calls",
+		Confidence: 1.0,
+		Provenance: "ast_resolved",
+	}
+	if err := ss.PutEdge(ctx, edgeAB); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create snapshots and edge events.
+	oldSnap := testHash("integ-old-snap")
+	newSnap := testHash("integ-new-snap")
+
+	for _, snap := range []types.Snapshot{
+		{SnapshotHash: oldSnap, RepoHash: repoHash, CommitHash: "c1", Timestamp: time.Now().Unix()},
+		{SnapshotHash: newSnap, RepoHash: repoHash, CommitHash: "c2", Timestamp: time.Now().Unix()},
+	} {
+		if err := ss.CreateSnapshot(ctx, snap); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Record the edge as added in the new snapshot.
+	if err := ss.RecordEdgeEvent(ctx, types.EdgeEvent{
+		EdgeHash:     edgeAB.EdgeHash,
+		EventType:    "added",
+		SnapshotHash: newSnap,
+		SourceCommit: "c2",
+		IndexerVer:   "v1",
+		Timestamp:    time.Now().Unix(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Call the semantic_diff handler.
+	req := makeCallToolRequest("semantic_diff", map[string]any{
+		"old_snapshot": hashHex(oldSnap),
+		"new_snapshot": hashHex(newSnap),
+	})
+
+	result, err := srv.handleSemanticDiff(ctx, req)
+	if err != nil {
+		t.Fatalf("handleSemanticDiff: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("expected success, got error: %v", result.Content)
+	}
+
+	text := result.Content[0].(mcp.TextContent).Text
+
+	// Parse the response and verify enriched names.
+	var diffResult map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(text), &diffResult); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	var edgesAdded []map[string]interface{}
+	if err := json.Unmarshal(diffResult["edges_added"], &edgesAdded); err != nil {
+		t.Fatalf("unmarshal edges_added: %v", err)
+	}
+	if len(edgesAdded) != 1 {
+		t.Fatalf("expected 1 edge added, got %d", len(edgesAdded))
+	}
+
+	// The enriched edge should contain the qualified names, not raw hashes.
+	if edgesAdded[0]["source_name"] != "pkg.Alpha" {
+		t.Errorf("expected source_name=pkg.Alpha, got %v", edgesAdded[0]["source_name"])
+	}
+	if edgesAdded[0]["target_name"] != "pkg.Beta" {
+		t.Errorf("expected target_name=pkg.Beta, got %v", edgesAdded[0]["target_name"])
+	}
+
+	// Verify the modified node appears (Alpha had edges change).
+	var nodesModified []map[string]interface{}
+	if err := json.Unmarshal(diffResult["nodes_modified"], &nodesModified); err != nil {
+		t.Fatalf("unmarshal nodes_modified: %v", err)
+	}
+	if len(nodesModified) != 1 {
+		t.Fatalf("expected 1 modified node, got %d", len(nodesModified))
+	}
+	if nodesModified[0]["qualified_name"] != "pkg.Alpha" {
+		t.Errorf("expected modified node pkg.Alpha, got %v", nodesModified[0]["qualified_name"])
+	}
+}
+
+// TestHandlePRImpact_Integration creates a real SQLite store with a call chain,
+// simulates a change, and verifies the PR impact handler returns blast radius data.
+func TestHandlePRImpact_Integration(t *testing.T) {
+	srv, ss := newTestSQLiteServer(t)
+	ctx := context.Background()
+
+	repoHash := testHash("impact-repo")
+	if err := ss.PutRepo(ctx, types.Repo{
+		RepoHash: repoHash,
+		RepoURL:  "https://example.com/impact",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	fileHash := testHash("impact-file")
+	if err := ss.PutFile(ctx, types.File{
+		FileHash:    fileHash,
+		RepoHash:    repoHash,
+		Path:        "handler.go",
+		ContentHash: testHash("content-impact"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Build a call chain: Caller -> Target -> Helper.
+	caller := types.Node{
+		NodeHash:      testHash("impact-caller"),
+		FileHash:      fileHash,
+		QualifiedName: "pkg.Caller",
+		Kind:          "function",
+		Line:          5,
+	}
+	target := types.Node{
+		NodeHash:      testHash("impact-target"),
+		FileHash:      fileHash,
+		QualifiedName: "pkg.Target",
+		Kind:          "function",
+		Line:          15,
+	}
+	helper := types.Node{
+		NodeHash:      testHash("impact-helper"),
+		FileHash:      fileHash,
+		QualifiedName: "pkg.Helper",
+		Kind:          "function",
+		Line:          25,
+	}
+	for _, n := range []types.Node{caller, target, helper} {
+		if err := ss.PutNode(ctx, n); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Caller -> Target.
+	edgeCT := types.Edge{
+		EdgeHash:   types.ComputeEdgeHash(caller.NodeHash, target.NodeHash, "calls", "ast_resolved"),
+		SourceHash: caller.NodeHash,
+		TargetHash: target.NodeHash,
+		EdgeType:   "calls",
+		Confidence: 1.0,
+		Provenance: "ast_resolved",
+	}
+	// Target -> Helper.
+	edgeTH := types.Edge{
+		EdgeHash:   types.ComputeEdgeHash(target.NodeHash, helper.NodeHash, "calls", "ast_resolved"),
+		SourceHash: target.NodeHash,
+		TargetHash: helper.NodeHash,
+		EdgeType:   "calls",
+		Confidence: 1.0,
+		Provenance: "ast_resolved",
+	}
+	for _, e := range []types.Edge{edgeCT, edgeTH} {
+		if err := ss.PutEdge(ctx, e); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Create snapshots.
+	oldSnap := testHash("impact-old")
+	newSnap := testHash("impact-new")
+	for _, snap := range []types.Snapshot{
+		{SnapshotHash: oldSnap, RepoHash: repoHash, CommitHash: "c1", Timestamp: time.Now().Unix()},
+		{SnapshotHash: newSnap, RepoHash: repoHash, CommitHash: "c2", Timestamp: time.Now().Unix()},
+	} {
+		if err := ss.CreateSnapshot(ctx, snap); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Simulate: Target -> Helper edge was added in new snapshot.
+	if err := ss.RecordEdgeEvent(ctx, types.EdgeEvent{
+		EdgeHash:     edgeTH.EdgeHash,
+		EventType:    "added",
+		SnapshotHash: newSnap,
+		SourceCommit: "c2",
+		IndexerVer:   "v1",
+		Timestamp:    time.Now().Unix(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Call the pr_impact handler.
+	req := makeCallToolRequest("pr_impact", map[string]any{
+		"old_snapshot": hashHex(oldSnap),
+		"new_snapshot": hashHex(newSnap),
+	})
+
+	result, err := srv.handlePRImpact(ctx, req)
+	if err != nil {
+		t.Fatalf("handlePRImpact: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("expected success, got error: %v", result.Content)
+	}
+
+	text := result.Content[0].(mcp.TextContent).Text
+
+	var impact map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(text), &impact); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	// Verify changed_symbols exists and has at least one entry.
+	var symbols []map[string]interface{}
+	if err := json.Unmarshal(impact["changed_symbols"], &symbols); err != nil {
+		t.Fatalf("unmarshal changed_symbols: %v", err)
+	}
+	if len(symbols) < 1 {
+		t.Fatal("expected at least 1 changed symbol")
+	}
+
+	// Target should be modified (its outgoing edge was added).
+	foundTarget := false
+	for _, sym := range symbols {
+		symData := sym["symbol"].(map[string]interface{})
+		if symData["qualified_name"] == "pkg.Target" && sym["change_type"] == "modified" {
+			foundTarget = true
+			// Target has a caller (Caller), so caller_count should be >= 1.
+			callerCount := int(sym["caller_count"].(float64))
+			if callerCount < 1 {
+				t.Errorf("expected caller_count >= 1 for Target, got %d", callerCount)
+			}
+			break
+		}
+	}
+	if !foundTarget {
+		t.Errorf("expected pkg.Target as modified symbol, got: %v", symbols)
+	}
+
+	// Verify summary has risk_level.
+	var summary map[string]interface{}
+	if err := json.Unmarshal(impact["summary"], &summary); err != nil {
+		t.Fatalf("unmarshal summary: %v", err)
+	}
+	if _, ok := summary["risk_level"]; !ok {
+		t.Error("expected risk_level in summary")
+	}
+	if summary["total_symbols_changed"].(float64) < 1 {
+		t.Errorf("expected total_symbols_changed >= 1, got %v", summary["total_symbols_changed"])
+	}
+
+	// Verify affected_edges contains the added edge.
+	var affectedEdges []map[string]interface{}
+	if err := json.Unmarshal(impact["affected_edges"], &affectedEdges); err != nil {
+		t.Fatalf("unmarshal affected_edges: %v", err)
+	}
+	if len(affectedEdges) != 1 {
+		t.Errorf("expected 1 affected edge, got %d", len(affectedEdges))
+	}
+}
+
 func TestRuntimeToolsUnavailable(t *testing.T) {
 	// Use mock store which is not a SQLiteStore; sqlStore should be nil.
 	mockStore := newMockGraphStore()

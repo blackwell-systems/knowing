@@ -2,11 +2,15 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/blackwell-systems/knowing/internal/store"
+	"github.com/blackwell-systems/knowing/internal/types"
 )
 
 func TestVersionSubcommand(t *testing.T) {
@@ -400,6 +404,219 @@ func TestCmdExport_InUsageOutput(t *testing.T) {
 
 	if !strings.Contains(output, "export") {
 		t.Errorf("expected 'export' in usage output, got %q", output)
+	}
+}
+
+// TestExportIntegration creates a temp DB with known nodes and edges, calls
+// cmdExport, and verifies the JSON output contains the expected data. It also
+// tests the --repo filter to verify only matching nodes appear.
+func TestExportIntegration(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "export-test.db")
+
+	// Open a store and insert some nodes and edges.
+	st, err := store.NewSQLiteStore(dbPath)
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+
+	ctx := context.Background()
+	repoURL := "https://example.com/exportrepo"
+	repoHash := types.NewHash([]byte(repoURL))
+
+	// Register repo.
+	if err := st.PutRepo(ctx, types.Repo{
+		RepoHash: repoHash,
+		RepoURL:  repoURL,
+	}); err != nil {
+		t.Fatalf("PutRepo: %v", err)
+	}
+
+	// Create a file.
+	fileHash := types.NewHash(append(repoHash[:], []byte("main.go")...))
+	if err := st.PutFile(ctx, types.File{
+		FileHash:    fileHash,
+		RepoHash:    repoHash,
+		Path:        "main.go",
+		ContentHash: types.NewHash([]byte("content")),
+	}); err != nil {
+		t.Fatalf("PutFile: %v", err)
+	}
+
+	// Create two nodes.
+	nodeA := types.Node{
+		NodeHash:      types.ComputeNodeHash(repoURL, "main", types.EmptyHash, "FuncA", "function"),
+		FileHash:      fileHash,
+		QualifiedName: repoURL + "://main.FuncA",
+		Kind:          "function",
+		Line:          10,
+		Signature:     "func FuncA()",
+	}
+	nodeB := types.Node{
+		NodeHash:      types.ComputeNodeHash(repoURL, "main", types.EmptyHash, "FuncB", "function"),
+		FileHash:      fileHash,
+		QualifiedName: repoURL + "://main.FuncB",
+		Kind:          "function",
+		Line:          20,
+		Signature:     "func FuncB()",
+	}
+	if err := st.PutNode(ctx, nodeA); err != nil {
+		t.Fatalf("PutNode A: %v", err)
+	}
+	if err := st.PutNode(ctx, nodeB); err != nil {
+		t.Fatalf("PutNode B: %v", err)
+	}
+
+	// Create an edge: A calls B.
+	edge := types.Edge{
+		EdgeHash:   types.ComputeEdgeHash(nodeA.NodeHash, nodeB.NodeHash, "calls", "ast_resolved"),
+		SourceHash: nodeA.NodeHash,
+		TargetHash: nodeB.NodeHash,
+		EdgeType:   "calls",
+		Confidence: 1.0,
+		Provenance: "ast_resolved",
+	}
+	if err := st.PutEdge(ctx, edge); err != nil {
+		t.Fatalf("PutEdge: %v", err)
+	}
+
+	// Also add a node in a different "repo" to test filtering.
+	otherRepoURL := "https://example.com/otherrepo"
+	otherRepoHash := types.NewHash([]byte(otherRepoURL))
+	if err := st.PutRepo(ctx, types.Repo{
+		RepoHash: otherRepoHash,
+		RepoURL:  otherRepoURL,
+	}); err != nil {
+		t.Fatalf("PutRepo other: %v", err)
+	}
+	otherFileHash := types.NewHash(append(otherRepoHash[:], []byte("other.go")...))
+	if err := st.PutFile(ctx, types.File{
+		FileHash:    otherFileHash,
+		RepoHash:    otherRepoHash,
+		Path:        "other.go",
+		ContentHash: types.NewHash([]byte("other content")),
+	}); err != nil {
+		t.Fatalf("PutFile other: %v", err)
+	}
+	otherNode := types.Node{
+		NodeHash:      types.ComputeNodeHash(otherRepoURL, "other", types.EmptyHash, "OtherFunc", "function"),
+		FileHash:      otherFileHash,
+		QualifiedName: otherRepoURL + "://other.OtherFunc",
+		Kind:          "function",
+		Line:          5,
+	}
+	if err := st.PutNode(ctx, otherNode); err != nil {
+		t.Fatalf("PutNode other: %v", err)
+	}
+
+	st.Close()
+
+	// --- Test 1: Export all (no filter) ---
+
+	old := os.Stdout
+	r, w, pipeErr := os.Pipe()
+	if pipeErr != nil {
+		t.Fatal(pipeErr)
+	}
+	os.Stdout = w
+
+	err = cmdExport([]string{"-db", dbPath})
+
+	w.Close()
+	os.Stdout = old
+
+	if err != nil {
+		t.Fatalf("cmdExport (no filter): %v", err)
+	}
+
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(r); err != nil {
+		t.Fatal(err)
+	}
+
+	var result map[string]json.RawMessage
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("invalid JSON: %v\noutput: %s", err, buf.String())
+	}
+
+	var nodes []map[string]interface{}
+	if err := json.Unmarshal(result["nodes"], &nodes); err != nil {
+		t.Fatalf("unmarshal nodes: %v", err)
+	}
+	// All 3 nodes should be present (FuncA, FuncB, OtherFunc).
+	if len(nodes) != 3 {
+		t.Errorf("export all: expected 3 nodes, got %d", len(nodes))
+	}
+
+	var edges []map[string]interface{}
+	if err := json.Unmarshal(result["edges"], &edges); err != nil {
+		t.Fatalf("unmarshal edges: %v", err)
+	}
+	if len(edges) != 1 {
+		t.Errorf("export all: expected 1 edge, got %d", len(edges))
+	}
+	if len(edges) > 0 {
+		if edges[0]["edge_type"] != "calls" {
+			t.Errorf("edge type: got %v, want calls", edges[0]["edge_type"])
+		}
+		if edges[0]["confidence"].(float64) != 1.0 {
+			t.Errorf("edge confidence: got %v, want 1.0", edges[0]["confidence"])
+		}
+	}
+
+	// --- Test 2: Export with --repo filter ---
+
+	r2, w2, pipeErr := os.Pipe()
+	if pipeErr != nil {
+		t.Fatal(pipeErr)
+	}
+	os.Stdout = w2
+
+	err = cmdExport([]string{"-db", dbPath, "-repo", repoURL})
+
+	w2.Close()
+	os.Stdout = old
+
+	if err != nil {
+		t.Fatalf("cmdExport (with repo filter): %v", err)
+	}
+
+	var buf2 bytes.Buffer
+	if _, err := buf2.ReadFrom(r2); err != nil {
+		t.Fatal(err)
+	}
+
+	var result2 map[string]json.RawMessage
+	if err := json.Unmarshal(buf2.Bytes(), &result2); err != nil {
+		t.Fatalf("invalid JSON (filtered): %v", err)
+	}
+
+	var filteredNodes []map[string]interface{}
+	if err := json.Unmarshal(result2["nodes"], &filteredNodes); err != nil {
+		t.Fatalf("unmarshal filtered nodes: %v", err)
+	}
+	// Only FuncA and FuncB should be present (filtered to exportrepo).
+	if len(filteredNodes) != 2 {
+		t.Errorf("export filtered: expected 2 nodes, got %d", len(filteredNodes))
+	}
+
+	// Verify the other repo's node is NOT in the filtered output.
+	for _, n := range filteredNodes {
+		name := n["qualified_name"].(string)
+		if strings.Contains(name, "OtherFunc") {
+			t.Errorf("filtered export should not contain OtherFunc, but found: %s", name)
+		}
+	}
+
+	var metadata map[string]interface{}
+	if err := json.Unmarshal(result2["metadata"], &metadata); err != nil {
+		t.Fatalf("unmarshal metadata: %v", err)
+	}
+	if metadata["repo"] != repoURL {
+		t.Errorf("metadata repo: got %v, want %s", metadata["repo"], repoURL)
+	}
+	if metadata["node_count"].(float64) != 2 {
+		t.Errorf("metadata node_count: got %v, want 2", metadata["node_count"])
 	}
 }
 

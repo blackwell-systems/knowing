@@ -402,3 +402,155 @@ func TestIntegrationFullPipeline(t *testing.T) {
 		t.Errorf("final edge count: got %d, want 4", totalEdges)
 	}
 }
+
+// TestIntegrationRouteExtraction verifies the full route-to-runtime pipeline:
+// inserting a handler node, mapping a route to it, resolving the route via
+// SymbolResolver, and ingesting a span that targets the resolved handler.
+func TestIntegrationRouteExtraction(t *testing.T) {
+	db := setupIntegrationDB(t)
+	ctx := context.Background()
+
+	// --- Step 1: Insert a handler node ---
+
+	handlerFileHash := types.NewHash([]byte("users-handler-file"))
+	handleUsers := types.Node{
+		NodeHash:      types.ComputeNodeHash("api-service", "api/routes", types.EmptyHash, "handleUsers", "function"),
+		FileHash:      handlerFileHash,
+		QualifiedName: "api-service/api/routes.handleUsers",
+		Kind:          "function",
+		Line:          15,
+		Signature:     "func handleUsers(w http.ResponseWriter, r *http.Request)",
+	}
+	insertNode(t, db, handleUsers)
+
+	// --- Step 2: Map the HTTP route to the handler node ---
+
+	putRouteSymbol(t, db, "api-service", "GET /api/users", handleUsers.NodeHash, "http_route")
+
+	// --- Step 3: Verify SymbolResolver resolves with confidence 1.0 ---
+
+	resolver := NewSymbolResolver(db)
+
+	resolvedHash, confidence, err := resolver.Resolve(ctx, "api-service", "GET /api/users", "http_route")
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if resolvedHash != handleUsers.NodeHash {
+		t.Errorf("Resolve returned wrong hash: got %x, want %x", resolvedHash, handleUsers.NodeHash)
+	}
+	if confidence != 1.0 {
+		t.Errorf("Resolve confidence: got %f, want 1.0", confidence)
+	}
+
+	// --- Step 4: Verify unresolved route gets confidence 0.3 ---
+
+	unresolvedHash, unresolvedConf, err := resolver.Resolve(ctx, "api-service", "DELETE /api/sessions", "http_route")
+	if err != nil {
+		t.Fatalf("Resolve (unresolved): %v", err)
+	}
+	if unresolvedConf != 0.3 {
+		t.Errorf("unresolved confidence: got %f, want 0.3", unresolvedConf)
+	}
+	// Unresolved hash should be a synthetic node hash.
+	expectedUnresolved := types.ComputeNodeHash("api-service", "UNRESOLVED", types.EmptyHash, "DELETE /api/sessions", "runtime_endpoint")
+	if unresolvedHash != expectedUnresolved {
+		t.Errorf("unresolved hash mismatch: got %x, want %x", unresolvedHash, expectedUnresolved)
+	}
+
+	// --- Step 5: Ingest a span that targets the resolved route ---
+
+	ingestor := NewIngestor(db, resolver, TraceIngestConfig{})
+
+	resolvedSpan := TraceSpan{
+		TraceID:       "trace-route-001",
+		SpanID:        "span-route-001",
+		ServiceName:   "frontend",
+		PeerService:   "api-service",
+		OperationName: "GET /api/users",
+		Attributes: map[string]string{
+			"http.method": "GET",
+			"http.route":  "/api/users",
+		},
+		StartTime: time.Now(),
+		Duration:  25 * time.Millisecond,
+	}
+
+	result, err := ingestor.IngestSpans(ctx, []TraceSpan{resolvedSpan})
+	if err != nil {
+		t.Fatalf("IngestSpans: %v", err)
+	}
+	if result.Created != 1 {
+		t.Errorf("IngestSpans Created: got %d, want 1", result.Created)
+	}
+
+	// --- Step 6: Verify the edge targets the real handler, not UNRESOLVED ---
+
+	rows, err := db.QueryContext(ctx,
+		`SELECT target_hash, confidence FROM edges WHERE provenance LIKE 'otel_trace%'`)
+	if err != nil {
+		t.Fatalf("query edges: %v", err)
+	}
+	defer rows.Close()
+
+	found := false
+	for rows.Next() {
+		var targetHashBytes []byte
+		var edgeConfidence float64
+		if err := rows.Scan(&targetHashBytes, &edgeConfidence); err != nil {
+			t.Fatalf("scan edge: %v", err)
+		}
+		var targetHash types.Hash
+		copy(targetHash[:], targetHashBytes)
+
+		if targetHash == handleUsers.NodeHash {
+			found = true
+			// Confidence should be min(resolver=1.0, count=0.5) = 0.5 for first observation.
+			if edgeConfidence != 0.5 {
+				t.Errorf("resolved edge confidence: got %f, want 0.5", edgeConfidence)
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows error: %v", err)
+	}
+	if !found {
+		t.Error("expected an edge targeting the handler node hash, but none found")
+	}
+
+	// --- Step 7: Ingest a span for an unresolved route and verify confidence 0.3 ---
+
+	unresolvedSpan := TraceSpan{
+		TraceID:       "trace-route-002",
+		SpanID:        "span-route-002",
+		ServiceName:   "frontend",
+		PeerService:   "api-service",
+		OperationName: "DELETE /api/sessions",
+		Attributes: map[string]string{
+			"http.method": "DELETE",
+			"http.route":  "/api/sessions",
+		},
+		StartTime: time.Now(),
+		Duration:  10 * time.Millisecond,
+	}
+
+	result2, err := ingestor.IngestSpans(ctx, []TraceSpan{unresolvedSpan})
+	if err != nil {
+		t.Fatalf("IngestSpans (unresolved): %v", err)
+	}
+	if result2.Created != 1 {
+		t.Errorf("IngestSpans Created (unresolved): got %d, want 1", result2.Created)
+	}
+
+	// Verify the unresolved edge has confidence 0.3.
+	var unresolvedEdgeConf float64
+	err = db.QueryRowContext(ctx,
+		`SELECT confidence FROM edges WHERE target_hash = ?`,
+		expectedUnresolved[:],
+	).Scan(&unresolvedEdgeConf)
+	if err != nil {
+		t.Fatalf("query unresolved edge: %v", err)
+	}
+	if unresolvedEdgeConf != 0.3 {
+		t.Errorf("unresolved edge confidence: got %f, want 0.3", unresolvedEdgeConf)
+	}
+}
