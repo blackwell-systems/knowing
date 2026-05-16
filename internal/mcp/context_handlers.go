@@ -82,9 +82,16 @@ func (s *Server) handleContextForFiles(ctx context.Context, req mcp.CallToolRequ
 
 // formatBlock routes output through the wire codec registry for kwf/kwb/json,
 // or falls back to the legacy context formatter for xml/markdown.
+// For KWF, uses the server's session state for cross-call deduplication.
 func formatBlock(ctx context.Context, block *knowingctx.ContextBlock, format, tool string, s *Server) (string, error) {
 	switch format {
-	case "kwf", "kwb", "json":
+	case "kwf":
+		payload, err := wire.FromContextBlock(ctx, block, tool, s.store)
+		if err != nil {
+			return "", fmt.Errorf("building wire payload: %w", err)
+		}
+		return wire.EncodeWithSession(payload, s.session), nil
+	case "kwb", "json":
 		payload, err := wire.FromContextBlock(ctx, block, tool, s.store)
 		if err != nil {
 			return "", fmt.Errorf("building wire payload: %w", err)
