@@ -3,6 +3,7 @@ package daemon
 import (
 	"bufio"
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,7 +11,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/blackwell-systems/knowing/internal/trace"
 	"github.com/blackwell-systems/knowing/internal/types"
+	_ "modernc.org/sqlite"
 )
 
 // The Daemon is the long-running process that ties together file watching,
@@ -47,6 +50,10 @@ type DaemonConfig struct {
 	// TraceConfig holds configuration for the runtime trace ingestion pipeline.
 	// If nil or Enabled is false, trace ingestion is not started.
 	TraceConfig *TraceIngestConfig
+
+	// DBPath is the path to the SQLite database file, used by the trace
+	// ingestor for direct DB access. Must be set when TraceConfig is enabled.
+	DBPath string
 }
 
 // TraceIngestConfig holds configuration for the runtime trace ingestion pipeline.
@@ -245,13 +252,57 @@ func (d *Daemon) RLock() { d.mu.RLock() }
 // RUnlock releases the read lock.
 func (d *Daemon) RUnlock() { d.mu.RUnlock() }
 
-// traceIngestLoop runs the trace ingestion pipeline. Currently a placeholder
-// that blocks until context cancellation. The real implementation will create
-// an OTLPReceiver and Ingestor once the trace package is fully integrated.
+// traceIngestLoop runs the trace ingestion pipeline. It opens a dedicated
+// database connection, creates a SymbolResolver, Ingestor, and OTLPReceiver,
+// starts the gRPC receiver, and runs periodic FlushBatch and DecayConfidence
+// loops until the context is cancelled.
 func (d *Daemon) traceIngestLoop(ctx context.Context) {
-	// TODO: Wire OTLPReceiver and Ingestor here.
-	// For now, block until context is cancelled.
-	<-ctx.Done()
+	cfg := d.cfg.TraceConfig
+	if cfg == nil {
+		return
+	}
+
+	// Open a dedicated DB connection for the trace pipeline.
+	db, err := sql.Open("sqlite", d.cfg.DBPath)
+	if err != nil {
+		return // silently fail; trace is non-critical
+	}
+	defer db.Close()
+
+	resolver := trace.NewSymbolResolver(db)
+	traceCfg := trace.TraceIngestConfig{
+		Enabled:       cfg.Enabled,
+		OTLPEndpoint:  cfg.OTLPEndpoint,
+		BatchSize:     cfg.BatchSize,
+		BatchInterval: cfg.BatchInterval,
+	}
+	ingestor := trace.NewIngestor(db, resolver, traceCfg)
+	receiver := trace.NewOTLPReceiver(cfg.OTLPEndpoint, ingestor)
+
+	if err := receiver.Start(ctx); err != nil {
+		return
+	}
+	defer receiver.Stop()
+
+	// Periodic flush and decay loop.
+	batchTicker := time.NewTicker(cfg.BatchInterval)
+	defer batchTicker.Stop()
+
+	decayInterval := 1 * time.Hour
+	decayTicker := time.NewTicker(decayInterval)
+	defer decayTicker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			_ = ingestor.FlushBatch(context.Background())
+			return
+		case <-batchTicker.C:
+			_ = ingestor.FlushBatch(ctx)
+		case <-decayTicker.C:
+			_, _ = ingestor.DecayConfidence(ctx)
+		}
+	}
 }
 
 // shutdown cleans up watcher and waits for goroutines.
