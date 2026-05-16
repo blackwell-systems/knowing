@@ -87,13 +87,13 @@ func formatXML(block *ContextBlock) (string, error) {
 func writeXMLSymbol(b *strings.Builder, sym RankedSymbol, includeConfidence bool) {
 	if includeConfidence {
 		fmt.Fprintf(b, "    <symbol name=%q kind=%q score=\"%.2f\" confidence=\"%.2f\" provenance=%q distance=\"%d\">\n",
-			sym.QualifiedName, sym.Kind, sym.Score, sym.Confidence, sym.Provenance, sym.Distance)
+			sym.Node.QualifiedName, sym.Node.Kind, sym.Score, sym.Components.Confidence, sym.Provenance, sym.Distance)
 	} else {
 		fmt.Fprintf(b, "    <symbol name=%q kind=%q score=\"%.2f\" distance=\"%d\">\n",
-			sym.QualifiedName, sym.Kind, sym.Score, sym.Distance)
+			sym.Node.QualifiedName, sym.Node.Kind, sym.Score, sym.Distance)
 	}
-	if sym.Signature != "" {
-		fmt.Fprintf(b, "      <signature>%s</signature>\n", xmlEscape(sym.Signature))
+	if sym.Node.Signature != "" {
+		fmt.Fprintf(b, "      <signature>%s</signature>\n", xmlEscape(sym.Node.Signature))
 	}
 	b.WriteString("    </symbol>\n")
 }
@@ -110,9 +110,9 @@ func formatMarkdown(block *ContextBlock) (string, error) {
 		b.WriteString("## Target Symbols\n")
 		for _, sym := range targets {
 			fmt.Fprintf(&b, "- `%s` (%s, score: %.2f, confidence: %.2f)\n",
-				sym.QualifiedName, sym.Kind, sym.Score, sym.Confidence)
-			if sym.Signature != "" {
-				fmt.Fprintf(&b, "  Signature: `%s`\n", sym.Signature)
+				sym.Node.QualifiedName, sym.Node.Kind, sym.Score, sym.Components.Confidence)
+			if sym.Node.Signature != "" {
+				fmt.Fprintf(&b, "  Signature: `%s`\n", sym.Node.Signature)
 			}
 		}
 		b.WriteString("\n")
@@ -124,9 +124,9 @@ func formatMarkdown(block *ContextBlock) (string, error) {
 		b.WriteString("## Related Symbols (distance: 1)\n")
 		for _, sym := range related {
 			fmt.Fprintf(&b, "- `%s` (%s, score: %.2f)\n",
-				sym.QualifiedName, sym.Kind, sym.Score)
-			if sym.Signature != "" {
-				fmt.Fprintf(&b, "  Signature: `%s`\n", sym.Signature)
+				sym.Node.QualifiedName, sym.Node.Kind, sym.Score)
+			if sym.Node.Signature != "" {
+				fmt.Fprintf(&b, "  Signature: `%s`\n", sym.Node.Signature)
 			}
 		}
 		b.WriteString("\n")
@@ -138,7 +138,7 @@ func formatMarkdown(block *ContextBlock) (string, error) {
 		b.WriteString("## Extended Context (distance: 2+)\n")
 		for _, sym := range extended {
 			fmt.Fprintf(&b, "- `%s` (%s, score: %.2f)\n",
-				sym.QualifiedName, sym.Kind, sym.Score)
+				sym.Node.QualifiedName, sym.Node.Kind, sym.Score)
 		}
 		b.WriteString("\n")
 	}
@@ -180,10 +180,10 @@ func formatJSON(block *ContextBlock) (string, error) {
 
 	for _, sym := range block.Symbols {
 		out.Symbols = append(out.Symbols, jsonSymbol{
-			QualifiedName: sym.QualifiedName,
-			Kind:          sym.Kind,
+			QualifiedName: sym.Node.QualifiedName,
+			Kind:          sym.Node.Kind,
 			Score:         sym.Score,
-			Signature:     sym.Signature,
+			Signature:     sym.Node.Signature,
 			Provenance:    sym.Provenance,
 			Distance:      sym.Distance,
 			Components: jsonComponents{

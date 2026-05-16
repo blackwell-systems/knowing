@@ -4,43 +4,31 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/blackwell-systems/knowing/internal/types"
 )
+
+func makeRankedSymbol(name, kind, sig, prov string, score float64, dist int, comps ScoreComponents) RankedSymbol {
+	return RankedSymbol{
+		Node: types.Node{
+			QualifiedName: name,
+			Kind:          kind,
+			Signature:     sig,
+		},
+		Score:      score,
+		Provenance: prov,
+		Distance:   dist,
+		Components: comps,
+	}
+}
 
 func TestFormatXML_Basic(t *testing.T) {
 	block := &ContextBlock{
 		TokensUsed:  1200,
 		TokenBudget: 50000,
 		Symbols: []RankedSymbol{
-			{
-				QualifiedName: "github.com/example/pkg.DoSomething",
-				Kind:          "function",
-				Signature:     "func DoSomething(ctx context.Context) error",
-				Score:         0.95,
-				Confidence:    0.90,
-				Provenance:    "runtime_observed",
-				Distance:      0,
-				Components: ScoreComponents{
-					BlastRadius: 0.40,
-					Confidence:  0.25,
-					Recency:     0.20,
-					Distance:    0.15,
-				},
-			},
-			{
-				QualifiedName: "github.com/example/pkg.Helper",
-				Kind:          "function",
-				Signature:     "func Helper() string",
-				Score:         0.72,
-				Confidence:    0.80,
-				Provenance:    "ast_resolved",
-				Distance:      1,
-				Components: ScoreComponents{
-					BlastRadius: 0.30,
-					Confidence:  0.20,
-					Recency:     0.12,
-					Distance:    0.10,
-				},
-			},
+			makeRankedSymbol("github.com/example/pkg.DoSomething", "function", "func DoSomething(ctx context.Context) error", "runtime_observed", 0.95, 0, ScoreComponents{BlastRadius: 0.40, Confidence: 0.25, Recency: 0.20, Distance: 0.15}),
+			makeRankedSymbol("github.com/example/pkg.Helper", "function", "func Helper() string", "ast_resolved", 0.72, 1, ScoreComponents{BlastRadius: 0.30, Confidence: 0.20, Recency: 0.12, Distance: 0.10}),
 		},
 	}
 
@@ -49,7 +37,6 @@ func TestFormatXML_Basic(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Verify XML structure
 	if !strings.Contains(output, "<context") {
 		t.Error("output missing <context> element")
 	}
@@ -81,23 +68,8 @@ func TestFormatMarkdown_Basic(t *testing.T) {
 		TokensUsed:  800,
 		TokenBudget: 50000,
 		Symbols: []RankedSymbol{
-			{
-				QualifiedName: "github.com/example/pkg.DoSomething",
-				Kind:          "function",
-				Signature:     "func DoSomething(ctx context.Context) error",
-				Score:         0.95,
-				Confidence:    0.90,
-				Provenance:    "runtime_observed",
-				Distance:      0,
-			},
-			{
-				QualifiedName: "github.com/example/pkg.Helper",
-				Kind:          "function",
-				Score:         0.72,
-				Confidence:    0.80,
-				Provenance:    "ast_resolved",
-				Distance:      1,
-			},
+			makeRankedSymbol("github.com/example/pkg.DoSomething", "function", "func DoSomething(ctx context.Context) error", "runtime_observed", 0.95, 0, ScoreComponents{}),
+			makeRankedSymbol("github.com/example/pkg.Helper", "function", "", "ast_resolved", 0.72, 1, ScoreComponents{}),
 		},
 	}
 
@@ -128,21 +100,7 @@ func TestFormatJSON_Basic(t *testing.T) {
 		TokensUsed:  500,
 		TokenBudget: 50000,
 		Symbols: []RankedSymbol{
-			{
-				QualifiedName: "github.com/example/pkg.DoSomething",
-				Kind:          "function",
-				Signature:     "func DoSomething() error",
-				Score:         0.95,
-				Confidence:    0.90,
-				Provenance:    "runtime_observed",
-				Distance:      0,
-				Components: ScoreComponents{
-					BlastRadius: 0.40,
-					Confidence:  0.25,
-					Recency:     0.20,
-					Distance:    0.15,
-				},
-			},
+			makeRankedSymbol("github.com/example/pkg.DoSomething", "function", "func DoSomething() error", "runtime_observed", 0.95, 0, ScoreComponents{BlastRadius: 0.40, Confidence: 0.25, Recency: 0.20, Distance: 0.15}),
 		},
 	}
 
@@ -151,7 +109,6 @@ func TestFormatJSON_Basic(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Verify valid JSON
 	var parsed jsonOutput
 	if err := json.Unmarshal([]byte(output), &parsed); err != nil {
 		t.Fatalf("output is not valid JSON: %v", err)
@@ -196,7 +153,6 @@ func TestFormatEmpty(t *testing.T) {
 		Symbols:     nil,
 	}
 
-	// XML should not panic
 	xmlOut, err := FormatContextBlock(block, "xml")
 	if err != nil {
 		t.Fatalf("xml format error on empty block: %v", err)
@@ -208,7 +164,6 @@ func TestFormatEmpty(t *testing.T) {
 		t.Error("empty XML output should report 0 total symbols")
 	}
 
-	// Markdown should not panic
 	mdOut, err := FormatContextBlock(block, "markdown")
 	if err != nil {
 		t.Fatalf("markdown format error on empty block: %v", err)
@@ -217,7 +172,6 @@ func TestFormatEmpty(t *testing.T) {
 		t.Error("empty markdown output missing header")
 	}
 
-	// JSON should not panic
 	jsonOut, err := FormatContextBlock(block, "json")
 	if err != nil {
 		t.Fatalf("json format error on empty block: %v", err)
@@ -236,33 +190,9 @@ func TestFormatXML_Grouping(t *testing.T) {
 		TokensUsed:  2000,
 		TokenBudget: 50000,
 		Symbols: []RankedSymbol{
-			{
-				QualifiedName: "pkg.Target",
-				Kind:          "function",
-				Signature:     "func Target()",
-				Score:         0.99,
-				Confidence:    0.95,
-				Provenance:    "runtime_observed",
-				Distance:      0,
-			},
-			{
-				QualifiedName: "pkg.DirectRelation",
-				Kind:          "method",
-				Signature:     "func (r *R) DirectRelation()",
-				Score:         0.75,
-				Confidence:    0.80,
-				Provenance:    "ast_resolved",
-				Distance:      1,
-			},
-			{
-				QualifiedName: "pkg.Extended",
-				Kind:          "type",
-				Signature:     "type Extended struct{}",
-				Score:         0.50,
-				Confidence:    0.60,
-				Provenance:    "ast_inferred",
-				Distance:      2,
-			},
+			makeRankedSymbol("pkg.Target", "function", "func Target()", "runtime_observed", 0.99, 0, ScoreComponents{}),
+			makeRankedSymbol("pkg.DirectRelation", "method", "func (r *R) DirectRelation()", "ast_resolved", 0.75, 1, ScoreComponents{}),
+			makeRankedSymbol("pkg.Extended", "type", "type Extended struct{}", "ast_inferred", 0.50, 2, ScoreComponents{}),
 		},
 	}
 
@@ -271,7 +201,6 @@ func TestFormatXML_Grouping(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Verify all three sections exist
 	if !strings.Contains(output, "<target_symbols>") {
 		t.Error("missing <target_symbols> section")
 	}
@@ -282,7 +211,6 @@ func TestFormatXML_Grouping(t *testing.T) {
 		t.Error("missing <extended_context> section")
 	}
 
-	// Verify symbols are in the correct sections by checking ordering
 	targetIdx := strings.Index(output, "<target_symbols>")
 	relatedIdx := strings.Index(output, "<related_symbols>")
 	extendedIdx := strings.Index(output, "<extended_context>")
@@ -301,7 +229,6 @@ func TestFormatXML_Grouping(t *testing.T) {
 		t.Error("Extended symbol not in <extended_context> section")
 	}
 
-	// Verify distance counts in relationship_summary
 	if !strings.Contains(output, `<distance hop="0" count="1"/>`) {
 		t.Error("missing distance hop=0 count")
 	}
@@ -318,16 +245,10 @@ func TestFormatXML_DefaultFormat(t *testing.T) {
 		TokensUsed:  100,
 		TokenBudget: 50000,
 		Symbols: []RankedSymbol{
-			{
-				QualifiedName: "pkg.Func",
-				Kind:          "function",
-				Score:         0.80,
-				Distance:      0,
-			},
+			makeRankedSymbol("pkg.Func", "function", "", "", 0.80, 0, ScoreComponents{}),
 		},
 	}
 
-	// Empty format string should default to XML
 	output, err := FormatContextBlock(block, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -342,13 +263,7 @@ func TestFormatXML_EscapesSpecialChars(t *testing.T) {
 		TokensUsed:  100,
 		TokenBudget: 50000,
 		Symbols: []RankedSymbol{
-			{
-				QualifiedName: "pkg.Func",
-				Kind:          "function",
-				Signature:     "func Func(a <T>, b &U) bool",
-				Score:         0.80,
-				Distance:      0,
-			},
+			makeRankedSymbol("pkg.Func", "function", "func Func(a <T>, b &U) bool", "", 0.80, 0, ScoreComponents{}),
 		},
 	}
 
