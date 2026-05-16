@@ -459,6 +459,7 @@ waves:
           files:
             - internal/indexer/cssextractor/extractor.go
             - internal/indexer/cssextractor/extractor_test.go
+      base_commit: 0772e5e81ab57134e4744f536cd3bc72c8abc23b
     - number: 2
       type: integration
       agents:
@@ -571,6 +572,107 @@ quality_gates:
         - type: test
           command: GOWORK=off go test ./... -timeout 5m
           required: true
+post_merge_checklist:
+    groups:
+        - title: Background Service Initialization
+          items:
+            - description: Verify if extractor_test.go needs initialization in Server constructor
+            - description: Verify if extractor_test.go needs initialization in Server constructor
+            - description: Verify if extractor_test.go needs initialization in Server constructor
+            - description: Verify if extractor_test.go needs initialization in Server constructor
+completion_reports:
+    A:
+        status: complete
+        branch: polywave/infra-schema-extractors/wave1-agent-A
+        commit: 65f317e
+        files_changed:
+            - internal/indexer/terraformextractor/extractor.go
+            - internal/indexer/terraformextractor/extractor_test.go
+        files_created:
+            - internal/indexer/terraformextractor/extractor.go
+            - internal/indexer/terraformextractor/extractor_test.go
+        tests_added:
+            - TestTerraformExtractor_Name
+            - TestTerraformExtractor_CanHandle
+            - TestTerraformExtractor_ExtractResources
+            - TestTerraformExtractor_ExtractDataSources
+            - TestTerraformExtractor_ExtractModules
+            - TestTerraformExtractor_ExtractVariablesAndOutputs
+            - TestTerraformExtractor_ExtractDependsOnEdges
+            - TestTerraformExtractor_ExtractModuleCallEdges
+        verification: PASS
+        notes: HCL tree-sitter grammar uses config_file->body->block structure. Blocks have identifier+string_lit children for type/labels, body child for attributes. All 8 tests passing. Extractor not registered in main.go (Agent E scope).
+    B:
+        status: complete
+        branch: polywave/infra-schema-extractors/wave1-agent-B
+        commit: 8afe952
+        files_changed:
+            - internal/indexer/sqlextractor/extractor.go
+            - internal/indexer/sqlextractor/extractor_test.go
+        files_created:
+            - internal/indexer/sqlextractor/extractor.go
+            - internal/indexer/sqlextractor/extractor_test.go
+        tests_added:
+            - TestSQLExtractor_Name
+            - TestSQLExtractor_CanHandle
+            - TestSQLExtractor_ExtractTables
+            - TestSQLExtractor_ExtractViews
+            - TestSQLExtractor_ExtractFunctions
+            - TestSQLExtractor_ExtractProcedures
+            - TestSQLExtractor_ExtractReferencesEdges
+            - TestSQLExtractor_ExtractViewDependsOn
+            - TestSQLExtractor_ExtractCallsEdges
+            - TestSQLExtractor_EmptyFile
+            - TestSQLExtractor_QualifiedNameFormat
+        verification: PASS
+        notes: SQL extractor complete. Handles CREATE TABLE/VIEW/FUNCTION/PROCEDURE with tree-sitter AST plus text-based fallback for FUNCTION/PROCEDURE (tree-sitter SQL grammar marks these as ERROR nodes). All 11 tests passing.
+    C:
+        status: complete
+        branch: polywave/infra-schema-extractors/wave1-agent-C
+        commit: 1b63170
+        files_changed:
+            - internal/indexer/k8sextractor/extractor.go
+            - internal/indexer/k8sextractor/extractor_test.go
+            - go.mod
+            - go.sum
+        files_created:
+            - internal/indexer/k8sextractor/extractor.go
+            - internal/indexer/k8sextractor/extractor_test.go
+        tests_added:
+            - TestK8sExtractor_Name
+            - TestK8sExtractor_CanHandle
+            - TestK8sExtractor_ExtractDeployment
+            - TestK8sExtractor_ExtractService
+            - TestK8sExtractor_ExtractConfigMap
+            - TestK8sExtractor_ExtractIngress
+            - TestK8sExtractor_ExtractDeploysEdge
+            - TestK8sExtractor_ExtractExposesEdge
+            - TestK8sExtractor_ExtractConfiguresEdge
+            - TestK8sExtractor_MultiDocument
+        verification: PASS
+        notes: K8s YAML extractor complete. All 10 tests passing. Uses gopkg.in/yaml.v3 for parsing. go.mod updated via go mod tidy to promote yaml.v3 to direct dependency.
+    D:
+        status: complete
+        branch: polywave/infra-schema-extractors/wave1-agent-D
+        commit: 2ed37b4
+        files_changed:
+            - internal/indexer/cssextractor/extractor.go
+            - internal/indexer/cssextractor/extractor_test.go
+        files_created:
+            - internal/indexer/cssextractor/extractor.go
+            - internal/indexer/cssextractor/extractor_test.go
+        tests_added:
+            - TestCSSExtractor_Name
+            - TestCSSExtractor_CanHandle
+            - TestCSSExtractor_ExtractClassSelectors
+            - TestCSSExtractor_ExtractIDSelectors
+            - TestCSSExtractor_ExtractCustomProperties
+            - TestCSSExtractor_ExtractImportEdges
+            - TestCSSExtractor_ExtractVarDependsOn
+            - TestCSSExtractor_ExcludesNodeModules
+            - TestCSSExtractor_EmptyFile
+        verification: PASS
+        notes: CSS extractor complete. All 9 tests passing. Implements class_selector, id_selector, custom_property nodes and imports/depends_on edges.
 pre_mortem:
     overall_risk: low
     rows:
