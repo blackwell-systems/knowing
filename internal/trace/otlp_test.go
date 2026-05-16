@@ -5,6 +5,12 @@ import (
 	"testing"
 	"time"
 
+	coltracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
+	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
+	resourcepb "go.opentelemetry.io/proto/otlp/resource/v1"
+	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	_ "modernc.org/sqlite"
 )
 
@@ -512,5 +518,163 @@ func TestIngestResult_ZeroValue(t *testing.T) {
 	var r IngestResult
 	if r.Created != 0 || r.Updated != 0 {
 		t.Errorf("zero IngestResult should have Created=0 Updated=0")
+	}
+}
+
+// TestOTLPReceiver_Export_gRPC sends a real ExportTraceServiceRequest via gRPC
+// and verifies spans are converted and added to the ingestor batch.
+func TestOTLPReceiver_Export_gRPC(t *testing.T) {
+	db := setupIngestDB(t)
+	resolver := NewSymbolResolver(db)
+	ing := NewIngestor(db, resolver, TraceIngestConfig{BatchSize: 100})
+	recv := NewOTLPReceiver(":0", ing)
+
+	ctx := context.Background()
+	if err := recv.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer recv.Stop()
+
+	// Connect a gRPC client to the receiver.
+	conn, err := grpc.NewClient(
+		recv.ListenAddr(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		t.Fatalf("grpc.NewClient: %v", err)
+	}
+	defer conn.Close()
+
+	client := coltracepb.NewTraceServiceClient(conn)
+
+	now := uint64(time.Now().UnixNano())
+	req := &coltracepb.ExportTraceServiceRequest{
+		ResourceSpans: []*tracepb.ResourceSpans{
+			{
+				Resource: &resourcepb.Resource{
+					Attributes: []*commonpb.KeyValue{
+						{
+							Key:   "service.name",
+							Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: "order-service"}},
+						},
+					},
+				},
+				ScopeSpans: []*tracepb.ScopeSpans{
+					{
+						Spans: []*tracepb.Span{
+							{
+								TraceId:           []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16},
+								SpanId:            []byte{1, 2, 3, 4, 5, 6, 7, 8},
+								Name:              "GET /orders",
+								StartTimeUnixNano: now,
+								EndTimeUnixNano:   now + uint64(50*time.Millisecond),
+								Attributes: []*commonpb.KeyValue{
+									{Key: "http.method", Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: "GET"}}},
+									{Key: "http.route", Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: "/orders"}}},
+									{Key: "peer.service", Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: "inventory-service"}}},
+								},
+							},
+							{
+								TraceId:           []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16},
+								SpanId:            []byte{2, 3, 4, 5, 6, 7, 8, 9},
+								ParentSpanId:      []byte{1, 2, 3, 4, 5, 6, 7, 8},
+								Name:              "CheckInventory",
+								StartTimeUnixNano: now + uint64(5*time.Millisecond),
+								EndTimeUnixNano:   now + uint64(40*time.Millisecond),
+								Attributes: []*commonpb.KeyValue{
+									{Key: "rpc.service", Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: "InventoryService"}}},
+									{Key: "rpc.method", Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: "CheckInventory"}}},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	resp, err := client.Export(ctx, req)
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	if resp == nil {
+		t.Fatal("Export returned nil response")
+	}
+
+	// Flush spans and verify edges were created.
+	if err := ing.FlushBatch(ctx); err != nil {
+		t.Fatalf("FlushBatch: %v", err)
+	}
+
+	var count int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM edges`).Scan(&count); err != nil {
+		t.Fatalf("count edges: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("expected 2 edges, got %d", count)
+	}
+}
+
+// TestOTLPReceiver_Export_NotConnected verifies Export returns error via gRPC
+// when the receiver is not started.
+func TestOTLPReceiver_Export_NotConnected(t *testing.T) {
+	db := setupIngestDB(t)
+	resolver := NewSymbolResolver(db)
+	ing := NewIngestor(db, resolver, TraceIngestConfig{})
+	recv := NewOTLPReceiver(":0", ing)
+
+	// Export directly (not via gRPC since server isn't started).
+	_, err := recv.Export(context.Background(), &coltracepb.ExportTraceServiceRequest{})
+	if err == nil {
+		t.Fatal("expected error when not connected")
+	}
+}
+
+// TestOTLPReceiver_Export_EmptyRequest verifies Export handles an empty request.
+func TestOTLPReceiver_Export_EmptyRequest(t *testing.T) {
+	db := setupIngestDB(t)
+	resolver := NewSymbolResolver(db)
+	ing := NewIngestor(db, resolver, TraceIngestConfig{})
+	recv := NewOTLPReceiver(":0", ing)
+
+	ctx := context.Background()
+	if err := recv.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer recv.Stop()
+
+	resp, err := recv.Export(ctx, &coltracepb.ExportTraceServiceRequest{})
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	if resp == nil {
+		t.Fatal("Export returned nil response")
+	}
+}
+
+// TestOTLPReceiver_ListenAddr verifies that ListenAddr returns the real address
+// after starting with port :0.
+func TestOTLPReceiver_ListenAddr(t *testing.T) {
+	db := setupIngestDB(t)
+	resolver := NewSymbolResolver(db)
+	ing := NewIngestor(db, resolver, TraceIngestConfig{})
+	recv := NewOTLPReceiver(":0", ing)
+
+	if recv.ListenAddr() != "" {
+		t.Errorf("ListenAddr before Start = %q, want empty", recv.ListenAddr())
+	}
+
+	ctx := context.Background()
+	if err := recv.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer recv.Stop()
+
+	addr := recv.ListenAddr()
+	if addr == "" {
+		t.Fatal("ListenAddr after Start is empty")
+	}
+	if addr == ":0" {
+		t.Error("ListenAddr should be a real address, not :0")
 	}
 }
