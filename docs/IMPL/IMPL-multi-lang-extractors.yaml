@@ -1,0 +1,954 @@
+title: Multi-language tree-sitter extractors
+feature_slug: multi-lang-extractors
+verdict: SUITABLE
+suitability_assessment: |
+    Suitability gate analysis:
+
+    1. File decomposition: The work decomposes cleanly into 4 independent extractor
+       packages (tsextractor, rustextractor, javaextractor, csharpextractor), each
+       in its own subdirectory with disjoint file ownership. One integration file
+       (cmd/knowing/main.go) needs wiring after all extractors are complete.
+
+    2. Investigation-first items: None. The existing gotsextractor and treesitter
+       packages provide clear reference patterns. The smacker/go-tree-sitter library
+       includes bindings for all four target languages (typescript, rust, java, csharp).
+
+    3. Interface discoverability: The types.Extractor interface is well-defined with
+       Name(), CanHandle(), and Extract() methods. ExtractOptions, ExtractResult,
+       Node, and Edge types are stable. All cross-agent contracts are fully specified.
+
+    4. Pre-implementation status: All four extractors are new (TODO). No existing
+       partial implementations.
+
+    5. Parallelization value: High. Four independent agents each creating 2 files
+       (extractor.go + extractor_test.go) with non-trivial logic (AST walking,
+       route detection, import parsing). Build/test cycle is ~30s. All 4 agents
+       run in parallel (single wave), maximizing speedup.
+
+    Estimated times:
+    - Scout phase: ~8 min (dependency mapping, interface contracts, IMPL doc)
+    - Agent execution: ~12 min (4 agents x 15 min avg, fully parallel = ~15 min)
+    - Merge & verification: ~3 min
+    Total Polywave time: ~23 min
+
+    Sequential baseline: ~60 min (4 agents x 15 min avg)
+    Time savings: ~37 min (62% faster)
+
+    Recommendation: Clear speedup. Proceed.
+test_command: GOWORK=off go test ./... -timeout 5m
+lint_command: GOWORK=off go vet ./...
+file_ownership:
+    - file: internal/indexer/tsextractor/extractor.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/indexer/tsextractor/extractor_test.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/indexer/rustextractor/extractor.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/indexer/rustextractor/extractor_test.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/indexer/javaextractor/extractor.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/indexer/javaextractor/extractor_test.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/indexer/csharpextractor/extractor.go
+      agent: D
+      wave: 1
+      action: new
+    - file: internal/indexer/csharpextractor/extractor_test.go
+      agent: D
+      wave: 1
+      action: new
+    - file: cmd/knowing/main.go
+      agent: E
+      wave: 2
+      action: modify
+interface_contracts:
+    - name: TypeScriptExtractor
+      description: Tree-sitter extractor for TypeScript/JavaScript files
+      definition: |
+        // Package tsextractor provides a tree-sitter based extractor for TypeScript and JavaScript.
+        type TypeScriptExtractor struct {
+            parser *sitter.Parser
+        }
+        func NewTypeScriptExtractor() *TypeScriptExtractor
+        func (e *TypeScriptExtractor) Name() string                // returns "treesitter-typescript"
+        func (e *TypeScriptExtractor) CanHandle(path string) bool  // .ts, .tsx, .js, .jsx files
+        func (e *TypeScriptExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error)
+      location: internal/indexer/tsextractor/extractor.go
+    - name: RustExtractor
+      description: Tree-sitter extractor for Rust files
+      definition: |
+        // Package rustextractor provides a tree-sitter based extractor for Rust.
+        type RustExtractor struct {
+            parser *sitter.Parser
+        }
+        func NewRustExtractor() *RustExtractor
+        func (e *RustExtractor) Name() string                // returns "treesitter-rust"
+        func (e *RustExtractor) CanHandle(path string) bool  // .rs files, excluding target/ dir
+        func (e *RustExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error)
+      location: internal/indexer/rustextractor/extractor.go
+    - name: JavaExtractor
+      description: Tree-sitter extractor for Java files
+      definition: |
+        // Package javaextractor provides a tree-sitter based extractor for Java.
+        type JavaExtractor struct {
+            parser *sitter.Parser
+        }
+        func NewJavaExtractor() *JavaExtractor
+        func (e *JavaExtractor) Name() string                // returns "treesitter-java"
+        func (e *JavaExtractor) CanHandle(path string) bool  // .java files, excluding build/ and target/ dirs
+        func (e *JavaExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error)
+      location: internal/indexer/javaextractor/extractor.go
+    - name: CSharpExtractor
+      description: Tree-sitter extractor for C# files
+      definition: |
+        // Package csharpextractor provides a tree-sitter based extractor for C#.
+        type CSharpExtractor struct {
+            parser *sitter.Parser
+        }
+        func NewCSharpExtractor() *CSharpExtractor
+        func (e *CSharpExtractor) Name() string                // returns "treesitter-csharp"
+        func (e *CSharpExtractor) CanHandle(path string) bool  // .cs files, excluding bin/ and obj/ dirs
+        func (e *CSharpExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error)
+      location: internal/indexer/csharpextractor/extractor.go
+waves:
+    - number: 1
+      agents:
+        - id: A
+          task: |
+            ## TypeScript/JavaScript Tree-Sitter Extractor
+
+            ### What to implement
+            Create a tree-sitter based extractor for TypeScript and JavaScript files in
+            `internal/indexer/tsextractor/`. Follow the patterns established by the existing
+            Go tree-sitter extractor (`internal/indexer/gotsextractor/extractor.go`) and
+            Python extractor (`internal/indexer/treesitter/extractor.go`).
+
+            **Files to create:**
+            - `internal/indexer/tsextractor/extractor.go`
+            - `internal/indexer/tsextractor/extractor_test.go`
+
+            ### Implementation details
+
+            **Package and imports:**
+            ```go
+            package tsextractor
+
+            import (
+                sitter "github.com/smacker/go-tree-sitter"
+                "github.com/smacker/go-tree-sitter/typescript/typescript"
+                "github.com/blackwell-systems/knowing/internal/types"
+            )
+            ```
+
+            Note: The TypeScript grammar is at `github.com/smacker/go-tree-sitter/typescript/typescript`
+            (nested path). Use `typescript.GetLanguage()` to get the language grammar.
+
+            **Struct and constructor:**
+            ```go
+            type TypeScriptExtractor struct {
+                parser *sitter.Parser
+            }
+
+            func NewTypeScriptExtractor() *TypeScriptExtractor {
+                parser := sitter.NewParser()
+                parser.SetLanguage(typescript.GetLanguage())
+                return &TypeScriptExtractor{parser: parser}
+            }
+            ```
+
+            **Name:** Return `"treesitter-typescript"`
+
+            **CanHandle:** Return true for files with extensions `.ts`, `.tsx`, `.js`, `.jsx`.
+            Exclude files in `node_modules/` directories (check path segments like
+            gotsextractor checks for `vendor/`).
+
+            **Extract method - node types to handle (TypeScript tree-sitter grammar):**
+
+            1. **Function declarations** (`function_declaration`): Extract the `name` field.
+               Create a node with kind `"function"`. Line is `nameNode.StartPoint().Row + 1`.
+
+            2. **Method definitions** (`method_definition`): Inside class bodies. Extract `name` field.
+               Create a node with kind `"method"`. Track the enclosing class name for qualified names.
+
+            3. **Class declarations** (`class_declaration`): Extract `name` field.
+               Create a node with kind `"type"`. Walk the class `body` with class context
+               to extract methods.
+
+            4. **Interface declarations** (`interface_declaration`): Extract `name` field.
+               Create a node with kind `"interface"`.
+
+            5. **Import statements** (`import_statement`): Extract the `source` field (the
+               string literal for the module path). Create an import edge from the file-level
+               context to the imported module. Also handle `require()` calls for CommonJS:
+               look for `call_expression` where the function is `identifier` named "require"
+               with a string argument.
+
+            6. **Call expressions** (`call_expression`): Extract the `function` field.
+               Handle both simple identifiers and member expressions (`object.method`).
+               Create call edges with call-site positions (line, column, file).
+               Set `CallSiteLine`, `CallSiteCol`, `CallSiteFile` on edges.
+
+            7. **Arrow functions assigned to variables** (`lexical_declaration` or
+               `variable_declaration` containing `variable_declarator` with `arrow_function`
+               value): Extract the variable name as a function node.
+
+            8. **Express.js route detection**: Detect calls like `app.get("/path", handler)`,
+               `app.post(...)`, `router.get(...)`, etc. The pattern is a `call_expression`
+               with a `member_expression` function where the property is one of:
+               `get`, `post`, `put`, `delete`, `patch`, `all`, `use`.
+               The first argument is the route pattern string, second is the handler.
+               Create `route_handler` nodes and `handles_route` edges.
+               Only detect routes when the file imports `express` (check import statements).
+
+            **Qualified name format:** `{repoURL}://{moduleRoot}/{filePath}.{ClassName}.{SymbolName}`
+            Follow the same convention as the Python extractor.
+
+            **Provenance and confidence:** All edges must use `provenance: "ast_inferred"`
+            and `confidence: 0.7` (matching the Go tree-sitter extractor pattern, since
+            without type resolution cross-module calls are heuristic).
+
+            **Sorting and deduplication:** Sort nodes by QualifiedName then Kind. Sort edges
+            by SourceHash, TargetHash, EdgeType. Deduplicate edges by EdgeHash.
+            Follow the exact same sorting pattern as gotsextractor.
+
+            ### Interface contracts
+            Implement `types.Extractor` interface:
+            - `Name() string` - returns `"treesitter-typescript"`
+            - `CanHandle(path string) bool` - matches `.ts`, `.tsx`, `.js`, `.jsx`
+            - `Extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error)`
+
+            Use `types.ComputeNodeHash()`, `types.ComputeEdgeHash()`, `types.Node`, `types.Edge`,
+            `types.ExtractOptions`, `types.ExtractResult`, `types.EmptyHash` from `internal/types`.
+
+            ### Tests
+            Write comprehensive tests in `extractor_test.go`. Follow the pattern from
+            `gotsextractor/extractor_test.go`. Required test cases:
+
+            1. `TestTypeScriptExtractor_Name` - verify name is "treesitter-typescript"
+            2. `TestTypeScriptExtractor_CanHandle` - test .ts, .tsx, .js, .jsx (true),
+               .go, .py, .rs (false), node_modules paths (false)
+            3. `TestTypeScriptExtractor_ExtractFunctions` - function declarations
+            4. `TestTypeScriptExtractor_ExtractClasses` - class with methods
+            5. `TestTypeScriptExtractor_ExtractInterfaces` - interface declarations
+            6. `TestTypeScriptExtractor_ExtractImports` - ES6 import statements
+            7. `TestTypeScriptExtractor_ExtractRequire` - CommonJS require() calls
+            8. `TestTypeScriptExtractor_ExtractCallEdges` - function calls with call-site positions
+            9. `TestTypeScriptExtractor_ExtractArrowFunctions` - arrow function assignments
+            10. `TestTypeScriptExtractor_ExpressRoutes` - Express.js route detection
+            11. `TestTypeScriptExtractor_NoRoutes` - file without Express routes
+            12. `TestTypeScriptExtractor_EdgeProvenanceAndConfidence` - verify ast_inferred/0.7
+            13. `TestTypeScriptExtractor_EmptyFile` - empty source returns empty result
+
+            Test helper: Create a `makeOpts` helper similar to the Python extractor's test helper.
+            No go.mod file needed for TS extraction; set ModuleRoot to a temp dir.
+
+            Use real TypeScript/JavaScript source code snippets parsed by tree-sitter
+            (not mocked). Example test source:
+            ```typescript
+            import { Router } from 'express';
+            const router = Router();
+
+            class UserController {
+              getUser(id: string) { return db.findUser(id); }
+            }
+
+            function handleRequest(req: Request) {
+              const ctrl = new UserController();
+              return ctrl.getUser(req.params.id);
+            }
+
+            router.get('/users/:id', handleRequest);
+            ```
+
+            ### Verification gate
+            ```bash
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go build ./internal/indexer/tsextractor/...
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go vet ./internal/indexer/tsextractor/...
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go test ./internal/indexer/tsextractor/... -v -timeout 2m
+            # Postcondition: extractor file exists and exports constructor
+            grep -q "func NewTypeScriptExtractor" /Users/dayna.blackwell/code/knowing/internal/indexer/tsextractor/extractor.go
+            # Postcondition: CanHandle implemented
+            grep -q "func.*CanHandle" /Users/dayna.blackwell/code/knowing/internal/indexer/tsextractor/extractor.go
+            # Postcondition: route detection implemented
+            grep -q "route_handler" /Users/dayna.blackwell/code/knowing/internal/indexer/tsextractor/extractor.go
+            ```
+
+            ### Constraints
+            - Do NOT modify any files outside your ownership list (internal/indexer/tsextractor/).
+            - Do NOT modify cmd/knowing/main.go; registration is handled by Agent E in Wave 2.
+            - Do NOT add any new types to internal/types/; use only existing types.
+            - Use `"ast_inferred"` provenance and `0.7` confidence for all edges (not "ast_resolved" / 1.0).
+          files:
+            - internal/indexer/tsextractor/extractor.go
+            - internal/indexer/tsextractor/extractor_test.go
+        - id: B
+          task: |
+            ## Rust Tree-Sitter Extractor
+
+            ### What to implement
+            Create a tree-sitter based extractor for Rust files in
+            `internal/indexer/rustextractor/`. Follow the patterns established by the existing
+            Go tree-sitter extractor (`internal/indexer/gotsextractor/extractor.go`) and
+            Python extractor (`internal/indexer/treesitter/extractor.go`).
+
+            **Files to create:**
+            - `internal/indexer/rustextractor/extractor.go`
+            - `internal/indexer/rustextractor/extractor_test.go`
+
+            ### Implementation details
+
+            **Package and imports:**
+            ```go
+            package rustextractor
+
+            import (
+                sitter "github.com/smacker/go-tree-sitter"
+                "github.com/smacker/go-tree-sitter/rust"
+                "github.com/blackwell-systems/knowing/internal/types"
+            )
+            ```
+
+            Use `rust.GetLanguage()` to get the language grammar.
+
+            **Struct and constructor:**
+            ```go
+            type RustExtractor struct {
+                parser *sitter.Parser
+            }
+
+            func NewRustExtractor() *RustExtractor {
+                parser := sitter.NewParser()
+                parser.SetLanguage(rust.GetLanguage())
+                return &RustExtractor{parser: parser}
+            }
+            ```
+
+            **Name:** Return `"treesitter-rust"`
+
+            **CanHandle:** Return true for `.rs` files. Exclude files in `target/` directories.
+
+            **Extract method - node types to handle (Rust tree-sitter grammar):**
+
+            1. **Function items** (`function_item`): Extract `name` field.
+               Create a node with kind `"function"`. Line is `nameNode.StartPoint().Row + 1`.
+
+            2. **Impl blocks** (`impl_item`): Extract the `type` field for the impl target type.
+               Walk the `body` to find `function_item` children, creating method nodes with
+               the impl type as context (kind `"method"`).
+
+            3. **Struct definitions** (`struct_item`): Extract `name` field.
+               Create a node with kind `"type"`.
+
+            4. **Enum definitions** (`enum_item`): Extract `name` field.
+               Create a node with kind `"type"`.
+
+            5. **Trait definitions** (`trait_item`): Extract `name` field.
+               Create a node with kind `"interface"` (traits map to interfaces in knowing's model).
+
+            6. **Use declarations** (`use_declaration`): Extract the `argument` field
+               (the use path). Create an import edge. Parse the path to get the crate/module name.
+
+            7. **Call expressions** (`call_expression`): Extract the `function` field.
+               Handle both simple identifiers and scoped identifiers (path expressions like
+               `module::function()`). Create call edges with call-site positions.
+
+            8. **Macro invocations** (`macro_invocation`): Extract the macro name.
+               Create a call edge (macros are function-like in the graph).
+
+            9. **Actix/Axum/Rocket route detection**:
+               - **Actix**: Detect `.route()`, `.get()`, `.post()` etc. method calls on
+                 `web::resource` or `App` patterns, and `#[get("/path")]`, `#[post("/path")]`
+                 attribute macros on functions.
+               - **Axum**: Detect `Router::new().route("/path", get(handler))` patterns.
+               - **Rocket**: Detect `#[get("/path")]`, `#[post("/path")]` attribute macros.
+               For attribute-based routes, look for `attribute_item` nodes on function items
+               whose content matches route method patterns. Create `route_handler` nodes and
+               `handles_route` edges.
+
+            **Qualified name format:** `{repoURL}://{moduleRoot}/{filePath}.{ImplType}.{SymbolName}`
+
+            **Provenance and confidence:** `provenance: "ast_inferred"`, `confidence: 0.7`.
+
+            **Sorting and deduplication:** Same pattern as gotsextractor.
+
+            ### Interface contracts
+            Implement `types.Extractor` interface:
+            - `Name() string` - returns `"treesitter-rust"`
+            - `CanHandle(path string) bool` - matches `.rs`
+            - `Extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error)`
+
+            ### Tests
+            Required test cases:
+
+            1. `TestRustExtractor_Name` - verify name
+            2. `TestRustExtractor_CanHandle` - .rs true, .go/.py false, target/ excluded
+            3. `TestRustExtractor_ExtractFunctions` - standalone fn items
+            4. `TestRustExtractor_ExtractStructsAndEnums` - struct and enum declarations
+            5. `TestRustExtractor_ExtractTraits` - trait declarations as interface kind
+            6. `TestRustExtractor_ExtractImplMethods` - methods inside impl blocks
+            7. `TestRustExtractor_ExtractUseStatements` - use declarations as import edges
+            8. `TestRustExtractor_ExtractCallEdges` - function calls with call-site positions
+            9. `TestRustExtractor_ExtractMacroInvocations` - macro calls as call edges
+            10. `TestRustExtractor_ActixRoutes` - Actix-web attribute route detection
+            11. `TestRustExtractor_AxumRoutes` - Axum Router::new().route() detection
+            12. `TestRustExtractor_EdgeProvenanceAndConfidence` - verify ast_inferred/0.7
+            13. `TestRustExtractor_EmptyFile` - empty source returns empty result
+
+            Use real Rust source code snippets. Example:
+            ```rust
+            use actix_web::{web, App, HttpServer, get};
+            use serde::Deserialize;
+
+            #[get("/hello")]
+            async fn hello() -> &'static str { "Hello!" }
+
+            struct AppState { db: Pool }
+
+            impl AppState {
+                fn new(pool: Pool) -> Self { Self { db: pool } }
+                fn get_db(&self) -> &Pool { &self.db }
+            }
+
+            trait Repository {
+                fn find(&self, id: u64) -> Option<Entity>;
+            }
+            ```
+
+            ### Verification gate
+            ```bash
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go build ./internal/indexer/rustextractor/...
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go vet ./internal/indexer/rustextractor/...
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go test ./internal/indexer/rustextractor/... -v -timeout 2m
+            grep -q "func NewRustExtractor" /Users/dayna.blackwell/code/knowing/internal/indexer/rustextractor/extractor.go
+            grep -q "route_handler" /Users/dayna.blackwell/code/knowing/internal/indexer/rustextractor/extractor.go
+            ```
+
+            ### Constraints
+            - Do NOT modify any files outside your ownership list (internal/indexer/rustextractor/).
+            - Do NOT modify cmd/knowing/main.go; registration is handled by Agent E in Wave 2.
+            - Do NOT add any new types to internal/types/.
+            - Use `"ast_inferred"` provenance and `0.7` confidence for all edges.
+          files:
+            - internal/indexer/rustextractor/extractor.go
+            - internal/indexer/rustextractor/extractor_test.go
+        - id: C
+          task: |
+            ## Java Tree-Sitter Extractor
+
+            ### What to implement
+            Create a tree-sitter based extractor for Java files in
+            `internal/indexer/javaextractor/`. Follow the patterns established by the existing
+            Go tree-sitter extractor (`internal/indexer/gotsextractor/extractor.go`) and
+            Python extractor (`internal/indexer/treesitter/extractor.go`).
+
+            **Files to create:**
+            - `internal/indexer/javaextractor/extractor.go`
+            - `internal/indexer/javaextractor/extractor_test.go`
+
+            ### Implementation details
+
+            **Package and imports:**
+            ```go
+            package javaextractor
+
+            import (
+                sitter "github.com/smacker/go-tree-sitter"
+                "github.com/smacker/go-tree-sitter/java"
+                "github.com/blackwell-systems/knowing/internal/types"
+            )
+            ```
+
+            Use `java.GetLanguage()` to get the language grammar.
+
+            **Struct and constructor:**
+            ```go
+            type JavaExtractor struct {
+                parser *sitter.Parser
+            }
+
+            func NewJavaExtractor() *JavaExtractor {
+                parser := sitter.NewParser()
+                parser.SetLanguage(java.GetLanguage())
+                return &JavaExtractor{parser: parser}
+            }
+            ```
+
+            **Name:** Return `"treesitter-java"`
+
+            **CanHandle:** Return true for `.java` files. Exclude files in `build/` and
+            `target/` directories (Maven/Gradle output).
+
+            **Extract method - node types to handle (Java tree-sitter grammar):**
+
+            1. **Method declarations** (`method_declaration`): Extract `name` field.
+               Inside a class context, kind is `"method"`. Top-level static methods are `"function"`.
+
+            2. **Class declarations** (`class_declaration`): Extract `name` field.
+               Create a node with kind `"type"`. Walk the `body` to extract methods with
+               class context.
+
+            3. **Interface declarations** (`interface_declaration`): Extract `name` field.
+               Create a node with kind `"interface"`. Walk body for method signatures.
+
+            4. **Enum declarations** (`enum_declaration`): Extract `name` field.
+               Create a node with kind `"type"`.
+
+            5. **Constructor declarations** (`constructor_declaration`): Extract `name` field.
+               Create a node with kind `"method"` and name `<init>` or the class name.
+
+            6. **Import declarations** (`import_declaration`): Extract the scoped identifier.
+               Create an import edge from the file-level context to the imported package/class.
+
+            7. **Method invocations** (`method_invocation`): Extract `name` and `object` fields.
+               Create call edges with call-site positions. Handle both `object.method()` and
+               simple `method()` calls.
+
+            8. **Object creation** (`object_creation_expression`): Extract the `type` field.
+               Create a call edge to the constructor.
+
+            9. **Spring route detection**: Detect `@RequestMapping`, `@GetMapping`,
+               `@PostMapping`, `@PutMapping`, `@DeleteMapping`, `@PatchMapping` annotations
+               on methods. Look for `annotation` nodes (or `marker_annotation`/`annotation`
+               in the tree-sitter Java grammar) whose name matches these patterns. Extract
+               the route path from the annotation argument (the `value` or first string argument).
+               Create `route_handler` nodes and `handles_route` edges.
+
+            **Qualified name format:** `{repoURL}://{moduleRoot}/{filePath}.{ClassName}.{SymbolName}`
+
+            **Provenance and confidence:** `provenance: "ast_inferred"`, `confidence: 0.7`.
+
+            **Sorting and deduplication:** Same pattern as gotsextractor.
+
+            ### Interface contracts
+            Implement `types.Extractor` interface:
+            - `Name() string` - returns `"treesitter-java"`
+            - `CanHandle(path string) bool` - matches `.java`
+            - `Extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error)`
+
+            ### Tests
+            Required test cases:
+
+            1. `TestJavaExtractor_Name` - verify name
+            2. `TestJavaExtractor_CanHandle` - .java true, other exts false, build/ and target/ excluded
+            3. `TestJavaExtractor_ExtractClasses` - class declarations
+            4. `TestJavaExtractor_ExtractMethods` - methods inside classes
+            5. `TestJavaExtractor_ExtractInterfaces` - interface declarations
+            6. `TestJavaExtractor_ExtractEnums` - enum declarations
+            7. `TestJavaExtractor_ExtractConstructors` - constructor declarations
+            8. `TestJavaExtractor_ExtractImports` - import statements as edges
+            9. `TestJavaExtractor_ExtractMethodInvocations` - call edges with positions
+            10. `TestJavaExtractor_SpringRoutes` - Spring annotation route detection
+            11. `TestJavaExtractor_NoRoutes` - file without Spring annotations
+            12. `TestJavaExtractor_EdgeProvenanceAndConfidence` - verify ast_inferred/0.7
+            13. `TestJavaExtractor_EmptyFile` - empty class returns minimal nodes
+
+            Use real Java source code snippets. Example:
+            ```java
+            import org.springframework.web.bind.annotation.*;
+            import java.util.List;
+
+            @RestController
+            @RequestMapping("/api/users")
+            public class UserController {
+                private final UserService userService;
+
+                public UserController(UserService userService) {
+                    this.userService = userService;
+                }
+
+                @GetMapping("/{id}")
+                public User getUser(@PathVariable Long id) {
+                    return userService.findById(id);
+                }
+
+                @PostMapping
+                public User createUser(@RequestBody User user) {
+                    return userService.save(user);
+                }
+            }
+            ```
+
+            ### Verification gate
+            ```bash
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go build ./internal/indexer/javaextractor/...
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go vet ./internal/indexer/javaextractor/...
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go test ./internal/indexer/javaextractor/... -v -timeout 2m
+            grep -q "func NewJavaExtractor" /Users/dayna.blackwell/code/knowing/internal/indexer/javaextractor/extractor.go
+            grep -q "route_handler" /Users/dayna.blackwell/code/knowing/internal/indexer/javaextractor/extractor.go
+            ```
+
+            ### Constraints
+            - Do NOT modify any files outside your ownership list (internal/indexer/javaextractor/).
+            - Do NOT modify cmd/knowing/main.go; registration is handled by Agent E in Wave 2.
+            - Do NOT add any new types to internal/types/.
+            - Use `"ast_inferred"` provenance and `0.7` confidence for all edges.
+          files:
+            - internal/indexer/javaextractor/extractor.go
+            - internal/indexer/javaextractor/extractor_test.go
+        - id: D
+          task: |
+            ## C# Tree-Sitter Extractor
+
+            ### What to implement
+            Create a tree-sitter based extractor for C# files in
+            `internal/indexer/csharpextractor/`. Follow the patterns established by the existing
+            Go tree-sitter extractor (`internal/indexer/gotsextractor/extractor.go`) and
+            Python extractor (`internal/indexer/treesitter/extractor.go`).
+
+            **Files to create:**
+            - `internal/indexer/csharpextractor/extractor.go`
+            - `internal/indexer/csharpextractor/extractor_test.go`
+
+            ### Implementation details
+
+            **Package and imports:**
+            ```go
+            package csharpextractor
+
+            import (
+                sitter "github.com/smacker/go-tree-sitter"
+                "github.com/smacker/go-tree-sitter/csharp"
+                "github.com/blackwell-systems/knowing/internal/types"
+            )
+            ```
+
+            Use `csharp.GetLanguage()` to get the language grammar.
+
+            **Struct and constructor:**
+            ```go
+            type CSharpExtractor struct {
+                parser *sitter.Parser
+            }
+
+            func NewCSharpExtractor() *CSharpExtractor {
+                parser := sitter.NewParser()
+                parser.SetLanguage(csharp.GetLanguage())
+                return &CSharpExtractor{parser: parser}
+            }
+            ```
+
+            **Name:** Return `"treesitter-csharp"`
+
+            **CanHandle:** Return true for `.cs` files. Exclude files in `bin/` and `obj/`
+            directories (.NET build output).
+
+            **Extract method - node types to handle (C# tree-sitter grammar):**
+
+            1. **Method declarations** (`method_declaration`): Extract `name` field.
+               Inside a class/struct context, kind is `"method"`.
+
+            2. **Class declarations** (`class_declaration`): Extract `name` field.
+               Create a node with kind `"type"`. Walk the `body` (declaration_list)
+               to extract methods with class context.
+
+            3. **Interface declarations** (`interface_declaration`): Extract `name` field.
+               Create a node with kind `"interface"`.
+
+            4. **Struct declarations** (`struct_declaration`): Extract `name` field.
+               Create a node with kind `"type"`.
+
+            5. **Enum declarations** (`enum_declaration`): Extract `name` field.
+               Create a node with kind `"type"`.
+
+            6. **Constructor declarations** (`constructor_declaration`): Extract `name` field.
+               Create a node with kind `"method"`.
+
+            7. **Using directives** (`using_directive`): Extract the namespace from the
+               name/qualified_name child. Create an import edge from the file-level
+               context to the imported namespace.
+
+            8. **Invocation expressions** (`invocation_expression`): Extract the `function`
+               field. Handle both `object.Method()` (member_access_expression) and
+               simple `Method()` calls. Create call edges with call-site positions.
+
+            9. **Object creation** (`object_creation_expression`): Extract the `type` field.
+               Create a call edge to the constructor.
+
+            10. **ASP.NET route detection**: Detect `[HttpGet]`, `[HttpPost]`, `[HttpPut]`,
+                `[HttpDelete]`, `[HttpPatch]`, `[Route("...")]` attributes on methods.
+                Look for `attribute_list` > `attribute` nodes whose name matches these patterns.
+                Extract the route path from the attribute argument. Also handle
+                `[ApiController]` and `[Route("api/[controller]")]` on classes.
+                Create `route_handler` nodes and `handles_route` edges.
+
+            **Qualified name format:** `{repoURL}://{moduleRoot}/{filePath}.{Namespace}.{ClassName}.{SymbolName}`
+            If namespace is not easily extractable, use `{repoURL}://{moduleRoot}/{filePath}.{ClassName}.{SymbolName}`.
+
+            **Provenance and confidence:** `provenance: "ast_inferred"`, `confidence: 0.7`.
+
+            **Sorting and deduplication:** Same pattern as gotsextractor.
+
+            ### Interface contracts
+            Implement `types.Extractor` interface:
+            - `Name() string` - returns `"treesitter-csharp"`
+            - `CanHandle(path string) bool` - matches `.cs`
+            - `Extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error)`
+
+            ### Tests
+            Required test cases:
+
+            1. `TestCSharpExtractor_Name` - verify name
+            2. `TestCSharpExtractor_CanHandle` - .cs true, others false, bin/ and obj/ excluded
+            3. `TestCSharpExtractor_ExtractClasses` - class declarations
+            4. `TestCSharpExtractor_ExtractMethods` - methods inside classes
+            5. `TestCSharpExtractor_ExtractInterfaces` - interface declarations
+            6. `TestCSharpExtractor_ExtractStructs` - struct declarations
+            7. `TestCSharpExtractor_ExtractEnums` - enum declarations
+            8. `TestCSharpExtractor_ExtractConstructors` - constructor declarations
+            9. `TestCSharpExtractor_ExtractUsingDirectives` - using statements as import edges
+            10. `TestCSharpExtractor_ExtractInvocations` - method calls with positions
+            11. `TestCSharpExtractor_AspNetRoutes` - ASP.NET attribute route detection
+            12. `TestCSharpExtractor_NoRoutes` - file without ASP.NET attributes
+            13. `TestCSharpExtractor_EdgeProvenanceAndConfidence` - verify ast_inferred/0.7
+            14. `TestCSharpExtractor_EmptyFile` - empty source returns empty result
+
+            Use real C# source code snippets. Example:
+            ```csharp
+            using Microsoft.AspNetCore.Mvc;
+            using System.Collections.Generic;
+
+            namespace MyApp.Controllers
+            {
+                [ApiController]
+                [Route("api/[controller]")]
+                public class UsersController : ControllerBase
+                {
+                    private readonly IUserService _userService;
+
+                    public UsersController(IUserService userService)
+                    {
+                        _userService = userService;
+                    }
+
+                    [HttpGet("{id}")]
+                    public ActionResult<User> GetUser(int id)
+                    {
+                        return _userService.FindById(id);
+                    }
+
+                    [HttpPost]
+                    public ActionResult<User> CreateUser(User user)
+                    {
+                        return _userService.Create(user);
+                    }
+                }
+            }
+            ```
+
+            ### Verification gate
+            ```bash
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go build ./internal/indexer/csharpextractor/...
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go vet ./internal/indexer/csharpextractor/...
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go test ./internal/indexer/csharpextractor/... -v -timeout 2m
+            grep -q "func NewCSharpExtractor" /Users/dayna.blackwell/code/knowing/internal/indexer/csharpextractor/extractor.go
+            grep -q "route_handler" /Users/dayna.blackwell/code/knowing/internal/indexer/csharpextractor/extractor.go
+            ```
+
+            ### Constraints
+            - Do NOT modify any files outside your ownership list (internal/indexer/csharpextractor/).
+            - Do NOT modify cmd/knowing/main.go; registration is handled by Agent E in Wave 2.
+            - Do NOT add any new types to internal/types/.
+            - Use `"ast_inferred"` provenance and `0.7` confidence for all edges.
+          files:
+            - internal/indexer/csharpextractor/extractor.go
+            - internal/indexer/csharpextractor/extractor_test.go
+    - number: 2
+      type: integration
+      agents:
+        - id: E
+          task: |
+            ## Wire new extractors into main.go
+
+            ### What to implement
+            Register the four new tree-sitter extractors in `cmd/knowing/main.go` in both
+            `cmdServe` and `cmdIndex` functions.
+
+            ### Implementation details
+
+            **Add imports:** Add these imports to the import block in cmd/knowing/main.go:
+            ```go
+            "github.com/blackwell-systems/knowing/internal/indexer/tsextractor"
+            "github.com/blackwell-systems/knowing/internal/indexer/rustextractor"
+            "github.com/blackwell-systems/knowing/internal/indexer/javaextractor"
+            "github.com/blackwell-systems/knowing/internal/indexer/csharpextractor"
+            ```
+
+            **In cmdServe function**, insert registration calls after the existing Python
+            extractor registration. Find this exact text in the function:
+
+            ```go
+            	tsExt, err := treesitter.NewTreeSitterExtractor("python")
+            	if err == nil {
+            		idx.Register(tsExt)
+            	}
+            ```
+
+            Insert immediately after that block:
+            ```go
+            	idx.Register(tsextractor.NewTypeScriptExtractor())
+            	idx.Register(rustextractor.NewRustExtractor())
+            	idx.Register(javaextractor.NewJavaExtractor())
+            	idx.Register(csharpextractor.NewCSharpExtractor())
+            ```
+
+            **In cmdIndex function**, find the same Python extractor registration pattern
+            (inside the `else` branch):
+
+            ```go
+            		tsExt, err := treesitter.NewTreeSitterExtractor("python")
+            		if err == nil {
+            			idx.Register(tsExt)
+            		}
+            ```
+
+            Insert the same four registration lines immediately after.
+
+            Also add registrations in the `if *full` branch after `idx.Register(goextractor.NewGoExtractor())`:
+
+            Find this exact text:
+            ```go
+            	if *full {
+            		idx.Register(goextractor.NewGoExtractor())
+            	} else {
+            ```
+
+            Change it to:
+            ```go
+            	if *full {
+            		idx.Register(goextractor.NewGoExtractor())
+            	} else {
+            		idx.Register(gotsextractor.NewGoTreeSitterExtractor())
+            	}
+            	// Register multi-language extractors (available in both modes).
+            	tsExt, err := treesitter.NewTreeSitterExtractor("python")
+            	if err == nil {
+            		idx.Register(tsExt)
+            	}
+            	idx.Register(tsextractor.NewTypeScriptExtractor())
+            	idx.Register(rustextractor.NewRustExtractor())
+            	idx.Register(javaextractor.NewJavaExtractor())
+            	idx.Register(csharpextractor.NewCSharpExtractor())
+            ```
+
+            This restructuring ensures non-Go extractors are registered regardless of
+            whether `-full` mode is used. Remove the duplicate Python registration that
+            was previously inside the else branch.
+
+            **Update the package doc comment** at the top of main.go: change
+            "tree-sitter and optional Python extractors" to
+            "tree-sitter extractors for Go, Python, TypeScript, Rust, Java, and C#".
+
+            ### Verification gate
+            ```bash
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go build ./cmd/knowing/...
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go vet ./cmd/knowing/...
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go test ./... -timeout 5m
+            # Postcondition: all four new imports present
+            grep -q "tsextractor" /Users/dayna.blackwell/code/knowing/cmd/knowing/main.go
+            grep -q "rustextractor" /Users/dayna.blackwell/code/knowing/cmd/knowing/main.go
+            grep -q "javaextractor" /Users/dayna.blackwell/code/knowing/cmd/knowing/main.go
+            grep -q "csharpextractor" /Users/dayna.blackwell/code/knowing/cmd/knowing/main.go
+            ```
+
+            ### Constraints
+            - Do NOT modify any extractor implementation files; only modify cmd/knowing/main.go.
+            - Do NOT change the order of Go extractor registration (gotsextractor or goextractor must come first).
+            - Preserve the existing Python extractor error handling pattern (if err == nil).
+          files:
+            - cmd/knowing/main.go
+          dependencies:
+            - A
+            - B
+            - C
+            - D
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: GOWORK=off go build ./...
+          required: true
+        - type: lint
+          command: GOWORK=off go vet ./...
+          required: true
+        - type: test
+          command: GOWORK=off go test ./... -timeout 5m
+          required: true
+pre_mortem:
+    overall_risk: low
+    rows:
+        - scenario: Tree-sitter grammar node type names don't match expected strings
+          likelihood: medium
+          impact: medium
+          mitigation: |
+            Each agent should parse a small sample with tree-sitter and print the AST
+            node types before building the extractor logic. The test cases use real source
+            code parsed by tree-sitter, which will catch mismatched node type names immediately.
+        - scenario: TypeScript grammar import path is wrong (nested typescript/typescript)
+          likelihood: medium
+          impact: low
+          mitigation: |
+            Agent A's brief explicitly specifies the correct import path:
+            github.com/smacker/go-tree-sitter/typescript/typescript.
+            The build gate will catch any import errors.
+        - scenario: Route detection patterns too fragile for attribute-based frameworks
+          likelihood: medium
+          impact: low
+          mitigation: |
+            Route detection is best-effort with ast_inferred provenance. Incomplete detection
+            is acceptable since the LSP enrichment pass can upgrade edges later. Tests should
+            cover the most common patterns but not aim for 100% coverage of framework variants.
+        - scenario: go.sum missing entries for new tree-sitter language bindings
+          likelihood: low
+          impact: medium
+          mitigation: |
+            The language bindings (typescript, rust, java, csharp) are subdirectories of the
+            already-imported github.com/smacker/go-tree-sitter package, so they should be
+            available without new go.sum entries. If not, agents should run `go mod tidy`.
+        - scenario: Agent E restructures cmdIndex registration incorrectly
+          likelihood: low
+          impact: high
+          mitigation: |
+            Agent E's brief provides exact text anchors for the insertion points and the
+            full replacement block. The post-merge test gate runs the full test suite.
+critic_report:
+    verdict: PASS
+    agent_reviews:
+        A:
+            agent_id: A
+            verdict: PASS
+        B:
+            agent_id: B
+            verdict: PASS
+        C:
+            agent_id: C
+            verdict: PASS
+        D:
+            agent_id: D
+            verdict: PASS
+        E:
+            agent_id: E
+            verdict: PASS
+            issues:
+                - check: pattern_accuracy
+                  severity: warning
+                  description: Brief states the Python extractor registration in cmdIndex is inside the else branch with nested indentation, but it is actually at the top level of the function (lines 223-226 of main.go), outside the if/else block. The anchor text provided for the else-branch location will not match. The final replacement block in the brief produces correct code structure, so this is advisory.
+                  file: cmd/knowing/main.go
+                  symbol: cmdIndex
+    summary: 'All five agent briefs verified against the codebase. Agents A-D create new extractor packages in directories that do not yet exist, with correct import paths to smacker/go-tree-sitter language subpackages (all confirmed present in module cache). The types.Extractor interface, ExtractOptions, ExtractResult, ComputeNodeHash, ComputeEdgeHash, and EmptyHash symbols all exist with matching signatures. One warning for Agent E: the brief incorrectly describes the Python extractor registration in cmdIndex as being inside the else branch, when it is actually at the top level of the function. The final replacement block is still workable, so this is advisory only.'
+    reviewed_at: "2026-05-16T03:33:42Z"
+    issue_count: 1
+state: REVIEWED
+injection_method: manual-fallback
