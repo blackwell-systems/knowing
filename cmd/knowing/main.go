@@ -64,6 +64,8 @@ func run(args []string) error {
 		return cmdDiff(args[1:])
 	case "context":
 		return cmdContext(args[1:])
+	case "mcp":
+		return cmdMCP(args[1:])
 	default:
 		printUsage()
 		return fmt.Errorf("unknown subcommand: %s", args[0])
@@ -74,6 +76,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "Usage: knowing <subcommand> [flags]")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Subcommands:")
+	fmt.Fprintln(os.Stderr, "  mcp      Run MCP server over stdio")
 	fmt.Fprintln(os.Stderr, "  serve    Start the daemon with MCP server and file watching")
 	fmt.Fprintln(os.Stderr, "  index    Index a repository")
 	fmt.Fprintln(os.Stderr, "  query    Query the knowledge graph")

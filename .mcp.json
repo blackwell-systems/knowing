@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "knowing": {
+      "type": "stdio",
+      "command": "knowing",
+      "args": ["mcp", "-db", "knowing.db"]
+    }
+  }
+}
