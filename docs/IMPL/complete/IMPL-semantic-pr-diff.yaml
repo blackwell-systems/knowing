@@ -1,3 +1,4 @@
+completion_date: "2026-05-15"
 title: 'Semantic PR Diff: Relationship-Level Impact Analysis'
 feature_slug: semantic-pr-diff
 verdict: SUITABLE
@@ -551,6 +552,7 @@ waves:
           dependencies:
             - A
             - B
+      base_commit: 421a6dfa7a11f82c75a3a364d2257db4caeab04a
 quality_gates:
     level: standard
     gates:
@@ -705,6 +707,19 @@ completion_reports:
             - .github/workflows/pr-semantic-diff.yml
         verification: PASS
         notes: Workflow triggers on PR open/synchronize, indexes base+head, merges DBs, runs knowing diff, posts/updates comment. YAML validated. All quality gates pass (build, vet, test).
+    D:
+        status: complete
+        branch: polywave/semantic-pr-diff/wave2-agent-D
+        commit: a4efce5
+        files_changed:
+            - internal/mcp/handlers.go
+            - internal/mcp/handlers_test.go
+            - cmd/knowing/main.go
+        tests_added:
+            - TestHandleSemanticDiff_ReturnsEnrichedResult
+            - TestHandlePRImpact_ReturnsImpactAnalysis
+        verification: PASS
+        notes: Upgraded handleSemanticDiff and handlePRImpact to use diff package. Wired diff subcommand into main.go. All 14 packages pass tests. All 4 postconditions verified.
 pre_mortem:
     overall_risk: medium
     rows:
@@ -761,5 +776,5 @@ critic_report:
     summary: 'All 4 agent briefs verified against the codebase. File existence checks pass: new files (internal/diff/*, cmd/knowing/diff.go, .github/workflows/pr-semantic-diff.yml) do not exist yet; modified files (internal/mcp/handlers.go, internal/mcp/handlers_test.go, cmd/knowing/main.go) exist. Symbol accuracy verified: handleSemanticDiff, handlePRImpact, requireHash, NodesByQualifiedName, BlastRadius, TransitiveCallees, SnapshotDiff, GetNode all exist on GraphStore. Pattern accuracy verified: all exact text blocks in Agent D''s brief match the current source. Import chains valid: all referenced packages exist in go.mod or locally. No disjoint ownership violations. No complexity balance warnings.'
     reviewed_at: "2026-05-16T01:26:49Z"
     issue_count: 0
-state: REVIEWED
+state: COMPLETE
 injection_method: hook

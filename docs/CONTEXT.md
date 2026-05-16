@@ -17,3 +17,5 @@
   - IMPL doc: docs/IMPL/complete/IMPL-runtime-traces.yaml
 - **runtime-wiring-devtools**: completed 2026-05-15, 2 waves, 5 agents
   - IMPL doc: docs/IMPL/complete/IMPL-runtime-wiring-devtools.yaml
+- **semantic-pr-diff**: completed 2026-05-15, 2 waves, 4 agents
+  - IMPL doc: docs/IMPL/complete/IMPL-semantic-pr-diff.yaml
