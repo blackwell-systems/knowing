@@ -228,6 +228,32 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 	var changedFilePaths []string
 	cs, hasCleanup := idx.store.(cleanupStore)
 
+	// Detect deleted files: files in the store that no longer exist on disk.
+	// Build set of current relative paths for O(1) lookup.
+	if hasCleanup {
+		currentPaths := make(map[string]bool, len(filePaths))
+		for _, absPath := range filePaths {
+			relPath, err := filepath.Rel(repoPath, absPath)
+			if err == nil {
+				currentPaths[relPath] = true
+			}
+		}
+		for oldPath := range existingByPath {
+			if !currentPaths[oldPath] {
+				// File was deleted: clean up its nodes and edges.
+				changedFilePaths = append(changedFilePaths, oldPath)
+				oldFile, err := idx.store.FileByPath(ctx, repoHash, oldPath)
+				if err == nil && oldFile != nil {
+					removed, err := cs.DeleteEdgesBySourceFile(ctx, oldFile.FileHash)
+					if err == nil {
+						removedEdges = append(removedEdges, removed...)
+					}
+					_, _ = cs.DeleteNodesByFile(ctx, oldFile.FileHash)
+				}
+			}
+		}
+	}
+
 	for _, absPath := range filePaths {
 		relPath, err := filepath.Rel(repoPath, absPath)
 		if err != nil {

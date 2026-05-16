@@ -152,6 +152,160 @@ func TestE2E_IndexAndQuery(t *testing.T) {
 	t.Log("determinism check: passed (same snapshot hash on re-index)")
 }
 
+// TestE2E_SnapshotLifecycle exercises the full snapshot chain:
+// index -> snapshot -> modify code -> re-index -> new snapshot -> diff -> verify chain.
+func TestE2E_SnapshotLifecycle(t *testing.T) {
+	ctx := context.Background()
+
+	// --- 1. Create temp Go module ---
+	tmpDir := t.TempDir()
+	writeTestModule(t, tmpDir)
+	initGitRepo(t, tmpDir)
+
+	// --- 2. Setup store, snapshot manager, indexer ---
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	st, err := store.NewSQLiteStore(dbPath)
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	defer st.Close()
+
+	sm := snapshot.NewSnapshotManager(st)
+	idx := indexer.NewIndexer(st, sm)
+	idx.Register(goextractor.NewGoExtractor())
+
+	repoURL := "testmod"
+
+	// --- 3. First index: creates snapshot 1 ---
+	snap1, err := idx.IndexRepo(ctx, repoURL, tmpDir, "commit_aaa")
+	if err != nil {
+		t.Fatalf("IndexRepo (first): %v", err)
+	}
+	t.Logf("snap1: hash=%s nodes=%d edges=%d", snap1.SnapshotHash, snap1.NodeCount, snap1.EdgeCount)
+
+	if snap1.NodeCount == 0 {
+		t.Fatal("snap1 should have nodes")
+	}
+	if snap1.ParentHash != (types.Hash{}) {
+		t.Fatal("snap1 should have no parent (first snapshot)")
+	}
+
+	// --- 4. Modify the code: add a new function ---
+	writeFile(t, filepath.Join(tmpDir, "pkg", "extra.go"), `package pkg
+
+// Goodbye says goodbye.
+func Goodbye() string {
+	return "bye"
+}
+
+// Helper calls Hello and Goodbye.
+func Helper() {
+	Hello()
+	Goodbye()
+}
+`)
+
+	// --- 5. Second index: creates snapshot 2, chained to snap1 ---
+	snap2, err := idx.IndexRepo(ctx, repoURL, tmpDir, "commit_bbb")
+	if err != nil {
+		t.Fatalf("IndexRepo (second): %v", err)
+	}
+	t.Logf("snap2: hash=%s nodes=%d edges=%d parent=%s", snap2.SnapshotHash, snap2.NodeCount, snap2.EdgeCount, snap2.ParentHash)
+
+	// Snapshot 2 should have more nodes than snapshot 1.
+	if snap2.NodeCount <= snap1.NodeCount {
+		t.Errorf("snap2 should have more nodes: snap1=%d snap2=%d", snap1.NodeCount, snap2.NodeCount)
+	}
+
+	// Snapshot 2 hash should differ from snapshot 1.
+	if snap2.SnapshotHash == snap1.SnapshotHash {
+		t.Fatal("snap2 hash should differ from snap1 (code changed)")
+	}
+
+	// Chain: snap2.Parent should be snap1.
+	if snap2.ParentHash != snap1.SnapshotHash {
+		t.Errorf("snap2 parent should be snap1: got %s, want %s", snap2.ParentHash, snap1.SnapshotHash)
+	}
+
+	// --- 6. Verify chain integrity via GetSnapshot ---
+	got, err := st.GetSnapshot(ctx, snap2.SnapshotHash)
+	if err != nil {
+		t.Fatalf("GetSnapshot(snap2): %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetSnapshot(snap2) returned nil")
+	}
+	if got.ParentHash != snap1.SnapshotHash {
+		t.Errorf("snap2 parent should link to snap1: got %s, want %s", got.ParentHash, snap1.SnapshotHash)
+	}
+
+	// --- 7. Diff should detect added edges ---
+	diff, err := st.SnapshotDiff(ctx, snap1.SnapshotHash, snap2.SnapshotHash)
+	if err != nil {
+		t.Fatalf("SnapshotDiff: %v", err)
+	}
+	t.Logf("diff: added=%d removed=%d", len(diff.EdgesAdded), len(diff.EdgesRemoved))
+
+	if len(diff.EdgesAdded) == 0 {
+		t.Error("expected added edges in diff (new functions were added)")
+	}
+
+	// Verify that the added edges include something from our new code.
+	foundNewEdge := false
+	for _, e := range diff.EdgesAdded {
+		node, _ := st.GetNode(ctx, e.SourceHash)
+		if node != nil && strings.Contains(node.QualifiedName, "Helper") {
+			foundNewEdge = true
+			break
+		}
+		node, _ = st.GetNode(ctx, e.TargetHash)
+		if node != nil && strings.Contains(node.QualifiedName, "Goodbye") {
+			foundNewEdge = true
+			break
+		}
+	}
+	if !foundNewEdge {
+		t.Error("expected diff to contain edges involving Helper or Goodbye")
+	}
+
+	// --- 8. Third index with same code: same hash as snap2 (determinism) ---
+	snap3, err := idx.IndexRepo(ctx, repoURL, tmpDir, "commit_bbb")
+	if err != nil {
+		t.Fatalf("IndexRepo (third): %v", err)
+	}
+	if snap3.SnapshotHash != snap2.SnapshotHash {
+		t.Errorf("determinism: re-index with same code should produce same hash: snap2=%s snap3=%s",
+			snap2.SnapshotHash, snap3.SnapshotHash)
+	}
+	t.Log("determinism: same code -> same snapshot hash (passed)")
+
+	// --- 9. Delete a file, verify cleanup removes nodes/edges ---
+	os.Remove(filepath.Join(tmpDir, "pkg", "extra.go"))
+
+	snap4, err := idx.IndexRepo(ctx, repoURL, tmpDir, "commit_ccc")
+	if err != nil {
+		t.Fatalf("IndexRepo (fourth): %v", err)
+	}
+	t.Logf("snap4: hash=%s nodes=%d edges=%d", snap4.SnapshotHash, snap4.NodeCount, snap4.EdgeCount)
+
+	// Should revert to snap1's counts (same code state).
+	if snap4.NodeCount >= snap2.NodeCount {
+		t.Errorf("snap4 should have fewer nodes than snap2 (deleted code): snap4=%d snap2=%d",
+			snap4.NodeCount, snap2.NodeCount)
+	}
+	if snap4.NodeCount != snap1.NodeCount {
+		t.Errorf("snap4 should match snap1 node count (same code): snap4=%d snap1=%d",
+			snap4.NodeCount, snap1.NodeCount)
+	}
+
+	// Content-addressed: same graph state = same hash.
+	if snap4.SnapshotHash != snap1.SnapshotHash {
+		t.Errorf("snap4 should have same hash as snap1 (same content): snap4=%s snap1=%s",
+			snap4.SnapshotHash, snap1.SnapshotHash)
+	}
+	t.Log("file deletion cleanup: nodes/edges removed, snapshot reverted to original state")
+}
+
 // writeTestModule creates a minimal multi-package Go module in dir.
 func writeTestModule(t *testing.T, dir string) {
 	t.Helper()
