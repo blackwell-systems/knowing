@@ -1,0 +1,703 @@
+title: 'Semantic PR Diff: Relationship-Level Impact Analysis'
+feature_slug: semantic-pr-diff
+verdict: SUITABLE
+suitability_assessment: |
+    1. File decomposition: The work decomposes into 5 clear areas with disjoint file
+       ownership: (a) internal/diff package (new), (b) MCP handler upgrades for
+       semantic_diff and pr_impact, (c) CLI diff subcommand in cmd/knowing/main.go,
+       (d) GitHub Action workflow file (new), and (e) shared types for diff results.
+       At least 4 agents can work in parallel with disjoint files.
+
+    2. Investigation-first items: None. The existing SnapshotDiff, BlastRadius, and
+       edge_events infrastructure is well understood and functional.
+
+    3. Interface discoverability: Yes. The SemanticDiff function signature, result types,
+       and MCP tool schemas can all be defined up front from the existing types.
+
+    4. Pre-implementation status: The semantic_diff and pr_impact MCP tools already
+       exist as stubs (thin wrappers around SnapshotDiff). The internal/diff package
+       does not exist. The CLI diff subcommand does not exist. The GitHub Action does
+       not exist. Status: semantic_diff handler PARTIAL, pr_impact handler PARTIAL,
+       everything else TODO.
+
+    5. Parallelization value: High. The build+test cycle is ~30s (go test ./... with
+       SQLite and tree-sitter). 4 agents in wave 1 working on independent packages
+       (internal/diff, CLI, GitHub Action, types) provides clear speedup over sequential.
+
+    Estimated times:
+    - Scout phase: ~8 min (dependency mapping, interface contracts, IMPL doc)
+    - Agent execution: ~8 min (4 agents x 5 min avg, wave 1 parallel + wave 2 serial)
+    - Merge and verification: ~3 min
+    Total Polywave time: ~19 min
+
+    Sequential baseline: ~30 min (5 tasks x 6 min avg sequential time)
+    Time savings: ~11 min (37% faster)
+
+    Recommendation: Clear speedup. Proceed.
+test_command: GOWORK=off go test ./... -timeout 5m
+lint_command: go vet ./...
+file_ownership:
+    - file: internal/diff/semantic.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/diff/semantic_test.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/diff/impact.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/diff/impact_test.go
+      agent: A
+      wave: 1
+      action: new
+    - file: cmd/knowing/diff.go
+      agent: B
+      wave: 1
+      action: new
+    - file: cmd/knowing/diff_test.go
+      agent: B
+      wave: 1
+      action: new
+    - file: .github/workflows/pr-semantic-diff.yml
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/mcp/handlers.go
+      agent: D
+      wave: 2
+      action: modify
+    - file: internal/mcp/handlers_test.go
+      agent: D
+      wave: 2
+      action: modify
+    - file: cmd/knowing/main.go
+      agent: D
+      wave: 2
+      action: modify
+interface_contracts:
+    - name: SemanticDiff
+      description: |
+        Compute enriched semantic diff between two snapshots. Takes the raw
+        DiffResult from store.SnapshotDiff and enriches it with node metadata
+        (qualified names, file paths, signatures) and detects modified nodes
+        (nodes whose edges changed without the node being added/removed).
+      definition: |
+        func SemanticDiff(ctx context.Context, store types.GraphStore, oldSnapshot, newSnapshot types.Hash) (*SemanticDiffResult, error)
+      location: internal/diff/semantic.go
+    - name: PRImpact
+      description: |
+        Compute blast radius analysis for all symbols that changed between
+        two snapshots. For each added/removed/modified symbol, find its
+        callers and callees to assess impact scope.
+      definition: |
+        func PRImpact(ctx context.Context, store types.GraphStore, oldSnapshot, newSnapshot types.Hash) (*PRImpactResult, error)
+      location: internal/diff/impact.go
+    - name: cmdDiff
+      description: |
+        CLI handler for the "diff" subcommand. Opens the database, resolves
+        snapshot hashes (from explicit hashes or commit hashes via snapshot
+        lookup), calls SemanticDiff, and prints human-readable output.
+      definition: |
+        func cmdDiff(args []string) error
+      location: cmd/knowing/diff.go
+waves:
+    - number: 1
+      agents:
+        - id: A
+          task: |
+            ## What to implement
+
+            Create the `internal/diff` package with two core functions: `SemanticDiff`
+            and `PRImpact`. The scaffold file `internal/diff/types.go` will already
+            exist with all result types.
+
+            ### SemanticDiff (internal/diff/semantic.go)
+
+            Implement `func SemanticDiff(ctx context.Context, store types.GraphStore, oldSnapshot, newSnapshot types.Hash) (*SemanticDiffResult, error)`:
+
+            1. Call `store.SnapshotDiff(ctx, oldSnapshot, newSnapshot)` to get the raw `*types.DiffResult`.
+            2. Enrich `NodesAdded` and `NodesRemoved`: for each node in `diff.NodesAdded` / `diff.NodesRemoved`,
+               convert to `NodeChange` structs with `QualifiedName`, `Kind`, `Line`,
+               `Signature`, and `NodeHash` (hex string). The `File` field can be left empty
+               since GraphStore has no GetFile method; the QualifiedName encodes the package path.
+            3. Detect modified nodes: group `diff.EdgesAdded` and `diff.EdgesRemoved` by their source node hash.
+               For source nodes that appear in edge changes but NOT in `NodesAdded` or `NodesRemoved`, create
+               `NodeModification` entries. Look up each source node via `store.GetNode` to get its qualified name.
+            4. Enrich edges: for each edge in `EdgesAdded`/`EdgesRemoved`, resolve source and target node
+               qualified names via `store.GetNode`. Convert to `EdgeChange` structs.
+            5. Build and return the `SemanticDiffResult` with populated `Summary` counts.
+
+            ### PRImpact (internal/diff/impact.go)
+
+            Implement `func PRImpact(ctx context.Context, store types.GraphStore, oldSnapshot, newSnapshot types.Hash) (*PRImpactResult, error)`:
+
+            1. Call `SemanticDiff(ctx, store, oldSnapshot, newSnapshot)` to get the enriched diff.
+            2. For each node in `NodesRemoved` (breaking changes): parse the NodeHash back to types.Hash,
+               call `store.BlastRadius(ctx, nodeHash, oldSnapshot)` to find all callers.
+               Also call `store.TransitiveCallees(ctx, nodeHash, 3, oldSnapshot)` for callees.
+               Build a `SymbolImpact` with `ChangeType: "removed"`.
+            3. For each node in `NodesAdded`: parse NodeHash, call
+               `store.TransitiveCallees(ctx, nodeHash, 3, newSnapshot)` to find what the new symbol calls.
+               Build `SymbolImpact` with `ChangeType: "added"`.
+            4. For each `NodeModification` in the semantic diff: look up the node hash via
+               `store.NodesByQualifiedName`, compute blast radius using the new snapshot.
+               Build `SymbolImpact` with `ChangeType: "modified"`.
+            5. Compute `ImpactSummary`: count unique callers/callees across all impacts.
+               Set `RiskLevel` based on total callers affected: 0-5 = "low", 6-20 = "medium", >20 = "high".
+            6. Collect all affected edges from the semantic diff into `AffectedEdges`.
+
+            Create a helper: `func nodeToChange(n types.Node) NodeChange` to convert types.Node to NodeChange.
+
+            ### Tests
+
+            **semantic_test.go**: Test SemanticDiff using a real SQLiteStore (from `internal/store`).
+            Create a test database in t.TempDir(), insert nodes, edges, files, and record edge events
+            for two snapshots. Verify that:
+            - Added/removed nodes are correctly enriched with qualified names
+            - Modified nodes (edge changes without node changes) are detected
+            - Edge changes include resolved source/target names
+            - Summary counts are accurate
+            - Empty diff (identical snapshots) returns zero counts
+
+            **impact_test.go**: Test PRImpact similarly. Insert a graph where node A calls node B,
+            then create a diff where node B is removed. Verify blast radius shows A as affected caller.
+            Test risk level calculation for different caller counts.
+
+            Use `store.NewSQLiteStore` with a temp directory database for tests. Import pattern:
+            ```go
+            import (
+                "github.com/blackwell-systems/knowing/internal/store"
+                "github.com/blackwell-systems/knowing/internal/types"
+            )
+            ```
+
+            ### Interface contracts
+
+            - `SemanticDiff(ctx, store, oldHash, newHash) (*SemanticDiffResult, error)`
+            - `PRImpact(ctx, store, oldHash, newHash) (*PRImpactResult, error)`
+            - All result types defined in `internal/diff/types.go` (scaffold)
+
+            ### Verification gate
+
+            ```bash
+            go build ./internal/diff/... && go test ./internal/diff/... -v -count=1
+            ```
+
+            Postconditions:
+            - `grep -c 'func SemanticDiff' internal/diff/semantic.go` should output `1`
+            - `grep -c 'func PRImpact' internal/diff/impact.go` should output `1`
+            - `grep -c 'func Test' internal/diff/semantic_test.go` should output at least `2`
+            - `grep -c 'func Test' internal/diff/impact_test.go` should output at least `2`
+
+            ### Constraints
+
+            - Do NOT modify any files outside internal/diff/. The MCP handlers and CLI
+              will be updated in wave 2.
+            - Do NOT modify internal/diff/types.go (scaffold file, already created).
+            - Do NOT add methods to the GraphStore interface. Use existing methods only.
+          files:
+            - internal/diff/semantic.go
+            - internal/diff/semantic_test.go
+            - internal/diff/impact.go
+            - internal/diff/impact_test.go
+        - id: B
+          task: |
+            ## What to implement
+
+            Create a new file `cmd/knowing/diff.go` containing the `cmdDiff` function
+            and `cmd/knowing/diff_test.go` with tests. The diff subcommand will be
+            wired into `main.go` in wave 2.
+
+            ### cmdDiff (cmd/knowing/diff.go)
+
+            Package: `main` (same package as cmd/knowing/main.go).
+
+            Implement `func cmdDiff(args []string) error`:
+
+            1. Parse flags using `flag.NewFlagSet("diff", flag.ExitOnError)`:
+               - `-db` (string, default "knowing.db"): path to SQLite database
+               - `-format` (string, default "text"): output format, "text" or "json"
+               - Positional args: exactly 2 snapshot hashes (hex strings)
+
+            2. Open the store: `store.NewSQLiteStore(*dbPath)`
+
+            3. Parse both snapshot hash args: decode hex strings to `types.Hash` using
+               `hex.DecodeString` and copy into `[32]byte`. Return an error if the hex
+               is invalid or not exactly 32 bytes.
+
+            4. Call `diff.SemanticDiff(ctx, st, oldHash, newHash)` to get the result.
+               Import: `"github.com/blackwell-systems/knowing/internal/diff"`
+
+            5. For "json" format: marshal result with `json.MarshalIndent` and print to stdout.
+
+            6. For "text" format: print human-readable output:
+               ```
+               Semantic Diff: <old_hash_short> -> <new_hash_short>
+
+               Nodes Added (N):
+                 + pkg/foo.NewFunc (function) [line 42]
+                 + pkg/bar.NewType (type) [line 10]
+
+               Nodes Removed (N):
+                 - pkg/baz.OldFunc (function) [line 15]
+
+               Nodes Modified (N):
+                 ~ pkg/qux.ModifiedFunc (function)
+                   edges added: 2, edges removed: 1
+
+               Edges Added (N):
+                 pkg/foo.Caller -> pkg/bar.Callee [calls] (confidence: 0.90)
+
+               Edges Removed (N):
+                 pkg/baz.Caller -> pkg/baz.Callee [calls] (confidence: 0.70)
+
+               Summary: N nodes added, N removed, N modified; N edges added, N removed
+               ```
+               Use short hashes (first 8 hex chars) for display.
+
+            ### Tests (cmd/knowing/diff_test.go)
+
+            Package: `main`
+
+            Test the cmdDiff function:
+            - `TestCmdDiff_NoArgs`: verify error when no snapshot hashes provided
+            - `TestCmdDiff_InvalidHash`: verify error for malformed hex hash
+            - `TestCmdDiff_EmptyDB`: create a temp DB, insert two empty snapshots,
+              run cmdDiff with those hashes, verify it produces valid output (even if
+              diff is empty). For JSON format, verify valid JSON. For text format,
+              verify the "Semantic Diff:" header is present.
+
+            Follow the test patterns in the existing `cmd/knowing/main_test.go`:
+            capture stdout via `os.Pipe()`, run the command, read output.
+
+            To create test snapshots, use `store.NewSQLiteStore` and call
+            `st.CreateSnapshot(ctx, types.Snapshot{...})` directly with known hashes.
+
+            ### Verification gate
+
+            ```bash
+            go build ./cmd/knowing/... && go test ./cmd/knowing/... -v -count=1 -run "TestCmdDiff"
+            ```
+
+            Postconditions:
+            - `grep -c 'func cmdDiff' cmd/knowing/diff.go` should output `1`
+            - `grep -c 'func TestCmdDiff' cmd/knowing/diff_test.go` should output at least `2`
+
+            ### Constraints
+
+            - Do NOT modify cmd/knowing/main.go. The diff subcommand will be wired
+              in wave 2 by Agent D.
+            - Do NOT create any files outside cmd/knowing/.
+            - The diff.go file must be in package `main` so it compiles alongside main.go.
+          files:
+            - cmd/knowing/diff.go
+            - cmd/knowing/diff_test.go
+        - id: C
+          task: |
+            ## What to implement
+
+            Create the GitHub Action workflow file `.github/workflows/pr-semantic-diff.yml`
+            that runs on pull_request events, indexes the PR branch, computes semantic diff
+            against main, and posts a PR comment with the relationship-level impact summary.
+
+            ### Workflow design
+
+            The workflow should:
+
+            1. Trigger on `pull_request` events targeting `main` (types: opened, synchronize).
+            2. Set permissions: `contents: read`, `pull-requests: write`.
+            3. Use `actions/checkout@v4` with `fetch-depth: 0` for full git history.
+            4. Use `actions/setup-go@v5` with `go-version-file: 'go.mod'` and cache enabled.
+            5. Set env `GOWORK: "off"` to match the CI configuration.
+            6. Build the knowing binary: `go build -o knowing ./cmd/knowing`
+            7. Index the base branch:
+               - `git checkout ${{ github.event.pull_request.base.sha }}`
+               - `./knowing index -db base.db -url "${{ github.repository }}" -commit "${{ github.event.pull_request.base.sha }}" .`
+               - Extract snapshot hash from export output using jq
+            8. Index the head branch similarly into head.db.
+            9. Merge base.db data into head.db using sqlite3 CLI so both snapshots are in one DB:
+               `sqlite3 head.db "ATTACH 'base.db' AS base; INSERT OR IGNORE INTO nodes SELECT * FROM base.nodes; INSERT OR IGNORE INTO edges SELECT * FROM base.edges; INSERT OR IGNORE INTO files SELECT * FROM base.files; INSERT OR IGNORE INTO repos SELECT * FROM base.repos; INSERT OR IGNORE INTO snapshots SELECT * FROM base.snapshots; INSERT OR IGNORE INTO edge_events SELECT * FROM base.edge_events;"`
+            10. Run `./knowing diff -db head.db -format json "$BASE_SNAPSHOT" "$HEAD_SNAPSHOT"`.
+            11. Use `actions/github-script@v7` to parse the JSON and post/update a PR comment
+                with a summary table (nodes added/removed/modified, edges added/removed) and
+                lists of changed symbols (truncated at 20 nodes, 15 edges).
+            12. On subsequent pushes (`synchronize`), update the existing comment instead of
+                creating a new one. Find the existing comment by searching for "## Semantic PR Diff".
+
+            ### Key design decisions
+
+            - Two separate databases (base.db and head.db) to avoid snapshot chain confusion.
+            - Merge base data into head.db so both snapshots are queryable for the diff command.
+            - Use `sqlite3` CLI (available on ubuntu-latest) for the database merge.
+            - Use `actions/github-script@v7` for comment posting (avoids shell escaping issues).
+            - Truncate long lists to keep comments readable.
+
+            ### Verification gate
+
+            The workflow file is YAML; validate syntax:
+            ```bash
+            python3 -c "import yaml; yaml.safe_load(open('.github/workflows/pr-semantic-diff.yml'))" 2>&1 || echo "YAML validation not available, skipping"
+            ```
+
+            Postconditions:
+            - `grep -c 'knowing diff' .github/workflows/pr-semantic-diff.yml` should output at least `1`
+            - `grep -c 'Semantic PR Diff' .github/workflows/pr-semantic-diff.yml` should output at least `1`
+
+            ### Constraints
+
+            - Do NOT modify any existing workflow files (.github/workflows/ci.yml, docs.yml, release.yml).
+            - Do NOT modify any Go source files.
+            - The workflow must reference `knowing diff` (the CLI subcommand created by Agent B
+              and wired in wave 2 by Agent D). At CI runtime, the binary will have the diff
+              subcommand because it is built from the merged codebase.
+          files:
+            - .github/workflows/pr-semantic-diff.yml
+    - number: 2
+      agents:
+        - id: D
+          task: |
+            ## What to implement
+
+            Wire everything together: upgrade the MCP handlers for semantic_diff and
+            pr_impact to use the new `internal/diff` package, wire the diff subcommand
+            into main.go, and update tests.
+
+            ### MCP handler upgrades (internal/mcp/handlers.go)
+
+            **1. Replace handleSemanticDiff.**
+
+            Find this exact text in handlers.go:
+            ```go
+            // handleSemanticDiff computes a semantic diff between two snapshots.
+            // This is similar to snapshot_diff but provides added context about what changed.
+            func (s *Server) handleSemanticDiff(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+            ```
+
+            Replace the entire handleSemanticDiff function (from the comment through the closing brace).
+            The new implementation:
+            ```go
+            // handleSemanticDiff computes a semantic diff between two snapshots using
+            // the diff package for enriched output with qualified names and context.
+            func (s *Server) handleSemanticDiff(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+            	oldHash, errResult := requireHash(req, "old_snapshot")
+            	if errResult != nil {
+            		return errResult, nil
+            	}
+            	newHash, errResult := requireHash(req, "new_snapshot")
+            	if errResult != nil {
+            		return errResult, nil
+            	}
+
+            	semDiff, err := diff.SemanticDiff(ctx, s.store, oldHash, newHash)
+            	if err != nil {
+            		return mcp.NewToolResultError(fmt.Sprintf("SemanticDiff failed: %v", err)), nil
+            	}
+
+            	result, err := mcp.NewToolResultJSON(semDiff)
+            	if err != nil {
+            		return mcp.NewToolResultError(fmt.Sprintf("failed to marshal result: %v", err)), nil
+            	}
+            	return result, nil
+            }
+            ```
+
+            **2. Replace handlePRImpact.**
+
+            Find this exact text in handlers.go:
+            ```go
+            // handlePRImpact analyzes the impact of changes between two snapshots by
+            // computing the blast radius of each removed node. Removed nodes represent
+            // potential breaking changes; their blast radius shows which callers would
+            // be affected.
+            func (s *Server) handlePRImpact(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+            ```
+
+            Replace the entire handlePRImpact function:
+            ```go
+            // handlePRImpact analyzes the impact of changes between two snapshots,
+            // computing blast radius for all changed symbols using the diff package.
+            func (s *Server) handlePRImpact(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+            	oldHash, errResult := requireHash(req, "old_snapshot")
+            	if errResult != nil {
+            		return errResult, nil
+            	}
+            	newHash, errResult := requireHash(req, "new_snapshot")
+            	if errResult != nil {
+            		return errResult, nil
+            	}
+
+            	impact, err := diff.PRImpact(ctx, s.store, oldHash, newHash)
+            	if err != nil {
+            		return mcp.NewToolResultError(fmt.Sprintf("PRImpact failed: %v", err)), nil
+            	}
+
+            	result, err := mcp.NewToolResultJSON(impact)
+            	if err != nil {
+            		return mcp.NewToolResultError(fmt.Sprintf("failed to marshal result: %v", err)), nil
+            	}
+            	return result, nil
+            }
+            ```
+
+            **3. Add import** for the diff package. Find this exact text:
+            ```go
+            import (
+            	"context"
+            	"encoding/hex"
+            	"fmt"
+
+            	"github.com/blackwell-systems/knowing/internal/types"
+            	"github.com/mark3labs/mcp-go/mcp"
+            )
+            ```
+
+            Add the diff import between fmt and types:
+            ```go
+            import (
+            	"context"
+            	"encoding/hex"
+            	"fmt"
+
+            	"github.com/blackwell-systems/knowing/internal/diff"
+            	"github.com/blackwell-systems/knowing/internal/types"
+            	"github.com/mark3labs/mcp-go/mcp"
+            )
+            ```
+
+            **4. Remove the now-unused types import** if the `types` package is no longer
+            directly referenced in handlers.go after the refactor. Check: the existing
+            handlers for blastRadius, snapshotDiff, etc. still use `types.Hash` and
+            `types.EmptyHash`, so the import stays.
+
+            ### CLI wiring (cmd/knowing/main.go)
+
+            **1. Add "diff" case to the switch statement.** Find this exact text:
+            ```go
+            	case "export":
+            		return cmdExport(args[1:])
+            	default:
+            ```
+
+            Insert the diff case between export and default:
+            ```go
+            	case "export":
+            		return cmdExport(args[1:])
+            	case "diff":
+            		return cmdDiff(args[1:])
+            	default:
+            ```
+
+            **2. Add "diff" to printUsage.** Find this exact text:
+            ```go
+            	fmt.Fprintln(os.Stderr, "  export   Export the graph as JSON")
+            	fmt.Fprintln(os.Stderr, "  version  Print version information")
+            ```
+
+            Insert the diff line before export:
+            ```go
+            	fmt.Fprintln(os.Stderr, "  diff     Compute semantic diff between two snapshots")
+            	fmt.Fprintln(os.Stderr, "  export   Export the graph as JSON")
+            	fmt.Fprintln(os.Stderr, "  version  Print version information")
+            ```
+
+            No new import needed in main.go because `cmdDiff` is in the same package
+            (defined in cmd/knowing/diff.go by Agent B).
+
+            ### Test updates (internal/mcp/handlers_test.go)
+
+            Add test functions for the upgraded semantic_diff and pr_impact handlers.
+            The existing `mockGraphStore` already has `snapshotDiffResult *types.DiffResult`
+            which can be populated for testing. Since the new handlers call
+            `diff.SemanticDiff` and `diff.PRImpact` which in turn call `store.SnapshotDiff`,
+            `store.GetNode`, `store.BlastRadius`, etc., you need to populate the mock:
+
+            - Set `snapshotDiffResult` with test nodes and edges
+            - Add nodes to the mock's `nodes` map so `GetNode` resolves them
+            - Set `blastRadiusResult` for impact tests
+
+            Add these test functions:
+            - `TestHandleSemanticDiff_ReturnsEnrichedResult`: verify the handler returns
+              a JSON result with `nodes_added`, `edges_added`, and `summary` fields
+            - `TestHandlePRImpact_ReturnsImpactAnalysis`: verify the handler returns
+              JSON with `changed_symbols` and `summary` fields
+
+            ### Verification gate
+
+            ```bash
+            go build ./... && go vet ./... && go test ./... -timeout 5m -count=1
+            ```
+
+            Postconditions:
+            - `grep -c 'diff.SemanticDiff' internal/mcp/handlers.go` should output `1`
+            - `grep -c 'diff.PRImpact' internal/mcp/handlers.go` should output `1`
+            - `grep -c '"diff"' cmd/knowing/main.go` should output at least `1`
+            - `grep -c 'TestHandleSemanticDiff' internal/mcp/handlers_test.go` should output at least `1`
+
+            ### Constraints
+
+            - Do NOT modify internal/diff/ files (owned by Agent A in wave 1).
+            - Do NOT modify .github/workflows/ files (owned by Agent C in wave 1).
+            - Do NOT modify cmd/knowing/diff.go or diff_test.go (owned by Agent B in wave 1).
+            - Do NOT change the MCP tool definitions (semanticDiffTool, prImpactTool) in
+              server.go; only change the handler implementations in handlers.go.
+          files:
+            - internal/mcp/handlers.go
+            - internal/mcp/handlers_test.go
+            - cmd/knowing/main.go
+          dependencies:
+            - A
+            - B
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: go build ./...
+          required: true
+        - type: lint
+          command: go vet ./...
+          required: true
+        - type: test
+          command: GOWORK=off go test ./... -timeout 5m
+          required: true
+scaffolds:
+    - file_path: internal/diff/types.go
+      contents: |
+        package diff
+
+        // SemanticDiffResult is the enriched diff between two snapshots.
+        type SemanticDiffResult struct {
+            OldSnapshot   string             `json:"old_snapshot"`
+            NewSnapshot   string             `json:"new_snapshot"`
+            NodesAdded    []NodeChange       `json:"nodes_added"`
+            NodesRemoved  []NodeChange       `json:"nodes_removed"`
+            NodesModified []NodeModification `json:"nodes_modified,omitempty"`
+            EdgesAdded    []EdgeChange       `json:"edges_added"`
+            EdgesRemoved  []EdgeChange       `json:"edges_removed"`
+            Summary       DiffSummary        `json:"summary"`
+        }
+
+        // NodeChange is a node with enriched metadata for display.
+        type NodeChange struct {
+            QualifiedName string `json:"qualified_name"`
+            Kind          string `json:"kind"`
+            File          string `json:"file,omitempty"`
+            Line          int    `json:"line,omitempty"`
+            Signature     string `json:"signature,omitempty"`
+            NodeHash      string `json:"node_hash"`
+        }
+
+        // NodeModification represents a node whose edges changed without
+        // the node itself being added or removed.
+        type NodeModification struct {
+            QualifiedName string       `json:"qualified_name"`
+            Kind          string       `json:"kind"`
+            EdgesAdded    []EdgeChange `json:"edges_added,omitempty"`
+            EdgesRemoved  []EdgeChange `json:"edges_removed,omitempty"`
+        }
+
+        // EdgeChange is an edge with enriched source/target metadata.
+        type EdgeChange struct {
+            SourceName string  `json:"source_name"`
+            TargetName string  `json:"target_name"`
+            EdgeType   string  `json:"edge_type"`
+            Confidence float64 `json:"confidence"`
+            Provenance string  `json:"provenance,omitempty"`
+        }
+
+        // DiffSummary provides aggregate counts.
+        type DiffSummary struct {
+            NodesAdded    int `json:"nodes_added"`
+            NodesRemoved  int `json:"nodes_removed"`
+            NodesModified int `json:"nodes_modified"`
+            EdgesAdded    int `json:"edges_added"`
+            EdgesRemoved  int `json:"edges_removed"`
+        }
+
+        // PRImpactResult is the blast radius analysis for a PR.
+        type PRImpactResult struct {
+            OldSnapshot    string         `json:"old_snapshot"`
+            NewSnapshot    string         `json:"new_snapshot"`
+            ChangedSymbols []SymbolImpact `json:"changed_symbols"`
+            AffectedEdges  []EdgeChange   `json:"affected_edges"`
+            Summary        ImpactSummary  `json:"summary"`
+        }
+
+        // SymbolImpact describes the blast radius of a single changed symbol.
+        type SymbolImpact struct {
+            Symbol      NodeChange   `json:"symbol"`
+            ChangeType  string       `json:"change_type"`
+            Callers     []NodeChange `json:"callers,omitempty"`
+            Callees     []NodeChange `json:"callees,omitempty"`
+            CallerCount int          `json:"caller_count"`
+            CalleeCount int          `json:"callee_count"`
+        }
+
+        // ImpactSummary provides aggregate impact metrics.
+        type ImpactSummary struct {
+            TotalSymbolsChanged  int    `json:"total_symbols_changed"`
+            TotalCallersAffected int    `json:"total_callers_affected"`
+            TotalCalleesAffected int    `json:"total_callees_affected"`
+            RiskLevel            string `json:"risk_level"`
+        }
+      import_path: github.com/blackwell-systems/knowing/internal/diff
+      status: pending
+pre_mortem:
+    overall_risk: medium
+    rows:
+        - scenario: |
+            Agent A's SemanticDiff cannot resolve file paths because GraphStore has no GetFile method. The enrichment falls back to empty file paths.
+          likelihood: medium
+          impact: low
+          mitigation: |
+            The task explicitly instructs Agent A to gracefully handle missing file paths by leaving the File field empty. The QualifiedName already encodes the package path, so the output remains useful.
+        - scenario: |
+            The GitHub Action fails because the sqlite3 CLI merge step loses edge_events or snapshot chain data, causing the diff command to return empty results.
+          likelihood: medium
+          impact: medium
+          mitigation: |
+            The sqlite3 merge uses INSERT OR IGNORE which preserves existing data. Edge events and snapshots use content-addressed hashes as primary keys, so duplicates are safely ignored. Manual testing of the merge step is recommended before relying on it in CI.
+        - scenario: |
+            Agent D's MCP handler tests fail because the mockGraphStore does not implement methods that diff.SemanticDiff calls (e.g., GetNode returns nil for test nodes).
+          likelihood: medium
+          impact: low
+          mitigation: |
+            Agent D's task explicitly instructs populating the mock's nodes map so GetNode resolves correctly. The mock already supports all GraphStore methods.
+        - scenario: |
+            The diff subcommand cannot find snapshots by commit hash because there is no commit-to-snapshot lookup method in GraphStore.
+          likelihood: low
+          impact: medium
+          mitigation: |
+            The initial implementation accepts snapshot hashes directly (hex strings), not commit hashes. A future enhancement could add commit hash resolution via LatestSnapshot or a new store method. This is documented as a known limitation.
+known_issues:
+    - title: No GetFile method on GraphStore
+      description: |
+        GraphStore interface lacks a GetFile(ctx, hash) method. Agents resolving file paths from FileHash must work around this limitation. The QualifiedName on nodes provides sufficient context for display purposes.
+      workaround: |
+        Leave File field empty in NodeChange when file path cannot be resolved. The qualified name encodes the package path.
+    - title: Diff CLI accepts only snapshot hashes
+      description: |
+        The diff CLI subcommand only accepts snapshot hashes, not commit hashes. Users must know their snapshot hashes (from index output or export).
+      workaround: |
+        Use 'knowing export -db knowing.db' to find snapshot hashes, or capture them from 'knowing index' output. A future enhancement can add commit hash resolution.
+critic_report:
+    verdict: PASS
+    agent_reviews:
+        A:
+            agent_id: A
+            verdict: PASS
+        B:
+            agent_id: B
+            verdict: PASS
+        C:
+            agent_id: C
+            verdict: PASS
+        D:
+            agent_id: D
+            verdict: PASS
+    summary: 'All 4 agent briefs verified against the codebase. File existence checks pass: new files (internal/diff/*, cmd/knowing/diff.go, .github/workflows/pr-semantic-diff.yml) do not exist yet; modified files (internal/mcp/handlers.go, internal/mcp/handlers_test.go, cmd/knowing/main.go) exist. Symbol accuracy verified: handleSemanticDiff, handlePRImpact, requireHash, NodesByQualifiedName, BlastRadius, TransitiveCallees, SnapshotDiff, GetNode all exist on GraphStore. Pattern accuracy verified: all exact text blocks in Agent D''s brief match the current source. Import chains valid: all referenced packages exist in go.mod or locally. No disjoint ownership violations. No complexity balance warnings.'
+    reviewed_at: "2026-05-16T01:26:49Z"
+    issue_count: 0
+state: REVIEWED
