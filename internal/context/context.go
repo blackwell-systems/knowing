@@ -85,11 +85,12 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 		}, nil
 	}
 
-	// Find candidate nodes by keyword prefix search.
+	// Find candidate nodes by keyword substring search.
+	// NodesByName uses LIKE prefix%, so prepending % gives LIKE %keyword%.
 	seen := make(map[types.Hash]bool)
 	var candidates []types.Node
 	for _, kw := range keywords {
-		nodes, err := e.store.NodesByName(ctx, kw)
+		nodes, err := e.store.NodesByName(ctx, "%"+kw)
 		if err != nil {
 			return nil, err
 		}

@@ -53,9 +53,14 @@ func (m *mockStore) NodesByName(_ stdctx.Context, prefix string) ([]types.Node, 
 	if prefix == "" {
 		return m.nodes, nil
 	}
+	// Strip leading % to simulate LIKE %keyword% behavior (same as SQLite).
+	search := prefix
+	if len(search) > 0 && search[0] == '%' {
+		search = search[1:]
+	}
 	var result []types.Node
 	for _, n := range m.nodes {
-		if len(n.QualifiedName) >= len(prefix) && containsPrefix(n.QualifiedName, prefix) {
+		if len(n.QualifiedName) >= len(search) && containsPrefix(n.QualifiedName, search) {
 			result = append(result, n)
 		}
 	}
