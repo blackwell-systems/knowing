@@ -1,3 +1,4 @@
+completion_date: "2026-05-16"
 title: Infrastructure and schema language extractors
 feature_slug: infra-schema-extractors
 verdict: SUITABLE
@@ -560,6 +561,7 @@ waves:
             - B
             - C
             - D
+      base_commit: 34d8681ee080099fdb3794538dac0c95278a4166
 quality_gates:
     level: standard
     gates:
@@ -673,6 +675,17 @@ completion_reports:
             - TestCSSExtractor_EmptyFile
         verification: PASS
         notes: CSS extractor complete. All 9 tests passing. Implements class_selector, id_selector, custom_property nodes and imports/depends_on edges.
+    E:
+        status: complete
+        branch: polywave/infra-schema-extractors/wave2-agent-E
+        commit: 76e753f
+        files_changed:
+            - cmd/knowing/main.go
+            - docs/architecture.md
+            - docs/CLI.md
+            - docs/FEATURES.md
+        verification: PASS
+        notes: 'Registered all 8 extractors (4 new: terraform, sql, k8s, css; 4 existing multi-lang: ts, rust, java, csharp) in all 3 registration sites. Updated docs to reflect 10 supported languages. MCP-TOOLS.md had no language count references to update.'
 pre_mortem:
     overall_risk: low
     rows:
@@ -716,5 +729,5 @@ critic_report:
     summary: Skipped by operator (--skip-critic)
     reviewed_at: "2026-05-16T21:00:16Z"
     issue_count: 0
-state: REVIEWED
+state: COMPLETE
 injection_method: hook
