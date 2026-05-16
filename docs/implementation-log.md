@@ -1139,19 +1139,60 @@ Three polywave IMPLs implementing the runtime trace pipeline, developer tools, a
 
 3. **IMPL-semantic-pr-diff** (4 agents, 2 waves): Relationship-level impact analysis: SemanticDiff, PRImpact, `knowing diff` CLI, MCP handler upgrades, GitHub Action for PR comments.
 
-Plus: integration test, test coverage (33 new tests), CI/CD workflows, distribution doc, roadmap update, architecture and features doc updates.
+Plus: integration tests, test coverage agents, CI/CD workflows, distribution doc, roadmap update, architecture and features doc updates, CLI reference, MCP tools reference.
+
+---
+
+## Integration Tests (2026-05-15)
+
+Three rounds of integration testing, all against real SQLite (no mocks):
+
+**Round 1: Trace pipeline** (`internal/trace/integration_test.go`)
+- `TestIntegrationFullPipeline`: 10-stage test covering store setup, node insertion, route_symbols mapping, span ingestion, edge verification (confidence, types, provenance, observation counts), dedup on re-ingestion, RuntimeEdgeStats, confidence decay, HTTP log ingestion.
+
+**Round 2: Route extraction + latest features**
+- `TestIntegrationRouteExtraction` (trace): PutRouteSymbol -> Resolve at 1.0 confidence -> IngestSpans -> verify edges target real handler hash, unresolved routes get 0.3.
+- `TestIntegrationSemanticDiffPipeline` (diff): Full rename simulation (ValidateToken -> VerifyJWT), edge event recording, SemanticDiff enrichment verification, PRImpact blast radius and risk level.
+- `TestIntegrationSemanticDiffWithCallerChain` (diff): A->B->C call chain, edge removal, callers surfaced through PRImpact.
+- `TestExportIntegration` (cmd/knowing): Real DB with multi-repo data, JSON output verification, --repo filter.
+- `TestHandleSemanticDiff_Integration` (mcp): MCP handler returns enriched qualified names, not raw hashes.
+- `TestHandlePRImpact_Integration` (mcp): MCP handler returns blast radius, risk level, affected edges.
+
+---
+
+## Reference Documentation (2026-05-15)
+
+**`docs/CLI.md`**: Complete CLI reference for all 6 subcommands (serve, index, query, export, diff, version) with flags, defaults, examples, quick start guide.
+
+**`docs/MCP-TOOLS.md`**: Complete reference for all 14 MCP tools organized by category (indexing, graph queries, snapshot, runtime, analysis, ownership) with parameters, return formats, .mcp.json configuration.
+
+---
+
+## Final Session Summary (2026-05-15)
+
+### What was built today
+
+Three polywave IMPLs plus extensive testing and documentation:
+
+1. **IMPL-runtime-traces** (7 agents, 2 waves): Core pipeline components: types, store migration, symbol resolver, confidence scoring, ingestor, OTLP placeholder, daemon CLI flags.
+
+2. **IMPL-runtime-wiring-devtools** (5 agents, 2 waves): End-to-end wiring: HTTP route extraction, real OTLP gRPC receiver, daemon lifecycle, MCP runtime tools, export CLI.
+
+3. **IMPL-semantic-pr-diff** (4 agents, 2 waves): Relationship-level impact analysis: SemanticDiff, PRImpact, `knowing diff` CLI, MCP handler upgrades, GitHub Action for PR comments.
+
+Plus: 9 integration tests, 33 unit test coverage additions, CI/CD workflows, distribution doc, roadmap update, architecture doc, features doc, CLI reference, MCP tools reference.
 
 ### By the numbers
 
 | Metric | Start of session | End of session |
 |--------|-----------------|----------------|
-| Go LOC | 12,203 | 19,030 |
-| Files | 39 | 58 |
+| Go LOC | 12,203 | 19,938 |
+| Files | 39 | 59 |
 | Packages | 11 | 14 |
 | MCP tools | 11 | 14 |
 | Migrations | 3 | 4 |
 | CLI subcommands | 4 | 6 |
-| Tests | ~80 | ~150+ |
+| Passing tests | ~80 | 228 |
 
 ### Polywave stats for this session
 
@@ -1161,4 +1202,4 @@ Plus: integration test, test coverage (33 new tests), CI/CD workflows, distribut
 | runtime-wiring-devtools | 5 | 2 | ~30 min (includes rate limit wait) | Rate limit, YAML parse, DBPath wiring |
 | semantic-pr-diff | 4 | 2 | ~20 min | GOWORK in quality gates (recurring) |
 
-16 agents total across 6 waves. Zero merge conflicts across all 3 IMPLs. One rate limit incident. Two post-merge fixes (both one-liners). No stubs, no placeholders, no unwired symbols remaining.
+16 agents total across 6 waves. Zero merge conflicts across all 3 IMPLs. One rate limit incident. Two post-merge fixes (both one-liners). No stubs, no placeholders, no unwired symbols remaining. 228 tests passing across 14 packages.
