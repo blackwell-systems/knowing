@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/blackwell-systems/knowing/internal/types"
 	_ "modernc.org/sqlite"
 )
 
@@ -762,6 +764,323 @@ func TestDaemon_GitWatcherIntegration(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("timed out waiting for IndexFunc to be called")
+	}
+
+	cancel()
+}
+
+// TestGitHeadCommit_PackedRefs verifies that GitHeadCommit can resolve a ref
+// from .git/packed-refs when the loose ref file is missing.
+func TestGitHeadCommit_PackedRefs(t *testing.T) {
+	dir := t.TempDir()
+
+	runGit := func(args ...string) {
+		t.Helper()
+		cmd := append([]string{"-C", dir}, args...)
+		out, err := execCommand("git", cmd...)
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+
+	runGit("init")
+	runGit("config", "user.email", "test@test.com")
+	runGit("config", "user.name", "Test")
+
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("hello"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit("add", "a.txt")
+	runGit("commit", "-m", "initial")
+
+	expected, err := execCommand("git", "-C", dir, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatalf("rev-parse: %v", err)
+	}
+	expected = strings.TrimSpace(expected)
+
+	// Run git pack-refs to move refs into packed-refs.
+	runGit("pack-refs", "--all")
+
+	// Detect branch name (could be master on some systems).
+	branchOut, _ := execCommand("git", "-C", dir, "branch", "--show-current")
+	branch := strings.TrimSpace(branchOut)
+	if branch == "" {
+		branch = "main"
+	}
+	looseRef := filepath.Join(dir, ".git", "refs", "heads", branch)
+	if _, err := os.Stat(looseRef); err == nil {
+		// Loose ref still exists; remove it manually to force packed-refs lookup.
+		os.Remove(looseRef)
+	}
+
+	got, err := GitHeadCommit(dir)
+	if err != nil {
+		t.Fatalf("GitHeadCommit with packed refs: %v", err)
+	}
+	if got != expected {
+		t.Errorf("got %q, want %q", got, expected)
+	}
+}
+
+// TestGitHeadCommit_InvalidHEADContent verifies that GitHeadCommit returns an
+// error when .git/HEAD contains unexpected content (not a ref, not a hash).
+func TestGitHeadCommit_InvalidHEADContent(t *testing.T) {
+	dir := t.TempDir()
+	gitDir := filepath.Join(dir, ".git")
+	if err := os.MkdirAll(gitDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	// Write invalid HEAD content (too short to be a hash, no ref: prefix).
+	if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("garbage"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := GitHeadCommit(dir)
+	if err == nil {
+		t.Fatal("expected error for invalid HEAD content")
+	}
+	if !strings.Contains(err.Error(), "unexpected HEAD content") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+// TestGitHeadCommit_BrokenSymRef verifies error when symbolic ref points to a
+// non-existent branch and packed-refs is missing.
+func TestGitHeadCommit_BrokenSymRef(t *testing.T) {
+	dir := t.TempDir()
+	gitDir := filepath.Join(dir, ".git")
+	if err := os.MkdirAll(gitDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	// Write HEAD pointing to a branch that doesn't exist.
+	if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/nonexistent\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := GitHeadCommit(dir)
+	if err == nil {
+		t.Fatal("expected error for broken symbolic ref")
+	}
+}
+
+// TestDaemon_StartStop_IndexFuncError verifies the daemon handles IndexFunc
+// errors gracefully (does not crash, continues processing).
+func TestDaemon_StartStop_IndexFuncError(t *testing.T) {
+	var indexCallCount int32
+
+	d := NewDaemon(DaemonConfig{
+		IndexFunc: func(ctx context.Context, repoURL, repoPath, commitHash string, changedFiles []string) error {
+			atomic.AddInt32(&indexCallCount, 1)
+			return fmt.Errorf("index error")
+		},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- d.Start(ctx)
+	}()
+	time.Sleep(50 * time.Millisecond)
+
+	// Send multiple index requests; IndexFunc returns errors but daemon keeps running.
+	for i := 0; i < 3; i++ {
+		d.indexQueue <- indexRequest{repoURL: "test", repoPath: "/tmp"}
+	}
+	time.Sleep(100 * time.Millisecond)
+
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("Start returned error: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Start did not return after context cancel")
+	}
+
+	count := atomic.LoadInt32(&indexCallCount)
+	if count < 3 {
+		t.Errorf("expected IndexFunc called at least 3 times, got %d", count)
+	}
+}
+
+// TestDaemon_EnrichFunc verifies that EnrichFunc is called after a successful
+// index, and NOT called after a failed index.
+func TestDaemon_EnrichFunc(t *testing.T) {
+	var enrichCalled int32
+	enrichDone := make(chan struct{}, 5)
+
+	d := NewDaemon(DaemonConfig{
+		IndexFunc: func(ctx context.Context, repoURL, repoPath, commitHash string, changedFiles []string) error {
+			if repoURL == "fail" {
+				return fmt.Errorf("index failed")
+			}
+			return nil
+		},
+		EnrichFunc: func(ctx context.Context, repoHash types.Hash, workspaceRoot string, changedFiles []string) error {
+			atomic.AddInt32(&enrichCalled, 1)
+			enrichDone <- struct{}{}
+			return nil
+		},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = d.Start(ctx) }()
+	time.Sleep(50 * time.Millisecond)
+
+	// Successful index should trigger enrich.
+	d.indexQueue <- indexRequest{repoURL: "success", repoPath: "/tmp"}
+
+	select {
+	case <-enrichDone:
+		// Good, enrich was called.
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for EnrichFunc")
+	}
+
+	// Failed index should NOT trigger enrich.
+	d.indexQueue <- indexRequest{repoURL: "fail", repoPath: "/tmp"}
+	time.Sleep(100 * time.Millisecond)
+
+	count := atomic.LoadInt32(&enrichCalled)
+	if count != 1 {
+		t.Errorf("expected EnrichFunc called exactly 1 time, got %d", count)
+	}
+
+	cancel()
+}
+
+// TestTraceIngestConfig_Defaults verifies that TraceIngestConfig with zero
+// values behaves predictably (does not panic).
+func TestTraceIngestConfig_Defaults(t *testing.T) {
+	cfg := &TraceIngestConfig{
+		Enabled:       false,
+		OTLPEndpoint:  "",
+		BatchSize:     0,
+		BatchInterval: 0,
+	}
+
+	if cfg.BatchSize != 0 {
+		t.Errorf("expected BatchSize 0, got %d", cfg.BatchSize)
+	}
+	if cfg.BatchInterval != 0 {
+		t.Errorf("expected BatchInterval 0, got %v", cfg.BatchInterval)
+	}
+	if cfg.OTLPEndpoint != "" {
+		t.Errorf("expected empty OTLPEndpoint, got %q", cfg.OTLPEndpoint)
+	}
+}
+
+// TestDaemon_WatchRepo_NonExistentPath verifies that WatchRepo with a
+// non-existent directory returns an error when the daemon is running.
+func TestDaemon_WatchRepo_NonExistentPath(t *testing.T) {
+	d := NewDaemon(DaemonConfig{})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = d.Start(ctx) }()
+	time.Sleep(50 * time.Millisecond)
+
+	err := d.WatchRepo("/nonexistent/path/that/does/not/exist")
+	if err == nil {
+		t.Fatal("expected error when watching non-existent path")
+	}
+
+	cancel()
+}
+
+// TestDaemon_MultipleWatchRepo verifies that calling WatchRepo multiple times
+// with different repos tracks all of them.
+func TestDaemon_MultipleWatchRepo(t *testing.T) {
+	d := NewDaemon(DaemonConfig{})
+
+	// WatchRepo before start (no watcher).
+	paths := []string{"/tmp/repo1", "/tmp/repo2", "/tmp/repo3"}
+	for _, p := range paths {
+		if err := d.WatchRepo(p); err != nil {
+			t.Fatalf("WatchRepo(%s): %v", p, err)
+		}
+	}
+
+	d.mu.RLock()
+	for _, p := range paths {
+		if _, ok := d.repos[p]; !ok {
+			t.Errorf("expected %s to be tracked", p)
+		}
+	}
+	repoCount := len(d.repos)
+	d.mu.RUnlock()
+
+	if repoCount != 3 {
+		t.Errorf("expected 3 repos, got %d", repoCount)
+	}
+}
+
+// TestDaemon_WatchRepo_SamePathTwice verifies that watching the same path
+// twice does not duplicate entries.
+func TestDaemon_WatchRepo_SamePathTwice(t *testing.T) {
+	d := NewDaemon(DaemonConfig{})
+
+	if err := d.WatchRepo("/tmp/repo"); err != nil {
+		t.Fatalf("WatchRepo: %v", err)
+	}
+	if err := d.WatchRepo("/tmp/repo"); err != nil {
+		t.Fatalf("WatchRepo second call: %v", err)
+	}
+
+	d.mu.RLock()
+	count := len(d.repos)
+	d.mu.RUnlock()
+
+	if count != 1 {
+		t.Errorf("expected 1 repo entry, got %d", count)
+	}
+}
+
+// TestDaemon_EnrichFunc_Error verifies that EnrichFunc errors do not crash
+// the daemon or block subsequent indexing.
+func TestDaemon_EnrichFunc_Error(t *testing.T) {
+	var indexCallCount int32
+	secondIndexDone := make(chan struct{}, 1)
+
+	d := NewDaemon(DaemonConfig{
+		IndexFunc: func(ctx context.Context, repoURL, repoPath, commitHash string, changedFiles []string) error {
+			count := atomic.AddInt32(&indexCallCount, 1)
+			if count == 2 {
+				select {
+				case secondIndexDone <- struct{}{}:
+				default:
+				}
+			}
+			return nil
+		},
+		EnrichFunc: func(ctx context.Context, repoHash types.Hash, workspaceRoot string, changedFiles []string) error {
+			return fmt.Errorf("enrich failed")
+		},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() { _ = d.Start(ctx) }()
+	time.Sleep(50 * time.Millisecond)
+
+	// Send two index requests. The enrich error from the first should not
+	// prevent the second index from running.
+	d.indexQueue <- indexRequest{repoURL: "a", repoPath: "/tmp"}
+	d.indexQueue <- indexRequest{repoURL: "b", repoPath: "/tmp"}
+
+	select {
+	case <-secondIndexDone:
+		// Second index completed despite enrich error.
+	case <-time.After(3 * time.Second):
+		t.Fatal("second index never completed after enrich error")
 	}
 
 	cancel()

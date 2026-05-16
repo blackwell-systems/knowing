@@ -110,3 +110,110 @@ func TestGitDiffFiles_EmptyOldCommit(t *testing.T) {
 		t.Errorf("expected a.txt and b.txt in added, got %v", added)
 	}
 }
+
+func TestGitDiffFiles_Rename(t *testing.T) {
+	dir := initGitRepo(t)
+
+	// Create a file and commit.
+	if err := os.WriteFile(filepath.Join(dir, "old.txt"), []byte("content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	commit1 := gitCommit(t, dir, "add old.txt")
+
+	// Rename the file.
+	cmd := exec.Command("git", "-C", dir, "mv", "old.txt", "new.txt")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git mv: %s: %v", out, err)
+	}
+	commit2 := gitCommit(t, dir, "rename old to new")
+
+	changed, added, deleted, err := GitDiffFiles(dir, commit1, commit2)
+	if err != nil {
+		t.Fatalf("GitDiffFiles: %v", err)
+	}
+	_ = changed
+	// Rename should produce a delete of old and add of new.
+	if !slices.Contains(deleted, "old.txt") {
+		t.Errorf("expected old.txt in deleted for rename, got deleted=%v", deleted)
+	}
+	if !slices.Contains(added, "new.txt") {
+		t.Errorf("expected new.txt in added for rename, got added=%v", added)
+	}
+}
+
+func TestGitDiffFiles_InvalidCommitHash(t *testing.T) {
+	dir := initGitRepo(t)
+
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCommit(t, dir, "initial")
+
+	_, _, _, err := GitDiffFiles(dir, "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef", "HEAD")
+	if err == nil {
+		t.Fatal("expected error for invalid old commit hash")
+	}
+}
+
+func TestGitDiffFiles_SameCommit(t *testing.T) {
+	dir := initGitRepo(t)
+
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	commit1 := gitCommit(t, dir, "initial")
+
+	changed, added, deleted, err := GitDiffFiles(dir, commit1, commit1)
+	if err != nil {
+		t.Fatalf("GitDiffFiles same commit: %v", err)
+	}
+	if len(changed) != 0 || len(added) != 0 || len(deleted) != 0 {
+		t.Errorf("expected no diff for same commit, got changed=%v added=%v deleted=%v", changed, added, deleted)
+	}
+}
+
+func TestGitDiffFiles_MultipleFileTypes(t *testing.T) {
+	dir := initGitRepo(t)
+
+	// Create multiple files and commit.
+	for _, name := range []string{"a.go", "b.py", "c.md"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("init"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	commit1 := gitCommit(t, dir, "initial")
+
+	// Modify one, delete another, add a new one.
+	if err := os.WriteFile(filepath.Join(dir, "a.go"), []byte("modified"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(dir, "b.py")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "d.rs"), []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	commit2 := gitCommit(t, dir, "mixed changes")
+
+	changed, added, deleted, err := GitDiffFiles(dir, commit1, commit2)
+	if err != nil {
+		t.Fatalf("GitDiffFiles: %v", err)
+	}
+	if !slices.Contains(changed, "a.go") {
+		t.Errorf("expected a.go in changed, got %v", changed)
+	}
+	if !slices.Contains(deleted, "b.py") {
+		t.Errorf("expected b.py in deleted, got %v", deleted)
+	}
+	if !slices.Contains(added, "d.rs") {
+		t.Errorf("expected d.rs in added, got %v", added)
+	}
+}
+
+func TestGitDiffFiles_NotGitRepo(t *testing.T) {
+	dir := t.TempDir()
+	_, _, _, err := GitDiffFiles(dir, "", "HEAD")
+	if err == nil {
+		t.Fatal("expected error for non-git directory")
+	}
+}
