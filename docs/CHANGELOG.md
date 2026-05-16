@@ -6,7 +6,9 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- **Wire format system** (`internal/wire/` package): KWF (Knowing Wire Format) text encoder/decoder, binary codec, JSON codec, pluggable registry, benchmark harness with 6 fixtures achieving 76.7% median token savings
+- **Wire format system** (`internal/wire/` package): KWF (Knowing Wire Format) text encoder/decoder, KWB (Knowing Wire Binary) codec, JSON codec, pluggable registry, benchmark harness with 6 fixtures achieving 84% median token savings
+- **KWF session statefulness:** cross-call symbol deduplication via `wire.Session`; previously-transmitted symbols emitted as bare references, delivering 47% additional savings on repeated symbols within a session
+- **Wire format integration:** `format` parameter on `context_for_task` and `context_for_files` MCP tools; `--format kwf|kwb|json` on CLI `knowing context` command
 - **Infrastructure schema extractors** (4 new languages, total 10): Terraform HCL, SQL, Kubernetes YAML, CSS; all using tree-sitter parsing with comprehensive test suites
 - **`knowing mcp` subcommand** for stdio MCP server mode
 - **`knowing reindex` subcommand** with pre-loaded RWR adjacency map
