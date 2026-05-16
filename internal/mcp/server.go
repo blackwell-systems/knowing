@@ -1,7 +1,7 @@
 // Package mcp exposes the knowing knowledge graph as MCP (Model Context
 // Protocol) tools over stdio and HTTP transports.
 //
-// The server registers 14 tools organized into three planes:
+// The server registers 16 tools organized into four planes:
 //
 // Execution plane (write operations):
 //   - index_repo: trigger indexing of a repository
@@ -22,6 +22,10 @@
 //   - runtime_traffic: query runtime-observed edges by service and route
 //   - dead_routes: find route symbols with no recent observations
 //   - trace_stats: aggregate statistics about runtime-derived edges
+//
+// Context plane (graph-aware context packing):
+//   - context_for_task: generate token-budgeted context for a task description
+//   - context_for_files: generate blast-radius context for changed files
 package mcp
 
 import (
@@ -45,7 +49,7 @@ type Server struct {
 }
 
 // NewServer creates a new MCP server backed by the given GraphStore.
-// It registers all 14 tools (execution, intelligence, and runtime planes).
+// It registers all 16 tools (execution, intelligence, runtime, and context planes).
 func NewServer(store types.GraphStore) *Server {
 	s := &Server{store: store}
 	// Try to get SQLiteStore for runtime queries.
@@ -60,7 +64,7 @@ func NewServer(store types.GraphStore) *Server {
 	return s
 }
 
-// registerTools registers all 14 MCP tools on the server.
+// registerTools registers all 16 MCP tools on the server.
 func (s *Server) registerTools() {
 	// Execution plane tools
 	s.mcpServer.AddTool(indexRepoTool(), s.handleIndexRepo)
@@ -81,6 +85,10 @@ func (s *Server) registerTools() {
 	s.mcpServer.AddTool(runtimeTrafficTool(), s.handleRuntimeTraffic)
 	s.mcpServer.AddTool(deadRoutesTool(), s.handleDeadRoutes)
 	s.mcpServer.AddTool(traceStatsTool(), s.handleTraceStats)
+
+	// Context packing tools
+	s.mcpServer.AddTool(contextForTaskTool(), s.handleContextForTask)
+	s.mcpServer.AddTool(contextForFilesTool(), s.handleContextForFiles)
 }
 
 // ToolNames returns the names of all registered tools, useful for testing.
@@ -100,6 +108,8 @@ func (s *Server) ToolNames() []string {
 		"runtime_traffic",
 		"dead_routes",
 		"trace_stats",
+		"context_for_task",
+		"context_for_files",
 	}
 }
 
