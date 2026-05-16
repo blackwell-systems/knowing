@@ -60,7 +60,7 @@ Three components, one binary:
 |----------|-----------|-------------------|
 | Go | tree-sitter + `go/packages` | net/http, gin, echo, chi, fiber |
 | TypeScript/JS | tree-sitter | Express.js, Fastify, Hono, NestJS, Next.js |
-| Python | tree-sitter | Flask, FastAPI, Django |
+| Python | tree-sitter | Flask, FastAPI, Django (urls.py) |
 | Rust | tree-sitter | Actix, Axum, Rocket |
 | Java | tree-sitter | Spring |
 | C# | tree-sitter | ASP.NET |
