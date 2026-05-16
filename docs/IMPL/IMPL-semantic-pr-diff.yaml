@@ -35,7 +35,7 @@ suitability_assessment: |
 
     Recommendation: Clear speedup. Proceed.
 test_command: GOWORK=off go test ./... -timeout 5m
-lint_command: go vet ./...
+lint_command: GOWORK=off go vet ./...
 file_ownership:
     - file: internal/diff/semantic.go
       agent: A
@@ -554,10 +554,10 @@ quality_gates:
     level: standard
     gates:
         - type: build
-          command: go build ./...
+          command: GOWORK=off go build ./...
           required: true
         - type: lint
-          command: go vet ./...
+          command: GOWORK=off go vet ./...
           required: true
         - type: test
           command: GOWORK=off go test ./... -timeout 5m

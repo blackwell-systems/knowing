@@ -240,6 +240,18 @@
         "cached_at": "2026-05-15T03:02:21.020638-07:00"
       }
     },
+    "2d972c6c9b93c121f863308e80a54bfa": {
+      "test": {
+        "gate_type": "test",
+        "command": "GOWORK=off go test ./... -timeout 5m",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "ok  \tgithub.com/blackwell-systems/knowing/cmd/knowing\t3.417s\nok  \tgithub.com/blackwell-systems/knowing/internal/daemon\t(cached)\n?   \tgithub.com/blackwell-systems/knowing/internal/diff\t[no test files]\nok  \tgithub.com/blackwell-systems/knowing/internal/enrichment\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/goextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/gotsextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/treesitter\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/mcp\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/resolver\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/snapshot\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/store\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/trace\t(cached)\n?   \tgithub.com/blackwell-systems/knowing/internal/types\t[no test files]\n",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-15T18:28:41.853827-07:00"
+      }
+    },
     "2e4d339405aeea4f9c30f3979b1b555f": {
       "lint": {
         "gate_type": "lint",
@@ -732,6 +744,18 @@
         "cached_at": "2026-05-15T03:02:21.807456-07:00"
       }
     },
+    "81b14bde5e150098958eeb93ab3ee4a7": {
+      "build": {
+        "gate_type": "build",
+        "command": "go build ./...",
+        "passed": false,
+        "exit_code": 1,
+        "stdout": "",
+        "stderr": "go: cannot load module /Users/code/shelfctl listed in go.work file: open /Users/code/shelfctl/go.mod: no such file or directory\n",
+        "from_cache": true,
+        "cached_at": "2026-05-15T18:28:36.925855-07:00"
+      }
+    },
     "881ea9d5961571147722e72e889383d8": {
       "lint": {
         "gate_type": "lint",
@@ -1030,6 +1054,18 @@
         "stderr": "",
         "from_cache": true,
         "cached_at": "2026-05-15T13:51:42.320991-07:00"
+      }
+    },
+    "e05a25158eb2a404ed8bfdbb54966511": {
+      "lint": {
+        "gate_type": "lint",
+        "command": "go vet ./...",
+        "passed": false,
+        "exit_code": 1,
+        "stdout": "",
+        "stderr": "go: cannot load module /Users/code/shelfctl listed in go.work file: open /Users/code/shelfctl/go.mod: no such file or directory\n",
+        "from_cache": true,
+        "cached_at": "2026-05-15T18:28:37.050201-07:00"
       }
     },
     "e10bee44670efd7a5fdd4222f1d660ed": {
