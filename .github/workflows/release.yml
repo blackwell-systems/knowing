@@ -18,15 +18,19 @@ jobs:
           - os: ubuntu-latest
             goos: linux
             goarch: amd64
+            cc: gcc
           - os: ubuntu-latest
             goos: linux
             goarch: arm64
+            cc: aarch64-linux-gnu-gcc
           - os: macos-13
             goos: darwin
             goarch: amd64
+            cc: clang
           - os: macos-latest
             goos: darwin
             goarch: arm64
+            cc: clang
 
     runs-on: ${{ matrix.os }}
 
@@ -40,6 +44,10 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Install cross-compiler (linux/arm64)
+        if: matrix.goos == 'linux' && matrix.goarch == 'arm64'
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+
       - name: Run tests
         if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
         run: GOWORK=off go test $(go list ./... | grep -v /bench/) -timeout 5m
@@ -50,6 +58,7 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           GOWORK: "off"
+          CC: ${{ matrix.cc }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           COMMIT="${GITHUB_SHA:0:7}"
