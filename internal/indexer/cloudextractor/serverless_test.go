@@ -89,7 +89,7 @@ functions:
 	}
 
 	for _, fn := range []string{"hello", "goodbye", "process"} {
-		expected := slsBuildQN(testRepoURL, testFilePath, "function", fn)
+		expected := buildQN(testRepoURL, testFilePath, "function", fn)
 		if !names[expected] {
 			t.Errorf("missing function node with QN %q", expected)
 		}
@@ -138,8 +138,8 @@ functions:
 	for _, n := range routeNodes {
 		routeNames[n.QualifiedName] = true
 	}
-	expectGET := slsBuildQN(testRepoURL, testFilePath, "route", "GET /users")
-	expectPOST := slsBuildQN(testRepoURL, testFilePath, "route", "POST /users")
+	expectGET := buildQN(testRepoURL, testFilePath, "route", "GET /users")
+	expectPOST := buildQN(testRepoURL, testFilePath, "route", "POST /users")
 	if !routeNames[expectGET] {
 		t.Errorf("missing route node %q", expectGET)
 	}
@@ -174,7 +174,7 @@ functions:
 		t.Fatalf("expected 1 route node, got %d", len(routeNodes))
 	}
 
-	expected := slsBuildQN(testRepoURL, testFilePath, "route", "GET /items")
+	expected := buildQN(testRepoURL, testFilePath, "route", "GET /items")
 	if routeNodes[0].QualifiedName != expected {
 		t.Errorf("route QN = %q, want %q", routeNodes[0].QualifiedName, expected)
 	}
@@ -210,7 +210,7 @@ functions:
 		t.Fatalf("expected 1 event_source node, got %d", len(srcNodes))
 	}
 
-	expected := slsBuildQN(testRepoURL, testFilePath, "event_source", "sqs:my-queue")
+	expected := buildQN(testRepoURL, testFilePath, "event_source", "sqs:my-queue")
 	if srcNodes[0].QualifiedName != expected {
 		t.Errorf("event_source QN = %q, want %q", srcNodes[0].QualifiedName, expected)
 	}
@@ -246,7 +246,7 @@ functions:
 		t.Fatalf("expected 1 event_source node, got %d", len(srcNodes))
 	}
 
-	expected := slsBuildQN(testRepoURL, testFilePath, "event_source", "sns:my-topic")
+	expected := buildQN(testRepoURL, testFilePath, "event_source", "sns:my-topic")
 	if srcNodes[0].QualifiedName != expected {
 		t.Errorf("event_source QN = %q, want %q", srcNodes[0].QualifiedName, expected)
 	}
@@ -281,7 +281,7 @@ functions:
 		t.Fatalf("expected 1 event_source node, got %d", len(srcNodes))
 	}
 
-	expected := slsBuildQN(testRepoURL, testFilePath, "event_source", "schedule:rate(1 hour)")
+	expected := buildQN(testRepoURL, testFilePath, "event_source", "schedule:rate(1 hour)")
 	if srcNodes[0].QualifiedName != expected {
 		t.Errorf("event_source QN = %q, want %q", srcNodes[0].QualifiedName, expected)
 	}
@@ -317,7 +317,7 @@ functions:
 		t.Fatalf("expected 1 event_source node, got %d", len(srcNodes))
 	}
 
-	expected := slsBuildQN(testRepoURL, testFilePath, "event_source", "s3:my-uploads-bucket")
+	expected := buildQN(testRepoURL, testFilePath, "event_source", "s3:my-uploads-bucket")
 	if srcNodes[0].QualifiedName != expected {
 		t.Errorf("event_source QN = %q, want %q", srcNodes[0].QualifiedName, expected)
 	}

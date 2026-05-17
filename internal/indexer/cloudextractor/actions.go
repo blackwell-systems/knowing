@@ -2,17 +2,11 @@ package cloudextractor
 
 import (
 	"context"
-	"fmt"
 	"path/filepath"
 	"strings"
 
 	"github.com/blackwell-systems/knowing/internal/types"
 	"gopkg.in/yaml.v3"
-)
-
-const (
-	actionsProvenance = "ast_inferred"
-	actionsConfidence = 0.7
 )
 
 // actionsExtractor extracts nodes and edges from GitHub Actions workflow files.
@@ -45,13 +39,13 @@ func (e *actionsExtractor) extract(ctx context.Context, opts types.ExtractOption
 	filePath := opts.FilePath
 
 	// Extract workflow name, falling back to the base filename.
-	workflowName := actionsGetString(raw, "name")
+	workflowName := getString(raw, "name")
 	if workflowName == "" {
 		workflowName = filepath.Base(filePath)
 	}
 
 	// Create the workflow node.
-	workflowQN := actionsBuildQN(repoURL, filePath, "workflow", workflowName)
+	workflowQN := buildQN(repoURL, filePath, "workflow", workflowName)
 	workflowHash := types.ComputeNodeHash(repoURL, filePath, types.EmptyHash, workflowName, "workflow")
 	workflowNode := types.Node{
 		NodeHash:      workflowHash,
@@ -84,7 +78,7 @@ func (e *actionsExtractor) extract(ctx context.Context, opts types.ExtractOption
 		}
 
 		// Create the job node.
-		jobQN := actionsBuildQN(repoURL, filePath, "job", jobID)
+		jobQN := buildQN(repoURL, filePath, "job", jobID)
 		jobHash := types.ComputeNodeHash(repoURL, filePath, types.EmptyHash, jobID, "job")
 		jobNode := types.Node{
 			NodeHash:      jobHash,
@@ -110,7 +104,7 @@ func (e *actionsExtractor) extract(ctx context.Context, opts types.ExtractOption
 			}
 			for _, dep := range needsList {
 				depHash := types.ComputeNodeHash(repoURL, filePath, types.EmptyHash, dep, "job")
-				edge := actionsMakeEdge(jobHash, depHash, "depends_on")
+				edge := makeEdge(jobHash, depHash, "depends_on")
 				result.Edges = append(result.Edges, edge)
 			}
 		}
@@ -123,7 +117,7 @@ func (e *actionsExtractor) extract(ctx context.Context, opts types.ExtractOption
 					if !ok {
 						continue
 					}
-					usesVal := actionsGetString(step, "uses")
+					usesVal := getString(step, "uses")
 					if usesVal == "" {
 						continue
 					}
@@ -131,7 +125,7 @@ func (e *actionsExtractor) extract(ctx context.Context, opts types.ExtractOption
 					// Create action node (deduplicated).
 					actionHash, exists := actionNodes[usesVal]
 					if !exists {
-						actionQN := actionsBuildQN(repoURL, filePath, "action", usesVal)
+						actionQN := buildQN(repoURL, filePath, "action", usesVal)
 						actionHash = types.ComputeNodeHash(repoURL, filePath, types.EmptyHash, usesVal, "action")
 						actionNode := types.Node{
 							NodeHash:      actionHash,
@@ -144,7 +138,7 @@ func (e *actionsExtractor) extract(ctx context.Context, opts types.ExtractOption
 					}
 
 					// Create references edge from job to action.
-					edge := actionsMakeEdge(jobHash, actionHash, "references")
+					edge := makeEdge(jobHash, actionHash, "references")
 					result.Edges = append(result.Edges, edge)
 				}
 			}
@@ -154,41 +148,3 @@ func (e *actionsExtractor) extract(ctx context.Context, opts types.ExtractOption
 	return result, nil
 }
 
-// actionsGetString safely extracts a string value from a map.
-func actionsGetString(m map[string]interface{}, key string) string {
-	if v, ok := m[key]; ok {
-		if s, ok := v.(string); ok {
-			return s
-		}
-	}
-	return ""
-}
-
-// actionsToStringMap converts a map[string]interface{} to map[string]string.
-func actionsToStringMap(m map[string]interface{}) map[string]string {
-	result := make(map[string]string, len(m))
-	for k, v := range m {
-		if s, ok := v.(string); ok {
-			result[k] = s
-		}
-	}
-	return result
-}
-
-// actionsMakeEdge creates an edge with standard actions provenance and confidence.
-func actionsMakeEdge(sourceHash, targetHash types.Hash, edgeType string) types.Edge {
-	return types.Edge{
-		EdgeHash:   types.ComputeEdgeHash(sourceHash, targetHash, edgeType, actionsProvenance),
-		SourceHash: sourceHash,
-		TargetHash: targetHash,
-		EdgeType:   edgeType,
-		Confidence: actionsConfidence,
-		Provenance: actionsProvenance,
-	}
-}
-
-// actionsBuildQN constructs the qualified name for a GitHub Actions node.
-// Format: {repoURL}://{filePath}.{kind}.{name}
-func actionsBuildQN(repoURL, filePath, kind, name string) string {
-	return fmt.Sprintf("%s://%s.%s.%s", repoURL, filePath, kind, name)
-}

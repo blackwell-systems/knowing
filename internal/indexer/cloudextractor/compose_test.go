@@ -110,7 +110,7 @@ services:
 	}
 
 	for _, svc := range []string{"web", "api", "db"} {
-		qn := composeBuildQN(opts.RepoURL, opts.FilePath, "service", svc)
+		qn := buildQN(opts.RepoURL, opts.FilePath, "service", svc)
 		if !names[qn] {
 			t.Errorf("missing service node %q", svc)
 		}

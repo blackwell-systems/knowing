@@ -10,11 +10,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const (
-	composeProvenance = "ast_inferred"
-	composeConfidence = 0.7
-)
-
 // composeExtractor handles Docker Compose YAML files.
 type composeExtractor struct{}
 
@@ -71,7 +66,7 @@ func (e *composeExtractor) extract(ctx context.Context, opts types.ExtractOption
 	// First pass: create service nodes and build a hash map for edge resolution
 	serviceHashes := make(map[string]types.Hash)
 	for svcName := range services {
-		qn := composeBuildQN(opts.RepoURL, opts.FilePath, "service", svcName)
+		qn := buildQN(opts.RepoURL, opts.FilePath, "service", svcName)
 		nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, svcName, "service")
 		node := types.Node{
 			NodeHash:      nodeHash,
@@ -135,7 +130,7 @@ func (e *composeExtractor) extractDependsOn(svcDef map[string]interface{}, svcHa
 
 	for _, depName := range depNames {
 		if targetHash, ok := serviceHashes[depName]; ok {
-			edge := composeMakeEdge(svcHash, targetHash, "depends_on")
+			edge := makeEdge(svcHash, targetHash, "depends_on")
 			result.Edges = append(result.Edges, edge)
 		}
 	}
@@ -172,7 +167,7 @@ func (e *composeExtractor) extractPorts(svcDef map[string]interface{}, opts type
 
 		// Create or reuse port node
 		if _, exists := portHashes[hostPort]; !exists {
-			qn := composeBuildQN(opts.RepoURL, opts.FilePath, "port", hostPort)
+			qn := buildQN(opts.RepoURL, opts.FilePath, "port", hostPort)
 			nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, hostPort, "port")
 			node := types.Node{
 				NodeHash:      nodeHash,
@@ -185,7 +180,7 @@ func (e *composeExtractor) extractPorts(svcDef map[string]interface{}, opts type
 			portHashes[hostPort] = nodeHash
 		}
 
-		edge := composeMakeEdge(svcHash, portHashes[hostPort], "exposes")
+		edge := makeEdge(svcHash, portHashes[hostPort], "exposes")
 		result.Edges = append(result.Edges, edge)
 	}
 }
@@ -212,7 +207,7 @@ func (e *composeExtractor) extractLinks(svcDef map[string]interface{}, svcHash t
 			svcName = linkStr[:idx]
 		}
 		if targetHash, ok := serviceHashes[svcName]; ok {
-			edge := composeMakeEdge(svcHash, targetHash, "connects_to")
+			edge := makeEdge(svcHash, targetHash, "connects_to")
 			result.Edges = append(result.Edges, edge)
 		}
 	}
@@ -242,7 +237,7 @@ func (e *composeExtractor) extractNetworks(svcDef map[string]interface{}, opts t
 	for _, netName := range networkNames {
 		// Create or reuse network node
 		if _, exists := networkHashes[netName]; !exists {
-			qn := composeBuildQN(opts.RepoURL, opts.FilePath, "network", netName)
+			qn := buildQN(opts.RepoURL, opts.FilePath, "network", netName)
 			nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, netName, "network")
 			node := types.Node{
 				NodeHash:      nodeHash,
@@ -255,45 +250,8 @@ func (e *composeExtractor) extractNetworks(svcDef map[string]interface{}, opts t
 			networkHashes[netName] = nodeHash
 		}
 
-		edge := composeMakeEdge(svcHash, networkHashes[netName], "connects_to")
+		edge := makeEdge(svcHash, networkHashes[netName], "connects_to")
 		result.Edges = append(result.Edges, edge)
 	}
 }
 
-// composeBuildQN constructs the qualified name for a Docker Compose resource node.
-func composeBuildQN(repoURL, filePath, kind, name string) string {
-	return fmt.Sprintf("%s://%s.%s.%s", repoURL, filePath, kind, name)
-}
-
-// composeMakeEdge creates an edge with compose provenance and confidence.
-func composeMakeEdge(sourceHash, targetHash types.Hash, edgeType string) types.Edge {
-	return types.Edge{
-		EdgeHash:   types.ComputeEdgeHash(sourceHash, targetHash, edgeType, composeProvenance),
-		SourceHash: sourceHash,
-		TargetHash: targetHash,
-		EdgeType:   edgeType,
-		Confidence: composeConfidence,
-		Provenance: composeProvenance,
-	}
-}
-
-// composeGetString safely extracts a string value from a map.
-func composeGetString(m map[string]interface{}, key string) string {
-	if v, ok := m[key]; ok {
-		if s, ok := v.(string); ok {
-			return s
-		}
-	}
-	return ""
-}
-
-// composeToStringMap converts a map[string]interface{} to map[string]string.
-func composeToStringMap(m map[string]interface{}) map[string]string {
-	result := make(map[string]string, len(m))
-	for k, v := range m {
-		if s, ok := v.(string); ok {
-			result[k] = s
-		}
-	}
-	return result
-}

@@ -10,11 +10,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const (
-	slsProvenance = "ast_inferred"
-	slsConfidence = 0.7
-)
-
 // serverlessExtractor handles Serverless Framework configuration files
 // (serverless.yml / serverless.yaml). It produces function nodes, route nodes,
 // event_source nodes, and edges connecting functions to their event triggers.
@@ -62,7 +57,7 @@ func (e *serverlessExtractor) extract(ctx context.Context, opts types.ExtractOpt
 		}
 
 		// Create function node
-		funcQN := slsBuildQN(opts.RepoURL, opts.FilePath, "function", funcName)
+		funcQN := buildQN(opts.RepoURL, opts.FilePath, "function", funcName)
 		funcHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, funcName, "function")
 		funcNode := types.Node{
 			NodeHash:      funcHash,
@@ -111,14 +106,14 @@ func (e *serverlessExtractor) extractHTTPEvent(opts types.ExtractOptions, result
 		return
 	}
 
-	path := slsGetString(evtMap, "path")
-	method := strings.ToUpper(slsGetString(evtMap, "method"))
+	path := getString(evtMap, "path")
+	method := strings.ToUpper(getString(evtMap, "method"))
 	if path == "" || method == "" {
 		return
 	}
 
 	routeName := fmt.Sprintf("%s %s", method, path)
-	routeQN := slsBuildQN(opts.RepoURL, opts.FilePath, "route", routeName)
+	routeQN := buildQN(opts.RepoURL, opts.FilePath, "route", routeName)
 	routeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, routeName, "route")
 
 	routeNode := types.Node{
@@ -128,7 +123,7 @@ func (e *serverlessExtractor) extractHTTPEvent(opts types.ExtractOptions, result
 		Kind:          "route",
 	}
 	result.Nodes = append(result.Nodes, routeNode)
-	result.Edges = append(result.Edges, slsMakeEdge(funcHash, routeHash, "handles_route"))
+	result.Edges = append(result.Edges, makeEdge(funcHash, routeHash, "handles_route"))
 }
 
 // extractARNEvent handles sqs and sns events, creating an event_source node
@@ -140,13 +135,13 @@ func (e *serverlessExtractor) extractARNEvent(opts types.ExtractOptions, result 
 	case string:
 		sourceName = fmt.Sprintf("%s:%s", eventType, arnName(v))
 	case map[string]interface{}:
-		arn := slsGetString(v, "arn")
+		arn := getString(v, "arn")
 		if arn != "" {
 			sourceName = fmt.Sprintf("%s:%s", eventType, arnName(arn))
 		} else {
 			// Fallback: use the topicArn or queueArn field
 			for _, key := range []string{"topicArn", "queueArn"} {
-				if a := slsGetString(v, key); a != "" {
+				if a := getString(v, key); a != "" {
 					sourceName = fmt.Sprintf("%s:%s", eventType, arnName(a))
 					break
 				}
@@ -162,11 +157,11 @@ func (e *serverlessExtractor) extractARNEvent(opts types.ExtractOptions, result 
 	srcNode := types.Node{
 		NodeHash:      srcHash,
 		FileHash:      opts.FileHash,
-		QualifiedName: slsBuildQN(opts.RepoURL, opts.FilePath, "event_source", sourceName),
+		QualifiedName: buildQN(opts.RepoURL, opts.FilePath, "event_source", sourceName),
 		Kind:          "event_source",
 	}
 	result.Nodes = append(result.Nodes, srcNode)
-	result.Edges = append(result.Edges, slsMakeEdge(funcHash, srcHash, "subscribes"))
+	result.Edges = append(result.Edges, makeEdge(funcHash, srcHash, "subscribes"))
 }
 
 // extractScheduleEvent creates an event_source node for a schedule expression
@@ -177,9 +172,9 @@ func (e *serverlessExtractor) extractScheduleEvent(opts types.ExtractOptions, re
 	case string:
 		expr = v
 	case map[string]interface{}:
-		expr = slsGetString(v, "rate")
+		expr = getString(v, "rate")
 		if expr == "" {
-			expr = slsGetString(v, "cron")
+			expr = getString(v, "cron")
 		}
 	}
 
@@ -192,11 +187,11 @@ func (e *serverlessExtractor) extractScheduleEvent(opts types.ExtractOptions, re
 	srcNode := types.Node{
 		NodeHash:      srcHash,
 		FileHash:      opts.FileHash,
-		QualifiedName: slsBuildQN(opts.RepoURL, opts.FilePath, "event_source", sourceName),
+		QualifiedName: buildQN(opts.RepoURL, opts.FilePath, "event_source", sourceName),
 		Kind:          "event_source",
 	}
 	result.Nodes = append(result.Nodes, srcNode)
-	result.Edges = append(result.Edges, slsMakeEdge(funcHash, srcHash, "subscribes"))
+	result.Edges = append(result.Edges, makeEdge(funcHash, srcHash, "subscribes"))
 }
 
 // extractS3Event creates an event_source node for an S3 bucket trigger
@@ -207,7 +202,7 @@ func (e *serverlessExtractor) extractS3Event(opts types.ExtractOptions, result *
 	case string:
 		bucket = v
 	case map[string]interface{}:
-		bucket = slsGetString(v, "bucket")
+		bucket = getString(v, "bucket")
 	}
 
 	if bucket == "" {
@@ -219,11 +214,11 @@ func (e *serverlessExtractor) extractS3Event(opts types.ExtractOptions, result *
 	srcNode := types.Node{
 		NodeHash:      srcHash,
 		FileHash:      opts.FileHash,
-		QualifiedName: slsBuildQN(opts.RepoURL, opts.FilePath, "event_source", sourceName),
+		QualifiedName: buildQN(opts.RepoURL, opts.FilePath, "event_source", sourceName),
 		Kind:          "event_source",
 	}
 	result.Nodes = append(result.Nodes, srcNode)
-	result.Edges = append(result.Edges, slsMakeEdge(funcHash, srcHash, "subscribes"))
+	result.Edges = append(result.Edges, makeEdge(funcHash, srcHash, "subscribes"))
 }
 
 // arnName extracts the resource name from an ARN string.
@@ -236,40 +231,3 @@ func arnName(arn string) string {
 	return arn
 }
 
-// slsGetString safely extracts a string value from a map.
-func slsGetString(m map[string]interface{}, key string) string {
-	if v, ok := m[key]; ok {
-		if s, ok := v.(string); ok {
-			return s
-		}
-	}
-	return ""
-}
-
-// slsToStringMap converts a map[string]interface{} to map[string]string.
-func slsToStringMap(m map[string]interface{}) map[string]string {
-	result := make(map[string]string, len(m))
-	for k, v := range m {
-		if s, ok := v.(string); ok {
-			result[k] = s
-		}
-	}
-	return result
-}
-
-// slsMakeEdge creates an edge with the standard serverless provenance and confidence.
-func slsMakeEdge(sourceHash, targetHash types.Hash, edgeType string) types.Edge {
-	return types.Edge{
-		EdgeHash:   types.ComputeEdgeHash(sourceHash, targetHash, edgeType, slsProvenance),
-		SourceHash: sourceHash,
-		TargetHash: targetHash,
-		EdgeType:   edgeType,
-		Confidence: slsConfidence,
-		Provenance: slsProvenance,
-	}
-}
-
-// slsBuildQN constructs a qualified name for a serverless resource node.
-func slsBuildQN(repoURL, filePath, kind, name string) string {
-	return fmt.Sprintf("%s://%s.%s.%s", repoURL, filePath, kind, name)
-}

@@ -1,5 +1,3 @@
-// Package cloudextractor provides YAML-based extractors for cloud infrastructure
-// configuration files (CloudFormation, Docker Compose, GitHub Actions, Serverless Framework).
 package cloudextractor
 
 import (
@@ -10,11 +8,6 @@ import (
 
 	"github.com/blackwell-systems/knowing/internal/types"
 	"gopkg.in/yaml.v3"
-)
-
-const (
-	cfnProvenance = "ast_inferred"
-	cfnConfidence = 0.7
 )
 
 // cfnExtractor extracts nodes and edges from AWS CloudFormation and SAM templates.
@@ -77,9 +70,9 @@ func (e *cfnExtractor) extract(ctx context.Context, opts types.ExtractOptions) (
 			continue
 		}
 
-		_ = cfnGetString(resMap, "Type") // used for SAM event detection below
+		_ = getString(resMap, "Type") // used for SAM event detection below
 
-		qn := cfnBuildQN(opts.RepoURL, opts.FilePath, "resource", logicalID)
+		qn := buildQN(opts.RepoURL, opts.FilePath, "resource", logicalID)
 		nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, logicalID, "resource")
 
 		node := types.Node{
@@ -101,20 +94,20 @@ func (e *cfnExtractor) extract(ctx context.Context, opts types.ExtractOptions) (
 		}
 
 		sourceHash := nodeMap[logicalID]
-		resType := cfnGetString(resMap, "Type")
+		resType := getString(resMap, "Type")
 
 		// DependsOn edges
 		if dep, ok := resMap["DependsOn"]; ok {
 			switch v := dep.(type) {
 			case string:
 				if targetHash, found := nodeMap[v]; found {
-					result.Edges = append(result.Edges, cfnMakeEdge(sourceHash, targetHash, "depends_on"))
+					result.Edges = append(result.Edges, makeEdge(sourceHash, targetHash, "depends_on"))
 				}
 			case []interface{}:
 				for _, d := range v {
 					if s, ok := d.(string); ok {
 						if targetHash, found := nodeMap[s]; found {
-							result.Edges = append(result.Edges, cfnMakeEdge(sourceHash, targetHash, "depends_on"))
+							result.Edges = append(result.Edges, makeEdge(sourceHash, targetHash, "depends_on"))
 						}
 					}
 				}
@@ -144,7 +137,7 @@ func cfnScanRefs(val interface{}, sourceHash types.Hash, nodeMap map[string]type
 		if ref, ok := v["Ref"]; ok {
 			if s, ok := ref.(string); ok {
 				if targetHash, found := nodeMap[s]; found {
-					result.Edges = append(result.Edges, cfnMakeEdge(sourceHash, targetHash, "references"))
+					result.Edges = append(result.Edges, makeEdge(sourceHash, targetHash, "references"))
 				}
 			}
 			return
@@ -154,7 +147,7 @@ func cfnScanRefs(val interface{}, sourceHash types.Hash, nodeMap map[string]type
 			if list, ok := getAtt.([]interface{}); ok && len(list) >= 1 {
 				if s, ok := list[0].(string); ok {
 					if targetHash, found := nodeMap[s]; found {
-						result.Edges = append(result.Edges, cfnMakeEdge(sourceHash, targetHash, "references"))
+						result.Edges = append(result.Edges, makeEdge(sourceHash, targetHash, "references"))
 					}
 				}
 			}
@@ -188,7 +181,7 @@ func cfnExtractSAMEvents(props map[string]interface{}, logicalID string, sourceH
 			continue
 		}
 
-		eventType := cfnGetString(evMap, "Type")
+		eventType := getString(evMap, "Type")
 		eventProps, _ := evMap["Properties"].(map[string]interface{})
 
 		switch eventType {
@@ -196,11 +189,11 @@ func cfnExtractSAMEvents(props map[string]interface{}, logicalID string, sourceH
 			path := ""
 			method := ""
 			if eventProps != nil {
-				path = cfnGetString(eventProps, "Path")
-				method = strings.ToUpper(cfnGetString(eventProps, "Method"))
+				path = getString(eventProps, "Path")
+				method = strings.ToUpper(getString(eventProps, "Method"))
 			}
 			routeName := fmt.Sprintf("%s %s", method, path)
-			routeQN := cfnBuildQN(opts.RepoURL, opts.FilePath, "route", routeName)
+			routeQN := buildQN(opts.RepoURL, opts.FilePath, "route", routeName)
 			routeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, routeName, "route")
 
 			routeNode := types.Node{
@@ -211,11 +204,11 @@ func cfnExtractSAMEvents(props map[string]interface{}, logicalID string, sourceH
 				Line:          1,
 			}
 			result.Nodes = append(result.Nodes, routeNode)
-			result.Edges = append(result.Edges, cfnMakeEdge(sourceHash, routeHash, "handles_route"))
+			result.Edges = append(result.Edges, makeEdge(sourceHash, routeHash, "handles_route"))
 
 		case "S3", "SQS", "SNS", "Schedule":
 			srcName := fmt.Sprintf("%s-%s-%s", logicalID, eventName, eventType)
-			srcQN := cfnBuildQN(opts.RepoURL, opts.FilePath, "event_source", srcName)
+			srcQN := buildQN(opts.RepoURL, opts.FilePath, "event_source", srcName)
 			srcHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, srcName, "event_source")
 
 			srcNode := types.Node{
@@ -226,46 +219,8 @@ func cfnExtractSAMEvents(props map[string]interface{}, logicalID string, sourceH
 				Line:          1,
 			}
 			result.Nodes = append(result.Nodes, srcNode)
-			result.Edges = append(result.Edges, cfnMakeEdge(sourceHash, srcHash, "subscribes"))
+			result.Edges = append(result.Edges, makeEdge(sourceHash, srcHash, "subscribes"))
 		}
 	}
 }
 
-// cfnGetString safely extracts a string value from a map.
-func cfnGetString(m map[string]interface{}, key string) string {
-	if v, ok := m[key]; ok {
-		if s, ok := v.(string); ok {
-			return s
-		}
-	}
-	return ""
-}
-
-// cfnToStringMap converts a map[string]interface{} to map[string]string.
-func cfnToStringMap(m map[string]interface{}) map[string]string {
-	result := make(map[string]string, len(m))
-	for k, v := range m {
-		if s, ok := v.(string); ok {
-			result[k] = s
-		}
-	}
-	return result
-}
-
-// cfnMakeEdge creates an edge with the standard CloudFormation provenance and confidence.
-func cfnMakeEdge(sourceHash, targetHash types.Hash, edgeType string) types.Edge {
-	return types.Edge{
-		EdgeHash:   types.ComputeEdgeHash(sourceHash, targetHash, edgeType, cfnProvenance),
-		SourceHash: sourceHash,
-		TargetHash: targetHash,
-		EdgeType:   edgeType,
-		Confidence: cfnConfidence,
-		Provenance: cfnProvenance,
-	}
-}
-
-// cfnBuildQN constructs the qualified name for a CloudFormation resource node.
-// Format: {repoURL}://{filePath}.{kind}.{name}
-func cfnBuildQN(repoURL, filePath, kind, name string) string {
-	return fmt.Sprintf("%s://%s.%s.%s", repoURL, filePath, kind, name)
-}
