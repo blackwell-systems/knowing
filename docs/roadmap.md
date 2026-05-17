@@ -102,71 +102,81 @@ Core pipeline complete. v2 refinements identified.
 
 Connects schemas/contracts to the code that implements or consumes them. Turns extracted schemas (OpenAPI, proto, event patterns) into actionable caller/implementor relationships.
 
-| Item | Description | Status |
-|------|-------------|--------|
-| `implements_endpoint` | Handler function implements OpenAPI route | planned (P1) |
-| `consumes_endpoint` | Client code calls OpenAPI route | planned (P1) |
-| `implements_rpc` | Server implements proto RPC method | planned (P2) |
-| `consumes_rpc` | Client invokes proto RPC method | planned (P2) |
-| `publishes_event_schema` | Producer emits event matching a contract | planned (P3) |
-| `consumes_event_schema` | Consumer expects event matching a contract | planned (P3) |
-| `defines_schema` | Code/type defines schema or contract | planned |
-| `validates_against` | Code validates payload against schema | planned |
-| `serializes` / `deserializes` | Type crosses wire/storage boundary | planned |
-| `breaking_change_for` | Derived edge from schema/API diff between versions | planned |
+**Ingestion sources:** Cross-reference between schema extractor output (route definitions, proto services) and language extractor output (handler registrations, generated client stubs). The data already flows through existing extractors; the work is matching route patterns to handler functions and emitting semantically specific edge types instead of generic `references`.
+
+| Item | Description | Ingestion source | Status |
+|------|-------------|-----------------|--------|
+| `implements_endpoint` | Handler function implements OpenAPI route | Schema extractor (route) + language extractor (handler registration pattern match on HTTP method + path) | planned (P1) |
+| `consumes_endpoint` | Client code calls OpenAPI route | Language extractor (HTTP client calls with URL patterns matching known OpenAPI routes) | planned (P1) |
+| `implements_rpc` | Server implements proto RPC method | Proto extractor (service def) + language extractor (generated server interface implementations) | planned (P2) |
+| `consumes_rpc` | Client invokes proto RPC method | Proto extractor (service def) + language extractor (generated client stub calls) | planned (P2) |
+| `publishes_event_schema` | Producer emits event matching a contract | Event extractor (publish calls) + schema extractor (event schema definitions), matched by topic/event name | planned (P3) |
+| `consumes_event_schema` | Consumer expects event matching a contract | Event extractor (subscribe calls) + schema extractor (event schema definitions), matched by topic/event name | planned (P3) |
+| `defines_schema` | Code/type defines schema or contract | Schema extractor already extracts these; promote to dedicated edge type | planned |
+| `validates_against` | Code validates payload against schema | Tree-sitter pattern: validation library calls referencing schema identifiers | planned |
+| `serializes` / `deserializes` | Type crosses wire/storage boundary | Tree-sitter pattern: marshaling/encoding calls with type arguments | planned |
+| `breaking_change_for` | Derived edge from schema/API diff between versions | Snapshot diff on schema nodes between two snapshots; detect removed/changed fields | planned |
 
 ## Workstream: Ownership and Governance
 
 Turns code intelligence into organizational intelligence. Answers "who gets paged?" and "what policy governs this?"
 
-| Item | Description | Status |
-|------|-------------|--------|
-| `owned_by` | Symbol/file/service owned by team/person (CODEOWNERS, annotations) | planned (P1) |
-| `classified_as` | Data/resource classification (PII, PCI, PHI) | planned (P2) |
-| `secured_by` | Route/service protected by auth policy | planned (P3) |
-| `reviewed_by` | Code area requires specific reviewer | planned |
-| `complies_with` | Maps component to compliance control | planned |
-| `violates_policy` | Derived policy finding from graph analysis | planned |
+**Ingestion sources:** Primarily file-based config parsing (CODEOWNERS, Backstage catalogs, OPA policies). `classified_as` is the exception: requires heuristics or manual annotation.
+
+| Item | Description | Ingestion source | Status |
+|------|-------------|-----------------|--------|
+| `owned_by` | Symbol/file/service owned by team/person | CODEOWNERS file parsing (glob patterns to team), Backstage `catalog-info.yaml`, OpsLevel service catalog YAML | planned (P1) |
+| `classified_as` | Data/resource classification (PII, PCI, PHI) | Heuristics on field/variable names (`ssn`, `credit_card`, `password`), OpenAPI `x-pii` extensions, manual annotation files, or policy-as-code labels | planned (P2) |
+| `secured_by` | Route/service protected by auth policy | Tree-sitter patterns: auth middleware/decorator detection (`@RequiresAuth`, `authMiddleware()`), OPA/Rego policy files, IAM policy documents | planned (P3) |
+| `reviewed_by` | Code area requires specific reviewer | CODEOWNERS (same source as `owned_by`), GitHub branch protection rules API | planned |
+| `complies_with` | Maps component to compliance control | Manual annotation files or compliance-as-code frameworks (compliance YAML/JSON mapping controls to paths) | planned |
+| `violates_policy` | Derived policy finding from graph analysis | Derived: query graph for symbols with `classified_as: PII` that lack `secured_by` edges | planned |
 
 ## Workstream: Static Semantic Edges
 
 Deeper type-system relationships beyond calls/imports/implements.
 
-| Item | Description | Status |
-|------|-------------|--------|
-| `extends` / `inherits` | Class/type inheritance (Java, C#, Python, TS) | planned (P1) |
-| `overrides` | Method overrides parent/interface method | planned (P1) |
-| `decorates` / `annotates` | Decorators, annotations, attributes | planned (P2) |
-| `throws` / `raises` | Error/exception relationships | planned (P3) |
-| `catches` / `handles_error` | Recovery paths | planned (P3) |
-| `generates` | Codegen source produces generated file/symbol | planned |
+**Ingestion sources:** All from existing tree-sitter extractors with additional query patterns. Go/ast extractor already produces `implements`; extending to inheritance/override for OOP languages uses the same tree-sitter infrastructure.
+
+| Item | Description | Ingestion source | Status |
+|------|-------------|-----------------|--------|
+| `extends` / `inherits` | Class/type inheritance (Java, C#, Python, TS) | Tree-sitter: `class Foo extends Bar`, `class Foo(Bar)`, `: BaseClass` | planned (P1) |
+| `overrides` | Method overrides parent/interface method | Tree-sitter: method with same name as parent class method + `@Override`/`override` keyword | planned (P1) |
+| `decorates` / `annotates` | Decorators, annotations, attributes | Tree-sitter: `@decorator`, `@Annotation`, `[Attribute]` patterns | planned (P2) |
+| `throws` / `raises` | Error/exception relationships | Tree-sitter: `throw new X`, `raise X`, Go `return fmt.Errorf` patterns | planned (P3) |
+| `catches` / `handles_error` | Recovery paths | Tree-sitter: `catch(X)`, `except X`, `if err != nil` with type assertion | planned (P3) |
+| `generates` | Codegen source produces generated file/symbol | File header comments (`// Code generated by`), build tool config (protoc, sqlc, ent) | planned |
 
 ## Workstream: Agent Workflow Edges
 
 The graph improves itself from agent behavior. Promotes existing feedback data into first-class graph edges.
 
-| Item | Description | Status |
-|------|-------------|--------|
-| `suggested_for_task` | Symbol was included in agent context for a task | planned (P1) |
-| `used_by_agent` | Agent actually used/read/edited symbol | planned (P1) |
-| `validated_by_test` | Test verified symbol/change | planned (P2) |
-| `failed_in_ci` | Symbol/file associated with failing check | planned (P2) |
-| `changed_by_pr` | PR modifies symbol | planned (P3) |
-| `reviewed_in_pr` | PR review comment targets symbol | planned (P3) |
+**Ingestion sources:** Mostly already captured. Feedback table has `suggested_for_task` data. Claude Code hooks observe edits. GitHub API provides CI/PR events. The work is promoting these observations into graph edges with provenance.
+
+| Item | Description | Ingestion source | Status |
+|------|-------------|-----------------|--------|
+| `suggested_for_task` | Symbol was included in agent context for a task | Already captured in feedback table (`RecordFeedback`); promote to edges | planned (P1) |
+| `used_by_agent` | Agent actually used/read/edited symbol | Claude Code PostToolUse hook (file edit events); match edited ranges to graph nodes | planned (P1) |
+| `validated_by_test` | Test verified symbol/change | Existing `calls` edges from test functions to symbols; reclassify with test metadata | planned (P2) |
+| `failed_in_ci` | Symbol/file associated with failing check | GitHub Actions API (check run failures), map failing test to symbols via `test_scope` logic | planned (P2) |
+| `changed_by_pr` | PR modifies symbol | GitHub PR API (changed files) + `NodesByFilePath` to resolve symbols | planned (P3) |
+| `reviewed_in_pr` | PR review comment targets symbol | GitHub PR review comments API (file + line) + node position matching | planned (P3) |
 
 ## Workstream: Deployment and Infrastructure Edges
 
 Links code to its operational environment.
 
-| Item | Description | Status |
-|------|-------------|--------|
-| `runs_on` | Service runs on deployment/node/runtime | planned (P1) |
-| `deployed_by` | Workflow/pipeline deploys service | planned (P1) |
-| `configured_by` | Config/secret/env var configures service | planned (P2) |
-| `exposes_port` | Service/container exposes port | planned (P3) |
-| `mounts` | Workload mounts volume/secret/configmap | planned |
-| `assumes_role` | Workload uses IAM role/service account | planned |
-| `allowed_by` / `blocked_by` | Network/security/IAM policy permits or denies access | planned |
+**Ingestion sources:** Mostly from existing cloud/k8s extractors that already parse these files. The work is emitting semantically specific edges instead of generic `depends_on`. Some require cross-referencing (service name in deployment YAML matches service name in code).
+
+| Item | Description | Ingestion source | Status |
+|------|-------------|-----------------|--------|
+| `runs_on` | Service runs on deployment/node/runtime | K8s extractor (Deployment -> container image), Docker Compose (service -> image), Serverless (function -> runtime) | planned (P1) |
+| `deployed_by` | Workflow/pipeline deploys service | GitHub Actions extractor (deploy steps referencing service/image names) | planned (P1) |
+| `configured_by` | Config/secret/env var configures service | K8s extractor (ConfigMap/Secret mounts, envFrom), Docker Compose (environment), Terraform (variable references) | planned (P2) |
+| `exposes_port` | Service/container exposes port | K8s extractor (Service ports), Docker Compose (ports), already partially extracted | planned (P3) |
+| `mounts` | Workload mounts volume/secret/configmap | K8s extractor (volumeMounts), Docker Compose (volumes) | planned |
+| `assumes_role` | Workload uses IAM role/service account | K8s extractor (serviceAccountName), CloudFormation (Role/Policy), Terraform (aws_iam_role) | planned |
+| `allowed_by` / `blocked_by` | Network/security/IAM policy permits or denies access | K8s NetworkPolicy, CloudFormation SecurityGroup, Terraform aws_security_group_rule, OPA policies | planned |
 
 ## What's Next (priority order)
 
