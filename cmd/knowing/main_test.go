@@ -37,8 +37,8 @@ func TestVersionSubcommand(t *testing.T) {
 	}
 
 	got := strings.TrimSpace(buf.String())
-	if got != Version {
-		t.Errorf("got %q, want %q", got, Version)
+	if !strings.Contains(got, Version) {
+		t.Errorf("got %q, want it to contain %q", got, Version)
 	}
 }
 

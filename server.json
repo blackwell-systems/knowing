@@ -1,0 +1,28 @@
+{
+  "name": "io.github.blackwell-systems/knowing",
+  "version": "0.1.0",
+  "description": "Content-addressed graph artifact for software systems. 17 extractors, 22 MCP tools, runtime + static in one graph.",
+  "repository": {
+    "url": "https://github.com/blackwell-systems/knowing",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registry_name": "npm",
+      "name": "@blackwell-systems/knowing",
+      "version": "0.1.0",
+      "runtime": "node",
+      "runtime_arguments": [],
+      "package_arguments": ["mcp", "-db", "knowing.db"],
+      "environment_variables": []
+    }
+  ],
+  "tools": [
+    "index_repo", "graph_query", "repo_graph", "cross_repo_callers",
+    "blast_radius", "trace_dataflow", "flow_between", "stale_edges",
+    "snapshot_diff", "semantic_diff", "pr_impact", "ownership",
+    "runtime_traffic", "dead_routes", "trace_stats",
+    "context_for_task", "context_for_files", "context_for_pr",
+    "test_scope", "communities", "plan_turn", "feedback"
+  ]
+}

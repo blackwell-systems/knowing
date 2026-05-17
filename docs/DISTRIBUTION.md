@@ -2,6 +2,29 @@
 
 This document describes how knowing is distributed, what is automated, and what is planned.
 
+## v0.1.0 Release Readiness
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| GoReleaser config | Ready | `.goreleaser.yml`, 6 platform binaries |
+| Release workflow | Ready | `.github/workflows/release.yml`, triggered on `v*` tags |
+| npm package structure | Ready | `npm/` directory, root + 4 platform packages |
+| PyPI package structure | Ready | `pypi/` directory, `pyproject.toml` |
+| `NPM_TOKEN` secret | **Set** | |
+| `PYPI_TOKEN` secret | **Set** | |
+| `HOMEBREW_TAP_TOKEN` secret | Needed | GitHub PAT with repo scope for homebrew-tap |
+| `DOCKERHUB_USERNAME` secret | Needed | For Docker Hub publishing |
+| `DOCKERHUB_TOKEN` secret | Needed | For Docker Hub publishing |
+| `docker/Dockerfile` | Ready | Alpine-based, git included for indexing |
+| `scripts/npm-publish.sh` | Ready | Downloads binaries from release, publishes 5 packages |
+| `scripts/pypi-build-wheels.sh` | Ready | Builds platform wheels from Go binaries |
+| `server.json` | Ready | MCP registry manifest (22 tools listed) |
+| homebrew-tap repo | Ready | `blackwell-systems/homebrew-tap` exists (public) |
+
+**Minimum viable release (npm + PyPI + GitHub Release + Homebrew):** Needs HOMEBREW_TAP_TOKEN + missing scripts.
+
+**Without Docker:** Skip DOCKERHUB secrets and Dockerfile; GoReleaser will warn but still publish binaries, Homebrew, and GitHub Release.
+
 ## Current channels
 
 ### GitHub Releases

@@ -47,8 +47,12 @@ import (
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
-// Version is the current version of the knowing CLI.
-const Version = "knowing v0.1.0"
+// Build-time variables set by goreleaser ldflags.
+var (
+	Version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
 
 // defaultDB returns the default database path, checking KNOWING_DB env var first.
 func defaultDB() string {
@@ -73,7 +77,7 @@ func run(args []string) error {
 
 	switch args[0] {
 	case "version":
-		fmt.Println(Version)
+		fmt.Printf("knowing %s (commit: %s, built: %s)\n", Version, commit, date)
 		return nil
 	case "serve":
 		return cmdServe(args[1:])
