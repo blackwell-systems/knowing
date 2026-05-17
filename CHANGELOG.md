@@ -36,6 +36,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Context engine uses substring search for keyword matching (was requiring exact match)
 - mkdocs.yml and index.md added for docs workflow
 - Architecture doc updated to reflect actual codebase structure
+- All 6 benchmark harnesses audited and corrected: feedback-loop FINDINGS.md updated with current numbers (16%->36%), edge-accuracy auto-generates honest FINDINGS.md (26.7% confirmation, fair comparison restricted to shared edge types), test-scope-accuracy replaced circular ground truth with independent Go import DAG via `go list -deps -test`, context-relevance adds honest interpretation when configs tie, wire-format adds previously missing FINDINGS.md, token-savings regenerated with current data
 
 ## 2026-05-15
 
