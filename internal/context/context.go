@@ -71,6 +71,7 @@ type ScoreComponents struct {
 	Confidence  float64
 	Recency     float64
 	Distance    float64
+	Feedback    float64
 }
 
 // NewContextEngine creates a ContextEngine backed by the given GraphStore.

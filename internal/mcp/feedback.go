@@ -1,0 +1,82 @@
+package mcp
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/mark3labs/mcp-go/mcp"
+)
+
+// feedbackTool defines the "feedback" MCP tool for recording and querying
+// symbol usefulness feedback from agents.
+func feedbackTool() mcp.Tool {
+	return mcp.NewTool("feedback",
+		mcp.WithDescription("Record or query symbol usefulness feedback. Use action='record' to report whether a symbol was useful, or action='query' to get aggregate feedback stats for a symbol."),
+		mcp.WithString("action", mcp.Required(), mcp.Description("Action to perform: 'record' or 'query'"), Examples("record", "query")),
+		mcp.WithString("symbol_hash", mcp.Required(), mcp.Description("Hash of the symbol (64-char hex)"), Examples("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2")),
+		mcp.WithString("session_id", mcp.Description("Session identifier (required for action='record')"), Examples("session-abc123")),
+		mcp.WithBoolean("useful", mcp.Description("Whether the symbol was useful (required for action='record')")),
+	)
+}
+
+// handleFeedback handles the "feedback" MCP tool requests.
+func (s *Server) handleFeedback(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if s.sqlStore == nil {
+		return mcp.NewToolResultError("feedback: not available (store does not support feedback methods)"), nil
+	}
+
+	action, errResult := requireStringArg(req, "action")
+	if errResult != nil {
+		return errResult, nil
+	}
+
+	symbolHashStr, errResult := requireStringArg(req, "symbol_hash")
+	if errResult != nil {
+		return errResult, nil
+	}
+
+	symbolHash, err := parseHash(symbolHashStr)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("invalid symbol_hash: %v", err)), nil
+	}
+
+	switch action {
+	case "record":
+		sessionID := getStringArg(req, "session_id")
+		if sessionID == "" {
+			return mcp.NewToolResultError("missing required argument: session_id (required for action='record')"), nil
+		}
+
+		// Extract the boolean "useful" argument.
+		args := req.GetArguments()
+		usefulVal, ok := args["useful"]
+		if !ok {
+			return mcp.NewToolResultError("missing required argument: useful (required for action='record')"), nil
+		}
+		useful, ok := usefulVal.(bool)
+		if !ok {
+			return mcp.NewToolResultError("argument 'useful' must be a boolean"), nil
+		}
+
+		if err := s.sqlStore.RecordFeedback(ctx, symbolHash, sessionID, useful); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("RecordFeedback failed: %v", err)), nil
+		}
+
+		return mcp.NewToolResultText(`{"status":"recorded"}`), nil
+
+	case "query":
+		stats, err := s.sqlStore.QueryFeedback(ctx, symbolHash)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("QueryFeedback failed: %v", err)), nil
+		}
+
+		result, err := mcp.NewToolResultJSON(stats)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("failed to marshal result: %v", err)), nil
+		}
+		return result, nil
+
+	default:
+		return mcp.NewToolResultError(fmt.Sprintf("unknown action %q: must be 'record' or 'query'", action)), nil
+	}
+}
