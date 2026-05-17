@@ -1,0 +1,19 @@
+{
+  "name": "knowing",
+  "description": "Content-addressed graph artifact for software systems. 17 extractors, 22 MCP tools, runtime + static in one graph.",
+  "repository": "https://github.com/blackwell-systems/knowing",
+  "homepage": "https://blackwell-systems.github.io/knowing",
+  "license": "MIT",
+  "author": "Blackwell Systems",
+  "categories": ["developer-tools", "code-intelligence", "static-analysis"],
+  "install": {
+    "npm": "@blackwell-systems/knowing",
+    "homebrew": "blackwell-systems/tap/knowing",
+    "pip": "knowing"
+  },
+  "transport": "stdio",
+  "command": "knowing",
+  "args": ["mcp", "-db", "knowing.db"],
+  "tools": 22,
+  "prompts": 3
+}

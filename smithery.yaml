@@ -1,0 +1,12 @@
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties:
+      db:
+        type: string
+        description: Path to the knowing database file
+        default: knowing.db
+    required: []
+  commandFunction: |-
+    (config) => ({ command: 'knowing', args: ['mcp', '-db', config.db || 'knowing.db'] })
