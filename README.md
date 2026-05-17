@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="#mcp-tools"><img src="https://img.shields.io/badge/MCP_tools-22-brightgreen.svg" alt="MCP Tools"></a>
-  <a href="#languages"><img src="https://img.shields.io/badge/languages-12-blue.svg" alt="Languages"></a>
+  <a href="#languages-and-formats"><img src="https://img.shields.io/badge/extractors-12-blue.svg" alt="Extractors"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
   <a href="https://github.com/blackwell-systems"><img src="https://raw.githubusercontent.com/blackwell-systems/blackwell-docs-theme/main/badge-trademark.svg" alt="Blackwell Systems"></a>
 </p>
@@ -15,131 +15,116 @@
 
 ---
 
-## What This Is
+## What knowing Is
 
-knowing is a **content-addressed knowledge graph** that fuses static analysis, infrastructure declarations, and runtime traces into a single queryable structure. It indexes code via 12 extractors covering 15 file formats, watches for git changes, ingests OpenTelemetry traces and SCIP indexes, and serves the result over MCP.
+knowing builds a **content-addressed knowledge graph** of software relationships and serves it to agents through MCP.
 
-Every node, edge, and snapshot is a SHA-256 hash. The graph has full history, provable integrity, and a clear answer to "when did this relationship appear and how confident are we in it?"
+It fuses static analysis, infrastructure declarations, SCIP indexes, and OpenTelemetry runtime traces into one queryable graph. Every node, edge, and snapshot has a SHA-256 identity, provenance, confidence, and history, so agents can ask not just "where is this symbol?" but "what depends on it, how do we know, and what changed since the last snapshot?"
 
-## Why It Exists
+Use knowing when code search is too shallow, LSP is too workspace-local, and dependency graphs stop at package boundaries.
 
-Software organizations have no single place that captures how their systems actually connect. That knowledge lives in people's heads, incident postmortems, and tribal memory. Existing tools operate at the wrong granularity:
+## What It Answers
 
-- LSP tells you where a symbol is used inside one workspace
-- Code search finds matching text
-- Dependency graphs tell you which packages depend on which
+For coding agents:
 
-None of them answer: *if I change this symbol, what breaks across the rest of the system? Is this route actually called in production? What did the graph look like when we deployed on Tuesday?*
+- "I am changing this function signature. Which callers, tests, routes, and repos are in the blast radius?"
+- "Give me the most relevant context for this task in 5,000 tokens instead of making me grep the repo."
+- "Which tests should run for these changed files?"
 
-knowing answers those questions with provenance and confidence scores on every edge.
+For platform and runtime teams:
 
-## Architecture
+- "Is this route actually used in production, or only declared in code?"
+- "What did the service graph look like at the snapshot we deployed on Tuesday?"
+- "Which runtime-observed paths disagree with static analysis?"
 
-```
-┌──────────────────────────────────────────────────────────┐
-│                     knowing daemon                         │
-├──────────────┬───────────────────┬───────────────────────┤
-│   Indexer    │   Graph Store     │     MCP Server        │
-│              │                   │                       │
-│ 12 extractors│ Content-addressed │ 22 tools + 3 prompts │
-│ tree-sitter  │ SQLite + Merkle   │ stdio / HTTP          │
-│ go/packages  │ Snapshot chain    │ GCF wire format       │
-│ OTel + SCIP  │ Edge events       │                       │
-└──────────────┴───────────────────┴───────────────────────┘
-```
+For security and compliance:
 
-Three components, one binary:
+- "Prove this graph was derived from these source commits."
+- "Show every service that touches this symbol, route, table, queue, or proto message."
+- "What relationships were added or removed between two audit points?"
 
-- **Indexer**: parses ASTs via 12 extractors (15 file formats), resolves cross-repo references, ingests OTel traces and SCIP indexes, watches git for incremental re-indexing
-- **Graph store**: content-addressed SQLite with Merkle snapshot chain, edge event sourcing, runtime confidence decay
-- **MCP server**: 22 tools + 3 prompts over stdio/HTTP, with GCF wire format (76% token savings vs JSON)
+## Why It Is Different
 
-## Languages
+Most code-intelligence tools answer one slice of the problem:
 
-| Language / Format | Extractor | Framework Detection |
-|----------|-----------|-------------------|
-| Go | tree-sitter + `go/packages` | net/http, gin, echo, chi, gorilla/mux |
-| TypeScript/JS | tree-sitter | Express.js, Fastify, Hono, NestJS, Next.js |
-| Python | tree-sitter | Flask, FastAPI, Django (urls.py) |
-| Rust | tree-sitter | Actix, Axum, Rocket |
-| Java | tree-sitter | Spring |
-| C# | tree-sitter | ASP.NET |
-| Terraform (HCL) | tree-sitter | resource/module/variable declarations |
-| SQL | tree-sitter | tables, views, procedures |
-| Kubernetes YAML | yaml.v3 | deployments, services, configmaps, ingress |
-| CloudFormation/SAM | yaml.v3 | resources, outputs, parameters |
-| Docker Compose | yaml.v3 | services, networks, volumes, depends_on |
-| GitHub Actions | yaml.v3 | workflows, jobs, steps, action references |
-| Serverless Framework | yaml.v3 | functions, events, resources |
-| CSS/SCSS | tree-sitter | selectors, custom properties, imports |
-| Protocol Buffers | tree-sitter | services, messages, RPCs, enums |
+| Tool class | What it sees | What it misses |
+|---|---|---|
+| LSP | Symbol references inside one workspace | Cross-repo history, runtime traffic, graph snapshots |
+| Code search | Text matches | Semantic relationships and provenance |
+| Dependency graphs | Package-level imports | Function-level callers, routes, infra, runtime behavior |
+| APM/tracing | Production traffic | Static ownership, source-level blast radius, historical graph diffs |
 
-## MCP Tools
+knowing's unit of record is the relationship itself: `source -edge_type-> target`, with confidence and provenance. The graph is versioned like source code, so relationship history is a first-class artifact instead of a regenerated report.
 
-| Tool | Purpose |
-|------|---------|
-| `index_repo` | Add a repo to the graph |
-| `graph_query` | Query nodes by qualified name prefix |
-| `cross_repo_callers` | All callers of a symbol across indexed repos |
-| `blast_radius` | Full impact analysis for a proposed change |
-| `trace_dataflow` | Follow a value across function and service boundaries |
-| `repo_graph` | Repository and package-level dependency relationships |
-| `stale_edges` | Edges invalidated by recent source changes |
-| `ownership` | Who owns the code/service/consumers affected by a change |
-| `snapshot_diff` | What changed in the graph between two points in time |
-| `semantic_diff` | Relationship-level diff between any two snapshots |
-| `pr_impact` | Semantic diff specialized for a PR |
-| `runtime_traffic` | Runtime-observed edges filtered by service and route |
-| `dead_routes` | Routes with no production traffic in N days |
-| `trace_stats` | Aggregate statistics on runtime-derived edges |
-| `context_for_task` | Graph-ranked, token-budgeted context for a task |
-| `context_for_files` | Blast radius context for changed files |
-| `context_for_pr` | Full PR impact: RWR from changed symbols, callers, structural neighborhood |
-| `feedback` | Record/query symbol usefulness for ranking improvement |
-| `test_scope` | Find affected tests for changed files via BFS |
-| `flow_between` | Find all paths between two symbols |
-| `plan_turn` | Suggest relevant knowing tools for a task description |
-| `communities` | Louvain modularity-based graph clustering |
+## Proof Points
 
-**MCP Prompts:** `refactor_safely`, `review_pr`, `investigate_dead_code`
+The repository includes benchmark harnesses that regenerate their own findings from the live codebase.
 
-## Wire Formats
+| Benchmark | Result | What it demonstrates |
+|---|---:|---|
+| Context retrieval | 55.7% fewer tokens, 52.8% fewer tool calls | Agents spend less time exploring with grep/read loops |
+| GCF wire format | 84.0% fewer tokens than JSON | MCP responses can carry dense graph context cheaply |
+| Test scope | 96.9% precision, 100% recall on analyzed commits | Call-graph BFS can select affected test packages safely |
+| Claude hooks | 9/10 edit tasks avoided a manual context call | Automatic context injection can be net-positive |
+| Feedback loop | 16% -> 36% precision after one feedback round | Relevance improves as agents mark useful symbols |
 
-knowing serves responses in three encodings, selected per request:
-
-| Format | Use Case | Savings vs JSON |
-|--------|----------|-----------------|
-| **GCF** (Graph Compact Format) | LLM consumption | 76.7% fewer tokens |
-| **GCB** (Graph Compact Binary) | Service transport, caching | 74% fewer bytes |
-| **JSON** | Human debugging, generic APIs | Baseline |
+Run the suites:
 
 ```bash
-knowing context -task "refactor auth" -format gcf
+GOWORK=off go test ./bench/... -timeout 5m
+GOWORK=off go test -tags hookbench ./hooks/benchmark/ -v
 ```
+
+See [bench/README.md](bench/README.md) and [hooks/README.md](hooks/README.md) for methodology and caveats.
 
 ## Quick Start
 
+Install:
+
 ```bash
-# Install
 brew install blackwell-systems/tap/knowing
 
-# Index a repository
-knowing index ./path/to/repo
-
-# Query the graph
-knowing query "MyService"
-
-# Generate context for an agent task
-knowing context -task "refactor auth middleware" -format gcf
-
-# Start the MCP server (stdio)
-knowing mcp -db knowing.db
-
-# Start the daemon (watches git, serves MCP over HTTP)
-knowing serve -repo ./path/to/repo -addr :8100
+# Or:
+go install github.com/blackwell-systems/knowing/cmd/knowing@latest
+npm install -g @blackwell-systems/knowing
+pip install knowing
 ```
 
-### Agent Integration (.mcp.json)
+Index and query a repository:
+
+```bash
+# Build the graph. The default path uses fast tree-sitter extraction plus LSP enrichment.
+knowing index -url github.com/org/repo ./path/to/repo
+
+# Search symbols by qualified-name prefix.
+knowing query "MyService"
+
+# Ask for graph-ranked context for an agent task.
+knowing context -task "refactor auth middleware" -format gcf
+
+# Find affected tests for changed files.
+knowing test-scope -files internal/auth/session.go,internal/auth/middleware.go
+
+# Compare two graph snapshots.
+knowing diff <old-snapshot> <new-snapshot>
+```
+
+Run continuously:
+
+```bash
+# Watches git changes, re-indexes incrementally, and serves MCP over HTTP.
+knowing serve -addr :8100 ./path/to/repo
+```
+
+Serve MCP over stdio for local agents:
+
+```bash
+knowing mcp -db knowing.db
+```
+
+## Agent Integration
+
+Add knowing to `.mcp.json`:
 
 ```json
 {
@@ -153,48 +138,128 @@ knowing serve -repo ./path/to/repo -addr :8100
 }
 ```
 
-## What It Answers
+For HTTP transport:
 
-**For agents:**
-- "I'm changing this function signature. Which other repos call it?"
-- "What is the blast radius of this change, and how confident are we in each edge?"
-- "Give me the most relevant context for this task, packed into 5000 tokens."
+```json
+{
+  "mcpServers": {
+    "knowing": {
+      "url": "http://localhost:8100",
+      "transport": "streamable-http"
+    }
+  }
+}
+```
 
-**For platform teams:**
-- "What did the dependency graph look like when we deployed on Tuesday?"
-- "Is this route actually called in production, or just declared in code?"
-- "Static analysis says 47 callers; how many are active in production?"
+Claude Code hooks are included for automatic context injection on session start, edits, compaction, task stop, and subagent launch. Start with the low-risk hooks in [hooks/README.md](hooks/README.md), then enable edit/subagent hooks if the benchmark profile matches your workflow.
 
-**For security and compliance:**
-- "Prove that this graph was derived from these specific source commits."
-- "Show me every service that touches PII, traced through the runtime call graph."
-- "What changed in the system's dependency structure between these two audit dates?"
+## How It Works
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                    knowing daemon                       │
+├──────────────┬───────────────────┬───────────────────────┤
+│   Indexer    │   Graph Store     │      MCP Server       │
+│              │                   │                       │
+│ 12 extractors│ Content-addressed │ 22 tools + 3 prompts  │
+│ tree-sitter  │ SQLite + Merkle   │ stdio / HTTP          │
+│ gopls + SCIP │ Snapshot chain    │ GCF / GCB / JSON      │
+│ OTel traces  │ Edge events       │                       │
+└──────────────┴───────────────────┴───────────────────────┘
+```
+
+The pipeline has two planes:
+
+- **Execution plane:** indexes repos, extracts symbols and relationships, ingests traces, stores snapshots.
+- **Intelligence plane:** computes blast radius, semantic diffs, context packs, runtime traffic, test scope, feedback, and graph communities from the stored artifact.
+
+The artifact boundary matters: intelligence features read the graph and produce derived results, but they do not mutate source graph facts. A bad ranking can produce a bad recommendation; it cannot corrupt the graph.
+
+## Capabilities
+
+### Languages And Formats
+
+| Category | Coverage |
+|---|---|
+| Application code | Go, TypeScript/JavaScript, Python, Rust, Java, C# |
+| Infrastructure | Terraform, SQL, Kubernetes YAML, CloudFormation/SAM, Docker Compose, GitHub Actions, Serverless Framework |
+| Interface/schema | Protocol Buffers |
+| Frontend assets | CSS/SCSS |
+| Web frameworks | net/http, gin, echo, chi, gorilla/mux, Express.js, Fastify, Hono, NestJS, Next.js, Flask, FastAPI, Django, Actix, Axum, Rocket, Spring, ASP.NET |
+
+### Edge Types
+
+knowing records static, infrastructure, and runtime relationships, including:
+
+- `calls`, `imports`, `implements`, `references`, `handles_route`
+- `depends_on`, `deploys`, `exposes`, `configures`
+- `publishes`, `subscribes`, `connects_to`
+- `runtime_calls`, `runtime_rpc`, `runtime_produces`, `runtime_consumes`
+
+See [docs/edge-types.md](docs/edge-types.md) for exact semantics, producers, confidence tiers, and traversal behavior.
+
+### MCP Tools
+
+The MCP server exposes 22 tools across indexing, graph queries, analysis, runtime, context, feedback, and discovery:
+
+| Tool | Purpose |
+|---|---|
+| `index_repo`, `graph_query`, `repo_graph` | Build and inspect the graph |
+| `cross_repo_callers`, `blast_radius`, `trace_dataflow`, `flow_between` | Understand impact and paths |
+| `snapshot_diff`, `semantic_diff`, `pr_impact`, `stale_edges` | Compare graph states and review changes |
+| `runtime_traffic`, `dead_routes`, `trace_stats` | Query runtime-observed relationships |
+| `context_for_task`, `context_for_files`, `context_for_pr` | Pack graph-ranked context for agents |
+| `ownership`, `test_scope`, `communities`, `plan_turn`, `feedback` | Route work, select tests, cluster graph, improve ranking |
+
+MCP prompts: `refactor_safely`, `review_pr`, `investigate_dead_code`.
+
+Full reference: [docs/MCP-TOOLS.md](docs/MCP-TOOLS.md).
 
 ## Content Addressing
 
-Every entity (symbols, relationships, files, repos, and graph snapshots) is identified by its SHA-256 hash. When the indexer parses source code, it computes a deterministic hash for each symbol based on its logical identity (repo, package, name, kind) and a hash for each relationship based on its endpoints, type, and provenance. All edge hashes are sorted and fed into a binary Merkle tree whose root is the snapshot hash: a single 32-byte fingerprint of the entire graph state. Snapshots chain together like git commits (each points to its parent), giving the graph full version history for free.
+Every entity in knowing is identified by content:
 
-Incremental indexing compares file content hashes and skips anything unchanged. Staleness is structural: if a file's content hash changed, all nodes derived from it have stale hashes, and all edges from those nodes are suspect. No heuristics needed. Edge mutations are append-only events ("added"/"removed"), so the system can answer "when did this relationship first appear?" and "what changed between these two graph states?" by scanning the event log or diffing two Merkle roots.
+- **Node hash:** logical symbol identity, including repo, package/path, name, and kind.
+- **Edge hash:** source, target, edge type, and provenance.
+- **Snapshot hash:** Merkle root of sorted edge hashes at a point in time.
 
-The result is a graph with the same integrity guarantees git provides for source code, applied one layer up to source code relationships:
+This gives the graph git-like properties:
 
-- **History**: every previous graph state is queryable by snapshot hash
-- **Staleness**: a hash mismatch is a structural fact, not a heuristic guess
-- **Integrity**: any graph state is provably derived from specific source commits
-- **Deduplication**: identical relationships across repos share a single edge record
+- **History:** previous graph states are queryable by snapshot hash.
+- **Integrity:** a snapshot can be verified from its edge hashes.
+- **Staleness:** changed file content structurally invalidates derived nodes and edges.
+- **Caching:** query results keyed to a snapshot remain valid forever for that snapshot.
+- **Diffs:** edge events make relationship changes explicit instead of inferred from full graph scans.
+
+For the full storage model, see [docs/architecture.md](docs/architecture.md).
+
+## Current Boundaries
+
+knowing is implemented, benchmarked, and usable, but it is still explicit about where precision depends on available data:
+
+- Static call-graph impact follows `calls` edges; other edge types are used for context and relationship awareness, not every blast-radius traversal.
+- Runtime tools require OpenTelemetry trace ingestion and route-symbol mappings; without trace data they have no runtime observations to report.
+- LSP enrichment currently centers on Go through `gopls`; other languages rely on tree-sitter/static extractors and SCIP where available.
+- Some planned work remains: MCP resources, multi-extractor dispatch for event/schema extractors, traversal caching, richer ownership routing, and federated graphs.
+
+See [docs/FEATURES.md](docs/FEATURES.md) for the implementation inventory and known gaps, and [docs/roadmap.md](docs/roadmap.md) for planned work.
 
 ## Documentation
 
 | Doc | Contents |
-|-----|----------|
-| [Architecture](docs/architecture.md) | System design, schemas, content addressing, interfaces |
-| [Wire Formats](docs/wire-formats.md) | GCF/GCB specs, grammar, benchmarks, codec registry |
-| [CLI Reference](docs/CLI.md) | All commands with flags and examples |
-| [MCP Tools](docs/MCP-TOOLS.md) | All 22 tools with parameters and return formats |
-| [Edge Types](docs/edge-types.md) | The 9 relationship types and their semantics |
-| [Context Packing](docs/context-packing.md) | RWR algorithm, scoring, token budgeting |
-| [Runtime Traces](docs/runtime-traces.md) | OTel ingestion, confidence scoring, decay |
-| [Roadmap](docs/roadmap.md) | Workstreams, priorities, next steps |
+|---|---|
+| [Architecture](docs/architecture.md) | System design, schemas, content addressing, daemon model |
+| [Features](docs/FEATURES.md) | Implementation inventory, entry points, limitations |
+| [CLI Reference](docs/CLI.md) | Commands, flags, examples |
+| [MCP Tools](docs/MCP-TOOLS.md) | Tool schemas, parameters, return formats |
+| [Edge Types](docs/edge-types.md) | Relationship semantics and provenance |
+| [Context Packing](docs/context-packing.md) | RWR, HITS, ranking, token budgeting |
+| [Runtime Traces](docs/runtime-traces.md) | OTel ingestion and runtime confidence |
+| [Wire Formats](docs/wire-formats.md) | GCF, GCB, JSON formats and benchmarks |
+| [Distribution](docs/DISTRIBUTION.md) | Release channels and package managers |
+| [Roadmap](docs/roadmap.md) | Completed workstreams and next priorities |
+| [Benchmarks](bench/README.md) | Reproducible value benchmarks |
+| [Hooks](hooks/README.md) | Claude Code hook integration |
 
 ## License
 
