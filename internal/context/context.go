@@ -250,6 +250,85 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 		}
 	}
 
+	// Tier 4: file-path keyword matching.
+	// Keywords like "k8s" or "extractor" appear in file paths but not symbol names.
+	// Search qualified names for path components that contain keywords.
+	if len(candidates) < 30 {
+		for _, kw := range keywords {
+			if len(kw) < 3 {
+				continue
+			}
+			// NodesByName uses LIKE, so search for the keyword anywhere in the path portion.
+			nodes, err := e.store.NodesByName(ctx, "%"+kw+"%")
+			if err != nil {
+				continue
+			}
+			for _, n := range nodes {
+				if seen[n.NodeHash] {
+					continue
+				}
+				// Check if keyword matches a path component (between / or ://)
+				qLower := strings.ToLower(n.QualifiedName)
+				kwLower := strings.ToLower(kw)
+				// Match against path segments: /keyword/ or /keyword. or keyword/
+				if strings.Contains(qLower, "/"+kwLower) || strings.Contains(qLower, kwLower+"/") {
+					seen[n.NodeHash] = true
+					candidates = append(candidates, n)
+					if len(candidates) >= 40 {
+						break
+					}
+				}
+			}
+			if len(candidates) >= 40 {
+				break
+			}
+		}
+	}
+
+	// Tier 5: interface-aware seeding.
+	// If any candidate is an interface type, add all implementors as seeds.
+	// "Build a new extractor" -> finds types.Extractor -> adds all existing extractors.
+	var interfaceSeeds []types.Node
+	for _, c := range candidates {
+		if c.Kind == "interface" || c.Kind == "type" {
+			// Find all "implements" edges pointing TO this type.
+			implEdges, err := e.store.EdgesTo(ctx, c.NodeHash, "implements")
+			if err != nil {
+				continue
+			}
+			for _, edge := range implEdges {
+				if seen[edge.SourceHash] {
+					continue
+				}
+				implNode, err := e.store.GetNode(ctx, edge.SourceHash)
+				if err != nil || implNode == nil {
+					continue
+				}
+				seen[implNode.NodeHash] = true
+				interfaceSeeds = append(interfaceSeeds, *implNode)
+			}
+		}
+	}
+	candidates = append(candidates, interfaceSeeds...)
+
+	// Determine candidate communities for scoped RWR.
+	// If candidates cluster in 1-3 communities, constrain the walk.
+	commCounts := make(map[int]int)
+	type communityProvider interface {
+		CommunitiesForNodes(ctx stdctx.Context, hashes []types.Hash) (map[types.Hash]int, error)
+	}
+	if cp, ok := e.store.(communityProvider); ok {
+		hashes := make([]types.Hash, len(candidates))
+		for i, c := range candidates {
+			hashes[i] = c.NodeHash
+		}
+		if commMap, err := cp.CommunitiesForNodes(ctx, hashes); err == nil {
+			for _, commID := range commMap {
+				commCounts[commID]++
+			}
+		}
+	}
+
 	// Run Random Walk with Restart from seed nodes to compute relevance
 	// scores across the entire reachable subgraph. This replaces manual
 	// neighbor expansion with a principled graph-based relevance signal.
