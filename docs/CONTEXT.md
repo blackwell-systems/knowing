@@ -31,3 +31,5 @@
   - IMPL doc: docs/IMPL/complete/IMPL-event-schema-extractors.yaml
 - **cloud-extractors**: completed 2026-05-17, 2 waves, 5 agents
   - IMPL doc: docs/IMPL/complete/IMPL-cloud-extractors.yaml
+- **scip-ingestion**: completed 2026-05-17, 2 waves, 2 agents
+  - IMPL doc: docs/IMPL/complete/IMPL-scip-ingestion.yaml

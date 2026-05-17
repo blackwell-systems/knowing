@@ -1,3 +1,4 @@
+completion_date: "2026-05-17"
 title: SCIP Index Ingestion
 feature_slug: scip-ingestion
 verdict: SUITABLE
@@ -304,6 +305,7 @@ waves:
             - cmd/knowing/main.go
           dependencies:
             - A
+          context_source: prepared-brief
 quality_gates:
     level: standard
     gates:
@@ -316,6 +318,57 @@ quality_gates:
         - type: test
           command: GOWORK=off go test ./... -timeout 5m
           required: true
+completion_reports:
+    A:
+        status: complete
+        branch: polywave/scip-ingestion/wave1-agent-A
+        commit: f8d338a
+        files_changed:
+            - internal/indexer/scipingest/ingest.go
+            - internal/indexer/scipingest/symbol.go
+            - internal/indexer/scipingest/symbol_test.go
+            - internal/indexer/scipingest/ingest_test.go
+            - go.mod
+            - go.sum
+        files_created:
+            - internal/indexer/scipingest/ingest.go
+            - internal/indexer/scipingest/symbol.go
+            - internal/indexer/scipingest/symbol_test.go
+            - internal/indexer/scipingest/ingest_test.go
+        tests_added:
+            - TestParseSCIPSymbol_GoType
+            - TestParseSCIPSymbol_Method
+            - TestParseSCIPSymbol_Function
+            - TestParseSCIPSymbol_TopLevelFunction
+            - TestParseSCIPSymbol_Local
+            - TestParseSCIPSymbol_TypeScript
+            - TestParseSCIPSymbol_Empty
+            - TestParseSCIPSymbol_Invalid
+            - TestParseSCIPSymbol_Field
+            - TestIngestFile_SyntheticIndex
+            - TestIngestFile_MissingFile
+            - TestIngestFile_InvalidProtobuf
+            - TestIngestFile_EmptyIndex
+        verification: PASS
+        notes: 'All 13 tests pass. Full repo builds and vets clean. SCIP dependency added: github.com/scip-code/scip/bindings/go/scip v0.7.1. Agent B (wave 2) can import scipingest package for CLI integration.'
+    B:
+        status: complete
+        branch: polywave/scip-ingestion/wave2-agent-B
+        commit: 5809ecd
+        files_changed:
+            - cmd/knowing/ingestscip.go
+            - cmd/knowing/ingestscip_test.go
+            - cmd/knowing/main.go
+        files_created:
+            - cmd/knowing/ingestscip.go
+            - cmd/knowing/ingestscip_test.go
+        tests_added:
+            - TestIngestSCIP_MissingFileFlag
+            - TestIngestSCIP_MissingRepoFlag
+            - TestIngestSCIP_NonExistentFile
+            - TestIngestSCIP_NoFlags
+        verification: PASS
+        notes: 'CLI subcommand wiring complete. All 4 tests pass. Build and vet clean. Postconditions verified: ingest-scip appears 2x in main.go, cmdIngestSCIP appears 2x in ingestscip.go.'
 pre_mortem:
     overall_risk: low
     rows:
@@ -331,4 +384,4 @@ pre_mortem:
           likelihood: low
           impact: low
           mitigation: Wave 2 depends on wave 1 completing; Agent B runs after Agent A's code is merged.
-state: "REVIEWED"
+state: COMPLETE
