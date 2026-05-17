@@ -21,7 +21,7 @@ const generatedMarkerEnd = "<!-- knowing:generated:end -->"
 //   - Never touches content outside the markers
 func cmdInit(args []string) error {
 	fs := flag.NewFlagSet("init", flag.ExitOnError)
-	dbPath := fs.String("db", "knowing.db", "Path to SQLite database")
+	dbPath := fs.String("db", defaultDB(), "Path to SQLite database (env: KNOWING_DB)")
 	output := fs.String("output", "CLAUDE.md", "Output file path (default: CLAUDE.md in current directory)")
 	if err := fs.Parse(args); err != nil {
 		return err

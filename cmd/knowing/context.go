@@ -20,7 +20,7 @@ func cmdContext(args []string) error {
 	files := fs.String("files", "", "Comma-separated list of changed file paths")
 	budget := fs.Int("budget", 50000, "Token budget")
 	format := fs.String("format", "xml", "Output format (gcf/gcb/json/xml/markdown)")
-	dbPath := fs.String("db", "knowing.db", "Path to SQLite database")
+	dbPath := fs.String("db", defaultDB(), "Path to SQLite database (env: KNOWING_DB)")
 	repo := fs.String("repo", "", "Repository URL for file resolution")
 	if err := fs.Parse(args); err != nil {
 		return err

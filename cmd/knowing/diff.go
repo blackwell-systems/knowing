@@ -18,7 +18,7 @@ import (
 // SemanticDiff, and renders the result in text or JSON format.
 func cmdDiff(args []string) error {
 	fs := flag.NewFlagSet("diff", flag.ExitOnError)
-	dbPath := fs.String("db", "knowing.db", "Path to the SQLite database")
+	dbPath := fs.String("db", defaultDB(), "Path to the SQLite database (env: KNOWING_DB)")
 	format := fs.String("format", "text", "Output format: text or json")
 	if err := fs.Parse(args); err != nil {
 		return err

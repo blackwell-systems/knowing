@@ -25,7 +25,7 @@ import (
 //	knowing test-scope -db knowing.db -output run          # output -run regex for go test
 func cmdTestScope(args []string) error {
 	fs := flag.NewFlagSet("test-scope", flag.ExitOnError)
-	dbPath := fs.String("db", "knowing.db", "Path to SQLite database")
+	dbPath := fs.String("db", defaultDB(), "Path to SQLite database (env: KNOWING_DB)")
 	files := fs.String("files", "", "Comma-separated changed files (default: git diff HEAD)")
 	outputMode := fs.String("output", "packages", "Output mode: packages, functions, run")
 	depth := fs.Int("depth", 3, "Maximum call-graph traversal depth")
