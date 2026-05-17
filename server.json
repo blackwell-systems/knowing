@@ -1,5 +1,5 @@
 {
-  "$schema": "https://registry.modelcontextprotocol.io/schemas/v0/server.json",
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.blackwell-systems/knowing",
   "version": "0.1.0",
   "description": "Content-addressed code graph with 22 MCP tools for AI agents.",
