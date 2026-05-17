@@ -31,6 +31,7 @@ import (
 	"github.com/blackwell-systems/knowing/internal/indexer/goextractor"
 	"github.com/blackwell-systems/knowing/internal/indexer/gotsextractor"
 	"github.com/blackwell-systems/knowing/internal/indexer/javaextractor"
+	"github.com/blackwell-systems/knowing/internal/indexer/cloudextractor"
 	"github.com/blackwell-systems/knowing/internal/indexer/k8sextractor"
 	"github.com/blackwell-systems/knowing/internal/indexer/protoextractor"
 	"github.com/blackwell-systems/knowing/internal/indexer/rustextractor"
@@ -1080,6 +1081,9 @@ func registerAllExtractors(idx *indexer.Indexer, fullGo bool) {
 
 	// Kubernetes YAML.
 	idx.Register(k8sextractor.NewK8sExtractor())
+
+	// Cloud infrastructure YAML (CloudFormation, Docker Compose, GitHub Actions, Serverless).
+	idx.Register(cloudextractor.NewCloudExtractor())
 
 	// CSS/SCSS.
 	idx.Register(cssextractor.NewCSSExtractor())
