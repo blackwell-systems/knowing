@@ -1,0 +1,420 @@
+title: 'Benchmark Harnesses: Proving Knowing Value with Hard Data'
+feature_slug: benchmark-harnesses
+verdict: SUITABLE
+suitability_assessment: |
+    File decomposition: 4 completely independent benchmark directories, each with its own
+    _test.go file and FINDINGS.md. Zero shared files between agents. Perfect parallelism.
+
+    Investigation-first items: None. All benchmark methodologies are defined upfront.
+    The APIs under test (context engine, store, indexer, test-scope) are stable and documented.
+
+    Interface discoverability: Each benchmark is self-contained. No cross-agent interfaces needed.
+    All benchmarks use the same public APIs (store.NewSQLiteStore, indexer.NewIndexer,
+    context.NewContextEngine, etc.) which are already stable.
+
+    Pre-implementation status: The bench/feedback-loop/ benchmark exists as prior art showing
+    the pattern (temp DB, index repo, measure precision). No existing implementations of these
+    4 benchmarks exist.
+
+    Parallelization value: HIGH. Each benchmark requires indexing the repo into a temp DB
+    (30-60s each). 4 independent agents running in parallel saves ~3x wall time vs sequential.
+    Build+test cycle is >30s per agent. All agents are in a single wave (fully independent).
+
+    Estimated times:
+    - Scout phase: ~5 min
+    - Agent execution: ~8 min (4 agents x 8 min avg, fully parallel = 8 min wall)
+    - Merge & verification: ~3 min
+    Total Polywave time: ~16 min
+
+    Sequential baseline: ~35 min (4 agents x 8 min + context switching overhead)
+    Time savings: ~19 min (54% faster)
+
+    Recommendation: Clear speedup. Proceed.
+test_command: GOWORK=off go test ./bench/... -short -timeout 5m
+lint_command: GOWORK=off go vet ./bench/...
+file_ownership:
+    - file: bench/test-scope-accuracy/bench_test.go
+      agent: A
+      wave: 1
+      action: new
+    - file: bench/test-scope-accuracy/FINDINGS.md
+      agent: A
+      wave: 1
+      action: new
+    - file: bench/edge-accuracy/bench_test.go
+      agent: B
+      wave: 1
+      action: new
+    - file: bench/edge-accuracy/FINDINGS.md
+      agent: B
+      wave: 1
+      action: new
+    - file: bench/context-relevance/bench_test.go
+      agent: C
+      wave: 1
+      action: new
+    - file: bench/context-relevance/FINDINGS.md
+      agent: C
+      wave: 1
+      action: new
+    - file: bench/token-savings/bench_test.go
+      agent: D
+      wave: 1
+      action: new
+    - file: bench/token-savings/FINDINGS.md
+      agent: D
+      wave: 1
+      action: new
+interface_contracts:
+    - name: Shared test infrastructure pattern
+      description: |
+        All 4 benchmarks follow the same established pattern from bench/feedback-loop/:
+        create temp DB, index knowing repo, run measurements, write FINDINGS.md.
+      definition: |
+        // Each benchmark package uses these imports and setup pattern:
+        import (
+            "github.com/blackwell-systems/knowing/internal/context"
+            "github.com/blackwell-systems/knowing/internal/indexer"
+            "github.com/blackwell-systems/knowing/internal/indexer/gotsextractor"
+            "github.com/blackwell-systems/knowing/internal/snapshot"
+            "github.com/blackwell-systems/knowing/internal/store"
+            "github.com/blackwell-systems/knowing/internal/types"
+        )
+
+        // Setup pattern (from bench/feedback-loop):
+        dbPath := t.TempDir() + "/bench.db"
+        st, _ := store.NewSQLiteStore(dbPath)
+        defer st.Close()
+        snapMgr := snapshot.NewSnapshotManager(st)
+        idx := indexer.NewIndexer(st, snapMgr)
+        idx.Register(gotsextractor.NewGoTreeSitterExtractor())
+        _, _ = idx.IndexRepo(ctx, "github.com/blackwell-systems/knowing", repoRoot, "HEAD")
+      location: bench/feedback-loop/bench_test.go
+waves:
+    - number: 1
+      agents:
+        - id: A
+          task: |
+            ## Test Scope Accuracy Benchmark
+
+            **Goal:** Prove that knowing's test-scope command accurately predicts which tests
+            are affected by code changes, measuring precision, recall, and CI time savings.
+
+            **What to implement:** Create `bench/test-scope-accuracy/bench_test.go` (package
+            `test_scope_accuracy`) and `bench/test-scope-accuracy/FINDINGS.md`.
+
+            **Methodology:**
+            1. Index the knowing repo into a temp DB (same pattern as bench/feedback-loop/)
+            2. Use `git log --oneline -20` to get the last 20 commits
+            3. For each commit:
+               a. Get changed files via `git diff --name-only <commit>^..<commit>`
+               b. Run knowing's test-scope logic: find symbols in changed files via
+                  `store.NodesByFilePath()`, then `findAffectedTests()` via backward BFS
+                  (replicate the logic from cmd/knowing/testscope.go)
+               c. Get ground truth: which test packages actually exercise the changed code.
+                  Ground truth approximation: run `go test -list '.*' ./...` to get all test
+                  functions, then check which ones are reachable from changed symbols using
+                  the graph (EdgesTo with "calls" edge type, max depth 5).
+                  Alternative simpler ground truth: the set of test packages that contain
+                  test files importing packages that own the changed files.
+               d. Measure: precision (predicted tests that are truly affected / total predicted),
+                  recall (truly affected tests that were predicted / total truly affected),
+                  CI time savings (count of predicted test packages / total test packages)
+            4. Aggregate across all 20 commits
+
+            **Important implementation details:**
+            - Use the existing knowing repo as the subject (self-referential benchmark)
+            - The test-scope logic is in `cmd/knowing/testscope.go`: `symbolsInFiles()` finds
+              nodes by file path, `findAffectedTests()` does backward BFS on "calls" edges
+            - Replicate this logic directly (import the store package, call NodesByFilePath
+              and EdgesTo) rather than shelling out to the knowing binary
+            - `store.NodesByFilePath(ctx, repoHash, path)` needs the repoHash from `AllRepos()`
+            - `store.EdgesTo(ctx, targetHash, "calls")` returns callers
+            - `isTestFunction()` checks Kind=="function" and name starts with "Test" or "Benchmark"
+            - Skip in short mode: `if testing.Short() { t.Skip(...) }`
+            - Use `GOWORK=off` build tag context
+
+            **FINDINGS.md structure:**
+            - Methodology section explaining the approach
+            - Results table: one row per commit (hash, changed files count, predicted tests,
+              actual affected tests, precision, recall, time savings ratio)
+            - Aggregate statistics: mean/median precision, recall, time savings
+            - Interpretation: what the numbers mean for CI workflows
+
+            **Test function:** `TestTestScopeAccuracy(t *testing.T)` - runs the full benchmark
+            and writes FINDINGS.md to the package directory.
+
+            **Helper:** `findRepoRoot(t)` - walk up from CWD to find go.mod (same as feedback-loop)
+
+            ### Constraints
+            - Do NOT shell out to the `knowing` binary; use the Go APIs directly
+            - Do NOT modify files outside bench/test-scope-accuracy/
+            - Do NOT skip the short-mode guard
+          files:
+            - bench/test-scope-accuracy/bench_test.go
+            - bench/test-scope-accuracy/FINDINGS.md
+        - id: B
+          task: |
+            ## Edge Accuracy Benchmark
+
+            **Goal:** Compare tree-sitter (ast_inferred) edges against LSP (lsp_resolved) edges
+            to measure how accurate the fast-path extraction is.
+
+            **What to implement:** Create `bench/edge-accuracy/bench_test.go` (package
+            `edge_accuracy`) and `bench/edge-accuracy/FINDINGS.md`.
+
+            **Methodology:**
+            1. Index the knowing repo into a temp DB using the tree-sitter extractor (gotsextractor)
+            2. Query all edges from the DB and partition by provenance:
+               - `ast_inferred` (tree-sitter edges, confidence 0.7)
+               - `ast_resolved` (go/ast edges from goextractor, confidence 1.0)
+               - `lsp_resolved` (LSP-confirmed edges, confidence 0.9)
+            3. For edges where both ast_inferred and lsp_resolved exist for the same
+               source->target pair (same source_hash, target_hash, edge_type):
+               - Confirmation rate: what % of ast_inferred edges have a matching lsp_resolved edge?
+            4. For edges only in lsp_resolved but not in ast_inferred:
+               - Discovery rate: how many new edges did LSP find that tree-sitter missed?
+            5. For edges only in ast_inferred but NOT confirmed by lsp_resolved:
+               - False positive rate: what % of tree-sitter edges are potentially wrong?
+
+            **Important implementation details:**
+            - The knowing.db in the repo root already has both provenance tiers indexed.
+              However, for isolation, index into a temp DB using BOTH extractors:
+              a. First pass: gotsextractor (produces ast_inferred edges)
+              b. Second pass: goextractor (produces ast_resolved edges)
+              The lsp_resolved edges require running the enricher, which needs gopls.
+              Since gopls may not be available in CI, use a fallback approach:
+              compare ast_inferred (tree-sitter) against ast_resolved (go/ast) as ground truth.
+              The goextractor uses go/ast which is equivalent to LSP accuracy for Go code.
+            - Edge matching: two edges match if they have the same source_hash, target_hash,
+              and edge_type (provenance differs)
+            - Query edges: iterate all edges in the DB using a raw SQL query:
+              `SELECT edge_hash, source_hash, target_hash, edge_type, confidence, provenance FROM edges`
+              Or use store methods: there's no "all edges" method, so query by file:
+              use `FilesByRepo()` to get all files, then `EdgesBySourceFile()` for each file's edges.
+            - Alternative: use `store.SQLiteStore` and access the underlying `db` field via
+              a helper that opens the DB directly with `database/sql` for the raw query.
+              Actually, the cleanest approach: open the DB with `sql.Open("sqlite", dbPath)`
+              directly for the aggregate query, while using the store for indexing.
+            - Edge provenance values: "ast_inferred" (tree-sitter), "ast_resolved" (go/ast)
+            - Skip in short mode
+
+            **Metrics to compute:**
+            - Total ast_inferred edges (tree-sitter)
+            - Total ast_resolved edges (go/ast ground truth)
+            - Confirmed edges (appear in both): confirmation_rate = confirmed / ast_inferred
+            - Tree-sitter-only edges (in ast_inferred but not ast_resolved): false_positive_rate
+            - Go/ast-only edges (in ast_resolved but not ast_inferred): miss_rate (1 - discovery)
+
+            **FINDINGS.md structure:**
+            - Methodology: explain the two-extractor approach
+            - Results: confirmation rate, discovery rate, false positive rate
+            - Edge type breakdown: results split by edge_type (calls, imports, implements, references)
+            - Interpretation: what this means for the two-tier extraction strategy
+
+            **Test function:** `TestEdgeAccuracy(t *testing.T)`
+
+            ### Constraints
+            - Do NOT require gopls or LSP to be running; compare ast_inferred vs ast_resolved
+            - Do NOT modify files outside bench/edge-accuracy/
+            - Do NOT import the enrichment package (no LSP dependency in this benchmark)
+          files:
+            - bench/edge-accuracy/bench_test.go
+            - bench/edge-accuracy/FINDINGS.md
+        - id: C
+          task: |
+            ## Context Relevance A/B Benchmark
+
+            **Goal:** Measure the incremental value of each context engine enhancement by
+            comparing 3 configurations: keyword-only, full engine, and full engine + accumulated feedback.
+
+            **What to implement:** Create `bench/context-relevance/bench_test.go` (package
+            `context_relevance`) and `bench/context-relevance/FINDINGS.md`.
+
+            **Methodology:**
+            1. Index the knowing repo into a temp DB
+            2. Define 10 task fixtures with ground-truth symbols (expand the 5 from
+               bench/feedback-loop/ with 5 additional tasks covering different subsystems)
+            3. For each fixture, run context_for_task in 3 configurations:
+               a. Config A (keyword-only): Use the context engine's ForTask but measure
+                  precision of just the keyword-matched tier (tier 1-3 seeds).
+                  Implementation: call ForTask with a very small token budget (e.g., 1000)
+                  to get only the highest-confidence keyword matches, before graph walk expands.
+                  Alternative: run ForTask normally but only score the symbols whose Provenance
+                  shows they were keyword-seeded (distance == 0).
+               b. Config B (full engine): Call ForTask with normal budget (5000 tokens).
+                  This includes HITS reranking, graph walk, all 5 tiers.
+               c. Config C (full engine + feedback): Record feedback for ground-truth symbols
+                  first (same as feedback-loop), then call ForTask.
+            4. Measure precision@10 and recall@10 for each config
+
+            **Important implementation details:**
+            - The ContextEngine is in `internal/context`. Use `NewContextEngine(store)` and `ForTask()`.
+            - RankedSymbol has fields: Node, Score, Components, Provenance, Distance
+            - Distance == 0 means direct keyword match (seed); Distance > 0 means graph-walk discovered
+            - For Config A (keyword-only), filter results to only symbols with Distance == 0
+              before computing precision@10. This simulates what you'd get without graph walk.
+            - For Config C, use `store.RecordFeedback(ctx, symbolHash, sessionID, true)` to
+              record positive feedback for ground-truth symbols before querying.
+            - Ground truth format: same as feedback-loop `taskFixture` struct with Name,
+              Description, GroundTruth []string (qualified name substrings)
+
+            **10 Task Fixtures (expand from feedback-loop's 5):**
+            1. context_engine (from feedback-loop)
+            2. mcp_server (from feedback-loop)
+            3. indexer_pipeline (from feedback-loop)
+            4. store_layer (from feedback-loop)
+            5. test_selection (from feedback-loop)
+            6. enrichment_pipeline: "Add a new enrichment strategy to the LSP enricher"
+               Ground truth: enrichment.Enricher, enrichment.NewEnricher, enrichment.Run, types.Edge
+            7. snapshot_diffing: "Compute differences between two graph snapshots"
+               Ground truth: snapshot.SnapshotManager, snapshot.NewSnapshotManager, store.SnapshotDiff, types.Snapshot, types.DiffResult
+            8. wire_format: "Add a new output format to the wire serialization"
+               Ground truth: wire.*, context.ContextBlock, context.RankedSymbol
+            9. cross_repo_resolver: "Resolve dangling cross-repo edges to their target nodes"
+               Ground truth: resolver.*, store.DanglingEdges, types.Edge
+            10. incremental_index: "Re-index only files that changed since last snapshot"
+                Ground truth: indexer.*, snapshot.*, store.DeleteNodesByFile, store.DeleteEdgesBySourceFile
+
+            **FINDINGS.md structure:**
+            - Methodology: explain the 3 configurations and what each measures
+            - Results table: one row per fixture, columns for Config A/B/C precision@10 and recall@10
+            - Aggregate row: mean precision and recall per config
+            - Delta analysis: Config B vs A (value of graph walk), Config C vs B (value of feedback)
+            - Interpretation: which enhancement provides the most value
+
+            **Test function:** `TestContextRelevance(t *testing.T)`
+
+            ### Constraints
+            - Do NOT modify the context engine code; measure it as-is
+            - Do NOT modify files outside bench/context-relevance/
+            - Do NOT duplicate the full feedback-loop test; this is a comparison benchmark
+          files:
+            - bench/context-relevance/bench_test.go
+            - bench/context-relevance/FINDINGS.md
+        - id: D
+          task: |
+            ## Token Savings Benchmark
+
+            **Goal:** Quantify how many tool calls and tokens an agent saves by using knowing's
+            context_for_task vs manual exploration (grep + read loops).
+
+            **What to implement:** Create `bench/token-savings/bench_test.go` (package
+            `token_savings`) and `bench/token-savings/FINDINGS.md`.
+
+            **Methodology:**
+            1. Define 5 task scenarios that represent real agent workflows
+            2. For each scenario, simulate two paths:
+               a. WITHOUT knowing (manual exploration):
+                  - Count grep operations needed to find relevant symbols
+                  - Count file reads needed to understand context
+                  - Estimate tokens consumed (lines read x ~4 tokens/line)
+                  - Track total tool calls
+               b. WITH knowing:
+                  - 1 call to context_for_task (returns ranked symbols + edges)
+                  - Count targeted reads needed (only files containing top-10 symbols)
+                  - Measure tokens consumed from the context block
+                  - Track total tool calls
+            3. Compare: tool call reduction, token reduction, precision of first-attempt
+
+            **5 Task Scenarios:**
+            1. "Add error handling to the indexer pipeline"
+               Without: grep for "indexer" (hits ~30 files), read indexer.go, read extractor.go,
+               grep for error patterns, read 5+ files = ~8 tool calls, ~2000 lines
+               With: context_for_task returns IndexRepo, Indexer, Extractor types = 1 call + 2 reads
+            2. "Fix a bug in the context engine's ranking algorithm"
+               Without: grep "ranking\|score\|rank" (~20 files), read ranking.go, context.go,
+               hits.go, walk.go = ~7 tool calls, ~1500 lines
+               With: context_for_task returns RankSymbols, ComputeHITS, ScoreComponents = 1 + 2
+            3. "Add a new MCP tool for querying test scope"
+               Without: grep "mcp\|tool\|register" (~15 files), read mcp.go, testscope.go,
+               find handler patterns = ~6 tool calls, ~1200 lines
+               With: context_for_task returns Server, registerTools, cmdTestScope = 1 + 2
+            4. "Optimize SQLite queries for large graphs"
+               Without: grep "SELECT\|query\|sql" (~10 files), read sqlite.go (850 lines!),
+               read migrate.go = ~5 tool calls, ~1500 lines
+               With: context_for_task returns SQLiteStore methods = 1 + 1
+            5. "Add snapshot comparison to the CLI"
+               Without: grep "snapshot\|diff\|compare" (~12 files), read snapshot/, store/,
+               cmd/ = ~7 tool calls, ~1800 lines
+               With: context_for_task returns SnapshotManager, SnapshotDiff, DiffResult = 1 + 2
+
+            **Implementation approach:**
+            - For the "without" path: actually run the greps and count results. Use
+              `exec.Command("grep", "-rn", pattern, repoRoot)` and count output lines.
+              Estimate tokens as lines_read * 4 (conservative average tokens per line).
+            - For the "with" path: call `engine.ForTask(ctx, TaskOptions{...})` and measure
+              the returned ContextBlock: count symbols, count unique files in top-10,
+              measure TokensUsed from the block.
+            - Tool calls without: count of grep + read operations needed
+            - Tool calls with: 1 (ForTask) + number of unique files in top-10 symbols
+            - Precision of first-attempt: what % of the top-10 symbols would actually need
+              to be edited for the task (use ground-truth like feedback-loop)
+
+            **Important implementation details:**
+            - Index knowing repo into temp DB (same pattern as other benchmarks)
+            - `engine.ForTask()` returns `*ContextBlock` with `.Symbols []RankedSymbol` and `.TokensUsed`
+            - Each `RankedSymbol` has `.Node.QualifiedName` and `.Node` with file info
+            - For the "without" simulation, actually run grep to get realistic line counts
+            - Use `os/exec` for grep commands against the repo root
+            - The benchmark proves: knowing replaces N tool calls with 1, and reduces
+              tokens consumed by providing only relevant context
+
+            **FINDINGS.md structure:**
+            - Methodology: explain the simulation approach
+            - Results table per scenario: columns for tool_calls_without, tool_calls_with,
+              tokens_without, tokens_with, reduction_pct
+            - Aggregate: mean tool call reduction, mean token reduction
+            - Interpretation: what this means for agent cost and speed
+
+            **Test function:** `TestTokenSavings(t *testing.T)`
+
+            ### Constraints
+            - Do NOT actually invoke an LLM; simulate the agent's exploration path
+            - Do NOT modify files outside bench/token-savings/
+            - Do NOT hardcode token counts; measure them from actual grep output and ForTask results
+          files:
+            - bench/token-savings/bench_test.go
+            - bench/token-savings/FINDINGS.md
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: GOWORK=off go build ./bench/...
+          required: true
+        - type: lint
+          command: GOWORK=off go vet ./bench/...
+          required: true
+        - type: test
+          command: GOWORK=off go test ./bench/... -short -timeout 5m
+          required: true
+pre_mortem:
+    overall_risk: low
+    rows:
+        - scenario: Indexing the repo takes too long in CI, causing test timeout
+          likelihood: medium
+          impact: low
+          mitigation: All benchmarks skip in short mode. CI runs with -short flag. Full benchmarks run locally only.
+        - scenario: Git history traversal in test-scope-accuracy fails on shallow clones
+          likelihood: medium
+          impact: medium
+          mitigation: Agent A should detect shallow clone (check .git/shallow) and skip gracefully with t.Skip.
+        - scenario: Edge accuracy benchmark finds zero ast_resolved edges because goextractor is not registered
+          likelihood: low
+          impact: high
+          mitigation: Agent B must register BOTH gotsextractor AND goextractor in the indexer to get both provenance tiers.
+        - scenario: Context relevance Config A (keyword-only) returns empty results with tiny budget
+          likelihood: medium
+          impact: low
+          mitigation: Agent C should filter by Distance==0 on full results rather than restricting token budget, to isolate keyword-only precision.
+        - scenario: Token savings grep simulation produces different results on different OS (macOS vs Linux grep)
+          likelihood: low
+          impact: low
+          mitigation: Agent D should use Go's os/exec with explicit grep flags or use Go's built-in file scanning for portability.
+critic_report:
+    verdict: PASS
+    agent_reviews: {}
+    summary: Skipped by operator (--skip-critic)
+    reviewed_at: "2026-05-17T18:00:53Z"
+    issue_count: 0
+state: SCOUT_PENDING
