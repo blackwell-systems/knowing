@@ -1,6 +1,6 @@
 # knowing MCP Tools Reference
 
-Complete reference for the 17 MCP tools exposed by knowing's MCP server.
+Complete reference for the 22 MCP tools exposed by knowing's MCP server.
 
 ## Connecting to the Server
 
@@ -49,6 +49,8 @@ Most tools operate on the static knowledge graph (nodes, edges, snapshots) built
 | Ownership | No |
 | Context | No |
 | Runtime | **Yes** |
+| Feedback | No (requires SQLiteStore) |
+| Discovery | No (test_scope requires SQLiteStore) |
 
 ---
 
@@ -684,8 +686,8 @@ Generate graph-ranked, token-budgeted context for a task description.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `task` | string | yes | Natural language description of the task |
-| `budget` | integer | no | Token budget (default 50000) |
+| `task_description` | string | yes | Natural language description of the task |
+| `token_budget` | integer | no | Token budget (default 50000) |
 | `format` | string | no | Output format: `gcf`, `gcb`, `json`, `xml` (default), or `markdown` |
 
 **Return format:**
@@ -707,8 +709,8 @@ Returns a formatted context block containing ranked symbols from the graph, pack
 {
   "tool": "context_for_task",
   "arguments": {
-    "task": "refactor auth middleware to use new token validation",
-    "budget": 30000,
+    "task_description": "refactor auth middleware to use new token validation",
+    "token_budget": 30000,
     "format": "xml"
   }
 }
@@ -716,15 +718,15 @@ Returns a formatted context block containing ranked symbols from the graph, pack
 
 ### `context_for_files`
 
-Generate blast radius context for a set of changed files.
+Generate blast-radius context weighted by runtime observations for a set of changed files.
 
 **Parameters:**
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `files` | array of strings | yes | List of changed file paths |
-| `repo_url` | string | no | Repository URL for file resolution |
-| `budget` | integer | no | Token budget (default 50000) |
+| `files` | string | yes | Comma-separated list of changed file paths relative to repo root |
+| `repo_url` | string | no | Repository URL for resolving file hashes |
+| `token_budget` | integer | no | Token budget (default 50000) |
 | `format` | string | no | Output format: `gcf`, `gcb`, `json`, `xml` (default), or `markdown` |
 
 **Return format:**
@@ -746,9 +748,9 @@ Returns context focused on the blast radius of the specified files: symbols defi
 {
   "tool": "context_for_files",
   "arguments": {
-    "files": ["internal/auth/handler.go", "internal/auth/middleware.go"],
+    "files": "internal/auth/handler.go,internal/auth/middleware.go",
     "repo_url": "github.com/org/repo",
-    "budget": 40000,
+    "token_budget": 40000,
     "format": "gcf"
   }
 }
@@ -790,6 +792,227 @@ Returns a context block optimized for PR review: symbols from the changed files,
     "repo_url": "https://github.com/org/repo",
     "token_budget": 8000,
     "format": "gcf"
+  }
+}
+```
+
+---
+
+## Feedback
+
+### `feedback`
+
+Record or query symbol usefulness feedback from agents. Used to improve ranking over time.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `action` | string | yes | Action to perform: `record` or `query` |
+| `symbol_hash` | string | yes | Hex-encoded SHA-256 hash of the symbol (64 characters) |
+| `session_id` | string | no | Session identifier (required for `action=record`) |
+| `useful` | boolean | no | Whether the symbol was useful (required for `action=record`) |
+
+**Return format (action=record):**
+
+```json
+{"status":"recorded"}
+```
+
+**Return format (action=query):**
+
+```json
+{
+  "symbol_hash": "...",
+  "useful_count": 5,
+  "not_useful_count": 1,
+  "usefulness_ratio": 0.833
+}
+```
+
+**Example:**
+
+```json
+{
+  "tool": "feedback",
+  "arguments": {
+    "action": "record",
+    "symbol_hash": "a1b2c3d4...",
+    "session_id": "session-abc123",
+    "useful": true
+  }
+}
+```
+
+---
+
+## Discovery
+
+### `test_scope`
+
+Find tests affected by changes to the given files. Performs backward BFS through call edges to discover test functions that transitively depend on symbols in the specified files.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `files` | string | yes | Comma-separated file paths relative to repo root |
+| `output` | string | no | Output format: `packages` (default), `functions`, or `run` (go test -run regex) |
+| `depth` | number | no | Maximum BFS traversal depth (default 3) |
+
+**Return format:**
+
+```json
+{
+  "mode": "packages",
+  "results": ["./internal/store", "./internal/mcp"],
+  "count": 2
+}
+```
+
+**Example:**
+
+```json
+{
+  "tool": "test_scope",
+  "arguments": {
+    "files": "internal/store/sqlite.go,internal/mcp/server.go",
+    "output": "run",
+    "depth": 4
+  }
+}
+```
+
+### `flow_between`
+
+Find paths between two symbols in the knowledge graph using BFS traversal.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `source_symbol` | string | yes | Qualified name of the source symbol |
+| `target_symbol` | string | yes | Qualified name of the target symbol |
+| `max_depth` | integer | no | Maximum BFS depth (default 5) |
+
+**Return format:**
+
+```json
+{
+  "source": "github.com/org/repo://pkg.FuncA",
+  "target": "github.com/org/repo://pkg.FuncB",
+  "paths": [
+    {
+      "steps": [
+        {"symbol": "pkg.FuncA", "edge_type": "calls"},
+        {"symbol": "pkg.Helper", "edge_type": "calls"},
+        {"symbol": "pkg.FuncB", "edge_type": ""}
+      ]
+    }
+  ],
+  "path_count": 1,
+  "truncated": false
+}
+```
+
+Returns up to 10 paths. `truncated` is true if more paths exist beyond the limit.
+
+**Example:**
+
+```json
+{
+  "tool": "flow_between",
+  "arguments": {
+    "source_symbol": "github.com/org/repo://internal/mcp.Server",
+    "target_symbol": "github.com/org/repo://internal/store.SQLiteStore",
+    "max_depth": 4
+  }
+}
+```
+
+### `plan_turn`
+
+Given a task description, suggests which knowing MCP tools to call with pre-filled arguments. Returns up to 4 ranked suggestions based on keyword matching.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `task` | string | yes | Description of the task you want to accomplish |
+
+**Return format:**
+
+```json
+{
+  "suggestions": [
+    {
+      "tool": "test_scope",
+      "reason": "task relates to testing or affected test scope",
+      "args": {"files": "<fill: comma-separated changed file paths>", "output": "run"}
+    }
+  ]
+}
+```
+
+**Example:**
+
+```json
+{
+  "tool": "plan_turn",
+  "arguments": {
+    "task": "find tests affected by changes to the store layer"
+  }
+}
+```
+
+### `communities`
+
+Detect communities in the knowledge graph using Louvain modularity clustering. Returns densely-connected groups of symbols.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `action` | string | no | `list` (default) returns all communities; `for_symbol` returns the community containing a specific symbol |
+| `repo_url` | string | no | Filter nodes to a specific repository URL prefix |
+| `symbol` | string | no | Qualified symbol name (required when `action=for_symbol`) |
+
+**Return format (action=list):**
+
+```json
+{
+  "communities": [
+    {
+      "id": 0,
+      "size": 25,
+      "top_symbols": ["store.SQLiteStore", "store.NewSQLiteStore", "store.Migrate"],
+      "cohesion": 0.82,
+      "dominant_package": "store"
+    }
+  ],
+  "node_count": 500,
+  "edge_count": 2100
+}
+```
+
+**Return format (action=for_symbol):**
+
+```json
+{
+  "symbol": "github.com/org/repo://internal/store.SQLiteStore",
+  "community": { "id": 0, "size": 25, "top_symbols": [...], "cohesion": 0.82, "dominant_package": "store" },
+  "neighbors": [{ "id": 1, "size": 15, ... }]
+}
+```
+
+**Example:**
+
+```json
+{
+  "tool": "communities",
+  "arguments": {
+    "action": "list",
+    "repo_url": "github.com/org/repo"
   }
 }
 ```

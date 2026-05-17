@@ -9,6 +9,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - `knowing mcp` subcommand for stdio MCP server mode (used by AI agents via .mcp.json)
+- 5 new MCP tools (total now 22): `feedback`, `test_scope`, `flow_between`, `plan_turn`, `communities`
+- `feedback` MCP tool: record/query symbol usefulness for agent learning loop (FeedbackProvider interface wired into ContextEngine)
+- `test_scope` MCP tool: backward BFS from changed symbols to find affected test functions
+- `flow_between` MCP tool: BFS path finding between two symbols (up to 10 paths)
+- `plan_turn` MCP tool: keyword-based task-to-tool recommender with pre-filled argument suggestions
+- `communities` MCP tool: Louvain modularity clustering with `list` and `for_symbol` actions
+- `knowing export -format dot`: Graphviz DOT export with Louvain community subgraphs and cross-community edge highlighting
+- Community-annotated JSON export: nodes include `community` ID, edges include `cross_community` flag, top-level `communities` array with labels and sizes
+- `NodesByFilePath` store method (joins nodes to files via SQL) for test-scope and context engine
+- Feedback benchmark (`bench/feedback-loop/`) proving compounding thesis
 - HITS (Hyperlink-Induced Topic Search) reranking on RWR subgraph: boosts task-relevant authorities, penalizes generic infrastructure hubs. Score differentiation improved from 0.01 spread to 0.35 spread across results.
 - Density-ranked knapsack packing: score/cost ratio optimization maximizes total relevance within token budgets. Small high-value symbols (types, interfaces) now beat large medium-value symbols when budget is tight.
 - Protobuf/gRPC extractor: extracts service, message, enum, and RPC declarations from .proto files with references edges for field types and RPC request/response types

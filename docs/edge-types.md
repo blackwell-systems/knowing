@@ -11,8 +11,12 @@ participates in blast radius traversal and context ranking.
 | `calls` | Function/method invocation | ast_inferred / lsp_resolved | 0.7 / 0.9 | All 11 extractors, enricher | Yes (traversed) | 1.0 |
 | `imports` | Module/package import | ast_inferred | 0.7 | All 11 extractors | No | 0.5 |
 | `implements` | Type satisfies an interface | ast_inferred / lsp_resolved | 0.7 / 0.9 | Go extractor, enricher | No | 0.8 |
-| `handles_route` | HTTP handler bound to a route | ast_inferred | 0.7 | Go, TS, Rust, Java, C# extractors | No | 0.7 |
-| `references` | Non-call identifier usage | ast_inferred / lsp_resolved | 0.7 / 0.9 | Go extractor, Proto extractor, enricher | No | 0.4 |
+| `handles_route` | HTTP handler bound to a route | ast_inferred | 0.7 | Go, TS, Python, Rust, Java, C# extractors | No | 0.7 |
+| `references` | Non-call identifier usage | ast_inferred / lsp_resolved | 0.7 / 0.9 | Go extractor, Proto extractor, SQL extractor, enricher | No | 0.4 |
+| `depends_on` | Resource/symbol dependency | ast_inferred | 0.7 | Terraform, SQL, CSS extractors | No | 0.5 |
+| `deploys` | K8s Service routes to Deployment | ast_inferred | 0.7 | K8s YAML extractor | No | 0.5 |
+| `exposes` | K8s Ingress exposes Service | ast_inferred | 0.7 | K8s YAML extractor | No | 0.5 |
+| `configures` | ConfigMap/Secret provides config | ast_inferred | 0.7 | K8s YAML extractor | No | 0.5 |
 | `runtime_calls` | HTTP call observed in traces | otel_trace | 0.2 - 0.95 | Trace ingestor | No | 0.3 (default) |
 | `runtime_rpc` | gRPC/RPC call observed in traces | otel_trace | 0.2 - 0.95 | Trace ingestor | No | 0.3 (default) |
 | `runtime_produces` | Message published to a topic | otel_trace | 0.2 - 0.95 | Trace ingestor | No | 0.3 (default) |
@@ -86,12 +90,13 @@ An HTTP handler function is bound to a specific route pattern.
 - **Direction:** source (route node) handles target (handler function).
   `GET /api/users -handles_route-> api.GetUsersHandler` means that HTTP requests matching
   `GET /api/users` are dispatched to `GetUsersHandler`.
-- **Producers:** Five language extractors with web framework detection:
-  - Go: `http.HandleFunc`, `mux.Handle`, gorilla/chi patterns
-  - TypeScript: Express.js `app.get()`, `router.post()`, etc.
+- **Producers:** Six language extractors with web framework detection:
+  - Go: `http.HandleFunc`, `mux.Handle`, gorilla/chi patterns, gin, echo
+  - TypeScript: Express.js `app.get()`, Fastify, Hono, NestJS decorators, Next.js App Router
+  - Python: Flask/FastAPI `@app.get()`/`@router.post()` decorator parsing, Django `path()`/`re_path()`
   - Rust: Actix-web `web::resource`, Axum `Router::route`, Rocket attribute macros
-  - Java: Spring `@GetMapping`, `@PostMapping`, `@RequestMapping`, etc.
-  - C#: ASP.NET `[HttpGet]`, `[HttpPost]`, `[Route]` attributes
+  - Java: Spring `@GetMapping`, `@PostMapping`, `@RequestMapping`, JAX-RS `@Path`/`@GET`
+  - C#: ASP.NET `[HttpGet]`, `[HttpPost]`, `[Route]` attributes, minimal API `app.Map*`
 - **Provenance:** `ast_inferred` (confidence 0.7). Route detection is pattern-based from
   tree-sitter AST nodes.
 - **Blast radius:** Not traversed directly. However, `handles_route` edges connect runtime
@@ -119,6 +124,53 @@ A non-call usage of an identifier (type annotations, variable reads, constant re
 - **RWR weight:** 0.4. The lowest weight among static edge types, reflecting that a type
   reference is weaker evidence of functional relevance than a call or implementation
   relationship.
+
+### `depends_on`
+
+A resource or symbol depends on another resource or symbol.
+
+- **Direction:** source depends on target. `aws_instance.web -depends_on-> aws_vpc.main`
+  means the web instance has an explicit dependency on the VPC.
+- **Producers:** Three infrastructure extractors:
+  - Terraform: explicit `depends_on` block references between resources
+  - SQL: foreign key references, view-to-table dependencies, procedure-to-table dependencies
+  - CSS: custom property (`var(--name)`) references to defining selectors
+- **Provenance:** `ast_inferred` (confidence 0.7).
+- **Blast radius:** Not traversed.
+- **RWR weight:** 0.5 (moderate, similar to imports).
+
+### `deploys`
+
+A Kubernetes Service routes traffic to a Deployment (selector match).
+
+- **Direction:** source service deploys target deployment.
+  `Service/api -deploys-> Deployment/api` means the service's selector matches the deployment's labels.
+- **Producers:** K8s YAML extractor (selector-to-label matching).
+- **Provenance:** `ast_inferred` (confidence 0.7).
+- **Blast radius:** Not traversed.
+- **RWR weight:** 0.5.
+
+### `exposes`
+
+A Kubernetes Ingress exposes a Service.
+
+- **Direction:** source ingress exposes target service.
+  `Ingress/api -exposes-> Service/api` means the ingress routes external traffic to the service.
+- **Producers:** K8s YAML extractor (ingress backend references).
+- **Provenance:** `ast_inferred` (confidence 0.7).
+- **Blast radius:** Not traversed.
+- **RWR weight:** 0.5.
+
+### `configures`
+
+A Kubernetes ConfigMap or Secret provides configuration to a Deployment.
+
+- **Direction:** source configmap/secret configures target deployment.
+  `ConfigMap/settings -configures-> Deployment/api` means the deployment mounts or references that config.
+- **Producers:** K8s YAML extractor (volume mount and envFrom references).
+- **Provenance:** `ast_inferred` (confidence 0.7).
+- **Blast radius:** Not traversed.
+- **RWR weight:** 0.5.
 
 ## Runtime Edge Types
 

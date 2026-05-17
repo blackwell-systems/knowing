@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="#mcp-tools"><img src="https://img.shields.io/badge/MCP_tools-17-brightgreen.svg" alt="MCP Tools"></a>
+  <a href="#mcp-tools"><img src="https://img.shields.io/badge/MCP_tools-22-brightgreen.svg" alt="MCP Tools"></a>
   <a href="#languages"><img src="https://img.shields.io/badge/languages-11-blue.svg" alt="Languages"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
   <a href="https://github.com/blackwell-systems"><img src="https://raw.githubusercontent.com/blackwell-systems/blackwell-docs-theme/main/badge-trademark.svg" alt="Blackwell Systems"></a>
@@ -41,7 +41,7 @@ knowing answers those questions with provenance and confidence scores on every e
 ├──────────────┬───────────────────┬───────────────────────┤
 │   Indexer    │   Graph Store     │     MCP Server        │
 │              │                   │                       │
-│ 11 languages │ Content-addressed │ 17 tools + 3 prompts │
+│ 11 languages │ Content-addressed │ 22 tools + 3 prompts │
 │ tree-sitter  │ SQLite + Merkle   │ stdio / HTTP          │
 │ go/packages  │ Snapshot chain    │ GCF wire format       │
 │ OTel ingest  │ Edge events       │                       │
@@ -52,13 +52,13 @@ Three components, one binary:
 
 - **Indexer**: parses ASTs across 11 languages, resolves cross-repo references, ingests OTel traces, watches git for incremental re-indexing
 - **Graph store**: content-addressed SQLite with Merkle snapshot chain, edge event sourcing, runtime confidence decay
-- **MCP server**: 17 tools + 3 prompts over stdio/HTTP, with GCF wire format (76% token savings vs JSON)
+- **MCP server**: 22 tools + 3 prompts over stdio/HTTP, with GCF wire format (76% token savings vs JSON)
 
 ## Languages
 
 | Language | Extractor | Framework Detection |
 |----------|-----------|-------------------|
-| Go | tree-sitter + `go/packages` | net/http, gin, echo, chi, fiber |
+| Go | tree-sitter + `go/packages` | net/http, gin, echo, chi, gorilla/mux |
 | TypeScript/JS | tree-sitter | Express.js, Fastify, Hono, NestJS, Next.js |
 | Python | tree-sitter | Flask, FastAPI, Django (urls.py) |
 | Rust | tree-sitter | Actix, Axum, Rocket |
@@ -91,6 +91,11 @@ Three components, one binary:
 | `context_for_task` | Graph-ranked, token-budgeted context for a task |
 | `context_for_files` | Blast radius context for changed files |
 | `context_for_pr` | Full PR impact: RWR from changed symbols, callers, structural neighborhood |
+| `feedback` | Record/query symbol usefulness for ranking improvement |
+| `test_scope` | Find affected tests for changed files via BFS |
+| `flow_between` | Find all paths between two symbols |
+| `plan_turn` | Suggest relevant knowing tools for a task description |
+| `communities` | Louvain modularity-based graph clustering |
 
 **MCP Prompts:** `refactor_safely`, `review_pr`, `investigate_dead_code`
 
@@ -181,7 +186,7 @@ The result is a graph with the same integrity guarantees git provides for source
 | [Architecture](docs/architecture.md) | System design, schemas, content addressing, interfaces |
 | [Wire Formats](docs/wire-formats.md) | GCF/GCB specs, grammar, benchmarks, codec registry |
 | [CLI Reference](docs/CLI.md) | All commands with flags and examples |
-| [MCP Tools](docs/MCP-TOOLS.md) | All 17 tools with parameters and return formats |
+| [MCP Tools](docs/MCP-TOOLS.md) | All 22 tools with parameters and return formats |
 | [Edge Types](docs/edge-types.md) | The 9 relationship types and their semantics |
 | [Context Packing](docs/context-packing.md) | RWR algorithm, scoring, token budgeting |
 | [Runtime Traces](docs/runtime-traces.md) | OTel ingestion, confidence scoring, decay |

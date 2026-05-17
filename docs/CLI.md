@@ -206,18 +206,21 @@ containing nodes, edges, and metadata.
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `-db` | string | `knowing.db` | Path to the SQLite database |
-| `-format` | string | `json` | Output format (only `json` is currently supported) |
+| `-format` | string | `json` | Output format: `json` (with community annotations) or `dot` (Graphviz with Louvain subgraphs) |
 | `-repo` | string | *(empty)* | Filter by repository URL. When set, only nodes belonging to files in that repo are included. |
 | `-snapshot` | string | *(empty)* | Filter by snapshot hash (recorded in metadata; does not currently filter nodes) |
 
 **Examples:**
 
 ```bash
-# Export the entire graph
+# Export the entire graph as JSON (with community annotations)
 knowing export > graph.json
 
 # Export filtered to one repo
 knowing export -repo github.com/org/repo > repo.json
+
+# Export as Graphviz DOT with Louvain community subgraphs
+knowing export -format dot > graph.dot
 
 # Export from a non-default database
 knowing export -db /tmp/test.db -repo github.com/org/repo
@@ -225,15 +228,19 @@ knowing export -db /tmp/test.db -repo github.com/org/repo
 
 **Notes:**
 
-- Output is pretty-printed JSON with two-space indentation.
-- The JSON structure contains three top-level keys: `nodes`, `edges`, and
-  `metadata`.
+- JSON output is pretty-printed with two-space indentation.
+- The JSON structure contains four top-level keys: `nodes`, `edges`,
+  `communities`, and `metadata`.
 - Each node includes: `node_hash`, `qualified_name`, `kind`, `line`,
-  `signature`.
+  `signature`, `community` (Louvain community ID, or -1 for ungrouped).
 - Each edge includes: `edge_hash`, `source_hash`, `target_hash`, `edge_type`,
-  `confidence`, `provenance`.
+  `confidence`, `provenance`, `cross_community` (true if the edge spans
+  community boundaries).
+- Communities includes: `id`, `label` (dominant package name), `size`.
 - Metadata includes: `repo`, `snapshot`, `exported_at` (RFC 3339 timestamp),
-  `node_count`, `edge_count`.
+  `node_count`, `edge_count`, `community_count`.
+- DOT format renders community clusters as Graphviz `subgraph cluster_N` blocks
+  with cross-community edges highlighted in red.
 
 ---
 
@@ -338,7 +345,7 @@ knowing mcp [flags]
 
 This is the mode used by AI agents via `.mcp.json` configuration. Opens the
 database and serves MCP tool calls over stdin/stdout until the input stream
-closes or SIGINT/SIGTERM is received. All 17 MCP tools are available.
+closes or SIGINT/SIGTERM is received. All 22 MCP tools are available.
 
 **Flags:**
 

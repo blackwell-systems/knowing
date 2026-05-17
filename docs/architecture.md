@@ -159,7 +159,7 @@ knowing daemon (long-lived)
   ├── Change Detector (git-based: post-commit hooks, .git/HEAD watch, polling fallback)
   ├── Indexer (two-tier: tree-sitter extraction + LSP enrichment)
   ├── Graph Store (SQLite behind GraphStore interface, WAL mode)
-  ├── MCP Server (stdio or HTTP, 17 tools across execution/intelligence/runtime/context planes)
+  ├── MCP Server (stdio or HTTP, 22 tools across execution/intelligence/runtime/context/feedback/discovery planes)
   ├── Snapshot Manager (computes Merkle roots, GCs old snapshots)
   └── Trace Ingestor (OTel spans, HTTP logs → runtime edges)
 ```
@@ -510,11 +510,9 @@ The graph connects symbols with typed, provenance-annotated edges:
 |----------|-----------|
 | Code | `calls`, `imports`, `implements`, `references` |
 | Route | `handles_route` (route handler node to handler function, from static extraction) |
-| Protocol | `rpc_calls`, `produces_event`, `consumes_event` |
-| Schema | `reads_field`, `writes_field`, `declares_route`, `consumes_route` |
-| Infrastructure | `deploys`, `connects_to`, `depends_on_service` |
-| Ownership | `owned_by_team`, `owned_by_user` |
-| Runtime | `runtime_calls`, `runtime_rpc`, `runtime_produces`, `runtime_consumes`, `runtime_queries` |
+| Infrastructure | `depends_on` (Terraform, SQL, CSS), `deploys` (K8s Service to Deployment), `exposes` (K8s Ingress to Service), `configures` (K8s ConfigMap/Secret to Deployment) |
+| Runtime | `runtime_calls`, `runtime_rpc`, `runtime_produces`, `runtime_consumes` |
+| Planned | `rpc_calls`, `produces_event`, `consumes_event`, `reads_field`, `writes_field`, `owned_by_team`, `owned_by_user` |
 
 ---
 
@@ -937,12 +935,14 @@ Runtime edges and static edges share the same `edges` table. They are distinguis
 
 ## Export CLI
 
-The `knowing export` subcommand exports the knowledge graph as JSON to stdout. The export structure contains three top-level fields: `nodes` (with hash, qualified name, kind, line, signature), `edges` (with hash, source, target, type, confidence, provenance), and `metadata` (with repo, snapshot, export timestamp, and counts).
+The `knowing export` subcommand exports the knowledge graph in JSON or Graphviz DOT format. The JSON export structure contains four top-level fields: `nodes` (with hash, qualified name, kind, line, signature, community ID), `edges` (with hash, source, target, type, confidence, provenance, cross_community flag), `communities` (Louvain-detected clusters with ID, label, and size), and `metadata` (with repo, snapshot, export timestamp, node/edge/community counts).
+
+The DOT export renders the graph with Louvain community subgraphs as cluster subgraphs. Nodes are shaped by kind (box for functions, ellipse for types, hexagon for services). Cross-community edges are colored red to highlight architectural boundaries.
 
 Filters:
 - `--repo <url>`: filter nodes and edges to a single repository (by matching file hashes against repo files)
 - `--snapshot <hash>`: record the snapshot in metadata (filtering by snapshot is informational)
-- `--format json`: the only supported format (default)
+- `--format json|dot`: output format (default: `json`). `json` includes community annotations; `dot` renders with Louvain subgraphs
 
 ---
 
@@ -1163,7 +1163,7 @@ The intelligence plane does not need the same trust. It interprets the graph but
 | Control flow test | Do they affect what the indexer produces? | No. They read the graph; they don't write to it. |
 | Trust test | Would users trust the graph if these features were proprietary? | Yes. The graph is content-addressed and verifiable regardless. |
 
-**The MCP tool split (17 tools):**
+**The MCP tool split (22 tools):**
 
 | Tool | Plane | Why |
 |------|-------|-----|
@@ -1184,6 +1184,11 @@ The intelligence plane does not need the same trust. It interprets the graph but
 | `context_for_task` | Context | Token-budgeted context packing for a task description |
 | `context_for_files` | Context | Blast-radius context for a set of changed files |
 | `context_for_pr` | Context | PR-scoped context: RWR from changed symbols, callers, structural neighborhood |
+| `feedback` | Feedback | Record/query symbol usefulness for ranking improvement |
+| `test_scope` | Discovery | Find affected tests for changed files via BFS |
+| `flow_between` | Discovery | Find all paths between two symbols via BFS |
+| `plan_turn` | Discovery | Suggest relevant knowing tools for a task description |
+| `communities` | Discovery | Louvain modularity-based graph clustering |
 
 Basic graph reads (`cross_repo_callers`, `graph_query`, `repo_graph`) are execution-plane operations: they return what the graph contains without interpretation. Intelligence-plane tools compute, classify, compare, or aggregate, and they produce derived results that are themselves content-addressed artifacts. Context-plane tools (`context_for_task`, `context_for_files`, `context_for_pr`) are a specialized form of intelligence: they score and rank symbols from the graph, then pack them into a token budget for agent consumption.
 

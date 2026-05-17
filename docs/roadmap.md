@@ -15,7 +15,7 @@ Everything else depends on this. Complete.
 | Incremental indexing | Git watcher, file change detection, deleted file cleanup | **done** |
 | Snapshot diff | Edge event sourcing, added/removed between snapshots | **done** |
 | Cross-repo resolution | Module-to-repo URL mapping, dangling edge retargeting | **done** |
-| MCP server | 17 tools + 3 prompts over stdio/HTTP | **done** |
+| MCP server | 22 tools + 3 prompts over stdio/HTTP | **done** |
 | Daemon + git watcher | Persistent process, .git/HEAD watching, incremental reindex | **done** |
 | Traversal cache | L1 in-memory LRU, L2 materialized closures, L3 bounded traversal | planned |
 
@@ -58,6 +58,7 @@ Core pipeline complete. v2 refinements identified.
 | HITS hub/authority reranking | On top-200 RWR subgraph for better prioritization | **done** |
 | Density-ranked knapsack packing | Score/cost ratio optimization for budget utilization | **done** |
 | context_for_pr MCP tool | PR-scoped context (changed files + diff + relationship awareness) | **done** |
+| Feedback-aware scoring | FeedbackProvider interface wired into ContextEngine for ranking improvement | **done** |
 | MCP resources | knowing://context/<scope> subscribable resources | planned |
 
 ## Workstream: Developer Visibility
@@ -65,9 +66,13 @@ Core pipeline complete. v2 refinements identified.
 | Item | Description | Status |
 |------|-------------|--------|
 | Semantic PR diff | SemanticDiff + PRImpact + knowing diff CLI | **done** |
-| knowing export CLI | Export graph as JSON with filters | **done** |
+| knowing export CLI | Export graph as JSON or DOT with Louvain community annotations | **done** |
 | Claude Code hooks | PreToolUse/PostToolUse auto-context injection, benchmarked net-positive | **done** |
 | Graph-native test selection | knowing test-scope: affected tests from call graph BFS | **done** |
+| Louvain community detection | Communities MCP tool + DOT export with subgraphs | **done** |
+| Agent feedback loop | Feedback MCP tool + FeedbackProvider for ranking improvement | **done** |
+| Flow analysis | flow_between MCP tool: BFS path finding between symbols | **done** |
+| Plan turn | plan_turn MCP tool: task-to-tool keyword recommender | **done** |
 | Ownership routing | "Who to notify" computed from graph edges | planned |
 | Staleness dashboard | Surface unverified edges and subgraphs | planned |
 
@@ -83,7 +88,7 @@ Core pipeline complete. v2 refinements identified.
 
 1. **MCP resources.** `knowing://context/<scope>` subscribable resources for live context updates.
 
-3. **More edge types.** Protobuf/gRPC edges, event edges (Kafka/NATS), schema edges (OpenAPI).
+3. **More edge types.** Event edges (Kafka/NATS), schema edges (OpenAPI), ownership edges (CODEOWNERS).
 
 4. **Traversal cache.** L1 in-memory LRU for hot paths, L2 materialized closures for common queries.
 

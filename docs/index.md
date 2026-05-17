@@ -38,7 +38,7 @@ knowing builds a content-addressed knowledge graph of software relationships and
 
 - **11 languages**: Go, TypeScript/JS, Python, Rust, Java, C#, Terraform, SQL, Kubernetes YAML, CSS, Protocol Buffers
 - **18 web frameworks**: route detection for net/http, chi, gin, echo, gorilla/mux, Express.js, Fastify, Hono, NestJS, Next.js, Flask, FastAPI, Django, Actix, Axum, Rocket, Spring, ASP.NET
-- **17 MCP tools**: graph queries, runtime traffic, semantic diff, PR impact, context packing
+- **22 MCP tools**: graph queries, runtime traffic, semantic diff, PR impact, context packing, feedback, test scope, flow analysis, community detection
 - **11 CLI commands**: serve, index, query, export, diff, context, mcp, reindex, init, test-scope, version
 - **Runtime intelligence**: OTel trace ingestion with observation-based confidence scoring
 - **Incremental updates**: git-based change detection, re-indexes only changed files
@@ -48,7 +48,7 @@ knowing builds a content-addressed knowledge graph of software relationships and
 
 - [Architecture](architecture.md): system design, concurrency model, data flow
 - [CLI Reference](CLI.md): all commands with flags and examples
-- [MCP Tools](MCP-TOOLS.md): all 17 tools with parameters and return formats
+- [MCP Tools](MCP-TOOLS.md): all 22 tools with parameters and return formats
 - [Runtime Traces](runtime-traces.md): OTel ingestion design
 - [Roadmap](roadmap.md): what's done, what's next
 - [Distribution](DISTRIBUTION.md): all installation channels

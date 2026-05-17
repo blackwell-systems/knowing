@@ -1,6 +1,6 @@
 # FEATURES.md -- Comprehensive Feature Dump for AI Reference
 
-Generated: 2026-05-15 (updated: 2026-05-16, features 40-42 added)
+Generated: 2026-05-15 (updated: 2026-05-16, features 40-47 added)
 Source: code inspection of all Go files across internal/, cmd/, and config
 Repo: github.com/blackwell-systems/knowing
 
@@ -241,7 +241,7 @@ Repo: github.com/blackwell-systems/knowing
 
 - **Package(s):** `internal/mcp`
 - **Entry point:** `mcp.NewServer(store GraphStore) *Server`
-- **What it does:** Wraps `mcp-go` server library. Registers 17 tools across four planes (execution, intelligence, runtime, context) and 3 prompts (refactor_safely, review_pr, investigate_dead_code). Supports stdio and HTTP transports. Tool definitions include parameter schemas with descriptions and required flags. The Server holds a `sqlStore *SQLiteStore` (populated via type assertion from GraphStore) for runtime query tools.
+- **What it does:** Wraps `mcp-go` server library. Registers 22 tools across six planes (execution, intelligence, runtime, context, feedback, discovery) and 3 prompts (refactor_safely, review_pr, investigate_dead_code). Supports stdio and HTTP transports. Tool definitions include parameter schemas with descriptions and required flags. The Server holds a `sqlStore *SQLiteStore` (populated via type assertion from GraphStore) for runtime query tools.
 - **Inputs:** GraphStore (runtime tools additionally require `*SQLiteStore`).
 - **Outputs:** Serves MCP protocol over stdio or HTTP.
 - **Limitations/known gaps:**
@@ -400,13 +400,13 @@ Repo: github.com/blackwell-systems/knowing
 - **What it does:** Exports the knowledge graph as JSON to stdout. Collects all nodes (optionally filtered by repo), then collects all outgoing edges for those nodes (deduplicated by EdgeHash). Outputs a JSON structure with `nodes` (node_hash, qualified_name, kind, line, signature), `edges` (edge_hash, source_hash, target_hash, edge_type, confidence, provenance), and `metadata` (repo, snapshot, exported_at timestamp, node_count, edge_count).
 - **Flags:**
   - `--db` (default "knowing.db"): SQLite database path.
-  - `--format` (default "json"): Output format (only JSON currently supported).
+  - `--format` (default "json"): Output format (`json` with community annotations, or `dot` with Louvain subgraphs).
   - `--repo`: Filter by repo URL (filters nodes to those whose FileHash belongs to the specified repo).
   - `--snapshot`: Filter label for metadata (recorded but not used for actual edge filtering in current implementation).
 - **Limitations/known gaps:**
   - `--snapshot` filter is cosmetic only; it does not filter edges by snapshot.
   - `--repo` filter queries all nodes via `NodesByName(ctx, "")` then filters in memory; no store-level filtering.
-  - Only JSON format supported.
+  - DOT format does not support `--repo` or `--snapshot` filtering.
 - **Dependencies:** `internal/store`, `internal/types`.
 
 ### 30. CI/CD Pipeline
@@ -493,7 +493,7 @@ Repo: github.com/blackwell-systems/knowing
 
 - **Package(s):** `cmd/knowing`
 - **Entry point:** `knowing mcp [flags]`
-- **What it does:** Launches the MCP server in stdio transport mode. Reads JSON-RPC messages from stdin, writes responses to stdout. Designed for use as a subprocess MCP server (e.g., configured in `.mcp.json` or Claude Desktop). Provides all 17 MCP tools and 3 prompts over stdio without requiring HTTP.
+- **What it does:** Launches the MCP server in stdio transport mode. Reads JSON-RPC messages from stdin, writes responses to stdout. Designed for use as a subprocess MCP server (e.g., configured in `.mcp.json` or Claude Desktop). Provides all 22 MCP tools and 3 prompts over stdio without requiring HTTP.
 - **Flags:** `--db` (default: `knowing.db`): SQLite database path.
 - **Dependencies:** `internal/mcp`, `internal/store`.
 
@@ -525,6 +525,51 @@ Repo: github.com/blackwell-systems/knowing
 - **Package(s):** test fixtures / CI
 - **What it does:** Updated the mcp-assert test suite to use the new YAML format with per-file assertions. Each assertion file declares expected nodes, edges, and relationships for a specific source file, enabling targeted regression testing of extractor output.
 - **Dependencies:** mcp-assert tooling, CI workflow.
+
+### 43. Feedback MCP Tool (Agent Learning Loop)
+
+- **Package(s):** `internal/mcp`, `internal/store`
+- **Entry point:** `feedback` MCP tool (action: "record" or "query")
+- **What it does:** Records whether a symbol was useful to an agent session and queries aggregate feedback stats. The `FeedbackProvider` interface is wired into `ContextEngine` so that ranking scores incorporate historical usefulness data, creating a compounding improvement loop.
+- **Inputs:** `action` (record/query), `symbol_hash`, `session_id` (for record), `useful` (bool, for record).
+- **Outputs:** For record: `{"status":"recorded"}`. For query: usefulness ratio and counts.
+- **Dependencies:** SQLiteStore (RecordFeedback, QueryFeedback methods).
+
+### 44. Test Scope MCP Tool (Affected Test Discovery)
+
+- **Package(s):** `internal/mcp`
+- **Entry point:** `test_scope` MCP tool
+- **What it does:** Given a set of changed file paths, finds all symbols defined in those files via `NodesByFilePath`, then performs backward BFS through `calls` edges to discover test functions that transitively depend on the changed code. Outputs affected packages, function names, or a `go test -run` regex.
+- **Inputs:** `files` (comma-separated paths), `output` (packages/functions/run), `depth` (max BFS depth, default 3).
+- **Outputs:** JSON with mode, results array, and count.
+- **Dependencies:** SQLiteStore (NodesByFilePath, AllRepos, EdgesTo).
+
+### 45. Flow Between MCP Tool (Path Finding)
+
+- **Package(s):** `internal/mcp`
+- **Entry point:** `flow_between` MCP tool
+- **What it does:** Finds all paths between two symbols using BFS traversal through the knowledge graph. Returns up to 10 paths with edge types at each step. Useful for understanding how two symbols are connected.
+- **Inputs:** `source_symbol` (qualified name), `target_symbol` (qualified name), `max_depth` (default 5).
+- **Outputs:** JSON with source, target, paths array, path_count, and truncated flag.
+- **Dependencies:** GraphStore (NodesByQualifiedName, EdgesFrom).
+
+### 46. Plan Turn MCP Tool (Task-to-Tool Recommender)
+
+- **Package(s):** `internal/mcp`
+- **Entry point:** `plan_turn` MCP tool
+- **What it does:** Given a task description, extracts keywords and matches them against a static rule table to suggest which knowing MCP tools to call with pre-filled argument templates. Returns up to 4 ranked suggestions. Falls back to `context_for_task` if no specific tool matches.
+- **Inputs:** `task` (task description string).
+- **Outputs:** JSON with suggestions array (tool, reason, args).
+- **Dependencies:** None (pure keyword matching).
+
+### 47. Communities MCP Tool (Louvain Graph Clustering)
+
+- **Package(s):** `internal/mcp`
+- **Entry point:** `communities` MCP tool (action: "list" or "for_symbol")
+- **What it does:** Detects communities in the knowledge graph using the Louvain modularity optimization algorithm. The `list` action returns all communities with top symbols, cohesion scores, and dominant package labels. The `for_symbol` action returns the community containing a specific symbol and its neighboring communities.
+- **Inputs:** `action` (list/for_symbol), `repo_url` (optional filter), `symbol` (required for for_symbol).
+- **Outputs:** JSON with communities array or symbol-specific community result.
+- **Dependencies:** GraphStore (NodesByName, EdgesFrom).
 
 ### GraphStore (`internal/types/interfaces.go`)
 
@@ -692,9 +737,14 @@ Parameters per tool:
 - `runtime_traffic`: service_name (required), route_pattern (optional, LIKE syntax), limit (optional, default 100)
 - `dead_routes`: stale_days (optional, default 30)
 - `trace_stats`: (no parameters)
-- `context_for_task`: task (required), token_budget (optional), format (optional, default "json"; accepts "gcf", "gcb", "json", "xml", "markdown")
-- `context_for_files`: files (required, array of file paths), token_budget (optional), format (optional, default "json"; accepts "gcf", "gcb", "json", "xml", "markdown")
+- `context_for_task`: task_description (required), token_budget (optional, default 50000), format (optional, default "xml"; accepts "gcf", "gcb", "json", "xml", "markdown")
+- `context_for_files`: files (required, comma-separated file paths), repo_url (optional), token_budget (optional, default 50000), format (optional, default "xml"; accepts "gcf", "gcb", "json", "xml", "markdown")
 - `context_for_pr`: files (required, comma-separated file paths), repo_url (optional), token_budget (optional, default 8000), format (optional, default "xml"; accepts "gcf", "gcb", "json", "xml", "markdown")
+- `feedback`: action (required, "record" or "query"), symbol_hash (required), session_id (optional, required for record), useful (optional, required for record)
+- `test_scope`: files (required, comma-separated file paths), output (optional: "packages", "functions", "run"), depth (optional, default 3)
+- `flow_between`: source_symbol (required), target_symbol (required), max_depth (optional, default 5)
+- `plan_turn`: task (required)
+- `communities`: action (optional: "list" or "for_symbol"), repo_url (optional), symbol (optional, required for for_symbol)
 
 ---
 
@@ -704,7 +754,7 @@ Parameters per tool:
 
 - **Flags:** `--db` (default: `knowing.db`), `--addr` (default: `:8080`), `--trace` (enable trace ingestion), `--trace-endpoint` (default: `localhost:4317`), `--trace-batch-size` (default: 1000)
 - **Positional args:** repo paths to watch (0 or more)
-- **What it does:** Opens SQLite store, creates snapshot manager and indexer, registers all 11 language extractors (Go, Python, TypeScript/JS, Rust, Java, C#, Terraform, SQL, K8s, CSS, Protocol Buffers), creates MCP server (17 tools, 3 prompts), creates daemon with GitWatcher, optionally starts trace ingestion pipeline (OTLPReceiver + Ingestor + periodic flush/decay), watches listed repos, blocks until SIGINT/SIGTERM.
+- **What it does:** Opens SQLite store, creates snapshot manager and indexer, registers all 11 language extractors (Go, Python, TypeScript/JS, Rust, Java, C#, Terraform, SQL, K8s, CSS, Protocol Buffers), creates MCP server (22 tools across six planes, 3 prompts), creates daemon with GitWatcher, optionally starts trace ingestion pipeline (OTLPReceiver + Ingestor + periodic flush/decay), watches listed repos, blocks until SIGINT/SIGTERM.
 - **Extractors registered:** `gotsextractor` (Go), `treesitter` (Python), `tsextractor` (TypeScript/JS), `rustextractor` (Rust), `javaextractor` (Java), `csharpextractor` (C#), `terraformextractor` (Terraform HCL), `sqlextractor` (SQL), `k8sextractor` (Kubernetes YAML), `cssextractor` (CSS), `protoextractor` (Protocol Buffers). Route detection covers 18 frameworks across 6 languages (Go: 5, Python: 3, TypeScript: 5).
 - **Enrichment:** Background EnrichFunc wired with scoped or full enrichment.
 - **Trace ingestion:** When `--trace` is set, launches a fourth daemon goroutine that opens a dedicated DB connection, creates SymbolResolver + Ingestor + OTLPReceiver, flushes batches every 10s, and decays confidence every 1h.
@@ -723,15 +773,15 @@ Parameters per tool:
 
 ### `knowing export`
 
-- **Flags:** `--db` (default: `knowing.db`), `--format` (default: `json`), `--repo` (filter by repo URL), `--snapshot` (filter label, cosmetic only)
+- **Flags:** `--db` (default: `knowing.db`), `--format` (default: `json`; also accepts `dot`), `--repo` (filter by repo URL), `--snapshot` (filter label, cosmetic only)
 - **No positional args.**
-- **What it does:** Exports the full knowledge graph (or a repo-scoped subset) as JSON to stdout. Outputs nodes with their qualified names, kinds, and signatures; edges with source/target hashes, types, confidence, and provenance; and metadata with counts and export timestamp.
+- **What it does:** Exports the full knowledge graph (or a repo-scoped subset) as JSON or Graphviz DOT to stdout. JSON output includes nodes with community IDs, edges with cross-community flags, Louvain-detected community listings, and metadata with counts. DOT output renders community clusters as subgraphs with cross-community edges highlighted in red.
 
 ### `knowing mcp`
 
 - **Flags:** `--db` (default: `knowing.db`)
 - **No positional args.**
-- **What it does:** Launches the MCP server in stdio transport mode. Reads JSON-RPC messages from stdin and writes responses to stdout. Provides all 17 tools and 3 prompts. Designed for subprocess MCP usage (configured in `.mcp.json` or Claude Desktop).
+- **What it does:** Launches the MCP server in stdio transport mode. Reads JSON-RPC messages from stdin and writes responses to stdout. Provides all 22 tools and 3 prompts. Designed for subprocess MCP usage (configured in `.mcp.json` or Claude Desktop).
 
 ### `knowing reindex`
 
