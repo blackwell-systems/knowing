@@ -98,17 +98,89 @@ Core pipeline complete. v2 refinements identified.
 | Temporal reasoning | Walk snapshots backward to find when incompatibilities appeared | planned |
 | Federated graphs | Cross-instance queries via Merkle diff exchange | planned |
 
+## Workstream: Contract and API Edges
+
+Connects schemas/contracts to the code that implements or consumes them. Turns extracted schemas (OpenAPI, proto, event patterns) into actionable caller/implementor relationships.
+
+| Item | Description | Status |
+|------|-------------|--------|
+| `implements_endpoint` | Handler function implements OpenAPI route | planned (P1) |
+| `consumes_endpoint` | Client code calls OpenAPI route | planned (P1) |
+| `implements_rpc` | Server implements proto RPC method | planned (P2) |
+| `consumes_rpc` | Client invokes proto RPC method | planned (P2) |
+| `publishes_event_schema` | Producer emits event matching a contract | planned (P3) |
+| `consumes_event_schema` | Consumer expects event matching a contract | planned (P3) |
+| `defines_schema` | Code/type defines schema or contract | planned |
+| `validates_against` | Code validates payload against schema | planned |
+| `serializes` / `deserializes` | Type crosses wire/storage boundary | planned |
+| `breaking_change_for` | Derived edge from schema/API diff between versions | planned |
+
+## Workstream: Ownership and Governance
+
+Turns code intelligence into organizational intelligence. Answers "who gets paged?" and "what policy governs this?"
+
+| Item | Description | Status |
+|------|-------------|--------|
+| `owned_by` | Symbol/file/service owned by team/person (CODEOWNERS, annotations) | planned (P1) |
+| `classified_as` | Data/resource classification (PII, PCI, PHI) | planned (P2) |
+| `secured_by` | Route/service protected by auth policy | planned (P3) |
+| `reviewed_by` | Code area requires specific reviewer | planned |
+| `complies_with` | Maps component to compliance control | planned |
+| `violates_policy` | Derived policy finding from graph analysis | planned |
+
+## Workstream: Static Semantic Edges
+
+Deeper type-system relationships beyond calls/imports/implements.
+
+| Item | Description | Status |
+|------|-------------|--------|
+| `extends` / `inherits` | Class/type inheritance (Java, C#, Python, TS) | planned (P1) |
+| `overrides` | Method overrides parent/interface method | planned (P1) |
+| `decorates` / `annotates` | Decorators, annotations, attributes | planned (P2) |
+| `throws` / `raises` | Error/exception relationships | planned (P3) |
+| `catches` / `handles_error` | Recovery paths | planned (P3) |
+| `generates` | Codegen source produces generated file/symbol | planned |
+
+## Workstream: Agent Workflow Edges
+
+The graph improves itself from agent behavior. Promotes existing feedback data into first-class graph edges.
+
+| Item | Description | Status |
+|------|-------------|--------|
+| `suggested_for_task` | Symbol was included in agent context for a task | planned (P1) |
+| `used_by_agent` | Agent actually used/read/edited symbol | planned (P1) |
+| `validated_by_test` | Test verified symbol/change | planned (P2) |
+| `failed_in_ci` | Symbol/file associated with failing check | planned (P2) |
+| `changed_by_pr` | PR modifies symbol | planned (P3) |
+| `reviewed_in_pr` | PR review comment targets symbol | planned (P3) |
+
+## Workstream: Deployment and Infrastructure Edges
+
+Links code to its operational environment.
+
+| Item | Description | Status |
+|------|-------------|--------|
+| `runs_on` | Service runs on deployment/node/runtime | planned (P1) |
+| `deployed_by` | Workflow/pipeline deploys service | planned (P1) |
+| `configured_by` | Config/secret/env var configures service | planned (P2) |
+| `exposes_port` | Service/container exposes port | planned (P3) |
+| `mounts` | Workload mounts volume/secret/configmap | planned |
+| `assumes_role` | Workload uses IAM role/service account | planned |
+| `allowed_by` / `blocked_by` | Network/security/IAM policy permits or denies access | planned |
+
 ## What's Next (priority order)
 
-1. **MCP resources.** `knowing://context/<scope>` subscribable resources for live context updates.
+1. **`runtime_queries` edge type.** Links code to data ownership. Highest-value missing plane for migration risk and incident response.
 
-2. **Multi-extractor dispatch.** Wire `FindAllExtractors` into the indexer so event and schema extractors run alongside primary language extractors on the same file.
+2. **Contract edges.** `implements_endpoint` / `consumes_endpoint` connect OpenAPI schemas to handler code. Enables "which services break if I change this API?"
 
-3. **More edge types.** Event edges (Kafka/NATS; package ready), schema edges (OpenAPI; package ready), ownership edges (CODEOWNERS).
+3. **Ownership edges.** CODEOWNERS parsing + `owned_by` edges. Enables blast radius queries that answer "which team gets paged?"
 
-4. **Traversal cache.** L1 in-memory LRU for hot paths, L2 materialized closures for common queries.
+4. **MCP resources.** `knowing://context/<scope>` subscribable resources for live context updates.
 
-5. **v0.1.0 release.** Homebrew tap, npm/pypi wrappers, Docker images. Needs CI secrets configured.
+5. **Traversal cache.** L1 in-memory LRU for hot paths, L2 materialized closures for common queries.
+
+6. **v0.1.0 release.** Homebrew tap, npm/pypi wrappers, Docker images. Needs CI secrets configured.
 
 ## Dependency Graph
 
@@ -129,13 +201,15 @@ Snapshot chain + Merkle sync ────────────> Federated gra
 ## Parallelization Notes
 
 **Independent (can be implemented any time):**
-- Event/schema extractor registration (packages exist, need FindAllExtractors wiring)
-- Ownership edge types
+- Runtime edge expansion (all 14 types are independent of each other)
+- Contract edges (OpenAPI/proto schemas already extracted)
+- Ownership edges (CODEOWNERS parsing)
+- Static semantic edges (tree-sitter infrastructure exists)
 - Traversal cache
-- Database query edges
+- Agent workflow edges (feedback table exists)
 
 **Sequential (must wait for dependencies):**
-- Claude Code hooks depend on context packing (done)
-- context_for_pr depends on context packing + semantic diff (both done)
 - Ownership routing depends on ownership edges (not started)
+- `breaking_change_for` depends on schema diffing (not started)
+- `violates_policy` depends on `classified_as` + `secured_by` (not started)
 - Federated graphs depend on Merkle sync protocol (not started)
