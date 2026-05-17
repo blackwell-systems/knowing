@@ -2,28 +2,39 @@
 
 This document describes how knowing is distributed, what is automated, and what is planned.
 
-## v0.1.0 Release Readiness
+## Release Status
 
-| Component | Status | Notes |
-|-----------|--------|-------|
-| GoReleaser config | Ready | `.goreleaser.yml`, 6 platform binaries |
-| Release workflow | Ready | `.github/workflows/release.yml`, triggered on `v*` tags |
-| npm package structure | Ready | `npm/` directory, root + 4 platform packages |
-| PyPI package structure | Ready | `pypi/` directory, `pyproject.toml` |
-| `NPM_TOKEN` secret | **Set** | |
-| `PYPI_TOKEN` secret | **Set** | |
-| `HOMEBREW_TAP_TOKEN` secret | Needed | GitHub PAT with repo scope for homebrew-tap |
-| `DOCKERHUB_USERNAME` secret | Needed | For Docker Hub publishing |
-| `DOCKERHUB_TOKEN` secret | Needed | For Docker Hub publishing |
-| `docker/Dockerfile` | Ready | Alpine-based, git included for indexing |
-| `scripts/npm-publish.sh` | Ready | Downloads binaries from release, publishes 5 packages |
-| `scripts/pypi-build-wheels.sh` | Ready | Builds platform wheels from Go binaries |
-| `server.json` | Ready | MCP registry manifest (22 tools listed) |
-| homebrew-tap repo | Ready | `blackwell-systems/homebrew-tap` exists (public) |
+v0.1.2 is live across all channels. The release pipeline is fully automated on `v*` tag push.
 
-**Minimum viable release (npm + PyPI + GitHub Release + Homebrew):** Needs HOMEBREW_TAP_TOKEN + missing scripts.
+| Channel | Status | Version |
+|---------|--------|---------|
+| GitHub Release | **Live** | v0.1.2 (4 platform binaries) |
+| Homebrew | **Live** | `brew install blackwell-systems/tap/knowing` |
+| npm | **Live** | `@blackwell-systems/knowing@0.1.2` |
+| PyPI | **Live** | `knowing==0.1.2` |
+| Docker (GHCR) | **Live** | `ghcr.io/blackwell-systems/knowing:v0.1.2` |
+| Docker (Hub) | **Live** | `blackwellsystems/knowing:v0.1.2` |
+| MCP Registry | **Live** | `io.github.blackwell-systems/knowing` |
+| Go install | **Live** | `go install ...@v0.1.2` |
 
-**Without Docker:** Skip DOCKERHUB secrets and Dockerfile; GoReleaser will warn but still publish binaries, Homebrew, and GitHub Release.
+### Platform binaries
+
+| OS | Architecture | Build method |
+|----|-------------|--------------|
+| Linux | amd64 | Native GCC on ubuntu-latest |
+| Linux | arm64 | Cross-compile via aarch64-linux-gnu-gcc |
+| macOS | arm64 | Native clang on macos-latest |
+| macOS | amd64 | Cross-compile clang on macos-latest |
+
+### CI secrets (all configured)
+
+| Secret | Purpose |
+|--------|---------|
+| `NPM_TOKEN` | npm publish |
+| `PYPI_TOKEN` | PyPI wheel upload |
+| `HOMEBREW_TAP_TOKEN` | Push formula to homebrew-tap |
+| `DOCKERHUB_USERNAME` | Docker Hub login |
+| `DOCKERHUB_TOKEN` | Docker Hub push |
 
 ## Current channels
 
