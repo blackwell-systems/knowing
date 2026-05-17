@@ -11,7 +11,8 @@
     "@blackwell-systems/knowing-linux-arm64": "0.1.0",
     "@blackwell-systems/knowing-linux-x64": "0.1.0"
   },
-  "keywords": ["mcp", "knowledge-graph", "code-intelligence", "content-addressed", "ai-agents"],
+  "mcpName": "io.github.blackwell-systems/knowing",
+  "keywords": ["mcp", "code-graph", "code-intelligence", "content-addressed", "ai-agents"],
   "homepage": "https://github.com/blackwell-systems/knowing",
   "repository": {
     "type": "git",
