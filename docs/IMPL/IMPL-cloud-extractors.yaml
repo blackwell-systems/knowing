@@ -1,0 +1,908 @@
+title: Cloud Infrastructure and CI/CD YAML Extractors
+feature_slug: cloud-extractors
+verdict: SUITABLE
+suitability_assessment: |
+    Suitability gate analysis:
+
+    1. File decomposition: The work decomposes into 7 new files across a new package
+       (internal/indexer/cloudextractor/) plus one modification to cmd/knowing/main.go
+       for registration. Each extractor (CloudFormation, Docker Compose, GitHub Actions,
+       Serverless Framework) is fully independent with its own file and test file.
+       The shared extractor.go delegates to format-specific parsers. All files are
+       disjoint across agents.
+
+    2. Investigation-first items: None. The pattern is well-established by the existing
+       k8sextractor package. All four formats have well-documented YAML structures.
+
+    3. Interface discoverability: Yes. The types.Extractor interface is already defined
+       (Name, CanHandle, Extract). Each sub-parser follows the same internal pattern
+       as k8sextractor (parse YAML, emit nodes and edges). The shared CloudExtractor
+       delegates via content detection, which is straightforward to define upfront.
+
+    4. Pre-implementation status: The cloudextractor/ directory does not exist yet.
+       No prior implementation exists. All work is greenfield TODO.
+
+    5. Parallelization value: High. Four independent format parsers with comprehensive
+       tests (each agent owns 1 implementation file + 1 test file). The Go build/test
+       cycle is non-trivial. Three format agents can run fully in parallel in Wave 1,
+       with the shared delegator + registration in Wave 2.
+
+    Estimated times:
+    - Scout phase: ~8 min
+    - Agent execution: ~12 min (4 agents in wave 1 x 8 min avg, parallel; 1 agent in wave 2 x 5 min)
+    - Merge and verification: ~3 min
+    Total Polywave time: ~23 min
+
+    Sequential baseline: ~45 min (5 agents x 9 min avg sequential)
+    Time savings: ~22 min (49% faster)
+
+    Recommendation: Clear speedup. Proceed.
+test_command: GOWORK=off go test ./... -timeout 5m
+lint_command: GOWORK=off go vet ./...
+file_ownership:
+    - file: internal/indexer/cloudextractor/cloudformation.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/indexer/cloudextractor/cloudformation_test.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/indexer/cloudextractor/compose.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/indexer/cloudextractor/compose_test.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/indexer/cloudextractor/actions.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/indexer/cloudextractor/actions_test.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/indexer/cloudextractor/serverless.go
+      agent: D
+      wave: 1
+      action: new
+    - file: internal/indexer/cloudextractor/serverless_test.go
+      agent: D
+      wave: 1
+      action: new
+    - file: internal/indexer/cloudextractor/extractor.go
+      agent: E
+      wave: 2
+      action: new
+      depends_on:
+        - A
+        - B
+        - C
+        - D
+    - file: internal/indexer/cloudextractor/doc.go
+      agent: E
+      wave: 2
+      action: new
+    - file: cmd/knowing/main.go
+      agent: E
+      wave: 2
+      action: modify
+      depends_on:
+        - A
+        - B
+        - C
+        - D
+interface_contracts:
+    - name: CloudExtractor
+      description: |
+        Top-level extractor that implements types.Extractor and delegates to
+        format-specific sub-extractors based on file content detection.
+      definition: |
+        type CloudExtractor struct {
+            subs []subExtractor
+        }
+
+        func NewCloudExtractor() *CloudExtractor
+        func (e *CloudExtractor) Name() string           // returns "cloud-yaml"
+        func (e *CloudExtractor) CanHandle(path string) bool
+        func (e *CloudExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error)
+      location: internal/indexer/cloudextractor/extractor.go
+    - name: subExtractor
+      description: |
+        Internal interface for format-specific parsers. Each format file
+        (cloudformation.go, compose.go, actions.go, serverless.go) implements this.
+      definition: |
+        type subExtractor interface {
+            name() string
+            canHandle(path string, content []byte) bool
+            extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error)
+        }
+      location: internal/indexer/cloudextractor/extractor.go
+    - name: Registration in main.go
+      description: |
+        Register the CloudExtractor in registerAllExtractors function.
+      definition: |
+        import "github.com/blackwell-systems/knowing/internal/indexer/cloudextractor"
+        // In registerAllExtractors:
+        idx.Register(cloudextractor.NewCloudExtractor())
+      location: cmd/knowing/main.go
+waves:
+    - number: 1
+      agents:
+        - id: A
+          task: |
+            ## Agent A: AWS CloudFormation/SAM Extractor
+
+            ### What to implement
+
+            Create `internal/indexer/cloudextractor/cloudformation.go` and its test file.
+            The directory `internal/indexer/cloudextractor/` does not exist yet; create it.
+
+            **Package declaration:** `package cloudextractor`
+
+            **CRITICAL: Helper function naming.** All four Wave 1 agents create files in the
+            same Go package. To avoid duplicate function name collisions at merge time, you
+            MUST prefix all helper functions with `cfn`. Use these exact names:
+            - `cfnGetString(m map[string]interface{}, key string) string`
+            - `cfnToStringMap(m map[string]interface{}) map[string]string`
+            - `cfnMakeEdge(sourceHash, targetHash types.Hash, edgeType string) types.Edge`
+            - `cfnBuildQN(repoURL, filePath, kind, name string) string`
+
+            **File: cloudformation.go**
+
+            Implement the `cfnExtractor` struct. In Wave 2, Agent E will define a
+            `subExtractor` interface that this struct satisfies. For now, implement these
+            methods (they match the interface shape exactly):
+
+            ```go
+            type cfnExtractor struct{}
+
+            func (e *cfnExtractor) name() string { return "cloudformation" }
+            func (e *cfnExtractor) canHandle(path string, content []byte) bool
+            func (e *cfnExtractor) extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error)
+            ```
+
+            **Detection logic (canHandle):**
+            - File must have .yaml or .yml extension
+            - Content must contain a top-level "AWSTemplateFormatVersion" field OR
+              a top-level "Transform" field whose value starts with "AWS::Serverless"
+            - Parse only the top-level keys (unmarshal into map[string]interface{})
+              to check; do not require specific directory paths
+
+            **Extraction logic (extract):**
+
+            1. Parse the YAML content into map[string]interface{}
+            2. Find the "Resources" top-level key (map of resource logical IDs to definitions)
+            3. For each resource:
+               - Read "Type" field (e.g., "AWS::Lambda::Function", "AWS::DynamoDB::Table")
+               - Create a node with kind="resource", using the logical ID as the symbol name
+               - QualifiedName format: `{repoURL}://{filePath}.resource.{logicalID}`
+               - NodeHash: types.ComputeNodeHash(repoURL, filePath, types.EmptyHash, logicalID, "resource")
+            4. For edges, scan each resource's "Properties" for:
+               - **Fn::Ref / Ref:** If a property value is a map with key "Ref",
+                 extract the referenced logical ID. Create a "references" edge from the
+                 current resource to the referenced resource (if it exists in nodeMap).
+               - **Fn::GetAtt:** If a property value is a map with key "Fn::GetAtt"
+                 (value is a list [logicalID, attribute]), create a "references" edge
+                 from current resource to the target logical ID.
+               - **DependsOn:** If the resource has a "DependsOn" field (string or list
+                 of strings), create "depends_on" edges to each referenced logical ID.
+            5. For AWS::Serverless::Function resources, check for "Events" under Properties:
+               - Each event key maps to a value with a "Type" and "Properties" field
+               - For Api/HttpApi events: extract Path and Method from Properties. Create a
+                 "route" node (kind="route", name="{METHOD} {path}") and a "handles_route"
+                 edge from the function to the route node.
+               - For S3, SQS, SNS, Schedule events: create a "subscribes" edge from the
+                 function node to a synthetic event_source node (kind="event_source").
+
+            **Constants:**
+            ```go
+            const (
+                cfnProvenance = "ast_inferred"
+                cfnConfidence = 0.7
+            )
+            ```
+
+            **Imports required:**
+            - "context"
+            - "fmt"
+            - "path/filepath"
+            - "strings"
+            - "github.com/blackwell-systems/knowing/internal/types"
+            - "gopkg.in/yaml.v3"
+
+            ### Test file: cloudformation_test.go
+
+            Create comprehensive tests covering:
+            1. `TestCfnExtractor_CanHandle` - positive cases (file with AWSTemplateFormatVersion,
+               file with Transform: AWS::Serverless-2016-10-31) and negative cases (plain YAML,
+               non-YAML files, YAML without CFN markers)
+            2. `TestCfnExtractor_ExtractResources` - template with 2-3 AWS resources, verify
+               correct number of nodes, kinds, qualified names
+            3. `TestCfnExtractor_ExtractRefEdges` - template with Ref references between resources,
+               verify "references" edges are created
+            4. `TestCfnExtractor_ExtractGetAttEdges` - template with Fn::GetAtt references
+            5. `TestCfnExtractor_ExtractDependsOn` - template with DependsOn, verify "depends_on" edges
+            6. `TestCfnExtractor_ExtractSAMEvents` - SAM template with Lambda function having
+               Api, SQS, and Schedule events; verify route nodes, handles_route edges,
+               subscribes edges
+            7. `TestCfnExtractor_EmptyResources` - template with no Resources section returns
+               empty result without error
+
+            Each test creates the extractor directly (`e := &cfnExtractor{}`) and calls
+            `e.extract()` with types.ExtractOptions containing realistic YAML content.
+
+            ### Verification gate
+            ```
+            go build ./internal/indexer/cloudextractor/...
+            go test ./internal/indexer/cloudextractor/ -run TestCfn -v
+            go vet ./internal/indexer/cloudextractor/
+            ```
+
+            ### Postconditions
+            ```bash
+            # cfnExtractor struct exists
+            grep -c "type cfnExtractor struct" internal/indexer/cloudextractor/cloudformation.go
+            # Expected: 1
+
+            # canHandle method exists
+            grep -c "func (e \*cfnExtractor) canHandle" internal/indexer/cloudextractor/cloudformation.go
+            # Expected: 1
+
+            # At least 5 test functions
+            grep -c "func TestCfn" internal/indexer/cloudextractor/cloudformation_test.go
+            # Expected: >= 5
+            ```
+
+            ### Constraints
+            - Do NOT create extractor.go or doc.go; those are owned by Agent E in Wave 2.
+            - Do NOT modify any files outside the cloudextractor package.
+            - All helper functions MUST be prefixed with `cfn` (e.g., cfnGetString, cfnMakeEdge).
+              Other agents define helpers with their own prefixes in the same package.
+            - All constants MUST be prefixed with `cfn` (e.g., cfnProvenance, cfnConfidence).
+          files:
+            - internal/indexer/cloudextractor/cloudformation.go
+            - internal/indexer/cloudextractor/cloudformation_test.go
+        - id: B
+          task: |
+            ## Agent B: Docker Compose Extractor
+
+            ### What to implement
+
+            Create `internal/indexer/cloudextractor/compose.go` and its test file.
+            The directory `internal/indexer/cloudextractor/` does not exist yet; create it.
+
+            **Package declaration:** `package cloudextractor`
+
+            **CRITICAL: Helper function naming.** All four Wave 1 agents create files in the
+            same Go package. To avoid duplicate function name collisions at merge time, you
+            MUST prefix all helper functions with `compose`. Use these exact names:
+            - `composeGetString(m map[string]interface{}, key string) string`
+            - `composeToStringMap(m map[string]interface{}) map[string]string`
+            - `composeMakeEdge(sourceHash, targetHash types.Hash, edgeType string) types.Edge`
+            - `composeBuildQN(repoURL, filePath, kind, name string) string`
+
+            **File: compose.go**
+
+            Implement the `composeExtractor` struct:
+
+            ```go
+            type composeExtractor struct{}
+
+            func (e *composeExtractor) name() string { return "docker-compose" }
+            func (e *composeExtractor) canHandle(path string, content []byte) bool
+            func (e *composeExtractor) extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error)
+            ```
+
+            **Detection logic (canHandle):**
+            - Filename (filepath.Base) is "docker-compose.yml" or "docker-compose.yaml", OR
+            - File has .yaml/.yml extension AND content has top-level "services" key AND
+              either a top-level "version" key or "name" key
+            - Parse only top-level keys via yaml.Unmarshal into map[string]interface{}
+
+            **Extraction logic (extract):**
+
+            1. Parse YAML content into map[string]interface{}
+            2. Find the "services" top-level key (map of service names to definitions)
+            3. For each service:
+               - Create a node with kind="service", symbol name = service name
+               - QualifiedName: `{repoURL}://{filePath}.service.{serviceName}`
+               - NodeHash: types.ComputeNodeHash(repoURL, filePath, types.EmptyHash, serviceName, "service")
+            4. For edges, scan each service definition for:
+               - **depends_on:** Can be a list of strings or a map with keys being service names.
+                 Create "depends_on" edges to each referenced service.
+               - **ports:** Each port mapping (e.g., "8080:80") creates an "exposes" edge.
+                 Create a synthetic "port" node for each unique host port.
+                 Port node kind="port", name=hostPort.
+                 QualifiedName: `{repoURL}://{filePath}.port.{hostPort}`
+               - **links:** List of strings (service names or "service:alias").
+                 Parse service name (before colon if alias present).
+                 Create "connects_to" edges to referenced services.
+               - **networks:** Map or list of network names. For each network, create a
+                 synthetic "network" node (deduplicate) and a "connects_to" edge.
+                 Network node kind="network", name=networkName.
+                 QualifiedName: `{repoURL}://{filePath}.network.{networkName}`
+
+            **Constants:**
+            ```go
+            const (
+                composeProvenance = "ast_inferred"
+                composeConfidence = 0.7
+            )
+            ```
+
+            **Imports required:**
+            - "context"
+            - "fmt"
+            - "path/filepath"
+            - "strings"
+            - "github.com/blackwell-systems/knowing/internal/types"
+            - "gopkg.in/yaml.v3"
+
+            ### Test file: compose_test.go
+
+            Create comprehensive tests covering:
+            1. `TestComposeExtractor_CanHandle` - positive: docker-compose.yml, docker-compose.yaml,
+               compose.yaml with services+version, compose.yml with services+name. Negative: plain
+               YAML, services key without version/name, non-YAML files.
+            2. `TestComposeExtractor_ExtractServices` - compose file with 3 services, verify nodes
+            3. `TestComposeExtractor_ExtractDependsOn` - services with depends_on (both list and
+               map forms), verify depends_on edges
+            4. `TestComposeExtractor_ExtractPorts` - services with port mappings, verify port nodes
+               and exposes edges
+            5. `TestComposeExtractor_ExtractNetworks` - services sharing networks, verify network
+               nodes and connects_to edges
+            6. `TestComposeExtractor_ExtractLinks` - services with links, verify connects_to edges
+            7. `TestComposeExtractor_EmptyServices` - compose file with empty services section
+
+            Each test creates the extractor directly (`e := &composeExtractor{}`) and calls
+            `e.extract()` with types.ExtractOptions.
+
+            ### Verification gate
+            ```
+            go build ./internal/indexer/cloudextractor/...
+            go test ./internal/indexer/cloudextractor/ -run TestCompose -v
+            go vet ./internal/indexer/cloudextractor/
+            ```
+
+            ### Postconditions
+            ```bash
+            grep -c "type composeExtractor struct" internal/indexer/cloudextractor/compose.go
+            # Expected: 1
+
+            grep -c "func (e \*composeExtractor) canHandle" internal/indexer/cloudextractor/compose.go
+            # Expected: 1
+
+            grep -c "func TestCompose" internal/indexer/cloudextractor/compose_test.go
+            # Expected: >= 5
+            ```
+
+            ### Constraints
+            - Do NOT create extractor.go or doc.go; those are owned by Agent E in Wave 2.
+            - Do NOT modify any files outside the cloudextractor package.
+            - All helper functions MUST be prefixed with `compose` (e.g., composeGetString).
+              Other agents define helpers with their own prefixes in the same package.
+            - All constants MUST be prefixed with `compose` (e.g., composeProvenance).
+          files:
+            - internal/indexer/cloudextractor/compose.go
+            - internal/indexer/cloudextractor/compose_test.go
+        - id: C
+          task: |
+            ## Agent C: GitHub Actions Extractor
+
+            ### What to implement
+
+            Create `internal/indexer/cloudextractor/actions.go` and its test file.
+            The directory `internal/indexer/cloudextractor/` does not exist yet; create it.
+
+            **Package declaration:** `package cloudextractor`
+
+            **CRITICAL: Helper function naming.** All four Wave 1 agents create files in the
+            same Go package. To avoid duplicate function name collisions at merge time, you
+            MUST prefix all helper functions with `actions`. Use these exact names:
+            - `actionsGetString(m map[string]interface{}, key string) string`
+            - `actionsToStringMap(m map[string]interface{}) map[string]string`
+            - `actionsMakeEdge(sourceHash, targetHash types.Hash, edgeType string) types.Edge`
+            - `actionsBuildQN(repoURL, filePath, kind, name string) string`
+
+            **File: actions.go**
+
+            Implement the `actionsExtractor` struct:
+
+            ```go
+            type actionsExtractor struct{}
+
+            func (e *actionsExtractor) name() string { return "github-actions" }
+            func (e *actionsExtractor) canHandle(path string, content []byte) bool
+            func (e *actionsExtractor) extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error)
+            ```
+
+            **Detection logic (canHandle):**
+            - File must have .yml or .yaml extension
+            - File path must contain ".github/workflows/" (use filepath.ToSlash and
+              strings.Contains for cross-platform compatibility)
+            - No content inspection needed; path alone is sufficient
+
+            **Extraction logic (extract):**
+
+            1. Parse YAML content into map[string]interface{}
+            2. Extract workflow-level info:
+               - Create a workflow node with kind="workflow"
+               - Name from top-level "name" field, or derive from filepath.Base if absent
+               - QualifiedName: `{repoURL}://{filePath}.workflow.{workflowName}`
+            3. Find the "jobs" top-level key (map of job IDs to definitions)
+            4. For each job:
+               - Create a node with kind="job", symbol name = job ID
+               - QualifiedName: `{repoURL}://{filePath}.job.{jobID}`
+            5. For edges from jobs:
+               - **needs:** Can be a single string or list of strings. Create "depends_on"
+                 edges to each referenced job node.
+               - **steps:** For each step that has a "uses" field (e.g., "actions/checkout@v4"):
+                 - Create a synthetic "action" node (kind="action", name=uses value)
+                 - QualifiedName: `{repoURL}://{filePath}.action.{usesValue}`
+                 - Create a "references" edge from the job to the action node
+                 - Deduplicate: if the same uses value appears in multiple jobs,
+                   create only one action node (use a nodeMap keyed by uses value)
+
+            **Constants:**
+            ```go
+            const (
+                actionsProvenance = "ast_inferred"
+                actionsConfidence = 0.7
+            )
+            ```
+
+            **Imports required:**
+            - "context"
+            - "fmt"
+            - "path/filepath"
+            - "strings"
+            - "github.com/blackwell-systems/knowing/internal/types"
+            - "gopkg.in/yaml.v3"
+
+            ### Test file: actions_test.go
+
+            Create comprehensive tests covering:
+            1. `TestActionsExtractor_CanHandle` - positive: .github/workflows/ci.yml,
+               .github/workflows/deploy.yaml. Negative: .github/actions/test.yml,
+               plain ci.yml not under .github/workflows, non-YAML files.
+            2. `TestActionsExtractor_ExtractWorkflow` - simple workflow with name, verify
+               workflow node
+            3. `TestActionsExtractor_ExtractJobs` - workflow with 3 jobs, verify job nodes
+            4. `TestActionsExtractor_ExtractJobNeeds` - jobs with needs dependencies, verify
+               depends_on edges
+            5. `TestActionsExtractor_ExtractStepActions` - jobs with steps using actions,
+               verify action nodes and references edges
+            6. `TestActionsExtractor_DeduplicateActions` - two jobs both using actions/checkout@v4,
+               verify only one action node is created
+            7. `TestActionsExtractor_EmptyJobs` - workflow with no jobs section
+
+            Each test creates the extractor directly (`e := &actionsExtractor{}`) and calls
+            `e.extract()` with types.ExtractOptions.
+
+            ### Verification gate
+            ```
+            go build ./internal/indexer/cloudextractor/...
+            go test ./internal/indexer/cloudextractor/ -run TestActions -v
+            go vet ./internal/indexer/cloudextractor/
+            ```
+
+            ### Postconditions
+            ```bash
+            grep -c "type actionsExtractor struct" internal/indexer/cloudextractor/actions.go
+            # Expected: 1
+
+            grep -c "func (e \*actionsExtractor) canHandle" internal/indexer/cloudextractor/actions.go
+            # Expected: 1
+
+            grep -c "func TestActions" internal/indexer/cloudextractor/actions_test.go
+            # Expected: >= 5
+            ```
+
+            ### Constraints
+            - Do NOT create extractor.go or doc.go; those are owned by Agent E in Wave 2.
+            - Do NOT modify any files outside the cloudextractor package.
+            - All helper functions MUST be prefixed with `actions` (e.g., actionsGetString).
+              Other agents define helpers with their own prefixes in the same package.
+            - All constants MUST be prefixed with `actions` (e.g., actionsProvenance).
+          files:
+            - internal/indexer/cloudextractor/actions.go
+            - internal/indexer/cloudextractor/actions_test.go
+        - id: D
+          task: |
+            ## Agent D: Serverless Framework Extractor
+
+            ### What to implement
+
+            Create `internal/indexer/cloudextractor/serverless.go` and its test file.
+            The directory `internal/indexer/cloudextractor/` does not exist yet; create it.
+
+            **Package declaration:** `package cloudextractor`
+
+            **CRITICAL: Helper function naming.** All four Wave 1 agents create files in the
+            same Go package. To avoid duplicate function name collisions at merge time, you
+            MUST prefix all helper functions with `sls`. Use these exact names:
+            - `slsGetString(m map[string]interface{}, key string) string`
+            - `slsToStringMap(m map[string]interface{}) map[string]string`
+            - `slsMakeEdge(sourceHash, targetHash types.Hash, edgeType string) types.Edge`
+            - `slsBuildQN(repoURL, filePath, kind, name string) string`
+
+            **File: serverless.go**
+
+            Implement the `serverlessExtractor` struct:
+
+            ```go
+            type serverlessExtractor struct{}
+
+            func (e *serverlessExtractor) name() string { return "serverless" }
+            func (e *serverlessExtractor) canHandle(path string, content []byte) bool
+            func (e *serverlessExtractor) extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error)
+            ```
+
+            **Detection logic (canHandle):**
+            - Filename (filepath.Base) must be "serverless.yml" or "serverless.yaml", AND
+            - Content must have both top-level "service" AND "provider" keys
+            - Parse top-level keys via yaml.Unmarshal into map[string]interface{}
+
+            **Extraction logic (extract):**
+
+            1. Parse YAML content into map[string]interface{}
+            2. Find the "functions" top-level key (map of function names to definitions)
+            3. For each function:
+               - Create a node with kind="function", symbol name = function name
+               - QualifiedName: `{repoURL}://{filePath}.function.{functionName}`
+               - NodeHash: types.ComputeNodeHash(repoURL, filePath, types.EmptyHash, functionName, "function")
+            4. For each function, check the "events" list ([]interface{}):
+               - Each event is a map with a single key indicating the type
+               - **http / httpApi events:** The value is a map with "path" and "method" keys.
+                 Create a "route" node: kind="route", name="{METHOD} {path}" (uppercase method).
+                 QualifiedName: `{repoURL}://{filePath}.route.{METHOD} {path}`
+                 Create a "handles_route" edge from the function to the route node.
+               - **sqs events:** The value is a map with "arn" key (or a string ARN directly).
+                 Create a "subscribes" edge from the function to a synthetic event_source node.
+                 Event source node kind="event_source", name derived from ARN or value.
+               - **sns events:** Similar to sqs. Create "subscribes" edge to event_source node.
+               - **schedule events:** Value is a string rate/cron expression (e.g., "rate(1 hour)").
+                 Create "subscribes" edge to event_source node with name="schedule:{expression}".
+               - **s3 events:** Value is a map with "bucket" key. Create "subscribes" edge
+                 to event_source node with name="s3:{bucket}".
+
+            **Constants:**
+            ```go
+            const (
+                slsProvenance = "ast_inferred"
+                slsConfidence = 0.7
+            )
+            ```
+
+            **Imports required:**
+            - "context"
+            - "fmt"
+            - "path/filepath"
+            - "strings"
+            - "github.com/blackwell-systems/knowing/internal/types"
+            - "gopkg.in/yaml.v3"
+
+            ### Test file: serverless_test.go
+
+            Create comprehensive tests covering:
+            1. `TestServerlessExtractor_CanHandle` - positive: serverless.yml with service+provider,
+               serverless.yaml with service+provider. Negative: serverless.yml without provider,
+               plain YAML with service but no provider, non-YAML files.
+            2. `TestServerlessExtractor_ExtractFunctions` - serverless config with 3 functions,
+               verify function nodes
+            3. `TestServerlessExtractor_ExtractHttpRoutes` - functions with http events, verify
+               route nodes and handles_route edges
+            4. `TestServerlessExtractor_ExtractHttpApiRoutes` - functions with httpApi events
+            5. `TestServerlessExtractor_ExtractSQSSubscription` - function with sqs event,
+               verify subscribes edge and event_source node
+            6. `TestServerlessExtractor_ExtractSNSSubscription` - function with sns event
+            7. `TestServerlessExtractor_ExtractSchedule` - function with schedule event
+            8. `TestServerlessExtractor_ExtractS3Event` - function with s3 event
+            9. `TestServerlessExtractor_EmptyFunctions` - serverless config with no functions
+
+            Each test creates the extractor directly (`e := &serverlessExtractor{}`) and calls
+            `e.extract()` with types.ExtractOptions.
+
+            ### Verification gate
+            ```
+            go build ./internal/indexer/cloudextractor/...
+            go test ./internal/indexer/cloudextractor/ -run TestServerless -v
+            go vet ./internal/indexer/cloudextractor/
+            ```
+
+            ### Postconditions
+            ```bash
+            grep -c "type serverlessExtractor struct" internal/indexer/cloudextractor/serverless.go
+            # Expected: 1
+
+            grep -c "func (e \*serverlessExtractor) canHandle" internal/indexer/cloudextractor/serverless.go
+            # Expected: 1
+
+            grep -c "func TestServerless" internal/indexer/cloudextractor/serverless_test.go
+            # Expected: >= 5
+            ```
+
+            ### Constraints
+            - Do NOT create extractor.go or doc.go; those are owned by Agent E in Wave 2.
+            - Do NOT modify any files outside the cloudextractor package.
+            - All helper functions MUST be prefixed with `sls` (e.g., slsGetString, slsMakeEdge).
+              Other agents define helpers with their own prefixes in the same package.
+            - All constants MUST be prefixed with `sls` (e.g., slsProvenance, slsConfidence).
+          files:
+            - internal/indexer/cloudextractor/serverless.go
+            - internal/indexer/cloudextractor/serverless_test.go
+    - number: 2
+      agents:
+        - id: E
+          task: |
+            ## Agent E: Shared Delegator, Helper Consolidation, and Registration
+
+            ### What to implement
+
+            Create `internal/indexer/cloudextractor/extractor.go` (the shared delegator),
+            `internal/indexer/cloudextractor/doc.go`, consolidate helper functions from
+            Wave 1 format files, and modify `cmd/knowing/main.go` to register the extractor.
+
+            ### File 1: extractor.go
+
+            This file defines the `subExtractor` interface, the `CloudExtractor` struct
+            that implements `types.Extractor`, and shared helper functions.
+
+            ```go
+            package cloudextractor
+
+            import (
+                "context"
+                "fmt"
+                "path/filepath"
+                "strings"
+
+                "github.com/blackwell-systems/knowing/internal/types"
+            )
+
+            const (
+                provenance = "ast_inferred"
+                confidence = 0.7
+            )
+
+            // subExtractor is the internal interface each format parser implements.
+            type subExtractor interface {
+                name() string
+                canHandle(path string, content []byte) bool
+                extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error)
+            }
+
+            // CloudExtractor delegates to format-specific sub-extractors.
+            type CloudExtractor struct {
+                subs []subExtractor
+            }
+
+            // NewCloudExtractor creates a CloudExtractor with all registered sub-extractors.
+            func NewCloudExtractor() *CloudExtractor {
+                return &CloudExtractor{
+                    subs: []subExtractor{
+                        &cfnExtractor{},
+                        &composeExtractor{},
+                        &actionsExtractor{},
+                        &serverlessExtractor{},
+                    },
+                }
+            }
+
+            func (e *CloudExtractor) Name() string { return "cloud-yaml" }
+
+            func (e *CloudExtractor) CanHandle(path string) bool {
+                ext := strings.ToLower(filepath.Ext(path))
+                return ext == ".yaml" || ext == ".yml"
+            }
+
+            func (e *CloudExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error) {
+                for _, sub := range e.subs {
+                    if sub.canHandle(opts.FilePath, opts.Content) {
+                        return sub.extract(ctx, opts)
+                    }
+                }
+                return &types.ExtractResult{}, nil
+            }
+            ```
+
+            **CanHandle strategy:** Accept all .yaml/.yml files. The k8sextractor also
+            matches some YAML files, but the indexer calls all matching extractors.
+            CloudExtractor's Extract method does content-based filtering via sub-extractors;
+            if no sub-extractor matches, it returns an empty result (which is safe and
+            ignored by the indexer).
+
+            **Shared helper functions to add to extractor.go:**
+            ```go
+            func getString(m map[string]interface{}, key string) string
+            func toStringMap(m map[string]interface{}) map[string]string
+            func makeEdge(sourceHash, targetHash types.Hash, edgeType string) types.Edge
+            func buildQN(repoURL, filePath, kind, name string) string
+            ```
+
+            These match the k8sextractor pattern exactly. The `buildQN` function format:
+            `fmt.Sprintf("%s://%s.%s.%s", repoURL, filePath, kind, name)`
+
+            **Helper consolidation:** After creating extractor.go with shared helpers,
+            update each Wave 1 format file to use the shared helpers instead of their
+            prefixed versions:
+            - In cloudformation.go: replace `cfnGetString` with `getString`, `cfnMakeEdge`
+              with `makeEdge`, `cfnBuildQN` with `buildQN`, `cfnToStringMap` with `toStringMap`.
+              Remove the prefixed function definitions. Replace `cfnProvenance`/`cfnConfidence`
+              with `provenance`/`confidence` and remove the prefixed constant declarations.
+            - In compose.go: same pattern, replace `compose`-prefixed helpers and constants.
+            - In actions.go: same pattern, replace `actions`-prefixed helpers and constants.
+            - In serverless.go: same pattern, replace `sls`-prefixed helpers and constants.
+
+            Use find-and-replace across each file. The function signatures are identical
+            (minus the prefix), so this is a mechanical transformation.
+
+            ### File 2: doc.go
+
+            ```go
+            // Package cloudextractor extracts cloud infrastructure and CI/CD resource
+            // definitions and their relationships from YAML configuration files.
+            // Supported formats: AWS CloudFormation/SAM, Docker Compose, GitHub Actions,
+            // and Serverless Framework.
+            package cloudextractor
+            ```
+
+            ### File 3: cmd/knowing/main.go (modify)
+
+            Add import and registration.
+
+            Add to the import block, after this exact line:
+            ```go
+            	"github.com/blackwell-systems/knowing/internal/indexer/k8sextractor"
+            ```
+
+            Insert:
+            ```go
+            	"github.com/blackwell-systems/knowing/internal/indexer/cloudextractor"
+            ```
+
+            In the `registerAllExtractors` function, insert after this exact text:
+            ```go
+            	// Kubernetes YAML.
+            	idx.Register(k8sextractor.NewK8sExtractor())
+            ```
+
+            Add:
+            ```go
+
+            	// Cloud infrastructure YAML (CloudFormation, Docker Compose, GitHub Actions, Serverless).
+            	idx.Register(cloudextractor.NewCloudExtractor())
+            ```
+
+            ### Verification gate
+            ```
+            go build ./...
+            go test ./internal/indexer/cloudextractor/ -v -count=1
+            go vet ./...
+            ```
+
+            ### Postconditions
+            ```bash
+            # CloudExtractor struct exists
+            grep -c "type CloudExtractor struct" internal/indexer/cloudextractor/extractor.go
+            # Expected: 1
+
+            # subExtractor interface exists
+            grep -c "type subExtractor interface" internal/indexer/cloudextractor/extractor.go
+            # Expected: 1
+
+            # Registration in main.go
+            grep -c "cloudextractor.NewCloudExtractor" cmd/knowing/main.go
+            # Expected: 1
+
+            # Shared getString defined only in extractor.go (no prefixed duplicates remain)
+            grep -rn "func cfnGetString\|func composeGetString\|func actionsGetString\|func slsGetString" internal/indexer/cloudextractor/
+            # Expected: 0 matches (all prefixed helpers removed)
+
+            # Shared getString exists in extractor.go
+            grep -c "func getString" internal/indexer/cloudextractor/extractor.go
+            # Expected: 1
+            ```
+
+            ### Constraints
+            - When modifying Wave 1 format files, ONLY remove prefixed helper/constant
+              definitions and update their callers to use the shared versions. Do NOT
+              change extraction logic, struct definitions, or test files.
+            - Do NOT modify any files outside cmd/knowing/main.go and
+              internal/indexer/cloudextractor/.
+            - Ensure all tests still pass after the helper consolidation.
+          files:
+            - internal/indexer/cloudextractor/extractor.go
+            - internal/indexer/cloudextractor/doc.go
+            - cmd/knowing/main.go
+          dependencies:
+            - A
+            - B
+            - C
+            - D
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: GOWORK=off go build ./...
+          required: true
+        - type: lint
+          command: GOWORK=off go vet ./...
+          required: true
+        - type: test
+          command: GOWORK=off go test ./... -timeout 5m
+          required: true
+pre_mortem:
+    overall_risk: low
+    rows:
+        - scenario: |
+            Wave 1 agents define prefixed helper functions with slightly different
+            signatures than what Agent E expects, causing compilation errors after
+            consolidation.
+          likelihood: medium
+          impact: low
+          mitigation: |
+            Agent task prompts specify exact function signatures matching the
+            k8sextractor pattern. Agent E is instructed to normalize any minor
+            differences when consolidating. The signatures are trivial (getString,
+            toStringMap, makeEdge) with well-defined types.
+        - scenario: |
+            CloudExtractor.CanHandle claims all YAML files, causing the indexer to
+            call both k8sextractor and CloudExtractor for K8s manifests, producing
+            duplicate nodes.
+          likelihood: medium
+          impact: low
+          mitigation: |
+            The indexer deduplicates nodes by NodeHash. Even if both extractors
+            process the same file, CloudExtractor's sub-extractors will not match
+            K8s content (no AWSTemplateFormatVersion, no services+version, etc.)
+            and return an empty result. No duplicate nodes are produced.
+        - scenario: |
+            Wave 1 agents forget to prefix helper functions, causing compilation
+            failure at Wave 2 merge time.
+          likelihood: low
+          impact: high
+          mitigation: |
+            Each agent's task prompt has a CRITICAL section in bold about prefixing.
+            The constraint section repeats the requirement. Agent E's task includes
+            instructions for handling this case (rename remaining duplicates).
+        - scenario: |
+            Agent E's file ownership includes modifying Wave 1 format files (for
+            helper consolidation) but these are listed as Agent A-D owned files.
+          likelihood: medium
+          impact: medium
+          mitigation: |
+            Wave 1 and Wave 2 are sequential, so there is no I1 violation across
+            waves. Agent E modifies Wave 1 files only after they are merged. The
+            file_ownership table correctly shows Wave 1 files owned by A-D and
+            Wave 2 files owned by E. Agent E's modifications to Wave 1 files are
+            part of the consolidation task and happen on the merged branch.
+        - scenario: |
+            Content-based detection in canHandle requires YAML parsing which could
+            panic or return errors on malformed input.
+          likelihood: low
+          impact: low
+          mitigation: |
+            All agents use yaml.Unmarshal with error checking. Malformed YAML causes
+            canHandle to return false and extract to return an empty result.
+known_issues:
+    - title: Agent E modifies Wave 1 files not in its file_ownership
+      description: |
+        Agent E must modify cloudformation.go, compose.go, actions.go, and
+        serverless.go to consolidate prefixed helpers into shared functions.
+        These files are not in Agent E's file_ownership because they were
+        created in Wave 1. This is acceptable because waves are sequential
+        and the files are already merged before Wave 2 begins. Agent E
+        effectively has write access to all files in the package during
+        Wave 2 consolidation.
+      status: accepted
+critic_report:
+    verdict: PASS
+    agent_reviews: {}
+    summary: Skipped by operator (--skip-critic)
+    reviewed_at: "2026-05-17T08:40:48Z"
+    issue_count: 0
+state: REVIEWED
