@@ -11,8 +11,24 @@ permissions:
   packages: write
 
 jobs:
-  release:
-    runs-on: ubuntu-latest
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+          - os: ubuntu-latest
+            goos: linux
+            goarch: arm64
+          - os: macos-13
+            goos: darwin
+            goarch: amd64
+          - os: macos-latest
+            goos: darwin
+            goarch: arm64
+
+    runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4
@@ -24,8 +40,156 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Run tests before release
+      - name: Run tests
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
         run: GOWORK=off go test $(go list ./... | grep -v /bench/) -timeout 5m
+
+      - name: Build binary
+        env:
+          CGO_ENABLED: "1"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOWORK: "off"
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          COMMIT="${GITHUB_SHA:0:7}"
+          DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          go build -ldflags "-s -w -X main.Version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" \
+            -o knowing ./cmd/knowing
+
+      - name: Package archive
+        run: |
+          ARCHIVE="knowing_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz"
+          tar czf "${ARCHIVE}" knowing README.md CHANGELOG.md
+          echo "ARCHIVE=${ARCHIVE}" >> $GITHUB_ENV
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: knowing_${{ matrix.goos }}_${{ matrix.goarch }}
+          path: ${{ env.ARCHIVE }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/
+
+      - name: Flatten artifacts
+        run: |
+          mkdir -p release/
+          find dist/ -name '*.tar.gz' -exec mv {} release/ \;
+          cd release && sha256sum *.tar.gz > checksums.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: false
+          body: |
+            See [CHANGELOG.md](https://github.com/blackwell-systems/knowing/blob/main/CHANGELOG.md) for details.
+
+            ## Install
+
+            ```bash
+            brew install blackwell-systems/tap/knowing
+            go install github.com/blackwell-systems/knowing/cmd/knowing@${{ github.ref_name }}
+            ```
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Update Homebrew formula
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          DARWIN_ARM64_SHA=$(sha256sum release/knowing_darwin_arm64.tar.gz | cut -d' ' -f1)
+          DARWIN_AMD64_SHA=$(sha256sum release/knowing_darwin_amd64.tar.gz | cut -d' ' -f1)
+          LINUX_AMD64_SHA=$(sha256sum release/knowing_linux_amd64.tar.gz | cut -d' ' -f1)
+          LINUX_ARM64_SHA=$(sha256sum release/knowing_linux_arm64.tar.gz | cut -d' ' -f1)
+          BASE_URL="https://github.com/blackwell-systems/knowing/releases/download/${GITHUB_REF_NAME}"
+
+          cat > formula.rb << 'FORMULA'
+          class Knowing < Formula
+            desc "Content-addressed graph artifact for software systems"
+            homepage "https://github.com/blackwell-systems/knowing"
+            license "MIT"
+            version "VERSION_PLACEHOLDER"
+
+            on_macos do
+              if Hardware::CPU.arm?
+                url "BASE_URL_PLACEHOLDER/knowing_darwin_arm64.tar.gz"
+                sha256 "DARWIN_ARM64_SHA_PLACEHOLDER"
+              else
+                url "BASE_URL_PLACEHOLDER/knowing_darwin_amd64.tar.gz"
+                sha256 "DARWIN_AMD64_SHA_PLACEHOLDER"
+              end
+            end
+
+            on_linux do
+              if Hardware::CPU.arm?
+                url "BASE_URL_PLACEHOLDER/knowing_linux_arm64.tar.gz"
+                sha256 "LINUX_ARM64_SHA_PLACEHOLDER"
+              else
+                url "BASE_URL_PLACEHOLDER/knowing_linux_amd64.tar.gz"
+                sha256 "LINUX_AMD64_SHA_PLACEHOLDER"
+              end
+            end
+
+            def install
+              bin.install "knowing"
+            end
+
+            test do
+              system "#{bin}/knowing", "version"
+            end
+          end
+          FORMULA
+
+          sed -i "s|VERSION_PLACEHOLDER|${VERSION}|g" formula.rb
+          sed -i "s|BASE_URL_PLACEHOLDER|${BASE_URL}|g" formula.rb
+          sed -i "s|DARWIN_ARM64_SHA_PLACEHOLDER|${DARWIN_ARM64_SHA}|g" formula.rb
+          sed -i "s|DARWIN_AMD64_SHA_PLACEHOLDER|${DARWIN_AMD64_SHA}|g" formula.rb
+          sed -i "s|LINUX_AMD64_SHA_PLACEHOLDER|${LINUX_AMD64_SHA}|g" formula.rb
+          sed -i "s|LINUX_ARM64_SHA_PLACEHOLDER|${LINUX_ARM64_SHA}|g" formula.rb
+
+          # Push to homebrew-tap
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/blackwell-systems/homebrew-tap.git" tap
+          mkdir -p tap/Formula
+          mv formula.rb tap/Formula/knowing.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/knowing.rb
+          git commit -m "knowing ${VERSION}"
+          git push
+
+  docker:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download linux/amd64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: knowing_linux_amd64
+          path: dist/
+
+      - name: Extract binary
+        run: tar xzf dist/knowing_linux_amd64.tar.gz knowing
 
       - uses: docker/setup-buildx-action@v3
 
@@ -40,29 +204,18 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v6
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
         with:
-          distribution: goreleaser-cross
-          version: "~> v2"
-          args: release --clean
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GORELEASER_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-
-  winget:
-    name: Publish to winget
-    runs-on: ubuntu-latest
-    needs: release
-    steps:
-      - uses: vedantmgoyal9/winget-releaser@v2
-        with:
-          identifier: BlackwellSystems.knowing
-          installers-regex: 'windows.*\.zip$'
-          max-versions-to-keep: 5
-          fork-user: blackwell-systems
-          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          context: .
+          file: docker/Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ghcr.io/blackwell-systems/knowing:latest
+            ghcr.io/blackwell-systems/knowing:${{ github.ref_name }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/knowing:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/knowing:${{ github.ref_name }}
 
   npm-publish:
     needs: release

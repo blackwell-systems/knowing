@@ -15,10 +15,8 @@ builds:
       - GOWORK=off
     goos:
       - linux
-      - darwin
     goarch:
       - amd64
-      - arm64
     ldflags:
       - -s -w -X main.Version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
 
@@ -76,63 +74,16 @@ brews:
       system "#{bin}/knowing", "version"
 
 dockers:
-  # Base image (amd64)
   - image_templates:
-      - "ghcr.io/blackwell-systems/knowing:latest-amd64"
-      - "ghcr.io/blackwell-systems/knowing:{{ .Version }}-amd64"
-      - "ghcr.io/blackwell-systems/knowing:{{ .Major }}.{{ .Minor }}-amd64"
-      - "{{ .Env.DOCKERHUB_USERNAME }}/knowing:latest-amd64"
-      - "{{ .Env.DOCKERHUB_USERNAME }}/knowing:{{ .Version }}-amd64"
-      - "{{ .Env.DOCKERHUB_USERNAME }}/knowing:{{ .Major }}.{{ .Minor }}-amd64"
+      - "ghcr.io/blackwell-systems/knowing:latest"
+      - "ghcr.io/blackwell-systems/knowing:{{ .Version }}"
+      - "{{ .Env.DOCKERHUB_USERNAME }}/knowing:latest"
+      - "{{ .Env.DOCKERHUB_USERNAME }}/knowing:{{ .Version }}"
     goarch: amd64
     dockerfile: docker/Dockerfile
     use: buildx
     build_flag_templates:
       - "--platform=linux/amd64"
-      - "--cache-from=type=gha"
-      - "--cache-to=type=gha,mode=max"
-
-  # Base image (arm64)
-  - image_templates:
-      - "ghcr.io/blackwell-systems/knowing:latest-arm64"
-      - "ghcr.io/blackwell-systems/knowing:{{ .Version }}-arm64"
-      - "ghcr.io/blackwell-systems/knowing:{{ .Major }}.{{ .Minor }}-arm64"
-      - "{{ .Env.DOCKERHUB_USERNAME }}/knowing:latest-arm64"
-      - "{{ .Env.DOCKERHUB_USERNAME }}/knowing:{{ .Version }}-arm64"
-      - "{{ .Env.DOCKERHUB_USERNAME }}/knowing:{{ .Major }}.{{ .Minor }}-arm64"
-    goarch: arm64
-    dockerfile: docker/Dockerfile
-    use: buildx
-    build_flag_templates:
-      - "--platform=linux/arm64"
-      - "--cache-from=type=gha"
-      - "--cache-to=type=gha,mode=max"
-
-docker_manifests:
-  - name_template: "ghcr.io/blackwell-systems/knowing:latest"
-    image_templates:
-      - "ghcr.io/blackwell-systems/knowing:latest-amd64"
-      - "ghcr.io/blackwell-systems/knowing:latest-arm64"
-  - name_template: "ghcr.io/blackwell-systems/knowing:{{ .Version }}"
-    image_templates:
-      - "ghcr.io/blackwell-systems/knowing:{{ .Version }}-amd64"
-      - "ghcr.io/blackwell-systems/knowing:{{ .Version }}-arm64"
-  - name_template: "ghcr.io/blackwell-systems/knowing:{{ .Major }}.{{ .Minor }}"
-    image_templates:
-      - "ghcr.io/blackwell-systems/knowing:{{ .Major }}.{{ .Minor }}-amd64"
-      - "ghcr.io/blackwell-systems/knowing:{{ .Major }}.{{ .Minor }}-arm64"
-  - name_template: "{{ .Env.DOCKERHUB_USERNAME }}/knowing:latest"
-    image_templates:
-      - "{{ .Env.DOCKERHUB_USERNAME }}/knowing:latest-amd64"
-      - "{{ .Env.DOCKERHUB_USERNAME }}/knowing:latest-arm64"
-  - name_template: "{{ .Env.DOCKERHUB_USERNAME }}/knowing:{{ .Version }}"
-    image_templates:
-      - "{{ .Env.DOCKERHUB_USERNAME }}/knowing:{{ .Version }}-amd64"
-      - "{{ .Env.DOCKERHUB_USERNAME }}/knowing:{{ .Version }}-arm64"
-  - name_template: "{{ .Env.DOCKERHUB_USERNAME }}/knowing:{{ .Major }}.{{ .Minor }}"
-    image_templates:
-      - "{{ .Env.DOCKERHUB_USERNAME }}/knowing:{{ .Major }}.{{ .Minor }}-amd64"
-      - "{{ .Env.DOCKERHUB_USERNAME }}/knowing:{{ .Major }}.{{ .Minor }}-arm64"
 
 release:
   github:
