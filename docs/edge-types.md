@@ -8,15 +8,18 @@ participates in blast radius traversal and context ranking.
 
 | Edge Type | Meaning | Provenance | Confidence | Producers | Blast Radius | RWR Weight |
 |---|---|---|---|---|---|---|
-| `calls` | Function/method invocation | ast_inferred / lsp_resolved | 0.7 / 0.9 | All 11 extractors, enricher | Yes (traversed) | 1.0 |
-| `imports` | Module/package import | ast_inferred | 0.7 | All 11 extractors | No | 0.5 |
+| `calls` | Function/method invocation | ast_inferred / lsp_resolved | 0.7 / 0.9 | All 12 extractors, enricher | Yes (traversed) | 1.0 |
+| `imports` | Module/package import | ast_inferred | 0.7 | All 12 extractors | No | 0.5 |
 | `implements` | Type satisfies an interface | ast_inferred / lsp_resolved | 0.7 / 0.9 | Go extractor, enricher | No | 0.8 |
 | `handles_route` | HTTP handler bound to a route | ast_inferred | 0.7 | Go, TS, Python, Rust, Java, C# extractors | No | 0.7 |
-| `references` | Non-call identifier usage | ast_inferred / lsp_resolved | 0.7 / 0.9 | Go extractor, Proto extractor, SQL extractor, enricher | No | 0.4 |
+| `references` | Non-call identifier usage | ast_inferred / lsp_resolved / scip_resolved | 0.7 / 0.9 / 0.95 | Go extractor, Proto extractor, SQL extractor, SCIP ingestor, enricher | No | 0.4 |
 | `depends_on` | Resource/symbol dependency | ast_inferred | 0.7 | Terraform, SQL, CSS extractors | No | 0.5 |
 | `deploys` | K8s Service routes to Deployment | ast_inferred | 0.7 | K8s YAML extractor | No | 0.5 |
 | `exposes` | K8s Ingress exposes Service | ast_inferred | 0.7 | K8s YAML extractor | No | 0.5 |
 | `configures` | ConfigMap/Secret provides config | ast_inferred | 0.7 | K8s YAML extractor | No | 0.5 |
+| `publishes` | Producer publishes to a topic/queue | ast_inferred | 0.7 | Cloud extractor (Serverless, CFN) | No | 0.5 |
+| `subscribes` | Consumer subscribes to a topic/queue | ast_inferred | 0.7 | Cloud extractor (Serverless, CFN) | No | 0.5 |
+| `connects_to` | Service connects to another service/network | ast_inferred | 0.7 | Cloud extractor (Docker Compose) | No | 0.5 |
 | `runtime_calls` | HTTP call observed in traces | otel_trace | 0.2 - 0.95 | Trace ingestor | No | 0.3 (default) |
 | `runtime_rpc` | gRPC/RPC call observed in traces | otel_trace | 0.2 - 0.95 | Trace ingestor | No | 0.3 (default) |
 | `runtime_produces` | Message published to a topic | otel_trace | 0.2 - 0.95 | Trace ingestor | No | 0.3 (default) |
@@ -30,9 +33,9 @@ A function or method invokes another function or method.
 
 - **Direction:** source calls target. `pkg.HandleLogin -calls-> pkg.AuthService.Validate` means
   HandleLogin contains a call expression that resolves to AuthService.Validate.
-- **Producers:** All 11 language extractors (Go, TypeScript, Rust, Java, C#, Python,
-  Terraform, SQL, Kubernetes YAML, CSS, Protocol Buffers) produce `calls` edges. The enricher
-  upgrades ast_inferred calls to lsp_resolved when gopls confirms the definition.
+- **Producers:** All 12 extractors (Go, TypeScript, Rust, Java, C#, Python,
+  Terraform, SQL, Kubernetes YAML, Cloud YAML, CSS, Protocol Buffers) produce `calls` edges.
+  The enricher upgrades ast_inferred calls to lsp_resolved when gopls confirms the definition.
 - **Provenance:** `ast_inferred` (confidence 0.7) from tree-sitter extraction; `lsp_resolved`
   (confidence 0.9) after enrichment confirms the target via GetDefinition.
 - **Blast radius:** This is the only edge type traversed by `TransitiveCallers`. The recursive
@@ -52,7 +55,7 @@ A file imports a module or package.
 
 - **Direction:** source imports target. `cmd/server/main.go -imports-> github.com/example/pkg`
   means the file declares an import of that package.
-- **Producers:** All 11 language extractors. For Go: import declarations. For TypeScript:
+- **Producers:** All 12 extractors. For Go: import declarations. For TypeScript:
   `import` statements and `require()` calls. For Rust: `use` declarations. For Java:
   `import` declarations. For C#: `using` directives. For Python: `import` and
   `from ... import` statements. For Protocol Buffers: `import` statements. For CSS:
@@ -115,10 +118,13 @@ A non-call usage of an identifier (type annotations, variable reads, constant re
   identifier usages that are not call expressions. Call targets already receive `calls` edges,
   so the extractor explicitly excludes call positions to avoid redundant edges. The Protocol
   Buffers extractor (`protoextractor`) emits `references` edges from RPC methods to their
-  request/response message types and from message fields to referenced message types. The LSP
-  enricher also discovers `references` via `GetReferences` queries for functions and methods.
-- **Provenance:** `ast_inferred` (confidence 0.7) from the Go extractor; `lsp_resolved`
-  (confidence 0.9) when discovered by the enricher.
+  request/response message types and from message fields to referenced message types. The SCIP
+  ingestor (`internal/indexer/scipingest/`) emits `references` edges for all symbol references
+  found in imported SCIP index files. The LSP enricher also discovers `references` via
+  `GetReferences` queries for functions and methods.
+- **Provenance:** `ast_inferred` (confidence 0.7) from the Go extractor; `scip_resolved`
+  (confidence 0.95) from SCIP ingest; `lsp_resolved` (confidence 0.9) when discovered by the
+  enricher.
 - **Blast radius:** Not traversed. References indicate structural coupling but not execution
   flow.
 - **RWR weight:** 0.4. The lowest weight among static edge types, reflecting that a type
@@ -168,6 +174,39 @@ A Kubernetes ConfigMap or Secret provides configuration to a Deployment.
 - **Direction:** source configmap/secret configures target deployment.
   `ConfigMap/settings -configures-> Deployment/api` means the deployment mounts or references that config.
 - **Producers:** K8s YAML extractor (volume mount and envFrom references).
+- **Provenance:** `ast_inferred` (confidence 0.7).
+- **Blast radius:** Not traversed.
+- **RWR weight:** 0.5.
+
+### `publishes`
+
+A function or service publishes messages to a topic or queue.
+
+- **Direction:** source publishes to target topic.
+  `functions/processOrder -publishes-> topic/order-events` means the function sends messages to that topic.
+- **Producers:** Cloud extractor (Serverless Framework event sources, CloudFormation/SAM SNS/SQS subscriptions).
+- **Provenance:** `ast_inferred` (confidence 0.7).
+- **Blast radius:** Not traversed.
+- **RWR weight:** 0.5.
+
+### `subscribes`
+
+A function or service subscribes to (consumes from) a topic or queue.
+
+- **Direction:** source subscribes to target topic.
+  `functions/handleOrder -subscribes-> topic/order-events` means the function is triggered by messages on that topic.
+- **Producers:** Cloud extractor (Serverless Framework SQS/SNS/Kafka event triggers, CloudFormation/SAM event source mappings).
+- **Provenance:** `ast_inferred` (confidence 0.7).
+- **Blast radius:** Not traversed.
+- **RWR weight:** 0.5.
+
+### `connects_to`
+
+A service connects to another service or network resource.
+
+- **Direction:** source connects to target.
+  `service/api -connects_to-> service/redis` means the api service declares a dependency on redis (via `depends_on` or network membership).
+- **Producers:** Cloud extractor (Docker Compose `depends_on` links and shared network membership).
 - **Provenance:** `ast_inferred` (confidence 0.7).
 - **Blast radius:** Not traversed.
 - **RWR weight:** 0.5.
@@ -236,6 +275,7 @@ Provenance tracks how an edge was discovered and determines its confidence level
 |---|---|---|---|
 | `ast_inferred` | 0.7 | Tree-sitter extractors | Edge inferred from AST structure without type resolution. Cross-package calls resolved heuristically from import aliases. |
 | `lsp_resolved` | 0.9 | LSP enricher (gopls) | Edge confirmed by querying the language server's GetDefinition at the call site. The original ast_inferred edge is deleted and replaced. |
+| `scip_resolved` | 0.95 | SCIP ingestor | Edge resolved from a SCIP index file. Near-full confidence; SCIP indexes are produced by compiler-grade tools with complete type information. |
 | `ast_resolved` | 1.0 | Python extractor | Edge resolved with full confidence. (Python extractor uses this provenance, though cross-module targets may still be dangling.) |
 | `otel_trace` | 0.2 - 0.95 | Trace ingestor | Edge observed in production runtime data. Confidence varies by observation count and recency. |
 

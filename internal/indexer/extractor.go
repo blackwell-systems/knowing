@@ -41,3 +41,17 @@ func (r *ExtractorRegistry) FindExtractor(path string) types.Extractor {
 	}
 	return nil
 }
+
+// FindAllExtractors returns all registered extractors that can handle
+// the given file path. This enables multi-extractor dispatch: a .go file
+// can be processed by both the Go extractor (functions, types) and the
+// event extractor (Kafka/NATS patterns).
+func (r *ExtractorRegistry) FindAllExtractors(path string) []types.Extractor {
+	var matches []types.Extractor
+	for _, ext := range r.extractors {
+		if ext.CanHandle(path) {
+			matches = append(matches, ext)
+		}
+	}
+	return matches
+}

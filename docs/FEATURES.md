@@ -1,6 +1,6 @@
 # FEATURES.md -- Comprehensive Feature Dump for AI Reference
 
-Generated: 2026-05-15 (updated: 2026-05-16, features 40-47 added)
+Generated: 2026-05-15 (updated: 2026-05-16, features 40-49 added)
 Source: code inspection of all Go files across internal/, cmd/, and config
 Repo: github.com/blackwell-systems/knowing
 
@@ -571,6 +571,27 @@ Repo: github.com/blackwell-systems/knowing
 - **Outputs:** JSON with communities array or symbol-specific community result.
 - **Dependencies:** GraphStore (NodesByName, EdgesFrom).
 
+### 48. Cloud YAML Extractor (CloudFormation/SAM, Docker Compose, GitHub Actions, Serverless)
+
+- **Package(s):** `internal/indexer/cloudextractor/`
+- **Entry point:** `cloudextractor.NewCloudExtractor() *CloudExtractor`
+- **What it does:** Single extractor that handles 4 cloud YAML formats via content-based detection (not file extension). Delegates to sub-extractors for CloudFormation/SAM, Docker Compose, GitHub Actions, and Serverless Framework. Produces resource nodes and relationship edges (`depends_on`, `calls`, `publishes`, `subscribes`, `connects_to`).
+- **Inputs:** `ExtractOptions` with YAML file content.
+- **Outputs:** `ExtractResult` with nodes (resources, functions, services, workflows) and edges.
+- **Sub-extractors:** `cloudformation.go` (CFN/SAM), `compose.go` (Docker Compose), `actions.go` (GitHub Actions), `serverless.go` (Serverless Framework).
+- **Dependencies:** `gopkg.in/yaml.v3`.
+
+### 49. SCIP Ingest (External Dependency Symbols)
+
+- **Package(s):** `internal/indexer/scipingest/`
+- **Entry point:** `scipingest.NewSCIPIngester(store).IngestFile(ctx, SCIPIngestOptions) (*SCIPIngestResult, error)`
+- **CLI:** `knowing ingest-scip -file <path> -repo <url>`
+- **What it does:** Reads a `.scip` protobuf file produced by any SCIP-compatible indexer. Creates nodes for all symbol definitions and `references` edges for all symbol references found in the index. Enables cross-repo resolution without cloning and fully indexing external dependencies.
+- **Inputs:** SCIP protobuf file path, repository URL.
+- **Outputs:** `SCIPIngestResult` with `NodesCreated`, `EdgesCreated`, `DocsProcessed`.
+- **Provenance:** `scip_resolved` (confidence 0.95).
+- **Dependencies:** Protocol Buffers runtime for SCIP format parsing.
+
 ### GraphStore (`internal/types/interfaces.go`)
 
 All 27 methods:
@@ -754,7 +775,7 @@ Parameters per tool:
 
 - **Flags:** `--db` (default: `knowing.db`), `--addr` (default: `:8080`), `--trace` (enable trace ingestion), `--trace-endpoint` (default: `localhost:4317`), `--trace-batch-size` (default: 1000)
 - **Positional args:** repo paths to watch (0 or more)
-- **What it does:** Opens SQLite store, creates snapshot manager and indexer, registers all 11 language extractors (Go, Python, TypeScript/JS, Rust, Java, C#, Terraform, SQL, K8s, CSS, Protocol Buffers), creates MCP server (22 tools across six planes, 3 prompts), creates daemon with GitWatcher, optionally starts trace ingestion pipeline (OTLPReceiver + Ingestor + periodic flush/decay), watches listed repos, blocks until SIGINT/SIGTERM.
+- **What it does:** Opens SQLite store, creates snapshot manager and indexer, registers all 12 extractors (Go, Python, TypeScript/JS, Rust, Java, C#, Terraform, SQL, K8s YAML, Cloud YAML [CFN/SAM, Compose, Actions, Serverless], CSS, Protocol Buffers), creates MCP server (22 tools across six planes, 3 prompts), creates daemon with GitWatcher, optionally starts trace ingestion pipeline (OTLPReceiver + Ingestor + periodic flush/decay), watches listed repos, blocks until SIGINT/SIGTERM.
 - **Extractors registered:** `gotsextractor` (Go), `treesitter` (Python), `tsextractor` (TypeScript/JS), `rustextractor` (Rust), `javaextractor` (Java), `csharpextractor` (C#), `terraformextractor` (Terraform HCL), `sqlextractor` (SQL), `k8sextractor` (Kubernetes YAML), `cssextractor` (CSS), `protoextractor` (Protocol Buffers). Route detection covers 18 frameworks across 6 languages (Go: 5, Python: 3, TypeScript: 5).
 - **Enrichment:** Background EnrichFunc wired with scoped or full enrichment.
 - **Trace ingestion:** When `--trace` is set, launches a fourth daemon goroutine that opens a dedicated DB connection, creates SymbolResolver + Ingestor + OTLPReceiver, flushes batches every 10s, and decays confidence every 1h.
@@ -1050,14 +1071,18 @@ Hardcoded in `cmd/knowing/main.go` via daemon startup: `500 * time.Millisecond`.
 - **No code exists.** The `derived_results` table is not in any migration.
 
 ### SCIP Ingest (External Dependency Indexing)
-- **Roadmap: Edge Types workstream.**
-- **What's needed:** SCIP index parser, shallow public API surface extraction, integration with graph store.
-- **No code exists.**
+- **Roadmap: Edge Types workstream. IMPLEMENTED.**
+- **Package(s):** `internal/indexer/scipingest/`, `cmd/knowing/ingestscip.go`
+- **CLI:** `knowing ingest-scip -file <path> -repo <url>`
+- **What it does:** Reads a `.scip` protobuf file (produced by `scip-go`, `scip-typescript`, etc.), creates nodes for all symbol definitions and `references` edges for all symbol references. Provenance `scip_resolved`, confidence 0.95.
+- **Entry point:** `scipingest.NewSCIPIngester(store).IngestFile(ctx, SCIPIngestOptions)`
+- **Returns:** `SCIPIngestResult` with `NodesCreated`, `EdgesCreated`, `DocsProcessed`.
 
 ### Protobuf/gRPC Edge Extraction
-- **Roadmap: Edge Types workstream.**
-- **What's needed:** Proto file parser, `rpc_calls` edge type, service-to-service mapping.
-- **No code exists.**
+- **Roadmap: Edge Types workstream. IMPLEMENTED.**
+- **Package(s):** `internal/indexer/protoextractor/`
+- **What it does:** Parses `.proto` files with tree-sitter. Extracts service, message, enum, and RPC declarations. Produces `references` edges for field types and RPC request/response message types. See Feature #24 (Protocol Buffers Extractor).
+- **Entry point:** `protoextractor.NewProtoExtractor()`
 
 ### HTTP Route Edge Extraction
 - **Roadmap: Edge Types workstream.**
@@ -1065,19 +1090,26 @@ Hardcoded in `cmd/knowing/main.go` via daemon startup: `500 * time.Millisecond`.
 - **Remaining gaps:** `declares_route`/`consumes_route` edge types from the architecture are not used; instead `handles_route` is used. Route groups/prefixes not supported. Dynamic route patterns not detected.
 
 ### Event/Message Queue Edge Extraction
-- **Roadmap: Edge Types workstream.**
-- **What's needed:** Kafka/NATS/SQS topic producer/consumer detection, `produces_event`/`consumes_event` edges.
-- **No code exists.**
+- **Roadmap: Edge Types workstream. PARTIALLY IMPLEMENTED.**
+- **Package(s):** `internal/indexer/eventextractor/`
+- **What it does:** Detects Kafka, NATS, SQS, and RabbitMQ/AMQP producer/consumer patterns across Go, TypeScript, Python, and Java. Produces `publishes`/`subscribes` edges with topic nodes.
+- **Status:** Package exists with full tests, but NOT registered in the CLI. Requires `FindAllExtractors` multi-dispatch (not yet implemented in the indexer) to run alongside primary language extractors on the same file.
+- **Entry point:** `eventextractor.NewEventExtractor()`
 
 ### Schema Edge Extraction (OpenAPI, JSON Schema)
-- **Roadmap: Edge Types workstream.**
-- **What's needed:** OpenAPI spec parser, `reads_field`/`writes_field` edges.
-- **No code exists.**
+- **Roadmap: Edge Types workstream. PARTIALLY IMPLEMENTED.**
+- **Package(s):** `internal/indexer/schemaextractor/`
+- **What it does:** Parses OpenAPI/Swagger specs and JSON Schema files to extract schema, endpoint, and field nodes with reference edges.
+- **Status:** Package exists with tests, but NOT registered in the CLI. Requires `FindAllExtractors` multi-dispatch to run alongside primary language extractors.
+- **Entry point:** `schemaextractor.NewSchemaExtractor()`
 
-### Infrastructure Edge Extraction (Terraform, K8s)
-- **Roadmap: Edge Types workstream.**
-- **Status: PARTIALLY IMPLEMENTED.** Terraform extractor (`internal/indexer/terraformextractor`) and Kubernetes extractor (`internal/indexer/k8sextractor`) exist and extract nodes and edges from HCL and K8s manifests respectively. See Features #32 and #34.
-- **Remaining gaps:** `deploys`/`connects_to`/`depends_on_service` edge types from the architecture are not yet produced. Cross-resource dependency resolution is basic.
+### Infrastructure Edge Extraction (Terraform, K8s, Cloud YAML)
+- **Roadmap: Edge Types workstream. IMPLEMENTED.**
+- **Package(s):** `internal/indexer/terraformextractor/`, `internal/indexer/k8sextractor/`, `internal/indexer/cloudextractor/`
+- **Status:** Terraform, K8s YAML, and Cloud YAML (CloudFormation/SAM, Docker Compose, GitHub Actions, Serverless Framework) extractors are all registered and active.
+- **Cloud extractor edge types:** `depends_on`, `deploys`, `exposes`, `configures`, `publishes`, `subscribes`, `connects_to`.
+- **K8s extractor edge types:** `deploys` (Service to Deployment via selector match), `exposes` (Ingress to Service), `configures` (ConfigMap/Secret to Deployment).
+- **Terraform edge types:** `depends_on` (explicit resource dependencies), `calls` (module references).
 
 ### Ownership Edge Extraction (CODEOWNERS)
 - **Roadmap: Edge Types workstream.**
@@ -1350,13 +1382,13 @@ bench/wire-format/
 | `lsp_resolved` | 0.9 | gopls GetDefinition/GetImplementation/GetReferences | After Tier 2 (~8s more) |
 | `ast_resolved` | 1.0 | go/packages full type resolution | `--full` flag only (~16min) |
 | `otel_trace` | 0.5-0.95 | Runtime observation via OTLP spans | After trace ingestion (continuous). Confidence from ConfidenceFromCount: 1 obs=0.5, 10+=0.7, 100+=0.85, 1000+=0.95. Decays to 0.2 after 30 days without observations, 0.0 after 90 days. |
+| `scip_resolved` | 0.95 | SCIP index file (via `knowing ingest-scip`) | After SCIP ingest. Near-full confidence from compiler-grade indexers. |
 
 ### Provenance Tiers (Defined in Architecture, NOT Implemented)
 
 | Provenance | Confidence | Source | Status |
 |-----------|-----------|--------|--------|
-| `scip_imported` | 0.9 | SCIP index import | NOT IMPLEMENTED |
-| `config_declared` | 0.8 | Terraform/K8s config | NOT IMPLEMENTED |
+| `config_declared` | 0.8 | Terraform/K8s config | NOT IMPLEMENTED (infra extractors use ast_inferred instead) |
 | `inferred_from_import` | 0.7 | Import without call site | NOT IMPLEMENTED (distinct from ast_inferred) |
 | `openapi_declared` | 0.7 | OpenAPI/proto spec | NOT IMPLEMENTED |
 | `text_matched` | 0.3 | String literal/comment heuristic | NOT IMPLEMENTED |

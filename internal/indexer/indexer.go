@@ -139,15 +139,26 @@ func (idx *Indexer) IndexFile(ctx context.Context, opts types.ExtractOptions) (*
 }
 
 // extractFile extracts nodes and edges from a single file without storing them.
+// It runs ALL matching extractors (not just the first) and merges results.
+// This enables a .go file to be processed by both the Go extractor and the
+// event extractor (for Kafka/NATS patterns).
 func (idx *Indexer) extractFile(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, *types.File, error) {
-	ext := idx.registry.FindExtractor(opts.FilePath)
-	if ext == nil {
+	extractors := idx.registry.FindAllExtractors(opts.FilePath)
+	if len(extractors) == 0 {
 		return &types.ExtractResult{}, nil, nil
 	}
 
-	result, err := ext.Extract(ctx, opts)
-	if err != nil {
-		return nil, nil, fmt.Errorf("extract %s: %w", opts.FilePath, err)
+	merged := &types.ExtractResult{}
+	for _, ext := range extractors {
+		result, err := ext.Extract(ctx, opts)
+		if err != nil {
+			// Log but continue with other extractors.
+			continue
+		}
+		if result != nil {
+			merged.Nodes = append(merged.Nodes, result.Nodes...)
+			merged.Edges = append(merged.Edges, result.Edges...)
+		}
 	}
 
 	contentHash := types.NewHash(opts.Content)
@@ -158,7 +169,7 @@ func (idx *Indexer) extractFile(ctx context.Context, opts types.ExtractOptions) 
 		ContentHash: contentHash,
 	}
 
-	return result, file, nil
+	return merged, file, nil
 }
 
 // IndexRepo indexes all source files in a repository, skipping files

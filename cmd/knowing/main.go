@@ -32,7 +32,9 @@ import (
 	"github.com/blackwell-systems/knowing/internal/indexer/gotsextractor"
 	"github.com/blackwell-systems/knowing/internal/indexer/javaextractor"
 	"github.com/blackwell-systems/knowing/internal/indexer/cloudextractor"
+	"github.com/blackwell-systems/knowing/internal/indexer/eventextractor"
 	"github.com/blackwell-systems/knowing/internal/indexer/k8sextractor"
+	"github.com/blackwell-systems/knowing/internal/indexer/schemaextractor"
 	"github.com/blackwell-systems/knowing/internal/indexer/protoextractor"
 	"github.com/blackwell-systems/knowing/internal/indexer/rustextractor"
 	"github.com/blackwell-systems/knowing/internal/indexer/sqlextractor"
@@ -1093,6 +1095,14 @@ func registerAllExtractors(idx *indexer.Indexer, fullGo bool) {
 
 	// Protocol Buffers.
 	idx.Register(protoextractor.NewProtoExtractor())
+
+	// Event/MQ patterns (Kafka, NATS, SQS, RabbitMQ).
+	// Handles same file extensions as language extractors; multi-dispatch
+	// ensures both run on the same file.
+	idx.Register(eventextractor.NewEventExtractor())
+
+	// OpenAPI/JSON Schema.
+	idx.Register(schemaextractor.NewSchemaExtractor())
 }
 
 // Compile-time assertion that SQLiteStore implements GraphStore. This also

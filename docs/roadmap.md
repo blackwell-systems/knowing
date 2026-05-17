@@ -10,7 +10,7 @@ Everything else depends on this. Complete.
 |------|-------------|--------|
 | Content-addressed store | SQLite backend, Merkle DAG, snapshot chain | **done** |
 | Extractor framework | Language-agnostic interface, worker pool parallelism | **done** |
-| 11 language extractors | Go, TypeScript/JS, Python, Rust, Java, C#, Terraform, SQL, K8s YAML, CSS, Protocol Buffers | **done** |
+| 12 extractors (15 formats) | Go, TypeScript/JS, Python, Rust, Java, C#, Terraform, SQL, K8s YAML, Cloud YAML (CFN/SAM, Compose, Actions, Serverless), CSS, Protocol Buffers | **done** |
 | LSP enrichment | Upgrades ast_inferred to lsp_resolved via gopls | **done** |
 | Incremental indexing | Git watcher, file change detection, deleted file cleanup | **done** |
 | Snapshot diff | Edge event sourcing, added/removed between snapshots | **done** |
@@ -25,10 +25,11 @@ Everything else depends on this. Complete.
 |------|-------------|--------|
 | HTTP route edges | 18 frameworks across 6 languages (Go, TS, Python, Rust, Java, C#) | **done** |
 | Infrastructure extractors | Terraform, SQL, K8s YAML, CSS | **done** |
-| SCIP ingest | Tier 2 shallow indexing for external dependencies | planned |
+| SCIP ingest | `knowing ingest-scip` CLI: import .scip protobuf indexes, provenance `scip_resolved` (0.95) | **done** |
+| Cloud extractors | CloudFormation/SAM, Docker Compose, GitHub Actions, Serverless Framework (via CloudExtractor) | **done** |
 | Protobuf/gRPC edges | Proto field references, service-to-service RPC relationships | **done** |
-| Event edges | Kafka/NATS/SQS topic producers and consumers | planned |
-| Schema edges | OpenAPI specs, JSON Schema, proto-as-schema references | planned |
+| Event edges | Kafka/NATS/SQS topic producers and consumers (package exists, not yet registered) | planned |
+| Schema edges | OpenAPI specs, JSON Schema, proto-as-schema references (package exists, not yet registered) | planned |
 | Ownership edges | CODEOWNERS, team annotations, service catalog metadata | planned |
 
 ## Workstream: Runtime Intelligence
@@ -88,7 +89,9 @@ Core pipeline complete. v2 refinements identified.
 
 1. **MCP resources.** `knowing://context/<scope>` subscribable resources for live context updates.
 
-3. **More edge types.** Event edges (Kafka/NATS), schema edges (OpenAPI), ownership edges (CODEOWNERS).
+2. **Multi-extractor dispatch.** Wire `FindAllExtractors` into the indexer so event and schema extractors run alongside primary language extractors on the same file.
+
+3. **More edge types.** Event edges (Kafka/NATS; package ready), schema edges (OpenAPI; package ready), ownership edges (CODEOWNERS).
 
 4. **Traversal cache.** L1 in-memory LRU for hot paths, L2 materialized closures for common queries.
 
@@ -98,7 +101,7 @@ Core pipeline complete. v2 refinements identified.
 
 ```
 Graph Core ──────────────────────────────> all other workstreams          ✓ DONE
-Edge types (10 languages + routes) ──────> Context packing               ✓ DONE
+Edge types (12 extractors + routes) ─────> Context packing               ✓ DONE
 Runtime intelligence (traces + decay) ───> Context packing               ✓ DONE
 Wire format system (GCF/GCB) ────────────> Session statefulness          ✓ DONE
 Context packing ─────────────────────────> Claude Code hooks             ✓ DONE
@@ -113,11 +116,10 @@ Snapshot chain + Merkle sync ────────────> Federated gra
 ## Parallelization Notes
 
 **Independent (can be implemented any time):**
-- Protobuf/gRPC, event, schema, ownership edge types
-- Graph-native test selection
+- Event/schema extractor registration (packages exist, need FindAllExtractors wiring)
+- Ownership edge types
 - Traversal cache
 - Database query edges
-- SCIP ingest
 
 **Sequential (must wait for dependencies):**
 - Claude Code hooks depend on context packing (done)

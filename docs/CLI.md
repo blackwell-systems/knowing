@@ -13,9 +13,18 @@ See [DISTRIBUTION.md](DISTRIBUTION.md) for installation instructions.
 knowing <subcommand> [flags]
 ```
 
-Subcommands: `serve`, `index`, `query`, `export`, `diff`, `context`, `mcp`, `reindex`, `init`, `test-scope`, `version`.
+Subcommands: `serve`, `index`, `query`, `export`, `diff`, `context`, `mcp`, `reindex`, `init`, `test-scope`, `ingest-scip`, `version`.
 
 ## Environment
+
+**`KNOWING_DB`**: Set this environment variable to specify the default database
+path for all subcommands. When set, the `-db` flag defaults to this value
+instead of `knowing.db`.
+
+```bash
+export KNOWING_DB=/var/lib/knowing/data.db
+knowing index ./repo   # uses /var/lib/knowing/data.db automatically
+```
 
 Set `GOWORK=off` when building or running from source to avoid workspace
 interference:
@@ -90,8 +99,9 @@ knowing serve -trace -trace-endpoint collector.local:4317 ./my-repo
 **Notes:**
 
 - The daemon blocks until it receives SIGINT or SIGTERM.
-- Registers all 11 language extractors (Go, Python, TypeScript/JS, Rust, Java,
-  C#, Terraform, SQL, Kubernetes YAML, CSS, Protocol Buffers).
+- Registers all 12 language extractors (Go, Python, TypeScript/JS, Rust, Java,
+  C#, Terraform, SQL, Kubernetes YAML, Cloud YAML [CloudFormation/SAM, Docker
+  Compose, GitHub Actions, Serverless Framework], CSS, Protocol Buffers).
 - The MCP server exposes an `index_repo` tool that triggers indexing through
   the same pipeline as file-watch events.
 
@@ -140,8 +150,9 @@ knowing index ./repo
 
 **Notes:**
 
-- Registers all 11 language extractors (Go, Python, TypeScript/JS, Rust, Java,
-  C#, Terraform, SQL, Kubernetes YAML, CSS, Protocol Buffers).
+- Registers all 12 language extractors (Go, Python, TypeScript/JS, Rust, Java,
+  C#, Terraform, SQL, Kubernetes YAML, Cloud YAML [CloudFormation/SAM, Docker
+  Compose, GitHub Actions, Serverless Framework], CSS, Protocol Buffers).
 - When `-full` is used, the Go packages extractor provides full type
   resolution; LSP enrichment is skipped because the extractor already produces
   high-confidence edges.
@@ -511,6 +522,49 @@ knowing test-scope -db /tmp/test.db -depth 5
 - Uses `NodesByFilePath` to resolve symbols in changed files, then BFS
   backward through `calls` edges to find test functions (nodes with
   "Test" prefix in their qualified name).
+
+---
+
+### ingest-scip
+
+Import a SCIP index for external dependency symbols.
+
+```
+knowing ingest-scip [flags]
+```
+
+Reads a `.scip` protobuf file produced by a SCIP-compatible indexer (such as
+`scip-go`, `scip-typescript`, or `scip-java`) and creates nodes and edges in
+the knowledge graph for all symbols and references found in the index. This
+enables knowing to resolve cross-repo references to external dependencies
+without indexing their source code directly.
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `-db` | string | `knowing.db` | Path to the SQLite database |
+| `-file` | string | *(required)* | Path to the `.scip` index file |
+| `-repo` | string | *(required)* | Repository URL to associate (e.g. `github.com/org/repo`) |
+
+**Examples:**
+
+```bash
+# Ingest a SCIP index for an external dependency
+knowing ingest-scip -file ./index.scip -repo github.com/org/library
+
+# Ingest into a specific database
+knowing ingest-scip -db /var/lib/knowing/data.db -file deps.scip -repo github.com/org/dep
+```
+
+**Notes:**
+
+- Both `-file` and `-repo` are required.
+- Produces nodes and edges with provenance `scip_resolved` (confidence 0.95).
+- Useful for shallow indexing of external dependencies that you do not want to
+  clone and fully index.
+- Prints a summary after ingestion: nodes created, edges created, documents
+  processed.
 
 ---
 

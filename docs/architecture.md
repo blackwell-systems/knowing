@@ -301,9 +301,9 @@ LSP servers require files to be opened via `textDocument/didOpen` before they ca
 
 These limitations exist only between Tier 1 and Tier 2 completion. After enrichment, all limitations are resolved.
 
-**Extractors by language:**
+**Extractors by language (12 registered, covering 15 file formats):**
 
-| Language | Tier 1 (fast) | Tier 2 (enrichment) | LSP server |
+| Language / Format | Tier 1 (fast) | Tier 2 (enrichment) | LSP server |
 |----------|--------------|--------------------|-----------| 
 | Go | `gotsextractor` (tree-sitter Go grammar) | `enrichment` (agent-lsp pkg/lsp) | gopls |
 | Python | `treesitter` (tree-sitter Python grammar) | enrichment | pyright |
@@ -314,6 +314,7 @@ These limitations exist only between Tier 1 and Tier 2 completion. After enrichm
 | Terraform (HCL) | `terraformextractor` (HCL parser) | n/a | n/a |
 | SQL | `sqlextractor` (SQL parser) | n/a | n/a |
 | Kubernetes YAML | `k8sextractor` (yaml.v3) | n/a | n/a |
+| Cloud YAML | `cloudextractor` (yaml.v3, 4 sub-extractors: CFN/SAM, Compose, Actions, Serverless) | n/a | n/a |
 | CSS/SCSS | `cssextractor` (tree-sitter CSS grammar) | n/a | n/a |
 | Protocol Buffers | `protoextractor` (tree-sitter protobuf grammar) | n/a | n/a |
 | Go (legacy) | `goextractor` (go/packages, `--full` flag) | n/a (already type-resolved) | n/a |
@@ -981,8 +982,13 @@ Symbols are not packed by raw score alone. The packer uses a density-ranked gree
 
 ### ForTask Flow
 
-1. Extract keywords from the task description (stop-word filtered, deduplicated).
-2. Query `NodesByName` with substring matching for each keyword.
+1. Extract keywords from the task description (stop-word filtered, CamelCase split, deduplicated).
+2. Seed candidate nodes via 5-tier matching:
+   - Tier 1: exact symbol name match (highest quality)
+   - Tier 2: prefix match on the last path component
+   - Tier 3: substring match (capped at 20 per keyword)
+   - Tier 4: file-path keyword matching
+   - Tier 5: interface-aware seeding (implementations of matched interfaces)
 3. For each candidate node, retrieve callers and callees (distance-0 and distance-1 neighborhood).
 4. Score all candidates via `RankSymbols`.
 5. Run HITS on the top-200 candidates to compute authority/hub scores and boost rankings.
@@ -1103,10 +1109,10 @@ knowing decomposes into three planes separated by an artifact boundary. This sep
 ```
 Execution Plane (produces the artifact)
 ├── Indexer
-│   ├── Go extractor (go/packages, full type resolution)
+│   ├── Go extractor (go/packages, full type resolution, `--full` flag)
 │   ├── tree-sitter extractors (Go, Python, TypeScript/JS, Rust, Java, C#, CSS, Protocol Buffers)
-│   ├── Infrastructure extractors (Terraform HCL, SQL, Kubernetes YAML)
-│   └── SCIP ingest (external dependency surfaces)
+│   ├── Infrastructure extractors (Terraform HCL, SQL, Kubernetes YAML, Cloud YAML)
+│   └── SCIP ingest (`knowing ingest-scip`, external dependency surfaces)
 ├── Trace ingestion pipeline
 │   ├── OTel span ingest
 │   ├── HTTP access log ingest
@@ -1325,15 +1331,17 @@ If you start with INSERT/UPDATE/DELETE (mutable state), you can never recover th
 
 **Provenance sources and confidence tiers:**
 
-| Source | Confidence | Meaning |
-|--------|-----------|---------|
-| `ast_resolved` | 1.0 | Parsed from source with full type resolution |
-| `scip_imported` | 0.9 | Imported from SCIP index (external dependency) |
-| `lsp_resolved` | 0.9 | Resolved via language server query |
-| `config_declared` | 0.8 | Declared in infrastructure config (Terraform, K8s) |
-| `inferred_from_import` | 0.7 | Inferred from import statement (no call site found) |
-| `openapi_declared` | 0.7 | Declared in OpenAPI/proto spec |
-| `text_matched` | 0.3 | Matched by text heuristic (string literal, comment) |
+| Source | Confidence | Meaning | Status |
+|--------|-----------|---------|--------|
+| `ast_resolved` | 1.0 | Parsed from source with full type resolution | Implemented (Python extractor, Go `--full`) |
+| `scip_resolved` | 0.95 | Imported from SCIP index (external dependency) | Implemented (`knowing ingest-scip`) |
+| `lsp_resolved` | 0.9 | Resolved via language server query | Implemented (enrichment pipeline) |
+| `ast_inferred` | 0.7 | Tree-sitter AST extraction without type resolution | Implemented (all 12 extractors) |
+| `otel_trace` | 0.2-0.95 | Observed in runtime traces | Implemented (trace ingestor) |
+| `config_declared` | 0.8 | Declared in infrastructure config (Terraform, K8s) | Not implemented (infra extractors use ast_inferred) |
+| `inferred_from_import` | 0.7 | Inferred from import statement (no call site found) | Not implemented |
+| `openapi_declared` | 0.7 | Declared in OpenAPI/proto spec | Not implemented |
+| `text_matched` | 0.3 | Matched by text heuristic (string literal, comment) | Not implemented |
 | `otel_trace` | 0.2 - 0.95 | Observed in production via OpenTelemetry traces; confidence varies by observation count and recency |
 | `manual` | 1.0 | Manually declared by user |
 

@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="#mcp-tools"><img src="https://img.shields.io/badge/MCP_tools-22-brightgreen.svg" alt="MCP Tools"></a>
-  <a href="#languages"><img src="https://img.shields.io/badge/languages-11-blue.svg" alt="Languages"></a>
+  <a href="#languages"><img src="https://img.shields.io/badge/languages-12-blue.svg" alt="Languages"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
   <a href="https://github.com/blackwell-systems"><img src="https://raw.githubusercontent.com/blackwell-systems/blackwell-docs-theme/main/badge-trademark.svg" alt="Blackwell Systems"></a>
 </p>
@@ -17,7 +17,7 @@
 
 ## What This Is
 
-knowing is a **content-addressed knowledge graph** that fuses static analysis, infrastructure declarations, and runtime traces into a single queryable structure. It indexes code in 11 languages, watches for git changes, ingests OpenTelemetry traces, and serves the result over MCP.
+knowing is a **content-addressed knowledge graph** that fuses static analysis, infrastructure declarations, and runtime traces into a single queryable structure. It indexes code via 12 extractors covering 15 file formats, watches for git changes, ingests OpenTelemetry traces and SCIP indexes, and serves the result over MCP.
 
 Every node, edge, and snapshot is a SHA-256 hash. The graph has full history, provable integrity, and a clear answer to "when did this relationship appear and how confident are we in it?"
 
@@ -41,22 +41,22 @@ knowing answers those questions with provenance and confidence scores on every e
 ├──────────────┬───────────────────┬───────────────────────┤
 │   Indexer    │   Graph Store     │     MCP Server        │
 │              │                   │                       │
-│ 11 languages │ Content-addressed │ 22 tools + 3 prompts │
+│ 12 extractors│ Content-addressed │ 22 tools + 3 prompts │
 │ tree-sitter  │ SQLite + Merkle   │ stdio / HTTP          │
 │ go/packages  │ Snapshot chain    │ GCF wire format       │
-│ OTel ingest  │ Edge events       │                       │
+│ OTel + SCIP  │ Edge events       │                       │
 └──────────────┴───────────────────┴───────────────────────┘
 ```
 
 Three components, one binary:
 
-- **Indexer**: parses ASTs across 11 languages, resolves cross-repo references, ingests OTel traces, watches git for incremental re-indexing
+- **Indexer**: parses ASTs via 12 extractors (15 file formats), resolves cross-repo references, ingests OTel traces and SCIP indexes, watches git for incremental re-indexing
 - **Graph store**: content-addressed SQLite with Merkle snapshot chain, edge event sourcing, runtime confidence decay
 - **MCP server**: 22 tools + 3 prompts over stdio/HTTP, with GCF wire format (76% token savings vs JSON)
 
 ## Languages
 
-| Language | Extractor | Framework Detection |
+| Language / Format | Extractor | Framework Detection |
 |----------|-----------|-------------------|
 | Go | tree-sitter + `go/packages` | net/http, gin, echo, chi, gorilla/mux |
 | TypeScript/JS | tree-sitter | Express.js, Fastify, Hono, NestJS, Next.js |
@@ -67,6 +67,10 @@ Three components, one binary:
 | Terraform (HCL) | tree-sitter | resource/module/variable declarations |
 | SQL | tree-sitter | tables, views, procedures |
 | Kubernetes YAML | yaml.v3 | deployments, services, configmaps, ingress |
+| CloudFormation/SAM | yaml.v3 | resources, outputs, parameters |
+| Docker Compose | yaml.v3 | services, networks, volumes, depends_on |
+| GitHub Actions | yaml.v3 | workflows, jobs, steps, action references |
+| Serverless Framework | yaml.v3 | functions, events, resources |
 | CSS/SCSS | tree-sitter | selectors, custom properties, imports |
 | Protocol Buffers | tree-sitter | services, messages, RPCs, enums |
 

@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `knowing ingest-scip` subcommand: imports SCIP protobuf index files for external dependency symbols (provenance `scip_resolved`, confidence 0.95)
+- SCIP ingestor (`internal/indexer/scipingest/`): reads `.scip` files, creates nodes and `references` edges for all symbols and references
+- Cloud extractor (`internal/indexer/cloudextractor/`): single extractor handling 4 cloud YAML formats (CloudFormation/SAM, Docker Compose, GitHub Actions, Serverless Framework)
+- New edge types from cloud extractor: `publishes`, `subscribes`, `connects_to`
+- Event extractor package (`internal/indexer/eventextractor/`): detects Kafka/NATS/SQS/AMQP producer/consumer patterns across Go, TypeScript, Python, Java (package exists, not yet registered in CLI)
+- Schema extractor package (`internal/indexer/schemaextractor/`): OpenAPI/JSON Schema references (package exists, not yet registered in CLI)
+- `KNOWING_DB` environment variable for global database path (used by all CLI subcommands)
 - `knowing mcp` subcommand for stdio MCP server mode (used by AI agents via .mcp.json)
 - 5 new MCP tools (total now 22): `feedback`, `test_scope`, `flow_between`, `plan_turn`, `communities`
 - `feedback` MCP tool: record/query symbol usefulness for agent learning loop (FeedbackProvider interface wired into ContextEngine)
@@ -22,7 +29,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - HITS (Hyperlink-Induced Topic Search) reranking on RWR subgraph: boosts task-relevant authorities, penalizes generic infrastructure hubs. Score differentiation improved from 0.01 spread to 0.35 spread across results.
 - Density-ranked knapsack packing: score/cost ratio optimization maximizes total relevance within token budgets. Small high-value symbols (types, interfaces) now beat large medium-value symbols when budget is tight.
 - Protobuf/gRPC extractor: extracts service, message, enum, and RPC declarations from .proto files with references edges for field types and RPC request/response types
-- All 11 language extractors now registered in CLI (were previously unregistered packages): Go, Python, TypeScript/JS, Rust, Java, C#, Terraform, SQL, K8s YAML, CSS, Protocol Buffers
+- All 12 extractors now registered in CLI: Go, Python, TypeScript/JS, Rust, Java, C#, Terraform, SQL, K8s YAML, Cloud YAML (CloudFormation/SAM, Docker Compose, GitHub Actions, Serverless), CSS, Protocol Buffers
 - Random Walk with Restart (RWR) algorithm for graph-based relevance scoring in context engine
 - Improved keyword extraction with stop word filtering, CamelCase splitting, and abbreviation expansion
 - Relative normalization in ranking and base recency score for static-only edges
