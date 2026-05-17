@@ -50,32 +50,30 @@ After Phase 1 (baseline), the test records positive feedback for every ground-tr
 | Fixture | Precision@10 | Recall@10 | MRR |
 |---------|-------------|-----------|-----|
 | context_engine | 20.0% | 25.0% | 0.250 |
-| mcp_server | 20.0% | 28.6% | 1.000 |
-| indexer_pipeline | 30.0% | 42.9% | 0.200 |
-| store_layer | 40.0% | 50.0% | 0.333 |
-| test_selection | 10.0% | 14.3% | 0.500 |
-| **Average** | **24.0%** | **32.1%** | **0.457** |
+| mcp_server | 0.0% | 0.0% | 0.000 |
+| indexer_pipeline | 20.0% | 28.6% | 1.000 |
+| store_layer | 40.0% | 50.0% | 1.000 |
+| test_selection | 0.0% | 0.0% | 0.000 |
+| **Average** | **16.0%** | **20.7%** | **0.450** |
 
 ### Phase 3: With feedback
 
 | Fixture | Precision@10 | Recall@10 | MRR | Delta (precision) |
 |---------|-------------|-----------|-----|-------------------|
-| context_engine | 20.0% | 25.0% | 0.250 | +0.0% |
-| mcp_server | 30.0% | 42.9% | 1.000 | **+10.0%** |
-| indexer_pipeline | 30.0% | 42.9% | 0.333 | +0.0% |
-| store_layer | 50.0% | 62.5% | 0.333 | **+10.0%** |
-| test_selection | 10.0% | 14.3% | 1.000 | +0.0% (MRR: +0.5) |
-| **Average** | **28.0%** | **37.5%** | **0.583** | **+4.0%** |
+| context_engine | 70.0% | 87.5% | 0.500 | **+50.0%** |
+| mcp_server | 20.0% | 28.6% | 0.500 | **+20.0%** |
+| indexer_pipeline | 40.0% | 57.1% | 1.000 | **+20.0%** |
+| store_layer | 40.0% | 50.0% | 1.000 | +0.0% |
+| test_selection | 10.0% | 14.3% | 1.000 | **+10.0%** |
+| **Average** | **36.0%** | **47.5%** | **0.800** | **+20.0%** |
 
 ### Summary
 
 | Metric | Baseline | With feedback | Improvement |
 |--------|----------|---------------|-------------|
-| Precision@10 | 24.0% | 28.0% | +4.0 pp |
-| Recall@10 | 32.1% | 37.5% | +5.4 pp |
-| MRR | 0.457 | 0.583 | +0.126 |
-
-**Note (2026-05-17):** After the 5-tier seeding improvements (file-path matching + interface-aware seeding), a subsequent run shows even stronger results: precision 16% -> 36% (+20pp), recall 21% -> 48% (+27pp). The feedback mechanism amplifies the improved seed quality because higher-quality seeds mean feedback is anchored to more relevant symbols.
+| Precision@10 | 16.0% | 36.0% | +20.0 pp |
+| Recall@10 | 20.7% | 47.5% | +26.8 pp |
+| MRR | 0.450 | 0.800 | +0.350 |
 
 ---
 
@@ -115,20 +113,20 @@ A second test (`TestMultiRoundCompounding`) runs 5 rounds of queries across all 
 ### Precision curve (average across all fixtures):
 
 ```
-Round 1: 24.0%  Round 2: 28.0%  Round 3: 28.0%  Round 4: 28.0%  Round 5: 28.0%
+Round 1: 16.0%  Round 2: 50.0%  Round 3: 50.0%  Round 4: 50.0%  Round 5: 50.0%
 ```
 
-**Improvement: +4.0 percentage points from round 1 to round 2, then plateau.**
+**Improvement: +34.0 percentage points from round 1 to round 2, then plateau.**
 
 ### Per-fixture curves:
 
 | Fixture | Round 1 | Round 2 | Round 3 | Round 4 | Round 5 | Delta |
 |---------|---------|---------|---------|---------|---------|-------|
-| context_engine | 20% | 20% | 20% | 20% | 20% | +0% |
-| mcp_server | 20% | 30% | 30% | 30% | 30% | **+10%** |
-| indexer_pipeline | 30% | 30% | 30% | 30% | 30% | +0% |
+| context_engine | 20% | 90% | 90% | 90% | 90% | **+70%** |
+| mcp_server | 0% | 30% | 30% | 30% | 30% | **+30%** |
+| indexer_pipeline | 20% | 70% | 70% | 70% | 70% | **+50%** |
 | store_layer | 40% | 50% | 50% | 50% | 50% | **+10%** |
-| test_selection | 10% | 10% | 10% | 10% | 10% | +0% |
+| test_selection | 0% | 10% | 10% | 10% | 10% | **+10%** |
 
 ### Why plateaus happen in this benchmark
 
@@ -164,12 +162,14 @@ This means negative feedback actively penalizes symbols, pushing irrelevant resu
 
 ## Interpretation
 
-### What the +4% means
-After a single round of feedback, precision improves by 4 percentage points. This is a lower bound for the mechanism's utility. The improvement is instantaneous (round 1 vs round 2) and sustained (doesn't degrade in rounds 3-5). In production with diverse queries, the compound effect would be larger because feedback from one session's candidates helps rank a different session's overlapping candidates.
+### What the +20pp means
+After a single round of feedback, precision improves by 20 percentage points (16% -> 36%). The improvement is instantaneous (round 1 vs round 2) and sustained (doesn't degrade in rounds 3-5). In the multi-round test, compounding reaches +34pp (16% -> 50%). In production with diverse queries, the compound effect would be larger because feedback from one session's candidates helps rank a different session's overlapping candidates.
 
-### Why some fixtures didn't improve
-- **context_engine:** All 23 candidates score within 0.01 of each other. Feedback reorders them but the relevant symbols were already at positions 8-10 (still in top-10) or positions 11-13 (just outside). The 0.15 weight moves them up 1-2 positions but not enough to cross the top-10 boundary.
-- **test_selection:** Only 1 ground-truth symbol is in the candidate pool. It can't improve beyond 10% precision because there's only 1 relevant candidate regardless of ranking.
+### Why the improvement is so strong
+The 5-tier seeding improvements (file-path matching + interface-aware seeding) placed more ground-truth symbols into the candidate pool. Feedback then has more relevant symbols to boost, amplifying the effect. Previously, many ground-truth symbols were below the RWR threshold; now they appear in the candidate set and can be promoted by feedback.
+
+### Why store_layer shows +0% in single-round
+The store_layer fixture already has high baseline precision (40%) because its keywords ("SQLite", "store") are highly specific. Feedback doesn't help when the baseline is already good and remaining ground-truth symbols are below the candidate threshold.
 
 ### What WOULD make it compound further
 1. **Community-scoped feedback:** Instead of boosting individual hashes, boost all symbols in the same community. "RankSymbols was useful" -> boost the entire context-engine community.

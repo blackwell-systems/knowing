@@ -14,6 +14,7 @@ package edge_accuracy
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -143,6 +144,142 @@ func TestEdgeAccuracy(t *testing.T) {
 	// Log the confirmation rate prominently.
 	confirmRate := float64(overall.Confirmed) / float64(overall.TotalInferred) * 100
 	t.Logf("\n  CONFIRMATION RATE: %.1f%% of tree-sitter edges confirmed by go/ast", confirmRate)
+
+	// Write FINDINGS.md with actual results.
+	writeFindingsReport(t, overall, byType, edgeTypes)
+}
+
+func writeFindingsReport(t *testing.T, overall *edgeStats, byType map[string]*edgeStats, edgeTypes []string) {
+	t.Helper()
+
+	confirmRate := 0.0
+	fpRate := 0.0
+	missRate := 0.0
+	if overall.TotalInferred > 0 {
+		confirmRate = float64(overall.Confirmed) / float64(overall.TotalInferred) * 100
+		fpRate = float64(overall.InferredOnly) / float64(overall.TotalInferred) * 100
+	}
+	if overall.TotalResolved > 0 {
+		missRate = float64(overall.ResolvedOnly) / float64(overall.TotalResolved) * 100
+	}
+
+	// Fair comparison: only edge types that both extractors produce (calls + imports).
+	fairInferred := 0
+	fairConfirmed := 0
+	fairFP := 0
+	fairResolved := 0
+	fairMissed := 0
+	for _, et := range []string{"calls", "imports"} {
+		if s, ok := byType[et]; ok {
+			fairInferred += s.TotalInferred
+			fairConfirmed += s.Confirmed
+			fairFP += s.InferredOnly
+			fairResolved += s.TotalResolved
+			fairMissed += s.ResolvedOnly
+		}
+	}
+	fairConfirmRate := 0.0
+	fairFPRate := 0.0
+	fairMissRate := 0.0
+	if fairInferred > 0 {
+		fairConfirmRate = float64(fairConfirmed) / float64(fairInferred) * 100
+		fairFPRate = float64(fairFP) / float64(fairInferred) * 100
+	}
+	if fairResolved > 0 {
+		fairMissRate = float64(fairMissed) / float64(fairResolved) * 100
+	}
+
+	var sb strings.Builder
+	sb.WriteString("# Edge Accuracy Benchmark: Tree-Sitter vs Go/AST\n\n")
+	sb.WriteString("**Auto-generated from test run. Do not edit manually.**\n\n")
+
+	sb.WriteString("## Methodology\n\n")
+	sb.WriteString("Compares knowing's two Go extraction tiers by indexing the same repo with each:\n\n")
+	sb.WriteString("1. **Tree-sitter** (`gotsextractor`): Syntax-only, fast. Produces `calls` and `imports` edges.\n")
+	sb.WriteString("   Provenance `ast_inferred`, confidence 0.7.\n")
+	sb.WriteString("2. **Go/AST** (`goextractor`): Full type resolution via `go/packages`. Produces `calls`,\n")
+	sb.WriteString("   `imports`, `implements`, and `references` edges. Provenance `ast_resolved`, confidence 1.0.\n\n")
+	sb.WriteString("Edges match by identity tuple: `(source_hash, target_hash, edge_type)`. Provenance\n")
+	sb.WriteString("is excluded from matching since it differs by design.\n\n")
+
+	sb.WriteString("## Overall Results\n\n")
+	sb.WriteString(fmt.Sprintf("| Metric | Count | Rate |\n"))
+	sb.WriteString(fmt.Sprintf("|--------|-------|------|\n"))
+	sb.WriteString(fmt.Sprintf("| Tree-sitter edges (ast_inferred) | %d | - |\n", overall.TotalInferred))
+	sb.WriteString(fmt.Sprintf("| Go/ast edges (ast_resolved) | %d | - |\n", overall.TotalResolved))
+	sb.WriteString(fmt.Sprintf("| Confirmed (in both) | %d | %.1f%% of inferred |\n", overall.Confirmed, confirmRate))
+	sb.WriteString(fmt.Sprintf("| Inferred-only (potential FP) | %d | %.1f%% of inferred |\n", overall.InferredOnly, fpRate))
+	sb.WriteString(fmt.Sprintf("| Resolved-only (missed) | %d | %.1f%% of resolved |\n\n", overall.ResolvedOnly, missRate))
+
+	sb.WriteString("## Per-Edge-Type Breakdown\n\n")
+	sb.WriteString("| Edge Type | Tree-sitter | Go/ast | Confirmed | FP Rate | Miss Rate |\n")
+	sb.WriteString("|-----------|-------------|--------|-----------|---------|----------|\n")
+	for _, et := range edgeTypes {
+		s := byType[et]
+		if s.TotalInferred == 0 && s.TotalResolved == 0 {
+			continue
+		}
+		cr := 0.0
+		fp := 0.0
+		mr := 0.0
+		if s.TotalInferred > 0 {
+			cr = float64(s.Confirmed) / float64(s.TotalInferred) * 100
+			fp = float64(s.InferredOnly) / float64(s.TotalInferred) * 100
+		}
+		if s.TotalResolved > 0 {
+			mr = float64(s.ResolvedOnly) / float64(s.TotalResolved) * 100
+		}
+		sb.WriteString(fmt.Sprintf("| %s | %d | %d | %.1f%% | %.1f%% | %.1f%% |\n",
+			et, s.TotalInferred, s.TotalResolved, cr, fp, mr))
+	}
+
+	sb.WriteString("\n## Fair Comparison (calls + imports only)\n\n")
+	sb.WriteString("Tree-sitter does not produce `implements` or `references` edges (these require\n")
+	sb.WriteString("type resolution). The overall numbers are misleading because go/ast's 19K+ reference\n")
+	sb.WriteString("edges inflate the miss rate. A fair comparison restricts to edge types both extractors\n")
+	sb.WriteString("attempt:\n\n")
+	sb.WriteString(fmt.Sprintf("| Metric | Count | Rate |\n"))
+	sb.WriteString(fmt.Sprintf("|--------|-------|------|\n"))
+	sb.WriteString(fmt.Sprintf("| Tree-sitter edges | %d | - |\n", fairInferred))
+	sb.WriteString(fmt.Sprintf("| Go/ast edges | %d | - |\n", fairResolved))
+	sb.WriteString(fmt.Sprintf("| Confirmed | %d | %.1f%% of inferred |\n", fairConfirmed, fairConfirmRate))
+	sb.WriteString(fmt.Sprintf("| Inferred-only (FP) | %d | %.1f%% of inferred |\n", fairFP, fairFPRate))
+	sb.WriteString(fmt.Sprintf("| Resolved-only (missed) | %d | %.1f%% of resolved |\n\n", fairMissed, fairMissRate))
+
+	sb.WriteString("## Interpretation\n\n")
+
+	sb.WriteString("### Why confirmation rate is low for `calls`\n\n")
+	sb.WriteString("Tree-sitter identifies function calls syntactically (any `identifier()` pattern) but\n")
+	sb.WriteString("cannot resolve which package the callee belongs to. It generates candidate edges using\n")
+	sb.WriteString("name matching heuristics. Go/ast resolves the actual call target through type information.\n")
+	sb.WriteString("The mismatch means tree-sitter over-generates call edges (multiple candidates per call site)\n")
+	sb.WriteString("while go/ast produces one precise edge per call.\n\n")
+
+	sb.WriteString("### Why `imports` has high confirmation\n\n")
+	sb.WriteString("Import statements are unambiguous in Go syntax. Both extractors detect them reliably.\n")
+	sb.WriteString("The tree-sitter inferred-only imports are likely aliased or dot imports where the\n")
+	sb.WriteString("hash computation differs.\n\n")
+
+	sb.WriteString("### What this means for knowing's two-tier strategy\n\n")
+	sb.WriteString(fmt.Sprintf("The %.1f%% confirmation rate for calls+imports means tree-sitter provides\n", fairConfirmRate))
+	sb.WriteString("a noisy but non-zero signal. The lower confidence score (0.7 vs 1.0) causes the\n")
+	sb.WriteString("context engine to rank tree-sitter-only edges below confirmed edges in scoring.\n")
+	sb.WriteString("This is the intended behavior: tree-sitter provides fast initial coverage that\n")
+	sb.WriteString("the go/ast extractor later refines with precision.\n\n")
+	sb.WriteString("The value proposition is speed vs accuracy: tree-sitter runs in milliseconds per file,\n")
+	sb.WriteString("while go/ast requires loading the full dependency graph (~30s for this repo).\n")
+	sb.WriteString("For real-time IDE feedback, the noisy tree-sitter signal is better than no signal.\n")
+	sb.WriteString("For batch indexing (CI, nightly), go/ast provides ground truth.\n\n")
+
+	sb.WriteString("## Reproducibility\n\n")
+	sb.WriteString("```bash\nGOWORK=off go test ./bench/edge-accuracy/ -v -timeout 5m\n```\n")
+
+	err := os.WriteFile("FINDINGS.md", []byte(sb.String()), 0644)
+	if err != nil {
+		t.Logf("Warning: could not write FINDINGS.md: %v", err)
+	} else {
+		t.Logf("Wrote FINDINGS.md")
+	}
 }
 
 // queryAllEdges opens the DB directly and reads all edges as edgeKeys.
