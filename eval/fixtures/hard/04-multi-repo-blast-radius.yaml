@@ -1,0 +1,12 @@
+task: "Compute blast radius for a symbol change across multiple indexed repositories, including transitive callers and runtime-observed dependencies"
+difficulty: hard
+tags: [cross-repo, store, resolver, trace, mcp]
+ground_truth:
+  - mcp.blastRadiusTool
+  - mcp.handleBlastRadius
+  - store.TransitiveCallers
+  - store.EdgesTo
+  - resolver.Resolver
+  - trace.SymbolResolver
+  - store.AllRepos
+  - types.Edge

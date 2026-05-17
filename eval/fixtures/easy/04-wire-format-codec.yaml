@@ -1,0 +1,9 @@
+task: "Add a new wire format codec for MessagePack encoding"
+difficulty: easy
+tags: [single-package, wire, new-feature]
+ground_truth:
+  - wire.Payload
+  - wire.Symbol
+  - wire.Edge
+  - wire.EncodeWith
+  - wire.DecodeWith

@@ -1,0 +1,10 @@
+task: "Compute a semantic diff between two graph snapshots showing added and removed relationships"
+difficulty: medium
+tags: [cross-package, diff, snapshot]
+ground_truth:
+  - diff.SemanticDiff
+  - diff.PRImpact
+  - snapshot.SnapshotManager
+  - store.SnapshotDiff
+  - store.EdgesFrom
+  - types.DiffResult

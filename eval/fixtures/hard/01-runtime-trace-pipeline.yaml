@@ -1,0 +1,12 @@
+task: "Ingest OpenTelemetry spans and create runtime edges with confidence scoring and decay"
+difficulty: hard
+tags: [cross-package, trace, store, daemon, runtime]
+ground_truth:
+  - trace.TraceIngestor
+  - trace.IngestSpans
+  - trace.SpanToEdge
+  - trace.SymbolResolver
+  - store.PutEdge
+  - store.UpdateEdgeConfidence
+  - daemon.traceIngestLoop
+  - types.Edge

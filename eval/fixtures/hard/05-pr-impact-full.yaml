@@ -1,0 +1,13 @@
+task: "Generate full PR impact analysis: semantic diff of changed symbols, blast radius per symbol, risk classification, affected tests, and runtime traffic verification"
+difficulty: hard
+tags: [cross-package, diff, store, mcp, test-scope, trace]
+ground_truth:
+  - diff.SemanticDiff
+  - diff.PRImpact
+  - mcp.prImpactTool
+  - store.TransitiveCallers
+  - store.NodesByFilePath
+  - knowing.findAffectedTests
+  - trace.SymbolResolver
+  - store.EdgesFrom
+  - store.EdgesTo

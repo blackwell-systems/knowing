@@ -1,0 +1,11 @@
+task: "Wire feedback scoring into the context engine so that previously useful symbols get boosted"
+difficulty: medium
+tags: [cross-package, context, store, feedback]
+ground_truth:
+  - context.ContextEngine
+  - context.ForTask
+  - context.RankSymbols
+  - store.RecordFeedback
+  - store.FeedbackBoosts
+  - store.QueryFeedback
+  - mcp.feedbackTool

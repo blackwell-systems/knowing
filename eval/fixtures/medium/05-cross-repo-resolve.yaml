@@ -1,0 +1,10 @@
+task: "Resolve dangling cross-repo edges by matching module paths to indexed repositories"
+difficulty: medium
+tags: [cross-package, resolver, store]
+ground_truth:
+  - resolver.Resolver
+  - resolver.ResolveDangling
+  - store.DanglingEdges
+  - store.AllRepos
+  - store.NodesByQualifiedName
+  - types.Edge

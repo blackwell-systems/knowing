@@ -1,0 +1,10 @@
+task: "Add a new language extractor for Ruby files"
+difficulty: easy
+tags: [single-package, indexer, new-feature]
+ground_truth:
+  - types.Extractor
+  - types.ExtractOptions
+  - types.ExtractResult
+  - indexer.NewIndexer
+  - indexer.IndexRepo
+  - gotsextractor.NewGoTreeSitterExtractor

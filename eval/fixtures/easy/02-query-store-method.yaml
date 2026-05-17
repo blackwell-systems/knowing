@@ -1,0 +1,10 @@
+task: "Add a method to SQLiteStore that queries nodes by community ID"
+difficulty: easy
+tags: [single-package, store, new-feature]
+ground_truth:
+  - store.SQLiteStore
+  - store.NewSQLiteStore
+  - store.NodesByName
+  - store.NodesByFilePath
+  - types.GraphStore
+  - types.Node

@@ -1,0 +1,9 @@
+task: "Add a new MCP tool that returns symbol documentation"
+difficulty: easy
+tags: [single-package, mcp, new-feature]
+ground_truth:
+  - mcp.registerTools
+  - mcp.Server
+  - mcp.NewServer
+  - mcp.requireStringArg
+  - mcp.contextForTaskTool

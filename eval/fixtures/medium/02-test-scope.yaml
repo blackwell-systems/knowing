@@ -1,0 +1,11 @@
+task: "Find affected tests by tracing the call graph backward from changed symbols"
+difficulty: medium
+tags: [cross-package, cli, graph-traversal]
+ground_truth:
+  - knowing.cmdTestScope
+  - knowing.symbolsInFiles
+  - knowing.findAffectedTests
+  - knowing.isTestFunction
+  - store.NodesByFilePath
+  - store.EdgesTo
+  - store.GetNode

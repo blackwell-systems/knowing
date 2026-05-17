@@ -1,0 +1,14 @@
+task: "Given a task description, seed the graph walk from keywords, run RWR, apply HITS reranking, incorporate feedback boosts, pack results into token budget with density-ranked knapsack, and return formatted context"
+difficulty: hard
+tags: [cross-package, context, store, wire, feedback]
+ground_truth:
+  - context.ContextEngine
+  - context.ForTask
+  - context.RankSymbols
+  - context.ComputeHITS
+  - context.RandomWalkWithRestart
+  - context.packIntoBudget
+  - store.FeedbackBoosts
+  - store.EdgesFrom
+  - wire.EncodeWith
+  - types.GraphStore

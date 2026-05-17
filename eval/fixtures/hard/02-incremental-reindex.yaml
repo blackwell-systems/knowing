@@ -1,0 +1,13 @@
+task: "Detect changed files from git, clean up stale nodes and edges, re-extract only affected files, record edge events, and compute new snapshot"
+difficulty: hard
+tags: [cross-package, indexer, store, snapshot, daemon]
+ground_truth:
+  - indexer.IndexRepo
+  - indexer.NewIndexer
+  - store.DeleteNodesByFile
+  - store.DeleteEdgesBySourceFile
+  - store.BatchPutNodes
+  - store.BatchPutEdges
+  - snapshot.NewSnapshotManager
+  - snapshot.CreateSnapshot
+  - daemon.GitWatcher

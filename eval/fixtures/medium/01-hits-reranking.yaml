@@ -1,0 +1,12 @@
+task: "Implement HITS hub/authority reranking in the context engine ranking pipeline"
+difficulty: medium
+tags: [cross-package, context, algorithm]
+ground_truth:
+  - context.RankSymbols
+  - context.HITSScores
+  - context.ComputeHITS
+  - context.ContextEngine
+  - context.ForTask
+  - context.RankedSymbol
+  - context.packIntoBudget
+  - context.RandomWalkWithRestart

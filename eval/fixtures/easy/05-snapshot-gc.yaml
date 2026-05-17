@@ -1,0 +1,8 @@
+task: "Implement garbage collection for old snapshots beyond retention window"
+difficulty: easy
+tags: [single-package, snapshot, maintenance]
+ground_truth:
+  - snapshot.SnapshotManager
+  - snapshot.NewSnapshotManager
+  - store.DeleteSnapshot
+  - types.Snapshot
