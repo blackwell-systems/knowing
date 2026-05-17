@@ -637,23 +637,63 @@ func splitIdentifier(s string) []string {
 	return parts
 }
 
-// packIntoBudget iterates over ranked symbols and accumulates them until the
-// token budget would be exceeded.
+// packIntoBudget selects symbols to maximize total relevance within the token budget.
+// It uses density-ranked packing: symbols are sorted by score/cost ratio so that
+// small high-value symbols (types, constants) are preferred over large medium-value
+// symbols (long functions) when budget is tight. This is a greedy fractional knapsack
+// approximation that outperforms pure score-order packing on constrained budgets.
 func packIntoBudget(ranked []RankedSymbol, budget int, format string) *ContextBlock {
 	block := &ContextBlock{
 		Format:      format,
 		TokenBudget: budget,
 	}
 
-	var tokensUsed int
-	for _, sym := range ranked {
-		cost := EstimateNodeTokens(sym.Node)
-		if tokensUsed+cost > budget {
-			break
-		}
-		tokensUsed += cost
-		block.Symbols = append(block.Symbols, sym)
+	if len(ranked) == 0 {
+		return block
 	}
+
+	// Compute density (score per token) for each symbol.
+	type densityItem struct {
+		index   int
+		density float64
+		cost    int
+	}
+	items := make([]densityItem, len(ranked))
+	for i, sym := range ranked {
+		cost := EstimateNodeTokens(sym.Node)
+		if cost < 1 {
+			cost = 1
+		}
+		items[i] = densityItem{
+			index:   i,
+			density: sym.Score / float64(cost),
+			cost:    cost,
+		}
+	}
+
+	// Sort by density descending. Ties broken by raw score (higher first).
+	sort.Slice(items, func(a, b int) bool {
+		if items[a].density != items[b].density {
+			return items[a].density > items[b].density
+		}
+		return ranked[items[a].index].Score > ranked[items[b].index].Score
+	})
+
+	// Greedily pack by density order.
+	var tokensUsed int
+	for _, item := range items {
+		if tokensUsed+item.cost > budget {
+			continue // skip this item, try smaller ones
+		}
+		tokensUsed += item.cost
+		block.Symbols = append(block.Symbols, ranked[item.index])
+	}
+
+	// Re-sort the packed symbols by score descending for output ordering.
+	sort.Slice(block.Symbols, func(i, j int) bool {
+		return block.Symbols[i].Score > block.Symbols[j].Score
+	})
+
 	block.TokensUsed = tokensUsed
 	return block
 }

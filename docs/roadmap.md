@@ -55,8 +55,8 @@ Core pipeline complete. v2 refinements identified.
 | context_for_files MCP tool | Changed files -> blast radius context | **done** |
 | Wire format system | GCF (84% token savings), GCB (74% byte savings), JSON, codec registry | **done** |
 | GCF session statefulness | Cross-call dedup, 47% additional savings on repeated symbols | **done** |
-| HITS hub/authority reranking | On top-200 RWR subgraph for better prioritization | ← next |
-| Density-ranked knapsack packing | Score/cost ratio optimization for budget utilization | planned |
+| HITS hub/authority reranking | On top-200 RWR subgraph for better prioritization | **done** |
+| Density-ranked knapsack packing | Score/cost ratio optimization for budget utilization | **done** |
 | context_for_pr MCP tool | PR-scoped context (changed files + diff + relationship awareness) | **done** |
 | MCP resources | knowing://context/<scope> subscribable resources | planned |
 
@@ -81,9 +81,7 @@ Core pipeline complete. v2 refinements identified.
 
 ## What's Next (priority order)
 
-1. **HITS reranking.** Hub/authority scoring on the RWR subgraph for better context prioritization. Boosts task-relevant authorities, penalizes generic infrastructure hubs.
-
-2. **Density-ranked knapsack packing.** Score/cost ratio optimization so budget utilization improves beyond greedy insertion.
+1. **MCP resources.** `knowing://context/<scope>` subscribable resources for live context updates.
 
 3. **More edge types.** Protobuf/gRPC edges, event edges (Kafka/NATS), schema edges (OpenAPI).
 
