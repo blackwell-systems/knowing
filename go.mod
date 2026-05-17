@@ -6,10 +6,12 @@ require (
 	github.com/blackwell-systems/agent-lsp v0.11.1
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/mark3labs/mcp-go v0.54.0
+	github.com/scip-code/scip/bindings/go/scip v0.7.1
 	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82
 	go.opentelemetry.io/proto/otlp v1.10.0
 	golang.org/x/tools v0.45.0
 	google.golang.org/grpc v1.81.1
+	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.50.1
 )
@@ -23,6 +25,7 @@ require (
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
+	github.com/sourcegraph/beaut v0.0.0-20240611013027-627e4c25335a // indirect
 	github.com/spf13/cast v1.7.1 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	golang.org/x/mod v0.36.0 // indirect
@@ -32,7 +35,6 @@ require (
 	golang.org/x/text v0.37.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260226221140-a57be14db171 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260226221140-a57be14db171 // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
 	modernc.org/libc v1.72.3 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect

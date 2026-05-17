@@ -93,6 +93,8 @@ func run(args []string) error {
 		return cmdInit(args[1:])
 	case "test-scope":
 		return cmdTestScope(args[1:])
+	case "ingest-scip":
+		return cmdIngestSCIP(args[1:])
 	default:
 		printUsage()
 		return fmt.Errorf("unknown subcommand: %s", args[0])
@@ -113,6 +115,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  reindex  Clear and re-index a repository from scratch")
 	fmt.Fprintln(os.Stderr, "  init     Generate CLAUDE.md with graph-derived project context")
 	fmt.Fprintln(os.Stderr, "  test-scope  Compute affected tests from changed files")
+	fmt.Fprintln(os.Stderr, "  ingest-scip Import a SCIP index for external dependency symbols")
 	fmt.Fprintln(os.Stderr, "  version  Print version information")
 }
 
