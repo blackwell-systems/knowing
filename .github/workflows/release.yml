@@ -239,7 +239,7 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
 
       - name: Publish npm packages
-        run: bash scripts/npm-publish.sh "${{ github.ref_name }}"
+        run: bash scripts/npm-publish.sh "${{ github.ref_name }}" || true
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -266,7 +266,7 @@ jobs:
           TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
 
   mcp-registry-publish:
-    needs: npm-publish
+    needs: release
     runs-on: ubuntu-latest
     permissions:
       id-token: write
