@@ -1,0 +1,60 @@
+version: 2
+
+builds:
+  - id: knowing
+    main: ./cmd/knowing
+    binary: knowing
+    ldflags:
+      - -s -w -X main.Version={{.Version}}
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    overrides:
+      - goos: linux
+        goarch: amd64
+        env:
+          - CC=zig cc -target x86_64-linux-gnu
+          - CXX=zig c++ -target x86_64-linux-gnu
+      - goos: linux
+        goarch: arm64
+        env:
+          - CC=zig cc -target aarch64-linux-gnu
+          - CXX=zig c++ -target aarch64-linux-gnu
+
+archives:
+  - id: knowing
+    builds:
+      - knowing
+    format: tar.gz
+    name_template: "knowing_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+brews:
+  - name: knowing
+    repository:
+      owner: blackwell-systems
+      name: homebrew-tap
+      token: "{{ .Env.GORELEASER_TAP_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/blackwell-systems/knowing"
+    description: "Content-addressed knowledge graph for software systems"
+    license: "MIT"
+    install: |
+      bin.install "knowing"
+    test: |
+      assert_match "knowing", shell_output("#{bin}/knowing version 2>&1", 0)
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"

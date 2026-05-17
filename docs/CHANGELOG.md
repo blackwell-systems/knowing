@@ -6,6 +6,14 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **`context_for_pr` MCP tool** (17th tool): RWR-scored context from changed files for PR review
+- **HITS reranking** in context engine: hub/authority scoring on RWR subgraph for improved relevance ordering
+- **Full hook suite** (5 hooks): SessionStart, PreEdit, PreCompact, PostTask, Subagent; complete agent lifecycle coverage
+- **Hook benchmark** proving net-positive value (+305 tokens saved, 90% coverage)
+- **`DeleteSnapshot`** implemented for real garbage collection
+- **Snapshot lifecycle integration test** (end-to-end)
+- **Route detection (Python):** Flask, FastAPI, and Django framework support in Python extractor
+- **Route detection (TypeScript):** Fastify, Hono, NestJS, and Next.js support in TypeScript extractor (18 frameworks total)
 - **Wire format system** (`internal/wire/` package): GCF (Graph Compact Format) text encoder/decoder, GCB (Graph Compact Binary) codec, JSON codec, pluggable registry, benchmark harness with 6 fixtures achieving 84% median token savings
 - **GCF session statefulness:** cross-call symbol deduplication via `wire.Session`; previously-transmitted symbols emitted as bare references, delivering 47% additional savings on repeated symbols within a session
 - **Wire format integration:** `format` parameter on `context_for_task` and `context_for_files` MCP tools; `--format gcf|gcb|json` on CLI `knowing context` command
@@ -24,6 +32,9 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Tiered seed matching in context engine (exact > prefix > substring) produces differentiated scores
+- Deleted file cleanup in indexer (nodes/edges from removed files are garbage collected)
+- mcp-assert suite updated to new YAML format
 - Context engine uses substring search for keyword matching
 - Ranking uses relative normalization and base recency for static edges
 - Resolved repo URL from go.mod module path to prevent duplicate nodes
@@ -31,7 +42,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- Wire format renamed from KG1 to GCF (Graph Compact Format)
+- Wire format renamed from KWF/KWB to GCF/GCB (Graph Compact Format / Graph Compact Binary) for standalone spec adoption
 - Banner image metadata stripped
 - `.knowing` binary added to .gitignore
 
