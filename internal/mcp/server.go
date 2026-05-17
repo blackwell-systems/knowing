@@ -1,7 +1,7 @@
 // Package mcp exposes the knowing knowledge graph as MCP (Model Context
 // Protocol) tools over stdio and HTTP transports.
 //
-// The server registers 16 tools organized into four planes:
+// The server registers 22 tools organized into six planes:
 //
 // Execution plane (write operations):
 //   - index_repo: trigger indexing of a repository
@@ -26,6 +26,15 @@
 // Context plane (graph-aware context packing):
 //   - context_for_task: generate token-budgeted context for a task description
 //   - context_for_files: generate blast-radius context for changed files
+//
+// Feedback plane (agent learning loop):
+//   - feedback: record/query symbol usefulness for ranking improvement
+//
+// Discovery plane (exploration and planning):
+//   - test_scope: find affected tests for changed files
+//   - flow_between: find all paths between two symbols via BFS
+//   - plan_turn: suggest relevant knowing tools for a task description
+//   - communities: Louvain modularity-based graph clustering
 package mcp
 
 import (
@@ -51,7 +60,7 @@ type Server struct {
 }
 
 // NewServer creates a new MCP server backed by the given GraphStore.
-// It registers all 17 tools (execution, intelligence, runtime, and context planes).
+// It registers all 22 tools (execution, intelligence, runtime, context, feedback, and discovery planes).
 func NewServer(store types.GraphStore) *Server {
 	s := &Server{
 		store:   store,
@@ -70,7 +79,7 @@ func NewServer(store types.GraphStore) *Server {
 	return s
 }
 
-// registerTools registers all 17 MCP tools on the server.
+// registerTools registers all 22 MCP tools on the server.
 func (s *Server) registerTools() {
 	// Execution plane tools
 	s.mcpServer.AddTool(indexRepoTool(), s.handleIndexRepo)
@@ -96,6 +105,15 @@ func (s *Server) registerTools() {
 	s.mcpServer.AddTool(contextForTaskTool(), s.handleContextForTask)
 	s.mcpServer.AddTool(contextForFilesTool(), s.handleContextForFiles)
 	s.mcpServer.AddTool(contextForPRTool(), s.handleContextForPR)
+
+	// Feedback plane
+	s.mcpServer.AddTool(feedbackTool(), s.handleFeedback)
+
+	// Discovery plane
+	s.mcpServer.AddTool(testScopeTool(), s.handleTestScope)
+	s.mcpServer.AddTool(flowBetweenTool(), s.handleFlowBetween)
+	s.mcpServer.AddTool(planTurnTool(), s.handlePlanTurn)
+	s.mcpServer.AddTool(communitiesTool(), s.handleCommunities)
 }
 
 // ToolNames returns the names of all registered tools, useful for testing.
@@ -117,6 +135,12 @@ func (s *Server) ToolNames() []string {
 		"trace_stats",
 		"context_for_task",
 		"context_for_files",
+		"context_for_pr",
+		"feedback",
+		"test_scope",
+		"flow_between",
+		"plan_turn",
+		"communities",
 	}
 }
 
