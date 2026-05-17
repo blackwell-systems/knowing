@@ -7,7 +7,13 @@ VERSION="${1#v}"  # Strip leading 'v'
 REPO="blackwell-systems/knowing"
 BASE_URL="https://github.com/${REPO}/releases/download/v${VERSION}"
 
-cd "$(dirname "$0")/../pypi"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PYPI_DIR="${SCRIPT_DIR}/../pypi"
+
+cd "$PYPI_DIR"
+
+# Update version in pyproject.toml
+sed -i.bak "s/^version = \".*\"/version = \"${VERSION}\"/" pyproject.toml && rm -f pyproject.toml.bak
 
 # Map platform tags to goreleaser archives
 declare -A PLATFORMS=(
@@ -16,9 +22,6 @@ declare -A PLATFORMS=(
   ["manylinux2014_aarch64"]="knowing_linux_arm64.tar.gz"
   ["manylinux2014_x86_64"]="knowing_linux_amd64.tar.gz"
 )
-
-# Update version in pyproject.toml
-sed -i "s/^version = \".*\"/version = \"${VERSION}\"/" pyproject.toml
 
 mkdir -p dist
 
@@ -31,24 +34,44 @@ for plat_tag in "${!PLATFORMS[@]}"; do
   curl -fsSL "${BASE_URL}/${archive}" | tar xz -C knowing/bin knowing
   chmod +x knowing/bin/knowing
 
-  # Build wheel
-  python -m wheel pack . \
-    --dest-dir dist \
-    --build-number 0
+  # Create __main__.py wrapper if not exists
+  mkdir -p knowing
+  cat > knowing/__init__.py << 'PYEOF'
+"""knowing: content-addressed graph artifact for software systems."""
+PYEOF
+  cat > knowing/__main__.py << 'PYEOF'
+"""Entry point for knowing CLI."""
+import os
+import sys
+import subprocess
 
-  # Rename wheel with correct platform tag
-  # wheel pack produces: knowing-VERSION-py3-none-any.whl
-  # We need: knowing-VERSION-py3-none-PLATFORM.whl
-  for whl in dist/knowing-${VERSION}-*.whl; do
-    if [[ "$whl" == *"any.whl" ]]; then
-      target="dist/knowing-${VERSION}-py3-none-${plat_tag}.whl"
-      mv "$whl" "$target"
-      echo "    -> $(basename "$target")"
-    fi
+def main():
+    binary = os.path.join(os.path.dirname(__file__), "bin", "knowing")
+    if not os.path.exists(binary):
+        print("Error: knowing binary not found", file=sys.stderr)
+        sys.exit(1)
+    result = subprocess.run([binary] + sys.argv[1:])
+    sys.exit(result.returncode)
+
+if __name__ == "__main__":
+    main()
+PYEOF
+
+  # Build wheel using pip wheel (creates proper .dist-info)
+  pip wheel . --no-deps --wheel-dir tmp_wheel/
+
+  # Rename the wheel to the correct platform tag
+  for whl in tmp_wheel/knowing-*.whl; do
+    # Replace 'any' or whatever platform tag with the correct one
+    target="dist/knowing-${VERSION}-py3-none-${plat_tag}.whl"
+    # Repack with correct tag using wheel tags
+    python -m wheel tags --platform-tag "${plat_tag}" --remove "$whl"
+    mv tmp_wheel/knowing-*.whl "$target" 2>/dev/null || mv "$whl" "$target"
+    echo "    -> $(basename "$target")"
   done
 
-  rm -rf knowing/bin
+  rm -rf knowing/bin tmp_wheel/
 done
 
-echo "==> Built $(ls dist/*.whl | wc -l) wheels"
+echo "==> Built wheels:"
 ls dist/*.whl

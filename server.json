@@ -1,15 +1,16 @@
 {
+  "$schema": "https://registry.modelcontextprotocol.io/v0.1/server.schema.json",
   "name": "io.github.blackwell-systems/knowing",
   "version": "0.1.0",
-  "description": "Content-addressed graph artifact for software systems. 17 extractors, 22 MCP tools, runtime + static in one graph.",
+  "description": "Content-addressed code graph with 22 MCP tools for AI agents.",
   "repository": {
     "url": "https://github.com/blackwell-systems/knowing",
     "source": "github"
   },
   "packages": [
     {
-      "registry_name": "npm",
-      "name": "@blackwell-systems/knowing",
+      "registryType": "npm",
+      "identifier": "@blackwell-systems/knowing",
       "version": "0.1.0",
       "runtime": "node",
       "runtime_arguments": [],
