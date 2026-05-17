@@ -86,24 +86,24 @@ The highest-ROI integration point is not per-edit injection. It's single calls a
 
 These moments are high-stakes, low-frequency, and high-information-density. A 4000-token response at PR-open time is worth more than fifty 800-token per-edit injections because the agent (or human) is making a decision that affects the entire system.
 
-## Alternative Model: Behavioral Nudging (Serena Approach)
+## Alternative Model: Behavioral Nudging
 
-Research into Serena (an MCP server for code intelligence) reveals a fundamentally different hook architecture that avoids the cost problem entirely.
+Research into existing MCP tool servers reveals a fundamentally different hook architecture that avoids the cost problem entirely.
 
-### How Serena Does It
+### How Behavioral Nudging Works
 
-Serena's PreToolUse hook does NOT inject context. Instead:
+The PreToolUse hook does NOT inject context. Instead:
 
 1. It counts consecutive uses of non-symbolic tools (grep, read, cat)
 2. After a threshold (3 greps, 3 reads, or 4 combined), it **denies** the tool call with a message: "use symbolic tools instead"
 3. Rate-limited to one nudge per 2-minute window
-4. Counters reset when the agent uses a Serena symbolic tool
+4. Counters reset when the agent uses a symbolic tool
 
 The hook is a behavioral redirect, not a context injection. It costs zero tokens (the nudge message is tiny). The agent is trained to reach for symbolic tools first; the hook catches when it forgets.
 
 ### Comparison of Models
 
-| | Context Injection (our approach) | Behavioral Nudge (Serena) |
+| | Context Injection (our approach) | Behavioral Nudge |
 |--|----------------------------------|--------------------------|
 | Token cost per invocation | 800 (fixed, every edit) | ~0 (only fires on threshold) |
 | Precision requirement | Must be high (wasted tokens if not) | N/A (no content to be precise about) |
