@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="#mcp-tools"><img src="https://img.shields.io/badge/MCP_tools-22-brightgreen.svg" alt="MCP Tools"></a>
-  <a href="#languages-and-formats"><img src="https://img.shields.io/badge/extractors-12-blue.svg" alt="Extractors"></a>
+  <a href="#languages-and-formats"><img src="https://img.shields.io/badge/extractors-17-blue.svg" alt="Extractors"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
   <a href="https://github.com/blackwell-systems"><img src="https://raw.githubusercontent.com/blackwell-systems/blackwell-docs-theme/main/badge-trademark.svg" alt="Blackwell Systems"></a>
 </p>
@@ -62,20 +62,19 @@ The repository includes benchmark harnesses that regenerate their own findings f
 
 | Benchmark | Result | What it demonstrates |
 |---|---:|---|
-| Context retrieval | 55.7% fewer tokens, 52.8% fewer tool calls | Agents spend less time exploring with grep/read loops |
+| Context retrieval | 55.6% fewer tokens, 52.8% fewer tool calls | Agents spend less time exploring with grep/read loops |
 | GCF wire format | 84.0% fewer tokens than JSON | MCP responses can carry dense graph context cheaply |
-| Test scope | 96.9% precision, 100% recall on analyzed commits | Call-graph BFS can select affected test packages safely |
-| Claude hooks | 9/10 edit tasks avoided a manual context call | Automatic context injection can be net-positive |
+| Test scope | 98.9% precision, 100% recall on analyzed commits | Call-graph BFS can select affected test packages safely |
 | Feedback loop | 16% -> 36% precision after one feedback round | Relevance improves as agents mark useful symbols |
+| Edge accuracy | 53.6% import confirmation, 32.2% miss rate | Two-tier extraction provides meaningful fast signal |
 
 Run the suites:
 
 ```bash
 GOWORK=off go test ./bench/... -timeout 5m
-GOWORK=off go test -tags hookbench ./hooks/benchmark/ -v
 ```
 
-See [bench/README.md](bench/README.md) and [hooks/README.md](hooks/README.md) for methodology and caveats.
+See [bench/README.md](bench/README.md) for methodology, design principles, and caveats.
 
 ## Quick Start
 
@@ -161,7 +160,7 @@ Claude Code hooks are included for automatic context injection on session start,
 ├──────────────┬───────────────────┬───────────────────────┤
 │   Indexer    │   Graph Store     │      MCP Server       │
 │              │                   │                       │
-│ 12 extractors│ Content-addressed │ 22 tools + 3 prompts  │
+│ 17 extractors│ Content-addressed │ 22 tools + 3 prompts  │
 │ tree-sitter  │ SQLite + Merkle   │ stdio / HTTP          │
 │ gopls + SCIP │ Snapshot chain    │ GCF / GCB / JSON      │
 │ OTel traces  │ Edge events       │                       │
