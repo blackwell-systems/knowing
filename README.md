@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <strong>The system of record for how software systems behave, change, and relate over time.</strong>
+  <strong>Content-addressed code graph. Identity is content, so the graph updates itself.</strong>
 </p>
 
 ---
