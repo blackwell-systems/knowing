@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `knowing mcp` subcommand for stdio MCP server mode (used by AI agents via .mcp.json)
 - HITS (Hyperlink-Induced Topic Search) reranking on RWR subgraph: boosts task-relevant authorities, penalizes generic infrastructure hubs. Score differentiation improved from 0.01 spread to 0.35 spread across results.
 - Density-ranked knapsack packing: score/cost ratio optimization maximizes total relevance within token budgets. Small high-value symbols (types, interfaces) now beat large medium-value symbols when budget is tight.
+- Protobuf/gRPC extractor: extracts service, message, enum, and RPC declarations from .proto files with references edges for field types and RPC request/response types
+- All 11 language extractors now registered in CLI (were previously unregistered packages): Go, Python, TypeScript/JS, Rust, Java, C#, Terraform, SQL, K8s YAML, CSS, Protocol Buffers
 - Random Walk with Restart (RWR) algorithm for graph-based relevance scoring in context engine
 - Improved keyword extraction with stop word filtering, CamelCase splitting, and abbreviation expansion
 - Relative normalization in ranking and base recency score for static-only edges

@@ -10,7 +10,7 @@ Everything else depends on this. Complete.
 |------|-------------|--------|
 | Content-addressed store | SQLite backend, Merkle DAG, snapshot chain | **done** |
 | Extractor framework | Language-agnostic interface, worker pool parallelism | **done** |
-| 10 language extractors | Go, TypeScript/JS, Python, Rust, Java, C#, Terraform, SQL, K8s YAML, CSS | **done** |
+| 11 language extractors | Go, TypeScript/JS, Python, Rust, Java, C#, Terraform, SQL, K8s YAML, CSS, Protocol Buffers | **done** |
 | LSP enrichment | Upgrades ast_inferred to lsp_resolved via gopls | **done** |
 | Incremental indexing | Git watcher, file change detection, deleted file cleanup | **done** |
 | Snapshot diff | Edge event sourcing, added/removed between snapshots | **done** |
@@ -26,7 +26,7 @@ Everything else depends on this. Complete.
 | HTTP route edges | 18 frameworks across 6 languages (Go, TS, Python, Rust, Java, C#) | **done** |
 | Infrastructure extractors | Terraform, SQL, K8s YAML, CSS | **done** |
 | SCIP ingest | Tier 2 shallow indexing for external dependencies | planned |
-| Protobuf/gRPC edges | Proto field references, service-to-service RPC relationships | planned |
+| Protobuf/gRPC edges | Proto field references, service-to-service RPC relationships | **done** |
 | Event edges | Kafka/NATS/SQS topic producers and consumers | planned |
 | Schema edges | OpenAPI specs, JSON Schema, proto-as-schema references | planned |
 | Ownership edges | CODEOWNERS, team annotations, service catalog metadata | planned |

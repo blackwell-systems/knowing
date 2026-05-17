@@ -25,9 +25,18 @@ import (
 	"github.com/blackwell-systems/knowing/internal/daemon"
 	"github.com/blackwell-systems/knowing/internal/enrichment"
 	"github.com/blackwell-systems/knowing/internal/indexer"
+	"github.com/blackwell-systems/knowing/internal/indexer/csharpextractor"
+	"github.com/blackwell-systems/knowing/internal/indexer/cssextractor"
 	"github.com/blackwell-systems/knowing/internal/indexer/goextractor"
 	"github.com/blackwell-systems/knowing/internal/indexer/gotsextractor"
+	"github.com/blackwell-systems/knowing/internal/indexer/javaextractor"
+	"github.com/blackwell-systems/knowing/internal/indexer/k8sextractor"
+	"github.com/blackwell-systems/knowing/internal/indexer/protoextractor"
+	"github.com/blackwell-systems/knowing/internal/indexer/rustextractor"
+	"github.com/blackwell-systems/knowing/internal/indexer/sqlextractor"
+	"github.com/blackwell-systems/knowing/internal/indexer/terraformextractor"
 	"github.com/blackwell-systems/knowing/internal/indexer/treesitter"
+	"github.com/blackwell-systems/knowing/internal/indexer/tsextractor"
 	knowingmcp "github.com/blackwell-systems/knowing/internal/mcp"
 	"github.com/blackwell-systems/knowing/internal/snapshot"
 	"github.com/blackwell-systems/knowing/internal/store"
@@ -123,11 +132,7 @@ func cmdServe(args []string) error {
 	idx := indexer.NewIndexer(st, snapMgr)
 
 	// Register extractors (tree-sitter fast path by default).
-	idx.Register(gotsextractor.NewGoTreeSitterExtractor())
-	tsExt, err := treesitter.NewTreeSitterExtractor("python")
-	if err == nil {
-		idx.Register(tsExt)
-	}
+	registerAllExtractors(idx, false)
 
 	mcpServer := knowingmcp.NewServer(st)
 
@@ -250,15 +255,7 @@ func cmdIndex(args []string) error {
 	idx := indexer.NewIndexer(st, snapMgr)
 
 	// Register extractors.
-	if *full {
-		idx.Register(goextractor.NewGoExtractor())
-	} else {
-		idx.Register(gotsextractor.NewGoTreeSitterExtractor())
-	}
-	tsExt, err := treesitter.NewTreeSitterExtractor("python")
-	if err == nil {
-		idx.Register(tsExt)
-	}
+	registerAllExtractors(idx, *full)
 
 	ctx := context.Background()
 	snap, err := idx.IndexRepo(ctx, *repoURL, repoPath, *commitHash)
@@ -539,15 +536,7 @@ func cmdReindex(args []string) error {
 	snapMgr := snapshot.NewSnapshotManager(st)
 	idx := indexer.NewIndexer(st, snapMgr)
 
-	if *full {
-		idx.Register(goextractor.NewGoExtractor())
-	} else {
-		idx.Register(gotsextractor.NewGoTreeSitterExtractor())
-	}
-	tsExt, err := treesitter.NewTreeSitterExtractor("python")
-	if err == nil {
-		idx.Register(tsExt)
-	}
+	registerAllExtractors(idx, *full)
 
 	snap, err := idx.IndexRepo(ctx, *repoURL, repoPath, *commitHash)
 	if err != nil {
@@ -566,6 +555,50 @@ func cmdReindex(args []string) error {
 	}
 
 	return nil
+}
+
+// registerAllExtractors registers all language extractors with the indexer.
+// If fullGo is true, uses the full go/packages extractor; otherwise uses
+// tree-sitter for Go (faster but less type info).
+func registerAllExtractors(idx *indexer.Indexer, fullGo bool) {
+	// Go extractor (full type resolution or fast tree-sitter).
+	if fullGo {
+		idx.Register(goextractor.NewGoExtractor())
+	} else {
+		idx.Register(gotsextractor.NewGoTreeSitterExtractor())
+	}
+
+	// Python (tree-sitter multi-language).
+	if tsExt, err := treesitter.NewTreeSitterExtractor("python"); err == nil {
+		idx.Register(tsExt)
+	}
+
+	// TypeScript/JavaScript.
+	idx.Register(tsextractor.NewTypeScriptExtractor())
+
+	// Rust.
+	idx.Register(rustextractor.NewRustExtractor())
+
+	// Java.
+	idx.Register(javaextractor.NewJavaExtractor())
+
+	// C#.
+	idx.Register(csharpextractor.NewCSharpExtractor())
+
+	// Terraform HCL.
+	idx.Register(terraformextractor.NewTerraformExtractor())
+
+	// SQL.
+	idx.Register(sqlextractor.NewSQLExtractor())
+
+	// Kubernetes YAML.
+	idx.Register(k8sextractor.NewK8sExtractor())
+
+	// CSS/SCSS.
+	idx.Register(cssextractor.NewCSSExtractor())
+
+	// Protocol Buffers.
+	idx.Register(protoextractor.NewProtoExtractor())
 }
 
 // Compile-time assertion that SQLiteStore implements GraphStore. This also
