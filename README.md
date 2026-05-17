@@ -27,7 +27,7 @@ knowing applies the same model to **code relationships**:
 | Node identity | `sha256(file content)` | `sha256(repo + package + name + kind)` (logical identity) |
 | Edge identity | n/a (paths are implicit) | `sha256(source_hash + target_hash + type + provenance)` |
 | Snapshot | tree hash of sorted child hashes | Merkle root of sorted edge hashes |
-| Incremental update | changed file = new blob hash | changed file = invalidated node hashes, surgical re-extraction |
+| Incremental update | changed file = new blob hash | changed file = stale file hash, surgical re-extraction of derived nodes/edges |
 | History | commit chain (append-only) | snapshot chain + edge event log (append-only) |
 | Integrity | verify tree from root hash | verify snapshot from Merkle root |
 | Diff | any two commits | any two snapshots |
