@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <strong>Content-addressed code graph. Identity is content, so incremental updates are structural.</strong>
+  <strong>Content-addressed graph artifact for software systems. Identity is content, so incremental updates are structural.</strong>
 </p>
 
 ---
