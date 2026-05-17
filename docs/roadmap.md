@@ -78,9 +78,9 @@ Core pipeline complete. v2 refinements identified.
 
 ### Embedding Retrieval (research note)
 
-Gortex achieves 95.2% R@5 on exact queries and 56.4% overall using MiniLM embeddings + RRF fusion.
 knowing's current keyword-only seeding hits 36% P@10 on easy, 2% on hard. The gap is entirely in
-"concept" queries where task descriptions use different words than symbol names.
+"concept" queries where task descriptions use different words than symbol names ("authentication
+handling" should find `AuthMiddleware` even with zero keyword overlap).
 
 **Implementation plan (no CGO required):**
 - Runtime: `github.com/knights-analytics/hugot` (pure Go ONNX, auto-downloads model ~30MB)
