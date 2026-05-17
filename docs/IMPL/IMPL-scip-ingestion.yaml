@@ -1,0 +1,334 @@
+title: SCIP Index Ingestion
+feature_slug: scip-ingestion
+verdict: SUITABLE
+suitability_assessment: |
+    The feature decomposes cleanly into two independent work streams:
+    (1) the SCIP ingestion package (internal/indexer/scipingest/) with parser,
+    symbol mapping, and tests; and (2) the CLI integration in cmd/knowing/main.go
+    adding the ingest-scip subcommand. These have disjoint file ownership except
+    for the CLI file which only agent B touches.
+
+    File decomposition: 5+ distinct new files plus one existing file modification.
+    No investigation-first items; SCIP protobuf format is well-documented.
+    Interface discoverability: the SCIPIngester struct and IngestFile method can
+    be fully specified upfront. Cross-agent interface is a single function call.
+
+    Parallelization value: moderate. Build/test cycle is ~30s (go test ./...),
+    agents touch 3+ files each, and tasks involve non-trivial logic (protobuf
+    parsing, symbol name translation, graph edge construction). Two agents in
+    a single wave provides clear speedup over sequential.
+
+    Estimated times:
+    - Scout phase: ~5 min
+    - Agent execution: ~8 min (2 agents x 8 min avg, fully parallel single wave)
+    - Merge and verification: ~3 min
+    Total Polywave time: ~16 min
+
+    Sequential baseline: ~20 min (2 tasks x 10 min avg)
+    Time savings: ~4 min (20% faster)
+
+    Recommendation: Clear speedup with coordination value for interface contract.
+test_command: GOWORK=off go test ./...
+lint_command: GOWORK=off go vet ./...
+file_ownership:
+    - file: internal/indexer/scipingest/ingest.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/indexer/scipingest/symbol.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/indexer/scipingest/symbol_test.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/indexer/scipingest/ingest_test.go
+      agent: A
+      wave: 1
+      action: new
+    - file: cmd/knowing/ingestscip.go
+      agent: B
+      wave: 2
+      action: new
+    - file: cmd/knowing/ingestscip_test.go
+      agent: B
+      wave: 2
+      action: new
+    - file: cmd/knowing/main.go
+      agent: B
+      wave: 2
+      action: modify
+interface_contracts:
+    - name: SCIPIngestOptions
+      description: Configuration struct for SCIP ingestion
+      definition: |
+        // SCIPIngestOptions configures a SCIP index ingestion run.
+        type SCIPIngestOptions struct {
+            FilePath string // path to the .scip index file on disk
+            RepoURL  string // repo URL to associate with the ingested symbols
+        }
+      location: internal/indexer/scipingest/ingest.go
+    - name: SCIPIngester
+      description: Main ingester struct with IngestFile method
+      definition: |
+        // SCIPIngester reads SCIP index files and imports their symbols and
+        // edges into the knowing knowledge graph.
+        type SCIPIngester struct {
+            store types.GraphStore
+        }
+
+        // NewSCIPIngester creates an ingester backed by the given store.
+        func NewSCIPIngester(store types.GraphStore) *SCIPIngester
+
+        // IngestFile reads a .scip index file and imports all symbols and
+        // reference edges into the graph. Returns the number of nodes and
+        // edges created.
+        func (s *SCIPIngester) IngestFile(ctx context.Context, opts SCIPIngestOptions) (*SCIPIngestResult, error)
+
+        // SCIPIngestResult reports what was imported.
+        type SCIPIngestResult struct {
+            NodesCreated int
+            EdgesCreated int
+            DocsProcessed int
+        }
+      location: internal/indexer/scipingest/ingest.go
+    - name: ParseSCIPSymbol
+      description: Parses a SCIP symbol string into knowing qualified name components
+      definition: |
+        // ParseSCIPSymbol parses a SCIP symbol string (e.g.,
+        // "scip-go gomod github.com/org/repo v1.0.0 pkg/Name.") into
+        // its components: scheme, manager, package path, version, and descriptor.
+        func ParseSCIPSymbol(symbol string) (repo, pkgPath, symbolName, symbolKind string, err error)
+      location: internal/indexer/scipingest/symbol.go
+waves:
+    - number: 1
+      agents:
+        - id: A
+          task: |
+            ## Task: Implement SCIP ingestion package
+
+            Create the package `internal/indexer/scipingest/` that parses SCIP
+            (Source Code Intelligence Protocol) index files and imports their
+            symbol definitions and references into the knowing knowledge graph.
+
+            ### Files to create
+
+            **internal/indexer/scipingest/symbol.go**
+            - Implement `ParseSCIPSymbol(symbol string) (repo, pkgPath, symbolName, symbolKind string, err error)`
+            - SCIP symbol format: `"scip-go gomod github.com/org/repo v1.0.0 pkg/Name."`
+              - Fields separated by spaces: scheme, package-manager, package-name, version, descriptor
+              - Descriptor suffixes indicate kind: `.` = type/namespace, `#` = field, `()` = method/function
+            - Map SCIP descriptor suffixes to knowing kinds:
+              - suffix `.` -> "type"
+              - suffix `#` -> "var" (field)
+              - suffix `().` -> "method"
+              - suffix `()` at end -> "function"
+              - no recognized suffix -> "function" (fallback)
+            - Return repo as the package-name field (e.g., "github.com/org/repo")
+            - Return pkgPath as the descriptor path portion before the symbol name
+            - Return symbolName as the final descriptor component (without suffix)
+            - Handle local symbols (prefix `local `) by returning empty repo/pkg and the local name
+
+            **internal/indexer/scipingest/ingest.go**
+            - Import `google.golang.org/protobuf/proto` and `github.com/sourcegraph/scip` for protobuf definitions
+            - Define types:
+              ```go
+              type SCIPIngestOptions struct {
+                  FilePath string
+                  RepoURL  string
+              }
+
+              type SCIPIngestResult struct {
+                  NodesCreated  int
+                  EdgesCreated  int
+                  DocsProcessed int
+              }
+
+              type SCIPIngester struct {
+                  store types.GraphStore
+              }
+              ```
+            - `NewSCIPIngester(store types.GraphStore) *SCIPIngester`
+            - `IngestFile(ctx context.Context, opts SCIPIngestOptions) (*SCIPIngestResult, error)`:
+              1. Read the .scip file from disk with os.ReadFile
+              2. Unmarshal using `proto.Unmarshal` into `scip.Index`
+              3. For each `Document` in the index:
+                 a. Extract symbol definitions: for each SymbolInformation entry,
+                    parse the SCIP symbol name, compute a node hash using
+                    `types.ComputeNodeHash(repo, pkgPath, types.EmptyHash, symbolName, kind)`,
+                    create a Node with:
+                    - QualifiedName: `"{repo}://{pkgPath}.{symbolName}"`
+                    - Kind: derived from ParseSCIPSymbol
+                    - FileHash: compute from repo + relative_path
+                    - Signature: use the documentation field if available
+                 b. For each Occurrence with role "Reference" (SymbolRole_Definition is 1,
+                    check if role does NOT include Definition bit):
+                    - Parse the referenced symbol to get its node hash
+                    - Find the enclosing definition (the symbol at the containing scope)
+                    - Create a "references" edge from the enclosing symbol to the referenced symbol
+                    - Set provenance to "scip_resolved", confidence to 0.95
+                 c. For cross-package references (where the referenced symbol's repo differs
+                    from opts.RepoURL), create the target node if it doesn't exist, marking
+                    it as an external symbol
+              4. Use batch operations if available (check for BatchPutNodes/BatchPutEdges interfaces)
+              5. Return the result with counts
+
+            - Use `types.GraphStore` interface methods: PutNode, PutEdge, PutFile
+            - Set provenance to "scip_resolved" for all SCIP-derived edges
+            - Set confidence to 0.95 (compiler-accurate, higher than LSP 0.9)
+
+            **internal/indexer/scipingest/symbol_test.go**
+            - Test ParseSCIPSymbol with:
+              - Standard Go symbol: `"scip-go gomod github.com/org/repo v1.0.0 pkg/MyType."`
+              - Method: `"scip-go gomod github.com/org/repo v1.0.0 pkg/MyType.Method()."`
+              - Function: `"scip-go gomod github.com/org/repo v1.0.0 pkg/DoThing()."`
+              - Local symbol: `"local 42"`
+              - TypeScript symbol: `"scip-typescript npm @types/node 16.0.0 path/posix.resolve()."`
+              - Invalid/empty input
+
+            **internal/indexer/scipingest/ingest_test.go**
+            - Test IngestFile with a synthetic SCIP index created programmatically:
+              - Create a scip.Index with Metadata and one Document
+              - Marshal to protobuf, write to temp file
+              - Call IngestFile, verify nodes and edges were created
+              - Use an in-memory SQLite store (store.NewSQLiteStore with ":memory:" or temp file)
+            - Test error cases: missing file, invalid protobuf
+
+            ### Dependencies
+            - Add `github.com/sourcegraph/scip` to go.mod (run `go get github.com/sourcegraph/scip`)
+            - This brings in the SCIP protobuf definitions (scip.Index, scip.Document, scip.Occurrence, etc.)
+
+            ### Constraints
+            - Do NOT implement this as a types.Extractor. SCIP files are not source files to discover during repo walks.
+            - Do NOT modify cmd/knowing/main.go or any file outside your ownership list.
+            - Do NOT modify internal/types/types.go. Use existing ComputeNodeHash and ComputeEdgeHash functions.
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/indexer/scipingest/...
+            GOWORK=off go vet ./internal/indexer/scipingest/...
+            GOWORK=off go test ./internal/indexer/scipingest/... -v
+            ```
+
+            Postconditions:
+            - `grep -c "func.*IngestFile" internal/indexer/scipingest/ingest.go` should output `1`
+            - `grep -c "func ParseSCIPSymbol" internal/indexer/scipingest/symbol.go` should output `1`
+            - `grep -c "scip_resolved" internal/indexer/scipingest/ingest.go` should output at least `1`
+          files:
+            - internal/indexer/scipingest/ingest.go
+            - internal/indexer/scipingest/symbol.go
+            - internal/indexer/scipingest/symbol_test.go
+            - internal/indexer/scipingest/ingest_test.go
+          context_source: prepared-brief
+    - number: 2
+      agents:
+        - id: B
+          task: |
+            ## Task: Add ingest-scip CLI subcommand
+
+            Add the `ingest-scip` subcommand to the knowing CLI that invokes the
+            SCIPIngester from `internal/indexer/scipingest/`.
+
+            ### Files to create/modify
+
+            **cmd/knowing/ingestscip.go** (new file)
+            - Implement `func cmdIngestSCIP(args []string) error`
+            - Define flags:
+              - `-file` (required): path to the .scip index file
+              - `-repo` (required): repository URL to associate (e.g., "github.com/org/repo")
+              - `-db`: path to SQLite database (default from `defaultDB()`)
+            - Implementation:
+              1. Parse flags, validate -file and -repo are provided
+              2. Open SQLiteStore with the db path
+              3. Create `scipingest.NewSCIPIngester(store)`
+              4. Call `ingester.IngestFile(ctx, scipingest.SCIPIngestOptions{FilePath: file, RepoURL: repo})`
+              5. Print summary: "Ingested N nodes, M edges from D documents"
+              6. Close store
+
+            **cmd/knowing/ingestscip_test.go** (new file)
+            - Test the flag parsing and basic error cases (missing flags)
+            - Test with a non-existent file path (should error gracefully)
+
+            **cmd/knowing/main.go** (modify)
+            - Add case to the switch in `run()`:
+
+              Insert after this exact text:
+              ```go
+              case "test-scope":
+              	return cmdTestScope(args[1:])
+              ```
+
+              Add:
+              ```go
+              case "ingest-scip":
+              	return cmdIngestSCIP(args[1:])
+              ```
+
+            - Add to `printUsage()` help text:
+
+              Insert after this exact text:
+              ```go
+              fmt.Fprintln(os.Stderr, "  test-scope  Compute affected tests from changed files")
+              ```
+
+              Add:
+              ```go
+              fmt.Fprintln(os.Stderr, "  ingest-scip Import a SCIP index file into the graph")
+              ```
+
+            - Add import for scipingest package:
+              ```go
+              "github.com/blackwell-systems/knowing/internal/indexer/scipingest"
+              ```
+
+            ### Constraints
+            - Do NOT modify any files in internal/indexer/scipingest/ (owned by Agent A, wave 1).
+            - Do NOT add the `github.com/sourcegraph/scip` dependency; Agent A handles that.
+            - Follow the existing CLI subcommand pattern exactly (see cmdIndex, cmdReindex for reference).
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./cmd/knowing/...
+            GOWORK=off go vet ./cmd/knowing/...
+            GOWORK=off go test ./cmd/knowing/... -v -run TestIngestSCIP
+            ```
+
+            Postconditions:
+            - `grep -c "ingest-scip" cmd/knowing/main.go` should output at least `2` (switch case + usage)
+            - `grep -c "cmdIngestSCIP" cmd/knowing/ingestscip.go` should output at least `1`
+            - `go build -o /dev/null ./cmd/knowing && echo OK` should print OK
+          files:
+            - cmd/knowing/ingestscip.go
+            - cmd/knowing/ingestscip_test.go
+            - cmd/knowing/main.go
+          dependencies:
+            - A
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: GOWORK=off go build ./...
+          required: true
+        - type: lint
+          command: GOWORK=off go vet ./...
+          required: true
+        - type: test
+          command: GOWORK=off go test ./... -timeout 5m
+          required: true
+pre_mortem:
+    overall_risk: low
+    rows:
+        - scenario: github.com/sourcegraph/scip protobuf module has breaking API or version conflict with existing google.golang.org/protobuf
+          likelihood: low
+          impact: high
+          mitigation: Agent A pins to latest stable scip version; go mod tidy resolves conflicts. If proto version conflict, use replace directive.
+        - scenario: SCIP symbol format varies between languages (scip-go vs scip-typescript) causing parse failures
+          likelihood: medium
+          impact: low
+          mitigation: ParseSCIPSymbol handles variable field counts gracefully; tests cover both Go and TypeScript symbol formats.
+        - scenario: Agent B cannot compile because scipingest package not yet merged from wave 1
+          likelihood: low
+          impact: low
+          mitigation: Wave 2 depends on wave 1 completing; Agent B runs after Agent A's code is merged.
+state: "REVIEWED"
