@@ -20,8 +20,9 @@ const (
 	confidence = 0.7
 )
 
-// k8sDirs are directory path segments that indicate Kubernetes manifests.
-var k8sDirs = []string{"kubernetes/", "k8s/", "manifests/", "deploy/", "helm/"}
+// k8sDirPrefixes are directory path prefixes that indicate Kubernetes manifests.
+// Matched with HasPrefix so "kubernetes-manifests/" matches "kubernetes".
+var k8sDirPrefixes = []string{"kubernetes", "k8s", "manifests", "deploy", "helm", "kube"}
 
 // K8sExtractor extracts nodes and edges from Kubernetes YAML manifests.
 type K8sExtractor struct{}
@@ -42,10 +43,13 @@ func (e *K8sExtractor) CanHandle(path string) bool {
 	if ext != ".yaml" && ext != ".yml" {
 		return false
 	}
-	normalized := filepath.ToSlash(path) + "/"
-	for _, dir := range k8sDirs {
-		if strings.Contains(normalized, "/"+dir) || strings.HasPrefix(normalized, dir) {
-			return true
+	normalized := filepath.ToSlash(path)
+	parts := strings.Split(normalized, "/")
+	for _, part := range parts {
+		for _, prefix := range k8sDirPrefixes {
+			if strings.HasPrefix(strings.ToLower(part), prefix) {
+				return true
+			}
 		}
 	}
 	return false
