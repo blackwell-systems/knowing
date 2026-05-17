@@ -178,13 +178,27 @@ The artifact boundary matters: intelligence features read the graph and produce 
 
 ### Languages And Formats
 
-| Category | Coverage |
-|---|---|
-| Application code | Go, TypeScript/JavaScript, Python, Rust, Java, C# |
-| Infrastructure | Terraform, SQL, Kubernetes YAML, CloudFormation/SAM, Docker Compose, GitHub Actions, Serverless Framework |
-| Interface/schema | Protocol Buffers |
-| Frontend assets | CSS/SCSS |
-| Web frameworks | net/http, gin, echo, chi, gorilla/mux, Express.js, Fastify, Hono, NestJS, Next.js, Flask, FastAPI, Django, Actix, Axum, Rocket, Spring, ASP.NET |
+| Language/Format | Extractor | Framework/Pattern Detection |
+|---|---|---|
+| Go | tree-sitter + `go/packages` + SCIP | net/http, gin, echo, chi, gorilla/mux, fiber |
+| TypeScript/JavaScript | tree-sitter | Express.js, Fastify, Hono, NestJS, Next.js |
+| Python | tree-sitter | Flask, FastAPI, Django |
+| Rust | tree-sitter | Actix, Axum, Rocket |
+| Java | tree-sitter | Spring annotations |
+| C# | tree-sitter | ASP.NET attributes |
+| Protocol Buffers | tree-sitter | service, message, enum, RPC declarations |
+| Terraform (HCL) | tree-sitter | resource, data, module, variable declarations |
+| SQL | tree-sitter | tables, views, functions, procedures, FK edges |
+| Kubernetes YAML | yaml.v3 | deployments, services, configmaps, label-selector edges |
+| CloudFormation/SAM | yaml.v3 | resources, !Ref/!GetAtt/!Sub cross-references |
+| Docker Compose | yaml.v3 | services, ports, networks, depends_on links |
+| GitHub Actions | yaml.v3 | workflows, jobs, steps, action references |
+| Serverless Framework | yaml.v3 | functions, events, resource references |
+| CSS/SCSS | tree-sitter | selectors, custom properties, var() dependencies |
+| Event/MQ patterns | multi-language | Kafka, NATS, SQS, RabbitMQ publish/subscribe |
+| OpenAPI/JSON Schema | json/yaml | endpoints, models, $ref resolution |
+
+All extractors run through multi-dispatch: every matching extractor fires per file, results are merged. Tree-sitter extractors produce edges at confidence 0.7 (`ast_inferred`); `go/packages` and SCIP produce edges at 0.95-1.0 (`ast_resolved`, `scip_resolved`).
 
 ### Edge Types
 
@@ -213,6 +227,27 @@ The MCP server exposes 22 tools across indexing, graph queries, analysis, runtim
 MCP prompts: `refactor_safely`, `review_pr`, `investigate_dead_code`.
 
 Full reference: [docs/MCP-TOOLS.md](docs/MCP-TOOLS.md).
+
+## Wire Formats
+
+knowing serves responses in three encodings, selected per request:
+
+| Format | Purpose | Savings vs JSON |
+|---|---|---|
+| **GCF** (Graph Compact Format) | LLM consumption: line-oriented, positional fields, local integer IDs for edge references | 84% fewer tokens |
+| **GCB** (Graph Compact Binary) | Service transport and caching: varint encoding, length-prefixed strings, flat binary layout | 74% fewer bytes |
+| **JSON** | Human debugging, generic API consumers | Baseline |
+
+GCF replaces JSON's repeated keys (`qualified_name`, `provenance`, `components`) with a header line followed by `|`-separated positional fields. Edge references use local IDs (`$1 -> $3`) instead of repeating full qualified names. The result is parseable by LLMs (line-oriented, no ambiguous nesting) while fitting 5x more graph context into the same token budget.
+
+```bash
+knowing context -task "refactor auth" -format gcf   # LLM-optimized
+knowing context -task "refactor auth" -format json  # human-readable
+```
+
+Session statefulness: when the same symbols appear across multiple MCP calls in a session, GCF deduplicates them (47% reduction on repeated symbols). The wire format is stateful per-session, stateless per-request.
+
+Round-trip integrity is verified: encode -> decode -> re-encode produces identical output for all codecs.
 
 ## Content Addressing
 
