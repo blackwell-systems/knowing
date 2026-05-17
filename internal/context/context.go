@@ -311,6 +311,9 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	}
 	candidates = append(candidates, interfaceSeeds...)
 
+	// Filter out noise: minified bundles, dist/, vendor/, node_modules/
+	candidates = filterNoisySymbols(candidates)
+
 	// Determine candidate communities for scoped RWR.
 	// If candidates cluster in 1-3 communities, constrain the walk.
 	commCounts := make(map[int]int)
@@ -345,9 +348,11 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	}
 
 	// Build scoring inputs from all nodes that received a non-trivial RWR score.
+	// Threshold 0.02: balance between expanding the candidate pool for HITS/feedback
+	// reranking and avoiding noise from distant, weakly-connected nodes.
 	var inputs []ScoringInput
 	for nodeHash, rwrScore := range rwrScores {
-		if rwrScore < 0.05 {
+		if rwrScore < 0.02 {
 			continue // skip negligible nodes
 		}
 
@@ -662,6 +667,42 @@ func extractKeywords(desc string) []string {
 	words := strings.Fields(desc)
 	seen := make(map[string]bool)
 	var result []string
+	var priorityTerms []string // nouns following action verbs get boosted
+
+	// Verb-pattern detection: "Add a new X", "Implement X", "Build X"
+	// The object noun after a filtered verb is the most important keyword.
+	actionVerbs := map[string]bool{
+		"add": true, "implement": true, "create": true, "build": true,
+		"fix": true, "refactor": true, "update": true, "change": true,
+		"remove": true, "delete": true, "move": true, "rename": true,
+		"find": true, "detect": true, "trace": true, "compute": true,
+		"generate": true, "resolve": true, "wire": true, "connect": true,
+	}
+	fillerWords := map[string]bool{
+		"a": true, "an": true, "the": true, "new": true, "existing": true,
+		"all": true, "some": true, "each": true, "that": true, "which": true,
+	}
+
+	// Find the first non-filler noun after the opening verb.
+	if len(words) > 0 {
+		firstWord := strings.ToLower(strings.Trim(words[0], ".,;:!?\"'`()[]{}#"))
+		if actionVerbs[firstWord] {
+			for _, w := range words[1:] {
+				clean := strings.ToLower(strings.Trim(w, ".,;:!?\"'`()[]{}#"))
+				if clean == "" || fillerWords[clean] {
+					continue
+				}
+				// This is the primary object noun. Boost it.
+				priorityTerms = append(priorityTerms, clean)
+				// Also try CamelCase version as a symbol name.
+				if len(clean) > 2 {
+					capitalized := strings.ToUpper(clean[:1]) + clean[1:]
+					priorityTerms = append(priorityTerms, capitalized)
+				}
+				break
+			}
+		}
+	}
 
 	for _, w := range words {
 		// Strip punctuation from edges.
@@ -703,12 +744,26 @@ func extractKeywords(desc string) []string {
 		}
 	}
 
-	// Sort by length descending: longer (more specific) terms first.
-	sort.Slice(result, func(i, j int) bool {
-		return len(result[i]) > len(result[j])
-	})
+	// Prepend priority terms (object nouns from verb patterns) so they seed first.
+	var final []string
+	for _, pt := range priorityTerms {
+		if !seen[pt] {
+			seen[pt] = true
+			final = append(final, pt)
+		}
+	}
+	final = append(final, result...)
 
-	return result
+	// Sort by length descending: longer (more specific) terms first.
+	// But keep priority terms at the front.
+	if len(final) > len(priorityTerms) {
+		tail := final[len(priorityTerms):]
+		sort.Slice(tail, func(i, j int) bool {
+			return len(tail[i]) > len(tail[j])
+		})
+	}
+
+	return final
 }
 
 // splitIdentifier splits a CamelCase or snake_case identifier into component words.
@@ -802,4 +857,37 @@ func packIntoBudget(ranked []RankedSymbol, budget int, format string) *ContextBl
 
 	block.TokensUsed = tokensUsed
 	return block
+}
+
+// filterNoisySymbols removes symbols from minified bundles, dist/,
+// vendor/, and node_modules/ paths that pollute retrieval results.
+func filterNoisySymbols(nodes []types.Node) []types.Node {
+	var filtered []types.Node
+	for _, n := range nodes {
+		qn := strings.ToLower(n.QualifiedName)
+		// Skip minified JS bundles (single/double char identifiers from bundlers)
+		if strings.Contains(qn, "/dist/") || strings.Contains(qn, "/vendor/") ||
+			strings.Contains(qn, "/node_modules/") || strings.Contains(qn, ".min.") {
+			continue
+		}
+		// Skip symbols with very short names that look minified (e.g. "nR", "v4")
+		lastDot := strings.LastIndex(n.QualifiedName, ".")
+		if lastDot >= 0 {
+			symName := n.QualifiedName[lastDot+1:]
+			if len(symName) <= 2 && !isCommonShortName(symName) {
+				continue
+			}
+		}
+		filtered = append(filtered, n)
+	}
+	return filtered
+}
+
+// isCommonShortName returns true for legitimate short symbol names.
+func isCommonShortName(name string) bool {
+	common := map[string]bool{
+		"ID": true, "OK": true, "Go": true, "Do": true,
+		"DB": true, "IP": true, "IO": true,
+	}
+	return common[name]
 }

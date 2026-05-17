@@ -74,6 +74,23 @@ Core pipeline complete. v2 refinements identified.
 | context_for_pr MCP tool | PR-scoped context (changed files + diff + relationship awareness) | **done** |
 | Feedback-aware scoring | FeedbackProvider interface wired into ContextEngine for ranking improvement | **done** |
 | MCP resources | knowing://context/<scope> subscribable resources | planned |
+| Semantic embedding seeds | MiniLM-L6-v2 embeddings for concept-level retrieval (see below) | planned (high impact) |
+
+### Embedding Retrieval (research note)
+
+Gortex achieves 95.2% R@5 on exact queries and 56.4% overall using MiniLM embeddings + RRF fusion.
+knowing's current keyword-only seeding hits 36% P@10 on easy, 2% on hard. The gap is entirely in
+"concept" queries where task descriptions use different words than symbol names.
+
+**Implementation plan (no CGO required):**
+- Runtime: `github.com/knights-analytics/hugot` (pure Go ONNX, auto-downloads model ~30MB)
+- Storage: `github.com/coder/hnsw` (pure Go, in-memory, 384 dims, cap 100K symbols)
+- Embed text: `fmt.Sprintf("%s %s %s %s", node.Kind, node.Name, signature, filePath)`
+- Fusion: RRF (k=60) combining keyword seeds + vector nearest-50 as joint seed set
+- RWR + HITS + feedback still rank the final output
+
+**Expected impact:** Hard tier 2% -> 15-25%, medium 16% -> 35-45%, easy should stay >80%.
+The embedding layer finds semantically related symbols that keyword matching misses entirely.
 
 ## Workstream: Developer Visibility
 
