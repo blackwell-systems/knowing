@@ -30,6 +30,14 @@ type FileOptions struct {
 	Format      string   // "xml", "markdown", "json"
 }
 
+// PROptions configures a PR context query.
+type PROptions struct {
+	Files       []string // changed file paths (relative to repo root)
+	RepoURL     string   // repo URL for resolving file hashes
+	TokenBudget int      // default 8000 (larger than per-edit, used once per PR)
+	Format      string   // "xml", "markdown", "json", "kwf"
+}
+
 // ContextBlock is the result of a context query: a ranked list of symbols
 // that fit within a token budget, plus the edges between them.
 type ContextBlock struct {
@@ -328,6 +336,112 @@ func (e *ContextEngine) ForFiles(ctx stdctx.Context, opts FileOptions) (*Context
 				})
 			}
 		}
+	}
+
+	ranked := RankSymbols(inputs)
+	return packIntoBudget(ranked, budget, opts.Format), nil
+}
+
+// ForPR produces relationship-aware context for a pull request. It identifies
+// all symbols in the changed files, runs RWR from them to find the broader
+// impact neighborhood, and includes blast radius (callers of changed symbols)
+// as distance-1 context. This is the highest-value context call: one invocation
+// at PR-open time surfaces the full structural impact.
+func (e *ContextEngine) ForPR(ctx stdctx.Context, opts PROptions) (*ContextBlock, error) {
+	budget := opts.TokenBudget
+	if budget == 0 {
+		budget = 8000
+	}
+
+	if len(opts.Files) == 0 {
+		return &ContextBlock{
+			Format:      opts.Format,
+			TokenBudget: budget,
+		}, nil
+	}
+
+	repoHash := types.NewHash([]byte(opts.RepoURL))
+
+	// Step 1: Find all symbols in the changed files (these are the PR's direct changes).
+	var seeds []types.Hash
+	seedSet := make(map[types.Hash]bool)
+	var directSymbols []types.Node
+
+	for _, path := range opts.Files {
+		file, err := e.store.FileByPath(ctx, repoHash, path)
+		if err != nil || file == nil {
+			continue
+		}
+
+		// Find nodes in this file.
+		allNodes, err := e.store.NodesByName(ctx, "")
+		if err != nil {
+			return nil, err
+		}
+		for _, node := range allNodes {
+			if node.FileHash == file.FileHash && !seedSet[node.NodeHash] {
+				seeds = append(seeds, node.NodeHash)
+				seedSet[node.NodeHash] = true
+				directSymbols = append(directSymbols, node)
+			}
+		}
+	}
+
+	if len(seeds) == 0 {
+		return &ContextBlock{
+			Format:      opts.Format,
+			TokenBudget: budget,
+		}, nil
+	}
+
+	// Step 2: Run RWR from the changed symbols to find the impact neighborhood.
+	rwrScores, err := RandomWalkWithRestart(ctx, e.store, seeds, 0.2, 20)
+	if err != nil {
+		return nil, err
+	}
+
+	// Step 3: Build scoring inputs from all nodes with non-trivial RWR scores.
+	var inputs []ScoringInput
+	for nodeHash, rwrScore := range rwrScores {
+		if rwrScore < 0.05 {
+			continue
+		}
+
+		node, err := e.store.GetNode(ctx, nodeHash)
+		if err != nil || node == nil {
+			continue
+		}
+
+		// Distance: 0 if directly changed (in a PR file), 1+ otherwise.
+		distance := 1
+		if seedSet[nodeHash] {
+			distance = 0
+		}
+
+		edges, err := e.store.EdgesTo(ctx, nodeHash, "")
+		if err != nil {
+			return nil, err
+		}
+		confidence := 0.5
+		var lastObserved int64
+		for _, edge := range edges {
+			if edge.Confidence > confidence {
+				confidence = edge.Confidence
+			}
+			if edge.LastObserved > lastObserved {
+				lastObserved = edge.LastObserved
+			}
+		}
+
+		callerProxy := int(rwrScore * 100)
+
+		inputs = append(inputs, ScoringInput{
+			Node:               *node,
+			CallerCount:        callerProxy,
+			Confidence:         confidence,
+			LastObserved:       lastObserved,
+			DistanceFromTarget: distance,
+		})
 	}
 
 	ranked := RankSymbols(inputs)

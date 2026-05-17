@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="#mcp-tools"><img src="https://img.shields.io/badge/MCP_tools-16-brightgreen.svg" alt="MCP Tools"></a>
+  <a href="#mcp-tools"><img src="https://img.shields.io/badge/MCP_tools-17-brightgreen.svg" alt="MCP Tools"></a>
   <a href="#languages"><img src="https://img.shields.io/badge/languages-10-blue.svg" alt="Languages"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
   <a href="https://github.com/blackwell-systems"><img src="https://raw.githubusercontent.com/blackwell-systems/blackwell-docs-theme/main/badge-trademark.svg" alt="Blackwell Systems"></a>
@@ -89,6 +89,7 @@ Three components, one binary:
 | `trace_stats` | Aggregate statistics on runtime-derived edges |
 | `context_for_task` | Graph-ranked, token-budgeted context for a task |
 | `context_for_files` | Blast radius context for changed files |
+| `context_for_pr` | Full PR impact: RWR from changed symbols, callers, structural neighborhood |
 
 **MCP Prompts:** `refactor_safely`, `review_pr`, `investigate_dead_code`
 

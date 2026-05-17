@@ -51,7 +51,7 @@ type Server struct {
 }
 
 // NewServer creates a new MCP server backed by the given GraphStore.
-// It registers all 16 tools (execution, intelligence, runtime, and context planes).
+// It registers all 17 tools (execution, intelligence, runtime, and context planes).
 func NewServer(store types.GraphStore) *Server {
 	s := &Server{
 		store:   store,
@@ -95,6 +95,7 @@ func (s *Server) registerTools() {
 	// Context packing tools
 	s.mcpServer.AddTool(contextForTaskTool(), s.handleContextForTask)
 	s.mcpServer.AddTool(contextForFilesTool(), s.handleContextForFiles)
+	s.mcpServer.AddTool(contextForPRTool(), s.handleContextForPR)
 }
 
 // ToolNames returns the names of all registered tools, useful for testing.

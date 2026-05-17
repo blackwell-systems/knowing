@@ -80,6 +80,45 @@ func (s *Server) handleContextForFiles(ctx context.Context, req mcp.CallToolRequ
 	return mcp.NewToolResultText(output), nil
 }
 
+// handleContextForPR handles the context_for_pr MCP tool.
+func (s *Server) handleContextForPR(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	filesStr, errResult := requireStringArg(req, "files")
+	if errResult != nil {
+		return errResult, nil
+	}
+	repoURL := getStringArg(req, "repo_url")
+	tokenBudget := getIntArg(req, "token_budget", 8000)
+	format := getStringArg(req, "format")
+
+	// Split comma-separated file paths.
+	parts := strings.Split(filesStr, ",")
+	fileList := make([]string, 0, len(parts))
+	for _, p := range parts {
+		trimmed := strings.TrimSpace(p)
+		if trimmed != "" {
+			fileList = append(fileList, trimmed)
+		}
+	}
+
+	engine := knowingctx.NewContextEngine(s.store)
+	block, err := engine.ForPR(ctx, knowingctx.PROptions{
+		Files:       fileList,
+		RepoURL:     repoURL,
+		TokenBudget: tokenBudget,
+		Format:      "xml",
+	})
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("context_for_pr failed: %v", err)), nil
+	}
+
+	output, err := formatBlock(ctx, block, format, "context_for_pr", s)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("format failed: %v", err)), nil
+	}
+
+	return mcp.NewToolResultText(output), nil
+}
+
 // formatBlock routes output through the wire codec registry for kwf/kwb/json,
 // or falls back to the legacy context formatter for xml/markdown.
 // For KWF, uses the server's session state for cross-call deduplication.
@@ -116,6 +155,17 @@ func contextForTaskTool() mcp.Tool {
 		mcp.WithString("task_description", mcp.Required(), mcp.Description("Description of the task to generate context for (e.g. add caching to the user lookup endpoint)"), Examples("add caching to the user lookup endpoint")),
 		mcp.WithInteger("token_budget", mcp.Description("Maximum token budget for the context block (default 50000)")),
 		mcp.WithString("format", mcp.Description("Output format: kwf (compact graph-native, 75%+ token savings), kwb (binary), json, xml (default), markdown"), Examples("kwf")),
+	)
+}
+
+func contextForPRTool() mcp.Tool {
+	return mcp.NewTool("context_for_pr",
+		mcp.WithDescription("Generate relationship-aware context for a pull request. Identifies all symbols in changed files, runs graph-based relevance scoring (RWR) from them, and surfaces the full structural impact neighborhood including callers, callees, and related types. One call at PR-open time replaces multiple manual context queries."),
+		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithString("files", mcp.Required(), mcp.Description("Comma-separated list of changed file paths relative to repo root (from the PR diff)"), Examples("internal/mcp/server.go,internal/context/context.go")),
+		mcp.WithString("repo_url", mcp.Description("Repository URL for resolving file hashes"), Examples("https://github.com/org/repo")),
+		mcp.WithInteger("token_budget", mcp.Description("Maximum token budget for the context block (default 8000, larger than per-edit calls)")),
+		mcp.WithString("format", mcp.Description("Output format: kwf (compact, 75%+ token savings), kwb (binary), json, xml (default), markdown"), Examples("kwf")),
 	)
 }
 
