@@ -47,6 +47,14 @@ import (
 // Version is the current version of the knowing CLI.
 const Version = "knowing v0.1.0"
 
+// defaultDB returns the default database path, checking KNOWING_DB env var first.
+func defaultDB() string {
+	if env := os.Getenv("KNOWING_DB"); env != "" {
+		return env
+	}
+	return "knowing.db"
+}
+
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -112,7 +120,7 @@ func printUsage() {
 // until SIGINT/SIGTERM.
 func cmdServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
-	dbPath := fs.String("db", "knowing.db", "Path to the SQLite database")
+	dbPath := fs.String("db", defaultDB(), "Path to the SQLite database (env: KNOWING_DB)")
 	addr := fs.String("addr", ":8080", "HTTP address for MCP server")
 	traceEnabled := fs.Bool("trace", false, "Enable runtime trace ingestion")
 	traceEndpoint := fs.String("trace-endpoint", "localhost:4317", "OTLP gRPC endpoint for trace ingestion")
@@ -204,7 +212,7 @@ func cmdServe(args []string) error {
 // -full was used, since the full extractor already produces high-confidence edges).
 func cmdIndex(args []string) error {
 	fs := flag.NewFlagSet("index", flag.ExitOnError)
-	dbPath := fs.String("db", "knowing.db", "Path to the SQLite database")
+	dbPath := fs.String("db", defaultDB(), "Path to the SQLite database (env: KNOWING_DB)")
 	repoURL := fs.String("url", "", "Repository URL (e.g. github.com/org/repo)")
 	commitHash := fs.String("commit", "HEAD", "Commit hash to record")
 	full := fs.Bool("full", false, "Use full type resolution (go/packages) instead of fast tree-sitter extraction")
@@ -286,7 +294,7 @@ func cmdIndex(args []string) error {
 // prefix and prints each node with its outgoing edges.
 func cmdQuery(args []string) error {
 	fs := flag.NewFlagSet("query", flag.ExitOnError)
-	dbPath := fs.String("db", "knowing.db", "Path to the SQLite database")
+	dbPath := fs.String("db", defaultDB(), "Path to the SQLite database (env: KNOWING_DB)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -331,7 +339,7 @@ func cmdQuery(args []string) error {
 // by repo URL and snapshot hash.
 func cmdExport(args []string) error {
 	fs := flag.NewFlagSet("export", flag.ExitOnError)
-	dbPath := fs.String("db", "knowing.db", "Path to the SQLite database")
+	dbPath := fs.String("db", defaultDB(), "Path to the SQLite database (env: KNOWING_DB)")
 	format := fs.String("format", "json", "Output format (only json supported)")
 	repoFilter := fs.String("repo", "", "Filter by repo URL")
 	snapshotFilter := fs.String("snapshot", "", "Filter by snapshot hash")
@@ -960,7 +968,7 @@ func shortSymbolName(qname string) string {
 // repository from scratch. This solves stale data and duplicate prefix issues.
 func cmdReindex(args []string) error {
 	fs := flag.NewFlagSet("reindex", flag.ExitOnError)
-	dbPath := fs.String("db", "knowing.db", "Path to the SQLite database")
+	dbPath := fs.String("db", defaultDB(), "Path to the SQLite database (env: KNOWING_DB)")
 	repoURL := fs.String("url", "", "Repository URL (e.g. github.com/org/repo)")
 	commitHash := fs.String("commit", "HEAD", "Commit hash to record")
 	full := fs.Bool("full", false, "Use full type resolution (go/packages) instead of fast tree-sitter extraction")
