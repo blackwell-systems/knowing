@@ -1,3 +1,4 @@
+completion_date: "2026-05-17"
 title: Cloud Infrastructure and CI/CD YAML Extractors
 feature_slug: cloud-extractors
 verdict: SUITABLE
@@ -824,6 +825,7 @@ waves:
             - B
             - C
             - D
+          context_source: prepared-brief
 quality_gates:
     level: standard
     gates:
@@ -927,6 +929,25 @@ completion_reports:
             - TestServerlessExtractor_EmptyFunctions
         verification: PASS
         notes: Serverless extractor complete. All 9 tests passing. Handles http, httpApi, sqs, sns, schedule, s3 event types. All helpers prefixed with sls per spec.
+    E:
+        status: complete
+        branch: main
+        commit: 49bfe9d
+        files_changed:
+            - internal/indexer/cloudextractor/extractor.go
+            - internal/indexer/cloudextractor/doc.go
+            - cmd/knowing/main.go
+            - internal/indexer/cloudextractor/cloudformation.go
+            - internal/indexer/cloudextractor/compose.go
+            - internal/indexer/cloudextractor/actions.go
+            - internal/indexer/cloudextractor/serverless.go
+            - internal/indexer/cloudextractor/compose_test.go
+            - internal/indexer/cloudextractor/serverless_test.go
+        files_created:
+            - internal/indexer/cloudextractor/extractor.go
+            - internal/indexer/cloudextractor/doc.go
+        verification: PASS
+        notes: CloudExtractor delegator, subExtractor interface, shared helpers (getString, makeEdge, buildQN, toStringMap), doc.go, and main.go registration all complete. All 30 tests pass across 4 format extractors. Prefixed helpers fully consolidated.
 pre_mortem:
     overall_risk: low
     rows:
@@ -997,4 +1018,4 @@ critic_report:
     summary: Skipped by operator (--skip-critic)
     reviewed_at: "2026-05-17T08:40:48Z"
     issue_count: 0
-state: REVIEWED
+state: COMPLETE
