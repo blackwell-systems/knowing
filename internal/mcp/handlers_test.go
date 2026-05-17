@@ -217,6 +217,12 @@ func TestNewServer_RegistersAllTools(t *testing.T) {
 		"trace_stats",
 		"context_for_task",
 		"context_for_files",
+		"context_for_pr",
+		"feedback",
+		"test_scope",
+		"flow_between",
+		"plan_turn",
+		"communities",
 	}
 
 	names := srv.ToolNames()

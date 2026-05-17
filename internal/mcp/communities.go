@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	"sort"
-	"strings"
 
 	"github.com/blackwell-systems/knowing/internal/types"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -375,22 +374,6 @@ func dominantPackage(nodes []types.Node) string {
 		}
 	}
 	return bestPkg
-}
-
-// extractPackage extracts the package path from a qualified name.
-// Format: "repoURL://pkgPath.SymbolName" -> "pkgPath"
-func extractPackage(qualifiedName string) string {
-	idx := strings.Index(qualifiedName, "://")
-	if idx < 0 {
-		return ""
-	}
-	rest := qualifiedName[idx+3:]
-	// Find last dot to separate package from symbol.
-	lastDot := strings.LastIndex(rest, ".")
-	if lastDot < 0 {
-		return rest
-	}
-	return rest[:lastDot]
 }
 
 // handleCommunitiesList handles action="list".
