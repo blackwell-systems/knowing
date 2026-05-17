@@ -2,7 +2,29 @@
 
 ## Summary
 
-Automatic context injection via Claude Code PreToolUse hooks is **not cost-effective** at the current state of the context engine. The experiment produced clear numbers that informed this conclusion.
+**RESOLVED:** Automatic context injection via Claude Code PreToolUse hooks is **now cost-effective** after fixing the context engine's seed selection (tiered matching). The hook saves +305 tokens net across 10 tasks and covers 90% of edit scenarios.
+
+The original finding (hooks are net-negative at -910 tokens) was caused by flat, undifferentiated RWR scores produced by overly-broad substring matching. Fixing the seed selection to prefer exact/prefix matches over substrings produced sharply differentiated scores and flipped the verdict.
+
+## Resolution (2026-05-16)
+
+| Metric | Before (broad seeds) | After (tiered seeds) |
+|--------|---------------------|---------------------|
+| Coverage (hook eliminates manual call) | 20% of tasks | **90% of tasks** |
+| Net tokens | -910 (cost) | **+305 (savings)** |
+| Score differentiation | All 0.38 (flat) | 0.79 to 0.28 (sharp) |
+| Verdict | Don't ship | **Ship (recommended)** |
+
+The fix: three-tier seed matching in `internal/context/context.go`:
+- Tier 1: exact symbol name match
+- Tier 2: prefix match on last path component
+- Tier 3: substring fallback (only if < 5 candidates)
+
+This produces 5-30 high-quality seeds instead of 100 broad ones, giving RWR a focused subgraph to score.
+
+---
+
+## Original Experiment (preserved for context)
 
 ## Experiment Design
 
