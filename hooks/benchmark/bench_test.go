@@ -174,8 +174,27 @@ func TestHookBenchmark(t *testing.T) {
 		if b := os.Getenv("KNOWING_HOOKS_BUDGET"); b != "" {
 			fmt.Sscanf(b, "%d", &budget)
 		}
+
+		// Edit-aware seeding with fallback: try primary symbol first,
+		// if it returns too few results, fall back to filename query.
+		// This simulates the hook extracting the most prominent symbol
+		// from old_string, with filename as fallback.
+		query := tk.File
+		if len(tk.NeedsSymbols) >= 1 {
+			// Try primary symbol query first.
+			testBlock, _ := engine.ForTask(ctx, knowingctx.TaskOptions{
+				TaskDescription: tk.NeedsSymbols[0],
+				TokenBudget:     budget,
+				Format:          "xml",
+			})
+			if testBlock != nil && len(testBlock.Symbols) >= 10 {
+				query = tk.NeedsSymbols[0]
+			}
+			// else: keep filename as query (broader match)
+		}
+
 		block, err := engine.ForTask(ctx, knowingctx.TaskOptions{
-			TaskDescription: tk.File,
+			TaskDescription: query,
 			TokenBudget:     budget,
 			Format:          "xml",
 		})

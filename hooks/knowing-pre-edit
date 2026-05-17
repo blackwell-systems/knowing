@@ -41,17 +41,57 @@ VERBOSE="${KNOWING_HOOKS_VERBOSE:-0}"
 # Read hook input from stdin.
 INPUT=$(cat)
 
-# Extract the file path from the tool input.
-# PreToolUse receives JSON: {"tool_name": "Edit", "input": {"file_path": "..."}}
-FILE_PATH=$(echo "$INPUT" | python3 -c "
-import json, sys
+# Extract the file path AND edit content from the tool input.
+# PreToolUse receives JSON: {"tool_name": "Edit", "input": {"file_path": "...", "old_string": "..."}}
+# We use old_string to extract symbols being modified (edit-aware seeding).
+PARSED=$(echo "$INPUT" | python3 -c "
+import json, sys, re
 try:
     data = json.load(sys.stdin)
     inp = data.get('input', {})
-    print(inp.get('file_path', inp.get('path', '')))
+    file_path = inp.get('file_path', inp.get('path', ''))
+    old_string = inp.get('old_string', '')
+
+    # Extract identifiers from the code being edited.
+    # Match CamelCase words, snake_case words, and dotted paths that look like symbols.
+    symbols = set()
+    if old_string:
+        # Function/method names: func (receiver) Name( or func Name(
+        for m in re.finditer(r'func\s+(?:\([^)]*\)\s+)?(\w+)\s*\(', old_string):
+            symbols.add(m.group(1))
+        # Type declarations: type Name struct/interface
+        for m in re.finditer(r'type\s+(\w+)\s+(?:struct|interface)', old_string):
+            symbols.add(m.group(1))
+        # Variable/const assignments with clear names
+        for m in re.finditer(r'(?:var|const)\s+(\w+)', old_string):
+            symbols.add(m.group(1))
+        # Method calls: .MethodName(
+        for m in re.finditer(r'\.(\w+)\s*\(', old_string):
+            name = m.group(1)
+            if len(name) > 2 and name[0].isupper():
+                symbols.add(name)
+        # Package-qualified calls: pkg.Func(
+        for m in re.finditer(r'(\w+)\.(\w+)\s*\(', old_string):
+            symbols.add(m.group(2))
+        # If no symbols found from patterns, use significant identifiers
+        if not symbols:
+            for m in re.finditer(r'\b([A-Z]\w{2,})\b', old_string):
+                symbols.add(m.group(1))
+
+    # Build query: use extracted symbols joined by spaces, fall back to filename
+    if symbols:
+        # Filter out common Go keywords
+        skip = {'Context', 'Error', 'String', 'Close', 'Start', 'Stop', 'New', 'Get', 'Set'}
+        symbols = [s for s in symbols if s not in skip]
+
+    query = ' '.join(sorted(symbols)[:5]) if symbols else ''
+    print(f'{file_path}|||{query}')
 except:
-    print('')
+    print('|||')
 " 2>/dev/null)
+
+FILE_PATH="${PARSED%%|||*}"
+EDIT_SYMBOLS="${PARSED#*|||}"
 
 if [ -z "$FILE_PATH" ]; then
   exit 0
@@ -74,13 +114,18 @@ else
   KNOWING="knowing"
 fi
 
-# Query knowing for context related to this file.
-# Use -task with the filename as a natural language query (finds symbols by substring).
-# This works better than -files which requires repo URL resolution.
-BASENAME=$(basename "$FILE_PATH" | sed 's/\.[^.]*$//')
+# Query knowing for context.
+# If we extracted symbols from the edit, use those as the query (edit-aware seeding).
+# Fall back to filename if no symbols were extracted.
+if [ -n "$EDIT_SYMBOLS" ]; then
+  QUERY="$EDIT_SYMBOLS"
+else
+  QUERY=$(basename "$FILE_PATH" | sed 's/\.[^.]*$//')
+fi
+
 START_MS=$(python3 -c "import time; print(int(time.time()*1000))")
 
-CONTEXT=$($KNOWING context -task "$BASENAME" -budget "$BUDGET" -format "$FORMAT" -db "$DB" 2>/dev/null) || true
+CONTEXT=$($KNOWING context -task "$QUERY" -budget "$BUDGET" -format "$FORMAT" -db "$DB" 2>/dev/null) || true
 
 END_MS=$(python3 -c "import time; print(int(time.time()*1000))")
 LATENCY_MS=$((END_MS - START_MS))

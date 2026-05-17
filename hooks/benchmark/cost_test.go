@@ -65,9 +65,22 @@ func TestHookCostComparison(t *testing.T) {
 	var results []comparison
 
 	for _, tk := range tasks {
+		// Edit-aware query with fallback.
+		query := tk.File
+		if len(tk.NeedsSymbols) >= 1 {
+			testBlock, _ := engine.ForTask(ctx, knowingctx.TaskOptions{
+				TaskDescription: tk.NeedsSymbols[0],
+				TokenBudget:     hookBudget,
+				Format:          "xml",
+			})
+			if testBlock != nil && len(testBlock.Symbols) >= 10 {
+				query = tk.NeedsSymbols[0]
+			}
+		}
+
 		// Hook path: 800 token budget (what the agent gets for free).
 		hookBlock, err := engine.ForTask(ctx, knowingctx.TaskOptions{
-			TaskDescription: tk.File,
+			TaskDescription: query,
 			TokenBudget:     hookBudget,
 			Format:          "xml",
 		})
@@ -77,7 +90,7 @@ func TestHookCostComparison(t *testing.T) {
 
 		// Manual path: 4000 token budget (what the agent would request explicitly).
 		manualBlock, err := engine.ForTask(ctx, knowingctx.TaskOptions{
-			TaskDescription: tk.File,
+			TaskDescription: query,
 			TokenBudget:     manualBudget,
 			Format:          "xml",
 		})

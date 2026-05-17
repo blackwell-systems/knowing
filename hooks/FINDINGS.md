@@ -86,6 +86,68 @@ The highest-ROI integration point is not per-edit injection. It's single calls a
 
 These moments are high-stakes, low-frequency, and high-information-density. A 4000-token response at PR-open time is worth more than fifty 800-token per-edit injections because the agent (or human) is making a decision that affects the entire system.
 
+## Alternative Model: Behavioral Nudging (Serena Approach)
+
+Research into Serena (an MCP server for code intelligence) reveals a fundamentally different hook architecture that avoids the cost problem entirely.
+
+### How Serena Does It
+
+Serena's PreToolUse hook does NOT inject context. Instead:
+
+1. It counts consecutive uses of non-symbolic tools (grep, read, cat)
+2. After a threshold (3 greps, 3 reads, or 4 combined), it **denies** the tool call with a message: "use symbolic tools instead"
+3. Rate-limited to one nudge per 2-minute window
+4. Counters reset when the agent uses a Serena symbolic tool
+
+The hook is a behavioral redirect, not a context injection. It costs zero tokens (the nudge message is tiny). The agent is trained to reach for symbolic tools first; the hook catches when it forgets.
+
+### Comparison of Models
+
+| | Context Injection (our approach) | Behavioral Nudge (Serena) |
+|--|----------------------------------|--------------------------|
+| Token cost per invocation | 800 (fixed, every edit) | ~0 (only fires on threshold) |
+| Precision requirement | Must be high (wasted tokens if not) | N/A (no content to be precise about) |
+| Agent autonomy | Reduced (receives unsolicited content) | Preserved (agent decides when to call) |
+| Failure mode | Wasted tokens on irrelevant context | Agent ignores nudge, uses grep anyway |
+| Best for | Highly predictable edits | General-purpose coding workflows |
+| Our data says | Net cost of -910 tokens across 10 tasks | Not tested (no implementation yet) |
+
+### What a Nudge-Based Hook Would Look Like for knowing
+
+```bash
+# Pseudocode for a nudge-based hook:
+# 1. Track: has the agent called context_for_task or context_for_files recently?
+# 2. If it's editing files without having called context tools in the last 3 edits:
+#    -> Output a nudge: "Consider calling context_for_task before editing"
+# 3. If it has called context tools recently: do nothing (agent is informed)
+```
+
+Cost: effectively zero tokens (nudge is a single sentence, fires rarely).
+Risk: agent may ignore the nudge and edit blind anyway.
+Upside: no wasted tokens, no precision problem, agent stays in control.
+
+### Which Model Wins?
+
+Unknown. Both have tradeoffs:
+
+- **Injection wins if** precision can be pushed above 50% (HITS alone didn't achieve this, but edit-aware seeding with a single well-matched symbol showed 50% precision on specific tasks like "SQLiteStore" and "SnapshotManager").
+- **Nudging wins if** the agent reliably responds to nudges and calls `context_for_task` on its own (depends on agent behavior, which we can't benchmark without a full agent loop).
+
+Both models remain available in the codebase. The injection hook is at `hooks/knowing-pre-edit`. A nudge-based hook could be added alongside without conflict.
+
+### Edit-Aware Seeding Results
+
+When the hook extracts the primary symbol being modified (simulating reading `old_string` from the Edit tool input) and that symbol is well-matched in the graph:
+
+| Task (single-symbol query) | Precision | Recall |
+|---------------------------|-----------|--------|
+| SnapshotManager | 40.9% | 100% |
+| SQLiteStore | 50.0% | 60% |
+| Daemon | 34.8% | 50% |
+| context (ContextEngine) | 30.4% | 83.3% |
+
+These individual results show that edit-aware seeding CAN produce viable precision when the extracted symbol is specific and well-indexed. The challenge is consistency: for tasks where the primary symbol is generic or poorly matched ("registerTools" -> only 6 results, "GoExtractor" -> wrong neighborhood), the approach fails.
+
 ## How to Re-Run
 
 ```bash
