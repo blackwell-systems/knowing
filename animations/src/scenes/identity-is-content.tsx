@@ -6,141 +6,386 @@ import {
   createRef,
   createRefArray,
   Vector2,
-  easeInOutCubic,
-  linear,
-  loop,
   sequence,
 } from '@motion-canvas/core';
 
 /**
- * "Identity is Content" — v2
+ * "Identity is Content" — 4-Act Storyboard
  *
- * Visual narrative:
- * 1. Three source files appear as code blocks with visible hash digests
- * 2. Each file connects to symbol nodes (the graph)
- * 3. Symbol nodes connect upward to a Merkle snapshot root
- * 4. One file's content visibly changes (character edit)
- * 5. Its hash recomputes (digits roll)
- * 6. The invalidation propagates UP the tree (edge pulses, only the affected path)
- * 7. Everything else stays perfectly still (the stillness IS the point)
- * 8. New snapshot root hash settles
+ * Act 1 — THE PAIN: An agent greps, reads, greps, reads. Token counter climbs.
+ *          7 tool calls. "Every session starts from zero."
  *
- * The spatial layout is a bottom-up tree: files at bottom, symbols in middle,
- * snapshot root at top. This mirrors the Merkle structure.
+ * Act 2 — THE ANCHOR: Git's cascade. File -> blob hash -> tree hash -> commit.
+ *          "Git solved this for files." Then morph into knowing's structure:
+ *          file -> edge hashes -> snapshot root. "Same mechanism. Relationships."
+ *
+ * Act 3 — THE MECHANISM: A file changes. Hash recomputes. Cascade propagates up
+ *          ONLY the affected path. Rest stays still. New root settles.
+ *
+ * Act 4 — THE PAYOFF: "One call. Ranked context. Always current."
+ *          Show context_for_task returning results while token counter stays low.
  */
 export default makeScene2D(function* (view) {
-  // Palette
   const bg = '#0a0a0f';
   const dim = '#2a2a3a';
   const text = '#e0e0e8';
+  const muted = '#6a7a8a';
   const accent = '#4ecdc4';
-  const hash = '#6a7a8a';
   const pulse = '#ff6b6b';
   const fresh = '#51cf66';
+  const warn = '#ffa94d';
   const codeBg = '#151520';
   const edgeIdle = '#333344';
-  const edgePulse = '#ff6b6b';
-  const edgeFresh = '#51cf66';
 
   view.fill(bg);
 
-  // === LAYER 1: Source files (bottom) ===
+  // Reusable subtitle
+  const subtitle = createRef<Txt>();
+  view.add(
+    <Txt
+      ref={subtitle}
+      text=""
+      fontSize={20}
+      fontFamily="JetBrains Mono, monospace"
+      fill={muted}
+      y={340}
+    />
+  );
 
-  const fileGroup = createRef<Node>();
-  view.add(<Node ref={fileGroup} y={200} />);
+  // ============================================================
+  // ACT 1: THE PAIN
+  // ============================================================
 
-  // File blocks: show real code with hash underneath
-  const fileData = [
-    {
-      name: 'context.go',
-      code: 'func ForTask(desc string) {...}',
-      hash: 'sha256: a3f2c8',
-      x: -350,
-    },
-    {
-      name: 'store.go',
-      code: 'func EdgesTo(h Hash) {...}',
-      hash: 'sha256: b7e1d4',
-      x: 0,
-    },
-    {
-      name: 'ranking.go',
-      code: 'func RankSymbols(s []S) {...}',
-      hash: 'sha256: c9d4f1',
-      x: 350,
-    },
+  const actLabel = createRef<Txt>();
+  view.add(
+    <Txt
+      ref={actLabel}
+      text=""
+      fontSize={14}
+      fontFamily="JetBrains Mono, monospace"
+      fill={dim}
+      y={-340}
+    />
+  );
+
+  // Token counter (top right)
+  const tokenCounter = createRef<Txt>();
+  view.add(
+    <Txt
+      ref={tokenCounter}
+      text=""
+      fontSize={16}
+      fontFamily="JetBrains Mono, monospace"
+      fill={warn}
+      x={350}
+      y={-300}
+      opacity={0}
+    />
+  );
+
+  // Tool call log (center)
+  const toolCalls = createRefArray<Txt>();
+  const toolCallTexts = [
+    '> grep -rn "auth" ./internal/',
+    '  ...47 matches (1,200 tokens)',
+    '> read internal/auth/session.go',
+    '  ...280 lines (2,100 tokens)',
+    '> grep -rn "middleware" ./internal/',
+    '  ...31 matches (900 tokens)',
+    '> read internal/auth/middleware.go',
+    '  ...190 lines (1,400 tokens)',
+    '> grep -rn "Session" ./internal/',
+    '  ...22 matches (650 tokens)',
+    '> read internal/mcp/server.go',
+    '  ...340 lines (2,500 tokens)',
+    '> grep -rn "handler" ./internal/',
+    '  ...56 matches (1,680 tokens)',
   ];
 
-  const fileRects = createRefArray<Rect>();
-  const fileCodeTxts = createRefArray<Txt>();
-  const fileHashTxts = createRefArray<Txt>();
-  const fileNameTxts = createRefArray<Txt>();
+  const toolCallGroup = createRef<Node>();
+  view.add(<Node ref={toolCallGroup} x={-100} y={-80} opacity={0} />);
 
-  for (const f of fileData) {
-    fileGroup().add(
+  for (let i = 0; i < toolCallTexts.length; i++) {
+    toolCallGroup().add(
+      <Txt
+        ref={toolCalls}
+        text={toolCallTexts[i]}
+        fontSize={13}
+        fontFamily="JetBrains Mono, monospace"
+        fill={toolCallTexts[i].startsWith('>') ? text : muted}
+        x={0}
+        y={i * 22}
+        opacity={0}
+      />
+    );
+  }
+
+  // Act 1 animation
+  yield* actLabel().text('Act 1: The problem', 0);
+  yield* subtitle().text('An agent explores a codebase.', 0.3);
+  yield* tokenCounter().opacity(1, 0.3);
+  yield* toolCallGroup().opacity(1, 0.3);
+
+  const tokenValues = [0, 1200, 1200, 3300, 3300, 4200, 4200, 5600, 5600, 6250, 6250, 8750, 8750, 10430];
+
+  for (let i = 0; i < toolCallTexts.length; i++) {
+    yield* toolCalls[i].opacity(1, 0.15);
+    yield* tokenCounter().text(`${tokenValues[i].toLocaleString()} tokens`, 0.1);
+    yield* waitFor(0.25);
+  }
+
+  yield* waitFor(0.5);
+  yield* subtitle().text('7 tool calls. 10,430 tokens. Every session starts from zero.', 0.4);
+  yield* waitFor(2.0);
+
+  // Clear Act 1
+  yield* all(
+    toolCallGroup().opacity(0, 0.4),
+    tokenCounter().opacity(0, 0.4),
+  );
+  yield* waitFor(0.5);
+
+  // ============================================================
+  // ACT 2: THE ANCHOR (Git parallel)
+  // ============================================================
+
+  yield* actLabel().text('Act 2: Git already solved this', 0.3);
+  yield* subtitle().text('', 0);
+
+  // Git's structure (left side)
+  const gitGroup = createRef<Node>();
+  view.add(<Node ref={gitGroup} x={-250} opacity={0} />);
+
+  const gitBoxes = createRefArray<Rect>();
+  const gitLabels = ['file.go', 'blob hash', 'tree hash', 'commit hash'];
+  const gitYPositions = [180, 60, -60, -180];
+
+  for (let i = 0; i < 4; i++) {
+    gitGroup().add(
       <Rect
-        ref={fileRects}
-        x={f.x}
-        width={280}
-        height={120}
+        ref={gitBoxes}
+        y={gitYPositions[i]}
+        width={180}
+        height={50}
         radius={6}
         fill={codeBg}
-        stroke={dim}
+        stroke={accent}
         lineWidth={1}
-        opacity={0}
       >
         <Txt
-          ref={fileNameTxts}
-          text={f.name}
-          fontSize={13}
-          fontFamily="JetBrains Mono, monospace"
-          fill={hash}
-          y={-40}
-        />
-        <Txt
-          ref={fileCodeTxts}
-          text={f.code}
+          text={gitLabels[i]}
           fontSize={14}
           fontFamily="JetBrains Mono, monospace"
           fill={text}
-          y={-10}
-        />
-        <Txt
-          ref={fileHashTxts}
-          text={f.hash}
-          fontSize={11}
-          fontFamily="JetBrains Mono, monospace"
-          fill={hash}
-          y={30}
         />
       </Rect>
     );
   }
 
-  // === LAYER 2: Symbol nodes (middle) ===
+  // Git edges
+  const gitEdges = createRefArray<Line>();
+  for (let i = 0; i < 3; i++) {
+    gitGroup().add(
+      <Line
+        ref={gitEdges}
+        points={[
+          new Vector2(0, gitYPositions[i] - 25),
+          new Vector2(0, gitYPositions[i + 1] + 25),
+        ]}
+        stroke={edgeIdle}
+        lineWidth={2}
+        endArrow
+        arrowSize={8}
+      />
+    );
+  }
 
-  const symbolGroup = createRef<Node>();
-  view.add(<Node ref={symbolGroup} y={-20} />);
+  // Git title
+  const gitTitle = createRef<Txt>();
+  gitGroup().add(
+    <Txt
+      ref={gitTitle}
+      text="Git"
+      fontSize={18}
+      fontFamily="JetBrains Mono, monospace"
+      fill={accent}
+      y={-240}
+    />
+  );
 
-  const symbolData = [
-    {name: 'ForTask', x: -280, fileIdx: 0},
-    {name: 'RankSymbols', x: -100, fileIdx: 0},
-    {name: 'EdgesTo', x: 60, fileIdx: 1},
-    {name: 'NewStore', x: 220, fileIdx: 1},
-    {name: 'ComputeHITS', x: 380, fileIdx: 2},
+  yield* gitGroup().opacity(1, 0.5);
+  yield* subtitle().text('Git: identity is content. Change file, get new hash, cascade up.', 0.4);
+  yield* waitFor(2.0);
+
+  // knowing's structure (right side)
+  const knowingGroup = createRef<Node>();
+  view.add(<Node ref={knowingGroup} x={250} opacity={0} />);
+
+  const knowingBoxes = createRefArray<Rect>();
+  const knowingLabels = ['source file', 'edge hashes', 'subgraph', 'snapshot root'];
+  const knowingYPositions = [180, 60, -60, -180];
+
+  for (let i = 0; i < 4; i++) {
+    knowingGroup().add(
+      <Rect
+        ref={knowingBoxes}
+        y={knowingYPositions[i]}
+        width={180}
+        height={50}
+        radius={6}
+        fill={codeBg}
+        stroke={fresh}
+        lineWidth={1}
+      >
+        <Txt
+          text={knowingLabels[i]}
+          fontSize={14}
+          fontFamily="JetBrains Mono, monospace"
+          fill={text}
+        />
+      </Rect>
+    );
+  }
+
+  // knowing edges
+  const knowingEdges = createRefArray<Line>();
+  for (let i = 0; i < 3; i++) {
+    knowingGroup().add(
+      <Line
+        ref={knowingEdges}
+        points={[
+          new Vector2(0, knowingYPositions[i] - 25),
+          new Vector2(0, knowingYPositions[i + 1] + 25),
+        ]}
+        stroke={edgeIdle}
+        lineWidth={2}
+        endArrow
+        arrowSize={8}
+      />
+    );
+  }
+
+  // knowing title
+  knowingGroup().add(
+    <Txt
+      text="knowing"
+      fontSize={18}
+      fontFamily="JetBrains Mono, monospace"
+      fill={fresh}
+      y={-240}
+    />
+  );
+
+  // "=" sign between them
+  const equalsSign = createRef<Txt>();
+  view.add(
+    <Txt
+      ref={equalsSign}
+      text="same model"
+      fontSize={16}
+      fontFamily="JetBrains Mono, monospace"
+      fill={muted}
+      x={0}
+      y={0}
+      opacity={0}
+    />
+  );
+
+  yield* knowingGroup().opacity(1, 0.5);
+  yield* equalsSign().opacity(1, 0.3);
+  yield* subtitle().text('Same mechanism. Different unit of storage.', 0.4);
+  yield* waitFor(2.5);
+
+  // Clear Act 2
+  yield* all(
+    gitGroup().opacity(0, 0.4),
+    knowingGroup().opacity(0, 0.4),
+    equalsSign().opacity(0, 0.4),
+  );
+  yield* waitFor(0.5);
+
+  // ============================================================
+  // ACT 3: THE MECHANISM
+  // ============================================================
+
+  yield* actLabel().text('Act 3: The cascade', 0.3);
+  yield* subtitle().text('', 0);
+
+  // Build the actual knowing graph (file -> symbols -> root)
+  const graphGroup = createRef<Node>();
+  view.add(<Node ref={graphGroup} opacity={0} />);
+
+  // Files (bottom)
+  const fileData = [
+    {name: 'context.go', hash: 'a3f2c8', x: -300, y: 200},
+    {name: 'store.go', hash: 'b7e1d4', x: 0, y: 200},
+    {name: 'ranking.go', hash: 'c9d4f1', x: 300, y: 200},
   ];
 
-  const symbolCircles = createRefArray<Circle>();
+  const gFileRects = createRefArray<Rect>();
+  const gFileHashes = createRefArray<Txt>();
+  const gFileCode = createRefArray<Txt>();
 
-  for (const s of symbolData) {
-    symbolGroup().add(
+  for (const f of fileData) {
+    graphGroup().add(
+      <Rect
+        ref={gFileRects}
+        x={f.x}
+        y={f.y}
+        width={240}
+        height={90}
+        radius={6}
+        fill={codeBg}
+        stroke={dim}
+        lineWidth={1}
+      >
+        <Txt
+          text={f.name}
+          fontSize={12}
+          fontFamily="JetBrains Mono, monospace"
+          fill={muted}
+          y={-28}
+        />
+        <Txt
+          ref={gFileCode}
+          text={f.name === 'context.go' ? 'func ForTask(desc string)' : ''}
+          fontSize={12}
+          fontFamily="JetBrains Mono, monospace"
+          fill={text}
+          y={-5}
+        />
+        <Txt
+          ref={gFileHashes}
+          text={f.hash}
+          fontSize={11}
+          fontFamily="JetBrains Mono, monospace"
+          fill={muted}
+          y={22}
+        />
+      </Rect>
+    );
+  }
+
+  // Symbols (middle)
+  const symData = [
+    {name: 'ForTask', x: -350, y: 30, fileIdx: 0},
+    {name: 'Rank', x: -180, y: 30, fileIdx: 0},
+    {name: 'EdgesTo', x: -20, y: 30, fileIdx: 1},
+    {name: 'Store', x: 150, y: 30, fileIdx: 1},
+    {name: 'HITS', x: 320, y: 30, fileIdx: 2},
+  ];
+
+  const gSymbols = createRefArray<Circle>();
+
+  for (const s of symData) {
+    graphGroup().add(
       <Circle
-        ref={symbolCircles}
+        ref={gSymbols}
         x={s.x}
-        width={70}
-        height={70}
+        y={s.y}
+        width={60}
+        height={60}
         fill={dim}
-        opacity={0}
       >
         <Txt
           text={s.name}
@@ -152,34 +397,33 @@ export default makeScene2D(function* (view) {
     );
   }
 
-  // === LAYER 3: Snapshot root (top) ===
+  // Root (top)
+  const gRoot = createRef<Rect>();
+  const gRootHash = createRef<Txt>();
 
-  const rootNode = createRef<Rect>();
-  const rootHash = createRef<Txt>();
-
-  view.add(
+  graphGroup().add(
     <Rect
-      ref={rootNode}
-      y={-220}
-      width={220}
-      height={70}
+      ref={gRoot}
+      x={0}
+      y={-160}
+      width={200}
+      height={60}
       radius={8}
-      fill={dim}
-      stroke={edgeIdle}
+      fill={codeBg}
+      stroke={dim}
       lineWidth={2}
-      opacity={0}
     >
       <Txt
-        text="Snapshot Root"
-        fontSize={12}
+        text="snapshot"
+        fontSize={11}
         fontFamily="JetBrains Mono, monospace"
-        fill={hash}
-        y={-14}
+        fill={muted}
+        y={-12}
       />
       <Txt
-        ref={rootHash}
-        text="merkle: f8a2e7"
-        fontSize={13}
+        ref={gRootHash}
+        text="f8a2e7"
+        fontSize={14}
         fontFamily="JetBrains Mono, monospace"
         fill={accent}
         y={10}
@@ -187,168 +431,213 @@ export default makeScene2D(function* (view) {
     </Rect>
   );
 
-  // === EDGES: file -> symbols ===
-
-  const fileToSymbolEdges = createRefArray<Line>();
-
-  for (const s of symbolData) {
-    const fileX = fileData[s.fileIdx].x;
-    fileGroup().add(
+  // Edges: file -> symbol
+  const gFileEdges = createRefArray<Line>();
+  for (const s of symData) {
+    graphGroup().add(
       <Line
-        ref={fileToSymbolEdges}
+        ref={gFileEdges}
         points={[
-          new Vector2(fileX, -60),
-          new Vector2(s.x, -160),
+          new Vector2(fileData[s.fileIdx].x, fileData[s.fileIdx].y - 45),
+          new Vector2(s.x, s.y + 30),
         ]}
         stroke={edgeIdle}
         lineWidth={1.5}
-        opacity={0}
       />
     );
   }
 
-  // === EDGES: symbols -> root ===
-
-  const symbolToRootEdges = createRefArray<Line>();
-
-  for (const s of symbolData) {
-    symbolGroup().add(
+  // Edges: symbol -> root
+  const gSymEdges = createRefArray<Line>();
+  for (const s of symData) {
+    graphGroup().add(
       <Line
-        ref={symbolToRootEdges}
+        ref={gSymEdges}
         points={[
-          new Vector2(s.x, -40),
-          new Vector2(0, -160),
+          new Vector2(s.x, s.y - 30),
+          new Vector2(0, -130),
         ]}
         stroke={edgeIdle}
         lineWidth={1.5}
-        opacity={0}
       />
     );
   }
 
-  // === SUBTITLE ===
+  // Show the graph
+  yield* graphGroup().opacity(1, 0.6);
+  yield* subtitle().text('The graph at rest. Every hash is current.', 0.4);
+  yield* waitFor(1.5);
 
-  const subtitle = createRef<Txt>();
-  view.add(
+  // THE EDIT
+  yield* subtitle().text('A developer adds a parameter...', 0.4);
+  yield* waitFor(0.5);
+  yield* gFileCode[0].text('func ForTask(desc string, n int)', 0.5);
+  yield* waitFor(0.6);
+
+  // HASH RECOMPUTES
+  yield* subtitle().text('Content changed. New hash.', 0.3);
+  yield* gFileHashes[0].fill(pulse, 0.2);
+  yield* gFileHashes[0].text('......', 0.1);
+  yield* waitFor(0.2);
+  yield* gFileHashes[0].text('d2f1a9', 0.15);
+  yield* gFileHashes[0].fill(fresh, 0.3);
+  yield* gFileRects[0].stroke(fresh, 0.3);
+  yield* waitFor(0.5);
+
+  // CASCADE UP (only affected path: file[0] -> sym[0], sym[1] -> root)
+  yield* subtitle().text('Cascade up. Only the affected path.', 0.3);
+
+  // Dim unaffected nodes
+  yield* all(
+    gFileRects[1].opacity(0.3, 0.4),
+    gFileRects[2].opacity(0.3, 0.4),
+    gSymbols[2].opacity(0.3, 0.4),
+    gSymbols[3].opacity(0.3, 0.4),
+    gSymbols[4].opacity(0.3, 0.4),
+    gFileEdges[2].opacity(0.2, 0.4),
+    gFileEdges[3].opacity(0.2, 0.4),
+    gFileEdges[4].opacity(0.2, 0.4),
+    gSymEdges[2].opacity(0.2, 0.4),
+    gSymEdges[3].opacity(0.2, 0.4),
+    gSymEdges[4].opacity(0.2, 0.4),
+  );
+
+  // Pulse affected edges
+  yield* all(
+    gFileEdges[0].stroke(pulse, 0.3),
+    gFileEdges[1].stroke(pulse, 0.3),
+  );
+  yield* all(
+    gSymbols[0].fill(pulse, 0.3),
+    gSymbols[1].fill(pulse, 0.3),
+  );
+  yield* waitFor(0.3);
+  yield* all(
+    gSymEdges[0].stroke(pulse, 0.3),
+    gSymEdges[1].stroke(pulse, 0.3),
+  );
+  yield* gRoot().stroke(pulse, 0.3);
+  yield* waitFor(0.4);
+
+  // Settle to green
+  yield* all(
+    gFileEdges[0].stroke(fresh, 0.4),
+    gFileEdges[1].stroke(fresh, 0.4),
+    gSymbols[0].fill(fresh, 0.4),
+    gSymbols[1].fill(fresh, 0.4),
+    gSymEdges[0].stroke(fresh, 0.4),
+    gSymEdges[1].stroke(fresh, 0.4),
+    gRoot().stroke(fresh, 0.4),
+  );
+
+  // New root hash
+  yield* gRootHash().text('......', 0.1);
+  yield* waitFor(0.15);
+  yield* gRootHash().text('2b8c41', 0.15);
+  yield* waitFor(1.0);
+
+  yield* subtitle().text('2 edges re-extracted. 5 untouched. No full re-index.', 0.4);
+  yield* waitFor(2.5);
+
+  // Clear Act 3
+  yield* graphGroup().opacity(0, 0.5);
+  yield* waitFor(0.5);
+
+  // ============================================================
+  // ACT 4: THE PAYOFF
+  // ============================================================
+
+  yield* actLabel().text('Act 4: The result', 0.3);
+  yield* subtitle().text('', 0);
+
+  // Show the single tool call
+  const payoffGroup = createRef<Node>();
+  view.add(<Node ref={payoffGroup} opacity={0} />);
+
+  const payoffCall = createRef<Txt>();
+  payoffGroup().add(
     <Txt
-      ref={subtitle}
-      text=""
-      fontSize={18}
+      ref={payoffCall}
+      text='> context_for_task("refactor auth middleware")'
+      fontSize={16}
       fontFamily="JetBrains Mono, monospace"
-      fill={hash}
-      y={330}
+      fill={accent}
+      y={-80}
     />
   );
 
-  // === ANIMATION ===
+  // Result block
+  const payoffResult = createRefArray<Txt>();
+  const resultLines = [
+    '  ForTask        score: 0.94  (authority)',
+    '  RankSymbols    score: 0.87  (hub)',
+    '  AuthMiddleware score: 0.82  (blast radius: 12)',
+    '  SessionStore   score: 0.71  (runtime-confirmed)',
+    '  HandleLogin    score: 0.65  (feedback: +3)',
+  ];
 
-  // Act 1: Build the graph (bottom up)
-  yield* subtitle().text('A content-addressed graph.', 0.3);
+  for (let i = 0; i < resultLines.length; i++) {
+    payoffGroup().add(
+      <Txt
+        ref={payoffResult}
+        text={resultLines[i]}
+        fontSize={13}
+        fontFamily="JetBrains Mono, monospace"
+        fill={text}
+        y={-30 + i * 28}
+        opacity={0}
+      />
+    );
+  }
 
-  yield* sequence(
-    0.1,
-    ...fileRects.map(f => f.opacity(1, 0.4)),
+  // Token comparison
+  const payoffTokens = createRef<Txt>();
+  payoffGroup().add(
+    <Txt
+      ref={payoffTokens}
+      text=""
+      fontSize={16}
+      fontFamily="JetBrains Mono, monospace"
+      fill={fresh}
+      y={200}
+    />
   );
-  yield* waitFor(0.3);
 
-  yield* sequence(
-    0.06,
-    ...fileToSymbolEdges.map(e => e.opacity(0.5, 0.3)),
-  );
-  yield* sequence(
-    0.08,
-    ...symbolCircles.map(s => s.opacity(1, 0.3)),
-  );
-  yield* waitFor(0.3);
-
-  yield* sequence(
-    0.06,
-    ...symbolToRootEdges.map(e => e.opacity(0.5, 0.3)),
-  );
-  yield* rootNode().opacity(1, 0.4);
-  yield* waitFor(1.2);
-
-  // Act 2: A file changes
-  yield* subtitle().text('A developer edits context.go...', 0.4);
-  yield* waitFor(0.6);
-
-  // The code visibly changes
-  yield* fileCodeTxts[0].text('func ForTask(desc string, b int) {...}', 0.6);
+  yield* payoffGroup().opacity(1, 0.4);
+  yield* subtitle().text('One call. Ranked by graph structure + runtime + feedback.', 0.4);
   yield* waitFor(0.5);
 
-  // Act 3: Hash recomputes (digits roll)
-  yield* subtitle().text('Content changed. Hash recomputes.', 0.4);
+  // Results appear one by one
+  for (let i = 0; i < resultLines.length; i++) {
+    yield* payoffResult[i].opacity(1, 0.2);
+    yield* waitFor(0.2);
+  }
 
-  // Flash the hash through intermediate values
-  yield* fileHashTxts[0].fill(pulse, 0.2);
-  yield* fileHashTxts[0].text('sha256: ......', 0.1);
-  yield* waitFor(0.15);
-  yield* fileHashTxts[0].text('sha256: d2f1..', 0.1);
-  yield* waitFor(0.15);
-  yield* fileHashTxts[0].text('sha256: d2f1a9', 0.1);
-  yield* fileHashTxts[0].fill(fresh, 0.3);
-  yield* fileRects[0].stroke(fresh, 0.3);
-  yield* waitFor(0.6);
+  yield* waitFor(0.5);
+  yield* payoffTokens().text('1 tool call. 2,400 tokens. Always current.', 0.3);
+  yield* waitFor(1.0);
+  yield* subtitle().text('vs 7 calls, 10,430 tokens, possibly stale.', 0.4);
+  yield* waitFor(3.0);
 
-  // Act 4: Invalidation propagates UP (only affected path)
-  yield* subtitle().text('Invalidation propagates. Only the affected path.', 0.4);
-
-  // Pulse edges from file[0] to its symbols (indices 0, 1)
+  // Final tagline
   yield* all(
-    fileToSymbolEdges[0].stroke(pulse, 0.3),
-    fileToSymbolEdges[1].stroke(pulse, 0.3),
-    fileToSymbolEdges[0].opacity(1, 0.3),
-    fileToSymbolEdges[1].opacity(1, 0.3),
-  );
-  yield* all(
-    symbolCircles[0].fill(pulse, 0.3),
-    symbolCircles[1].fill(pulse, 0.3),
+    payoffGroup().opacity(0, 0.5),
+    subtitle().text('', 0.3),
+    actLabel().text('', 0.3),
   );
   yield* waitFor(0.3);
 
-  // Pulse from affected symbols to root
-  yield* all(
-    symbolToRootEdges[0].stroke(pulse, 0.3),
-    symbolToRootEdges[1].stroke(pulse, 0.3),
-    symbolToRootEdges[0].opacity(1, 0.3),
-    symbolToRootEdges[1].opacity(1, 0.3),
+  const tagline = createRef<Txt>();
+  view.add(
+    <Txt
+      ref={tagline}
+      text="Identity is content. The graph updates itself."
+      fontSize={28}
+      fontFamily="JetBrains Mono, monospace"
+      fill={text}
+      opacity={0}
+    />
   );
-  yield* rootNode().stroke(pulse, 0.3);
-  yield* waitFor(0.5);
-
-  // Act 5: Re-extraction settles (affected path turns green)
-  yield* subtitle().text('Surgical re-extraction. New hashes settle.', 0.4);
-
-  yield* all(
-    symbolCircles[0].fill(fresh, 0.4),
-    symbolCircles[1].fill(fresh, 0.4),
-    fileToSymbolEdges[0].stroke(fresh, 0.4),
-    fileToSymbolEdges[1].stroke(fresh, 0.4),
-    symbolToRootEdges[0].stroke(fresh, 0.4),
-    symbolToRootEdges[1].stroke(fresh, 0.4),
-  );
-
-  // Root hash recomputes
-  yield* rootHash().text('merkle: ......', 0.1);
-  yield* waitFor(0.15);
-  yield* rootHash().text('merkle: 2b8c41', 0.15);
-  yield* rootNode().stroke(fresh, 0.3);
-  yield* waitFor(0.8);
-
-  // Act 6: Emphasis — everything else is STILL
-  yield* subtitle().text('Everything else: untouched. No full re-index.', 0.5);
-  yield* waitFor(2.0);
-
-  // Act 7: Fade to resting state
-  yield* subtitle().text('Identity is content. Staleness is structural.', 0.5);
-
-  yield* all(
-    ...symbolCircles.map(s => s.fill(dim, 0.6)),
-    ...fileRects.map(f => f.stroke(dim, 0.6)),
-    ...fileToSymbolEdges.map(e => e.stroke(edgeIdle, 0.6)),
-    ...symbolToRootEdges.map(e => e.stroke(edgeIdle, 0.6)),
-    rootNode().stroke(edgeIdle, 0.6),
-    fileHashTxts[0].fill(hash, 0.6),
-  );
-  yield* waitFor(2.0);
+  yield* tagline().opacity(1, 0.6);
+  yield* waitFor(3.0);
 });
