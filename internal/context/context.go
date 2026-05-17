@@ -8,10 +8,16 @@ import (
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
+// FeedbackProvider is implemented by stores that support feedback queries.
+type FeedbackProvider interface {
+	FeedbackBoosts(ctx stdctx.Context, hashes []types.Hash) (map[types.Hash]float64, error)
+}
+
 // ContextEngine queries the knowing knowledge graph to produce task-specific,
 // token-budgeted context blocks ranked by graph relationships and runtime traffic.
 type ContextEngine struct {
-	store types.GraphStore
+	store    types.GraphStore
+	feedback FeedbackProvider // nil if store doesn't support feedback
 }
 
 // TaskOptions configures a task-based context query.
@@ -75,8 +81,13 @@ type ScoreComponents struct {
 }
 
 // NewContextEngine creates a ContextEngine backed by the given GraphStore.
+// If the store implements FeedbackProvider, feedback-aware reranking is enabled.
 func NewContextEngine(store types.GraphStore) *ContextEngine {
-	return &ContextEngine{store: store}
+	e := &ContextEngine{store: store}
+	if fp, ok := store.(FeedbackProvider); ok {
+		e.feedback = fp
+	}
+	return e
 }
 
 // stopWords is the set of words filtered from task descriptions during keyword extraction.
@@ -302,6 +313,21 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 			LastObserved:       lastObserved,
 			DistanceFromTarget: distance,
 		})
+	}
+
+	// Apply feedback boosts if feedback provider is available.
+	if e.feedback != nil && len(inputs) > 0 {
+		hashes := make([]types.Hash, len(inputs))
+		for i, inp := range inputs {
+			hashes[i] = inp.Node.NodeHash
+		}
+		if boosts, err := e.feedback.FeedbackBoosts(ctx, hashes); err == nil && len(boosts) > 0 {
+			for i := range inputs {
+				if boost, ok := boosts[inputs[i].Node.NodeHash]; ok {
+					inputs[i].FeedbackBoost = boost
+				}
+			}
+		}
 	}
 
 	// Sort inputs by RWR score (CallerCount proxy) so HITS runs on the most
