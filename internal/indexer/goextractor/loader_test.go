@@ -93,12 +93,12 @@ func TestBulkLoad_MultiPackage(t *testing.T) {
 	}
 }
 
-func TestBulkLoad_SkipsTestFiles(t *testing.T) {
-	// Verify that _test.go files are excluded from FilePackages.
-	// The loader only discovers non-test .go files for package loading.
+func TestBulkLoad_IncludesTestFiles(t *testing.T) {
+	// Verify that _test.go files ARE included in FilePackages
+	// (needed for test-scope to trace call edges from tests to production code).
 	dir := createTempModule(t, map[string]string{
 		"pkg/a/a.go":      "package a\n\nfunc Hello() string { return \"hello\" }\n",
-		"pkg/a/a_test.go": "package a\n\nimport \"testing\"\n\nfunc TestHello(t *testing.T) {}\n",
+		"pkg/a/a_test.go": "package a\n\nimport \"testing\"\n\nfunc TestHello(t *testing.T) { Hello() }\n",
 	})
 
 	result, err := BulkLoad(context.Background(), dir)
@@ -107,8 +107,8 @@ func TestBulkLoad_SkipsTestFiles(t *testing.T) {
 	}
 
 	testPath := filepath.Join(dir, "pkg/a/a_test.go")
-	if _, ok := result.FilePackages[testPath]; ok {
-		t.Errorf("expected FilePackages to NOT contain test file %s", testPath)
+	if _, ok := result.FilePackages[testPath]; !ok {
+		t.Errorf("expected FilePackages to contain test file %s (needed for test-scope)", testPath)
 	}
 
 	srcPath := filepath.Join(dir, "pkg/a/a.go")

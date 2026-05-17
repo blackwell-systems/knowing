@@ -59,6 +59,7 @@ func BulkLoad(ctx context.Context, moduleRoot string) (*LoadedPackages, error) {
 			Dir:     dir,
 			Fset:    fset,
 			Context: ctx,
+			Tests:   true, // Include test packages so test-scope can trace call edges.
 		}
 
 		pkgs, err := packages.Load(cfg, ".")
@@ -112,7 +113,7 @@ func discoverPackageDirs(root string) []string {
 			}
 			return nil
 		}
-		if strings.HasSuffix(path, ".go") && !strings.HasSuffix(path, "_test.go") {
+		if strings.HasSuffix(path, ".go") {
 			dir := filepath.Dir(path)
 			seen[dir] = struct{}{}
 		}

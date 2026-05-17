@@ -72,6 +72,8 @@ func run(args []string) error {
 		return cmdReindex(args[1:])
 	case "init":
 		return cmdInit(args[1:])
+	case "test-scope":
+		return cmdTestScope(args[1:])
 	default:
 		printUsage()
 		return fmt.Errorf("unknown subcommand: %s", args[0])
@@ -91,6 +93,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  export   Export the graph as JSON")
 	fmt.Fprintln(os.Stderr, "  reindex  Clear and re-index a repository from scratch")
 	fmt.Fprintln(os.Stderr, "  init     Generate CLAUDE.md with graph-derived project context")
+	fmt.Fprintln(os.Stderr, "  test-scope  Compute affected tests from changed files")
 	fmt.Fprintln(os.Stderr, "  version  Print version information")
 }
 

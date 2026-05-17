@@ -48,11 +48,11 @@ func TestGoExtractor_CanHandle_GoFiles(t *testing.T) {
 	}{
 		{"main.go", true},
 		{"pkg/foo.go", true},
-		{"main_test.go", false},
+		{"main_test.go", true},
 		{"vendor/lib/lib.go", false},
 		{"main.py", false},
 		{"README.md", false},
-		{"pkg/bar_test.go", false},
+		{"pkg/bar_test.go", true},
 	}
 
 	for _, tt := range tests {
@@ -228,7 +228,7 @@ func Mango() {}
 	}
 }
 
-func TestGoExtractor_CanHandle_RejectsTestFiles(t *testing.T) {
+func TestGoExtractor_CanHandle_AcceptsTestFiles(t *testing.T) {
 	ext := NewGoExtractor()
 
 	testFiles := []string{
@@ -237,8 +237,8 @@ func TestGoExtractor_CanHandle_RejectsTestFiles(t *testing.T) {
 		"internal/foo/bar_test.go",
 	}
 	for _, path := range testFiles {
-		if ext.CanHandle(path) {
-			t.Errorf("CanHandle(%q) should return false for test files", path)
+		if !ext.CanHandle(path) {
+			t.Errorf("CanHandle(%q) should return true for test files (needed for test-scope)", path)
 		}
 	}
 }

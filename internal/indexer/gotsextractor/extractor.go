@@ -55,13 +55,10 @@ func (e *GoTreeSitterExtractor) Name() string {
 	return "go-treesitter"
 }
 
-// CanHandle returns true for .go files that are not test files and not
-// in the vendor directory. Same logic as GoExtractor.
+// CanHandle returns true for .go files not in the vendor directory.
+// Test files (_test.go) are included so test-scope can trace call edges.
 func (e *GoTreeSitterExtractor) CanHandle(path string) bool {
 	if !strings.HasSuffix(path, ".go") {
-		return false
-	}
-	if strings.HasSuffix(path, "_test.go") {
 		return false
 	}
 	parts := strings.Split(filepath.ToSlash(path), "/")

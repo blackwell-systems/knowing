@@ -50,9 +50,8 @@ func (g *GoExtractor) CanHandle(path string) bool {
 	if !strings.HasSuffix(path, ".go") {
 		return false
 	}
-	if strings.HasSuffix(path, "_test.go") {
-		return false
-	}
+	// Note: _test.go files ARE indexed so that test-scope can trace
+	// call edges from test functions back to production code.
 	// Reject vendor paths.
 	parts := strings.Split(filepath.ToSlash(path), "/")
 	for _, p := range parts {
