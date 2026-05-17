@@ -20,9 +20,18 @@ type ScoringInput struct {
 // confidence, recency, and graph distance, then returns them sorted by score descending.
 // Blast radius is normalized relative to the max in the input set, ensuring the full
 // 0.0-1.0 range is used regardless of codebase size.
-func RankSymbols(symbols []ScoringInput) []RankedSymbol {
+//
+// If HITS scores are provided (non-nil map), authority scores are factored into the
+// ranking, promoting structurally important nodes (heavily called) over leaf functions.
+func RankSymbols(symbols []ScoringInput, hitsScores ...map[types.Hash]HITSScores) []RankedSymbol {
 	if len(symbols) == 0 {
 		return nil
+	}
+
+	// Extract HITS scores if provided.
+	var hits map[types.Hash]HITSScores
+	if len(hitsScores) > 0 && hitsScores[0] != nil {
+		hits = hitsScores[0]
 	}
 
 	// Find max caller count for relative normalization.
@@ -35,22 +44,40 @@ func RankSymbols(symbols []ScoringInput) []RankedSymbol {
 
 	results := make([]RankedSymbol, 0, len(symbols))
 	for _, s := range symbols {
-		// Blast radius: normalize relative to max in set (not hardcoded).
-		// A symbol with the most callers gets the full 0.40 weight.
-		blastRadius := (float64(s.CallerCount) / float64(maxCallers)) * 0.40
+		var blastRadius, confidence, recency, distance, total float64
 
-		// Confidence: direct from provenance tier.
-		confidence := s.Confidence * 0.25
+		if hits != nil {
+			// HITS-enhanced ranking: high authority nodes that are also seeds
+			// get a boost. High authority nodes that are NOT seeds get a penalty
+			// (they're generic infrastructure used by everything, not task-specific).
+			//
+			// The insight: in code graphs, high-authority non-seed nodes are
+			// things like types.Hash, GraphStore, context.Context. They're called
+			// by everything but rarely task-relevant. Seeds (directly matched
+			// symbols) with high authority ARE important (heavily-used code you
+			// matched on).
+			h := hits[s.Node.NodeHash]
+			isSeed := s.DistanceFromTarget == 0
+			var authorityAdj float64
+			if isSeed && h.Authority > 0.1 {
+				authorityAdj = h.Authority * 0.10 // boost important seeds
+			} else if !isSeed && h.Authority > 0.3 {
+				authorityAdj = -h.Authority * 0.05 // penalize generic infrastructure
+			}
 
-		// Recency: for static-only edges (no runtime observations), use a base
-		// score of 0.3 instead of 0.0. This prevents 20% of the score from being
-		// zero for all symbols in codebases without runtime data.
-		recency := recencyFromTimestamp(s.LastObserved) * 0.20
-
-		// Distance: inverse of hops from target.
-		distance := (1.0 / (1.0 + float64(s.DistanceFromTarget))) * 0.15
-
-		total := blastRadius + confidence + recency + distance
+			blastRadius = (float64(s.CallerCount) / float64(maxCallers)) * 0.40
+			confidence = s.Confidence * 0.25
+			recency = recencyFromTimestamp(s.LastObserved) * 0.15
+			distance = (1.0 / (1.0 + float64(s.DistanceFromTarget))) * 0.15
+			total = blastRadius + confidence + recency + distance + authorityAdj
+		} else {
+			// Original ranking (no HITS): blast radius is the primary signal.
+			blastRadius = (float64(s.CallerCount) / float64(maxCallers)) * 0.40
+			confidence = s.Confidence * 0.25
+			recency = recencyFromTimestamp(s.LastObserved) * 0.20
+			distance = (1.0 / (1.0 + float64(s.DistanceFromTarget))) * 0.15
+			total = blastRadius + confidence + recency + distance
+		}
 
 		results = append(results, RankedSymbol{
 			Node:  s.Node,

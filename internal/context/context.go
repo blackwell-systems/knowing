@@ -241,8 +241,23 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 		})
 	}
 
+	// Run HITS on the top-200 nodes for authority/hub scoring.
+	// This separates structurally important symbols from merely proximate ones.
+	var hitsResult map[types.Hash]HITSScores
+	if len(inputs) > 5 {
+		topN := 200
+		if len(inputs) < topN {
+			topN = len(inputs)
+		}
+		hitsNodes := make([]types.Hash, topN)
+		for i := 0; i < topN; i++ {
+			hitsNodes[i] = inputs[i].Node.NodeHash
+		}
+		hitsResult, _ = ComputeHITS(ctx, e.store, hitsNodes, 10)
+	}
+
 	// Rank and pack into budget.
-	ranked := RankSymbols(inputs)
+	ranked := RankSymbols(inputs, hitsResult)
 	return packIntoBudget(ranked, budget, opts.Format), nil
 }
 
@@ -444,7 +459,21 @@ func (e *ContextEngine) ForPR(ctx stdctx.Context, opts PROptions) (*ContextBlock
 		})
 	}
 
-	ranked := RankSymbols(inputs)
+	// Run HITS for better authority/hub differentiation.
+	var hitsResult map[types.Hash]HITSScores
+	if len(inputs) > 5 {
+		topN := 200
+		if len(inputs) < topN {
+			topN = len(inputs)
+		}
+		hitsNodes := make([]types.Hash, topN)
+		for i := 0; i < topN; i++ {
+			hitsNodes[i] = inputs[i].Node.NodeHash
+		}
+		hitsResult, _ = ComputeHITS(ctx, e.store, hitsNodes, 10)
+	}
+
+	ranked := RankSymbols(inputs, hitsResult)
 	return packIntoBudget(ranked, budget, opts.Format), nil
 }
 
