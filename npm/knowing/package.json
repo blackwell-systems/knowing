@@ -1,0 +1,21 @@
+{
+  "name": "@blackwell-systems/knowing",
+  "version": "0.1.0",
+  "description": "Content-addressed knowledge graph for software systems",
+  "bin": {
+    "knowing": "bin/knowing"
+  },
+  "optionalDependencies": {
+    "@blackwell-systems/knowing-darwin-arm64": "0.1.0",
+    "@blackwell-systems/knowing-darwin-x64": "0.1.0",
+    "@blackwell-systems/knowing-linux-arm64": "0.1.0",
+    "@blackwell-systems/knowing-linux-x64": "0.1.0"
+  },
+  "keywords": ["mcp", "knowledge-graph", "code-intelligence", "content-addressed", "ai-agents"],
+  "homepage": "https://github.com/blackwell-systems/knowing",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/blackwell-systems/knowing.git"
+  },
+  "license": "MIT"
+}

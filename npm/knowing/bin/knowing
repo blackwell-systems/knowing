@@ -1,0 +1,41 @@
+#!/usr/bin/env node
+
+const { execFileSync } = require("child_process");
+const path = require("path");
+const os = require("os");
+
+function getBinaryPath() {
+  const platform = os.platform();
+  const arch = os.arch();
+
+  let pkg;
+  if (platform === "darwin" && arch === "arm64") {
+    pkg = "@blackwell-systems/knowing-darwin-arm64";
+  } else if (platform === "darwin" && arch === "x64") {
+    pkg = "@blackwell-systems/knowing-darwin-x64";
+  } else if (platform === "linux" && arch === "arm64") {
+    pkg = "@blackwell-systems/knowing-linux-arm64";
+  } else if (platform === "linux" && arch === "x64") {
+    pkg = "@blackwell-systems/knowing-linux-x64";
+  } else {
+    console.error(`Unsupported platform: ${platform}-${arch}`);
+    process.exit(1);
+  }
+
+  try {
+    return path.join(require.resolve(`${pkg}/package.json`), "..", "knowing");
+  } catch {
+    console.error(`Platform package ${pkg} not installed.`);
+    console.error("Try: npm install");
+    process.exit(1);
+  }
+}
+
+const binary = getBinaryPath();
+const args = process.argv.slice(2);
+
+try {
+  execFileSync(binary, args, { stdio: "inherit" });
+} catch (e) {
+  process.exit(e.status || 1);
+}
