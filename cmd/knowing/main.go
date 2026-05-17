@@ -400,33 +400,42 @@ func cmdExport(args []string) error {
 		}
 	}
 
-	// Build export structure.
+	// Build export structure with community annotations.
+	type exportCommunity struct {
+		ID    int    `json:"id"`
+		Label string `json:"label"`
+		Size  int    `json:"size"`
+	}
 	type exportNode struct {
 		NodeHash      string `json:"node_hash"`
 		QualifiedName string `json:"qualified_name"`
 		Kind          string `json:"kind"`
 		Line          int    `json:"line"`
 		Signature     string `json:"signature"`
+		Community     int    `json:"community"`
 	}
 	type exportEdge struct {
-		EdgeHash   string  `json:"edge_hash"`
-		SourceHash string  `json:"source_hash"`
-		TargetHash string  `json:"target_hash"`
-		EdgeType   string  `json:"edge_type"`
-		Confidence float64 `json:"confidence"`
-		Provenance string  `json:"provenance"`
+		EdgeHash       string  `json:"edge_hash"`
+		SourceHash     string  `json:"source_hash"`
+		TargetHash     string  `json:"target_hash"`
+		EdgeType       string  `json:"edge_type"`
+		Confidence     float64 `json:"confidence"`
+		Provenance     string  `json:"provenance"`
+		CrossCommunity bool    `json:"cross_community"`
 	}
 	type exportMetadata struct {
-		Repo       string `json:"repo"`
-		Snapshot   string `json:"snapshot"`
-		ExportedAt string `json:"exported_at"`
-		NodeCount  int    `json:"node_count"`
-		EdgeCount  int    `json:"edge_count"`
+		Repo           string `json:"repo"`
+		Snapshot       string `json:"snapshot"`
+		ExportedAt     string `json:"exported_at"`
+		NodeCount      int    `json:"node_count"`
+		EdgeCount      int    `json:"edge_count"`
+		CommunityCount int    `json:"community_count"`
 	}
 	type exportData struct {
-		Nodes    []exportNode   `json:"nodes"`
-		Edges    []exportEdge   `json:"edges"`
-		Metadata exportMetadata `json:"metadata"`
+		Nodes       []exportNode      `json:"nodes"`
+		Edges       []exportEdge      `json:"edges"`
+		Communities []exportCommunity `json:"communities"`
+		Metadata    exportMetadata    `json:"metadata"`
 	}
 
 	repoLabel := "all"
@@ -442,15 +451,47 @@ func cmdExport(args []string) error {
 		return exportDot(nodes, edges)
 	}
 
+	// Run Louvain to annotate nodes with community IDs.
+	communityOf, communityLabels := computeExportCommunities(nodes, edges)
+
+	// Build community summary (only communities with 3+ members).
+	commSizes := make(map[int]int)
+	for _, c := range communityOf {
+		commSizes[c]++
+	}
+	var exportComms []exportCommunity
+	significantComms := make(map[int]bool)
+	for id, size := range commSizes {
+		if size >= 3 {
+			exportComms = append(exportComms, exportCommunity{
+				ID:    id,
+				Label: communityLabels[id],
+				Size:  size,
+			})
+			significantComms[id] = true
+		}
+	}
+	sort.Slice(exportComms, func(i, j int) bool {
+		return exportComms[i].Size > exportComms[j].Size
+	})
+	// Nodes in singleton communities get assigned to community -1 (ungrouped).
+	for h, c := range communityOf {
+		if !significantComms[c] {
+			communityOf[h] = -1
+		}
+	}
+
 	export := exportData{
-		Nodes: make([]exportNode, 0, len(nodes)),
-		Edges: make([]exportEdge, 0, len(edges)),
+		Nodes:       make([]exportNode, 0, len(nodes)),
+		Edges:       make([]exportEdge, 0, len(edges)),
+		Communities: exportComms,
 		Metadata: exportMetadata{
-			Repo:       repoLabel,
-			Snapshot:   snapLabel,
-			ExportedAt: time.Now().UTC().Format(time.RFC3339),
-			NodeCount:  len(nodes),
-			EdgeCount:  len(edges),
+			Repo:           repoLabel,
+			Snapshot:       snapLabel,
+			ExportedAt:     time.Now().UTC().Format(time.RFC3339),
+			NodeCount:      len(nodes),
+			EdgeCount:      len(edges),
+			CommunityCount: len(exportComms),
 		},
 	}
 
@@ -461,16 +502,20 @@ func cmdExport(args []string) error {
 			Kind:          n.Kind,
 			Line:          n.Line,
 			Signature:     n.Signature,
+			Community:     communityOf[n.NodeHash],
 		})
 	}
 	for _, e := range edges {
+		srcComm := communityOf[e.SourceHash]
+		tgtComm := communityOf[e.TargetHash]
 		export.Edges = append(export.Edges, exportEdge{
-			EdgeHash:   fmt.Sprintf("%x", e.EdgeHash),
-			SourceHash: fmt.Sprintf("%x", e.SourceHash),
-			TargetHash: fmt.Sprintf("%x", e.TargetHash),
-			EdgeType:   e.EdgeType,
-			Confidence: e.Confidence,
-			Provenance: e.Provenance,
+			EdgeHash:       fmt.Sprintf("%x", e.EdgeHash),
+			SourceHash:     fmt.Sprintf("%x", e.SourceHash),
+			TargetHash:     fmt.Sprintf("%x", e.TargetHash),
+			EdgeType:       e.EdgeType,
+			Confidence:     e.Confidence,
+			Provenance:     e.Provenance,
+			CrossCommunity: srcComm != tgtComm,
 		})
 	}
 
@@ -480,6 +525,144 @@ func cmdExport(args []string) error {
 	}
 	fmt.Println(string(out))
 	return nil
+}
+
+// computeExportCommunities runs Louvain and returns community assignments + labels.
+func computeExportCommunities(nodes []types.Node, edges []types.Edge) (map[types.Hash]int, map[int]string) {
+	// Build undirected adjacency.
+	nodeSet := make(map[types.Hash]bool, len(nodes))
+	nodeHashes := make([]types.Hash, 0, len(nodes))
+	nodeByHash := make(map[types.Hash]types.Node, len(nodes))
+	for _, n := range nodes {
+		nodeSet[n.NodeHash] = true
+		nodeHashes = append(nodeHashes, n.NodeHash)
+		nodeByHash[n.NodeHash] = n
+	}
+
+	type wEdge struct {
+		target types.Hash
+		weight float64
+	}
+	adj := make(map[types.Hash][]wEdge, len(nodes))
+	for _, e := range edges {
+		if nodeSet[e.SourceHash] && nodeSet[e.TargetHash] {
+			adj[e.SourceHash] = append(adj[e.SourceHash], wEdge{e.TargetHash, 1.0})
+			adj[e.TargetHash] = append(adj[e.TargetHash], wEdge{e.SourceHash, 1.0})
+		}
+	}
+
+	// Louvain.
+	communityOf := make(map[types.Hash]int, len(nodeHashes))
+	for i, h := range nodeHashes {
+		communityOf[h] = i
+	}
+
+	var twoM float64
+	for _, neighbors := range adj {
+		for _, e := range neighbors {
+			twoM += e.weight
+		}
+	}
+	if twoM == 0 {
+		twoM = 1
+	}
+	m := twoM / 2.0
+
+	ki := make(map[types.Hash]float64, len(nodeHashes))
+	for _, h := range nodeHashes {
+		for _, e := range adj[h] {
+			ki[h] += e.weight
+		}
+	}
+
+	sigmaTot := make(map[int]float64, len(nodeHashes))
+	for _, h := range nodeHashes {
+		sigmaTot[communityOf[h]] += ki[h]
+	}
+
+	for pass := 0; pass < 20; pass++ {
+		moved := false
+		for _, node := range nodeHashes {
+			currentComm := communityOf[node]
+			bestComm := currentComm
+			bestGain := 0.0
+
+			kiIn := make(map[int]float64)
+			for _, e := range adj[node] {
+				kiIn[communityOf[e.target]] += e.weight
+			}
+
+			sigCurr := sigmaTot[currentComm] - ki[node]
+			kiInCurr := kiIn[currentComm]
+
+			for c, w := range kiIn {
+				if c == currentComm {
+					continue
+				}
+				sigC := sigmaTot[c]
+				gainAdd := w/m - (sigC*ki[node])/(2*m*m)
+				gainRemove := kiInCurr/m - (sigCurr*ki[node])/(2*m*m)
+				gain := gainAdd - gainRemove
+				if gain > bestGain {
+					bestGain = gain
+					bestComm = c
+				}
+			}
+
+			if bestComm != currentComm {
+				sigmaTot[currentComm] -= ki[node]
+				sigmaTot[bestComm] += ki[node]
+				communityOf[node] = bestComm
+				moved = true
+			}
+		}
+		if !moved {
+			break
+		}
+	}
+
+	// Renumber and label.
+	commIDs := make(map[int]int)
+	nextID := 0
+	for _, c := range communityOf {
+		if _, ok := commIDs[c]; !ok {
+			commIDs[c] = nextID
+			nextID++
+		}
+	}
+	for h := range communityOf {
+		communityOf[h] = commIDs[communityOf[h]]
+	}
+
+	// Label by dominant package.
+	communityLabels := make(map[int]string)
+	pkgCounts := make(map[int]map[string]int)
+	for h, c := range communityOf {
+		if pkgCounts[c] == nil {
+			pkgCounts[c] = make(map[string]int)
+		}
+		pkg := extractPkgFromQualified(nodeByHash[h].QualifiedName)
+		if pkg != "" {
+			pkgCounts[c][pkg]++
+		}
+	}
+	for c, counts := range pkgCounts {
+		bestPkg := ""
+		bestCount := 0
+		for pkg, count := range counts {
+			if count > bestCount {
+				bestCount = count
+				bestPkg = pkg
+			}
+		}
+		if bestPkg != "" {
+			communityLabels[c] = bestPkg
+		} else {
+			communityLabels[c] = fmt.Sprintf("community_%d", c)
+		}
+	}
+
+	return communityOf, communityLabels
 }
 
 // exportDot renders the graph as a Graphviz DOT file with community subgraphs.
