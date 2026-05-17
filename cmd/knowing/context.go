@@ -19,7 +19,7 @@ func cmdContext(args []string) error {
 	task := fs.String("task", "", "Task description for context generation")
 	files := fs.String("files", "", "Comma-separated list of changed file paths")
 	budget := fs.Int("budget", 50000, "Token budget")
-	format := fs.String("format", "xml", "Output format (kwf/kwb/json/xml/markdown)")
+	format := fs.String("format", "xml", "Output format (gcf/gcb/json/xml/markdown)")
 	dbPath := fs.String("db", "knowing.db", "Path to SQLite database")
 	repo := fs.String("repo", "", "Repository URL for file resolution")
 	if err := fs.Parse(args); err != nil {
@@ -66,7 +66,7 @@ func cmdContext(args []string) error {
 
 	var output string
 	switch *format {
-	case "kwf", "kwb", "json":
+	case "gcf", "gcb", "json":
 		tool := "context_for_task"
 		if *task == "" {
 			tool = "context_for_files"

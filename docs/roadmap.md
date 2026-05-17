@@ -53,8 +53,8 @@ Core pipeline complete. v2 refinements identified.
 | Context engine | Keyword extraction, RWR scoring, budget packing | **done** |
 | context_for_task MCP tool | Task description + budget -> ranked context | **done** |
 | context_for_files MCP tool | Changed files -> blast radius context | **done** |
-| Wire format system | KWF (84% token savings), KWB (74% byte savings), JSON, codec registry | **done** |
-| KWF session statefulness | Cross-call dedup, 47% additional savings on repeated symbols | **done** |
+| Wire format system | GCF (84% token savings), GCB (74% byte savings), JSON, codec registry | **done** |
+| GCF session statefulness | Cross-call dedup, 47% additional savings on repeated symbols | **done** |
 | HITS hub/authority reranking | On top-200 RWR subgraph for better prioritization | planned |
 | Density-ranked knapsack packing | Score/cost ratio optimization for budget utilization | planned |
 | context_for_pr MCP tool | PR-scoped context (changed files + diff + relationship awareness) | planned |
@@ -99,7 +99,7 @@ Core pipeline complete. v2 refinements identified.
 Graph Core ──────────────────────────────> all other workstreams          ✓ DONE
 Edge types (10 languages + routes) ──────> Context packing               ✓ DONE
 Runtime intelligence (traces + decay) ───> Context packing               ✓ DONE
-Wire format system (KWF/KWB) ────────────> Session statefulness          ✓ DONE
+Wire format system (GCF/GCB) ────────────> Session statefulness          ✓ DONE
 Context packing ─────────────────────────> Claude Code hooks             ← NEXT
 Context packing ─────────────────────────> context_for_pr                planned
 Semantic PR diff ────────────────────────> context_for_pr                ✓ DONE

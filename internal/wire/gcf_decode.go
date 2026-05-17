@@ -6,19 +6,19 @@ import (
 	"strings"
 )
 
-// Decode parses KWF text back into a Payload.
+// Decode parses GCF text back into a Payload.
 func Decode(input string) (*Payload, error) {
 	lines := strings.Split(input, "\n")
 	if len(lines) == 0 {
-		return nil, fmt.Errorf("kwf: empty input")
+		return nil, fmt.Errorf("gcf: empty input")
 	}
 
 	p := &Payload{}
 
 	// Parse header.
 	header := lines[0]
-	if !strings.HasPrefix(header, "KWF ") {
-		return nil, fmt.Errorf("kwf: invalid header, expected 'KWF ...' got %q", header)
+	if !strings.HasPrefix(header, "GCF ") {
+		return nil, fmt.Errorf("gcf: invalid header, expected 'GCF ...' got %q", header)
 	}
 	if err := parseHeader(header[4:], p); err != nil {
 		return nil, err
@@ -97,13 +97,13 @@ func parseHeader(fields string, p *Payload) error {
 		case "budget":
 			v, err := strconv.Atoi(kv[1])
 			if err != nil {
-				return fmt.Errorf("kwf: invalid budget %q: %w", kv[1], err)
+				return fmt.Errorf("gcf: invalid budget %q: %w", kv[1], err)
 			}
 			p.TokenBudget = v
 		case "tokens":
 			v, err := strconv.Atoi(kv[1])
 			if err != nil {
-				return fmt.Errorf("kwf: invalid tokens %q: %w", kv[1], err)
+				return fmt.Errorf("gcf: invalid tokens %q: %w", kv[1], err)
 			}
 			p.TokensUsed = v
 		case "symbols":
@@ -116,18 +116,18 @@ func parseHeader(fields string, p *Payload) error {
 func parseSymbolLine(line string, distance int) (Symbol, int, error) {
 	// Format: @ID kind qname score provenance
 	if !strings.HasPrefix(line, "@") {
-		return Symbol{}, 0, fmt.Errorf("kwf: expected symbol line starting with @, got %q", line)
+		return Symbol{}, 0, fmt.Errorf("gcf: expected symbol line starting with @, got %q", line)
 	}
 
 	parts := strings.Fields(line)
 	if len(parts) < 5 {
-		return Symbol{}, 0, fmt.Errorf("kwf: symbol line needs at least 5 fields, got %d in %q", len(parts), line)
+		return Symbol{}, 0, fmt.Errorf("gcf: symbol line needs at least 5 fields, got %d in %q", len(parts), line)
 	}
 
 	idStr := parts[0][1:] // strip @
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		return Symbol{}, 0, fmt.Errorf("kwf: invalid symbol id %q: %w", idStr, err)
+		return Symbol{}, 0, fmt.Errorf("gcf: invalid symbol id %q: %w", idStr, err)
 	}
 
 	kind := parts[1]
@@ -139,7 +139,7 @@ func parseSymbolLine(line string, distance int) (Symbol, int, error) {
 
 	score, err := strconv.ParseFloat(parts[3], 64)
 	if err != nil {
-		return Symbol{}, 0, fmt.Errorf("kwf: invalid score %q: %w", parts[3], err)
+		return Symbol{}, 0, fmt.Errorf("gcf: invalid score %q: %w", parts[3], err)
 	}
 
 	provenance := parts[4]
@@ -160,14 +160,14 @@ func parseEdgeLine(line string, symByID map[int]*Symbol) (Edge, error) {
 
 	parts := strings.Fields(line)
 	if len(parts) < 2 {
-		return Edge{}, fmt.Errorf("kwf: edge line needs at least 2 fields, got %q", line)
+		return Edge{}, fmt.Errorf("gcf: edge line needs at least 2 fields, got %q", line)
 	}
 
 	ref := parts[0]
 	// Parse @target<@source
 	ltIdx := strings.Index(ref, "<")
 	if ltIdx < 0 {
-		return Edge{}, fmt.Errorf("kwf: edge line missing '<' separator in %q", ref)
+		return Edge{}, fmt.Errorf("gcf: edge line missing '<' separator in %q", ref)
 	}
 
 	targetIDStr := ref[1:ltIdx] // strip leading @
@@ -175,17 +175,17 @@ func parseEdgeLine(line string, symByID map[int]*Symbol) (Edge, error) {
 
 	targetID, err := strconv.Atoi(targetIDStr)
 	if err != nil {
-		return Edge{}, fmt.Errorf("kwf: invalid target id %q: %w", targetIDStr, err)
+		return Edge{}, fmt.Errorf("gcf: invalid target id %q: %w", targetIDStr, err)
 	}
 	sourceID, err := strconv.Atoi(sourceIDStr)
 	if err != nil {
-		return Edge{}, fmt.Errorf("kwf: invalid source id %q: %w", sourceIDStr, err)
+		return Edge{}, fmt.Errorf("gcf: invalid source id %q: %w", sourceIDStr, err)
 	}
 
 	targetSym := symByID[targetID]
 	sourceSym := symByID[sourceID]
 	if targetSym == nil || sourceSym == nil {
-		return Edge{}, fmt.Errorf("kwf: edge references unknown symbol id(s): target=%d source=%d", targetID, sourceID)
+		return Edge{}, fmt.Errorf("gcf: edge references unknown symbol id(s): target=%d source=%d", targetID, sourceID)
 	}
 
 	edgeType := parts[1]

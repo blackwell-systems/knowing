@@ -28,7 +28,7 @@ All via environment variables:
 | `KNOWING_HOOKS` | `on` | Set to `off` to disable entirely |
 | `KNOWING_HOOKS_DB` | `knowing.db` | Path to SQLite database |
 | `KNOWING_HOOKS_BUDGET` | `1500` | Token budget for injected context |
-| `KNOWING_HOOKS_FORMAT` | `kwf` | Output format (kwf for minimal tokens, xml for readability) |
+| `KNOWING_HOOKS_FORMAT` | `gcf` | Output format (gcf for minimal tokens, xml for readability) |
 | `KNOWING_HOOKS_LOG` | `.knowing-hooks.jsonl` | Metrics log path |
 | `KNOWING_HOOKS_VERBOSE` | `0` | Set to `1` to print injection info to stderr |
 
@@ -67,7 +67,7 @@ Compare between sessions:
 Each line in `.knowing-hooks.jsonl`:
 
 ```json
-{"ts":1716000000,"file":"internal/mcp/server.go","event":"inject","latency_ms":45,"tokens":312,"format":"kwf","budget":1500}
+{"ts":1716000000,"file":"internal/mcp/server.go","event":"inject","latency_ms":45,"tokens":312,"format":"gcf","budget":1500}
 {"ts":1716000001,"file":"README.md","event":"miss","latency_ms":12,"tokens":0}
 ```
 

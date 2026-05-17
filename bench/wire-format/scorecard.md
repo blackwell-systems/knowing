@@ -1,8 +1,8 @@
-# KWF Benchmark Scorecard
+# GCF Benchmark Scorecard
 
 Auto-generated. Do not edit.
 
-| Case                                          |  JSON(B) |   KWF(B) |  JSON(T) |   KWF(T) |  Savings |
+| Case                                          |  JSON(B) |   GCF(B) |  JSON(T) |   GCF(T) |  Savings |
 |-----------------------------------------------|----------|----------|----------|----------|----------|
 | 01_context_for_task_small                     |     4153 |     1079 |      965 |      233 |    75.9% |
 | 02_context_for_task_medium                    |    13192 |     3299 |     2968 |      649 |    78.1% |

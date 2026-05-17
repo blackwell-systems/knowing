@@ -198,8 +198,8 @@ func countTokensApprox(s string) int {
 	return count
 }
 
-// TestAllCodecs measures all three codecs (JSON, KWF, Binary) across all fixtures.
-// Demonstrates: KWF wins on token count (LLM efficiency), binary wins on byte size (transport).
+// TestAllCodecs measures all three codecs (JSON, GCF, Binary) across all fixtures.
+// Demonstrates: GCF wins on token count (LLM efficiency), binary wins on byte size (transport).
 func TestAllCodecs(t *testing.T) {
 	cases := loadFixtures(t)
 	if len(cases) == 0 {
@@ -209,11 +209,11 @@ func TestAllCodecs(t *testing.T) {
 	type result struct {
 		name        string
 		jsonBytes   int
-		kwfBytes    int
+		gcfBytes    int
 		binaryBytes int
 		jsonTokens  int
-		kwfTokens   int
-		kwfSavings  float64
+		gcfTokens   int
+		gcfSavings  float64
 		byteSavings float64
 	}
 
@@ -228,33 +228,33 @@ func TestAllCodecs(t *testing.T) {
 		if err != nil {
 			t.Fatalf("json encode %s: %v", c.name, err)
 		}
-		kwfData, err := wire.EncodeWith("kwf", c.payload)
+		gcfData, err := wire.EncodeWith("gcf", c.payload)
 		if err != nil {
-			t.Fatalf("kwf encode %s: %v", c.name, err)
+			t.Fatalf("gcf encode %s: %v", c.name, err)
 		}
-		binaryData, err := wire.EncodeWith("kwb", c.payload)
+		binaryData, err := wire.EncodeWith("gcb", c.payload)
 		if err != nil {
 			t.Fatalf("binary encode %s: %v", c.name, err)
 		}
 
 		jsonTokens := countTokensApprox(jsonData)
-		kwfTokens := countTokensApprox(kwfData)
-		kwfSavings := 1.0 - float64(kwfTokens)/float64(jsonTokens)
+		gcfTokens := countTokensApprox(gcfData)
+		gcfSavings := 1.0 - float64(gcfTokens)/float64(jsonTokens)
 		byteSavings := 1.0 - float64(len(binaryData))/float64(len(jsonData))
 
 		results = append(results, result{
 			name:        c.name,
 			jsonBytes:   len(jsonData),
-			kwfBytes:    len(kwfData),
+			gcfBytes:    len(gcfData),
 			binaryBytes: len(binaryData),
 			jsonTokens:  jsonTokens,
-			kwfTokens:   kwfTokens,
-			kwfSavings:  kwfSavings,
+			gcfTokens:   gcfTokens,
+			gcfSavings:  gcfSavings,
 			byteSavings: byteSavings,
 		})
 
 		totalJsonTokens += jsonTokens
-		totalKwfTokens += kwfTokens
+		totalKwfTokens += gcfTokens
 		totalJsonBytes += len(jsonData)
 		totalBinaryBytes += len(binaryData)
 	}
@@ -263,14 +263,14 @@ func TestAllCodecs(t *testing.T) {
 	t.Log("\n=== Wire Format Benchmark (all codecs) ===")
 	t.Log("")
 	t.Logf("%-40s %8s %8s %8s %8s %8s %10s %10s",
-		"Case", "JSON(B)", "KWF(B)", "BIN(B)", "JSON(T)", "KWF(T)", "KWF(save)", "BIN(save)")
+		"Case", "JSON(B)", "GCF(B)", "BIN(B)", "JSON(T)", "GCF(T)", "GCF(save)", "BIN(save)")
 	t.Logf("%-40s %8s %8s %8s %8s %8s %10s %10s",
 		strings.Repeat("-", 40), "-------", "------", "------", "-------", "------", "---------", "---------")
 
 	for _, r := range results {
 		t.Logf("%-40s %8d %8d %8d %8d %8d %9.1f%% %9.1f%%",
-			r.name, r.jsonBytes, r.kwfBytes, r.binaryBytes, r.jsonTokens, r.kwfTokens,
-			r.kwfSavings*100, r.byteSavings*100)
+			r.name, r.jsonBytes, r.gcfBytes, r.binaryBytes, r.jsonTokens, r.gcfTokens,
+			r.gcfSavings*100, r.byteSavings*100)
 	}
 
 	overallTokenSavings := 1.0 - float64(totalKwfTokens)/float64(totalJsonTokens)
@@ -280,29 +280,29 @@ func TestAllCodecs(t *testing.T) {
 		overallTokenSavings*100, overallByteSavings*100)
 
 	// Acceptance criteria.
-	kwfSavingsSlice := make([]float64, len(results))
+	gcfSavingsSlice := make([]float64, len(results))
 	binSavingsSlice := make([]float64, len(results))
 	for i, r := range results {
-		kwfSavingsSlice[i] = r.kwfSavings
+		gcfSavingsSlice[i] = r.gcfSavings
 		binSavingsSlice[i] = r.byteSavings
 	}
-	kwfMedian := medianFloat(kwfSavingsSlice)
+	gcfMedian := medianFloat(gcfSavingsSlice)
 	binMedian := medianFloat(binSavingsSlice)
 
-	t.Logf("\nKWF median token savings: %.1f%% (target: >= 35%%)", kwfMedian*100)
+	t.Logf("\nGCF median token savings: %.1f%% (target: >= 35%%)", gcfMedian*100)
 	t.Logf("Binary median byte savings: %.1f%% (target: >= 70%%)", binMedian*100)
 
-	if kwfMedian < 0.35 {
-		t.Errorf("FAIL: KWF median token savings %.1f%% < 35%% target", kwfMedian*100)
+	if gcfMedian < 0.35 {
+		t.Errorf("FAIL: GCF median token savings %.1f%% < 35%% target", gcfMedian*100)
 	}
 	if binMedian < 0.70 {
 		t.Errorf("FAIL: Binary median byte savings %.1f%% < 70%% target", binMedian*100)
 	}
 
-	// No case where KWF tokens exceed JSON tokens.
+	// No case where GCF tokens exceed JSON tokens.
 	for _, r := range results {
-		if r.kwfTokens > r.jsonTokens {
-			t.Errorf("FAIL: case %q KWF (%d tokens) > JSON (%d tokens)", r.name, r.kwfTokens, r.jsonTokens)
+		if r.gcfTokens > r.jsonTokens {
+			t.Errorf("FAIL: case %q GCF (%d tokens) > JSON (%d tokens)", r.name, r.gcfTokens, r.jsonTokens)
 		}
 	}
 
@@ -317,7 +317,7 @@ func TestAllCodecs(t *testing.T) {
 // TestRoundTripIntegrity verifies encode->decode->re-encode for all codecs.
 func TestRoundTripIntegrity(t *testing.T) {
 	cases := loadFixtures(t)
-	codecs := []string{"kwf", "json", "kwb"}
+	codecs := []string{"gcf", "json", "gcb"}
 
 	for _, codecName := range codecs {
 		t.Run(codecName, func(t *testing.T) {
@@ -343,11 +343,11 @@ func TestRoundTripIntegrity(t *testing.T) {
 						t.Errorf("Symbols count: got %d, want %d", len(decoded.Symbols), len(c.payload.Symbols))
 					}
 
-					// KWF skips edges whose source/target isn't in the symbol list
+					// GCF skips edges whose source/target isn't in the symbol list
 					// (can't assign a local ID). This is by design: the format
 					// requires all edge endpoints to be declared nodes.
 					// JSON and binary preserve all edges regardless.
-					if codecName != "kwf" {
+					if codecName != "gcf" {
 						if len(decoded.Edges) != len(c.payload.Edges) {
 							t.Errorf("Edges count: got %d, want %d", len(decoded.Edges), len(c.payload.Edges))
 						}
@@ -378,7 +378,7 @@ func truncate(s string, n int) string {
 // BenchmarkEncode measures encode latency for all codecs.
 func BenchmarkEncode(b *testing.B) {
 	cases := loadFixturesB(b)
-	codecs := []string{"kwf", "json", "kwb"}
+	codecs := []string{"gcf", "json", "gcb"}
 	for _, codecName := range codecs {
 		b.Run(codecName, func(b *testing.B) {
 			for _, c := range cases {
@@ -396,7 +396,7 @@ func BenchmarkEncode(b *testing.B) {
 // BenchmarkDecode measures decode latency for all codecs.
 func BenchmarkDecode(b *testing.B) {
 	cases := loadFixturesB(b)
-	codecs := []string{"kwf", "json", "kwb"}
+	codecs := []string{"gcf", "json", "gcb"}
 	for _, codecName := range codecs {
 		b.Run(codecName, func(b *testing.B) {
 			for _, c := range cases {
@@ -415,7 +415,7 @@ func BenchmarkDecode(b *testing.B) {
 // BenchmarkLatencyP99 verifies p99 encode latency < 1ms for all codecs.
 func BenchmarkLatencyP99(b *testing.B) {
 	cases := loadFixturesB(b)
-	codecs := []string{"kwf", "json", "kwb"}
+	codecs := []string{"gcf", "json", "gcb"}
 	for _, codecName := range codecs {
 		b.Run(codecName, func(b *testing.B) {
 			for _, c := range cases {
@@ -516,10 +516,10 @@ func TestGenerateScorecard(t *testing.T) {
 	cases := loadFixtures(t)
 	var sb strings.Builder
 
-	sb.WriteString("# KWF Benchmark Scorecard\n\n")
+	sb.WriteString("# GCF Benchmark Scorecard\n\n")
 	sb.WriteString("Auto-generated. Do not edit.\n\n")
 	sb.WriteString(fmt.Sprintf("| %-45s | %8s | %8s | %8s | %8s | %8s |\n",
-		"Case", "JSON(B)", "KWF(B)", "JSON(T)", "KWF(T)", "Savings"))
+		"Case", "JSON(B)", "GCF(B)", "JSON(T)", "GCF(T)", "Savings"))
 	sb.WriteString(fmt.Sprintf("|%s|%s|%s|%s|%s|%s|\n",
 		strings.Repeat("-", 47), strings.Repeat("-", 10), strings.Repeat("-", 10),
 		strings.Repeat("-", 10), strings.Repeat("-", 10), strings.Repeat("-", 10)))
@@ -530,17 +530,17 @@ func TestGenerateScorecard(t *testing.T) {
 
 	for _, c := range cases {
 		jsonData := fixtureToJSON(c.fixture)
-		kwfData := wire.Encode(c.payload)
+		gcfData := wire.Encode(c.payload)
 
 		jsonTokens := countTokensApprox(string(jsonData))
-		kwfTokens := countTokensApprox(kwfData)
-		savings := 1.0 - float64(kwfTokens)/float64(jsonTokens)
+		gcfTokens := countTokensApprox(gcfData)
+		savings := 1.0 - float64(gcfTokens)/float64(jsonTokens)
 
 		sb.WriteString(fmt.Sprintf("| %-45s | %8d | %8d | %8d | %8d | %7.1f%% |\n",
-			c.name, len(jsonData), len(kwfData), jsonTokens, kwfTokens, savings*100))
+			c.name, len(jsonData), len(gcfData), jsonTokens, gcfTokens, savings*100))
 
 		totalJsonTokens += jsonTokens
-		totalKwfTokens += kwfTokens
+		totalKwfTokens += gcfTokens
 		allSavings = append(allSavings, savings)
 	}
 

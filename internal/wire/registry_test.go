@@ -6,10 +6,10 @@ import (
 )
 
 func TestRegistryBuiltinCodecs(t *testing.T) {
-	// Both kwf and json should be registered by init().
+	// Both gcf and json should be registered by init().
 	names := ListNames()
-	if !strings.Contains(names, "kwf") {
-		t.Errorf("expected 'kwf' in registry, got: %s", names)
+	if !strings.Contains(names, "gcf") {
+		t.Errorf("expected 'gcf' in registry, got: %s", names)
 	}
 	if !strings.Contains(names, "json") {
 		t.Errorf("expected 'json' in registry, got: %s", names)
@@ -17,12 +17,12 @@ func TestRegistryBuiltinCodecs(t *testing.T) {
 }
 
 func TestRegistryGet(t *testing.T) {
-	c, err := Get("kwf")
+	c, err := Get("gcf")
 	if err != nil {
-		t.Fatalf("Get(kwf): %v", err)
+		t.Fatalf("Get(gcf): %v", err)
 	}
-	if c.Name != "kwf" {
-		t.Errorf("expected name 'kwf', got %q", c.Name)
+	if c.Name != "gcf" {
+		t.Errorf("expected name 'gcf', got %q", c.Name)
 	}
 
 	_, err = Get("nonexistent")
@@ -31,7 +31,7 @@ func TestRegistryGet(t *testing.T) {
 	}
 }
 
-func TestEncodeWithKWF(t *testing.T) {
+func TestEncodeWithGCF(t *testing.T) {
 	p := &Payload{
 		Tool:        "test",
 		TokensUsed:  100,
@@ -41,12 +41,12 @@ func TestEncodeWithKWF(t *testing.T) {
 		},
 	}
 
-	out, err := EncodeWith("kwf", p)
+	out, err := EncodeWith("gcf", p)
 	if err != nil {
-		t.Fatalf("EncodeWith(kwf): %v", err)
+		t.Fatalf("EncodeWith(gcf): %v", err)
 	}
-	if !strings.HasPrefix(out, "KWF ") {
-		t.Errorf("expected KWF header, got: %s", out[:20])
+	if !strings.HasPrefix(out, "GCF ") {
+		t.Errorf("expected GCF header, got: %s", out[:20])
 	}
 }
 
@@ -114,7 +114,7 @@ func TestRegisterDuplicate(t *testing.T) {
 		}
 	}()
 	Register(&Codec{
-		Name:   "kwf",
+		Name:   "gcf",
 		Encode: func(p *Payload) (string, error) { return "", nil },
 		Decode: func(s string) (*Payload, error) { return nil, nil },
 	})

@@ -1,6 +1,6 @@
-// Package wire implements the KWF (Knowing Wire Format) encoder and decoder.
+// Package wire implements the GCF (Graph Compact Format) encoder and decoder.
 //
-// KWF is a compact, text-only, graph-native wire format designed for MCP tool
+// GCF is a compact, text-only, graph-native wire format designed for MCP tool
 // responses. It exploits referential identity (local IDs), graph topology
 // (edges as references), and hierarchical grouping (distance-based sections)
 // to achieve 35-50% token savings over JSON while remaining human-readable.
@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-// Symbol represents a node in a KWF payload.
+// Symbol represents a node in a GCF payload.
 type Symbol struct {
 	QualifiedName string
 	Kind          string
@@ -30,7 +30,7 @@ type Components struct {
 	Distance    float64
 }
 
-// Edge represents a directed relationship in a KWF payload.
+// Edge represents a directed relationship in a GCF payload.
 type Edge struct {
 	Source   string // qualified name of source symbol
 	Target   string // qualified name of target symbol
@@ -38,7 +38,7 @@ type Edge struct {
 	Status   string // optional: "added", "removed", "unchanged" (for diff responses)
 }
 
-// Payload is the input/output structure for KWF encoding/decoding.
+// Payload is the input/output structure for GCF encoding/decoding.
 type Payload struct {
 	Tool        string
 	TokensUsed  int
@@ -47,7 +47,7 @@ type Payload struct {
 	Edges       []Edge
 }
 
-// kindAbbrev maps full kind names to short KWF abbreviations.
+// kindAbbrev maps full kind names to short GCF abbreviations.
 var kindAbbrev = map[string]string{
 	"function":  "fn",
 	"type":      "type",
@@ -75,12 +75,12 @@ var kindExpand = map[string]string{
 	"selector": "selector",
 }
 
-// Encode serializes a Payload into KWF text format.
+// Encode serializes a Payload into GCF text format.
 func Encode(p *Payload) string {
 	var b strings.Builder
 
 	// Header line.
-	b.WriteString(fmt.Sprintf("KWF tool=%s budget=%d tokens=%d symbols=%d",
+	b.WriteString(fmt.Sprintf("GCF tool=%s budget=%d tokens=%d symbols=%d",
 		p.Tool, p.TokenBudget, p.TokensUsed, len(p.Symbols)))
 	b.WriteByte('\n')
 

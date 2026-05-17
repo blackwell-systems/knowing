@@ -28,10 +28,10 @@ var (
 func init() {
 	// Register built-in codecs.
 	Register(&Codec{
-		Name:        "kwf",
-		Description: "Knowing Wire Format: graph-native, 75%+ token savings, text-only",
-		Encode:      encodeKWF,
-		Decode:      decodeKWF,
+		Name:        "gcf",
+		Description: "Graph Compact Format: graph-native, 75%+ token savings, text-only",
+		Encode:      encodeGCF,
+		Decode:      decodeGCF,
 	})
 	Register(&Codec{
 		Name:        "json",
@@ -115,10 +115,10 @@ func DecodeWith(name string, input string) (*Payload, error) {
 
 // Adapter functions that wrap Encode/Decode to match the Encoder/Decoder signatures.
 
-func encodeKWF(p *Payload) (string, error) {
+func encodeGCF(p *Payload) (string, error) {
 	return Encode(p), nil
 }
 
-func decodeKWF(input string) (*Payload, error) {
+func decodeGCF(input string) (*Payload, error) {
 	return Decode(input)
 }

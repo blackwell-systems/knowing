@@ -43,7 +43,7 @@ knowing answers those questions with provenance and confidence scores on every e
 │              │                   │                       │
 │ 10 languages │ Content-addressed │ 16 tools + 3 prompts │
 │ tree-sitter  │ SQLite + Merkle   │ stdio / HTTP          │
-│ go/packages  │ Snapshot chain    │ KWF wire format       │
+│ go/packages  │ Snapshot chain    │ GCF wire format       │
 │ OTel ingest  │ Edge events       │                       │
 └──────────────┴───────────────────┴───────────────────────┘
 ```
@@ -52,7 +52,7 @@ Three components, one binary:
 
 - **Indexer**: parses ASTs across 10 languages, resolves cross-repo references, ingests OTel traces, watches git for incremental re-indexing
 - **Graph store**: content-addressed SQLite with Merkle snapshot chain, edge event sourcing, runtime confidence decay
-- **MCP server**: 16 tools + 3 prompts over stdio/HTTP, with KWF wire format (76% token savings vs JSON)
+- **MCP server**: 16 tools + 3 prompts over stdio/HTTP, with GCF wire format (76% token savings vs JSON)
 
 ## Languages
 
@@ -99,12 +99,12 @@ knowing serves responses in three encodings, selected per request:
 
 | Format | Use Case | Savings vs JSON |
 |--------|----------|-----------------|
-| **KWF** (Knowing Wire Format) | LLM consumption | 76.7% fewer tokens |
-| **KWB** (Knowing Wire Binary) | Service transport, caching | 74% fewer bytes |
+| **GCF** (Graph Compact Format) | LLM consumption | 76.7% fewer tokens |
+| **GCB** (Graph Compact Binary) | Service transport, caching | 74% fewer bytes |
 | **JSON** | Human debugging, generic APIs | Baseline |
 
 ```bash
-knowing context -task "refactor auth" -format kwf
+knowing context -task "refactor auth" -format gcf
 ```
 
 ## Quick Start
@@ -120,7 +120,7 @@ knowing index ./path/to/repo
 knowing query "MyService"
 
 # Generate context for an agent task
-knowing context -task "refactor auth middleware" -format kwf
+knowing context -task "refactor auth middleware" -format gcf
 
 # Start the MCP server (stdio)
 knowing mcp -db knowing.db
@@ -174,7 +174,7 @@ The Git analogy is exact: Git is a content-addressed graph of source code. knowi
 | Doc | Contents |
 |-----|----------|
 | [Architecture](docs/architecture.md) | System design, schemas, content addressing, interfaces |
-| [Wire Formats](docs/wire-formats.md) | KWF/KWB specs, grammar, benchmarks, codec registry |
+| [Wire Formats](docs/wire-formats.md) | GCF/GCB specs, grammar, benchmarks, codec registry |
 | [CLI Reference](docs/CLI.md) | All commands with flags and examples |
 | [MCP Tools](docs/MCP-TOOLS.md) | All 16 tools with parameters and return formats |
 | [Edge Types](docs/edge-types.md) | The 9 relationship types and their semantics |

@@ -47,7 +47,7 @@ type Server struct {
 	store     types.GraphStore
 	mcpServer *mcpserver.MCPServer
 	sqlStore  *knowingstore.SQLiteStore // populated via type assertion for runtime queries
-	session   *wire.Session            // KWF session state for cross-call deduplication
+	session   *wire.Session            // GCF session state for cross-call deduplication
 }
 
 // NewServer creates a new MCP server backed by the given GraphStore.

@@ -85,21 +85,21 @@ func TestHookCostComparison(t *testing.T) {
 			continue
 		}
 
-		// Measure hook cost in KWF tokens (what actually gets injected).
+		// Measure hook cost in GCF tokens (what actually gets injected).
 		hookPayload, _ := wire.FromContextBlock(ctx, hookBlock, "context_for_task", st)
-		hookKWF := ""
+		hookGCF := ""
 		if hookPayload != nil {
-			hookKWF, _ = wire.EncodeWith("kwf", hookPayload)
+			hookGCF, _ = wire.EncodeWith("gcf", hookPayload)
 		}
-		hookActualTokens := countWords(hookKWF)
+		hookActualTokens := countWords(hookGCF)
 
-		// Measure manual cost in KWF tokens (what the agent would receive).
+		// Measure manual cost in GCF tokens (what the agent would receive).
 		manualPayload, _ := wire.FromContextBlock(ctx, manualBlock, "context_for_task", st)
-		manualKWF := ""
+		manualGCF := ""
 		if manualPayload != nil {
-			manualKWF, _ = wire.EncodeWith("kwf", manualPayload)
+			manualGCF, _ = wire.EncodeWith("gcf", manualPayload)
 		}
-		manualActualTokens := countWords(manualKWF)
+		manualActualTokens := countWords(manualGCF)
 
 		// Calculate coverage: what % of the manual response's symbols are already
 		// in the hook injection?

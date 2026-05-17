@@ -119,18 +119,18 @@ func (s *Server) handleContextForPR(ctx context.Context, req mcp.CallToolRequest
 	return mcp.NewToolResultText(output), nil
 }
 
-// formatBlock routes output through the wire codec registry for kwf/kwb/json,
+// formatBlock routes output through the wire codec registry for gcf/gcb/json,
 // or falls back to the legacy context formatter for xml/markdown.
-// For KWF, uses the server's session state for cross-call deduplication.
+// For GCF, uses the server's session state for cross-call deduplication.
 func formatBlock(ctx context.Context, block *knowingctx.ContextBlock, format, tool string, s *Server) (string, error) {
 	switch format {
-	case "kwf":
+	case "gcf":
 		payload, err := wire.FromContextBlock(ctx, block, tool, s.store)
 		if err != nil {
 			return "", fmt.Errorf("building wire payload: %w", err)
 		}
 		return wire.EncodeWithSession(payload, s.session), nil
-	case "kwb", "json":
+	case "gcb", "json":
 		payload, err := wire.FromContextBlock(ctx, block, tool, s.store)
 		if err != nil {
 			return "", fmt.Errorf("building wire payload: %w", err)
@@ -142,7 +142,7 @@ func formatBlock(ctx context.Context, block *knowingctx.ContextBlock, format, to
 		}
 		return knowingctx.FormatContextBlock(block, format)
 	default:
-		return "", fmt.Errorf("unknown format %q (available: kwf, kwb, json, xml, markdown)", format)
+		return "", fmt.Errorf("unknown format %q (available: gcf, gcb, json, xml, markdown)", format)
 	}
 }
 
@@ -154,7 +154,7 @@ func contextForTaskTool() mcp.Tool {
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithString("task_description", mcp.Required(), mcp.Description("Description of the task to generate context for (e.g. add caching to the user lookup endpoint)"), Examples("add caching to the user lookup endpoint")),
 		mcp.WithInteger("token_budget", mcp.Description("Maximum token budget for the context block (default 50000)")),
-		mcp.WithString("format", mcp.Description("Output format: kwf (compact graph-native, 75%+ token savings), kwb (binary), json, xml (default), markdown"), Examples("kwf")),
+		mcp.WithString("format", mcp.Description("Output format: gcf (compact graph-native, 75%+ token savings), gcb (binary), json, xml (default), markdown"), Examples("gcf")),
 	)
 }
 
@@ -165,7 +165,7 @@ func contextForPRTool() mcp.Tool {
 		mcp.WithString("files", mcp.Required(), mcp.Description("Comma-separated list of changed file paths relative to repo root (from the PR diff)"), Examples("internal/mcp/server.go,internal/context/context.go")),
 		mcp.WithString("repo_url", mcp.Description("Repository URL for resolving file hashes"), Examples("https://github.com/org/repo")),
 		mcp.WithInteger("token_budget", mcp.Description("Maximum token budget for the context block (default 8000, larger than per-edit calls)")),
-		mcp.WithString("format", mcp.Description("Output format: kwf (compact, 75%+ token savings), kwb (binary), json, xml (default), markdown"), Examples("kwf")),
+		mcp.WithString("format", mcp.Description("Output format: gcf (compact, 75%+ token savings), gcb (binary), json, xml (default), markdown"), Examples("gcf")),
 	)
 }
 
@@ -176,6 +176,6 @@ func contextForFilesTool() mcp.Tool {
 		mcp.WithString("files", mcp.Required(), mcp.Description("Comma-separated list of changed file paths relative to repo root (e.g. internal/mcp/handlers.go,internal/store/sqlite.go)"), Examples("internal/mcp/handlers.go,internal/store/sqlite.go")),
 		mcp.WithString("repo_url", mcp.Description("Repository URL for resolving file hashes (e.g. https://github.com/org/repo)"), Examples("https://github.com/org/repo")),
 		mcp.WithInteger("token_budget", mcp.Description("Maximum token budget for the context block (default 50000)")),
-		mcp.WithString("format", mcp.Description("Output format: kwf (compact graph-native, 75%+ token savings), kwb (binary), json, xml (default), markdown"), Examples("kwf")),
+		mcp.WithString("format", mcp.Description("Output format: gcf (compact graph-native, 75%+ token savings), gcb (binary), json, xml (default), markdown"), Examples("gcf")),
 	)
 }

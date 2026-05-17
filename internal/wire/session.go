@@ -71,7 +71,7 @@ func (s *Session) Reset() {
 	s.nextID = 0
 }
 
-// EncodeWithSession encodes a payload using KWF with session deduplication.
+// EncodeWithSession encodes a payload using GCF with session deduplication.
 // Symbols that were already transmitted in prior responses are emitted as
 // bare references (`@N  # previously transmitted`) instead of full declarations.
 // After encoding, newly-sent symbols are recorded in the session.
@@ -104,7 +104,7 @@ func EncodeWithSession(p *Payload, sess *Session) string {
 
 	var b stringBuilder
 	// Header with session=true marker.
-	b.sprintf("KWF tool=%s budget=%d tokens=%d symbols=%d session=true",
+	b.sprintf("GCF tool=%s budget=%d tokens=%d symbols=%d session=true",
 		p.Tool, p.TokenBudget, p.TokensUsed, len(p.Symbols))
 	b.writeByte('\n')
 

@@ -55,7 +55,7 @@ Specific failure modes:
 
 3. **Adaptive budget**: start with 400 tokens on first edit to a file. If the agent subsequently calls `context_for_task` anyway, increase to 1200 on the next edit to the same file. Learn per-session what budget actually prevents manual calls.
 
-4. **Session dedup compounding**: the first edit to a file pays full cost. Subsequent edits to the same file pay near-zero (KWF session statefulness). The current benchmark measures per-edit cost but not session-level amortization.
+4. **Session dedup compounding**: the first edit to a file pays full cost. Subsequent edits to the same file pay near-zero (GCF session statefulness). The current benchmark measures per-edit cost but not session-level amortization.
 
 ## Decision
 

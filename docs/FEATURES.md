@@ -429,18 +429,18 @@ Repo: github.com/blackwell-systems/knowing
 - **Package(s):** `internal/wire`
 - **Entry point:** `wire.EncodeWith(name string, p *Payload) (string, error)`, `wire.DecodeWith(name string, input string) (*Payload, error)`
 - **What it does:** Provides a pluggable codec registry with 5 built-in encoders for graph payloads:
-  1. **KWF (Knowing Wire Format):** Text-only, graph-native encoding optimized for LLM token consumption. Uses local IDs (`@0`, `@1`), positional encoding, kind abbreviations, and group headers to achieve **76.7% median token savings** over JSON. Supports session statefulness for progressive vocabulary building across tool calls.
-  2. **Binary (KWB1):** Compact binary encoding using varint integers, enum IDs (1 byte), float32 scores, index-based edge references, and length-prefixed strings. Optimized for transport between services and persistent caching (~89% byte savings vs JSON).
+  1. **GCF (Graph Compact Format):** Text-only, graph-native encoding optimized for LLM token consumption. Uses local IDs (`@0`, `@1`), positional encoding, kind abbreviations, and group headers to achieve **76.7% median token savings** over JSON. Supports session statefulness for progressive vocabulary building across tool calls.
+  2. **Binary (GCB1):** Compact binary encoding using varint integers, enum IDs (1 byte), float32 scores, index-based edge references, and length-prefixed strings. Optimized for transport between services and persistent caching (~89% byte savings vs JSON).
   3. **JSON:** Standard JSON serialization for maximum compatibility and debuggability.
   4. **XML:** XML serialization for tool interoperability.
   5. **Markdown:** Human-readable markdown tables for documentation and debugging.
-  Codecs are registered at init time. Custom codecs can be added via `wire.Register()`. The MCP tools and CLI pass the `format` parameter directly to the registry, making new codecs immediately available to all consumers. The binary codec is registered under the name "kwb" (Knowing Wire Binary).
+  Codecs are registered at init time. Custom codecs can be added via `wire.Register()`. The MCP tools and CLI pass the `format` parameter directly to the registry, making new codecs immediately available to all consumers. The binary codec is registered under the name "gcb" (Graph Compact Binary).
 - **Session statefulness:** `wire.Session` tracks previously-transmitted symbols across multiple tool calls within a session. On repeated symbols, only the local ID reference is emitted (no full definition re-transmitted). This cross-call symbol deduplication yields **47% additional savings** on repeated symbols within a session, compounding on top of the per-payload compression.
 - **Inputs:** `*Payload` struct containing tool name, token counts, symbols (with scores, kinds, provenance, components), and edges.
-- **Outputs:** Encoded string (KWF, XML, or Markdown) or binary bytes (KWB). Decode returns `*Payload`.
+- **Outputs:** Encoded string (GCF, XML, or Markdown) or binary bytes (GCB). Decode returns `*Payload`.
 - **Benchmark results:** 6 fixture cases (8 to 30 symbols) with encode p99 latency of 64 microseconds on Apple M4 Pro.
 - **Limitations/known gaps:**
-  - Binary codec (kwb) requires version bump for extensibility (KWF can append new fields freely).
+  - Binary codec (gcb) requires version bump for extensibility (GCF can append new fields freely).
   - Binary codec registered in its own init() separately from the other codecs.
 - **Dependencies:** None beyond stdlib.
 
@@ -506,11 +506,11 @@ Repo: github.com/blackwell-systems/knowing
 - **Flags:** `--db` (default: `knowing.db`), repository path (positional).
 - **Dependencies:** `internal/store`, `internal/indexer`.
 
-### 40. KWF Session Statefulness (Cross-Call Symbol Deduplication)
+### 40. GCF Session Statefulness (Cross-Call Symbol Deduplication)
 
 - **Package(s):** `internal/wire`
 - **Entry point:** `wire.NewSession() *Session`, `Session.Encode(codec string, p *Payload) (string, error)`
-- **What it does:** Tracks previously-transmitted symbols across multiple tool calls within the same MCP session. When a symbol has already been sent in a prior response, only its local ID reference is emitted instead of the full definition. This provides **47% additional token savings** on repeated symbols within a session, compounding on top of per-payload KWF compression.
+- **What it does:** Tracks previously-transmitted symbols across multiple tool calls within the same MCP session. When a symbol has already been sent in a prior response, only its local ID reference is emitted instead of the full definition. This provides **47% additional token savings** on repeated symbols within a session, compounding on top of per-payload GCF compression.
 - **Inputs:** Codec name, `*Payload` to encode.
 - **Outputs:** Encoded payload with deduplicated symbol references.
 - **Dependencies:** `internal/wire` codec registry.
@@ -691,8 +691,8 @@ Parameters per tool:
 - `runtime_traffic`: service_name (required), route_pattern (optional, LIKE syntax), limit (optional, default 100)
 - `dead_routes`: stale_days (optional, default 30)
 - `trace_stats`: (no parameters)
-- `context_for_task`: task (required), token_budget (optional), format (optional, default "json"; accepts "kwf", "kwb", "json", "xml", "markdown")
-- `context_for_files`: files (required, array of file paths), token_budget (optional), format (optional, default "json"; accepts "kwf", "kwb", "json", "xml", "markdown")
+- `context_for_task`: task (required), token_budget (optional), format (optional, default "json"; accepts "gcf", "gcb", "json", "xml", "markdown")
+- `context_for_files`: files (required, array of file paths), token_budget (optional), format (optional, default "json"; accepts "gcf", "gcb", "json", "xml", "markdown")
 
 ---
 
@@ -739,7 +739,7 @@ Parameters per tool:
 
 ### `knowing context`
 
-- **Flags:** `--db` (default: `knowing.db`), `--format` (default: `json`, accepts: `kwf`, `kwb`, `json`, `xml`, `markdown`), `--task` (natural-language task description), `--files` (comma-separated file paths), `--token-budget` (optional)
+- **Flags:** `--db` (default: `knowing.db`), `--format` (default: `json`, accepts: `gcf`, `gcb`, `json`, `xml`, `markdown`), `--task` (natural-language task description), `--files` (comma-separated file paths), `--token-budget` (optional)
 - **What it does:** CLI interface to the context engine. Returns ranked symbols and edges relevant to a task description or set of files. Output is encoded using the specified wire format codec. Equivalent to calling the `context_for_task` or `context_for_files` MCP tools from the command line.
 
 ### `knowing version`
@@ -1222,13 +1222,13 @@ internal/indexer/
 internal/wire/
   registry.go                      -- Codec registry: Register, Get, List, EncodeWith, DecodeWith
   session.go                       -- Session: cross-call symbol deduplication (47% savings on repeats)
-  kwf.go                           -- KWF text encoder (graph-native, LLM-optimized)
-  kwf_decode.go                    -- KWF text decoder
+  gcf.go                           -- GCF text encoder (graph-native, LLM-optimized)
+  gcf_decode.go                    -- GCF text decoder
   json.go                          -- JSON codec (encode/decode via standard library)
-  binary.go                        -- Binary codec (varint + length-prefixed, registered as "kwb")
+  binary.go                        -- Binary codec (varint + length-prefixed, registered as "gcb")
   xml.go                           -- XML codec
   markdown.go                      -- Markdown table codec
-  kwf_test.go
+  gcf_test.go
   registry_test.go
   binary_test.go
 

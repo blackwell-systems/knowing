@@ -10,7 +10,7 @@ import (
 
 // Binary codec: compact binary encoding for transport and storage.
 // Optimizes for minimal byte size on the wire between services.
-// Not intended for direct LLM consumption (use KWF for that).
+// Not intended for direct LLM consumption (use GCF for that).
 //
 // Wire layout:
 //   [magic:4][version:1][header][symbols][edges]
@@ -20,7 +20,7 @@ import (
 // Edge:    source_idx(varint) target_idx(varint) edge_type(uint8) status(uint8)
 
 const (
-	binaryMagic   = "KWB1" // Knowing Wire Binary v1
+	binaryMagic   = "GCB1" // Graph Compact Binary v1
 	binaryVersion = 1
 )
 
@@ -351,8 +351,8 @@ func readFloat32(r *bytes.Reader) (float32, error) {
 
 func init() {
 	Register(&Codec{
-		Name:        "kwb",
-		Description: "Knowing Wire Binary: compact transport/storage encoding, 74%+ byte savings",
+		Name:        "gcb",
+		Description: "Graph Compact Binary: compact transport/storage encoding, 74%+ byte savings",
 		Encode:      encodeBinary,
 		Decode:      decodeBinary,
 	})

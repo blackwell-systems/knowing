@@ -35,7 +35,7 @@ type PROptions struct {
 	Files       []string // changed file paths (relative to repo root)
 	RepoURL     string   // repo URL for resolving file hashes
 	TokenBudget int      // default 8000 (larger than per-edit, used once per PR)
-	Format      string   // "xml", "markdown", "json", "kwf"
+	Format      string   // "xml", "markdown", "json", "gcf"
 }
 
 // ContextBlock is the result of a context query: a ranked list of symbols

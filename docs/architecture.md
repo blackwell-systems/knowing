@@ -1015,8 +1015,8 @@ The registry is a thread-safe map of named codecs. Each codec implements an `Enc
 
 | Codec | Format | Use Case | Savings |
 |-------|--------|----------|---------|
-| **KWF** (Knowing Wire Format) | Text, graph-native line protocol | Agent/LLM consumption. Token-optimized with structured delimiters. | ~76.7% token savings vs JSON |
-| **binary** | Varint + length-prefixed binary | Daemon IPC, caching, transport between services. Magic header `KWB1`, version byte, packed symbols and edges. | ~74% byte savings vs JSON |
+| **GCF** (Graph Compact Format) | Text, graph-native line protocol | Agent/LLM consumption. Token-optimized with structured delimiters. | ~76.7% token savings vs JSON |
+| **binary** | Varint + length-prefixed binary | Daemon IPC, caching, transport between services. Magic header `GCB1`, version byte, packed symbols and edges. | ~74% byte savings vs JSON |
 | **json** | Standard JSON | Human/debug use, compatibility baseline. Maximum readability, verbose. | (baseline) |
 
 ### Layered Architecture
@@ -1026,7 +1026,7 @@ The three codecs map to distinct system layers:
 ```
 ┌──────────────────────────────────────────────────────┐
 │  Agent / LLM Context Window                          │
-│  Format: KWF (text, token-efficient)                 │
+│  Format: GCF (text, token-efficient)                 │
 ├──────────────────────────────────────────────────────┤
 │  Daemon IPC / Computation Cache / Storage            │
 │  Format: binary (compact, fast parse)                │
@@ -1036,11 +1036,11 @@ The three codecs map to distinct system layers:
 └──────────────────────────────────────────────────────┘
 ```
 
-- **KWF** is the default for MCP tool responses and context packing output. It minimizes token consumption inside LLM context windows while remaining plain-text parseable.
+- **GCF** is the default for MCP tool responses and context packing output. It minimizes token consumption inside LLM context windows while remaining plain-text parseable.
 - **Binary** is used for daemon-to-daemon communication and the content-addressed computation cache. Its varint+length-prefixed layout avoids parsing overhead and produces compact byte streams.
 - **JSON** serves as the compatibility baseline for `knowing export`, debugging, and integration with external systems that expect standard serialization.
 
-**KWF session statefulness:** The MCP server maintains a per-connection `wire.Session` that tracks which symbols have already been transmitted to the client. On subsequent KWF responses within the same connection, previously-sent nodes are emitted as bare references (hash-only, no full payload) rather than complete symbol records. This deduplication delivers 47% additional token savings beyond KWF's baseline compression, compounding across multi-turn agent conversations where the same subgraph is referenced repeatedly.
+**GCF session statefulness:** The MCP server maintains a per-connection `wire.Session` that tracks which symbols have already been transmitted to the client. On subsequent GCF responses within the same connection, previously-sent nodes are emitted as bare references (hash-only, no full payload) rather than complete symbol records. This deduplication delivers 47% additional token savings beyond GCF's baseline compression, compounding across multi-turn agent conversations where the same subgraph is referenced repeatedly.
 
 ### Binary Wire Layout
 

@@ -12,7 +12,7 @@ knowing supports multiple wire format encodings for graph data, each optimized f
                     ┌────────────┼────────────┐
                     │            │            │
               ┌─────▼─────┐ ┌───▼────┐ ┌────▼────┐
-              │   binary   │ │  kwf   │ │  json   │
+              │   binary   │ │  gcf   │ │  json   │
               │ (transport)│ │ (LLM)  │ │ (compat)│
               └─────┬─────┘ └───┬────┘ └────┬────┘
                     │            │            │
@@ -25,10 +25,10 @@ knowing supports multiple wire format encodings for graph data, each optimized f
 | Codec | Optimizes for | Consumer | Byte savings vs JSON | Token savings vs JSON |
 |-------|---------------|----------|---------------------|----------------------|
 | `binary` | Bytes on wire, encode/decode speed | Services, caches, daemon IPC | ~75% | N/A (not text) |
-| `kwf` | LLM token count | AI agents reading tool responses | ~78% (bytes) | **76.7%** |
+| `gcf` | LLM token count | AI agents reading tool responses | ~78% (bytes) | **76.7%** |
 | `json` | Compatibility, debuggability | Humans, generic API consumers | 0% (baseline) | 0% (baseline) |
 
-## KWF (Knowing Wire Format)
+## GCF (Graph Compact Format)
 
 Text-only, graph-native encoding designed for LLM consumption. Exploits three properties of graph data that flat formats cannot:
 
@@ -40,7 +40,7 @@ Text-only, graph-native encoding designed for LLM consumption. Exploits three pr
 
 ```
 payload       = header { node-line | edge-line | group-line | comment } ;
-header        = "KWF" SP "tool=" token { SP key-value } LF ;
+header        = "GCF" SP "tool=" token { SP key-value } LF ;
 group-line    = "##" SP text LF ;
 node-line     = "@" id SP kind SP qname SP score SP provenance LF ;
 edge-line     = "@" target "<" "@" source SP edge-type [ SP status ] LF ;
@@ -58,7 +58,7 @@ status        = "added" | "removed" ;
 ### Example
 
 ```
-KWF tool=context_for_task budget=5000 tokens=1847 symbols=10
+GCF tool=context_for_task budget=5000 tokens=1847 symbols=10
 ## targets
 @0 fn github.com/blackwell-systems/knowing/internal/mcp.requireHash 0.78 lsp_resolved
 @1 method github.com/blackwell-systems/knowing/internal/mcp.Server.registerTools 0.74 lsp_resolved
@@ -83,11 +83,11 @@ KWF tool=context_for_task budget=5000 tokens=1847 symbols=10
 @4<@8 references
 ```
 
-The same data in JSON: ~965 tokens. In KWF: ~233 tokens. **75.9% savings.**
+The same data in JSON: ~965 tokens. In GCF: ~233 tokens. **75.9% savings.**
 
 ### Format Elements
 
-**Header:** `KWF tool=<name> budget=<N> tokens=<N> symbols=<N>`
+**Header:** `GCF tool=<name> budget=<N> tokens=<N> symbols=<N>`
 
 **Group headers:** `## targets` (distance 0), `## related` (distance 1), `## extended` (distance 2+), `## edges`
 
@@ -117,7 +117,7 @@ The `<` arrow points toward the target. `@0<@4 calls` means "@4 calls @0."
 Across multiple tool calls in a session, previously-transmitted nodes can be referenced without retransmission:
 
 ```
-KWF tool=context_for_files tokens=800 symbols=5 session=true
+GCF tool=context_for_files tokens=800 symbols=5 session=true
 ## targets
 @0  # previously transmitted
 @7 fn github.com/blackwell-systems/knowing/internal/mcp.handleBlastRadius 0.62 lsp_resolved
@@ -129,7 +129,7 @@ Multi-call workflows get progressively cheaper as the session builds a shared vo
 
 ### Where Token Savings Come From
 
-1. **No field names.** KWF uses positional encoding. JSON repeats 9 field names per symbol.
+1. **No field names.** GCF uses positional encoding. JSON repeats 9 field names per symbol.
 2. **Local ID edge references.** `@0<@4 calls` (5 tokens) vs full qualified name pairs (30+ tokens).
 3. **Group headers.** One `## related` replaces N `"distance": 1` fields.
 4. **Kind abbreviations.** `fn` vs `"function"`, `iface` vs `"interface"`.
@@ -137,14 +137,14 @@ Multi-call workflows get progressively cheaper as the session builds a shared vo
 
 ---
 
-## Binary (KWB1)
+## Binary (GCB1)
 
 Compact binary encoding optimized for transport between services and persistent caching. Not readable by humans or LLMs directly; designed for machine-to-machine paths where byte efficiency and encode/decode speed matter.
 
 ### Wire Layout
 
 ```
-[magic:4 "KWB1"][version:1]
+[magic:4 "GCB1"][version:1]
 [header]
   tool        : length-prefixed string
   tokens_used : varint
@@ -190,14 +190,14 @@ Compact binary encoding optimized for transport between services and persistent 
 
 ### When to Use Binary
 
-- Daemon-to-client IPC (the daemon stores and transmits binary; the client decodes to Payload then re-encodes to KWF or JSON for its consumer)
+- Daemon-to-client IPC (the daemon stores and transmits binary; the client decodes to Payload then re-encodes to GCF or JSON for its consumer)
 - Response caching (binary is the most space-efficient on-disk format)
 - Cross-service communication where both ends are knowing-aware
 - Streaming large graph results where decode latency matters
 
-### Tradeoffs vs KWF
+### Tradeoffs vs GCF
 
-| | Binary | KWF |
+| | Binary | GCF |
 |--|--------|-----|
 | Byte size | Smallest | ~10-15% larger (text overhead) |
 | Token count | N/A (not text) | Optimized |
@@ -255,12 +255,12 @@ All three codecs encoding the same 10-symbol, 8-edge payload:
 | Codec | Bytes | Tokens | vs JSON (bytes) | vs JSON (tokens) |
 |-------|-------|--------|-----------------|------------------|
 | JSON | 4,153 | 965 | baseline | baseline |
-| KWF | 1,079 | 233 | -74% | -75.9% |
+| GCF | 1,079 | 233 | -74% | -75.9% |
 | Binary | 448 | N/A | -89% | N/A |
 
 Full scorecard across 6 fixture cases (8 to 30 symbols):
 
-| Case | JSON(T) | KWF(T) | Token Savings |
+| Case | JSON(T) | GCF(T) | Token Savings |
 |------|---------|--------|---------------|
 | context_for_task (10 sym) | 965 | 233 | 75.9% |
 | context_for_task (30 sym) | 2,968 | 649 | 78.1% |
@@ -269,7 +269,7 @@ Full scorecard across 6 fixture cases (8 to 30 symbols):
 | semantic_diff (12 sym) | 1,206 | 295 | 75.5% |
 | graph_query (20 sym) | 2,078 | 423 | 79.6% |
 
-**Median token savings (KWF vs JSON): 76.7%**
+**Median token savings (GCF vs JSON): 76.7%**
 
 Encode p99 latency: 64 microseconds (30-symbol payload, Apple M4 Pro).
 
@@ -283,7 +283,7 @@ The `internal/wire` package provides a pluggable codec registry. Formats are sel
 import "github.com/blackwell-systems/knowing/internal/wire"
 
 // Encode with a named codec.
-output, err := wire.EncodeWith("kwf", payload)
+output, err := wire.EncodeWith("gcf", payload)
 
 // Decode with a named codec.
 payload, err := wire.DecodeWith("binary", input)
@@ -335,7 +335,7 @@ The MCP tools and CLI pass the `format` parameter directly to the registry, so n
 ### CLI
 
 ```bash
-knowing context --task "refactor auth" --format kwf      # LLM-optimized
+knowing context --task "refactor auth" --format gcf      # LLM-optimized
 knowing context --task "refactor auth" --format json     # human/debug
 knowing context --task "refactor auth" --format binary   # pipe to another service
 ```
@@ -348,12 +348,12 @@ knowing context --task "refactor auth" --format binary   # pipe to another servi
   "arguments": {
     "task": "refactor auth middleware",
     "token_budget": 5000,
-    "format": "kwf"
+    "format": "gcf"
   }
 }
 ```
 
-Default is `json` for backwards compatibility. Agents that understand KWF should request it explicitly for 75%+ token savings.
+Default is `json` for backwards compatibility. Agents that understand GCF should request it explicitly for 75%+ token savings.
 
 ---
 
@@ -362,11 +362,11 @@ Default is `json` for backwards compatibility. Agents that understand KWF should
 | File | Purpose |
 |------|---------|
 | `internal/wire/registry.go` | Codec registry (Register, Get, List, EncodeWith, DecodeWith) |
-| `internal/wire/kwf.go` | KWF text encoder |
-| `internal/wire/kwf_decode.go` | KWF text decoder |
+| `internal/wire/gcf.go` | GCF text encoder |
+| `internal/wire/gcf_decode.go` | GCF text decoder |
 | `internal/wire/json.go` | JSON codec (encode/decode via standard library) |
 | `internal/wire/binary.go` | Binary codec (varint + length-prefixed) |
-| `internal/wire/kwf_test.go` | KWF unit tests |
+| `internal/wire/gcf_test.go` | GCF unit tests |
 | `internal/wire/registry_test.go` | Registry and JSON codec tests |
 | `internal/wire/binary_test.go` | Binary codec tests |
 | `bench/wire-format/` | Benchmark harness with fixture cases |
@@ -378,11 +378,11 @@ Default is `json` for backwards compatibility. Agents that understand KWF should
 
 ### Table formats (TSV/columnar)
 
-Column headers + TSV rows achieve ~27% savings by eliminating field name repetition. But they treat graph data as flat tables: edge references still require full identifier strings in each row. KWF's local ID system pushes savings to 75%+.
+Column headers + TSV rows achieve ~27% savings by eliminating field name repetition. But they treat graph data as flat tables: edge references still require full identifier strings in each row. GCF's local ID system pushes savings to 75%+.
 
 ### Binary formats (protobuf, MessagePack, FlatBuffers)
 
-Optimize for machine parsing speed and byte size. An LLM cannot read a protobuf payload directly; it must be decoded to text first, eliminating the savings at the point of consumption. knowing's binary codec fills this niche for machine-to-machine paths, while KWF serves the LLM path.
+Optimize for machine parsing speed and byte size. An LLM cannot read a protobuf payload directly; it must be decoded to text first, eliminating the savings at the point of consumption. knowing's binary codec fills this niche for machine-to-machine paths, while GCF serves the LLM path.
 
 ### JSON-LD / RDF
 

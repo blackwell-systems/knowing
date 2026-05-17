@@ -6,9 +6,9 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- **Wire format system** (`internal/wire/` package): KWF (Knowing Wire Format) text encoder/decoder, KWB (Knowing Wire Binary) codec, JSON codec, pluggable registry, benchmark harness with 6 fixtures achieving 84% median token savings
-- **KWF session statefulness:** cross-call symbol deduplication via `wire.Session`; previously-transmitted symbols emitted as bare references, delivering 47% additional savings on repeated symbols within a session
-- **Wire format integration:** `format` parameter on `context_for_task` and `context_for_files` MCP tools; `--format kwf|kwb|json` on CLI `knowing context` command
+- **Wire format system** (`internal/wire/` package): GCF (Graph Compact Format) text encoder/decoder, GCB (Graph Compact Binary) codec, JSON codec, pluggable registry, benchmark harness with 6 fixtures achieving 84% median token savings
+- **GCF session statefulness:** cross-call symbol deduplication via `wire.Session`; previously-transmitted symbols emitted as bare references, delivering 47% additional savings on repeated symbols within a session
+- **Wire format integration:** `format` parameter on `context_for_task` and `context_for_files` MCP tools; `--format gcf|gcb|json` on CLI `knowing context` command
 - **Infrastructure schema extractors** (4 new languages, total 10): Terraform HCL, SQL, Kubernetes YAML, CSS; all using tree-sitter parsing with comprehensive test suites
 - **`knowing mcp` subcommand** for stdio MCP server mode
 - **`knowing reindex` subcommand** with pre-loaded RWR adjacency map
@@ -16,7 +16,7 @@ All notable changes to this project will be documented in this file.
 - **Random Walk with Restart** (`internal/context/`): graph-based relevance scoring for context packing
 - **Context engine improvements:** keyword extraction optimization with stop words, CamelCase splitting, abbreviation expansion; substring search for keyword matching; relative blast radius normalization; base recency 0.3 for static edges
 - **CI:** mcp-assert action for MCP server correctness testing (0 lint issues)
-- **Docs:** architecture.md (fixed drift against codebase), edge-types.md, context-packing.md, KWF.md, mkdocs.yml + index.md for docs workflow, deep dive on content addressing and Merkle DAG
+- **Docs:** architecture.md (fixed drift against codebase), edge-types.md, context-packing.md, GCF.md, mkdocs.yml + index.md for docs workflow, deep dive on content addressing and Merkle DAG
 - **Test coverage:** dedicated tests for RWR, diff, resolver, context, rustextractor, and mcp packages
 - System overview, component diagram, edge type taxonomy, and design goals in architecture doc
 - Separated README into standard format (problem, usage, tools) with detailed docs in `docs/`
@@ -31,7 +31,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- Wire format renamed from KG1 to KWF (Knowing Wire Format)
+- Wire format renamed from KG1 to GCF (Graph Compact Format)
 - Banner image metadata stripped
 - `.knowing` binary added to .gitignore
 

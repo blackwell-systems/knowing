@@ -55,12 +55,12 @@ func TestBinaryRoundTrip(t *testing.T) {
 		},
 	}
 
-	encoded, err := EncodeWith("kwb", p)
+	encoded, err := EncodeWith("gcb", p)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
 
-	decoded, err := DecodeWith("kwb", encoded)
+	decoded, err := DecodeWith("gcb", encoded)
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -136,12 +136,12 @@ func TestBinaryDiffStatus(t *testing.T) {
 		},
 	}
 
-	encoded, err := EncodeWith("kwb", p)
+	encoded, err := EncodeWith("gcb", p)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
 
-	decoded, err := DecodeWith("kwb", encoded)
+	decoded, err := DecodeWith("gcb", encoded)
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -170,18 +170,18 @@ func TestBinarySize(t *testing.T) {
 		},
 	}
 
-	binOut, _ := EncodeWith("kwb", p)
+	binOut, _ := EncodeWith("gcb", p)
 	jsonOut, _ := EncodeWith("json", p)
-	kwfOut, _ := EncodeWith("kwf", p)
+	gcfOut, _ := EncodeWith("gcf", p)
 
 	t.Logf("Binary: %d bytes", len(binOut))
-	t.Logf("KWF:    %d bytes", len(kwfOut))
+	t.Logf("GCF:    %d bytes", len(gcfOut))
 	t.Logf("JSON:   %d bytes", len(jsonOut))
 	t.Logf("Binary vs JSON savings: %.1f%%", (1.0-float64(len(binOut))/float64(len(jsonOut)))*100)
-	t.Logf("KWF vs JSON savings:    %.1f%%", (1.0-float64(len(kwfOut))/float64(len(jsonOut)))*100)
+	t.Logf("GCF vs JSON savings:    %.1f%%", (1.0-float64(len(gcfOut))/float64(len(jsonOut)))*100)
 
 	// Binary should always be smaller than JSON in bytes.
-	// KWF may be smaller than binary for small payloads (fewer structural bytes
+	// GCF may be smaller than binary for small payloads (fewer structural bytes
 	// to eliminate), but binary wins on large payloads and preserves full precision.
 	if len(binOut) >= len(jsonOut) {
 		t.Errorf("binary (%d bytes) should be smaller than JSON (%d bytes)", len(binOut), len(jsonOut))
@@ -189,11 +189,11 @@ func TestBinarySize(t *testing.T) {
 }
 
 func TestBinaryRegistered(t *testing.T) {
-	c, err := Get("kwb")
+	c, err := Get("gcb")
 	if err != nil {
 		t.Fatalf("binary codec not registered: %v", err)
 	}
-	if c.Name != "kwb" {
+	if c.Name != "gcb" {
 		t.Errorf("expected name 'binary', got %q", c.Name)
 	}
 }
