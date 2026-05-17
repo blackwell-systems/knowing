@@ -17,9 +17,23 @@
 
 ## What knowing Is
 
-knowing builds a **content-addressed knowledge graph** of software relationships and serves it to agents through MCP.
+**Git already solved the hard problems for files.** Content-addressed blobs. Merkle trees. Incremental updates. History and integrity as structural consequences of the identity model, not features bolted on after the fact. It works because identity is content: change a file, get a new hash, only the changed path needs recomputation.
 
-It fuses static analysis, infrastructure declarations, SCIP indexes, and OpenTelemetry runtime traces into one queryable graph. Every node, edge, and snapshot has a SHA-256 identity, provenance, confidence, and history, so agents can ask not just "where is this symbol?" but "what depends on it, how do we know, and what changed since the last snapshot?"
+knowing applies the same model to **code relationships**:
+
+| | Git | knowing |
+|---|---|---|
+| Unit of storage | file blob | edge (`source -> target`, type, provenance) |
+| Identity | `sha256(content)` | `sha256(repo + package + name + kind)` |
+| Snapshot | tree hash of sorted child hashes | Merkle root of sorted edge hashes |
+| Incremental update | changed file = new blob hash | changed file = invalidated edges, surgical re-extraction |
+| History | commit chain (append-only) | snapshot chain + edge event log (append-only) |
+| Integrity | verify tree from root hash | verify snapshot from Merkle root |
+| Diff | any two commits | any two snapshots |
+
+The hard problems (staleness, history, integrity, incremental updates) are structural consequences of choosing content-addressing. knowing watches `.git/HEAD` (one file descriptor), detects changed files, invalidates their hashes, re-extracts only affected edges, and computes a new snapshot root. The graph is always current because the identity model makes staleness detectable and recovery surgical.
+
+On top of this foundation, knowing fuses static analysis, infrastructure declarations, SCIP indexes, and OpenTelemetry runtime traces into one graph. Every edge carries provenance and confidence. Agents can ask not just "where is this symbol?" but "what depends on it, how do we know, how confident are we, and what changed since the last snapshot?"
 
 Use knowing when code search is too shallow, LSP is too workspace-local, and dependency graphs stop at package boundaries.
 
@@ -251,21 +265,12 @@ Round-trip integrity is verified: encode -> decode -> re-encode produces identic
 
 ## Content Addressing
 
-Every entity in knowing is identified by content:
+The identity model is described in the opening section. Two additional properties worth noting:
 
-- **Node hash:** logical symbol identity, including repo, package/path, name, and kind.
-- **Edge hash:** source, target, edge type, and provenance.
-- **Snapshot hash:** Merkle root of sorted edge hashes at a point in time.
+- **Caching:** query results keyed to a snapshot hash remain valid forever for that snapshot. The hash is the cache key.
+- **Edge events:** relationship changes are explicit (added/removed per edge per commit), not inferred from full graph scans.
 
-This gives the graph git-like properties:
-
-- **History:** previous graph states are queryable by snapshot hash.
-- **Integrity:** a snapshot can be verified from its edge hashes.
-- **Staleness:** changed file content structurally invalidates derived nodes and edges.
-- **Caching:** query results keyed to a snapshot remain valid forever for that snapshot.
-- **Diffs:** edge events make relationship changes explicit instead of inferred from full graph scans.
-
-For the full storage model, see [docs/architecture.md](docs/architecture.md).
+For the full storage model and hash construction, see [docs/architecture.md](docs/architecture.md).
 
 ## Current Boundaries
 
