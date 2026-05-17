@@ -47,26 +47,32 @@ func RankSymbols(symbols []ScoringInput, hitsScores ...map[types.Hash]HITSScores
 		var blastRadius, confidence, recency, distance, total float64
 
 		if hits != nil {
-			// HITS-enhanced ranking: high authority nodes that are also seeds
-			// get a boost. High authority nodes that are NOT seeds get a penalty
-			// (they're generic infrastructure used by everything, not task-specific).
+			// HITS-enhanced ranking: authority and hub scores reshape the results.
 			//
-			// The insight: in code graphs, high-authority non-seed nodes are
-			// things like types.Hash, GraphStore, context.Context. They're called
-			// by everything but rarely task-relevant. Seeds (directly matched
-			// symbols) with high authority ARE important (heavily-used code you
-			// matched on).
+			// Seeds with high authority are the most valuable: they're both
+			// keyword-relevant AND structurally central (many callers). Boost them.
+			//
+			// Non-seeds with high authority are generic infrastructure (types.Hash,
+			// GraphStore, context.Context): called by everything but rarely
+			// task-relevant. Penalize them to push them below task-specific symbols.
+			//
+			// Hubs (nodes that call many things) are useful when they're seeds
+			// (entry points you matched on) but noisy otherwise.
 			h := hits[s.Node.NodeHash]
 			isSeed := s.DistanceFromTarget == 0
 			var authorityAdj float64
-			if isSeed && h.Authority > 0.1 {
-				authorityAdj = h.Authority * 0.10 // boost important seeds
-			} else if !isSeed && h.Authority > 0.3 {
-				authorityAdj = -h.Authority * 0.05 // penalize generic infrastructure
+			if isSeed && h.Authority > 0.05 {
+				authorityAdj = h.Authority * 0.25 // strong boost for task-relevant authorities
+			} else if !isSeed && h.Authority > 0.2 {
+				authorityAdj = -h.Authority * 0.15 // meaningful penalty for generic infrastructure
+			}
+			// Hub bonus for seed entry points (orchestrators, handlers).
+			if isSeed && h.Hub > 0.1 {
+				authorityAdj += h.Hub * 0.10
 			}
 
-			blastRadius = (float64(s.CallerCount) / float64(maxCallers)) * 0.40
-			confidence = s.Confidence * 0.25
+			blastRadius = (float64(s.CallerCount) / float64(maxCallers)) * 0.35
+			confidence = s.Confidence * 0.20
 			recency = recencyFromTimestamp(s.LastObserved) * 0.15
 			distance = (1.0 / (1.0 + float64(s.DistanceFromTarget))) * 0.15
 			total = blastRadius + confidence + recency + distance + authorityAdj

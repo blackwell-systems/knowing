@@ -55,9 +55,9 @@ Core pipeline complete. v2 refinements identified.
 | context_for_files MCP tool | Changed files -> blast radius context | **done** |
 | Wire format system | GCF (84% token savings), GCB (74% byte savings), JSON, codec registry | **done** |
 | GCF session statefulness | Cross-call dedup, 47% additional savings on repeated symbols | **done** |
-| HITS hub/authority reranking | On top-200 RWR subgraph for better prioritization | planned |
+| HITS hub/authority reranking | On top-200 RWR subgraph for better prioritization | ← next |
 | Density-ranked knapsack packing | Score/cost ratio optimization for budget utilization | planned |
-| context_for_pr MCP tool | PR-scoped context (changed files + diff + relationship awareness) | planned |
+| context_for_pr MCP tool | PR-scoped context (changed files + diff + relationship awareness) | **done** |
 | MCP resources | knowing://context/<scope> subscribable resources | planned |
 
 ## Workstream: Developer Visibility
@@ -66,8 +66,8 @@ Core pipeline complete. v2 refinements identified.
 |------|-------------|--------|
 | Semantic PR diff | SemanticDiff + PRImpact + knowing diff CLI | **done** |
 | knowing export CLI | Export graph as JSON with filters | **done** |
-| Claude Code hooks | PreToolUse/PostToolUse auto-context injection | planned |
-| Graph-native test selection | knowing test-scope: affected tests from graph | planned |
+| Claude Code hooks | PreToolUse/PostToolUse auto-context injection, benchmarked net-positive | **done** |
+| Graph-native test selection | knowing test-scope: affected tests from call graph BFS | **done** |
 | Ownership routing | "Who to notify" computed from graph edges | planned |
 | Staleness dashboard | Surface unverified edges and subgraphs | planned |
 
@@ -81,17 +81,15 @@ Core pipeline complete. v2 refinements identified.
 
 ## What's Next (priority order)
 
-1. **Claude Code hooks.** PreToolUse hook that auto-injects relevant context before agent edits. PostToolUse hook that validates changes against the graph. Zero-effort adoption.
+1. **HITS reranking.** Hub/authority scoring on the RWR subgraph for better context prioritization. Boosts task-relevant authorities, penalizes generic infrastructure hubs.
 
-2. **context_for_pr MCP tool.** Accepts a PR (changed files + diff), runs the retrieval pipeline seeded from changed symbols, returns relationship-aware review context.
+2. **Density-ranked knapsack packing.** Score/cost ratio optimization so budget utilization improves beyond greedy insertion.
 
-3. **Graph-native test selection.** `knowing test-scope` computes affected tests from the relationship graph. High value for CI.
+3. **More edge types.** Protobuf/gRPC edges, event edges (Kafka/NATS), schema edges (OpenAPI).
 
-4. **HITS reranking.** Hub/authority scoring on the RWR subgraph for better context prioritization.
+4. **Traversal cache.** L1 in-memory LRU for hot paths, L2 materialized closures for common queries.
 
-5. **More edge types.** Protobuf/gRPC edges, event edges (Kafka/NATS), schema edges (OpenAPI).
-
-6. **Traversal cache.** L1 in-memory LRU for hot paths, L2 materialized closures for common queries.
+5. **v0.1.0 release.** Homebrew tap, npm/pypi wrappers, Docker images. Needs CI secrets configured.
 
 ## Dependency Graph
 
@@ -100,10 +98,10 @@ Graph Core ───────────────────────
 Edge types (10 languages + routes) ──────> Context packing               ✓ DONE
 Runtime intelligence (traces + decay) ───> Context packing               ✓ DONE
 Wire format system (GCF/GCB) ────────────> Session statefulness          ✓ DONE
-Context packing ─────────────────────────> Claude Code hooks             ← NEXT
-Context packing ─────────────────────────> context_for_pr                planned
+Context packing ─────────────────────────> Claude Code hooks             ✓ DONE
+Context packing ─────────────────────────> context_for_pr                ✓ DONE
 Semantic PR diff ────────────────────────> context_for_pr                ✓ DONE
-Call graph + traversal ──────────────────> Graph-native test selection   planned
+Call graph + traversal ──────────────────> Graph-native test selection   ✓ DONE
 Ownership edges ─────────────────────────> Ownership routing             planned
 MCP server ──────────────────────────────> Pending mutations             planned
 Snapshot chain + Merkle sync ────────────> Federated graphs              planned

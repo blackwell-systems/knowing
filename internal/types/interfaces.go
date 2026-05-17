@@ -58,6 +58,7 @@ type GraphStore interface {
 	// File queries.
 	FilesByRepo(ctx context.Context, repoHash Hash) ([]File, error)
 	FileByPath(ctx context.Context, repoHash Hash, path string) (*File, error)
+	NodesByFilePath(ctx context.Context, repoHash Hash, path string) ([]Node, error)
 
 	// Close releases the underlying database connection.
 	Close() error

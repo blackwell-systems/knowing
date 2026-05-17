@@ -156,6 +156,19 @@ func (m *mockStore) FileByPath(_ stdctx.Context, repoHash types.Hash, path strin
 	}
 	return nil, nil
 }
+func (m *mockStore) NodesByFilePath(_ stdctx.Context, repoHash types.Hash, path string) ([]types.Node, error) {
+	file, _ := m.FileByPath(nil, repoHash, path)
+	if file == nil {
+		return nil, nil
+	}
+	var nodes []types.Node
+	for _, n := range m.nodes {
+		if n.FileHash == file.FileHash {
+			nodes = append(nodes, n)
+		}
+	}
+	return nodes, nil
+}
 func (m *mockStore) Close() error { return nil }
 
 // --- Tests ---

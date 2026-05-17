@@ -303,6 +303,12 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 		})
 	}
 
+	// Sort inputs by RWR score (CallerCount proxy) so HITS runs on the most
+	// relevant subgraph, not a random map iteration order.
+	sort.Slice(inputs, func(i, j int) bool {
+		return inputs[i].CallerCount > inputs[j].CallerCount
+	})
+
 	// Run HITS on the top-200 nodes for authority/hub scoring.
 	// This separates structurally important symbols from merely proximate ones.
 	var hitsResult map[types.Hash]HITSScores
@@ -344,24 +350,12 @@ func (e *ContextEngine) ForFiles(ctx stdctx.Context, opts FileOptions) (*Context
 	inputSeen := make(map[types.Hash]bool)
 
 	for _, path := range opts.Files {
-		file, err := e.store.FileByPath(ctx, repoHash, path)
-		if err != nil {
-			return nil, err
-		}
-		if file == nil {
-			continue
-		}
-
-		// Find nodes in this file by searching all nodes and filtering by FileHash.
-		allNodes, err := e.store.NodesByName(ctx, "")
+		nodes, err := e.store.NodesByFilePath(ctx, repoHash, path)
 		if err != nil {
 			return nil, err
 		}
 
-		for _, node := range allNodes {
-			if node.FileHash != file.FileHash {
-				continue
-			}
+		for _, node := range nodes {
 			if inputSeen[node.NodeHash] {
 				continue
 			}
@@ -415,7 +409,24 @@ func (e *ContextEngine) ForFiles(ctx stdctx.Context, opts FileOptions) (*Context
 		}
 	}
 
-	ranked := RankSymbols(inputs)
+	// Run HITS on the file-based candidates for authority/hub differentiation.
+	var hitsResult map[types.Hash]HITSScores
+	if len(inputs) > 5 {
+		topN := 200
+		if len(inputs) < topN {
+			topN = len(inputs)
+		}
+		sort.Slice(inputs, func(i, j int) bool {
+			return inputs[i].CallerCount > inputs[j].CallerCount
+		})
+		hitsNodes := make([]types.Hash, topN)
+		for i := 0; i < topN; i++ {
+			hitsNodes[i] = inputs[i].Node.NodeHash
+		}
+		hitsResult, _ = ComputeHITS(ctx, e.store, hitsNodes, 10)
+	}
+
+	ranked := RankSymbols(inputs, hitsResult)
 	return packIntoBudget(ranked, budget, opts.Format), nil
 }
 
@@ -442,24 +453,16 @@ func (e *ContextEngine) ForPR(ctx stdctx.Context, opts PROptions) (*ContextBlock
 	// Step 1: Find all symbols in the changed files (these are the PR's direct changes).
 	var seeds []types.Hash
 	seedSet := make(map[types.Hash]bool)
-	var directSymbols []types.Node
 
 	for _, path := range opts.Files {
-		file, err := e.store.FileByPath(ctx, repoHash, path)
-		if err != nil || file == nil {
+		nodes, err := e.store.NodesByFilePath(ctx, repoHash, path)
+		if err != nil {
 			continue
 		}
-
-		// Find nodes in this file.
-		allNodes, err := e.store.NodesByName(ctx, "")
-		if err != nil {
-			return nil, err
-		}
-		for _, node := range allNodes {
-			if node.FileHash == file.FileHash && !seedSet[node.NodeHash] {
+		for _, node := range nodes {
+			if !seedSet[node.NodeHash] {
 				seeds = append(seeds, node.NodeHash)
 				seedSet[node.NodeHash] = true
-				directSymbols = append(directSymbols, node)
 			}
 		}
 	}
@@ -520,6 +523,11 @@ func (e *ContextEngine) ForPR(ctx stdctx.Context, opts PROptions) (*ContextBlock
 			DistanceFromTarget: distance,
 		})
 	}
+
+	// Sort by RWR score before selecting HITS subgraph.
+	sort.Slice(inputs, func(i, j int) bool {
+		return inputs[i].CallerCount > inputs[j].CallerCount
+	})
 
 	// Run HITS for better authority/hub differentiation.
 	var hitsResult map[types.Hash]HITSScores

@@ -202,6 +202,9 @@ func (m *mockStore) FileByPath(_ context.Context, repoHash types.Hash, path stri
 	}
 	return nil, nil
 }
+func (m *mockStore) NodesByFilePath(_ context.Context, _ types.Hash, _ string) ([]types.Node, error) {
+	return nil, nil
+}
 
 func (m *mockStore) DeleteNodesByFile(_ context.Context, _ types.Hash) (int, error) {
 	return 0, nil

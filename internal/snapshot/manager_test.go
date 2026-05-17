@@ -127,6 +127,9 @@ func (m *mockGraphStore) FilesByRepo(_ context.Context, _ types.Hash) ([]types.F
 func (m *mockGraphStore) FileByPath(_ context.Context, _ types.Hash, _ string) (*types.File, error) {
 	return nil, nil
 }
+func (m *mockGraphStore) NodesByFilePath(_ context.Context, _ types.Hash, _ string) ([]types.Node, error) {
+	return nil, nil
+}
 
 func (m *mockGraphStore) DanglingEdges(_ context.Context) ([]types.Edge, error)              { return nil, nil }
 func (m *mockGraphStore) AllRepos(_ context.Context) ([]types.Repo, error)                    { return nil, nil }

@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - `knowing mcp` subcommand for stdio MCP server mode (used by AI agents via .mcp.json)
+- HITS (Hyperlink-Induced Topic Search) reranking on RWR subgraph: boosts task-relevant authorities, penalizes generic infrastructure hubs. Score differentiation improved from 0.01 spread to 0.35 spread across results.
 - Random Walk with Restart (RWR) algorithm for graph-based relevance scoring in context engine
 - Improved keyword extraction with stop word filtering, CamelCase splitting, and abbreviation expansion
 - Relative normalization in ranking and base recency score for static-only edges
@@ -17,6 +18,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - `test-scope` command: fixed `symbolsInFiles` returning empty results due to stale FileHash mismatch after re-indexing
 - `test-scope` command: fixed package path extraction producing invalid `go test` paths (was not stripping module prefix)
+- Context engine `ForFiles` and `ForPR` now use `NodesByFilePath` join (was broken with stale FileHash matching)
+- HITS node selection now operates on top-N by RWR score (was random map iteration order)
 - Context engine uses substring search for keyword matching (was requiring exact match)
 - mkdocs.yml and index.md added for docs workflow
 - Architecture doc updated to reflect actual codebase structure

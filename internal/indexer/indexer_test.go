@@ -142,6 +142,9 @@ func (s *mockStore) FileByPath(_ context.Context, _ types.Hash, path string) (*t
 	}
 	return &f, nil
 }
+func (s *mockStore) NodesByFilePath(_ context.Context, _ types.Hash, _ string) ([]types.Node, error) {
+	return nil, nil
+}
 func (s *mockStore) DanglingEdges(_ context.Context) ([]types.Edge, error) {
 	// Return edges whose target hash does not match any node.
 	var dangling []types.Edge
