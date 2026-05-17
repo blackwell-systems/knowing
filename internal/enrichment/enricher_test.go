@@ -210,6 +210,7 @@ func (m *mockStore) DeleteNodesByFile(_ context.Context, _ types.Hash) (int, err
 func (m *mockStore) DeleteEdgesBySourceFile(_ context.Context, _ types.Hash) ([]types.Edge, error) {
 	return nil, nil
 }
+func (m *mockStore) DeleteSnapshot(_ context.Context, _ types.Hash) error { return nil }
 
 func (m *mockStore) EdgesBySourceFile(_ context.Context, _ types.Hash) ([]types.Edge, error) {
 	return nil, nil

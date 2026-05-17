@@ -196,6 +196,16 @@ func (s *SQLiteStore) CreateSnapshot(ctx context.Context, snap types.Snapshot) e
 	return err
 }
 
+// DeleteSnapshot removes a snapshot and its associated edge events.
+func (s *SQLiteStore) DeleteSnapshot(ctx context.Context, hash types.Hash) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM edge_events WHERE snapshot_hash = ?`, hash[:])
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `DELETE FROM snapshots WHERE snapshot_hash = ?`, hash[:])
+	return err
+}
+
 // ----- Get methods -----
 // All Get methods return (nil, nil) when the requested entity is not found,
 // following the convention that "not found" is not an error.

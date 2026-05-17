@@ -163,6 +163,8 @@ func (m *mockGraphStore) DeleteEdgesBySourceFile(_ context.Context, _ types.Hash
 	return nil, nil
 }
 
+func (m *mockGraphStore) DeleteSnapshot(_ context.Context, _ types.Hash) error { return nil }
+
 func (m *mockGraphStore) EdgesBySourceFile(_ context.Context, _ types.Hash) ([]types.Edge, error) {
 	return nil, nil
 }

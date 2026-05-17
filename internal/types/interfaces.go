@@ -38,11 +38,12 @@ type GraphStore interface {
 	AllRepos(ctx context.Context) ([]Repo, error)
 	NodesByQualifiedName(ctx context.Context, qualifiedName string) ([]Node, error)
 
-	// Delete operations for incremental re-indexing.
+	// Delete operations for incremental re-indexing and garbage collection.
 	DeleteEdge(ctx context.Context, hash Hash) error
 	DeleteNodesByFile(ctx context.Context, fileHash Hash) (int, error)
 	DeleteEdgesBySourceFile(ctx context.Context, fileHash Hash) ([]Edge, error)
 	EdgesBySourceFile(ctx context.Context, fileHash Hash) ([]Edge, error)
+	DeleteSnapshot(ctx context.Context, hash Hash) error
 
 	// Graph traversals (implemented as recursive CTEs in SQLite).
 	TransitiveCallers(ctx context.Context, target Hash, maxDepth int, snapshot Hash) ([]CallerResult, error)

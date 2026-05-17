@@ -99,11 +99,13 @@ func (sm *SnapshotManager) GarbageCollect(ctx context.Context, repoHash types.Ha
 	// Chain is ordered newest-first.
 	toRemove := chain[keepCount:]
 
-	// For now, we count removals. The GraphStore interface does not expose
-	// DeleteSnapshot, so we track what would be removed. When the store
-	// gains deletion support, this will perform actual deletion.
-	// TODO: Add DeleteSnapshot to GraphStore interface.
-	removed = len(toRemove)
+	// Delete old snapshots and their associated edge events.
+	for _, snap := range toRemove {
+		if err := sm.store.DeleteSnapshot(ctx, snap.SnapshotHash); err != nil {
+			return removed, fmt.Errorf("deleting snapshot %s: %w", snap.SnapshotHash, err)
+		}
+		removed++
+	}
 	return removed, nil
 }
 
