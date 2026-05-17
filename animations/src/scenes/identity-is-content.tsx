@@ -1,235 +1,354 @@
-import {makeScene2D, Circle, Line, Txt, Rect} from '@motion-canvas/2d';
-import {all, chain, waitFor, createRef, createRefArray, Vector2, Color} from '@motion-canvas/core';
+import {makeScene2D, Circle, Line, Txt, Rect, Node} from '@motion-canvas/2d';
+import {
+  all,
+  chain,
+  waitFor,
+  createRef,
+  createRefArray,
+  Vector2,
+  easeInOutCubic,
+  linear,
+  loop,
+  sequence,
+} from '@motion-canvas/core';
 
 /**
- * "Identity is Content" animation
+ * "Identity is Content" — v2
  *
- * Shows: A file changes -> its hash changes -> edges from that file invalidate ->
- * surgical re-extraction -> new snapshot root computed.
+ * Visual narrative:
+ * 1. Three source files appear as code blocks with visible hash digests
+ * 2. Each file connects to symbol nodes (the graph)
+ * 3. Symbol nodes connect upward to a Merkle snapshot root
+ * 4. One file's content visibly changes (character edit)
+ * 5. Its hash recomputes (digits roll)
+ * 6. The invalidation propagates UP the tree (edge pulses, only the affected path)
+ * 7. Everything else stays perfectly still (the stillness IS the point)
+ * 8. New snapshot root hash settles
  *
- * Analogy to git: changing a file produces a new blob hash, which cascades up
- * through trees to the commit hash. Same mechanism, different unit of storage.
+ * The spatial layout is a bottom-up tree: files at bottom, symbols in middle,
+ * snapshot root at top. This mirrors the Merkle structure.
  */
 export default makeScene2D(function* (view) {
-  // Colors
-  const bg = '#0f0f0f';
-  const nodeColor = '#4ecdc4';
-  const edgeColor = '#556677';
-  const hashColor = '#95a5a6';
-  const changedColor = '#e74c3c';
-  const reextractedColor = '#f39c12';
-  const freshColor = '#2ecc71';
-  const textColor = '#ecf0f1';
+  // Palette
+  const bg = '#0a0a0f';
+  const dim = '#2a2a3a';
+  const text = '#e0e0e8';
+  const accent = '#4ecdc4';
+  const hash = '#6a7a8a';
+  const pulse = '#ff6b6b';
+  const fresh = '#51cf66';
+  const codeBg = '#151520';
+  const edgeIdle = '#333344';
+  const edgePulse = '#ff6b6b';
+  const edgeFresh = '#51cf66';
 
   view.fill(bg);
 
-  // Title
-  const title = createRef<Txt>();
-  view.add(
-    <Txt
-      ref={title}
-      text="Identity is Content"
-      fontSize={48}
-      fontFamily="JetBrains Mono, monospace"
-      fill={textColor}
-      y={-320}
-      opacity={0}
-    />
-  );
+  // === LAYER 1: Source files (bottom) ===
 
-  // Create file nodes (left column)
-  const files = createRefArray<Rect>();
-  const fileLabels = ['auth.go', 'store.go', 'context.go'];
-  const fileHashes = ['a3f2...', 'b7e1...', 'c9d4...'];
-  const filePositions = [
-    new Vector2(-400, -120),
-    new Vector2(-400, 0),
-    new Vector2(-400, 120),
+  const fileGroup = createRef<Node>();
+  view.add(<Node ref={fileGroup} y={200} />);
+
+  // File blocks: show real code with hash underneath
+  const fileData = [
+    {
+      name: 'context.go',
+      code: 'func ForTask(desc string) {...}',
+      hash: 'sha256: a3f2c8',
+      x: -350,
+    },
+    {
+      name: 'store.go',
+      code: 'func EdgesTo(h Hash) {...}',
+      hash: 'sha256: b7e1d4',
+      x: 0,
+    },
+    {
+      name: 'ranking.go',
+      code: 'func RankSymbols(s []S) {...}',
+      hash: 'sha256: c9d4f1',
+      x: 350,
+    },
   ];
 
-  for (let i = 0; i < 3; i++) {
-    view.add(
+  const fileRects = createRefArray<Rect>();
+  const fileCodeTxts = createRefArray<Txt>();
+  const fileHashTxts = createRefArray<Txt>();
+  const fileNameTxts = createRefArray<Txt>();
+
+  for (const f of fileData) {
+    fileGroup().add(
       <Rect
-        ref={files}
-        x={filePositions[i].x}
-        y={filePositions[i].y}
-        width={160}
-        height={60}
-        radius={8}
-        fill={nodeColor}
+        ref={fileRects}
+        x={f.x}
+        width={280}
+        height={120}
+        radius={6}
+        fill={codeBg}
+        stroke={dim}
+        lineWidth={1}
         opacity={0}
       >
         <Txt
-          text={fileLabels[i]}
-          fontSize={16}
+          ref={fileNameTxts}
+          text={f.name}
+          fontSize={13}
           fontFamily="JetBrains Mono, monospace"
-          fill={bg}
-          y={-8}
+          fill={hash}
+          y={-40}
         />
         <Txt
-          text={fileHashes[i]}
-          fontSize={12}
+          ref={fileCodeTxts}
+          text={f.code}
+          fontSize={14}
           fontFamily="JetBrains Mono, monospace"
-          fill={hashColor}
-          y={14}
+          fill={text}
+          y={-10}
+        />
+        <Txt
+          ref={fileHashTxts}
+          text={f.hash}
+          fontSize={11}
+          fontFamily="JetBrains Mono, monospace"
+          fill={hash}
+          y={30}
         />
       </Rect>
     );
   }
 
-  // Create symbol nodes (middle column)
-  const symbols = createRefArray<Circle>();
-  const symbolLabels = ['ForTask', 'RankSymbols', 'NewStore', 'EdgesTo', 'PackBudget'];
-  const symbolPositions = [
-    new Vector2(-80, -160),
-    new Vector2(-80, -60),
-    new Vector2(-80, 40),
-    new Vector2(-80, 140),
-    new Vector2(-80, 240),
+  // === LAYER 2: Symbol nodes (middle) ===
+
+  const symbolGroup = createRef<Node>();
+  view.add(<Node ref={symbolGroup} y={-20} />);
+
+  const symbolData = [
+    {name: 'ForTask', x: -280, fileIdx: 0},
+    {name: 'RankSymbols', x: -100, fileIdx: 0},
+    {name: 'EdgesTo', x: 60, fileIdx: 1},
+    {name: 'NewStore', x: 220, fileIdx: 1},
+    {name: 'ComputeHITS', x: 380, fileIdx: 2},
   ];
 
-  for (let i = 0; i < 5; i++) {
-    view.add(
+  const symbolCircles = createRefArray<Circle>();
+
+  for (const s of symbolData) {
+    symbolGroup().add(
       <Circle
-        ref={symbols}
-        x={symbolPositions[i].x}
-        y={symbolPositions[i].y}
-        width={80}
-        height={80}
-        fill={nodeColor}
+        ref={symbolCircles}
+        x={s.x}
+        width={70}
+        height={70}
+        fill={dim}
         opacity={0}
       >
         <Txt
-          text={symbolLabels[i]}
-          fontSize={11}
+          text={s.name}
+          fontSize={10}
           fontFamily="JetBrains Mono, monospace"
-          fill={bg}
+          fill={text}
         />
       </Circle>
     );
   }
 
-  // Create edges (lines between symbols)
-  const edges = createRefArray<Line>();
-  const edgePairs = [[0, 1], [1, 4], [2, 3], [0, 2]];
+  // === LAYER 3: Snapshot root (top) ===
 
-  for (const [from, to] of edgePairs) {
-    view.add(
-      <Line
-        ref={edges}
-        points={[symbolPositions[from], symbolPositions[to]]}
-        stroke={edgeColor}
-        lineWidth={2}
-        opacity={0}
-        endArrow
-        arrowSize={8}
-      />
-    );
-  }
+  const rootNode = createRef<Rect>();
+  const rootHash = createRef<Txt>();
 
-  // Snapshot root (right side)
-  const snapshotRoot = createRef<Rect>();
   view.add(
     <Rect
-      ref={snapshotRoot}
-      x={300}
-      y={0}
-      width={180}
+      ref={rootNode}
+      y={-220}
+      width={220}
       height={70}
       radius={8}
-      fill={nodeColor}
+      fill={dim}
+      stroke={edgeIdle}
+      lineWidth={2}
       opacity={0}
     >
       <Txt
-        text="Snapshot"
-        fontSize={14}
-        fontFamily="JetBrains Mono, monospace"
-        fill={bg}
-        y={-12}
-      />
-      <Txt
-        text="root: f8a2..."
+        text="Snapshot Root"
         fontSize={12}
         fontFamily="JetBrains Mono, monospace"
-        fill={hashColor}
-        y={12}
+        fill={hash}
+        y={-14}
+      />
+      <Txt
+        ref={rootHash}
+        text="merkle: f8a2e7"
+        fontSize={13}
+        fontFamily="JetBrains Mono, monospace"
+        fill={accent}
+        y={10}
       />
     </Rect>
   );
 
-  // Subtitle area
+  // === EDGES: file -> symbols ===
+
+  const fileToSymbolEdges = createRefArray<Line>();
+
+  for (const s of symbolData) {
+    const fileX = fileData[s.fileIdx].x;
+    fileGroup().add(
+      <Line
+        ref={fileToSymbolEdges}
+        points={[
+          new Vector2(fileX, -60),
+          new Vector2(s.x, -160),
+        ]}
+        stroke={edgeIdle}
+        lineWidth={1.5}
+        opacity={0}
+      />
+    );
+  }
+
+  // === EDGES: symbols -> root ===
+
+  const symbolToRootEdges = createRefArray<Line>();
+
+  for (const s of symbolData) {
+    symbolGroup().add(
+      <Line
+        ref={symbolToRootEdges}
+        points={[
+          new Vector2(s.x, -40),
+          new Vector2(0, -160),
+        ]}
+        stroke={edgeIdle}
+        lineWidth={1.5}
+        opacity={0}
+      />
+    );
+  }
+
+  // === SUBTITLE ===
+
   const subtitle = createRef<Txt>();
   view.add(
     <Txt
       ref={subtitle}
       text=""
-      fontSize={20}
+      fontSize={18}
       fontFamily="JetBrains Mono, monospace"
-      fill={hashColor}
-      y={340}
+      fill={hash}
+      y={330}
     />
   );
 
-  // === Animation sequence ===
+  // === ANIMATION ===
 
-  // 1. Fade in title
-  yield* title().opacity(1, 0.5);
+  // Act 1: Build the graph (bottom up)
+  yield* subtitle().text('A content-addressed graph.', 0.3);
+
+  yield* sequence(
+    0.1,
+    ...fileRects.map(f => f.opacity(1, 0.4)),
+  );
+  yield* waitFor(0.3);
+
+  yield* sequence(
+    0.06,
+    ...fileToSymbolEdges.map(e => e.opacity(0.5, 0.3)),
+  );
+  yield* sequence(
+    0.08,
+    ...symbolCircles.map(s => s.opacity(1, 0.3)),
+  );
+  yield* waitFor(0.3);
+
+  yield* sequence(
+    0.06,
+    ...symbolToRootEdges.map(e => e.opacity(0.5, 0.3)),
+  );
+  yield* rootNode().opacity(1, 0.4);
+  yield* waitFor(1.2);
+
+  // Act 2: A file changes
+  yield* subtitle().text('A developer edits context.go...', 0.4);
+  yield* waitFor(0.6);
+
+  // The code visibly changes
+  yield* fileCodeTxts[0].text('func ForTask(desc string, b int) {...}', 0.6);
   yield* waitFor(0.5);
 
-  // 2. Fade in the graph (files, symbols, edges, snapshot)
-  yield* subtitle().text('A content-addressed graph at rest.', 0);
-  yield* all(
-    ...files.map((f, i) => f.opacity(1, 0.3 + i * 0.1)),
-    ...symbols.map((s, i) => s.opacity(1, 0.3 + i * 0.08)),
-    ...edges.map((e, i) => e.opacity(0.6, 0.4 + i * 0.1)),
-    snapshotRoot().opacity(1, 0.6),
-  );
-  yield* waitFor(1.5);
+  // Act 3: Hash recomputes (digits roll)
+  yield* subtitle().text('Content changed. Hash recomputes.', 0.4);
 
-  // 3. A file changes! auth.go turns red
-  yield* subtitle().text('A file changes...', 0.3);
-  yield* files[0].fill(changedColor, 0.4);
+  // Flash the hash through intermediate values
+  yield* fileHashTxts[0].fill(pulse, 0.2);
+  yield* fileHashTxts[0].text('sha256: ......', 0.1);
+  yield* waitFor(0.15);
+  yield* fileHashTxts[0].text('sha256: d2f1..', 0.1);
+  yield* waitFor(0.15);
+  yield* fileHashTxts[0].text('sha256: d2f1a9', 0.1);
+  yield* fileHashTxts[0].fill(fresh, 0.3);
+  yield* fileRects[0].stroke(fresh, 0.3);
+  yield* waitFor(0.6);
+
+  // Act 4: Invalidation propagates UP (only affected path)
+  yield* subtitle().text('Invalidation propagates. Only the affected path.', 0.4);
+
+  // Pulse edges from file[0] to its symbols (indices 0, 1)
+  yield* all(
+    fileToSymbolEdges[0].stroke(pulse, 0.3),
+    fileToSymbolEdges[1].stroke(pulse, 0.3),
+    fileToSymbolEdges[0].opacity(1, 0.3),
+    fileToSymbolEdges[1].opacity(1, 0.3),
+  );
+  yield* all(
+    symbolCircles[0].fill(pulse, 0.3),
+    symbolCircles[1].fill(pulse, 0.3),
+  );
+  yield* waitFor(0.3);
+
+  // Pulse from affected symbols to root
+  yield* all(
+    symbolToRootEdges[0].stroke(pulse, 0.3),
+    symbolToRootEdges[1].stroke(pulse, 0.3),
+    symbolToRootEdges[0].opacity(1, 0.3),
+    symbolToRootEdges[1].opacity(1, 0.3),
+  );
+  yield* rootNode().stroke(pulse, 0.3);
+  yield* waitFor(0.5);
+
+  // Act 5: Re-extraction settles (affected path turns green)
+  yield* subtitle().text('Surgical re-extraction. New hashes settle.', 0.4);
+
+  yield* all(
+    symbolCircles[0].fill(fresh, 0.4),
+    symbolCircles[1].fill(fresh, 0.4),
+    fileToSymbolEdges[0].stroke(fresh, 0.4),
+    fileToSymbolEdges[1].stroke(fresh, 0.4),
+    symbolToRootEdges[0].stroke(fresh, 0.4),
+    symbolToRootEdges[1].stroke(fresh, 0.4),
+  );
+
+  // Root hash recomputes
+  yield* rootHash().text('merkle: ......', 0.1);
+  yield* waitFor(0.15);
+  yield* rootHash().text('merkle: 2b8c41', 0.15);
+  yield* rootNode().stroke(fresh, 0.3);
   yield* waitFor(0.8);
 
-  // 4. Hash invalidation cascades: symbols from that file turn orange
-  yield* subtitle().text('Hash changes. Derived nodes invalidate.', 0.3);
-  yield* all(
-    symbols[0].fill(reextractedColor, 0.3),
-    symbols[1].fill(reextractedColor, 0.3),
-  );
-  yield* all(
-    edges[0].stroke(reextractedColor, 0.3),
-    edges[1].stroke(reextractedColor, 0.3),
-    edges[3].stroke(reextractedColor, 0.3),
-  );
-  yield* waitFor(1.0);
+  // Act 6: Emphasis — everything else is STILL
+  yield* subtitle().text('Everything else: untouched. No full re-index.', 0.5);
+  yield* waitFor(2.0);
 
-  // 5. Surgical re-extraction (only affected nodes turn green)
-  yield* subtitle().text('Surgical re-extraction. Only affected edges.', 0.3);
-  yield* all(
-    files[0].fill(freshColor, 0.4),
-    symbols[0].fill(freshColor, 0.4),
-    symbols[1].fill(freshColor, 0.4),
-  );
-  yield* all(
-    edges[0].stroke(freshColor, 0.3),
-    edges[1].stroke(freshColor, 0.3),
-    edges[3].stroke(freshColor, 0.3),
-  );
-  yield* waitFor(0.8);
+  // Act 7: Fade to resting state
+  yield* subtitle().text('Identity is content. Staleness is structural.', 0.5);
 
-  // 6. New snapshot root
-  yield* subtitle().text('New Merkle root. Graph is current.', 0.3);
-  yield* snapshotRoot().fill(freshColor, 0.4);
-  yield* waitFor(1.5);
-
-  // 7. Everything fades back to normal
-  yield* subtitle().text('No full re-index. Staleness is structural.', 0.3);
   yield* all(
-    ...files.map(f => f.fill(nodeColor, 0.5)),
-    ...symbols.map(s => s.fill(nodeColor, 0.5)),
-    ...edges.map(e => e.stroke(edgeColor, 0.5)),
-    snapshotRoot().fill(nodeColor, 0.5),
+    ...symbolCircles.map(s => s.fill(dim, 0.6)),
+    ...fileRects.map(f => f.stroke(dim, 0.6)),
+    ...fileToSymbolEdges.map(e => e.stroke(edgeIdle, 0.6)),
+    ...symbolToRootEdges.map(e => e.stroke(edgeIdle, 0.6)),
+    rootNode().stroke(edgeIdle, 0.6),
+    fileHashTxts[0].fill(hash, 0.6),
   );
   yield* waitFor(2.0);
 });
