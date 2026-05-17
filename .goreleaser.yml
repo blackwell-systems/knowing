@@ -11,12 +11,11 @@ builds:
     main: ./cmd/knowing
     binary: knowing
     env:
-      - CGO_ENABLED=0
+      - CGO_ENABLED=1
       - GOWORK=off
     goos:
       - linux
       - darwin
-      - windows
     goarch:
       - amd64
       - arm64
@@ -28,9 +27,6 @@ archives:
     ids:
       - knowing
     name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
-    format_overrides:
-      - goos: windows
-        format: zip
     files:
       - README.md
       - CHANGELOG.md
