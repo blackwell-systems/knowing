@@ -14,7 +14,6 @@ package edge_accuracy
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -254,9 +253,3 @@ func findRepoRoot(t *testing.T) string {
 	}
 }
 
-func formatPercent(numerator, denominator int) string {
-	if denominator == 0 {
-		return "N/A"
-	}
-	return fmt.Sprintf("%.1f%%", float64(numerator)/float64(denominator)*100)
-}
