@@ -662,6 +662,26 @@ func computeExportCommunities(nodes []types.Node, edges []types.Edge) (map[types
 		}
 	}
 
+	// Deduplicate labels: if multiple communities share a label, append (#2, #3, etc.)
+	labelCounts := make(map[string]int)
+	labelSeen := make(map[string]int)
+	for _, label := range communityLabels {
+		labelCounts[label]++
+	}
+	// Sort community IDs for deterministic numbering.
+	commIDList := make([]int, 0, len(communityLabels))
+	for c := range communityLabels {
+		commIDList = append(commIDList, c)
+	}
+	sort.Ints(commIDList)
+	for _, c := range commIDList {
+		label := communityLabels[c]
+		if labelCounts[label] > 1 {
+			labelSeen[label]++
+			communityLabels[c] = fmt.Sprintf("%s #%d", label, labelSeen[label])
+		}
+	}
+
 	return communityOf, communityLabels
 }
 
