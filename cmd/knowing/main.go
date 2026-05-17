@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -338,8 +339,8 @@ func cmdExport(args []string) error {
 		return err
 	}
 
-	if *format != "json" {
-		return fmt.Errorf("unsupported format: %s", *format)
+	if *format != "json" && *format != "dot" {
+		return fmt.Errorf("unsupported format: %s (use json or dot)", *format)
 	}
 
 	st, err := store.NewSQLiteStore(*dbPath)
@@ -437,6 +438,10 @@ func cmdExport(args []string) error {
 		snapLabel = *snapshotFilter
 	}
 
+	if *format == "dot" {
+		return exportDot(nodes, edges)
+	}
+
 	export := exportData{
 		Nodes: make([]exportNode, 0, len(nodes)),
 		Edges: make([]exportEdge, 0, len(edges)),
@@ -475,6 +480,277 @@ func cmdExport(args []string) error {
 	}
 	fmt.Println(string(out))
 	return nil
+}
+
+// exportDot renders the graph as a Graphviz DOT file with community subgraphs.
+// Communities are detected via Louvain and rendered as cluster subgraphs.
+// Cross-community edges are colored red to highlight architectural boundaries.
+func exportDot(nodes []types.Node, edges []types.Edge) error {
+	// Build node hash -> node map and adjacency for Louvain.
+	nodeByHash := make(map[types.Hash]types.Node, len(nodes))
+	nodeHashes := make([]types.Hash, 0, len(nodes))
+	for _, n := range nodes {
+		nodeByHash[n.NodeHash] = n
+		nodeHashes = append(nodeHashes, n.NodeHash)
+	}
+
+	// Build adjacency list for Louvain (undirected).
+	nodeSet := make(map[types.Hash]bool, len(nodes))
+	for _, h := range nodeHashes {
+		nodeSet[h] = true
+	}
+
+	type wEdge struct {
+		target types.Hash
+		weight float64
+	}
+	adj := make(map[types.Hash][]wEdge, len(nodes))
+	for _, e := range edges {
+		if nodeSet[e.SourceHash] && nodeSet[e.TargetHash] {
+			adj[e.SourceHash] = append(adj[e.SourceHash], wEdge{e.TargetHash, 1.0})
+			adj[e.TargetHash] = append(adj[e.TargetHash], wEdge{e.SourceHash, 1.0})
+		}
+	}
+
+	// Run Louvain with correct modularity gain (same algorithm as communities MCP tool).
+	communityOf := make(map[types.Hash]int, len(nodeHashes))
+	for i, h := range nodeHashes {
+		communityOf[h] = i
+	}
+
+	// Total weight (sum of all edge weights; adj is undirected so twoM = sum of all entries).
+	var twoM float64
+	for _, neighbors := range adj {
+		for _, e := range neighbors {
+			twoM += e.weight
+		}
+	}
+	if twoM == 0 {
+		twoM = 1
+	}
+	m := twoM / 2.0
+
+	// Node strengths (weighted degree).
+	ki := make(map[types.Hash]float64, len(nodeHashes))
+	for _, h := range nodeHashes {
+		for _, e := range adj[h] {
+			ki[h] += e.weight
+		}
+	}
+
+	// Sigma_tot per community.
+	sigmaTot := make(map[int]float64, len(nodeHashes))
+	for _, h := range nodeHashes {
+		sigmaTot[communityOf[h]] += ki[h]
+	}
+
+	// Iterate.
+	for pass := 0; pass < 20; pass++ {
+		moved := false
+		for _, node := range nodeHashes {
+			currentComm := communityOf[node]
+			bestComm := currentComm
+			bestGain := 0.0
+
+			kiIn := make(map[int]float64)
+			for _, e := range adj[node] {
+				kiIn[communityOf[e.target]] += e.weight
+			}
+
+			sigCurr := sigmaTot[currentComm] - ki[node]
+			kiInCurr := kiIn[currentComm]
+
+			for c, w := range kiIn {
+				if c == currentComm {
+					continue
+				}
+				sigC := sigmaTot[c]
+				gainAdd := w/m - (sigC*ki[node])/(2*m*m)
+				gainRemove := kiInCurr/m - (sigCurr*ki[node])/(2*m*m)
+				gain := gainAdd - gainRemove
+				if gain > bestGain {
+					bestGain = gain
+					bestComm = c
+				}
+			}
+
+			if bestComm != currentComm {
+				sigmaTot[currentComm] -= ki[node]
+				sigmaTot[bestComm] += ki[node]
+				communityOf[node] = bestComm
+				moved = true
+			}
+		}
+		if !moved {
+			break
+		}
+	}
+
+	// Renumber communities to 0..N-1.
+	commIDs := make(map[int]int)
+	nextID := 0
+	for _, c := range communityOf {
+		if _, ok := commIDs[c]; !ok {
+			commIDs[c] = nextID
+			nextID++
+		}
+	}
+	for h := range communityOf {
+		communityOf[h] = commIDs[communityOf[h]]
+	}
+
+	// Group nodes by community, keep only communities with 5+ members.
+	// Cap at 20 communities (merge smallest into the largest).
+	allCommunities := make(map[int][]types.Hash)
+	for h, c := range communityOf {
+		allCommunities[c] = append(allCommunities[c], h)
+	}
+	communities := make(map[int][]types.Hash)
+	for c, members := range allCommunities {
+		if len(members) >= 5 {
+			communities[c] = members
+		}
+	}
+	// If still too many, keep only the 20 largest.
+	if len(communities) > 20 {
+		type commSize struct {
+			id   int
+			size int
+		}
+		var sorted []commSize
+		for id, members := range communities {
+			sorted = append(sorted, commSize{id, len(members)})
+		}
+		sort.Slice(sorted, func(i, j int) bool {
+			return sorted[i].size > sorted[j].size
+		})
+		kept := make(map[int]bool)
+		for i := 0; i < 20 && i < len(sorted); i++ {
+			kept[sorted[i].id] = true
+		}
+		for id := range communities {
+			if !kept[id] {
+				delete(communities, id)
+			}
+		}
+	}
+
+	// Find dominant package for each community (for labeling).
+	communityLabel := make(map[int]string)
+	for cID, members := range communities {
+		pkgCount := make(map[string]int)
+		for _, h := range members {
+			n := nodeByHash[h]
+			pkg := extractPkgFromQualified(n.QualifiedName)
+			if pkg != "" {
+				pkgCount[pkg]++
+			}
+		}
+		bestPkg := ""
+		bestCount := 0
+		for pkg, count := range pkgCount {
+			if count > bestCount {
+				bestCount = count
+				bestPkg = pkg
+			}
+		}
+		if bestPkg != "" {
+			communityLabel[cID] = bestPkg
+		} else {
+			communityLabel[cID] = fmt.Sprintf("cluster_%d", cID)
+		}
+	}
+
+	// Emit DOT.
+	fmt.Println("digraph knowing {")
+	fmt.Println("  rankdir=LR;")
+	fmt.Println("  node [shape=box, style=filled, fontsize=10];")
+	fmt.Println("  edge [fontsize=8];")
+	fmt.Println("")
+
+	// Color palette for communities.
+	colors := []string{
+		"#E8F5E9", "#E3F2FD", "#FFF3E0", "#F3E5F5",
+		"#E0F7FA", "#FBE9E7", "#F1F8E9", "#EDE7F6",
+		"#E8EAF6", "#FFF8E1", "#E0F2F1", "#FCE4EC",
+		"#ECEFF1", "#F9FBE7", "#E1F5FE", "#FFF9C4",
+	}
+
+	// Render each community as a subgraph cluster.
+	for cID, members := range communities {
+		color := colors[cID%len(colors)]
+		label := communityLabel[cID]
+		fmt.Printf("  subgraph cluster_%d {\n", cID)
+		fmt.Printf("    label=%q;\n", label)
+		fmt.Printf("    style=filled;\n")
+		fmt.Printf("    color=%q;\n", color)
+		fmt.Printf("    fontsize=12;\n")
+		fmt.Println("")
+
+		for _, h := range members {
+			n := nodeByHash[h]
+			nodeID := fmt.Sprintf("n%x", h[:4])
+			shortName := shortSymbolName(n.QualifiedName)
+			shape := "box"
+			if n.Kind == "type" {
+				shape = "ellipse"
+			} else if n.Kind == "service" {
+				shape = "hexagon"
+			}
+			fmt.Printf("    %s [label=%q, shape=%s];\n", nodeID, shortName, shape)
+		}
+		fmt.Println("  }")
+		fmt.Println("")
+	}
+
+	// Render edges. Cross-community edges are red.
+	for _, e := range edges {
+		if !nodeSet[e.SourceHash] || !nodeSet[e.TargetHash] {
+			continue
+		}
+		srcID := fmt.Sprintf("n%x", e.SourceHash[:4])
+		tgtID := fmt.Sprintf("n%x", e.TargetHash[:4])
+		srcComm := communityOf[e.SourceHash]
+		tgtComm := communityOf[e.TargetHash]
+
+		attrs := ""
+		if srcComm != tgtComm {
+			attrs = " [color=red, style=bold]"
+		}
+		fmt.Printf("  %s -> %s%s;\n", srcID, tgtID, attrs)
+	}
+
+	fmt.Println("}")
+	return nil
+}
+
+// extractPkgFromQualified extracts the package path from a qualified name.
+func extractPkgFromQualified(qname string) string {
+	idx := strings.Index(qname, "://")
+	if idx < 0 {
+		return ""
+	}
+	rest := qname[idx+3:]
+	lastDot := strings.LastIndex(rest, ".")
+	if lastDot < 0 {
+		return rest
+	}
+	pkg := rest[:lastDot]
+	// Trim to last path component for readability.
+	lastSlash := strings.LastIndex(pkg, "/")
+	if lastSlash >= 0 {
+		return pkg[lastSlash+1:]
+	}
+	return pkg
+}
+
+// shortSymbolName extracts just the symbol name from a qualified name.
+func shortSymbolName(qname string) string {
+	lastDot := strings.LastIndex(qname, ".")
+	if lastDot >= 0 {
+		return qname[lastDot+1:]
+	}
+	return qname
 }
 
 // cmdReindex clears all nodes, edges, and edge events, then re-indexes the
