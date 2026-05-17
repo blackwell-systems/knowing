@@ -1,6 +1,6 @@
 # FEATURES.md -- Comprehensive Feature Dump for AI Reference
 
-Generated: 2026-05-15 (updated: 2026-05-16, features 40-49 added)
+Generated: 2026-05-15 (updated: 2026-05-17, features 40-55 added, stale statuses corrected)
 Source: code inspection of all Go files across internal/, cmd/, and config
 Repo: github.com/blackwell-systems/knowing
 
@@ -592,6 +592,58 @@ Repo: github.com/blackwell-systems/knowing
 - **Provenance:** `scip_resolved` (confidence 0.95).
 - **Dependencies:** Protocol Buffers runtime for SCIP format parsing.
 
+### 50. FindAllExtractors Multi-Dispatch
+
+- **Package(s):** `internal/indexer/`
+- **Entry point:** `FindAllExtractors(path string, extractors []types.Extractor) []types.Extractor` in `internal/indexer/extractor.go` (line 49)
+- **Called from:** `extractFile` in `internal/indexer/indexer.go` (line 146)
+- **What it does:** Returns all registered extractors whose `CanHandle` returns true for a given file path, rather than stopping at the first match. This enables event, schema, and infrastructure extractors to run alongside primary language extractors on the same file (e.g., a Go file that also contains Kafka producer calls gets processed by both the Go tree-sitter extractor and the event extractor).
+- **Why it matters:** Without multi-dispatch, only one extractor could claim a file. With it, overlay extractors (event, schema) can detect cross-cutting patterns in files already handled by language extractors.
+
+### 51. 5-Tier Context Engine Seeding
+
+- **Package(s):** `internal/context/`
+- **Entry point:** `seedsForTask` method in `internal/context/context.go`
+- **What it does:** Identifies seed nodes for graph walking using five progressively broader matching tiers:
+  1. **Exact match:** Node qualified name exactly matches a task keyword.
+  2. **Prefix match:** Node qualified name starts with a task keyword.
+  3. **Substring match:** Node qualified name contains a task keyword as a substring.
+  4. **File-path matching:** Nodes whose file path matches task-referenced files.
+  5. **Interface-aware seeding:** If a seed is an interface, its implementations are also seeded.
+- **Why it matters:** Ensures the context engine finds relevant starting points even for vague task descriptions, while prioritizing precise matches higher in the ranking.
+
+### 52. Density-Ranked Knapsack Packing
+
+- **Package(s):** `internal/context/`
+- **Entry point:** `packIntoBudget` function in `internal/context/context.go`
+- **What it does:** Given ranked symbols with scores and estimated token costs, selects the subset that maximizes total relevance within a token budget. Uses score/cost ratio (density) to greedily pack highest-value-per-token symbols first.
+- **Why it matters:** Ensures LLM context windows are filled with maximum information density rather than simply taking the top-N symbols regardless of their serialization cost.
+
+### 53. KNOWING_DB Environment Variable
+
+- **Package(s):** `cmd/knowing/`
+- **Entry point:** `defaultDB()` function in `cmd/knowing/main.go`
+- **What it does:** All subcommands check the `KNOWING_DB` environment variable for the database path. Falls back to `"knowing.db"` in the current working directory if unset. Allows configuring the database location without passing `--db` on every command.
+
+### 54. HITS Authority/Hub Scoring
+
+- **Package(s):** `internal/context/`
+- **Entry point:** `internal/context/hits.go`
+- **What it does:** Implements the HITS (Hyperlink-Induced Topic Search) algorithm on the subgraph of candidate symbols. Computes authority and hub scores via iterative power iteration. Authority scores are used to re-rank symbols so that highly-referenced nodes (authorities) and highly-referencing nodes (hubs) surface appropriately in context output.
+- **Dependencies:** Called from the ranking pipeline in `internal/context/ranking.go`.
+
+### 55. Benchmark Harnesses (`bench/`)
+
+- **Package(s):** `bench/`
+- **What it does:** Six benchmark harnesses for measuring system quality:
+  - `bench/feedback-loop/` : Measures agent feedback loop effectiveness (correct tool suggestions, learning rate).
+  - `bench/context-relevance/` : Evaluates precision/recall of context engine output against ground-truth annotations.
+  - `bench/token-savings/` : Measures token reduction from GCF session deduplication and knapsack packing.
+  - `bench/edge-accuracy/` : Compares extracted edges against ground-truth call graphs (precision, recall, F1).
+  - `bench/test-scope-accuracy/` : Validates test-scope output against actual test failures from mutation testing.
+  - `bench/wire-format/` : Encode/decode performance and size comparison across all wire format codecs.
+- **Why it matters:** Provides reproducible quality gates for context engine, extractors, and wire format changes.
+
 ### GraphStore (`internal/types/interfaces.go`)
 
 All 27 methods:
@@ -637,7 +689,7 @@ All 27 methods:
 | CanHandle | `(path string) bool` |
 | Extract | `(ctx, ExtractOptions) (*ExtractResult, error)` |
 
-Implementors: `gotsextractor.GoTreeSitterExtractor`, `goextractor.GoExtractor`, `treesitter.TreeSitterExtractor`, `tsextractor.TypeScriptExtractor`, `rustextractor.RustExtractor`, `javaextractor.JavaExtractor`, `csharpextractor.CSharpExtractor`, `terraformextractor.TerraformExtractor`, `sqlextractor.SQLExtractor`, `k8sextractor.K8sExtractor`, `cssextractor.CSSExtractor`, `protoextractor.ProtoExtractor`
+Implementors: `gotsextractor.GoTreeSitterExtractor`, `goextractor.GoExtractor`, `treesitter.TreeSitterExtractor`, `tsextractor.TypeScriptExtractor`, `rustextractor.RustExtractor`, `javaextractor.JavaExtractor`, `csharpextractor.CSharpExtractor`, `terraformextractor.TerraformExtractor`, `sqlextractor.SQLExtractor`, `k8sextractor.K8sExtractor`, `cssextractor.CSSExtractor`, `protoextractor.ProtoExtractor`, `eventextractor.EventExtractor`, `schemaextractor.SchemaExtractor`
 Consumers: `indexer.ExtractorRegistry`, `indexer.Indexer`
 
 ### ComputationCache (`internal/types/interfaces.go`)
@@ -1090,17 +1142,17 @@ Hardcoded in `cmd/knowing/main.go` via daemon startup: `500 * time.Millisecond`.
 - **Remaining gaps:** `declares_route`/`consumes_route` edge types from the architecture are not used; instead `handles_route` is used. Route groups/prefixes not supported. Dynamic route patterns not detected.
 
 ### Event/Message Queue Edge Extraction
-- **Roadmap: Edge Types workstream. PARTIALLY IMPLEMENTED.**
+- **Roadmap: Edge Types workstream. IMPLEMENTED.**
 - **Package(s):** `internal/indexer/eventextractor/`
 - **What it does:** Detects Kafka, NATS, SQS, and RabbitMQ/AMQP producer/consumer patterns across Go, TypeScript, Python, and Java. Produces `publishes`/`subscribes` edges with topic nodes.
-- **Status:** Package exists with full tests, but NOT registered in the CLI. Requires `FindAllExtractors` multi-dispatch (not yet implemented in the indexer) to run alongside primary language extractors on the same file.
+- **Status:** Registered in CLI (`cmd/knowing/main.go` line 1102: `idx.Register(eventextractor.NewEventExtractor())`). Runs alongside primary language extractors via `FindAllExtractors` multi-dispatch (see Feature #50).
 - **Entry point:** `eventextractor.NewEventExtractor()`
 
 ### Schema Edge Extraction (OpenAPI, JSON Schema)
-- **Roadmap: Edge Types workstream. PARTIALLY IMPLEMENTED.**
+- **Roadmap: Edge Types workstream. IMPLEMENTED.**
 - **Package(s):** `internal/indexer/schemaextractor/`
 - **What it does:** Parses OpenAPI/Swagger specs and JSON Schema files to extract schema, endpoint, and field nodes with reference edges.
-- **Status:** Package exists with tests, but NOT registered in the CLI. Requires `FindAllExtractors` multi-dispatch to run alongside primary language extractors.
+- **Status:** Registered in CLI (`cmd/knowing/main.go` line 1105: `idx.Register(schemaextractor.NewSchemaExtractor())`). Runs alongside primary language extractors via `FindAllExtractors` multi-dispatch (see Feature #50).
 - **Entry point:** `schemaextractor.NewSchemaExtractor()`
 
 ### Infrastructure Edge Extraction (Terraform, K8s, Cloud YAML)
@@ -1314,6 +1366,12 @@ internal/indexer/
   cssextractor/
     extractor.go                   -- CSSExtractor: selectors, custom properties
     extractor_test.go
+  eventextractor/
+    extractor.go                   -- EventExtractor: Kafka, NATS, SQS, RabbitMQ producer/consumer patterns
+    extractor_test.go
+  schemaextractor/
+    extractor.go                   -- SchemaExtractor: OpenAPI/Swagger specs, JSON Schema
+    extractor_test.go
 
 internal/context/
   context.go                       -- Context engine: task/file/PR context generation, RWR graph walk, token budgeting
@@ -1367,9 +1425,14 @@ e2e_test.go                        -- End-to-end integration test (multi-package
 .goreleaser.yml                    -- GoReleaser v2 config: multi-platform builds, Docker manifests, Homebrew tap
 .mcp.json                          -- MCP self-dogfooding: knowing serves its own graph to agents working in this repo
 
-bench/wire-format/
-  scorecard.md                     -- Auto-generated benchmark comparison table (6 fixture cases)
-  (benchmark harness files)        -- Fixture generation, encode/decode benchmarks
+bench/
+  feedback-loop/                   -- Agent feedback loop effectiveness benchmark
+  context-relevance/               -- Context engine precision/recall benchmark
+  token-savings/                   -- GCF session deduplication and knapsack savings benchmark
+  edge-accuracy/                   -- Extractor edge precision/recall/F1 benchmark
+  test-scope-accuracy/             -- Test-scope output vs actual test failures benchmark
+  wire-format/                     -- Wire format codec encode/decode performance benchmark
+    scorecard.md                   -- Auto-generated benchmark comparison table (6 fixture cases)
 ```
 
 ---
