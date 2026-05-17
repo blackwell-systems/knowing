@@ -162,10 +162,14 @@ knowing serve -repo ./path/to/repo -addr :8100
 
 ## Content Addressing
 
-The Git analogy is exact: Git is a content-addressed graph of source code. knowing is a content-addressed graph of source code *relationships*.
+Every entity (symbols, relationships, files, repos, and graph snapshots) is identified by its SHA-256 hash. When the indexer parses source code, it computes a deterministic hash for each symbol based on its logical identity (repo, package, name, kind) and a hash for each relationship based on its endpoints, type, and provenance. All edge hashes are sorted and fed into a binary Merkle tree whose root is the snapshot hash: a single 32-byte fingerprint of the entire graph state. Snapshots chain together like git commits (each points to its parent), giving the graph full version history for free.
+
+Incremental indexing compares file content hashes and skips anything unchanged. Staleness is structural: if a file's content hash changed, all nodes derived from it have stale hashes, and all edges from those nodes are suspect. No heuristics needed. Edge mutations are append-only events ("added"/"removed"), so the system can answer "when did this relationship first appear?" and "what changed between these two graph states?" by scanning the event log or diffing two Merkle roots.
+
+The result is a graph with the same integrity guarantees git provides for source code, applied one layer up to source code relationships:
 
 - **History**: every previous graph state is queryable by snapshot hash
-- **Staleness**: a hash mismatch between snapshots is a structural fact, not a heuristic
+- **Staleness**: a hash mismatch is a structural fact, not a heuristic guess
 - **Integrity**: any graph state is provably derived from specific source commits
 - **Deduplication**: identical relationships across repos share a single edge record
 
