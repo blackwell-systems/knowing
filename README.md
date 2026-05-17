@@ -3,10 +3,10 @@
 </p>
 
 <p align="center">
-  <a href="#mcp-tools"><img src="https://img.shields.io/badge/MCP_tools-22-brightgreen.svg" alt="MCP Tools"></a>
-  <a href="#languages-and-formats"><img src="https://img.shields.io/badge/extractors-17-blue.svg" alt="Extractors"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
   <a href="https://github.com/blackwell-systems"><img src="https://raw.githubusercontent.com/blackwell-systems/blackwell-docs-theme/main/badge-trademark.svg" alt="Blackwell Systems"></a>
+  <a href="#mcp-tools"><img src="https://img.shields.io/badge/MCP_tools-22-brightgreen.svg" alt="MCP Tools"></a>
+  <a href="#languages-and-formats"><img src="https://img.shields.io/badge/extractor_types-17-blue.svg" alt="Extractor Types"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
 </p>
 
 <p align="center">
