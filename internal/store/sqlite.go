@@ -593,6 +593,24 @@ func (s *SQLiteStore) FileByPath(ctx context.Context, repoHash types.Hash, path 
 	return &f, nil
 }
 
+// NodesByFilePath returns all nodes belonging to a file identified by repo hash
+// and relative path. It joins through the files table using the path, so it
+// works regardless of whether file content (and thus file_hash) has changed.
+func (s *SQLiteStore) NodesByFilePath(ctx context.Context, repoHash types.Hash, path string) ([]types.Node, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT n.node_hash, n.file_hash, n.qualified_name, n.kind, n.line, n.signature
+		 FROM nodes n
+		 INNER JOIN files f ON n.file_hash = f.file_hash
+		 WHERE f.repo_hash = ? AND f.path = ?`,
+		repoHash[:], path,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanNodes(rows)
+}
+
 // ----- Resolver query methods -----
 
 // DanglingEdges returns all edges whose target_hash does not match any

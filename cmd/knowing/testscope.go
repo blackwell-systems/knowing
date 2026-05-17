@@ -153,18 +153,12 @@ func symbolsInFiles(ctx context.Context, st *store.SQLiteStore, files []string) 
 	seen := make(map[types.Hash]bool)
 
 	for _, path := range files {
-		file, err := st.FileByPath(ctx, repoHash, path)
-		if err != nil || file == nil {
-			continue
-		}
-
-		// Find nodes in this file.
-		allNodes, err := st.NodesByName(ctx, "")
+		nodes, err := st.NodesByFilePath(ctx, repoHash, path)
 		if err != nil {
 			return nil, err
 		}
-		for _, n := range allNodes {
-			if n.FileHash == file.FileHash && !seen[n.NodeHash] {
+		for _, n := range nodes {
+			if !seen[n.NodeHash] {
 				seen[n.NodeHash] = true
 				symbols = append(symbols, n)
 			}
@@ -260,13 +254,14 @@ func uniqueTestPackages(tests []types.Node) []string {
 	return pkgs
 }
 
-// extractGoPackagePath extracts "internal/mcp" style path from a qualified name.
+// extractGoPackagePath extracts a "go test"-compatible package path from a qualified name.
+// Format: repoURL://modulePath/pkg.FuncName -> ./pkg
 func extractGoPackagePath(qname string) string {
-	// Format: repoURL://path/to/pkg.FuncName
 	idx := strings.Index(qname, "://")
 	if idx < 0 {
 		return ""
 	}
+	repoURL := qname[:idx]
 	rest := qname[idx+3:]
 	// Remove the symbol name (last .Component).
 	lastDot := strings.LastIndex(rest, ".")
@@ -275,14 +270,12 @@ func extractGoPackagePath(qname string) string {
 	}
 	pkgPath := rest[:lastDot]
 
-	// Strip repo prefix if present.
-	if strings.Contains(pkgPath, "/internal/") {
-		idx := strings.Index(pkgPath, "/internal/")
-		return "." + pkgPath[idx:]
+	// Strip the module path prefix (same as repoURL) to get a relative path.
+	if strings.HasPrefix(pkgPath, repoURL+"/") {
+		return "./" + pkgPath[len(repoURL)+1:]
 	}
-	if strings.Contains(pkgPath, "/cmd/") {
-		idx := strings.Index(pkgPath, "/cmd/")
-		return "." + pkgPath[idx:]
+	if pkgPath == repoURL {
+		return "./"
 	}
 
 	return "./" + pkgPath

@@ -15,6 +15,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- `test-scope` command: fixed `symbolsInFiles` returning empty results due to stale FileHash mismatch after re-indexing
+- `test-scope` command: fixed package path extraction producing invalid `go test` paths (was not stripping module prefix)
 - Context engine uses substring search for keyword matching (was requiring exact match)
 - mkdocs.yml and index.md added for docs workflow
 - Architecture doc updated to reflect actual codebase structure
