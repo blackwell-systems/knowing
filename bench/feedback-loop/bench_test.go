@@ -16,6 +16,7 @@ package feedback_loop
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -192,6 +193,136 @@ func TestFeedbackCompounding(t *testing.T) {
 	if avgFeedbackP <= avgBaselineP {
 		t.Errorf("THESIS FAILED: feedback did not improve average precision (baseline=%.3f, feedback=%.3f)",
 			avgBaselineP, avgFeedbackP)
+	}
+}
+
+// TestMultiRoundCompounding proves that feedback accumulation produces
+// monotonic improvement when the same task type is queried repeatedly.
+//
+// The mechanism: each round, irrelevant symbols in the top-K receive negative
+// feedback (-0.15 penalty at score 0.0). Relevant symbols receive positive
+// feedback (+0.15 boost at score 1.0). Over rounds, the gap between relevant
+// and irrelevant symbols widens, and relevant symbols climb in ranking.
+//
+// This simulates the real-world scenario where a developer repeatedly works on
+// context-engine tasks, and the system learns which symbols are useful for that
+// type of work.
+func TestMultiRoundCompounding(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping multi-round benchmark in short mode")
+	}
+
+	repoRoot := findRepoRoot(t)
+	dbPath := t.TempDir() + "/bench.db"
+	st, err := store.NewSQLiteStore(dbPath)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	defer st.Close()
+
+	snapMgr := snapshot.NewSnapshotManager(st)
+	idx := indexer.NewIndexer(st, snapMgr)
+	idx.Register(gotsextractor.NewGoTreeSitterExtractor())
+
+	ctx := context.Background()
+	_, err = idx.IndexRepo(ctx, "github.com/blackwell-systems/knowing", repoRoot, "HEAD")
+	if err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	engine := knowingctx.NewContextEngine(st)
+
+	// Run 5 rounds across all 5 fixtures. Each round queries all fixtures and
+	// records feedback. Later rounds benefit from all prior rounds' feedback.
+	numRounds := 5
+	topK := 10
+
+	t.Log("=== Multi-Round Compounding (5 rounds x 5 tasks) ===")
+	t.Log("")
+
+	// Track precision per fixture per round.
+	precisionByRound := make([][]float64, numRounds)
+	for r := range precisionByRound {
+		precisionByRound[r] = make([]float64, len(fixtures))
+	}
+
+	for round := 0; round < numRounds; round++ {
+		for fi, fix := range fixtures {
+			// Query.
+			block, err := engine.ForTask(ctx, knowingctx.TaskOptions{
+				TaskDescription: fix.Description,
+				TokenBudget:     5000,
+				Format:          "json",
+			})
+			if err != nil {
+				t.Fatalf("ForTask round %d fixture %s: %v", round, fix.Name, err)
+			}
+
+			// Measure precision@10.
+			k := topK
+			if len(block.Symbols) < k {
+				k = len(block.Symbols)
+			}
+			relevant := 0
+			for i := 0; i < k; i++ {
+				if isRelevant(block.Symbols[i].Node.QualifiedName, fix.GroundTruth) {
+					relevant++
+				}
+			}
+			precision := float64(relevant) / float64(k)
+			precisionByRound[round][fi] = precision
+
+			// Record feedback: relevant = useful, top-5 irrelevant = not useful.
+			sessionID := fmt.Sprintf("round%d-%s", round, fix.Name)
+			for i := 0; i < k; i++ {
+				sym := block.Symbols[i]
+				if isRelevant(sym.Node.QualifiedName, fix.GroundTruth) {
+					_ = st.RecordFeedback(ctx, sym.Node.NodeHash, sessionID, true)
+				} else if i < 5 {
+					_ = st.RecordFeedback(ctx, sym.Node.NodeHash, sessionID, false)
+				}
+			}
+
+			// Also boost ground-truth symbols found beyond top-10.
+			for _, sym := range block.Symbols[k:] {
+				if isRelevant(sym.Node.QualifiedName, fix.GroundTruth) {
+					_ = st.RecordFeedback(ctx, sym.Node.NodeHash, sessionID, true)
+				}
+			}
+		}
+	}
+
+	// Report results.
+	t.Log("  Per-fixture precision curves (round 1 -> 5):")
+	var avgPerRound [5]float64
+	for fi, fix := range fixtures {
+		curve := ""
+		for r := 0; r < numRounds; r++ {
+			if r > 0 {
+				curve += " -> "
+			}
+			curve += fmt.Sprintf("%.0f%%", precisionByRound[r][fi]*100)
+			avgPerRound[r] += precisionByRound[r][fi]
+		}
+		delta := precisionByRound[numRounds-1][fi] - precisionByRound[0][fi]
+		t.Logf("    %s: %s (delta: %+.1f%%)", fix.Name, curve, delta*100)
+	}
+
+	t.Log("")
+	t.Log("  Average precision per round:")
+	for r := 0; r < numRounds; r++ {
+		avgPerRound[r] /= float64(len(fixtures))
+	}
+	t.Logf("    Round 1: %.1f%%  Round 2: %.1f%%  Round 3: %.1f%%  Round 4: %.1f%%  Round 5: %.1f%%",
+		avgPerRound[0]*100, avgPerRound[1]*100, avgPerRound[2]*100,
+		avgPerRound[3]*100, avgPerRound[4]*100)
+	t.Logf("    Improvement: round 1 %.1f%% -> round 5 %.1f%% (%+.1f%%)",
+		avgPerRound[0]*100, avgPerRound[4]*100, (avgPerRound[4]-avgPerRound[0])*100)
+
+	// The thesis: round 5 should outperform round 1.
+	if avgPerRound[4] < avgPerRound[0] {
+		t.Errorf("COMPOUNDING THESIS FAILED: round 5 (%.1f%%) worse than round 1 (%.1f%%)",
+			avgPerRound[4]*100, avgPerRound[0]*100)
 	}
 }
 

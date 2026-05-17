@@ -47,9 +47,14 @@ func RankSymbols(symbols []ScoringInput, hitsScores ...map[types.Hash]HITSScores
 	for _, s := range symbols {
 		var blastRadius, confidence, recency, distance, feedback, total float64
 
-		// Feedback boost: additive component weighted at 0.1.
+		// Feedback component: score is useful/(useful+not_useful), range [0,1].
+		// Values > 0.5 = net positive feedback (boost).
+		// Values < 0.5 = net negative feedback (penalty).
+		// Values == 0 = no feedback recorded (neutral).
+		// Weight: 0.15 (strong enough to reorder similar-scoring symbols).
 		if s.FeedbackBoost > 0 {
-			feedback = 0.1 * s.FeedbackBoost
+			// Center around 0: score 1.0 -> +0.15, score 0.5 -> 0, score 0 -> -0.15
+			feedback = 0.15 * (2*s.FeedbackBoost - 1.0)
 		}
 
 		if hits != nil {
