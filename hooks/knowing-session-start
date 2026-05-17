@@ -1,0 +1,52 @@
+#!/bin/bash
+# knowing-session-start: Claude Code SessionStart hook.
+#
+# Fires once at session start. Injects graph orientation so the agent
+# knows what's indexed, how fresh the graph is, and what tools are available.
+#
+# Install in .claude/settings.local.json:
+#   "hooks": {
+#     "SessionStart": [{
+#       "command": "./hooks/knowing-session-start"
+#     }]
+#   }
+
+set -euo pipefail
+
+if [ "${KNOWING_HOOKS:-on}" = "off" ]; then
+  exit 0
+fi
+
+DB="${KNOWING_HOOKS_DB:-knowing.db}"
+
+if [ ! -f "$DB" ]; then
+  exit 0
+fi
+
+if ! command -v knowing &>/dev/null; then
+  if [ -f "./knowing" ]; then
+    KNOWING="./knowing"
+  else
+    exit 0
+  fi
+else
+  KNOWING="knowing"
+fi
+
+# Gather graph stats.
+STATS=$($KNOWING query -db "$DB" "github.com/" 2>/dev/null | head -5 | wc -l)
+NODE_COUNT=$($KNOWING query -db "$DB" "" 2>/dev/null | wc -l)
+
+# Build orientation message.
+python3 -c "
+import json
+print(json.dumps({
+    'message': '''[knowing graph available] This project has a content-addressed knowledge graph indexed with ~$NODE_COUNT symbols. Available context tools:
+- context_for_task: graph-ranked context for a task (use before complex edits)
+- context_for_pr: full PR impact analysis (use at PR scope)
+- context_for_files: blast radius for changed files
+- blast_radius: callers of a specific symbol
+- cross_repo_callers: callers across all indexed repos
+Request format=gcf for 84% token savings on responses.'''
+}))
+"

@@ -1,0 +1,64 @@
+#!/bin/bash
+# knowing-post-task: Claude Code Stop hook (post-task diagnostics).
+#
+# Fires when the agent completes a task. Checks modified files against
+# the graph for potential issues: broken callers, stale edges, symbols
+# that lost their only caller.
+#
+# Install in .claude/settings.local.json:
+#   "hooks": {
+#     "Stop": [{
+#       "command": "./hooks/knowing-post-task"
+#     }]
+#   }
+
+set -euo pipefail
+
+if [ "${KNOWING_HOOKS:-on}" = "off" ]; then
+  exit 0
+fi
+
+DB="${KNOWING_HOOKS_DB:-knowing.db}"
+LOG="${KNOWING_HOOKS_LOG:-.knowing-hooks.jsonl}"
+
+if [ ! -f "$DB" ]; then
+  exit 0
+fi
+
+if ! command -v knowing &>/dev/null; then
+  if [ -f "./knowing" ]; then
+    KNOWING="./knowing"
+  else
+    exit 0
+  fi
+else
+  KNOWING="knowing"
+fi
+
+# Find files modified in the current git session (unstaged + staged).
+MODIFIED=$(git diff --name-only HEAD 2>/dev/null | grep -E '\.(go|ts|py|rs|java|cs)$' | head -10)
+
+if [ -z "$MODIFIED" ]; then
+  exit 0
+fi
+
+# Get context for modified files to surface potential impact.
+FILES_CSV=$(echo "$MODIFIED" | tr '\n' ',' | sed 's/,$//')
+IMPACT=$($KNOWING context -files "$FILES_CSV" -budget 400 -format gcf -db "$DB" 2>/dev/null) || true
+
+if [ -z "$IMPACT" ] || echo "$IMPACT" | grep -q "symbols=0"; then
+  exit 0
+fi
+
+TOKENS=$(echo "$IMPACT" | wc -w | tr -d ' ')
+echo "{\"ts\":$(date +%s),\"event\":\"post_task\",\"files\":\"$FILES_CSV\",\"tokens\":$TOKENS}" >> "$LOG"
+
+# Output diagnostic context.
+python3 -c "
+import json, sys
+impact = sys.stdin.read()
+files = '$FILES_CSV'
+print(json.dumps({
+    'message': f'[knowing post-task diagnostic] Modified files: {files}\nRelated symbols that may be affected:\n{impact}'
+}))
+" <<< "$IMPACT"

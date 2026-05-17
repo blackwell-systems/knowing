@@ -1,0 +1,59 @@
+#!/bin/bash
+# knowing-pre-compact: Claude Code PreCompact hook.
+#
+# Fires before context compaction. Injects an orientation snapshot so the
+# agent survives compaction without re-exploring the codebase.
+#
+# This is the highest-value hook: it fires rarely (only before compaction),
+# costs minimal tokens, and solves the "agent forgets after compaction" problem.
+#
+# Install in .claude/settings.local.json:
+#   "hooks": {
+#     "PreCompact": [{
+#       "command": "./hooks/knowing-pre-compact"
+#     }]
+#   }
+
+set -euo pipefail
+
+if [ "${KNOWING_HOOKS:-on}" = "off" ]; then
+  exit 0
+fi
+
+DB="${KNOWING_HOOKS_DB:-knowing.db}"
+LOG="${KNOWING_HOOKS_LOG:-.knowing-hooks.jsonl}"
+
+if [ ! -f "$DB" ]; then
+  exit 0
+fi
+
+if ! command -v knowing &>/dev/null; then
+  if [ -f "./knowing" ]; then
+    KNOWING="./knowing"
+  else
+    exit 0
+  fi
+else
+  KNOWING="knowing"
+fi
+
+# Get a compact orientation: top symbols by blast radius.
+# This gives the agent the "shape" of the codebase to remember post-compaction.
+ORIENTATION=$($KNOWING context -task "most important symbols" -budget 600 -format gcf -db "$DB" 2>/dev/null) || true
+
+if [ -z "$ORIENTATION" ] || echo "$ORIENTATION" | grep -q "symbols=0"; then
+  exit 0
+fi
+
+# Log the event.
+TOKENS=$(echo "$ORIENTATION" | wc -w | tr -d ' ')
+echo "{\"ts\":$(date +%s),\"event\":\"pre_compact\",\"tokens\":$TOKENS}" >> "$LOG"
+
+# Output orientation for the agent to carry through compaction.
+python3 -c "
+import json, sys
+orientation = sys.stdin.read()
+print(json.dumps({
+    'message': f'[knowing orientation snapshot - carry through compaction]\n{orientation}'
+}))
+" <<< "$ORIENTATION"

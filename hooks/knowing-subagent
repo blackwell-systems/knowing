@@ -1,0 +1,81 @@
+#!/bin/bash
+# knowing-subagent: Claude Code PreToolUse hook for Agent/Task spawning.
+#
+# Fires when the agent spawns a subagent. Injects graph context scoped
+# to the subagent's task description so it starts informed.
+#
+# Install in .claude/settings.local.json:
+#   "hooks": {
+#     "PreToolUse": [{
+#       "matcher": "Agent|Task",
+#       "command": "./hooks/knowing-subagent"
+#     }]
+#   }
+
+set -euo pipefail
+
+if [ "${KNOWING_HOOKS:-on}" = "off" ]; then
+  exit 0
+fi
+
+DB="${KNOWING_HOOKS_DB:-knowing.db}"
+LOG="${KNOWING_HOOKS_LOG:-.knowing-hooks.jsonl}"
+BUDGET="${KNOWING_HOOKS_BUDGET:-800}"
+
+if [ ! -f "$DB" ]; then
+  exit 0
+fi
+
+if ! command -v knowing &>/dev/null; then
+  if [ -f "./knowing" ]; then
+    KNOWING="./knowing"
+  else
+    exit 0
+  fi
+else
+  KNOWING="knowing"
+fi
+
+# Read hook input and extract the subagent's task/prompt.
+INPUT=$(cat)
+TASK=$(echo "$INPUT" | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    inp = data.get('input', {})
+    # Agent tool has 'prompt' or 'description'
+    task = inp.get('prompt', inp.get('description', inp.get('task', '')))
+    # Truncate to first 200 chars for keyword extraction
+    print(task[:200])
+except:
+    print('')
+" 2>/dev/null)
+
+if [ -z "$TASK" ]; then
+  exit 0
+fi
+
+# Query context for the subagent's task.
+START_MS=$(python3 -c "import time; print(int(time.time()*1000))")
+
+CONTEXT=$($KNOWING context -task "$TASK" -budget "$BUDGET" -format gcf -db "$DB" 2>/dev/null) || true
+
+END_MS=$(python3 -c "import time; print(int(time.time()*1000))")
+LATENCY_MS=$((END_MS - START_MS))
+
+if [ -z "$CONTEXT" ] || echo "$CONTEXT" | grep -q "symbols=0"; then
+  echo "{\"ts\":$(date +%s),\"event\":\"subagent_miss\",\"latency_ms\":$LATENCY_MS}" >> "$LOG"
+  exit 0
+fi
+
+TOKENS=$(echo "$CONTEXT" | wc -w | tr -d ' ')
+echo "{\"ts\":$(date +%s),\"event\":\"subagent_inject\",\"latency_ms\":$LATENCY_MS,\"tokens\":$TOKENS}" >> "$LOG"
+
+# Inject context for the subagent.
+python3 -c "
+import json, sys
+context = sys.stdin.read()
+print(json.dumps({
+    'message': f'[knowing context for subagent task]\n{context}'
+}))
+" <<< "$CONTEXT"
