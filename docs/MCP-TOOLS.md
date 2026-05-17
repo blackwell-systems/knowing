@@ -1,6 +1,6 @@
 # knowing MCP Tools Reference
 
-Complete reference for the 16 MCP tools exposed by knowing's MCP server.
+Complete reference for the 17 MCP tools exposed by knowing's MCP server.
 
 ## Connecting to the Server
 
@@ -686,7 +686,7 @@ Generate graph-ranked, token-budgeted context for a task description.
 |------|------|----------|-------------|
 | `task` | string | yes | Natural language description of the task |
 | `budget` | integer | no | Token budget (default 50000) |
-| `format` | string | no | Output format: `xml`, `markdown`, or `json` (default `xml`) |
+| `format` | string | no | Output format: `gcf`, `gcb`, `json`, `xml` (default), or `markdown` |
 
 **Return format:**
 
@@ -725,7 +725,7 @@ Generate blast radius context for a set of changed files.
 | `files` | array of strings | yes | List of changed file paths |
 | `repo_url` | string | no | Repository URL for file resolution |
 | `budget` | integer | no | Token budget (default 50000) |
-| `format` | string | no | Output format: `xml`, `markdown`, or `json` (default `xml`) |
+| `format` | string | no | Output format: `gcf`, `gcb`, `json`, `xml` (default), or `markdown` |
 
 **Return format:**
 
@@ -748,7 +748,48 @@ Returns context focused on the blast radius of the specified files: symbols defi
   "arguments": {
     "files": ["internal/auth/handler.go", "internal/auth/middleware.go"],
     "repo_url": "github.com/org/repo",
-    "budget": 40000
+    "budget": 40000,
+    "format": "gcf"
+  }
+}
+```
+
+### `context_for_pr`
+
+Generate relationship-aware context for a pull request. Identifies all symbols in changed files, runs graph-based relevance scoring (RWR) from them, and surfaces the full structural impact neighborhood including callers, callees, and related types. One call at PR-open time replaces multiple manual context queries.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `files` | string | yes | Comma-separated list of changed file paths relative to repo root (from the PR diff) |
+| `repo_url` | string | no | Repository URL for resolving file hashes |
+| `token_budget` | integer | no | Maximum token budget (default 8000, larger than per-edit calls) |
+| `format` | string | no | Output format: `gcf`, `gcb`, `json`, `xml` (default), or `markdown` |
+
+**Return format:**
+
+```json
+{
+  "content": "<context>...</context>",
+  "token_count": 6500,
+  "symbols_included": 30,
+  "symbols_available": 120
+}
+```
+
+Returns a context block optimized for PR review: symbols from the changed files, their callers/callees, and structurally related types, ranked by graph proximity and runtime traffic.
+
+**Example:**
+
+```json
+{
+  "tool": "context_for_pr",
+  "arguments": {
+    "files": "internal/mcp/server.go,internal/context/context.go",
+    "repo_url": "https://github.com/org/repo",
+    "token_budget": 8000,
+    "format": "gcf"
   }
 }
 ```

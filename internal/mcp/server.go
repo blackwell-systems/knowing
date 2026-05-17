@@ -70,7 +70,7 @@ func NewServer(store types.GraphStore) *Server {
 	return s
 }
 
-// registerTools registers all 16 MCP tools on the server.
+// registerTools registers all 17 MCP tools on the server.
 func (s *Server) registerTools() {
 	// Execution plane tools
 	s.mcpServer.AddTool(indexRepoTool(), s.handleIndexRepo)

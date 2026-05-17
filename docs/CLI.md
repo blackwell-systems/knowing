@@ -13,7 +13,7 @@ See [DISTRIBUTION.md](DISTRIBUTION.md) for installation instructions.
 knowing <subcommand> [flags]
 ```
 
-Subcommands: `serve`, `index`, `query`, `export`, `diff`, `context`, `mcp`, `version`.
+Subcommands: `serve`, `index`, `query`, `export`, `diff`, `context`, `mcp`, `reindex`, `init`, `test-scope`, `version`.
 
 ## Environment
 
@@ -90,7 +90,8 @@ knowing serve -trace -trace-endpoint collector.local:4317 ./my-repo
 **Notes:**
 
 - The daemon blocks until it receives SIGINT or SIGTERM.
-- Registers tree-sitter extractors for Go and Python by default.
+- Registers all 11 language extractors (Go, Python, TypeScript/JS, Rust, Java,
+  C#, Terraform, SQL, Kubernetes YAML, CSS, Protocol Buffers).
 - The MCP server exposes an `index_repo` tool that triggers indexing through
   the same pipeline as file-watch events.
 
@@ -139,7 +140,8 @@ knowing index ./repo
 
 **Notes:**
 
-- Registers tree-sitter extractors for Go and Python.
+- Registers all 11 language extractors (Go, Python, TypeScript/JS, Rust, Java,
+  C#, Terraform, SQL, Kubernetes YAML, CSS, Protocol Buffers).
 - When `-full` is used, the Go packages extractor provides full type
   resolution; LSP enrichment is skipped because the extractor already produces
   high-confidence edges.
@@ -301,7 +303,7 @@ blast radius context. Exactly one of the two must be specified.
 | `-task` | string | *(empty)* | Task description for context generation |
 | `-files` | string | *(empty)* | Comma-separated list of changed file paths |
 | `-budget` | int | `50000` | Token budget |
-| `-format` | string | `xml` | Output format: `xml`, `markdown`, or `json` |
+| `-format` | string | `xml` | Output format: `xml`, `markdown`, `json`, `gcf`, or `gcb` |
 | `-repo` | string | *(empty)* | Repository URL for file resolution (used with `-files`) |
 
 **Examples:**
@@ -336,7 +338,7 @@ knowing mcp [flags]
 
 This is the mode used by AI agents via `.mcp.json` configuration. Opens the
 database and serves MCP tool calls over stdin/stdout until the input stream
-closes or SIGINT/SIGTERM is received. All 16 MCP tools are available.
+closes or SIGINT/SIGTERM is received. All 17 MCP tools are available.
 
 **Flags:**
 
@@ -371,6 +373,137 @@ knowing mcp -db knowing.db
 - The server blocks until stdin is closed or a signal is received.
 - This subcommand replaces direct use of `knowing serve` for agent integrations
   that only need stdio MCP access without the HTTP server or file watcher.
+
+---
+
+### init
+
+Generate a CLAUDE.md file with graph-derived project context.
+
+```
+knowing init [flags]
+```
+
+Queries the knowledge graph and produces a minimal orientation section for
+CLAUDE.md containing symbol counts, package counts, and breadcrumbs pointing
+agents to the most useful MCP tools. The operation is nondestructive and
+idempotent: it uses markers to replace only the generated section, leaving any
+hand-written content intact.
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `-db` | string | `knowing.db` | Path to the SQLite database |
+| `-output` | string | `CLAUDE.md` | Output file path |
+
+**Examples:**
+
+```bash
+# Generate CLAUDE.md in the current directory (requires a pre-built database)
+knowing init
+
+# Generate into a specific file from a specific database
+knowing init -db /var/lib/knowing/data.db -output .claude/CLAUDE.md
+```
+
+**Notes:**
+
+- Requires a pre-built database. Run `knowing index` first.
+- If no file exists at the output path, creates one with the generated section.
+- If the file exists without markers, appends the generated section.
+- If the file exists with markers (`<!-- knowing:generated:start -->` /
+  `<!-- knowing:generated:end -->`), replaces only the section between markers.
+- Never touches content outside the markers.
+
+---
+
+### reindex
+
+Clear all graph data and re-index a repository from scratch.
+
+```
+knowing reindex [flags] <repo-path>
+```
+
+Removes all existing nodes, edges, and edge events from the database, then
+performs a fresh index of the specified repository. Useful when extractor logic
+has changed or when the graph has accumulated stale data that incremental
+indexing cannot clean up.
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `-db` | string | `knowing.db` | Path to the SQLite database |
+| `-url` | string | *(repo-path)* | Repository URL |
+| `-commit` | string | `HEAD` | Commit hash to record |
+| `-full` | bool | `false` | Use full type resolution via `go/packages` |
+
+**Examples:**
+
+```bash
+# Re-index from scratch using the fast tree-sitter path
+knowing reindex ./my-repo
+
+# Re-index with full type resolution
+knowing reindex -full -url github.com/org/repo ./my-repo
+```
+
+**Notes:**
+
+- Performs `TruncateGraph` before re-indexing; all prior data is lost.
+- After indexing, runs LSP enrichment unless `-full` is specified.
+
+---
+
+### test-scope
+
+Compute which tests are affected by a set of changed files.
+
+```
+knowing test-scope [flags]
+```
+
+Walks the call graph backward (BFS) from symbols defined in the changed files
+to find test functions that transitively call them. Outputs affected test
+packages, function names, or a `-run` regex for `go test`.
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `-db` | string | `knowing.db` | Path to the SQLite database |
+| `-files` | string | *(git diff HEAD)* | Comma-separated list of changed files. If omitted, detects changes via `git diff HEAD`. |
+| `-output` | string | `packages` | Output mode: `packages`, `functions`, or `run` |
+| `-depth` | int | `3` | Maximum call-graph traversal depth |
+
+**Examples:**
+
+```bash
+# Detect affected tests from working tree changes (default)
+knowing test-scope
+
+# Explicit file list, output as -run regex
+knowing test-scope -files "internal/store/sqlite.go,internal/mcp/server.go" -output run
+
+# Output affected test function names
+knowing test-scope -output functions
+
+# Use a non-default database and traversal depth
+knowing test-scope -db /tmp/test.db -depth 5
+```
+
+**Notes:**
+
+- Requires a pre-built database. Run `knowing index` first.
+- When `-files` is omitted, uses `git diff --name-only HEAD` to detect
+  changes. Only source files (.go, .ts, .py, .rs, .java, .cs) are considered.
+- The `packages` output mode extracts Go package paths from qualified names.
+- The `run` output mode produces a regex suitable for `go test -run "^(TestA|TestB)$"`.
+- Uses `NodesByFilePath` to resolve symbols in changed files, then BFS
+  backward through `calls` edges to find test functions (nodes with
+  "Test" prefix in their qualified name).
 
 ---
 

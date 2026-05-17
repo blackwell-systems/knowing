@@ -16,7 +16,6 @@ Repo: github.com/blackwell-systems/knowing
 - **Inputs:** Database file path. All write methods accept typed structs (Node, Edge, File, Repo, Snapshot, EdgeEvent).
 - **Outputs:** Returns typed Go structs on reads. Errors on failure.
 - **Limitations/known gaps:**
-  - No `DeleteSnapshot` method (GarbageCollect in snapshot manager counts but cannot actually delete).
   - `TransitiveCallers` and `TransitiveCallees` ignore the `snapshot` parameter (queries all edges, not point-in-time).
   - `BlastRadius` hardcodes maxDepth=5 and Confidence=1.0 for all callers (does not compute minimum-confidence path).
   - No Pebble acceleration index (designed but not implemented; SQLite-only).
@@ -154,7 +153,7 @@ Repo: github.com/blackwell-systems/knowing
 - **Inputs:** Repo hash, commit hash.
 - **Outputs:** `*Snapshot` with Merkle root, parent pointer, node/edge counts.
 - **Limitations/known gaps:**
-  - `GarbageCollect` counts snapshots to remove but cannot actually delete them (no `DeleteSnapshot` in GraphStore).
+  - `GarbageCollect` uses `DeleteSnapshot` to remove old snapshots and their associated edge events.
   - Synthetic file nodes not included in Merkle tree (only nodes with qualified names).
   - Merkle diff (`DiffMerkle`) is a set-diff on leaves, not a tree-walk optimization.
 - **Dependencies:** GraphStore.
@@ -242,7 +241,7 @@ Repo: github.com/blackwell-systems/knowing
 
 - **Package(s):** `internal/mcp`
 - **Entry point:** `mcp.NewServer(store GraphStore) *Server`
-- **What it does:** Wraps `mcp-go` server library. Registers 16 tools across three planes (execution, intelligence, runtime) and 3 prompts (refactor_safely, review_pr, investigate_dead_code). Supports stdio and HTTP transports. Tool definitions include parameter schemas with descriptions and required flags. The Server holds a `sqlStore *SQLiteStore` (populated via type assertion from GraphStore) for runtime query tools.
+- **What it does:** Wraps `mcp-go` server library. Registers 17 tools across four planes (execution, intelligence, runtime, context) and 3 prompts (refactor_safely, review_pr, investigate_dead_code). Supports stdio and HTTP transports. Tool definitions include parameter schemas with descriptions and required flags. The Server holds a `sqlStore *SQLiteStore` (populated via type assertion from GraphStore) for runtime query tools.
 - **Inputs:** GraphStore (runtime tools additionally require `*SQLiteStore`).
 - **Outputs:** Serves MCP protocol over stdio or HTTP.
 - **Limitations/known gaps:**
@@ -257,7 +256,7 @@ Repo: github.com/blackwell-systems/knowing
 
 - **Package(s):** `cmd/knowing`
 - **Entry point:** `main.main() -> run(args)`
-- **What it does:** Dispatches to subcommands: `serve`, `index`, `query`, `export`, `mcp`, `context`, `reindex`, `version`. Wires together all internal packages.
+- **What it does:** Dispatches to subcommands: `serve`, `index`, `query`, `export`, `diff`, `context`, `mcp`, `reindex`, `init`, `test-scope`, `version`. Wires together all internal packages.
 - **Inputs:** CLI arguments and flags.
 - **Outputs:** Stdout text (query results, JSON export), SQLite database file.
 - **Dependencies:** All internal packages.
@@ -388,7 +387,7 @@ Repo: github.com/blackwell-systems/knowing
   1. `runtime_traffic`: Queries runtime-observed edges by service name and optional route pattern (LIKE syntax). Parameters: `service_name` (required), `route_pattern` (optional), `limit` (optional, default 100). Calls `SQLiteStore.RuntimeEdgesByService`.
   2. `dead_routes`: Finds route symbols with no runtime observations in N days. Parameters: `stale_days` (optional, default 30). Calls `SQLiteStore.DeadRoutes`.
   3. `trace_stats`: Returns aggregate statistics about runtime-derived edges (total, active, stale, GC-eligible, by edge type). No parameters. Calls `SQLiteStore.RuntimeEdgeStatsAggregate`.
-  Total MCP tools: 16 (13 original + 3 runtime). Also registers 3 MCP prompts (refactor_safely, review_pr, investigate_dead_code).
+  Total MCP tools: 17 (13 original + 3 runtime + 1 context_for_pr). Also registers 3 MCP prompts (refactor_safely, review_pr, investigate_dead_code).
 - **Limitations/known gaps:**
   - Runtime tools return "runtime queries not available: store does not support runtime methods" if the store is not a `*SQLiteStore`.
   - No authentication or rate limiting on runtime queries.
@@ -429,7 +428,7 @@ Repo: github.com/blackwell-systems/knowing
 - **Package(s):** `internal/wire`
 - **Entry point:** `wire.EncodeWith(name string, p *Payload) (string, error)`, `wire.DecodeWith(name string, input string) (*Payload, error)`
 - **What it does:** Provides a pluggable codec registry with 5 built-in encoders for graph payloads:
-  1. **GCF (Graph Compact Format):** Text-only, graph-native encoding optimized for LLM token consumption. Uses local IDs (`@0`, `@1`), positional encoding, kind abbreviations, and group headers to achieve **76.7% median token savings** over JSON. Supports session statefulness for progressive vocabulary building across tool calls.
+  1. **GCF (Graph Compact Format):** Text-only, graph-native encoding optimized for LLM token consumption. Uses local IDs (`@0`, `@1`), positional encoding, kind abbreviations, and group headers to achieve **84% token savings** over JSON (76.7% per-payload median, compounding to 84% with session statefulness). Supports session statefulness for progressive vocabulary building across tool calls.
   2. **Binary (GCB1):** Compact binary encoding using varint integers, enum IDs (1 byte), float32 scores, index-based edge references, and length-prefixed strings. Optimized for transport between services and persistent caching (~89% byte savings vs JSON).
   3. **JSON:** Standard JSON serialization for maximum compatibility and debuggability.
   4. **XML:** XML serialization for tool interoperability.
@@ -494,7 +493,7 @@ Repo: github.com/blackwell-systems/knowing
 
 - **Package(s):** `cmd/knowing`
 - **Entry point:** `knowing mcp [flags]`
-- **What it does:** Launches the MCP server in stdio transport mode. Reads JSON-RPC messages from stdin, writes responses to stdout. Designed for use as a subprocess MCP server (e.g., configured in `.mcp.json` or Claude Desktop). Provides all 16 MCP tools and 3 prompts over stdio without requiring HTTP.
+- **What it does:** Launches the MCP server in stdio transport mode. Reads JSON-RPC messages from stdin, writes responses to stdout. Designed for use as a subprocess MCP server (e.g., configured in `.mcp.json` or Claude Desktop). Provides all 17 MCP tools and 3 prompts over stdio without requiring HTTP.
 - **Flags:** `--db` (default: `knowing.db`): SQLite database path.
 - **Dependencies:** `internal/mcp`, `internal/store`.
 
@@ -561,6 +560,7 @@ All 27 methods:
 | LatestSnapshot | `(ctx, Hash) (*Snapshot, error)` | SQLiteStore | enricher, snapshot manager |
 | FilesByRepo | `(ctx, Hash) ([]File, error)` | SQLiteStore | indexer, enricher, mcp |
 | FileByPath | `(ctx, Hash, string) (*File, error)` | SQLiteStore | indexer |
+| DeleteSnapshot | `(ctx, Hash) error` | SQLiteStore | snapshot manager (GarbageCollect) |
 | Close | `() error` | SQLiteStore | cmd/knowing |
 
 ### Extractor (`internal/types/interfaces.go`)
@@ -571,7 +571,7 @@ All 27 methods:
 | CanHandle | `(path string) bool` |
 | Extract | `(ctx, ExtractOptions) (*ExtractResult, error)` |
 
-Implementors: `gotsextractor.GoTreeSitterExtractor`, `goextractor.GoExtractor`, `treesitter.TreeSitterExtractor`, `terraformextractor.TerraformExtractor`, `sqlextractor.SQLExtractor`, `k8sextractor.K8sExtractor`, `cssextractor.CSSExtractor`
+Implementors: `gotsextractor.GoTreeSitterExtractor`, `goextractor.GoExtractor`, `treesitter.TreeSitterExtractor`, `tsextractor.TypeScriptExtractor`, `rustextractor.RustExtractor`, `javaextractor.JavaExtractor`, `csharpextractor.CSharpExtractor`, `terraformextractor.TerraformExtractor`, `sqlextractor.SQLExtractor`, `k8sextractor.K8sExtractor`, `cssextractor.CSSExtractor`, `protoextractor.ProtoExtractor`
 Consumers: `indexer.ExtractorRegistry`, `indexer.Indexer`
 
 ### ComputationCache (`internal/types/interfaces.go`)
@@ -672,8 +672,9 @@ Subset interface of GraphStore for resolver decoupling:
 | 12 | `runtime_traffic` | `handleRuntimeTraffic` | FUNCTIONAL | `SQLiteStore.RuntimeEdgesByService` | Queries runtime edges by service and route pattern |
 | 13 | `dead_routes` | `handleDeadRoutes` | FUNCTIONAL | `SQLiteStore.DeadRoutes` | Finds routes with no observations in N days |
 | 14 | `trace_stats` | `handleTraceStats` | FUNCTIONAL | `SQLiteStore.RuntimeEdgeStatsAggregate` | Aggregate runtime edge statistics |
-| 15 | `context_for_task` | `handleContextForTask` | FUNCTIONAL | `NodesByName`, graph traversal | Returns ranked symbols relevant to a natural-language task description, encoded via wire format codec |
+| 15 | `context_for_task` | `handleContextForTask` | FUNCTIONAL | `NodesByName`, graph traversal, HITS reranking | Returns ranked symbols relevant to a natural-language task description, encoded via wire format codec. Uses HITS authority scores to promote structurally important nodes. |
 | 16 | `context_for_files` | `handleContextForFiles` | FUNCTIONAL | `NodesByName`, `EdgesFrom`, file lookups | Returns symbols and edges relevant to specified file paths, encoded via wire format codec |
+| 17 | `context_for_pr` | `handleContextForPR` | FUNCTIONAL | `NodesByName`, `EdgesFrom`, file lookups, RWR scoring | Returns PR-scoped context: symbols in changed files plus their structural impact neighborhood (callers, callees, related types) |
 
 Parameters per tool:
 
@@ -693,6 +694,7 @@ Parameters per tool:
 - `trace_stats`: (no parameters)
 - `context_for_task`: task (required), token_budget (optional), format (optional, default "json"; accepts "gcf", "gcb", "json", "xml", "markdown")
 - `context_for_files`: files (required, array of file paths), token_budget (optional), format (optional, default "json"; accepts "gcf", "gcb", "json", "xml", "markdown")
+- `context_for_pr`: files (required, comma-separated file paths), repo_url (optional), token_budget (optional, default 8000), format (optional, default "xml"; accepts "gcf", "gcb", "json", "xml", "markdown")
 
 ---
 
@@ -702,8 +704,8 @@ Parameters per tool:
 
 - **Flags:** `--db` (default: `knowing.db`), `--addr` (default: `:8080`), `--trace` (enable trace ingestion), `--trace-endpoint` (default: `localhost:4317`), `--trace-batch-size` (default: 1000)
 - **Positional args:** repo paths to watch (0 or more)
-- **What it does:** Opens SQLite store, creates snapshot manager and indexer, registers all extractors (Go, Python, Terraform, SQL, K8s, CSS), creates MCP server (16 tools, 3 prompts), creates daemon with GitWatcher, optionally starts trace ingestion pipeline (OTLPReceiver + Ingestor + periodic flush/decay), watches listed repos, blocks until SIGINT/SIGTERM.
-- **Extractors registered:** `gotsextractor` (Go, tree-sitter), `treesitter` (Python), `terraformextractor` (Terraform HCL), `sqlextractor` (SQL), `k8sextractor` (Kubernetes YAML), `cssextractor` (CSS). Route detection covers 18 frameworks across 6 languages (Go: 5, Python: 3, TypeScript: 5).
+- **What it does:** Opens SQLite store, creates snapshot manager and indexer, registers all 11 language extractors (Go, Python, TypeScript/JS, Rust, Java, C#, Terraform, SQL, K8s, CSS, Protocol Buffers), creates MCP server (17 tools, 3 prompts), creates daemon with GitWatcher, optionally starts trace ingestion pipeline (OTLPReceiver + Ingestor + periodic flush/decay), watches listed repos, blocks until SIGINT/SIGTERM.
+- **Extractors registered:** `gotsextractor` (Go), `treesitter` (Python), `tsextractor` (TypeScript/JS), `rustextractor` (Rust), `javaextractor` (Java), `csharpextractor` (C#), `terraformextractor` (Terraform HCL), `sqlextractor` (SQL), `k8sextractor` (Kubernetes YAML), `cssextractor` (CSS), `protoextractor` (Protocol Buffers). Route detection covers 18 frameworks across 6 languages (Go: 5, Python: 3, TypeScript: 5).
 - **Enrichment:** Background EnrichFunc wired with scoped or full enrichment.
 - **Trace ingestion:** When `--trace` is set, launches a fourth daemon goroutine that opens a dedicated DB connection, creates SymbolResolver + Ingestor + OTLPReceiver, flushes batches every 10s, and decays confidence every 1h.
 
@@ -729,7 +731,7 @@ Parameters per tool:
 
 - **Flags:** `--db` (default: `knowing.db`)
 - **No positional args.**
-- **What it does:** Launches the MCP server in stdio transport mode. Reads JSON-RPC messages from stdin and writes responses to stdout. Provides all 16 tools and 3 prompts. Designed for subprocess MCP usage (configured in `.mcp.json` or Claude Desktop).
+- **What it does:** Launches the MCP server in stdio transport mode. Reads JSON-RPC messages from stdin and writes responses to stdout. Provides all 17 tools and 3 prompts. Designed for subprocess MCP usage (configured in `.mcp.json` or Claude Desktop).
 
 ### `knowing reindex`
 
@@ -737,10 +739,22 @@ Parameters per tool:
 - **Positional args:** repo-path (required)
 - **What it does:** Clears all nodes, edges, and edge events from the store, then re-indexes the specified repository from scratch. Useful when extractor logic has changed or when the graph has accumulated stale data.
 
+### `knowing init`
+
+- **Flags:** `--db` (default: `knowing.db`), `--output` (default: `CLAUDE.md`)
+- **No positional args.**
+- **What it does:** Generates a CLAUDE.md section with graph-derived project context (symbol counts, package counts, tool breadcrumbs). Nondestructive and idempotent: uses markers to replace only the generated section, leaving hand-written content intact. Requires a pre-built database.
+
 ### `knowing context`
 
 - **Flags:** `--db` (default: `knowing.db`), `--format` (default: `json`, accepts: `gcf`, `gcb`, `json`, `xml`, `markdown`), `--task` (natural-language task description), `--files` (comma-separated file paths), `--token-budget` (optional)
 - **What it does:** CLI interface to the context engine. Returns ranked symbols and edges relevant to a task description or set of files. Output is encoded using the specified wire format codec. Equivalent to calling the `context_for_task` or `context_for_files` MCP tools from the command line.
+
+### `knowing test-scope`
+
+- **Flags:** `--db` (default: `knowing.db`), `--files` (comma-separated changed files; defaults to `git diff HEAD`), `--output` (default: `packages`; also `functions`, `run`), `--depth` (default: 3)
+- **No positional args.**
+- **What it does:** Computes which tests are affected by changed files. Uses `NodesByFilePath` to find symbols in changed files, then BFS backward through `calls` edges up to `--depth` hops to find test functions. Output modes: `packages` (Go package paths), `functions` (qualified test names), `run` (`-run` regex for `go test`).
 
 ### `knowing version`
 
@@ -906,9 +920,9 @@ Primary key: `(service_name, route_pattern, mapping_type)`.
 
 | Kind | What it represents | Produced by |
 |------|--------------------|-------------|
-| `function` | Package-level function | gotsextractor, goextractor, treesitter |
+| `function` | Package-level function or RPC method | gotsextractor, goextractor, treesitter, tsextractor, rustextractor, javaextractor, csharpextractor, protoextractor |
 | `method` | Method on a type | gotsextractor, goextractor |
-| `type` | Named type (struct, alias, etc.) | gotsextractor, goextractor, treesitter (Python classes) |
+| `type` | Named type (struct, alias, message, enum) | gotsextractor, goextractor, treesitter (Python classes), tsextractor, rustextractor, javaextractor, csharpextractor, protoextractor (messages, enums) |
 | `interface` | Interface type | gotsextractor, goextractor |
 | `const` | Constant declaration | gotsextractor, goextractor |
 | `var` | Variable declaration | gotsextractor, goextractor |
@@ -916,7 +930,7 @@ Primary key: `(service_name, route_pattern, mapping_type)`.
 | `package` | Synthetic package node (import target) | gotsextractor, goextractor (implicit, not stored) |
 | `module` | Python module (import target) | treesitter |
 | `route_handler` | HTTP route registration (e.g., "GET /users/:id") | gotsextractor (route detection) |
-| `service` | Runtime service identity | trace.SymbolResolver (synthetic, for span source nodes) |
+| `service` | Service declaration (proto) or runtime service identity | protoextractor (proto service declarations), trace.SymbolResolver (synthetic, for span source nodes) |
 | `runtime_endpoint` | Unresolved runtime target | trace.SymbolResolver (synthetic, when route_symbols lookup fails) |
 
 ---
@@ -1034,8 +1048,8 @@ Hardcoded in `cmd/knowing/main.go` via daemon startup: `500 * time.Millisecond`.
 
 ### Graph-Native Test Selection
 - **Roadmap: Developer Visibility workstream.**
-- **What's needed:** Test file detection, graph traversal from changed symbols to test functions, `knowing test-scope` CLI command.
-- **No code exists.**
+- **What was built:** `knowing test-scope` CLI command in `cmd/knowing/testscope.go`. Uses `NodesByFilePath` (store method that joins nodes to files via SQL) to find symbols in changed files, then BFS backward through `calls` edges to find test functions. Three output modes: `packages`, `functions`, `run` (regex for `go test -run`). Auto-detects changed files via `git diff HEAD` when `-files` is not specified.
+- **Remaining gaps:** Only detects Go test functions (prefix "Test"). No table-driven subtest detection. No integration with CI (no JSON output mode for machine consumption).
 
 ### Ownership Routing
 - **Roadmap: Developer Visibility workstream.**
@@ -1093,8 +1107,7 @@ Hardcoded in `cmd/knowing/main.go` via daemon startup: `500 * time.Millisecond`.
 - **No code exists.**
 
 ### DeleteSnapshot in GraphStore
-- **Noted as TODO in snapshot/manager.go line 96.**
-- **What's needed:** Method on GraphStore + SQLite implementation. Required for GarbageCollect to actually work.
+- **Status: IMPLEMENTED.** `SQLiteStore.DeleteSnapshot` removes a snapshot and its associated edge events. Used by `GarbageCollect` to perform real garbage collection of old snapshots.
 
 ---
 
@@ -1152,7 +1165,8 @@ Hardcoded in `cmd/knowing/main.go` via daemon startup: `500 * time.Millisecond`.
 
 ```
 cmd/knowing/
-  main.go                          -- CLI entry point (serve, index, query, export, version)
+  main.go                          -- CLI entry point (serve, index, query, export, init, version)
+  init.go                          -- knowing init: generates CLAUDE.md with graph-derived context
   main_test.go
 
 internal/types/
@@ -1219,6 +1233,12 @@ internal/indexer/
     extractor.go                   -- CSSExtractor: selectors, custom properties
     extractor_test.go
 
+internal/context/
+  context.go                       -- Context engine: task/file/PR context generation, RWR graph walk, token budgeting
+  ranking.go                       -- RankSymbols: blast radius, confidence, recency, distance, HITS authority scoring
+  hits.go                          -- HITS algorithm: authority/hub scores for subgraph reranking
+  context_test.go
+
 internal/wire/
   registry.go                      -- Codec registry: Register, Get, List, EncodeWith, DecodeWith
   session.go                       -- Session: cross-call symbol deduplication (47% savings on repeats)
@@ -1245,8 +1265,9 @@ internal/daemon/
   gitdiff_test.go
 
 internal/mcp/
-  server.go                        -- MCP Server: 16 tool definitions (execution + intelligence + runtime + context planes), stdio + HTTP transport
-  handlers.go                      -- 16 handler implementations (11 original + 3 runtime + 2 context: context_for_task, context_for_files)
+  server.go                        -- MCP Server: 17 tool definitions (execution + intelligence + runtime + context planes), stdio + HTTP transport
+  handlers.go                      -- 14 handler implementations (11 original + 3 runtime)
+  context_handlers.go              -- 3 context handler implementations: context_for_task, context_for_files, context_for_pr
   prompts.go                       -- 3 MCP prompts: refactor_safely, review_pr, investigate_dead_code
   handlers_test.go
 

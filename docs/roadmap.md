@@ -15,7 +15,7 @@ Everything else depends on this. Complete.
 | Incremental indexing | Git watcher, file change detection, deleted file cleanup | **done** |
 | Snapshot diff | Edge event sourcing, added/removed between snapshots | **done** |
 | Cross-repo resolution | Module-to-repo URL mapping, dangling edge retargeting | **done** |
-| MCP server | 16 tools + 3 prompts over stdio/HTTP | **done** |
+| MCP server | 17 tools + 3 prompts over stdio/HTTP | **done** |
 | Daemon + git watcher | Persistent process, .git/HEAD watching, incremental reindex | **done** |
 | Traversal cache | L1 in-memory LRU, L2 materialized closures, L3 bounded traversal | planned |
 

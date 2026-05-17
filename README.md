@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="#mcp-tools"><img src="https://img.shields.io/badge/MCP_tools-17-brightgreen.svg" alt="MCP Tools"></a>
-  <a href="#languages"><img src="https://img.shields.io/badge/languages-10-blue.svg" alt="Languages"></a>
+  <a href="#languages"><img src="https://img.shields.io/badge/languages-11-blue.svg" alt="Languages"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
   <a href="https://github.com/blackwell-systems"><img src="https://raw.githubusercontent.com/blackwell-systems/blackwell-docs-theme/main/badge-trademark.svg" alt="Blackwell Systems"></a>
 </p>
@@ -17,7 +17,7 @@
 
 ## What This Is
 
-knowing is a **content-addressed knowledge graph** that fuses static analysis, infrastructure declarations, and runtime traces into a single queryable structure. It indexes code in 10 languages, watches for git changes, ingests OpenTelemetry traces, and serves the result over MCP.
+knowing is a **content-addressed knowledge graph** that fuses static analysis, infrastructure declarations, and runtime traces into a single queryable structure. It indexes code in 11 languages, watches for git changes, ingests OpenTelemetry traces, and serves the result over MCP.
 
 Every node, edge, and snapshot is a SHA-256 hash. The graph has full history, provable integrity, and a clear answer to "when did this relationship appear and how confident are we in it?"
 
@@ -41,7 +41,7 @@ knowing answers those questions with provenance and confidence scores on every e
 ├──────────────┬───────────────────┬───────────────────────┤
 │   Indexer    │   Graph Store     │     MCP Server        │
 │              │                   │                       │
-│ 10 languages │ Content-addressed │ 16 tools + 3 prompts │
+│ 11 languages │ Content-addressed │ 17 tools + 3 prompts │
 │ tree-sitter  │ SQLite + Merkle   │ stdio / HTTP          │
 │ go/packages  │ Snapshot chain    │ GCF wire format       │
 │ OTel ingest  │ Edge events       │                       │
@@ -50,9 +50,9 @@ knowing answers those questions with provenance and confidence scores on every e
 
 Three components, one binary:
 
-- **Indexer**: parses ASTs across 10 languages, resolves cross-repo references, ingests OTel traces, watches git for incremental re-indexing
+- **Indexer**: parses ASTs across 11 languages, resolves cross-repo references, ingests OTel traces, watches git for incremental re-indexing
 - **Graph store**: content-addressed SQLite with Merkle snapshot chain, edge event sourcing, runtime confidence decay
-- **MCP server**: 16 tools + 3 prompts over stdio/HTTP, with GCF wire format (76% token savings vs JSON)
+- **MCP server**: 17 tools + 3 prompts over stdio/HTTP, with GCF wire format (76% token savings vs JSON)
 
 ## Languages
 
@@ -68,6 +68,7 @@ Three components, one binary:
 | SQL | tree-sitter | tables, views, procedures |
 | Kubernetes YAML | yaml.v3 | deployments, services, configmaps, ingress |
 | CSS/SCSS | tree-sitter | selectors, custom properties, imports |
+| Protocol Buffers | tree-sitter | services, messages, RPCs, enums |
 
 ## MCP Tools
 
@@ -180,7 +181,7 @@ The result is a graph with the same integrity guarantees git provides for source
 | [Architecture](docs/architecture.md) | System design, schemas, content addressing, interfaces |
 | [Wire Formats](docs/wire-formats.md) | GCF/GCB specs, grammar, benchmarks, codec registry |
 | [CLI Reference](docs/CLI.md) | All commands with flags and examples |
-| [MCP Tools](docs/MCP-TOOLS.md) | All 16 tools with parameters and return formats |
+| [MCP Tools](docs/MCP-TOOLS.md) | All 17 tools with parameters and return formats |
 | [Edge Types](docs/edge-types.md) | The 9 relationship types and their semantics |
 | [Context Packing](docs/context-packing.md) | RWR algorithm, scoring, token budgeting |
 | [Runtime Traces](docs/runtime-traces.md) | OTel ingestion, confidence scoring, decay |
