@@ -76,21 +76,60 @@ Core pipeline complete. v2 refinements identified.
 | MCP resources | knowing://context/<scope> subscribable resources | planned |
 | Semantic embedding seeds | MiniLM-L6-v2 embeddings for concept-level retrieval (see below) | planned (high impact) |
 
-### Embedding Retrieval (research note)
+### Retrieval Pipeline Architecture
 
-knowing's current keyword-only seeding hits 36% P@10 on easy, 2% on hard. The gap is entirely in
-"concept" queries where task descriptions use different words than symbol names ("authentication
-handling" should find `AuthMiddleware` even with zero keyword overlap).
+The context engine's strength is the back half: once it has good seeds, graph expansion + HITS +
+feedback + knapsack produce compact, useful context. The weakness is the front door: lexical seed
+discovery. Eval baseline: easy 36%, medium 16%, hard 2%.
 
-**Implementation plan (no CGO required):**
-- Runtime: `github.com/knights-analytics/hugot` (pure Go ONNX, auto-downloads model ~30MB)
+**Target pipeline:**
+
+```
+task / diff / session state
+  -> query understanding (expand terms, rewrite)
+  -> hybrid seed retrieval (multiple sources, RRF fusion)
+  -> graph expansion (RWR from seeds, edge-type-weighted)
+  -> reranking (HITS + provenance + feedback + confidence)
+  -> budget packing (density-ranked knapsack, heterogeneous units)
+  -> compact delivery (GCF, session dedup)
+  -> feedback loop (observe what agent uses, compound next retrieval)
+```
+
+**Implementation priority (cheapest wins first):**
+
+| # | Stage | What | Why | Effort |
+|---|-------|------|-----|--------|
+| 1 | Session-aware boosts | Track files read/edited this session, boost those symbols + neighbors | Cheapest win. Aider gets 50x from this. Zero infrastructure. | Low |
+| 2 | BM25 over symbol metadata | FTS5 index over qualified names + signatures + file paths | Fixes lexical failures without ML. SQLite FTS5 is already available. | Low |
+| 3 | LLM query rewriting | Fast LLM converts NL to candidate symbol names before seeding | "make auth faster" -> ["auth", "session", "middleware", "cache"]. No model download. | Low-Medium |
+| 4 | RRF fusion | Merge keyword, BM25, path, feedback, and session signals with RRF (k=60) | Combines all seed sources into one ranked seed set. Proven technique. | Medium |
+| 5 | Community-aware retrieval | Identify likely community from seeds, constrain walk to relevant subsystem | Prevents RWR from wandering into unrelated packages. | Medium |
+| 6 | Embeddings (MiniLM-L6-v2) | Embed symbols at index time, nearest-neighbor at query time | Handles concept queries with zero keyword overlap. Highest ceiling. | Medium-High |
+| 7 | Cross-encoder reranker | LLM or cross-encoder scores top-50 against query | Maximum accuracy for high-stakes queries (PR review, blast radius). | High |
+
+**Dependencies:** Each stage is independently valuable. 1-3 can ship in parallel. 4 composes
+them. 5-7 build on the fused pipeline.
+
+**Embedding details (when ready):**
+- Runtime: `github.com/knights-analytics/hugot` (pure Go ONNX, auto-downloads ~30MB)
 - Storage: `github.com/coder/hnsw` (pure Go, in-memory, 384 dims, cap 100K symbols)
 - Embed text: `fmt.Sprintf("%s %s %s %s", node.Kind, node.Name, signature, filePath)`
 - Fusion: RRF (k=60) combining keyword seeds + vector nearest-50 as joint seed set
-- RWR + HITS + feedback still rank the final output
 
-**Expected impact:** Hard tier 2% -> 15-25%, medium 16% -> 35-45%, easy should stay >80%.
-The embedding layer finds semantically related symbols that keyword matching misses entirely.
+**Expected impact per stage:**
+- Session boosts: repeat queries within session improve dramatically (no eval change on cold start)
+- BM25: easy 36% -> 55%+, medium 16% -> 25%+ (fixes pure lexical misses)
+- Query rewriting: hard 2% -> 10-15% (finds symbols the developer would name differently)
+- Embeddings: hard 2% -> 15-25%, medium -> 35-45% (concept-level matching)
+- Full pipeline: targeting easy >80%, medium >40%, hard >20%
+
+**Strategic positioning:**
+
+knowing is the content-addressed graph retrieval layer for AI-assisted software development.
+Search finds entry points. The graph discovers structurally relevant context. Provenance tells
+the agent what to trust. Feedback makes retrieval improve across sessions. GCF makes the result
+cheap enough to use repeatedly. This is a distinct layer in the stack that complements existing
+search tools rather than competing with them.
 
 ## Workstream: Developer Visibility
 
