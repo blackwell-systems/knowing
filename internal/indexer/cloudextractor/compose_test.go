@@ -139,7 +139,7 @@ services:
 			t.Fatalf("extract error: %v", err)
 		}
 
-		dependsOnEdges := filterEdges(result.Edges, "depends_on")
+		dependsOnEdges := composeFilterEdges(result.Edges, "depends_on")
 		if len(dependsOnEdges) != 2 {
 			t.Fatalf("expected 2 depends_on edges, got %d", len(dependsOnEdges))
 		}
@@ -166,7 +166,7 @@ services:
 			t.Fatalf("extract error: %v", err)
 		}
 
-		dependsOnEdges := filterEdges(result.Edges, "depends_on")
+		dependsOnEdges := composeFilterEdges(result.Edges, "depends_on")
 		if len(dependsOnEdges) != 2 {
 			t.Fatalf("expected 2 depends_on edges, got %d", len(dependsOnEdges))
 		}
@@ -199,7 +199,7 @@ services:
 		t.Fatalf("expected 3 port nodes, got %d", len(portNodes))
 	}
 
-	exposesEdges := filterEdges(result.Edges, "exposes")
+	exposesEdges := composeFilterEdges(result.Edges, "exposes")
 	if len(exposesEdges) != 3 {
 		t.Fatalf("expected 3 exposes edges, got %d", len(exposesEdges))
 	}
@@ -230,7 +230,7 @@ services:
 		t.Fatalf("expected 2 network nodes (deduplicated), got %d", len(networkNodes))
 	}
 
-	connectsToEdges := filterEdges(result.Edges, "connects_to")
+	connectsToEdges := composeFilterEdges(result.Edges, "connects_to")
 	if len(connectsToEdges) != 3 {
 		t.Fatalf("expected 3 connects_to edges, got %d", len(connectsToEdges))
 	}
@@ -256,7 +256,7 @@ services:
 		t.Fatalf("extract error: %v", err)
 	}
 
-	connectsToEdges := filterEdges(result.Edges, "connects_to")
+	connectsToEdges := composeFilterEdges(result.Edges, "connects_to")
 	if len(connectsToEdges) != 2 {
 		t.Fatalf("expected 2 connects_to edges, got %d", len(connectsToEdges))
 	}
@@ -282,7 +282,7 @@ services:
 }
 
 // filterEdges returns edges matching the given type.
-func filterEdges(edges []types.Edge, edgeType string) []types.Edge {
+func composeFilterEdges(edges []types.Edge, edgeType string) []types.Edge {
 	var filtered []types.Edge
 	for _, e := range edges {
 		if e.EdgeType == edgeType {

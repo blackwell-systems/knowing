@@ -634,6 +634,7 @@ waves:
           files:
             - internal/indexer/cloudextractor/serverless.go
             - internal/indexer/cloudextractor/serverless_test.go
+      base_commit: 480b233356ae5b6819c343619b271ce00b95a72c
     - number: 2
       agents:
         - id: E
@@ -835,6 +836,97 @@ quality_gates:
         - type: test
           command: GOWORK=off go test ./... -timeout 5m
           required: true
+post_merge_checklist:
+    groups:
+        - title: Background Service Initialization
+          items:
+            - description: Verify if cloudformation_test.go needs initialization in Server constructor
+            - description: Verify if compose_test.go needs initialization in Server constructor
+            - description: Verify if actions_test.go needs initialization in Server constructor
+            - description: Verify if serverless_test.go needs initialization in Server constructor
+completion_reports:
+    A:
+        status: complete
+        branch: polywave/cloud-extractors/wave1-agent-A
+        commit: d64ef2e
+        files_changed:
+            - internal/indexer/cloudextractor/cloudformation.go
+            - internal/indexer/cloudextractor/cloudformation_test.go
+        files_created:
+            - internal/indexer/cloudextractor/cloudformation.go
+            - internal/indexer/cloudextractor/cloudformation_test.go
+        tests_added:
+            - TestCfnExtractor_CanHandle
+            - TestCfnExtractor_ExtractResources
+            - TestCfnExtractor_ExtractRefEdges
+            - TestCfnExtractor_ExtractGetAttEdges
+            - TestCfnExtractor_ExtractDependsOn
+            - TestCfnExtractor_ExtractSAMEvents
+            - TestCfnExtractor_EmptyResources
+        verification: PASS
+        notes: cfnExtractor implements CloudFormation/SAM detection, resource node extraction, Ref/GetAtt/DependsOn edge creation, and SAM event handling. All 7 tests pass. All helpers prefixed with cfn per naming convention.
+    B:
+        status: complete
+        branch: polywave/cloud-extractors/wave1-agent-B
+        commit: a863032
+        files_changed:
+            - internal/indexer/cloudextractor/compose.go
+            - internal/indexer/cloudextractor/compose_test.go
+        files_created:
+            - internal/indexer/cloudextractor/compose.go
+            - internal/indexer/cloudextractor/compose_test.go
+        tests_added:
+            - TestComposeExtractor_CanHandle
+            - TestComposeExtractor_ExtractServices
+            - TestComposeExtractor_ExtractDependsOn
+            - TestComposeExtractor_ExtractPorts
+            - TestComposeExtractor_ExtractNetworks
+            - TestComposeExtractor_ExtractLinks
+            - TestComposeExtractor_EmptyServices
+        verification: PASS
+        notes: Docker Compose extractor complete. All 7 tests passing. Implements subExtractor interface with canHandle and extract methods. Handles depends_on (list+map), ports, links, and networks. All helpers prefixed with compose per naming convention.
+    C:
+        status: complete
+        branch: polywave/cloud-extractors/wave1-agent-C
+        commit: 9c616ad
+        files_changed:
+            - internal/indexer/cloudextractor/actions.go
+            - internal/indexer/cloudextractor/actions_test.go
+        files_created:
+            - internal/indexer/cloudextractor/actions.go
+            - internal/indexer/cloudextractor/actions_test.go
+        tests_added:
+            - TestActionsExtractor_CanHandle
+            - TestActionsExtractor_ExtractWorkflow
+            - TestActionsExtractor_ExtractJobs
+            - TestActionsExtractor_ExtractJobNeeds
+            - TestActionsExtractor_ExtractStepActions
+            - TestActionsExtractor_DeduplicateActions
+            - TestActionsExtractor_EmptyJobs
+        verification: PASS
+        notes: GitHub Actions extractor complete. All 7 tests passing. All helper functions and constants prefixed with 'actions' per naming convention.
+    D:
+        status: complete
+        branch: polywave/cloud-extractors/wave1-agent-D
+        commit: aa8041b
+        files_changed:
+            - internal/indexer/cloudextractor/serverless.go
+            - internal/indexer/cloudextractor/serverless_test.go
+        files_created:
+            - internal/indexer/cloudextractor/serverless.go
+            - internal/indexer/cloudextractor/serverless_test.go
+        tests_added:
+            - TestServerlessExtractor_CanHandle
+            - TestServerlessExtractor_ExtractFunctions
+            - TestServerlessExtractor_ExtractHttpRoutes
+            - TestServerlessExtractor_ExtractHttpApiRoutes
+            - TestServerlessExtractor_ExtractSQSSubscription
+            - TestServerlessExtractor_ExtractSNSSubscription
+            - TestServerlessExtractor_ExtractSchedule
+            - TestServerlessExtractor_ExtractS3Event
+            - TestServerlessExtractor_EmptyFunctions
+        verification: PASS
+        notes: Serverless extractor complete. All 9 tests passing. Handles http, httpApi, sqs, sns, schedule, s3 event types. All helpers prefixed with sls per spec.
 pre_mortem:
     overall_risk: low
     rows:
