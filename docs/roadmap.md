@@ -28,13 +28,13 @@ Everything else depends on this. Complete.
 | SCIP ingest | `knowing ingest-scip` CLI: import .scip protobuf indexes, provenance `scip_resolved` (0.95) | **done** |
 | Cloud extractors | CloudFormation/SAM, Docker Compose, GitHub Actions, Serverless Framework (via CloudExtractor) | **done** |
 | Protobuf/gRPC edges | Proto field references, service-to-service RPC relationships | **done** |
-| Event edges | Kafka/NATS/SQS topic producers and consumers (package exists, not yet registered) | planned |
-| Schema edges | OpenAPI specs, JSON Schema, proto-as-schema references (package exists, not yet registered) | planned |
+| Event edges | Kafka/NATS/SQS/RabbitMQ topic producers and consumers via multi-dispatch | **done** |
+| Schema edges | OpenAPI 3.x, Swagger 2.x, JSON Schema document parsing via multi-dispatch | **done** |
 | Ownership edges | CODEOWNERS, team annotations, service catalog metadata | planned |
 
 ## Workstream: Runtime Intelligence
 
-Complete.
+Core pipeline complete. Runtime edge expansion planned.
 
 | Item | Description | Status |
 |------|-------------|--------|
@@ -43,7 +43,20 @@ Complete.
 | Confidence decay | Hourly decay in daemon trace loop | **done** |
 | Symbol resolver | Maps runtime identifiers to graph nodes via route_symbols | **done** |
 | MCP runtime tools | runtime_traffic, dead_routes, trace_stats | **done** |
-| Database query edges | Ingest DB query logs as runtime_queries edges | planned |
+| `runtime_queries` | Service/function queries database table/view/procedure. Highest-value missing plane: links code to data ownership and migration risk. | planned (P1) |
+| `runtime_connects_to` | Observed network connection to service, host, database, broker, cache, or external API beyond traced HTTP/RPC. | planned (P2) |
+| `runtime_errors_at` | Symbol/route/service produces runtime errors, tied to trace/log/error telemetry. Enables incident/debug workflows. | planned (P3) |
+| `runtime_uses_config` | Service/function reads config key or secret at runtime. Enables config/secret blast radius. | planned (P4) |
+| `runtime_emits_metric` | Symbol/service emits a named metric. Observability-to-code navigation. | planned (P5) |
+| `runtime_logs_event` | Symbol/service emits a structured log event type. | planned (P5) |
+| `runtime_writes` | Service/function writes table, bucket, queue, cache key, file, or object. | planned |
+| `runtime_reads` | Service/function reads table, bucket, cache key, config, secret, file, or object. | planned |
+| `runtime_scheduled` | Cron/job/workflow invoked function or service at runtime. | planned |
+| `runtime_allocates` | Service/function provisions or dynamically creates cloud resource. | planned |
+| `runtime_redirects_to` | HTTP route redirects/forwards/proxies to another route/service. | planned |
+| `runtime_authenticates_as` | Service acts as principal/role/user/client identity. | planned |
+| `runtime_authorizes` | Policy/permission check observed for route/function/action. | planned |
+| `runtime_depends_on` | Observed dependency inferred from runtime behavior when static linkage is absent. | planned |
 
 ## Workstream: Context Packing
 
