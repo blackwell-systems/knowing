@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <strong>Content-addressed code graph. Identity is content, so the graph updates itself.</strong>
+  <strong>Content-addressed code graph. Identity is content, so incremental updates are structural.</strong>
 </p>
 
 ---
@@ -24,7 +24,7 @@ knowing applies the same model to **code relationships**:
 | | Git | knowing |
 |---|---|---|
 | Unit of storage | file blob | node (symbol) + edge (relationship between symbols) |
-| Node identity | `sha256(content)` | `sha256(repo + package + name + kind)` |
+| Node identity | `sha256(file content)` | `sha256(repo + package + name + kind)` (logical identity) |
 | Edge identity | n/a (paths are implicit) | `sha256(source_hash + target_hash + type + provenance)` |
 | Snapshot | tree hash of sorted child hashes | Merkle root of sorted edge hashes |
 | Incremental update | changed file = new blob hash | changed file = invalidated node hashes, surgical re-extraction |
