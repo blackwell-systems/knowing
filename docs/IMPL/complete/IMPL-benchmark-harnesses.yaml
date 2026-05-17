@@ -1,3 +1,4 @@
+completion_date: "2026-05-17"
 title: 'Benchmark Harnesses: Proving Knowing Value with Hard Data'
 feature_slug: benchmark-harnesses
 verdict: SUITABLE
@@ -376,6 +377,7 @@ waves:
           files:
             - bench/token-savings/bench_test.go
             - bench/token-savings/FINDINGS.md
+      base_commit: ac31c8d8e83bb6186a0206052b3ae925354f9d65
 quality_gates:
     level: standard
     gates:
@@ -388,6 +390,71 @@ quality_gates:
         - type: test
           command: GOWORK=off go test ./bench/... -short -timeout 5m
           required: true
+post_merge_checklist:
+    groups:
+        - title: Background Service Initialization
+          items:
+            - description: Verify if bench_test.go needs initialization in Server constructor
+            - description: Verify if bench_test.go needs initialization in Server constructor
+            - description: Verify if bench_test.go needs initialization in Server constructor
+            - description: Verify if bench_test.go needs initialization in Server constructor
+completion_reports:
+    A:
+        status: complete
+        branch: polywave/benchmark-harnesses/wave1-agent-A
+        commit: f3190ff
+        files_changed:
+            - bench/test-scope-accuracy/bench_test.go
+            - bench/test-scope-accuracy/FINDINGS.md
+        files_created:
+            - bench/test-scope-accuracy/bench_test.go
+            - bench/test-scope-accuracy/FINDINGS.md
+        tests_added:
+            - TestTestScopeAccuracy
+        verification: PASS
+        notes: Test-scope accuracy benchmark complete. Build, vet, and short-mode test all pass. Benchmark replicates BFS logic from cmd/knowing/testscope.go, compares depth-3 predictions against depth-5 ground truth across 20 recent commits.
+    B:
+        status: complete
+        branch: polywave/benchmark-harnesses/wave1-agent-B
+        commit: f9a9388
+        files_changed:
+            - bench/edge-accuracy/bench_test.go
+            - bench/edge-accuracy/FINDINGS.md
+        files_created:
+            - bench/edge-accuracy/bench_test.go
+            - bench/edge-accuracy/FINDINGS.md
+        tests_added:
+            - TestEdgeAccuracy
+        verification: PASS
+        notes: Edge accuracy benchmark compares tree-sitter vs go/ast extractors. Indexes repo with both, queries edges via raw SQL, computes confirmation/FP/miss rates overall and per edge type. All gates pass.
+    C:
+        status: complete
+        branch: polywave/benchmark-harnesses/wave1-agent-C
+        commit: 9aa1db2
+        files_changed:
+            - bench/context-relevance/bench_test.go
+            - bench/context-relevance/FINDINGS.md
+        files_created:
+            - bench/context-relevance/bench_test.go
+            - bench/context-relevance/FINDINGS.md
+        tests_added:
+            - TestContextRelevance
+        verification: PASS
+        notes: Context relevance A/B benchmark complete. 10 fixtures, 3 configs (keyword-only, full engine, full+feedback). All gates pass.
+    D:
+        status: complete
+        branch: polywave/benchmark-harnesses/wave1-agent-D
+        commit: bd6cb2d
+        files_changed:
+            - bench/token-savings/bench_test.go
+            - bench/token-savings/FINDINGS.md
+        files_created:
+            - bench/token-savings/bench_test.go
+            - bench/token-savings/FINDINGS.md
+        tests_added:
+            - TestTokenSavings
+        verification: PASS
+        notes: Token savings benchmark complete. 55.6% tool call reduction, 53.1% token reduction across 5 scenarios. All quality gates pass.
 pre_mortem:
     overall_risk: low
     rows:
@@ -417,4 +484,4 @@ critic_report:
     summary: Skipped by operator (--skip-critic)
     reviewed_at: "2026-05-17T18:00:53Z"
     issue_count: 0
-state: "REVIEWED"
+state: COMPLETE

@@ -33,3 +33,5 @@
   - IMPL doc: docs/IMPL/complete/IMPL-cloud-extractors.yaml
 - **scip-ingestion**: completed 2026-05-17, 2 waves, 2 agents
   - IMPL doc: docs/IMPL/complete/IMPL-scip-ingestion.yaml
+- **benchmark-harnesses**: completed 2026-05-17, 1 waves, 4 agents
+  - IMPL doc: docs/IMPL/complete/IMPL-benchmark-harnesses.yaml
