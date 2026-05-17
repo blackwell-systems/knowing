@@ -51,6 +51,16 @@ brews:
     test: |
       assert_match "knowing", shell_output("#{bin}/knowing version 2>&1", 0)
 
+dockers:
+  - image_templates:
+      - "ghcr.io/blackwell-systems/knowing:{{ .Version }}"
+      - "ghcr.io/blackwell-systems/knowing:latest"
+      - "blackwellsystems/knowing:{{ .Version }}"
+      - "blackwellsystems/knowing:latest"
+    dockerfile: Dockerfile
+    build_flag_templates:
+      - "--platform=linux/amd64"
+
 changelog:
   sort: asc
   filters:
