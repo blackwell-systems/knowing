@@ -25,3 +25,5 @@
   - IMPL doc: docs/IMPL/complete/IMPL-graph-context-packing.yaml
 - **infra-schema-extractors**: completed 2026-05-16, 2 waves, 5 agents
   - IMPL doc: docs/IMPL/complete/IMPL-infra-schema-extractors.yaml
+- **mcp-tools-expansion**: completed 2026-05-16, 2 waves, 6 agents
+  - IMPL doc: docs/IMPL/complete/IMPL-mcp-tools-expansion.yaml
