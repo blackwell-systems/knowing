@@ -75,6 +75,8 @@ After Phase 1 (baseline), the test records positive feedback for every ground-tr
 | Recall@10 | 32.1% | 37.5% | +5.4 pp |
 | MRR | 0.457 | 0.583 | +0.126 |
 
+**Note (2026-05-17):** After the 5-tier seeding improvements (file-path matching + interface-aware seeding), a subsequent run shows even stronger results: precision 16% -> 36% (+20pp), recall 21% -> 48% (+27pp). The feedback mechanism amplifies the improved seed quality because higher-quality seeds mean feedback is anchored to more relevant symbols.
+
 ---
 
 ## Community Scoping Test
