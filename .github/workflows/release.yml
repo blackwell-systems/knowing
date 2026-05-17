@@ -266,7 +266,7 @@ jobs:
           TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
 
   mcp-registry-publish:
-    needs: release
+    needs: npm-publish
     runs-on: ubuntu-latest
     permissions:
       id-token: write
