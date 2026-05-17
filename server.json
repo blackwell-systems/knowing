@@ -1,5 +1,5 @@
 {
-  "$schema": "https://registry.modelcontextprotocol.io/v0.1/server.schema.json",
+  "$schema": "https://registry.modelcontextprotocol.io/schemas/v0/server.json",
   "name": "io.github.blackwell-systems/knowing",
   "version": "0.1.0",
   "description": "Content-addressed code graph with 22 MCP tools for AI agents.",
@@ -15,7 +15,10 @@
       "runtime": "node",
       "runtime_arguments": [],
       "package_arguments": ["mcp", "-db", "knowing.db"],
-      "environment_variables": []
+      "environment_variables": [],
+      "transport": {
+        "type": "stdio"
+      }
     }
   ],
   "tools": [
