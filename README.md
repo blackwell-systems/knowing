@@ -23,15 +23,16 @@ knowing applies the same model to **code relationships**:
 
 | | Git | knowing |
 |---|---|---|
-| Unit of storage | file blob | edge (`source -> target`, type, provenance) |
-| Identity | `sha256(content)` | `sha256(repo + package + name + kind)` |
+| Unit of storage | file blob | node (symbol) + edge (relationship between symbols) |
+| Node identity | `sha256(content)` | `sha256(repo + package + name + kind)` |
+| Edge identity | n/a (paths are implicit) | `sha256(source_hash + target_hash + type + provenance)` |
 | Snapshot | tree hash of sorted child hashes | Merkle root of sorted edge hashes |
-| Incremental update | changed file = new blob hash | changed file = invalidated edges, surgical re-extraction |
+| Incremental update | changed file = new blob hash | changed file = invalidated node hashes, surgical re-extraction |
 | History | commit chain (append-only) | snapshot chain + edge event log (append-only) |
 | Integrity | verify tree from root hash | verify snapshot from Merkle root |
 | Diff | any two commits | any two snapshots |
 
-The hard problems (staleness, history, integrity, incremental updates) are structural consequences of choosing content-addressing. knowing watches `.git/HEAD` (one file descriptor), detects changed files, invalidates their hashes, re-extracts only affected edges, and computes a new snapshot root. The graph is always current because the identity model makes staleness detectable and recovery surgical.
+The hard problems (staleness, history, integrity, incremental updates) are structural consequences of choosing content-addressing. knowing watches `.git/HEAD` and ref changes, detects changed files, invalidates their hashes, re-extracts only affected edges, and computes a new snapshot root. Staleness is structurally detectable and recovery is bounded to the changed files, not a full re-index.
 
 On top of this foundation, knowing fuses static analysis, infrastructure declarations, SCIP indexes, and OpenTelemetry runtime traces into one graph. Every edge carries provenance and confidence. Agents can ask not just "where is this symbol?" but "what depends on it, how do we know, how confident are we, and what changed since the last snapshot?"
 
@@ -279,7 +280,7 @@ knowing is implemented, benchmarked, and usable, but it is still explicit about 
 - Static call-graph impact follows `calls` edges; other edge types are used for context and relationship awareness, not every blast-radius traversal.
 - Runtime tools require OpenTelemetry trace ingestion and route-symbol mappings; without trace data they have no runtime observations to report.
 - LSP enrichment currently centers on Go through `gopls`; other languages rely on tree-sitter/static extractors and SCIP where available.
-- Some planned work remains: MCP resources, multi-extractor dispatch for event/schema extractors, traversal caching, richer ownership routing, and federated graphs.
+- Some planned work remains: MCP resources, traversal caching, richer ownership routing, and federated graphs.
 
 See [docs/FEATURES.md](docs/FEATURES.md) for the implementation inventory and known gaps, and [docs/roadmap.md](docs/roadmap.md) for planned work.
 
