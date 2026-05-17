@@ -1,0 +1,93 @@
+# Benchmarks
+
+Six benchmark harnesses that prove knowing's value with hard data. Each benchmark
+is a standalone Go test package that indexes the knowing repo, runs measurements,
+and auto-generates a `FINDINGS.md` with results and interpretation.
+
+## Summary
+
+| Benchmark | What it proves | Key result |
+|-----------|---------------|------------|
+| [feedback-loop](feedback-loop/) | Feedback compounding improves precision over time | 16% -> 36% precision (+20pp) after one round |
+| [context-relevance](context-relevance/) | Each engine layer adds measurable value | Feedback adds +9pp precision over baseline |
+| [token-savings](token-savings/) | knowing reduces agent exploration cost | 55.6% fewer tokens, 52.8% fewer tool calls |
+| [edge-accuracy](edge-accuracy/) | Two-tier extraction provides meaningful signal | 53.6% import confirmation, 26.7% overall |
+| [test-scope-accuracy](test-scope-accuracy/) | Call-graph BFS predicts affected tests | 98.9% precision vs independent Go import DAG |
+| [wire-format](wire-format/) | GCF is dramatically more token-efficient than JSON | 84% token savings, 74% byte savings |
+
+## Running
+
+```bash
+# Run all benchmarks (takes ~60s):
+GOWORK=off go test ./bench/... -timeout 5m
+
+# Run a specific benchmark with verbose output:
+GOWORK=off go test ./bench/feedback-loop/ -v -count=1
+
+# Skip slow benchmarks in quick iteration:
+GOWORK=off go test ./bench/... -short
+```
+
+All benchmarks index the live knowing repo from the working directory. Results
+vary slightly as the codebase evolves.
+
+## Design Principles
+
+1. **Self-contained.** Each benchmark creates a temp database, indexes the repo,
+   runs measurements, and cleans up. No external state or pre-existing database.
+
+2. **Auto-generated findings.** Each test writes its own `FINDINGS.md` with
+   current numbers. Run the test to refresh the report.
+
+3. **Independent ground truth.** Benchmarks compare knowing's output against
+   independent data sources (Go import graph, go/ast type resolution, manual
+   ground truth fixtures) rather than circular self-validation.
+
+4. **Honest interpretation.** FINDINGS.md documents what the data shows and
+   what it does not. Limitations and caveats are stated explicitly.
+
+## Benchmark Details
+
+### feedback-loop
+
+Proves the shared intelligence layer thesis: feedback anchored to content-addressed
+symbol hashes compounds over sessions, scopes by community, and expires naturally
+on rename.
+
+- 4 tests: single-round, multi-round (5 rounds), community scoping, natural expiration
+- 5 task fixtures with hand-curated ground truth (8 symbols each)
+- Centered feedback scoring: `0.15 * (2*score - 1.0)`
+
+### context-relevance
+
+A/B comparison of 3 engine configurations across 10 task fixtures:
+- Config A: keyword seeds only (Distance == 0)
+- Config B: full engine (RWR + HITS + all 5 seed tiers)
+- Config C: full engine + accumulated feedback
+
+Shows that feedback is the strongest enhancement for precision at current repo scale,
+while HITS/RWR provides score differentiation that matters more on larger repos.
+
+### token-savings
+
+Simulates agent workflows: for 5 task scenarios, measures how many grep/read tool
+calls an agent would need without knowing vs one `context_for_task` call with knowing.
+Estimates token cost per path.
+
+### edge-accuracy
+
+Indexes the repo twice (tree-sitter and go/ast) and compares edge sets. Reports
+per-edge-type accuracy with a fair comparison restricted to edge types both
+extractors attempt (calls + imports). Validates the two-tier speed/accuracy tradeoff.
+
+### test-scope-accuracy
+
+For each of the last 20 commits, predicts affected test packages via call-graph BFS
+and compares against Go's import DAG (`go list -deps -test`) as independent ground
+truth. Skips gracefully on shallow clones (CI).
+
+### wire-format
+
+Measures GCF (token-optimized) and GCB (byte-optimized) against JSON across 6
+fixture payloads. Verifies round-trip integrity, monotonic improvement (GCF never
+worse than JSON), and p99 encode latency < 1ms.
