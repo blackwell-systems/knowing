@@ -1,673 +1,655 @@
-title: 'Event and Schema Extractors'
+title: Event and Schema Extractors
 feature_slug: event-schema-extractors
 verdict: SUITABLE
-state: REVIEWED
-
 suitability_assessment: |
-  1. File decomposition: The two extractors live in entirely separate packages
-     (internal/indexer/eventextractor/ and internal/indexer/schemaextractor/) with
-     disjoint file ownership. Integration (registration + multi-extractor support)
-     is handled by a dedicated wave 2 agent.
-  2. Investigation-first: No unknowns. The patterns (Kafka, NATS, SQS, RabbitMQ,
-     OpenAPI, JSON Schema) are well-defined. Tree-sitter grammars already exist
-     in the project for Go, TypeScript, Python, and Java.
-  3. Interface discoverability: Both extractors implement the existing types.Extractor
-     interface (Name, CanHandle, Extract). No new cross-agent interfaces needed.
-  4. Pre-implementation status: No existing event or schema extractors in the codebase.
-     All work is new (TODO status).
-  5. Parallelization value: Two fully independent agents in wave 1 (each creating
-     3 files), plus a small integration wave. Build/test cycle >30s (go test ./...
-     with tree-sitter CGO compilation). Clear speedup.
+    1. File decomposition: The two extractors live in entirely separate packages
+       (internal/indexer/eventextractor/ and internal/indexer/schemaextractor/) with
+       disjoint file ownership. Integration (registration + multi-extractor support)
+       is handled by a dedicated wave 2 agent.
+    2. Investigation-first: No unknowns. The patterns (Kafka, NATS, SQS, RabbitMQ,
+       OpenAPI, JSON Schema) are well-defined. Tree-sitter grammars already exist
+       in the project for Go, TypeScript, Python, and Java.
+    3. Interface discoverability: Both extractors implement the existing types.Extractor
+       interface (Name, CanHandle, Extract). No new cross-agent interfaces needed.
+    4. Pre-implementation status: No existing event or schema extractors in the codebase.
+       All work is new (TODO status).
+    5. Parallelization value: Two fully independent agents in wave 1 (each creating
+       3 files), plus a small integration wave. Build/test cycle >30s (go test ./...
+       with tree-sitter CGO compilation). Clear speedup.
 
-  Estimated times:
-  - Scout phase: ~5 min
-  - Agent execution: ~8 min (2 agents parallel in wave 1, ~6 min each; 1 agent wave 2, ~4 min)
-  - Merge & verification: ~3 min
-  Total Polywave time: ~15 min
+    Estimated times:
+    - Scout phase: ~5 min
+    - Agent execution: ~8 min (2 agents parallel in wave 1, ~6 min each; 1 agent wave 2, ~4 min)
+    - Merge & verification: ~3 min
+    Total Polywave time: ~15 min
 
-  Sequential baseline: ~20 min (3 agents x ~6 min avg sequential)
-  Time savings: ~5 min (25% faster)
+    Sequential baseline: ~20 min (3 agents x ~6 min avg sequential)
+    Time savings: ~5 min (25% faster)
 
-  Recommendation: Clear speedup from parallel wave 1 execution with CGO build overhead.
-
+    Recommendation: Clear speedup from parallel wave 1 execution with CGO build overhead.
 test_command: GOWORK=off go test ./... -timeout 5m
 lint_command: GOWORK=off go vet ./...
-
-quality_gates:
-  level: standard
-  gates:
-    - type: build
-      command: GOWORK=off go build ./...
-      required: true
-    - type: lint
-      command: GOWORK=off go vet ./...
-      required: true
-    - type: test
-      command: GOWORK=off go test ./... -timeout 5m
-      required: true
-
-scaffolds: []
-
 file_ownership:
-  - file: internal/indexer/eventextractor/doc.go
-    agent: A
-    wave: 1
-    action: new
-    depends_on: []
-  - file: internal/indexer/eventextractor/extractor.go
-    agent: A
-    wave: 1
-    action: new
-    depends_on: []
-  - file: internal/indexer/eventextractor/extractor_test.go
-    agent: A
-    wave: 1
-    action: new
-    depends_on: []
-  - file: internal/indexer/schemaextractor/doc.go
-    agent: B
-    wave: 1
-    action: new
-    depends_on: []
-  - file: internal/indexer/schemaextractor/extractor.go
-    agent: B
-    wave: 1
-    action: new
-    depends_on: []
-  - file: internal/indexer/schemaextractor/extractor_test.go
-    agent: B
-    wave: 1
-    action: new
-    depends_on: []
-  - file: cmd/knowing/main.go
-    agent: C
-    wave: 2
-    action: modify
-    depends_on: [A, B]
-  - file: internal/indexer/extractor.go
-    agent: C
-    wave: 2
-    action: modify
-    depends_on: []
-  - file: internal/indexer/indexer.go
-    agent: C
-    wave: 2
-    action: modify
-    depends_on: []
-
+    - file: internal/indexer/eventextractor/doc.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/indexer/eventextractor/extractor.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/indexer/eventextractor/extractor_test.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/indexer/schemaextractor/doc.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/indexer/schemaextractor/extractor.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/indexer/schemaextractor/extractor_test.go
+      agent: B
+      wave: 1
+      action: new
+    - file: cmd/knowing/main.go
+      agent: C
+      wave: 2
+      action: modify
+      depends_on:
+        - A
+        - B
+    - file: internal/indexer/extractor.go
+      agent: C
+      wave: 2
+      action: modify
+    - file: internal/indexer/indexer.go
+      agent: C
+      wave: 2
+      action: modify
 interface_contracts:
-  - name: EventExtractor
-    description: Extractor for Kafka/NATS/SQS/RabbitMQ producer/consumer patterns
-    definition: |
-      package eventextractor
+    - name: EventExtractor
+      description: Extractor for Kafka/NATS/SQS/RabbitMQ producer/consumer patterns
+      definition: |
+        package eventextractor
 
-      type EventExtractor struct {
-          parsers map[string]*sitter.Parser
-      }
+        type EventExtractor struct {
+            parsers map[string]*sitter.Parser
+        }
 
-      func NewEventExtractor() *EventExtractor
-      func (e *EventExtractor) Name() string           // returns "event-mq"
-      func (e *EventExtractor) CanHandle(path string) bool  // .go, .ts, .tsx, .js, .jsx, .py, .java (excludes node_modules/)
-      func (e *EventExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error)
-    location: internal/indexer/eventextractor/extractor.go
+        func NewEventExtractor() *EventExtractor
+        func (e *EventExtractor) Name() string           // returns "event-mq"
+        func (e *EventExtractor) CanHandle(path string) bool  // .go, .ts, .tsx, .js, .jsx, .py, .java (excludes node_modules/)
+        func (e *EventExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error)
+      location: internal/indexer/eventextractor/extractor.go
+    - name: SchemaExtractor
+      description: Extractor for OpenAPI 3.x and JSON Schema files
+      definition: |
+        package schemaextractor
 
-  - name: SchemaExtractor
-    description: Extractor for OpenAPI 3.x and JSON Schema files
-    definition: |
-      package schemaextractor
+        type SchemaExtractor struct{}
 
-      type SchemaExtractor struct{}
-
-      func NewSchemaExtractor() *SchemaExtractor
-      func (e *SchemaExtractor) Name() string           // returns "openapi-schema"
-      func (e *SchemaExtractor) CanHandle(path string) bool  // .yaml, .yml, .json
-      func (e *SchemaExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error)
-    location: internal/indexer/schemaextractor/extractor.go
-
-  - name: FindAllExtractors
-    description: Returns all matching extractors for a file path (not just first match)
-    definition: |
-      // FindAllExtractors returns all registered extractors that can handle
-      // the given file path. This enables supplementary extractors (like event
-      // detection) to run in addition to the primary language extractor.
-      func (r *ExtractorRegistry) FindAllExtractors(path string) []types.Extractor
-    location: internal/indexer/extractor.go
-
+        func NewSchemaExtractor() *SchemaExtractor
+        func (e *SchemaExtractor) Name() string           // returns "openapi-schema"
+        func (e *SchemaExtractor) CanHandle(path string) bool  // .yaml, .yml, .json
+        func (e *SchemaExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error)
+      location: internal/indexer/schemaextractor/extractor.go
+    - name: FindAllExtractors
+      description: Returns all matching extractors for a file path (not just first match)
+      definition: |
+        // FindAllExtractors returns all registered extractors that can handle
+        // the given file path. This enables supplementary extractors (like event
+        // detection) to run in addition to the primary language extractor.
+        func (r *ExtractorRegistry) FindAllExtractors(path string) []types.Extractor
+      location: internal/indexer/extractor.go
 waves:
-  - number: 1
-    agents:
-      - id: A
-        task: |
-          ## Event Extractor (internal/indexer/eventextractor/)
-
-          Create a new extractor package that detects message queue producer and consumer
-          patterns across Go, TypeScript, Python, and Java source code. Uses tree-sitter
-          for AST parsing (reuse existing grammars from go-tree-sitter library).
-
-          ### Files to create
-          - `internal/indexer/eventextractor/doc.go` - package documentation
-          - `internal/indexer/eventextractor/extractor.go` - main implementation
-          - `internal/indexer/eventextractor/extractor_test.go` - comprehensive tests
-
-          ### Implementation details
-
-          **CanHandle:** Accept files with extensions: .go, .ts, .tsx, .js, .jsx, .py, .java
-          Exclude files under node_modules/ directories (same check as tsextractor).
-
-          **Extract:** Use tree-sitter to parse the file AST for each language. Create one
-          parser per language in the constructor (store in a map keyed by extension).
-          Detect these patterns by walking the AST:
-
-          **Go patterns (tree-sitter node types: call_expression, selector_expression):**
-          - `sarama.NewSyncProducer`, `sarama.NewAsyncProducer` -> producer context
-          - `sarama.ProducerMessage{Topic: "..."}` -> extract topic from composite literal
-          - `nats.Subscribe("topic", ...)` or `nc.Subscribe("topic", ...)` -> consumer, topic is first string arg
-          - `nats.Publish("topic", ...)` or `nc.Publish("topic", ...)` -> producer, topic is first string arg
-          - `sqs.SendMessage(...)` with `QueueUrl: "..."` -> producer
-          - `sqs.ReceiveMessage(...)` -> consumer
-          - `ch.Publish("exchange", "routingKey", ...)` (amqp) -> producer
-          - `ch.Consume("queue", ...)` (amqp) -> consumer
-
-          **TypeScript patterns (tree-sitter node types: call_expression, member_expression, decorator):**
-          - `producer.send({ topic: "..." })` (kafkajs) -> producer
-          - `consumer.subscribe({ topic: "..." })` (kafkajs) -> consumer
-          - `@MessagePattern("...")` decorator -> consumer
-          - `@EventPattern("...")` decorator -> consumer
-
-          **Python patterns (tree-sitter node types: call, attribute, argument_list):**
-          - `KafkaProducer(...)` instantiation -> producer context
-          - `producer.send("topic", ...)` -> producer with topic
-          - `KafkaConsumer("topic", ...)` -> consumer with topic
-          - `channel.basic_publish(exchange='', routing_key='topic')` -> producer
-          - `channel.basic_consume(queue='topic')` -> consumer
-
-          **Java patterns (tree-sitter node types: method_invocation, annotation):**
-          - `@KafkaListener(topics = "...")` or `@KafkaListener(topics = {"...", "..."})` -> consumer
-          - `kafkaTemplate.send("topic", ...)` -> producer
-          - `jmsTemplate.send("destination", ...)` -> producer
-          - `@JmsListener(destination = "...")` -> consumer
-
-          **Node and Edge production:**
-          - Topic/queue names extracted as Node with kind "topic"
-            - Qualified name: `{repoURL}://{filePath}.topic.{topicName}`
-            - NodeHash: `types.ComputeNodeHash(repoURL, filePath, types.EmptyHash, topicName, "topic")`
-          - The enclosing function/method where the pattern is found becomes the source/target node
-            - Use the function's qualified name and "function" kind
-            - If no enclosing function, use the file-level scope
-          - Edges:
-            - Producer pattern: source=function node, target=topic node, edgeType="publishes"
-            - Consumer pattern: source=topic node, target=function node, edgeType="subscribes"
-          - All edges: provenance "ast_inferred", confidence 0.7
-
-          **Tree-sitter usage:** Import language grammars:
-          ```go
-          import (
-              sitter "github.com/smacker/go-tree-sitter"
-              "github.com/smacker/go-tree-sitter/golang"
-              "github.com/smacker/go-tree-sitter/typescript/typescript"
-              "github.com/smacker/go-tree-sitter/python"
-              "github.com/smacker/go-tree-sitter/java"
-          )
-          ```
-
-          In the constructor, create parsers for each language:
-          ```go
-          func NewEventExtractor() *EventExtractor {
-              parsers := map[string]*sitter.Parser{}
-              // Go
-              goParser := sitter.NewParser()
-              goParser.SetLanguage(golang.GetLanguage())
-              parsers[".go"] = goParser
-              // TypeScript/JavaScript
-              tsParser := sitter.NewParser()
-              tsParser.SetLanguage(typescript.GetLanguage())
-              parsers[".ts"] = tsParser
-              parsers[".tsx"] = tsParser
-              parsers[".js"] = tsParser
-              parsers[".jsx"] = tsParser
-              // Python
-              pyParser := sitter.NewParser()
-              pyParser.SetLanguage(python.GetLanguage())
-              parsers[".py"] = pyParser
-              // Java
-              javaParser := sitter.NewParser()
-              javaParser.SetLanguage(java.GetLanguage())
-              parsers[".java"] = javaParser
-              return &EventExtractor{parsers: parsers}
-          }
-          ```
-
-          Walk the parsed tree recursively. For each node type that matches a pattern,
-          extract the topic string from the argument list. Use helper functions to find
-          the enclosing function declaration node for context.
-
-          ### Reference implementation pattern
-          Follow the same structure as k8sextractor: package-level constants for
-          provenance/confidence, a makeEdge helper, and a buildQualifiedName helper.
-
-          ### Tests
-          Write tests with real code snippets for each language:
-          - TestEventExtractor_Name
-          - TestEventExtractor_CanHandle (positive + negative cases including node_modules exclusion)
-          - TestEventExtractor_GoKafkaProducer (sarama SendMessage with topic)
-          - TestEventExtractor_GoNatsSubscribe (nats.Subscribe pattern)
-          - TestEventExtractor_TypeScriptKafkaJS (producer.send with topic object)
-          - TestEventExtractor_PythonKafkaConsumer (KafkaConsumer with topic arg)
-          - TestEventExtractor_JavaKafkaListener (@KafkaListener annotation)
-          - TestEventExtractor_RabbitMQPython (pika basic_publish/basic_consume)
-
-          Each test should provide a realistic code snippet as content, call Extract, and
-          verify the expected nodes (with kind "topic") and edges (with types "publishes"
-          or "subscribes") are produced.
-
-          ### Verification gate
-          ```bash
-          cd /Users/dayna.blackwell/code/knowing && GOWORK=off go build ./internal/indexer/eventextractor/...
-          cd /Users/dayna.blackwell/code/knowing && GOWORK=off go vet ./internal/indexer/eventextractor/...
-          cd /Users/dayna.blackwell/code/knowing && GOWORK=off go test ./internal/indexer/eventextractor/... -v -timeout 2m
-          ```
-
-          ### Postconditions
-          - `grep -c "func NewEventExtractor" internal/indexer/eventextractor/extractor.go` returns 1
-          - `grep -c '"publishes"' internal/indexer/eventextractor/extractor.go` returns at least 1
-          - `grep -c '"subscribes"' internal/indexer/eventextractor/extractor.go` returns at least 1
-          - `grep -c "func Test" internal/indexer/eventextractor/extractor_test.go` returns at least 6
-
-          ### Constraints
-          - Do NOT modify cmd/knowing/main.go (Agent C in wave 2 handles registration)
-          - Do NOT modify any files outside internal/indexer/eventextractor/
-          - Do NOT add new dependencies to go.mod (all tree-sitter grammars already in go.sum)
-        files:
-          - internal/indexer/eventextractor/doc.go
-          - internal/indexer/eventextractor/extractor.go
-          - internal/indexer/eventextractor/extractor_test.go
-        dependencies: []
-
-      - id: B
-        task: |
-          ## Schema Extractor (internal/indexer/schemaextractor/)
-
-          Create a new extractor package that parses OpenAPI 3.x specs and JSON Schema
-          files, producing nodes for API endpoints and schema definitions plus edges
-          for their relationships.
-
-          ### Files to create
-          - `internal/indexer/schemaextractor/doc.go` - package documentation
-          - `internal/indexer/schemaextractor/extractor.go` - main implementation
-          - `internal/indexer/schemaextractor/extractor_test.go` - comprehensive tests
-
-          ### Implementation details
-
-          **CanHandle:** Return true for .yaml, .yml, and .json file extensions.
-          NOTE: The K8s extractor also handles .yaml/.yml but only in specific directories
-          (k8s/, kubernetes/, manifests/, deploy/, helm/). The schema extractor handles
-          ALL .yaml/.yml/.json files broadly, but returns an empty result in Extract if
-          the content does not contain OpenAPI/Swagger/JSON Schema markers. This is the
-          established pattern (return empty ExtractResult, not error, for non-matching content).
-
-          **Extract implementation:**
-
-          1. First, detect the file type by examining content:
-             - For .yaml/.yml files: unmarshal with gopkg.in/yaml.v3 into map[string]interface{}
-               Check for "openapi" or "swagger" top-level key
-             - For .json files: unmarshal with encoding/json into map[string]interface{}
-               Check for "openapi", "swagger", or "$schema" containing "json-schema.org"
-             - If no marker found, return empty ExtractResult (not an error)
-
-          2. **OpenAPI 3.x extraction** (top-level "openapi" field with value starting "3"):
-             - Parse `paths` map: for each path (e.g., "/users/{id}"), for each method
-               (get, post, put, delete, patch), create a Node:
-               - Kind: "route"
-               - QualifiedName: `{repoURL}://{filePath}.route.{METHOD} {path}`
-                 (METHOD is uppercase, e.g., "GET /users/{id}")
-               - NodeHash: `types.ComputeNodeHash(repoURL, filePath, types.EmptyHash, "METHOD path", "route")`
-             - Parse `components.schemas` map: for each schema name, create a Node:
-               - Kind: "type"
-               - QualifiedName: `{repoURL}://{filePath}.schema.{SchemaName}`
-               - NodeHash: `types.ComputeNodeHash(repoURL, filePath, types.EmptyHash, schemaName, "type")`
-             - Parse $ref values in request/response bodies and schema properties:
-               - Pattern: `$ref: "#/components/schemas/Foo"` -> extract "Foo"
-               - Create "references" edge from the referencing node to the schema node
-               - For endpoint refs: source=route node, target=schema node
-               - For schema-to-schema refs: source=parent schema, target=referenced schema
-
-          3. **Swagger 2.x extraction** (top-level "swagger" field with value "2.0"):
-             - Same as OpenAPI 3.x but schemas are under `definitions` instead of
-               `components.schemas`
-             - $ref pattern: `#/definitions/Foo`
-
-          4. **JSON Schema extraction** (has "$schema" containing "json-schema.org"):
-             - Root schema -> Node with kind "type"
-               - Name from "title" field, or derive from filename (without extension)
-               - QualifiedName: `{repoURL}://{filePath}.schema.{title}`
-             - Parse `definitions` entries -> additional "type" nodes
-             - Parse `$ref` in properties -> "references" edges
-
-          All edges: provenance "ast_inferred", confidence 0.7.
-
-          **Helper functions:**
-          - `isOpenAPISpec(data map[string]interface{}) bool` - checks for openapi/swagger key
-          - `isJSONSchema(data map[string]interface{}) bool` - checks for $schema key
-          - `parseRef(ref string) string` - extracts schema name from $ref value
-          - `buildQualifiedName(repoURL, filePath, kind, name string) string`
-          - `makeEdge(sourceHash, targetHash types.Hash, edgeType string) types.Edge`
-
-          ### Reference implementation pattern
-          Follow k8sextractor structure: use gopkg.in/yaml.v3 (already in go.mod),
-          package-level constants for provenance/confidence, helper functions.
-
-          ### Tests
-          Write tests with real OpenAPI and JSON Schema content:
-          - TestSchemaExtractor_Name (returns "openapi-schema")
-          - TestSchemaExtractor_CanHandle (positive: api.yaml, spec.json, openapi.yml;
-            negative: main.go, app.ts)
-          - TestSchemaExtractor_OpenAPI3Paths (real OpenAPI 3.0 snippet with /users and
-            /users/{id} paths, verify route nodes created for each method)
-          - TestSchemaExtractor_OpenAPI3Schemas (components.schemas with User and Error
-            schemas, verify type nodes created)
-          - TestSchemaExtractor_OpenAPI3References (endpoint with requestBody $ref to
-            schema, verify "references" edge created)
-          - TestSchemaExtractor_Swagger2 (swagger: "2.0" with definitions, verify
-            type nodes and reference edges)
-          - TestSchemaExtractor_JSONSchema (standalone JSON Schema with title, $schema,
-            properties with $ref, verify nodes and edges)
-          - TestSchemaExtractor_NonOpenAPIYAML (regular YAML without openapi/swagger key,
-            verify empty result returned)
-          - TestSchemaExtractor_JSONFile (OpenAPI spec in .json format, verify parsing works)
-
-          ### Verification gate
-          ```bash
-          cd /Users/dayna.blackwell/code/knowing && GOWORK=off go build ./internal/indexer/schemaextractor/...
-          cd /Users/dayna.blackwell/code/knowing && GOWORK=off go vet ./internal/indexer/schemaextractor/...
-          cd /Users/dayna.blackwell/code/knowing && GOWORK=off go test ./internal/indexer/schemaextractor/... -v -timeout 2m
-          ```
-
-          ### Postconditions
-          - `grep -c "func NewSchemaExtractor" internal/indexer/schemaextractor/extractor.go` returns 1
-          - `grep -c '"route"' internal/indexer/schemaextractor/extractor.go` returns at least 1
-          - `grep -c '"references"' internal/indexer/schemaextractor/extractor.go` returns at least 1
-          - `grep -c "func Test" internal/indexer/schemaextractor/extractor_test.go` returns at least 7
-
-          ### Constraints
-          - Do NOT modify cmd/knowing/main.go (Agent C in wave 2 handles registration)
-          - Do NOT modify any files outside internal/indexer/schemaextractor/
-          - Do NOT add new dependencies to go.mod (gopkg.in/yaml.v3 and encoding/json
-            are already available)
-        files:
-          - internal/indexer/schemaextractor/doc.go
-          - internal/indexer/schemaextractor/extractor.go
-          - internal/indexer/schemaextractor/extractor_test.go
-        dependencies: []
-
-  - number: 2
-    type: integration
-    agents:
-      - id: C
-        task: |
-          ## Register extractors and enable multi-extractor dispatch
-
-          Wire the event extractor and schema extractor into the system. The key
-          architectural change: the indexer currently dispatches each file to only the
-          FIRST matching extractor (FindExtractor). The event extractor handles the same
-          file extensions (.go, .ts, .py, .java) as existing language extractors, so it
-          would never be reached. Add a `FindAllExtractors` method and update the indexer
-          to run ALL matching extractors per file, merging their results.
-
-          ### Files to modify
-          - `internal/indexer/extractor.go` - add FindAllExtractors method
-          - `internal/indexer/indexer.go` - change extractFile to run all matching extractors
-          - `cmd/knowing/main.go` - add imports and registration calls
-
-          ### Changes to internal/indexer/extractor.go
-
-          Add this method after the existing `FindExtractor` method. Find this exact text:
-
-          ```go
-          // FindExtractor returns the first registered extractor that can handle
-          // the given file path, or nil if none matches.
-          func (r *ExtractorRegistry) FindExtractor(path string) types.Extractor {
-          	for _, ext := range r.extractors {
-          		if ext.CanHandle(path) {
-          			return ext
-          		}
-          	}
-          	return nil
-          }
-          ```
-
-          Add immediately after:
-
-          ```go
-
-          // FindAllExtractors returns all registered extractors that can handle
-          // the given file path. This enables supplementary extractors (like event
-          // pattern detection) to run in addition to the primary language extractor,
-          // producing additional nodes and edges for the same file.
-          func (r *ExtractorRegistry) FindAllExtractors(path string) []types.Extractor {
-          	var result []types.Extractor
-          	for _, ext := range r.extractors {
-          		if ext.CanHandle(path) {
-          			result = append(result, ext)
-          		}
-          	}
-          	return result
-          }
-          ```
-
-          ### Changes to internal/indexer/indexer.go
-
-          Modify the `extractFile` method to run all matching extractors and merge results.
-          Find this exact text:
-
-          ```go
-          // extractFile extracts nodes and edges from a single file without storing them.
-          func (idx *Indexer) extractFile(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, *types.File, error) {
-          	ext := idx.registry.FindExtractor(opts.FilePath)
-          	if ext == nil {
-          		return &types.ExtractResult{}, nil, nil
-          	}
-
-          	result, err := ext.Extract(ctx, opts)
-          	if err != nil {
-          		return nil, nil, fmt.Errorf("extract %s: %w", opts.FilePath, err)
-          	}
-
-          	contentHash := types.NewHash(opts.Content)
-          	file := &types.File{
-          		FileHash:    opts.FileHash,
-          		RepoHash:    opts.RepoHash,
-          		Path:        opts.FilePath,
-          		ContentHash: contentHash,
-          	}
-
-          	return result, file, nil
-          }
-          ```
-
-          Replace with:
-
-          ```go
-          // extractFile extracts nodes and edges from a single file without storing them.
-          // It runs ALL matching extractors (not just the first) and merges their results,
-          // enabling supplementary extractors like event-mq to add edges alongside the
-          // primary language extractor.
-          func (idx *Indexer) extractFile(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, *types.File, error) {
-          	extractors := idx.registry.FindAllExtractors(opts.FilePath)
-          	if len(extractors) == 0 {
-          		return &types.ExtractResult{}, nil, nil
-          	}
-
-          	merged := &types.ExtractResult{}
-          	for _, ext := range extractors {
-          		result, err := ext.Extract(ctx, opts)
-          		if err != nil {
-          			return nil, nil, fmt.Errorf("extract %s (%s): %w", opts.FilePath, ext.Name(), err)
-          		}
-          		merged.Nodes = append(merged.Nodes, result.Nodes...)
-          		merged.Edges = append(merged.Edges, result.Edges...)
-          	}
-
-          	contentHash := types.NewHash(opts.Content)
-          	file := &types.File{
-          		FileHash:    opts.FileHash,
-          		RepoHash:    opts.RepoHash,
-          		Path:        opts.FilePath,
-          		ContentHash: contentHash,
-          	}
-
-          	return merged, file, nil
-          }
-          ```
-
-          Also update `IndexFile` (the single-file variant used by tests) with the same
-          multi-extractor approach. Find this exact text:
-
-          ```go
-          // IndexFile extracts nodes and edges from a single file and stores them.
-          func (idx *Indexer) IndexFile(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error) {
-          	ext := idx.registry.FindExtractor(opts.FilePath)
-          	if ext == nil {
-          		return &types.ExtractResult{}, nil
-          	}
-
-          	result, err := ext.Extract(ctx, opts)
-          	if err != nil {
-          		return nil, fmt.Errorf("extract %s: %w", opts.FilePath, err)
-          	}
-          ```
-
-          Replace with:
-
-          ```go
-          // IndexFile extracts nodes and edges from a single file and stores them.
-          func (idx *Indexer) IndexFile(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error) {
-          	extractors := idx.registry.FindAllExtractors(opts.FilePath)
-          	if len(extractors) == 0 {
-          		return &types.ExtractResult{}, nil
-          	}
-
-          	result := &types.ExtractResult{}
-          	for _, ext := range extractors {
-          		r, err := ext.Extract(ctx, opts)
-          		if err != nil {
-          			return nil, fmt.Errorf("extract %s (%s): %w", opts.FilePath, ext.Name(), err)
-          		}
-          		result.Nodes = append(result.Nodes, r.Nodes...)
-          		result.Edges = append(result.Edges, r.Edges...)
-          	}
-          ```
-
-          Also update the CanHandle check in IndexRepo's file walk loop. Find this text:
-
-          ```go
-          		// Check if any extractor can handle this file.
-          		if idx.registry.FindExtractor(relPath) == nil {
-          			continue
-          		}
-          ```
-
-          Replace with:
-
-          ```go
-          		// Check if any extractor can handle this file.
-          		if len(idx.registry.FindAllExtractors(relPath)) == 0 {
-          			continue
-          		}
-          ```
-
-          ### Changes to cmd/knowing/main.go
-
-          1. Add imports. Find this import block text:
-
-          ```go
-          	"github.com/blackwell-systems/knowing/internal/indexer/protoextractor"
-          ```
-
-          Add after it:
-          ```go
-          	"github.com/blackwell-systems/knowing/internal/indexer/eventextractor"
-          	"github.com/blackwell-systems/knowing/internal/indexer/schemaextractor"
-          ```
-
-          2. Add registration calls. Find this exact text at the end of registerAllExtractors:
-
-          ```go
-          	// Protocol Buffers.
-          	idx.Register(protoextractor.NewProtoExtractor())
-          }
-          ```
-
-          Replace with:
-
-          ```go
-          	// Protocol Buffers.
-          	idx.Register(protoextractor.NewProtoExtractor())
-
-          	// Event/message queue patterns (Kafka, NATS, SQS, RabbitMQ).
-          	idx.Register(eventextractor.NewEventExtractor())
-
-          	// OpenAPI/JSON Schema.
-          	idx.Register(schemaextractor.NewSchemaExtractor())
-          }
-          ```
-
-          ### Verification gate
-          ```bash
-          cd /Users/dayna.blackwell/code/knowing && GOWORK=off go build ./...
-          cd /Users/dayna.blackwell/code/knowing && GOWORK=off go vet ./...
-          cd /Users/dayna.blackwell/code/knowing && GOWORK=off go test ./... -timeout 5m
-          ```
-
-          ### Postconditions
-          - `grep -c "eventextractor" cmd/knowing/main.go` returns at least 2 (import + registration)
-          - `grep -c "schemaextractor" cmd/knowing/main.go` returns at least 2 (import + registration)
-          - `grep -c "FindAllExtractors" internal/indexer/extractor.go` returns 1 (method definition)
-          - `grep -c "FindAllExtractors" internal/indexer/indexer.go` returns at least 2 (usage sites)
-
-          ### Constraints
-          - Do NOT modify extractor implementation files in eventextractor/ or schemaextractor/
-          - Do NOT change the ExtractorRegistry struct fields (only add new method)
-          - Do NOT remove FindExtractor (it may be used by other callers); only add FindAllExtractors
-          - Ensure existing tests still pass (the behavior change is additive: files that
-            previously matched one extractor now also run supplementary extractors, producing
-            additional nodes/edges but not removing any)
-        files:
-          - cmd/knowing/main.go
-          - internal/indexer/extractor.go
-          - internal/indexer/indexer.go
-        dependencies: [A, B]
-
+    - number: 1
+      agents:
+        - id: A
+          task: |
+            ## Event Extractor (internal/indexer/eventextractor/)
+
+            Create a new extractor package that detects message queue producer and consumer
+            patterns across Go, TypeScript, Python, and Java source code. Uses tree-sitter
+            for AST parsing (reuse existing grammars from go-tree-sitter library).
+
+            ### Files to create
+            - `internal/indexer/eventextractor/doc.go` - package documentation
+            - `internal/indexer/eventextractor/extractor.go` - main implementation
+            - `internal/indexer/eventextractor/extractor_test.go` - comprehensive tests
+
+            ### Implementation details
+
+            **CanHandle:** Accept files with extensions: .go, .ts, .tsx, .js, .jsx, .py, .java
+            Exclude files under node_modules/ directories (same check as tsextractor).
+
+            **Extract:** Use tree-sitter to parse the file AST for each language. Create one
+            parser per language in the constructor (store in a map keyed by extension).
+            Detect these patterns by walking the AST:
+
+            **Go patterns (tree-sitter node types: call_expression, selector_expression):**
+            - `sarama.NewSyncProducer`, `sarama.NewAsyncProducer` -> producer context
+            - `sarama.ProducerMessage{Topic: "..."}` -> extract topic from composite literal
+            - `nats.Subscribe("topic", ...)` or `nc.Subscribe("topic", ...)` -> consumer, topic is first string arg
+            - `nats.Publish("topic", ...)` or `nc.Publish("topic", ...)` -> producer, topic is first string arg
+            - `sqs.SendMessage(...)` with `QueueUrl: "..."` -> producer
+            - `sqs.ReceiveMessage(...)` -> consumer
+            - `ch.Publish("exchange", "routingKey", ...)` (amqp) -> producer
+            - `ch.Consume("queue", ...)` (amqp) -> consumer
+
+            **TypeScript patterns (tree-sitter node types: call_expression, member_expression, decorator):**
+            - `producer.send({ topic: "..." })` (kafkajs) -> producer
+            - `consumer.subscribe({ topic: "..." })` (kafkajs) -> consumer
+            - `@MessagePattern("...")` decorator -> consumer
+            - `@EventPattern("...")` decorator -> consumer
+
+            **Python patterns (tree-sitter node types: call, attribute, argument_list):**
+            - `KafkaProducer(...)` instantiation -> producer context
+            - `producer.send("topic", ...)` -> producer with topic
+            - `KafkaConsumer("topic", ...)` -> consumer with topic
+            - `channel.basic_publish(exchange='', routing_key='topic')` -> producer
+            - `channel.basic_consume(queue='topic')` -> consumer
+
+            **Java patterns (tree-sitter node types: method_invocation, annotation):**
+            - `@KafkaListener(topics = "...")` or `@KafkaListener(topics = {"...", "..."})` -> consumer
+            - `kafkaTemplate.send("topic", ...)` -> producer
+            - `jmsTemplate.send("destination", ...)` -> producer
+            - `@JmsListener(destination = "...")` -> consumer
+
+            **Node and Edge production:**
+            - Topic/queue names extracted as Node with kind "topic"
+              - Qualified name: `{repoURL}://{filePath}.topic.{topicName}`
+              - NodeHash: `types.ComputeNodeHash(repoURL, filePath, types.EmptyHash, topicName, "topic")`
+            - The enclosing function/method where the pattern is found becomes the source/target node
+              - Use the function's qualified name and "function" kind
+              - If no enclosing function, use the file-level scope
+            - Edges:
+              - Producer pattern: source=function node, target=topic node, edgeType="publishes"
+              - Consumer pattern: source=topic node, target=function node, edgeType="subscribes"
+            - All edges: provenance "ast_inferred", confidence 0.7
+
+            **Tree-sitter usage:** Import language grammars:
+            ```go
+            import (
+                sitter "github.com/smacker/go-tree-sitter"
+                "github.com/smacker/go-tree-sitter/golang"
+                "github.com/smacker/go-tree-sitter/typescript/typescript"
+                "github.com/smacker/go-tree-sitter/python"
+                "github.com/smacker/go-tree-sitter/java"
+            )
+            ```
+
+            In the constructor, create parsers for each language:
+            ```go
+            func NewEventExtractor() *EventExtractor {
+                parsers := map[string]*sitter.Parser{}
+                // Go
+                goParser := sitter.NewParser()
+                goParser.SetLanguage(golang.GetLanguage())
+                parsers[".go"] = goParser
+                // TypeScript/JavaScript
+                tsParser := sitter.NewParser()
+                tsParser.SetLanguage(typescript.GetLanguage())
+                parsers[".ts"] = tsParser
+                parsers[".tsx"] = tsParser
+                parsers[".js"] = tsParser
+                parsers[".jsx"] = tsParser
+                // Python
+                pyParser := sitter.NewParser()
+                pyParser.SetLanguage(python.GetLanguage())
+                parsers[".py"] = pyParser
+                // Java
+                javaParser := sitter.NewParser()
+                javaParser.SetLanguage(java.GetLanguage())
+                parsers[".java"] = javaParser
+                return &EventExtractor{parsers: parsers}
+            }
+            ```
+
+            Walk the parsed tree recursively. For each node type that matches a pattern,
+            extract the topic string from the argument list. Use helper functions to find
+            the enclosing function declaration node for context.
+
+            ### Reference implementation pattern
+            Follow the same structure as k8sextractor: package-level constants for
+            provenance/confidence, a makeEdge helper, and a buildQualifiedName helper.
+
+            ### Tests
+            Write tests with real code snippets for each language:
+            - TestEventExtractor_Name
+            - TestEventExtractor_CanHandle (positive + negative cases including node_modules exclusion)
+            - TestEventExtractor_GoKafkaProducer (sarama SendMessage with topic)
+            - TestEventExtractor_GoNatsSubscribe (nats.Subscribe pattern)
+            - TestEventExtractor_TypeScriptKafkaJS (producer.send with topic object)
+            - TestEventExtractor_PythonKafkaConsumer (KafkaConsumer with topic arg)
+            - TestEventExtractor_JavaKafkaListener (@KafkaListener annotation)
+            - TestEventExtractor_RabbitMQPython (pika basic_publish/basic_consume)
+
+            Each test should provide a realistic code snippet as content, call Extract, and
+            verify the expected nodes (with kind "topic") and edges (with types "publishes"
+            or "subscribes") are produced.
+
+            ### Verification gate
+            ```bash
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go build ./internal/indexer/eventextractor/...
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go vet ./internal/indexer/eventextractor/...
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go test ./internal/indexer/eventextractor/... -v -timeout 2m
+            ```
+
+            ### Postconditions
+            - `grep -c "func NewEventExtractor" internal/indexer/eventextractor/extractor.go` returns 1
+            - `grep -c '"publishes"' internal/indexer/eventextractor/extractor.go` returns at least 1
+            - `grep -c '"subscribes"' internal/indexer/eventextractor/extractor.go` returns at least 1
+            - `grep -c "func Test" internal/indexer/eventextractor/extractor_test.go` returns at least 6
+
+            ### Constraints
+            - Do NOT modify cmd/knowing/main.go (Agent C in wave 2 handles registration)
+            - Do NOT modify any files outside internal/indexer/eventextractor/
+            - Do NOT add new dependencies to go.mod (all tree-sitter grammars already in go.sum)
+          files:
+            - internal/indexer/eventextractor/doc.go
+            - internal/indexer/eventextractor/extractor.go
+            - internal/indexer/eventextractor/extractor_test.go
+        - id: B
+          task: |
+            ## Schema Extractor (internal/indexer/schemaextractor/)
+
+            Create a new extractor package that parses OpenAPI 3.x specs and JSON Schema
+            files, producing nodes for API endpoints and schema definitions plus edges
+            for their relationships.
+
+            ### Files to create
+            - `internal/indexer/schemaextractor/doc.go` - package documentation
+            - `internal/indexer/schemaextractor/extractor.go` - main implementation
+            - `internal/indexer/schemaextractor/extractor_test.go` - comprehensive tests
+
+            ### Implementation details
+
+            **CanHandle:** Return true for .yaml, .yml, and .json file extensions.
+            NOTE: The K8s extractor also handles .yaml/.yml but only in specific directories
+            (k8s/, kubernetes/, manifests/, deploy/, helm/). The schema extractor handles
+            ALL .yaml/.yml/.json files broadly, but returns an empty result in Extract if
+            the content does not contain OpenAPI/Swagger/JSON Schema markers. This is the
+            established pattern (return empty ExtractResult, not error, for non-matching content).
+
+            **Extract implementation:**
+
+            1. First, detect the file type by examining content:
+               - For .yaml/.yml files: unmarshal with gopkg.in/yaml.v3 into map[string]interface{}
+                 Check for "openapi" or "swagger" top-level key
+               - For .json files: unmarshal with encoding/json into map[string]interface{}
+                 Check for "openapi", "swagger", or "$schema" containing "json-schema.org"
+               - If no marker found, return empty ExtractResult (not an error)
+
+            2. **OpenAPI 3.x extraction** (top-level "openapi" field with value starting "3"):
+               - Parse `paths` map: for each path (e.g., "/users/{id}"), for each method
+                 (get, post, put, delete, patch), create a Node:
+                 - Kind: "route"
+                 - QualifiedName: `{repoURL}://{filePath}.route.{METHOD} {path}`
+                   (METHOD is uppercase, e.g., "GET /users/{id}")
+                 - NodeHash: `types.ComputeNodeHash(repoURL, filePath, types.EmptyHash, "METHOD path", "route")`
+               - Parse `components.schemas` map: for each schema name, create a Node:
+                 - Kind: "type"
+                 - QualifiedName: `{repoURL}://{filePath}.schema.{SchemaName}`
+                 - NodeHash: `types.ComputeNodeHash(repoURL, filePath, types.EmptyHash, schemaName, "type")`
+               - Parse $ref values in request/response bodies and schema properties:
+                 - Pattern: `$ref: "#/components/schemas/Foo"` -> extract "Foo"
+                 - Create "references" edge from the referencing node to the schema node
+                 - For endpoint refs: source=route node, target=schema node
+                 - For schema-to-schema refs: source=parent schema, target=referenced schema
+
+            3. **Swagger 2.x extraction** (top-level "swagger" field with value "2.0"):
+               - Same as OpenAPI 3.x but schemas are under `definitions` instead of
+                 `components.schemas`
+               - $ref pattern: `#/definitions/Foo`
+
+            4. **JSON Schema extraction** (has "$schema" containing "json-schema.org"):
+               - Root schema -> Node with kind "type"
+                 - Name from "title" field, or derive from filename (without extension)
+                 - QualifiedName: `{repoURL}://{filePath}.schema.{title}`
+               - Parse `definitions` entries -> additional "type" nodes
+               - Parse `$ref` in properties -> "references" edges
+
+            All edges: provenance "ast_inferred", confidence 0.7.
+
+            **Helper functions:**
+            - `isOpenAPISpec(data map[string]interface{}) bool` - checks for openapi/swagger key
+            - `isJSONSchema(data map[string]interface{}) bool` - checks for $schema key
+            - `parseRef(ref string) string` - extracts schema name from $ref value
+            - `buildQualifiedName(repoURL, filePath, kind, name string) string`
+            - `makeEdge(sourceHash, targetHash types.Hash, edgeType string) types.Edge`
+
+            ### Reference implementation pattern
+            Follow k8sextractor structure: use gopkg.in/yaml.v3 (already in go.mod),
+            package-level constants for provenance/confidence, helper functions.
+
+            ### Tests
+            Write tests with real OpenAPI and JSON Schema content:
+            - TestSchemaExtractor_Name (returns "openapi-schema")
+            - TestSchemaExtractor_CanHandle (positive: api.yaml, spec.json, openapi.yml;
+              negative: main.go, app.ts)
+            - TestSchemaExtractor_OpenAPI3Paths (real OpenAPI 3.0 snippet with /users and
+              /users/{id} paths, verify route nodes created for each method)
+            - TestSchemaExtractor_OpenAPI3Schemas (components.schemas with User and Error
+              schemas, verify type nodes created)
+            - TestSchemaExtractor_OpenAPI3References (endpoint with requestBody $ref to
+              schema, verify "references" edge created)
+            - TestSchemaExtractor_Swagger2 (swagger: "2.0" with definitions, verify
+              type nodes and reference edges)
+            - TestSchemaExtractor_JSONSchema (standalone JSON Schema with title, $schema,
+              properties with $ref, verify nodes and edges)
+            - TestSchemaExtractor_NonOpenAPIYAML (regular YAML without openapi/swagger key,
+              verify empty result returned)
+            - TestSchemaExtractor_JSONFile (OpenAPI spec in .json format, verify parsing works)
+
+            ### Verification gate
+            ```bash
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go build ./internal/indexer/schemaextractor/...
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go vet ./internal/indexer/schemaextractor/...
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go test ./internal/indexer/schemaextractor/... -v -timeout 2m
+            ```
+
+            ### Postconditions
+            - `grep -c "func NewSchemaExtractor" internal/indexer/schemaextractor/extractor.go` returns 1
+            - `grep -c '"route"' internal/indexer/schemaextractor/extractor.go` returns at least 1
+            - `grep -c '"references"' internal/indexer/schemaextractor/extractor.go` returns at least 1
+            - `grep -c "func Test" internal/indexer/schemaextractor/extractor_test.go` returns at least 7
+
+            ### Constraints
+            - Do NOT modify cmd/knowing/main.go (Agent C in wave 2 handles registration)
+            - Do NOT modify any files outside internal/indexer/schemaextractor/
+            - Do NOT add new dependencies to go.mod (gopkg.in/yaml.v3 and encoding/json
+              are already available)
+          files:
+            - internal/indexer/schemaextractor/doc.go
+            - internal/indexer/schemaextractor/extractor.go
+            - internal/indexer/schemaextractor/extractor_test.go
+      base_commit: db5b6813330067fd961a125ddc5d630e28dcd2c3
+    - number: 2
+      type: integration
+      agents:
+        - id: C
+          task: |
+            ## Register extractors and enable multi-extractor dispatch
+
+            Wire the event extractor and schema extractor into the system. The key
+            architectural change: the indexer currently dispatches each file to only the
+            FIRST matching extractor (FindExtractor). The event extractor handles the same
+            file extensions (.go, .ts, .py, .java) as existing language extractors, so it
+            would never be reached. Add a `FindAllExtractors` method and update the indexer
+            to run ALL matching extractors per file, merging their results.
+
+            ### Files to modify
+            - `internal/indexer/extractor.go` - add FindAllExtractors method
+            - `internal/indexer/indexer.go` - change extractFile to run all matching extractors
+            - `cmd/knowing/main.go` - add imports and registration calls
+
+            ### Changes to internal/indexer/extractor.go
+
+            Add this method after the existing `FindExtractor` method. Find this exact text:
+
+            ```go
+            // FindExtractor returns the first registered extractor that can handle
+            // the given file path, or nil if none matches.
+            func (r *ExtractorRegistry) FindExtractor(path string) types.Extractor {
+            	for _, ext := range r.extractors {
+            		if ext.CanHandle(path) {
+            			return ext
+            		}
+            	}
+            	return nil
+            }
+            ```
+
+            Add immediately after:
+
+            ```go
+
+            // FindAllExtractors returns all registered extractors that can handle
+            // the given file path. This enables supplementary extractors (like event
+            // pattern detection) to run in addition to the primary language extractor,
+            // producing additional nodes and edges for the same file.
+            func (r *ExtractorRegistry) FindAllExtractors(path string) []types.Extractor {
+            	var result []types.Extractor
+            	for _, ext := range r.extractors {
+            		if ext.CanHandle(path) {
+            			result = append(result, ext)
+            		}
+            	}
+            	return result
+            }
+            ```
+
+            ### Changes to internal/indexer/indexer.go
+
+            Modify the `extractFile` method to run all matching extractors and merge results.
+            Find this exact text:
+
+            ```go
+            // extractFile extracts nodes and edges from a single file without storing them.
+            func (idx *Indexer) extractFile(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, *types.File, error) {
+            	ext := idx.registry.FindExtractor(opts.FilePath)
+            	if ext == nil {
+            		return &types.ExtractResult{}, nil, nil
+            	}
+
+            	result, err := ext.Extract(ctx, opts)
+            	if err != nil {
+            		return nil, nil, fmt.Errorf("extract %s: %w", opts.FilePath, err)
+            	}
+
+            	contentHash := types.NewHash(opts.Content)
+            	file := &types.File{
+            		FileHash:    opts.FileHash,
+            		RepoHash:    opts.RepoHash,
+            		Path:        opts.FilePath,
+            		ContentHash: contentHash,
+            	}
+
+            	return result, file, nil
+            }
+            ```
+
+            Replace with:
+
+            ```go
+            // extractFile extracts nodes and edges from a single file without storing them.
+            // It runs ALL matching extractors (not just the first) and merges their results,
+            // enabling supplementary extractors like event-mq to add edges alongside the
+            // primary language extractor.
+            func (idx *Indexer) extractFile(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, *types.File, error) {
+            	extractors := idx.registry.FindAllExtractors(opts.FilePath)
+            	if len(extractors) == 0 {
+            		return &types.ExtractResult{}, nil, nil
+            	}
+
+            	merged := &types.ExtractResult{}
+            	for _, ext := range extractors {
+            		result, err := ext.Extract(ctx, opts)
+            		if err != nil {
+            			return nil, nil, fmt.Errorf("extract %s (%s): %w", opts.FilePath, ext.Name(), err)
+            		}
+            		merged.Nodes = append(merged.Nodes, result.Nodes...)
+            		merged.Edges = append(merged.Edges, result.Edges...)
+            	}
+
+            	contentHash := types.NewHash(opts.Content)
+            	file := &types.File{
+            		FileHash:    opts.FileHash,
+            		RepoHash:    opts.RepoHash,
+            		Path:        opts.FilePath,
+            		ContentHash: contentHash,
+            	}
+
+            	return merged, file, nil
+            }
+            ```
+
+            Also update `IndexFile` (the single-file variant used by tests) with the same
+            multi-extractor approach. Find this exact text:
+
+            ```go
+            // IndexFile extracts nodes and edges from a single file and stores them.
+            func (idx *Indexer) IndexFile(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error) {
+            	ext := idx.registry.FindExtractor(opts.FilePath)
+            	if ext == nil {
+            		return &types.ExtractResult{}, nil
+            	}
+
+            	result, err := ext.Extract(ctx, opts)
+            	if err != nil {
+            		return nil, fmt.Errorf("extract %s: %w", opts.FilePath, err)
+            	}
+            ```
+
+            Replace with:
+
+            ```go
+            // IndexFile extracts nodes and edges from a single file and stores them.
+            func (idx *Indexer) IndexFile(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error) {
+            	extractors := idx.registry.FindAllExtractors(opts.FilePath)
+            	if len(extractors) == 0 {
+            		return &types.ExtractResult{}, nil
+            	}
+
+            	result := &types.ExtractResult{}
+            	for _, ext := range extractors {
+            		r, err := ext.Extract(ctx, opts)
+            		if err != nil {
+            			return nil, fmt.Errorf("extract %s (%s): %w", opts.FilePath, ext.Name(), err)
+            		}
+            		result.Nodes = append(result.Nodes, r.Nodes...)
+            		result.Edges = append(result.Edges, r.Edges...)
+            	}
+            ```
+
+            Also update the CanHandle check in IndexRepo's file walk loop. Find this text:
+
+            ```go
+            		// Check if any extractor can handle this file.
+            		if idx.registry.FindExtractor(relPath) == nil {
+            			continue
+            		}
+            ```
+
+            Replace with:
+
+            ```go
+            		// Check if any extractor can handle this file.
+            		if len(idx.registry.FindAllExtractors(relPath)) == 0 {
+            			continue
+            		}
+            ```
+
+            ### Changes to cmd/knowing/main.go
+
+            1. Add imports. Find this import block text:
+
+            ```go
+            	"github.com/blackwell-systems/knowing/internal/indexer/protoextractor"
+            ```
+
+            Add after it:
+            ```go
+            	"github.com/blackwell-systems/knowing/internal/indexer/eventextractor"
+            	"github.com/blackwell-systems/knowing/internal/indexer/schemaextractor"
+            ```
+
+            2. Add registration calls. Find this exact text at the end of registerAllExtractors:
+
+            ```go
+            	// Protocol Buffers.
+            	idx.Register(protoextractor.NewProtoExtractor())
+            }
+            ```
+
+            Replace with:
+
+            ```go
+            	// Protocol Buffers.
+            	idx.Register(protoextractor.NewProtoExtractor())
+
+            	// Event/message queue patterns (Kafka, NATS, SQS, RabbitMQ).
+            	idx.Register(eventextractor.NewEventExtractor())
+
+            	// OpenAPI/JSON Schema.
+            	idx.Register(schemaextractor.NewSchemaExtractor())
+            }
+            ```
+
+            ### Verification gate
+            ```bash
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go build ./...
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go vet ./...
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go test ./... -timeout 5m
+            ```
+
+            ### Postconditions
+            - `grep -c "eventextractor" cmd/knowing/main.go` returns at least 2 (import + registration)
+            - `grep -c "schemaextractor" cmd/knowing/main.go` returns at least 2 (import + registration)
+            - `grep -c "FindAllExtractors" internal/indexer/extractor.go` returns 1 (method definition)
+            - `grep -c "FindAllExtractors" internal/indexer/indexer.go` returns at least 2 (usage sites)
+
+            ### Constraints
+            - Do NOT modify extractor implementation files in eventextractor/ or schemaextractor/
+            - Do NOT change the ExtractorRegistry struct fields (only add new method)
+            - Do NOT remove FindExtractor (it may be used by other callers); only add FindAllExtractors
+            - Ensure existing tests still pass (the behavior change is additive: files that
+              previously matched one extractor now also run supplementary extractors, producing
+              additional nodes/edges but not removing any)
+          files:
+            - cmd/knowing/main.go
+            - internal/indexer/extractor.go
+            - internal/indexer/indexer.go
+          dependencies:
+            - A
+            - B
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: GOWORK=off go build ./...
+          required: true
+        - type: lint
+          command: GOWORK=off go vet ./...
+          required: true
+        - type: test
+          command: GOWORK=off go test ./... -timeout 5m
+          required: true
 pre_mortem:
-  overall_risk: medium
-  rows:
-    - scenario: Event extractor CanHandle overlaps with existing language extractors, never reached by FindExtractor
-      likelihood: high
-      impact: high
-      mitigation: |
-        Agent C modifies the indexer to use FindAllExtractors instead of FindExtractor
-        in the extraction path. All matching extractors run and their results merge.
-        The event extractor is registered last but still runs via FindAllExtractors.
-    - scenario: Multi-extractor merge produces duplicate nodes when both extractors find the same symbol
-      likelihood: low
-      impact: low
-      mitigation: |
-        Nodes are content-addressed (NodeHash is deterministic from repo+path+name+kind).
-        Duplicate nodes with the same hash get deduplicated by the store's upsert semantics
-        (INSERT OR REPLACE). No data corruption, just redundant computation.
-    - scenario: Schema extractor CanHandle (.yaml/.json) conflicts with K8s extractor for k8s directory files
-      likelihood: medium
-      impact: low
-      mitigation: |
-        With FindAllExtractors, both run on the same file. K8s extractor produces K8s nodes,
-        schema extractor returns empty result (no openapi/swagger marker in K8s manifests).
-        No conflict; just a minor performance cost of parsing K8s YAML twice.
-    - scenario: Existing tests break because extractFile now returns merged results from multiple extractors
-      likelihood: low
-      impact: medium
-      mitigation: |
-        The change is additive. Files that previously matched only one extractor will still
-        produce the same nodes/edges from that extractor, plus potentially additional ones
-        from supplementary extractors. Tests that assert exact counts may need updating, but
-        the existing extractors do not overlap in practice (each handles different extensions).
-        The only overlap is event extractor on .go/.ts/.py/.java (which produces additional
-        edges, not conflicting ones).
+    overall_risk: medium
+    rows:
+        - scenario: Event extractor CanHandle overlaps with existing language extractors, never reached by FindExtractor
+          likelihood: high
+          impact: high
+          mitigation: |
+            Agent C modifies the indexer to use FindAllExtractors instead of FindExtractor
+            in the extraction path. All matching extractors run and their results merge.
+            The event extractor is registered last but still runs via FindAllExtractors.
+        - scenario: Multi-extractor merge produces duplicate nodes when both extractors find the same symbol
+          likelihood: low
+          impact: low
+          mitigation: |
+            Nodes are content-addressed (NodeHash is deterministic from repo+path+name+kind).
+            Duplicate nodes with the same hash get deduplicated by the store's upsert semantics
+            (INSERT OR REPLACE). No data corruption, just redundant computation.
+        - scenario: Schema extractor CanHandle (.yaml/.json) conflicts with K8s extractor for k8s directory files
+          likelihood: medium
+          impact: low
+          mitigation: |
+            With FindAllExtractors, both run on the same file. K8s extractor produces K8s nodes,
+            schema extractor returns empty result (no openapi/swagger marker in K8s manifests).
+            No conflict; just a minor performance cost of parsing K8s YAML twice.
+        - scenario: Existing tests break because extractFile now returns merged results from multiple extractors
+          likelihood: low
+          impact: medium
+          mitigation: |
+            The change is additive. Files that previously matched only one extractor will still
+            produce the same nodes/edges from that extractor, plus potentially additional ones
+            from supplementary extractors. Tests that assert exact counts may need updating, but
+            the existing extractors do not overlap in practice (each handles different extensions).
+            The only overlap is event extractor on .go/.ts/.py/.java (which produces additional
+            edges, not conflicting ones).
+state: REVIEWED
