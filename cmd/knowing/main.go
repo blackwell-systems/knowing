@@ -70,6 +70,8 @@ func run(args []string) error {
 		return cmdMCP(args[1:])
 	case "reindex":
 		return cmdReindex(args[1:])
+	case "init":
+		return cmdInit(args[1:])
 	default:
 		printUsage()
 		return fmt.Errorf("unknown subcommand: %s", args[0])
@@ -88,6 +90,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  context  Generate graph-aware context for a task or files")
 	fmt.Fprintln(os.Stderr, "  export   Export the graph as JSON")
 	fmt.Fprintln(os.Stderr, "  reindex  Clear and re-index a repository from scratch")
+	fmt.Fprintln(os.Stderr, "  init     Generate CLAUDE.md with graph-derived project context")
 	fmt.Fprintln(os.Stderr, "  version  Print version information")
 }
 
