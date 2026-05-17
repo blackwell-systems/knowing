@@ -417,4 +417,4 @@ critic_report:
     summary: Skipped by operator (--skip-critic)
     reviewed_at: "2026-05-17T18:00:53Z"
     issue_count: 0
-state: SCOUT_PENDING
+state: "REVIEWED"
