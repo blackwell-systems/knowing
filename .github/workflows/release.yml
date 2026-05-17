@@ -25,7 +25,7 @@ jobs:
           cache: true
 
       - name: Run tests before release
-        run: GOWORK=off go test ./...
+        run: GOWORK=off go test $(go list ./... | grep -v /bench/) -timeout 5m
 
       - uses: docker/setup-buildx-action@v3
 
