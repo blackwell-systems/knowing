@@ -30,7 +30,7 @@ if [ "$TOTAL" = "0" ]; then
   exit 0
 fi
 
-python3 << 'PYTHON'
+python3 - "$LOG" << 'PYTHON'
 import json
 import sys
 from collections import defaultdict
@@ -145,4 +145,4 @@ print("    2. Save log: cp .knowing-hooks.jsonl hooks-on.jsonl")
 print("    3. Work for a session with KNOWING_HOOKS=off")
 print("    4. Compare: tool call count, errors, time to completion")
 print()
-PYTHON "$LOG"
+PYTHON
