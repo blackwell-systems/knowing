@@ -8,35 +8,100 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- `knowing mcp` subcommand for stdio MCP server mode (used by AI agents via .mcp.json)
-- 5 new MCP tools (total now 22): `feedback`, `test_scope`, `flow_between`, `plan_turn`, `communities`
-- `feedback` MCP tool: record/query symbol usefulness for agent learning loop (FeedbackProvider interface wired into ContextEngine)
-- `test_scope` MCP tool: backward BFS from changed symbols to find affected test functions
-- `flow_between` MCP tool: BFS path finding between two symbols (up to 10 paths)
-- `plan_turn` MCP tool: keyword-based task-to-tool recommender with pre-filled argument suggestions
-- `communities` MCP tool: Louvain modularity clustering with `list` and `for_symbol` actions
-- `knowing export -format dot`: Graphviz DOT export with Louvain community subgraphs and cross-community edge highlighting
-- Community-annotated JSON export: nodes include `community` ID, edges include `cross_community` flag, top-level `communities` array with labels and sizes
-- `NodesByFilePath` store method (joins nodes to files via SQL) for test-scope and context engine
-- Feedback benchmark (`bench/feedback-loop/`) proving compounding thesis
-- HITS (Hyperlink-Induced Topic Search) reranking on RWR subgraph: boosts task-relevant authorities, penalizes generic infrastructure hubs. Score differentiation improved from 0.01 spread to 0.35 spread across results.
-- Density-ranked knapsack packing: score/cost ratio optimization maximizes total relevance within token budgets. Small high-value symbols (types, interfaces) now beat large medium-value symbols when budget is tight.
-- Protobuf/gRPC extractor: extracts service, message, enum, and RPC declarations from .proto files with references edges for field types and RPC request/response types
-- All 11 language extractors now registered in CLI (were previously unregistered packages): Go, Python, TypeScript/JS, Rust, Java, C#, Terraform, SQL, K8s YAML, CSS, Protocol Buffers
-- Random Walk with Restart (RWR) algorithm for graph-based relevance scoring in context engine
-- Improved keyword extraction with stop word filtering, CamelCase splitting, and abbreviation expansion
+#### Extractors (6 -> 17 languages)
+- Protobuf/gRPC extractor: service, message, enum, RPC declarations with type reference edges
+- Event/MQ extractor: Kafka, NATS, SQS, RabbitMQ patterns across Go/TS/Python/Java
+- Schema extractor: OpenAPI 3.x, Swagger 2.x, JSON Schema document parsing
+- Cloud extractor package: CloudFormation/SAM, Docker Compose, GitHub Actions, Serverless Framework
+- Terraform HCL extractor: resources, data sources, modules, variables with dependency edges
+- SQL extractor: tables, views, functions, procedures with FK/reference edges
+- K8s YAML extractor: deployments, services, configmaps with label-selector edges
+- CSS extractor: class/ID selectors, custom properties, var() dependency edges
+- Python: Flask, FastAPI, Django route detection
+- TypeScript: Fastify, Hono, NestJS, Next.js route detection
+- FindAllExtractors multi-dispatch: all matching extractors run per file (not just first)
+- All 17 extractors registered in CLI (9 were previously dead code)
+
+#### SCIP Ingest
+- `internal/indexer/scipingest/` package: parses SCIP protobuf index files
+- `knowing ingest-scip` CLI command for external dependency resolution
+- Provenance `scip_resolved` at confidence 0.95
+
+#### Context Engine
+- HITS (Hyperlink-Induced Topic Search) reranking on RWR subgraph
+- Density-ranked knapsack packing: score/cost ratio optimization for token budgets
+- 5-tier seeding: exact, prefix, substring, file-path matching, interface-aware
+- FeedbackProvider interface wired into ContextEngine with centered scoring
+- Community-scoped RWR preparation (interface defined, activates when store implements)
+- Random Walk with Restart (RWR) algorithm for graph-based relevance scoring
+- Improved keyword extraction with stop word filtering, CamelCase splitting, abbreviation expansion
 - Relative normalization in ranking and base recency score for static-only edges
+
+#### MCP Server (16 -> 22 tools)
+- `knowing mcp` subcommand for stdio MCP server mode
+- `feedback` tool: record/query symbol usefulness for agent learning loop
+- `test_scope` tool: backward BFS from changed symbols to affected test functions
+- `flow_between` tool: BFS path finding between two symbols (up to 10 paths)
+- `plan_turn` tool: keyword-based task-to-tool recommender with pre-filled arguments
+- `communities` tool: Louvain modularity clustering with `list` and `for_symbol` actions
+- `context_for_pr` tool (17th tool, added earlier in session)
+- 3 MCP prompts: `refactor_safely`, `review_pr`, `investigate_dead_code`
+
+#### Wire Format
+- Graph Compact Format (GCF): line-oriented LLM-optimized encoding (84% token savings vs JSON)
+- Graph Compact Binary (GCB): varint-encoded transport format (74% byte savings vs JSON)
+- Session statefulness: cross-call deduplication (47% dedup on repeated symbols)
+- Round-trip integrity: encode -> decode -> re-encode for all codecs
+
+#### Benchmarks (6 harnesses with auto-generated FINDINGS.md)
+- `bench/feedback-loop/`: precision 16% -> 36% (+20pp) with feedback compounding
+- `bench/context-relevance/`: 3 configs x 10 fixtures, feedback adds +9pp precision
+- `bench/token-savings/`: 52.8% fewer tool calls, 55.6% fewer tokens vs manual grep
+- `bench/edge-accuracy/`: tree-sitter vs go/ast comparison (26.7% confirmation, 53.6% imports)
+- `bench/test-scope-accuracy/`: predictions vs Go import DAG ground truth (98.9% precision)
+- `bench/wire-format/`: GCF 84% token savings, GCB 74% byte savings across 6 fixtures
+
+#### CLI
+- `knowing test-scope`: find affected tests from changed files via call graph BFS
+- `knowing init`: auto-generated CLAUDE.md with progressive disclosure
+- `knowing export -format dot`: Graphviz DOT with Louvain community subgraphs
+- `knowing reindex`: rebuild graph without full re-extraction
+- Community-annotated JSON export: nodes include `community` ID, edges include `cross_community` flag
+
+#### Infrastructure
+- `KNOWING_DB` env var for global database path (all subcommands)
+- Global MCP config support in ~/.claude.json (knowing available in every Claude session)
+- Claude Code hooks with A/B measurement harness (proven net-positive after benchmarking)
+- Docker image publishing in goreleaser config
+- PyPI and npm distribution packages
+- mcp-assert CI action for MCP server correctness testing
+- `NodesByFilePath` store method (joins nodes to files via SQL)
+- Migration 005: feedback table for persistent symbol usefulness tracking
+- `DeleteSnapshot` for real garbage collection
 
 ### Fixed
 
-- `test-scope` command: fixed `symbolsInFiles` returning empty results due to stale FileHash mismatch after re-indexing
-- `test-scope` command: fixed package path extraction producing invalid `go test` paths (was not stripping module prefix)
-- Context engine `ForFiles` and `ForPR` now use `NodesByFilePath` join (was broken with stale FileHash matching)
-- HITS node selection now operates on top-N by RWR score (was random map iteration order)
-- Context engine uses substring search for keyword matching (was requiring exact match)
-- mkdocs.yml and index.md added for docs workflow
+- `test-scope` command: `symbolsInFiles` returning empty results (stale FileHash mismatch)
+- `test-scope` command: package path extraction producing invalid `go test` paths
+- Context engine `ForFiles`/`ForPR` broken with stale FileHash matching (now uses NodesByFilePath)
+- HITS node selection on random map iteration order (now sorted by RWR score first)
+- Context engine exact match requirement (now uses substring search)
+- K8s extractor not matching `kubernetes-manifests/` directory names (was exact `/kubernetes/`)
+- All subcommands now use KNOWING_DB env var (mcp.go was still hardcoded)
+- 9 extractors were dead code (registered but never called due to first-match dispatch)
+- Duplicate `extractPackage` helper in testscope.go and communities.go
+- Community label deduplication (Louvain producing 3 "mcp" communities)
+- Indexer cleans up nodes/edges from deleted files
+- Duplicate nodes from mismatched repo URL vs go.mod module path
 - Architecture doc updated to reflect actual codebase structure
-- All 6 benchmark harnesses audited and corrected: feedback-loop FINDINGS.md updated with current numbers (16%->36%), edge-accuracy auto-generates honest FINDINGS.md (26.7% confirmation, fair comparison restricted to shared edge types), test-scope-accuracy replaced circular ground truth with independent Go import DAG via `go list -deps -test`, context-relevance adds honest interpretation when configs tie, wire-format adds previously missing FINDINGS.md, token-savings regenerated with current data
+- All 6 benchmark harnesses audited: stale FINDINGS data corrected, circular ground truth replaced with independent Go import DAG, missing FINDINGS.md generated, misleading interpretations rewritten
+
+### Changed
+
+- Extractors: 6 -> 17 languages (Go, Python, TS/JS, Rust, Java, C#, Terraform, SQL, K8s, CSS, Proto, Event/MQ, Schema, CloudFormation, Docker Compose, GitHub Actions, Serverless)
+- MCP server: 16 -> 22 tools
+- Wire format renamed from KWF/KWB to GCF/GCB (Graph Compact Format/Binary)
+- Default hooks now recommended (proven net-positive with benchmarks)
 
 ## 2026-05-15
 
