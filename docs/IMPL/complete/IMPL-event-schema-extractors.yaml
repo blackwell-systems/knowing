@@ -1,3 +1,4 @@
+completion_date: "2026-05-17"
 title: Event and Schema Extractors
 feature_slug: event-schema-extractors
 verdict: SUITABLE
@@ -366,7 +367,7 @@ waves:
             - internal/indexer/schemaextractor/doc.go
             - internal/indexer/schemaextractor/extractor.go
             - internal/indexer/schemaextractor/extractor_test.go
-      base_commit: db5b6813330067fd961a125ddc5d630e28dcd2c3
+      base_commit: d56c2222135bf7d2ccfe0ea0c3ad6c083e030c63
     - number: 2
       type: integration
       agents:
@@ -606,6 +607,7 @@ waves:
           dependencies:
             - A
             - B
+          context_source: prepared-brief
 quality_gates:
     level: standard
     gates:
@@ -618,6 +620,74 @@ quality_gates:
         - type: test
           command: GOWORK=off go test ./... -timeout 5m
           required: true
+post_merge_checklist:
+    groups:
+        - title: Background Service Initialization
+          items:
+            - description: Verify if extractor_test.go needs initialization in Server constructor
+            - description: Verify if extractor_test.go needs initialization in Server constructor
+completion_reports:
+    A:
+        status: complete
+        branch: polywave/event-schema-extractors/wave1-agent-A
+        commit: a0ee3de
+        files_changed:
+            - internal/indexer/eventextractor/doc.go
+            - internal/indexer/eventextractor/extractor.go
+            - internal/indexer/eventextractor/extractor_test.go
+        files_created:
+            - internal/indexer/eventextractor/doc.go
+            - internal/indexer/eventextractor/extractor.go
+            - internal/indexer/eventextractor/extractor_test.go
+        tests_added:
+            - TestEventExtractor_Name
+            - TestEventExtractor_CanHandle
+            - TestEventExtractor_GoKafkaProducer
+            - TestEventExtractor_GoNatsSubscribe
+            - TestEventExtractor_TypeScriptKafkaJS
+            - TestEventExtractor_PythonKafkaConsumer
+            - TestEventExtractor_JavaKafkaListener
+            - TestEventExtractor_RabbitMQPython
+            - TestEventExtractor_GoNatsPublish
+            - TestEventExtractor_JavaKafkaTemplate
+            - TestEventExtractor_EdgeProvenance
+            - TestEventExtractor_EmptyFile
+        verification: PASS
+        notes: Event extractor complete. 12 tests passing. Detects Kafka/NATS/SQS/RabbitMQ patterns in Go/TS/Python/Java. Registration in main.go is Agent C wave 2 scope.
+    B:
+        status: complete
+        branch: polywave/event-schema-extractors/wave1-agent-B
+        commit: be9d04e
+        files_changed:
+            - internal/indexer/schemaextractor/doc.go
+            - internal/indexer/schemaextractor/extractor.go
+            - internal/indexer/schemaextractor/extractor_test.go
+        files_created:
+            - internal/indexer/schemaextractor/doc.go
+            - internal/indexer/schemaextractor/extractor.go
+            - internal/indexer/schemaextractor/extractor_test.go
+        tests_added:
+            - TestSchemaExtractor_Name
+            - TestSchemaExtractor_CanHandle
+            - TestSchemaExtractor_OpenAPI3Paths
+            - TestSchemaExtractor_OpenAPI3Schemas
+            - TestSchemaExtractor_OpenAPI3References
+            - TestSchemaExtractor_Swagger2
+            - TestSchemaExtractor_JSONSchema
+            - TestSchemaExtractor_NonOpenAPIYAML
+            - TestSchemaExtractor_JSONFile
+        verification: PASS
+        notes: Schema extractor complete. All 9 tests passing. Build, vet, and postconditions verified. Registration in main.go is Agent C's scope in wave 2.
+    C:
+        status: complete
+        branch: polywave/event-schema-extractors/wave2-agent-C
+        commit: 6b4a694
+        files_changed:
+            - cmd/knowing/main.go
+            - internal/indexer/extractor.go
+            - internal/indexer/indexer.go
+        verification: PASS
+        notes: Multi-extractor dispatch enabled. FindAllExtractors added, extractFile/IndexFile/IndexRepo updated, both extractors registered. All tests pass.
 pre_mortem:
     overall_risk: medium
     rows:
@@ -652,4 +722,4 @@ pre_mortem:
             the existing extractors do not overlap in practice (each handles different extensions).
             The only overlap is event extractor on .go/.ts/.py/.java (which produces additional
             edges, not conflicting ones).
-state: REVIEWED
+state: COMPLETE

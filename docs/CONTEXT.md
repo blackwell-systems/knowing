@@ -27,3 +27,5 @@
   - IMPL doc: docs/IMPL/complete/IMPL-infra-schema-extractors.yaml
 - **mcp-tools-expansion**: completed 2026-05-16, 2 waves, 6 agents
   - IMPL doc: docs/IMPL/complete/IMPL-mcp-tools-expansion.yaml
+- **event-schema-extractors**: completed 2026-05-17, 2 waves, 3 agents
+  - IMPL doc: docs/IMPL/complete/IMPL-event-schema-extractors.yaml
