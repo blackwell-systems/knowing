@@ -1,0 +1,755 @@
+title: 'MCP Tools Expansion: feedback, test_scope, flow_between, plan_turn, communities'
+feature_slug: mcp-tools-expansion
+verdict: SUITABLE
+suitability_assessment: |
+    Suitability gate analysis:
+
+    1. File decomposition: 5 new tools map to 5 distinct new files plus modifications to
+       server.go (registration) and a new migration file. Each tool is self-contained with
+       its own handler file and test file. server.go registration is append-only and will
+       be handled by an integration wave.
+
+    2. Investigation-first items: None. All tools have clear specifications and the
+       existing codebase patterns are well-established.
+
+    3. Interface discoverability: Yes. Each tool's inputs/outputs are fully specified.
+       The feedback tool requires a new SQLite table (migration) and a score boost hook
+       in the context engine ranking. These interfaces can be defined upfront.
+
+    4. Pre-implementation status: All 5 tools are new (TODO). No partial implementations
+       exist. The test_scope tool reuses existing logic from cmd/knowing/testscope.go.
+
+    5. Parallelization value: High. 5 independent tool implementations can run in
+       parallel (Wave 1). Build+test cycle is ~30s (go test ./...). Each agent owns
+       2-3 files. Single integration wave wires everything together.
+
+    Estimated times:
+    - Scout phase: ~8 min
+    - Agent execution: ~12 min (5 agents in parallel, ~12 min each, but parallel)
+    - Merge and verification: ~4 min
+    Total Polywave time: ~24 min
+
+    Sequential baseline: ~60 min (5 tools x 12 min avg)
+    Time savings: ~36 min (60% faster)
+
+    Recommendation: Clear speedup. Proceed.
+test_command: GOWORK=off go test ./...
+lint_command: go vet ./...
+file_ownership:
+    - file: internal/mcp/feedback.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/mcp/feedback_test.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/store/feedback.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/store/feedback_test.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/store/migrations/005_add_feedback_table.sql
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/context/ranking.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/mcp/testscope.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/mcp/testscope_test.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/mcp/dataflow.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/mcp/dataflow_test.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/mcp/planturn.go
+      agent: D
+      wave: 1
+      action: new
+    - file: internal/mcp/planturn_test.go
+      agent: D
+      wave: 1
+      action: new
+    - file: internal/mcp/communities.go
+      agent: E
+      wave: 1
+      action: new
+    - file: internal/mcp/communities_test.go
+      agent: E
+      wave: 1
+      action: new
+    - file: internal/mcp/server.go
+      agent: F
+      wave: 2
+      action: modify
+interface_contracts:
+    - name: handleFeedback
+      description: MCP tool handler for feedback (record/query actions)
+      definition: |
+        func (s *Server) handleFeedback(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error)
+        // Tool name: "feedback"
+        // Required args: action (string: "record" or "query")
+        // For action=record: symbol_hash (string, 64-char hex), session_id (string), useful (bool)
+        // For action=query: symbol_hash (string, 64-char hex)
+        // Returns: JSON with status or aggregate stats {useful_count, not_useful_count, score}
+      location: internal/mcp/feedback.go
+    - name: handleTestScope
+      description: MCP tool handler exposing test-scope logic
+      definition: |
+        func (s *Server) handleTestScope(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error)
+        // Tool name: "test_scope"
+        // Required args: files (string, comma-separated paths)
+        // Optional args: output (string: "packages"|"functions"|"run", default "packages"), depth (int, default 3)
+        // Returns: JSON with affected test packages/functions/run-regex
+      location: internal/mcp/testscope.go
+    - name: handleFlowBetween
+      description: MCP tool handler for BFS path finding between two symbols
+      definition: |
+        func (s *Server) handleFlowBetween(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error)
+        // Tool name: "flow_between"
+        // Required args: source_symbol (string, qualified name), target_symbol (string, qualified name)
+        // Optional args: max_depth (int, default 5)
+        // Returns: JSON with paths array, each path is [{symbol, edge_type}, ...]
+      location: internal/mcp/dataflow.go
+    - name: handlePlanTurn
+      description: MCP tool handler for task-to-tool suggestion
+      definition: |
+        func (s *Server) handlePlanTurn(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error)
+        // Tool name: "plan_turn"
+        // Required args: task (string, task description)
+        // Returns: JSON array of suggested tool calls with pre-filled args, max 3-4 suggestions
+      location: internal/mcp/planturn.go
+    - name: handleCommunities
+      description: MCP tool handler for Louvain community detection
+      definition: |
+        func (s *Server) handleCommunities(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error)
+        // Tool name: "communities"
+        // Optional args: repo_url (string filter), action (string: "list" or "for_symbol", default "list")
+        // For action=for_symbol: symbol (string, qualified name)
+        // Returns: JSON with communities array [{id, size, top_symbols, cohesion, dominant_package}]
+        // or single community with neighbors for action=for_symbol
+      location: internal/mcp/communities.go
+    - name: FeedbackStore methods
+      description: SQLite methods for feedback persistence
+      definition: |
+        func (s *SQLiteStore) RecordFeedback(ctx context.Context, symbolHash types.Hash, sessionID string, useful bool) error
+        func (s *SQLiteStore) QueryFeedback(ctx context.Context, symbolHash types.Hash) (*FeedbackStats, error)
+        func (s *SQLiteStore) FeedbackBoosts(ctx context.Context, hashes []types.Hash) (map[types.Hash]float64, error)
+
+        type FeedbackStats struct {
+            UsefulCount    int     `json:"useful_count"`
+            NotUsefulCount int     `json:"not_useful_count"`
+            Score          float64 `json:"score"` // useful / (useful + not_useful)
+        }
+      location: internal/store/feedback.go
+    - name: Migration 005
+      description: SQLite migration adding feedback table
+      definition: |
+        CREATE TABLE feedback (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol_hash  BLOB NOT NULL,
+            session_id   TEXT NOT NULL,
+            useful       INTEGER NOT NULL,
+            timestamp    INTEGER NOT NULL
+        );
+        CREATE INDEX idx_feedback_symbol ON feedback(symbol_hash);
+        CREATE INDEX idx_feedback_session ON feedback(session_id);
+      location: internal/store/migrations/005_add_feedback_table.sql
+waves:
+    - number: 1
+      agents:
+        - id: A
+          task: |
+            ## Feedback Tool and Store Layer
+
+            Implement the feedback MCP tool that lets agents report which symbols were
+            useful/not-useful, persists feedback in SQLite, and adds a feedback-aware
+            score boost to the context engine ranking.
+
+            ### Files to create/modify
+
+            1. **internal/store/migrations/005_add_feedback_table.sql** (new)
+               Create the feedback table:
+               ```sql
+               CREATE TABLE feedback (
+                   id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                   symbol_hash  BLOB NOT NULL,
+                   session_id   TEXT NOT NULL,
+                   useful       INTEGER NOT NULL,
+                   timestamp    INTEGER NOT NULL
+               );
+               CREATE INDEX idx_feedback_symbol ON feedback(symbol_hash);
+               CREATE INDEX idx_feedback_session ON feedback(session_id);
+               ```
+
+            2. **internal/store/feedback.go** (new)
+               Add methods to SQLiteStore:
+               - `RecordFeedback(ctx, symbolHash types.Hash, sessionID string, useful bool) error`
+                 Inserts a row with current unix timestamp.
+               - `QueryFeedback(ctx, symbolHash types.Hash) (*FeedbackStats, error)`
+                 Returns counts and score (useful / total). Returns zero stats if no rows.
+               - `FeedbackBoosts(ctx, hashes []types.Hash) (map[types.Hash]float64, error)`
+                 Batch query: for each hash, compute score. Returns map of hash->boost (0.0-1.0).
+                 Only includes hashes with at least 1 feedback entry.
+
+               Define `FeedbackStats` struct in this file:
+               ```go
+               type FeedbackStats struct {
+                   UsefulCount    int     `json:"useful_count"`
+                   NotUsefulCount int     `json:"not_useful_count"`
+                   Score          float64 `json:"score"`
+               }
+               ```
+
+            3. **internal/store/feedback_test.go** (new)
+               Test RecordFeedback, QueryFeedback, FeedbackBoosts using a temp SQLite DB.
+               Verify: empty stats for unknown hash, correct counts after multiple records,
+               score calculation, batch query with mixed known/unknown hashes.
+
+            4. **internal/mcp/feedback.go** (new)
+               - `feedbackTool() mcp.Tool` - defines the "feedback" tool with:
+                 - action: required string, enum-like ("record" or "query")
+                 - symbol_hash: required string (64-char hex)
+                 - session_id: string (required for record, ignored for query)
+                 - useful: boolean (required for record, ignored for query)
+               - `handleFeedback(ctx, req) (*mcp.CallToolResult, error)`:
+                 - Requires s.sqlStore (return error if nil like runtime handlers do)
+                 - For action=record: parse symbol_hash, validate, call RecordFeedback
+                 - For action=query: parse symbol_hash, call QueryFeedback, return JSON stats
+
+            5. **internal/mcp/feedback_test.go** (new)
+               Test handleFeedback using a real SQLiteStore (temp DB). Test both actions,
+               missing args, invalid hash, nil sqlStore error.
+
+            6. **internal/context/ranking.go** (modify)
+               Add an optional `FeedbackBoosts` field to the `RankSymbols` function signature
+               via a new variadic parameter (to avoid breaking existing callers):
+               ```go
+               func RankSymbols(symbols []ScoringInput, hitsScores ...map[types.Hash]HITSScores) []RankedSymbol
+               ```
+               Change to:
+               ```go
+               type RankOptions struct {
+                   HITSScores     map[types.Hash]HITSScores
+                   FeedbackBoosts map[types.Hash]float64
+               }
+               func RankSymbols(symbols []ScoringInput, opts ...RankOptions) []RankedSymbol
+               ```
+               Wait: this would break existing callers. Instead, add feedback as a field on
+               ScoringInput:
+               ```go
+               type ScoringInput struct {
+                   // ... existing fields ...
+                   FeedbackBoost float64 // 0.0 = no feedback, >0 = positive signal (0.0-1.0)
+               }
+               ```
+               In the scoring logic, add a feedback component with weight 0.1:
+               - If FeedbackBoost > 0: total += 0.1 * FeedbackBoost
+               - Update ScoreComponents to include a Feedback field
+
+               Add `Feedback float64` to ScoreComponents struct.
+
+               Existing callers pass FeedbackBoost=0 (zero value), so no behavioral change.
+
+            ### Constraints
+            - Do NOT modify internal/mcp/server.go (registration happens in Wave 2)
+            - Do NOT change the RankSymbols function signature (use zero-value field approach)
+            - The feedback table uses INTEGER for `useful` (0=false, 1=true) per SQLite convention
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/store/... ./internal/mcp/... ./internal/context/...
+            GOWORK=off go test ./internal/store/ -run TestFeedback -v
+            GOWORK=off go test ./internal/mcp/ -run TestFeedback -v
+            GOWORK=off go test ./internal/context/ -run TestRank -v
+            ```
+          files:
+            - internal/mcp/feedback.go
+            - internal/mcp/feedback_test.go
+            - internal/store/feedback.go
+            - internal/store/feedback_test.go
+            - internal/store/migrations/005_add_feedback_table.sql
+            - internal/context/ranking.go
+        - id: B
+          task: |
+            ## Test Scope MCP Tool
+
+            Expose the existing `knowing test-scope` logic as an MCP tool. The core
+            algorithms (symbolsInFiles, findAffectedTests) already exist in
+            cmd/knowing/testscope.go. This tool wraps them for MCP access.
+
+            ### Files to create
+
+            1. **internal/mcp/testscope.go** (new)
+               - `testScopeTool() mcp.Tool` - defines "test_scope" tool:
+                 - files: required string (comma-separated file paths)
+                 - output: optional string ("packages"|"functions"|"run", default "packages")
+                 - depth: optional integer (default 3)
+               - `handleTestScope(ctx, req) (*mcp.CallToolResult, error)`:
+                 - Requires s.sqlStore (return error if nil)
+                 - Parse files arg into []string (split on comma, trim whitespace)
+                 - Call symbolsInFiles equivalent using s.sqlStore methods:
+                   - Get all repos via s.sqlStore.AllRepos
+                   - For each file path, call s.sqlStore.NodesByFilePath(ctx, repoHash, path)
+                   - Deduplicate by NodeHash
+                 - Call findAffectedTests equivalent:
+                   - BFS backward from changed symbols using s.sqlStore.EdgesTo(ctx, hash, "calls")
+                   - For each caller, check if it's a test function (kind=="function", name starts with "Test" or "Benchmark")
+                   - Stop at maxDepth
+                 - Format output based on output mode:
+                   - "packages": unique package paths extracted from qualified names
+                   - "functions": qualified names of test functions
+                   - "run": regex pattern "^(TestFoo|TestBar)$"
+                 - Return JSON: {mode, results: [...], count: N}
+
+               Note: Reimplement the logic inline rather than importing from cmd/knowing
+               (that package is main, not importable). The logic is straightforward BFS.
+
+            2. **internal/mcp/testscope_test.go** (new)
+               Test using a real SQLiteStore (temp DB):
+               - Seed a repo, files, nodes (including test functions), and call edges
+               - Verify: changed file -> finds affected tests
+               - Verify: output modes produce correct format
+               - Verify: depth limiting works
+               - Verify: missing sqlStore returns error
+
+            ### Constraints
+            - Do NOT modify internal/mcp/server.go (registration happens in Wave 2)
+            - Do NOT import from cmd/knowing (it's package main)
+            - Use s.sqlStore for AllRepos, NodesByFilePath, EdgesTo, GetNode
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/mcp/...
+            GOWORK=off go test ./internal/mcp/ -run TestTestScope -v
+            ```
+          files:
+            - internal/mcp/testscope.go
+            - internal/mcp/testscope_test.go
+        - id: C
+          task: |
+            ## Flow Between MCP Tool
+
+            Implement a BFS-based path finder between two symbols in the knowledge graph.
+            Given source and target qualified names, find all paths up to max_depth using
+            edges in the graph.
+
+            ### Files to create
+
+            1. **internal/mcp/dataflow.go** (new)
+               - `flowBetweenTool() mcp.Tool` - defines "flow_between" tool:
+                 - source_symbol: required string (qualified name, e.g. "github.com/org/repo://pkg.FuncA")
+                 - target_symbol: required string (qualified name)
+                 - max_depth: optional integer (default 5)
+               - `handleFlowBetween(ctx, req) (*mcp.CallToolResult, error)`:
+                 - Resolve source_symbol to node(s) via s.store.NodesByQualifiedName
+                 - Resolve target_symbol to node(s) via s.store.NodesByQualifiedName
+                 - If either not found, return tool error "symbol not found: <name>"
+                 - BFS from source node(s), following ALL edge types (calls, imports, implements, references)
+                   via s.store.EdgesFrom(ctx, hash, "")
+                 - Track paths: each BFS state is (currentHash, pathSoFar)
+                 - When target is reached, record the path
+                 - Stop at max_depth
+                 - Cap results at 10 paths to avoid explosion
+                 - Return JSON:
+                   ```json
+                   {
+                     "source": "qualified.name.A",
+                     "target": "qualified.name.B",
+                     "paths": [
+                       [{"symbol": "pkg.FuncA", "edge_type": "calls"}, {"symbol": "pkg.FuncB", "edge_type": "calls"}, ...]
+                     ],
+                     "path_count": 2,
+                     "truncated": false
+                   }
+                   ```
+
+               Helper types:
+               ```go
+               type flowPath struct {
+                   Steps []flowStep `json:"steps"`
+               }
+               type flowStep struct {
+                   Symbol   string `json:"symbol"`
+                   EdgeType string `json:"edge_type"`
+               }
+               type flowResult struct {
+                   Source    string     `json:"source"`
+                   Target   string     `json:"target"`
+                   Paths    []flowPath `json:"paths"`
+                   PathCount int       `json:"path_count"`
+                   Truncated bool      `json:"truncated"`
+               }
+               ```
+
+            2. **internal/mcp/dataflow_test.go** (new)
+               Test using mockGraphStore:
+               - Build a small graph: A->B->C->D, A->C (shortcut)
+               - Verify: finds both paths A->B->C and A->C for source=A, target=C
+               - Verify: depth limiting excludes longer paths
+               - Verify: symbol not found returns error
+               - Verify: no path returns empty paths array
+               - Verify: truncation at 10 paths
+
+            ### Constraints
+            - Do NOT modify internal/mcp/server.go (registration happens in Wave 2)
+            - Use s.store (GraphStore interface), not s.sqlStore
+            - EdgesFrom with empty edgeType returns ALL edge types
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/mcp/...
+            GOWORK=off go test ./internal/mcp/ -run TestFlowBetween -v
+            ```
+          files:
+            - internal/mcp/dataflow.go
+            - internal/mcp/dataflow_test.go
+        - id: D
+          task: |
+            ## Plan Turn MCP Tool
+
+            Implement a lightweight task-to-tool recommender. Given a task description,
+            extract keywords and return ranked suggestions of which knowing MCP tools to
+            call with pre-filled arguments.
+
+            ### Files to create
+
+            1. **internal/mcp/planturn.go** (new)
+               - `planTurnTool() mcp.Tool` - defines "plan_turn" tool:
+                 - task: required string (task description)
+               - `handlePlanTurn(ctx, req) (*mcp.CallToolResult, error)`:
+                 - Extract keywords from task (simple: lowercase, split on spaces/punctuation,
+                   remove stop words similar to context engine approach)
+                 - Match keywords against a static rule table:
+                   - "test", "affected", "scope" -> suggest test_scope
+                   - "changed", "files", "diff", "modified" -> suggest context_for_files
+                   - "blast", "radius", "impact", "callers" -> suggest blast_radius
+                   - "flow", "path", "between", "reach" -> suggest flow_between
+                   - "community", "cluster", "module", "group" -> suggest communities
+                   - "feedback", "useful", "report" -> suggest feedback
+                   - "index", "reindex" -> suggest index_repo
+                   - "stale", "dead", "unused" -> suggest stale_edges or dead_routes
+                   - "diff", "snapshot", "compare" -> suggest semantic_diff
+                   - "context", "task", "relevant" -> suggest context_for_task
+                   - "dataflow", "callees", "downstream" -> suggest trace_dataflow
+                   - "pr", "pull request", "review" -> suggest context_for_pr
+                 - Score each tool by number of matching keywords
+                 - Return top 3-4 suggestions with pre-filled args where possible:
+                   ```json
+                   {
+                     "suggestions": [
+                       {
+                         "tool": "test_scope",
+                         "reason": "task mentions 'test' and 'changed files'",
+                         "args": {"files": "<fill: comma-separated changed file paths>", "output": "run"}
+                       },
+                       ...
+                     ]
+                   }
+                   ```
+                 - If no keywords match, return generic suggestion for context_for_task
+
+               Define rule table as package-level var for testability:
+               ```go
+               type toolRule struct {
+                   Keywords []string
+                   Tool     string
+                   Reason   string
+                   Args     map[string]string // pre-filled or placeholder args
+               }
+               var toolRules = []toolRule{...}
+               ```
+
+            2. **internal/mcp/planturn_test.go** (new)
+               Test:
+               - "run tests for changed files" -> suggests test_scope
+               - "what is the blast radius of FuncX" -> suggests blast_radius
+               - "find path from A to B" -> suggests flow_between
+               - "which community does this belong to" -> suggests communities
+               - empty/gibberish task -> suggests context_for_task as fallback
+               - verify max 4 suggestions returned
+
+            ### Constraints
+            - Do NOT modify internal/mcp/server.go (registration happens in Wave 2)
+            - Keep response under ~200 tokens (3-4 suggestions max)
+            - Do NOT call the store; this is pure keyword matching, no graph queries
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/mcp/...
+            GOWORK=off go test ./internal/mcp/ -run TestPlanTurn -v
+            ```
+          files:
+            - internal/mcp/planturn.go
+            - internal/mcp/planturn_test.go
+        - id: E
+          task: |
+            ## Communities MCP Tool (Louvain Clustering)
+
+            Implement Louvain modularity-based graph clustering over the knowledge graph.
+            Partitions all nodes into densely-connected communities and returns community
+            metadata.
+
+            ### Files to create
+
+            1. **internal/mcp/communities.go** (new)
+               - `communitiesTool() mcp.Tool` - defines "communities" tool:
+                 - action: optional string ("list" or "for_symbol", default "list")
+                 - repo_url: optional string (filter nodes to a specific repo)
+                 - symbol: optional string (qualified name, required when action=for_symbol)
+               - `handleCommunities(ctx, req) (*mcp.CallToolResult, error)`:
+                 - Requires s.store
+                 - For action="list":
+                   - Load all nodes (optionally filtered by repo_url using NodesByName with repo prefix)
+                   - Load edges between those nodes (EdgesFrom for each node, filter to those within set)
+                   - Run Louvain algorithm to partition into communities
+                   - For each community, compute:
+                     - size (node count)
+                     - top_symbols (top 5 by degree within community)
+                     - cohesion (internal edges / total edges involving community nodes)
+                     - dominant_package (most common package prefix)
+                   - Return JSON array of communities sorted by size desc
+                   - Cap at 50 communities (merge smallest into "other")
+                 - For action="for_symbol":
+                   - Resolve symbol to node via NodesByQualifiedName
+                   - Run same community detection
+                   - Find which community the symbol belongs to
+                   - Return that community plus its immediate neighbor communities
+                     (communities connected via cross-community edges)
+
+               Louvain algorithm implementation (simplified, single-pass):
+               ```go
+               // louvain partitions nodes into communities maximizing modularity.
+               // nodes: list of node hashes
+               // adj: adjacency list (node -> neighbors with edge weights)
+               // Returns: map[nodeHash]communityID
+               func louvain(nodes []types.Hash, adj map[types.Hash][]weightedEdge) map[types.Hash]int {
+                   // Phase 1: Each node starts in its own community.
+                   // Iterate: for each node, move to neighbor's community if modularity gain > 0.
+                   // Repeat until no moves improve modularity.
+                   // Phase 2: Contract communities into super-nodes, repeat.
+                   // For simplicity, do Phase 1 only (one level). This gives reasonable
+                   // clusters for codebases up to ~10K nodes.
+               }
+
+               type weightedEdge struct {
+                   Target types.Hash
+                   Weight float64
+               }
+               ```
+
+               Community result types:
+               ```go
+               type community struct {
+                   ID              int      `json:"id"`
+                   Size            int      `json:"size"`
+                   TopSymbols      []string `json:"top_symbols"`
+                   Cohesion        float64  `json:"cohesion"`
+                   DominantPackage string   `json:"dominant_package"`
+               }
+               type communityResult struct {
+                   Communities []community `json:"communities"`
+                   NodeCount   int         `json:"node_count"`
+                   EdgeCount   int         `json:"edge_count"`
+               }
+               type symbolCommunityResult struct {
+                   Symbol     string      `json:"symbol"`
+                   Community  community   `json:"community"`
+                   Neighbors  []community `json:"neighbors"`
+               }
+               ```
+
+            2. **internal/mcp/communities_test.go** (new)
+               Test using mockGraphStore:
+               - Build a graph with two clearly separable clusters (A-B-C connected, D-E-F connected, one cross-edge)
+               - Verify: produces 2 communities
+               - Verify: cohesion is high for tight clusters
+               - Verify: top_symbols populated
+               - Verify: for_symbol returns correct community
+               - Verify: repo_url filter works (nodes not matching prefix excluded)
+
+            ### Constraints
+            - Do NOT modify internal/mcp/server.go (registration happens in Wave 2)
+            - Use s.store (GraphStore interface) for node/edge queries
+            - Louvain Phase 1 only (single level) is acceptable for v1
+            - Cap communities at 50 in response to avoid huge payloads
+            - For large graphs (>5000 nodes), sample edges rather than loading all
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/mcp/...
+            GOWORK=off go test ./internal/mcp/ -run TestCommunities -v
+            ```
+          files:
+            - internal/mcp/communities.go
+            - internal/mcp/communities_test.go
+    - number: 2
+      type: integration
+      agents:
+        - id: F
+          task: |
+            ## Wire All New Tools into server.go
+
+            Register all 5 new tools in server.go and update tool count comments/docs.
+
+            ### Modifications to internal/mcp/server.go
+
+            1. Update package doc comment from "16 tools" to "22 tools" and add two new
+               planes to the doc:
+
+               Insert after the existing "Context plane" doc lines:
+               ```go
+               // Feedback plane (agent learning loop):
+               //   - feedback: record/query symbol usefulness for ranking improvement
+               //
+               // Discovery plane (exploration and planning):
+               //   - test_scope: find affected tests for changed files
+               //   - flow_between: find all paths between two symbols via BFS
+               //   - plan_turn: suggest relevant knowing tools for a task description
+               //   - communities: Louvain modularity-based graph clustering
+               ```
+
+            2. In `NewServer` function, update the comment from "17 tools" to "22 tools":
+               Find this exact text:
+               ```go
+               // It registers all 17 tools (execution, intelligence, runtime, and context planes).
+               ```
+               Replace with:
+               ```go
+               // It registers all 22 tools (execution, intelligence, runtime, context, feedback, and discovery planes).
+               ```
+
+            3. In `registerTools` function, update comment from "17 MCP tools" to "22 MCP tools":
+               Find this exact text:
+               ```go
+               // registerTools registers all 17 MCP tools on the server.
+               ```
+               Replace with:
+               ```go
+               // registerTools registers all 22 MCP tools on the server.
+               ```
+
+            4. Add new tool registrations at the end of registerTools, after the context packing block.
+               Insert after this exact text:
+               ```go
+               	// Context packing tools
+               	s.mcpServer.AddTool(contextForTaskTool(), s.handleContextForTask)
+               	s.mcpServer.AddTool(contextForFilesTool(), s.handleContextForFiles)
+               	s.mcpServer.AddTool(contextForPRTool(), s.handleContextForPR)
+               ```
+
+               Add:
+               ```go
+
+               	// Feedback plane
+               	s.mcpServer.AddTool(feedbackTool(), s.handleFeedback)
+
+               	// Discovery plane
+               	s.mcpServer.AddTool(testScopeTool(), s.handleTestScope)
+               	s.mcpServer.AddTool(flowBetweenTool(), s.handleFlowBetween)
+               	s.mcpServer.AddTool(planTurnTool(), s.handlePlanTurn)
+               	s.mcpServer.AddTool(communitiesTool(), s.handleCommunities)
+               ```
+
+            5. Update `ToolNames()` to include the new tools. Insert after "context_for_files":
+               ```go
+               		"context_for_pr",
+               		"feedback",
+               		"test_scope",
+               		"flow_between",
+               		"plan_turn",
+               		"communities",
+               ```
+
+            ### Constraints
+            - Do NOT modify any other files
+            - Do NOT implement tool handlers (they exist in their own files from Wave 1)
+            - Only modify server.go
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/mcp/...
+            GOWORK=off go test ./internal/mcp/ -v -timeout 2m
+            ```
+          files:
+            - internal/mcp/server.go
+          dependencies:
+            - A
+            - B
+            - C
+            - D
+            - E
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: GOWORK=off go build ./...
+          required: true
+        - type: lint
+          command: GOWORK=off go vet ./...
+          required: true
+        - type: test
+          command: GOWORK=off go test ./... -timeout 5m
+          required: true
+pre_mortem:
+    overall_risk: low
+    rows:
+        - scenario: Agent A breaks existing RankSymbols callers by changing struct fields
+          likelihood: low
+          impact: high
+          mitigation: FeedbackBoost is zero-value compatible; existing callers pass 0 implicitly. Agent A must NOT change RankSymbols signature.
+        - scenario: Agent B reimplements test-scope BFS incorrectly (edge direction)
+          likelihood: medium
+          impact: medium
+          mitigation: Brief explicitly states EdgesTo for backward traversal. Test must verify directionality.
+        - scenario: Agent E Louvain implementation is too slow for large graphs
+          likelihood: medium
+          impact: low
+          mitigation: Brief specifies cap at 5000 nodes with sampling. Phase 1 only is O(n*m) which is acceptable.
+        - scenario: Wave 2 integration fails because tool function names don't match
+          likelihood: low
+          impact: medium
+          mitigation: Interface contracts specify exact function names. Wave 2 agent has exact insertion text.
+        - scenario: mockGraphStore in tests lacks NodesByQualifiedName method causing compile errors
+          likelihood: medium
+          impact: low
+          mitigation: Agents C and E use NodesByQualifiedName which exists on the interface. Mock already implements it (returns nil). Tests should seed the mock appropriately.
+critic_report:
+    verdict: PASS
+    agent_reviews:
+        A:
+            agent_id: A
+            verdict: PASS
+        B:
+            agent_id: B
+            verdict: PASS
+        C:
+            agent_id: C
+            verdict: PASS
+        D:
+            agent_id: D
+            verdict: PASS
+        E:
+            agent_id: E
+            verdict: PASS
+        F:
+            agent_id: F
+            verdict: PASS
+    summary: 'All agent briefs verified against the codebase. File existence checks pass (all action:new files do not exist, all action:modify files exist). Symbol accuracy confirmed: GraphStore interface has NodesByQualifiedName, EdgesFrom, EdgesTo, AllRepos, NodesByFilePath, GetNode. SQLiteStore implements all needed methods. ScoringInput and ScoreComponents structs match brief descriptions. The mockGraphStore in handlers_test.go implements the full interface including NodesByQualifiedName. Pattern accuracy confirmed: registerTools uses AddTool pattern, ToolNames returns string slice, context packing block matches Agent F insertion point exactly. Interface contracts are syntactically valid. Import chains verified (mcp-go in go.mod, all local packages exist). No disjoint ownership violations.'
+    reviewed_at: "2026-05-17T02:44:09Z"
+    issue_count: 0
+state: SCOUT_PENDING
