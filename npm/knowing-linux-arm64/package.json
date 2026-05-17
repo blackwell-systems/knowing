@@ -1,0 +1,8 @@
+{
+  "name": "@blackwell-systems/knowing-linux-arm64",
+  "version": "0.1.0",
+  "description": "knowing binary for linux-arm64",
+  "os": ["linux"],
+  "cpu": ["arm64"],
+  "license": "MIT"
+}
