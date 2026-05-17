@@ -14,6 +14,7 @@ type ScoringInput struct {
 	Confidence         float64 // provenance tier confidence (0.0-1.0)
 	LastObserved       int64   // unix timestamp of last runtime observation (0 = static only)
 	DistanceFromTarget int     // hops from the task target symbol
+	FeedbackBoost      float64 // 0.0 = no feedback, >0 = positive signal (0.0-1.0)
 }
 
 // RankSymbols scores each symbol by a weighted formula incorporating blast radius,
@@ -44,7 +45,12 @@ func RankSymbols(symbols []ScoringInput, hitsScores ...map[types.Hash]HITSScores
 
 	results := make([]RankedSymbol, 0, len(symbols))
 	for _, s := range symbols {
-		var blastRadius, confidence, recency, distance, total float64
+		var blastRadius, confidence, recency, distance, feedback, total float64
+
+		// Feedback boost: additive component weighted at 0.1.
+		if s.FeedbackBoost > 0 {
+			feedback = 0.1 * s.FeedbackBoost
+		}
 
 		if hits != nil {
 			// HITS-enhanced ranking: authority and hub scores reshape the results.
@@ -75,14 +81,14 @@ func RankSymbols(symbols []ScoringInput, hitsScores ...map[types.Hash]HITSScores
 			confidence = s.Confidence * 0.20
 			recency = recencyFromTimestamp(s.LastObserved) * 0.15
 			distance = (1.0 / (1.0 + float64(s.DistanceFromTarget))) * 0.15
-			total = blastRadius + confidence + recency + distance + authorityAdj
+			total = blastRadius + confidence + recency + distance + authorityAdj + feedback
 		} else {
 			// Original ranking (no HITS): blast radius is the primary signal.
 			blastRadius = (float64(s.CallerCount) / float64(maxCallers)) * 0.40
 			confidence = s.Confidence * 0.25
 			recency = recencyFromTimestamp(s.LastObserved) * 0.20
 			distance = (1.0 / (1.0 + float64(s.DistanceFromTarget))) * 0.15
-			total = blastRadius + confidence + recency + distance
+			total = blastRadius + confidence + recency + distance + feedback
 		}
 
 		results = append(results, RankedSymbol{
@@ -93,6 +99,7 @@ func RankSymbols(symbols []ScoringInput, hitsScores ...map[types.Hash]HITSScores
 				Confidence:  confidence,
 				Recency:     recency,
 				Distance:    distance,
+				Feedback:    feedback,
 			},
 			Provenance: "",
 			Distance:   s.DistanceFromTarget,
