@@ -153,26 +153,88 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 		}, nil
 	}
 
-	// Find candidate nodes by keyword substring search.
-	// NodesByName uses LIKE prefix%, so prepending % gives LIKE %keyword%.
+	// Find candidate nodes using tiered matching:
+	// Tier 1: exact symbol name match (highest quality seeds)
+	// Tier 2: prefix match on the last path component (symbol name starts with keyword)
+	// Tier 3: substring match (fallback, capped at 20 per keyword)
+	//
+	// Fewer, better seeds produce sharper RWR distributions.
 	seen := make(map[types.Hash]bool)
 	var candidates []types.Node
+
+	// Tier 1: exact matches (keyword matches the symbol name exactly).
+	// These are the highest-quality seeds.
 	for _, kw := range keywords {
 		nodes, err := e.store.NodesByName(ctx, "%"+kw)
 		if err != nil {
 			return nil, err
 		}
 		for _, n := range nodes {
-			if !seen[n.NodeHash] {
+			// Check if the keyword matches the last component of the qualified name.
+			lastDot := strings.LastIndex(n.QualifiedName, ".")
+			symbolName := n.QualifiedName
+			if lastDot >= 0 {
+				symbolName = n.QualifiedName[lastDot+1:]
+			}
+			if strings.EqualFold(symbolName, kw) && !seen[n.NodeHash] {
 				seen[n.NodeHash] = true
 				candidates = append(candidates, n)
 			}
-			if len(candidates) >= 100 {
+		}
+	}
+
+	// Tier 2: prefix matches (symbol name starts with keyword).
+	if len(candidates) < 15 {
+		for _, kw := range keywords {
+			nodes, err := e.store.NodesByName(ctx, "%"+kw)
+			if err != nil {
+				return nil, err
+			}
+			for _, n := range nodes {
+				if seen[n.NodeHash] {
+					continue
+				}
+				lastDot := strings.LastIndex(n.QualifiedName, ".")
+				symbolName := n.QualifiedName
+				if lastDot >= 0 {
+					symbolName = n.QualifiedName[lastDot+1:]
+				}
+				if strings.HasPrefix(strings.ToLower(symbolName), strings.ToLower(kw)) {
+					seen[n.NodeHash] = true
+					candidates = append(candidates, n)
+				}
+				if len(candidates) >= 30 {
+					break
+				}
+			}
+			if len(candidates) >= 30 {
 				break
 			}
 		}
-		if len(candidates) >= 100 {
-			break
+	}
+
+	// Tier 3: substring fallback (only if we still have very few candidates).
+	if len(candidates) < 5 {
+		for _, kw := range keywords {
+			if len(kw) < 4 {
+				continue // skip short keywords in substring mode (too broad)
+			}
+			nodes, err := e.store.NodesByName(ctx, "%"+kw)
+			if err != nil {
+				return nil, err
+			}
+			for _, n := range nodes {
+				if !seen[n.NodeHash] {
+					seen[n.NodeHash] = true
+					candidates = append(candidates, n)
+				}
+				if len(candidates) >= 20 {
+					break
+				}
+			}
+			if len(candidates) >= 20 {
+				break
+			}
 		}
 	}
 
