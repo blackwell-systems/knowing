@@ -555,37 +555,46 @@ func (e *EventExtractor) nodeToString(node *sitter.Node, content []byte) string 
 }
 
 // extractCompositeFieldStringGo extracts a string value from a Go composite literal field.
+// Handles the keyed_element -> literal_element(identifier) : literal_element(string) structure.
 func (e *EventExtractor) extractCompositeFieldStringGo(args *sitter.Node, content []byte, fieldName string) string {
-	// Walk through args to find composite literals with the target field
 	var found string
 	e.walkNode(args, types.ExtractOptions{Content: content}, nil, func(n *sitter.Node, _ types.ExtractOptions, _ *types.ExtractResult) {
 		if found != "" {
 			return
 		}
-		if n.Type() == "keyed_element" || n.Type() == "literal_element" {
-			// Check if the key matches
-			for i := 0; i < int(n.ChildCount()); i++ {
-				child := n.Child(i)
-				if child == nil {
-					continue
-				}
-				if child.Type() == "field_identifier" || child.Type() == "identifier" {
-					if child.Content(content) == fieldName {
-						// Get the value (next meaningful child after ":")
-						for j := i + 1; j < int(n.ChildCount()); j++ {
-							valChild := n.Child(j)
-							if valChild == nil {
-								continue
-							}
-							s := e.nodeToString(valChild, content)
-							if s != "" {
-								found = s
-								return
-							}
-						}
-					}
-				}
+		if n.Type() != "keyed_element" {
+			return
+		}
+		// keyed_element has: literal_element(key) ":" literal_element(value)
+		// First child (literal_element) contains an identifier with the key name
+		if n.ChildCount() < 3 {
+			return
+		}
+		keyElem := n.Child(0)
+		if keyElem == nil {
+			return
+		}
+		// The key is an identifier inside a literal_element
+		keyText := ""
+		if keyElem.Type() == "literal_element" && keyElem.ChildCount() > 0 {
+			keyChild := keyElem.Child(0)
+			if keyChild != nil {
+				keyText = keyChild.Content(content)
 			}
+		} else {
+			keyText = keyElem.Content(content)
+		}
+		if keyText != fieldName {
+			return
+		}
+		// Value is the last child (literal_element containing the string)
+		valElem := n.Child(int(n.ChildCount()) - 1)
+		if valElem == nil {
+			return
+		}
+		s := e.nodeToString(valElem, content)
+		if s != "" {
+			found = s
 		}
 	})
 	return found
