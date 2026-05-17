@@ -1,0 +1,112 @@
+#!/bin/bash
+# knowing-pre-edit: Claude Code PreToolUse hook for automatic context injection.
+#
+# Injects graph-aware context before file edits. Measures token overhead
+# and hit rate for A/B evaluation.
+#
+# Configuration:
+#   KNOWING_HOOKS=off          Disable entirely (default: on)
+#   KNOWING_HOOKS_DB=<path>    Database path (default: knowing.db)
+#   KNOWING_HOOKS_BUDGET=<n>   Token budget for injected context (default: 1500)
+#   KNOWING_HOOKS_FORMAT=<fmt> Output format: kwf|xml (default: kwf)
+#   KNOWING_HOOKS_LOG=<path>   Metrics log path (default: .knowing-hooks.jsonl)
+#   KNOWING_HOOKS_VERBOSE=1    Print injection to stderr for debugging
+#
+# Install in .claude/settings.local.json:
+#   "hooks": {
+#     "PreToolUse": [{
+#       "matcher": "Edit|Write",
+#       "command": "./hooks/knowing-pre-edit"
+#     }]
+#   }
+#
+# The hook reads the tool input from stdin (JSON with tool_name and input fields).
+# It extracts the file path, queries knowing for context, and outputs a
+# system message that Claude Code prepends to the tool result.
+
+set -euo pipefail
+
+# Kill switch.
+if [ "${KNOWING_HOOKS:-on}" = "off" ]; then
+  exit 0
+fi
+
+# Configuration.
+DB="${KNOWING_HOOKS_DB:-knowing.db}"
+BUDGET="${KNOWING_HOOKS_BUDGET:-1500}"
+FORMAT="${KNOWING_HOOKS_FORMAT:-kwf}"
+LOG="${KNOWING_HOOKS_LOG:-.knowing-hooks.jsonl}"
+VERBOSE="${KNOWING_HOOKS_VERBOSE:-0}"
+
+# Read hook input from stdin.
+INPUT=$(cat)
+
+# Extract the file path from the tool input.
+# PreToolUse receives JSON: {"tool_name": "Edit", "input": {"file_path": "..."}}
+FILE_PATH=$(echo "$INPUT" | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    inp = data.get('input', {})
+    print(inp.get('file_path', inp.get('path', '')))
+except:
+    print('')
+" 2>/dev/null)
+
+if [ -z "$FILE_PATH" ]; then
+  exit 0
+fi
+
+# Check if the database exists.
+if [ ! -f "$DB" ]; then
+  exit 0
+fi
+
+# Check if knowing binary is available.
+if ! command -v knowing &>/dev/null; then
+  # Try local binary.
+  if [ -f "./knowing" ]; then
+    KNOWING="./knowing"
+  else
+    exit 0
+  fi
+else
+  KNOWING="knowing"
+fi
+
+# Query knowing for context related to this file.
+START_MS=$(python3 -c "import time; print(int(time.time()*1000))")
+
+CONTEXT=$($KNOWING context -files "$FILE_PATH" -budget "$BUDGET" -format "$FORMAT" -db "$DB" 2>/dev/null) || true
+
+END_MS=$(python3 -c "import time; print(int(time.time()*1000))")
+LATENCY_MS=$((END_MS - START_MS))
+
+# Measure what we got.
+if [ -z "$CONTEXT" ]; then
+  # No context returned (empty graph, no matches).
+  # Log as a miss and exit without injecting.
+  echo "{\"ts\":$(date +%s),\"file\":\"$FILE_PATH\",\"event\":\"miss\",\"latency_ms\":$LATENCY_MS,\"tokens\":0}" >> "$LOG"
+  exit 0
+fi
+
+# Count approximate tokens (words + punctuation).
+TOKEN_COUNT=$(echo "$CONTEXT" | wc -w | tr -d ' ')
+
+# Log the injection event.
+echo "{\"ts\":$(date +%s),\"file\":\"$FILE_PATH\",\"event\":\"inject\",\"latency_ms\":$LATENCY_MS,\"tokens\":$TOKEN_COUNT,\"format\":\"$FORMAT\",\"budget\":$BUDGET}" >> "$LOG"
+
+# Verbose mode: print to stderr for debugging.
+if [ "$VERBOSE" = "1" ]; then
+  echo "[knowing-hook] Injecting $TOKEN_COUNT tokens for $FILE_PATH (${LATENCY_MS}ms)" >&2
+fi
+
+# Output the context as a system message for Claude Code to prepend.
+# The output format is a JSON object with "message" field.
+python3 -c "
+import json, sys
+context = sys.stdin.read()
+print(json.dumps({
+    'message': f'[knowing context for {\"$FILE_PATH\"}] Graph-ranked symbols related to this file:\\n{context}'
+}))
+" <<< "$CONTEXT"

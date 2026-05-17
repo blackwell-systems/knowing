@@ -1,6 +1,6 @@
 # FEATURES.md -- Comprehensive Feature Dump for AI Reference
 
-Generated: 2026-05-15 (updated: 2026-05-16)
+Generated: 2026-05-15 (updated: 2026-05-16, features 40-42 added)
 Source: code inspection of all Go files across internal/, cmd/, and config
 Repo: github.com/blackwell-systems/knowing
 
@@ -120,7 +120,7 @@ Repo: github.com/blackwell-systems/knowing
 
 - **Package(s):** `internal/indexer`
 - **Entry point:** `indexer.NewIndexer(store, snapshot).IndexRepo(ctx, repoURL, repoPath, commitHash string) (*Snapshot, error)`
-- **What it does:** Walks repository directory, skips `.git`, `.claude`, `vendor`, `node_modules`, `testdata`. Computes content hashes per file. Skips unchanged files (incremental). For changed files: deletes old nodes/edges via `cleanupStore` interface, re-extracts, records edge events ("added"/"removed"). Batch inserts all results. Computes snapshot. Runs cross-repo resolver. Tracks changed file paths for downstream enrichment.
+- **What it does:** Walks repository directory, skips `.git`, `.claude`, `vendor`, `node_modules`, `testdata`. Computes content hashes per file. Skips unchanged files (incremental). For changed files: deletes old nodes/edges via `cleanupStore` interface, re-extracts, records edge events ("added"/"removed"). For deleted files (present in store but absent on disk): removes all associated nodes and edges, ensuring the graph stays clean on re-index. Batch inserts all results. Computes snapshot. Runs cross-repo resolver. Tracks changed file paths for downstream enrichment.
 - **Inputs:** Repo URL, filesystem path, commit hash.
 - **Outputs:** `*Snapshot` with node/edge counts.
 - **Limitations/known gaps:**
@@ -257,7 +257,7 @@ Repo: github.com/blackwell-systems/knowing
 
 - **Package(s):** `cmd/knowing`
 - **Entry point:** `main.main() -> run(args)`
-- **What it does:** Dispatches to subcommands: `serve`, `index`, `query`, `export`, `mcp`, `reindex`, `version`. Wires together all internal packages.
+- **What it does:** Dispatches to subcommands: `serve`, `index`, `query`, `export`, `mcp`, `context`, `reindex`, `version`. Wires together all internal packages.
 - **Inputs:** CLI arguments and flags.
 - **Outputs:** Stdout text (query results, JSON export), SQLite database file.
 - **Dependencies:** All internal packages.
@@ -345,6 +345,11 @@ Repo: github.com/blackwell-systems/knowing
   1. Creates a `route_handler` node with QualifiedName `{repoURL}://{pkgPath}.{HTTPMethod} {routePattern}`, kind "route_handler".
   2. Creates a `handles_route` edge from the route node to the handler function node (if resolvable), with provenance "ast_inferred" and confidence 0.7.
   Uses heuristic resolution: resolves router package via import aliases, and for local variables (e.g., `r := chi.NewRouter()`) infers the package from context if the method name matches a known router method and the file imports a router package.
+  **Supported frameworks (18 total across 6 languages):**
+  - **Go (5 frameworks):** net/http, chi, gin, echo, gorilla/mux
+  - **Python (3 frameworks):** Flask (`@app.get`, `@app.route`), FastAPI (`@app.get`, `@router.post`), Django (`path()` in urls.py)
+  - **TypeScript (5 frameworks):** Express, Fastify, Hono, NestJS (`@Controller` + `@Get`/`@Post` decorators), Next.js App Router (exported `GET`/`POST` in `route.ts`)
+  - **Other languages:** (remaining 5 frameworks across Terraform, SQL, K8s, CSS extractors produce structural edges, not HTTP route edges)
 - **Inputs:** Function/method body AST node, extract options, import map.
 - **Outputs:** `route_handler` nodes and `handles_route` edges appended to the ExtractResult.
 - **Limitations/known gaps:**
@@ -423,18 +428,20 @@ Repo: github.com/blackwell-systems/knowing
 
 - **Package(s):** `internal/wire`
 - **Entry point:** `wire.EncodeWith(name string, p *Payload) (string, error)`, `wire.DecodeWith(name string, input string) (*Payload, error)`
-- **What it does:** Provides a pluggable codec registry with 3 built-in encoders for graph payloads:
+- **What it does:** Provides a pluggable codec registry with 5 built-in encoders for graph payloads:
   1. **KWF (Knowing Wire Format):** Text-only, graph-native encoding optimized for LLM token consumption. Uses local IDs (`@0`, `@1`), positional encoding, kind abbreviations, and group headers to achieve **76.7% median token savings** over JSON. Supports session statefulness for progressive vocabulary building across tool calls.
   2. **Binary (KWB1):** Compact binary encoding using varint integers, enum IDs (1 byte), float32 scores, index-based edge references, and length-prefixed strings. Optimized for transport between services and persistent caching (~89% byte savings vs JSON).
   3. **JSON:** Standard JSON serialization for maximum compatibility and debuggability.
-  Codecs are registered at init time. Custom codecs can be added via `wire.Register()`. The MCP tools and CLI pass the `format` parameter directly to the registry, making new codecs immediately available to all consumers.
+  4. **XML:** XML serialization for tool interoperability.
+  5. **Markdown:** Human-readable markdown tables for documentation and debugging.
+  Codecs are registered at init time. Custom codecs can be added via `wire.Register()`. The MCP tools and CLI pass the `format` parameter directly to the registry, making new codecs immediately available to all consumers. The binary codec is registered under the name "kwb" (Knowing Wire Binary).
+- **Session statefulness:** `wire.Session` tracks previously-transmitted symbols across multiple tool calls within a session. On repeated symbols, only the local ID reference is emitted (no full definition re-transmitted). This cross-call symbol deduplication yields **47% additional savings** on repeated symbols within a session, compounding on top of the per-payload compression.
 - **Inputs:** `*Payload` struct containing tool name, token counts, symbols (with scores, kinds, provenance, components), and edges.
-- **Outputs:** Encoded string (KWF or JSON) or binary bytes. Decode returns `*Payload`.
+- **Outputs:** Encoded string (KWF, XML, or Markdown) or binary bytes (KWB). Decode returns `*Payload`.
 - **Benchmark results:** 6 fixture cases (8 to 30 symbols) with encode p99 latency of 64 microseconds on Apple M4 Pro.
 - **Limitations/known gaps:**
-  - Binary codec requires version bump for extensibility (KWF can append new fields freely).
-  - Binary codec registered in its own init() separately from the other two.
-  - Session statefulness (previously-transmitted node references) is defined in the format spec but implementation details are in the MCP layer.
+  - Binary codec (kwb) requires version bump for extensibility (KWF can append new fields freely).
+  - Binary codec registered in its own init() separately from the other codecs.
 - **Dependencies:** None beyond stdlib.
 
 ### 32. Terraform (HCL) Extractor
@@ -498,6 +505,27 @@ Repo: github.com/blackwell-systems/knowing
 - **What it does:** Clears all nodes, edges, and edge events from the store, then re-indexes the specified repository from scratch. Useful when extractor logic has changed or when the graph has accumulated stale data that incremental indexing cannot clean up.
 - **Flags:** `--db` (default: `knowing.db`), repository path (positional).
 - **Dependencies:** `internal/store`, `internal/indexer`.
+
+### 40. KWF Session Statefulness (Cross-Call Symbol Deduplication)
+
+- **Package(s):** `internal/wire`
+- **Entry point:** `wire.NewSession() *Session`, `Session.Encode(codec string, p *Payload) (string, error)`
+- **What it does:** Tracks previously-transmitted symbols across multiple tool calls within the same MCP session. When a symbol has already been sent in a prior response, only its local ID reference is emitted instead of the full definition. This provides **47% additional token savings** on repeated symbols within a session, compounding on top of per-payload KWF compression.
+- **Inputs:** Codec name, `*Payload` to encode.
+- **Outputs:** Encoded payload with deduplicated symbol references.
+- **Dependencies:** `internal/wire` codec registry.
+
+### 41. Snapshot Lifecycle Integration Test
+
+- **Package(s):** root (`e2e_test.go`)
+- **What it does:** End-to-end test covering the full snapshot lifecycle: index a repo, compute snapshot, re-index with changes, compute new snapshot, verify snapshot diff contains expected added/removed edges. Validates that the Merkle chain, edge event recording, and snapshot diff work correctly together.
+- **Dependencies:** `internal/store`, `internal/indexer`, `internal/snapshot`.
+
+### 42. MCP-Assert Suite (YAML Per-File Assertions)
+
+- **Package(s):** test fixtures / CI
+- **What it does:** Updated the mcp-assert test suite to use the new YAML format with per-file assertions. Each assertion file declares expected nodes, edges, and relationships for a specific source file, enabling targeted regression testing of extractor output.
+- **Dependencies:** mcp-assert tooling, CI workflow.
 
 ### GraphStore (`internal/types/interfaces.go`)
 
@@ -663,8 +691,8 @@ Parameters per tool:
 - `runtime_traffic`: service_name (required), route_pattern (optional, LIKE syntax), limit (optional, default 100)
 - `dead_routes`: stale_days (optional, default 30)
 - `trace_stats`: (no parameters)
-- `context_for_task`: task (required), token_budget (optional), format (optional, default "json")
-- `context_for_files`: files (required, array of file paths), token_budget (optional), format (optional, default "json")
+- `context_for_task`: task (required), token_budget (optional), format (optional, default "json"; accepts "kwf", "kwb", "json", "xml", "markdown")
+- `context_for_files`: files (required, array of file paths), token_budget (optional), format (optional, default "json"; accepts "kwf", "kwb", "json", "xml", "markdown")
 
 ---
 
@@ -675,7 +703,7 @@ Parameters per tool:
 - **Flags:** `--db` (default: `knowing.db`), `--addr` (default: `:8080`), `--trace` (enable trace ingestion), `--trace-endpoint` (default: `localhost:4317`), `--trace-batch-size` (default: 1000)
 - **Positional args:** repo paths to watch (0 or more)
 - **What it does:** Opens SQLite store, creates snapshot manager and indexer, registers all extractors (Go, Python, Terraform, SQL, K8s, CSS), creates MCP server (16 tools, 3 prompts), creates daemon with GitWatcher, optionally starts trace ingestion pipeline (OTLPReceiver + Ingestor + periodic flush/decay), watches listed repos, blocks until SIGINT/SIGTERM.
-- **Extractors registered:** `gotsextractor` (Go, tree-sitter), `treesitter` (Python), `terraformextractor` (Terraform HCL), `sqlextractor` (SQL), `k8sextractor` (Kubernetes YAML), `cssextractor` (CSS).
+- **Extractors registered:** `gotsextractor` (Go, tree-sitter), `treesitter` (Python), `terraformextractor` (Terraform HCL), `sqlextractor` (SQL), `k8sextractor` (Kubernetes YAML), `cssextractor` (CSS). Route detection covers 18 frameworks across 6 languages (Go: 5, Python: 3, TypeScript: 5).
 - **Enrichment:** Background EnrichFunc wired with scoped or full enrichment.
 - **Trace ingestion:** When `--trace` is set, launches a fourth daemon goroutine that opens a dedicated DB connection, creates SymbolResolver + Ingestor + OTLPReceiver, flushes batches every 10s, and decays confidence every 1h.
 
@@ -708,6 +736,11 @@ Parameters per tool:
 - **Flags:** `--db` (default: `knowing.db`)
 - **Positional args:** repo-path (required)
 - **What it does:** Clears all nodes, edges, and edge events from the store, then re-indexes the specified repository from scratch. Useful when extractor logic has changed or when the graph has accumulated stale data.
+
+### `knowing context`
+
+- **Flags:** `--db` (default: `knowing.db`), `--format` (default: `json`, accepts: `kwf`, `kwb`, `json`, `xml`, `markdown`), `--task` (natural-language task description), `--files` (comma-separated file paths), `--token-budget` (optional)
+- **What it does:** CLI interface to the context engine. Returns ranked symbols and edges relevant to a task description or set of files. Output is encoded using the specified wire format codec. Equivalent to calling the `context_for_task` or `context_for_files` MCP tools from the command line.
 
 ### `knowing version`
 
@@ -964,7 +997,7 @@ Hardcoded in `cmd/knowing/main.go` via daemon startup: `500 * time.Millisecond`.
 
 ### HTTP Route Edge Extraction
 - **Roadmap: Edge Types workstream.**
-- **Status: IMPLEMENTED.** See Feature #26 (HTTP Route Extraction). The gotsextractor detects route registrations for net/http, chi, gin, echo, and gorilla/mux. Creates `route_handler` nodes and `handles_route` edges. The `route_symbols` table exists for runtime symbol resolution, though the indexer does not yet auto-populate it from extracted route_handler nodes (PutRouteSymbol must be called separately).
+- **Status: IMPLEMENTED.** See Feature #26 (HTTP Route Extraction). Route detection covers 18 frameworks across 6 languages: Go (net/http, chi, gin, echo, gorilla/mux), Python (Flask, FastAPI, Django), TypeScript (Express, Fastify, Hono, NestJS, Next.js App Router). Creates `route_handler` nodes and `handles_route` edges. The `route_symbols` table exists for runtime symbol resolution, though the indexer does not yet auto-populate it from extracted route_handler nodes (PutRouteSymbol must be called separately).
 - **Remaining gaps:** `declares_route`/`consumes_route` edge types from the architecture are not used; instead `handles_route` is used. Route groups/prefixes not supported. Dynamic route patterns not detected.
 
 ### Event/Message Queue Edge Extraction
@@ -1047,7 +1080,7 @@ Hardcoded in `cmd/knowing/main.go` via daemon startup: `500 * time.Millisecond`.
 ### TypeScript/Rust/Java Tree-Sitter Extractors
 - **Architecture lists as planned.**
 - **What's needed:** Tree-sitter grammar binding, extractor implementing Extractor interface.
-- **No code exists for TypeScript/Rust/Java.** Current language support (10 total): Go (tree-sitter + go/packages), Python (tree-sitter), Terraform (HCL), SQL, Kubernetes YAML, CSS, plus route detection for 5 HTTP frameworks.
+- **Status:** TypeScript route/framework detection is implemented (5 frameworks: Express, Fastify, Hono, NestJS, Next.js App Router). Python route detection is implemented (3 frameworks: Flask, FastAPI, Django). Full TypeScript/Rust/Java AST extractors (function/type/call extraction beyond route detection) do not yet exist. Current language support: Go (tree-sitter + go/packages), Python (tree-sitter), Terraform (HCL), SQL, Kubernetes YAML, CSS, plus route detection for 18 frameworks across 6 languages.
 
 ### CI Integration (GitHub Action)
 - **Architecture decision #14.**
@@ -1102,7 +1135,7 @@ Hardcoded in `cmd/knowing/main.go` via daemon startup: `500 * time.Millisecond`.
 | internal/mcp | handlers_test.go | ~6 |
 | internal/resolver | resolver_test.go | ~8 |
 | internal/snapshot | manager_test.go | ~7 |
-| e2e_test.go | e2e_test.go | ~9 |
+| e2e_test.go | e2e_test.go | ~9 (includes snapshot lifecycle integration test) |
 
 ### Real Indexing Benchmarks
 
@@ -1188,10 +1221,13 @@ internal/indexer/
 
 internal/wire/
   registry.go                      -- Codec registry: Register, Get, List, EncodeWith, DecodeWith
+  session.go                       -- Session: cross-call symbol deduplication (47% savings on repeats)
   kwf.go                           -- KWF text encoder (graph-native, LLM-optimized)
   kwf_decode.go                    -- KWF text decoder
   json.go                          -- JSON codec (encode/decode via standard library)
-  binary.go                        -- Binary codec (varint + length-prefixed, KWB1 format)
+  binary.go                        -- Binary codec (varint + length-prefixed, registered as "kwb")
+  xml.go                           -- XML codec
+  markdown.go                      -- Markdown table codec
   kwf_test.go
   registry_test.go
   binary_test.go
@@ -1218,7 +1254,7 @@ internal/resolver/
   resolver.go                      -- Resolver: dangling edge retargeting via hash recomputation
   resolver_test.go
 
-e2e_test.go                        -- End-to-end integration test (multi-package Go module)
+e2e_test.go                        -- End-to-end integration test (multi-package Go module, includes snapshot lifecycle test)
 
 .github/workflows/
   ci.yml                           -- CI: build, vet, test, binary smoke test

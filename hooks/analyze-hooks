@@ -1,0 +1,148 @@
+#!/bin/bash
+# analyze-hooks: Analyze knowing hook metrics for A/B evaluation.
+#
+# Reads .knowing-hooks.jsonl and produces a summary report.
+#
+# Usage:
+#   ./hooks/analyze-hooks                    # analyze default log
+#   ./hooks/analyze-hooks path/to/log.jsonl  # analyze specific log
+#
+# Report includes:
+#   - Total injections vs misses (hit rate)
+#   - Token overhead (total, mean, p50, p95)
+#   - Latency (mean, p50, p95)
+#   - Per-file breakdown (which files trigger most context)
+#   - Estimated cost impact (tokens injected that may or may not have been useful)
+
+set -euo pipefail
+
+LOG="${1:-.knowing-hooks.jsonl}"
+
+if [ ! -f "$LOG" ]; then
+  echo "No metrics log found at $LOG"
+  echo "Run with KNOWING_HOOKS=on and edit some files to collect data."
+  exit 0
+fi
+
+TOTAL=$(wc -l < "$LOG" | tr -d ' ')
+if [ "$TOTAL" = "0" ]; then
+  echo "Metrics log is empty."
+  exit 0
+fi
+
+python3 << 'PYTHON'
+import json
+import sys
+from collections import defaultdict
+
+log_path = sys.argv[1] if len(sys.argv) > 1 else ".knowing-hooks.jsonl"
+
+events = []
+with open(log_path) as f:
+    for line in f:
+        line = line.strip()
+        if line:
+            try:
+                events.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+
+if not events:
+    print("No valid events found.")
+    sys.exit(0)
+
+# Classify events.
+injects = [e for e in events if e.get("event") == "inject"]
+misses = [e for e in events if e.get("event") == "miss"]
+
+total = len(events)
+inject_count = len(injects)
+miss_count = len(misses)
+hit_rate = inject_count / total * 100 if total > 0 else 0
+
+# Token stats.
+tokens = [e["tokens"] for e in injects if "tokens" in e]
+total_tokens = sum(tokens)
+mean_tokens = total_tokens / len(tokens) if tokens else 0
+
+# Latency stats.
+latencies = [e["latency_ms"] for e in events if "latency_ms" in e]
+mean_latency = sum(latencies) / len(latencies) if latencies else 0
+
+def percentile(data, pct):
+    if not data:
+        return 0
+    s = sorted(data)
+    idx = int(len(s) * pct / 100)
+    return s[min(idx, len(s) - 1)]
+
+# Per-file breakdown.
+file_counts = defaultdict(int)
+file_tokens = defaultdict(int)
+for e in injects:
+    f = e.get("file", "unknown")
+    file_counts[f] += 1
+    file_tokens[f] += e.get("tokens", 0)
+
+# Report.
+print("=" * 60)
+print("  knowing hooks: A/B measurement report")
+print("=" * 60)
+print()
+print(f"  Total hook invocations:  {total}")
+print(f"  Context injected:        {inject_count} ({hit_rate:.1f}% hit rate)")
+print(f"  No context (miss):       {miss_count}")
+print()
+print("  Token overhead:")
+print(f"    Total injected:        {total_tokens:,} tokens")
+print(f"    Mean per injection:    {mean_tokens:.0f} tokens")
+print(f"    p50:                   {percentile(tokens, 50)} tokens")
+print(f"    p95:                   {percentile(tokens, 95)} tokens")
+print()
+print("  Latency:")
+print(f"    Mean:                  {mean_latency:.0f} ms")
+print(f"    p50:                   {percentile(latencies, 50)} ms")
+print(f"    p95:                   {percentile(latencies, 95)} ms")
+print()
+
+if file_counts:
+    print("  Top files by injection count:")
+    top_files = sorted(file_counts.items(), key=lambda x: -x[1])[:10]
+    for f, count in top_files:
+        avg = file_tokens[f] / count
+        print(f"    {count:3d}x  {f} (avg {avg:.0f} tok)")
+    print()
+
+# A/B evaluation guidance.
+print("  A/B evaluation questions:")
+print("  -------------------------")
+print(f"  1. Token budget efficiency: {mean_tokens:.0f} tokens/edit.")
+print(f"     Is this < 5% of a typical context window? ", end="")
+if mean_tokens < 5000:
+    print("YES (acceptable overhead)")
+else:
+    print("NO (consider reducing budget)")
+print()
+print(f"  2. Hit rate: {hit_rate:.1f}%.")
+print(f"     Is context being injected when useful? ", end="")
+if hit_rate > 60:
+    print("YES (most edits get context)")
+elif hit_rate > 30:
+    print("MODERATE (some edits are in ungraphed files)")
+else:
+    print("LOW (hooks may not be worth the overhead)")
+print()
+print(f"  3. Latency: p95 = {percentile(latencies, 95)} ms.")
+print(f"     Is this imperceptible? ", end="")
+if percentile(latencies, 95) < 500:
+    print("YES (under 500ms)")
+else:
+    print("NO (consider caching or reducing scope)")
+print()
+print("  To compare ON vs OFF:")
+print("    1. Work for a session with KNOWING_HOOKS=on")
+print("    2. Save log: cp .knowing-hooks.jsonl hooks-on.jsonl")
+print("    3. Work for a session with KNOWING_HOOKS=off")
+print("    4. Compare: tool call count, errors, time to completion")
+print()
+PYTHON "$LOG"

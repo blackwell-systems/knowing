@@ -248,6 +248,8 @@ Tier 1: tree-sitter extraction
     │  ├── Content hash comparison (skip unchanged files)
     │  ├── Worker pool (runtime.GOMAXPROCS goroutines, fan-out/fan-in)
     │  │   └── Each worker: parse file → extract nodes + edges → return results
+    │  ├── Deleted file detection (compare walked files against stored files)
+    │  │   └── Files no longer on disk: cleanup via DeleteEdgesBySourceFile + DeleteNodesByFile
     │  ├── Batch insert (nodes, edges, files in single transaction)
     │  └── Snapshot computation (Merkle root of sorted edge hashes)
     │
@@ -340,6 +342,17 @@ During Tier 1 tree-sitter extraction, the Go extractor (`gotsextractor`) detects
 | `github.com/gorilla/mux` | `HandleFunc`, `Handle` |
 
 Detection uses a fast pre-filter (method name must be in the union of all known route methods) followed by import path verification. For local variables (e.g., `r := chi.NewRouter()`), the extractor infers the router package from the file's import set.
+
+**Multi-language framework coverage:** Route extraction extends beyond Go to all supported languages. The full set of detected frameworks (18 total across 6 languages):
+
+| Language | Frameworks | Detection strategy |
+|----------|-----------|-------------------|
+| Go | net/http, chi, gin, echo, gorilla/mux | Method call on router variable + import path verification |
+| TypeScript | Express.js, Fastify, Hono (shared `app.method` pattern), NestJS (`@Controller` + `@Get`/`@Post` decorators), Next.js App Router (exported `GET`/`POST`/`PUT`/`DELETE` in `route.ts` files) | Call expression matching or decorator/export detection |
+| Python | Flask, FastAPI (`@app.get`/`@router.post` decorator parsing), Django (`path()`/`re_path()` in `urls.py`) | Decorator call matching or url pattern function calls |
+| Rust | Actix-web, Axum, Rocket | Attribute macros and router builder methods |
+| Java | Spring MVC, JAX-RS | `@RequestMapping`/`@GetMapping` and `@Path`/`@GET` annotations |
+| C# | ASP.NET Core (minimal APIs and controller routing) | `app.Map*` calls and `[HttpGet]`/`[Route]` attributes |
 
 **Graph output:** Each detected route registration produces:
 
@@ -1026,6 +1039,8 @@ The three codecs map to distinct system layers:
 - **KWF** is the default for MCP tool responses and context packing output. It minimizes token consumption inside LLM context windows while remaining plain-text parseable.
 - **Binary** is used for daemon-to-daemon communication and the content-addressed computation cache. Its varint+length-prefixed layout avoids parsing overhead and produces compact byte streams.
 - **JSON** serves as the compatibility baseline for `knowing export`, debugging, and integration with external systems that expect standard serialization.
+
+**KWF session statefulness:** The MCP server maintains a per-connection `wire.Session` that tracks which symbols have already been transmitted to the client. On subsequent KWF responses within the same connection, previously-sent nodes are emitted as bare references (hash-only, no full payload) rather than complete symbol records. This deduplication delivers 47% additional token savings beyond KWF's baseline compression, compounding across multi-turn agent conversations where the same subgraph is referenced repeatedly.
 
 ### Binary Wire Layout
 
