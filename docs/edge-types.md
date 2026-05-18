@@ -8,9 +8,9 @@ participates in blast radius traversal and context ranking.
 
 | Edge Type | Meaning | Provenance | Confidence | Producers | Blast Radius | RWR Weight |
 |---|---|---|---|---|---|---|
-| `calls` | Function/method invocation | ast_inferred / lsp_resolved | 0.7 / 0.9 | All 12 extractors, enricher | Yes (traversed) | 1.0 |
-| `imports` | Module/package import | ast_inferred | 0.7 | All 12 extractors | No | 0.5 |
-| `implements` | Type satisfies an interface | ast_inferred / lsp_resolved | 0.7 / 0.9 | Go extractor, enricher | No | 0.8 |
+| `calls` | Function/method invocation | ast_inferred / lsp_resolved | 0.7 / 0.9 | All 17 extractor types, enricher | Yes (traversed) | 1.0 |
+| `imports` | Module/package import | ast_inferred | 0.7 | All 17 extractor types | No | 0.5 |
+| `implements` | Type satisfies an interface | ast_inferred / lsp_resolved | 0.7 / 0.9 | Go, TS, Java, C#, Rust extractors, enricher | No | 0.8 |
 | `handles_route` | HTTP handler bound to a route | ast_inferred | 0.7 | Go, TS, Python, Rust, Java, C# extractors | No | 0.7 |
 | `references` | Non-call identifier usage | ast_inferred / lsp_resolved / scip_resolved | 0.7 / 0.9 / 0.95 | Go extractor, Proto extractor, SQL extractor, SCIP ingestor, enricher | No | 0.4 |
 | `depends_on` | Resource/symbol dependency | ast_inferred | 0.7 | Terraform, SQL, CSS extractors | No | 0.5 |
@@ -20,6 +20,11 @@ participates in blast radius traversal and context ranking.
 | `publishes` | Producer publishes to a topic/queue | ast_inferred | 0.7 | Cloud extractor (Serverless, CFN) | No | 0.5 |
 | `subscribes` | Consumer subscribes to a topic/queue | ast_inferred | 0.7 | Cloud extractor (Serverless, CFN) | No | 0.5 |
 | `connects_to` | Service connects to another service/network | ast_inferred | 0.7 | Cloud extractor (Docker Compose) | No | 0.5 |
+| `extends` | Class inheritance | ast_inferred | 0.7 | TS, Java, Python, C# extractors | No | 0.7 |
+| `overrides` | Method overrides parent | ast_inferred | 0.7 | TS, Java, C# extractors | No | 0.8 |
+| `decorates` | Decorator/annotation applied | ast_inferred | 0.7 | TS, Java, Python, C#, Rust extractors | No | 0.3 |
+| `throws` | Function throws/raises error | ast_inferred | 0.7 | Go, TS extractors | No | 0.4 |
+| `owned_by` | File/symbol owned by team/user | deterministic | 1.0 | CODEOWNERS parser | No | 0.0 |
 | `runtime_calls` | HTTP call observed in traces | otel_trace | 0.2 - 0.95 | Trace ingestor | No | 0.3 (default) |
 | `runtime_rpc` | gRPC/RPC call observed in traces | otel_trace | 0.2 - 0.95 | Trace ingestor | No | 0.3 (default) |
 | `runtime_produces` | Message published to a topic | otel_trace | 0.2 - 0.95 | Trace ingestor | No | 0.3 (default) |
@@ -33,8 +38,8 @@ A function or method invokes another function or method.
 
 - **Direction:** source calls target. `pkg.HandleLogin -calls-> pkg.AuthService.Validate` means
   HandleLogin contains a call expression that resolves to AuthService.Validate.
-- **Producers:** All 12 extractors (Go, TypeScript, Rust, Java, C#, Python,
-  Terraform, SQL, Kubernetes YAML, Cloud YAML, CSS, Protocol Buffers) produce `calls` edges.
+- **Producers:** All 17 extractor types (Go, TypeScript, Rust, Java, C#, Python,
+  Terraform, SQL, Kubernetes YAML, Cloud YAML, CSS, Protocol Buffers, and tree-sitter generic extractors) produce `calls` edges.
   The enricher upgrades ast_inferred calls to lsp_resolved when gopls confirms the definition.
 - **Provenance:** `ast_inferred` (confidence 0.7) from tree-sitter extraction; `lsp_resolved`
   (confidence 0.9) after enrichment confirms the target via GetDefinition.
@@ -55,7 +60,7 @@ A file imports a module or package.
 
 - **Direction:** source imports target. `cmd/server/main.go -imports-> github.com/example/pkg`
   means the file declares an import of that package.
-- **Producers:** All 12 extractors. For Go: import declarations. For TypeScript:
+- **Producers:** All 17 extractor types. For Go: import declarations. For TypeScript:
   `import` statements and `require()` calls. For Rust: `use` declarations. For Java:
   `import` declarations. For C#: `using` directives. For Python: `import` and
   `from ... import` statements. For Protocol Buffers: `import` statements. For CSS:
@@ -73,12 +78,18 @@ A concrete type satisfies an interface contract.
 
 - **Direction:** source implements target. `pkg.SQLiteStore -implements-> types.GraphStore`
   means SQLiteStore has methods matching the GraphStore interface.
-- **Producers:** The Go type-checked extractor (`goextractor`) discovers `implements` edges
-  by checking whether concrete types in the same package satisfy declared interfaces. The
-  LSP enricher also discovers `implements` edges via `GetImplementation` queries for
-  interface symbols.
-- **Provenance:** `ast_inferred` (confidence 0.7) from the Go extractor's method-set
-  comparison; `lsp_resolved` (confidence 0.9) when discovered by the enricher through gopls.
+- **Producers:** Five language extractors and the enricher:
+  - Go: the type-checked extractor (`goextractor`) discovers `implements` edges by checking
+    whether concrete types in the same package satisfy declared interfaces.
+  - TypeScript: class `implements` clauses.
+  - Java: class `implements` clauses.
+  - C#: class/struct interface implementation declarations.
+  - Rust: `impl Trait for Type` blocks.
+  - The LSP enricher also discovers `implements` edges via `GetImplementation` queries for
+    interface symbols.
+- **Provenance:** `ast_inferred` (confidence 0.7) from tree-sitter extraction or Go's
+  method-set comparison; `lsp_resolved` (confidence 0.9) when discovered by the enricher
+  through gopls.
 - **Blast radius:** Not traversed. Blast radius only follows `calls` edges. However,
   `implements` edges are valuable for understanding which concrete types back an interface
   when planning changes.
@@ -211,6 +222,89 @@ A service connects to another service or network resource.
 - **Blast radius:** Not traversed.
 - **RWR weight:** 0.5.
 
+### `extends`
+
+A class or type extends (inherits from) another class or type.
+
+- **Direction:** source extends target. `components.AdminPanel -extends-> components.BasePanel`
+  means AdminPanel inherits from BasePanel.
+- **Producers:** Four language extractors:
+  - TypeScript: class `extends` clauses.
+  - Java: class `extends` clauses.
+  - Python: class base classes in the class definition (via tree-sitter generic extractor).
+  - C#: class inheritance declarations.
+- **Provenance:** `ast_inferred` (confidence 0.7). Inheritance is syntactically explicit and
+  reliably detected from AST nodes.
+- **Blast radius:** Not traversed. However, `extends` edges are valuable for understanding
+  which classes inherit behavior when planning changes to a base class.
+- **RWR weight:** 0.7. Reflects that inheritance relationships are structurally significant;
+  a change to a base class method may affect all subclasses.
+
+### `overrides`
+
+A method overrides a method from a parent class.
+
+- **Direction:** source overrides target. `AdminPanel.render -overrides-> BasePanel.render`
+  means the child class provides its own implementation of the parent method.
+- **Producers:** Three language extractors:
+  - TypeScript: methods in a class that match a parent class method (detected via `override`
+    keyword or inheritance analysis).
+  - Java: methods annotated with `@Override`.
+  - C#: methods declared with the `override` keyword.
+- **Provenance:** `ast_inferred` (confidence 0.7).
+- **Blast radius:** Not traversed.
+- **RWR weight:** 0.8. High weight, matching `implements`, because changing a parent method's
+  contract directly affects all overriding methods.
+
+### `decorates`
+
+A decorator or annotation is applied to a class, method, or function.
+
+- **Direction:** source decorator decorates target symbol. `@Cache -decorates-> UserService.getUser`
+  means the `@Cache` decorator wraps the `getUser` method.
+- **Producers:** Five language extractors:
+  - TypeScript: `@decorator` syntax on classes and methods.
+  - Java: annotation declarations (`@Transactional`, `@Override`, etc.).
+  - Python: `@decorator` syntax (via tree-sitter generic extractor).
+  - C#: attribute syntax (`[Authorize]`, `[HttpGet]`, etc.).
+  - Rust: `#[attribute]` and `#[derive(...)]` macros.
+- **Provenance:** `ast_inferred` (confidence 0.7).
+- **Blast radius:** Not traversed.
+- **RWR weight:** 0.3. Low weight because decorators are typically cross-cutting concerns
+  (logging, caching, authorization) rather than direct functional dependencies.
+
+### `throws`
+
+A function or method throws or raises an error type.
+
+- **Direction:** source function throws target error type. `api.HandleRequest -throws-> ErrNotFound`
+  means HandleRequest contains a throw/return of the ErrNotFound error.
+- **Producers:** Two language extractors:
+  - Go: error returns detected from function bodies (sentinel errors, `fmt.Errorf`, custom
+    error type construction).
+  - TypeScript: `throw` statements with identifiable error types.
+- **Provenance:** `ast_inferred` (confidence 0.7).
+- **Blast radius:** Not traversed.
+- **RWR weight:** 0.4. Moderate-low weight, similar to `references`. Knowing which errors a
+  function throws is useful for error handling analysis but is a weaker signal for context
+  relevance than call or inheritance relationships.
+
+### `owned_by`
+
+A file or symbol is owned by a team or individual (from CODEOWNERS).
+
+- **Direction:** source file/path owned by target team/user.
+  `internal/api/ -owned_by-> @backend-team` means the backend team owns files under that path.
+- **Producers:** The ownership extractor (`internal/indexer/ownership/ownership.go`) parses
+  CODEOWNERS files and emits `owned_by` edges for matched file patterns.
+- **Provenance:** `deterministic` (confidence 1.0). CODEOWNERS rules are explicit declarations,
+  not inferred relationships.
+- **Blast radius:** Not traversed. Ownership is an organizational relationship, not a code
+  dependency.
+- **RWR weight:** 0.0. Ownership edges do not participate in the random walk. They serve a
+  different purpose: identifying who should review changes, filtering context by team scope,
+  and surfacing ownership in PR impact reports.
+
 ## Runtime Edge Types
 
 Runtime edges are produced by the trace ingestor (`internal/trace/ingestor.go`) from
@@ -277,6 +371,7 @@ Provenance tracks how an edge was discovered and determines its confidence level
 | `lsp_resolved` | 0.9 | LSP enricher (gopls) | Edge confirmed by querying the language server's GetDefinition at the call site. The original ast_inferred edge is deleted and replaced. |
 | `scip_resolved` | 0.95 | SCIP ingestor | Edge resolved from a SCIP index file. Near-full confidence; SCIP indexes are produced by compiler-grade tools with complete type information. |
 | `ast_resolved` | 1.0 | Python extractor | Edge resolved with full confidence. (Python extractor uses this provenance, though cross-module targets may still be dangling.) |
+| `deterministic` | 1.0 | CODEOWNERS parser | Edge derived from explicit configuration (CODEOWNERS rules). No inference involved. |
 | `otel_trace` | 0.2 - 0.95 | Trace ingestor | Edge observed in production runtime data. Confidence varies by observation count and recency. |
 
 ### Runtime confidence scoring
