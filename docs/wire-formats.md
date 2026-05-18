@@ -382,6 +382,36 @@ Default is `json` for backwards compatibility. Agents that understand GCF should
 
 ---
 
+## Format Comprehension Eval
+
+Benchmark measuring token cost across all formats for the same context payload. All formats contain identical information (same symbols, edges, metadata); only the encoding differs.
+
+Run: `GOWORK=off go test ./eval/ -run TestFormatComprehension -v`
+
+| Format | Avg tokens | vs JSON | LLM familiarity | Recommendation |
+|--------|-----------|---------|-----------------|----------------|
+| JSON | 1,818 | baseline | Universal | Debugging, generic consumers |
+| XML | 1,818 | 100% | High | Legacy integrations |
+| TOON | 707 | **39%** | Medium (open standard, tabular) | Safe default for agents |
+| GCF | 265 | **15%** | Low (custom format) | Maximum compression when verified |
+
+Per-fixture results (6 comprehension tasks, 5000 token budget):
+
+| Fixture | JSON | XML | TOON | GCF | TOON/JSON | GCF/JSON |
+|---------|------|-----|------|-----|-----------|----------|
+| top_3_by_score | 1,658 | 1,658 | 645 | 243 | 38.9% | 14.7% |
+| symbol_count | 3,105 | 3,105 | 1,206 | 452 | 38.8% | 14.6% |
+| edge_count | 1,386 | 1,386 | 540 | 201 | 39.0% | 14.5% |
+| kind_extraction | 1,658 | 1,658 | 645 | 243 | 38.9% | 14.7% |
+| seed_vs_related | 1,431 | 1,431 | 557 | 210 | 38.9% | 14.7% |
+| edge_types | 1,669 | 1,669 | 650 | 240 | 38.9% | 14.4% |
+
+**Key insight:** TOON uses an open standard with tabular formatting (header row + data rows) that LLMs recognize from markdown tables. GCF is 2.7x more compact than TOON but uses a custom format with local integer IDs that models may not have seen in training. TOON is the safer default; GCF is the power option for agents that have been verified to parse it correctly.
+
+**Why not just use GCF?** Token savings only matter if the model comprehends the format. A format that saves 85% of tokens but causes 5% parsing errors is worse than one that saves 61% with 0% errors. TOON's tabular format is a pattern every LLM understands (it looks like a markdown table). GCF's `$1 -> $3` edge references are novel. Until a live LLM eval proves GCF comprehension matches JSON, TOON is the safer recommendation for production agent workflows.
+
+---
+
 ## Implementation
 
 | File | Purpose |
@@ -390,6 +420,7 @@ Default is `json` for backwards compatibility. Agents that understand GCF should
 | `internal/wire/gcf.go` | GCF text encoder |
 | `internal/wire/gcf_decode.go` | GCF text decoder |
 | `internal/wire/json.go` | JSON codec (encode/decode via standard library) |
+| `internal/wire/toon.go` | TOON codec (official toon-format/toon-go library) |
 | `internal/wire/binary.go` | Binary codec (varint + length-prefixed) |
 | `internal/wire/gcf_test.go` | GCF unit tests |
 | `internal/wire/registry_test.go` | Registry and JSON codec tests |
