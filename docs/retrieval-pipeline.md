@@ -626,14 +626,45 @@ blast-radius symbols deserve attention when making changes.
 
 ---
 
+## Design Position: Why Equivalence Classes Over Embeddings
+
+Other retrieval tools built their pipelines with embeddings as the primary
+concept-matching layer. Without embeddings, they only have BM25 (lexical). So embeddings
+fill a critical gap for them.
+
+knowing's pipeline has equivalence classes filling the same role, and they outperform
+embeddings on our eval. Adding embeddings on top of equivalence classes is redundant:
+both try to bridge "blast radius" to "TransitiveCallers". When one system already
+handles it, the other just adds noise.
+
+Embeddings would be net positive only if they catch concepts that equivalence classes
+miss (vocabulary not manually defined) AND do it with fewer false positives than the
+current signal-to-noise ratio. A code-tuned model might achieve the first condition, but
+the second is the hard part: the pipeline is already precise enough that additional noise
+hurts the easy tier.
+
+**The strategic conclusion:** equivalence classes + graph-derived aliases + task memory is
+knowing's retrieval path. It is local, deterministic, inspectable, and compounds with
+use. That is the moat, not a better embedding model. The embedding infrastructure stays
+as an optional plugin (KNOWING_EMBEDDINGS=1), not the core strategy.
+
+This is validated by 23 experiments (see `eval/EXPERIMENTS.md`):
+- Experiments 9-12: MiniLM and BGE-small tested net-negative at every weight level
+- Experiment 17: doc comments in BM25/embed text did not compensate for model weakness
+- Experiment 18: equivalence classes produced +8pp hard tier, the largest single-feature gain
+- Cross-repo eval: 46.7% R@10 on a foreign codebase with zero configuration, using universal
+  equivalence classes and graph-derived aliases (no embeddings)
+
+---
+
 ## Limitations
 
 1. **Vocabulary gap beyond equivalence classes.** The 41 curated concepts (21 seed + 20
    universal) cover common patterns but not every domain concept. Queries using
    terminology not covered by any class fall back to lexical matching only.
 
-2. **Embeddings disabled.** Vector search infrastructure exists but is disabled. Awaiting
-   code-tuned models.
+2. **Embeddings disabled.** Vector search infrastructure exists but is disabled (weight 0).
+   Optional via KNOWING_EMBEDDINGS=1 for experimentation with code-tuned models.
 
 3. **LIKE-based tiered matching.** `NodesByName` uses SQL `LIKE %keyword%`, so "auth"
    matches `AuthService`, `OAuth2Handler`, and `unauthorized_error` equally.
