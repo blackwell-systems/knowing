@@ -1,0 +1,188 @@
+package main
+
+import (
+	"encoding/json"
+	"flag"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+// RosterEntry represents a tracked repository.
+type RosterEntry struct {
+	Path string `json:"path"` // absolute path to repo root
+	URL  string `json:"url"`  // repo URL (for graph identity)
+}
+
+// Roster is the list of tracked repositories, stored at ~/.knowing/roster.json.
+type Roster struct {
+	Repos []RosterEntry `json:"repos"`
+}
+
+// rosterPath returns the path to the roster file.
+func rosterPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "roster.json"
+	}
+	return filepath.Join(home, ".knowing", "roster.json")
+}
+
+// loadRoster reads the roster from disk. Returns empty roster if file doesn't exist.
+func loadRoster() (*Roster, error) {
+	path := rosterPath()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &Roster{}, nil
+		}
+		return nil, err
+	}
+	var r Roster
+	if err := json.Unmarshal(data, &r); err != nil {
+		return nil, err
+	}
+	return &r, nil
+}
+
+// saveRoster writes the roster to disk.
+func saveRoster(r *Roster) error {
+	path := rosterPath()
+	os.MkdirAll(filepath.Dir(path), 0755)
+	data, err := json.MarshalIndent(r, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
+// addToRoster adds a repo to the roster if not already present.
+func addToRoster(absPath, repoURL string) error {
+	r, err := loadRoster()
+	if err != nil {
+		return err
+	}
+	for _, entry := range r.Repos {
+		if entry.Path == absPath {
+			return nil // already tracked
+		}
+	}
+	r.Repos = append(r.Repos, RosterEntry{Path: absPath, URL: repoURL})
+	return saveRoster(r)
+}
+
+// removeFromRoster removes a repo from the roster by path.
+func removeFromRoster(absPath string) error {
+	r, err := loadRoster()
+	if err != nil {
+		return err
+	}
+	filtered := make([]RosterEntry, 0, len(r.Repos))
+	found := false
+	for _, entry := range r.Repos {
+		if entry.Path == absPath {
+			found = true
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+	if !found {
+		return fmt.Errorf("repo not in roster: %s", absPath)
+	}
+	r.Repos = filtered
+	return saveRoster(r)
+}
+
+// cmdAdd registers a repository in the global roster and indexes it.
+func cmdAdd(args []string) error {
+	fs := flag.NewFlagSet("add", flag.ExitOnError)
+	repoURL := fs.String("url", "", "Repository URL (auto-detected if empty)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	repoPath := "."
+	if fs.NArg() > 0 {
+		repoPath = fs.Arg(0)
+	}
+	absPath, err := filepath.Abs(repoPath)
+	if err != nil {
+		return fmt.Errorf("resolving path: %w", err)
+	}
+
+	if *repoURL == "" {
+		*repoURL = detectRepoURL(absPath)
+	}
+	if *repoURL == "" {
+		*repoURL = absPath
+	}
+
+	if err := addToRoster(absPath, *repoURL); err != nil {
+		return fmt.Errorf("adding to roster: %w", err)
+	}
+
+	fmt.Printf("Added %s (%s) to roster\n", absPath, *repoURL)
+	fmt.Printf("Roster: %s\n", rosterPath())
+	fmt.Printf("Database: %s\n", defaultDB())
+	fmt.Println()
+	fmt.Println("Run 'knowing index' to index this repo into the global graph.")
+	return nil
+}
+
+// cmdRemove removes a repository from the roster.
+func cmdRemove(args []string) error {
+	fs := flag.NewFlagSet("remove", flag.ExitOnError)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	repoPath := "."
+	if fs.NArg() > 0 {
+		repoPath = fs.Arg(0)
+	}
+	absPath, err := filepath.Abs(repoPath)
+	if err != nil {
+		return fmt.Errorf("resolving path: %w", err)
+	}
+
+	if err := removeFromRoster(absPath); err != nil {
+		return err
+	}
+
+	fmt.Printf("Removed %s from roster\n", absPath)
+	return nil
+}
+
+// cmdList lists all tracked repositories.
+func cmdList(args []string) error {
+	r, err := loadRoster()
+	if err != nil {
+		return fmt.Errorf("loading roster: %w", err)
+	}
+
+	if len(r.Repos) == 0 {
+		fmt.Println("No tracked repositories. Run 'knowing add .' to track a repo.")
+		return nil
+	}
+
+	fmt.Printf("Tracked repositories (%s):\n\n", rosterPath())
+	for _, entry := range r.Repos {
+		exists := "ok"
+		if _, err := os.Stat(entry.Path); err != nil {
+			exists = "missing"
+		}
+		fmt.Printf("  %s\n", entry.Path)
+		fmt.Printf("    url: %s\n", entry.URL)
+		fmt.Printf("    status: %s\n", exists)
+
+		// Show short name for display.
+		short := entry.URL
+		if idx := strings.LastIndex(short, "/"); idx >= 0 {
+			short = short[idx+1:]
+		}
+		_ = short
+	}
+	fmt.Printf("\nDatabase: %s\n", defaultDB())
+	return nil
+}

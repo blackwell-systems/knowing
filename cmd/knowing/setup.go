@@ -72,7 +72,14 @@ func cmdSetup(args []string) error {
 	fmt.Fprintf(os.Stderr, "        Repo URL: %s\n", *repoURL)
 
 	if *dbPath == "" {
-		*dbPath = filepath.Join(gitRoot, "knowing.db")
+		*dbPath = defaultDB() // global DB for cross-repo edges
+	}
+
+	// Register in roster for cross-repo tracking.
+	if err := addToRoster(gitRoot, *repoURL); err != nil {
+		fmt.Fprintf(os.Stderr, "        Roster warning: %v\n", err)
+	} else {
+		fmt.Fprintf(os.Stderr, "        Registered in roster: %s\n", rosterPath())
 	}
 
 	// Step 2: Index the repository.

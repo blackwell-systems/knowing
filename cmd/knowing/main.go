@@ -62,12 +62,20 @@ var (
 	date    = "unknown"
 )
 
-// defaultDB returns the default database path, checking KNOWING_DB env var first.
+// defaultDB returns the default database path.
+// Priority: KNOWING_DB env > ~/.knowing/knowing.db (global default).
+// The global default enables cross-repo edges by putting all repos in one graph.
 func defaultDB() string {
 	if env := os.Getenv("KNOWING_DB"); env != "" {
 		return env
 	}
-	return "knowing.db"
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "knowing.db" // fallback to cwd
+	}
+	dir := filepath.Join(home, ".knowing")
+	os.MkdirAll(dir, 0755)
+	return filepath.Join(dir, "knowing.db")
 }
 
 func main() {
@@ -115,6 +123,12 @@ func run(args []string) error {
 		return cmdWatch(args[1:])
 	case "enrich":
 		return cmdEnrich(args[1:])
+	case "add":
+		return cmdAdd(args[1:])
+	case "remove":
+		return cmdRemove(args[1:])
+	case "list":
+		return cmdList(args[1:])
 	default:
 		printUsage()
 		return fmt.Errorf("unknown subcommand: %s", args[0])
