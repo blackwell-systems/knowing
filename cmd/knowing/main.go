@@ -461,7 +461,7 @@ func cmdExport(args []string) error {
 		Community     int     `json:"community"`
 		LastAuthor    string  `json:"last_author,omitempty"`
 		LastCommitAt  int64   `json:"last_commit_at,omitempty"`
-		CoveragePct   float64 `json:"coverage_pct,omitempty"`
+		CoveragePct   float64 `json:"coverage_pct"`
 		Doc           string  `json:"doc,omitempty"`
 	}
 	type exportEdge struct {
@@ -556,9 +556,7 @@ func cmdExport(args []string) error {
 			LastAuthor:    n.LastAuthor,
 			LastCommitAt:  n.LastCommitAt,
 			Doc:           n.Doc,
-		}
-		if n.CoveragePct >= 0 {
-			en.CoveragePct = n.CoveragePct
+			CoveragePct:   n.CoveragePct,
 		}
 		export.Nodes = append(export.Nodes, en)
 	}
