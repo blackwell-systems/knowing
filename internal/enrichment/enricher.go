@@ -38,21 +38,27 @@ import (
 )
 
 // Enricher upgrades ast_inferred graph edges to lsp_resolved by querying
-// gopls for definition resolution, and discovers new implements/references
-// edges not found by tree-sitter extraction.
+// language servers for definition resolution, and discovers new implements/references
+// edges not found by tree-sitter extraction. Supports multiple languages via LSPConfig.
 type Enricher struct {
 	store         types.GraphStore
 	workspaceRoot string
 	client        *lsp.LSPClient
+	lspConfig     *LSPConfig // multi-language server config (nil = auto-detect)
 }
 
 // NewEnricher creates an Enricher that will use the given store and
-// workspace root for LSP operations.
+// workspace root for LSP operations. Auto-detects available language servers.
 func NewEnricher(store types.GraphStore, workspaceRoot string) *Enricher {
 	return &Enricher{
 		store:         store,
 		workspaceRoot: workspaceRoot,
 	}
+}
+
+// SetLSPConfig overrides auto-detection with an explicit server configuration.
+func (e *Enricher) SetLSPConfig(cfg *LSPConfig) {
+	e.lspConfig = cfg
 }
 
 // enrichStats tracks enrichment progress for summary logging.
@@ -96,16 +102,17 @@ func (e *Enricher) RunScoped(ctx context.Context, repoHash types.Hash, changedFi
 // runFiltered is the core enrichment logic shared by Run and RunScoped.
 // When fileFilter is nil, all files are processed (full enrichment).
 // When non-nil, only files passing the filter are processed.
+// Iterates over all configured/detected language servers.
 func (e *Enricher) runFiltered(ctx context.Context, repoHash types.Hash, fileFilter func(string) bool) error {
-	// Start gopls.
-	client := lsp.NewLSPClient("gopls", []string{})
-	if err := client.Initialize(ctx, e.workspaceRoot); err != nil {
-		return fmt.Errorf("enrichment: start gopls: %w", err)
+	// Determine which language servers to use.
+	cfg := e.lspConfig
+	if cfg == nil {
+		cfg = DetectLSPServers(e.workspaceRoot)
 	}
-	e.client = client
-	defer func() {
-		_ = e.Close(ctx)
-	}()
+	if len(cfg.Servers) == 0 {
+		log.Printf("enrichment: no language servers detected for %s", e.workspaceRoot)
+		return nil
+	}
 
 	// Get the latest snapshot for this repo.
 	snap, err := e.store.LatestSnapshot(ctx, repoHash)
@@ -126,29 +133,67 @@ func (e *Enricher) runFiltered(ctx context.Context, repoHash types.Hash, fileFil
 		filePathByHash[f.FileHash] = f.Path
 	}
 
-	stats := &enrichStats{}
-
-	// Open Go files via textDocument/didOpen so gopls builds its index.
-	// gopls requires files to be opened before it can resolve definitions
-	// and references within them. When fileFilter is set, only changed files
-	// are opened to reduce gopls memory consumption.
-	e.openAllFiles(ctx, files, fileFilter)
-
-	// Upgrade ast_inferred call edges that have call-site positions.
-	e.upgradeCallEdges(ctx, repoHash, filePathByHash, stats, fileFilter)
-
-	// Discover new implements and references edges via LSP document symbols.
-	e.discoverNewEdges(ctx, files, filePathByHash, stats, fileFilter)
-
-	// Close all opened documents.
-	e.closeAllFiles(ctx, files)
-
-	// Log summary instead of per-edge noise.
-	log.Printf("enrichment complete: %d edges processed, %d upgraded, %d skipped, %d errors, %d new edges discovered, %d files scanned, %d file errors",
-		stats.edgesProcessed, stats.edgesUpgraded, stats.edgesSkipped, stats.edgeErrors,
-		stats.newEdges, stats.filesProcessed, stats.fileErrors)
+	// Run enrichment for each detected language server.
+	for _, serverCfg := range cfg.Servers {
+		if ctx.Err() != nil {
+			break
+		}
+		e.runForServer(ctx, serverCfg, repoHash, files, filePathByHash, fileFilter)
+	}
 
 	return nil
+}
+
+// runForServer runs enrichment using a single language server.
+func (e *Enricher) runForServer(ctx context.Context, serverCfg LSPServerConfig, repoHash types.Hash,
+	files []types.File, filePathByHash map[types.Hash]string, fileFilter func(string) bool) {
+
+	if len(serverCfg.Command) == 0 {
+		return
+	}
+
+	// Start the language server.
+	args := []string{}
+	if len(serverCfg.Command) > 1 {
+		args = serverCfg.Command[1:]
+	}
+	client := lsp.NewLSPClient(serverCfg.Command[0], args)
+	if err := client.Initialize(ctx, e.workspaceRoot); err != nil {
+		log.Printf("enrichment: start %s: %v", serverCfg.Command[0], err)
+		return
+	}
+	e.client = client
+	defer func() {
+		_ = e.Close(ctx)
+	}()
+
+	stats := &enrichStats{}
+
+	// Build a file filter that combines the caller's filter with the language extension filter.
+	langFilter := func(path string) bool {
+		if fileFilter != nil && !fileFilter(path) {
+			return false
+		}
+		return serverCfg.matchesFile(path)
+	}
+
+	// Open files for this language.
+	e.openFilesForLanguage(ctx, files, langFilter, serverCfg.LanguageID)
+
+	// Upgrade ast_inferred call edges that have call-site positions.
+	e.upgradeCallEdges(ctx, repoHash, filePathByHash, stats, langFilter)
+
+	// Discover new implements and references edges via LSP document symbols.
+	e.discoverNewEdges(ctx, files, filePathByHash, stats, langFilter)
+
+	// Close all opened documents.
+	e.closeFilesForLanguage(ctx, files, langFilter)
+
+	// Log summary.
+	log.Printf("enrichment complete (%s): %d edges processed, %d upgraded, %d skipped, %d errors, %d new edges discovered, %d files scanned, %d file errors",
+		serverCfg.LanguageID,
+		stats.edgesProcessed, stats.edgesUpgraded, stats.edgesSkipped, stats.edgeErrors,
+		stats.newEdges, stats.filesProcessed, stats.fileErrors)
 }
 
 // Close shuts down the LSP client if running.
@@ -266,14 +311,26 @@ func (e *Enricher) upgradeCallEdges(
 // has workspace knowledge for cross-package resolution. When fileFilter is
 // non-nil, only files passing the filter are opened (reduces gopls memory).
 func (e *Enricher) openAllFiles(ctx context.Context, files []types.File, fileFilter func(string) bool) {
+	e.openFilesForLanguage(ctx, files, func(path string) bool {
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return false
+		}
+		return fileFilter == nil || fileFilter(path)
+	}, "go")
+}
+
+// openFilesForLanguage opens files matching the filter via textDocument/didOpen.
+// Language-agnostic: works for any language server.
+func (e *Enricher) openFilesForLanguage(ctx context.Context, files []types.File, filter func(string) bool, languageID string) {
 	for _, f := range files {
 		if ctx.Err() != nil {
 			return
 		}
-		if !strings.HasSuffix(f.Path, ".go") || strings.HasSuffix(f.Path, "_test.go") {
+		if !filter(f.Path) {
 			continue
 		}
-		if fileFilter != nil && !fileFilter(f.Path) {
+		// Skip test files for all languages.
+		if isTestFile(f.Path) {
 			continue
 		}
 		absPath := filepath.Join(e.workspaceRoot, f.Path)
@@ -282,11 +339,34 @@ func (e *Enricher) openAllFiles(ctx context.Context, files []types.File, fileFil
 			continue
 		}
 		uri := "file://" + absPath
-		_ = e.client.OpenDocument(ctx, uri, string(content), "go")
+		_ = e.client.OpenDocument(ctx, uri, string(content), languageID)
 	}
 }
 
-// closeAllFiles closes all opened Go source files.
+// closeFilesForLanguage closes files matching the filter.
+func (e *Enricher) closeFilesForLanguage(ctx context.Context, files []types.File, filter func(string) bool) {
+	for _, f := range files {
+		if filter(f.Path) && !isTestFile(f.Path) {
+			uri := "file://" + filepath.Join(e.workspaceRoot, f.Path)
+			_ = e.client.CloseDocument(ctx, uri)
+		}
+	}
+}
+
+// isTestFile returns true for test files across common languages.
+func isTestFile(path string) bool {
+	return strings.HasSuffix(path, "_test.go") ||
+		strings.HasSuffix(path, ".test.ts") ||
+		strings.HasSuffix(path, ".test.js") ||
+		strings.HasSuffix(path, ".spec.ts") ||
+		strings.HasSuffix(path, ".spec.js") ||
+		strings.HasSuffix(path, "_test.py") ||
+		strings.HasSuffix(path, "_test.rs") ||
+		strings.Contains(path, "/test/") ||
+		strings.Contains(path, "/__tests__/")
+}
+
+// closeAllFiles closes all opened Go source files (legacy, used by old callers).
 func (e *Enricher) closeAllFiles(ctx context.Context, files []types.File) {
 	for _, f := range files {
 		if strings.HasSuffix(f.Path, ".go") && !strings.HasSuffix(f.Path, "_test.go") {

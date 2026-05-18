@@ -307,19 +307,20 @@ func TestRunScoped_EmptyChangedFilesDelegatesToRun(t *testing.T) {
 	}
 
 	e := NewEnricher(store, "/workspace")
+	// Force a gopls config so detection doesn't skip (test workspace has no go.mod).
+	e.SetLSPConfig(&LSPConfig{Servers: []LSPServerConfig{
+		{Command: []string{"gopls"}, Extensions: []string{"go"}, LanguageID: "go"},
+	}})
 	// RunScoped with nil changedFiles should behave like Run.
-	// Both will fail on gopls startup with cancelled context.
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	err := e.RunScoped(ctx, repoHash, nil)
+	// Both will fail because the mock store has no snapshot for the repo.
+	err := e.RunScoped(context.Background(), repoHash, nil)
 	if err == nil {
-		t.Error("expected error from RunScoped with nil changedFiles and cancelled context")
+		t.Error("expected error from RunScoped with nil changedFiles and no snapshot")
 	}
 
-	err = e.RunScoped(ctx, repoHash, []string{})
+	err = e.RunScoped(context.Background(), repoHash, []string{})
 	if err == nil {
-		t.Error("expected error from RunScoped with empty changedFiles and cancelled context")
+		t.Error("expected error from RunScoped with empty changedFiles and no snapshot")
 	}
 }
 
@@ -468,15 +469,13 @@ func TestRunReturnsErrorWhenNoSnapshot(t *testing.T) {
 	// No snapshot set.
 
 	e := NewEnricher(store, "/workspace")
-	// Run will fail trying to start gopls (no binary), but we test
-	// the error path for missing snapshot by passing a cancelled context
-	// that skips gopls startup.
-	// Actually, Run tries gopls first. So this tests the gopls startup error.
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Cancel immediately.
-
-	err := e.Run(ctx, repoHash)
+	// Force a gopls config so detection doesn't skip.
+	e.SetLSPConfig(&LSPConfig{Servers: []LSPServerConfig{
+		{Command: []string{"gopls"}, Extensions: []string{"go"}, LanguageID: "go"},
+	}})
+	// No snapshot set, so Run should fail with "no snapshot found".
+	err := e.Run(context.Background(), repoHash)
 	if err == nil {
-		t.Error("expected error from Run with cancelled context")
+		t.Error("expected error from Run with no snapshot")
 	}
 }
