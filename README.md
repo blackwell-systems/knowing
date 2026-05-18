@@ -71,6 +71,8 @@ Most code-intelligence tools answer one slice of the problem:
 
 knowing's unit of record is the relationship itself: `source -edge_type-> target`, with confidence and provenance. The graph is versioned like source code, so relationship history is a first-class artifact instead of a regenerated report.
 
+knowing is the only code-intelligence tool where every node, edge, and snapshot is content-addressed (`sha256`). Other tools use auto-increment IDs, UUIDs, or ephemeral in-memory graphs. Content-addressing means staleness is structurally detectable (changed file = new hash = stale edges are known without scanning), snapshots are verifiable from a single Merkle root, and query results keyed to a snapshot hash are valid forever. This is the same identity model Git uses for files, applied to code relationships.
+
 ## Proof Points
 
 The repository includes benchmark harnesses that regenerate their own findings from the live codebase.
