@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	knowingctx "github.com/blackwell-systems/knowing/internal/context"
+	"github.com/blackwell-systems/knowing/internal/embedding"
 	"github.com/blackwell-systems/knowing/internal/indexer"
 	"github.com/blackwell-systems/knowing/internal/indexer/gotsextractor"
 	"github.com/blackwell-systems/knowing/internal/snapshot"
@@ -68,6 +69,34 @@ func TestEval(t *testing.T) {
 	}
 
 	engine := knowingctx.NewContextEngine(st)
+
+	// Enable vector search if KNOWING_EMBEDDINGS=1.
+	if os.Getenv("KNOWING_EMBEDDINGS") == "1" {
+		embedder, err := embedding.New()
+		if err != nil {
+			t.Logf("embeddings disabled: %v", err)
+		} else {
+			defer embedder.Close()
+			searcher := embedding.NewSearcher(embedder)
+			// Index all nodes for vector search.
+			allNodes, _ := st.NodesByName(ctx, "%")
+			const batchSize = 64
+			for i := 0; i < len(allNodes); i += batchSize {
+				end := i + batchSize
+				if end > len(allNodes) {
+					end = len(allNodes)
+				}
+				batch := allNodes[i:end]
+				paths := make([]string, len(batch))
+				if err := searcher.IndexBatch(ctx, batch, paths); err != nil {
+					t.Logf("vector index batch %d failed: %v", i/batchSize, err)
+					break
+				}
+			}
+			t.Logf("vector index built: %d symbols", searcher.Count())
+			engine.SetVector(searcher)
+		}
+	}
 
 	// Load all fixtures.
 	fixtures := loadFixtures(t, filepath.Join(repoRoot, "eval", "fixtures"))
