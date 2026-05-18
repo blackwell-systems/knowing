@@ -13,7 +13,7 @@ See [DISTRIBUTION.md](DISTRIBUTION.md) for installation instructions.
 knowing <subcommand> [flags]
 ```
 
-Subcommands: `serve`, `index`, `query`, `export`, `diff`, `context`, `why`, `mcp`, `reindex`, `init`, `test-scope`, `ingest-scip`, `version`.
+Subcommands: `serve`, `index`, `query`, `export`, `diff`, `context`, `why`, `mcp`, `watch`, `reindex`, `init`, `test-scope`, `ingest-scip`, `version`.
 
 ## Environment
 
@@ -432,17 +432,33 @@ This is the mode used by AI agents via `.mcp.json` configuration. Opens the
 database and serves MCP tool calls over stdin/stdout until the input stream
 closes or SIGINT/SIGTERM is received. All 23 MCP tools are available.
 
+When `--watch` is enabled, the MCP server also watches the repository for file
+changes and re-indexes automatically on save. This combines the MCP server with
+the file watcher in a single process, so agents always query up-to-date graph
+data without needing a separate `knowing watch` or `knowing serve` process.
+
 **Flags:**
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `-db` | string | `knowing.db` | Path to the SQLite database |
+| `-watch` | bool | `false` | Watch repo for file changes and re-index on save |
+| `-repo` | string | *(cwd)* | Repository path to watch (used with `-watch`, defaults to current working directory) |
+| `-url` | string | *(auto-detected)* | Repository URL (auto-detected from git remote if empty) |
+| `-no-enrich` | bool | `false` | Skip LSP enrichment after reindex (only with `-watch`) |
+| `-debounce` | int | `500` | Debounce interval in milliseconds (only with `-watch`) |
 
 **Examples:**
 
 ```bash
 # Start the stdio MCP server (used by agent tooling, not invoked directly)
 knowing mcp -db knowing.db
+
+# Start with file watching enabled (re-indexes on save)
+knowing mcp --watch -db knowing.db
+
+# Watch a specific repo path with custom debounce
+knowing mcp --watch -repo ./my-repo -db knowing.db -debounce 1000
 ```
 
 **`.mcp.json` configuration for Claude Code:**
@@ -452,7 +468,7 @@ knowing mcp -db knowing.db
   "mcpServers": {
     "knowing": {
       "command": "knowing",
-      "args": ["mcp", "-db", "/path/to/knowing.db"],
+      "args": ["mcp", "--watch", "-db", "/path/to/knowing.db"],
       "transport": "stdio"
     }
   }
@@ -465,6 +481,58 @@ knowing mcp -db knowing.db
 - The server blocks until stdin is closed or a signal is received.
 - This subcommand replaces direct use of `knowing serve` for agent integrations
   that only need stdio MCP access without the HTTP server or file watcher.
+- With `--watch`, the server monitors the repository for file changes and
+  re-indexes changed files automatically. This keeps the graph fresh without
+  requiring a separate watcher process.
+
+---
+
+### watch
+
+Lightweight file watcher that re-indexes changed files on save.
+
+```
+knowing watch [flags] <repo-path>
+```
+
+Watches the specified repository directory for file changes using filesystem
+events. When source files are modified, the watcher debounces changes and
+re-indexes only the affected files. Optionally runs LSP enrichment after each
+reindex cycle. This is a standalone watcher without an MCP server; use
+`knowing mcp --watch` if you also need MCP tool access.
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `-db` | string | `knowing.db` | Path to the SQLite database |
+| `-url` | string | *(auto-detected)* | Repository URL (auto-detected from git remote if empty) |
+| `-no-enrich` | bool | `false` | Skip LSP enrichment after reindex |
+| `-debounce` | int | `500` | Debounce interval in milliseconds |
+
+The first positional argument is required and specifies the local path to the
+repository to watch.
+
+**Examples:**
+
+```bash
+# Watch a repo and re-index on file changes
+knowing watch ./my-repo
+
+# Watch with a specific database and no LSP enrichment
+knowing watch -db /var/lib/knowing/data.db -no-enrich ./my-repo
+
+# Custom debounce interval (1 second)
+knowing watch -debounce 1000 ./my-repo
+```
+
+**Notes:**
+
+- Requires a pre-built database. Run `knowing index` first.
+- Blocks until SIGINT or SIGTERM is received.
+- Only source files are monitored (.go, .ts, .py, .rs, .java, .cs, etc.).
+- For MCP server with integrated file watching, use `knowing mcp --watch`
+  instead.
 
 ---
 

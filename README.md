@@ -156,12 +156,16 @@ Add knowing to `.mcp.json`:
   "mcpServers": {
     "knowing": {
       "command": "knowing",
-      "args": ["mcp", "-db", "/path/to/knowing.db"],
+      "args": ["mcp", "--watch", "-db", "/path/to/knowing.db"],
       "transport": "stdio"
     }
   }
 }
 ```
+
+The `--watch` flag enables integrated file watching: the MCP server monitors the
+repository for changes and re-indexes automatically, so agents always query
+fresh graph data. Omit `--watch` if you manage indexing separately.
 
 For HTTP transport:
 

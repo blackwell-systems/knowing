@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `knowing watch` subcommand: lightweight file watcher that re-indexes changed files on save with debounce and optional LSP enrichment
+- `knowing mcp --watch` flag: combines the stdio MCP server with file watching in a single process, so agents always query up-to-date graph data without a separate watcher
+
 ## [v0.2.0] - 2026-05-18
 
 ### Added

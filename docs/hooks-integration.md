@@ -183,6 +183,11 @@ Hooks require:
 
 If either is missing, hooks exit silently with no effect.
 
+**Keeping the graph fresh:** For best results, run the MCP server with
+`--watch` enabled (`knowing mcp --watch -db knowing.db`) or run
+`knowing watch ./repo` in a separate terminal. This re-indexes changed files
+automatically on save, so hooks always query up-to-date graph data.
+
 ## How Hooks Interact with the Context Engine
 
 The hooks are thin shell wrappers around knowing's context engine (`internal/context`). The query flow is:

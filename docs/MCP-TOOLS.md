@@ -16,12 +16,18 @@ knowing exposes its MCP server over two transports:
   "mcpServers": {
     "knowing": {
       "command": "knowing",
-      "args": ["mcp", "-db", "/path/to/knowing.db"],
+      "args": ["mcp", "--watch", "-db", "/path/to/knowing.db"],
       "transport": "stdio"
     }
   }
 }
 ```
+
+The `--watch` flag enables integrated file watching. The MCP server monitors the
+repository for changes and re-indexes automatically on save, so agents always
+query up-to-date graph data. Additional flags for watch mode: `-repo` (repo
+path, defaults to cwd), `-no-enrich` (skip LSP enrichment), `-debounce` (ms,
+default 500). Omit `--watch` if you manage indexing separately.
 
 For HTTP transport, configure a client that connects to the Streamable HTTP endpoint:
 
