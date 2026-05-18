@@ -26,21 +26,21 @@ The engine returns ranked results; we measure Precision@10, Recall@10, and MRR.
 | Resolve dangling cross-repo edges by matching module path... | 20.0% | 33.3% | 0.17 | medium |
 | Compute a semantic diff between two graph snapshots showi... | 20.0% | 33.3% | 1.00 | medium |
 | Wire feedback scoring into the context engine so that pre... | 0.0% | 0.0% | 0.00 | medium |
-| Find affected tests by tracing the call graph backward fr... | 30.0% | 42.9% | 0.17 | medium |
+| Find affected tests by tracing the call graph backward fr... | 40.0% | 57.1% | 0.33 | medium |
 | Detect changed files from git, clean up stale nodes and e... | 0.0% | 0.0% | 0.00 | hard |
-| Generate full PR impact analysis: semantic diff of change... | 20.0% | 22.2% | 0.50 | hard |
-| Compute blast radius for a symbol change across multiple ... | 0.0% | 0.0% | 0.00 | hard |
+| Generate full PR impact analysis: semantic diff of change... | 30.0% | 33.3% | 1.00 | hard |
+| Compute blast radius for a symbol change across multiple ... | 10.0% | 12.5% | 0.11 | hard |
 | Given a task description, seed the graph walk from keywor... | 0.0% | 0.0% | 0.00 | hard |
-| Ingest OpenTelemetry spans and create runtime edges with ... | 50.0% | 62.5% | 0.50 | hard |
+| Ingest OpenTelemetry spans and create runtime edges with ... | 30.0% | 37.5% | 0.33 | hard |
 
 ## Per-Tier Summary
 
 | Tier | Precision@10 | Recall@10 | MRR | Fixtures |
 |------|-------------|-----------|-----|----------|
 | easy | 40.0% | 75.7% | 0.67 | 5 |
-| medium | 24.0% | 34.4% | 0.37 | 5 |
-| hard | 14.0% | 16.9% | 0.20 | 5 |
-| **Overall** | **26.0%** | **42.3%** | **0.41** | **15** |
+| medium | 26.0% | 37.3% | 0.40 | 5 |
+| hard | 14.0% | 16.7% | 0.29 | 5 |
+| **Overall** | **26.7%** | **43.2%** | **0.45** | **15** |
 
 ## Reproducibility
 

@@ -802,6 +802,46 @@ func extractKeywords(desc string) []string {
 		}
 	}
 
+	// Bigram compound detection: adjacent non-stop-words are joined into
+	// compound terms (CamelCase and snake_case variants). This catches
+	// multi-word concepts that map to single symbol names:
+	//   "blast radius" -> "BlastRadius", "blast_radius"
+	//   "transitive callers" -> "TransitiveCallers", "transitive_callers"
+	//   "edge events" -> "EdgeEvents", "edge_events"
+	var compounds []string
+	cleanWords := make([]string, 0, len(words))
+	for _, w := range words {
+		clean := strings.ToLower(strings.Trim(w, ".,;:!?\"'`()[]{}#"))
+		// Only include clean alpha words (no hyphens, no numbers) that are meaningful.
+		if clean != "" && !stopWords[clean] && !fillerWords[clean] &&
+			len(clean) >= 3 && !strings.ContainsAny(clean, "-/0123456789") {
+			cleanWords = append(cleanWords, clean)
+		}
+	}
+	for i := 0; i < len(cleanWords)-1; i++ {
+		a, b := cleanWords[i], cleanWords[i+1]
+		// Skip if either word is an action verb (these describe intent, not symbols).
+		if actionVerbs[a] || actionVerbs[b] {
+			continue
+		}
+		// Skip if both words are very short (too likely to be noise).
+		if len(a) < 4 && len(b) < 4 {
+			continue
+		}
+		// CamelCase compound: "BlastRadius"
+		camel := strings.ToUpper(a[:1]) + a[1:] + strings.ToUpper(b[:1]) + b[1:]
+		if !seen[camel] {
+			seen[camel] = true
+			compounds = append(compounds, camel)
+		}
+		// snake_case compound: "blast_radius"
+		snake := a + "_" + b
+		if !seen[snake] {
+			seen[snake] = true
+			compounds = append(compounds, snake)
+		}
+	}
+
 	// Prepend priority terms (object nouns from verb patterns) so they seed first.
 	var final []string
 	for _, pt := range priorityTerms {
@@ -810,12 +850,16 @@ func extractKeywords(desc string) []string {
 			final = append(final, pt)
 		}
 	}
+	// Compounds next (most specific, multi-word matches).
+	final = append(final, compounds...)
+	// Then individual keywords.
 	final = append(final, result...)
 
 	// Sort by length descending: longer (more specific) terms first.
 	// But keep priority terms at the front.
-	if len(final) > len(priorityTerms) {
-		tail := final[len(priorityTerms):]
+	priorityLen := len(priorityTerms)
+	if len(final) > priorityLen {
+		tail := final[priorityLen:]
 		sort.Slice(tail, func(i, j int) bool {
 			return len(tail[i]) > len(tail[j])
 		})
