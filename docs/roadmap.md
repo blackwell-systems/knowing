@@ -24,6 +24,8 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 | `knowing enrich coverage` | Stamp coverage percentage on symbols from Go cover profiles (or lcov for other languages). Lets `test_scope` say "this function has 12% coverage" alongside "these tests cover it." | P1 |
 | `knowing stats` | Show cumulative session value: context calls, symbols served, symbols marked relevant, feedback rate, token savings. Proves the value is accumulating. | P2 |
 | Staleness reporting | Content-addressing makes staleness structurally detectable, but no command surfaces it. `knowing stale` should report "these N edges are stale because these files changed since the last snapshot." Free win from the architecture. | P2 |
+| `class_hierarchy` MCP tool | Walk `extends` + `implements` + `overrides` edges up/down/both from a type. Returns the full inheritance tree. Edges already exist in the graph; this is a traversal convenience wrapper. | P3 |
+| `neighborhood` MCP tool | Seed-based dense neighborhood: "give me the N symbols most densely connected to X within radius R." Different from global Louvain communities. Wraps the existing RWR computation as a standalone tool. | P3 |
 | GraphML/Cypher export | `knowing export -format graphml\|cypher` for loading the graph into Neo4j, Gephi, yEd, Cytoscape. GraphML is trivial (XML), Cypher enables visual graph exploration. | P3 |
 | Snapshot diff workflows | Snapshot diffing exists but isn't wired into a "what changed in my architecture this sprint" workflow. | P3 |
 
