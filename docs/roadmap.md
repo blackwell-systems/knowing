@@ -7,10 +7,31 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 | # | Item | Why | Effort |
 |---|------|-----|--------|
 | 1 | **Real users** | Everything else is validated by benchmarks, not usage. Task memory compounds with use. | Ongoing |
-| 2 | **Traversal cache** | L1 in-memory LRU for hot paths. Repeat queries should be instant. | Medium |
-| 3 | **MCP resources** | `knowing://context/<scope>` subscribable resources for live context updates. | Medium |
-| 4 | **Deepen TS/Python LSP** | Auto-detection shipped but depth is Go-only. TS and Python users get ast_inferred (0.7) not lsp_resolved (0.9). | Medium |
-| 5 | **v0.2.0 release** | Package all session 5 work: 25 extractors, retrieval pipeline, TOON, `knowing init`. | Low |
+| 2 | **`knowing why <symbol>`** | Explain why a symbol ranked where it did: seed tier, RWR score, HITS authority, session boost, feedback weight. Every retrieval system needs an "explain" mode. Without it, ranking is a black box and bad recommendations can't be debugged. | Medium |
+| 3 | **Session memory persistence** | SessionTracker is ephemeral (lost on session end), task memory is coarse (keyword-level, 7-day decay). Persist session working sets to SQLite so resumed sessions pick up where they left off and cross-session patterns compound. Extends `internal/context/session.go` with a `session_events` table. | Medium |
+| 4 | **Negative feedback** | The feedback loop only records "this was relevant." No way to say "this was noise, stop suggesting it." Negative signals sharpen ranking faster than positive-only. Add `feedback` tool support for `relevant: false` and penalize negatively-marked symbols in scoring. | Medium |
+| 5 | **Traversal cache** | L1 in-memory LRU for hot paths. Repeat queries should be instant. | Medium |
+| 6 | **`knowing stats`** | Show session value: context calls, symbols served, symbols marked relevant, feedback rate. Lets users see the value accumulating. | Low |
+| 7 | **MCP resources** | `knowing://context/<scope>` subscribable resources for live context updates. | Medium |
+| 8 | **v0.2.0 release** | Package all session 5 work: 25 extractors, retrieval pipeline, TOON, `knowing init`. | Low |
+
+## Operational
+
+| Item | Description | Priority |
+|------|-------------|----------|
+| `knowing watch` | Filesystem watcher (fsnotify) that triggers scoped re-extraction on save. Currently requires manual re-index or daemon mode. A lightweight loop that calls `RunScoped` on changed files would make the feedback loop instant. | P1 |
+| Staleness reporting | Content-addressing makes staleness structurally detectable, but no command surfaces it. `knowing stale` should report "these N edges are stale because these files changed since the last snapshot." Free win from the architecture. | P2 |
+| Snapshot diff workflows | Snapshot diffing exists but isn't wired into a "what changed in my architecture this sprint" workflow. | P3 |
+
+## Underexploited Capabilities
+
+These exist in the codebase but aren't wired into retrieval or workflows yet:
+
+| Item | Status | Next step |
+|------|--------|-----------|
+| Community-aware retrieval | Communities computed, not used for scoping | Constrain RWR walk to seed communities (on roadmap) |
+| Edge event log | Events recorded, nothing reads them | Temporal queries: "when did this dependency appear?" |
+| LSP enrichment (TS/Python) | Shipped. TS: 98.9% upgrade rate. Python: 83% upgrade + 15K new edges. | Java blocked on agent-lsp jdtls toolchain fix (blackwell-systems/agent-lsp#4) |
 
 ## Retrieval Pipeline
 
@@ -22,6 +43,8 @@ Pipeline is shipped and measured (31.6% P@10, 55 fixtures, 23 experiments). See 
 |------|-------------|--------|
 | More equivalence concepts | Expand from 41 to 100+ as usage patterns emerge | Ongoing |
 | Passive task memory compounding | Needs real agent sessions to accumulate data | Waiting on users |
+| Session memory persistence | Persist session working sets to SQLite, replay on resume, compound cross-session patterns | Planned |
+| Negative feedback signals | Penalize "this was noise" symbols in scoring, not just boost "this was relevant" | Planned |
 | Code-tuned embedding model | Benchmark jina-code-v2 / bge-code when ONNX available | Planned (optional) |
 | Community-aware retrieval | Constrain RWR walk to seed communities | Planned |
 
