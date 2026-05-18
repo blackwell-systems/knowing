@@ -159,7 +159,7 @@ knowing daemon (long-lived)
   ├── Change Detector (git-based: post-commit hooks, .git/HEAD watch, polling fallback)
   ├── Indexer (two-tier: tree-sitter extraction + LSP enrichment)
   ├── Graph Store (SQLite behind GraphStore interface, WAL mode)
-  ├── MCP Server (stdio or HTTP, 22 tools across execution/intelligence/runtime/context/feedback/discovery planes)
+  ├── MCP Server (stdio or HTTP, 23 tools across execution/intelligence/runtime/context/feedback/discovery planes)
   ├── Snapshot Manager (computes Merkle roots, GCs old snapshots)
   └── Trace Ingestor (OTel spans, HTTP logs → runtime edges)
 ```
@@ -283,7 +283,7 @@ File extraction is parallelized across `runtime.GOMAXPROCS` goroutines using a f
 
 **Call-site positions:**
 
-Edges carry `CallSiteLine` (1-indexed), `CallSiteCol` (0-indexed), and `CallSiteFile` (relative path) fields that store the source location of the call expression, not the declaration. tree-sitter provides these naturally from AST node positions. The enricher uses them to query `GetDefinition` at the exact call site, confirming that the syntactic call target matches the type-resolved target. Without call-site positions, LSP enrichment cannot upgrade existing edges (it can only discover new ones).
+Edges carry `CallSiteLine` (1-indexed), `CallSiteCol` (0-indexed), and `CallSiteFile` (relative path) fields that store the source location of the call expression, not the declaration. tree-sitter provides these naturally from AST node positions. The Python tree-sitter extractor (`internal/indexer/treesitter/extractor.go`) additionally threads the enclosing function's node hash through `walkNode`, so each call edge records both its position and its containing scope. The enricher uses call-site positions to query `GetDefinition` at the exact call site, confirming that the syntactic call target matches the type-resolved target. Without call-site positions, LSP enrichment cannot upgrade existing edges (it can only discover new ones).
 
 **textDocument/didOpen requirement:**
 
@@ -301,7 +301,7 @@ LSP servers require files to be opened via `textDocument/didOpen` before they ca
 
 These limitations exist only between Tier 1 and Tier 2 completion. After enrichment, all limitations are resolved.
 
-**Extractors by language (12 registered, covering 15 file formats):**
+**Extractors (25 registered: 12 language + 13 infrastructure/cloud):**
 
 | Language / Format | Tier 1 (fast) | Tier 2 (enrichment) | LSP server |
 |----------|--------------|--------------------|-----------| 
@@ -311,13 +311,24 @@ These limitations exist only between Tier 1 and Tier 2 completion. After enrichm
 | Rust | `rustextractor` (tree-sitter Rust grammar) | enrichment | rust-analyzer |
 | Java | `javaextractor` (tree-sitter Java grammar) | enrichment | jdtls |
 | C# | `csharpextractor` (tree-sitter C# grammar) | enrichment | OmniSharp |
+| Ruby | `rubyextractor` (tree-sitter Ruby grammar) | n/a | n/a |
+| CSS/SCSS | `cssextractor` (tree-sitter CSS grammar) | n/a | n/a |
+| Protocol Buffers | `protoextractor` (tree-sitter protobuf grammar) | n/a | n/a |
+| GraphQL | `graphqlextractor` (tree-sitter GraphQL grammar) | n/a | n/a |
+| OpenAPI/Swagger/JSON Schema | `schemaextractor` (yaml.v3 + JSON parser) | n/a | n/a |
+| Go (legacy) | `goextractor` (go/packages, `--full` flag) | n/a (already type-resolved) | n/a |
 | Terraform (HCL) | `terraformextractor` (HCL parser) | n/a | n/a |
 | SQL | `sqlextractor` (SQL parser) | n/a | n/a |
 | Kubernetes YAML | `k8sextractor` (yaml.v3) | n/a | n/a |
 | Cloud YAML | `cloudextractor` (yaml.v3, 4 sub-extractors: CFN/SAM, Compose, Actions, Serverless) | n/a | n/a |
-| CSS/SCSS | `cssextractor` (tree-sitter CSS grammar) | n/a | n/a |
-| Protocol Buffers | `protoextractor` (tree-sitter protobuf grammar) | n/a | n/a |
-| Go (legacy) | `goextractor` (go/packages, `--full` flag) | n/a (already type-resolved) | n/a |
+| Dockerfile | `dockerfileextractor` (line parser) | n/a | n/a |
+| Makefile | `makefileextractor` (line parser) | n/a | n/a |
+| Helm Charts | `helmextractor` (yaml.v3) | n/a | n/a |
+| GitLab CI | `gitlabciextractor` (yaml.v3) | n/a | n/a |
+| package.json/npm | `packagejsonextractor` (JSON parser) | n/a | n/a |
+| Event/Message Queue | `eventextractor` (cross-language producer/consumer detection) | n/a | n/a |
+| .env files | `envextractor` (line parser) | n/a | n/a |
+| CODEOWNERS | `ownership` (CODEOWNERS parser, emits `owned_by` edges with confidence 1.0) | n/a | n/a |
 
 The Go tree-sitter extractor (`gotsextractor`) is the default. The go/packages extractor (`goextractor`) is available via `knowing index --full` as a deliberate escape hatch for cases requiring guaranteed single-pass type resolution at the cost of 16+ minutes. This is a design choice: two-tier is the architecture, `--full` exists for validation and edge cases where LSP enrichment is unavailable (air-gapped environments, missing gopls).
 
@@ -519,7 +530,8 @@ The graph connects symbols with typed, provenance-annotated edges:
 | Route | `handles_route` (route handler node to handler function, from static extraction) |
 | Infrastructure | `depends_on` (Terraform, SQL, CSS), `deploys` (K8s Service to Deployment), `exposes` (K8s Ingress to Service), `configures` (K8s ConfigMap/Secret to Deployment) |
 | Runtime | `runtime_calls`, `runtime_rpc`, `runtime_produces`, `runtime_consumes` |
-| Planned | `rpc_calls`, `produces_event`, `consumes_event`, `reads_field`, `writes_field`, `owned_by_team`, `owned_by_user` |
+| Ownership | `owned_by` (CODEOWNERS extractor, confidence 1.0) |
+| Planned | `rpc_calls`, `produces_event`, `consumes_event`, `reads_field`, `writes_field` |
 
 ---
 
@@ -957,6 +969,22 @@ Filters:
 
 ---
 
+## Watch CLI
+
+The `knowing watch` subcommand (`cmd/knowing/watch.go`) runs an fsnotify file watcher on source directories. It debounces file saves (500ms default), calls `IndexRepo` for incremental re-extraction on each debounced event, and optionally runs scoped LSP enrichment in the background. This provides a lightweight alternative to the full daemon for developers who want continuous graph updates without running `knowing daemon`.
+
+---
+
+## Why CLI and ExplainSymbol
+
+The `knowing why` subcommand (`cmd/knowing/why.go`) runs the full retrieval pipeline for a task description and returns a detailed scoring breakdown for a specific symbol. It answers: "why was (or wasn't) this symbol included in the context for this task?"
+
+The underlying implementation is `ExplainSymbol` in `internal/context/explain.go`. It executes the same 4-channel RRF seed fusion, HITS reranking, and knapsack packing as `ForTask`, but instead of returning the packed context block, it returns the per-component score breakdown (blast radius, confidence, recency, distance, feedback, session boost, HITS authority/hub) for the queried symbol.
+
+The MCP equivalent is the `explain_symbol` tool (#23) in `internal/mcp/context_handlers.go`, which accepts `task` and `symbol` parameters and returns the same scoring breakdown.
+
+---
+
 ## Context Packing (`internal/context/`)
 
 The context packing subsystem produces token-budgeted, graph-ranked context blocks for agent consumption. It answers: "given a task or a set of changed files, which symbols from the knowledge graph should an agent see?" Two entry points exist: task-based (keyword search from a description) and file-based (blast-radius expansion from changed files).
@@ -966,7 +994,7 @@ The context packing subsystem produces token-budgeted, graph-ranked context bloc
 ```
 internal/context/
 ├── context.go          ContextEngine: ForTask, ForFiles entry points, 4-channel RRF fusion, knapsack packing
-├── equivalence.go      Equivalence class seed retrieval: 20 concepts, 200+ phrases -> target symbols
+├── equivalence.go      Equivalence class seed retrieval: 84 equivalence classes (63 universal + 21 knowing-specific) -> target symbols
 ├── universal_seeds.go  20 universal software concepts (weight 0.8), cross-repo retrieval
 ├── graph_aliases.go    Auto-generated equivalence classes from caller/callee names (weight 0.7)
 ├── task_memory.go      Passive task memory: records top-5 symbols per call, 7-day decay recall
@@ -1023,19 +1051,19 @@ Seed selection uses Reciprocal Rank Fusion (`rrfFuseMulti`) across four channels
 | 1. Tiered keyword matching | 3.0 | 5-tier exact/prefix/substring/path/interface matching |
 | 2. BM25 FTS5 | 1.0 | SQLite FTS5 over qualified_name, signature, file_path |
 | 3. Vector/embedding search | 0.0 | BGE-small-en-v1.5 via HNSW (disabled pending code-tuned model) |
-| 4. Equivalence class matching | 2.0 | 20 concept classes, 200+ phrases mapped to target symbols |
+| 4. Equivalence class matching | 2.0 | 84 equivalence classes (63 universal + 21 knowing-specific) mapped to target symbols |
 
 This replaces the previous approach of tiered matching with conditional BM25 fallback. The `rrfFuseMulti` function handles N channels with per-channel weights, producing a single ranked seed set.
 
 ### Equivalence Class Seed Retrieval
 
-The equivalence class system (`internal/context/equivalence.go`) bridges the vocabulary gap between natural-language task descriptions and code symbol names. It contains 20 hand-curated concept classes (TRANSITIVE_IMPACT, SYMBOL_LOOKUP, DATAFLOW_TRACE, TEST_SELECTION, etc.) with 200+ phrases mapped to specific target symbols. Cross-product expansion with action verbs generates additional phrase variants.
+The equivalence class system (`internal/context/equivalence.go`) bridges the vocabulary gap between natural-language task descriptions and code symbol names. It contains 84 equivalence classes (63 universal + 21 knowing-specific), each mapping concept names and phrases to target symbols. Cross-product expansion with action verbs generates additional phrase variants.
 
 This was the biggest single-feature improvement: hard tier P@10 rose from 10% to 18% (+8pp). It is fused as RRF Channel 4 with weight 2.0.
 
 ### Universal Equivalence Classes
 
-The universal seeds system (`internal/context/universal_seeds.go`) provides 20 domain-agnostic software concepts (authentication, caching, config, database, error handling, logging, middleware, routing, serialization, validation, etc.) as equivalence classes. These are weighted at 0.8, between the seed weight of 1.0 and the graph-derived weight of 0.7. Unlike the hand-curated classes in `equivalence.go` (which map phrases to specific symbols in the knowing codebase), universal seeds apply to any codebase. Cross-repo eval on gortex showed +6.7pp improvement (40% to 46.7%).
+The universal seeds system (`internal/context/universal_seeds.go`) provides 63 domain-agnostic software concepts (authentication, caching, config, database, error handling, logging, middleware, routing, serialization, validation, etc.) as equivalence classes. These are weighted at 0.8, between the seed weight of 1.0 and the graph-derived weight of 0.7. Unlike the 21 knowing-specific classes in `equivalence.go` (which map phrases to specific symbols in the knowing codebase), universal seeds apply to any codebase. Cross-repo eval on gortex showed +6.7pp improvement (40% to 46.7%).
 
 ### Graph-Derived Aliases
 
@@ -1071,7 +1099,7 @@ Before scoring, `filterNoisySymbols` removes low-signal candidates:
    - Channel 1 (weight 3.0): 5-tier keyword matching (exact > prefix > substring > path > interface)
    - Channel 2 (weight 1.0): BM25 FTS5 search
    - Channel 3 (weight 0.0): Vector/embedding search (disabled)
-   - Channel 4 (weight 2.0): Equivalence class matching (20 concepts, 200+ phrases, plus universal seeds at weight 0.8 and graph-derived aliases at weight 0.7)
+   - Channel 4 (weight 2.0): Equivalence class matching (84 equivalence classes: 63 universal + 21 knowing-specific, plus graph-derived aliases at weight 0.7)
 4. `rrfFuseMulti` merges all channels into a single ranked seed set.
 5. Filter noisy symbols (mocks, stubs, fakes, build artifacts).
 6. For each candidate node, retrieve callers and callees (distance-0 and distance-1 neighborhood).
@@ -1090,13 +1118,16 @@ Before scoring, `filterNoisySymbols` removes low-signal candidates:
 
 ### Integration Points
 
-- **MCP tools**: `context_for_task`, `context_for_files`, and `context_for_pr` in `internal/mcp/context_handlers.go` delegate to `ContextEngine`.
+- **MCP tools**: `context_for_task`, `context_for_files`, `context_for_pr`, and `explain_symbol` in `internal/mcp/context_handlers.go` delegate to `ContextEngine`.
 - **CLI**: `knowing context` subcommand (in `cmd/knowing/context.go`) provides the same functionality from the command line with `--task` or `--files` flags.
+- **CLI**: `knowing why` subcommand (in `cmd/knowing/why.go`) runs the full retrieval pipeline and returns a detailed scoring breakdown for a specific symbol via `ExplainSymbol` (`internal/context/explain.go`).
 - **Test scope**: `knowing test-scope` (in `cmd/knowing/testscope.go`) uses `NodesByFilePath` to resolve symbols in changed files and BFS backward through `calls` edges to find affected tests.
 
 ### Token Estimation
 
 `EstimateNodeTokens` computes a rough token cost per symbol based on the length of the qualified name, signature, and kind. This is an approximation sufficient for budget enforcement without requiring a tokenizer dependency.
+
+`EstimateNodeTokensForFormat` (`internal/context/tokens.go`) extends this with format-aware scaling. GCF encoding costs approximately 16% of the equivalent JSON token count; GCB (binary) costs approximately 26%. The format parameter selects the scaling factor so that knapsack packing uses accurate budgets for the chosen output format.
 
 ---
 
@@ -1123,6 +1154,7 @@ The registry is a thread-safe map of named codecs. Each codec implements an `Enc
 | **GCF** (Graph Compact Format) | Text, graph-native line protocol | Agent/LLM consumption. Token-optimized with structured delimiters. | ~76.7% token savings vs JSON |
 | **binary** | Varint + length-prefixed binary | Daemon IPC, caching, transport between services. Magic header `GCB1`, version byte, packed symbols and edges. | ~74% byte savings vs JSON |
 | **json** | Standard JSON | Human/debug use, compatibility baseline. Maximum readability, verbose. | (baseline) |
+| **toon** | TOON (Typed Object-Oriented Notation) | Structured interchange with external tooling. Uses the official `toon-format/toon-go` library (`internal/wire/toon.go`). | Comparable to GCF |
 
 ### Layered Architecture
 
@@ -1196,8 +1228,8 @@ knowing decomposes into three planes separated by an artifact boundary. This sep
 Execution Plane (produces the artifact)
 ├── Indexer
 │   ├── Go extractor (go/packages, full type resolution, `--full` flag)
-│   ├── tree-sitter extractors (Go, Python, Ruby, TypeScript/JS, Rust, Java, C#, CSS, Protocol Buffers, GraphQL)
-│   ├── Infrastructure extractors (Terraform HCL, SQL, Kubernetes YAML, Cloud YAML, Dockerfile, Makefile, Helm, GitLab CI, package.json/npm, Ansible)
+│   ├── tree-sitter extractors (Go, Python, Ruby, TypeScript/JS, Rust, Java, C#, CSS, Protocol Buffers, GraphQL, OpenAPI/Swagger)
+│   ├── Infrastructure extractors (Terraform HCL, SQL, Kubernetes YAML, Cloud YAML, Dockerfile, Makefile, Helm, GitLab CI, package.json/npm, .env, Event/MQ, OpenAPI/Swagger, CODEOWNERS)
 │   └── SCIP ingest (`knowing ingest-scip`, external dependency surfaces)
 ├── Trace ingestion pipeline
 │   ├── OTel span ingest
@@ -1255,7 +1287,7 @@ The intelligence plane does not need the same trust. It interprets the graph but
 | Control flow test | Do they affect what the indexer produces? | No. They read the graph; they don't write to it. |
 | Trust test | Would users trust the graph if these features were proprietary? | Yes. The graph is content-addressed and verifiable regardless. |
 
-**The MCP tool split (22 tools):**
+**The MCP tool split (23 tools):**
 
 | Tool | Plane | Why |
 |------|-------|-----|
@@ -1281,6 +1313,7 @@ The intelligence plane does not need the same trust. It interprets the graph but
 | `flow_between` | Discovery | Find all paths between two symbols via BFS |
 | `plan_turn` | Discovery | Suggest relevant knowing tools for a task description |
 | `communities` | Discovery | Louvain modularity-based graph clustering |
+| `explain_symbol` | Context | Detailed scoring breakdown for a specific symbol given a task description |
 
 Basic graph reads (`cross_repo_callers`, `graph_query`, `repo_graph`) are execution-plane operations: they return what the graph contains without interpretation. Intelligence-plane tools compute, classify, compare, or aggregate, and they produce derived results that are themselves content-addressed artifacts. Context-plane tools (`context_for_task`, `context_for_files`, `context_for_pr`) are a specialized form of intelligence: they score and rank symbols from the graph, then pack them into a token budget for agent consumption.
 
