@@ -8,9 +8,9 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 |---|------|-----|--------|
 | 1 | **Real users** | Everything else is validated by benchmarks, not usage. Task memory compounds with use. | Ongoing |
 | 2 | **Traversal cache** | L1 in-memory LRU for hot paths. Repeat queries should be instant. | Medium |
-| 3 | **Ownership edges** | CODEOWNERS parsing + `owned_by` edges. Blast radius that answers "which team gets paged?" | Medium |
-| 4 | **MCP resources** | `knowing://context/<scope>` subscribable resources for live context updates. | Medium |
-| 5 | **Deepen TS/Python LSP** | Auto-detection shipped but depth is Go-only. TS and Python users get ast_inferred (0.7) not lsp_resolved (0.9). | Medium |
+| 3 | **MCP resources** | `knowing://context/<scope>` subscribable resources for live context updates. | Medium |
+| 4 | **Deepen TS/Python LSP** | Auto-detection shipped but depth is Go-only. TS and Python users get ast_inferred (0.7) not lsp_resolved (0.9). | Medium |
+| 5 | **v0.2.0 release** | Package all session 5 work: 25 extractors, retrieval pipeline, TOON, `knowing init`. | Low |
 
 ## Retrieval Pipeline
 
