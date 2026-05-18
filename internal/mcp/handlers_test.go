@@ -218,6 +218,7 @@ func TestNewServer_RegistersAllTools(t *testing.T) {
 		"context_for_task",
 		"context_for_files",
 		"context_for_pr",
+		"explain_symbol",
 		"feedback",
 		"test_scope",
 		"flow_between",

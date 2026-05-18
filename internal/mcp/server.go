@@ -1,7 +1,7 @@
 // Package mcp exposes the knowing knowledge graph as MCP (Model Context
 // Protocol) tools over stdio and HTTP transports.
 //
-// The server registers 22 tools organized into six planes:
+// The server registers 23 tools organized into six planes:
 //
 // Execution plane (write operations):
 //   - index_repo: trigger indexing of a repository
