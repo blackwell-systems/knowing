@@ -800,6 +800,15 @@ Repo: github.com/blackwell-systems/knowing
 - **Results:** exact 60%, concept 20%, multi_hop 60%, overall 46.7%.
 - **Why it matters:** Validates that retrieval quality generalizes beyond the knowing repo itself. Provides a regression gate for changes to the context engine.
 
+### 70. `knowing why` (Retrieval Explainability)
+
+- **Package(s):** `cmd/knowing`
+- **Entry point:** `knowing why -task "<task>" -symbol "<symbol>"`
+- **What it does:** Runs the full retrieval pipeline for a given task description, then isolates and displays the scoring breakdown for one symbol. Shows: whether the symbol was a seed (and which channel/tier), RWR score, HITS authority/hub scores, blast radius (caller proxy and max), confidence, recency, distance, feedback weight, session boost, and equivalence class matches.
+- **Inputs:** Task description (`-task`), symbol name (`-symbol` or positional), optional database path (`-db`).
+- **Outputs:** Human-readable scoring breakdown printed to stdout.
+- **Why it matters:** Every retrieval system needs an explain mode. Without it, ranking is a black box and bad recommendations cannot be debugged. This makes the pipeline inspectable and supports iterative tuning of equivalence classes, feedback, and scoring weights.
+
 ### GraphStore (`internal/types/interfaces.go`)
 
 All 27 methods:

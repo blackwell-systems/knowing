@@ -598,6 +598,20 @@ models (MiniLM, BGE-small) tested net-negative at every weight level (experiment
 
 ## Score Interpretation
 
+### Explain mode (`knowing why`)
+
+To inspect the full scoring breakdown for a specific symbol, use `knowing why`.
+This runs the complete pipeline (keyword extraction, seed selection, RWR, HITS,
+scoring) and isolates one symbol's contribution from each component: seed
+channel/tier, RWR score, HITS authority/hub, blast radius, confidence, recency,
+distance, feedback weight, session boost, and equivalence class matches.
+
+```bash
+knowing why -task "refactor auth" -symbol "SessionHandler"
+```
+
+See the [CLI reference](CLI.md#why) for full usage and example output.
+
 ### Ranges
 
 | Range | Meaning |

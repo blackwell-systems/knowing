@@ -153,6 +153,109 @@ func formatBlock(ctx context.Context, block *knowingctx.ContextBlock, format, to
 	}
 }
 
+// handleExplainSymbol handles the explain_symbol MCP tool.
+func (s *Server) handleExplainSymbol(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	taskDesc, errResult := requireStringArg(req, "task_description")
+	if errResult != nil {
+		return errResult, nil
+	}
+	symbol, errResult := requireStringArg(req, "symbol")
+	if errResult != nil {
+		return errResult, nil
+	}
+
+	engine := knowingctx.NewContextEngine(s.store)
+	engine.SetSession(s.ctxSession)
+	if s.vecSearch != nil {
+		engine.SetVector(s.vecSearch)
+	}
+	if s.taskMemory != nil {
+		engine.SetTaskMemory(s.taskMemory)
+	}
+
+	result, err := engine.ExplainSymbol(ctx, taskDesc, symbol)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("explain_symbol failed: %v", err)), nil
+	}
+
+	output := formatExplain(result)
+	return mcp.NewToolResultText(output), nil
+}
+
+// formatExplain renders an ExplainResult as a readable text block.
+func formatExplain(r *knowingctx.ExplainResult) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# knowing why: %s\n", r.Symbol.QualifiedName)
+	fmt.Fprintf(&b, "Kind: %s", r.Symbol.Kind)
+	if r.Symbol.Line > 0 {
+		fmt.Fprintf(&b, " (line %d)", r.Symbol.Line)
+	}
+	b.WriteString("\n\n")
+
+	if r.Rank < 0 {
+		b.WriteString("**NOT RANKED** (not in top results for this task)\n")
+		if r.RWRScore > 0 {
+			fmt.Fprintf(&b, "RWR score: %.4f (below 0.02 threshold)\n", r.RWRScore)
+		} else {
+			b.WriteString("Not reached by seed matching or RWR walk\n")
+		}
+		fmt.Fprintf(&b, "Keywords: %s\n", strings.Join(r.Keywords, ", "))
+		return b.String()
+	}
+
+	fmt.Fprintf(&b, "**Rank #%d** of %d symbols (score: %.4f)\n\n", r.Rank, r.TotalSymbols, r.TotalScore)
+
+	// Discovery
+	b.WriteString("## Discovery\n")
+	if r.IsSeed {
+		b.WriteString("- Seed: yes (direct keyword match)\n")
+	} else {
+		b.WriteString("- Seed: no (reached via graph walk)\n")
+	}
+	fmt.Fprintf(&b, "- Channel: %s\n", r.SeedChannel)
+	if r.SeedTier != "" {
+		fmt.Fprintf(&b, "- Tier: %s\n", r.SeedTier)
+	}
+	if len(r.EquivMatches) > 0 {
+		fmt.Fprintf(&b, "- Equivalence classes: %s\n", strings.Join(r.EquivMatches, ", "))
+	}
+	fmt.Fprintf(&b, "- Keywords: %s\n\n", strings.Join(r.Keywords, ", "))
+
+	// Score components
+	b.WriteString("## Score Breakdown\n")
+	b.WriteString("| Component | Score | Detail |\n")
+	b.WriteString("|-----------|-------|--------|\n")
+	fmt.Fprintf(&b, "| Blast radius | %.4f | caller proxy %d, max %d |\n",
+		r.Components.BlastRadius, r.CallerProxy, r.MaxCallers)
+	fmt.Fprintf(&b, "| Confidence | %.4f | |\n", r.Components.Confidence)
+	fmt.Fprintf(&b, "| Recency | %.4f | |\n", r.Components.Recency)
+	dist := 0
+	if !r.IsSeed {
+		dist = 1
+	}
+	fmt.Fprintf(&b, "| Distance | %.4f | distance=%d |\n", r.Components.Distance, dist)
+	if r.Components.Feedback != 0 {
+		fmt.Fprintf(&b, "| Feedback | %+.4f | |\n", r.Components.Feedback)
+	}
+	if r.Components.Session != 0 {
+		fmt.Fprintf(&b, "| Session | %.4f | |\n", r.Components.Session)
+	}
+	b.WriteString("\n")
+
+	// Graph signals
+	b.WriteString("## Graph Signals\n")
+	fmt.Fprintf(&b, "- RWR score: %.4f\n", r.RWRScore)
+	if r.HITSAuthority > 0 || r.HITSHub > 0 {
+		fmt.Fprintf(&b, "- HITS authority: %.4f\n", r.HITSAuthority)
+		fmt.Fprintf(&b, "- HITS hub: %.4f\n", r.HITSHub)
+		if r.HITSAdjust != 0 {
+			fmt.Fprintf(&b, "- HITS adjustment: %+.4f\n", r.HITSAdjust)
+		}
+	}
+
+	return b.String()
+}
+
 // --- Tool definitions ---
 
 func contextForTaskTool() mcp.Tool {
@@ -173,6 +276,15 @@ func contextForPRTool() mcp.Tool {
 		mcp.WithString("repo_url", mcp.Description("Repository URL for resolving file hashes"), Examples("https://github.com/org/repo")),
 		mcp.WithInteger("token_budget", mcp.Description("Maximum token budget for the context block (default 8000, larger than per-edit calls)")),
 		mcp.WithString("format", mcp.Description("Output format: gcf (compact, 75%+ token savings), gcb (binary), json, xml (default), markdown"), Examples("gcf")),
+	)
+}
+
+func explainSymbolTool() mcp.Tool {
+	return mcp.NewTool("explain_symbol",
+		mcp.WithDescription("Explain why a symbol ranked where it did for a given task. Shows the full scoring breakdown: seed channel/tier, RWR score, HITS authority/hub, blast radius, confidence, recency, distance, feedback weight, session boost, and equivalence class matches. Use this to debug unexpected rankings or understand why a symbol was (or wasn't) included in context results."),
+		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithString("task_description", mcp.Required(), mcp.Description("Task description to evaluate the symbol against"), Examples("refactor auth middleware")),
+		mcp.WithString("symbol", mcp.Required(), mcp.Description("Symbol name or qualified name to explain"), Examples("RankSymbols", "context.ForTask")),
 	)
 }
 

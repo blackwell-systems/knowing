@@ -13,7 +13,7 @@ See [DISTRIBUTION.md](DISTRIBUTION.md) for installation instructions.
 knowing <subcommand> [flags]
 ```
 
-Subcommands: `serve`, `index`, `query`, `export`, `diff`, `context`, `mcp`, `reindex`, `init`, `test-scope`, `ingest-scip`, `version`.
+Subcommands: `serve`, `index`, `query`, `export`, `diff`, `context`, `why`, `mcp`, `reindex`, `init`, `test-scope`, `ingest-scip`, `version`.
 
 ## Environment
 
@@ -343,6 +343,79 @@ knowing context -task "add caching to user lookup" -budget 20000 -format json
 - Output is written to stdout. Pipe or redirect as needed.
 - The token budget controls how much context is included. The engine ranks
   symbols by relevance and packs them greedily until the budget is exhausted.
+
+---
+
+### why
+
+Explain why a symbol ranked where it did in retrieval results.
+
+```
+knowing why [flags] [symbol]
+```
+
+Shows the full scoring breakdown for a symbol in the context of a given task:
+seed channel, seed tier, RWR score, HITS authority/hub, blast radius, confidence,
+recency, distance, feedback weight, session boost, and equivalence class matches.
+Useful for debugging ranking behavior and understanding why a symbol was (or was
+not) surfaced by the context engine.
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `-db` | string | `knowing.db` | Path to the SQLite database |
+| `-task` | string | *(required)* | Task description for context generation |
+| `-symbol` | string | *(required, or positional)* | Symbol name to explain |
+
+The symbol can be provided as the first positional argument or via the `-symbol`
+flag. The `-task` flag is always required.
+
+**Examples:**
+
+```bash
+# Explain why a symbol ranked where it did for a task
+knowing why -task "refactor auth" -symbol "SessionHandler"
+
+# Positional symbol argument
+knowing why SessionHandler -task "refactor auth"
+
+# Using a specific database
+knowing why -db /var/lib/knowing/data.db -task "add caching" -symbol "CacheStore"
+```
+
+**Example output:**
+
+```
+knowing why: ...internal/context.RankSymbols
+  Kind: function
+  Rank: #5 of 65 symbols
+  Total score: 0.6384
+
+  Discovery:
+    Seed: yes (direct keyword match)
+    Channel: tiered
+    Tier: path
+    Keywords: retrieval, context, ranking
+
+  Score breakdown:
+    Blast radius:  0.1934  (caller proxy 21, max 38)
+    Confidence:    0.1000
+    Recency:       0.0450
+    Distance:      0.1500  (distance=0)
+    Feedback:      +0.1500
+
+  Graph signals:
+    RWR score:     0.2173
+```
+
+**Notes:**
+
+- Requires a pre-built database. Run `knowing index` first.
+- Runs the full retrieval pipeline internally (keyword extraction, seed selection,
+  RWR, HITS, scoring) and then isolates the requested symbol's breakdown.
+- If the symbol is not found in the result set, reports that it was filtered out
+  or did not match any seeds.
 
 ---
 

@@ -126,6 +126,7 @@ func (s *Server) registerTools() {
 	s.mcpServer.AddTool(contextForTaskTool(), s.handleContextForTask)
 	s.mcpServer.AddTool(contextForFilesTool(), s.handleContextForFiles)
 	s.mcpServer.AddTool(contextForPRTool(), s.handleContextForPR)
+	s.mcpServer.AddTool(explainSymbolTool(), s.handleExplainSymbol)
 
 	// Feedback plane
 	s.mcpServer.AddTool(feedbackTool(), s.handleFeedback)
@@ -157,6 +158,7 @@ func (s *Server) ToolNames() []string {
 		"context_for_task",
 		"context_for_files",
 		"context_for_pr",
+		"explain_symbol",
 		"feedback",
 		"test_scope",
 		"flow_between",

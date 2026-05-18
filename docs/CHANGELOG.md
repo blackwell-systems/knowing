@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `knowing why` subcommand: explains why a symbol ranked where it did in retrieval results. Shows seed channel/tier, RWR score, HITS authority/hub, blast radius, confidence, recency, distance, feedback weight, session boost, and equivalence class matches. Usage: `knowing why -task "refactor auth" -symbol "SessionHandler"`.
 - `knowing ingest-scip` subcommand: imports SCIP protobuf index files for external dependency symbols (provenance `scip_resolved`, confidence 0.95)
 - SCIP ingestor (`internal/indexer/scipingest/`): reads `.scip` files, creates nodes and `references` edges for all symbols and references
 - Cloud extractor (`internal/indexer/cloudextractor/`): single extractor handling 4 cloud YAML formats (CloudFormation/SAM, Docker Compose, GitHub Actions, Serverless Framework)

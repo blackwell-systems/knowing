@@ -7,7 +7,7 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 | # | Item | Why | Effort |
 |---|------|-----|--------|
 | 1 | **Real users** | Everything else is validated by benchmarks, not usage. Task memory compounds with use. | Ongoing |
-| 2 | **`knowing why <symbol>`** | Explain why a symbol ranked where it did: seed tier, RWR score, HITS authority, session boost, feedback weight. Every retrieval system needs an "explain" mode. Without it, ranking is a black box and bad recommendations can't be debugged. | Medium |
+| 2 | **~~`knowing why <symbol>`~~** | **Shipped.** Explains why a symbol ranked where it did: seed channel/tier, RWR score, HITS authority/hub, blast radius, confidence, recency, distance, feedback weight, session boost, equivalence class matches. See [CLI reference](CLI.md#why). | Done |
 | 3 | **Session memory persistence** | SessionTracker is ephemeral (lost on session end), task memory is coarse (keyword-level, 7-day decay). Persist session working sets to SQLite so resumed sessions pick up where they left off and cross-session patterns compound. Extends `internal/context/session.go` with a `session_events` table. | Medium |
 | 4 | **Negative feedback** | The feedback loop only records "this was relevant." No way to say "this was noise, stop suggesting it." Negative signals sharpen ranking faster than positive-only. Add `feedback` tool support for `relevant: false` and penalize negatively-marked symbols in scoring. | Medium |
 | 5 | **Traversal cache** | L1 in-memory LRU for hot paths. Repeat queries should be instant. | Medium |

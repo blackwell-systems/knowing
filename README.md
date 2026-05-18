@@ -120,6 +120,9 @@ knowing context -task "refactor auth middleware" -format gcf
 # Find affected tests for changed files.
 knowing test-scope -files internal/auth/session.go,internal/auth/middleware.go
 
+# Explain why a symbol ranked where it did.
+knowing why -task "refactor auth" -symbol "SessionHandler"
+
 # Compare two graph snapshots.
 knowing diff <old-snapshot> <new-snapshot>
 ```
