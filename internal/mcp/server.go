@@ -39,6 +39,7 @@ package mcp
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -372,5 +373,11 @@ func (s *Server) buildVectorIndex() {
 		}
 	}
 	log.Printf("[info] vector index built: %d symbols embedded", s.vecSearch.Count())
+	// Notify connected clients that semantic search is now available.
+	s.mcpServer.SendNotificationToAllClients("notifications/message", map[string]any{
+		"level":  "info",
+		"logger": "knowing",
+		"data":   fmt.Sprintf("Semantic search ready: %d symbols embedded", s.vecSearch.Count()),
+	})
 }
 
