@@ -111,6 +111,8 @@ func run(args []string) error {
 		return cmdIngestSCIP(args[1:])
 	case "why":
 		return cmdWhy(args[1:])
+	case "watch":
+		return cmdWatch(args[1:])
 	default:
 		printUsage()
 		return fmt.Errorf("unknown subcommand: %s", args[0])
