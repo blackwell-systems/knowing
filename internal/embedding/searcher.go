@@ -100,6 +100,12 @@ func (s *Searcher) Close() error {
 func buildEmbedText(n types.Node) string {
 	var parts []string
 
+	// Doc comment is the richest semantic signal: written by humans in natural language.
+	// Prioritize it as the first component of embed text.
+	if n.Doc != "" {
+		parts = append(parts, n.Doc)
+	}
+
 	// Extract package and symbol name from qualified name.
 	// "github.com/org/repo://internal/context.ContextEngine.ForTask" -> package "context", symbol "ForTask"
 	qn := n.QualifiedName

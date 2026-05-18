@@ -66,9 +66,9 @@ func (s *SQLiteStore) Close() error {
 // PutNode upserts a single node into the nodes table.
 func (s *SQLiteStore) PutNode(ctx context.Context, n types.Node) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT OR REPLACE INTO nodes (node_hash, file_hash, qualified_name, kind, line, signature)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		n.NodeHash[:], n.FileHash[:], n.QualifiedName, n.Kind, n.Line, n.Signature,
+		`INSERT OR REPLACE INTO nodes (node_hash, file_hash, qualified_name, kind, line, signature, doc)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		n.NodeHash[:], n.FileHash[:], n.QualifiedName, n.Kind, n.Line, n.Signature, n.Doc,
 	)
 	if err != nil {
 		return err
@@ -129,15 +129,15 @@ func (s *SQLiteStore) BatchPutNodes(ctx context.Context, nodes []types.Node) err
 	defer tx.Rollback() //nolint:errcheck
 
 	stmt, err := tx.PrepareContext(ctx,
-		`INSERT OR REPLACE INTO nodes (node_hash, file_hash, qualified_name, kind, line, signature)
-		 VALUES (?, ?, ?, ?, ?, ?)`)
+		`INSERT OR REPLACE INTO nodes (node_hash, file_hash, qualified_name, kind, line, signature, doc)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("prepare: %w", err)
 	}
 	defer stmt.Close()
 
 	for _, n := range nodes {
-		if _, err := stmt.ExecContext(ctx, n.NodeHash[:], n.FileHash[:], n.QualifiedName, n.Kind, n.Line, n.Signature); err != nil {
+		if _, err := stmt.ExecContext(ctx, n.NodeHash[:], n.FileHash[:], n.QualifiedName, n.Kind, n.Line, n.Signature, n.Doc); err != nil {
 			return fmt.Errorf("exec node %s: %w", n.QualifiedName, err)
 		}
 	}
@@ -219,7 +219,7 @@ func (s *SQLiteStore) DeleteSnapshot(ctx context.Context, hash types.Hash) error
 // GetNode retrieves a node by its content-addressed hash. Returns nil if not found.
 func (s *SQLiteStore) GetNode(ctx context.Context, hash types.Hash) (*types.Node, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT node_hash, file_hash, qualified_name, kind, line, signature FROM nodes WHERE node_hash = ?`,
+		`SELECT node_hash, file_hash, qualified_name, kind, line, signature, doc FROM nodes WHERE node_hash = ?`,
 		hash[:],
 	)
 	return scanNode(row)
@@ -277,7 +277,7 @@ func (s *SQLiteStore) GetRepo(ctx context.Context, hash types.Hash) (*types.Repo
 // and by the query CLI to search by symbol name.
 func (s *SQLiteStore) NodesByName(ctx context.Context, qualifiedPrefix string) ([]types.Node, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT node_hash, file_hash, qualified_name, kind, line, signature
+		`SELECT node_hash, file_hash, qualified_name, kind, line, signature, doc
 		 FROM nodes WHERE qualified_name LIKE ? ORDER BY qualified_name`,
 		qualifiedPrefix+"%",
 	)
@@ -670,7 +670,7 @@ func (s *SQLiteStore) AllRepos(ctx context.Context) ([]types.Repo, error) {
 // NodesByQualifiedName returns all nodes with an exact qualified name match.
 func (s *SQLiteStore) NodesByQualifiedName(ctx context.Context, qualifiedName string) ([]types.Node, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT node_hash, file_hash, qualified_name, kind, line, signature
+		`SELECT node_hash, file_hash, qualified_name, kind, line, signature, doc
 		 FROM nodes WHERE qualified_name = ?`,
 		qualifiedName,
 	)
@@ -787,7 +787,7 @@ type scannable interface {
 func scanNode(row scannable) (*types.Node, error) {
 	var n types.Node
 	var nodeHash, fileHash []byte
-	if err := row.Scan(&nodeHash, &fileHash, &n.QualifiedName, &n.Kind, &n.Line, &n.Signature); err != nil {
+	if err := row.Scan(&nodeHash, &fileHash, &n.QualifiedName, &n.Kind, &n.Line, &n.Signature, &n.Doc); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -834,7 +834,7 @@ func scanNodes(rows *sql.Rows) ([]types.Node, error) {
 	for rows.Next() {
 		var n types.Node
 		var nodeHash, fileHash []byte
-		if err := rows.Scan(&nodeHash, &fileHash, &n.QualifiedName, &n.Kind, &n.Line, &n.Signature); err != nil {
+		if err := rows.Scan(&nodeHash, &fileHash, &n.QualifiedName, &n.Kind, &n.Line, &n.Signature, &n.Doc); err != nil {
 			return nil, err
 		}
 		copy(n.NodeHash[:], nodeHash)
@@ -936,7 +936,6 @@ func (s *SQLiteStore) RebuildFTS(ctx context.Context) error {
 			return fmt.Errorf("scan node for fts: %w", err)
 		}
 		// Split CamelCase/snake_case in qualified name and signature for better tokenization.
-		// "internal/trace.TraceIngestor" -> "internal trace TraceIngestor Trace Ingestor"
 		splitQN := splitForFTS(qn)
 		splitSig := splitForFTS(sig)
 		if _, err := stmt.ExecContext(ctx, nodeHash, splitQN, splitSig, fp); err != nil {

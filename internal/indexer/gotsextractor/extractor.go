@@ -274,6 +274,7 @@ func extractFuncDecl(node *sitter.Node, opts types.ExtractOptions, pkgPath strin
 		Kind:          "function",
 		Line:          line,
 		Signature:     fmt.Sprintf("func %s()", name),
+		Doc:           extractDocComment(node, opts.Content),
 	}
 }
 
@@ -293,6 +294,7 @@ func extractMethodDecl(node *sitter.Node, opts types.ExtractOptions, pkgPath str
 		Kind:          "method",
 		Line:          line,
 		Signature:     fmt.Sprintf("func (%s) %s()", receiverType, name),
+		Doc:           extractDocComment(node, opts.Content),
 	}
 }
 
@@ -375,9 +377,52 @@ func extractTypeDecl(node *sitter.Node, opts types.ExtractOptions, pkgPath strin
 			Kind:          kind,
 			Line:          line,
 			Signature:     fmt.Sprintf("type %s", name),
+			Doc:           extractDocComment(child, opts.Content),
 		})
 	}
 	return nodes
+}
+
+// extractDocComment extracts the documentation comment preceding a declaration node.
+// Works language-agnostically by looking at the previous sibling(s) for comment nodes.
+// Returns the first 200 characters of the combined comment text, stripped of comment markers.
+func extractDocComment(node *sitter.Node, content []byte) string {
+	if node == nil {
+		return ""
+	}
+
+	// Collect comment nodes immediately preceding this declaration.
+	// In tree-sitter, comments are sibling nodes at the same level.
+	var commentLines []string
+	prev := node.PrevSibling()
+	for prev != nil {
+		nodeType := prev.Type()
+		if nodeType == "comment" {
+			text := prev.Content(content)
+			// Strip Go comment markers: "// " or "/* ... */"
+			text = strings.TrimPrefix(text, "//")
+			text = strings.TrimPrefix(text, "/*")
+			text = strings.TrimSuffix(text, "*/")
+			text = strings.TrimSpace(text)
+			if text != "" {
+				commentLines = append([]string{text}, commentLines...) // prepend (reversed order)
+			}
+			prev = prev.PrevSibling()
+		} else {
+			break // stop at first non-comment sibling
+		}
+	}
+
+	if len(commentLines) == 0 {
+		return ""
+	}
+
+	doc := strings.Join(commentLines, " ")
+	// Cap at 200 chars to avoid bloating the DB.
+	if len(doc) > 200 {
+		doc = doc[:200]
+	}
+	return doc
 }
 
 // extractValueDecl creates Nodes for const or var declarations.

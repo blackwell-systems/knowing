@@ -61,6 +61,7 @@ type Node struct {
 	Kind          string // one of: function, type, method, interface, const, var
 	Line          int    // 1-indexed source line number of the declaration
 	Signature     string // human-readable type signature for display (e.g., "func (SQLiteStore) PutNode()")
+	Doc           string // doc comment preceding the declaration (first 200 chars, language-agnostic)
 }
 
 // Edge represents a directed relationship between two nodes in the knowledge
