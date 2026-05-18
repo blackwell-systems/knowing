@@ -343,8 +343,9 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	var equivResults []types.Node
 	equivSeen := make(map[types.Hash]bool)
 
-	// Source 1: Seed equivalence classes (hand-curated concepts).
-	eqMatches := matchEquivalenceClasses(opts.TaskDescription, seedEquivalenceClasses())
+	// Source 1: Seed equivalence classes (hand-curated + universal concepts).
+	allSeeds := append(seedEquivalenceClasses(), universalEquivalenceClasses()...)
+	eqMatches := matchEquivalenceClasses(opts.TaskDescription, allSeeds)
 
 	// Source 2: Graph-derived aliases from the candidates we already found.
 	// Uses tiered+BM25 results as input, generates targeted phrase mappings
