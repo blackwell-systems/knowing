@@ -32,8 +32,15 @@ import (
 	"github.com/blackwell-systems/knowing/internal/indexer/gotsextractor"
 	"github.com/blackwell-systems/knowing/internal/indexer/javaextractor"
 	"github.com/blackwell-systems/knowing/internal/indexer/cloudextractor"
+	"github.com/blackwell-systems/knowing/internal/indexer/dockerfileextractor"
+	"github.com/blackwell-systems/knowing/internal/indexer/envextractor"
 	"github.com/blackwell-systems/knowing/internal/indexer/eventextractor"
+	"github.com/blackwell-systems/knowing/internal/indexer/gitlabciextractor"
+	"github.com/blackwell-systems/knowing/internal/indexer/graphqlextractor"
+	"github.com/blackwell-systems/knowing/internal/indexer/helmextractor"
 	"github.com/blackwell-systems/knowing/internal/indexer/k8sextractor"
+	"github.com/blackwell-systems/knowing/internal/indexer/makefileextractor"
+	"github.com/blackwell-systems/knowing/internal/indexer/packagejsonextractor"
 	"github.com/blackwell-systems/knowing/internal/indexer/schemaextractor"
 	"github.com/blackwell-systems/knowing/internal/indexer/protoextractor"
 	"github.com/blackwell-systems/knowing/internal/indexer/rubyextractor"
@@ -1111,6 +1118,27 @@ func registerAllExtractors(idx *indexer.Indexer, fullGo bool) {
 
 	// OpenAPI/JSON Schema.
 	idx.Register(schemaextractor.NewSchemaExtractor())
+
+	// Dockerfile.
+	idx.Register(dockerfileextractor.NewDockerfileExtractor())
+
+	// GraphQL schema.
+	idx.Register(graphqlextractor.NewGraphQLExtractor())
+
+	// Environment variable files (.env).
+	idx.Register(envextractor.NewEnvExtractor())
+
+	// Makefile.
+	idx.Register(makefileextractor.NewMakefileExtractor())
+
+	// Helm charts (Chart.yaml, values.yaml, templates).
+	idx.Register(helmextractor.NewHelmExtractor())
+
+	// GitLab CI (.gitlab-ci.yml).
+	idx.Register(gitlabciextractor.NewGitLabCIExtractor())
+
+	// package.json (Node.js).
+	idx.Register(packagejsonextractor.NewPackageJSONExtractor())
 }
 
 // Compile-time assertion that SQLiteStore implements GraphStore. This also
