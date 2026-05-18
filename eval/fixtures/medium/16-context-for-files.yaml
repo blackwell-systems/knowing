@@ -1,0 +1,10 @@
+task: "Given a set of file paths, retrieve relevant symbols using the graph and ranking pipeline"
+difficulty: medium
+tags: [cross-package, context, store, retrieval]
+ground_truth:
+  - context.ForFiles
+  - context.ContextEngine
+  - context.RankSymbols
+  - context.packIntoBudget
+  - store.NodesByName
+  - store.EdgesFrom

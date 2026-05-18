@@ -1,0 +1,12 @@
+task: "When an agent reports that retrieved context was unhelpful, record the feedback, adjust relevance scores in the session tracker, and use the signal to improve future ranking for similar queries"
+difficulty: hard
+tags: [cross-package, mcp, context, wire, store, feedback]
+ground_truth:
+  - mcp.feedbackTool
+  - mcp.Server
+  - context.SessionTracker
+  - context.RankSymbols
+  - context.ComputeHITS
+  - context.ContextEngine
+  - wire.Session
+  - store.SQLiteStore

@@ -1,0 +1,9 @@
+task: "Register a new language extractor with the indexer"
+difficulty: easy
+tags: [single-package, indexer, registration]
+ground_truth:
+  - indexer.Register
+  - indexer.Indexer
+  - indexer.NewIndexer
+  - types.Extractor
+  - types.ExtractOptions

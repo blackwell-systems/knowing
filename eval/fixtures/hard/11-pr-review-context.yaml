@@ -1,0 +1,12 @@
+task: "For a pull request review, diff the changed files semantically, compute snapshots before and after, identify affected communities, and gather context for the reviewer"
+difficulty: hard
+tags: [cross-package, diff, snapshot, store, context, mcp]
+ground_truth:
+  - diff.SemanticDiff
+  - diff.PRImpact
+  - snapshot.ComputeSnapshot
+  - store.SnapshotDiff
+  - mcp.handleCommunities
+  - mcp.louvain
+  - context.ForPR
+  - context.ContextEngine

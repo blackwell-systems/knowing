@@ -1,0 +1,10 @@
+task: "Expose blast radius analysis through the MCP protocol so agents can check impact before editing"
+difficulty: medium
+tags: [cross-package, mcp, store, refactoring]
+ground_truth:
+  - mcp.handleBlastRadius
+  - mcp.blastRadiusTool
+  - mcp.Server
+  - store.BlastRadius
+  - store.TransitiveCallers
+  - types.Node

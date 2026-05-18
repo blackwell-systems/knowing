@@ -1,0 +1,12 @@
+task: "Ingest production telemetry traces, resolve span names to source code symbols, score edge confidence from call frequency, persist runtime edges, and use them to improve retrieval ranking"
+difficulty: hard
+tags: [cross-package, trace, store, context, daemon, runtime]
+ground_truth:
+  - trace.OTLPReceiver
+  - trace.IngestSpans
+  - trace.SymbolResolver
+  - trace.ConfidenceFromCount
+  - daemon.traceIngestLoop
+  - store.PutEdge
+  - context.RankSymbols
+  - context.RandomWalkWithRestart

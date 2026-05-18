@@ -1,0 +1,6 @@
+task: "Resolve dangling cross-repo symbol references"
+difficulty: easy
+tags: [single-package, resolver, cross-repo]
+ground_truth:
+  - resolver.Resolver
+  - resolver.ResolveDangling

@@ -1,0 +1,8 @@
+task: "Pack ranked symbols into a token budget for the context window"
+difficulty: easy
+tags: [single-package, context, packing]
+ground_truth:
+  - context.packIntoBudget
+  - context.RankSymbols
+  - context.ContextEngine
+  - context.ForTask

@@ -1,0 +1,12 @@
+task: "Index multiple repositories, resolve cross-repo symbol references, build a unified graph, and enable agents to query callers that span repository boundaries"
+difficulty: hard
+tags: [cross-package, indexer, resolver, store, mcp, multi-repo]
+ground_truth:
+  - indexer.IndexRepo
+  - indexer.Register
+  - resolver.Resolver
+  - resolver.ResolveDangling
+  - store.PutNode
+  - store.PutEdge
+  - store.NodesByName
+  - mcp.handleBlastRadius

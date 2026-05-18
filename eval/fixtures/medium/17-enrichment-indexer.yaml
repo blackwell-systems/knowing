@@ -1,0 +1,10 @@
+task: "After indexing, enrich extracted edges with type information from the language server"
+difficulty: medium
+tags: [cross-package, enrichment, indexer, types]
+ground_truth:
+  - enrichment.Enricher
+  - enrichment.enrichEdge
+  - indexer.IndexRepo
+  - indexer.Indexer
+  - store.PutEdge
+  - types.Edge

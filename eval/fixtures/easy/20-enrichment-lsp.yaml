@@ -1,0 +1,7 @@
+task: "Enrich graph edges with LSP type information"
+difficulty: easy
+tags: [single-package, enrichment, lsp]
+ground_truth:
+  - enrichment.Enricher
+  - enrichment.enrichEdge
+  - types.Edge

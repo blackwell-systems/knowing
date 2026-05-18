@@ -1,0 +1,9 @@
+task: "Batch insert multiple nodes into the SQLite store"
+difficulty: easy
+tags: [single-package, store, performance]
+ground_truth:
+  - store.BatchPutNodes
+  - store.PutNode
+  - store.SQLiteStore
+  - store.NewSQLiteStore
+  - types.Node

@@ -1,0 +1,10 @@
+task: "Score runtime trace edges with confidence values based on observation frequency"
+difficulty: medium
+tags: [cross-package, trace, store, scoring]
+ground_truth:
+  - trace.ConfidenceFromCount
+  - trace.ComputeConfidence
+  - trace.IngestSpans
+  - trace.Ingestor
+  - store.PutEdge
+  - types.Edge

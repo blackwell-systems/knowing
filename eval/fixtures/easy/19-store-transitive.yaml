@@ -1,0 +1,9 @@
+task: "Find all transitive callers of a function in the graph store"
+difficulty: easy
+tags: [single-package, store, traversal]
+ground_truth:
+  - store.TransitiveCallers
+  - store.TransitiveCallees
+  - store.SQLiteStore
+  - store.EdgesFrom
+  - store.EdgesTo

@@ -1,0 +1,12 @@
+task: "Detect when the stored graph has drifted from the actual codebase by comparing snapshots, identifying stale nodes from deleted files, cleaning up orphaned edges, and rebuilding the search index"
+difficulty: hard
+tags: [cross-package, snapshot, store, indexer, maintenance]
+ground_truth:
+  - snapshot.ComputeSnapshot
+  - snapshot.SnapshotManager
+  - store.SnapshotDiff
+  - store.DeleteNodesByFile
+  - store.RebuildFTS
+  - store.SQLiteStore
+  - indexer.IndexRepo
+  - types.Snapshot

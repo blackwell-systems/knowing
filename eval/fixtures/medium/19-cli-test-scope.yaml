@@ -1,0 +1,10 @@
+task: "Determine which tests need to run based on which files changed in a commit"
+difficulty: medium
+tags: [cross-package, cmd, store, testing]
+ground_truth:
+  - store.TransitiveCallers
+  - store.BlastRadius
+  - store.SQLiteStore
+  - store.NodesByName
+  - types.Node
+  - types.Edge

@@ -1,0 +1,11 @@
+task: "Use random walk with restart over the graph store edges to rank symbol relevance"
+difficulty: medium
+tags: [cross-package, context, store, algorithm]
+ground_truth:
+  - context.RandomWalkWithRestart
+  - context.RankSymbols
+  - context.ContextEngine
+  - store.EdgesFrom
+  - store.EdgesTo
+  - store.SQLiteStore
+  - types.Edge

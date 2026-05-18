@@ -1,0 +1,10 @@
+task: "Handle an index-repo request from the MCP protocol, running extractors and storing results"
+difficulty: medium
+tags: [cross-package, mcp, indexer, store]
+ground_truth:
+  - mcp.handleIndexRepo
+  - mcp.Server
+  - indexer.IndexRepo
+  - indexer.Indexer
+  - store.BatchPutNodes
+  - store.PutEdge

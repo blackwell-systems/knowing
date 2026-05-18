@@ -1,0 +1,8 @@
+task: "Expose community detection results through the MCP server"
+difficulty: easy
+tags: [single-package, mcp, communities]
+ground_truth:
+  - mcp.handleCommunities
+  - mcp.communitiesTool
+  - mcp.louvain
+  - mcp.Server

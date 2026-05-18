@@ -1,0 +1,12 @@
+task: "Bootstrap the system from scratch: parse a Go codebase with tree-sitter, store the graph, build vector embeddings, compute an initial snapshot, and serve it all through MCP"
+difficulty: hard
+tags: [cross-package, indexer, gotsextractor, store, embedding, snapshot, mcp]
+ground_truth:
+  - gotsextractor.GoTreeSitterExtractor
+  - gotsextractor.NewGoTreeSitterExtractor
+  - indexer.IndexRepo
+  - store.NewSQLiteStore
+  - store.BatchPutNodes
+  - embedding.IndexBatch
+  - snapshot.ComputeSnapshot
+  - mcp.NewServer

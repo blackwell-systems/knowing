@@ -1,0 +1,7 @@
+task: "Fix keyword extraction logic in the context engine"
+difficulty: easy
+tags: [single-package, context, text-processing]
+ground_truth:
+  - context.extractKeywords
+  - context.ContextEngine
+  - context.ForTask

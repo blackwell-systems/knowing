@@ -1,0 +1,11 @@
+task: "Index a Go repository and persist the extracted graph into SQLite"
+difficulty: medium
+tags: [cross-package, indexer, store, extractor]
+ground_truth:
+  - indexer.Indexer
+  - indexer.IndexRepo
+  - indexer.Register
+  - gotsextractor.GoTreeSitterExtractor
+  - store.PutNode
+  - store.PutEdge
+  - store.SQLiteStore

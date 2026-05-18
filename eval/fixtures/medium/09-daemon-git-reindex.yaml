@@ -1,0 +1,10 @@
+task: "Watch for git commits and trigger re-indexing of changed files automatically"
+difficulty: medium
+tags: [cross-package, daemon, indexer, lifecycle]
+ground_truth:
+  - daemon.Daemon
+  - daemon.GitWatcher
+  - daemon.NewDaemon
+  - indexer.IndexRepo
+  - indexer.Indexer
+  - store.DeleteNodesByFile

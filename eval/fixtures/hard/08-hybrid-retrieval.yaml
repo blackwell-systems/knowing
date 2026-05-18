@@ -1,0 +1,12 @@
+task: "Implement a hybrid retrieval strategy that combines BM25 text search, vector similarity, and graph-based HITS scoring to surface the most relevant code for a developer query"
+difficulty: hard
+tags: [cross-package, context, embedding, store, algorithm, ranking]
+ground_truth:
+  - context.ComputeHITS
+  - context.RankSymbols
+  - context.RandomWalkWithRestart
+  - context.ForTask
+  - embedding.EmbedAndSearch
+  - embedding.Searcher
+  - store.SearchBM25Nodes
+  - store.EdgesFrom

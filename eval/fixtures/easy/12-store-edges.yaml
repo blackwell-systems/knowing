@@ -1,0 +1,8 @@
+task: "Query edges coming into and out of a node in the store"
+difficulty: easy
+tags: [single-package, store, query]
+ground_truth:
+  - store.EdgesFrom
+  - store.EdgesTo
+  - store.SQLiteStore
+  - types.Edge

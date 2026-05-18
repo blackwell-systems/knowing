@@ -1,0 +1,10 @@
+task: "Compare two graph snapshots and report which nodes and edges changed"
+difficulty: medium
+tags: [cross-package, snapshot, store, diff]
+ground_truth:
+  - snapshot.ComputeSnapshot
+  - snapshot.SnapshotManager
+  - store.SnapshotDiff
+  - store.SQLiteStore
+  - types.Snapshot
+  - types.Node

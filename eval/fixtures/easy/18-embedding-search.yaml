@@ -1,0 +1,8 @@
+task: "Search for similar symbols using vector embeddings"
+difficulty: easy
+tags: [single-package, embedding, search]
+ground_truth:
+  - embedding.Searcher
+  - embedding.NewSearcher
+  - embedding.EmbedAndSearch
+  - embedding.Embedder

@@ -1,0 +1,10 @@
+task: "Build a vector index over all graph nodes so they can be found by semantic similarity"
+difficulty: medium
+tags: [cross-package, embedding, store, indexing]
+ground_truth:
+  - embedding.Embedder
+  - embedding.New
+  - embedding.IndexBatch
+  - store.SQLiteStore
+  - store.NodesByName
+  - types.Node

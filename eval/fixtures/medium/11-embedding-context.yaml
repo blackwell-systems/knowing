@@ -1,0 +1,10 @@
+task: "Combine vector similarity search with graph-based ranking for better context retrieval"
+difficulty: medium
+tags: [cross-package, embedding, context, ranking]
+ground_truth:
+  - embedding.EmbedAndSearch
+  - embedding.Searcher
+  - embedding.NewSearcher
+  - context.RankSymbols
+  - context.ForTask
+  - context.ContextEngine

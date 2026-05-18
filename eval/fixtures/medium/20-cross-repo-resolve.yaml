@@ -1,0 +1,10 @@
+task: "Link symbols that reference external packages to their definitions in other indexed repositories"
+difficulty: medium
+tags: [cross-package, resolver, store, multi-repo]
+ground_truth:
+  - resolver.Resolver
+  - resolver.ResolveDangling
+  - store.PutEdge
+  - store.NodesByName
+  - store.SQLiteStore
+  - types.Edge

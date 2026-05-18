@@ -1,0 +1,9 @@
+task: "Track which agent session produced each graph payload for attribution"
+difficulty: medium
+tags: [cross-package, wire, context, session]
+ground_truth:
+  - wire.EncodeWithSession
+  - wire.Session
+  - wire.Payload
+  - context.SessionTracker
+  - context.ContextEngine

@@ -1,0 +1,8 @@
+task: "Add full-text search to the store layer for finding nodes by name"
+difficulty: easy
+tags: [single-package, store, search]
+ground_truth:
+  - store.SearchBM25Nodes
+  - store.RebuildFTS
+  - store.SQLiteStore
+  - store.NodesByName

@@ -1,0 +1,8 @@
+task: "Initialize and start the knowing daemon process"
+difficulty: easy
+tags: [single-package, daemon, lifecycle]
+ground_truth:
+  - daemon.Daemon
+  - daemon.NewDaemon
+  - daemon.GitWatcher
+  - daemon.traceIngestLoop

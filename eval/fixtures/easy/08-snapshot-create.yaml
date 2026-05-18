@@ -1,0 +1,8 @@
+task: "Create a new snapshot of the current graph state"
+difficulty: easy
+tags: [single-package, snapshot, state]
+ground_truth:
+  - snapshot.SnapshotManager
+  - snapshot.NewSnapshotManager
+  - snapshot.ComputeSnapshot
+  - types.Snapshot

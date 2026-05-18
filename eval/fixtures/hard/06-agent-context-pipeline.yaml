@@ -1,0 +1,12 @@
+task: "Build an end-to-end pipeline where an AI coding agent asks what code is relevant, the system retrieves context from the graph, ranks it, packs it into a budget, and returns it over MCP"
+difficulty: hard
+tags: [cross-package, mcp, context, store, wire, ranking]
+ground_truth:
+  - mcp.handleContextForTask
+  - mcp.contextForTaskTool
+  - mcp.Server
+  - context.ForTask
+  - context.ContextEngine
+  - context.RankSymbols
+  - context.packIntoBudget
+  - wire.EncodeWith

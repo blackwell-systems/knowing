@@ -1,0 +1,8 @@
+task: "Encode a graph payload using the wire format codec"
+difficulty: easy
+tags: [single-package, wire, serialization]
+ground_truth:
+  - wire.Payload
+  - wire.EncodeWith
+  - wire.EncodeWithSession
+  - wire.Session

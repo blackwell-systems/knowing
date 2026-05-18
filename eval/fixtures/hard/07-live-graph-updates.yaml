@@ -1,0 +1,12 @@
+task: "Keep the code graph fresh by watching for file changes, re-extracting affected symbols, replacing stale nodes, and enriching new edges with type data"
+difficulty: hard
+tags: [cross-package, daemon, indexer, store, enrichment, lifecycle]
+ground_truth:
+  - daemon.Daemon
+  - daemon.GitWatcher
+  - indexer.IndexRepo
+  - indexer.Indexer
+  - store.DeleteNodesByFile
+  - store.BatchPutNodes
+  - store.PutEdge
+  - enrichment.Enricher

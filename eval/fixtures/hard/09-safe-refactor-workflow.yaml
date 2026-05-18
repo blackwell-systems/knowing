@@ -1,0 +1,12 @@
+task: "Before an agent renames a function, check all downstream callers across repos, compute the blast radius, run affected tests, and report what would break"
+difficulty: hard
+tags: [cross-package, store, resolver, mcp, diff, testing]
+ground_truth:
+  - store.BlastRadius
+  - store.TransitiveCallers
+  - store.TransitiveCallees
+  - resolver.ResolveDangling
+  - resolver.Resolver
+  - mcp.handleBlastRadius
+  - diff.PRImpact
+  - types.Node

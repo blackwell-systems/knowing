@@ -1,0 +1,10 @@
+task: "Analyze a pull request to show which symbols are affected and their downstream dependents"
+difficulty: medium
+tags: [cross-package, diff, store, pr-review]
+ground_truth:
+  - diff.PRImpact
+  - diff.SemanticDiff
+  - store.BlastRadius
+  - store.TransitiveCallees
+  - store.SQLiteStore
+  - types.Node

@@ -1,0 +1,6 @@
+task: "Compute a semantic diff between two versions of a file"
+difficulty: easy
+tags: [single-package, diff, comparison]
+ground_truth:
+  - diff.SemanticDiff
+  - diff.PRImpact
