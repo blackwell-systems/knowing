@@ -18,7 +18,11 @@ Subcommands: `serve`, `index`, `query`, `export`, `diff`, `context`, `why`, `mcp
 ## Environment
 
 **`KNOWING_DB`**: Override the default database path for all subcommands. When
-set, the `-db` flag defaults to this value instead of `~/.knowing/knowing.db`.
+set, the `-db` flag defaults to this value instead of the per-repo database.
+
+By default, `defaultDB()` checks the roster for the current directory and
+returns the per-repo DB path (`~/.knowing/repos/<safe-name>.db`). If no roster
+entry is found, it falls back to `~/.knowing/knowing.db`.
 
 ```bash
 export KNOWING_DB=/var/lib/knowing/data.db
@@ -74,7 +78,7 @@ an MCP server over HTTP.
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `-db` | string | `~/.knowing/knowing.db` | Path to the SQLite database |
+| `-db` | string | *(per-repo, from roster)* | Path to the SQLite database |
 | `-addr` | string | `:8080` | HTTP address for the MCP server |
 | `-trace` | bool | `false` | Enable runtime trace ingestion |
 | `-trace-endpoint` | string | `localhost:4317` | OTLP gRPC endpoint for trace ingestion |
@@ -123,7 +127,7 @@ rust-analyzer, jdtls, OmniSharp) unless `-full` is specified.
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `-db` | string | `~/.knowing/knowing.db` | Path to the SQLite database |
+| `-db` | string | *(per-repo, from roster)* | Path to the SQLite database |
 | `-url` | string | *(repo-path)* | Repository URL (e.g. `github.com/org/repo`). Defaults to the repo path if omitted. |
 | `-commit` | string | `HEAD` | Commit hash to record. Resolves to the actual git HEAD if set to `HEAD`. |
 | `-full` | bool | `false` | Use full type resolution via `go/packages` instead of fast tree-sitter extraction |
@@ -178,7 +182,7 @@ each node with its outgoing edges.
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `-db` | string | `~/.knowing/knowing.db` | Path to the SQLite database |
+| `-db` | string | *(per-repo, from roster)* | Path to the SQLite database |
 
 The first positional argument is required and specifies the symbol name prefix
 to search for.
@@ -216,7 +220,7 @@ containing nodes, edges, and metadata.
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `-db` | string | `~/.knowing/knowing.db` | Path to the SQLite database |
+| `-db` | string | *(per-repo, from roster)* | Path to the SQLite database |
 | `-format` | string | `json` | Output format: `json` (with community annotations) or `dot` (Graphviz with Louvain subgraphs) |
 | `-repo` | string | *(empty)* | Filter by repository URL. When set, only nodes belonging to files in that repo are included. |
 | `-snapshot` | string | *(empty)* | Filter by snapshot hash (recorded in metadata; does not currently filter nodes) |
@@ -270,7 +274,7 @@ and edges.
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `-db` | string | `~/.knowing/knowing.db` | Path to the SQLite database |
+| `-db` | string | *(per-repo, from roster)* | Path to the SQLite database |
 | `-format` | string | `text` | Output format: `text` or `json` |
 
 Both positional arguments are required. Snapshot hashes must be 64-character
@@ -317,7 +321,7 @@ blast radius context. Exactly one of the two must be specified.
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `-db` | string | `~/.knowing/knowing.db` | Path to the SQLite database |
+| `-db` | string | *(per-repo, from roster)* | Path to the SQLite database |
 | `-task` | string | *(empty)* | Task description for context generation |
 | `-files` | string | *(empty)* | Comma-separated list of changed file paths |
 | `-budget` | int | `50000` | Token budget |
@@ -364,7 +368,7 @@ not) surfaced by the context engine.
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `-db` | string | `~/.knowing/knowing.db` | Path to the SQLite database |
+| `-db` | string | *(per-repo, from roster)* | Path to the SQLite database |
 | `-task` | string | *(required)* | Task description for context generation |
 | `-symbol` | string | *(required, or positional)* | Symbol name to explain |
 
@@ -440,7 +444,7 @@ data without needing a separate `knowing watch` or `knowing serve` process.
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `-db` | string | `~/.knowing/knowing.db` | Path to the SQLite database |
+| `-db` | string | *(per-repo, from roster)* | Path to the SQLite database |
 | `-watch` | bool | `false` | Watch repo for file changes and re-index on save |
 | `-repo` | string | *(cwd)* | Repository path to watch (used with `-watch`, defaults to current working directory) |
 | `-url` | string | *(auto-detected)* | Repository URL (auto-detected from git remote if empty) |
@@ -450,14 +454,14 @@ data without needing a separate `knowing watch` or `knowing serve` process.
 **Examples:**
 
 ```bash
-# Start the stdio MCP server (used by agent tooling, not invoked directly)
-knowing mcp -db knowing.db
+# Start the stdio MCP server (DB auto-resolved from roster for cwd)
+knowing mcp
 
 # Start with file watching enabled (re-indexes on save)
-knowing mcp --watch -db knowing.db
+knowing mcp --watch
 
 # Watch a specific repo path with custom debounce
-knowing mcp --watch -repo ./my-repo -db knowing.db -debounce 1000
+knowing mcp --watch -repo ./my-repo -debounce 1000
 ```
 
 **`.mcp.json` configuration for Claude Code:**
@@ -467,12 +471,15 @@ knowing mcp --watch -repo ./my-repo -db knowing.db -debounce 1000
   "mcpServers": {
     "knowing": {
       "command": "knowing",
-      "args": ["mcp", "--watch", "-db", "/path/to/knowing.db"],
+      "args": ["mcp", "--watch"],
       "transport": "stdio"
     }
   }
 }
 ```
+
+The `-db` flag is no longer needed in most cases. `defaultDB()` checks the
+roster for the current directory and returns the per-repo DB path automatically.
 
 **Notes:**
 
@@ -504,7 +511,7 @@ reindex cycle. This is a standalone watcher without an MCP server; use
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `-db` | string | `~/.knowing/knowing.db` | Path to the SQLite database |
+| `-db` | string | *(per-repo, from roster)* | Path to the SQLite database |
 | `-url` | string | *(auto-detected)* | Repository URL (auto-detected from git remote if empty) |
 | `-no-enrich` | bool | `false` | Skip LSP enrichment after reindex |
 | `-debounce` | int | `500` | Debounce interval in milliseconds |
@@ -544,18 +551,18 @@ CLAUDE.md file with graph-derived project context.
 knowing init [flags]
 ```
 
-Registers the repository in the global roster (stored in `~/.knowing/knowing.db`
-by default), indexes it, runs LSP enrichment, and produces a minimal orientation
-section for CLAUDE.md containing symbol counts, package counts, and breadcrumbs
-pointing agents to the most useful MCP tools. The CLAUDE.md operation is
-nondestructive and idempotent: it uses markers to replace only the generated
-section, leaving any hand-written content intact.
+Registers the repository in the roster, assigns it a per-repo database at
+`~/.knowing/repos/<safe-name>.db`, indexes it, runs LSP enrichment, and produces
+a minimal orientation section for CLAUDE.md containing symbol counts, package
+counts, and breadcrumbs pointing agents to the most useful MCP tools. The
+CLAUDE.md operation is nondestructive and idempotent: it uses markers to replace
+only the generated section, leaving any hand-written content intact.
 
 **Flags:**
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `-db` | string | `~/.knowing/knowing.db` | Path to the SQLite database |
+| `-db` | string | *(per-repo, from roster)* | Path to the SQLite database |
 | `-output` | string | `CLAUDE.md` | Output file path |
 
 **Examples:**
@@ -581,35 +588,35 @@ knowing init -db /var/lib/knowing/data.db -output .claude/CLAUDE.md
 
 ### add
 
-Register a repository in the global roster, index it, and store graph data in
-the global database.
+Register a repository in the roster and index it into a per-repo database.
 
 ```
 knowing add [flags] <repo-path>
 ```
 
-Adds the repository at the given path to the roster stored in the global
-database (`~/.knowing/knowing.db` by default). After registration the repo is
+Adds the repository at the given path to the roster and assigns it a dedicated
+database at `~/.knowing/repos/<safe-name>.db`. After registration the repo is
 indexed using the standard tree-sitter fast path with automatic LSP enrichment.
-Because all repos share the same database, cross-repo edges work automatically.
+Each repo gets its own isolated database, so graph algorithms (community
+detection, RWR, HITS, BM25) operate only on that repo's data.
 
 **Flags:**
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `-db` | string | `~/.knowing/knowing.db` | Path to the SQLite database |
+| `-db` | string | *(per-repo, from roster)* | Path to the SQLite database |
 | `-url` | string | *(auto-detected)* | Repository URL (auto-detected from git remote if empty) |
 
 **Examples:**
 
 ```bash
-# Register and index a repo (uses global DB by default)
+# Register and index a repo (assigns ~/.knowing/repos/<safe-name>.db)
 knowing add ./my-repo
 
 # Register with an explicit URL
 knowing add -url github.com/org/repo ./my-repo
 
-# Use a non-default database
+# Override the per-repo database path
 knowing add -db /var/lib/knowing/data.db ./my-repo
 ```
 
@@ -623,20 +630,20 @@ knowing add -db /var/lib/knowing/data.db ./my-repo
 
 ### remove
 
-Remove a repository from the global roster.
+Remove a repository from the roster.
 
 ```
 knowing remove [flags] <repo-path>
 ```
 
 Removes the repository at the given path (or matching URL) from the roster. Does
-not delete graph data already stored in the database.
+not delete the per-repo database file; remove it manually if desired.
 
 **Flags:**
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `-db` | string | `~/.knowing/knowing.db` | Path to the SQLite database |
+| `-db` | string | *(per-repo, from roster)* | Path to the SQLite database |
 
 **Examples:**
 
@@ -654,20 +661,20 @@ knowing remove ./my-repo
 
 ### list
 
-List all repositories in the global roster.
+List all repositories in the roster.
 
 ```
 knowing list [flags]
 ```
 
-Prints every registered repository with its path, URL, and last-indexed
-timestamp.
+Prints every registered repository with its path, URL, per-repo database path,
+database file size, and last-indexed timestamp.
 
 **Flags:**
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `-db` | string | `~/.knowing/knowing.db` | Path to the SQLite database |
+| `-db` | string | *(per-repo, from roster)* | Path to the SQLite database |
 
 **Examples:**
 
@@ -695,7 +702,7 @@ indexing cannot clean up.
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `-db` | string | `~/.knowing/knowing.db` | Path to the SQLite database |
+| `-db` | string | *(per-repo, from roster)* | Path to the SQLite database |
 | `-url` | string | *(repo-path)* | Repository URL |
 | `-commit` | string | `HEAD` | Commit hash to record |
 | `-full` | bool | `false` | Use full type resolution via `go/packages` |
@@ -733,7 +740,7 @@ packages, function names, or a `-run` regex for `go test`.
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `-db` | string | `~/.knowing/knowing.db` | Path to the SQLite database |
+| `-db` | string | *(per-repo, from roster)* | Path to the SQLite database |
 | `-files` | string | *(git diff HEAD)* | Comma-separated list of changed files. If omitted, detects changes via `git diff HEAD`. |
 | `-output` | string | `packages` | Output mode: `packages`, `functions`, or `run` |
 | `-depth` | int | `3` | Maximum call-graph traversal depth |
@@ -785,7 +792,7 @@ without indexing their source code directly.
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `-db` | string | `~/.knowing/knowing.db` | Path to the SQLite database |
+| `-db` | string | *(per-repo, from roster)* | Path to the SQLite database |
 | `-file` | string | *(required)* | Path to the `.scip` index file |
 | `-repo` | string | *(required)* | Repository URL to associate (e.g. `github.com/org/repo`) |
 
@@ -836,7 +843,7 @@ knowing enrich blame [flags] <repo-path>
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `-db` | string | `~/.knowing/knowing.db` | Path to the SQLite database |
+| `-db` | string | *(per-repo, from roster)* | Path to the SQLite database |
 | `-url` | string | *(auto-detected)* | Repository URL (auto-detected from git remote if empty) |
 
 **Examples:**
@@ -870,7 +877,7 @@ knowing enrich coverage [flags] <repo-path>
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `-db` | string | `~/.knowing/knowing.db` | Path to the SQLite database |
+| `-db` | string | *(per-repo, from roster)* | Path to the SQLite database |
 | `-url` | string | *(auto-detected)* | Repository URL (auto-detected from git remote if empty) |
 | `-profile` | string | `cover.out` | Path to Go cover profile |
 

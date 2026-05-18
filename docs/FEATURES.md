@@ -677,18 +677,19 @@ Repo: github.com/blackwell-systems/knowing
 - **What it does:** Given ranked symbols with scores and estimated token costs, selects the subset that maximizes total relevance within a token budget. Uses score/cost ratio (density) to greedily pack highest-value-per-token symbols first.
 - **Why it matters:** Ensures LLM context windows are filled with maximum information density rather than simply taking the top-N symbols regardless of their serialization cost.
 
-### 53. Global Database and KNOWING_DB Environment Variable
+### 53. Per-Repo Database Isolation and KNOWING_DB Environment Variable
 
 - **Package(s):** `cmd/knowing/`
 - **Entry point:** `defaultDB()` function in `cmd/knowing/main.go`
-- **What it does:** The default database path is now `~/.knowing/knowing.db`. All repos share one database so cross-repo edges resolve automatically. The `KNOWING_DB` environment variable overrides this default. The `-db` flag overrides both. Falls back to creating `~/.knowing/` if it does not exist.
+- **What it does:** Each repo gets its own database at `~/.knowing/repos/<safe-name>.db`. `defaultDB()` checks the roster for the current directory's DB path; if no roster entry is found, it falls back to `~/.knowing/knowing.db`. The `KNOWING_DB` environment variable overrides this default. The `-db` flag overrides both. Falls back to creating `~/.knowing/` if it does not exist.
+- **Why it matters:** Per-repo isolation prevents community detection, RWR, HITS, and BM25 from blending data across unrelated repositories. Cross-repo edges are a future feature (separate `cross-repo.db`).
 
 ### 74. Repo Roster (`knowing add`, `knowing remove`, `knowing list`)
 
 - **Package(s):** `cmd/knowing/`
 - **Entry point:** `knowing add [path]`, `knowing remove [path]`, `knowing list`
-- **What it does:** Maintains a roster of registered repositories in the global database. `knowing add` registers a repo and indexes it. `knowing remove` unregisters a repo (graph data is retained). `knowing list` prints all registered repos with path, URL, and last-indexed timestamp. `knowing init` also registers the repo in the roster.
-- **Why it matters:** Provides a single command to onboard a repo into the shared graph. Because all repos use the same global database by default, cross-repo edges (e.g. library callers) work without manual configuration.
+- **What it does:** Maintains a roster of registered repositories. `knowing add` registers a repo, assigns it a per-repo database at `~/.knowing/repos/<safe-name>.db`, and indexes it. `knowing remove` unregisters a repo (the per-repo database file is not deleted). `knowing list` prints all registered repos with path, URL, per-repo DB path, database file size, and last-indexed timestamp. `knowing init` also registers the repo in the roster.
+- **Why it matters:** Provides a single command to onboard a repo with an isolated database. Each repo's graph algorithms operate only on its own data.
 
 ### 54. HITS Authority/Hub Scoring
 
@@ -1073,27 +1074,27 @@ Parameters per tool:
 
 ### `knowing init`
 
-- **Flags:** `--db` (default: `~/.knowing/knowing.db`), `--output` (default: `CLAUDE.md`)
+- **Flags:** `--db` (default: per-repo, from roster), `--output` (default: `CLAUDE.md`)
 - **No positional args.**
-- **What it does:** Registers the repo in the global roster, indexes it, runs LSP enrichment, and generates a CLAUDE.md section with graph-derived project context (symbol counts, package counts, tool breadcrumbs). Nondestructive and idempotent: uses markers to replace only the generated section, leaving hand-written content intact.
+- **What it does:** Registers the repo in the roster, assigns a per-repo database at `~/.knowing/repos/<safe-name>.db`, indexes it, runs LSP enrichment, and generates a CLAUDE.md section with graph-derived project context (symbol counts, package counts, tool breadcrumbs). Nondestructive and idempotent: uses markers to replace only the generated section, leaving hand-written content intact.
 
 ### `knowing add`
 
-- **Flags:** `--db` (default: `~/.knowing/knowing.db`), `--url` (auto-detected from git remote)
+- **Flags:** `--db` (default: per-repo, from roster), `--url` (auto-detected from git remote)
 - **Positional args:** repo-path (required)
-- **What it does:** Registers a repository in the global roster and indexes it into the global database. Cross-repo edges resolve automatically because all repos share the same DB.
+- **What it does:** Registers a repository in the roster and assigns it a per-repo database at `~/.knowing/repos/<safe-name>.db`. Indexes the repo into that isolated database.
 
 ### `knowing remove`
 
-- **Flags:** `--db` (default: `~/.knowing/knowing.db`)
+- **Flags:** `--db` (default: per-repo, from roster)
 - **Positional args:** repo-path (required)
-- **What it does:** Removes a repository from the global roster. Graph data (nodes, edges, snapshots) is retained.
+- **What it does:** Removes a repository from the roster. The per-repo database file is not deleted.
 
 ### `knowing list`
 
-- **Flags:** `--db` (default: `~/.knowing/knowing.db`)
+- **Flags:** none
 - **No positional args.**
-- **What it does:** Lists all repositories registered in the global roster with path, URL, and last-indexed timestamp.
+- **What it does:** Lists all repositories in the roster with path, URL, per-repo DB path, database file size, and last-indexed timestamp.
 
 ### `knowing context`
 

@@ -8,8 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- Global database: default DB path is now `~/.knowing/knowing.db` instead of `./knowing.db`. All repos share one database so cross-repo edges work automatically. Override with the `-db` flag or `KNOWING_DB` env var.
-- Repo roster: `knowing add [path]` registers a repo and indexes it into the global DB. `knowing remove [path]` unregisters a repo. `knowing list` shows all registered repos.
+- Per-repo database isolation: each repo now gets its own database at `~/.knowing/repos/<safe-name>.db`. Graph algorithms (community detection, RWR, HITS, BM25) operate only on the target repo's data, preventing unrelated repos from blending results. The old shared global database (`~/.knowing/knowing.db`) is no longer used.
+- `defaultDB()` checks the roster for the current directory's per-repo DB path. Falls back to `~/.knowing/knowing.db` if no roster entry exists.
+- `knowing add` assigns a per-repo DB path at registration time.
+- `knowing list` now shows per-repo DB path and database file size.
+- Cross-repo edges are planned as a future feature via a separate `cross-repo.db`.
+- Repo roster: `knowing add [path]` registers a repo and indexes it. `knowing remove [path]` unregisters a repo. `knowing list` shows all registered repos.
 - `knowing init` now registers the repo in the global roster and uses the global DB by default.
 - `knowing watch` subcommand: lightweight file watcher that re-indexes changed files on save with debounce and optional LSP enrichment
 - `knowing mcp --watch` flag: combines the stdio MCP server with file watching in a single process, so agents always query up-to-date graph data without a separate watcher

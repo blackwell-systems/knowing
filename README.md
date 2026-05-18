@@ -112,8 +112,9 @@ pip install knowing
 Register and index a repository:
 
 ```bash
-# Register a repo in the global roster and index it.
-# The database defaults to ~/.knowing/knowing.db so cross-repo edges work automatically.
+# Register a repo in the roster and index it.
+# Each repo gets its own database at ~/.knowing/repos/<safe-name>.db
+# so community detection, RWR, HITS, and BM25 operate on isolated data.
 knowing add ./path/to/repo
 
 # Search symbols by qualified-name prefix.
@@ -178,8 +179,10 @@ Add knowing to `.mcp.json`:
 }
 ```
 
-The global database (`~/.knowing/knowing.db`) is used by default. Override with
-`-db /path/to/db` or the `KNOWING_DB` environment variable.
+The database is auto-resolved from the roster: `defaultDB()` looks up the
+current directory in the roster and returns the per-repo DB path
+(`~/.knowing/repos/<safe-name>.db`). No `-db` flag is needed. Override with
+`-db /path/to/db` or the `KNOWING_DB` environment variable if needed.
 
 The `--watch` flag enables integrated file watching: the MCP server monitors the
 repository for changes and re-indexes automatically, so agents always query
