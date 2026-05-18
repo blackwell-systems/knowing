@@ -145,14 +145,17 @@ func RandomWalkWithRestart(ctx stdctx.Context, store types.GraphStore, seeds []t
 	return prob, nil
 }
 
-// buildAdjacencyMap pre-loads all edges for the entire reachable subgraph
-// (BFS from seeds until no new nodes are discovered) into in-memory maps,
-// so the RWR iteration loop requires zero database queries.
+// buildAdjacencyMap pre-loads edges for the reachable subgraph (BFS from seeds,
+// depth-limited to 3 hops) into in-memory maps so the RWR iteration loop
+// requires zero database queries. Depth limit prevents loading the entire graph
+// for well-connected seed sets.
 func buildAdjacencyMap(ctx stdctx.Context, store types.GraphStore, seeds []types.Hash) (adjFrom, adjTo map[types.Hash][]types.Edge, err error) {
 	adjFrom = make(map[types.Hash][]types.Edge)
 	adjTo = make(map[types.Hash][]types.Edge)
 
-	// BFS from seeds, expanding until no new nodes are found.
+	const maxDepth = 4 // 4 hops from seeds covers relevant context without loading entire graph
+
+	// BFS from seeds with depth limit.
 	visited := make(map[types.Hash]bool, len(seeds)*4)
 	frontier := make([]types.Hash, len(seeds))
 	copy(frontier, seeds)
@@ -160,7 +163,7 @@ func buildAdjacencyMap(ctx stdctx.Context, store types.GraphStore, seeds []types
 		visited[s] = true
 	}
 
-	for len(frontier) > 0 {
+	for depth := 0; depth < maxDepth && len(frontier) > 0; depth++ {
 		var nextFrontier []types.Hash
 		for _, node := range frontier {
 			// Load outgoing edges for this node (once).
