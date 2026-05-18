@@ -29,6 +29,14 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 | GraphML/Cypher export | `knowing export -format graphml\|cypher` for loading the graph into Neo4j, Gephi, yEd, Cytoscape. GraphML is trivial (XML), Cypher enables visual graph exploration. | P3 |
 | Snapshot diff workflows | Snapshot diffing exists but isn't wired into a "what changed in my architecture this sprint" workflow. | P3 |
 
+## Multi-Repo Management
+
+| Item | Description | Priority |
+|------|-------------|----------|
+| `untrack_repo` MCP tool + CLI | Evict a repo's nodes, edges, files, and snapshots from the graph. Currently requires manual SQL. | P2 |
+| Active project scoping | Session-level "I'm working in repo X" default so agents don't pass `repo_url` on every call. `set_active_project` / `get_active_project` MCP tools. | P3 |
+| `graph_stats` MCP tool | Total nodes/edges + per-repo breakdown + session token savings. Overlaps with `knowing stats` CLI. | P3 |
+
 ## Underexploited Capabilities
 
 These exist in the codebase but aren't wired into retrieval or workflows yet:
