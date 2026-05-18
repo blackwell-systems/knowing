@@ -12,7 +12,7 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 | 4 | **Negative feedback** | The feedback loop only records "this was relevant." No way to say "this was noise, stop suggesting it." Negative signals sharpen ranking faster than positive-only. Add `feedback` tool support for `relevant: false` and penalize negatively-marked symbols in scoring. | Medium |
 | 5 | **Traversal cache** | L1 in-memory LRU for hot paths. Repeat queries should be instant. | Medium |
 | 6 | **`knowing stats`** | Show session value: context calls, symbols served, symbols marked relevant, feedback rate. Lets users see the value accumulating. | Low |
-| 7 | **MCP resources** | `knowing://context/<scope>` subscribable resources for live context updates. | Medium |
+| 7 | **MCP resources** | Lightweight context that doesn't cost a tool call. Resources are read directly by the MCP host for agent orientation. See detailed list below. | Medium |
 | 8 | **~~v0.2.0 release~~** | **Shipped.** 25 extractors, retrieval pipeline, TOON, `knowing init`, multi-language LSP enrichment, `knowing why`, 84 equivalence classes, 23 MCP tools, ~60K LOC. | Done |
 
 ## Operational
@@ -36,6 +36,21 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 | `untrack_repo` MCP tool + CLI | Evict a repo's nodes, edges, files, and snapshots from the graph. Currently requires manual SQL. | P2 |
 | Active project scoping | Session-level "I'm working in repo X" default so agents don't pass `repo_url` on every call. `set_active_project` / `get_active_project` MCP tools. | P3 |
 | `graph_stats` MCP tool | Total nodes/edges + per-repo breakdown + session token savings. Overlaps with `knowing stats` CLI. | P3 |
+
+## MCP Resources (Planned)
+
+Resources are read directly by the MCP host without a tool call. They provide lightweight orientation context at zero exchange cost.
+
+| Resource | What it provides | Data source | Priority |
+|----------|-----------------|-------------|----------|
+| `knowing://report` | High-level orientation: graph size, top languages/kinds, hotspot count. The opening read of a new session. | Aggregate query over nodes/edges tables | P1 |
+| `knowing://schema` | Graph schema reference: node kinds, edge kinds, provenance tiers, qualified-ID format. Helps agents form valid queries. | Static, derived from types package | P1 |
+| `knowing://stats` | Node/edge counts, per-language and per-repo breakdown. Cheapest health check. | `AllRepos` + count queries | P1 |
+| `knowing://repos` | Every tracked repo with node/edge counts. | `AllRepos` store method | P2 |
+| `knowing://session` | Current session state: recent symbols, context calls, feedback rate, token savings. | SessionTracker + counters | P2 |
+| `knowing://index-health` | Health score, parse failures, stale files. Subscribe for push updates after re-index. | CAS staleness detection | P2 |
+| `knowing://communities` | Community list with cohesion scores. | Louvain output | P3 |
+| `knowing://community/{id}` | Single community detail: members, key files, cross-community connections. | Filtered Louvain output | P3 |
 
 ## Underexploited Capabilities
 
