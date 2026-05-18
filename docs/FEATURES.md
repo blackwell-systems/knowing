@@ -784,7 +784,7 @@ Repo: github.com/blackwell-systems/knowing
 
 - **Package(s):** `internal/context/`
 - **Entry point:** `universal_seeds.go` in `internal/context/`
-- **What it does:** Defines 20 universal software concepts (authentication, caching, config, database, etc.) as equivalence classes with weight 0.8 (between seed weight 1.0 and graph-derived weight 0.7). These are domain-agnostic patterns that apply across any codebase, complementing the hand-curated equivalence classes in `equivalence.go`.
+- **What it does:** Defines 63 universal software concepts (authentication, caching, config, database, HTTP, testing, concurrency, etc.) as equivalence classes with weight 0.8 (between seed weight 1.0 and graph-derived weight 0.7). These are domain-agnostic patterns that apply across any codebase, complementing the 21 hand-curated knowing-specific equivalence classes in `equivalence.go` (84 total).
 - **Why it matters:** Improves cross-repo retrieval accuracy. Cross-repo eval showed +6.7pp on the gortex benchmark (40% to 46.7%).
 
 ### 68. Graph-Derived Aliases
@@ -818,6 +818,26 @@ Repo: github.com/blackwell-systems/knowing
 - **Inputs:** Task description (`-task`), symbol name (`-symbol` or positional), optional database path (`-db`).
 - **Outputs:** Human-readable scoring breakdown printed to stdout.
 - **Why it matters:** Every retrieval system needs an explain mode. Without it, ranking is a black box and bad recommendations cannot be debugged. This makes the pipeline inspectable and supports iterative tuning of equivalence classes, feedback, and scoring weights.
+
+### 72. Enrich Blame (Git Authorship Metadata)
+
+- **Package(s):** `cmd/knowing`
+- **Entry point:** `knowing enrich blame [flags] <repo-path>` (in `cmd/knowing/enrich.go`)
+- **Migration:** `009` (adds `last_author` and `last_commit_at` columns to nodes table)
+- **What it does:** Runs `git blame --porcelain` on every file with nodes in the graph, then stamps each symbol with the author name and commit timestamp of the line where it is declared. Uses `UpdateNodeBlame` store method.
+- **Inputs:** Repo path (positional), optional `-db` and `-url` flags.
+- **Outputs:** Logs summary (symbols stamped, files skipped, errors).
+- **Why it matters:** Enables ownership and recency queries at the symbol level, supporting "who last touched this?" and staleness detection without requiring full git log traversal at query time.
+
+### 73. Enrich Coverage (Go Test Coverage Metadata)
+
+- **Package(s):** `cmd/knowing`
+- **Entry point:** `knowing enrich coverage [flags] <repo-path>` (in `cmd/knowing/enrich.go`)
+- **Migration:** `010` (adds `coverage_pct` column to nodes table)
+- **What it does:** Parses a Go cover profile (`go test -coverprofile`) and stamps each symbol with its coverage percentage. For each symbol, finds overlapping coverage blocks by line range and computes the ratio of covered to total statements. Symbols with no coverage data receive -1.
+- **Inputs:** Repo path (positional), `-profile` (default `cover.out`), optional `-db` and `-url`.
+- **Outputs:** Logs summary (symbols stamped, files without coverage data).
+- **Why it matters:** Enables coverage-aware ranking and auditing. Agents can prioritize untested symbols for review or use coverage as a signal in context retrieval.
 
 ### GraphStore (`internal/types/interfaces.go`)
 

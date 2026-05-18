@@ -985,6 +985,19 @@ The MCP equivalent is the `explain_symbol` tool (#23) in `internal/mcp/context_h
 
 ---
 
+## Offline Enrichment Passes (`cmd/knowing/enrich.go`)
+
+The `knowing enrich` subcommand runs offline enrichment passes that stamp per-symbol metadata from external data sources. Unlike Tier 2 LSP enrichment (which resolves edges), these passes add node-level metadata columns.
+
+Two passes are available:
+
+- **blame**: runs `git blame --porcelain` on every file with graph nodes, then stamps `last_author` and `last_commit_at` on each symbol (migration 009). Enables ownership queries and recency scoring at the symbol level.
+- **coverage**: parses a Go cover profile (`go test -coverprofile`) and stamps `coverage_pct` on each symbol (migration 010). Computes the ratio of covered to total statements for overlapping coverage blocks. Symbols with no coverage data receive -1.
+
+Both passes operate on an existing indexed database and are idempotent: re-running overwrites previous values. They are intentionally separate from the index pipeline so they can be run on demand (e.g., after CI produces a cover profile).
+
+---
+
 ## Context Packing (`internal/context/`)
 
 The context packing subsystem produces token-budgeted, graph-ranked context blocks for agent consumption. It answers: "given a task or a set of changed files, which symbols from the knowledge graph should an agent see?" Two entry points exist: task-based (keyword search from a description) and file-based (blast-radius expansion from changed files).

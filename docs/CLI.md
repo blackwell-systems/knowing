@@ -13,7 +13,7 @@ See [DISTRIBUTION.md](DISTRIBUTION.md) for installation instructions.
 knowing <subcommand> [flags]
 ```
 
-Subcommands: `serve`, `index`, `query`, `export`, `diff`, `context`, `why`, `mcp`, `watch`, `reindex`, `init`, `test-scope`, `ingest-scip`, `version`.
+Subcommands: `serve`, `index`, `query`, `export`, `diff`, `context`, `why`, `mcp`, `watch`, `reindex`, `init`, `test-scope`, `ingest-scip`, `enrich`, `version`.
 
 ## Environment
 
@@ -707,6 +707,93 @@ knowing ingest-scip -db /var/lib/knowing/data.db -file deps.scip -repo github.co
   clone and fully index.
 - Prints a summary after ingestion: nodes created, edges created, documents
   processed.
+
+---
+
+### enrich
+
+Run offline enrichment passes that stamp per-symbol metadata onto the graph.
+
+```
+knowing enrich {blame|coverage} [flags] <repo-path>
+```
+
+Two enrichment passes are available: `blame` (git authorship) and `coverage`
+(Go test coverage). Each pass reads external data sources and stamps metadata
+onto existing nodes in the database.
+
+#### enrich blame
+
+Stamps `last_author` and `last_commit_at` on every symbol by running
+`git blame` on each file that has nodes in the graph. Migration 009 adds the
+blame columns to the nodes table.
+
+```
+knowing enrich blame [flags] <repo-path>
+```
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `-db` | string | `knowing.db` | Path to the SQLite database |
+| `-url` | string | *(auto-detected)* | Repository URL (auto-detected from git remote if empty) |
+
+**Examples:**
+
+```bash
+# Stamp blame metadata on all symbols
+knowing enrich blame ./my-repo
+
+# Use a specific database and explicit repo URL
+knowing enrich blame -db /var/lib/knowing/data.db -url github.com/org/repo ./my-repo
+```
+
+**Notes:**
+
+- Requires a pre-built database. Run `knowing index` first.
+- Skips files that no longer exist on disk.
+- Logs a summary: symbols stamped, files skipped, errors.
+
+#### enrich coverage
+
+Stamps `coverage_pct` on symbols from a Go cover profile. Migration 010 adds
+the `coverage_pct` column to the nodes table. For each symbol, the pass finds
+overlapping coverage blocks and computes the percentage of covered statements.
+Symbols with no coverage data receive a value of -1.
+
+```
+knowing enrich coverage [flags] <repo-path>
+```
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `-db` | string | `knowing.db` | Path to the SQLite database |
+| `-url` | string | *(auto-detected)* | Repository URL (auto-detected from git remote if empty) |
+| `-profile` | string | `cover.out` | Path to Go cover profile |
+
+**Examples:**
+
+```bash
+# Stamp coverage data from the default cover.out
+knowing enrich coverage ./my-repo
+
+# Use a specific cover profile and explicit repo URL
+knowing enrich coverage -profile cover.out -url github.com/org/repo ./my-repo
+
+# Use an absolute path to the cover profile
+knowing enrich coverage -profile /tmp/cover.out -db /var/lib/knowing/data.db ./my-repo
+```
+
+**Notes:**
+
+- Requires a pre-built database. Run `knowing index` first.
+- The cover profile must be in Go's standard format (`go test -coverprofile`).
+- Cover profiles use full module paths; the pass matches by suffix against
+  the file paths stored in the graph.
+- Logs a summary: symbols stamped, files without coverage data.
 
 ---
 

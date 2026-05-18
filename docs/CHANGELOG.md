@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `knowing watch` subcommand: lightweight file watcher that re-indexes changed files on save with debounce and optional LSP enrichment
 - `knowing mcp --watch` flag: combines the stdio MCP server with file watching in a single process, so agents always query up-to-date graph data without a separate watcher
 - `knowing enrich blame` subcommand: stamps git blame metadata (last_author, last_commit_at) onto symbols. Migration 009 adds blame columns to nodes table.
+- `knowing enrich coverage` subcommand: stamps coverage_pct on symbols from Go cover profiles. Migration 010 adds coverage_pct column to nodes table. Usage: `knowing enrich coverage -profile cover.out -url <url> <repo-path>`.
 - Format comprehension eval (`eval/comprehension_test.go`): GCF vs JSON vs XML vs TOON token comparison benchmark measuring symbol density per token budget
 - TOON token estimation in `EstimateNodeTokensForFormat`: extends format-aware packing to include TOON wire format
 - 84 equivalence classes (expanded from 41): 43 new universal software concepts added to `internal/context/universal_seeds.go`
