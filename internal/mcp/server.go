@@ -42,6 +42,7 @@ import (
 	"net/http"
 	"os"
 
+	knowingctx "github.com/blackwell-systems/knowing/internal/context"
 	knowingstore "github.com/blackwell-systems/knowing/internal/store"
 	"github.com/blackwell-systems/knowing/internal/types"
 	"github.com/blackwell-systems/knowing/internal/wire"
@@ -57,14 +58,16 @@ type Server struct {
 	mcpServer *mcpserver.MCPServer
 	sqlStore  *knowingstore.SQLiteStore // populated via type assertion for runtime queries
 	session   *wire.Session            // GCF session state for cross-call deduplication
+	ctxSession *knowingctx.SessionTracker // session-aware retrieval boosts
 }
 
 // NewServer creates a new MCP server backed by the given GraphStore.
 // It registers all 22 tools (execution, intelligence, runtime, context, feedback, and discovery planes).
 func NewServer(store types.GraphStore) *Server {
 	s := &Server{
-		store:   store,
-		session: wire.NewSession(),
+		store:      store,
+		session:    wire.NewSession(),
+		ctxSession: knowingctx.NewSessionTracker(),
 	}
 	// Try to get SQLiteStore for runtime queries.
 	if ss, ok := store.(*knowingstore.SQLiteStore); ok {

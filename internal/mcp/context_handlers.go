@@ -24,6 +24,7 @@ func (s *Server) handleContextForTask(ctx context.Context, req mcp.CallToolReque
 	format := getStringArg(req, "format")
 
 	engine := knowingctx.NewContextEngine(s.store)
+	engine.SetSession(s.ctxSession)
 	block, err := engine.ForTask(ctx, knowingctx.TaskOptions{
 		TaskDescription: taskDesc,
 		TokenBudget:     tokenBudget,

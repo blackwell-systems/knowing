@@ -15,6 +15,7 @@ type ScoringInput struct {
 	LastObserved       int64   // unix timestamp of last runtime observation (0 = static only)
 	DistanceFromTarget int     // hops from the task target symbol
 	FeedbackBoost      float64 // 0.0 = no feedback, >0 = positive signal (0.0-1.0)
+	SessionBoost       float64 // 0.0 = not seen this session, >0 = recently accessed (0.0-2.0)
 }
 
 // RankSymbols scores each symbol by a weighted formula incorporating blast radius,
@@ -45,7 +46,7 @@ func RankSymbols(symbols []ScoringInput, hitsScores ...map[types.Hash]HITSScores
 
 	results := make([]RankedSymbol, 0, len(symbols))
 	for _, s := range symbols {
-		var blastRadius, confidence, recency, distance, feedback, total float64
+		var blastRadius, confidence, recency, distance, feedback, session, total float64
 
 		// Feedback component: score is useful/(useful+not_useful), range [0,1].
 		// Values > 0.5 = net positive feedback (boost).
@@ -55,6 +56,14 @@ func RankSymbols(symbols []ScoringInput, hitsScores ...map[types.Hash]HITSScores
 		if s.FeedbackBoost > 0 {
 			// Center around 0: score 1.0 -> +0.15, score 0.5 -> 0, score 0 -> -0.15
 			feedback = 0.15 * (2*s.FeedbackBoost - 1.0)
+		}
+
+		// Session boost: symbols accessed earlier this session get a boost.
+		// SessionBoost range is [0, 2.0]. Weight 0.20 (strong enough to pull
+		// previously-seen symbols to the top, but won't override a completely
+		// irrelevant match that happened to appear in a prior query).
+		if s.SessionBoost > 0 {
+			session = 0.20 * (s.SessionBoost / 2.0) // normalize [0,2] to [0,1], then weight
 		}
 
 		if hits != nil {
@@ -86,14 +95,14 @@ func RankSymbols(symbols []ScoringInput, hitsScores ...map[types.Hash]HITSScores
 			confidence = s.Confidence * 0.20
 			recency = recencyFromTimestamp(s.LastObserved) * 0.15
 			distance = (1.0 / (1.0 + float64(s.DistanceFromTarget))) * 0.15
-			total = blastRadius + confidence + recency + distance + authorityAdj + feedback
+			total = blastRadius + confidence + recency + distance + authorityAdj + feedback + session
 		} else {
 			// Original ranking (no HITS): blast radius is the primary signal.
 			blastRadius = (float64(s.CallerCount) / float64(maxCallers)) * 0.40
 			confidence = s.Confidence * 0.25
 			recency = recencyFromTimestamp(s.LastObserved) * 0.20
 			distance = (1.0 / (1.0 + float64(s.DistanceFromTarget))) * 0.15
-			total = blastRadius + confidence + recency + distance + feedback
+			total = blastRadius + confidence + recency + distance + feedback + session
 		}
 
 		results = append(results, RankedSymbol{
@@ -105,6 +114,7 @@ func RankSymbols(symbols []ScoringInput, hitsScores ...map[types.Hash]HITSScores
 				Recency:     recency,
 				Distance:    distance,
 				Feedback:    feedback,
+				Session:     session,
 			},
 			Provenance: "",
 			Distance:   s.DistanceFromTarget,

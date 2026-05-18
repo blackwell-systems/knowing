@@ -123,6 +123,34 @@ them. 5-7 build on the fused pipeline.
 - Embeddings: hard 2% -> 15-25%, medium -> 35-45% (concept-level matching)
 - Full pipeline: targeting easy >80%, medium >40%, hard >20%
 
+**Competitor implementations (studied at code level):**
+
+See `docs/competitive-analysis.md` for detailed findings. Key architectural patterns observed:
+
+- Separate retrieval (find candidates) from reranking (score candidates) as distinct layers
+- In-memory BM25 inverted index with camelCase/snake_case tokenizer (faster than SQLite FTS5)
+- HNSW vector index (`coder/hnsw`) with MiniLM-L6-v2 embeddings (`hugot` pure-Go ONNX)
+- RRF fusion (k=60) combining text + vector ranks before reranking
+- 11-signal weighted reranking: text relevance, semantic similarity, fan-in/out, churn,
+  community, signature match, recency, feedback (each normalised [0,1], weighted sum)
+- Session frecency: exponential decay (3-day half-life for AI), persisted per-repo,
+  capped 1.5x boost, merged with feedback via max() not sum()
+- PageRank personalization (studied from source, Python/NetworkX):
+  - Base personalization = 100/num_nodes for each file in chat
+  - **50x edge weight multiplier** for references FROM files already in conversation
+  - Mentioned identifiers from user message get additional personalization boost
+  - Uses `nx.pagerank(G, weight="weight", personalization=...)` with the biased dict
+  - Key insight: the boost is on the *edge weight*, not the node, so it propagates through the graph
+- LLM query rewriting (closed-source now, documented from prior OSS): NL task -> candidate symbol names
+- Multi-channel retrieval with fixed budget allocation (studied from source, TypeScript):
+  - 25% recently edited files (session awareness, cheapest signal)
+  - 25% full-text search (BM25/FTS)
+  - 50% embeddings (semantic)
+  - Plus LLM-based repo map file selection as bonus channel
+  - Graceful degradation: each channel is try/catch, missing channels redistribute budget
+  - Optional reranker pass: retrieve 2x, then score with cross-encoder model
+  - Deduplication across all channels before final output
+
 **Strategic positioning:**
 
 knowing is the content-addressed graph retrieval layer for AI-assisted software development.

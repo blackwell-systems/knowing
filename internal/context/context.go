@@ -25,6 +25,7 @@ type ContextEngine struct {
 	store    types.GraphStore
 	feedback FeedbackProvider // nil if store doesn't support feedback
 	bm25     BM25Searcher    // nil if store doesn't support BM25
+	session  *SessionTracker  // nil disables session-aware boosting
 }
 
 // TaskOptions configures a task-based context query.
@@ -85,6 +86,7 @@ type ScoreComponents struct {
 	Recency     float64
 	Distance    float64
 	Feedback    float64
+	Session     float64
 }
 
 // NewContextEngine creates a ContextEngine backed by the given GraphStore.
@@ -98,6 +100,13 @@ func NewContextEngine(store types.GraphStore) *ContextEngine {
 		e.bm25 = bs
 	}
 	return e
+}
+
+// SetSession attaches a session tracker to the engine. When set, symbols
+// returned by previous queries in this session receive a boost on subsequent
+// queries. Pass nil to disable session-aware boosting.
+func (e *ContextEngine) SetSession(st *SessionTracker) {
+	e.session = st
 }
 
 // stopWords is the set of words filtered from task descriptions during keyword extraction.
@@ -443,6 +452,20 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 		}
 	}
 
+	// Apply session boosts: symbols seen earlier this session get priority.
+	if e.session != nil && len(inputs) > 0 {
+		hashes := make([]types.Hash, len(inputs))
+		for i, inp := range inputs {
+			hashes[i] = inp.Node.NodeHash
+		}
+		boosts := e.session.SessionBoosts(hashes)
+		for i := range inputs {
+			if boost, ok := boosts[inputs[i].Node.NodeHash]; ok {
+				inputs[i].SessionBoost = boost
+			}
+		}
+	}
+
 	// Sort inputs by RWR score (CallerCount proxy) so HITS runs on the most
 	// relevant subgraph, not a random map iteration order.
 	sort.Slice(inputs, func(i, j int) bool {
@@ -466,7 +489,18 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 
 	// Rank and pack into budget.
 	ranked := RankSymbols(inputs, hitsResult)
-	return packIntoBudget(ranked, budget, opts.Format), nil
+	block := packIntoBudget(ranked, budget, opts.Format)
+
+	// Record returned symbols in session tracker for future query boosts.
+	if e.session != nil && len(block.Symbols) > 0 {
+		hashes := make([]types.Hash, len(block.Symbols))
+		for i, s := range block.Symbols {
+			hashes[i] = s.Node.NodeHash
+		}
+		e.session.RecordBatch(hashes)
+	}
+
+	return block, nil
 }
 
 // ForFiles produces blast-radius context weighted by runtime observations
