@@ -109,6 +109,8 @@ func run(args []string) error {
 		return cmdTestScope(args[1:])
 	case "ingest-scip":
 		return cmdIngestSCIP(args[1:])
+	case "why":
+		return cmdWhy(args[1:])
 	default:
 		printUsage()
 		return fmt.Errorf("unknown subcommand: %s", args[0])
