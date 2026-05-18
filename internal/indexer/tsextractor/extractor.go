@@ -472,7 +472,8 @@ func walkForCalls(
 	if node == nil {
 		return
 	}
-	if node.Type() == "call_expression" {
+	switch node.Type() {
+	case "call_expression":
 		// Check for Express.js route registrations.
 		if hasExpress {
 			if rn, re := tryExtractExpressRoute(node, opts, qnamePrefix); rn != nil {
@@ -490,6 +491,12 @@ func walkForCalls(
 			if edge != nil {
 				*edges = append(*edges, *edge)
 			}
+		}
+
+	case "throw_statement":
+		// Extract throws edge: throw new ErrorType(...)
+		if throwEdge := extractTSThrowEdge(node, opts, qnamePrefix, sourceHash); throwEdge != nil {
+			*edges = append(*edges, *throwEdge)
 		}
 	}
 	for i := 0; i < int(node.ChildCount()); i++ {
@@ -525,6 +532,56 @@ func handleTopLevelCallExpression(
 			*edges = append(*edges, *edge)
 		}
 	}
+}
+
+// extractTSThrowEdge extracts a throws edge from a throw_statement node.
+// It looks for patterns like "throw new ErrorType(...)" and emits a throws
+// edge from the enclosing function to the error type.
+func extractTSThrowEdge(node *sitter.Node, opts types.ExtractOptions, qnamePrefix string, sourceHash types.Hash) *types.Edge {
+	// A throw_statement typically has a child expression.
+	// Look for "new_expression" patterns: throw new TypeError(...)
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		if child.Type() == "new_expression" {
+			constructorNode := child.ChildByFieldName("constructor")
+			if constructorNode != nil {
+				errorType := constructorNode.Content(opts.Content)
+				if errorType != "" {
+					targetHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, errorType, "error")
+					provenance := "ast_inferred"
+					edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "throws", provenance)
+					return &types.Edge{
+						EdgeHash:   edgeHash,
+						SourceHash: sourceHash,
+						TargetHash: targetHash,
+						EdgeType:   "throws",
+						Confidence: 0.7,
+						Provenance: provenance,
+					}
+				}
+			}
+		}
+	}
+	// Fallback: if no new_expression, use the thrown expression text as the error name.
+	// e.g., "throw error" or "throw 'message'"
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		if child.Type() == "identifier" {
+			errorName := child.Content(opts.Content)
+			targetHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, errorName, "error")
+			provenance := "ast_inferred"
+			edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "throws", provenance)
+			return &types.Edge{
+				EdgeHash:   edgeHash,
+				SourceHash: sourceHash,
+				TargetHash: targetHash,
+				EdgeType:   "throws",
+				Confidence: 0.7,
+				Provenance: provenance,
+			}
+		}
+	}
+	return nil
 }
 
 // resolveCallEdge creates an edge for a call expression.

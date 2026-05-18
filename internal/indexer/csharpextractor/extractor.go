@@ -482,6 +482,9 @@ func (e *CSharpExtractor) walkForCalls(node *sitter.Node, opts types.ExtractOpti
 		if edge != nil {
 			*edges = append(*edges, *edge)
 		}
+
+	case "throw_statement", "throw_expression":
+		// TODO: extract throws edge to exception type
 	}
 
 	for i := 0; i < int(node.ChildCount()); i++ {
@@ -578,6 +581,53 @@ func (e *CSharpExtractor) extractObjectCreationEdge(node *sitter.Node, opts type
 		CallSiteCol:  int(node.StartPoint().Column),
 		CallSiteFile: opts.FilePath,
 	}
+}
+
+// extractThrowEdge extracts a throws edge from a throw_statement or
+// throw_expression node. It looks for "new ExceptionType(...)" patterns
+// within the throw expression.
+func (e *CSharpExtractor) extractThrowEdge(node *sitter.Node, opts types.ExtractOptions, parentContext string, sourceHash types.Hash) *types.Edge {
+	// Walk children looking for object_creation_expression: throw new ExceptionType(...)
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		if child.Type() == "object_creation_expression" {
+			typeNode := child.ChildByFieldName("type")
+			if typeNode != nil {
+				exceptionType := typeNode.Content(opts.Content)
+				if exceptionType != "" {
+					targetHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, exceptionType, "error")
+					provenance := "ast_inferred"
+					edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "throws", provenance)
+					return &types.Edge{
+						EdgeHash:   edgeHash,
+						SourceHash: sourceHash,
+						TargetHash: targetHash,
+						EdgeType:   "throws",
+						Confidence: 0.7,
+						Provenance: provenance,
+					}
+				}
+			}
+		}
+		// Also handle: throw identifier; (re-throwing a variable)
+		if child.Type() == "identifier" || child.Type() == "identifier_name" {
+			name := child.Content(opts.Content)
+			if name != "" && name != "throw" {
+				targetHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, name, "error")
+				provenance := "ast_inferred"
+				edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "throws", provenance)
+				return &types.Edge{
+					EdgeHash:   edgeHash,
+					SourceHash: sourceHash,
+					TargetHash: targetHash,
+					EdgeType:   "throws",
+					Confidence: 0.7,
+					Provenance: provenance,
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // ASP.NET route attribute names that indicate HTTP method handlers.

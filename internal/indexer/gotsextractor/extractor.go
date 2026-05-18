@@ -105,6 +105,9 @@ func (e *GoTreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractO
 			body := child.ChildByFieldName("body")
 			callEdges := extractCallEdges(body, opts, pkgPath, node.NodeHash, imports)
 			edges = append(edges, callEdges...)
+			// Extract throws edges for error returns and panics.
+			throwsEdges := extractGoThrowsEdges(body, opts, pkgPath, node.NodeHash, imports)
+			edges = append(edges, throwsEdges...)
 			// Extract HTTP route registrations from function bodies.
 			routes := extractRouteSymbols(body, opts, pkgPath, imports)
 			rn, re := routeSymbolsToNodesAndEdges(routes, opts, pkgPath)
@@ -117,6 +120,9 @@ func (e *GoTreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractO
 			body := child.ChildByFieldName("body")
 			callEdges := extractCallEdges(body, opts, pkgPath, node.NodeHash, imports)
 			edges = append(edges, callEdges...)
+			// Extract throws edges for error returns and panics.
+			throwsEdges := extractGoThrowsEdges(body, opts, pkgPath, node.NodeHash, imports)
+			edges = append(edges, throwsEdges...)
 			// Extract HTTP route registrations from method bodies.
 			routes := extractRouteSymbols(body, opts, pkgPath, imports)
 			rn, re := routeSymbolsToNodesAndEdges(routes, opts, pkgPath)
@@ -495,6 +501,110 @@ func walkForCalls(node *sitter.Node, opts types.ExtractOptions, pkgPath string, 
 	}
 	for i := 0; i < int(node.ChildCount()); i++ {
 		walkForCalls(node.Child(i), opts, pkgPath, sourceHash, imports, edges)
+	}
+}
+
+// extractGoThrowsEdges walks a function/method body looking for error return
+// patterns (fmt.Errorf, errors.New) and panic() calls. For each, it emits a
+// "throws" edge from the function to a synthetic error type node.
+func extractGoThrowsEdges(body *sitter.Node, opts types.ExtractOptions, pkgPath string, sourceHash types.Hash, imports map[string]string) []types.Edge {
+	if body == nil {
+		return nil
+	}
+	var edges []types.Edge
+	walkForThrows(body, opts, pkgPath, sourceHash, imports, &edges)
+	return edges
+}
+
+// walkForThrows recursively walks nodes looking for error-returning patterns
+// and panic calls in Go function bodies.
+func walkForThrows(node *sitter.Node, opts types.ExtractOptions, pkgPath string, sourceHash types.Hash, imports map[string]string, edges *[]types.Edge) {
+	if node == nil {
+		return
+	}
+
+	switch node.Type() {
+	case "call_expression":
+		// Detect panic(...) calls.
+		funcNode := node.ChildByFieldName("function")
+		if funcNode != nil && funcNode.Type() == "identifier" && funcNode.Content(opts.Content) == "panic" {
+			errorName := "panic"
+			targetHash := types.ComputeNodeHash(opts.RepoURL, "builtin", types.EmptyHash, errorName, "error")
+			provenance := "ast_inferred"
+			edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "throws", provenance)
+			*edges = append(*edges, types.Edge{
+				EdgeHash:   edgeHash,
+				SourceHash: sourceHash,
+				TargetHash: targetHash,
+				EdgeType:   "throws",
+				Confidence: 0.7,
+				Provenance: provenance,
+			})
+		}
+		// Detect fmt.Errorf(...) and errors.New(...) inside return statements.
+		// These are handled at the return_statement level below.
+
+	case "return_statement":
+		// Walk the return statement's children looking for error-constructing calls.
+		walkReturnForErrors(node, opts, pkgPath, sourceHash, imports, edges)
+	}
+
+	for i := 0; i < int(node.ChildCount()); i++ {
+		walkForThrows(node.Child(i), opts, pkgPath, sourceHash, imports, edges)
+	}
+}
+
+// walkReturnForErrors walks a return statement looking for fmt.Errorf or
+// errors.New call expressions and emits throws edges for them.
+func walkReturnForErrors(node *sitter.Node, opts types.ExtractOptions, pkgPath string, sourceHash types.Hash, imports map[string]string, edges *[]types.Edge) {
+	if node == nil {
+		return
+	}
+
+	if node.Type() == "call_expression" {
+		funcNode := node.ChildByFieldName("function")
+		if funcNode != nil && funcNode.Type() == "selector_expression" {
+			operandNode := funcNode.ChildByFieldName("operand")
+			fieldNode := funcNode.ChildByFieldName("field")
+			if operandNode != nil && fieldNode != nil {
+				pkg := operandNode.Content(opts.Content)
+				fn := fieldNode.Content(opts.Content)
+
+				var errorName string
+				if fn == "Errorf" {
+					// Resolve the package alias to see if it maps to "fmt".
+					if importPath, ok := imports[pkg]; ok && importPath == "fmt" {
+						errorName = "fmt.Errorf"
+					} else if pkg == "fmt" {
+						errorName = "fmt.Errorf"
+					}
+				} else if fn == "New" {
+					if importPath, ok := imports[pkg]; ok && importPath == "errors" {
+						errorName = "errors.New"
+					} else if pkg == "errors" {
+						errorName = "errors.New"
+					}
+				}
+
+				if errorName != "" {
+					targetHash := types.ComputeNodeHash(opts.RepoURL, "errors", types.EmptyHash, errorName, "error")
+					provenance := "ast_inferred"
+					edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "throws", provenance)
+					*edges = append(*edges, types.Edge{
+						EdgeHash:   edgeHash,
+						SourceHash: sourceHash,
+						TargetHash: targetHash,
+						EdgeType:   "throws",
+						Confidence: 0.7,
+						Provenance: provenance,
+					})
+				}
+			}
+		}
+	}
+
+	for i := 0; i < int(node.ChildCount()); i++ {
+		walkReturnForErrors(node.Child(i), opts, pkgPath, sourceHash, imports, edges)
 	}
 }
 

@@ -446,6 +446,85 @@ func walkForCalls(node *sitter.Node, opts types.ExtractOptions, pkgPath string, 
 	}
 }
 
+// extractJavaThrowsClause extracts throws edges from the "throws" clause in a
+// Java method signature. Tree-sitter represents the thrown types as children of
+// a "throws" node within the method_declaration.
+func extractJavaThrowsClause(node *sitter.Node, opts types.ExtractOptions, pkgPath string, sourceHash types.Hash) []types.Edge {
+	var edges []types.Edge
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		if child.Type() == "throws" {
+			// The throws clause contains type_identifier children for each exception type.
+			for j := 0; j < int(child.ChildCount()); j++ {
+				typeNode := child.Child(j)
+				if typeNode.Type() == "type_identifier" || typeNode.Type() == "scoped_type_identifier" {
+					exceptionType := typeNode.Content(opts.Content)
+					if exceptionType != "" {
+						targetHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, exceptionType, "error")
+						provenance := "ast_inferred"
+						edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "throws", provenance)
+						edges = append(edges, types.Edge{
+							EdgeHash:   edgeHash,
+							SourceHash: sourceHash,
+							TargetHash: targetHash,
+							EdgeType:   "throws",
+							Confidence: 0.7,
+							Provenance: provenance,
+						})
+					}
+				}
+			}
+		}
+	}
+	return edges
+}
+
+// extractJavaThrowStatements walks a method body looking for throw_statement
+// nodes and emits throws edges for each thrown exception type.
+func extractJavaThrowStatements(node *sitter.Node, opts types.ExtractOptions, pkgPath string, sourceHash types.Hash) []types.Edge {
+	if node == nil {
+		return nil
+	}
+	var edges []types.Edge
+	walkForThrowStatements(node, opts, pkgPath, sourceHash, &edges)
+	return edges
+}
+
+// walkForThrowStatements recursively walks nodes looking for throw_statement nodes.
+func walkForThrowStatements(node *sitter.Node, opts types.ExtractOptions, pkgPath string, sourceHash types.Hash, edges *[]types.Edge) {
+	if node == nil {
+		return
+	}
+	if node.Type() == "throw_statement" {
+		// Look for "new ExceptionType(...)" within the throw statement.
+		for i := 0; i < int(node.ChildCount()); i++ {
+			child := node.Child(i)
+			if child.Type() == "object_creation_expression" {
+				typeNode := child.ChildByFieldName("type")
+				if typeNode != nil {
+					exceptionType := typeNode.Content(opts.Content)
+					if exceptionType != "" {
+						targetHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, exceptionType, "error")
+						provenance := "ast_inferred"
+						edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "throws", provenance)
+						*edges = append(*edges, types.Edge{
+							EdgeHash:   edgeHash,
+							SourceHash: sourceHash,
+							TargetHash: targetHash,
+							EdgeType:   "throws",
+							Confidence: 0.7,
+							Provenance: provenance,
+						})
+					}
+				}
+			}
+		}
+	}
+	for i := 0; i < int(node.ChildCount()); i++ {
+		walkForThrowStatements(node.Child(i), opts, pkgPath, sourceHash, edges)
+	}
+}
+
 // extractMethodInvocation creates a call edge for a method_invocation node.
 // Handles both object.method() and simple method() calls.
 func extractMethodInvocation(node *sitter.Node, opts types.ExtractOptions, pkgPath string, sourceHash types.Hash) *types.Edge {
