@@ -955,11 +955,12 @@ The context packing subsystem produces token-budgeted, graph-ranked context bloc
 
 ```
 internal/context/
-├── context.go       ContextEngine: ForTask, ForFiles entry points, density-ranked knapsack packing
+├── context.go       ContextEngine: ForTask, ForFiles entry points, 4-channel RRF fusion, knapsack packing
+├── equivalence.go   Equivalence class seed retrieval: 20 concepts, 200+ phrases -> target symbols
 ├── ranking.go       RankSymbols: weighted scoring formula with HITS authority + session boost
 ├── hits.go          ComputeHITS: hub/authority scores for subgraph reranking
 ├── session.go       SessionTracker: exponential-decay recency boost for symbols accessed in-session
-├── walk.go          Random Walk with Restart (RWR) for graph proximity scoring
+├── walk.go          Random Walk with Restart (RWR) for graph proximity scoring (4-hop BFS depth limit)
 ├── tokens.go        EstimateNodeTokens: per-symbol token cost estimation
 └── format.go        FormatContextBlock: XML, Markdown, JSON output
 ```
@@ -1000,9 +1001,36 @@ After initial scoring, the top candidates are reranked using HITS (Hyperlink-Ind
 
 Symbols are not packed by raw score alone. The packer uses a density-ranked greedy fractional knapsack approach: symbols are sorted by their score/cost ratio (where cost is estimated token count), so that high-value, low-cost symbols are included preferentially over expensive symbols (long functions) when the budget is tight. This maximizes the total relevance delivered per token.
 
+### 4-Channel RRF Seed Fusion
+
+Seed selection uses Reciprocal Rank Fusion (`rrfFuseMulti`) across four channels:
+
+| Channel | Weight | Source |
+|---------|--------|--------|
+| 1. Tiered keyword matching | 3.0 | 5-tier exact/prefix/substring/path/interface matching |
+| 2. BM25 FTS5 | 1.0 | SQLite FTS5 over qualified_name, signature, file_path |
+| 3. Vector/embedding search | 0.0 | BGE-small-en-v1.5 via HNSW (disabled pending code-tuned model) |
+| 4. Equivalence class matching | 2.0 | 20 concept classes, 200+ phrases mapped to target symbols |
+
+This replaces the previous approach of tiered matching with conditional BM25 fallback. The `rrfFuseMulti` function handles N channels with per-channel weights, producing a single ranked seed set.
+
+### Equivalence Class Seed Retrieval
+
+The equivalence class system (`internal/context/equivalence.go`) bridges the vocabulary gap between natural-language task descriptions and code symbol names. It contains 20 hand-curated concept classes (TRANSITIVE_IMPACT, SYMBOL_LOOKUP, DATAFLOW_TRACE, TEST_SELECTION, etc.) with 200+ phrases mapped to specific target symbols. Cross-product expansion with action verbs generates additional phrase variants.
+
+This was the biggest single-feature improvement: hard tier P@10 rose from 10% to 18% (+8pp). It is fused as RRF Channel 4 with weight 2.0.
+
 ### BM25 Full-Text Search (FTS5 Index)
 
-Migration 006 adds an SQLite FTS5 virtual table (`nodes_fts`) over `qualified_name`, `signature`, and `file_path`. Tokenization uses CamelCase-aware splitting (`splitForFTS`, `splitCamelCase`) so that a query for "Store" matches "SQLiteStore" or "NewSQLiteStore". The FTS index supplements the tiered keyword matching: when fewer than 8 candidates are found via the 5-tier seeding, the engine falls back to a BM25 ranked FTS query to broaden coverage. `RebuildFTS` is called after batch indexing to keep the index current.
+Migration 006 adds an SQLite FTS5 virtual table (`nodes_fts`) over `qualified_name`, `signature`, and `file_path`. Tokenization uses CamelCase-aware splitting (`splitForFTS`, `splitCamelCase`) so that a query for "Store" matches "SQLiteStore" or "NewSQLiteStore". `RebuildFTS` is called after batch indexing to keep the index current. BM25 is fused as RRF Channel 2 with weight 1.0.
+
+### Embedding Search (Infrastructure Shipped, Disabled)
+
+The embedding model is BGE-small-en-v1.5 (384 dimensions, retrieval-tuned), replacing the initially tested MiniLM-L6-v2. Infrastructure: hugot ONNX runtime, coder/hnsw index, RRF Channel 3 (weight 0.0). Off-the-shelf models tested net-negative on the eval (see `eval/EXPERIMENTS.md`). Embed text includes doc comments (Node.Doc field, extracted via tree-sitter) for future code-tuned models. Enable with `KNOWING_EMBEDDINGS=1`.
+
+### Doc Comment Extraction
+
+Migration 007 adds a `doc` column to the nodes table. The Go tree-sitter extractor extracts doc comments for functions, methods, and types using a language-agnostic `extractDocComment` function that walks tree-sitter `PrevSibling` nodes to collect adjacent comment blocks. Doc comments are stored in the `Node.Doc` field and included in embedding text for improved vector search quality when a code-tuned model becomes available.
 
 ### Noise Filtering
 
@@ -1013,13 +1041,12 @@ Before scoring, `filterNoisySymbols` removes low-signal candidates:
 ### ForTask Flow
 
 1. Extract keywords from the task description (stop-word filtered, CamelCase split, deduplicated).
-2. Seed candidate nodes via 5-tier matching:
-   - Tier 1: exact symbol name match (highest quality)
-   - Tier 2: prefix match on the last path component
-   - Tier 3: substring match (capped at 20 per keyword)
-   - Tier 4: file-path keyword matching
-   - Tier 5: interface-aware seeding (implementations of matched interfaces)
-3. If fewer than 8 candidates are found, supplement via BM25 FTS5 search.
+2. Run 4-channel RRF seed fusion:
+   - Channel 1 (weight 3.0): 5-tier keyword matching (exact > prefix > substring > path > interface)
+   - Channel 2 (weight 1.0): BM25 FTS5 search
+   - Channel 3 (weight 0.0): Vector/embedding search (disabled)
+   - Channel 4 (weight 2.0): Equivalence class matching (20 concepts, 200+ phrases)
+3. `rrfFuseMulti` merges all channels into a single ranked seed set.
 4. Filter noisy symbols (mocks, stubs, fakes, build artifacts).
 5. For each candidate node, retrieve callers and callees (distance-0 and distance-1 neighborhood).
 6. Score all candidates via `RankSymbols` (including session boost).
@@ -1424,6 +1451,8 @@ internal/store/migrations/
   002_add_dangling_edge_support.sql
   003_add_callsite_columns.sql
   004_add_runtime_columns.sql
+  006_add_fts5_index.sql
+  007_add_doc_column.sql
 ```
 
 **Why:**

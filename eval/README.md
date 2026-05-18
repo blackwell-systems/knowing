@@ -57,7 +57,7 @@ Ground truth uses flexible matching: `package.Symbol` matches qualified names li
 | **Overall** | **30.5%** | **59.0%** | **0.53** | **55** |
 
 **Pipeline (all shipped):**
-- 4-tier keyword matching (exact > prefix > substring > path)
+- 5-tier keyword matching (exact > prefix > substring > path > interface)
 - BM25 FTS5 index with CamelCase-aware tokenization
 - Bigram compound keyword extraction ("blast radius" -> BlastRadius)
 - Equivalence class seed retrieval (20 concepts, 200+ phrases -> target symbols)
@@ -84,15 +84,17 @@ Ground truth should be "what symbols would an expert developer actually need to 
 
 Each engine improvement should be measurable through this eval:
 
-| Improvement | Expected effect |
-|-------------|----------------|
-| Better keyword extraction | Easy tier improves (seeds find more relevant symbols) |
-| BM25 FTS5 index | Medium/hard improve (finds symbols by signature/path content) |
-| Session-aware boosts | All tiers improve for repeat queries within a session |
-| LLM query rewriting | Hard tier improves ("auth handling" -> specific symbol names) |
-| Embeddings (MiniLM) | Hard tier improves (concept-level matching) |
-| Community-scoped walking | Hard tier improves (walks stay within relevant subsystems) |
-| RRF fusion | All tiers improve (combines multiple seed sources intelligently) |
+| Improvement | Status | Expected effect |
+|-------------|--------|----------------|
+| Better keyword extraction | **shipped** | Easy tier improves (seeds find more relevant symbols) |
+| BM25 FTS5 index | **shipped** | Medium/hard improve (finds symbols by signature/path content) |
+| Session-aware boosts | **shipped** | All tiers improve for repeat queries within a session |
+| Equivalence class seeds | **shipped** | Hard tier +8pp (bridges vocabulary gap for known concepts) |
+| 4-channel RRF fusion | **shipped** | All tiers improve (combines tiered, BM25, vector, equivalence) |
+| Doc comment extraction | **shipped** | Enriches embed text for future code-tuned models |
+| LLM query rewriting | planned | Hard tier improves ("auth handling" -> specific symbol names) |
+| Embeddings (code-tuned) | planned | Hard tier improves (concept-level matching). BGE-small infra shipped, disabled. |
+| Community-scoped walking | planned | Hard tier improves (walks stay within relevant subsystems) |
 
 ## Cross-Tool Comparison
 

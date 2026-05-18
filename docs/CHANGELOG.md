@@ -36,6 +36,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - BM25 full-text search via FTS5 index (migration 006): `nodes_fts` virtual table over qualified_name, signature, file_path with CamelCase-aware tokenization. Supplements 5-tier keyword seeding when fewer than 8 candidates found.
 - Session-aware retrieval boosts (`internal/context/session.go`): `SessionTracker` applies exponential-decay recency boost (3-minute half-life, capped at 2.0x, 0.20 weight) to symbols returned by recent context queries. One tracker per MCP server lifetime.
 - Noise filtering (`filterNoisySymbols`): excludes mock/stub/fake symbols and `/build/`/`.bundle.` file paths from context candidates.
+- Equivalence class seed retrieval (`internal/context/equivalence.go`): 20 hand-curated concept classes (TRANSITIVE_IMPACT, SYMBOL_LOOKUP, DATAFLOW_TRACE, TEST_SELECTION, etc.) with 200+ phrases mapped to target symbols. Cross-product expansion with action verbs. Fused as RRF Channel 4 (weight 2.0). Biggest single-feature improvement: hard tier P@10 10% to 18%.
+- 4-channel RRF fusion (`rrfFuseMulti` in `internal/context/context.go`): replaces single-channel tiered matching with N-channel Reciprocal Rank Fusion. Channel 1: tiered keywords (weight 3.0), Channel 2: BM25 FTS5 (weight 1.0), Channel 3: vector/embedding (weight 0.0, disabled), Channel 4: equivalence classes (weight 2.0).
+- Doc comment extraction (Node.Doc field): migration 007 adds `doc` column to nodes table. Go tree-sitter extractor extracts doc comments for functions, methods, and types via language-agnostic `extractDocComment` function (uses tree-sitter PrevSibling). Included in embedding text.
+- BGE-small-en-v1.5 embedding model: replaces MiniLM-L6-v2 (same 384 dims, retrieval-tuned). Currently disabled (weight 0.0) as off-the-shelf models tested net-negative. Infrastructure preserved: hugot ONNX runtime, coder/hnsw, RRF channel.
+- BFS depth limit on RWR walk (`buildAdjacencyMap` in `internal/context/walk.go`): limited to 4 hops from seeds for performance improvement.
+- Eval expanded to 55 fixtures (20 easy, 20 medium, 15 hard). Current baseline: Easy 38.5%, Medium 32.0%, Hard 18.0%, Overall 30.5% P@10, 0.53 MRR.
+- MCP `notifications/message` notification when vector index is ready after indexing.
 
 ### Fixed
 

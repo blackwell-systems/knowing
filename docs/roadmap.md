@@ -74,13 +74,20 @@ Core pipeline complete. v2 refinements identified.
 | context_for_pr MCP tool | PR-scoped context (changed files + diff + relationship awareness) | **done** |
 | Feedback-aware scoring | FeedbackProvider interface wired into ContextEngine for ranking improvement | **done** |
 | MCP resources | knowing://context/<scope> subscribable resources | planned |
-| Semantic embedding seeds | MiniLM-L6-v2 embeddings for concept-level retrieval (see below) | planned (high impact) |
+| Equivalence class seeds | 20 concepts, 200+ phrases, RRF Channel 4 (weight 2.0). Hard tier +8pp. | **done** |
+| 4-channel RRF fusion | rrfFuseMulti: tiered (3.0) + BM25 (1.0) + vector (0.0) + equivalence (2.0) | **done** |
+| Doc comment extraction | Node.Doc field, migration 007, tree-sitter PrevSibling extraction | **done** |
+| BGE-small-en-v1.5 embeddings | Replaces MiniLM-L6-v2, disabled (weight 0.0), awaiting code-tuned model | **done** (infra) |
+| BFS depth limit on RWR | buildAdjacencyMap limited to 4 hops from seeds | **done** |
+| MCP vector index notification | notifications/message when vector index ready | **done** |
+| Semantic embedding activation | Enable vector channel with code-tuned model | planned (high impact) |
 
 ### Retrieval Pipeline Architecture
 
 The context engine's strength is the back half: once it has good seeds, graph expansion + HITS +
-feedback + knapsack produce compact, useful context. The weakness is the front door: lexical seed
-discovery. Eval baseline: easy 42%, medium 24%, hard 10% (after BM25 FTS5, mock filtering, eval fix).
+feedback + knapsack produce compact, useful context. The front door has improved significantly with
+equivalence class seeding and 4-channel RRF fusion. Current eval baseline (55 fixtures): easy 38.5%,
+medium 32.0%, hard 18.0%, overall 30.5% P@10, 0.53 MRR.
 
 **Target pipeline:**
 
@@ -102,19 +109,22 @@ task / diff / session state
 | 1 | Session-aware boosts | Track symbols returned this session, exponential-decay boost (3-min half-life, 2.0x cap) | Cheapest win. Zero infrastructure. | **done** |
 | 2 | BM25 over symbol metadata | FTS5 index over qualified names + signatures + file paths, CamelCase-aware tokenization | Fixes lexical failures without ML. SQLite FTS5. | **done** |
 | 3 | LLM query rewriting | Fast LLM converts NL to candidate symbol names before seeding | "make auth faster" -> ["auth", "session", "middleware", "cache"]. No model download. | Low-Medium |
-| 4 | RRF fusion | Merge keyword, BM25, path, feedback, and session signals with RRF (k=60) | Combines all seed sources into one ranked seed set. Proven technique. | Medium |
+| 4 | RRF fusion | 4-channel rrfFuseMulti: tiered (3.0) + BM25 (1.0) + vector (0.0) + equivalence (2.0) | Combines all seed sources into one ranked seed set. | **done** |
+| 4b | Equivalence classes | 20 concepts, 200+ phrases, RRF Channel 4 (weight 2.0). Hard +8pp. | Bridges vocabulary gap locally, deterministically. | **done** |
 | 5 | Community-aware retrieval | Identify likely community from seeds, constrain walk to relevant subsystem | Prevents RWR from wandering into unrelated packages. | Medium |
-| 6 | Embeddings (MiniLM-L6-v2) | Embed symbols at index time, nearest-neighbor at query time | Handles concept queries with zero keyword overlap. Highest ceiling. | Medium-High |
+| 6 | Embeddings (BGE-small-en-v1.5) | Embed symbols at index time, nearest-neighbor at query time. Infra shipped, disabled (weight 0). | Handles concept queries with zero keyword overlap. Awaiting code-tuned model. | Medium-High |
 | 7 | Cross-encoder reranker | LLM or cross-encoder scores top-50 against query | Maximum accuracy for high-stakes queries (PR review, blast radius). | High |
 
 **Dependencies:** Each stage is independently valuable. 1-3 can ship in parallel. 4 composes
 them. 5-7 build on the fused pipeline.
 
 **Embedding status (infrastructure shipped, model disabled):**
-- Infrastructure: hugot ONNX runtime + coder/hnsw + RRF channel (weight 0, ready to enable)
-- Tested MiniLM-L6-v2 and BGE-small-en-v1.5: both net-negative on eval (see eval/EXPERIMENTS.md)
-- Rich embed text with doc comments implemented but doesn't compensate for model weakness
+- Infrastructure: hugot ONNX runtime + coder/hnsw + RRF Channel 3 (weight 0, ready to enable)
+- Model: BGE-small-en-v1.5 (384 dims, retrieval-tuned), replaces initially tested MiniLM-L6-v2
+- Both MiniLM-L6-v2 and BGE-small-en-v1.5 tested net-negative on eval (see eval/EXPERIMENTS.md)
+- Rich embed text with doc comments (Node.Doc field, migration 007) implemented but doesn't compensate for model weakness
 - Root cause: off-the-shelf models can't bridge code vocabulary gap ("blast radius" != "TransitiveCallers")
+- Equivalence classes now solve the vocabulary gap problem locally and deterministically for known concepts
 
 **Embedding improvement sequence:**
 1. Keep as optional RRF channel (weight 0), not the primary path
@@ -125,10 +135,10 @@ them. 5-7 build on the fused pipeline.
 6. Distill/fine-tune into small local model if hosted benchmark shows lift
 
 **Current eval baseline (55 fixtures):**
-- Easy: 36.5% P@10, 0.60 MRR (20 fixtures)
-- Medium: 29.5% P@10, 0.55 MRR (20 fixtures)
-- Hard: 10.0% P@10, 0.16 MRR (15 fixtures)
-- Overall: 26.7% P@10, 0.46 MRR
+- Easy: 38.5% P@10, 0.63 MRR (20 fixtures)
+- Medium: 32.0% P@10, 0.62 MRR (20 fixtures)
+- Hard: 18.0% P@10, 0.27 MRR (15 fixtures)
+- Overall: 30.5% P@10, 0.53 MRR
 
 **Competitor implementations (studied at code level):**
 

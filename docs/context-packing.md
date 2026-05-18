@@ -8,7 +8,7 @@ window.
 
 ## How It Works (End-to-End Flow)
 
-The pipeline has eight stages:
+The pipeline has nine stages:
 
 ```
 Task Description
@@ -17,13 +17,13 @@ Task Description
 [1. Keyword Extraction]    -- split CamelCase, expand abbreviations, filter stop words
     |
     v
-[2. Seed Selection]        -- 5-tier matching + BM25 FTS5 fallback when < 8 candidates
+[2. Seed Selection]        -- 4-channel RRF fusion (tiered keywords, BM25, vector, equivalence classes)
     |
     v
 [3. Noise Filtering]       -- exclude mock/stub/fake symbols and build artifacts
     |
     v
-[4. Random Walk with Restart]  -- propagate relevance through graph structure
+[4. Random Walk with Restart]  -- propagate relevance through graph structure (BFS depth limit: 4 hops)
     |
     v
 [5. Scoring]               -- weighted formula: blast_radius + confidence + recency + distance + session_boost
@@ -36,6 +36,9 @@ Task Description
     |
     v
 [8. Output Formatting]     -- XML / Markdown / JSON / GCF / GCB with distance-based grouping
+    |
+    v
+[9. MCP Notification]      -- notifications/message when vector index is ready
 ```
 
 Two entry points exist:
@@ -128,10 +131,10 @@ to [0, 1] relative to the maximum score in the distribution.
 
 ### Implementation details
 
-The `buildAdjacencyMap` function pre-loads the entire reachable subgraph (BFS from seeds
-until no new nodes are discovered) into in-memory adjacency maps before the iteration loop
-begins. This means the RWR iteration requires zero database queries, making it fast even
-for large subgraphs.
+The `buildAdjacencyMap` function pre-loads the reachable subgraph (BFS from seeds, limited
+to 4 hops) into in-memory adjacency maps before the iteration loop begins. This means the
+RWR iteration requires zero database queries, making it fast even for large subgraphs. The
+4-hop depth limit improves performance without affecting ranking quality.
 
 Dead-end nodes (no outgoing edges) redistribute their probability back to the seed set,
 effectively acting as an implicit restart.
@@ -200,14 +203,47 @@ The half-life is tuned for AI agent sessions where a context query every 30-90 s
 typical. Symbols accessed within the last minute receive near-maximum boost; those from
 5+ minutes ago contribute negligibly.
 
-## BM25 Full-Text Search Fallback
+## Seed Retrieval: 4-Channel RRF Fusion
 
-When the 5-tier keyword seeding yields fewer than 8 candidates, the engine supplements
-results with a BM25-ranked FTS5 query. Migration 006 creates a `nodes_fts` virtual table
-over `qualified_name`, `signature`, and `file_path`. Tokenization uses CamelCase-aware
-splitting (`splitForFTS`, `splitCamelCase`) so that compound identifiers (e.g.,
-"SQLiteStore") are indexed as individual terms ("SQLite", "Store"). `RebuildFTS` is called
-after batch indexing to keep the FTS content synchronized with the nodes table.
+Seed selection uses Reciprocal Rank Fusion (RRF) across four channels, replacing the
+previous single-channel tiered matching with BM25 fallback. The function `rrfFuseMulti`
+merges ranked lists from all channels into a single seed set:
+
+| Channel | Weight | Source |
+|---------|--------|--------|
+| 1. Tiered keyword matching | 3.0 | 5-tier exact/prefix/substring/path/interface matching |
+| 2. BM25 FTS5 | 1.0 | SQLite FTS5 over qualified_name, signature, file_path (CamelCase-aware tokenization) |
+| 3. Vector/embedding search | 0.0 | BGE-small-en-v1.5 via HNSW (disabled pending code-tuned model) |
+| 4. Equivalence class matching | 2.0 | 20 hand-curated concept classes with 200+ phrases mapped to target symbols |
+
+### BM25 Full-Text Search (Channel 2)
+
+Migration 006 creates an `nodes_fts` virtual table over `qualified_name`, `signature`, and
+`file_path`. Tokenization uses CamelCase-aware splitting (`splitForFTS`, `splitCamelCase`)
+so that compound identifiers (e.g., "SQLiteStore") are indexed as individual terms
+("SQLite", "Store"). `RebuildFTS` is called after batch indexing to keep the FTS content
+synchronized with the nodes table.
+
+### Embedding Search (Channel 3)
+
+Infrastructure is fully shipped: hugot ONNX runtime, coder/hnsw index, and RRF channel
+integration. The embedding model is BGE-small-en-v1.5 (384 dimensions, retrieval-tuned).
+Currently disabled (weight 0.0) because off-the-shelf models tested net-negative on the
+eval (see `eval/EXPERIMENTS.md`). Embed text includes doc comments (Node.Doc field) for
+future code-tuned models. Enable with `KNOWING_EMBEDDINGS=1`.
+
+### Equivalence Class Matching (Channel 4)
+
+The equivalence class system (`internal/context/equivalence.go`) bridges the vocabulary gap
+between natural-language task descriptions and code symbol names. It contains 20 hand-curated
+concept classes (TRANSITIVE_IMPACT, SYMBOL_LOOKUP, DATAFLOW_TRACE, TEST_SELECTION, etc.)
+with 200+ phrases mapped to specific target symbols. Cross-product expansion with action
+verbs generates additional phrase variants.
+
+Example: the phrase "blast radius" maps to concept TRANSITIVE_IMPACT, which targets symbols
+like `TransitiveCallers`, `handleBlastRadius`, and `BlastRadius`.
+
+This was the biggest single-feature improvement: hard tier 10% to 18% P@10 (+8pp).
 
 ## Noise Filtering
 
@@ -395,17 +431,21 @@ Flat scores across the result set indicate one of:
 
 ## Limitations
 
-1. **No semantic understanding of task descriptions.** The system does substring matching on
-   qualified names. It cannot understand that "optimize database queries" relates to
-   functions that issue SQL, unless those functions contain "database" or "query" in their
-   names.
+1. **Limited semantic understanding of task descriptions.** The system uses substring matching,
+   BM25, and equivalence classes for seed selection. Equivalence classes bridge common
+   vocabulary gaps (e.g., "blast radius" to `TransitiveCallers`), but concepts not covered
+   by the 20 curated classes still rely on lexical matching. The system cannot understand
+   that "optimize database queries" relates to functions that issue SQL, unless those
+   functions contain "database" or "query" in their names or are covered by an equivalence
+   class.
 
-2. **No embeddings.** There is no vector similarity search. Relevance is purely structural
-   (graph topology) and lexical (keyword substring matching).
+2. **Embeddings disabled.** Vector similarity search infrastructure exists (BGE-small-en-v1.5,
+   HNSW index, RRF channel) but is disabled (weight 0.0) because off-the-shelf models tested
+   net-negative on the eval. Awaiting code-tuned or fine-tuned models.
 
-3. **Substring matching only.** `NodesByName` uses SQL `LIKE %keyword%` for candidate
-   selection. This means a keyword "auth" matches `AuthService`, `OAuth2Handler`, and
-   `unauthorized_error` equally.
+3. **Substring matching only for tiered seeding.** `NodesByName` uses SQL `LIKE %keyword%`
+   for candidate selection. This means a keyword "auth" matches `AuthService`,
+   `OAuth2Handler`, and `unauthorized_error` equally.
 
 4. **Duplicate nodes from multiple index runs.** If a file is indexed multiple times with
    slightly different qualified name computation (e.g., different module roots), the graph

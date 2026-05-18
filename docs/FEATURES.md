@@ -1,6 +1,6 @@
 # FEATURES.md -- Comprehensive Feature Dump for AI Reference
 
-Generated: 2026-05-15 (updated: 2026-05-17, features 40-58 added, stale statuses corrected)
+Generated: 2026-05-15 (updated: 2026-05-17, features 40-64 added, stale statuses corrected)
 Source: code inspection of all Go files across internal/, cmd/, and config
 Repo: github.com/blackwell-systems/knowing
 
@@ -610,7 +610,7 @@ Repo: github.com/blackwell-systems/knowing
   3. **Substring match:** Node qualified name contains a task keyword as a substring.
   4. **File-path matching:** Nodes whose file path matches task-referenced files.
   5. **Interface-aware seeding:** If a seed is an interface, its implementations are also seeded.
-- **Why it matters:** Ensures the context engine finds relevant starting points even for vague task descriptions, while prioritizing precise matches higher in the ranking.
+- **Why it matters:** Ensures the context engine finds relevant starting points even for vague task descriptions, while prioritizing precise matches higher in the ranking. Now fused as RRF Channel 1 (weight 3.0) alongside BM25, vector, and equivalence class channels.
 
 ### 52. Density-Ranked Knapsack Packing
 
@@ -665,6 +665,47 @@ Repo: github.com/blackwell-systems/knowing
 - **Entry point:** `filterNoisySymbols` in `internal/context/context.go`
 - **What it does:** Removes low-signal symbols from context candidates before scoring. Excludes symbols with mock, fake, or stub in the qualified name (case-insensitive), and symbols whose file path contains `/build/` or `.bundle.` segments.
 - **Why it matters:** Prevents test infrastructure and build artifacts from consuming token budget in context output.
+
+### 59. Equivalence Class Seed Retrieval
+
+- **Package(s):** `internal/context/`
+- **Entry point:** `equivalence.go` in `internal/context/`
+- **What it does:** Bridges the vocabulary gap between natural-language task descriptions and code symbol names. Contains 20 hand-curated concept classes (TRANSITIVE_IMPACT, SYMBOL_LOOKUP, DATAFLOW_TRACE, TEST_SELECTION, etc.) with 200+ phrases mapped to specific target symbols. Cross-product expansion with action verbs generates additional phrase variants. Fused as RRF Channel 4 with weight 2.0.
+- **Why it matters:** Biggest single-feature improvement to retrieval accuracy. Hard tier P@10 rose from 10% to 18% (+8pp). Deterministic, zero dependencies, inspectable.
+
+### 60. 4-Channel RRF Fusion
+
+- **Package(s):** `internal/context/`
+- **Entry point:** `rrfFuseMulti` in `internal/context/context.go`
+- **What it does:** Replaces the previous single-channel tiered matching (with BM25 fallback) with a proper N-channel Reciprocal Rank Fusion system. Four channels: tiered keywords (weight 3.0), BM25 FTS5 (weight 1.0), vector/embedding search (weight 0.0, disabled), and equivalence class matching (weight 2.0). Each channel produces an independent ranked list; `rrfFuseMulti` merges them with per-channel weights.
+- **Why it matters:** Enables systematic combination of heterogeneous retrieval signals. Symbols appearing in multiple channels get promoted. New retrieval methods can be added as channels without disrupting existing ones.
+
+### 61. Doc Comment Extraction (Node.Doc Field)
+
+- **Package(s):** `internal/indexer/gotsextractor`, `internal/store`
+- **Migration:** `007_add_doc_column.sql`
+- **Entry point:** `extractDocComment` in the Go tree-sitter extractor
+- **What it does:** Extracts doc comments for functions, methods, and types using a language-agnostic function that walks tree-sitter `PrevSibling` nodes to collect adjacent comment blocks. Stored in the `Node.Doc` field (added by migration 007). Included in embedding text for future code-tuned models.
+- **Why it matters:** Provides natural-language descriptions of symbols for embedding search and potential future BM25 enrichment.
+
+### 62. BGE-small-en-v1.5 Embedding Model
+
+- **Package(s):** `internal/context/`
+- **What it does:** Replaces MiniLM-L6-v2 with BGE-small-en-v1.5 (384 dimensions, retrieval-tuned). Same infrastructure: hugot ONNX runtime, coder/hnsw index, RRF Channel 3. Currently disabled (weight 0.0) because off-the-shelf models tested net-negative on the eval.
+- **Why it matters:** Infrastructure is preserved and ready to enable when a code-tuned model becomes available. Enable with `KNOWING_EMBEDDINGS=1`.
+
+### 63. BFS Depth Limit on RWR Walk
+
+- **Package(s):** `internal/context/`
+- **Entry point:** `buildAdjacencyMap` in `internal/context/walk.go`
+- **What it does:** Limits the BFS exploration in `buildAdjacencyMap` to 4 hops from seed nodes (previously unbounded). Reduces the size of the in-memory adjacency map for large graphs.
+- **Why it matters:** Performance improvement for dense graphs without affecting ranking quality.
+
+### 64. MCP Vector Index Notification
+
+- **Package(s):** `internal/mcp/`
+- **What it does:** Sends a `notifications/message` MCP notification when the vector index is ready after indexing completes.
+- **Why it matters:** Allows MCP clients to know when embedding search is available without polling.
 
 ### GraphStore (`internal/types/interfaces.go`)
 
@@ -1011,6 +1052,7 @@ Primary key: `(service_name, route_pattern, mapping_type)`.
 | 003 | 003_add_callsite_columns.sql | Adds callsite_line, callsite_col, callsite_file to edges table |
 | 004 | 004_add_runtime_columns.sql | Adds observation_count and last_observed columns to edges table. Creates route_symbols table with composite PK (service_name, route_pattern, mapping_type). Adds idx_route_symbols_node, idx_edges_provenance, idx_edges_last_observed indexes. |
 | 006 | 006_add_fts5_index.sql | Creates FTS5 virtual table `nodes_fts` over qualified_name, signature, file_path for BM25 full-text search. |
+| 007 | 007_add_doc_column.sql | Adds `doc` column to nodes table for storing extracted doc comments. |
 
 ---
 
