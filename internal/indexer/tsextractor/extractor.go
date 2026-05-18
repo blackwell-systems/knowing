@@ -200,6 +200,16 @@ func (e *TypeScriptExtractor) extractNode(
 	case "class_declaration":
 		n := extractClassDecl(node, opts, qnamePrefix)
 		*nodes = append(*nodes, n)
+
+		// Emit extends edge if the class has an extends clause.
+		extractExtendsClause(node, opts, qnamePrefix, n.NodeHash, edges)
+
+		// Emit implements edges if the class has an implements clause.
+		extractImplementsClause(node, opts, qnamePrefix, n.NodeHash, edges)
+
+		// Emit decorates edges for decorators on this class.
+		extractTSDecoratorEdges(node, opts, qnamePrefix, n.NodeHash, edges)
+
 		// Walk class body for methods.
 		body := node.ChildByFieldName("body")
 		nameNode := node.ChildByFieldName("name")
@@ -213,6 +223,13 @@ func (e *TypeScriptExtractor) extractNode(
 				if child.Type() == "method_definition" {
 					m := extractMethodDef(child, opts, qnamePrefix, clsName)
 					*nodes = append(*nodes, m)
+
+					// Emit overrides edge if the method has an override modifier.
+					extractOverrideEdge(child, opts, qnamePrefix, clsName, m.NodeHash, edges)
+
+					// Emit decorates edges for decorators on this method.
+					extractTSDecoratorEdges(child, opts, qnamePrefix, m.NodeHash, edges)
+
 					mBody := child.ChildByFieldName("body")
 					extractCallEdgesFromBody(mBody, opts, qnamePrefix, m.NodeHash, hasExpress, nodes, edges)
 				}
@@ -938,6 +955,151 @@ func deriveNextJSRoutePath(filePath string) string {
 
 	routeParts := parts[appIdx+1:]
 	return "/" + strings.Join(routeParts, "/")
+}
+
+// extractExtendsClause checks a class_declaration for an extends_clause child
+// and emits an "extends" edge from the class to the superclass.
+func extractExtendsClause(classNode *sitter.Node, opts types.ExtractOptions, qnamePrefix string, classHash types.Hash, edges *[]types.Edge) {
+	for i := 0; i < int(classNode.ChildCount()); i++ {
+		child := classNode.Child(i)
+		if child.Type() == "extends_clause" {
+			// The extends clause contains type references as children.
+			for j := 0; j < int(child.ChildCount()); j++ {
+				typeRef := child.Child(j)
+				if typeRef.Type() == "identifier" || typeRef.Type() == "type_identifier" || typeRef.Type() == "member_expression" {
+					superName := typeRef.Content(opts.Content)
+					targetHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, superName, "type")
+					prov := "ast_inferred"
+					edgeHash := types.ComputeEdgeHash(classHash, targetHash, "extends", prov)
+					*edges = append(*edges, types.Edge{
+						EdgeHash:   edgeHash,
+						SourceHash: classHash,
+						TargetHash: targetHash,
+						EdgeType:   "extends",
+						Confidence: 0.7,
+						Provenance: prov,
+					})
+					break // Only one superclass in TS/JS
+				}
+			}
+		}
+	}
+}
+
+// extractImplementsClause checks a class_declaration for an implements_clause
+// child and emits "implements" edges from the class to each interface.
+func extractImplementsClause(classNode *sitter.Node, opts types.ExtractOptions, qnamePrefix string, classHash types.Hash, edges *[]types.Edge) {
+	for i := 0; i < int(classNode.ChildCount()); i++ {
+		child := classNode.Child(i)
+		if child.Type() == "implements_clause" {
+			for j := 0; j < int(child.ChildCount()); j++ {
+				typeRef := child.Child(j)
+				if typeRef.Type() == "identifier" || typeRef.Type() == "type_identifier" || typeRef.Type() == "generic_type" {
+					ifaceName := typeRef.Content(opts.Content)
+					// Strip generic parameters for the target name.
+					if idx := strings.Index(ifaceName, "<"); idx > 0 {
+						ifaceName = ifaceName[:idx]
+					}
+					targetHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, ifaceName, "interface")
+					prov := "ast_inferred"
+					edgeHash := types.ComputeEdgeHash(classHash, targetHash, "implements", prov)
+					*edges = append(*edges, types.Edge{
+						EdgeHash:   edgeHash,
+						SourceHash: classHash,
+						TargetHash: targetHash,
+						EdgeType:   "implements",
+						Confidence: 0.7,
+						Provenance: prov,
+					})
+				}
+			}
+		}
+	}
+}
+
+// extractOverrideEdge checks if a method_definition has an "override" modifier
+// and emits an "overrides" edge from the method to the parent class method.
+func extractOverrideEdge(methodNode *sitter.Node, opts types.ExtractOptions, qnamePrefix, className string, methodHash types.Hash, edges *[]types.Edge) {
+	// In tree-sitter TypeScript, the override keyword appears as a child of
+	// the method_definition or inside an accessibility_modifier.
+	hasOverride := false
+	for i := 0; i < int(methodNode.ChildCount()); i++ {
+		child := methodNode.Child(i)
+		if child.Type() == "override_modifier" || child.Content(opts.Content) == "override" {
+			hasOverride = true
+			break
+		}
+	}
+	if !hasOverride {
+		return
+	}
+
+	nameNode := methodNode.ChildByFieldName("name")
+	if nameNode == nil {
+		return
+	}
+	methodName := nameNode.Content(opts.Content)
+
+	// The target is the parent class method (best-effort: use className context).
+	targetName := "super." + methodName
+	targetHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, targetName, "method")
+	prov := "ast_inferred"
+	edgeHash := types.ComputeEdgeHash(methodHash, targetHash, "overrides", prov)
+	*edges = append(*edges, types.Edge{
+		EdgeHash:   edgeHash,
+		SourceHash: methodHash,
+		TargetHash: targetHash,
+		EdgeType:   "overrides",
+		Confidence: 0.7,
+		Provenance: prov,
+	})
+}
+
+// extractTSDecoratorEdges looks for decorator nodes that precede a declaration
+// and emits "decorates" edges from the decorator to the declaration.
+func extractTSDecoratorEdges(declNode *sitter.Node, opts types.ExtractOptions, qnamePrefix string, declHash types.Hash, edges *[]types.Edge) {
+	parent := declNode.Parent()
+	if parent == nil {
+		return
+	}
+	for i := 0; i < int(parent.ChildCount()); i++ {
+		child := parent.Child(i)
+		if child == declNode {
+			break
+		}
+		if child.Type() == "decorator" {
+			decoratorText := child.Content(opts.Content)
+			decoratorName := parseTSDecoratorName(decoratorText)
+			if decoratorName == "" {
+				continue
+			}
+			targetHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, decoratorName, "function")
+			prov := "ast_inferred"
+			edgeHash := types.ComputeEdgeHash(targetHash, declHash, "decorates", prov)
+			*edges = append(*edges, types.Edge{
+				EdgeHash:   edgeHash,
+				SourceHash: targetHash,
+				TargetHash: declHash,
+				EdgeType:   "decorates",
+				Confidence: 0.7,
+				Provenance: prov,
+			})
+		}
+	}
+}
+
+// parseTSDecoratorName extracts the decorator function name from a decorator
+// text like "@Component" or "@Injectable()".
+func parseTSDecoratorName(text string) string {
+	text = strings.TrimPrefix(text, "@")
+	if idx := strings.Index(text, "("); idx > 0 {
+		text = text[:idx]
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return ""
+	}
+	return text
 }
 
 // deduplicateEdges removes duplicate edges based on EdgeHash.

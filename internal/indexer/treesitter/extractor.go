@@ -167,6 +167,9 @@ func (e *TreeSitterExtractor) extractFunction(node *sitter.Node, opts types.Extr
 	n := e.makeNode(opts, qname, kind, line)
 	result.Nodes = append(result.Nodes, n)
 
+	// Emit decorates edges for decorators on this function/method.
+	e.extractPythonDecoratorEdges(node, opts, n.NodeHash, result)
+
 	// Walk function body for calls and imports.
 	body := node.ChildByFieldName("body")
 	if body != nil {
@@ -188,6 +191,12 @@ func (e *TreeSitterExtractor) extractClass(node *sitter.Node, opts types.Extract
 	qname := e.qualifiedName(opts, "", className)
 	n := e.makeNode(opts, qname, "type", line)
 	result.Nodes = append(result.Nodes, n)
+
+	// Emit extends edges for base classes (argument_list after class name).
+	e.extractPythonBaseClasses(node, opts, n.NodeHash, result)
+
+	// Emit decorates edges for decorators on this class.
+	e.extractPythonDecoratorEdges(node, opts, n.NodeHash, result)
 
 	// Walk class body with class context for methods.
 	body := node.ChildByFieldName("body")
@@ -520,6 +529,89 @@ func (e *TreeSitterExtractor) tryExtractDjangoPath(callNode *sitter.Node, opts t
 		Confidence: 0.7,
 		Provenance: "ast_inferred",
 	})
+}
+
+// extractPythonBaseClasses checks a class_definition for base classes in the
+// superclasses/argument_list field and emits "extends" edges.
+func (e *TreeSitterExtractor) extractPythonBaseClasses(classNode *sitter.Node, opts types.ExtractOptions, classHash types.Hash, result *types.ExtractResult) {
+	// In Python tree-sitter grammar, base classes appear in the "superclasses"
+	// field (an argument_list node).
+	superclasses := classNode.ChildByFieldName("superclasses")
+	if superclasses == nil {
+		return
+	}
+	for i := 0; i < int(superclasses.ChildCount()); i++ {
+		child := superclasses.Child(i)
+		// Skip punctuation: parens, commas.
+		if child.Type() == "(" || child.Type() == ")" || child.Type() == "," {
+			continue
+		}
+		// Skip keyword arguments like metaclass=ABCMeta.
+		if child.Type() == "keyword_argument" {
+			continue
+		}
+		baseName := child.Content(opts.Content)
+		if baseName == "" {
+			continue
+		}
+		targetHash := types.ComputeNodeHash(opts.RepoURL, opts.ModuleRoot, types.EmptyHash, baseName, "type")
+		provenance := "ast_inferred"
+		edgeHash := types.ComputeEdgeHash(classHash, targetHash, "extends", provenance)
+		result.Edges = append(result.Edges, types.Edge{
+			EdgeHash:   edgeHash,
+			SourceHash: classHash,
+			TargetHash: targetHash,
+			EdgeType:   "extends",
+			Confidence: 0.7,
+			Provenance: provenance,
+		})
+	}
+}
+
+// extractPythonDecoratorEdges checks for decorator nodes that precede a
+// function or class definition (inside a decorated_definition parent) and
+// emits "decorates" edges from the decorator to the declaration.
+func (e *TreeSitterExtractor) extractPythonDecoratorEdges(declNode *sitter.Node, opts types.ExtractOptions, declHash types.Hash, result *types.ExtractResult) {
+	parent := declNode.Parent()
+	if parent == nil || parent.Type() != "decorated_definition" {
+		return
+	}
+	for i := 0; i < int(parent.ChildCount()); i++ {
+		child := parent.Child(i)
+		if child == declNode {
+			break
+		}
+		if child.Type() == "decorator" {
+			decoratorText := child.Content(opts.Content)
+			decoratorName := parsePythonDecoratorName(decoratorText)
+			if decoratorName == "" {
+				continue
+			}
+			targetHash := types.ComputeNodeHash(opts.RepoURL, opts.ModuleRoot, types.EmptyHash, decoratorName, "function")
+			provenance := "ast_inferred"
+			edgeHash := types.ComputeEdgeHash(targetHash, declHash, "decorates", provenance)
+			result.Edges = append(result.Edges, types.Edge{
+				EdgeHash:   edgeHash,
+				SourceHash: targetHash,
+				TargetHash: declHash,
+				EdgeType:   "decorates",
+				Confidence: 0.7,
+				Provenance: provenance,
+			})
+		}
+	}
+}
+
+// parsePythonDecoratorName extracts the decorator function name from text
+// like "@staticmethod" or "@app.route('/path')". Returns the name portion
+// before any arguments.
+func parsePythonDecoratorName(text string) string {
+	text = strings.TrimPrefix(text, "@")
+	if idx := strings.Index(text, "("); idx > 0 {
+		text = text[:idx]
+	}
+	text = strings.TrimSpace(text)
+	return text
 }
 
 // extractQuotedString finds the first single or double quoted string in text.

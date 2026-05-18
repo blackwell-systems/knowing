@@ -308,6 +308,12 @@ func (e *CSharpExtractor) extractClassDecl(node *sitter.Node, opts types.Extract
 		Signature:     fmt.Sprintf("class %s", name),
 	}
 
+	// Emit extends/implements edges from base_list.
+	e.extractCSharpBaseList(node, opts, nodeHash, edges)
+
+	// Emit decorates edges for attributes on the class.
+	e.extractCSharpAttributeEdges(node, opts, nodeHash, edges)
+
 	// Check for class-level route attributes (e.g., [Route("api/[controller]")]).
 	var routeNodes []types.Node
 	classRoute := e.extractClassRouteAttribute(node, opts, parentContext, name)
@@ -420,8 +426,17 @@ func (e *CSharpExtractor) extractMethodDecl(node *sitter.Node, opts types.Extrac
 		Signature:     fmt.Sprintf("method %s", name),
 	}
 
+	var semanticEdges []types.Edge
+
+	// Emit overrides edge if the method has the "override" modifier.
+	e.extractCSharpOverrideEdge(node, opts, name, nodeHash, &semanticEdges)
+
+	// Emit decorates edges for attributes on this method.
+	e.extractCSharpAttributeEdges(node, opts, nodeHash, &semanticEdges)
+
 	// Check for ASP.NET route attributes on this method.
 	routeNodes, routeEdges := e.extractMethodRouteAttributes(node, opts, parentContext, nodeHash)
+	routeEdges = append(routeEdges, semanticEdges...)
 
 	return methodNode, routeNodes, routeEdges
 }
@@ -727,6 +742,129 @@ func (e *CSharpExtractor) findFirstString(node *sitter.Node, content []byte) str
 		}
 	}
 	return ""
+}
+
+// extractCSharpBaseList checks a class_declaration for a base_list child and
+// emits "extends" or "implements" edges. In C#, the first type in the base list
+// is the superclass (if it is a class), and the rest are interfaces. Without
+// type resolution, we use a heuristic: names starting with "I" followed by an
+// uppercase letter are treated as interfaces; everything else is treated as a
+// superclass.
+func (e *CSharpExtractor) extractCSharpBaseList(classNode *sitter.Node, opts types.ExtractOptions, classHash types.Hash, edges *[]types.Edge) {
+	for i := 0; i < int(classNode.ChildCount()); i++ {
+		child := classNode.Child(i)
+		if child.Type() != "base_list" {
+			continue
+		}
+		first := true
+		for j := 0; j < int(child.ChildCount()); j++ {
+			baseRef := child.Child(j)
+			// Skip punctuation (colon, comma).
+			if baseRef.Type() == ":" || baseRef.Type() == "," {
+				continue
+			}
+			baseName := baseRef.Content(opts.Content)
+			if baseName == "" {
+				continue
+			}
+			// Strip generic parameters.
+			if idx := strings.Index(baseName, "<"); idx > 0 {
+				baseName = baseName[:idx]
+			}
+
+			// Heuristic: names starting with I + uppercase letter are interfaces.
+			isInterface := len(baseName) >= 2 && baseName[0] == 'I' && baseName[1] >= 'A' && baseName[1] <= 'Z'
+
+			if first && !isInterface {
+				// First non-interface entry is the superclass.
+				targetHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, baseName, "type")
+				prov := "ast_inferred"
+				edgeHash := types.ComputeEdgeHash(classHash, targetHash, "extends", prov)
+				*edges = append(*edges, types.Edge{
+					EdgeHash:   edgeHash,
+					SourceHash: classHash,
+					TargetHash: targetHash,
+					EdgeType:   "extends",
+					Confidence: 0.7,
+					Provenance: prov,
+				})
+				first = false
+				continue
+			}
+
+			targetHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, baseName, "interface")
+			prov := "ast_inferred"
+			edgeHash := types.ComputeEdgeHash(classHash, targetHash, "implements", prov)
+			*edges = append(*edges, types.Edge{
+				EdgeHash:   edgeHash,
+				SourceHash: classHash,
+				TargetHash: targetHash,
+				EdgeType:   "implements",
+				Confidence: 0.7,
+				Provenance: prov,
+			})
+			first = false
+		}
+	}
+}
+
+// extractCSharpOverrideEdge checks if a method has the "override" modifier
+// and emits an "overrides" edge.
+func (e *CSharpExtractor) extractCSharpOverrideEdge(methodNode *sitter.Node, opts types.ExtractOptions, methodName string, methodHash types.Hash, edges *[]types.Edge) {
+	hasOverride := false
+	for i := 0; i < int(methodNode.ChildCount()); i++ {
+		child := methodNode.Child(i)
+		if child.Type() == "modifier" && child.Content(opts.Content) == "override" {
+			hasOverride = true
+			break
+		}
+	}
+	if !hasOverride {
+		return
+	}
+
+	targetName := "base." + methodName
+	targetHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, targetName, "method")
+	prov := "ast_inferred"
+	edgeHash := types.ComputeEdgeHash(methodHash, targetHash, "overrides", prov)
+	*edges = append(*edges, types.Edge{
+		EdgeHash:   edgeHash,
+		SourceHash: methodHash,
+		TargetHash: targetHash,
+		EdgeType:   "overrides",
+		Confidence: 0.7,
+		Provenance: prov,
+	})
+}
+
+// extractCSharpAttributeEdges emits "decorates" edges for attribute_list
+// entries on a class or method declaration.
+func (e *CSharpExtractor) extractCSharpAttributeEdges(node *sitter.Node, opts types.ExtractOptions, declHash types.Hash, edges *[]types.Edge) {
+	attrs := e.findAttributeLists(node, opts.Content)
+	for _, attr := range attrs {
+		attrName := attr.name
+		if attrName == "" {
+			continue
+		}
+		// Skip ASP.NET route attributes (handled separately as route_handler edges).
+		if _, isRoute := aspNetRouteAttributes[attrName]; isRoute {
+			continue
+		}
+		if attrName == "Route" || attrName == "ApiController" {
+			continue
+		}
+		targetHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, attrName, "function")
+		prov := "ast_inferred"
+		edgeHash := types.ComputeEdgeHash(targetHash, declHash, "decorates", prov)
+		*edges = append(*edges, types.Edge{
+			EdgeHash:   edgeHash,
+			SourceHash: targetHash,
+			TargetHash: declHash,
+			EdgeType:   "decorates",
+			Confidence: 0.7,
+			Provenance: prov,
+		})
+	}
 }
 
 // deduplicateEdges removes duplicate edges based on EdgeHash.

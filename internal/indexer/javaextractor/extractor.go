@@ -178,6 +178,15 @@ func extractClassDecl(node *sitter.Node, opts types.ExtractOptions, pkgPath, par
 		Signature:     fmt.Sprintf("class %s", className),
 	})
 
+	// Emit extends edge if there is a superclass field.
+	extractJavaSuperclass(node, opts, pkgPath, nodeHash, &edges)
+
+	// Emit implements edges if there is a super_interfaces field.
+	extractJavaInterfaces(node, opts, pkgPath, nodeHash, &edges)
+
+	// Emit decorates edges for annotations on the class.
+	extractJavaAnnotationEdges(node, opts, pkgPath, nodeHash, &edges)
+
 	// Extract Spring route annotations on the class itself (e.g., @RequestMapping on class).
 	classRoutePrefix := extractAnnotationRoute(node, opts.Content)
 
@@ -293,6 +302,12 @@ func extractMethodDecl(node *sitter.Node, opts types.ExtractOptions, pkgPath, cl
 		Line:          line,
 		Signature:     fmt.Sprintf("%s.%s()", className, methodName),
 	})
+
+	// Emit overrides edge if @Override annotation is present.
+	extractJavaOverrideEdge(node, opts, pkgPath, className, methodName, nodeHash, &edges)
+
+	// Emit decorates edges for annotations on this method.
+	extractJavaAnnotationEdges(node, opts, pkgPath, nodeHash, &edges)
 
 	// Check for Spring route annotations on this method.
 	routeAnnotation, httpMethod := extractSpringAnnotation(node, opts.Content)
@@ -588,6 +603,150 @@ func findFirstStringLiteral(node *sitter.Node, content []byte) string {
 		}
 	}
 	return ""
+}
+
+// extractJavaSuperclass checks a class_declaration for a superclass field
+// and emits an "extends" edge from the class to the superclass.
+func extractJavaSuperclass(classNode *sitter.Node, opts types.ExtractOptions, pkgPath string, classHash types.Hash, edges *[]types.Edge) {
+	superNode := classNode.ChildByFieldName("superclass")
+	if superNode == nil {
+		return
+	}
+	// The superclass field may wrap the type name. Extract it.
+	superName := superNode.Content(opts.Content)
+	// Strip "extends " prefix if tree-sitter includes the keyword.
+	superName = strings.TrimPrefix(superName, "extends ")
+	superName = strings.TrimSpace(superName)
+	if superName == "" {
+		return
+	}
+
+	targetHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, superName, "type")
+	provenance := "ast_inferred"
+	edgeHash := types.ComputeEdgeHash(classHash, targetHash, "extends", provenance)
+	*edges = append(*edges, types.Edge{
+		EdgeHash:   edgeHash,
+		SourceHash: classHash,
+		TargetHash: targetHash,
+		EdgeType:   "extends",
+		Confidence: 0.7,
+		Provenance: provenance,
+	})
+}
+
+// extractJavaInterfaces checks a class_declaration for a super_interfaces field
+// and emits "implements" edges from the class to each interface.
+func extractJavaInterfaces(classNode *sitter.Node, opts types.ExtractOptions, pkgPath string, classHash types.Hash, edges *[]types.Edge) {
+	ifacesNode := classNode.ChildByFieldName("interfaces")
+	if ifacesNode == nil {
+		return
+	}
+	// The interfaces node (super_interfaces) contains type_list with type identifiers.
+	for i := 0; i < int(ifacesNode.ChildCount()); i++ {
+		child := ifacesNode.Child(i)
+		if child.Type() == "type_list" {
+			for j := 0; j < int(child.ChildCount()); j++ {
+				typeRef := child.Child(j)
+				if typeRef.Type() == "type_identifier" || typeRef.Type() == "generic_type" || typeRef.Type() == "scoped_type_identifier" {
+					ifaceName := typeRef.Content(opts.Content)
+					if idx := strings.Index(ifaceName, "<"); idx > 0 {
+						ifaceName = ifaceName[:idx]
+					}
+					targetHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, ifaceName, "interface")
+					provenance := "ast_inferred"
+					edgeHash := types.ComputeEdgeHash(classHash, targetHash, "implements", provenance)
+					*edges = append(*edges, types.Edge{
+						EdgeHash:   edgeHash,
+						SourceHash: classHash,
+						TargetHash: targetHash,
+						EdgeType:   "implements",
+						Confidence: 0.7,
+						Provenance: provenance,
+					})
+				}
+			}
+		}
+		// If the child is directly a type identifier (no type_list wrapper).
+		if child.Type() == "type_identifier" || child.Type() == "generic_type" || child.Type() == "scoped_type_identifier" {
+			ifaceName := child.Content(opts.Content)
+			if idx := strings.Index(ifaceName, "<"); idx > 0 {
+				ifaceName = ifaceName[:idx]
+			}
+			targetHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, ifaceName, "interface")
+			provenance := "ast_inferred"
+			edgeHash := types.ComputeEdgeHash(classHash, targetHash, "implements", provenance)
+			*edges = append(*edges, types.Edge{
+				EdgeHash:   edgeHash,
+				SourceHash: classHash,
+				TargetHash: targetHash,
+				EdgeType:   "implements",
+				Confidence: 0.7,
+				Provenance: provenance,
+			})
+		}
+	}
+}
+
+// extractJavaOverrideEdge checks if a method has @Override annotation and
+// emits an "overrides" edge.
+func extractJavaOverrideEdge(methodNode *sitter.Node, opts types.ExtractOptions, pkgPath, className, methodName string, methodHash types.Hash, edges *[]types.Edge) {
+	for i := 0; i < int(methodNode.ChildCount()); i++ {
+		child := methodNode.Child(i)
+		if child.Type() == "modifiers" {
+			for j := 0; j < int(child.ChildCount()); j++ {
+				mod := child.Child(j)
+				if mod.Type() == "marker_annotation" || mod.Type() == "annotation" {
+					annName := extractAnnotationName(mod, opts.Content)
+					if annName == "Override" {
+						targetName := "super." + methodName
+						targetHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, targetName, "method")
+						provenance := "ast_inferred"
+						edgeHash := types.ComputeEdgeHash(methodHash, targetHash, "overrides", provenance)
+						*edges = append(*edges, types.Edge{
+							EdgeHash:   edgeHash,
+							SourceHash: methodHash,
+							TargetHash: targetHash,
+							EdgeType:   "overrides",
+							Confidence: 0.7,
+							Provenance: provenance,
+						})
+						return
+					}
+				}
+			}
+		}
+	}
+}
+
+// extractJavaAnnotationEdges emits "decorates" edges for annotations found
+// on a class or method declaration.
+func extractJavaAnnotationEdges(node *sitter.Node, opts types.ExtractOptions, pkgPath string, declHash types.Hash, edges *[]types.Edge) {
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		if child.Type() == "modifiers" {
+			for j := 0; j < int(child.ChildCount()); j++ {
+				mod := child.Child(j)
+				if mod.Type() == "annotation" || mod.Type() == "marker_annotation" {
+					annName := extractAnnotationName(mod, opts.Content)
+					if annName == "" || annName == "Override" {
+						// Skip @Override (handled as overrides edge).
+						continue
+					}
+					targetHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, annName, "function")
+					provenance := "ast_inferred"
+					edgeHash := types.ComputeEdgeHash(targetHash, declHash, "decorates", provenance)
+					*edges = append(*edges, types.Edge{
+						EdgeHash:   edgeHash,
+						SourceHash: targetHash,
+						TargetHash: declHash,
+						EdgeType:   "decorates",
+						Confidence: 0.7,
+						Provenance: provenance,
+					})
+				}
+			}
+		}
+	}
 }
 
 // deduplicateEdges removes duplicate edges based on EdgeHash.

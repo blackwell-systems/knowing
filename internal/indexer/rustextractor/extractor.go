@@ -155,12 +155,18 @@ func extractTopLevel(node *sitter.Node, opts types.ExtractOptions, basePath stri
 		n := extractStructItem(node, opts, basePath)
 		if n != nil {
 			nodes = append(nodes, *n)
+			// Emit decorates edges for derive macros and other attributes.
+			deriveEdges := extractDeriveAttributes(node, opts, basePath, n.NodeHash)
+			edges = append(edges, deriveEdges...)
 		}
 
 	case "enum_item":
 		n := extractEnumItem(node, opts, basePath)
 		if n != nil {
 			nodes = append(nodes, *n)
+			// Emit decorates edges for derive macros and other attributes.
+			deriveEdges := extractDeriveAttributes(node, opts, basePath, n.NodeHash)
+			edges = append(edges, deriveEdges...)
 		}
 
 	case "trait_item":
@@ -228,7 +234,8 @@ func extractFunctionItem(node *sitter.Node, opts types.ExtractOptions, basePath,
 }
 
 // extractImplItem extracts an impl_item node, producing method nodes for
-// each function_item in the impl body.
+// each function_item in the impl body. If the impl block is a trait impl
+// (impl Trait for Type), it also emits an "implements" edge.
 func extractImplItem(node *sitter.Node, opts types.ExtractOptions, basePath string) ([]types.Node, []types.Edge) {
 	// Get the impl target type.
 	typeNode := node.ChildByFieldName("type")
@@ -237,14 +244,33 @@ func extractImplItem(node *sitter.Node, opts types.ExtractOptions, basePath stri
 	}
 	implType := typeNode.Content(opts.Content)
 
+	var nodes []types.Node
+	var edges []types.Edge
+
+	// Check for trait name: "impl Trait for Type" has a "trait" field.
+	traitNode := node.ChildByFieldName("trait")
+	if traitNode != nil {
+		traitName := traitNode.Content(opts.Content)
+		if traitName != "" {
+			typeHash := types.ComputeNodeHash(opts.RepoURL, basePath, types.EmptyHash, implType, "type")
+			traitHash := types.ComputeNodeHash(opts.RepoURL, basePath, types.EmptyHash, traitName, "interface")
+			edgeHash := types.ComputeEdgeHash(typeHash, traitHash, "implements", provenance)
+			edges = append(edges, types.Edge{
+				EdgeHash:   edgeHash,
+				SourceHash: typeHash,
+				TargetHash: traitHash,
+				EdgeType:   "implements",
+				Confidence: confidence,
+				Provenance: provenance,
+			})
+		}
+	}
+
 	// Walk the body to find function_item children.
 	body := node.ChildByFieldName("body")
 	if body == nil {
-		return nil, nil
+		return nodes, edges
 	}
-
-	var nodes []types.Node
-	var edges []types.Edge
 
 	for i := 0; i < int(body.ChildCount()); i++ {
 		child := body.Child(i)
@@ -682,6 +708,55 @@ func extractAxumMethodAndHandler(argsNode *sitter.Node, content []byte) (string,
 		}
 	}
 	return "", ""
+}
+
+// extractDeriveAttributes checks for #[derive(Trait1, Trait2)] attribute items
+// on a struct or enum and emits "decorates" edges for each derived trait.
+func extractDeriveAttributes(node *sitter.Node, opts types.ExtractOptions, basePath string, declHash types.Hash) []types.Edge {
+	var edges []types.Edge
+	parent := node.Parent()
+	if parent == nil {
+		return edges
+	}
+
+	for i := 0; i < int(parent.ChildCount()); i++ {
+		child := parent.Child(i)
+		if child == node {
+			break
+		}
+		if child.Type() != "attribute_item" {
+			continue
+		}
+		attrText := child.Content(opts.Content)
+		// Match #[derive(Trait1, Trait2, ...)]
+		if !strings.HasPrefix(attrText, "#[derive(") {
+			continue
+		}
+		inner := attrText[len("#[derive("):]
+		endIdx := strings.Index(inner, ")")
+		if endIdx < 0 {
+			continue
+		}
+		inner = inner[:endIdx]
+		traits := strings.Split(inner, ",")
+		for _, t := range traits {
+			t = strings.TrimSpace(t)
+			if t == "" {
+				continue
+			}
+			targetHash := types.ComputeNodeHash(opts.RepoURL, basePath, types.EmptyHash, t, "function")
+			edgeHash := types.ComputeEdgeHash(targetHash, declHash, "decorates", provenance)
+			edges = append(edges, types.Edge{
+				EdgeHash:   edgeHash,
+				SourceHash: targetHash,
+				TargetHash: declHash,
+				EdgeType:   "decorates",
+				Confidence: confidence,
+				Provenance: provenance,
+			})
+		}
+	}
+	return edges
 }
 
 // deduplicateEdges removes duplicate edges based on EdgeHash.
