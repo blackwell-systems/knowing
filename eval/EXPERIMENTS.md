@@ -244,6 +244,38 @@ Log of all experiments run against the eval framework. Each entry records what w
 
 ---
 
+## Experiment 19: Expanded equivalence class phrases + EXTRACTOR concept
+
+**Date:** 2026-05-18
+**Hypothesis:** Adding missing phrases to existing classes and a new EXTRACTOR concept closes coverage gaps for 0% fixtures.
+**What:** Added "transitive callers", "graph fresh", "file changes", "external packages" to existing classes. New EXTRACTOR concept with "language extractor", "parser", "tree-sitter".
+**Result (55 fixtures):**
+- Easy: 38.5% -> 39.0% (+0.5pp)
+- Medium: 32.0% -> 32.0% (stable)
+- Hard: 18.0% -> 21.3% (+3.3pp)
+- Overall: 30.5% -> 31.6% (+1.1pp), MRR 0.53 -> 0.58
+
+**Conclusion:** Cheap, targeted phrase expansion keeps paying off. Adding phrases to existing concepts has near-zero risk and consistent returns.
+
+---
+
+## Experiment 20: BM25 neighbor enrichment (caller/callee names in FTS)
+
+**Date:** 2026-05-18
+**Hypothesis:** Appending CamelCase-split caller/callee symbol names to each node's FTS entry lets BM25 find symbols through their graph context. "blast radius" in a query would match TransitiveCallers because its caller handleBlastRadius contains those words.
+**What:** Second pass in RebuildFTS queries all edges, extracts neighbor symbol names, appends them (capped at 10, deduplicated) to the qualified_name FTS field.
+**Result (55 fixtures):**
+- Easy: 39.0% -> 34.5% (-4.5pp)
+- Medium: 32.0% -> 32.0% (stable)
+- Hard: 21.3% -> 20.7% (-0.6pp)
+- Overall: 31.6% -> 29.8% (-1.8pp)
+
+**Conclusion:** Net negative. Same pattern as doc comments in BM25 (experiment 17): untargeted text expansion hurts precision. High-degree generic nodes (types.Hash, GraphStore) appear as neighbors of everything, diluting search specificity. Reverted.
+
+**Key insight:** BM25 enrichment is the wrong abstraction for graph-derived knowledge. It can't distinguish "this neighbor is conceptually relevant" from "this neighbor happens to be connected." Equivalence classes work because they are *targeted* (specific phrases -> specific targets with explicit intent). Graph-derived aliases, if implemented, should go through the equivalence class system as weighted mappings, not through BM25 text enrichment.
+
+---
+
 ## Key Insights (Updated)
 
 1. **The eval was the biggest bug.** Fixing isRelevant() matching was worth +8pp overall.
@@ -252,16 +284,18 @@ Log of all experiments run against the eval framework. Each entry records what w
 4. **Off-the-shelf embeddings don't help code retrieval.** Need code-tuned or custom-trained.
 5. **Bigram compounds are high ROI.** Simple heuristic, no dependencies, cracks hard fixtures.
 6. **Mock filtering is important.** Test helpers shouldn't compete with real implementations.
-7. **Equivalence classes are the highest-ROI retrieval feature.** 20 concepts, +8pp hard tier.
+7. **Equivalence classes are the highest-ROI retrieval feature.** 21 concepts, +8pp hard tier.
 8. **Local vocabulary learning > hosted LLM rewriting.** Deterministic, inspectable, zero cost.
+9. **Targeted beats untargeted.** Equivalence classes (explicit mapping) > BM25 enrichment (dump text). This applies to doc comments, neighbor names, and any "add more text to the index" approach.
+10. **Expanding phrases in existing classes is cheap and safe.** Near-zero risk, consistent returns.
 
 ---
 
 ## What Would Still Move Hard Tier
 
-Hard tier is at 18% (up from 2%). Remaining 0% fixtures use very abstract descriptions ("safe refactor workflow", "cold-start bootstrap"). Next steps per project direction:
+Hard tier is at 21.3% (up from 2%). Remaining 0% fixtures use very abstract descriptions ("safe refactor workflow", "cold-start bootstrap"). Next steps per project direction:
 
-1. **Graph-derived aliases**: auto-generate equivalence phrases from graph structure (if `handleBlastRadius` calls `TransitiveCallers`, extract that relationship as an alias)
-2. **Passive feedback memory**: accumulate (task, useful_symbol) pairs from real agent sessions
-3. **Enriched BM25**: index neighbor names, edge labels, tool descriptions alongside symbols
-4. **More equivalence classes**: expand from 20 to 50+ concepts as patterns emerge from usage
+1. **Graph-derived equivalence classes**: auto-generate targeted (phrase, target) pairs from graph structure through the equivalence class system (not BM25 enrichment). If `handleBlastRadius` calls `TransitiveCallers`, create an equivalence mapping, not a text blob.
+2. **Passive feedback memory**: accumulate (task, useful_symbol) pairs from real agent sessions, boost existing equivalence concepts/targets.
+3. **More equivalence concepts**: expand from 21 to 50+ as patterns emerge from usage and fixture analysis.
+4. **Optional local model**: Ollama/ONNX code models as plugin for concept matching, never default.
