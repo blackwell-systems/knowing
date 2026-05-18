@@ -145,7 +145,7 @@ func TestFormatComprehension(t *testing.T) {
 	engine := knowingctx.NewContextEngine(st)
 	ctx := context.Background()
 
-	formats := []string{"json", "xml", "gcf"}
+	formats := []string{"json", "xml", "toon", "gcf"}
 
 	// Header
 	t.Logf("%-25s | %-6s | %8s | %8s | %8s | Info present?", "Fixture", "Format", "Tokens", "Symbols", "Edges")
@@ -156,6 +156,7 @@ func TestFormatComprehension(t *testing.T) {
 		fixture string
 		json    int
 		xml     int
+		toon    int
 		gcf     int
 	}
 	var tokenSummary []tokenRow
@@ -198,6 +199,8 @@ func TestFormatComprehension(t *testing.T) {
 				row.json = tokens
 			case "xml":
 				row.xml = tokens
+			case "toon":
+				row.toon = tokens
 			case "gcf":
 				row.gcf = tokens
 			}
@@ -215,21 +218,19 @@ func TestFormatComprehension(t *testing.T) {
 	// Summary: token savings
 	t.Log("")
 	t.Logf("Token Savings Summary:")
-	t.Logf("%-25s | %8s | %8s | %8s | %8s | %8s",
-		"Fixture", "JSON", "XML", "GCF", "GCF/JSON", "GCF/XML")
-	t.Logf("%-25s-+-%8s-+-%8s-+-%8s-+-%8s-+-%8s",
-		strings.Repeat("-", 25), "--------", "--------", "--------", "--------", "--------")
+	t.Logf("%-25s | %8s | %8s | %8s | %8s | %10s | %10s",
+		"Fixture", "JSON", "XML", "TOON", "GCF", "TOON/JSON", "GCF/JSON")
+	t.Logf("%-25s-+-%8s-+-%8s-+-%8s-+-%8s-+-%10s-+-%10s",
+		strings.Repeat("-", 25), "--------", "--------", "--------", "--------", "----------", "----------")
 	for _, row := range tokenSummary {
+		toonJSON := "n/a"
 		gcfJSON := "n/a"
-		gcfXML := "n/a"
 		if row.json > 0 {
+			toonJSON = fmt.Sprintf("%.1f%%", float64(row.toon)/float64(row.json)*100)
 			gcfJSON = fmt.Sprintf("%.1f%%", float64(row.gcf)/float64(row.json)*100)
 		}
-		if row.xml > 0 {
-			gcfXML = fmt.Sprintf("%.1f%%", float64(row.gcf)/float64(row.xml)*100)
-		}
-		t.Logf("%-25s | %8d | %8d | %8d | %8s | %8s",
-			row.fixture, row.json, row.xml, row.gcf, gcfJSON, gcfXML)
+		t.Logf("%-25s | %8d | %8d | %8d | %8d | %10s | %10s",
+			row.fixture, row.json, row.xml, row.toon, row.gcf, toonJSON, gcfJSON)
 	}
 }
 
@@ -247,6 +248,10 @@ func verifyInfoPresent(format string, block *knowingctx.ContextBlock, expectedAn
 
 	case "xml":
 		// XML: verify symbols are present.
+		return len(block.Symbols) > 0
+
+	case "toon":
+		// TOON: verify symbols are present (tabular format).
 		return len(block.Symbols) > 0
 
 	case "gcf":
