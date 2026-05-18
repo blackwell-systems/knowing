@@ -51,20 +51,22 @@ Ground truth uses flexible matching: `package.Symbol` matches qualified names li
 
 | Tier | P@10 | R@10 | MRR | Fixtures |
 |------|------|------|-----|----------|
-| Easy | 36.5% | 88.9% | 0.60 | 20 |
-| Medium | 29.5% | 47.2% | 0.55 | 20 |
-| Hard | 10.0% | 12.2% | 0.16 | 15 |
-| **Overall** | **26.7%** | **52.8%** | **0.46** | **55** |
+| Easy | 38.5% | 95.2% | 0.63 | 20 |
+| Medium | 32.0% | 51.4% | 0.62 | 20 |
+| Hard | 18.0% | 21.1% | 0.27 | 15 |
+| **Overall** | **30.5%** | **59.0%** | **0.53** | **55** |
 
 **Pipeline (all shipped):**
 - 4-tier keyword matching (exact > prefix > substring > path)
 - BM25 FTS5 index with CamelCase-aware tokenization
 - Bigram compound keyword extraction ("blast radius" -> BlastRadius)
-- Weighted RRF fusion (tier 3x, BM25 1x, vector 0.5x)
+- Equivalence class seed retrieval (20 concepts, 200+ phrases -> target symbols)
+- Weighted RRF fusion (tier 3x, equivalence 2x, BM25 1x)
 - Session-aware boosts (exponential decay, 3-min half-life)
-- MiniLM-L6-v2 embeddings via HNSW (opt-in: KNOWING_EMBEDDINGS=1)
+- Embeddings via HNSW (opt-in: KNOWING_EMBEDDINGS=1, weight 0, awaiting code-tuned model)
 - Mock/stub/fake symbol filtering
 - Flexible eval matching (handles package.Type.Method qualified names)
+- Doc comment extraction (Node.Doc field, used in embed text)
 
 ## Adding Fixtures
 

@@ -218,12 +218,50 @@ Log of all experiments run against the eval framework. Each entry records what w
 
 ## What Would Actually Move Hard Tier
 
-Based on all experiments, the remaining hard-tier 0% fixtures fail because:
-- Task descriptions use conceptual language ("keep the graph fresh", "safe refactor workflow")
-- Keywords extracted are too generic ("graph", "fresh", "safe", "refactor")
-- No amount of BM25/embeddings/walk-tuning bridges the vocabulary gap
+## Experiment 17: BGE-small + doc comments in BM25 FTS (weight 0.5)
 
-What's needed:
-- **LLM query rewriting**: "keep the graph fresh" -> ["GitWatcher", "IncrementalReindex", "DeleteNodesByFile"]
-- **Code-tuned embeddings**: trained on (NL description, code symbol) pairs from this domain
-- **More fixtures with direct vocabulary**: if the task uses words that appear in symbol names, the pipeline works well
+**Date:** 2026-05-18
+**Hypothesis:** Including doc comments in the BM25 FTS index gives lexical search access to natural-language descriptions that bridge vocabulary gaps.
+**Result (55 fixtures):**
+- Overall: 26.7% -> 26.2% (-0.5pp)
+
+**Conclusion:** Doc comments add common English words ("returns", "computes") that dilute BM25 specificity. Reverted.
+
+---
+
+## Experiment 18: Equivalence class seed retrieval (20 concepts, 200+ phrases)
+
+**Date:** 2026-05-18
+**Hypothesis:** Hand-curated concept-to-symbol mappings bridge the vocabulary gap locally. Inspired by FDA Compliance Guard's 74-class semantic pattern system.
+**What:** 20 seed equivalence classes mapping concepts like TRANSITIVE_IMPACT to phrases ("blast radius", "impact analysis") and target symbols ("TransitiveCallers", "handleBlastRadius"). Cross-product expansion with action verbs. Fused as RRF channel (weight 2.0).
+**Result (55 fixtures):**
+- Easy: 36.5% -> 38.5% (+2pp)
+- Medium: 29.5% -> 32.0% (+2.5pp)
+- Hard: 10.0% -> 18.0% (+8pp)
+- Overall: 26.7% -> 30.5% (+3.8pp), MRR 0.46 -> 0.53
+
+**Conclusion:** Biggest single-feature improvement. Local, deterministic, zero dependencies. Validates the "knowing should learn the codebase's vocabulary locally" thesis. Ready for graph-derived and feedback-accumulated extensions.
+
+---
+
+## Key Insights (Updated)
+
+1. **The eval was the biggest bug.** Fixing isRelevant() matching was worth +8pp overall.
+2. **Seed quality dominates.** RWR parameter tuning is a dead end when the seeds are wrong.
+3. **RRF fusion works but needs asymmetric weights.** Tiered >> equivalence >> BM25 >> vector.
+4. **Off-the-shelf embeddings don't help code retrieval.** Need code-tuned or custom-trained.
+5. **Bigram compounds are high ROI.** Simple heuristic, no dependencies, cracks hard fixtures.
+6. **Mock filtering is important.** Test helpers shouldn't compete with real implementations.
+7. **Equivalence classes are the highest-ROI retrieval feature.** 20 concepts, +8pp hard tier.
+8. **Local vocabulary learning > hosted LLM rewriting.** Deterministic, inspectable, zero cost.
+
+---
+
+## What Would Still Move Hard Tier
+
+Hard tier is at 18% (up from 2%). Remaining 0% fixtures use very abstract descriptions ("safe refactor workflow", "cold-start bootstrap"). Next steps per project direction:
+
+1. **Graph-derived aliases**: auto-generate equivalence phrases from graph structure (if `handleBlastRadius` calls `TransitiveCallers`, extract that relationship as an alias)
+2. **Passive feedback memory**: accumulate (task, useful_symbol) pairs from real agent sessions
+3. **Enriched BM25**: index neighbor names, edge labels, tool descriptions alongside symbols
+4. **More equivalence classes**: expand from 20 to 50+ concepts as patterns emerge from usage
