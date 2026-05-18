@@ -1,0 +1,229 @@
+# Retrieval Pipeline Experiments
+
+Log of all experiments run against the eval framework. Each entry records what was tried, the hypothesis, measured results, and conclusion. Prevents re-running failed approaches.
+
+**Eval setup:** 55 fixtures (20 easy, 20 medium, 15 hard), P@10 + R@10 + MRR per tier.
+
+---
+
+## Experiment 1: BM25 FTS5 (always-on, concatenated)
+
+**Date:** 2026-05-17
+**Hypothesis:** BM25 full-text search over CamelCase-split qualified names finds symbols that LIKE-based tiers miss.
+**What:** SQLite FTS5 virtual table, always run, results concatenated into candidate pool (no fusion).
+**Result:**
+- Easy: 36% -> 20% (-16pp, severe regression)
+- Medium: 16% -> 16% (unchanged)
+- Hard: 2% -> 4% (+2pp)
+
+**Conclusion:** Naive concatenation dilutes strong tiered seeds with BM25 noise. BM25 helps hard but destroys easy. Need fusion, not concatenation.
+
+---
+
+## Experiment 2: BM25 FTS5 (conditional, < 8 candidates)
+
+**Date:** 2026-05-17
+**Hypothesis:** Only activate BM25 when tiered matching finds few candidates.
+**Result:**
+- Easy: 36% -> 36% (preserved)
+- Medium: 16% -> 16% (unchanged)
+- Hard: 2% -> 2% (unchanged, threshold too conservative)
+
+**Conclusion:** Safe but ineffective. BM25 never activates for easy (already has enough candidates) and doesn't help hard (also has enough bad candidates).
+
+---
+
+## Experiment 3: BM25 always-on, capped at 10
+
+**Date:** 2026-05-17
+**Hypothesis:** Small number of BM25 results won't dilute strong seeds.
+**Result:**
+- Easy: 36% -> 36% (preserved)
+- Medium: 16% -> 16% (unchanged)
+- Hard: 2% -> 4% (+2pp)
+
+**Conclusion:** Works but modest impact. BM25 cap prevents dilution. This was pre-eval-fix; numbers shifted after fixing the matching function.
+
+---
+
+## Experiment 4: Eval matching fix (package.Type.Method)
+
+**Date:** 2026-05-17
+**Hypothesis:** isRelevant() was undercounting because it couldn't match "store.NodesByName" against "store.SQLiteStore.NodesByName".
+**Result:**
+- Easy: 36% -> 42% (+6pp)
+- Medium: 16% -> 24% (+8pp)
+- Hard: 2% -> 10% (+8pp)
+
+**Conclusion:** Massive impact. The eval was lying. Most of the "improvement" in this session came from fixing the measurement, not the retrieval.
+
+---
+
+## Experiment 5: Mock/stub/fake symbol filtering
+
+**Date:** 2026-05-17
+**Hypothesis:** Test mock implementations (mockStore.EdgesTo etc.) pollute results by duplicating real interface methods.
+**Result:** Part of the +6/+8/+8pp gain in Experiment 4 (tested together).
+**Conclusion:** Meaningful quality improvement. Mocks were ranking above real implementations due to having many callers (test files).
+
+---
+
+## Experiment 6: Weighted RRF fusion (2:1 tier:bm25)
+
+**Date:** 2026-05-17
+**Hypothesis:** RRF properly fuses tiered and BM25 channels without dilution. Symbols in both lists get promoted.
+**Result:**
+- Easy: 42% -> 40% (-2pp)
+- Medium: 24% -> 24% (unchanged)
+- Hard: 10% -> 14% (+4pp)
+
+**Conclusion:** Net positive. Hard tier gains outweigh minor easy regression. 2:1 and 3:1 weights produce identical results.
+
+---
+
+## Experiment 7: Unweighted RRF fusion (1:1)
+
+**Date:** 2026-05-17
+**Hypothesis:** Equal weights lets BM25 contribute more.
+**Result:**
+- Easy: 42% -> 14% (-28pp, catastrophic)
+- Medium: 24% -> 26% (+2pp)
+- Hard: 10% -> 14% (+4pp)
+
+**Conclusion:** Equal weights destroys easy tier. BM25 noise overwhelms precision. Must weight tiered channel higher.
+
+---
+
+## Experiment 8: Bigram compound keywords
+
+**Date:** 2026-05-17
+**Hypothesis:** Joining adjacent words into CamelCase/snake_case compounds matches multi-word symbol names ("blast radius" -> "BlastRadius").
+**Result:**
+- Easy: 40% -> 40% (stable)
+- Medium: 24% -> 26% (+2pp)
+- Hard: 14% -> 14% (stable aggregate, but "blast radius" fixture: 0% -> 10%)
+
+**Conclusion:** Net positive. Cracks previously-impossible fixtures. MRR improved +0.04 (better ordering).
+
+---
+
+## Experiment 9: MiniLM-L6-v2 embeddings (weight 0.5)
+
+**Date:** 2026-05-17
+**Hypothesis:** Semantic vector search finds concept-level matches that keywords miss.
+**Result (on 15 fixtures):**
+- Easy: 40% -> 38% (-2pp)
+- Medium: 26% -> 26% (unchanged)
+- Hard: 14% -> 16% (+2pp)
+
+**Conclusion:** Marginal hard-tier improvement, slight easy regression. MiniLM is general-purpose (not code-tuned), produces too many false positives.
+
+---
+
+## Experiment 10: MiniLM-L6-v2 embeddings (weight 2.0)
+
+**Date:** 2026-05-17
+**Hypothesis:** Higher weight lets embeddings dominate.
+**Result (on 15 fixtures):**
+- Easy: 40% -> 32% (-8pp)
+- Medium: 26% -> 20% (-6pp)
+- Hard: 14% -> 8% (-6pp)
+
+**Conclusion:** Catastrophic. General-purpose embeddings at high weight actively harmful. Model doesn't understand code vocabulary.
+
+---
+
+## Experiment 11: BGE-small-en-v1.5 embeddings (weight 0.5, sparse text)
+
+**Date:** 2026-05-17
+**Hypothesis:** Retrieval-tuned model outperforms MiniLM on search tasks.
+**Result (on 55 fixtures):**
+- Easy: 36.5% -> 36.5% (unchanged)
+- Medium: 29.5% -> 28.5% (-1pp)
+- Hard: 10.0% -> 8.0% (-2pp)
+
+**Conclusion:** No improvement over MiniLM. Retrieval-tuning doesn't help without code-domain knowledge.
+
+---
+
+## Experiment 12: BGE-small + richer embed text (weight 0.5)
+
+**Date:** 2026-05-17
+**Hypothesis:** Natural-language text with CamelCase splitting, kind descriptions, and signature expansion gives the model more semantic signal.
+**Embed text example:** "function Transitive Callers in package store with signature (ctx, target Hash, maxDepth int)"
+**Result (on 55 fixtures):**
+- Easy: 36.5% -> 37.5% (+1pp)
+- Medium: 29.5% -> 28.0% (-1.5pp)
+- Hard: 10.0% -> 8.7% (-1.3pp)
+
+**Conclusion:** Richer text helps easy slightly but still net-negative for medium/hard. The model fundamentally doesn't understand "blast radius" = "TransitiveCallers" without domain-specific training.
+
+---
+
+## Experiment 13: RWR confidence-weighted transitions
+
+**Date:** 2026-05-17
+**Hypothesis:** Weighting walk transitions by edge confidence (lsp_resolved 0.9 > ast_inferred 0.7) improves ranking.
+**Result:**
+- Easy: 36.5% -> 25.5% (-11pp, severe regression)
+- Hard: 10.0% -> 11.3% (+1.3pp)
+
+**Conclusion:** Confidence weighting hurts because generic infrastructure nodes (types.Hash, GraphStore) have high-confidence edges from LSP resolution and get even more probability.
+
+---
+
+## Experiment 14: RWR lower alpha (0.15)
+
+**Date:** 2026-05-17
+**Hypothesis:** Lower restart probability lets the walk explore further from seeds, helping cross-package hard queries.
+**Result:**
+- Easy: 36.5% -> 25.5% (-11pp)
+- Hard: 10.0% -> 11.3% (+1.3pp)
+
+**Conclusion:** Helps hard but destroys easy. More exploration = more noise for queries that already have good seeds.
+
+---
+
+## Experiment 15: RWR adaptive alpha (0.25 for many seeds, 0.12 for few)
+
+**Date:** 2026-05-17
+**Hypothesis:** Adapt walk depth to seed confidence.
+**Result:**
+- Easy: 36.5% -> 24.0% (-12.5pp)
+- Hard: 10.0% -> 11.3% (+1.3pp)
+
+**Conclusion:** Still hurts easy. The problem isn't alpha, it's that hard queries have wrong seeds (no amount of walking fixes that).
+
+---
+
+## Experiment 16: RWR dead-end handling (keep probability at node)
+
+**Date:** 2026-05-17
+**Hypothesis:** Dead-end nodes shouldn't redistribute probability to seeds (inflates seed scores).
+**Result:** Part of the alpha/confidence changes; contributed to the easy regression.
+**Conclusion:** Redistributing to seeds on dead ends is actually correct for this use case (leaf nodes like constants/types should donate their probability back to the exploration).
+
+---
+
+## Key Insights
+
+1. **The eval was the biggest bug.** Fixing isRelevant() matching was worth +8pp overall.
+2. **Seed quality dominates.** RWR parameter tuning is a dead end when the seeds are wrong.
+3. **RRF fusion works but needs asymmetric weights.** Tiered >> BM25 >> vector.
+4. **Off-the-shelf embeddings don't help code retrieval.** Need code-tuned or custom-trained.
+5. **Bigram compounds are high ROI.** Simple heuristic, no dependencies, cracks hard fixtures.
+6. **Mock filtering is important.** Test helpers shouldn't compete with real implementations.
+
+---
+
+## What Would Actually Move Hard Tier
+
+Based on all experiments, the remaining hard-tier 0% fixtures fail because:
+- Task descriptions use conceptual language ("keep the graph fresh", "safe refactor workflow")
+- Keywords extracted are too generic ("graph", "fresh", "safe", "refactor")
+- No amount of BM25/embeddings/walk-tuning bridges the vocabulary gap
+
+What's needed:
+- **LLM query rewriting**: "keep the graph fresh" -> ["GitWatcher", "IncrementalReindex", "DeleteNodesByFile"]
+- **Code-tuned embeddings**: trained on (NL description, code symbol) pairs from this domain
+- **More fixtures with direct vocabulary**: if the task uses words that appear in symbol names, the pipeline works well
