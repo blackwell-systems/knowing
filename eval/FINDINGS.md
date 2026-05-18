@@ -19,7 +19,7 @@ The engine returns ranked results; we measure Precision@10, Recall@10, and MRR.
 |------|------|------|-----|------|
 | Add a new MCP tool that returns symbol documentation | 90.0% | 180.0% | 1.00 | easy |
 | Add a method to SQLiteStore that queries nodes by communi... | 80.0% | 133.3% | 0.50 | easy |
-| Add a new language extractor for Ruby files | 0.0% | 0.0% | 0.00 | easy |
+| Add a new language extractor for Ruby files | 10.0% | 16.7% | 1.00 | easy |
 | Add a new wire format codec for MessagePack encoding | 20.0% | 40.0% | 1.00 | easy |
 | Implement garbage collection for old snapshots beyond ret... | 30.0% | 75.0% | 0.50 | easy |
 | Add full-text search to the store layer for finding nodes... | 70.0% | 175.0% | 0.50 | easy |
@@ -37,7 +37,7 @@ The engine returns ranked results; we measure Precision@10, Recall@10, and MRR.
 | Search for similar symbols using vector embeddings | 40.0% | 100.0% | 0.50 | easy |
 | Find all transitive callers of a function in the graph store | 0.0% | 0.0% | 0.00 | easy |
 | Enrich graph edges with LSP type information | 70.0% | 233.3% | 1.00 | easy |
-| Resolve dangling cross-repo edges by matching module path... | 20.0% | 33.3% | 0.17 | medium |
+| Resolve dangling cross-repo edges by matching module path... | 10.0% | 16.7% | 0.14 | medium |
 | Combine vector similarity search with graph-based ranking... | 20.0% | 33.3% | 0.50 | medium |
 | Link symbols that reference external packages to their de... | 0.0% | 0.0% | 0.00 | medium |
 | Determine which tests need to run based on which files ch... | 0.0% | 0.0% | 0.00 | medium |
@@ -49,7 +49,7 @@ The engine returns ranked results; we measure Precision@10, Recall@10, and MRR.
 | Analyze a pull request to show which symbols are affected... | 20.0% | 33.3% | 0.50 | medium |
 | Track which agent session produced each graph payload for... | 30.0% | 60.0% | 1.00 | medium |
 | Compare two graph snapshots and report which nodes and ed... | 60.0% | 100.0% | 1.00 | medium |
-| Watch for git commits and trigger re-indexing of changed ... | 0.0% | 0.0% | 0.00 | medium |
+| Watch for git commits and trigger re-indexing of changed ... | 10.0% | 16.7% | 0.50 | medium |
 | Use random walk with restart over the graph store edges t... | 40.0% | 57.1% | 1.00 | medium |
 | Expose blast radius analysis through the MCP protocol so ... | 90.0% | 150.0% | 1.00 | medium |
 | Implement HITS hub/authority reranking in the context eng... | 50.0% | 62.5% | 0.33 | medium |
@@ -58,8 +58,8 @@ The engine returns ranked results; we measure Precision@10, Recall@10, and MRR.
 | Compute a semantic diff between two graph snapshots showi... | 20.0% | 33.3% | 1.00 | medium |
 | Index a Go repository and persist the extracted graph int... | 30.0% | 42.9% | 1.00 | medium |
 | For a pull request review, diff the changed files semanti... | 20.0% | 25.0% | 0.50 | hard |
-| Keep the code graph fresh by watching for file changes, r... | 0.0% | 0.0% | 0.00 | hard |
-| Bootstrap the system from scratch: parse a Go codebase wi... | 0.0% | 0.0% | 0.00 | hard |
+| Keep the code graph fresh by watching for file changes, r... | 40.0% | 50.0% | 1.00 | hard |
+| Bootstrap the system from scratch: parse a Go codebase wi... | 10.0% | 12.5% | 0.50 | hard |
 | When an agent reports that retrieved context was unhelpfu... | 10.0% | 12.5% | 0.14 | hard |
 | Index multiple repositories, resolve cross-repo symbol re... | 0.0% | 0.0% | 0.00 | hard |
 | Detect changed files from git, clean up stale nodes and e... | 0.0% | 0.0% | 0.00 | hard |
@@ -77,10 +77,10 @@ The engine returns ranked results; we measure Precision@10, Recall@10, and MRR.
 
 | Tier | Precision@10 | Recall@10 | MRR | Fixtures |
 |------|-------------|-----------|-----|----------|
-| easy | 38.5% | 95.2% | 0.63 | 20 |
-| medium | 32.0% | 51.4% | 0.62 | 20 |
-| hard | 18.0% | 21.1% | 0.27 | 15 |
-| **Overall** | **30.5%** | **59.0%** | **0.53** | **55** |
+| easy | 39.0% | 96.0% | 0.68 | 20 |
+| medium | 32.0% | 51.4% | 0.64 | 20 |
+| hard | 21.3% | 25.3% | 0.37 | 15 |
+| **Overall** | **31.6%** | **60.5%** | **0.58** | **55** |
 
 ## Reproducibility
 

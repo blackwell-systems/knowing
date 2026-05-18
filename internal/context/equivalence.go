@@ -33,7 +33,7 @@ func seedEquivalenceClasses() []EquivalenceClass {
 	seeds := []EquivalenceClass{
 		{
 			Concept:    "TRANSITIVE_IMPACT",
-			Phrases:    []string{"blast radius", "impact analysis", "downstream callers", "affected code", "ripple effect", "what breaks", "who calls"},
+			Phrases:    []string{"blast radius", "impact analysis", "downstream callers", "transitive callers", "affected code", "ripple effect", "what breaks", "who calls", "all callers", "upstream callers"},
 			Targets:    []string{"TransitiveCallers", "BlastRadius", "blastRadiusTool", "handleBlastRadius"},
 			TargetType: "symbol",
 			Weight:     1.0,
@@ -81,7 +81,7 @@ func seedEquivalenceClasses() []EquivalenceClass {
 		},
 		{
 			Concept:    "INDEXING",
-			Phrases:    []string{"reindex", "index repo", "refresh graph", "update graph", "parse codebase", "extract symbols"},
+			Phrases:    []string{"reindex", "index repo", "refresh graph", "update graph", "parse codebase", "extract symbols", "graph fresh", "re-indexing", "incremental reindex"},
 			Targets:    []string{"IndexRepo", "NewIndexer", "Register", "IncrementalReindex", "indexRepoTool"},
 			TargetType: "symbol",
 			Weight:     1.0,
@@ -113,7 +113,7 @@ func seedEquivalenceClasses() []EquivalenceClass {
 		},
 		{
 			Concept:    "CROSS_REPO",
-			Phrases:    []string{"cross repo", "multi repo", "external dependencies", "dangling edges", "resolve imports"},
+			Phrases:    []string{"cross repo", "multi repo", "external dependencies", "dangling edges", "resolve imports", "cross-repo", "external packages", "symbol references"},
 			Targets:    []string{"Resolver", "Resolve", "DanglingEdges", "crossRepoCallersTool"},
 			TargetType: "symbol",
 			Weight:     1.0,
@@ -145,7 +145,7 @@ func seedEquivalenceClasses() []EquivalenceClass {
 		},
 		{
 			Concept:    "DAEMON_LIFECYCLE",
-			Phrases:    []string{"daemon", "background process", "file watcher", "git watcher", "auto reindex", "persistent service"},
+			Phrases:    []string{"daemon", "background process", "file watcher", "git watcher", "auto reindex", "persistent service", "file changes", "watch for", "git commits"},
 			Targets:    []string{"Daemon", "NewDaemon", "GitWatcher", "traceIngestLoop"},
 			TargetType: "symbol",
 			Weight:     1.0,
@@ -163,6 +163,14 @@ func seedEquivalenceClasses() []EquivalenceClass {
 			Concept:    "SESSION_TRACKING",
 			Phrases:    []string{"session tracking", "session state", "session boost", "working memory", "recent context"},
 			Targets:    []string{"SessionTracker", "SessionBoosts", "Record", "RecordBatch"},
+			TargetType: "symbol",
+			Weight:     1.0,
+			Source:     "seed",
+		},
+		{
+			Concept:    "EXTRACTOR",
+			Phrases:    []string{"language extractor", "parser", "tree-sitter", "extract symbols", "new extractor", "add language", "language support"},
+			Targets:    []string{"Extractor", "ExtractOptions", "ExtractResult", "GoTreeSitterExtractor", "NewGoTreeSitterExtractor", "Register", "CanHandle"},
 			TargetType: "symbol",
 			Weight:     1.0,
 			Source:     "seed",
