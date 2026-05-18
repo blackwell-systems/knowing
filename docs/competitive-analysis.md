@@ -1,13 +1,13 @@
 # Competitive Analysis: knowing
 
-Internal strategy document. Last updated: 2026-05-17.
+Internal strategy document. Last updated: 2026-05-18.
 Do NOT commit this file (gitignored).
 
 ---
 
 ## What knowing Is
 
-knowing is a content-addressed graph artifact where every entity (symbols, relationships, files, repos, and graph snapshots) is identified by its SHA-256 hash. It indexes code via 25 extractor types covering 12 programming languages + 13 infrastructure/cloud formats, enriches edges via LSP and SCIP, ingests runtime traces via OTLP, and exposes the graph through 22 MCP tools + 3 prompts. ~52K LOC Go, single binary, SQLite. Published as v0.1.2 across Homebrew, npm, PyPI, Docker, and MCP Registry. It targets AI coding agents and platform teams that need structural, versioned, provenance-scored relationships, not just file contents.
+knowing is a content-addressed graph artifact where every entity (symbols, relationships, files, repos, and graph snapshots) is identified by its SHA-256 hash. It indexes code via 25 extractor types covering 12 programming languages + 13 infrastructure/cloud formats, enriches edges via multi-language LSP (gopls, typescript-language-server, pyright, jdtls, rust-analyzer, OmniSharp) and SCIP, ingests runtime traces via OTLP, and exposes the graph through 23 MCP tools + 3 prompts. ~60K LOC Go, single binary, SQLite. Published as v0.1.2 across Homebrew, npm, PyPI, Docker, and MCP Registry. It targets AI coding agents and platform teams that need structural, versioned, provenance-scored relationships, not just file contents.
 
 Key differentiators:
 - **Content-addressed Merkle-DAG** with O(1) staleness detection, full history, provable integrity
@@ -17,7 +17,7 @@ Key differentiators:
 - **Runtime trace ingestion** (OTLP gRPC, observation-count confidence, hourly decay)
 - **GCF wire format** (84% token savings vs JSON, session statefulness for cross-call dedup)
 - **Graph-aware context packing** (5-tier seeding + RWR + HITS reranking + density-ranked knapsack + feedback-aware scoring)
-- **22 MCP tools** including feedback loop, test scope, flow analysis, plan routing, community detection
+- **23 MCP tools** including feedback loop, test scope, flow analysis, plan routing, community detection, retrieval explainability
 - **Louvain community detection** with multi-repo graph visualization (Sigma.js + Three.js)
 - **5 Claude Code hooks** (SessionStart, PreEdit, PreCompact, PostTask, Subagent)
 - **Graph-native test selection** (`knowing test-scope`: BFS backward from changed symbols to test functions)
@@ -66,7 +66,7 @@ Key differentiators:
 
 **What knowing has that they don't:**
 - Multi-provenance confidence model (ast_inferred -> lsp_resolved -> otel_trace)
-- LSP enrichment (gopls edge upgrade from 0.7 to 0.9 confidence)
+- Multi-language LSP enrichment (Go/TS/Python/Java: edge upgrade from 0.7 to 0.9, tested 83-99% upgrade rates)
 - Runtime trace ingestion (OTLP gRPC, confidence decay, dead route detection)
 - Content-addressed Merkle-DAG snapshots with diff capability
 - Edge event history (temporal "when did this edge appear/disappear")
@@ -116,7 +116,7 @@ Key differentiators:
 - Complexity analysis
 
 **What knowing has that they don't:**
-- LSP enrichment (edge confidence upgrade via gopls)
+- Multi-language LSP enrichment (edge confidence upgrade via gopls, tsserver, pyright, jdtls)
 - Runtime trace ingestion (OTLP)
 - Multi-provenance confidence model
 - Merkle-DAG snapshots with temporal diff
@@ -533,7 +533,7 @@ Key differentiators:
 
 **What knowing has that they don't:**
 - Code-specific deterministic extraction (no LLM hallucination in the graph)
-- 11 language extractors with tree-sitter + LSP enrichment
+- 12 language extractors with tree-sitter + multi-language LSP enrichment (Go, TS, Python, Java confirmed)
 - Content-addressed identity (O(1) staleness via Merkle root, no explicit invalidation needed)
 - Single binary, no external dependencies (they require Neo4j/FalkorDB)
 - Runtime trace ingestion (OTLP gRPC for production call verification)
@@ -561,7 +561,7 @@ The strategic insight: Graphiti proves that temporal knowledge graphs for AI age
 | Runtime trace ingestion | Yes | No | No | No | No | No | No | No | No | No | No |
 | Temporal model | Merkle snapshots | No | No | Validity windows | No | No | No | No | No | No | No |
 | Cross-repo edges | Yes | Enterprise | No | N/A | Yes (search) | No | No | No | Yes | No | No |
-| MCP server | Yes (22 tools) | Yes | Yes | Yes | Yes | Yes | Yes | No | Yes | Yes | No |
+| MCP server | Yes (23 tools) | Yes | Yes | Yes | Yes | Yes | Yes | No | Yes | Yes | No |
 | Community detection | Yes (Louvain) | No | No | Yes | No | No | No | No | No | No | No |
 | Feedback loop | Yes | No | No | No | No | No | No | No | No | No | No |
 | Content-addressed | Yes (Merkle DAG) | No | No | No | No | No | No | No | No | No | No |
@@ -586,6 +586,10 @@ The strategic insight: Graphiti proves that temporal knowledge graphs for AI age
 
 6. **Lightweight, self-contained deployment.** Single Go binary, SQLite, no external databases or services required. Contrast with CGC (Python + graph DB) or Sourcegraph (entire platform).
 
+7. **Multi-language LSP enrichment.** Automatically detects and uses language servers (gopls, typescript-language-server, pyright, jdtls, rust-analyzer, OmniSharp) to upgrade tree-sitter edges from 0.7 to 0.9 confidence and discover new cross-file reference edges. Tested: 83-99% upgrade rates across Go, TS, Python, Java. No other tool in this space does LSP-based edge enrichment.
+
+8. **Retrieval explainability.** `knowing why <symbol>` and `explain_symbol` MCP tool show exactly why a symbol ranked where it did: seed channel/tier, RWR score, HITS authority/hub, blast radius, confidence, recency, distance, feedback, session boost, and equivalence class matches. No other tool in this space offers ranking transparency.
+
 ---
 
 ## knowing's Remaining Gaps vs the Field
@@ -596,11 +600,11 @@ The strategic insight: Graphiti proves that temporal knowledge graphs for AI age
 
 3. **No PR review automation.** Greptile proves the commercial value of graph-powered PR review ($30/seat/month). knowing has `pr_impact` and `semantic_diff` MCP tools but no GitHub Action or PR comment automation.
 
-4. **No SCIP support.** CGC supports SCIP indexing for external dependency accuracy. knowing has this on the roadmap but unimplemented.
+4. ~~**No SCIP support.**~~ **CLOSED.** `knowing ingest-scip` shipped.
 
-5. **No feedback loop.** Agent reports which symbols were useful; ranking improves over time. Would address precision at its root.
+5. ~~**No feedback loop.**~~ **CLOSED.** `feedback` MCP tool shipped with FeedbackProvider wired into context engine.
 
-6. **Event and schema edges.** Kafka/NATS/SQS producers/consumers, OpenAPI spec references. These are the cross-service edges that make the graph valuable for microservice architectures.
+6. ~~**Event and schema edges.**~~ **CLOSED.** Event/MQ + OpenAPI/JSON Schema extractors shipped.
 
 ### Gaps Closed (no longer competitive weaknesses)
 
@@ -624,13 +628,13 @@ The strategic insight: Graphiti proves that temporal knowledge graphs for AI age
 
 2. **Create a GitHub Action for PR impact comments.** Greptile charges $30/seat for this. knowing can do it for free with a thin wrapper around `pr_impact` + `blast_radius`. Ship it and market it. This is the highest-signal demonstration of the graph's value.
 
-3. **Add agent feedback loop tool.** New MCP tool where agents report which symbols from context were actually useful. Persistent scoring adjustments improve ranking over time. Addresses precision at its root.
+3. ~~**Add agent feedback loop tool.**~~ **CLOSED.** `feedback` MCP tool shipped.
 
 ### Medium-term (next quarter)
 
-4. **Add SCIP ingest for external dependency edges.** CGC demonstrates demand for this. External dependency relationships are a gap in tree-sitter-only analysis.
+4. ~~**Add SCIP ingest for external dependency edges.**~~ **CLOSED.** `knowing ingest-scip` at 0.95 confidence.
 
-5. **Build event edges (Kafka/NATS/SQS).** Detect producer/consumer patterns in code. These cross-service edges are the highest-value additions for microservice architectures.
+5. ~~**Build event edges (Kafka/NATS/SQS).**~~ **CLOSED.** Event/MQ extractor covers Kafka/NATS/SQS/RabbitMQ across Go/TS/Python/Java.
 
 6. **Build a minimal web visualization.** Even a static HTML export showing the graph topology would differentiate from "just another MCP server." Consider `knowing export --format dot` for Graphviz or a D3-based explorer.
 
@@ -788,11 +792,14 @@ Updated 2026-05-17 after closing SCIP, cloud extractors, event/schema extractors
 **Effort:** Medium (infra shipped: BGE model, ONNX runtime, FTS5 BM25, RRF fusion all working; need fine-tuned model)
 **Impact:** Medium (equivalence classes + BM25 already cover most queries well)
 
-### Gap 3: Eval Framework (SWE-bench style)
-**Who has it:** Gortex (eval subcommand with recall/MRR metrics)
-**Why it matters:** Proves the product works. Publishable benchmarks.
+### Gap 3: ~~Eval Framework~~ CLOSED
+Shipped: 55 eval fixtures, 23 experiments, cross-repo eval on external codebases. See eval/EXPERIMENTS.md.
+
+### Gap 4: Negative Feedback
+**Who has it:** Nobody explicitly
+**Why it matters:** The feedback loop only records "this was relevant." No way to say "this was noise." Negative signals sharpen ranking faster than positive-only.
 **Effort:** Medium
-**Impact:** High (credibility, academic citation potential)
+**Impact:** High (precision improvement)
 
 ### All Gaps Closed to Date
 
@@ -821,6 +828,8 @@ Updated 2026-05-17 after closing SCIP, cloud extractors, event/schema extractors
 | Global config | Gortex had it | KNOWING_DB env var, global MCP config in ~/.claude.json |
 | Reproducible benchmarks | Gortex had eval subcommand | 6 harnesses with auto-generated FINDINGS.md (feedback, relevance, tokens, edges, test-scope, wire) |
 | v0.1.0 release | Nobody shipped yet | v0.1.2 live across 6 channels + MCP Registry |
+| Multi-language LSP | "LSP enrichment centers on Go" | 4 language servers confirmed: gopls (Go), typescript-language-server (TS, 98.9% upgrade), pyright (Python, 83.1% upgrade + 15K new edges), jdtls (Java, 83.2% upgrade). Auto-detection for 6 servers. |
+| Retrieval explainability | Nobody has it | `knowing why` CLI + `explain_symbol` MCP tool: full scoring breakdown (seed tier, RWR, HITS, blast radius, confidence, recency, distance, feedback, session) |
 
 ---
 
