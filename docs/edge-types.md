@@ -40,7 +40,7 @@ A function or method invokes another function or method.
   HandleLogin contains a call expression that resolves to AuthService.Validate.
 - **Producers:** All 25 extractor types (Go, TypeScript, Rust, Java, C#, Python,
   Terraform, SQL, Kubernetes YAML, Cloud YAML, CSS, Protocol Buffers, and tree-sitter generic extractors) produce `calls` edges.
-  The enricher upgrades ast_inferred calls to lsp_resolved when gopls confirms the definition.
+  The enricher upgrades ast_inferred calls to lsp_resolved when the language server (gopls, pyright, tsserver, rust-analyzer, jdtls, or OmniSharp) confirms the definition.
 - **Provenance:** `ast_inferred` (confidence 0.7) from tree-sitter extraction; `lsp_resolved`
   (confidence 0.9) after enrichment confirms the target via GetDefinition.
 - **Blast radius:** This is the only edge type traversed by `TransitiveCallers`. The recursive
@@ -51,8 +51,8 @@ A function or method invokes another function or method.
   receive the maximum transition probability, making call-graph neighbors the strongest
   signal for context relevance.
 - **Call-site metadata:** Every `calls` edge records the exact source location (file, line,
-  column) of the call expression. The enricher uses this position to query gopls for
-  definition resolution.
+  column) of the call expression. The enricher uses this position to query the language
+  server for definition resolution.
 
 ### `imports`
 
@@ -91,7 +91,7 @@ A concrete type satisfies an interface contract.
     interface symbols.
 - **Provenance:** `ast_inferred` (confidence 0.7) from tree-sitter extraction or Go's
   method-set comparison; `lsp_resolved` (confidence 0.9) when discovered by the enricher
-  through gopls.
+  through any supported language server (gopls, pyright, tsserver, rust-analyzer, jdtls, OmniSharp).
 - **Blast radius:** Not traversed. Blast radius only follows `calls` edges. However,
   `implements` edges are valuable for understanding which concrete types back an interface
   when planning changes.
@@ -378,7 +378,7 @@ Provenance tracks how an edge was discovered and determines its confidence level
 | Provenance | Confidence | Source | Meaning |
 |---|---|---|---|
 | `ast_inferred` | 0.7 | Tree-sitter extractors | Edge inferred from AST structure without type resolution. Cross-package calls resolved heuristically from import aliases. |
-| `lsp_resolved` | 0.9 | LSP enricher (gopls) | Edge confirmed by querying the language server's GetDefinition at the call site. The original ast_inferred edge is deleted and replaced. |
+| `lsp_resolved` | 0.9 | LSP enricher (gopls, pyright, tsserver, rust-analyzer, jdtls, OmniSharp) | Edge confirmed by querying the language server's GetDefinition at the call site. The original ast_inferred edge is deleted and replaced. |
 | `scip_resolved` | 0.95 | SCIP ingestor | Edge resolved from a SCIP index file. Near-full confidence; SCIP indexes are produced by compiler-grade tools with complete type information. |
 | `ast_resolved` | 1.0 | Python extractor | Edge resolved with full confidence. (Python extractor uses this provenance, though cross-module targets may still be dangling.) |
 | `deterministic` | 1.0 | CODEOWNERS parser | Edge derived from explicit configuration (CODEOWNERS rules). No inference involved. |
@@ -412,14 +412,16 @@ This means the same source-target pair can have multiple edges if the provenance
 
 ### Upgrade via enrichment
 
-After indexing, the enrichment pipeline (`internal/enrichment/enricher.go`) runs gopls to
+After indexing, the enrichment pipeline (`internal/enrichment/enricher.go`) runs each
+detected language server (gopls, pyright, tsserver, rust-analyzer, jdtls, OmniSharp) to
 upgrade edges:
 
-1. **Open files** in gopls so it builds its workspace index.
+1. **Open files** in the language server so it builds its workspace index. For async
+   servers (e.g., jdtls), the enricher waits up to 120s for workspace readiness.
 2. **Upgrade call edges:** For each `ast_inferred` edge with call-site position data, query
-   `GetDefinition` at `(file, line, column)`. If gopls returns a location, delete the old
-   edge and insert a new one with provenance `lsp_resolved` and confidence 0.9. (Deletion
-   is necessary because provenance is part of the edge hash.)
+   `GetDefinition` at `(file, line, column)`. If the server returns a location, delete the
+   old edge and insert a new one with provenance `lsp_resolved` and confidence 0.9.
+   (Deletion is necessary because provenance is part of the edge hash.)
 3. **Discover new edges:** For each file, retrieve document symbols and query
    `GetImplementation` (producing `implements` edges) and `GetReferences` (producing
    `references` edges) to find relationships that tree-sitter missed.

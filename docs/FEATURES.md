@@ -92,7 +92,7 @@ Repo: github.com/blackwell-systems/knowing
   - Only Python is supported (other languages return error).
   - Import resolution is text-based (no Python module resolution).
   - Class context tracking is basic (single-level nesting only).
-  - No call-site positions stored on edges.
+  - ~~No call-site positions stored on edges.~~ (Fixed: call-site positions are now stored on Python call edges.)
 - **Dependencies:** `github.com/smacker/go-tree-sitter`, `go-tree-sitter/python`.
 
 ### 8. Extractor Registry
@@ -133,14 +133,16 @@ Repo: github.com/blackwell-systems/knowing
 
 - **Package(s):** `internal/enrichment`
 - **Entry point:** `enrichment.NewEnricher(store, workspaceRoot).Run(ctx, repoHash)` or `.RunScoped(ctx, repoHash, changedFiles)`
-- **What it does:** Two-pass enrichment using gopls via `agent-lsp/pkg/lsp`:
-  1. **Edge upgrade pass:** For each `ast_inferred` edge with call-site positions, queries `GetDefinition` at (file, line, col). If gopls confirms a definition, upgrades edge to `lsp_resolved` confidence 0.9.
+- **What it does:** Two-pass enrichment using language servers (gopls, pyright, typescript-language-server, rust-analyzer, jdtls, OmniSharp) via `agent-lsp/pkg/lsp`:
+  1. **Edge upgrade pass:** For each `ast_inferred` edge with call-site positions, queries `GetDefinition` at (file, line, col). If the language server confirms a definition, upgrades edge to `lsp_resolved` confidence 0.9.
   2. **Edge discovery pass:** For each file, gets document symbols. For types/interfaces, queries `GetImplementation`. For functions/methods, queries `GetReferences`. Creates new `lsp_resolved` edges.
+  3. **Workspace readiness:** Waits up to 120s for async servers (e.g., jdtls) to finish workspace indexing before querying (`WaitForWorkspaceReadyTimeout`).
+  4. **resolveNamePosition:** Corrects symbol positions for servers (pyright, pylsp) that set SelectionRange to the keyword (`class`, `def`) rather than the identifier name.
 - **Inputs:** Repo hash, workspace root, optional changed file list for scoping.
-- **Outputs:** Logs summary (edges processed, upgraded, discovered, errors).
+- **Outputs:** Logs summary (edges processed, upgraded, discovered, errors) per language server.
 - **Limitations/known gaps:**
   - Discovered edges use synthetic position-based hashes (not aligned with node hashes from extractors).
-  - `RunScoped` opens only changed files, which may reduce gopls cross-package resolution accuracy.
+  - `RunScoped` opens only changed files, which may reduce cross-package resolution accuracy.
   - Errors in individual edge upgrades are counted but not surfaced.
   - Superseded by multi-language auto-detection (see Feature 65). Legacy single-server path still works for Go-only repos.
 - **Dependencies:** `github.com/blackwell-systems/agent-lsp/pkg/lsp`, GraphStore.
@@ -387,7 +389,7 @@ Repo: github.com/blackwell-systems/knowing
   1. `runtime_traffic`: Queries runtime-observed edges by service name and optional route pattern (LIKE syntax). Parameters: `service_name` (required), `route_pattern` (optional), `limit` (optional, default 100). Calls `SQLiteStore.RuntimeEdgesByService`.
   2. `dead_routes`: Finds route symbols with no runtime observations in N days. Parameters: `stale_days` (optional, default 30). Calls `SQLiteStore.DeadRoutes`.
   3. `trace_stats`: Returns aggregate statistics about runtime-derived edges (total, active, stale, GC-eligible, by edge type). No parameters. Calls `SQLiteStore.RuntimeEdgeStatsAggregate`.
-  Total MCP tools: 17 (13 original + 3 runtime + 1 context_for_pr). Also registers 3 MCP prompts (refactor_safely, review_pr, investigate_dead_code).
+  Total MCP tools: 23. Also registers 3 MCP prompts (refactor_safely, review_pr, investigate_dead_code).
 - **Limitations/known gaps:**
   - Runtime tools return "runtime queries not available: store does not support runtime methods" if the store is not a `*SQLiteStore`.
   - No authentication or rate limiting on runtime queries.
@@ -493,7 +495,7 @@ Repo: github.com/blackwell-systems/knowing
 
 - **Package(s):** `cmd/knowing`
 - **Entry point:** `knowing mcp [flags]`
-- **What it does:** Launches the MCP server in stdio transport mode. Reads JSON-RPC messages from stdin, writes responses to stdout. Designed for use as a subprocess MCP server (e.g., configured in `.mcp.json` or Claude Desktop). Provides all 22 MCP tools and 3 prompts over stdio without requiring HTTP.
+- **What it does:** Launches the MCP server in stdio transport mode. Reads JSON-RPC messages from stdin, writes responses to stdout. Designed for use as a subprocess MCP server (e.g., configured in `.mcp.json` or Claude Desktop). Provides all 23 MCP tools and 3 prompts over stdio without requiring HTTP.
 - **Flags:** `--db` (default: `knowing.db`): SQLite database path.
 - **Dependencies:** `internal/mcp`, `internal/store`.
 
@@ -800,6 +802,14 @@ Repo: github.com/blackwell-systems/knowing
 - **Results:** exact 60%, concept 20%, multi_hop 60%, overall 46.7%.
 - **Why it matters:** Validates that retrieval quality generalizes beyond the knowing repo itself. Provides a regression gate for changes to the context engine.
 
+### 71. `explain_symbol` MCP Tool
+
+- **Package(s):** `internal/mcp`
+- **Entry point:** `handleExplainSymbol` in `internal/mcp/context_handlers.go`
+- **What it does:** MCP equivalent of the `knowing why` CLI command. Given a task description and symbol name, runs the full retrieval pipeline and returns a Markdown-formatted scoring breakdown: seed channel/tier, RWR score, HITS authority/hub, blast radius, confidence, recency, distance, feedback weight, session boost, and equivalence class matches.
+- **Parameters:** `task_description` (required), `symbol` (required).
+- **Why it matters:** Allows agents to programmatically inspect ranking behavior without invoking the CLI.
+
 ### 70. `knowing why` (Retrieval Explainability)
 
 - **Package(s):** `cmd/knowing`
@@ -958,6 +968,12 @@ Subset interface of GraphStore for resolver decoupling:
 | 15 | `context_for_task` | `handleContextForTask` | FUNCTIONAL | `NodesByName`, graph traversal, HITS reranking | Returns ranked symbols relevant to a natural-language task description, encoded via wire format codec. Uses HITS authority scores to promote structurally important nodes. |
 | 16 | `context_for_files` | `handleContextForFiles` | FUNCTIONAL | `NodesByName`, `EdgesFrom`, file lookups | Returns symbols and edges relevant to specified file paths, encoded via wire format codec |
 | 17 | `context_for_pr` | `handleContextForPR` | FUNCTIONAL | `NodesByName`, `EdgesFrom`, file lookups, RWR scoring | Returns PR-scoped context: symbols in changed files plus their structural impact neighborhood (callers, callees, related types) |
+| 18 | `feedback` | `handleFeedback` | FUNCTIONAL | `SQLiteStore.RecordFeedback`, `SQLiteStore.QueryFeedback` | Record or query symbol usefulness feedback |
+| 19 | `test_scope` | `handleTestScope` | FUNCTIONAL | `NodesByFilePath`, BFS backward through calls edges | Find tests affected by changes to given files |
+| 20 | `flow_between` | `handleFlowBetween` | FUNCTIONAL | `NodesByName`, BFS traversal | Find paths between two symbols |
+| 21 | `plan_turn` | `handlePlanTurn` | FUNCTIONAL | keyword matching | Suggest which knowing MCP tools to call for a task |
+| 22 | `communities` | `handleCommunities` | FUNCTIONAL | Louvain clustering on graph edges | Detect densely-connected symbol communities |
+| 23 | `explain_symbol` | `handleExplainSymbol` | FUNCTIONAL | Full retrieval pipeline (RWR, HITS, scoring) | Explain why a symbol ranked where it did for a task |
 
 Parameters per tool:
 
@@ -983,6 +999,7 @@ Parameters per tool:
 - `flow_between`: source_symbol (required), target_symbol (required), max_depth (optional, default 5)
 - `plan_turn`: task (required)
 - `communities`: action (optional: "list" or "for_symbol"), repo_url (optional), symbol (optional, required for for_symbol)
+- `explain_symbol`: task_description (required), symbol (required)
 
 ---
 
@@ -1561,7 +1578,7 @@ internal/wire/
   binary_test.go
 
 internal/enrichment/
-  enricher.go                      -- Enricher: LSP edge upgrade + edge discovery via gopls
+  enricher.go                      -- Enricher: LSP edge upgrade + edge discovery via multi-language servers
   enricher_test.go
 
 internal/daemon/
@@ -1575,7 +1592,7 @@ internal/daemon/
 internal/mcp/
   server.go                        -- MCP Server: 17 tool definitions (execution + intelligence + runtime + context planes), stdio + HTTP transport
   handlers.go                      -- 14 handler implementations (11 original + 3 runtime)
-  context_handlers.go              -- 3 context handler implementations: context_for_task, context_for_files, context_for_pr
+  context_handlers.go              -- 4 context handler implementations: context_for_task, context_for_files, context_for_pr, explain_symbol
   prompts.go                       -- 3 MCP prompts: refactor_safely, review_pr, investigate_dead_code
   handlers_test.go
 
@@ -1610,7 +1627,7 @@ bench/
 | Provenance | Confidence | Source | When Available |
 |-----------|-----------|--------|----------------|
 | `ast_inferred` | 0.7 | tree-sitter syntactic matching | After Tier 1 (~1.5s) |
-| `lsp_resolved` | 0.9 | gopls GetDefinition/GetImplementation/GetReferences | After Tier 2 (~8s more) |
+| `lsp_resolved` | 0.9 | LSP GetDefinition/GetImplementation/GetReferences (gopls, pyright, tsserver, rust-analyzer, jdtls, OmniSharp) | After Tier 2 (~8s more) |
 | `ast_resolved` | 1.0 | go/packages full type resolution | `--full` flag only (~16min) |
 | `otel_trace` | 0.5-0.95 | Runtime observation via OTLP spans | After trace ingestion (continuous). Confidence from ConfidenceFromCount: 1 obs=0.5, 10+=0.7, 100+=0.85, 1000+=0.95. Decays to 0.2 after 30 days without observations, 0.0 after 90 days. |
 | `scip_resolved` | 0.95 | SCIP index file (via `knowing ingest-scip`) | After SCIP ingest. Near-full confidence from compiler-grade indexers. |
@@ -1657,7 +1674,7 @@ Snapshot hash: Merkle root of sorted edge hashes (binary tree, odd leaf paired w
 | `golang.org/x/tools/go/packages` | goextractor | Go type-resolution package loader |
 | `github.com/mark3labs/mcp-go` | internal/mcp | MCP protocol server library |
 | `github.com/fsnotify/fsnotify` | internal/daemon | File system notification |
-| `github.com/blackwell-systems/agent-lsp/pkg/lsp` | internal/enrichment | LSP client (gopls communication) |
+| `github.com/blackwell-systems/agent-lsp/pkg/lsp` | internal/enrichment | LSP client (multi-language server communication) |
 | `github.com/blackwell-systems/agent-lsp/pkg/types` | internal/enrichment | LSP type definitions |
 | `go.opentelemetry.io/proto/otlp/collector/trace/v1` | internal/trace | OTLP trace collector protobuf definitions |
 | `go.opentelemetry.io/proto/otlp/trace/v1` | internal/trace | OTLP trace span protobuf definitions |

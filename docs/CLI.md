@@ -116,8 +116,9 @@ knowing index [flags] <repo-path>
 ```
 
 Parses the repository using tree-sitter (fast path) and stores nodes and edges
-in the SQLite database. After indexing, runs LSP enrichment automatically
-unless `-full` is specified.
+in the SQLite database. After indexing, runs LSP enrichment automatically for
+all detected language servers (gopls, pyright, typescript-language-server,
+rust-analyzer, jdtls, OmniSharp) unless `-full` is specified.
 
 **Flags:**
 
@@ -429,7 +430,7 @@ knowing mcp [flags]
 
 This is the mode used by AI agents via `.mcp.json` configuration. Opens the
 database and serves MCP tool calls over stdin/stdout until the input stream
-closes or SIGINT/SIGTERM is received. All 22 MCP tools are available.
+closes or SIGINT/SIGTERM is received. All 23 MCP tools are available.
 
 **Flags:**
 

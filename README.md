@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/blackwell-systems"><img src="https://raw.githubusercontent.com/blackwell-systems/blackwell-docs-theme/main/badge-trademark.svg" alt="Blackwell Systems"></a>
-  <a href="#mcp-tools"><img src="https://img.shields.io/badge/MCP_tools-22-brightgreen.svg" alt="MCP Tools"></a>
+  <a href="#mcp-tools"><img src="https://img.shields.io/badge/MCP_tools-23-brightgreen.svg" alt="MCP Tools"></a>
   <a href="#languages-and-formats"><img src="https://img.shields.io/badge/extractor_types-25-blue.svg" alt="Extractor Types"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
 </p>
@@ -179,9 +179,9 @@ Claude Code hooks are included for automatic context injection on session start,
 ├──────────────┬───────────────────┬───────────────────────┤
 │   Indexer    │   Graph Store     │      MCP Server       │
 │              │                   │                       │
-│ 25 extractors│ Content-addressed │ 22 tools + 3 prompts  │
+│ 25 extractors│ Content-addressed │ 23 tools + 3 prompts  │
 │ tree-sitter  │ SQLite + Merkle   │ stdio / HTTP          │
-│ gopls + SCIP │ Snapshot chain    │ GCF / GCB / JSON      │
+│ LSP + SCIP   │ Snapshot chain    │ GCF / GCB / JSON      │
 │ OTel traces  │ Edge events       │                       │
 └──────────────┴───────────────────┴───────────────────────┘
 ```
@@ -239,7 +239,7 @@ See [docs/edge-types.md](docs/edge-types.md) for exact semantics, producers, con
 
 ### MCP Tools
 
-The MCP server exposes 22 tools across indexing, graph queries, analysis, runtime, context, feedback, and discovery:
+The MCP server exposes 23 tools across indexing, graph queries, analysis, runtime, context, feedback, and discovery:
 
 | Tool | Purpose |
 |---|---|
@@ -247,7 +247,7 @@ The MCP server exposes 22 tools across indexing, graph queries, analysis, runtim
 | `cross_repo_callers`, `blast_radius`, `trace_dataflow`, `flow_between` | Understand impact and paths |
 | `snapshot_diff`, `semantic_diff`, `pr_impact`, `stale_edges` | Compare graph states and review changes |
 | `runtime_traffic`, `dead_routes`, `trace_stats` | Query runtime-observed relationships |
-| `context_for_task`, `context_for_files`, `context_for_pr` | Pack graph-ranked context for agents |
+| `context_for_task`, `context_for_files`, `context_for_pr`, `explain_symbol` | Pack graph-ranked context for agents; explain symbol rankings |
 | `ownership`, `test_scope`, `communities`, `plan_turn`, `feedback` | Route work, select tests, cluster graph, improve ranking |
 
 MCP prompts: `refactor_safely`, `review_pr`, `investigate_dead_code`.
@@ -290,7 +290,7 @@ knowing is implemented, benchmarked, and usable, but it is still explicit about 
 
 - Static call-graph impact follows `calls` edges; other edge types are used for context and relationship awareness, not every blast-radius traversal.
 - Runtime tools require OpenTelemetry trace ingestion and route-symbol mappings; without trace data they have no runtime observations to report.
-- LSP enrichment currently centers on Go through `gopls`; other languages rely on tree-sitter/static extractors and SCIP where available.
+- LSP enrichment supports Go (gopls), TypeScript (tsserver), Python (pyright), Rust (rust-analyzer), Java (jdtls), and C# (OmniSharp). Servers are auto-detected from project markers and PATH. Languages without a detected server fall back to tree-sitter extraction and SCIP where available.
 - Some planned work remains: MCP resources, traversal caching, richer ownership routing, and federated graphs.
 
 See [docs/FEATURES.md](docs/FEATURES.md) for the implementation inventory and known gaps, and [docs/roadmap.md](docs/roadmap.md) for planned work.

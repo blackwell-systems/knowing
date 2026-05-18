@@ -1,6 +1,6 @@
 # knowing MCP Tools Reference
 
-Complete reference for the 22 MCP tools exposed by knowing's MCP server.
+Complete reference for the 23 MCP tools exposed by knowing's MCP server.
 
 ## Connecting to the Server
 
@@ -792,6 +792,33 @@ Returns a context block optimized for PR review: symbols from the changed files,
     "repo_url": "https://github.com/org/repo",
     "token_budget": 8000,
     "format": "gcf"
+  }
+}
+```
+
+### `explain_symbol`
+
+Explain why a symbol ranked where it did for a given task. Shows the full scoring breakdown: seed channel/tier, RWR score, HITS authority/hub, blast radius, confidence, recency, distance, feedback weight, session boost, and equivalence class matches. MCP equivalent of the `knowing why` CLI command.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `task_description` | string | yes | Task description to evaluate the symbol against |
+| `symbol` | string | yes | Symbol name or qualified name to explain |
+
+**Return format:**
+
+Markdown-formatted scoring breakdown including all ranking signals and the symbol's final composite score.
+
+**Example:**
+
+```json
+{
+  "tool": "explain_symbol",
+  "arguments": {
+    "task_description": "refactor auth middleware",
+    "symbol": "SessionHandler"
   }
 }
 ```

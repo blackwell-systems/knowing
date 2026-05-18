@@ -31,7 +31,7 @@ These exist in the codebase but aren't wired into retrieval or workflows yet:
 |------|--------|-----------|
 | Community-aware retrieval | Communities computed, not used for scoping | Constrain RWR walk to seed communities (on roadmap) |
 | Edge event log | Events recorded, nothing reads them | Temporal queries: "when did this dependency appear?" |
-| LSP enrichment (TS/Python) | Shipped. TS: 98.9% upgrade rate. Python: 83% upgrade + 15K new edges. | Java blocked on agent-lsp jdtls toolchain fix (blackwell-systems/agent-lsp#4) |
+| LSP enrichment (TS/Python/Java) | Shipped. TS: 98.9% upgrade rate. Python: 83% upgrade + 15K new edges. Java: working via jdtls with workspace readiness waiting. | Rust and C# enrichment available via rust-analyzer and OmniSharp when installed. |
 
 ## Retrieval Pipeline
 
@@ -148,4 +148,4 @@ Pipeline is shipped and measured (31.6% P@10, 55 fixtures, 23 experiments). See 
 
 knowing is a content-addressed graph retrieval layer. The retrieval pipeline uses equivalence classes (not embeddings) as the primary concept-matching mechanism. This is local, deterministic, inspectable, and compounds with use. See [retrieval-pipeline.md](retrieval-pipeline.md) for the design rationale.
 
-**What's shipped:** 55K LOC Go, 25 extractor types (12 languages + 13 infrastructure/cloud formats), 22 MCP tools, 5 wire formats (GCF/TOON/JSON/XML/markdown), 55 eval fixtures, multi-language LSP auto-detection, `knowing init` one-command setup.
+**What's shipped:** 55K LOC Go, 25 extractor types (12 languages + 13 infrastructure/cloud formats), 23 MCP tools, 5 wire formats (GCF/TOON/JSON/XML/markdown), 55 eval fixtures, multi-language LSP enrichment (Go, TS, Python, Java, Rust, C#), `knowing init` one-command setup.

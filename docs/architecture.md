@@ -452,7 +452,7 @@ Commit detected (oldHead → newHead)
 6. Scoped LSP enrichment (Tier 2)
    ├── Only enrich edges from changed/added files
    ├── Skip unchanged files entirely
-   └── gopls already has workspace context from previous runs
+   └── Language servers may have workspace context from previous runs
     │
     ▼
 7. Cross-repo edge resolution
@@ -756,7 +756,8 @@ Developer commits code
 │ 7. Trigger scoped LSP enrichment (background goroutine)│
 │    No write lock held; enrichment uses SQLite WAL mode │
 │                                                       │
-│    ├── Start gopls language server                     │
+│    ├── For each detected language server (gopls,       │
+│    │   pyright, tsserver, rust-analyzer, jdtls, etc.): │
 │    ├── Open changed/added files (textDocument/didOpen) │
 │    ├── Edge upgrade pass:                              │
 │    │   For each ast_inferred edge in changed files:    │
@@ -769,7 +770,7 @@ Developer commits code
 │    │     For types: GetImplementation → implements     │
 │    │     For funcs: GetReferences → references         │
 │    ├── Close all files                                 │
-│    └── Shutdown gopls                                  │
+│    └── Shutdown language server, repeat for next       │
 └───────────────────────────────────────────────────────┘
 ```
 
