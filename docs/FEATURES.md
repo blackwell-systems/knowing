@@ -1,6 +1,6 @@
 # FEATURES.md -- Comprehensive Feature Dump for AI Reference
 
-Generated: 2026-05-15 (updated: 2026-05-17, features 40-64 added, stale statuses corrected)
+Generated: 2026-05-15 (updated: 2026-05-17, features 40-69 added, stale statuses corrected)
 Source: code inspection of all Go files across internal/, cmd/, and config
 Repo: github.com/blackwell-systems/knowing
 
@@ -142,7 +142,7 @@ Repo: github.com/blackwell-systems/knowing
   - Discovered edges use synthetic position-based hashes (not aligned with node hashes from extractors).
   - `RunScoped` opens only changed files, which may reduce gopls cross-package resolution accuracy.
   - Errors in individual edge upgrades are counted but not surfaced.
-  - No TypeScript/Rust/Python enrichment (gopls only).
+  - Superseded by multi-language auto-detection (see Feature 65). Legacy single-server path still works for Go-only repos.
 - **Dependencies:** `github.com/blackwell-systems/agent-lsp/pkg/lsp`, GraphStore.
 
 ### 12. Snapshot Manager (Merkle DAG)
@@ -706,6 +706,43 @@ Repo: github.com/blackwell-systems/knowing
 - **Package(s):** `internal/mcp/`
 - **What it does:** Sends a `notifications/message` MCP notification when the vector index is ready after indexing completes.
 - **Why it matters:** Allows MCP clients to know when embedding search is available without polling.
+
+### 65. Multi-Language LSP Enrichment (Auto-Detection)
+
+- **Package(s):** `internal/enrichment`
+- **Entry point:** `DetectLSPServers` in `internal/enrichment/config.go`, `Enricher` in `internal/enrichment/enricher.go`
+- **What it does:** Auto-detects language servers by checking project markers (`go.mod`, `tsconfig.json`, `pyproject.toml`, `Cargo.toml`, `pom.xml`, `*.csproj`) and PATH binaries. Supported servers: gopls, typescript-language-server, pylsp/pyright, rust-analyzer, jdtls, OmniSharp. Uses `LSPServerConfig` struct (`{command, extensions, language_id}`). Provides `SetLSPConfig` for explicit override and `LoadLSPConfig` for loading from `knowing-lsp.json`. Includes language-agnostic `openFilesForLanguage` and `isTestFile` (multi-language test detection). The enricher iterates all detected servers sequentially.
+- **Why it matters:** Extends LSP enrichment beyond Go to all supported languages without manual configuration. Projects with multiple languages get enrichment across all of them in a single index run.
+
+### 66. Passive Task Memory
+
+- **Package(s):** `internal/context/`
+- **Entry point:** `task_memory.go` in `internal/context/`
+- **Migration:** `008_task_memory.sql` (creates `task_memory` table with columns: keywords, symbol_hash, score, timestamp)
+- **What it does:** Records the top-5 symbols from each `context_for_task` call. On subsequent calls, recall matches keywords against stored entries with a 7-day linear decay. Matched symbols receive a boost added to the `FeedbackBoost` channel at 0.3x scale.
+- **Why it matters:** Provides passive learning from agent behavior. Symbols that were relevant to similar tasks in the past surface higher in future queries, without requiring explicit agent feedback.
+
+### 67. Universal Equivalence Classes
+
+- **Package(s):** `internal/context/`
+- **Entry point:** `universal_seeds.go` in `internal/context/`
+- **What it does:** Defines 20 universal software concepts (authentication, caching, config, database, etc.) as equivalence classes with weight 0.8 (between seed weight 1.0 and graph-derived weight 0.7). These are domain-agnostic patterns that apply across any codebase, complementing the hand-curated equivalence classes in `equivalence.go`.
+- **Why it matters:** Improves cross-repo retrieval accuracy. Cross-repo eval showed +6.7pp on the gortex benchmark (40% to 46.7%).
+
+### 68. Graph-Derived Aliases
+
+- **Package(s):** `internal/context/`
+- **Entry point:** `graph_aliases.go` in `internal/context/`
+- **What it does:** Auto-generates equivalence classes from caller/callee symbol names in the graph. Selects only the top-10 tiered candidates, weighted at 0.7. Derives vocabulary mappings from actual code relationships rather than hand-curated lists.
+- **Why it matters:** Provides retrieval improvement for repos that lack hand-curated seed mappings. Designed as a zero-configuration fallback; marginal improvement observed on the knowing repo itself.
+
+### 69. Cross-Repo Eval
+
+- **Package(s):** `eval/`
+- **Entry point:** `eval/crossrepo_test.go`
+- **What it does:** Tests the retrieval pipeline on external Go codebases. Uses 30 fixtures adapted from the gortex project: 10 exact-match, 10 concept-match, and 10 multi-hop queries. Evaluates how well the context engine retrieves relevant symbols for tasks described in natural language against a codebase it was not tuned for.
+- **Results:** exact 60%, concept 20%, multi_hop 60%, overall 46.7%.
+- **Why it matters:** Validates that retrieval quality generalizes beyond the knowing repo itself. Provides a regression gate for changes to the context engine.
 
 ### GraphStore (`internal/types/interfaces.go`)
 

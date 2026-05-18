@@ -325,6 +325,12 @@ The Go tree-sitter extractor (`gotsextractor`) is the default. The go/packages e
 
 LSP enrichment uses `github.com/blackwell-systems/agent-lsp/pkg/lsp`, a pure Go LSP client library with no CGo dependencies. It manages language server subprocess lifecycles (spawn, initialize, request/response, shutdown) and supports multi-server routing for polyglot repos. The enricher opens all source files before querying to give the language server full workspace context, then queries GetDefinition (edge upgrade), GetImplementation (implements edges), and GetReferences (references edges).
 
+**Multi-language auto-detection:**
+
+The enricher auto-detects available language servers via `DetectLSPServers` (`internal/enrichment/config.go`). Detection checks for project markers (`go.mod`, `tsconfig.json`, `pyproject.toml`, `Cargo.toml`, `pom.xml`, `*.csproj`) and verifies that the corresponding binary exists in PATH. Each detected server is described by an `LSPServerConfig` struct containing `command`, `extensions`, and `language_id`. The enricher iterates all detected servers sequentially, opening only files matching each server's extensions via the language-agnostic `openFilesForLanguage` helper. Test file detection (`isTestFile`) handles multi-language conventions (`_test.go`, `.test.ts`, `test_*.py`, etc.).
+
+For explicit control, `SetLSPConfig` overrides auto-detection and `LoadLSPConfig` reads from a `knowing-lsp.json` file. Supported servers: gopls, typescript-language-server, pylsp/pyright, rust-analyzer, jdtls, OmniSharp.
+
 **Provenance tiers after two-tier extraction:**
 
 | Provenance | Confidence | Source | When |
@@ -638,14 +644,17 @@ Key properties:
 
 ### LSP Enrichment is Sequential
 
-Language servers (gopls, pyright, rust-analyzer) do not support concurrent requests from the same client. The LSP protocol is request-response with a single message stream per client connection. The enricher processes edges and files sequentially:
+Language servers (gopls, pyright, rust-analyzer) do not support concurrent requests from the same client. The LSP protocol is request-response with a single message stream per client connection. The enricher iterates all detected language servers sequentially, processing each one in turn:
 
-1. Open all Go source files via `textDocument/didOpen` (sequential).
-2. For each `ast_inferred` edge with call-site positions, query `GetDefinition` (sequential).
-3. For each file, query `GetDocumentSymbols`, then `GetImplementation`/`GetReferences` per symbol (sequential).
-4. Close all files and shut down the language server.
+1. Auto-detect available language servers via project markers and PATH binaries (`DetectLSPServers`).
+2. For each detected server:
+   a. Open source files matching the server's extensions via `openFilesForLanguage` (`textDocument/didOpen`, sequential).
+   b. For each `ast_inferred` edge with call-site positions, query `GetDefinition` (sequential).
+   c. For each file, query `GetDocumentSymbols`, then `GetImplementation`/`GetReferences` per symbol (sequential).
+   d. Close all files and shut down the language server.
+3. Repeat for the next language server.
 
-This is an inherent limitation of the LSP protocol, not a design choice. The enricher could use multiple language server instances for parallelism, but the memory cost of multiple gopls instances (each loading the full module graph) outweighs the latency benefit for typical repo sizes.
+This is an inherent limitation of the LSP protocol, not a design choice. The enricher could use multiple language server instances for parallelism, but the memory cost of multiple server instances (each loading the full dependency graph) outweighs the latency benefit for typical repo sizes.
 
 ### SQLite WAL Mode
 
@@ -955,14 +964,17 @@ The context packing subsystem produces token-budgeted, graph-ranked context bloc
 
 ```
 internal/context/
-├── context.go       ContextEngine: ForTask, ForFiles entry points, 4-channel RRF fusion, knapsack packing
-├── equivalence.go   Equivalence class seed retrieval: 20 concepts, 200+ phrases -> target symbols
-├── ranking.go       RankSymbols: weighted scoring formula with HITS authority + session boost
-├── hits.go          ComputeHITS: hub/authority scores for subgraph reranking
-├── session.go       SessionTracker: exponential-decay recency boost for symbols accessed in-session
-├── walk.go          Random Walk with Restart (RWR) for graph proximity scoring (4-hop BFS depth limit)
-├── tokens.go        EstimateNodeTokens: per-symbol token cost estimation
-└── format.go        FormatContextBlock: XML, Markdown, JSON output
+├── context.go          ContextEngine: ForTask, ForFiles entry points, 4-channel RRF fusion, knapsack packing
+├── equivalence.go      Equivalence class seed retrieval: 20 concepts, 200+ phrases -> target symbols
+├── universal_seeds.go  20 universal software concepts (weight 0.8), cross-repo retrieval
+├── graph_aliases.go    Auto-generated equivalence classes from caller/callee names (weight 0.7)
+├── task_memory.go      Passive task memory: records top-5 symbols per call, 7-day decay recall
+├── ranking.go          RankSymbols: weighted scoring formula with HITS authority + session boost
+├── hits.go             ComputeHITS: hub/authority scores for subgraph reranking
+├── session.go          SessionTracker: exponential-decay recency boost for symbols accessed in-session
+├── walk.go             Random Walk with Restart (RWR) for graph proximity scoring (4-hop BFS depth limit)
+├── tokens.go           EstimateNodeTokens: per-symbol token cost estimation
+└── format.go           FormatContextBlock: XML, Markdown, JSON output
 ```
 
 ### Scoring Formula
@@ -1020,6 +1032,18 @@ The equivalence class system (`internal/context/equivalence.go`) bridges the voc
 
 This was the biggest single-feature improvement: hard tier P@10 rose from 10% to 18% (+8pp). It is fused as RRF Channel 4 with weight 2.0.
 
+### Universal Equivalence Classes
+
+The universal seeds system (`internal/context/universal_seeds.go`) provides 20 domain-agnostic software concepts (authentication, caching, config, database, error handling, logging, middleware, routing, serialization, validation, etc.) as equivalence classes. These are weighted at 0.8, between the seed weight of 1.0 and the graph-derived weight of 0.7. Unlike the hand-curated classes in `equivalence.go` (which map phrases to specific symbols in the knowing codebase), universal seeds apply to any codebase. Cross-repo eval on gortex showed +6.7pp improvement (40% to 46.7%).
+
+### Graph-Derived Aliases
+
+The graph alias system (`internal/context/graph_aliases.go`) auto-generates equivalence classes by analyzing caller/callee symbol names in the graph. It selects the top-10 tiered candidates and assigns weight 0.7. This provides a zero-configuration fallback for repos that lack hand-curated seed mappings, deriving vocabulary from actual code relationships rather than static lists.
+
+### Passive Task Memory
+
+Migration 008 creates the `task_memory` table (columns: keywords, symbol_hash, score, timestamp). The task memory system (`internal/context/task_memory.go`) records the top-5 symbols from each `context_for_task` call. On subsequent calls, it matches keywords against stored entries with a 7-day linear decay. Matched symbols receive a boost added to the `FeedbackBoost` channel at 0.3x scale. This provides passive learning from agent behavior without requiring explicit feedback.
+
 ### BM25 Full-Text Search (FTS5 Index)
 
 Migration 006 adds an SQLite FTS5 virtual table (`nodes_fts`) over `qualified_name`, `signature`, and `file_path`. Tokenization uses CamelCase-aware splitting (`splitForFTS`, `splitCamelCase`) so that a query for "Store" matches "SQLiteStore" or "NewSQLiteStore". `RebuildFTS` is called after batch indexing to keep the index current. BM25 is fused as RRF Channel 2 with weight 1.0.
@@ -1041,18 +1065,20 @@ Before scoring, `filterNoisySymbols` removes low-signal candidates:
 ### ForTask Flow
 
 1. Extract keywords from the task description (stop-word filtered, CamelCase split, deduplicated).
-2. Run 4-channel RRF seed fusion:
+2. Recall task memory: match keywords against stored entries (7-day linear decay), add matched symbols to FeedbackBoost at 0.3x scale.
+3. Run 4-channel RRF seed fusion:
    - Channel 1 (weight 3.0): 5-tier keyword matching (exact > prefix > substring > path > interface)
    - Channel 2 (weight 1.0): BM25 FTS5 search
    - Channel 3 (weight 0.0): Vector/embedding search (disabled)
-   - Channel 4 (weight 2.0): Equivalence class matching (20 concepts, 200+ phrases)
-3. `rrfFuseMulti` merges all channels into a single ranked seed set.
-4. Filter noisy symbols (mocks, stubs, fakes, build artifacts).
-5. For each candidate node, retrieve callers and callees (distance-0 and distance-1 neighborhood).
-6. Score all candidates via `RankSymbols` (including session boost).
-7. Run HITS on the top-200 candidates to compute authority/hub scores and boost rankings.
-8. Pack into token budget via density-ranked knapsack (score/cost ratio ordering).
-9. Format output as XML, Markdown, JSON, GCF, or GCB.
+   - Channel 4 (weight 2.0): Equivalence class matching (20 concepts, 200+ phrases, plus universal seeds at weight 0.8 and graph-derived aliases at weight 0.7)
+4. `rrfFuseMulti` merges all channels into a single ranked seed set.
+5. Filter noisy symbols (mocks, stubs, fakes, build artifacts).
+6. For each candidate node, retrieve callers and callees (distance-0 and distance-1 neighborhood).
+7. Score all candidates via `RankSymbols` (including session boost).
+8. Run HITS on the top-200 candidates to compute authority/hub scores and boost rankings.
+9. Pack into token budget via density-ranked knapsack (score/cost ratio ordering).
+10. Record top-5 symbols to task memory for future recall.
+11. Format output as XML, Markdown, JSON, GCF, or GCB.
 
 ### ForFiles Flow
 
