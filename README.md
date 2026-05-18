@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <strong>Content-addressed graph artifact for software systems. Identity is content, so incremental updates are structural.</strong>
+  <strong>Content-addressed, provenance-scored graph artifact for software relationships. Designed to make AI agents retrieve, trust, diff, and reuse structural context cheaply.</strong>
 </p>
 
 ---
