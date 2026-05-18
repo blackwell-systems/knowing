@@ -501,15 +501,25 @@ func cmdExport(args []string) error {
 	// Run Louvain to annotate nodes with community IDs.
 	communityOf, communityLabels := computeExportCommunities(nodes, edges)
 
-	// Build community summary (only communities with 3+ members).
+	// Build community summary. Communities smaller than minSize are merged into "other".
+	const minCommunitySize = 10
 	commSizes := make(map[int]int)
 	for _, c := range communityOf {
 		commSizes[c]++
 	}
+	// Assign small communities to an "other" bucket.
+	otherID := -1
+	otherSize := 0
+	for h, c := range communityOf {
+		if commSizes[c] < minCommunitySize {
+			communityOf[h] = otherID
+			otherSize++
+		}
+	}
 	var exportComms []exportCommunity
 	significantComms := make(map[int]bool)
 	for id, size := range commSizes {
-		if size >= 3 {
+		if size >= minCommunitySize {
 			exportComms = append(exportComms, exportCommunity{
 				ID:    id,
 				Label: communityLabels[id],
@@ -517,6 +527,14 @@ func cmdExport(args []string) error {
 			})
 			significantComms[id] = true
 		}
+	}
+	if otherSize > 0 {
+		exportComms = append(exportComms, exportCommunity{
+			ID:    otherID,
+			Label: "other",
+			Size:  otherSize,
+		})
+		significantComms[otherID] = true
 	}
 	sort.Slice(exportComms, func(i, j int) bool {
 		return exportComms[i].Size > exportComms[j].Size
@@ -603,7 +621,12 @@ func computeExportCommunities(nodes []types.Node, edges []types.Edge) (map[types
 		}
 	}
 
-	// Louvain.
+	// Louvain with resolution parameter.
+	// gamma < 1.0 produces fewer, larger communities (closer to package-level).
+	// gamma = 1.0 is standard Louvain (many fine-grained clusters).
+	// gamma = 0.3 works well for repos with 3-10 packages.
+	const gamma = 0.3
+
 	communityOf := make(map[types.Hash]int, len(nodeHashes))
 	for i, h := range nodeHashes {
 		communityOf[h] = i
@@ -652,8 +675,8 @@ func computeExportCommunities(nodes []types.Node, edges []types.Edge) (map[types
 					continue
 				}
 				sigC := sigmaTot[c]
-				gainAdd := w/m - (sigC*ki[node])/(2*m*m)
-				gainRemove := kiInCurr/m - (sigCurr*ki[node])/(2*m*m)
+				gainAdd := w/m - gamma*(sigC*ki[node])/(2*m*m)
+				gainRemove := kiInCurr/m - gamma*(sigCurr*ki[node])/(2*m*m)
 				gain := gainAdd - gainRemove
 				if gain > bestGain {
 					bestGain = gain
@@ -794,7 +817,9 @@ func exportDot(nodes []types.Node, edges []types.Edge) error {
 		}
 	}
 
-	// Run Louvain with correct modularity gain (same algorithm as communities MCP tool).
+	// Run Louvain with resolution parameter (same gamma as JSON export).
+	const gamma = 0.3
+
 	communityOf := make(map[types.Hash]int, len(nodeHashes))
 	for i, h := range nodeHashes {
 		communityOf[h] = i
@@ -847,8 +872,8 @@ func exportDot(nodes []types.Node, edges []types.Edge) error {
 					continue
 				}
 				sigC := sigmaTot[c]
-				gainAdd := w/m - (sigC*ki[node])/(2*m*m)
-				gainRemove := kiInCurr/m - (sigCurr*ki[node])/(2*m*m)
+				gainAdd := w/m - gamma*(sigC*ki[node])/(2*m*m)
+				gainRemove := kiInCurr/m - gamma*(sigCurr*ki[node])/(2*m*m)
 				gain := gainAdd - gainRemove
 				if gain > bestGain {
 					bestGain = gain
