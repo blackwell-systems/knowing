@@ -1045,7 +1045,7 @@ func packIntoBudget(ranked []RankedSymbol, budget int, format string) *ContextBl
 	}
 	items := make([]densityItem, len(ranked))
 	for i, sym := range ranked {
-		cost := EstimateNodeTokens(sym.Node)
+		cost := EstimateNodeTokensForFormat(sym.Node, format)
 		if cost < 1 {
 			cost = 1
 		}

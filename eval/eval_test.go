@@ -222,6 +222,121 @@ func TestEval(t *testing.T) {
 	writeEvalFindings(t, results, tiers, repoRoot)
 }
 
+// TestEvalGCFvsJSON compares retrieval quality between GCF and JSON formats.
+// With the same token budget, GCF packs ~5x more symbols because each symbol
+// costs ~84% fewer tokens. This should directly improve P@10 and R@10.
+func TestEvalGCFvsJSON(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping GCF comparison in short mode")
+	}
+
+	repoRoot := findRepoRoot(t)
+	ctx := context.Background()
+
+	dbPath := t.TempDir() + "/gcf.db"
+	st, err := store.NewSQLiteStore(dbPath)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	defer st.Close()
+
+	snapMgr := snapshot.NewSnapshotManager(st)
+	idx := indexer.NewIndexer(st, snapMgr)
+	idx.Register(gotsextractor.NewGoTreeSitterExtractor())
+	idx.IndexRepo(ctx, "github.com/blackwell-systems/knowing", repoRoot, "HEAD")
+
+	engine := knowingctx.NewContextEngine(st)
+	fixtures := loadFixtures(t, filepath.Join(repoRoot, "eval", "fixtures"))
+
+	tokenBudget := 5000
+	topK := 10
+
+	type formatResult struct {
+		totalP, totalR, totalMRR float64
+		n                        int
+		avgSymbols               float64
+	}
+
+	runFormat := func(format string) formatResult {
+		var fr formatResult
+		totalSyms := 0
+		for _, fix := range fixtures {
+			block, err := engine.ForTask(ctx, knowingctx.TaskOptions{
+				TaskDescription: fix.Task,
+				TokenBudget:     tokenBudget,
+				Format:          format,
+			})
+			if err != nil {
+				continue
+			}
+			totalSyms += len(block.Symbols)
+
+			k := topK
+			if len(block.Symbols) < k {
+				k = len(block.Symbols)
+			}
+
+			hits := 0
+			firstHitRank := 0
+			for i := 0; i < k; i++ {
+				if isRelevant(block.Symbols[i].Node.QualifiedName, fix.GroundTruth) {
+					hits++
+					if firstHitRank == 0 {
+						firstHitRank = i + 1
+					}
+				}
+			}
+
+			precision := 0.0
+			if k > 0 {
+				precision = float64(hits) / float64(k)
+			}
+			recall := float64(hits) / float64(len(fix.GroundTruth))
+			mrr := 0.0
+			if firstHitRank > 0 {
+				mrr = 1.0 / float64(firstHitRank)
+			}
+
+			fr.totalP += precision
+			fr.totalR += recall
+			fr.totalMRR += mrr
+			fr.n++
+		}
+		if fr.n > 0 {
+			fr.avgSymbols = float64(totalSyms) / float64(fr.n)
+		}
+		return fr
+	}
+
+	jsonR := runFormat("json")
+	gcfR := runFormat("gcf")
+
+	t.Log("")
+	t.Log("=== GCF vs JSON: Same Budget, Different Density ===")
+	t.Log("")
+	t.Logf("%-8s | %6s | %6s | %5s | %s", "Format", "P@10", "R@10", "MRR", "Avg Symbols")
+	t.Logf("%-8s-+-%6s-+-%6s-+-%5s-+-%s", "--------", "------", "------", "-----", "-----------")
+
+	for _, r := range []struct {
+		name string
+		fr   formatResult
+	}{{"JSON", jsonR}, {"GCF", gcfR}} {
+		t.Logf("%-8s | %5.1f%% | %5.1f%% | %5.2f | %.0f",
+			r.name,
+			r.fr.totalP/float64(r.fr.n)*100,
+			r.fr.totalR/float64(r.fr.n)*100,
+			r.fr.totalMRR/float64(r.fr.n),
+			r.fr.avgSymbols)
+	}
+
+	// GCF should pack more symbols.
+	if gcfR.avgSymbols <= jsonR.avgSymbols {
+		t.Logf("NOTE: GCF did not pack more symbols (GCF=%.0f, JSON=%.0f)", gcfR.avgSymbols, jsonR.avgSymbols)
+	} else {
+		t.Logf("GCF packed %.1fx more symbols than JSON", gcfR.avgSymbols/jsonR.avgSymbols)
+	}
+}
+
 func loadFixtures(t *testing.T, dir string) []Fixture {
 	t.Helper()
 	var fixtures []Fixture
