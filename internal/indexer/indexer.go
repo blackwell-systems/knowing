@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/blackwell-systems/knowing/internal/indexer/ownership"
 	"github.com/blackwell-systems/knowing/internal/resolver"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
@@ -359,6 +360,29 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 		for _, e := range allEdges {
 			if err := idx.store.PutEdge(ctx, e); err != nil {
 				return nil, fmt.Errorf("store edge: %w", err)
+			}
+		}
+	}
+
+	// Extract CODEOWNERS ownership edges if a CODEOWNERS file exists.
+	if coPath := ownership.FindCodeowners(repoPath); coPath != "" {
+		rules, err := ownership.ParseCodeowners(coPath)
+		if err == nil && len(rules) > 0 {
+			ownerNodes, ownerEdges := ownership.ExtractOwnership(repoURL, allFiles, rules)
+			if bs, ok := idx.store.(batchStore); ok {
+				if len(ownerNodes) > 0 {
+					_ = bs.BatchPutNodes(ctx, ownerNodes)
+				}
+				if len(ownerEdges) > 0 {
+					_ = bs.BatchPutEdges(ctx, ownerEdges)
+				}
+			} else {
+				for _, n := range ownerNodes {
+					_ = idx.store.PutNode(ctx, n)
+				}
+				for _, e := range ownerEdges {
+					_ = idx.store.PutEdge(ctx, e)
+				}
 			}
 		}
 	}
