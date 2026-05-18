@@ -180,6 +180,8 @@ Pipeline is shipped and measured (31.6% P@10, 55 fixtures, 23 experiments). See 
 
 ## Strategic Position
 
-knowing is a content-addressed graph retrieval layer. The retrieval pipeline uses equivalence classes (not embeddings) as the primary concept-matching mechanism. This is local, deterministic, inspectable, and compounds with use. See [retrieval-pipeline.md](retrieval-pipeline.md) for the design rationale.
+knowing is an intelligence versioning system. Git versions files; knowing versions the understanding of code: relationships, confidence, provenance, and what changes mean. Every snapshot captures not just structure but learned intelligence (feedback, session patterns, task memory) that compounds with use.
+
+The retrieval pipeline uses equivalence classes (not embeddings) as the primary concept-matching mechanism. This is local, deterministic, inspectable, and compounds with use. See [retrieval-pipeline.md](retrieval-pipeline.md) for the design rationale.
 
 **What's shipped (v0.2.0):** ~60K LOC Go, 25 extractor types (12 languages + 13 infrastructure/cloud formats), 23 MCP tools, 5 wire formats (GCF/TOON/JSON/XML/markdown), 55 eval fixtures, 84 equivalence classes, multi-language LSP enrichment (Go, TS, Python, Java, Rust, C#), `knowing init` one-command setup, `knowing why` retrieval explainability.

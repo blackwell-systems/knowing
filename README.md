@@ -17,24 +17,26 @@
 
 ## What knowing Is
 
-**Git already solved the hard problems for files.** Content-addressed blobs. Merkle trees. Incremental updates. History and integrity as structural consequences of the identity model, not features bolted on after the fact. It works because identity is content: change a file, get a new hash, only the changed path needs recomputation.
+**Git versions files. knowing versions the understanding of code.**
 
-knowing applies the same model to **code relationships**:
+Files are the wrong unit for AI agents. An agent doesn't need to know "this file changed." It needs to know "this change breaks 14 callers, adds a new dependency path, and disagrees with what production traffic shows." That's intelligence, not source.
 
-| | Git | knowing |
+knowing is an intelligence versioning system: a content-addressed graph where every relationship between symbols is tracked, scored, and snapshotted. Each snapshot captures not just what the code looks like, but what it means: who calls what, how confident we are, what production observed, and what changed since last time.
+
+| | Git (code versioning) | knowing (intelligence versioning) |
 |---|---|---|
-| Unit of storage | file blob | node (symbol) + edge (relationship between symbols) |
-| Node identity | `sha256(file content)` | `sha256(repo + package + name + kind)` (logical identity) |
-| Edge identity | n/a (paths are implicit) | `sha256(source_hash + target_hash + type + provenance)` |
-| Snapshot | tree hash of sorted child hashes | Merkle root of sorted edge hashes |
-| Incremental update | changed file = new blob hash | changed file = stale file hash, surgical re-extraction of derived nodes/edges |
-| History | commit chain (append-only) | snapshot chain + edge event log (append-only) |
-| Integrity | verify tree from root hash | verify snapshot from Merkle root |
-| Diff | any two commits | any two snapshots |
+| What it versions | File contents | Code relationships and their meaning |
+| Unit of storage | file blob | node (symbol) + edge (relationship) + provenance + confidence |
+| Identity model | `sha256(file content)` | `sha256(repo + package + name + kind)` for nodes, `sha256(source + target + type + provenance)` for edges |
+| Snapshot | tree hash of file blobs | Merkle root of relationship hashes |
+| What a diff tells you | Which lines changed | Which relationships changed, what broke, what's new, what went stale |
+| What history tells you | What the code looked like | What the codebase understood about itself at each point in time |
+| Incremental update | changed file = new blob | changed file = stale edges, surgical re-extraction |
+| Integrity | verify tree from root hash | verify intelligence snapshot from Merkle root |
 
-The hard problems (staleness, history, integrity, incremental updates) are structural consequences of choosing content-addressing. knowing watches `.git/HEAD` and ref changes, detects changed files, invalidates their hashes, re-extracts only affected edges, and computes a new snapshot root. Staleness is structurally detectable and recovery is bounded to the changed files, not a full re-index.
+The hard problems (staleness, history, integrity, incremental updates) are structural consequences of choosing content-addressing. knowing watches for changes, detects stale files, invalidates their hashes, re-extracts only affected edges, and computes a new snapshot root. Staleness is structurally detectable and recovery is bounded to the changed files, not a full re-index.
 
-On top of this foundation, knowing fuses static analysis, infrastructure declarations, SCIP indexes, and OpenTelemetry runtime traces into one graph. Every edge carries provenance and confidence. Agents can ask not just "where is this symbol?" but "what depends on it, how do we know, how confident are we, and what changed since the last snapshot?"
+On top of this foundation, knowing fuses static analysis, infrastructure declarations, SCIP indexes, and OpenTelemetry runtime traces into one graph. Every edge carries provenance and confidence. Feedback from past queries compounds into the intelligence: the system learns which symbols matter for which tasks, and rankings improve with use.
 
 Use knowing when code search is too shallow, LSP is too workspace-local, and dependency graphs stop at package boundaries.
 
@@ -69,9 +71,9 @@ Most code-intelligence tools answer one slice of the problem:
 | Dependency graphs | Package-level imports | Function-level callers, routes, infra, runtime behavior |
 | APM/tracing | Production traffic | Static ownership, source-level blast radius, historical graph diffs |
 
-knowing's unit of record is the relationship itself: `source -edge_type-> target`, with confidence and provenance. The graph is versioned like source code, so relationship history is a first-class artifact instead of a regenerated report.
+knowing's unit of record is the relationship itself: `source -edge_type-> target`, with confidence and provenance. The intelligence is versioned, so you can ask "what did we understand about the service graph on Tuesday?" and get an answer, not "what did the files look like on Tuesday?"
 
-knowing is the only code-intelligence tool where every node, edge, and snapshot is content-addressed (`sha256`). Other tools use auto-increment IDs, UUIDs, or ephemeral in-memory graphs. Content-addressing means staleness is structurally detectable (changed file = new hash = stale edges are known without scanning), snapshots are verifiable from a single Merkle root, and query results keyed to a snapshot hash are valid forever. This is the same identity model Git uses for files, applied to code relationships.
+knowing is the only code-intelligence tool where every node, edge, and snapshot is content-addressed (`sha256`). Other tools use auto-increment IDs, UUIDs, or ephemeral in-memory graphs that are regenerated from scratch each session. Content-addressing means staleness is structurally detectable (changed file = new hash = stale edges are known without scanning), snapshots are verifiable from a single Merkle root, and query results keyed to a snapshot hash are valid forever. Intelligence diffs ("3 new cross-service calls appeared, 2 routes went dead, blast radius of AuthMiddleware grew 40%") are computed from hash set differences, not full graph scans.
 
 ## Proof Points
 
