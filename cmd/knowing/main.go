@@ -714,13 +714,39 @@ func computeExportCommunities(nodes []types.Node, edges []types.Edge) (map[types
 		}
 	}
 
-	// Deduplicate labels: if multiple communities share a label, append (#2, #3, etc.)
+	// Deduplicate labels: when multiple communities share a package name,
+	// use the highest-degree symbol as a differentiator (e.g., "server (MCPServer)")
+	// instead of opaque numbering like "server #14".
 	labelCounts := make(map[string]int)
-	labelSeen := make(map[string]int)
 	for _, label := range communityLabels {
 		labelCounts[label]++
 	}
-	// Sort community IDs for deterministic numbering.
+
+	// For communities with duplicate labels, find their top symbol by edge count.
+	commTopSymbol := make(map[int]string)
+	edgeCount := make(map[types.Hash]int)
+	for _, e := range edges {
+		edgeCount[e.SourceHash]++
+		edgeCount[e.TargetHash]++
+	}
+	for h, c := range communityOf {
+		if labelCounts[communityLabels[c]] <= 1 {
+			continue
+		}
+		node := nodeByHash[h]
+		shortName := node.QualifiedName
+		if dot := strings.LastIndex(shortName, "."); dot >= 0 {
+			shortName = shortName[dot+1:]
+		}
+		// Prefer non-test symbols as differentiators.
+		isTest := strings.HasPrefix(shortName, "Test") || strings.HasPrefix(shortName, "test_")
+		existing, hasExisting := commTopSymbol[c]
+		existingIsTest := strings.HasPrefix(existing, "Test") || strings.HasPrefix(existing, "test_")
+		if !hasExisting || (!isTest && existingIsTest) || (!isTest && !existingIsTest && edgeCount[h] > edgeCount[types.NewHash([]byte(existing))]) {
+			commTopSymbol[c] = shortName
+		}
+	}
+
 	commIDList := make([]int, 0, len(communityLabels))
 	for c := range communityLabels {
 		commIDList = append(commIDList, c)
@@ -729,8 +755,9 @@ func computeExportCommunities(nodes []types.Node, edges []types.Edge) (map[types
 	for _, c := range commIDList {
 		label := communityLabels[c]
 		if labelCounts[label] > 1 {
-			labelSeen[label]++
-			communityLabels[c] = fmt.Sprintf("%s #%d", label, labelSeen[label])
+			if topSym, ok := commTopSymbol[c]; ok && topSym != "" {
+				communityLabels[c] = fmt.Sprintf("%s (%s)", label, topSym)
+			}
 		}
 	}
 
