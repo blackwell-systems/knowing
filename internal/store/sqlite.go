@@ -69,9 +69,9 @@ func (s *SQLiteStore) Close() error {
 // PutNode upserts a single node into the nodes table.
 func (s *SQLiteStore) PutNode(ctx context.Context, n types.Node) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT OR REPLACE INTO nodes (node_hash, file_hash, qualified_name, kind, line, signature, doc, last_author, last_commit_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		n.NodeHash[:], n.FileHash[:], n.QualifiedName, n.Kind, n.Line, n.Signature, n.Doc, n.LastAuthor, n.LastCommitAt,
+		`INSERT OR REPLACE INTO nodes (node_hash, file_hash, qualified_name, kind, line, signature, doc, last_author, last_commit_at, coverage_pct)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		n.NodeHash[:], n.FileHash[:], n.QualifiedName, n.Kind, n.Line, n.Signature, n.Doc, n.LastAuthor, n.LastCommitAt, n.CoveragePct,
 	)
 	if err != nil {
 		return err
@@ -86,6 +86,15 @@ func (s *SQLiteStore) UpdateNodeBlame(ctx context.Context, nodeHash types.Hash, 
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE nodes SET last_author = ?, last_commit_at = ? WHERE node_hash = ?`,
 		author, commitAt, nodeHash[:],
+	)
+	return err
+}
+
+// UpdateNodeCoverage stamps test coverage percentage on a node.
+func (s *SQLiteStore) UpdateNodeCoverage(ctx context.Context, nodeHash types.Hash, pct float64) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE nodes SET coverage_pct = ? WHERE node_hash = ?`,
+		pct, nodeHash[:],
 	)
 	return err
 }
@@ -141,15 +150,15 @@ func (s *SQLiteStore) BatchPutNodes(ctx context.Context, nodes []types.Node) err
 	defer tx.Rollback() //nolint:errcheck
 
 	stmt, err := tx.PrepareContext(ctx,
-		`INSERT OR REPLACE INTO nodes (node_hash, file_hash, qualified_name, kind, line, signature, doc, last_author, last_commit_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		`INSERT OR REPLACE INTO nodes (node_hash, file_hash, qualified_name, kind, line, signature, doc, last_author, last_commit_at, coverage_pct)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("prepare: %w", err)
 	}
 	defer stmt.Close()
 
 	for _, n := range nodes {
-		if _, err := stmt.ExecContext(ctx, n.NodeHash[:], n.FileHash[:], n.QualifiedName, n.Kind, n.Line, n.Signature, n.Doc, n.LastAuthor, n.LastCommitAt); err != nil {
+		if _, err := stmt.ExecContext(ctx, n.NodeHash[:], n.FileHash[:], n.QualifiedName, n.Kind, n.Line, n.Signature, n.Doc, n.LastAuthor, n.LastCommitAt, n.CoveragePct); err != nil {
 			return fmt.Errorf("exec node %s: %w", n.QualifiedName, err)
 		}
 	}
@@ -231,7 +240,7 @@ func (s *SQLiteStore) DeleteSnapshot(ctx context.Context, hash types.Hash) error
 // GetNode retrieves a node by its content-addressed hash. Returns nil if not found.
 func (s *SQLiteStore) GetNode(ctx context.Context, hash types.Hash) (*types.Node, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT node_hash, file_hash, qualified_name, kind, line, signature, doc, last_author, last_commit_at FROM nodes WHERE node_hash = ?`,
+		`SELECT node_hash, file_hash, qualified_name, kind, line, signature, doc, last_author, last_commit_at, coverage_pct FROM nodes WHERE node_hash = ?`,
 		hash[:],
 	)
 	return scanNode(row)
@@ -289,7 +298,7 @@ func (s *SQLiteStore) GetRepo(ctx context.Context, hash types.Hash) (*types.Repo
 // and by the query CLI to search by symbol name.
 func (s *SQLiteStore) NodesByName(ctx context.Context, qualifiedPrefix string) ([]types.Node, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT node_hash, file_hash, qualified_name, kind, line, signature, doc, last_author, last_commit_at
+		`SELECT node_hash, file_hash, qualified_name, kind, line, signature, doc, last_author, last_commit_at, coverage_pct
 		 FROM nodes WHERE qualified_name LIKE ? ORDER BY qualified_name`,
 		qualifiedPrefix+"%",
 	)
@@ -356,7 +365,7 @@ func (s *SQLiteStore) TransitiveCallers(ctx context.Context, target types.Hash, 
 			JOIN callers c ON e.target_hash = c.node_hash
 			WHERE c.depth < ? AND e.edge_type = 'calls'
 		)
-		SELECT DISTINCT n.node_hash, n.file_hash, n.qualified_name, n.kind, n.line, n.signature, n.doc, n.last_author, n.last_commit_at, c.depth
+		SELECT DISTINCT n.node_hash, n.file_hash, n.qualified_name, n.kind, n.line, n.signature, n.doc, n.last_author, n.last_commit_at, n.coverage_pct, c.depth
 		FROM callers c
 		JOIN nodes n ON n.node_hash = c.node_hash
 		ORDER BY c.depth, n.qualified_name`,
@@ -371,7 +380,7 @@ func (s *SQLiteStore) TransitiveCallers(ctx context.Context, target types.Hash, 
 	for rows.Next() {
 		var cr types.CallerResult
 		var nodeHash, fileHash []byte
-		if err := rows.Scan(&nodeHash, &fileHash, &cr.Node.QualifiedName, &cr.Node.Kind, &cr.Node.Line, &cr.Node.Signature, &cr.Node.Doc, &cr.Node.LastAuthor, &cr.Node.LastCommitAt, &cr.Depth); err != nil {
+		if err := rows.Scan(&nodeHash, &fileHash, &cr.Node.QualifiedName, &cr.Node.Kind, &cr.Node.Line, &cr.Node.Signature, &cr.Node.Doc, &cr.Node.LastAuthor, &cr.Node.LastCommitAt, &cr.Node.CoveragePct, &cr.Depth); err != nil {
 			return nil, err
 		}
 		copy(cr.Node.NodeHash[:], nodeHash)
@@ -399,7 +408,7 @@ func (s *SQLiteStore) TransitiveCallees(ctx context.Context, source types.Hash, 
 			JOIN callees c ON e.source_hash = c.node_hash
 			WHERE c.depth < ? AND e.edge_type = 'calls'
 		)
-		SELECT DISTINCT n.node_hash, n.file_hash, n.qualified_name, n.kind, n.line, n.signature, n.doc, n.last_author, n.last_commit_at, c.depth
+		SELECT DISTINCT n.node_hash, n.file_hash, n.qualified_name, n.kind, n.line, n.signature, n.doc, n.last_author, n.last_commit_at, n.coverage_pct, c.depth
 		FROM callees c
 		JOIN nodes n ON n.node_hash = c.node_hash
 		ORDER BY c.depth, n.qualified_name`,
@@ -414,7 +423,7 @@ func (s *SQLiteStore) TransitiveCallees(ctx context.Context, source types.Hash, 
 	for rows.Next() {
 		var cr types.CalleeResult
 		var nodeHash, fileHash []byte
-		if err := rows.Scan(&nodeHash, &fileHash, &cr.Node.QualifiedName, &cr.Node.Kind, &cr.Node.Line, &cr.Node.Signature, &cr.Node.Doc, &cr.Node.LastAuthor, &cr.Node.LastCommitAt, &cr.Depth); err != nil {
+		if err := rows.Scan(&nodeHash, &fileHash, &cr.Node.QualifiedName, &cr.Node.Kind, &cr.Node.Line, &cr.Node.Signature, &cr.Node.Doc, &cr.Node.LastAuthor, &cr.Node.LastCommitAt, &cr.Node.CoveragePct, &cr.Depth); err != nil {
 			return nil, err
 		}
 		copy(cr.Node.NodeHash[:], nodeHash)
@@ -616,7 +625,7 @@ func (s *SQLiteStore) FileByPath(ctx context.Context, repoHash types.Hash, path 
 // works regardless of whether file content (and thus file_hash) has changed.
 func (s *SQLiteStore) NodesByFilePath(ctx context.Context, repoHash types.Hash, path string) ([]types.Node, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT n.node_hash, n.file_hash, n.qualified_name, n.kind, n.line, n.signature, n.doc, n.last_author, n.last_commit_at
+		`SELECT n.node_hash, n.file_hash, n.qualified_name, n.kind, n.line, n.signature, n.doc, n.last_author, n.last_commit_at, n.coverage_pct
 		 FROM nodes n
 		 INNER JOIN files f ON n.file_hash = f.file_hash
 		 WHERE f.repo_hash = ? AND f.path = ?`,
@@ -682,7 +691,7 @@ func (s *SQLiteStore) AllRepos(ctx context.Context) ([]types.Repo, error) {
 // NodesByQualifiedName returns all nodes with an exact qualified name match.
 func (s *SQLiteStore) NodesByQualifiedName(ctx context.Context, qualifiedName string) ([]types.Node, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT node_hash, file_hash, qualified_name, kind, line, signature, doc, last_author, last_commit_at
+		`SELECT node_hash, file_hash, qualified_name, kind, line, signature, doc, last_author, last_commit_at, coverage_pct
 		 FROM nodes WHERE qualified_name = ?`,
 		qualifiedName,
 	)
@@ -799,7 +808,7 @@ type scannable interface {
 func scanNode(row scannable) (*types.Node, error) {
 	var n types.Node
 	var nodeHash, fileHash []byte
-	if err := row.Scan(&nodeHash, &fileHash, &n.QualifiedName, &n.Kind, &n.Line, &n.Signature, &n.Doc, &n.LastAuthor, &n.LastCommitAt); err != nil {
+	if err := row.Scan(&nodeHash, &fileHash, &n.QualifiedName, &n.Kind, &n.Line, &n.Signature, &n.Doc, &n.LastAuthor, &n.LastCommitAt, &n.CoveragePct); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -846,7 +855,7 @@ func scanNodes(rows *sql.Rows) ([]types.Node, error) {
 	for rows.Next() {
 		var n types.Node
 		var nodeHash, fileHash []byte
-		if err := rows.Scan(&nodeHash, &fileHash, &n.QualifiedName, &n.Kind, &n.Line, &n.Signature, &n.Doc, &n.LastAuthor, &n.LastCommitAt); err != nil {
+		if err := rows.Scan(&nodeHash, &fileHash, &n.QualifiedName, &n.Kind, &n.Line, &n.Signature, &n.Doc, &n.LastAuthor, &n.LastCommitAt, &n.CoveragePct); err != nil {
 			return nil, err
 		}
 		copy(n.NodeHash[:], nodeHash)
@@ -879,7 +888,7 @@ func (s *SQLiteStore) SearchBM25Nodes(ctx context.Context, query string, limit i
 		limit = 50
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT n.node_hash, n.file_hash, n.qualified_name, n.kind, n.line, n.signature, n.doc, n.last_author, n.last_commit_at
+		`SELECT n.node_hash, n.file_hash, n.qualified_name, n.kind, n.line, n.signature, n.doc, n.last_author, n.last_commit_at, n.coverage_pct
 		 FROM nodes_fts
 		 JOIN nodes_fts_content c ON c.rowid = nodes_fts.rowid
 		 JOIN nodes n ON n.node_hash = c.node_hash

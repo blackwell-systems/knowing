@@ -20,14 +20,16 @@ import (
 // cmdEnrich runs offline enrichment passes that stamp per-symbol metadata.
 func cmdEnrich(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: knowing enrich {blame} [flags] <repo-path>")
+		return fmt.Errorf("usage: knowing enrich {blame|coverage} [flags] <repo-path>")
 	}
 
 	switch args[0] {
 	case "blame":
 		return cmdEnrichBlame(args[1:])
+	case "coverage":
+		return cmdEnrichCoverage(args[1:])
 	default:
-		return fmt.Errorf("unknown enrichment pass: %s (available: blame)", args[0])
+		return fmt.Errorf("unknown enrichment pass: %s (available: blame, coverage)", args[0])
 	}
 }
 
@@ -169,4 +171,182 @@ func parseBlamePorcelain(output string) ([]blameLine, error) {
 	}
 
 	return lines, scanner.Err()
+}
+
+// coverageBlock represents a block of code with coverage data from a Go cover profile.
+type coverageBlock struct {
+	startLine  int
+	startCol   int
+	endLine    int
+	endCol     int
+	statements int
+	count      int // 0 = not covered, >0 = covered
+}
+
+// cmdEnrichCoverage stamps coverage percentage on symbols from a Go cover profile.
+func cmdEnrichCoverage(args []string) error {
+	fs := flag.NewFlagSet("enrich coverage", flag.ExitOnError)
+	dbPath := fs.String("db", defaultDB(), "Path to SQLite database (env: KNOWING_DB)")
+	repoURL := fs.String("url", "", "Repository URL (auto-detected if empty)")
+	profile := fs.String("profile", "cover.out", "Path to Go cover profile")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	if fs.NArg() < 1 {
+		return fmt.Errorf("usage: knowing enrich coverage [flags] <repo-path>")
+	}
+	repoPath, err := filepath.Abs(fs.Arg(0))
+	if err != nil {
+		return fmt.Errorf("resolving path: %w", err)
+	}
+
+	if *repoURL == "" {
+		*repoURL = detectRepoURL(repoPath)
+	}
+
+	// Parse cover profile.
+	profilePath := *profile
+	if !filepath.IsAbs(profilePath) {
+		profilePath = filepath.Join(repoPath, profilePath)
+	}
+	blocks, err := parseCoverProfile(profilePath)
+	if err != nil {
+		return fmt.Errorf("parsing cover profile: %w", err)
+	}
+
+	st, err := store.NewSQLiteStore(*dbPath)
+	if err != nil {
+		return fmt.Errorf("opening store: %w", err)
+	}
+	defer st.Close()
+
+	ctx := context.Background()
+	repoHash := types.NewHash([]byte(*repoURL))
+
+	files, err := st.FilesByRepo(ctx, repoHash)
+	if err != nil {
+		return fmt.Errorf("listing files: %w", err)
+	}
+
+	start := time.Now()
+	stamped := 0
+	skipped := 0
+
+	for _, f := range files {
+		nodes, err := st.NodesByFilePath(ctx, repoHash, f.Path)
+		if err != nil || len(nodes) == 0 {
+			continue
+		}
+
+		// Find coverage blocks for this file.
+		// The cover profile uses module-relative paths (e.g., "github.com/org/repo/internal/store/sqlite.go").
+		// We need to match against our file path.
+		fileBlocks := findBlocksForFile(blocks, f.Path, *repoURL)
+		if len(fileBlocks) == 0 {
+			skipped++
+			continue
+		}
+
+		for _, n := range nodes {
+			if n.Line <= 0 {
+				continue
+			}
+			pct := computeCoverageForLine(fileBlocks, n.Line)
+			if err := st.UpdateNodeCoverage(ctx, n.NodeHash, pct); err != nil {
+				continue
+			}
+			stamped++
+		}
+	}
+
+	log.Printf("Coverage enrichment complete: %d symbols stamped, %d files without coverage data (%v)",
+		stamped, skipped, time.Since(start).Round(time.Millisecond))
+	return nil
+}
+
+// parseCoverProfile reads a Go cover profile and returns coverage blocks
+// grouped by file path.
+func parseCoverProfile(path string) (map[string][]coverageBlock, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	blocks := make(map[string][]coverageBlock)
+	scanner := bufio.NewScanner(f)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		// Skip mode line: "mode: set" or "mode: count" or "mode: atomic"
+		if strings.HasPrefix(line, "mode:") {
+			continue
+		}
+
+		// Format: file:startLine.startCol,endLine.endCol numStatements count
+		colonIdx := strings.LastIndex(line, ":")
+		if colonIdx < 0 {
+			continue
+		}
+		filePath := line[:colonIdx]
+		rest := line[colonIdx+1:]
+
+		// Parse "startLine.startCol,endLine.endCol numStatements count"
+		var startLine, startCol, endLine, endCol, stmts, count int
+		n, err := fmt.Sscanf(rest, "%d.%d,%d.%d %d %d",
+			&startLine, &startCol, &endLine, &endCol, &stmts, &count)
+		if err != nil || n != 6 {
+			continue
+		}
+
+		blocks[filePath] = append(blocks[filePath], coverageBlock{
+			startLine:  startLine,
+			startCol:   startCol,
+			endLine:    endLine,
+			endCol:     endCol,
+			statements: stmts,
+			count:      count,
+		})
+	}
+
+	return blocks, scanner.Err()
+}
+
+// findBlocksForFile finds coverage blocks matching a relative file path.
+// Cover profiles use full module paths (e.g., "github.com/org/repo/internal/foo.go"),
+// so we match by suffix.
+func findBlocksForFile(allBlocks map[string][]coverageBlock, relPath, repoURL string) []coverageBlock {
+	// Try exact module path match first.
+	fullPath := repoURL + "/" + relPath
+	if blocks, ok := allBlocks[fullPath]; ok {
+		return blocks
+	}
+	// Fallback: suffix match.
+	for filePath, blocks := range allBlocks {
+		if strings.HasSuffix(filePath, "/"+relPath) {
+			return blocks
+		}
+	}
+	return nil
+}
+
+// computeCoverageForLine computes the coverage percentage for a symbol at
+// a given line. Looks at all blocks that overlap the line and returns
+// the percentage of those blocks that are covered.
+func computeCoverageForLine(blocks []coverageBlock, line int) float64 {
+	covered := 0
+	total := 0
+	for _, b := range blocks {
+		if line >= b.startLine && line <= b.endLine {
+			total += b.statements
+			if b.count > 0 {
+				covered += b.statements
+			}
+		}
+	}
+	if total == 0 {
+		return -1 // no coverage data for this line
+	}
+	return float64(covered) / float64(total) * 100
 }
