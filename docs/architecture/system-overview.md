@@ -1,0 +1,384 @@
+# System Overview
+
+knowing is a persistent daemon that builds and serves a content-addressed knowledge graph of cross-repository code relationships.
+
+## Components
+
+```
+knowing daemon (long-lived)
+  ├── Change Detector (git-based: post-commit hooks, .git/HEAD watch, polling fallback)
+  ├── Indexer (two-tier: tree-sitter extraction + LSP enrichment)
+  ├── Graph Store (SQLite behind GraphStore interface, WAL mode)
+  ├── MCP Server (stdio or HTTP, 23 tools across execution/intelligence/runtime/context/feedback/discovery planes)
+  ├── Snapshot Manager (computes Merkle roots, GCs old snapshots)
+  └── Trace Ingestor (OTel spans, HTTP logs → runtime edges)
+```
+
+## System Diagram
+
+```
++------------------+     +------------------+     +------------------+
+|   Local Repos    |     |  External Deps   |     |   Agent (MCP)    |
+|  (Tier 1: deep)  |     | (Tier 2: shallow)|     |                  |
++--------+---------+     +--------+---------+     +--------+---------+
+         |                         |                        |
+         v                         v                        |
++--------+---------+     +---------+--------+               |
+|  AST Parser      |     |  SCIP/LSP Ingest |               |
+|  (go/packages,   |     |  (public API     |               |
+|   tree-sitter)   |     |   surface only)  |               |
++--------+---------+     +---------+--------+               |
+         |                         |                        |
+         +------------+------------+                        |
+                      v                                     |
+         +------------+------------+     +------------------+
+         |   Content-Addressed     |     |  Non-Code Ingest |
+         |      Graph Store        |<----| (Terraform, K8s, |
+         |  (Merkle DAG, SQLite)   |     |  CODEOWNERS,     |
+         |                         |     |  OpenAPI specs)  |
+         +------------+------------+     +------------------+
+                      |
+              +-------+-------+
+              v               v
++-------------+---+   +------+-----------+
+| Snapshot Chain  |   | Runtime Ingest   |
+| (root hashes    |   | (OTel traces,    |
+|  linked like    |   |  production      |
+|  git commits)   |   |  traffic logs)   |
++-----------------+   +------------------+
+```
+
+## Language Model
+
+The graph model is language-agnostic. Symbols, edges, hashes, provenance, and snapshots carry no language-specific semantics. A Go function, a Python class, and a TypeScript route handler all produce the same node and edge structures, identified by the same hash scheme, stored in the same graph. The extractor produces them; the graph doesn't care what language they came from.
+
+Adding a new language means writing a tree-sitter extractor that produces nodes and edges. No changes to the graph store, snapshot chain, MCP server, cache, or any other component.
+
+## Two-Tier Extraction
+
+Indexing uses a two-tier architecture that separates fast symbol extraction from expensive type resolution. The graph is queryable after Tier 1 completes (seconds); Tier 2 enriches it with type-resolved confidence (seconds more).
+
+```
+Tier 1: tree-sitter (fast, all languages)
+  ├── Parse AST via tree-sitter grammar
+  ├── Extract declaration nodes (functions, types, methods, interfaces)
+  ├── Extract syntactic call edges (string-matched, not type-resolved)
+  ├── Extract import edges
+  ├── Store call-site positions (line, column, file) on each call edge
+  ├── Provenance: "ast_inferred", confidence: 0.7
+  └── Completes in ~1.5 seconds for a 6,000-node repo
+
+Tier 2: LSP enrichment (type-resolved, per-language)
+  ├── Start language server (gopls, pyright, rust-analyzer)
+  ├── Open all source files (textDocument/didOpen)
+  ├── Upgrade call edges: query GetDefinition at call-site positions
+  │   └── Confirmed edges upgraded to "lsp_resolved", confidence: 0.9
+  ├── Discover new edges: query GetImplementation, GetReferences on symbols
+  │   └── implements and references edges (tree-sitter cannot produce these)
+  ├── Close all files, shutdown language server
+  └── Completes in ~8 seconds for a 6,000-node repo
+```
+
+**Why two tiers instead of one:**
+
+Full type resolution via `go/packages` (or equivalent per-language) requires loading and type-checking the entire transitive dependency graph. For a Go repo with heavy dependencies, this takes 16+ minutes. The cost is proportional to the dependency graph size, not the repo size, and cannot be parallelized from the caller's side.
+
+tree-sitter parses syntax without type checking. It produces the same declaration nodes and most of the same call edges in seconds. The edges have lower confidence (syntactic string matching vs. type-resolved targeting) but are correct for the vast majority of direct calls.
+
+LSP enrichment bridges the gap. Language servers (gopls, pyright, etc.) perform type checking incrementally on opened files rather than in a single batch pass. gopls resolves 8,600+ edges in ~8 seconds because it processes files incrementally as they're opened, leveraging its own internal caching.
+
+**Data flow:**
+
+```
+Repository on disk
+    │
+    ▼
+Tier 1: tree-sitter extraction
+    │  ├── File walker (skips .git, .claude, vendor, node_modules, testdata)
+    │  ├── Content hash comparison (skip unchanged files)
+    │  ├── Worker pool (runtime.GOMAXPROCS goroutines, fan-out/fan-in)
+    │  │   └── Each worker: parse file → extract nodes + edges → return results
+    │  ├── Deleted file detection (compare walked files against stored files)
+    │  │   └── Files no longer on disk: cleanup via DeleteEdgesBySourceFile + DeleteNodesByFile
+    │  ├── Batch insert (nodes, edges, files in single transaction)
+    │  └── Snapshot computation (Merkle root of sorted edge hashes)
+    │
+    ▼
+Graph is queryable (ast_inferred edges, confidence 0.7)
+    │
+    ▼
+Tier 2: LSP enrichment
+    │  ├── Start language server (gopls for Go, pyright for Python, etc.)
+    │  ├── Open ALL source files (textDocument/didOpen) ← required for cross-package resolution
+    │  ├── Edge upgrade pass:
+    │  │   ├── For each ast_inferred edge with call-site position:
+    │  │   │   ├── Query GetDefinition at (CallSiteFile, CallSiteLine, CallSiteCol)
+    │  │   │   ├── If definition resolved: upgrade to lsp_resolved (0.9)
+    │  │   │   └── If not resolved: leave as ast_inferred (0.7)
+    │  │   └── Preserves call-site positions on upgraded edges
+    │  ├── Edge discovery pass:
+    │  │   ├── For each file: GetDocumentSymbols
+    │  │   ├── For types/interfaces: GetImplementation → implements edges
+    │  │   └── For functions/methods: GetReferences → references edges
+    │  ├── Close all files, shutdown language server
+    │  └── New edges stored as lsp_resolved (0.9)
+    │
+    ▼
+Graph is fully enriched (all edges lsp_resolved or ast_resolved)
+```
+
+**Worker pool (Tier 1):**
+
+File extraction is parallelized across `runtime.GOMAXPROCS` goroutines using a fan-out/fan-in pattern. Work items are buffered into a channel; workers pull items and write results to a pre-sized array indexed by submission order (no locks, deterministic output). The worker pool handles tree-sitter extraction only; LSP enrichment is sequential (language servers are not designed for concurrent requests from the same client).
+
+**Call-site positions:**
+
+Edges carry `CallSiteLine` (1-indexed), `CallSiteCol` (0-indexed), and `CallSiteFile` (relative path) fields that store the source location of the call expression, not the declaration. tree-sitter provides these naturally from AST node positions. The Python tree-sitter extractor (`internal/indexer/treesitter/extractor.go`) additionally threads the enclosing function's node hash through `walkNode`, so each call edge records both its position and its containing scope. The enricher uses call-site positions to query `GetDefinition` at the exact call site, confirming that the syntactic call target matches the type-resolved target. Without call-site positions, LSP enrichment cannot upgrade existing edges (it can only discover new ones).
+
+**textDocument/didOpen requirement:**
+
+LSP servers require files to be opened via `textDocument/didOpen` before they can resolve cross-package references. This is an LSP protocol requirement, not a gopls-specific behavior. The enricher opens all source files before any query pass and closes them after completion. Without this step, `GetDefinition`, `GetImplementation`, and `GetReferences` return empty results or errors for cross-package targets.
+
+**What tree-sitter cannot do (explicit limitations):**
+
+| Capability | Why tree-sitter can't | How LSP enrichment covers it |
+|-----------|----------------------|---------------------------|
+| Resolve interface satisfaction | Requires type checker to compare method sets | GetImplementation queries |
+| Resolve non-call references | Requires TypesInfo.Uses from type checker | GetReferences queries |
+| Disambiguate overloaded names | Requires type resolution for receiver types | GetDefinition at call site |
+| Resolve aliased imports | Matches string alias to import path, may guess wrong | GetDefinition confirms the actual target |
+| Detect embedded type methods | Requires understanding type embedding | GetImplementation covers promoted methods |
+
+These limitations exist only between Tier 1 and Tier 2 completion. After enrichment, all limitations are resolved.
+
+**Extractors (25 registered: 12 language + 13 infrastructure/cloud):**
+
+| Language / Format | Tier 1 (fast) | Tier 2 (enrichment) | LSP server |
+|----------|--------------|--------------------|-----------| 
+| Go | `gotsextractor` (tree-sitter Go grammar) | `enrichment` (agent-lsp pkg/lsp) | gopls |
+| Python | `treesitter` (tree-sitter Python grammar) | enrichment | pyright |
+| TypeScript/JS | `tsextractor` (tree-sitter TS grammar) | enrichment | tsserver |
+| Rust | `rustextractor` (tree-sitter Rust grammar) | enrichment | rust-analyzer |
+| Java | `javaextractor` (tree-sitter Java grammar) | enrichment | jdtls |
+| C# | `csharpextractor` (tree-sitter C# grammar) | enrichment | OmniSharp |
+| Ruby | `rubyextractor` (tree-sitter Ruby grammar) | n/a | n/a |
+| CSS/SCSS | `cssextractor` (tree-sitter CSS grammar) | n/a | n/a |
+| Protocol Buffers | `protoextractor` (tree-sitter protobuf grammar) | n/a | n/a |
+| GraphQL | `graphqlextractor` (tree-sitter GraphQL grammar) | n/a | n/a |
+| OpenAPI/Swagger/JSON Schema | `schemaextractor` (yaml.v3 + JSON parser) | n/a | n/a |
+| Go (legacy) | `goextractor` (go/packages, `--full` flag) | n/a (already type-resolved) | n/a |
+| Terraform (HCL) | `terraformextractor` (HCL parser) | n/a | n/a |
+| SQL | `sqlextractor` (SQL parser) | n/a | n/a |
+| Kubernetes YAML | `k8sextractor` (yaml.v3) | n/a | n/a |
+| Cloud YAML | `cloudextractor` (yaml.v3, 4 sub-extractors: CFN/SAM, Compose, Actions, Serverless) | n/a | n/a |
+| Dockerfile | `dockerfileextractor` (line parser) | n/a | n/a |
+| Makefile | `makefileextractor` (line parser) | n/a | n/a |
+| Helm Charts | `helmextractor` (yaml.v3) | n/a | n/a |
+| GitLab CI | `gitlabciextractor` (yaml.v3) | n/a | n/a |
+| package.json/npm | `packagejsonextractor` (JSON parser) | n/a | n/a |
+| Event/Message Queue | `eventextractor` (cross-language producer/consumer detection) | n/a | n/a |
+| .env files | `envextractor` (line parser) | n/a | n/a |
+| CODEOWNERS | `ownership` (CODEOWNERS parser, emits `owned_by` edges with confidence 1.0) | n/a | n/a |
+
+The Go tree-sitter extractor (`gotsextractor`) is the default. The go/packages extractor (`goextractor`) is available via `knowing index --full` as a deliberate escape hatch for cases requiring guaranteed single-pass type resolution at the cost of 16+ minutes. This is a design choice: two-tier is the architecture, `--full` exists for validation and edge cases where LSP enrichment is unavailable (air-gapped environments, missing gopls).
+
+**LSP client:**
+
+LSP enrichment uses `github.com/blackwell-systems/agent-lsp/pkg/lsp`, a pure Go LSP client library with no CGo dependencies. It manages language server subprocess lifecycles (spawn, initialize, request/response, shutdown) and supports multi-server routing for polyglot repos. The enricher opens all source files before querying to give the language server full workspace context, then queries GetDefinition (edge upgrade), GetImplementation (implements edges), and GetReferences (references edges).
+
+**Multi-language auto-detection:**
+
+The enricher auto-detects available language servers via `DetectLSPServers` (`internal/enrichment/config.go`). Detection checks for project markers (`go.mod`, `tsconfig.json`, `pyproject.toml`, `Cargo.toml`, `pom.xml`, `*.csproj`) and verifies that the corresponding binary exists in PATH. Each detected server is described by an `LSPServerConfig` struct containing `command`, `extensions`, and `language_id`. The enricher iterates all detected servers sequentially, opening only files matching each server's extensions via the language-agnostic `openFilesForLanguage` helper. Test file detection (`isTestFile`) handles multi-language conventions (`_test.go`, `.test.ts`, `test_*.py`, etc.).
+
+For explicit control, `SetLSPConfig` overrides auto-detection and `LoadLSPConfig` reads from a `knowing-lsp.json` file. Supported servers: gopls, typescript-language-server, pylsp/pyright, rust-analyzer, jdtls, OmniSharp.
+
+**Provenance tiers after two-tier extraction:**
+
+| Provenance | Confidence | Source | When |
+|-----------|-----------|--------|------|
+| `ast_inferred` | 0.7 | tree-sitter syntactic matching | After Tier 1 (seconds) |
+| `lsp_resolved` | 0.9 | LSP GetDefinition confirmation | After Tier 2 (seconds more) |
+| `ast_resolved` | 1.0 | go/packages full type resolution | `--full` flag only (minutes) |
+
+## HTTP Route Extraction
+
+During Tier 1 tree-sitter extraction, the Go extractor (`gotsextractor`) detects HTTP route handler registrations and creates graph nodes and edges that bridge static analysis and runtime trace ingestion.
+
+**Detection:** The extractor walks function and method bodies for call expressions matching known HTTP router registration patterns. It recognizes five router packages:
+
+| Package | Methods detected |
+|---------|-----------------|
+| `net/http` | `HandleFunc`, `Handle` |
+| `github.com/go-chi/chi` (v1 and v5) | `Get`, `Post`, `Put`, `Delete`, `Patch` |
+| `github.com/gin-gonic/gin` | `GET`, `POST`, `PUT`, `DELETE`, `PATCH` |
+| `github.com/labstack/echo` (v1 and v4) | `GET`, `POST`, `PUT`, `DELETE`, `PATCH` |
+| `github.com/gorilla/mux` | `HandleFunc`, `Handle` |
+
+Detection uses a fast pre-filter (method name must be in the union of all known route methods) followed by import path verification. For local variables (e.g., `r := chi.NewRouter()`), the extractor infers the router package from the file's import set.
+
+**Multi-language framework coverage:** Route extraction extends beyond Go to all supported languages. The full set of detected frameworks (18 total across 6 languages):
+
+| Language | Frameworks | Detection strategy |
+|----------|-----------|-------------------|
+| Go | net/http, chi, gin, echo, gorilla/mux | Method call on router variable + import path verification |
+| TypeScript | Express.js, Fastify, Hono (shared `app.method` pattern), NestJS (`@Controller` + `@Get`/`@Post` decorators), Next.js App Router (exported `GET`/`POST`/`PUT`/`DELETE` in `route.ts` files) | Call expression matching or decorator/export detection |
+| Python | Flask, FastAPI (`@app.get`/`@router.post` decorator parsing), Django (`path()`/`re_path()` in `urls.py`) | Decorator call matching or url pattern function calls |
+| Rust | Actix-web, Axum, Rocket | Attribute macros and router builder methods |
+| Java | Spring MVC, JAX-RS | `@RequestMapping`/`@GetMapping` and `@Path`/`@GET` annotations |
+| C# | ASP.NET Core (minimal APIs and controller routing) | `app.Map*` calls and `[HttpGet]`/`[Route]` attributes |
+
+**Graph output:** Each detected route registration produces:
+
+1. A `route_handler` node whose `QualifiedName` encodes the repo, package, HTTP method, and route pattern (e.g., `github.com/org/repo://api.GET /users/:id`). The `Signature` field stores the route pattern.
+2. A `handles_route` edge from the route handler node to the handler function node, with provenance `ast_inferred` and confidence `0.7`.
+
+**Route symbols table:** The route handler nodes are the static-analysis side of a bridge to runtime traces. After indexing, the `route_symbols` table maps `(service_name, route_pattern, mapping_type)` to the route handler node's hash. The runtime trace `SymbolResolver` looks up this table to connect observed HTTP traffic to the correct graph node. Without route extraction during indexing, the resolver falls back to synthetic unresolved nodes with confidence `0.3`.
+
+## Indexing Tiers (Repository Scope)
+
+- **Local repositories (deep)**: Full two-tier extraction. tree-sitter for declarations and calls, LSP enrichment for type resolution and edge discovery. Every symbol, call, import, implements, and reference relationship is extracted.
+- **External dependencies (shallow)**: Public API surface only, ingested via SCIP indices or LSP queries. Enough to connect cross-repo edges without parsing all transitive source.
+
+## Change Detection and Incremental Indexing
+
+Changes to the graph are driven by git commits, not filesystem events. A commit is the atomic unit of source code change: it has a hash, a parent, a diff, and it's permanent. Everything else (editor autosaves, build artifacts, IDE metadata) is noise that the change pipeline must not react to.
+
+**Core principle:** The snapshot chain mirrors the git commit chain. Every snapshot's `CommitHash` field points to the git commit that produced it. The graph at any commit is reconstructable by looking up its snapshot.
+
+**Change detection (prioritized):**
+
+```
+1. Post-commit hook (primary)
+   │  Daemon installs a git hook that sends (repoPath, oldHead, newHead)
+   │  via unix socket. Instant, precise, zero polling overhead.
+   │
+2. .git/HEAD watch (fallback)
+   │  fsnotify on .git/HEAD + .git/refs/heads/* (one file descriptor,
+   │  not thousands). On change: read new HEAD, compare to last known.
+   │  For environments where hooks can't be installed.
+   │
+3. Polling (last resort)
+      Every N seconds: git rev-parse HEAD, compare to stored value.
+      For NFS, SMB, or other environments where neither hooks nor
+      fsnotify work reliably.
+```
+
+**Change resolution:**
+
+When a new commit is detected, the daemon resolves the exact change set from git:
+
+```go
+oldHead := repo.LastCommit          // stored in repos table
+newHead := gitRevParseHead(repoPath)
+changed := gitDiffFiles(repoPath, oldHead, newHead)     // modified files
+deleted := gitDiffFilesDeleted(repoPath, oldHead, newHead) // removed files
+added   := gitDiffFilesAdded(repoPath, oldHead, newHead)   // new files
+```
+
+No directory walking. No content hashing. No false positives. The change set comes directly from git's own diff, which is authoritative.
+
+**Incremental index pipeline:**
+
+```
+Commit detected (oldHead → newHead)
+    │
+    ▼
+1. Resolve changed/deleted/added files via git diff
+    │
+    ▼
+2. For deleted files:
+   ├── Delete all nodes where file_hash matches
+   ├── Delete all edges where source node was in deleted file
+   └── Record "removed" edge events in append-only log
+    │
+    ▼
+3. For changed files:
+   ├── Delete old nodes/edges (same as deleted files)
+   ├── Re-extract via tree-sitter (Tier 1)
+   ├── Compute edge diff (new edges vs. old edges for this file)
+   └── Record "added" and "removed" edge events
+    │
+    ▼
+4. For added files:
+   ├── Extract via tree-sitter (Tier 1)
+   └── Record "added" edge events
+    │
+    ▼
+5. Compute new snapshot
+   ├── Merkle root of all current edges
+   ├── Link to parent snapshot (previous snapshot for this repo)
+   └── Store commit hash in snapshot record
+    │
+    ▼
+6. Scoped LSP enrichment (Tier 2)
+   ├── Only enrich edges from changed/added files
+   ├── Skip unchanged files entirely
+   └── Language servers may have workspace context from previous runs
+    │
+    ▼
+7. Cross-repo edge resolution
+   └── Resolve any new dangling edges created by the changes
+```
+
+**Why git-based, not filesystem-based:**
+
+| Concern | Filesystem watching | Git-based detection |
+|---------|-------------------|-------------------|
+| False positives | Editor autosaves, build artifacts, IDE metadata, temp files | Zero. Only committed changes. |
+| File descriptor pressure | One FD per watched file (hits ulimit on repos with 10K+ files) | One FD for .git/HEAD, or zero with hooks/polling |
+| Branch switch floods | Hundreds of events, debouncing required, still re-walks everything | One event: oldHead != newHead. git diff gives exact file set. |
+| Deleted file detection | Unreliable (depends on OS event ordering) | `git diff --diff-filter=D` gives exact list |
+| Change granularity | "This file's mtime changed" (no context) | "These files changed between commit A and commit B" |
+| Snapshot-commit alignment | Snapshots taken at arbitrary times based on when events fire | Every snapshot corresponds to exactly one commit |
+| History reconstruction | "Something changed around timestamp T" | "Commit abc123 produced snapshot xyz789 with these edge changes" |
+| Determinism | Different event ordering on different OSes | Same git diff on any machine produces the same change set |
+
+**Uncommitted changes:**
+
+The graph indexes committed state only. Uncommitted changes are transient (may be undone, stashed, or abandoned), violate determinism (same repo at same "state" produces different graphs depending on working tree), and create noise in the snapshot chain. For users who need to index working tree state, `knowing index --working-tree` creates a temporary snapshot not linked to the main chain.
+
+**Multi-repo change coordination:**
+
+Each repo has its own change detector. A commit in repo A triggers indexing of repo A only. After the new snapshot is computed, the cross-repo resolver runs to reconnect any edges that reference symbols in other repos. Repo B's subgraph is untouched unless repo B also commits.
+
+**Edge events (append-only log):**
+
+Every incremental index records edge events: which edges were added and which were removed, keyed by the snapshot hash. This is the data that makes `SnapshotDiff` work: comparing two snapshots is a range scan on edge_events filtered by snapshot hash. Without edge events, the Merkle DAG has roots but no record of what changed between them.
+
+```
+edge_events table:
+  event_id      INTEGER PRIMARY KEY
+  edge_hash     BLOB NOT NULL        -- which edge
+  event_type    TEXT NOT NULL         -- "added" or "removed"
+  snapshot_hash BLOB NOT NULL        -- which snapshot recorded this event
+  source_commit TEXT NOT NULL         -- git commit that caused this change
+  indexer_ver   TEXT NOT NULL         -- indexer version
+  timestamp     INTEGER NOT NULL     -- unix timestamp
+```
+
+**GraphStore methods for incremental cleanup:**
+
+```go
+// Delete all nodes derived from a specific file.
+DeleteNodesByFile(ctx context.Context, fileHash Hash) error
+
+// Delete all edges whose source node belongs to a specific file.
+DeleteEdgesBySourceFile(ctx context.Context, fileHash Hash) error
+
+// Get all edges whose source node belongs to a specific file.
+// Used to compute the "removed" set before deletion.
+EdgesBySourceFile(ctx context.Context, fileHash Hash) ([]Edge, error)
+```
+
+## Edge Types
+
+The graph connects symbols with typed, provenance-annotated edges:
+
+| Category | Edge types |
+|----------|-----------|
+| Code | `calls`, `imports`, `implements`, `references` |
+| Route | `handles_route` (route handler node to handler function, from static extraction) |
+| Infrastructure | `depends_on` (Terraform, SQL, CSS), `deploys` (K8s Service to Deployment), `exposes` (K8s Ingress to Service), `configures` (K8s ConfigMap/Secret to Deployment) |
+| Runtime | `runtime_calls`, `runtime_rpc`, `runtime_produces`, `runtime_consumes` |
+| Ownership | `owned_by` (CODEOWNERS extractor, confidence 1.0) |
+| Planned | `rpc_calls`, `produces_event`, `consumes_event`, `reads_field`, `writes_field` |
