@@ -77,9 +77,10 @@ The repository includes benchmark harnesses that regenerate their own findings f
 
 | Benchmark | Result | What it demonstrates |
 |---|---:|---|
-| Context retrieval | 55.6% fewer tokens, 52.8% fewer tool calls | Agents spend less time exploring with grep/read loops |
+| Context retrieval | 47% fewer tool calls, 31.6% P@10 | One call replaces 6-8 grep+read cycles with ranked, relevant context |
+| Retrieval (cross-repo) | 46.7% R@10 on foreign codebase | Works on any Go repo with zero configuration |
 | GCF wire format | 84.0% fewer tokens than JSON | MCP responses can carry dense graph context cheaply |
-| Test scope | 98.9% precision, 100% recall on analyzed commits | Call-graph BFS can select affected test packages safely |
+| Test scope | 92.9% precision, 80.0% recall | Call-graph BFS selects affected test packages with few false positives |
 | Feedback loop | 16% -> 36% precision after one feedback round | Relevance improves as agents mark useful symbols |
 | Edge accuracy | 53.6% import confirmation, 32.2% miss rate | Two-tier extraction provides meaningful fast signal |
 
