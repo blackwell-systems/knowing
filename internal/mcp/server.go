@@ -64,6 +64,7 @@ type Server struct {
 	session    *wire.Session              // GCF session state for cross-call deduplication
 	ctxSession *knowingctx.SessionTracker // session-aware retrieval boosts
 	vecSearch  *embedding.Searcher        // semantic vector search (nil if model unavailable)
+	taskMemory *knowingctx.TaskMemory     // passive task-symbol learning (nil if no SQLite)
 }
 
 // NewServer creates a new MCP server backed by the given GraphStore.
@@ -85,9 +86,10 @@ func NewServer(store types.GraphStore) *Server {
 			log.Printf("[info] vector search disabled: %v", err)
 		}
 	}
-	// Try to get SQLiteStore for runtime queries.
+	// Try to get SQLiteStore for runtime queries and task memory.
 	if ss, ok := store.(*knowingstore.SQLiteStore); ok {
 		s.sqlStore = ss
+		s.taskMemory = knowingctx.NewTaskMemory(ss.DB())
 	}
 	s.mcpServer = mcpserver.NewMCPServer(
 		"knowing",

@@ -33,6 +33,9 @@ type SQLiteStore struct {
 // Compile-time check that SQLiteStore implements GraphStore.
 var _ types.GraphStore = (*SQLiteStore)(nil)
 
+// DB returns the underlying sql.DB for direct access (e.g., task memory).
+func (s *SQLiteStore) DB() *sql.DB { return s.db }
+
 // NewSQLiteStore opens (or creates) a SQLite database at dbPath, enables WAL
 // mode, and runs any pending migrations.
 func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {

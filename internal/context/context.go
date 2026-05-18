@@ -33,6 +33,7 @@ type ContextEngine struct {
 	bm25     BM25Searcher    // nil if store doesn't support BM25
 	vector   VectorSearcher   // nil if embeddings not available
 	session  *SessionTracker  // nil disables session-aware boosting
+	memory   *TaskMemory      // nil disables passive task memory
 }
 
 // TaskOptions configures a task-based context query.
@@ -116,12 +117,16 @@ func (e *ContextEngine) SetSession(st *SessionTracker) {
 	e.session = st
 }
 
-// SetVector attaches a vector search backend to the engine. When set,
-// query embeddings are compared against indexed symbol embeddings via
-// nearest-neighbor search, providing a third RRF channel alongside
-// tiered keyword matching and BM25.
+// SetVector attaches a vector search backend to the engine.
 func (e *ContextEngine) SetVector(vs VectorSearcher) {
 	e.vector = vs
+}
+
+// SetTaskMemory attaches a task memory for passive retrieval learning.
+// When set, past task-symbol associations boost future queries with
+// similar keywords.
+func (e *ContextEngine) SetTaskMemory(tm *TaskMemory) {
+	e.memory = tm
 }
 
 // stopWords is the set of words filtered from task descriptions during keyword extraction.
@@ -550,6 +555,19 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 		}
 	}
 
+	// Apply task memory boosts: symbols useful for similar past tasks get priority.
+	if e.memory != nil && len(inputs) > 0 {
+		memoryBoosts, err := e.memory.Recall(ctx, keywords)
+		if err == nil && len(memoryBoosts) > 0 {
+			for i := range inputs {
+				if boost, ok := memoryBoosts[inputs[i].Node.NodeHash]; ok {
+					// Memory boosts add to feedback (same scoring channel, compounding).
+					inputs[i].FeedbackBoost += boost * 0.3 // scale down to avoid dominating
+				}
+			}
+		}
+	}
+
 	// Sort inputs by RWR score (CallerCount proxy) so HITS runs on the most
 	// relevant subgraph, not a random map iteration order.
 	sort.Slice(inputs, func(i, j int) bool {
@@ -582,6 +600,21 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 			hashes[i] = s.Node.NodeHash
 		}
 		e.session.RecordBatch(hashes)
+	}
+
+	// Record in task memory: persist (keywords, symbols) for future recall.
+	// Only records top-5 symbols (highest score, most likely to be useful).
+	if e.memory != nil && len(block.Symbols) > 0 {
+		kws := NormalizeKeywords(opts.TaskDescription)
+		topN := 5
+		if len(block.Symbols) < topN {
+			topN = len(block.Symbols)
+		}
+		hashes := make([]types.Hash, topN)
+		for i := 0; i < topN; i++ {
+			hashes[i] = block.Symbols[i].Node.NodeHash
+		}
+		e.memory.RecordBatch(ctx, kws, hashes, 1.0) //nolint:errcheck
 	}
 
 	return block, nil
