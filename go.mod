@@ -3,7 +3,7 @@ module github.com/blackwell-systems/knowing
 go 1.26.0
 
 require (
-	github.com/blackwell-systems/agent-lsp v0.11.2-0.20260518141038-18844ad2b99c
+	github.com/blackwell-systems/agent-lsp v0.11.2-0.20260518143556-2469d52998d6
 	github.com/coder/hnsw v0.6.1
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/knights-analytics/hugot v0.7.2
