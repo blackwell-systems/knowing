@@ -344,7 +344,7 @@ func (s *SQLiteStore) TransitiveCallers(ctx context.Context, target types.Hash, 
 			JOIN callers c ON e.target_hash = c.node_hash
 			WHERE c.depth < ? AND e.edge_type = 'calls'
 		)
-		SELECT DISTINCT n.node_hash, n.file_hash, n.qualified_name, n.kind, n.line, n.signature, c.depth
+		SELECT DISTINCT n.node_hash, n.file_hash, n.qualified_name, n.kind, n.line, n.signature, n.doc, c.depth
 		FROM callers c
 		JOIN nodes n ON n.node_hash = c.node_hash
 		ORDER BY c.depth, n.qualified_name`,
@@ -359,7 +359,7 @@ func (s *SQLiteStore) TransitiveCallers(ctx context.Context, target types.Hash, 
 	for rows.Next() {
 		var cr types.CallerResult
 		var nodeHash, fileHash []byte
-		if err := rows.Scan(&nodeHash, &fileHash, &cr.Node.QualifiedName, &cr.Node.Kind, &cr.Node.Line, &cr.Node.Signature, &cr.Depth); err != nil {
+		if err := rows.Scan(&nodeHash, &fileHash, &cr.Node.QualifiedName, &cr.Node.Kind, &cr.Node.Line, &cr.Node.Signature, &cr.Node.Doc, &cr.Depth); err != nil {
 			return nil, err
 		}
 		copy(cr.Node.NodeHash[:], nodeHash)
@@ -387,7 +387,7 @@ func (s *SQLiteStore) TransitiveCallees(ctx context.Context, source types.Hash, 
 			JOIN callees c ON e.source_hash = c.node_hash
 			WHERE c.depth < ? AND e.edge_type = 'calls'
 		)
-		SELECT DISTINCT n.node_hash, n.file_hash, n.qualified_name, n.kind, n.line, n.signature, c.depth
+		SELECT DISTINCT n.node_hash, n.file_hash, n.qualified_name, n.kind, n.line, n.signature, n.doc, c.depth
 		FROM callees c
 		JOIN nodes n ON n.node_hash = c.node_hash
 		ORDER BY c.depth, n.qualified_name`,
@@ -402,7 +402,7 @@ func (s *SQLiteStore) TransitiveCallees(ctx context.Context, source types.Hash, 
 	for rows.Next() {
 		var cr types.CalleeResult
 		var nodeHash, fileHash []byte
-		if err := rows.Scan(&nodeHash, &fileHash, &cr.Node.QualifiedName, &cr.Node.Kind, &cr.Node.Line, &cr.Node.Signature, &cr.Depth); err != nil {
+		if err := rows.Scan(&nodeHash, &fileHash, &cr.Node.QualifiedName, &cr.Node.Kind, &cr.Node.Line, &cr.Node.Signature, &cr.Node.Doc, &cr.Depth); err != nil {
 			return nil, err
 		}
 		copy(cr.Node.NodeHash[:], nodeHash)
@@ -604,7 +604,7 @@ func (s *SQLiteStore) FileByPath(ctx context.Context, repoHash types.Hash, path 
 // works regardless of whether file content (and thus file_hash) has changed.
 func (s *SQLiteStore) NodesByFilePath(ctx context.Context, repoHash types.Hash, path string) ([]types.Node, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT n.node_hash, n.file_hash, n.qualified_name, n.kind, n.line, n.signature
+		`SELECT n.node_hash, n.file_hash, n.qualified_name, n.kind, n.line, n.signature, n.doc
 		 FROM nodes n
 		 INNER JOIN files f ON n.file_hash = f.file_hash
 		 WHERE f.repo_hash = ? AND f.path = ?`,
@@ -867,7 +867,7 @@ func (s *SQLiteStore) SearchBM25Nodes(ctx context.Context, query string, limit i
 		limit = 50
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT n.node_hash, n.file_hash, n.qualified_name, n.kind, n.line, n.signature
+		`SELECT n.node_hash, n.file_hash, n.qualified_name, n.kind, n.line, n.signature, n.doc
 		 FROM nodes_fts
 		 JOIN nodes_fts_content c ON c.rowid = nodes_fts.rowid
 		 JOIN nodes n ON n.node_hash = c.node_hash
