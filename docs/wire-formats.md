@@ -31,6 +31,28 @@ knowing supports multiple wire format encodings for graph data, each optimized f
 | `xml` | Structured markup | XML-based toolchains | ~-20% (larger) | Legacy integrations |
 | `markdown` | Human readability | Documentation, display | ~10% | Human consumption, not agent workflows |
 
+## How to Select a Format
+
+**CLI:**
+```bash
+knowing context -task "add caching" -format gcf
+knowing context -task "add caching" -format toon
+knowing context -task "add caching" -format json
+```
+
+**MCP tools** (via `format` parameter):
+```json
+{"tool": "context_for_task", "arguments": {"task_description": "add caching", "format": "gcf"}}
+```
+
+**Recommendation:**
+- Use `gcf` when the consumer is an AI agent in a knowing-aware workflow (hooks, repeated calls, session dedup). This is the default in MCP mode.
+- Use `toon` when feeding context to external tools or agents that support TOON but not GCF.
+- Use `json` when debugging, piping to jq, or integrating with systems that expect JSON.
+- Use `xml` as the default for human-readable MCP responses (current MCP default).
+
+The format only affects the output encoding. The retrieval pipeline (seed matching, RWR, HITS, RRF fusion, scoring) is identical regardless of format. With `gcf` or `toon`, more symbols fit within the same token budget because each symbol costs fewer tokens.
+
 ## GCF (Graph Compact Format)
 
 Text-only, graph-native encoding designed for LLM consumption. Exploits three properties of graph data that flat formats cannot:
