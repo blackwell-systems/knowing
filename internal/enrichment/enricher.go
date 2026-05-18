@@ -34,6 +34,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/blackwell-systems/agent-lsp/pkg/lsp"
 	lsptypes "github.com/blackwell-systems/agent-lsp/pkg/types"
@@ -182,6 +183,13 @@ func (e *Enricher) runForServer(ctx context.Context, serverCfg LSPServerConfig, 
 
 	// Open files for this language.
 	e.openFilesForLanguage(ctx, files, langFilter, serverCfg.LanguageID)
+
+	// Wait for the workspace to be indexed. Some servers (jdtls) import the
+	// project asynchronously via $/progress and return empty results until
+	// indexing completes. The 120s timeout accommodates large Gradle/Maven
+	// projects. Servers that index synchronously (gopls, pyright, tsserver)
+	// return immediately since they have no active progress tokens.
+	client.WaitForWorkspaceReadyTimeout(ctx, 120*time.Second)
 
 	// Upgrade ast_inferred call edges that have call-site positions.
 	e.upgradeCallEdges(ctx, repoHash, filePathByHash, stats, langFilter)
