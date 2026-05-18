@@ -184,46 +184,45 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 		}, nil
 	}
 
-	// Find candidate nodes using tiered matching:
-	// BM25: full-text search over qualified names + signatures (best lexical coverage)
-	// Tier 1: exact symbol name match (highest quality seeds)
-	// Tier 2: prefix match on the last path component (symbol name starts with keyword)
-	// Tier 3: substring match (fallback, capped at 20 per keyword)
-	//
-	// Fewer, better seeds produce sharper RWR distributions.
-	seen := make(map[types.Hash]bool)
-	var candidates []types.Node
+	// Seed retrieval uses two independent channels fused with Reciprocal Rank Fusion:
+	//   Channel 1: Tiered keyword matching (exact > prefix > substring > path)
+	//   Channel 2: BM25 full-text search (CamelCase-split qualified names + signatures)
+	// RRF merges their ranked lists: score = 1/(k+rank_tier) + 1/(k+rank_bm25)
+	// Symbols appearing in both lists are promoted; single-channel hits get less weight.
+	// This avoids the dilution problem of naive concatenation while letting BM25 always run.
+
+	// Channel 1: Tiered keyword matching.
+	var tieredResults []types.Node
+	tieredSeen := make(map[types.Hash]bool)
 
 	// Tier 1: exact matches (keyword matches the symbol name exactly).
-	// These are the highest-quality seeds.
 	for _, kw := range keywords {
 		nodes, err := e.store.NodesByName(ctx, "%"+kw)
 		if err != nil {
 			return nil, err
 		}
 		for _, n := range nodes {
-			// Check if the keyword matches the last component of the qualified name.
 			lastDot := strings.LastIndex(n.QualifiedName, ".")
 			symbolName := n.QualifiedName
 			if lastDot >= 0 {
 				symbolName = n.QualifiedName[lastDot+1:]
 			}
-			if strings.EqualFold(symbolName, kw) && !seen[n.NodeHash] {
-				seen[n.NodeHash] = true
-				candidates = append(candidates, n)
+			if strings.EqualFold(symbolName, kw) && !tieredSeen[n.NodeHash] {
+				tieredSeen[n.NodeHash] = true
+				tieredResults = append(tieredResults, n)
 			}
 		}
 	}
 
 	// Tier 2: prefix matches (symbol name starts with keyword).
-	if len(candidates) < 15 {
+	if len(tieredResults) < 15 {
 		for _, kw := range keywords {
 			nodes, err := e.store.NodesByName(ctx, "%"+kw)
 			if err != nil {
 				return nil, err
 			}
 			for _, n := range nodes {
-				if seen[n.NodeHash] {
+				if tieredSeen[n.NodeHash] {
 					continue
 				}
 				lastDot := strings.LastIndex(n.QualifiedName, ".")
@@ -232,95 +231,91 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 					symbolName = n.QualifiedName[lastDot+1:]
 				}
 				if strings.HasPrefix(strings.ToLower(symbolName), strings.ToLower(kw)) {
-					seen[n.NodeHash] = true
-					candidates = append(candidates, n)
+					tieredSeen[n.NodeHash] = true
+					tieredResults = append(tieredResults, n)
 				}
-				if len(candidates) >= 30 {
+				if len(tieredResults) >= 30 {
 					break
 				}
 			}
-			if len(candidates) >= 30 {
+			if len(tieredResults) >= 30 {
 				break
 			}
 		}
 	}
 
 	// Tier 3: substring fallback (only if we still have very few candidates).
-	if len(candidates) < 5 {
+	if len(tieredResults) < 5 {
 		for _, kw := range keywords {
 			if len(kw) < 4 {
-				continue // skip short keywords in substring mode (too broad)
+				continue
 			}
 			nodes, err := e.store.NodesByName(ctx, "%"+kw)
 			if err != nil {
 				return nil, err
 			}
 			for _, n := range nodes {
-				if !seen[n.NodeHash] {
-					seen[n.NodeHash] = true
-					candidates = append(candidates, n)
+				if !tieredSeen[n.NodeHash] {
+					tieredSeen[n.NodeHash] = true
+					tieredResults = append(tieredResults, n)
 				}
-				if len(candidates) >= 20 {
+				if len(tieredResults) >= 20 {
 					break
 				}
 			}
-			if len(candidates) >= 20 {
+			if len(tieredResults) >= 20 {
 				break
 			}
 		}
 	}
 
 	// Tier 4: file-path keyword matching.
-	// Keywords like "k8s" or "extractor" appear in file paths but not symbol names.
-	// Search qualified names for path components that contain keywords.
-	if len(candidates) < 30 {
+	if len(tieredResults) < 30 {
 		for _, kw := range keywords {
 			if len(kw) < 3 {
 				continue
 			}
-			// NodesByName uses LIKE, so search for the keyword anywhere in the path portion.
 			nodes, err := e.store.NodesByName(ctx, "%"+kw+"%")
 			if err != nil {
 				continue
 			}
 			for _, n := range nodes {
-				if seen[n.NodeHash] {
+				if tieredSeen[n.NodeHash] {
 					continue
 				}
-				// Check if keyword matches a path component (between / or ://)
 				qLower := strings.ToLower(n.QualifiedName)
 				kwLower := strings.ToLower(kw)
-				// Match against path segments: /keyword/ or /keyword. or keyword/
 				if strings.Contains(qLower, "/"+kwLower) || strings.Contains(qLower, kwLower+"/") {
-					seen[n.NodeHash] = true
-					candidates = append(candidates, n)
-					if len(candidates) >= 40 {
+					tieredSeen[n.NodeHash] = true
+					tieredResults = append(tieredResults, n)
+					if len(tieredResults) >= 40 {
 						break
 					}
 				}
 			}
-			if len(candidates) >= 40 {
+			if len(tieredResults) >= 40 {
 				break
 			}
 		}
 	}
 
-	// BM25 full-text search: supplements tiered matching when it finds few seeds.
-	// FTS5 index searches CamelCase-split qualified_name (5x), file_path (2x),
-	// and signature (1x). Activates when tiers found < 8 candidates (not enough
-	// diversity for RWR to produce useful scores). Helps hard/medium queries where
-	// task terminology doesn't directly match symbol names.
-	if e.bm25 != nil && len(candidates) < 8 {
+	// Channel 2: BM25 full-text search (always runs when available).
+	var bm25Results []types.Node
+	if e.bm25 != nil {
 		ftsQuery := strings.Join(keywords, " OR ")
-		bm25Nodes, err := e.bm25.SearchBM25Nodes(ctx, ftsQuery, 15)
-		if err == nil {
-			for _, n := range bm25Nodes {
-				if !seen[n.NodeHash] {
-					seen[n.NodeHash] = true
-					candidates = append(candidates, n)
-				}
-			}
+		if nodes, err := e.bm25.SearchBM25Nodes(ctx, ftsQuery, 30); err == nil {
+			bm25Results = nodes
 		}
+	}
+
+	// Fuse channels with weighted Reciprocal Rank Fusion.
+	// Tiered results get 3x weight (they matched symbol names directly, higher precision).
+	// BM25 results get 1x weight (broader recall via signatures/paths, noisier).
+	// k=60 is the standard RRF constant.
+	candidates := rrfFuseNodesWeighted(tieredResults, bm25Results, 60, 3.0, 1.0, 40)
+	seen := make(map[types.Hash]bool, len(candidates))
+	for _, c := range candidates {
+		seen[c.NodeHash] = true
 	}
 
 	// Tier 5: interface-aware seeding.
@@ -968,4 +963,53 @@ func isCommonShortName(name string) bool {
 		"DB": true, "IP": true, "IO": true,
 	}
 	return common[name]
+}
+
+// rrfFuseNodesWeighted merges two ranked node lists using weighted Reciprocal Rank Fusion.
+// Each node's score = weightA * 1/(k+rank_in_A) + weightB * 1/(k+rank_in_B).
+// Higher weight means that channel's rankings contribute more to the final order.
+// k=60 is the standard RRF constant. Returns up to limit nodes sorted by fused score.
+func rrfFuseNodesWeighted(listA, listB []types.Node, k int, weightA, weightB float64, limit int) []types.Node {
+	type scored struct {
+		node  types.Node
+		score float64
+	}
+	scores := make(map[types.Hash]*scored)
+
+	for rank, n := range listA {
+		s, ok := scores[n.NodeHash]
+		if !ok {
+			s = &scored{node: n}
+			scores[n.NodeHash] = s
+		}
+		s.score += weightA / float64(k+rank+1)
+	}
+
+	for rank, n := range listB {
+		s, ok := scores[n.NodeHash]
+		if !ok {
+			s = &scored{node: n}
+			scores[n.NodeHash] = s
+		}
+		s.score += weightB / float64(k+rank+1)
+	}
+
+	// Sort by fused score descending.
+	results := make([]scored, 0, len(scores))
+	for _, s := range scores {
+		results = append(results, *s)
+	}
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].score > results[j].score
+	})
+
+	if len(results) > limit {
+		results = results[:limit]
+	}
+
+	nodes := make([]types.Node, len(results))
+	for i, r := range results {
+		nodes[i] = r.node
+	}
+	return nodes
 }
