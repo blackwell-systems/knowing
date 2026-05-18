@@ -13,7 +13,7 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 | 5 | **Traversal cache** | L1 in-memory LRU for hot paths. Repeat queries should be instant. | Medium |
 | 6 | **`knowing stats`** | Show session value: context calls, symbols served, symbols marked relevant, feedback rate. Lets users see the value accumulating. | Low |
 | 7 | **MCP resources** | `knowing://context/<scope>` subscribable resources for live context updates. | Medium |
-| 8 | **v0.2.0 release** | Package all session 5 work: 25 extractors, retrieval pipeline, TOON, `knowing init`. | Low |
+| 8 | **~~v0.2.0 release~~** | **Shipped.** 25 extractors, retrieval pipeline, TOON, `knowing init`, multi-language LSP enrichment, `knowing why`, 84 equivalence classes, 23 MCP tools, ~60K LOC. | Done |
 
 ## Operational
 
@@ -148,4 +148,4 @@ Pipeline is shipped and measured (31.6% P@10, 55 fixtures, 23 experiments). See 
 
 knowing is a content-addressed graph retrieval layer. The retrieval pipeline uses equivalence classes (not embeddings) as the primary concept-matching mechanism. This is local, deterministic, inspectable, and compounds with use. See [retrieval-pipeline.md](retrieval-pipeline.md) for the design rationale.
 
-**What's shipped:** 55K LOC Go, 25 extractor types (12 languages + 13 infrastructure/cloud formats), 23 MCP tools, 5 wire formats (GCF/TOON/JSON/XML/markdown), 55 eval fixtures, multi-language LSP enrichment (Go, TS, Python, Java, Rust, C#), `knowing init` one-command setup.
+**What's shipped (v0.2.0):** ~60K LOC Go, 25 extractor types (12 languages + 13 infrastructure/cloud formats), 23 MCP tools, 5 wire formats (GCF/TOON/JSON/XML/markdown), 55 eval fixtures, 84 equivalence classes, multi-language LSP enrichment (Go, TS, Python, Java, Rust, C#), `knowing init` one-command setup, `knowing why` retrieval explainability.

@@ -4,18 +4,18 @@ This document describes how knowing is distributed, what is automated, and what 
 
 ## Release Status
 
-v0.1.2 is live across all channels. The release pipeline is fully automated on `v*` tag push.
+v0.2.0 is live across all channels. The release pipeline is fully automated on `v*` tag push.
 
 | Channel | Status | Version |
 |---------|--------|---------|
-| GitHub Release | **Live** | v0.1.2 (4 platform binaries) |
+| GitHub Release | **Live** | v0.2.0 (4 platform binaries) |
 | Homebrew | **Live** | `brew install blackwell-systems/tap/knowing` |
 | npm | **Live** | `@blackwell-systems/knowing@0.1.2` |
 | PyPI | **Live** | `knowing==0.1.2` |
-| Docker (GHCR) | **Live** | `ghcr.io/blackwell-systems/knowing:v0.1.2` |
-| Docker (Hub) | **Live** | `blackwellsystems/knowing:v0.1.2` |
+| Docker (GHCR) | **Live** | `ghcr.io/blackwell-systems/knowing:v0.2.0` |
+| Docker (Hub) | **Live** | `blackwellsystems/knowing:v0.2.0` |
 | MCP Registry | **Live** | `io.github.blackwell-systems/knowing` |
-| Go install | **Live** | `go install ...@v0.1.2` |
+| Go install | **Live** | `go install ...@v0.2.0` |
 
 ### Platform binaries
 
