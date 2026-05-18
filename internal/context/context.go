@@ -338,27 +338,50 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	}
 
 	// Channel 4: Equivalence class matching.
-	// Maps natural-language concepts ("blast radius") to specific code symbols
-	// ("TransitiveCallers"). Bridges the vocabulary gap locally without ML.
+	// Two sources: seed dictionary (hand-curated concepts) + graph-derived aliases
+	// (auto-generated from caller/callee names of tiered+BM25 candidates).
 	var equivResults []types.Node
+	equivSeen := make(map[types.Hash]bool)
+
+	// Source 1: Seed equivalence classes (hand-curated concepts).
 	eqMatches := matchEquivalenceClasses(opts.TaskDescription, seedEquivalenceClasses())
-	if len(eqMatches) > 0 {
-		for _, m := range eqMatches {
-			for _, target := range m.targets {
-				// Search for the target symbol name via exact match.
-				nodes, err := e.store.NodesByName(ctx, "%"+target)
-				if err != nil {
+
+	// Source 2: Graph-derived aliases from the candidates we already found.
+	// Uses tiered+BM25 results as input, generates targeted phrase mappings
+	// from their callers/callees, and matches against the task description.
+	// Only use top tiered results (highest quality seeds) for graph alias generation.
+	// Using all candidates adds too much noise from loosely-related nodes.
+	var candidateHashes []types.Hash
+	topN := 10
+	if len(tieredResults) < topN {
+		topN = len(tieredResults)
+	}
+	for i := 0; i < topN; i++ {
+		candidateHashes = append(candidateHashes, tieredResults[i].NodeHash)
+	}
+	graphClasses := graphDerivedAliases(ctx, e.store, candidateHashes)
+	graphMatches := matchEquivalenceClasses(opts.TaskDescription, graphClasses)
+	eqMatches = append(eqMatches, graphMatches...)
+
+	// Resolve all equivalence targets to actual nodes.
+	for _, m := range eqMatches {
+		for _, target := range m.targets {
+			nodes, err := e.store.NodesByName(ctx, "%"+target)
+			if err != nil {
+				continue
+			}
+			for _, n := range nodes {
+				if equivSeen[n.NodeHash] {
 					continue
 				}
-				for _, n := range nodes {
-					lastDot := strings.LastIndex(n.QualifiedName, ".")
-					symName := n.QualifiedName
-					if lastDot >= 0 {
-						symName = n.QualifiedName[lastDot+1:]
-					}
-					if strings.EqualFold(symName, target) {
-						equivResults = append(equivResults, n)
-					}
+				lastDot := strings.LastIndex(n.QualifiedName, ".")
+				symName := n.QualifiedName
+				if lastDot >= 0 {
+					symName = n.QualifiedName[lastDot+1:]
+				}
+				if strings.EqualFold(symName, target) {
+					equivSeen[n.NodeHash] = true
+					equivResults = append(equivResults, n)
 				}
 			}
 		}
