@@ -1,23 +1,26 @@
 // Package enrichment provides an LSP-based enrichment pass that upgrades
-// ast_inferred edges to lsp_resolved by querying gopls via the agent-lsp
-// public API. It also discovers new implements and references edges not
-// found by tree-sitter.
+// ast_inferred edges to lsp_resolved by querying language servers via the
+// agent-lsp public API. It also discovers new implements and references
+// edges not found by tree-sitter.
 //
-// The enrichment pipeline works in three phases:
+// The enrichment pipeline works in three phases per language server:
 //
-//  1. Open files: all (or scoped) Go files are sent to gopls via
-//     textDocument/didOpen so it has full workspace knowledge. Files must
-//     be opened before any queries because gopls indexes lazily.
+//  1. Open files: source files matching the server's extensions are sent
+//     via textDocument/didOpen so the server has full workspace knowledge.
+//     Files must be opened before any queries because most servers index lazily.
 //
 //  2. Upgrade call edges: for each ast_inferred edge that has call-site
-//     position data, query gopls GetDefinition at (file, line, col). If
-//     gopls returns a location, the edge is confirmed and upgraded to
+//     position data, query GetDefinition at (file, line, col). If the
+//     server returns a location, the edge is confirmed and upgraded to
 //     lsp_resolved with confidence 0.9. The original ast_inferred edge
 //     is deleted first because provenance is part of the edge hash.
 //
 //  3. Discover new edges: for each opened file, retrieve document symbols
 //     and query GetImplementation (for types/interfaces) and GetReferences
 //     (for functions/methods) to find edges that tree-sitter missed.
+//
+// Supported language servers are auto-detected (gopls, typescript-language-server,
+// pylsp/pyright, rust-analyzer, jdtls, OmniSharp) or configured via knowing-lsp.json.
 //
 // All operations are best-effort: individual failures are counted but do
 // not abort the run. The enricher is designed to run in the background
@@ -222,7 +225,7 @@ func upgradeEdge(old types.Edge) types.Edge {
 }
 
 // upgradeCallEdges finds ast_inferred edges with call-site positions and
-// queries gopls GetDefinition at those positions to confirm targets.
+// queries the language server's GetDefinition at those positions to confirm targets.
 // Successfully resolved edges are upgraded to lsp_resolved with confidence 0.9.
 func (e *Enricher) upgradeCallEdges(
 	ctx context.Context,
@@ -307,18 +310,6 @@ func (e *Enricher) upgradeCallEdges(
 	}
 }
 
-// openAllFiles opens Go source files via textDocument/didOpen so gopls
-// has workspace knowledge for cross-package resolution. When fileFilter is
-// non-nil, only files passing the filter are opened (reduces gopls memory).
-func (e *Enricher) openAllFiles(ctx context.Context, files []types.File, fileFilter func(string) bool) {
-	e.openFilesForLanguage(ctx, files, func(path string) bool {
-		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-			return false
-		}
-		return fileFilter == nil || fileFilter(path)
-	}, "go")
-}
-
 // openFilesForLanguage opens files matching the filter via textDocument/didOpen.
 // Language-agnostic: works for any language server.
 func (e *Enricher) openFilesForLanguage(ctx context.Context, files []types.File, filter func(string) bool, languageID string) {
@@ -366,18 +357,10 @@ func isTestFile(path string) bool {
 		strings.Contains(path, "/__tests__/")
 }
 
-// closeAllFiles closes all opened Go source files (legacy, used by old callers).
-func (e *Enricher) closeAllFiles(ctx context.Context, files []types.File) {
-	for _, f := range files {
-		if strings.HasSuffix(f.Path, ".go") && !strings.HasSuffix(f.Path, "_test.go") {
-			uri := "file://" + filepath.Join(e.workspaceRoot, f.Path)
-			_ = e.client.CloseDocument(ctx, uri)
-		}
-	}
-}
-
 // discoverNewEdges uses LSP to find implements and references edges not
-// found by tree-sitter. Assumes files are already opened via openAllFiles.
+// found by tree-sitter. Assumes files are already opened via openFilesForLanguage.
+// The fileFilter is the combined language+scope filter from runForServer,
+// so it already handles extension matching and test file exclusion.
 func (e *Enricher) discoverNewEdges(
 	ctx context.Context,
 	files []types.File,
@@ -389,10 +372,12 @@ func (e *Enricher) discoverNewEdges(
 		if ctx.Err() != nil {
 			return
 		}
-		if !strings.HasSuffix(f.Path, ".go") || strings.HasSuffix(f.Path, "_test.go") {
+		if fileFilter != nil && !fileFilter(f.Path) {
 			continue
 		}
-		if fileFilter != nil && !fileFilter(f.Path) {
+		// Skip test files (redundant when called from runForServer since
+		// openFilesForLanguage already skips them, but defensive for direct callers).
+		if isTestFile(f.Path) {
 			continue
 		}
 
@@ -437,16 +422,36 @@ func (e *Enricher) processSymbols(
 	filePathByHash map[types.Hash]string,
 	stats *enrichStats,
 ) {
+	// Read source lines for name-position correction. Some language servers
+	// (e.g. pyright) set SelectionRange.Start to the keyword (def/class)
+	// rather than the symbol name, causing GetReferences to return nothing.
+	var sourceLines []string
+	absPath := strings.TrimPrefix(uri, "file://")
+	if data, err := os.ReadFile(absPath); err == nil {
+		sourceLines = strings.Split(string(data), "\n")
+	}
+
+	e.processSymbolsWithSource(ctx, uri, symbols, file, filePathByHash, stats, sourceLines)
+}
+
+// processSymbolsWithSource is the recursive implementation of processSymbols
+// that carries parsed source lines for position correction.
+func (e *Enricher) processSymbolsWithSource(
+	ctx context.Context,
+	uri string,
+	symbols []lsptypes.DocumentSymbol,
+	file types.File,
+	filePathByHash map[types.Hash]string,
+	stats *enrichStats,
+	sourceLines []string,
+) {
 	for _, sym := range symbols {
 		if ctx.Err() != nil {
 			return
 		}
 
 		kind := symbolKindName(sym.Kind)
-		pos := lsptypes.Position{
-			Line:      sym.SelectionRange.Start.Line,
-			Character: sym.SelectionRange.Start.Character,
-		}
+		pos := resolveNamePosition(sym, sourceLines)
 
 		if kind == "type" || kind == "interface" {
 			impls, err := e.client.GetImplementation(ctx, uri, pos)
@@ -463,8 +468,31 @@ func (e *Enricher) processSymbols(
 		}
 
 		if len(sym.Children) > 0 {
-			e.processSymbols(ctx, uri, sym.Children, file, filePathByHash, stats)
+			e.processSymbolsWithSource(ctx, uri, sym.Children, file, filePathByHash, stats, sourceLines)
 		}
+	}
+}
+
+// resolveNamePosition returns the LSP position of the symbol's name on its
+// declaration line. Some language servers (pyright, pylsp) set the
+// SelectionRange to the keyword (class, def, async def) rather than the
+// identifier. When the symbol name appears on the SelectionRange line at a
+// different column, we use that column instead.
+func resolveNamePosition(sym lsptypes.DocumentSymbol, sourceLines []string) lsptypes.Position {
+	line := sym.SelectionRange.Start.Line
+	col := sym.SelectionRange.Start.Character
+
+	if len(sym.Name) > 0 && line < len(sourceLines) {
+		lineText := sourceLines[line]
+		idx := strings.Index(lineText, sym.Name)
+		if idx >= 0 && idx != col {
+			col = idx
+		}
+	}
+
+	return lsptypes.Position{
+		Line:      line,
+		Character: col,
 	}
 }
 

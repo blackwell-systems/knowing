@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	lsptypes "github.com/blackwell-systems/agent-lsp/pkg/types"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
@@ -456,6 +457,84 @@ func TestUpgradeCallEdges_WithFileFilter(t *testing.T) {
 	}
 	if scopedFilter("pkg/b.go") {
 		t.Error("expected filter to reject pkg/b.go")
+	}
+}
+
+func TestResolveNamePosition(t *testing.T) {
+	tests := []struct {
+		name     string
+		symName  string
+		symLine  int
+		symChar  int
+		lines    []string
+		wantChar int
+	}{
+		{
+			name:     "pyright class: selRange at keyword, name at col 6",
+			symName:  "APIRouter",
+			symLine:  0,
+			symChar:  0,
+			lines:    []string{"class APIRouter(BaseRouter):"},
+			wantChar: 6,
+		},
+		{
+			name:     "pyright def: selRange at keyword, name at col 4",
+			symName:  "serialize_response",
+			symLine:  0,
+			symChar:  0,
+			lines:    []string{"def serialize_response(data):"},
+			wantChar: 4,
+		},
+		{
+			name:     "pyright async def: name after async def",
+			symName:  "run_endpoint",
+			symLine:  0,
+			symChar:  0,
+			lines:    []string{"async def run_endpoint(request):"},
+			wantChar: 10,
+		},
+		{
+			name:     "gopls: selRange already on name, no change",
+			symName:  "NewEnricher",
+			symLine:  0,
+			symChar:  5,
+			lines:    []string{"func NewEnricher(store GraphStore) *Enricher {"},
+			wantChar: 5,
+		},
+		{
+			name:     "indented method",
+			symName:  "__init__",
+			symLine:  0,
+			symChar:  4,
+			lines:    []string{"    def __init__(self):"},
+			wantChar: 8,
+		},
+		{
+			name:     "empty source lines: falls back to selRange",
+			symName:  "Foo",
+			symLine:  0,
+			symChar:  3,
+			lines:    nil,
+			wantChar: 3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sym := lsptypes.DocumentSymbol{
+				Name: tt.symName,
+				SelectionRange: lsptypes.Range{
+					Start: lsptypes.Position{Line: tt.symLine, Character: tt.symChar},
+				},
+			}
+			pos := resolveNamePosition(sym, tt.lines)
+			if pos.Character != tt.wantChar {
+				t.Errorf("resolveNamePosition(%q) char = %d, want %d", tt.symName, pos.Character, tt.wantChar)
+			}
+			if pos.Line != tt.symLine {
+				t.Errorf("resolveNamePosition(%q) line = %d, want %d", tt.symName, pos.Line, tt.symLine)
+			}
+		})
 	}
 }
 

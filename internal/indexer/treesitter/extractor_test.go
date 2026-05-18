@@ -174,16 +174,22 @@ func TestTreeSitterExtractor_Extract_CallEdges(t *testing.T) {
 		t.Fatalf("Extract: %v", err)
 	}
 
-	// Should have call edges for bar() and baz().
+	// Should have call edges for bar() and baz() with call-site positions.
 	callEdges := 0
 	for _, e := range result.Edges {
 		if e.EdgeType == "calls" {
 			callEdges++
-			if e.Confidence != 1.0 {
-				t.Errorf("expected confidence 1.0, got %f", e.Confidence)
+			if e.Confidence != 0.7 {
+				t.Errorf("expected confidence 0.7, got %f", e.Confidence)
 			}
-			if e.Provenance != "ast_resolved" {
-				t.Errorf("expected provenance 'ast_resolved', got %q", e.Provenance)
+			if e.Provenance != "ast_inferred" {
+				t.Errorf("expected provenance 'ast_inferred', got %q", e.Provenance)
+			}
+			if e.CallSiteLine == 0 {
+				t.Error("expected non-zero CallSiteLine on call edge")
+			}
+			if e.CallSiteFile != "src/main.py" {
+				t.Errorf("expected CallSiteFile 'src/main.py', got %q", e.CallSiteFile)
 			}
 		}
 	}
@@ -465,6 +471,54 @@ class DataProcessor:
 	for _, n := range result.Nodes {
 		if n.Kind == "route_handler" {
 			t.Errorf("unexpected route_handler node in plain Python: %+v", n)
+		}
+	}
+}
+
+func TestTreeSitterExtractor_CallSitePositions(t *testing.T) {
+	ext := mustExtractor(t)
+	// Line 1: def outer():
+	// Line 2:     foo()        <- call at line 2, col 4
+	// Line 3:     bar.baz()    <- call at line 3, col 4
+	// Line 4:
+	// Line 5: class MyClass:
+	// Line 6:     def method(self):
+	// Line 7:         qux()    <- call at line 7, col 8
+	src := "def outer():\n    foo()\n    bar.baz()\n\nclass MyClass:\n    def method(self):\n        qux()\n"
+	opts := makeOpts(src)
+	result, err := ext.Extract(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+
+	type callInfo struct {
+		line int
+		col  int
+		file string
+	}
+	calls := make(map[string]callInfo)
+	for _, e := range result.Edges {
+		if e.EdgeType == "calls" {
+			// Use the target hash to identify which call this is.
+			calls[e.TargetHash.String()] = callInfo{
+				line: e.CallSiteLine,
+				col:  e.CallSiteCol,
+				file: e.CallSiteFile,
+			}
+		}
+	}
+
+	if len(calls) < 3 {
+		t.Fatalf("expected at least 3 call edges, got %d", len(calls))
+	}
+
+	// Verify all call edges have non-zero positions and correct file path.
+	for target, info := range calls {
+		if info.line == 0 {
+			t.Errorf("call to %s: CallSiteLine is 0", target)
+		}
+		if info.file != "src/main.py" {
+			t.Errorf("call to %s: CallSiteFile = %q, want 'src/main.py'", target, info.file)
 		}
 	}
 }

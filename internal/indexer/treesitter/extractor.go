@@ -69,8 +69,10 @@ func (e *TreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractOpt
 	root := tree.RootNode()
 	result := &types.ExtractResult{}
 
-	// Walk the AST and extract symbols.
-	e.walkNode(root, opts, "", result)
+	// Walk the AST and extract symbols. The empty funcHash means top-level
+	// calls use a synthetic module-level source; calls inside functions use
+	// the function's node hash.
+	e.walkNode(root, opts, "", types.EmptyHash, result)
 
 	// Detect Python web framework routes (Flask, FastAPI, Django).
 	e.extractPythonRoutes(root, opts, result)
@@ -99,17 +101,14 @@ func (e *TreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractOpt
 }
 
 // walkNode recursively walks the tree-sitter AST and extracts symbols.
-// The classContext parameter tracks whether we are inside a class body;
-// if non-empty, functions are treated as methods and calls are scoped
-// to the class context.
-func (e *TreeSitterExtractor) walkNode(node *sitter.Node, opts types.ExtractOptions, classContext string, result *types.ExtractResult) {
+// classContext tracks whether we are inside a class body (for method scoping).
+// funcHash is the node hash of the enclosing function/method; calls inside a
+// function use this as their edge source so the enricher can find and upgrade them.
+func (e *TreeSitterExtractor) walkNode(node *sitter.Node, opts types.ExtractOptions, classContext string, funcHash types.Hash, result *types.ExtractResult) {
 	if node == nil {
 		return
 	}
 
-	// Match against Python grammar node type names. Tree-sitter node types
-	// are strings defined by the language grammar (e.g., "function_definition"
-	// for Python's "def foo():").
 	switch node.Type() {
 	case "function_definition":
 		e.extractFunction(node, opts, classContext, result)
@@ -118,14 +117,13 @@ func (e *TreeSitterExtractor) walkNode(node *sitter.Node, opts types.ExtractOpti
 	case "import_statement", "import_from_statement":
 		e.extractImport(node, opts, classContext, result)
 	case "call":
-		e.extractCall(node, opts, classContext, result)
+		e.extractCall(node, opts, classContext, funcHash, result)
 	case "raise_statement":
 		e.extractRaise(node, opts, classContext, result)
 	default:
-		// Recurse into children for non-extracted node types.
 		for i := 0; i < int(node.ChildCount()); i++ {
 			child := node.Child(i)
-			e.walkNode(child, opts, classContext, result)
+			e.walkNode(child, opts, classContext, funcHash, result)
 		}
 	}
 }
@@ -172,11 +170,12 @@ func (e *TreeSitterExtractor) extractFunction(node *sitter.Node, opts types.Extr
 	// Emit decorates edges for decorators on this function/method.
 	e.extractPythonDecoratorEdges(node, opts, n.NodeHash, result)
 
-	// Walk function body for calls and imports.
+	// Walk function body for calls and imports, passing this function's
+	// node hash so calls use it as edge source.
 	body := node.ChildByFieldName("body")
 	if body != nil {
 		for i := 0; i < int(body.ChildCount()); i++ {
-			e.walkNode(body.Child(i), opts, classContext, result)
+			e.walkNode(body.Child(i), opts, classContext, n.NodeHash, result)
 		}
 	}
 }
@@ -204,7 +203,7 @@ func (e *TreeSitterExtractor) extractClass(node *sitter.Node, opts types.Extract
 	body := node.ChildByFieldName("body")
 	if body != nil {
 		for i := 0; i < int(body.ChildCount()); i++ {
-			e.walkNode(body.Child(i), opts, className, result)
+			e.walkNode(body.Child(i), opts, className, types.EmptyHash, result)
 		}
 	}
 }
@@ -243,35 +242,47 @@ func (e *TreeSitterExtractor) extractImport(node *sitter.Node, opts types.Extrac
 }
 
 // extractCall extracts function call expressions and creates call edges.
-func (e *TreeSitterExtractor) extractCall(node *sitter.Node, opts types.ExtractOptions, classContext string, result *types.ExtractResult) {
+// Call-site position (file, line, col) is stored on the edge so the LSP
+// enrichment pass can query GetDefinition to upgrade the edge to lsp_resolved.
+// funcHash is the enclosing function/method's node hash; when non-empty, it is
+// used as the edge source so the enricher can find these edges via NodesByName.
+func (e *TreeSitterExtractor) extractCall(node *sitter.Node, opts types.ExtractOptions, classContext string, funcHash types.Hash, result *types.ExtractResult) {
 	funcNode := node.ChildByFieldName("function")
 	if funcNode == nil {
 		return
 	}
 	calledName := funcNode.Content(opts.Content)
-	line := int(funcNode.StartPoint().Row) + 1
 
-	// Source is the enclosing context (file or class).
-	sourceQName := fmt.Sprintf("%s://%s/%s", opts.RepoURL, opts.ModuleRoot, opts.FilePath)
-	if classContext != "" {
-		sourceQName = fmt.Sprintf("%s.%s", sourceQName, classContext)
+	// Source: use the enclosing function's node hash when available (enables
+	// the enricher to find this edge via NodesByName). Fall back to a synthetic
+	// module-level hash for top-level calls outside any function.
+	var sourceHash types.Hash
+	if funcHash != types.EmptyHash {
+		sourceHash = funcHash
+	} else {
+		sourceQName := fmt.Sprintf("%s://%s/%s", opts.RepoURL, opts.ModuleRoot, opts.FilePath)
+		if classContext != "" {
+			sourceQName = fmt.Sprintf("%s.%s", sourceQName, classContext)
+		}
+		sourceHash = types.ComputeNodeHash(opts.RepoURL, opts.ModuleRoot, opts.FileHash, sourceQName, "module")
 	}
-	sourceHash := types.ComputeNodeHash(opts.RepoURL, opts.ModuleRoot, opts.FileHash, sourceQName, "module")
 
 	// Target is the called function (may be unresolved).
 	targetQName := e.qualifiedName(opts, classContext, calledName)
 	targetHash := types.ComputeNodeHash(opts.RepoURL, opts.ModuleRoot, types.EmptyHash, targetQName, "function")
-	_ = line // line is informational, not stored on edges
 
-	provenance := "ast_resolved"
+	provenance := "ast_inferred"
 	edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "calls", provenance)
 	edge := types.Edge{
-		EdgeHash:   edgeHash,
-		SourceHash: sourceHash,
-		TargetHash: targetHash,
-		EdgeType:   "calls",
-		Confidence: 1.0,
-		Provenance: provenance,
+		EdgeHash:     edgeHash,
+		SourceHash:   sourceHash,
+		TargetHash:   targetHash,
+		EdgeType:     "calls",
+		Confidence:   0.7,
+		Provenance:   provenance,
+		CallSiteLine: int(funcNode.StartPoint().Row) + 1,
+		CallSiteCol:  int(funcNode.StartPoint().Column),
+		CallSiteFile: opts.FilePath,
 	}
 	result.Edges = append(result.Edges, edge)
 }
