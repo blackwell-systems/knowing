@@ -39,10 +39,13 @@ package mcp
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	knowingctx "github.com/blackwell-systems/knowing/internal/context"
+	"github.com/blackwell-systems/knowing/internal/embedding"
 	knowingstore "github.com/blackwell-systems/knowing/internal/store"
 	"github.com/blackwell-systems/knowing/internal/types"
 	"github.com/blackwell-systems/knowing/internal/wire"
@@ -54,11 +57,12 @@ import (
 // a reference to the GraphStore for executing queries and delegates transport
 // handling to the mcp-go library.
 type Server struct {
-	store     types.GraphStore
-	mcpServer *mcpserver.MCPServer
-	sqlStore  *knowingstore.SQLiteStore // populated via type assertion for runtime queries
-	session   *wire.Session            // GCF session state for cross-call deduplication
+	store      types.GraphStore
+	mcpServer  *mcpserver.MCPServer
+	sqlStore   *knowingstore.SQLiteStore  // populated via type assertion for runtime queries
+	session    *wire.Session              // GCF session state for cross-call deduplication
 	ctxSession *knowingctx.SessionTracker // session-aware retrieval boosts
+	vecSearch  *embedding.Searcher        // semantic vector search (nil if model unavailable)
 }
 
 // NewServer creates a new MCP server backed by the given GraphStore.
@@ -68,6 +72,17 @@ func NewServer(store types.GraphStore) *Server {
 		store:      store,
 		session:    wire.NewSession(),
 		ctxSession: knowingctx.NewSessionTracker(),
+	}
+	// Initialize embedding-based vector search (best-effort).
+	// Only when KNOWING_EMBEDDINGS=1 is set (opt-in, requires ~30MB model download).
+	if os.Getenv("KNOWING_EMBEDDINGS") == "1" {
+		if embedder, err := embedding.New(); err == nil {
+			s.vecSearch = embedding.NewSearcher(embedder)
+			// Index existing nodes in background (non-blocking).
+			go s.buildVectorIndex()
+		} else {
+			log.Printf("[info] vector search disabled: %v", err)
+		}
 	}
 	// Try to get SQLiteStore for runtime queries.
 	if ss, ok := store.(*knowingstore.SQLiteStore); ok {
@@ -304,3 +319,58 @@ func traceStatsTool() mcp.Tool {
 		mcp.WithReadOnlyHintAnnotation(true),
 	)
 }
+
+// buildVectorIndex embeds all existing nodes and builds the HNSW index.
+// Runs in a background goroutine at server startup. Processes in batches
+// to avoid memory pressure from large embedding batches.
+func (s *Server) buildVectorIndex() {
+	ctx := context.Background()
+	nodes, err := s.store.NodesByName(ctx, "%")
+	if err != nil || len(nodes) == 0 {
+		return
+	}
+
+	// Get file paths for each node (needed for embedding text).
+	type nodeWithPath struct {
+		node types.Node
+		path string
+	}
+	var items []nodeWithPath
+	for _, n := range nodes {
+		// Skip noise (mocks, dist/, vendor/).
+		qn := n.QualifiedName
+		skip := false
+		for _, noise := range []string{"/dist/", "/vendor/", "/node_modules/", "mock", "fake"} {
+			if strings.Contains(qn, noise) {
+				skip = true
+				break
+			}
+		}
+		if skip {
+			continue
+		}
+		items = append(items, nodeWithPath{node: n, path: ""})
+	}
+
+	// Embed in batches of 64.
+	const batchSize = 64
+	for i := 0; i < len(items); i += batchSize {
+		end := i + batchSize
+		if end > len(items) {
+			end = len(items)
+		}
+		batch := items[i:end]
+		batchNodes := make([]types.Node, len(batch))
+		batchPaths := make([]string, len(batch))
+		for j, item := range batch {
+			batchNodes[j] = item.node
+			batchPaths[j] = item.path
+		}
+		if err := s.vecSearch.IndexBatch(ctx, batchNodes, batchPaths); err != nil {
+			log.Printf("[warn] vector index batch %d: %v", i/batchSize, err)
+			return
+		}
+	}
+	log.Printf("[info] vector index built: %d symbols embedded", s.vecSearch.Count())
+}
+

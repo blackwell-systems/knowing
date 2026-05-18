@@ -19,12 +19,19 @@ type BM25Searcher interface {
 	SearchBM25Nodes(ctx stdctx.Context, query string, limit int) ([]types.Node, error)
 }
 
+// VectorSearcher provides semantic nearest-neighbor search over symbol embeddings.
+type VectorSearcher interface {
+	// EmbedAndSearch embeds the query text and returns the k nearest symbol node hashes.
+	EmbedAndSearch(ctx stdctx.Context, query string, k int) ([]types.Hash, error)
+}
+
 // ContextEngine queries the knowing knowledge graph to produce task-specific,
 // token-budgeted context blocks ranked by graph relationships and runtime traffic.
 type ContextEngine struct {
 	store    types.GraphStore
 	feedback FeedbackProvider // nil if store doesn't support feedback
 	bm25     BM25Searcher    // nil if store doesn't support BM25
+	vector   VectorSearcher   // nil if embeddings not available
 	session  *SessionTracker  // nil disables session-aware boosting
 }
 
@@ -107,6 +114,14 @@ func NewContextEngine(store types.GraphStore) *ContextEngine {
 // queries. Pass nil to disable session-aware boosting.
 func (e *ContextEngine) SetSession(st *SessionTracker) {
 	e.session = st
+}
+
+// SetVector attaches a vector search backend to the engine. When set,
+// query embeddings are compared against indexed symbol embeddings via
+// nearest-neighbor search, providing a third RRF channel alongside
+// tiered keyword matching and BM25.
+func (e *ContextEngine) SetVector(vs VectorSearcher) {
+	e.vector = vs
 }
 
 // stopWords is the set of words filtered from task descriptions during keyword extraction.
@@ -308,11 +323,28 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 		}
 	}
 
-	// Fuse channels with weighted Reciprocal Rank Fusion.
-	// Tiered results get 3x weight (they matched symbol names directly, higher precision).
-	// BM25 results get 1x weight (broader recall via signatures/paths, noisier).
+	// Channel 3: Vector (embedding) search (runs when embedder is available).
+	// Embeds the task description and finds semantically similar symbols.
+	var vectorResults []types.Node
+	if e.vector != nil {
+		hashes, err := e.vector.EmbedAndSearch(ctx, opts.TaskDescription, 30)
+		if err == nil && len(hashes) > 0 {
+			for _, h := range hashes {
+				if node, err := e.store.GetNode(ctx, h); err == nil && node != nil {
+					vectorResults = append(vectorResults, *node)
+				}
+			}
+		}
+	}
+
+	// Fuse all channels with weighted Reciprocal Rank Fusion.
+	// Weights: tiered 3x (highest precision), vector 2x (concept-level), BM25 1x (broadest).
 	// k=60 is the standard RRF constant.
-	candidates := rrfFuseNodesWeighted(tieredResults, bm25Results, 60, 3.0, 1.0, 40)
+	candidates := rrfFuseMulti([]rankedChannel{
+		{nodes: tieredResults, weight: 3.0},
+		{nodes: bm25Results, weight: 1.0},
+		{nodes: vectorResults, weight: 2.0},
+	}, 60, 40)
 	seen := make(map[types.Hash]bool, len(candidates))
 	for _, c := range candidates {
 		seen[c.NodeHash] = true
@@ -1009,33 +1041,35 @@ func isCommonShortName(name string) bool {
 	return common[name]
 }
 
-// rrfFuseNodesWeighted merges two ranked node lists using weighted Reciprocal Rank Fusion.
-// Each node's score = weightA * 1/(k+rank_in_A) + weightB * 1/(k+rank_in_B).
-// Higher weight means that channel's rankings contribute more to the final order.
+// rankedChannel is one retrieval channel's output with its RRF weight.
+type rankedChannel struct {
+	nodes  []types.Node
+	weight float64
+}
+
+// rrfFuseMulti merges N ranked node lists using weighted Reciprocal Rank Fusion.
+// Each channel contributes: weight * 1/(k + rank + 1) for each node it contains.
+// Nodes appearing in multiple channels accumulate scores from all of them.
 // k=60 is the standard RRF constant. Returns up to limit nodes sorted by fused score.
-func rrfFuseNodesWeighted(listA, listB []types.Node, k int, weightA, weightB float64, limit int) []types.Node {
+func rrfFuseMulti(channels []rankedChannel, k, limit int) []types.Node {
 	type scored struct {
 		node  types.Node
 		score float64
 	}
 	scores := make(map[types.Hash]*scored)
 
-	for rank, n := range listA {
-		s, ok := scores[n.NodeHash]
-		if !ok {
-			s = &scored{node: n}
-			scores[n.NodeHash] = s
+	for _, ch := range channels {
+		if ch.weight == 0 || len(ch.nodes) == 0 {
+			continue
 		}
-		s.score += weightA / float64(k+rank+1)
-	}
-
-	for rank, n := range listB {
-		s, ok := scores[n.NodeHash]
-		if !ok {
-			s = &scored{node: n}
-			scores[n.NodeHash] = s
+		for rank, n := range ch.nodes {
+			s, ok := scores[n.NodeHash]
+			if !ok {
+				s = &scored{node: n}
+				scores[n.NodeHash] = s
+			}
+			s.score += ch.weight / float64(k+rank+1)
 		}
-		s.score += weightB / float64(k+rank+1)
 	}
 
 	// Sort by fused score descending.

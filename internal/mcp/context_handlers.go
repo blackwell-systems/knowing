@@ -25,6 +25,9 @@ func (s *Server) handleContextForTask(ctx context.Context, req mcp.CallToolReque
 
 	engine := knowingctx.NewContextEngine(s.store)
 	engine.SetSession(s.ctxSession)
+	if s.vecSearch != nil {
+		engine.SetVector(s.vecSearch)
+	}
 	block, err := engine.ForTask(ctx, knowingctx.TaskOptions{
 		TaskDescription: taskDesc,
 		TokenBudget:     tokenBudget,
