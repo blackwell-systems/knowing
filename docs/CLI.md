@@ -99,7 +99,7 @@ knowing serve -trace -trace-endpoint collector.local:4317 ./my-repo
 **Notes:**
 
 - The daemon blocks until it receives SIGINT or SIGTERM.
-- Registers all 12 language extractors (Go, Python, TypeScript/JS, Rust, Java,
+- Registers all 13 language extractors (Go, Python, TypeScript/JS, Rust, Java,
   C#, Terraform, SQL, Kubernetes YAML, Cloud YAML [CloudFormation/SAM, Docker
   Compose, GitHub Actions, Serverless Framework], CSS, Protocol Buffers).
 - The MCP server exposes an `index_repo` tool that triggers indexing through
@@ -150,7 +150,7 @@ knowing index ./repo
 
 **Notes:**
 
-- Registers all 12 language extractors (Go, Python, TypeScript/JS, Rust, Java,
+- Registers all 13 language extractors (Go, Python, TypeScript/JS, Rust, Java,
   C#, Terraform, SQL, Kubernetes YAML, Cloud YAML [CloudFormation/SAM, Docker
   Compose, GitHub Actions, Serverless Framework], CSS, Protocol Buffers).
 - When `-full` is used, the Go packages extractor provides full type

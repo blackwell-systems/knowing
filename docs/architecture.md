@@ -1195,7 +1195,7 @@ knowing decomposes into three planes separated by an artifact boundary. This sep
 Execution Plane (produces the artifact)
 ├── Indexer
 │   ├── Go extractor (go/packages, full type resolution, `--full` flag)
-│   ├── tree-sitter extractors (Go, Python, TypeScript/JS, Rust, Java, C#, CSS, Protocol Buffers)
+│   ├── tree-sitter extractors (Go, Python, Ruby, TypeScript/JS, Rust, Java, C#, CSS, Protocol Buffers)
 │   ├── Infrastructure extractors (Terraform HCL, SQL, Kubernetes YAML, Cloud YAML)
 │   └── SCIP ingest (`knowing ingest-scip`, external dependency surfaces)
 ├── Trace ingestion pipeline

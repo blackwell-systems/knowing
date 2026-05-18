@@ -7,11 +7,11 @@ Do NOT commit this file (gitignored).
 
 ## What knowing Is
 
-knowing is a content-addressed graph artifact where every entity (symbols, relationships, files, repos, and graph snapshots) is identified by its SHA-256 hash. It indexes code via 17 extractor types covering 11 programming languages + 6 infrastructure/cloud formats, enriches edges via LSP and SCIP, ingests runtime traces via OTLP, and exposes the graph through 22 MCP tools + 3 prompts. ~52K LOC Go, single binary, SQLite. Published as v0.1.2 across Homebrew, npm, PyPI, Docker, and MCP Registry. It targets AI coding agents and platform teams that need structural, versioned, provenance-scored relationships, not just file contents.
+knowing is a content-addressed graph artifact where every entity (symbols, relationships, files, repos, and graph snapshots) is identified by its SHA-256 hash. It indexes code via 18 extractor types covering 12 programming languages + 6 infrastructure/cloud formats, enriches edges via LSP and SCIP, ingests runtime traces via OTLP, and exposes the graph through 22 MCP tools + 3 prompts. ~52K LOC Go, single binary, SQLite. Published as v0.1.2 across Homebrew, npm, PyPI, Docker, and MCP Registry. It targets AI coding agents and platform teams that need structural, versioned, provenance-scored relationships, not just file contents.
 
 Key differentiators:
 - **Content-addressed Merkle-DAG** with O(1) staleness detection, full history, provable integrity
-- **17 extractors**: 11 languages (Go, TS, Python, Rust, Java, C#, Terraform, SQL, K8s YAML, CSS, Protocol Buffers) + 6 infrastructure formats (Event/MQ patterns, OpenAPI/JSON Schema, CloudFormation/SAM, Docker Compose, GitHub Actions, Serverless Framework)
+- **18 extractors**: 12 languages (Go, TS, Python, Ruby, Rust, Java, C#, Terraform, SQL, K8s YAML, CSS, Protocol Buffers) + 6 infrastructure formats (Event/MQ patterns, OpenAPI/JSON Schema, CloudFormation/SAM, Docker Compose, GitHub Actions, Serverless Framework)
 - **5-tier provenance model** (ast_inferred 0.7 -> lsp_resolved 0.9 -> scip_resolved 0.95 -> ast_resolved 1.0 -> otel_trace 0.2-0.95)
 - **SCIP index ingestion** for compiler-accurate external dependency symbols (0.95 confidence)
 - **Runtime trace ingestion** (OTLP gRPC, observation-count confidence, hourly decay)
@@ -109,7 +109,7 @@ Key differentiators:
 - Cypher query support (via Neo4j/graph DB)
 
 **What they have that knowing doesn't:**
-- 20 language support (vs knowing's 17 extractor types across 11 languages + 6 infra formats)
+- 20 language support (vs knowing's 18 extractor types across 12 languages + 6 infra formats)
 - Multiple graph database backends (KuzuDB, FalkorDB, Neo4j)
 - Pre-indexed bundle distribution
 - Dead code detection CLI
@@ -565,7 +565,7 @@ The strategic insight: Graphiti proves that temporal knowledge graphs for AI age
 | Community detection | Yes (Louvain) | No | No | Yes | No | No | No | No | No | No | No |
 | Feedback loop | Yes | No | No | No | No | No | No | No | No | No | No |
 | Content-addressed | Yes (Merkle DAG) | No | No | No | No | No | No | No | No | No | No |
-| Language breadth | 17 extractors | Many | 20 | N/A (general) | N/A | N/A | N/A | Many | Many | Many | N/A |
+| Language breadth | 18 extractors | Many | 20 | N/A (general) | N/A | N/A | N/A | Many | Many | Many | N/A |
 | Browser/Web UI | No | Yes | Yes (viz) | Dashboard | No | Yes | No | No | Yes | Yes | Yes |
 | Traction (stars) | <100 | 38.5k | 3.3k | 26.1k | 828 | 24.9k | 7.3k | 44.9k | N/A | N/A | 16.4k |
 | License | MIT | NC only | MIT | Apache | MIT | MIT | MIT | Apache | Proprietary | Proprietary | MIT |
@@ -606,7 +606,7 @@ The strategic insight: Graphiti proves that temporal knowledge graphs for AI age
 
 | Gap | Was | Resolution |
 |-----|-----|-----------|
-| Language support | "Only Go and Python" | 11 languages + 18 framework detectors, all registered |
+| Language support | "Only Go and Python" | 12 languages + 18 framework detectors, all registered |
 | Agent hooks | "MCP tools are passive" | 5 hooks, proven net-positive (+305 tokens after HITS fix) |
 | Relevance ranking | "Returns all results without prioritization" | RWR + HITS reranking + density-ranked knapsack packing |
 | Auto-generated context | "No CLAUDE.md generation" | `knowing init` produces progressive-disclosure breadcrumbs |
@@ -724,7 +724,7 @@ Six architectural patterns exist in the market:
 - Graph walk + equivalence + BM25 + RRF (most complete local fusion pipeline)
 - RWR + HITS + 6-signal ranking (blast radius, confidence, recency, distance, feedback, session)
 - Task memory for passive learning (compounds across sessions without user action)
-- Multi-language LSP enrichment with auto-detection (17 extractors, 11 languages)
+- Multi-language LSP enrichment with auto-detection (18 extractors, 12 languages)
 - Information density: 3-14x vs grep (measured across 22 experiments, not claimed)
 
 ### How knowing compares
@@ -798,7 +798,7 @@ Updated 2026-05-17 after closing SCIP, cloud extractors, event/schema extractors
 
 | Gap | Was | Now |
 |-----|-----|-----|
-| Language support | "Only Go and Python" | 11 languages (Go, TS, Python, Rust, Java, C#, Terraform, SQL, K8s YAML, CSS, Proto) |
+| Language support | "Only Go and Python" | 12 languages (Go, TS, Python, Ruby, Rust, Java, C#, Terraform, SQL, K8s YAML, CSS, Proto) |
 | Agent hooks | GitNexus had it | 5 hooks, proven net-positive (+305 tokens) |
 | Wire format efficiency | Competitors use JSON | GCF at 84% savings, GCB at 74% byte savings |
 | Session statefulness | Nobody had it | 47% dedup on repeated symbols |

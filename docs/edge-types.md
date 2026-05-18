@@ -8,10 +8,10 @@ participates in blast radius traversal and context ranking.
 
 | Edge Type | Meaning | Provenance | Confidence | Producers | Blast Radius | RWR Weight |
 |---|---|---|---|---|---|---|
-| `calls` | Function/method invocation | ast_inferred / lsp_resolved | 0.7 / 0.9 | All 17 extractor types, enricher | Yes (traversed) | 1.0 |
-| `imports` | Module/package import | ast_inferred | 0.7 | All 17 extractor types | No | 0.5 |
-| `implements` | Type satisfies an interface | ast_inferred / lsp_resolved | 0.7 / 0.9 | Go, TS, Java, C#, Rust extractors, enricher | No | 0.8 |
-| `handles_route` | HTTP handler bound to a route | ast_inferred | 0.7 | Go, TS, Python, Rust, Java, C# extractors | No | 0.7 |
+| `calls` | Function/method invocation | ast_inferred / lsp_resolved | 0.7 / 0.9 | All 18 extractor types, enricher | Yes (traversed) | 1.0 |
+| `imports` | Module/package import | ast_inferred | 0.7 | All 18 extractor types | No | 0.5 |
+| `implements` | Type satisfies an interface | ast_inferred / lsp_resolved | 0.7 / 0.9 | Go, TS, Java, C#, Ruby, Rust extractors, enricher | No | 0.8 |
+| `handles_route` | HTTP handler bound to a route | ast_inferred | 0.7 | Go, TS, Python, Ruby, Rust, Java, C# extractors | No | 0.7 |
 | `references` | Non-call identifier usage | ast_inferred / lsp_resolved / scip_resolved | 0.7 / 0.9 / 0.95 | Go extractor, Proto extractor, SQL extractor, SCIP ingestor, enricher | No | 0.4 |
 | `depends_on` | Resource/symbol dependency | ast_inferred | 0.7 | Terraform, SQL, CSS extractors | No | 0.5 |
 | `deploys` | K8s Service routes to Deployment | ast_inferred | 0.7 | K8s YAML extractor | No | 0.5 |
@@ -23,7 +23,7 @@ participates in blast radius traversal and context ranking.
 | `extends` | Class inheritance | ast_inferred | 0.7 | TS, Java, Python, C# extractors | No | 0.7 |
 | `overrides` | Method overrides parent | ast_inferred | 0.7 | TS, Java, C# extractors | No | 0.8 |
 | `decorates` | Decorator/annotation applied | ast_inferred | 0.7 | TS, Java, Python, C#, Rust extractors | No | 0.3 |
-| `throws` | Function throws/raises error | ast_inferred | 0.7 | Go, TS extractors | No | 0.4 |
+| `throws` | Function throws/raises error | ast_inferred | 0.7 | Go, TS, Ruby extractors | No | 0.4 |
 | `owned_by` | File/symbol owned by team/user | deterministic | 1.0 | CODEOWNERS parser | No | 0.0 |
 | `runtime_calls` | HTTP call observed in traces | otel_trace | 0.2 - 0.95 | Trace ingestor | No | 0.3 (default) |
 | `runtime_rpc` | gRPC/RPC call observed in traces | otel_trace | 0.2 - 0.95 | Trace ingestor | No | 0.3 (default) |
@@ -38,7 +38,7 @@ A function or method invokes another function or method.
 
 - **Direction:** source calls target. `pkg.HandleLogin -calls-> pkg.AuthService.Validate` means
   HandleLogin contains a call expression that resolves to AuthService.Validate.
-- **Producers:** All 17 extractor types (Go, TypeScript, Rust, Java, C#, Python,
+- **Producers:** All 18 extractor types (Go, TypeScript, Rust, Java, C#, Python,
   Terraform, SQL, Kubernetes YAML, Cloud YAML, CSS, Protocol Buffers, and tree-sitter generic extractors) produce `calls` edges.
   The enricher upgrades ast_inferred calls to lsp_resolved when gopls confirms the definition.
 - **Provenance:** `ast_inferred` (confidence 0.7) from tree-sitter extraction; `lsp_resolved`
@@ -60,7 +60,7 @@ A file imports a module or package.
 
 - **Direction:** source imports target. `cmd/server/main.go -imports-> github.com/example/pkg`
   means the file declares an import of that package.
-- **Producers:** All 17 extractor types. For Go: import declarations. For TypeScript:
+- **Producers:** All 18 extractor types. For Go: import declarations. For TypeScript:
   `import` statements and `require()` calls. For Rust: `use` declarations. For Java:
   `import` declarations. For C#: `using` directives. For Python: `import` and
   `from ... import` statements. For Protocol Buffers: `import` statements. For CSS:
