@@ -276,6 +276,27 @@ Log of all experiments run against the eval framework. Each entry records what w
 
 ---
 
+## Experiment 22: Token savings benchmark reframed as information density
+
+**Date:** 2026-05-18
+**Hypothesis:** The original "55.6% fewer tokens" claim was stale (actually 21% after mock filtering) and misleading. The real value isn't fewer tokens; it's higher information density per token.
+**What:** Added grep precision measurement. For each scenario, count what fraction of grep output lines contain ground truth symbols vs what fraction of knowing's top-10 results are relevant.
+**Result:**
+
+| Scenario | Grep Precision | knowing Precision | Density Multiplier |
+|----------|---------------|-------------------|-------------------|
+| indexer_error_handling | 8.1% | 30.0% | 3.7x |
+| context_ranking_bug | 1.4% | 20.0% | 14.3x |
+| new_mcp_tool | 7.4% | 20.0% | 2.7x |
+| sqlite_optimization | 0.0% | 80.0% | infinite |
+| snapshot_comparison | 3.6% | 30.0% | 8.3x |
+
+**Conclusion:** Grep output is 0-8% relevant. knowing output is 20-80% relevant. Same token count, 3-14x more useful information per token. This is the correct framing: knowing doesn't save tokens, it makes every token count. The `sqlite_optimization` case is most dramatic: grep returns zero relevant lines while knowing returns 80% relevant symbols.
+
+Also scaled token budget to task complexity (previously fixed at 5000) for fair comparison. Token reduction is 15% (minor); information density improvement is 3-14x (significant).
+
+---
+
 ## Key Insights (Updated)
 
 1. **The eval was the biggest bug.** Fixing isRelevant() matching was worth +8pp overall.
@@ -288,6 +309,7 @@ Log of all experiments run against the eval framework. Each entry records what w
 8. **Local vocabulary learning > hosted LLM rewriting.** Deterministic, inspectable, zero cost.
 9. **Targeted beats untargeted.** Equivalence classes (explicit mapping) > BM25 enrichment (dump text). This applies to doc comments, neighbor names, and any "add more text to the index" approach.
 10. **Expanding phrases in existing classes is cheap and safe.** Near-zero risk, consistent returns.
+11. **Information density, not token count, is the right metric.** knowing and grep use similar tokens, but knowing delivers 3-14x more relevant information per token. Lead with density, not savings.
 
 ---
 
