@@ -337,13 +337,40 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 		}
 	}
 
+	// Channel 4: Equivalence class matching.
+	// Maps natural-language concepts ("blast radius") to specific code symbols
+	// ("TransitiveCallers"). Bridges the vocabulary gap locally without ML.
+	var equivResults []types.Node
+	eqMatches := matchEquivalenceClasses(opts.TaskDescription, seedEquivalenceClasses())
+	if len(eqMatches) > 0 {
+		for _, m := range eqMatches {
+			for _, target := range m.targets {
+				// Search for the target symbol name via exact match.
+				nodes, err := e.store.NodesByName(ctx, "%"+target)
+				if err != nil {
+					continue
+				}
+				for _, n := range nodes {
+					lastDot := strings.LastIndex(n.QualifiedName, ".")
+					symName := n.QualifiedName
+					if lastDot >= 0 {
+						symName = n.QualifiedName[lastDot+1:]
+					}
+					if strings.EqualFold(symName, target) {
+						equivResults = append(equivResults, n)
+					}
+				}
+			}
+		}
+	}
+
 	// Fuse all channels with weighted Reciprocal Rank Fusion.
-	// Weights: tiered 3x (highest precision), BM25 1x (lexical recall).
-	// Vector weight 0: off-the-shelf models (MiniLM, BGE-small) tested negative even
-	// with doc comments in embed text. Infrastructure preserved for code-tuned models.
+	// Weights: tiered 3x (highest precision), equivalence 2x (concept-level, high confidence),
+	// BM25 1x (lexical recall), vector 0x (disabled, infrastructure preserved).
 	// k=60 is the standard RRF constant.
 	candidates := rrfFuseMulti([]rankedChannel{
 		{nodes: tieredResults, weight: 3.0},
+		{nodes: equivResults, weight: 2.0},
 		{nodes: bm25Results, weight: 1.0},
 		{nodes: vectorResults, weight: 0.0},
 	}, 60, 40)
