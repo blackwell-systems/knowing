@@ -49,18 +49,22 @@ Ground truth uses flexible matching: `package.Symbol` matches qualified names li
 
 ## Current Baseline
 
-| Tier | P@10 | R@10 | MRR |
-|------|------|------|-----|
-| Easy | 42.0% | 79.0% | 0.67 |
-| Medium | 24.0% | 34.8% | 0.34 |
-| Hard | 10.0% | 12.2% | 0.27 |
-| **Overall** | **25.3%** | **42.0%** | **0.42** |
+| Tier | P@10 | R@10 | MRR | Fixtures |
+|------|------|------|-----|----------|
+| Easy | 36.5% | 88.9% | 0.60 | 20 |
+| Medium | 29.5% | 47.2% | 0.55 | 20 |
+| Hard | 10.0% | 12.2% | 0.16 | 15 |
+| **Overall** | **26.7%** | **52.8%** | **0.46** | **55** |
 
-**Changes from prior baseline (18% overall):**
-- Fixed eval matching to handle `package.Type.Method` qualified names (+7pp across all tiers)
-- Added mock/stub/fake symbol filtering (removes noise from test helpers)
-- Added BM25 FTS5 index with CamelCase-aware tokenization (helps when tiers find < 8 candidates)
-- Fixed stale ground truth in runtime trace fixture
+**Pipeline (all shipped):**
+- 4-tier keyword matching (exact > prefix > substring > path)
+- BM25 FTS5 index with CamelCase-aware tokenization
+- Bigram compound keyword extraction ("blast radius" -> BlastRadius)
+- Weighted RRF fusion (tier 3x, BM25 1x, vector 0.5x)
+- Session-aware boosts (exponential decay, 3-min half-life)
+- MiniLM-L6-v2 embeddings via HNSW (opt-in: KNOWING_EMBEDDINGS=1)
+- Mock/stub/fake symbol filtering
+- Flexible eval matching (handles package.Type.Method qualified names)
 
 ## Adding Fixtures
 
