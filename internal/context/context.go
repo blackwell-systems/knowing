@@ -343,9 +343,13 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	var equivResults []types.Node
 	equivSeen := make(map[types.Hash]bool)
 
-	// Source 1: Seed equivalence classes (hand-curated + universal concepts).
-	allSeeds := append(seedEquivalenceClasses(), universalEquivalenceClasses()...)
-	eqMatches := matchEquivalenceClasses(opts.TaskDescription, allSeeds)
+	// Source 1: Seed + universal equivalence classes.
+	// Auto-generated concepts from symbol names tested neutral (experiment 21):
+	// CamelCase splitting already makes symbol names searchable via BM25.
+	// Auto-concepts only add value if they generate conceptual aliases that
+	// differ from the name, which requires domain understanding.
+	allClasses := append(seedEquivalenceClasses(), universalEquivalenceClasses()...)
+	eqMatches := matchEquivalenceClasses(opts.TaskDescription, allClasses)
 
 	// Source 2: Graph-derived aliases from the candidates we already found.
 	// Uses tiered+BM25 results as input, generates targeted phrase mappings
