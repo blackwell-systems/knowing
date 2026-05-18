@@ -338,15 +338,16 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	}
 
 	// Fuse all channels with weighted Reciprocal Rank Fusion.
-	// Weights: tiered 3x (highest precision), BM25 1x (lexical recall), vector 0.5x (concept-level, noisy).
-	// Vector weight is low because MiniLM-L6-v2 is general-purpose (not code-tuned) and
-	// produces false positives on conceptual matches. It adds value when keyword channels
-	// completely miss, but shouldn't dominate the fusion.
+	// Weights: tiered 3x (highest precision), BM25 1x (lexical recall).
+	// Vector weight is 0 until a code-tuned embedding model is available.
+	// Off-the-shelf models (MiniLM, BGE-small) tested negative: they add noise
+	// that dilutes precision without improving recall on hard queries.
+	// Infrastructure remains wired so a better model can be enabled by changing this weight.
 	// k=60 is the standard RRF constant.
 	candidates := rrfFuseMulti([]rankedChannel{
 		{nodes: tieredResults, weight: 3.0},
 		{nodes: bm25Results, weight: 1.0},
-		{nodes: vectorResults, weight: 0.5},
+		{nodes: vectorResults, weight: 0.0},
 	}, 60, 40)
 	seen := make(map[types.Hash]bool, len(candidates))
 	for _, c := range candidates {

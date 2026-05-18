@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"strings"
 
 	"github.com/blackwell-systems/knowing/internal/types"
 )
@@ -64,11 +65,7 @@ func (s *Searcher) IndexBatch(ctx context.Context, nodes []types.Node, filePaths
 
 	texts := make([]string, len(nodes))
 	for i, n := range nodes {
-		fp := ""
-		if i < len(filePaths) {
-			fp = filePaths[i]
-		}
-		texts[i] = fmt.Sprintf("%s %s %s %s", n.Kind, n.QualifiedName, n.Signature, fp)
+		texts[i] = buildEmbedText(n)
 	}
 
 	vecs, err := s.embedder.EmbedBatch(ctx, texts)
@@ -90,6 +87,103 @@ func (s *Searcher) Count() int {
 // Close releases the underlying embedder resources.
 func (s *Searcher) Close() error {
 	return s.embedder.Close()
+}
+
+// buildEmbedText creates a rich natural-language text representation of a node
+// for embedding. The richer the text, the more semantic signal the embedding model
+// has to work with. Includes:
+//   - Symbol kind in natural language ("function", "type", "method")
+//   - Symbol name split from CamelCase/snake_case into words
+//   - Package name as context
+//   - Signature with parameter and return types expanded
+//   - File path components as additional context
+func buildEmbedText(n types.Node) string {
+	var parts []string
+
+	// Extract package and symbol name from qualified name.
+	// "github.com/org/repo://internal/context.ContextEngine.ForTask" -> package "context", symbol "ForTask"
+	qn := n.QualifiedName
+	pkg := ""
+	symbolName := qn
+
+	// Find the last path component before the symbol.
+	if idx := strings.LastIndex(qn, "/"); idx >= 0 {
+		rest := qn[idx+1:]
+		if dot := strings.Index(rest, "."); dot >= 0 {
+			pkg = rest[:dot]
+			symbolName = rest[dot+1:]
+		}
+	}
+
+	// Kind as natural language.
+	switch n.Kind {
+	case "function":
+		parts = append(parts, "function")
+	case "method":
+		parts = append(parts, "method on a type")
+	case "type":
+		parts = append(parts, "type definition")
+	case "interface":
+		parts = append(parts, "interface contract")
+	case "const":
+		parts = append(parts, "constant value")
+	case "var":
+		parts = append(parts, "variable")
+	default:
+		parts = append(parts, n.Kind)
+	}
+
+	// Symbol name split into words for semantic matching.
+	// "TransitiveCallers" -> "Transitive Callers"
+	// "blast_radius" -> "blast radius"
+	splitName := splitSymbolToWords(symbolName)
+	parts = append(parts, splitName)
+
+	// Package context.
+	if pkg != "" {
+		parts = append(parts, "in package "+pkg)
+	}
+
+	// Signature provides parameter and return type context.
+	if n.Signature != "" {
+		// Clean up the signature for readability.
+		sig := n.Signature
+		// Remove "func " prefix, type receiver.
+		sig = strings.TrimPrefix(sig, "func ")
+		if paren := strings.Index(sig, "("); paren > 0 {
+			sig = sig[paren:]
+		}
+		if sig != "" && sig != "()" {
+			parts = append(parts, "with signature "+sig)
+		}
+	}
+
+	return strings.Join(parts, " ")
+}
+
+// splitSymbolToWords converts a CamelCase or snake_case symbol into space-separated words.
+// "TransitiveCallers" -> "Transitive Callers"
+// "blast_radius" -> "blast radius"
+// "ContextEngine.ForTask" -> "Context Engine For Task"
+func splitSymbolToWords(s string) string {
+	// Replace dots, underscores with spaces.
+	s = strings.ReplaceAll(s, ".", " ")
+	s = strings.ReplaceAll(s, "_", " ")
+
+	// Split CamelCase.
+	var result []rune
+	for i, r := range s {
+		if i > 0 && r >= 'A' && r <= 'Z' {
+			prev := rune(s[i-1])
+			if prev >= 'a' && prev <= 'z' {
+				result = append(result, ' ')
+			} else if prev >= 'A' && prev <= 'Z' && i+1 < len(s) && s[i+1] >= 'a' && s[i+1] <= 'z' {
+				result = append(result, ' ')
+			}
+		}
+		result = append(result, r)
+	}
+	return string(result)
 }
 
 func hashFromHex(h string) (types.Hash, error) {

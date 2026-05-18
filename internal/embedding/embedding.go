@@ -18,10 +18,12 @@ import (
 
 const (
 	// modelRepo is the HuggingFace repo for the default embedding model.
-	modelRepo = "sentence-transformers/all-MiniLM-L6-v2"
+	// BGE-small-en-v1.5 is retrieval-tuned (trained for search, not just similarity)
+	// and outperforms MiniLM-L6-v2 on code retrieval benchmarks.
+	modelRepo = "BAAI/bge-small-en-v1.5"
 	// onnxFile is the ONNX model file within the repo.
 	onnxFile = "onnx/model.onnx"
-	// Dims is the embedding vector dimensionality for MiniLM-L6-v2.
+	// Dims is the embedding vector dimensionality for BGE-small-en-v1.5.
 	Dims = 384
 )
 
@@ -142,7 +144,7 @@ func (e *Embedder) Close() error {
 func ensureModel() (string, error) {
 	home, _ := os.UserHomeDir()
 	cacheDir := filepath.Join(home, ".cache", "knowing", "models")
-	modelDir := filepath.Join(cacheDir, "sentence-transformers_all-MiniLM-L6-v2")
+	modelDir := filepath.Join(cacheDir, "BAAI_bge-small-en-v1.5")
 
 	// Check if already downloaded.
 	if _, err := os.Stat(filepath.Join(modelDir, "tokenizer.json")); err == nil {
