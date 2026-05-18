@@ -11,11 +11,11 @@ import (
 // symbol usefulness feedback from agents.
 func feedbackTool() mcp.Tool {
 	return mcp.NewTool("feedback",
-		mcp.WithDescription("Record or query symbol usefulness feedback. Use action='record' to report whether a symbol was useful, or action='query' to get aggregate feedback stats for a symbol."),
+		mcp.WithDescription("Record or query symbol usefulness feedback. Use action='record' with useful=true for relevant symbols or useful=false for noise. Negative feedback (useful=false) penalizes the symbol in future rankings; positive feedback (useful=true) boosts it. The ranking formula centers around 50/50: net-positive feedback boosts, net-negative penalizes, balanced is neutral. Use action='query' to see aggregate stats."),
 		mcp.WithString("action", mcp.Required(), mcp.Description("Action to perform: 'record' or 'query'"), Examples("record", "query")),
 		mcp.WithString("symbol_hash", mcp.Required(), mcp.Description("Hash of the symbol (64-char hex)"), Examples("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2")),
 		mcp.WithString("session_id", mcp.Description("Session identifier (required for action='record')"), Examples("session-abc123")),
-		mcp.WithBoolean("useful", mcp.Description("Whether the symbol was useful (required for action='record')")),
+		mcp.WithBoolean("useful", mcp.Description("true = symbol was relevant (boost future ranking), false = symbol was noise (penalize future ranking). Required for action='record'.")),
 	)
 }
 
