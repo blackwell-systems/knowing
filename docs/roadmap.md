@@ -63,6 +63,7 @@ These exist in the codebase but aren't wired into retrieval or workflows yet:
 | Item | Status | Next step |
 |------|--------|-----------|
 | Community-aware retrieval | Communities computed, not used for scoping | Constrain RWR walk to seed communities (on roadmap) |
+| Leiden algorithm | Louvain can produce internally disconnected communities | Replace Louvain with Leiden when community-aware retrieval ships, since community quality directly affects retrieval accuracy. Leiden is a drop-in fix (same modularity objective, guarantees connected communities). |
 | Edge event log | Events recorded, nothing reads them | Temporal queries: "when did this dependency appear?" |
 | LSP enrichment (TS/Python/Java) | Shipped. TS: 98.9% upgrade rate. Python: 83% upgrade + 15K new edges. Java: working via jdtls with workspace readiness waiting. | Rust and C# enrichment available via rust-analyzer and OmniSharp when installed. |
 
