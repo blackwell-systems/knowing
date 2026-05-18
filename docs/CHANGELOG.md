@@ -44,6 +44,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Eval expanded to 55 fixtures (20 easy, 20 medium, 15 hard). Current baseline: Easy 38.5%, Medium 32.0%, Hard 18.0%, Overall 30.5% P@10, 0.53 MRR.
 - MCP `notifications/message` notification when vector index is ready after indexing.
 
+- Bigram compound keyword extraction: joins adjacent non-stop-words into CamelCase and snake_case variants ("blast radius" -> BlastRadius, blast_radius) for multi-word symbol matching.
+- Universal equivalence classes (`internal/context/universal_seeds.go`): 20 any-repo software concepts (authentication, caching, configuration, database, HTTP, testing, concurrency, etc.) at weight 0.8. Cross-repo eval +6.7pp on gortex.
+- Graph-derived aliases (`internal/context/graph_aliases.go`): auto-generates equivalence classes from caller/callee symbol names. Top-10 tiered candidates, weight 0.7.
+- Passive task memory (`internal/context/task_memory.go`): migration 008 adds `task_memory` table. Records top-5 returned symbols per `context_for_task` call. Recall matches keywords with 7-day linear decay, boosts via FeedbackBoost channel at 0.3x scale.
+- Multi-language LSP enrichment (`internal/enrichment/config.go`): auto-detects language servers (gopls, typescript-language-server, pylsp/pyright, rust-analyzer, jdtls, OmniSharp) by checking project markers and PATH. `LSPServerConfig` struct, `DetectLSPServers`, `SetLSPConfig`, `LoadLSPConfig` for knowing-lsp.json override.
+- TOON wire format encoder (`internal/wire/toon.go`): uses official `toon-format/toon-go` library. TOON v3.0 open standard (~60% token savings). Registered as `format: "toon"`.
+- Format-aware token estimation (`EstimateNodeTokensForFormat`): GCF packs 5-7x more symbols per token budget. At 1K tokens: 28 (JSON) vs 197 (GCF) symbols.
+- Cross-repo eval (`eval/crossrepo_test.go`): 30 gortex fixtures (10 exact, 10 concept, 10 multi_hop). Tests pipeline on external codebase with zero config. Result: 46.7% R@10.
+- Information density benchmark: grep output is 0-8% relevant, knowing output is 20-80% relevant. 3-14x more useful information per token.
+- `knowing init` full setup command: indexes repo, auto-detects and runs LSP enrichment, generates CLAUDE.md, configures Claude Code MCP server in ~/.claude.json. One command to go from zero to operational.
+- Whitepapers moved to `docs/whitepapers/` with descriptive names: `content-addressed-graph-intelligence.md`, `gcf-wire-format.md`, `shared-intelligence-layer.md`.
+- 4 breakout documentation guides: `docs/retrieval-pipeline.md`, `docs/equivalence-classes.md`, `docs/hooks-integration.md`, `docs/eval-framework.md`.
+- 23 experiments documented in `eval/EXPERIMENTS.md` with 12 key insights.
+
 ### Fixed
 
 - Eval framework `isRelevant` matching now handles `package.Type.Method` qualified names correctly
