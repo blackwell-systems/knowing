@@ -321,7 +321,7 @@ blast radius context. Exactly one of the two must be specified.
 | `-task` | string | *(empty)* | Task description for context generation |
 | `-files` | string | *(empty)* | Comma-separated list of changed file paths |
 | `-budget` | int | `50000` | Token budget |
-| `-format` | string | `xml` | Output format: `xml`, `markdown`, `json`, `gcf`, or `gcb` |
+| `-format` | string | `xml` | Output format: `xml`, `markdown`, `json`, `gcf`, `gcb`, or `toon` |
 | `-repo` | string | *(empty)* | Repository URL for file resolution (used with `-files`) |
 
 **Examples:**

@@ -22,11 +22,14 @@ knowing supports multiple wire format encodings for graph data, each optimized f
               └───────────┘ └────────┘ └─────────┘
 ```
 
-| Codec | Optimizes for | Consumer | Byte savings vs JSON | Token savings vs JSON |
-|-------|---------------|----------|---------------------|----------------------|
-| `binary` | Bytes on wire, encode/decode speed | Services, caches, daemon IPC | ~75% | N/A (not text) |
-| `gcf` | LLM token count | AI agents reading tool responses | ~78% (bytes) | **76.7%** |
-| `json` | Compatibility, debuggability | Humans, generic API consumers | 0% (baseline) | 0% (baseline) |
+| Codec | Optimizes for | Consumer | Token savings vs JSON | When to use |
+|-------|---------------|----------|----------------------|-------------|
+| `gcf` | Maximum compression | AI agents in tight-budget workflows | **84%** | Default for MCP tools, session dedup, repeated calls |
+| `toon` | Open standard + compression | External tools, interop, any TOON consumer | **~60%** | When sharing context outside knowing's ecosystem |
+| `binary` | Bytes on wire, speed | Services, caches, daemon IPC | N/A (not text) | Internal transport between knowing processes |
+| `json` | Compatibility | Humans, generic API consumers, debugging | 0% (baseline) | When downstream consumers need standard JSON |
+| `xml` | Structured markup | XML-based toolchains | ~-20% (larger) | Legacy integrations |
+| `markdown` | Human readability | Documentation, display | ~10% | Human consumption, not agent workflows |
 
 ## GCF (Graph Compact Format)
 
