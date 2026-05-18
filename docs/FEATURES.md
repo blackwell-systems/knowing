@@ -496,7 +496,7 @@ Repo: github.com/blackwell-systems/knowing
 - **Package(s):** `cmd/knowing`
 - **Entry point:** `knowing mcp [flags]`
 - **What it does:** Launches the MCP server in stdio transport mode. Reads JSON-RPC messages from stdin, writes responses to stdout. Designed for use as a subprocess MCP server (e.g., configured in `.mcp.json` or Claude Desktop). Provides all 23 MCP tools and 3 prompts over stdio without requiring HTTP.
-- **Flags:** `--db` (default: `knowing.db`): SQLite database path.
+- **Flags:** `--db` (default: `~/.knowing/knowing.db`): SQLite database path.
 - **Dependencies:** `internal/mcp`, `internal/store`.
 
 ### 39. `knowing reindex` Subcommand
@@ -504,7 +504,7 @@ Repo: github.com/blackwell-systems/knowing
 - **Package(s):** `cmd/knowing`
 - **Entry point:** `knowing reindex [flags]`
 - **What it does:** Clears all nodes, edges, and edge events from the store, then re-indexes the specified repository from scratch. Useful when extractor logic has changed or when the graph has accumulated stale data that incremental indexing cannot clean up.
-- **Flags:** `--db` (default: `knowing.db`), repository path (positional).
+- **Flags:** `--db` (default: `~/.knowing/knowing.db`), repository path (positional).
 - **Dependencies:** `internal/store`, `internal/indexer`.
 
 ### 40. GCF Session Statefulness (Cross-Call Symbol Deduplication)
@@ -677,11 +677,18 @@ Repo: github.com/blackwell-systems/knowing
 - **What it does:** Given ranked symbols with scores and estimated token costs, selects the subset that maximizes total relevance within a token budget. Uses score/cost ratio (density) to greedily pack highest-value-per-token symbols first.
 - **Why it matters:** Ensures LLM context windows are filled with maximum information density rather than simply taking the top-N symbols regardless of their serialization cost.
 
-### 53. KNOWING_DB Environment Variable
+### 53. Global Database and KNOWING_DB Environment Variable
 
 - **Package(s):** `cmd/knowing/`
 - **Entry point:** `defaultDB()` function in `cmd/knowing/main.go`
-- **What it does:** All subcommands check the `KNOWING_DB` environment variable for the database path. Falls back to `"knowing.db"` in the current working directory if unset. Allows configuring the database location without passing `--db` on every command.
+- **What it does:** The default database path is now `~/.knowing/knowing.db`. All repos share one database so cross-repo edges resolve automatically. The `KNOWING_DB` environment variable overrides this default. The `-db` flag overrides both. Falls back to creating `~/.knowing/` if it does not exist.
+
+### 74. Repo Roster (`knowing add`, `knowing remove`, `knowing list`)
+
+- **Package(s):** `cmd/knowing/`
+- **Entry point:** `knowing add [path]`, `knowing remove [path]`, `knowing list`
+- **What it does:** Maintains a roster of registered repositories in the global database. `knowing add` registers a repo and indexes it. `knowing remove` unregisters a repo (graph data is retained). `knowing list` prints all registered repos with path, URL, and last-indexed timestamp. `knowing init` also registers the repo in the roster.
+- **Why it matters:** Provides a single command to onboard a repo into the shared graph. Because all repos use the same global database by default, cross-repo edges (e.g. library callers) work without manual configuration.
 
 ### 54. HITS Authority/Hub Scoring
 
@@ -1027,7 +1034,7 @@ Parameters per tool:
 
 ### `knowing serve`
 
-- **Flags:** `--db` (default: `knowing.db`), `--addr` (default: `:8080`), `--trace` (enable trace ingestion), `--trace-endpoint` (default: `localhost:4317`), `--trace-batch-size` (default: 1000)
+- **Flags:** `--db` (default: `~/.knowing/knowing.db`), `--addr` (default: `:8080`), `--trace` (enable trace ingestion), `--trace-endpoint` (default: `localhost:4317`), `--trace-batch-size` (default: 1000)
 - **Positional args:** repo paths to watch (0 or more)
 - **What it does:** Opens SQLite store, creates snapshot manager and indexer, registers all 25 extractors (Go, Python, Ruby, TypeScript/JS, Rust, Java, C#, Terraform, SQL, K8s YAML, Cloud YAML [CFN/SAM, Compose, Actions, Serverless], CSS, Protocol Buffers, Dockerfile, Makefile, Helm, GitLab CI, package.json/npm, GraphQL, Ansible), creates MCP server (22 tools across six planes, 3 prompts), creates daemon with GitWatcher, optionally starts trace ingestion pipeline (OTLPReceiver + Ingestor + periodic flush/decay), watches listed repos, blocks until SIGINT/SIGTERM.
 - **Extractors registered:** `gotsextractor` (Go), `treesitter` (Python), `tsextractor` (TypeScript/JS), `rustextractor` (Rust), `javaextractor` (Java), `csharpextractor` (C#), `terraformextractor` (Terraform HCL), `sqlextractor` (SQL), `k8sextractor` (Kubernetes YAML), `cssextractor` (CSS), `protoextractor` (Protocol Buffers). Route detection covers 18 frameworks across 6 languages (Go: 5, Python: 3, TypeScript: 5).
@@ -1036,48 +1043,66 @@ Parameters per tool:
 
 ### `knowing index`
 
-- **Flags:** `--db` (default: `knowing.db`), `--url` (default: repo path), `--commit` (default: HEAD), `--full` (use go/packages instead of tree-sitter)
+- **Flags:** `--db` (default: `~/.knowing/knowing.db`), `--url` (default: repo path), `--commit` (default: HEAD), `--full` (use go/packages instead of tree-sitter)
 - **Positional args:** repo-path (required)
 - **What it does:** Opens store, creates indexer, registers extractor (tree-sitter by default, go/packages if `--full`), indexes repo, prints stats, runs LSP enrichment synchronously (if not `--full`).
 
 ### `knowing query`
 
-- **Flags:** `--db` (default: `knowing.db`)
+- **Flags:** `--db` (default: `~/.knowing/knowing.db`)
 - **Positional args:** symbol-prefix (required)
 - **What it does:** Opens store, queries `NodesByName` with prefix, prints nodes with their outbound edges.
 
 ### `knowing export`
 
-- **Flags:** `--db` (default: `knowing.db`), `--format` (default: `json`; also accepts `dot`), `--repo` (filter by repo URL), `--snapshot` (filter label, cosmetic only)
+- **Flags:** `--db` (default: `~/.knowing/knowing.db`), `--format` (default: `json`; also accepts `dot`), `--repo` (filter by repo URL), `--snapshot` (filter label, cosmetic only)
 - **No positional args.**
 - **What it does:** Exports the full knowledge graph (or a repo-scoped subset) as JSON or Graphviz DOT to stdout. JSON output includes nodes with community IDs, edges with cross-community flags, Louvain-detected community listings, and metadata with counts. DOT output renders community clusters as subgraphs with cross-community edges highlighted in red.
 
 ### `knowing mcp`
 
-- **Flags:** `--db` (default: `knowing.db`)
+- **Flags:** `--db` (default: `~/.knowing/knowing.db`)
 - **No positional args.**
 - **What it does:** Launches the MCP server in stdio transport mode. Reads JSON-RPC messages from stdin and writes responses to stdout. Provides all 22 tools and 3 prompts. Designed for subprocess MCP usage (configured in `.mcp.json` or Claude Desktop).
 
 ### `knowing reindex`
 
-- **Flags:** `--db` (default: `knowing.db`)
+- **Flags:** `--db` (default: `~/.knowing/knowing.db`)
 - **Positional args:** repo-path (required)
 - **What it does:** Clears all nodes, edges, and edge events from the store, then re-indexes the specified repository from scratch. Useful when extractor logic has changed or when the graph has accumulated stale data.
 
 ### `knowing init`
 
-- **Flags:** `--db` (default: `knowing.db`), `--output` (default: `CLAUDE.md`)
+- **Flags:** `--db` (default: `~/.knowing/knowing.db`), `--output` (default: `CLAUDE.md`)
 - **No positional args.**
-- **What it does:** Generates a CLAUDE.md section with graph-derived project context (symbol counts, package counts, tool breadcrumbs). Nondestructive and idempotent: uses markers to replace only the generated section, leaving hand-written content intact. Requires a pre-built database.
+- **What it does:** Registers the repo in the global roster, indexes it, runs LSP enrichment, and generates a CLAUDE.md section with graph-derived project context (symbol counts, package counts, tool breadcrumbs). Nondestructive and idempotent: uses markers to replace only the generated section, leaving hand-written content intact.
+
+### `knowing add`
+
+- **Flags:** `--db` (default: `~/.knowing/knowing.db`), `--url` (auto-detected from git remote)
+- **Positional args:** repo-path (required)
+- **What it does:** Registers a repository in the global roster and indexes it into the global database. Cross-repo edges resolve automatically because all repos share the same DB.
+
+### `knowing remove`
+
+- **Flags:** `--db` (default: `~/.knowing/knowing.db`)
+- **Positional args:** repo-path (required)
+- **What it does:** Removes a repository from the global roster. Graph data (nodes, edges, snapshots) is retained.
+
+### `knowing list`
+
+- **Flags:** `--db` (default: `~/.knowing/knowing.db`)
+- **No positional args.**
+- **What it does:** Lists all repositories registered in the global roster with path, URL, and last-indexed timestamp.
 
 ### `knowing context`
 
-- **Flags:** `--db` (default: `knowing.db`), `--format` (default: `json`, accepts: `gcf`, `gcb`, `json`, `xml`, `markdown`), `--task` (natural-language task description), `--files` (comma-separated file paths), `--token-budget` (optional)
+- **Flags:** `--db` (default: `~/.knowing/knowing.db`), `--format` (default: `json`, accepts: `gcf`, `gcb`, `json`, `xml`, `markdown`), `--task` (natural-language task description), `--files` (comma-separated file paths), `--token-budget` (optional)
 - **What it does:** CLI interface to the context engine. Returns ranked symbols and edges relevant to a task description or set of files. Output is encoded using the specified wire format codec. Equivalent to calling the `context_for_task` or `context_for_files` MCP tools from the command line.
 
 ### `knowing test-scope`
 
-- **Flags:** `--db` (default: `knowing.db`), `--files` (comma-separated changed files; defaults to `git diff HEAD`), `--output` (default: `packages`; also `functions`, `run`), `--depth` (default: 3)
+- **Flags:** `--db` (default: `~/.knowing/knowing.db`), `--files` (comma-separated changed files; defaults to `git diff HEAD`), `--output` (default: `packages`; also `functions`, `run`), `--depth` (default: 3)
 - **No positional args.**
 - **What it does:** Computes which tests are affected by changed files. Uses `NodesByFilePath` to find symbols in changed files, then BFS backward through `calls` edges up to `--depth` hops to find test functions. Output modes: `packages` (Go package paths), `functions` (qualified test names), `run` (`-run` regex for `go test`).
 

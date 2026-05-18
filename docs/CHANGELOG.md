@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Global database: default DB path is now `~/.knowing/knowing.db` instead of `./knowing.db`. All repos share one database so cross-repo edges work automatically. Override with the `-db` flag or `KNOWING_DB` env var.
+- Repo roster: `knowing add [path]` registers a repo and indexes it into the global DB. `knowing remove [path]` unregisters a repo. `knowing list` shows all registered repos.
+- `knowing init` now registers the repo in the global roster and uses the global DB by default.
 - `knowing watch` subcommand: lightweight file watcher that re-indexes changed files on save with debounce and optional LSP enrichment
 - `knowing mcp --watch` flag: combines the stdio MCP server with file watching in a single process, so agents always query up-to-date graph data without a separate watcher
 - `knowing enrich blame` subcommand: stamps git blame metadata (last_author, last_commit_at) onto symbols. Migration 009 adds blame columns to nodes table.

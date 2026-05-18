@@ -109,11 +109,12 @@ npm install -g @blackwell-systems/knowing
 pip install knowing
 ```
 
-Index and query a repository:
+Register and index a repository:
 
 ```bash
-# Build the graph. The default path uses fast tree-sitter extraction plus LSP enrichment.
-knowing index -url github.com/org/repo ./path/to/repo
+# Register a repo in the global roster and index it.
+# The database defaults to ~/.knowing/knowing.db so cross-repo edges work automatically.
+knowing add ./path/to/repo
 
 # Search symbols by qualified-name prefix.
 knowing query "MyService"
@@ -145,10 +146,20 @@ Run continuously (full daemon with MCP server):
 knowing serve -addr :8100 ./path/to/repo
 ```
 
+Manage the repo roster:
+
+```bash
+# List all registered repos
+knowing list
+
+# Remove a repo from the roster
+knowing remove ./path/to/repo
+```
+
 Serve MCP over stdio for local agents:
 
 ```bash
-knowing mcp -db knowing.db
+knowing mcp
 ```
 
 ## Agent Integration
@@ -160,12 +171,15 @@ Add knowing to `.mcp.json`:
   "mcpServers": {
     "knowing": {
       "command": "knowing",
-      "args": ["mcp", "--watch", "-db", "/path/to/knowing.db"],
+      "args": ["mcp", "--watch"],
       "transport": "stdio"
     }
   }
 }
 ```
+
+The global database (`~/.knowing/knowing.db`) is used by default. Override with
+`-db /path/to/db` or the `KNOWING_DB` environment variable.
 
 The `--watch` flag enables integrated file watching: the MCP server monitors the
 repository for changes and re-indexes automatically, so agents always query
