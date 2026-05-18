@@ -453,12 +453,16 @@ func cmdExport(args []string) error {
 		Size  int    `json:"size"`
 	}
 	type exportNode struct {
-		NodeHash      string `json:"node_hash"`
-		QualifiedName string `json:"qualified_name"`
-		Kind          string `json:"kind"`
-		Line          int    `json:"line"`
-		Signature     string `json:"signature"`
-		Community     int    `json:"community"`
+		NodeHash      string  `json:"node_hash"`
+		QualifiedName string  `json:"qualified_name"`
+		Kind          string  `json:"kind"`
+		Line          int     `json:"line"`
+		Signature     string  `json:"signature"`
+		Community     int     `json:"community"`
+		LastAuthor    string  `json:"last_author,omitempty"`
+		LastCommitAt  int64   `json:"last_commit_at,omitempty"`
+		CoveragePct   float64 `json:"coverage_pct,omitempty"`
+		Doc           string  `json:"doc,omitempty"`
 	}
 	type exportEdge struct {
 		EdgeHash       string  `json:"edge_hash"`
@@ -542,14 +546,21 @@ func cmdExport(args []string) error {
 	}
 
 	for _, n := range nodes {
-		export.Nodes = append(export.Nodes, exportNode{
+		en := exportNode{
 			NodeHash:      fmt.Sprintf("%x", n.NodeHash),
 			QualifiedName: n.QualifiedName,
 			Kind:          n.Kind,
 			Line:          n.Line,
 			Signature:     n.Signature,
 			Community:     communityOf[n.NodeHash],
-		})
+			LastAuthor:    n.LastAuthor,
+			LastCommitAt:  n.LastCommitAt,
+			Doc:           n.Doc,
+		}
+		if n.CoveragePct >= 0 {
+			en.CoveragePct = n.CoveragePct
+		}
+		export.Nodes = append(export.Nodes, en)
 	}
 	for _, e := range edges {
 		srcComm := communityOf[e.SourceHash]
