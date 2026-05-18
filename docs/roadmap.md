@@ -37,6 +37,14 @@ Pipeline is shipped and measured (31.6% P@10, 55 fixtures, 23 experiments). See 
 | `runtime_uses_config` | Function reads config key or secret at runtime | P4 |
 | `runtime_emits_metric` | Symbol emits a named metric | P5 |
 | `runtime_logs_event` | Symbol emits a structured log event type | P5 |
+| `runtime_writes` | Service/function writes table, bucket, queue, cache key, file, or object | Future |
+| `runtime_reads` | Service/function reads table, bucket, cache key, config, secret, file, or object | Future |
+| `runtime_scheduled` | Cron/job/workflow invoked function or service at runtime | Future |
+| `runtime_allocates` | Service/function provisions or dynamically creates cloud resource | Future |
+| `runtime_redirects_to` | HTTP route redirects/forwards/proxies to another route/service | Future |
+| `runtime_authenticates_as` | Service acts as principal/role/user/client identity | Future |
+| `runtime_authorizes` | Policy/permission check observed for route/function/action | Future |
+| `runtime_depends_on` | Observed dependency inferred from runtime behavior when static linkage is absent | Future |
 
 ### Contract and API Edges
 
@@ -48,6 +56,10 @@ Pipeline is shipped and measured (31.6% P@10, 55 fixtures, 23 experiments). See 
 | `consumes_rpc` | Client invokes proto RPC method | P2 |
 | `publishes_event_schema` | Producer emits event matching a contract | P3 |
 | `consumes_event_schema` | Consumer expects event matching a contract | P3 |
+| `defines_schema` | Code/type defines schema or contract | Future |
+| `validates_against` | Code validates payload against schema | Future |
+| `serializes` / `deserializes` | Type crosses wire/storage boundary | Future |
+| `breaking_change_for` | Derived edge from schema/API diff between versions | Future |
 
 ### Ownership and Governance
 
@@ -56,6 +68,9 @@ Pipeline is shipped and measured (31.6% P@10, 55 fixtures, 23 experiments). See 
 | `owned_by` | Symbol/file/service owned by team/person (CODEOWNERS) | P1 |
 | `classified_as` | Data classification (PII, PCI, PHI) | P2 |
 | `secured_by` | Route/service protected by auth policy | P3 |
+| `reviewed_by` | Code area requires specific reviewer | Future |
+| `complies_with` | Maps component to compliance control | Future |
+| `violates_policy` | Derived: symbol with PII classification lacks secured_by edge | Future |
 
 ### Static Semantic Edges
 
@@ -65,6 +80,8 @@ Pipeline is shipped and measured (31.6% P@10, 55 fixtures, 23 experiments). See 
 | `overrides` | Method overrides parent/interface method | P1 |
 | `decorates` / `annotates` | Decorators, annotations, attributes | P2 |
 | `throws` / `raises` | Error/exception relationships | P3 |
+| `catches` / `handles_error` | Recovery paths for exceptions | Future |
+| `generates` | Codegen source produces generated file/symbol | Future |
 
 ### Agent Workflow Edges
 
@@ -74,6 +91,8 @@ Pipeline is shipped and measured (31.6% P@10, 55 fixtures, 23 experiments). See 
 | `used_by_agent` | Agent actually used/read/edited symbol | P1 |
 | `validated_by_test` | Test verified symbol/change | P2 |
 | `failed_in_ci` | Symbol associated with failing check | P2 |
+| `changed_by_pr` | PR modifies symbol | Future |
+| `reviewed_in_pr` | PR review comment targets symbol | Future |
 
 ### Deployment and Infrastructure Edges
 
@@ -82,6 +101,10 @@ Pipeline is shipped and measured (31.6% P@10, 55 fixtures, 23 experiments). See 
 | `runs_on` | Service runs on deployment/node/runtime | P1 |
 | `deployed_by` | Workflow/pipeline deploys service | P1 |
 | `configured_by` | Config/secret/env var configures service | P2 |
+| `exposes_port` | Service/container exposes port | Future |
+| `mounts` | Workload mounts volume/secret/configmap | Future |
+| `assumes_role` | Workload uses IAM role/service account | Future |
+| `allowed_by` / `blocked_by` | Network/security/IAM policy permits or denies access | Future |
 
 ## Developer Visibility
 
