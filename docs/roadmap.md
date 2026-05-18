@@ -80,7 +80,7 @@ Core pipeline complete. v2 refinements identified.
 
 The context engine's strength is the back half: once it has good seeds, graph expansion + HITS +
 feedback + knapsack produce compact, useful context. The weakness is the front door: lexical seed
-discovery. Eval baseline: easy 36%, medium 16%, hard 2%.
+discovery. Eval baseline: easy 42%, medium 24%, hard 10% (after BM25 FTS5, mock filtering, eval fix).
 
 **Target pipeline:**
 

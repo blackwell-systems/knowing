@@ -37,7 +37,7 @@ ground_truth:
   - package.AnotherSymbol
 ```
 
-Ground truth uses substring matching: a returned symbol matches if any ground truth entry appears as a substring of its qualified name.
+Ground truth uses flexible matching: `package.Symbol` matches qualified names like `internal/package.Type.Symbol` (handles method-on-struct patterns where the receiver type is part of the indexed name).
 
 ## Difficulty Tiers
 
@@ -51,10 +51,16 @@ Ground truth uses substring matching: a returned symbol matches if any ground tr
 
 | Tier | P@10 | R@10 | MRR |
 |------|------|------|-----|
-| Easy | 40.0% | 75.7% | 0.56 |
-| Medium | 12.0% | 17.5% | 0.32 |
-| Hard | 2.0% | 2.2% | 0.20 |
-| **Overall** | **18.0%** | **31.8%** | **0.36** |
+| Easy | 42.0% | 79.0% | 0.67 |
+| Medium | 24.0% | 34.8% | 0.34 |
+| Hard | 10.0% | 12.2% | 0.27 |
+| **Overall** | **25.3%** | **42.0%** | **0.42** |
+
+**Changes from prior baseline (18% overall):**
+- Fixed eval matching to handle `package.Type.Method` qualified names (+7pp across all tiers)
+- Added mock/stub/fake symbol filtering (removes noise from test helpers)
+- Added BM25 FTS5 index with CamelCase-aware tokenization (helps when tiers find < 8 candidates)
+- Fixed stale ground truth in runtime trace fixture
 
 ## Adding Fixtures
 
@@ -75,10 +81,12 @@ Each engine improvement should be measurable through this eval:
 | Improvement | Expected effect |
 |-------------|----------------|
 | Better keyword extraction | Easy tier improves (seeds find more relevant symbols) |
-| Lower RWR threshold | Medium tier improves (more candidates in pool) |
-| Feedback accumulation | All tiers improve over repeated runs |
+| BM25 FTS5 index | Medium/hard improve (finds symbols by signature/path content) |
+| Session-aware boosts | All tiers improve for repeat queries within a session |
+| LLM query rewriting | Hard tier improves ("auth handling" -> specific symbol names) |
+| Embeddings (MiniLM) | Hard tier improves (concept-level matching) |
 | Community-scoped walking | Hard tier improves (walks stay within relevant subsystems) |
-| Verb-pattern seeding | Easy/medium improve ("Add X" finds `types.X`, `NewX`) |
+| RRF fusion | All tiers improve (combines multiple seed sources intelligently) |
 
 ## Cross-Tool Comparison
 

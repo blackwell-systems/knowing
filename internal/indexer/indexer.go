@@ -363,6 +363,16 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 		}
 	}
 
+	// Rebuild FTS index after batch inserts for BM25 search.
+	type ftsRebuilder interface {
+		RebuildFTS(ctx context.Context) error
+	}
+	if fr, ok := idx.store.(ftsRebuilder); ok {
+		if err := fr.RebuildFTS(ctx); err != nil {
+			return nil, fmt.Errorf("rebuild fts: %w", err)
+		}
+	}
+
 	// Compute and store snapshot.
 	snap, err := idx.snapshot.ComputeSnapshot(ctx, repoHash, commitHash)
 	if err != nil {

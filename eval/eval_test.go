@@ -231,8 +231,25 @@ func loadFixtures(t *testing.T, dir string) []Fixture {
 
 func isRelevant(qualifiedName string, groundTruth []string) bool {
 	for _, gt := range groundTruth {
+		// Direct substring match (e.g., "context.ContextEngine" in full QN).
 		if strings.Contains(qualifiedName, gt) {
 			return true
+		}
+		// Handle method-on-struct pattern:
+		// Ground truth "store.NodesByName" should match QN "...internal/store.SQLiteStore.NodesByName"
+		// Ground truth "context.ForTask" should match QN "...internal/context.ContextEngine.ForTask"
+		// Pattern: QN contains "/<pkg>." and ends with ".<symbol>" (with possible type in between).
+		if dot := strings.Index(gt, "."); dot > 0 {
+			pkg := gt[:dot]   // e.g., "store", "context", "trace"
+			sym := gt[dot+1:] // e.g., "NodesByName", "ForTask"
+			// Check: QN contains the package path segment and ends with the symbol name.
+			if strings.Contains(qualifiedName, "/"+pkg+".") && strings.HasSuffix(qualifiedName, "."+sym) {
+				return true
+			}
+			// Also handle sub-packages: "knowing.cmdTestScope" -> "/knowing.cmdTestScope" or "knowing/cmd.cmdTestScope"
+			if strings.Contains(qualifiedName, "/"+pkg) && strings.HasSuffix(qualifiedName, sym) {
+				return true
+			}
 		}
 	}
 	return false

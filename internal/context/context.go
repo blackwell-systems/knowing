@@ -13,11 +13,18 @@ type FeedbackProvider interface {
 	FeedbackBoosts(ctx stdctx.Context, hashes []types.Hash) (map[types.Hash]float64, error)
 }
 
+// BM25Searcher is implemented by stores that support full-text BM25 search.
+// Returns nodes ordered by BM25 relevance (best matches first).
+type BM25Searcher interface {
+	SearchBM25Nodes(ctx stdctx.Context, query string, limit int) ([]types.Node, error)
+}
+
 // ContextEngine queries the knowing knowledge graph to produce task-specific,
 // token-budgeted context blocks ranked by graph relationships and runtime traffic.
 type ContextEngine struct {
 	store    types.GraphStore
 	feedback FeedbackProvider // nil if store doesn't support feedback
+	bm25     BM25Searcher    // nil if store doesn't support BM25
 }
 
 // TaskOptions configures a task-based context query.
@@ -86,6 +93,9 @@ func NewContextEngine(store types.GraphStore) *ContextEngine {
 	e := &ContextEngine{store: store}
 	if fp, ok := store.(FeedbackProvider); ok {
 		e.feedback = fp
+	}
+	if bs, ok := store.(BM25Searcher); ok {
+		e.bm25 = bs
 	}
 	return e
 }
@@ -166,6 +176,7 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	}
 
 	// Find candidate nodes using tiered matching:
+	// BM25: full-text search over qualified names + signatures (best lexical coverage)
 	// Tier 1: exact symbol name match (highest quality seeds)
 	// Tier 2: prefix match on the last path component (symbol name starts with keyword)
 	// Tier 3: substring match (fallback, capped at 20 per keyword)
@@ -281,6 +292,24 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 			}
 			if len(candidates) >= 40 {
 				break
+			}
+		}
+	}
+
+	// BM25 full-text search: supplements tiered matching when it finds few seeds.
+	// FTS5 index searches CamelCase-split qualified_name (5x), file_path (2x),
+	// and signature (1x). Activates when tiers found < 8 candidates (not enough
+	// diversity for RWR to produce useful scores). Helps hard/medium queries where
+	// task terminology doesn't directly match symbol names.
+	if e.bm25 != nil && len(candidates) < 8 {
+		ftsQuery := strings.Join(keywords, " OR ")
+		bm25Nodes, err := e.bm25.SearchBM25Nodes(ctx, ftsQuery, 15)
+		if err == nil {
+			for _, n := range bm25Nodes {
+				if !seen[n.NodeHash] {
+					seen[n.NodeHash] = true
+					candidates = append(candidates, n)
+				}
 			}
 		}
 	}
@@ -865,13 +894,28 @@ func filterNoisySymbols(nodes []types.Node) []types.Node {
 	var filtered []types.Node
 	for _, n := range nodes {
 		qn := strings.ToLower(n.QualifiedName)
-		// Skip minified JS bundles (single/double char identifiers from bundlers)
-		if strings.Contains(qn, "/dist/") || strings.Contains(qn, "/vendor/") ||
-			strings.Contains(qn, "/node_modules/") || strings.Contains(qn, ".min.") {
+		// Skip minified JS bundles and build artifacts.
+		if strings.Contains(qn, "/dist/") || strings.Contains(qn, "/build/") ||
+			strings.Contains(qn, "/vendor/") || strings.Contains(qn, "/node_modules/") ||
+			strings.Contains(qn, ".min.") || strings.Contains(qn, ".bundle.") {
 			continue
 		}
-		// Skip symbols with very short names that look minified (e.g. "nR", "v4")
+		// Skip test mock implementations (they duplicate real interface methods).
+		// Match patterns like "mockStore.PutEdge" or "walkMockStore.EdgesFrom".
 		lastDot := strings.LastIndex(n.QualifiedName, ".")
+		if lastDot >= 0 {
+			// Get the type name (between the second-to-last and last dot).
+			prefix := n.QualifiedName[:lastDot]
+			typeStart := strings.LastIndex(prefix, ".")
+			if typeStart >= 0 {
+				typeName := strings.ToLower(prefix[typeStart+1:])
+				if strings.Contains(typeName, "mock") || strings.Contains(typeName, "fake") ||
+					strings.Contains(typeName, "stub") {
+					continue
+				}
+			}
+		}
+		// Skip symbols with very short names that look minified (e.g. "nR", "v4").
 		if lastDot >= 0 {
 			symName := n.QualifiedName[lastDot+1:]
 			if len(symName) <= 2 && !isCommonShortName(symName) {

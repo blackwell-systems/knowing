@@ -17,30 +17,30 @@ The engine returns ranked results; we measure Precision@10, Recall@10, and MRR.
 
 | Task | P@10 | R@10 | MRR | Tier |
 |------|------|------|-----|------|
-| Add a method to SQLiteStore that queries nodes by communi... | 70.0% | 116.7% | 0.50 | easy |
-| Add a new language extractor for Ruby files | 10.0% | 16.7% | 0.10 | easy |
+| Add a method to SQLiteStore that queries nodes by communi... | 80.0% | 133.3% | 0.50 | easy |
+| Add a new language extractor for Ruby files | 10.0% | 16.7% | 0.50 | easy |
 | Add a new wire format codec for MessagePack encoding | 20.0% | 40.0% | 1.00 | easy |
-| Implement garbage collection for old snapshots beyond ret... | 10.0% | 25.0% | 0.20 | easy |
+| Implement garbage collection for old snapshots beyond ret... | 10.0% | 25.0% | 0.33 | easy |
 | Add a new MCP tool that returns symbol documentation | 90.0% | 180.0% | 1.00 | easy |
-| Implement HITS hub/authority reranking in the context eng... | 30.0% | 37.5% | 0.25 | medium |
-| Resolve dangling cross-repo edges by matching module path... | 10.0% | 16.7% | 0.33 | medium |
+| Implement HITS hub/authority reranking in the context eng... | 40.0% | 50.0% | 0.33 | medium |
+| Resolve dangling cross-repo edges by matching module path... | 20.0% | 33.3% | 0.17 | medium |
 | Compute a semantic diff between two graph snapshots showi... | 20.0% | 33.3% | 1.00 | medium |
 | Wire feedback scoring into the context engine so that pre... | 0.0% | 0.0% | 0.00 | medium |
-| Find affected tests by tracing the call graph backward fr... | 0.0% | 0.0% | 0.00 | medium |
+| Find affected tests by tracing the call graph backward fr... | 40.0% | 57.1% | 0.20 | medium |
 | Detect changed files from git, clean up stale nodes and e... | 0.0% | 0.0% | 0.00 | hard |
 | Generate full PR impact analysis: semantic diff of change... | 10.0% | 11.1% | 1.00 | hard |
 | Compute blast radius for a symbol change across multiple ... | 0.0% | 0.0% | 0.00 | hard |
 | Given a task description, seed the graph walk from keywor... | 0.0% | 0.0% | 0.00 | hard |
-| Ingest OpenTelemetry spans and create runtime edges with ... | 0.0% | 0.0% | 0.00 | hard |
+| Ingest OpenTelemetry spans and create runtime edges with ... | 40.0% | 50.0% | 0.33 | hard |
 
 ## Per-Tier Summary
 
 | Tier | Precision@10 | Recall@10 | MRR | Fixtures |
 |------|-------------|-----------|-----|----------|
-| easy | 40.0% | 75.7% | 0.56 | 5 |
-| medium | 12.0% | 17.5% | 0.32 | 5 |
-| hard | 2.0% | 2.2% | 0.20 | 5 |
-| **Overall** | **18.0%** | **31.8%** | **0.36** | **15** |
+| easy | 42.0% | 79.0% | 0.67 | 5 |
+| medium | 24.0% | 34.8% | 0.34 | 5 |
+| hard | 10.0% | 12.2% | 0.27 | 5 |
+| **Overall** | **25.3%** | **42.0%** | **0.42** | **15** |
 
 ## Reproducibility
 

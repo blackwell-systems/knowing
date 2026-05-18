@@ -2,11 +2,11 @@ task: "Ingest OpenTelemetry spans and create runtime edges with confidence scori
 difficulty: hard
 tags: [cross-package, trace, store, daemon, runtime]
 ground_truth:
-  - trace.TraceIngestor
+  - trace.Ingestor
   - trace.IngestSpans
-  - trace.SpanToEdge
   - trace.SymbolResolver
+  - trace.ConfidenceFromCount
+  - trace.OTLPReceiver
   - store.PutEdge
-  - store.UpdateEdgeConfidence
   - daemon.traceIngestLoop
   - types.Edge

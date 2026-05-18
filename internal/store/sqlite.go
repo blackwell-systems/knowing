@@ -15,6 +15,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"github.com/blackwell-systems/knowing/internal/types"
 
@@ -69,7 +70,12 @@ func (s *SQLiteStore) PutNode(ctx context.Context, n types.Node) error {
 		 VALUES (?, ?, ?, ?, ?, ?)`,
 		n.NodeHash[:], n.FileHash[:], n.QualifiedName, n.Kind, n.Line, n.Signature,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	// Keep FTS index in sync (best-effort; ignore errors if table doesn't exist yet).
+	s.upsertFTS(ctx, n.NodeHash[:], n.QualifiedName, n.Signature, "")
+	return nil
 }
 
 // PutEdge upserts a single edge into the edges table.
@@ -851,4 +857,171 @@ func scanSnapshot(row scannable) (*types.Snapshot, error) {
 	copy(snap.ParentHash[:], ph)
 	copy(snap.RepoHash[:], rh)
 	return &snap, nil
+}
+
+// SearchBM25Nodes performs full-text search over the nodes_fts index using BM25 ranking.
+// The query string uses FTS5 query syntax (terms joined by OR/AND).
+// Returns up to limit nodes ordered by BM25 relevance (best matches first).
+func (s *SQLiteStore) SearchBM25Nodes(ctx context.Context, query string, limit int) ([]types.Node, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT n.node_hash, n.file_hash, n.qualified_name, n.kind, n.line, n.signature
+		 FROM nodes_fts
+		 JOIN nodes_fts_content c ON c.rowid = nodes_fts.rowid
+		 JOIN nodes n ON n.node_hash = c.node_hash
+		 WHERE nodes_fts MATCH ?
+		 ORDER BY bm25(nodes_fts, 5.0, 1.0, 2.0)
+		 LIMIT ?`,
+		query, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanNodes(rows)
+}
+
+// upsertFTS inserts or replaces a node in the FTS content table.
+// Does NOT rebuild the FTS index (that's done by RebuildFTS after batch ops).
+// Best-effort: silently ignores errors (e.g., if FTS table doesn't exist yet).
+func (s *SQLiteStore) upsertFTS(ctx context.Context, nodeHash []byte, qualifiedName, signature, filePath string) {
+	// Delete existing entry for this node_hash (if any).
+	s.db.ExecContext(ctx, //nolint:errcheck
+		`DELETE FROM nodes_fts_content WHERE node_hash = ?`, nodeHash)
+	// Insert new entry.
+	s.db.ExecContext(ctx, //nolint:errcheck
+		`INSERT INTO nodes_fts_content(node_hash, qualified_name, signature, file_path)
+		 VALUES (?, ?, ?, ?)`,
+		nodeHash, qualifiedName, signature, filePath)
+}
+
+// RebuildFTS rebuilds the entire FTS index from the nodes and files tables.
+// Splits CamelCase and snake_case identifiers into individual tokens so that
+// searching for "ingest" matches "TraceIngestor".
+// Call after batch indexing operations for best performance (avoids per-node rebuilds).
+func (s *SQLiteStore) RebuildFTS(ctx context.Context) error {
+	// Clear content table.
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM nodes_fts_content`); err != nil {
+		return fmt.Errorf("clear fts content: %w", err)
+	}
+
+	// Read all nodes with their file paths.
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT n.node_hash, n.qualified_name, COALESCE(n.signature, ''), COALESCE(f.path, '')
+		 FROM nodes n LEFT JOIN files f ON n.file_hash = f.file_hash`)
+	if err != nil {
+		return fmt.Errorf("read nodes for fts: %w", err)
+	}
+	defer rows.Close()
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin fts tx: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	stmt, err := tx.PrepareContext(ctx,
+		`INSERT INTO nodes_fts_content(node_hash, qualified_name, signature, file_path) VALUES (?, ?, ?, ?)`)
+	if err != nil {
+		return fmt.Errorf("prepare fts insert: %w", err)
+	}
+	defer stmt.Close()
+
+	for rows.Next() {
+		var nodeHash []byte
+		var qn, sig, fp string
+		if err := rows.Scan(&nodeHash, &qn, &sig, &fp); err != nil {
+			return fmt.Errorf("scan node for fts: %w", err)
+		}
+		// Split CamelCase/snake_case in qualified name and signature for better tokenization.
+		// "internal/trace.TraceIngestor" -> "internal trace TraceIngestor Trace Ingestor"
+		splitQN := splitForFTS(qn)
+		splitSig := splitForFTS(sig)
+		if _, err := stmt.ExecContext(ctx, nodeHash, splitQN, splitSig, fp); err != nil {
+			return fmt.Errorf("insert fts content: %w", err)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("rows error: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit fts: %w", err)
+	}
+
+	// Rebuild the FTS index from the content table.
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO nodes_fts(nodes_fts) VALUES('rebuild')`); err != nil {
+		return fmt.Errorf("rebuild fts index: %w", err)
+	}
+	return nil
+}
+
+// splitForFTS splits a qualified name or signature into space-separated tokens
+// for full-text indexing. Splits on CamelCase boundaries, underscores, dots, and slashes.
+// Preserves the original tokens alongside the splits for exact-match capability.
+func splitForFTS(s string) string {
+	if s == "" {
+		return ""
+	}
+	var parts []string
+	// Split on path separators and dots first.
+	for _, segment := range strings.FieldsFunc(s, func(r rune) bool {
+		return r == '/' || r == '.' || r == ':' || r == '(' || r == ')' || r == ',' || r == ' ' || r == '*'
+	}) {
+		if segment == "" {
+			continue
+		}
+		parts = append(parts, segment)
+		// Split CamelCase within each segment.
+		camelParts := splitCamelCase(segment)
+		if len(camelParts) > 1 {
+			parts = append(parts, camelParts...)
+		}
+		// Split snake_case within each segment.
+		if strings.Contains(segment, "_") {
+			for _, p := range strings.Split(segment, "_") {
+				if p != "" && p != segment {
+					parts = append(parts, p)
+				}
+			}
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+// splitCamelCase splits a CamelCase identifier into its components.
+// "TraceIngestor" -> ["Trace", "Ingestor"]
+// "HTMLParser" -> ["HTML", "Parser"]
+// "SQLiteStore" -> ["SQLite", "Store"]
+func splitCamelCase(s string) []string {
+	if len(s) < 2 {
+		return nil
+	}
+	var parts []string
+	start := 0
+	for i := 1; i < len(s); i++ {
+		if s[i] >= 'A' && s[i] <= 'Z' {
+			if s[i-1] >= 'a' && s[i-1] <= 'z' {
+				// lowercase->uppercase transition: split before the uppercase
+				parts = append(parts, s[start:i])
+				start = i
+			} else if s[i-1] >= 'A' && s[i-1] <= 'Z' && i+1 < len(s) && s[i+1] >= 'a' && s[i+1] <= 'z' {
+				// uppercase run followed by lowercase: split before current char
+				// "SQLiteStore" at i pointing to 'S' of "Store"
+				parts = append(parts, s[start:i])
+				start = i
+			}
+		}
+	}
+	parts = append(parts, s[start:])
+	// Filter short tokens (< 2 chars) to avoid noise.
+	var result []string
+	for _, p := range parts {
+		if len(p) >= 2 {
+			result = append(result, p)
+		}
+	}
+	return result
 }
