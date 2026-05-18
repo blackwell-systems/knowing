@@ -110,18 +110,25 @@ task / diff / session state
 **Dependencies:** Each stage is independently valuable. 1-3 can ship in parallel. 4 composes
 them. 5-7 build on the fused pipeline.
 
-**Embedding details (when ready):**
-- Runtime: `github.com/knights-analytics/hugot` (pure Go ONNX, auto-downloads ~30MB)
-- Storage: `github.com/coder/hnsw` (pure Go, in-memory, 384 dims, cap 100K symbols)
-- Embed text: `fmt.Sprintf("%s %s %s %s", node.Kind, node.Name, signature, filePath)`
-- Fusion: RRF (k=60) combining keyword seeds + vector nearest-50 as joint seed set
+**Embedding status (infrastructure shipped, model disabled):**
+- Infrastructure: hugot ONNX runtime + coder/hnsw + RRF channel (weight 0, ready to enable)
+- Tested MiniLM-L6-v2 and BGE-small-en-v1.5: both net-negative on eval (see eval/EXPERIMENTS.md)
+- Rich embed text with doc comments implemented but doesn't compensate for model weakness
+- Root cause: off-the-shelf models can't bridge code vocabulary gap ("blast radius" != "TransitiveCallers")
 
-**Expected impact per stage:**
-- Session boosts: **done**. Repeat queries within session improve dramatically (no eval change on cold start)
-- BM25 + noise filtering: **done**. Baseline now: easy 42%, medium 24%, hard 10%, overall 25.3% P@10
-- Query rewriting: hard 2% -> 10-15% (finds symbols the developer would name differently)
-- Embeddings: hard 2% -> 15-25%, medium -> 35-45% (concept-level matching)
-- Full pipeline: targeting easy >80%, medium >40%, hard >20%
+**Embedding improvement sequence:**
+1. Keep as optional RRF channel (weight 0), not the primary path
+2. Benchmark hosted/code-tuned models (jina-code-v2, bge-code) to learn the ceiling
+3. Add LLM query rewriting first (higher ROI, sidesteps embedding weakness)
+4. Collect training data passively from agent usage (feedback tool + session tracker)
+5. Fine-tune only once real positive/negative pairs exist (~500+ pairs)
+6. Distill/fine-tune into small local model if hosted benchmark shows lift
+
+**Current eval baseline (55 fixtures):**
+- Easy: 36.5% P@10, 0.60 MRR (20 fixtures)
+- Medium: 29.5% P@10, 0.55 MRR (20 fixtures)
+- Hard: 10.0% P@10, 0.16 MRR (15 fixtures)
+- Overall: 26.7% P@10, 0.46 MRR
 
 **Competitor implementations (studied at code level):**
 
