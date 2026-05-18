@@ -127,7 +127,14 @@ knowing why -task "refactor auth" -symbol "SessionHandler"
 knowing diff <old-snapshot> <new-snapshot>
 ```
 
-Run continuously:
+Watch for file changes (re-indexes on save):
+
+```bash
+# Lightweight file watcher. Re-indexes changed files on save, runs LSP enrichment.
+knowing watch ./path/to/repo
+```
+
+Run continuously (full daemon with MCP server):
 
 ```bash
 # Watches git changes, re-indexes incrementally, and serves MCP over HTTP.
