@@ -13,6 +13,7 @@ import (
 type RosterEntry struct {
 	Path string `json:"path"` // absolute path to repo root
 	URL  string `json:"url"`  // repo URL (for graph identity)
+	DB   string `json:"db"`   // path to this repo's database file
 }
 
 // Roster is the list of tracked repositories, stored at ~/.knowing/roster.json.
@@ -20,13 +21,64 @@ type Roster struct {
 	Repos []RosterEntry `json:"repos"`
 }
 
-// rosterPath returns the path to the roster file.
-func rosterPath() string {
+// knowingDir returns the ~/.knowing directory, creating it if needed.
+func knowingDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "roster.json"
+		return ".knowing"
 	}
-	return filepath.Join(home, ".knowing", "roster.json")
+	dir := filepath.Join(home, ".knowing")
+	os.MkdirAll(dir, 0755)
+	return dir
+}
+
+// rosterPath returns the path to the roster file.
+func rosterPath() string {
+	return filepath.Join(knowingDir(), "roster.json")
+}
+
+// repoDBPath returns the per-repo database path.
+// Converts the repo URL into a safe filename: github.com/org/repo -> github.com-org-repo.db
+func repoDBPath(repoURL string) string {
+	safe := strings.NewReplacer("/", "-", ":", "-", " ", "-").Replace(repoURL)
+	dir := filepath.Join(knowingDir(), "repos")
+	os.MkdirAll(dir, 0755)
+	return filepath.Join(dir, safe+".db")
+}
+
+// dbForRepo looks up the DB path for a repo in the roster. Returns empty string if not found.
+func dbForRepo(absPath string) string {
+	r, err := loadRoster()
+	if err != nil {
+		return ""
+	}
+	for _, entry := range r.Repos {
+		if entry.Path == absPath {
+			return entry.DB
+		}
+	}
+	return ""
+}
+
+// dbForCurrentDir looks up the DB path for the current directory (or a parent that's a repo root).
+func dbForCurrentDir() string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	// Walk up to find a registered repo root.
+	dir := cwd
+	for {
+		if db := dbForRepo(dir); db != "" {
+			return db
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return ""
 }
 
 // loadRoster reads the roster from disk. Returns empty roster if file doesn't exist.
@@ -58,6 +110,7 @@ func saveRoster(r *Roster) error {
 }
 
 // addToRoster adds a repo to the roster if not already present.
+// Each repo gets its own DB file at ~/.knowing/repos/<safe-name>.db.
 func addToRoster(absPath, repoURL string) error {
 	r, err := loadRoster()
 	if err != nil {
@@ -68,7 +121,8 @@ func addToRoster(absPath, repoURL string) error {
 			return nil // already tracked
 		}
 	}
-	r.Repos = append(r.Repos, RosterEntry{Path: absPath, URL: repoURL})
+	dbPath := repoDBPath(repoURL)
+	r.Repos = append(r.Repos, RosterEntry{Path: absPath, URL: repoURL, DB: dbPath})
 	return saveRoster(r)
 }
 
@@ -122,11 +176,11 @@ func cmdAdd(args []string) error {
 		return fmt.Errorf("adding to roster: %w", err)
 	}
 
+	dbPath := dbForRepo(absPath)
 	fmt.Printf("Added %s (%s) to roster\n", absPath, *repoURL)
-	fmt.Printf("Roster: %s\n", rosterPath())
-	fmt.Printf("Database: %s\n", defaultDB())
+	fmt.Printf("  Database: %s\n", dbPath)
 	fmt.Println()
-	fmt.Println("Run 'knowing index' to index this repo into the global graph.")
+	fmt.Println("Run 'knowing index' from the repo directory to index it.")
 	return nil
 }
 
@@ -172,17 +226,14 @@ func cmdList(args []string) error {
 		if _, err := os.Stat(entry.Path); err != nil {
 			exists = "missing"
 		}
+		dbExists := "no data"
+		if info, err := os.Stat(entry.DB); err == nil && info.Size() > 0 {
+			dbExists = fmt.Sprintf("%.1f MB", float64(info.Size())/(1024*1024))
+		}
 		fmt.Printf("  %s\n", entry.Path)
 		fmt.Printf("    url: %s\n", entry.URL)
+		fmt.Printf("    db:  %s (%s)\n", entry.DB, dbExists)
 		fmt.Printf("    status: %s\n", exists)
-
-		// Show short name for display.
-		short := entry.URL
-		if idx := strings.LastIndex(short, "/"); idx >= 0 {
-			short = short[idx+1:]
-		}
-		_ = short
 	}
-	fmt.Printf("\nDatabase: %s\n", defaultDB())
 	return nil
 }

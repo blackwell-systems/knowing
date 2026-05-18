@@ -63,19 +63,16 @@ var (
 )
 
 // defaultDB returns the default database path.
-// Priority: KNOWING_DB env > ~/.knowing/knowing.db (global default).
-// The global default enables cross-repo edges by putting all repos in one graph.
+// Priority: KNOWING_DB env > roster lookup for cwd > fallback to knowing.db in cwd.
+// Each repo gets its own DB file at ~/.knowing/repos/<safe-name>.db.
 func defaultDB() string {
 	if env := os.Getenv("KNOWING_DB"); env != "" {
 		return env
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "knowing.db" // fallback to cwd
+	if db := dbForCurrentDir(); db != "" {
+		return db
 	}
-	dir := filepath.Join(home, ".knowing")
-	os.MkdirAll(dir, 0755)
-	return filepath.Join(dir, "knowing.db")
+	return "knowing.db" // fallback for unregistered repos
 }
 
 func main() {
