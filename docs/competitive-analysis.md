@@ -705,23 +705,27 @@ Six architectural patterns exist in the market:
 | Cody (OSS) | BM25 (symf/bluge) + LLM query rewriting | Deprecated locally | bluge BM25 + heuristic boosts | LLM translates NL to keyword queries before search |
 | Continue | FTS + embeddings + repo map + recency | User-configurable (LanceDB) | Configurable reranker model | Most modular; four parallel sources with graceful degradation |
 | Augment | Unknown (closed source, $252M raised) | Unknown | Unknown | Claims "full repo understanding" |
-| **knowing** | 5-tier keyword seeding + RWR graph walk + HITS | None (planned: MiniLM-L6-v2) | RWR + HITS + feedback-aware scoring | Only tool combining graph walk with feedback compounding |
+| **knowing** | 4-channel weighted RRF: tiered keywords (3x) + equivalence classes (2x) + BM25 FTS5 (1x) + embeddings (0x) | BGE-small-en-v1.5 (local, infra shipped, weight 0 pending code-tuned model) | RWR + HITS + 6-signal scoring (blast radius, confidence, recency, distance, feedback, session) | Equivalence classes (41 local concepts replacing LLM query rewriting), task memory (passive learning), 3-14x information density vs grep, multi-language LSP auto-detection |
 
 **Key patterns observed:**
 
-1. **Nobody combines embeddings + graph walk.** GitNexus/CGC have graphs but use BM25+embeddings for retrieval, not the graph for discovery. Aider uses graph (PageRank) but no embeddings. knowing is positioned to be the first to fuse embeddings into a graph walk as seeds.
+1. **Embeddings + graph walk is hard to make work together.** GitNexus/CGC have graphs but use BM25+embeddings for retrieval, not the graph for discovery. Aider uses graph (PageRank) but no embeddings. We shipped embedding infrastructure (BGE-small-en-v1.5, local ONNX) but weight it at 0 because generic models underperform equivalence classes on code vocabulary. The win will come from a code-tuned model, not a general-purpose one.
 
-2. **LLM query rewriting (Cody's approach) is a cheap alternative to embeddings.** Use a fast LLM to convert "authentication handling" into ["auth", "middleware", "session", "validate"] before seeding. No model download, no vector storage, no ONNX runtime.
+2. **Equivalence classes are a viable local alternative to both embeddings and LLM rewriting for vocabulary bridging.** Cody uses LLM query rewriting ("authentication handling" to ["auth", "middleware", "session"]). We chose equivalence classes instead: 41 curated concept groups that expand queries deterministically, locally, with no API cost and no model download. They outperform both generic embeddings and single-keyword seeding on our benchmarks.
 
-3. **Chat-personalization (Aider) is the strongest signal nobody else uses.** They boost 50x for files already in conversation. knowing could implement this via session tracking (what files has the agent already read/edited?).
+3. **Session personalization is the strongest signal.** Aider boosts 50x for files in conversation. knowing now has this via the session tracker: exponential decay weighting on recently accessed files and symbols, session-aware scoring as one of 6 ranking signals, and symbol deduplication across multi-tool workflows.
 
 4. **Reranking (Continue) is a second pass.** Retrieve broadly, then a model scores each result against the query. Expensive but accurate.
 
-**knowing's unique position:** Four layers no one else combines:
-- Embeddings for seeding (finds starting points via semantic similarity)
-- Graph walk for discovery (finds structurally related symbols across packages)
-- HITS for authority/hub ranking (identifies what matters in the walked subgraph)
-- Feedback for learning (compounds over sessions; no other tool has this)
+5. **Equivalence classes bridge the vocabulary gap without ML.** No other tool in the competitive set uses deterministic concept expansion. This is a novel approach that sidesteps the cost/complexity of embeddings for the specific problem of vocabulary mismatch in code queries.
+
+**knowing's unique position:** Six layers no one else combines:
+- Equivalence classes for vocabulary bridging (41 local concepts; no other tool has this)
+- Graph walk + equivalence + BM25 + RRF (most complete local fusion pipeline)
+- RWR + HITS + 6-signal ranking (blast radius, confidence, recency, distance, feedback, session)
+- Task memory for passive learning (compounds across sessions without user action)
+- Multi-language LSP enrichment with auto-detection (17 extractors, 11 languages)
+- Information density: 3-14x vs grep (measured across 22 experiments, not claimed)
 
 ### How knowing compares
 
@@ -778,11 +782,11 @@ Updated 2026-05-17 after closing SCIP, cloud extractors, event/schema extractors
 **Effort:** Medium (thin wrapper around pr_impact + blast_radius + GitHub API)
 **Impact:** High (visible, shareable, measurable)
 
-### Gap 2: Semantic Search (Embeddings + BM25)
+### Gap 2: Code-tuned Embedding Model
 **Who has it:** Gortex (BM25 + ONNX MiniLM), CGC (via graph DB)
-**Why it matters:** Natural language queries against the graph. "Find functions that handle authentication."
-**Effort:** High (embedding model, vector storage, RRF fusion)
-**Impact:** Medium (current keyword + RWR + HITS works for MCP queries)
+**Why it matters:** Generic BGE-small-en-v1.5 underperforms equivalence classes on code vocabulary. A code-tuned model would make the embedding channel (currently weight 0) contribute meaningfully to RRF fusion.
+**Effort:** Medium (infra shipped: BGE model, ONNX runtime, FTS5 BM25, RRF fusion all working; need fine-tuned model)
+**Impact:** Medium (equivalence classes + BM25 already cover most queries well)
 
 ### Gap 3: Eval Framework (SWE-bench style)
 **Who has it:** Gortex (eval subcommand with recall/MRR metrics)
