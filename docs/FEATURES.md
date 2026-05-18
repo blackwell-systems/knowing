@@ -592,7 +592,63 @@ Repo: github.com/blackwell-systems/knowing
 - **Provenance:** `scip_resolved` (confidence 0.95).
 - **Dependencies:** Protocol Buffers runtime for SCIP format parsing.
 
-### 50. FindAllExtractors Multi-Dispatch
+### 50. Dockerfile Extractor
+
+- **Package(s):** `internal/indexer/dockerfileextractor/`
+- **Entry point:** `dockerfileextractor.NewDockerfileExtractor() *DockerfileExtractor`
+- **What it does:** Parses `Dockerfile` and `*.dockerfile` files. Extracts `FROM` base image dependencies, `COPY --from` multi-stage build references, and `EXPOSE` port declarations. Produces `depends_on` edges from build stages to base images and between multi-stage stages.
+- **Edge types produced:** `depends_on` (FROM images, COPY --from stages).
+- **Dependencies:** Dockerfile parser.
+
+### 51. Makefile Extractor
+
+- **Package(s):** `internal/indexer/makefileextractor/`
+- **Entry point:** `makefileextractor.NewMakefileExtractor() *MakefileExtractor`
+- **What it does:** Parses `Makefile`, `GNUmakefile`, and `*.mk` files. Extracts target definitions, prerequisite (dependency) lists, `include` directives, and variable references. Produces `depends_on` edges between targets and their prerequisites, and `imports` edges for `include` directives.
+- **Edge types produced:** `depends_on` (target prerequisites), `imports` (include directives).
+- **Dependencies:** Makefile parser.
+
+### 52. Helm Chart Extractor
+
+- **Package(s):** `internal/indexer/helmextractor/`
+- **Entry point:** `helmextractor.NewHelmExtractor() *HelmExtractor`
+- **What it does:** Parses Helm chart files (`Chart.yaml`, `values.yaml`, templates). Extracts chart metadata, dependency declarations, template references, and values injection points. Produces `depends_on` edges from charts to their declared dependencies.
+- **Edge types produced:** `depends_on` (chart dependencies from Chart.yaml).
+- **Dependencies:** `gopkg.in/yaml.v3`.
+
+### 53. GitLab CI Extractor
+
+- **Package(s):** `internal/indexer/gitlabciextractor/`
+- **Entry point:** `gitlabciextractor.NewGitLabCIExtractor() *GitLabCIExtractor`
+- **What it does:** Parses `.gitlab-ci.yml` and included CI configuration files. Extracts jobs, stages, `needs` dependencies between jobs, `extends` template inheritance, `include` file references, and artifact dependencies. Produces `depends_on` edges for `needs`, `extends` edges for template inheritance, and `imports` edges for includes.
+- **Edge types produced:** `depends_on` (needs), `extends` (extends: .template), `imports` (include files).
+- **Dependencies:** `gopkg.in/yaml.v3`.
+
+### 54. package.json (npm) Extractor
+
+- **Package(s):** `internal/indexer/npmextractor/`
+- **Entry point:** `npmextractor.NewNpmExtractor() *NpmExtractor`
+- **What it does:** Parses `package.json` files. Extracts `dependencies`, `devDependencies`, `peerDependencies`, and `scripts` declarations. Produces `depends_on` edges from the package to each declared dependency.
+- **Edge types produced:** `depends_on` (npm dependencies).
+- **Dependencies:** `encoding/json`.
+
+### 55. GraphQL Extractor
+
+- **Package(s):** `internal/indexer/graphqlextractor/`
+- **Entry point:** `graphqlextractor.NewGraphQLExtractor() *GraphQLExtractor`
+- **What it does:** Parses `.graphql` and `.gql` schema and operation files. Extracts type definitions (object types, input types, interfaces, enums, unions), field declarations, query/mutation/subscription operations, and directive usage. Produces `references` edges from fields to their type definitions, `implements` edges from object types to interfaces, and `calls` edges from operations to root type fields.
+- **Edge types produced:** `references` (field type references), `implements` (type implements interface), `calls` (operation to field).
+- **Dependencies:** GraphQL parser.
+
+### 56. Ansible Extractor
+
+- **Package(s):** `internal/indexer/ansibleextractor/`
+- **Entry point:** `ansibleextractor.NewAnsibleExtractor() *AnsibleExtractor`
+- **What it does:** Parses Ansible playbooks, roles, and task files (YAML). Extracts playbook-to-role references, task dependencies, variable references, and handler notifications. Produces `depends_on` edges from playbooks to roles and between tasks.
+- **Edge types produced:** `depends_on` (role dependencies, task dependencies), `references` (variable references).
+- **Dependencies:** `gopkg.in/yaml.v3`.
+
+### 57. FindAllExtractors Multi-Dispatch
 
 - **Package(s):** `internal/indexer/`
 - **Entry point:** `FindAllExtractors(path string, extractors []types.Extractor) []types.Extractor` in `internal/indexer/extractor.go` (line 49)
@@ -927,7 +983,7 @@ Parameters per tool:
 
 - **Flags:** `--db` (default: `knowing.db`), `--addr` (default: `:8080`), `--trace` (enable trace ingestion), `--trace-endpoint` (default: `localhost:4317`), `--trace-batch-size` (default: 1000)
 - **Positional args:** repo paths to watch (0 or more)
-- **What it does:** Opens SQLite store, creates snapshot manager and indexer, registers all 12 extractors (Go, Python, Ruby, TypeScript/JS, Rust, Java, C#, Terraform, SQL, K8s YAML, Cloud YAML [CFN/SAM, Compose, Actions, Serverless], CSS, Protocol Buffers), creates MCP server (22 tools across six planes, 3 prompts), creates daemon with GitWatcher, optionally starts trace ingestion pipeline (OTLPReceiver + Ingestor + periodic flush/decay), watches listed repos, blocks until SIGINT/SIGTERM.
+- **What it does:** Opens SQLite store, creates snapshot manager and indexer, registers all 25 extractors (Go, Python, Ruby, TypeScript/JS, Rust, Java, C#, Terraform, SQL, K8s YAML, Cloud YAML [CFN/SAM, Compose, Actions, Serverless], CSS, Protocol Buffers, Dockerfile, Makefile, Helm, GitLab CI, package.json/npm, GraphQL, Ansible), creates MCP server (22 tools across six planes, 3 prompts), creates daemon with GitWatcher, optionally starts trace ingestion pipeline (OTLPReceiver + Ingestor + periodic flush/decay), watches listed repos, blocks until SIGINT/SIGTERM.
 - **Extractors registered:** `gotsextractor` (Go), `treesitter` (Python), `tsextractor` (TypeScript/JS), `rustextractor` (Rust), `javaextractor` (Java), `csharpextractor` (C#), `terraformextractor` (Terraform HCL), `sqlextractor` (SQL), `k8sextractor` (Kubernetes YAML), `cssextractor` (CSS), `protoextractor` (Protocol Buffers). Route detection covers 18 frameworks across 6 languages (Go: 5, Python: 3, TypeScript: 5).
 - **Enrichment:** Background EnrichFunc wired with scoped or full enrichment.
 - **Trace ingestion:** When `--trace` is set, launches a fourth daemon goroutine that opens a dedicated DB connection, creates SymbolResolver + Ingestor + OTLPReceiver, flushes batches every 10s, and decays confidence every 1h.

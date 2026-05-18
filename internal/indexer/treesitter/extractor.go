@@ -119,6 +119,8 @@ func (e *TreeSitterExtractor) walkNode(node *sitter.Node, opts types.ExtractOpti
 		e.extractImport(node, opts, classContext, result)
 	case "call":
 		e.extractCall(node, opts, classContext, result)
+	case "raise_statement":
+		e.extractRaise(node, opts, classContext, result)
 	default:
 		// Recurse into children for non-extracted node types.
 		for i := 0; i < int(node.ChildCount()); i++ {
@@ -272,6 +274,51 @@ func (e *TreeSitterExtractor) extractCall(node *sitter.Node, opts types.ExtractO
 		Provenance: provenance,
 	}
 	result.Edges = append(result.Edges, edge)
+}
+
+// extractRaise extracts a throws edge from a raise_statement node.
+// It looks for the raised type from "raise ExceptionType(...)" patterns.
+func (e *TreeSitterExtractor) extractRaise(node *sitter.Node, opts types.ExtractOptions, classContext string, result *types.ExtractResult) {
+	// Build the source hash from the enclosing context.
+	sourceQName := fmt.Sprintf("%s://%s/%s", opts.RepoURL, opts.ModuleRoot, opts.FilePath)
+	if classContext != "" {
+		sourceQName = fmt.Sprintf("%s.%s", sourceQName, classContext)
+	}
+	sourceHash := types.ComputeNodeHash(opts.RepoURL, opts.ModuleRoot, opts.FileHash, sourceQName, "module")
+
+	// Look for the raised type. Patterns:
+	// raise ValueError("msg") -> call node with function=identifier("ValueError")
+	// raise ValueError -> identifier("ValueError")
+	// raise -> bare re-raise (skip)
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		var errorType string
+
+		switch child.Type() {
+		case "call":
+			funcNode := child.ChildByFieldName("function")
+			if funcNode != nil {
+				errorType = funcNode.Content(opts.Content)
+			}
+		case "identifier":
+			errorType = child.Content(opts.Content)
+		}
+
+		if errorType != "" {
+			targetHash := types.ComputeNodeHash(opts.RepoURL, opts.ModuleRoot, types.EmptyHash, errorType, "error")
+			provenance := "ast_inferred"
+			edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "throws", provenance)
+			result.Edges = append(result.Edges, types.Edge{
+				EdgeHash:   edgeHash,
+				SourceHash: sourceHash,
+				TargetHash: targetHash,
+				EdgeType:   "throws",
+				Confidence: 0.7,
+				Provenance: provenance,
+			})
+			return
+		}
+	}
 }
 
 // parseImportModule extracts the module name from an import statement string.

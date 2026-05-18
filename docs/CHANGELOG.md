@@ -29,7 +29,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - HITS (Hyperlink-Induced Topic Search) reranking on RWR subgraph: boosts task-relevant authorities, penalizes generic infrastructure hubs. Score differentiation improved from 0.01 spread to 0.35 spread across results.
 - Density-ranked knapsack packing: score/cost ratio optimization maximizes total relevance within token budgets. Small high-value symbols (types, interfaces) now beat large medium-value symbols when budget is tight.
 - Protobuf/gRPC extractor: extracts service, message, enum, and RPC declarations from .proto files with references edges for field types and RPC request/response types
-- All 12 extractors now registered in CLI: Go, Python, TypeScript/JS, Rust, Java, C#, Terraform, SQL, K8s YAML, Cloud YAML (CloudFormation/SAM, Docker Compose, GitHub Actions, Serverless), CSS, Protocol Buffers
+- All 25 extractors now registered in CLI: Go, Python, TypeScript/JS, Rust, Java, C#, Terraform, SQL, K8s YAML, Cloud YAML (CloudFormation/SAM, Docker Compose, GitHub Actions, Serverless), CSS, Protocol Buffers, Dockerfile, Makefile, Helm Charts, GitLab CI, package.json/npm, GraphQL, Ansible
+- Dockerfile extractor (`internal/indexer/dockerfileextractor/`): extracts FROM base image dependencies, COPY --from multi-stage build references, EXPOSE port declarations
+- Makefile extractor (`internal/indexer/makefileextractor/`): extracts target dependencies, include directives, variable references
+- Helm chart extractor (`internal/indexer/helmextractor/`): extracts chart dependencies from Chart.yaml, template references, values injection
+- GitLab CI extractor (`internal/indexer/gitlabciextractor/`): extracts job needs, extends templates, include files, artifact dependencies
+- package.json extractor (`internal/indexer/npmextractor/`): extracts npm dependencies, devDependencies, peerDependencies, scripts
+- GraphQL extractor (`internal/indexer/graphqlextractor/`): extracts type definitions, field type references, interface implementations, operation-to-field calls
+- Ansible extractor (`internal/indexer/ansibleextractor/`): extracts playbook roles, task dependencies, variable references, handler notifications
 - Random Walk with Restart (RWR) algorithm for graph-based relevance scoring in context engine
 - Improved keyword extraction with stop word filtering, CamelCase splitting, and abbreviation expansion
 - Relative normalization in ranking and base recency score for static-only edges

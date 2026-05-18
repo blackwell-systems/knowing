@@ -450,6 +450,20 @@ func walkForCalls(node *sitter.Node, opts types.ExtractOptions, basePath string,
 				CallSiteCol:  int(node.StartPoint().Column),
 				CallSiteFile: opts.FilePath,
 			})
+			// Emit throws edge for panic! and bail! macros.
+			if macroName == "panic" || macroName == "bail" {
+				errorName := macroName + "!"
+				errTargetHash := types.ComputeNodeHash(opts.RepoURL, basePath, types.EmptyHash, errorName, "error")
+				errEdgeHash := types.ComputeEdgeHash(sourceHash, errTargetHash, "throws", provenance)
+				*edges = append(*edges, types.Edge{
+					EdgeHash:   errEdgeHash,
+					SourceHash: sourceHash,
+					TargetHash: errTargetHash,
+					EdgeType:   "throws",
+					Confidence: confidence,
+					Provenance: provenance,
+				})
+			}
 		}
 	}
 

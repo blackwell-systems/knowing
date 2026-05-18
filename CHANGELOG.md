@@ -20,7 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Python: Flask, FastAPI, Django route detection
 - TypeScript: Fastify, Hono, NestJS, Next.js route detection
 - FindAllExtractors multi-dispatch: all matching extractors run per file (not just first)
-- All 17 extractors registered in CLI (9 were previously dead code)
+- All 25 extractors registered in CLI (includes 7 new infrastructure extractors: Dockerfile, Makefile, Helm, GitLab CI, package.json/npm, GraphQL, Ansible)
 
 #### SCIP Ingest
 - `internal/indexer/scipingest/` package: parses SCIP protobuf index files

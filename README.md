@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://github.com/blackwell-systems"><img src="https://raw.githubusercontent.com/blackwell-systems/blackwell-docs-theme/main/badge-trademark.svg" alt="Blackwell Systems"></a>
   <a href="#mcp-tools"><img src="https://img.shields.io/badge/MCP_tools-22-brightgreen.svg" alt="MCP Tools"></a>
-  <a href="#languages-and-formats"><img src="https://img.shields.io/badge/extractor_types-18-blue.svg" alt="Extractor Types"></a>
+  <a href="#languages-and-formats"><img src="https://img.shields.io/badge/extractor_types-25-blue.svg" alt="Extractor Types"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
 </p>
 
@@ -176,7 +176,7 @@ Claude Code hooks are included for automatic context injection on session start,
 ├──────────────┬───────────────────┬───────────────────────┤
 │   Indexer    │   Graph Store     │      MCP Server       │
 │              │                   │                       │
-│ 18 extractors│ Content-addressed │ 22 tools + 3 prompts  │
+│ 25 extractors│ Content-addressed │ 22 tools + 3 prompts  │
 │ tree-sitter  │ SQLite + Merkle   │ stdio / HTTP          │
 │ gopls + SCIP │ Snapshot chain    │ GCF / GCB / JSON      │
 │ OTel traces  │ Edge events       │                       │
@@ -213,6 +213,13 @@ The artifact boundary matters: intelligence features read the graph and produce 
 | CSS/SCSS | tree-sitter | selectors, custom properties, var() dependencies |
 | Event/MQ patterns | multi-language | Kafka, NATS, SQS, RabbitMQ publish/subscribe |
 | OpenAPI/JSON Schema | json/yaml | endpoints, models, $ref resolution |
+| Dockerfile | parser | FROM base images, COPY --from multi-stage deps, EXPOSE ports |
+| Makefile | parser | target dependencies, include directives, variable references |
+| Helm Charts | yaml.v3 | chart dependencies, template references, values injection |
+| GitLab CI | yaml.v3 | job needs, extends templates, include files, artifacts |
+| package.json (npm) | json | dependencies, devDependencies, peerDependencies, scripts |
+| GraphQL | parser | type definitions, field type references, interface implementations |
+| Ansible | yaml.v3 | playbook roles, task dependencies, variable references |
 
 All extractors run through multi-dispatch: every matching extractor fires per file, results are merged. Tree-sitter extractors produce edges at confidence 0.7 (`ast_inferred`); `go/packages` and SCIP produce edges at 0.95-1.0 (`ast_resolved`, `scip_resolved`).
 

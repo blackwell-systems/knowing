@@ -8,19 +8,19 @@ participates in blast radius traversal and context ranking.
 
 | Edge Type | Meaning | Provenance | Confidence | Producers | Blast Radius | RWR Weight |
 |---|---|---|---|---|---|---|
-| `calls` | Function/method invocation | ast_inferred / lsp_resolved | 0.7 / 0.9 | All 18 extractor types, enricher | Yes (traversed) | 1.0 |
-| `imports` | Module/package import | ast_inferred | 0.7 | All 18 extractor types | No | 0.5 |
-| `implements` | Type satisfies an interface | ast_inferred / lsp_resolved | 0.7 / 0.9 | Go, TS, Java, C#, Ruby, Rust extractors, enricher | No | 0.8 |
+| `calls` | Function/method invocation | ast_inferred / lsp_resolved | 0.7 / 0.9 | All 25 extractor types, enricher | Yes (traversed) | 1.0 |
+| `imports` | Module/package import | ast_inferred | 0.7 | All 25 extractor types | No | 0.5 |
+| `implements` | Type satisfies an interface | ast_inferred / lsp_resolved | 0.7 / 0.9 | Go, TS, Java, C#, Ruby, Rust, GraphQL extractors, enricher | No | 0.8 |
 | `handles_route` | HTTP handler bound to a route | ast_inferred | 0.7 | Go, TS, Python, Ruby, Rust, Java, C# extractors | No | 0.7 |
-| `references` | Non-call identifier usage | ast_inferred / lsp_resolved / scip_resolved | 0.7 / 0.9 / 0.95 | Go extractor, Proto extractor, SQL extractor, SCIP ingestor, enricher | No | 0.4 |
-| `depends_on` | Resource/symbol dependency | ast_inferred | 0.7 | Terraform, SQL, CSS extractors | No | 0.5 |
+| `references` | Non-call identifier usage | ast_inferred / lsp_resolved / scip_resolved | 0.7 / 0.9 / 0.95 | Go extractor, Proto extractor, GraphQL extractor, SQL extractor, SCIP ingestor, enricher | No | 0.4 |
+| `depends_on` | Resource/symbol dependency | ast_inferred | 0.7 | Terraform, SQL, CSS, Dockerfile, Makefile, Helm, GitLab CI, package.json extractors | No | 0.5 |
 | `deploys` | K8s Service routes to Deployment | ast_inferred | 0.7 | K8s YAML extractor | No | 0.5 |
 | `exposes` | K8s Ingress exposes Service | ast_inferred | 0.7 | K8s YAML extractor | No | 0.5 |
 | `configures` | ConfigMap/Secret provides config | ast_inferred | 0.7 | K8s YAML extractor | No | 0.5 |
 | `publishes` | Producer publishes to a topic/queue | ast_inferred | 0.7 | Cloud extractor (Serverless, CFN) | No | 0.5 |
 | `subscribes` | Consumer subscribes to a topic/queue | ast_inferred | 0.7 | Cloud extractor (Serverless, CFN) | No | 0.5 |
 | `connects_to` | Service connects to another service/network | ast_inferred | 0.7 | Cloud extractor (Docker Compose) | No | 0.5 |
-| `extends` | Class inheritance | ast_inferred | 0.7 | TS, Java, Python, C# extractors | No | 0.7 |
+| `extends` | Class inheritance / template inheritance | ast_inferred | 0.7 | TS, Java, Python, C#, GitLab CI extractors | No | 0.7 |
 | `overrides` | Method overrides parent | ast_inferred | 0.7 | TS, Java, C# extractors | No | 0.8 |
 | `decorates` | Decorator/annotation applied | ast_inferred | 0.7 | TS, Java, Python, C#, Rust extractors | No | 0.3 |
 | `throws` | Function throws/raises error | ast_inferred | 0.7 | Go, TS, Ruby extractors | No | 0.4 |
@@ -38,7 +38,7 @@ A function or method invokes another function or method.
 
 - **Direction:** source calls target. `pkg.HandleLogin -calls-> pkg.AuthService.Validate` means
   HandleLogin contains a call expression that resolves to AuthService.Validate.
-- **Producers:** All 18 extractor types (Go, TypeScript, Rust, Java, C#, Python,
+- **Producers:** All 25 extractor types (Go, TypeScript, Rust, Java, C#, Python,
   Terraform, SQL, Kubernetes YAML, Cloud YAML, CSS, Protocol Buffers, and tree-sitter generic extractors) produce `calls` edges.
   The enricher upgrades ast_inferred calls to lsp_resolved when gopls confirms the definition.
 - **Provenance:** `ast_inferred` (confidence 0.7) from tree-sitter extraction; `lsp_resolved`
@@ -60,11 +60,12 @@ A file imports a module or package.
 
 - **Direction:** source imports target. `cmd/server/main.go -imports-> github.com/example/pkg`
   means the file declares an import of that package.
-- **Producers:** All 18 extractor types. For Go: import declarations. For TypeScript:
+- **Producers:** All 25 extractor types. For Go: import declarations. For TypeScript:
   `import` statements and `require()` calls. For Rust: `use` declarations. For Java:
   `import` declarations. For C#: `using` directives. For Python: `import` and
   `from ... import` statements. For Protocol Buffers: `import` statements. For CSS:
-  `@import` rules. For Terraform, SQL, and K8s: module/dependency references.
+  `@import` rules. For Terraform, SQL, and K8s: module/dependency references. For
+  Makefile: `include` directives.
 - **Provenance:** `ast_inferred` (confidence 0.7). Import resolution is syntactic; tree-sitter
   can reliably parse import paths without type information.
 - **Blast radius:** Not traversed. Import edges express file-level dependencies, not
@@ -78,13 +79,14 @@ A concrete type satisfies an interface contract.
 
 - **Direction:** source implements target. `pkg.SQLiteStore -implements-> types.GraphStore`
   means SQLiteStore has methods matching the GraphStore interface.
-- **Producers:** Five language extractors and the enricher:
+- **Producers:** Six language extractors and the enricher:
   - Go: the type-checked extractor (`goextractor`) discovers `implements` edges by checking
     whether concrete types in the same package satisfy declared interfaces.
   - TypeScript: class `implements` clauses.
   - Java: class `implements` clauses.
   - C#: class/struct interface implementation declarations.
   - Rust: `impl Trait for Type` blocks.
+  - GraphQL: `type Foo implements Bar` interface implementation declarations.
   - The LSP enricher also discovers `implements` edges via `GetImplementation` queries for
     interface symbols.
 - **Provenance:** `ast_inferred` (confidence 0.7) from tree-sitter extraction or Go's
@@ -129,10 +131,12 @@ A non-call usage of an identifier (type annotations, variable reads, constant re
   identifier usages that are not call expressions. Call targets already receive `calls` edges,
   so the extractor explicitly excludes call positions to avoid redundant edges. The Protocol
   Buffers extractor (`protoextractor`) emits `references` edges from RPC methods to their
-  request/response message types and from message fields to referenced message types. The SCIP
-  ingestor (`internal/indexer/scipingest/`) emits `references` edges for all symbol references
-  found in imported SCIP index files. The LSP enricher also discovers `references` via
-  `GetReferences` queries for functions and methods.
+  request/response message types and from message fields to referenced message types. The
+  GraphQL extractor emits `references` edges from fields to their type definitions and from
+  query/mutation arguments to input types. The SCIP ingestor (`internal/indexer/scipingest/`)
+  emits `references` edges for all symbol references found in imported SCIP index files. The
+  LSP enricher also discovers `references` via `GetReferences` queries for functions and
+  methods.
 - **Provenance:** `ast_inferred` (confidence 0.7) from the Go extractor; `scip_resolved`
   (confidence 0.95) from SCIP ingest; `lsp_resolved` (confidence 0.9) when discovered by the
   enricher.
@@ -148,10 +152,15 @@ A resource or symbol depends on another resource or symbol.
 
 - **Direction:** source depends on target. `aws_instance.web -depends_on-> aws_vpc.main`
   means the web instance has an explicit dependency on the VPC.
-- **Producers:** Three infrastructure extractors:
+- **Producers:** Eight infrastructure extractors:
   - Terraform: explicit `depends_on` block references between resources
   - SQL: foreign key references, view-to-table dependencies, procedure-to-table dependencies
   - CSS: custom property (`var(--name)`) references to defining selectors
+  - Dockerfile: `FROM` base image dependencies, `COPY --from` multi-stage build references
+  - Makefile: target dependencies (prerequisite lists)
+  - Helm: chart dependency declarations (`dependencies` in Chart.yaml)
+  - GitLab CI: job `needs` dependencies between pipeline stages
+  - package.json: npm `dependencies`, `devDependencies`, and `peerDependencies`
 - **Provenance:** `ast_inferred` (confidence 0.7).
 - **Blast radius:** Not traversed.
 - **RWR weight:** 0.5 (moderate, similar to imports).
@@ -228,11 +237,12 @@ A class or type extends (inherits from) another class or type.
 
 - **Direction:** source extends target. `components.AdminPanel -extends-> components.BasePanel`
   means AdminPanel inherits from BasePanel.
-- **Producers:** Four language extractors:
+- **Producers:** Five language extractors:
   - TypeScript: class `extends` clauses.
   - Java: class `extends` clauses.
   - Python: class base classes in the class definition (via tree-sitter generic extractor).
   - C#: class inheritance declarations.
+  - GitLab CI: job `extends: .template` directives (template inheritance).
 - **Provenance:** `ast_inferred` (confidence 0.7). Inheritance is syntactically explicit and
   reliably detected from AST nodes.
 - **Blast radius:** Not traversed. However, `extends` edges are valuable for understanding

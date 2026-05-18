@@ -1195,8 +1195,8 @@ knowing decomposes into three planes separated by an artifact boundary. This sep
 Execution Plane (produces the artifact)
 ├── Indexer
 │   ├── Go extractor (go/packages, full type resolution, `--full` flag)
-│   ├── tree-sitter extractors (Go, Python, Ruby, TypeScript/JS, Rust, Java, C#, CSS, Protocol Buffers)
-│   ├── Infrastructure extractors (Terraform HCL, SQL, Kubernetes YAML, Cloud YAML)
+│   ├── tree-sitter extractors (Go, Python, Ruby, TypeScript/JS, Rust, Java, C#, CSS, Protocol Buffers, GraphQL)
+│   ├── Infrastructure extractors (Terraform HCL, SQL, Kubernetes YAML, Cloud YAML, Dockerfile, Makefile, Helm, GitLab CI, package.json/npm, Ansible)
 │   └── SCIP ingest (`knowing ingest-scip`, external dependency surfaces)
 ├── Trace ingestion pipeline
 │   ├── OTel span ingest
@@ -1421,7 +1421,7 @@ If you start with INSERT/UPDATE/DELETE (mutable state), you can never recover th
 | `ast_resolved` | 1.0 | Parsed from source with full type resolution | Implemented (Python extractor, Go `--full`) |
 | `scip_resolved` | 0.95 | Imported from SCIP index (external dependency) | Implemented (`knowing ingest-scip`) |
 | `lsp_resolved` | 0.9 | Resolved via language server query | Implemented (enrichment pipeline) |
-| `ast_inferred` | 0.7 | Tree-sitter AST extraction without type resolution | Implemented (all 12 extractors) |
+| `ast_inferred` | 0.7 | Tree-sitter AST extraction without type resolution | Implemented (all 25 extractors) |
 | `otel_trace` | 0.2-0.95 | Observed in runtime traces | Implemented (trace ingestor) |
 | `config_declared` | 0.8 | Declared in infrastructure config (Terraform, K8s) | Not implemented (infra extractors use ast_inferred) |
 | `inferred_from_import` | 0.7 | Inferred from import statement (no call site found) | Not implemented |

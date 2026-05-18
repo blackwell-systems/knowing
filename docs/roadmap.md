@@ -125,4 +125,4 @@ Pipeline is shipped and measured (31.6% P@10, 55 fixtures, 23 experiments). See 
 
 knowing is a content-addressed graph retrieval layer. The retrieval pipeline uses equivalence classes (not embeddings) as the primary concept-matching mechanism. This is local, deterministic, inspectable, and compounds with use. See [retrieval-pipeline.md](retrieval-pipeline.md) for the design rationale.
 
-**What's shipped:** 55K LOC Go, 18 extractor types, 22 MCP tools, 5 wire formats (GCF/TOON/JSON/XML/markdown), 55 eval fixtures, multi-language LSP auto-detection, `knowing init` one-command setup.
+**What's shipped:** 55K LOC Go, 25 extractor types (12 languages + 13 infrastructure/cloud formats), 22 MCP tools, 5 wire formats (GCF/TOON/JSON/XML/markdown), 55 eval fixtures, multi-language LSP auto-detection, `knowing init` one-command setup.

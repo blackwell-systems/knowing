@@ -43,17 +43,17 @@ export default makeScene2D(function* (view) {
   // Each cluster is positioned in a different area with internal scatter
   const nodeData: {x: number; y: number; community: number; name: string; relevance: number}[] = [];
 
-  // Community 0: Context engine (center-left)
+  // Community 0: Context engine (center-left) — spread for no overlap at scale
   const c0 = [
-    {x: -220, y: -40, name: 'ForTask', relevance: 0.94},
-    {x: -280, y: 20, name: 'RankSymbols', relevance: 0.87},
-    {x: -180, y: -100, name: 'ComputeHITS', relevance: 0.72},
-    {x: -320, y: -60, name: 'packBudget', relevance: 0.65},
-    {x: -250, y: 80, name: 'seedsForTask', relevance: 0.81},
-    {x: -160, y: 40, name: 'RWR', relevance: 0.78},
-    {x: -340, y: 30, name: 'TokenBudget', relevance: 0.45},
-    {x: -200, y: 120, name: 'ContextBlock', relevance: 0.52},
-    {x: -290, y: -120, name: 'HITSScores', relevance: 0.68},
+    {x: -200, y: -80, name: 'ForTask', relevance: 0.94},
+    {x: -320, y: 10, name: 'RankSymbols', relevance: 0.87},
+    {x: -140, y: -160, name: 'ComputeHITS', relevance: 0.72},
+    {x: -380, y: -90, name: 'packBudget', relevance: 0.65},
+    {x: -270, y: 100, name: 'seedsForTask', relevance: 0.81},
+    {x: -100, y: 30, name: 'RWR', relevance: 0.78},
+    {x: -400, y: 50, name: 'TokenBudget', relevance: 0.45},
+    {x: -180, y: 160, name: 'ContextBlock', relevance: 0.52},
+    {x: -320, y: -170, name: 'HITSScores', relevance: 0.68},
   ];
   c0.forEach(n => nodeData.push({...n, community: 0}));
 
@@ -83,17 +83,17 @@ export default makeScene2D(function* (view) {
   ];
   c2.forEach(n => nodeData.push({...n, community: 2}));
 
-  // Community 3: Store (right)
+  // Community 3: Store (right) — spread for no overlap
   const c3 = [
-    {x: 280, y: 60, name: 'SQLiteStore', relevance: 0.42},
-    {x: 340, y: 20, name: 'EdgesFrom', relevance: 0.38},
-    {x: 240, y: 110, name: 'EdgesTo', relevance: 0.55},
-    {x: 320, y: 100, name: 'NodesByName', relevance: 0.33},
-    {x: 200, y: 40, name: 'GetNode', relevance: 0.48},
-    {x: 360, y: 70, name: 'BatchPut', relevance: 0.10},
-    {x: 260, y: 150, name: 'FilePath', relevance: 0.20},
-    {x: 300, y: -20, name: 'Migrate', relevance: 0.05},
-    {x: 380, y: 130, name: 'Feedback', relevance: 0.30},
+    {x: 280, y: 40, name: 'SQLiteStore', relevance: 0.42},
+    {x: 370, y: -20, name: 'EdgesFrom', relevance: 0.38},
+    {x: 220, y: 130, name: 'EdgesTo', relevance: 0.55},
+    {x: 360, y: 110, name: 'NodesByName', relevance: 0.33},
+    {x: 160, y: 40, name: 'GetNode', relevance: 0.48},
+    {x: 420, y: 60, name: 'BatchPut', relevance: 0.10},
+    {x: 280, y: 190, name: 'FilePath', relevance: 0.20},
+    {x: 330, y: -70, name: 'Migrate', relevance: 0.05},
+    {x: 430, y: 150, name: 'Feedback', relevance: 0.30},
   ];
   c3.forEach(n => nodeData.push({...n, community: 3}));
 
@@ -139,7 +139,7 @@ export default makeScene2D(function* (view) {
   // === DRAW THE GRAPH ===
 
   const graphGroup = createRef<Node>();
-  view.add(<Node ref={graphGroup} opacity={0} />);
+  view.add(<Node ref={graphGroup} y={-40} opacity={0} />);
 
   // Draw edges first (behind nodes)
   const edgeLines = createRefArray<Line>();
@@ -153,9 +153,9 @@ export default makeScene2D(function* (view) {
           new Vector2(fromNode.x, fromNode.y),
           new Vector2(toNode.x, toNode.y),
         ]}
-        stroke={edgeColor}
-        lineWidth={1}
-        opacity={0.6}
+        stroke={'#252540'}
+        lineWidth={1.5}
+        opacity={0.7}
       />
     );
   }
@@ -165,7 +165,7 @@ export default makeScene2D(function* (view) {
   const nodeLabels = createRefArray<Txt>();
 
   for (const n of nodeData) {
-    const baseSize = 20 + n.relevance * 20;
+    const baseSize = 22 + n.relevance * 22;
     graphGroup().add(
       <Circle
         ref={nodeCircles}
@@ -173,8 +173,10 @@ export default makeScene2D(function* (view) {
         y={n.y}
         width={baseSize}
         height={baseSize}
-        fill={communities[n.community]}
-        opacity={0.8}
+        fill={communities[n.community] + 'cc'}
+        stroke={communities[n.community]}
+        lineWidth={1.5}
+        opacity={0.85}
       />
     );
     graphGroup().add(
@@ -185,7 +187,7 @@ export default makeScene2D(function* (view) {
         y={n.y + baseSize / 2 + 12}
         fontSize={9}
         fontFamily="'JetBrains Mono', monospace"
-        fill={muted}
+        fill={text}
         opacity={0}
       />
     );
@@ -201,7 +203,7 @@ export default makeScene2D(function* (view) {
       fontFamily="'JetBrains Mono', monospace"
       fontWeight={300}
       fill={muted}
-      y={370}
+      y={420}
     />
   );
 
@@ -212,15 +214,11 @@ export default makeScene2D(function* (view) {
   yield* subtitle().text('A knowledge graph. 40 symbols. 5 communities.', 0.5);
   yield* waitFor(3.0);
 
-  // Show labels briefly
+  // Show labels
   yield* all(
-    ...nodeLabels.map(l => l.opacity(0.7, 0.5)),
+    ...nodeLabels.map(l => l.opacity(0.8, 0.5)),
   );
   yield* waitFor(2.0);
-  yield* all(
-    ...nodeLabels.map(l => l.opacity(0, 0.5)),
-  );
-  yield* waitFor(1.0);
 
   // Act 2: A query enters
   const queryBox = createRef<Rect>();
@@ -265,28 +263,43 @@ export default makeScene2D(function* (view) {
 
   yield* subtitle().text('Seeds identified. Random walk begins.', 0.5);
 
-  // Seeds pulse bright
+  // Seeds pulse bright, labels push further below
   yield* all(
-    ...seedIndices.map(i => nodeCircles[i].scale(1.8, 0.4)),
-    ...seedIndices.map(i => nodeCircles[i].opacity(1.0, 0.3)),
+    ...seedIndices.map(i => nodeCircles[i].scale(1.6, 0.5)),
+    ...seedIndices.map(i => nodeCircles[i].opacity(1.0, 0.4)),
+    ...seedIndices.map(i => {
+      const n = nodeData[i];
+      const baseSize = 22 + n.relevance * 22;
+      return nodeLabels[i].y(n.y + (baseSize * 1.6) / 2 + 14, 0.5);
+    }),
   );
-  yield* waitFor(0.8);
+  yield* waitFor(1.0);
 
   // Ripple: first ring (high relevance neighbors)
   const ring1 = [3, 4, 5, 6, 7]; // packBudget, seedsForTask, RWR, TokenBudget, ContextBlock
   yield* all(
-    ...ring1.map(i => nodeCircles[i].scale(1.4, 0.5)),
+    ...ring1.map(i => nodeCircles[i].scale(1.3, 0.5)),
     ...ring1.map(i => nodeCircles[i].opacity(1.0, 0.4)),
+    ...ring1.map(i => {
+      const n = nodeData[i];
+      const baseSize = 22 + n.relevance * 22;
+      return nodeLabels[i].y(n.y + (baseSize * 1.3) / 2 + 14, 0.5);
+    }),
   );
-  yield* waitFor(0.6);
+  yield* waitFor(0.8);
 
   // Ripple: second ring (cross-community, store nodes used by context)
   const ring2 = [25, 27, 29]; // SQLiteStore, EdgesTo, GetNode
   yield* all(
-    ...ring2.map(i => nodeCircles[i].scale(1.3, 0.5)),
+    ...ring2.map(i => nodeCircles[i].scale(1.2, 0.5)),
     ...ring2.map(i => nodeCircles[i].opacity(1.0, 0.4)),
+    ...ring2.map(i => {
+      const n = nodeData[i];
+      const baseSize = 22 + n.relevance * 22;
+      return nodeLabels[i].y(n.y + (baseSize * 1.2) / 2 + 14, 0.5);
+    }),
   );
-  yield* waitFor(0.8);
+  yield* waitFor(1.0);
 
   // Act 4: Irrelevant nodes fade
   yield* subtitle().text('Irrelevant symbols fade. Relevant ones surface.', 0.5);
@@ -297,9 +310,17 @@ export default makeScene2D(function* (view) {
     .filter(i => !relevantIndices.has(i));
 
   yield* all(
-    ...irrelevantIndices.map(i => nodeCircles[i].opacity(0.15, 0.8)),
-    ...irrelevantIndices.map(i => nodeCircles[i].scale(0.6, 0.8)),
-    ...edgeLines.map(e => e.opacity(0.1, 0.8)),
+    ...irrelevantIndices.map(i => nodeCircles[i].opacity(0.08, 1.0)),
+    ...irrelevantIndices.map(i => nodeCircles[i].scale(0.4, 1.0)),
+    ...irrelevantIndices.map(i => {
+      const n = nodeData[i];
+      // Push away from center
+      const dx = n.x > 0 ? 40 : -40;
+      const dy = n.y > 0 ? 30 : -30;
+      return nodeCircles[i].position(new Vector2(n.x + dx, n.y + dy - 40), 1.0);
+    }),
+    ...irrelevantIndices.map(i => nodeLabels[i].opacity(0, 0.6)),
+    ...edgeLines.map(e => e.opacity(0.05, 1.0)),
   );
   yield* waitFor(2.0);
 

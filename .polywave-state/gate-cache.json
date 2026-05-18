@@ -240,6 +240,18 @@
         "cached_at": "2026-05-15T08:42:19.411657-07:00"
       }
     },
+    "18f5d346c3b0f09ba36e4f0d522ddbf7": {
+      "lint": {
+        "gate_type": "lint",
+        "command": "GOWORK=off go vet ./bench/...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-17T11:05:25.018341-07:00"
+      }
+    },
     "19b890c8138cfa7ddce982f8b2980bff": {
       "lint": {
         "gate_type": "lint",
@@ -960,6 +972,18 @@
         "cached_at": "2026-05-15T17:57:42.64882-07:00"
       }
     },
+    "4e435677a54c551fc3f51092828c995d": {
+      "build": {
+        "gate_type": "build",
+        "command": "GOWORK=off go build ./bench/...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-17T11:05:24.699652-07:00"
+      }
+    },
     "53ff2000a223909873a2e5803e3ece6b": {
       "lint": {
         "gate_type": "lint",
@@ -1054,6 +1078,18 @@
         "stderr": "",
         "from_cache": true,
         "cached_at": "2026-05-15T17:53:18.289968-07:00"
+      }
+    },
+    "5dedd35c6a92a32fe7614204fbdd6129": {
+      "test": {
+        "gate_type": "test",
+        "command": "GOWORK=off go test ./bench/... -short -timeout 5m",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "ok  \tgithub.com/blackwell-systems/knowing/bench/feedback-loop\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/bench/wire-format\t(cached)\n",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-17T11:05:25.271421-07:00"
       }
     },
     "663ba507ccad7a6e863e7f34823e764b": {
@@ -1428,6 +1464,18 @@
         "cached_at": "2026-05-16T19:50:39.404773-07:00"
       }
     },
+    "9542a7005831a54cc87d5676a784636c": {
+      "lint": {
+        "gate_type": "lint",
+        "command": "GOWORK=off go vet ./bench/...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-17T11:00:54.287352-07:00"
+      }
+    },
     "96db4195a2369d7f48ea6061a503d491": {
       "test": {
         "gate_type": "test",
@@ -1438,6 +1486,18 @@
         "stderr": "",
         "from_cache": true,
         "cached_at": "2026-05-15T17:53:18.757381-07:00"
+      }
+    },
+    "98d43c66065b24e293f3e2f723f39793": {
+      "build": {
+        "gate_type": "build",
+        "command": "GOWORK=off go build ./bench/...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-17T11:00:53.883831-07:00"
       }
     },
     "99433806e1c3b500f9ed212f4736e6b9": {
@@ -2026,6 +2086,18 @@
         "stderr": "",
         "from_cache": true,
         "cached_at": "2026-05-15T20:34:07.908447-07:00"
+      }
+    },
+    "f4055b1c559475a6a51801124fc556b7": {
+      "test": {
+        "gate_type": "test",
+        "command": "GOWORK=off go test ./bench/... -short -timeout 5m",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "ok  \tgithub.com/blackwell-systems/knowing/bench/feedback-loop\t0.535s\nok  \tgithub.com/blackwell-systems/knowing/bench/wire-format\t0.230s\n",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-17T11:00:55.672021-07:00"
       }
     },
     "f56feddb574ab4d1c92ded8b74ff2d10": {
