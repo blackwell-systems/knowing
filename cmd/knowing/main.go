@@ -36,6 +36,7 @@ import (
 	"github.com/blackwell-systems/knowing/internal/indexer/k8sextractor"
 	"github.com/blackwell-systems/knowing/internal/indexer/schemaextractor"
 	"github.com/blackwell-systems/knowing/internal/indexer/protoextractor"
+	"github.com/blackwell-systems/knowing/internal/indexer/rubyextractor"
 	"github.com/blackwell-systems/knowing/internal/indexer/rustextractor"
 	"github.com/blackwell-systems/knowing/internal/indexer/sqlextractor"
 	"github.com/blackwell-systems/knowing/internal/indexer/terraformextractor"
@@ -1078,6 +1079,9 @@ func registerAllExtractors(idx *indexer.Indexer, fullGo bool) {
 
 	// Java.
 	idx.Register(javaextractor.NewJavaExtractor())
+
+	// Ruby.
+	idx.Register(rubyextractor.NewRubyExtractor())
 
 	// C#.
 	idx.Register(csharpextractor.NewCSharpExtractor())
