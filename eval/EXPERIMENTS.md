@@ -297,6 +297,25 @@ Also scaled token budget to task complexity (previously fixed at 5000) for fair 
 
 ---
 
+## Experiment 23: GCF vs JSON format-aware packing
+
+**Date:** 2026-05-18
+**Hypothesis:** GCF's 84% token savings should let the packer fit more symbols into the same token budget, directly improving retrieval coverage.
+**What:** Added `EstimateNodeTokensForFormat` that scales token cost by format (GCF = 16% of JSON cost). `packIntoBudget` now uses format-aware estimation. New `TestEvalGCFvsJSON` compares both formats side-by-side.
+**Result:**
+
+| Budget | JSON Symbols | GCF Symbols | Multiplier |
+|--------|-------------|-------------|------------|
+| 1,000 tokens | 28 | 197 | **7.0x** |
+| 2,000 tokens | 59 | 311 | **5.3x** |
+| 5,000 tokens | 146 | 311 | **2.1x** (hits symbol cap) |
+
+P@10 at 5,000 tokens is identical (30.9%) because both formats include the same top-10 ranked symbols. The top-10 isn't budget-constrained at 5K.
+
+**Conclusion:** GCF's value is not in P@10 on large budgets (top-10 fits either way). It's in **tight-budget environments**: multi-tool workflows, small context windows, repeated MCP calls where each gets a slice of the token budget. At 1,000 tokens, GCF delivers 7x more symbols. This is the real competitive advantage over tools that dump JSON.
+
+---
+
 ## Key Insights (Updated)
 
 1. **The eval was the biggest bug.** Fixing isRelevant() matching was worth +8pp overall.
@@ -310,6 +329,7 @@ Also scaled token budget to task complexity (previously fixed at 5000) for fair 
 9. **Targeted beats untargeted.** Equivalence classes (explicit mapping) > BM25 enrichment (dump text). This applies to doc comments, neighbor names, and any "add more text to the index" approach.
 10. **Expanding phrases in existing classes is cheap and safe.** Near-zero risk, consistent returns.
 11. **Information density, not token count, is the right metric.** knowing and grep use similar tokens, but knowing delivers 3-14x more relevant information per token. Lead with density, not savings.
+12. **GCF's value is at tight budgets, not large ones.** At 5K tokens, format doesn't matter (top-10 fits). At 1K tokens, GCF packs 7x more symbols. The wire format is a competitive advantage in token-constrained workflows.
 
 ---
 
