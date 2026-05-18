@@ -5,7 +5,7 @@ ground_truth:
   - store.BlastRadius
   - store.TransitiveCallers
   - store.TransitiveCallees
-  - resolver.ResolveDangling
+  - resolver.Resolve
   - resolver.Resolver
   - mcp.handleBlastRadius
   - diff.PRImpact

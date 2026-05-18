@@ -68,7 +68,7 @@ The engine returns ranked results; we measure Precision@10, Recall@10, and MRR.
 | Ingest OpenTelemetry spans and create runtime edges with ... | 30.0% | 37.5% | 0.50 | hard |
 | Implement a hybrid retrieval strategy that combines BM25 ... | 20.0% | 25.0% | 0.20 | hard |
 | Ingest production telemetry traces, resolve span names to... | 10.0% | 12.5% | 0.17 | hard |
-| Build an end-to-end pipeline where an AI coding agent ask... | 10.0% | 12.5% | 0.12 | hard |
+| Build an end-to-end pipeline where an AI coding agent ask... | 10.0% | 12.5% | 0.11 | hard |
 | Generate full PR impact analysis: semantic diff of change... | 30.0% | 33.3% | 1.00 | hard |
 | Compute blast radius for a symbol change across multiple ... | 10.0% | 12.5% | 0.11 | hard |
 | Given a task description, seed the graph walk from keywor... | 0.0% | 0.0% | 0.00 | hard |

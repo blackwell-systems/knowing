@@ -3,5 +3,5 @@ difficulty: easy
 tags: [single-package, enrichment, lsp]
 ground_truth:
   - enrichment.Enricher
-  - enrichment.enrichEdge
+  - enrichment.Enricher
   - types.Edge

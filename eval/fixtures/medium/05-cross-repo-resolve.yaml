@@ -3,7 +3,7 @@ difficulty: medium
 tags: [cross-package, resolver, store]
 ground_truth:
   - resolver.Resolver
-  - resolver.ResolveDangling
+  - resolver.Resolve
   - store.DanglingEdges
   - store.AllRepos
   - store.NodesByQualifiedName

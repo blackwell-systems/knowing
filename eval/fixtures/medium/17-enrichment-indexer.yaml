@@ -3,7 +3,7 @@ difficulty: medium
 tags: [cross-package, enrichment, indexer, types]
 ground_truth:
   - enrichment.Enricher
-  - enrichment.enrichEdge
+  - enrichment.Enricher
   - indexer.IndexRepo
   - indexer.Indexer
   - store.PutEdge

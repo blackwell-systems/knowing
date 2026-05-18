@@ -3,7 +3,7 @@ difficulty: medium
 tags: [cross-package, resolver, store, multi-repo]
 ground_truth:
   - resolver.Resolver
-  - resolver.ResolveDangling
+  - resolver.Resolve
   - store.PutEdge
   - store.NodesByName
   - store.SQLiteStore

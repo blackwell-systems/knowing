@@ -3,4 +3,4 @@ difficulty: easy
 tags: [single-package, resolver, cross-repo]
 ground_truth:
   - resolver.Resolver
-  - resolver.ResolveDangling
+  - resolver.Resolve

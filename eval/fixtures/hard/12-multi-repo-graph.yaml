@@ -5,7 +5,7 @@ ground_truth:
   - indexer.IndexRepo
   - indexer.Register
   - resolver.Resolver
-  - resolver.ResolveDangling
+  - resolver.Resolve
   - store.PutNode
   - store.PutEdge
   - store.NodesByName
