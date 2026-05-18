@@ -113,6 +113,8 @@ func run(args []string) error {
 		return cmdWhy(args[1:])
 	case "watch":
 		return cmdWatch(args[1:])
+	case "enrich":
+		return cmdEnrich(args[1:])
 	default:
 		printUsage()
 		return fmt.Errorf("unknown subcommand: %s", args[0])

@@ -62,6 +62,8 @@ type Node struct {
 	Line          int    // 1-indexed source line number of the declaration
 	Signature     string // human-readable type signature for display (e.g., "func (SQLiteStore) PutNode()")
 	Doc           string // doc comment preceding the declaration (first 200 chars, language-agnostic)
+	LastAuthor    string // git blame: author of the last commit that touched this symbol's line
+	LastCommitAt  int64  // git blame: unix timestamp of the last commit that touched this symbol's line
 }
 
 // Edge represents a directed relationship between two nodes in the knowledge

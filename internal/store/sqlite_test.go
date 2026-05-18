@@ -108,8 +108,8 @@ func TestNewSQLiteStore_CreatesDatabase(t *testing.T) {
 	if err := store.db.QueryRow("SELECT MAX(version) FROM schema_version").Scan(&v); err != nil {
 		t.Fatalf("query schema_version: %v", err)
 	}
-	if v != 8 {
-		t.Fatalf("expected schema version 8, got %d", v)
+	if v != 9 {
+		t.Fatalf("expected schema version 9, got %d", v)
 	}
 }
 
