@@ -8,28 +8,34 @@ window.
 
 ## How It Works (End-to-End Flow)
 
-The pipeline has six stages:
+The pipeline has eight stages:
 
 ```
 Task Description
     |
     v
-[1. Keyword Extraction]  -- split CamelCase, expand abbreviations, filter stop words
+[1. Keyword Extraction]    -- split CamelCase, expand abbreviations, filter stop words
     |
     v
-[2. Seed Selection]      -- substring search against qualified names in the graph
+[2. Seed Selection]        -- 5-tier matching + BM25 FTS5 fallback when < 8 candidates
     |
     v
-[3. Random Walk with Restart]  -- propagate relevance through graph structure
+[3. Noise Filtering]       -- exclude mock/stub/fake symbols and build artifacts
     |
     v
-[4. Scoring]             -- weighted formula: blast_radius + confidence + recency + distance
+[4. Random Walk with Restart]  -- propagate relevance through graph structure
     |
     v
-[5. Token Budget Packing]  -- greedy inclusion by score until budget exhausted
+[5. Scoring]               -- weighted formula: blast_radius + confidence + recency + distance + session_boost
     |
     v
-[6. Output Formatting]   -- XML / Markdown / JSON with distance-based grouping
+[6. HITS Reranking]        -- authority/hub scores promote structurally important nodes
+    |
+    v
+[7. Token Budget Packing]  -- density-ranked greedy knapsack (score/cost ratio)
+    |
+    v
+[8. Output Formatting]     -- XML / Markdown / JSON / GCF / GCB with distance-based grouping
 ```
 
 Two entry points exist:
@@ -133,20 +139,28 @@ effectively acting as an implicit restart.
 ## The Scoring Formula
 
 After RWR produces raw relevance scores, the `RankSymbols` function computes a final
-composite score from four weighted components:
+composite score. Without HITS:
 
 ```
-score = blast_radius * 0.40 + confidence * 0.25 + recency * 0.20 + distance * 0.15
+score = blast_radius * 0.40 + confidence * 0.25 + recency * 0.20 + distance * 0.15 + feedback + session
 ```
 
-### Blast Radius (40%)
+With HITS active (applied to top-200), weights shift to accommodate authority adjustments:
+
+```
+score = blast_radius * 0.35 + confidence * 0.20 + recency * 0.15 + distance * 0.15 + authorityAdj + feedback + session
+```
+
+Feedback weight is 0.15 (centered around 0). Session weight is 0.20 (normalized from [0, 2.0] cap).
+
+### Blast Radius (40% base, 35% with HITS)
 
 Measures how many other symbols depend on this one. In the `ForTask` path, the RWR score
 is used as a proxy (scaled to 0-100 and normalized relative to the maximum in the result
 set). In the `ForFiles` path, the actual count of incoming `calls` edges is used.
 
 Normalization is relative to the maximum in the current result set, not a hardcoded cap.
-A symbol with the most callers in the set gets the full 0.40 contribution.
+A symbol with the most callers in the set gets the full contribution.
 
 ### Confidence (25%)
 
@@ -173,6 +187,35 @@ Inverse of hops from the target: `1 / (1 + hops) * 0.15`.
 - Distance 0 (direct keyword match / in-file symbol): 0.15
 - Distance 1 (one hop away): 0.075
 - Distance 2: 0.05
+
+### Session Boost (20%)
+
+Provided by `SessionTracker` (`internal/context/session.go`). Records which symbols are
+returned by context queries during the current MCP server lifetime. A symbol accessed T
+seconds ago receives a boost of `min(2.0, exp(-T * ln2 / 180))` (3-minute half-life). The
+cap of 2.0x prevents runaway amplification. Symbols not accessed in the current session
+receive a boost of 0.0, contributing nothing to the score.
+
+The half-life is tuned for AI agent sessions where a context query every 30-90 seconds is
+typical. Symbols accessed within the last minute receive near-maximum boost; those from
+5+ minutes ago contribute negligibly.
+
+## BM25 Full-Text Search Fallback
+
+When the 5-tier keyword seeding yields fewer than 8 candidates, the engine supplements
+results with a BM25-ranked FTS5 query. Migration 006 creates a `nodes_fts` virtual table
+over `qualified_name`, `signature`, and `file_path`. Tokenization uses CamelCase-aware
+splitting (`splitForFTS`, `splitCamelCase`) so that compound identifiers (e.g.,
+"SQLiteStore") are indexed as individual terms ("SQLite", "Store"). `RebuildFTS` is called
+after batch indexing to keep the FTS content synchronized with the nodes table.
+
+## Noise Filtering
+
+Before scoring, `filterNoisySymbols` removes low-signal candidates:
+- Symbols with mock, fake, or stub in the qualified name (case-insensitive).
+- Symbols whose file path contains `/build/` or `.bundle.` segments.
+
+This prevents test infrastructure and build artifacts from consuming token budget.
 
 ## Token Budget Packing
 

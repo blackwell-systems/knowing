@@ -1,6 +1,6 @@
 # FEATURES.md -- Comprehensive Feature Dump for AI Reference
 
-Generated: 2026-05-15 (updated: 2026-05-17, features 40-55 added, stale statuses corrected)
+Generated: 2026-05-15 (updated: 2026-05-17, features 40-58 added, stale statuses corrected)
 Source: code inspection of all Go files across internal/, cmd/, and config
 Repo: github.com/blackwell-systems/knowing
 
@@ -644,6 +644,28 @@ Repo: github.com/blackwell-systems/knowing
   - `bench/wire-format/` : Encode/decode performance and size comparison across all wire format codecs.
 - **Why it matters:** Provides reproducible quality gates for context engine, extractors, and wire format changes.
 
+### 56. BM25 Full-Text Search (FTS5 Index)
+
+- **Package(s):** `internal/store`
+- **Migration:** `006_add_fts5_index.sql`
+- **Entry point:** `RebuildFTS` in `internal/store/sqlite.go`
+- **What it does:** Creates an SQLite FTS5 virtual table (`nodes_fts`) over `qualified_name`, `signature`, and `file_path`. Uses CamelCase-aware tokenization (`splitForFTS`, `splitCamelCase`) so compound identifiers are searchable by individual terms. When the 5-tier keyword seeding produces fewer than 8 candidates, the context engine falls back to a BM25-ranked FTS query to broaden coverage. `RebuildFTS` is called after batch indexing to rebuild the FTS content.
+- **Why it matters:** Improves recall for vague or partial task descriptions where substring matching alone misses relevant symbols.
+
+### 57. Session-Aware Retrieval Boosts
+
+- **Package(s):** `internal/context/`
+- **Entry point:** `SessionTracker` in `internal/context/session.go`
+- **What it does:** Tracks which symbols are returned by context queries during the current MCP server lifetime. Symbols accessed recently receive an exponential-decay boost (3-minute half-life, tuned for AI session cadence). The boost is capped at 2.0x and weighted at 0.20 in the ranking formula. One tracker is maintained per MCP server process, wired in the server constructor.
+- **Why it matters:** Symbols the agent is actively working with surface higher in subsequent queries, reducing redundant graph traversal and improving relevance continuity within a session.
+
+### 58. Noise Filtering (Mock/Stub/Fake Exclusion)
+
+- **Package(s):** `internal/context/`
+- **Entry point:** `filterNoisySymbols` in `internal/context/context.go`
+- **What it does:** Removes low-signal symbols from context candidates before scoring. Excludes symbols with mock, fake, or stub in the qualified name (case-insensitive), and symbols whose file path contains `/build/` or `.bundle.` segments.
+- **Why it matters:** Prevents test infrastructure and build artifacts from consuming token budget in context output.
+
 ### GraphStore (`internal/types/interfaces.go`)
 
 All 27 methods:
@@ -988,6 +1010,7 @@ Primary key: `(service_name, route_pattern, mapping_type)`.
 | 002 | 002_add_dangling_edge_support.sql | No-op (idx_edges_target from 001 already covers dangling queries) |
 | 003 | 003_add_callsite_columns.sql | Adds callsite_line, callsite_col, callsite_file to edges table |
 | 004 | 004_add_runtime_columns.sql | Adds observation_count and last_observed columns to edges table. Creates route_symbols table with composite PK (service_name, route_pattern, mapping_type). Adds idx_route_symbols_node, idx_edges_provenance, idx_edges_last_observed indexes. |
+| 006 | 006_add_fts5_index.sql | Creates FTS5 virtual table `nodes_fts` over qualified_name, signature, file_path for BM25 full-text search. |
 
 ---
 
@@ -1375,8 +1398,9 @@ internal/indexer/
 
 internal/context/
   context.go                       -- Context engine: task/file/PR context generation, RWR graph walk, token budgeting
-  ranking.go                       -- RankSymbols: blast radius, confidence, recency, distance, HITS authority scoring
+  ranking.go                       -- RankSymbols: blast radius, confidence, recency, distance, HITS authority, session boost
   hits.go                          -- HITS algorithm: authority/hub scores for subgraph reranking
+  session.go                       -- SessionTracker: exponential-decay recency boost (3-min half-life, 2.0x cap)
   context_test.go
 
 internal/wire/

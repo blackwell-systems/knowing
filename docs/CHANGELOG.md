@@ -33,9 +33,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Random Walk with Restart (RWR) algorithm for graph-based relevance scoring in context engine
 - Improved keyword extraction with stop word filtering, CamelCase splitting, and abbreviation expansion
 - Relative normalization in ranking and base recency score for static-only edges
+- BM25 full-text search via FTS5 index (migration 006): `nodes_fts` virtual table over qualified_name, signature, file_path with CamelCase-aware tokenization. Supplements 5-tier keyword seeding when fewer than 8 candidates found.
+- Session-aware retrieval boosts (`internal/context/session.go`): `SessionTracker` applies exponential-decay recency boost (3-minute half-life, capped at 2.0x, 0.20 weight) to symbols returned by recent context queries. One tracker per MCP server lifetime.
+- Noise filtering (`filterNoisySymbols`): excludes mock/stub/fake symbols and `/build/`/`.bundle.` file paths from context candidates.
 
 ### Fixed
 
+- Eval framework `isRelevant` matching now handles `package.Type.Method` qualified names correctly
+- `filterNoisySymbols` added to remove mock/stub/fake symbols that polluted context results
 - `test-scope` command: fixed `symbolsInFiles` returning empty results due to stale FileHash mismatch after re-indexing
 - `test-scope` command: fixed package path extraction producing invalid `go test` paths (was not stripping module prefix)
 - Context engine `ForFiles` and `ForPR` now use `NodesByFilePath` join (was broken with stale FileHash matching)

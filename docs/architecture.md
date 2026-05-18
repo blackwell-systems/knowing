@@ -956,8 +956,9 @@ The context packing subsystem produces token-budgeted, graph-ranked context bloc
 ```
 internal/context/
 ├── context.go       ContextEngine: ForTask, ForFiles entry points, density-ranked knapsack packing
-├── ranking.go       RankSymbols: weighted scoring formula with HITS authority boost
+├── ranking.go       RankSymbols: weighted scoring formula with HITS authority + session boost
 ├── hits.go          ComputeHITS: hub/authority scores for subgraph reranking
+├── session.go       SessionTracker: exponential-decay recency boost for symbols accessed in-session
 ├── walk.go          Random Walk with Restart (RWR) for graph proximity scoring
 ├── tokens.go        EstimateNodeTokens: per-symbol token cost estimation
 └── format.go        FormatContextBlock: XML, Markdown, JSON output
@@ -965,20 +966,49 @@ internal/context/
 
 ### Scoring Formula
 
-Each candidate symbol receives a weighted score from four components:
+Each candidate symbol receives a weighted score. Two paths exist depending on whether HITS reranking is active:
+
+**Without HITS (base formula):**
 
 | Component | Weight | Source |
 |-----------|--------|--------|
-| Blast radius | 0.40 | `min(1.0, callerCount/50)` |
+| Blast radius | 0.40 | Relative caller count (`callerCount / maxCallers`) |
 | Confidence | 0.25 | Maximum edge confidence on the symbol |
 | Recency | 0.20 | Time decay from `last_observed` field |
 | Distance | 0.15 | `1 / (1 + hops_from_target)` |
+| Feedback | 0.15 | Historical usefulness ratio (centered: >0.5 boosts, <0.5 penalizes) |
+| Session boost | 0.20 | Exponential decay from recent session access (normalized from [0, 2.0] cap) |
 
-After initial scoring, the top candidates are reranked using HITS (Hyperlink-Induced Topic Search) authority scores. Nodes with high authority (heavily called functions, core types, key interfaces) are promoted; nodes with high hub scores (orchestrators, entry points) provide structural context.
+**With HITS (applied to top-200 candidates):**
+
+| Component | Weight | Source |
+|-----------|--------|--------|
+| Blast radius | 0.35 | Relative caller count |
+| Confidence | 0.20 | Maximum edge confidence |
+| Recency | 0.15 | Time decay from `last_observed` field |
+| Distance | 0.15 | `1 / (1 + hops_from_target)` |
+| Authority adj | variable | +0.25 * authority for seeds, -0.15 * authority for non-seeds |
+| Hub bonus | +0.10 * hub | Applied only to seed entry points |
+| Feedback | 0.15 | Historical usefulness ratio |
+| Session boost | 0.20 | Exponential decay from recent session access |
+
+The session boost is provided by `SessionTracker` (`internal/context/session.go`), which records symbols returned by context queries during the current server lifetime. Symbols accessed recently receive a boost with a 3-minute half-life (tuned for AI session cadence), capped at 2.0x to prevent runaway amplification. The MCP server maintains one tracker per process lifetime.
+
+After initial scoring, the top candidates are reranked using HITS (Hyperlink-Induced Topic Search) authority scores. Nodes with high authority (heavily called functions, core types, key interfaces) are promoted when they are seed matches; non-seed authorities (generic infrastructure like `context.Context`) are penalized. Seed hubs (orchestrators, entry points) receive a smaller bonus for structural context.
 
 ### Density-Ranked Knapsack Packing
 
 Symbols are not packed by raw score alone. The packer uses a density-ranked greedy fractional knapsack approach: symbols are sorted by their score/cost ratio (where cost is estimated token count), so that high-value, low-cost symbols are included preferentially over expensive symbols (long functions) when the budget is tight. This maximizes the total relevance delivered per token.
+
+### BM25 Full-Text Search (FTS5 Index)
+
+Migration 006 adds an SQLite FTS5 virtual table (`nodes_fts`) over `qualified_name`, `signature`, and `file_path`. Tokenization uses CamelCase-aware splitting (`splitForFTS`, `splitCamelCase`) so that a query for "Store" matches "SQLiteStore" or "NewSQLiteStore". The FTS index supplements the tiered keyword matching: when fewer than 8 candidates are found via the 5-tier seeding, the engine falls back to a BM25 ranked FTS query to broaden coverage. `RebuildFTS` is called after batch indexing to keep the index current.
+
+### Noise Filtering
+
+Before scoring, `filterNoisySymbols` removes low-signal candidates:
+- Symbols with mock, fake, or stub in the qualified name (case-insensitive).
+- Symbols whose file path contains `/build/` or `.bundle.` segments.
 
 ### ForTask Flow
 
@@ -989,11 +1019,13 @@ Symbols are not packed by raw score alone. The packer uses a density-ranked gree
    - Tier 3: substring match (capped at 20 per keyword)
    - Tier 4: file-path keyword matching
    - Tier 5: interface-aware seeding (implementations of matched interfaces)
-3. For each candidate node, retrieve callers and callees (distance-0 and distance-1 neighborhood).
-4. Score all candidates via `RankSymbols`.
-5. Run HITS on the top-200 candidates to compute authority/hub scores and boost rankings.
-6. Pack into token budget via density-ranked knapsack (score/cost ratio ordering).
-7. Format output as XML, Markdown, JSON, GCF, or GCB.
+3. If fewer than 8 candidates are found, supplement via BM25 FTS5 search.
+4. Filter noisy symbols (mocks, stubs, fakes, build artifacts).
+5. For each candidate node, retrieve callers and callees (distance-0 and distance-1 neighborhood).
+6. Score all candidates via `RankSymbols` (including session boost).
+7. Run HITS on the top-200 candidates to compute authority/hub scores and boost rankings.
+8. Pack into token budget via density-ranked knapsack (score/cost ratio ordering).
+9. Format output as XML, Markdown, JSON, GCF, or GCB.
 
 ### ForFiles Flow
 

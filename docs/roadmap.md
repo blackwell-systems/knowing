@@ -99,8 +99,8 @@ task / diff / session state
 
 | # | Stage | What | Why | Effort |
 |---|-------|------|-----|--------|
-| 1 | Session-aware boosts | Track files read/edited this session, boost those symbols + neighbors | Cheapest win. Aider gets 50x from this. Zero infrastructure. | Low |
-| 2 | BM25 over symbol metadata | FTS5 index over qualified names + signatures + file paths | Fixes lexical failures without ML. SQLite FTS5 is already available. | Low |
+| 1 | Session-aware boosts | Track symbols returned this session, exponential-decay boost (3-min half-life, 2.0x cap) | Cheapest win. Zero infrastructure. | **done** |
+| 2 | BM25 over symbol metadata | FTS5 index over qualified names + signatures + file paths, CamelCase-aware tokenization | Fixes lexical failures without ML. SQLite FTS5. | **done** |
 | 3 | LLM query rewriting | Fast LLM converts NL to candidate symbol names before seeding | "make auth faster" -> ["auth", "session", "middleware", "cache"]. No model download. | Low-Medium |
 | 4 | RRF fusion | Merge keyword, BM25, path, feedback, and session signals with RRF (k=60) | Combines all seed sources into one ranked seed set. Proven technique. | Medium |
 | 5 | Community-aware retrieval | Identify likely community from seeds, constrain walk to relevant subsystem | Prevents RWR from wandering into unrelated packages. | Medium |
@@ -117,8 +117,8 @@ them. 5-7 build on the fused pipeline.
 - Fusion: RRF (k=60) combining keyword seeds + vector nearest-50 as joint seed set
 
 **Expected impact per stage:**
-- Session boosts: repeat queries within session improve dramatically (no eval change on cold start)
-- BM25: easy 36% -> 55%+, medium 16% -> 25%+ (fixes pure lexical misses)
+- Session boosts: **done**. Repeat queries within session improve dramatically (no eval change on cold start)
+- BM25 + noise filtering: **done**. Baseline now: easy 42%, medium 24%, hard 10%, overall 25.3% P@10
 - Query rewriting: hard 2% -> 10-15% (finds symbols the developer would name differently)
 - Embeddings: hard 2% -> 15-25%, medium -> 35-45% (concept-level matching)
 - Full pipeline: targeting easy >80%, medium >40%, hard >20%
