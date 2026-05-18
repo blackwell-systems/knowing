@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - `knowing why` subcommand: explains why a symbol ranked where it did in retrieval results. Shows seed channel/tier, RWR score, HITS authority/hub, blast radius, confidence, recency, distance, feedback weight, session boost, and equivalence class matches. Usage: `knowing why -task "refactor auth" -symbol "SessionHandler"`.
+- `explain_symbol` MCP tool (tool #23): MCP equivalent of `knowing why`. Parameters: `task_description` (required), `symbol` (required). Returns markdown-formatted scoring breakdown. Registered in the context packing tools group.
 - `knowing ingest-scip` subcommand: imports SCIP protobuf index files for external dependency symbols (provenance `scip_resolved`, confidence 0.95)
 - SCIP ingestor (`internal/indexer/scipingest/`): reads `.scip` files, creates nodes and `references` edges for all symbols and references
 - Cloud extractor (`internal/indexer/cloudextractor/`): single extractor handling 4 cloud YAML formats (CloudFormation/SAM, Docker Compose, GitHub Actions, Serverless Framework)
@@ -17,7 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Schema extractor package (`internal/indexer/schemaextractor/`): OpenAPI/JSON Schema references (package exists, not yet registered in CLI)
 - `KNOWING_DB` environment variable for global database path (used by all CLI subcommands)
 - `knowing mcp` subcommand for stdio MCP server mode (used by AI agents via .mcp.json)
-- 5 new MCP tools (total now 22): `feedback`, `test_scope`, `flow_between`, `plan_turn`, `communities`
+- 5 new MCP tools (total now 23): `feedback`, `test_scope`, `flow_between`, `plan_turn`, `communities`
 - `feedback` MCP tool: record/query symbol usefulness for agent learning loop (FeedbackProvider interface wired into ContextEngine)
 - `test_scope` MCP tool: backward BFS from changed symbols to find affected test functions
 - `flow_between` MCP tool: BFS path finding between two symbols (up to 10 paths)
@@ -57,6 +58,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Graph-derived aliases (`internal/context/graph_aliases.go`): auto-generates equivalence classes from caller/callee symbol names. Top-10 tiered candidates, weight 0.7.
 - Passive task memory (`internal/context/task_memory.go`): migration 008 adds `task_memory` table. Records top-5 returned symbols per `context_for_task` call. Recall matches keywords with 7-day linear decay, boosts via FeedbackBoost channel at 0.3x scale.
 - Multi-language LSP enrichment (`internal/enrichment/config.go`): auto-detects language servers (gopls, typescript-language-server, pylsp/pyright, rust-analyzer, jdtls, OmniSharp) by checking project markers and PATH. `LSPServerConfig` struct, `DetectLSPServers`, `SetLSPConfig`, `LoadLSPConfig` for knowing-lsp.json override.
+- Multi-language enrichment pipeline (`internal/enrichment/enricher.go`): removed hardcoded .go file checks in `discoverNewEdges`, now uses language filter from `runForServer` for all 6 detected language servers. Added `resolveNamePosition()` to fix pyright's SelectionRange pointing at keywords (class/def) instead of symbol names. Removed dead `openAllFiles`/`closeAllFiles` Go-only legacy methods.
+- Python call-site positions: `CallSiteLine`, `CallSiteCol`, `CallSiteFile` on call edges. Provenance changed from `ast_resolved/1.0` to `ast_inferred/0.7`. Enclosing function node hash threaded through `walkNode` so call edges use real function nodes as sources (enables enricher to find them via `NodesByName`).
+- Workspace readiness wait in enricher: calls `WaitForWorkspaceReadyTimeout(120s)` after opening files, before querying. Servers that index asynchronously (jdtls, tsserver) now wait for `$/progress` tokens to complete. Synchronous servers (gopls) return immediately.
+- Java (jdtls) enrichment validated: 870/1,046 edges upgraded (83.2%), 155 new edges discovered on Spring Petclinic.
+- TypeScript enrichment validated: 90/91 edges upgraded (98.9%), 36 new edges discovered on anthropic-docs-mcp-ts.
+- Python enrichment validated: 6,906/8,310 edges upgraded (83.1%), 15,211 new edges discovered on FastAPI.
 - TOON wire format encoder (`internal/wire/toon.go`): uses official `toon-format/toon-go` library. TOON v3.0 open standard (~60% token savings). Registered as `format: "toon"`.
 - Format-aware token estimation (`EstimateNodeTokensForFormat`): GCF packs 5-7x more symbols per token budget. At 1K tokens: 28 (JSON) vs 197 (GCF) symbols.
 - Cross-repo eval (`eval/crossrepo_test.go`): 30 gortex fixtures (10 exact, 10 concept, 10 multi_hop). Tests pipeline on external codebase with zero config. Result: 46.7% R@10.
@@ -65,6 +72,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Whitepapers moved to `docs/whitepapers/` with descriptive names: `content-addressed-graph-intelligence.md`, `gcf-wire-format.md`, `shared-intelligence-layer.md`.
 - 4 breakout documentation guides: `docs/retrieval-pipeline.md`, `docs/equivalence-classes.md`, `docs/hooks-integration.md`, `docs/eval-framework.md`.
 - 23 experiments documented in `eval/EXPERIMENTS.md` with 12 key insights.
+- Roadmap expanded with `knowing why`, session memory persistence, negative feedback, `knowing stats`, `knowing watch`, staleness reporting, and underexploited capabilities sections.
 
 ### Fixed
 
@@ -77,6 +85,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Context engine uses substring search for keyword matching (was requiring exact match)
 - mkdocs.yml and index.md added for docs workflow
 - Architecture doc updated to reflect actual codebase structure
+- Enrichment queries returning empty results on async language servers (jdtls, tsserver) due to querying before workspace indexing completed
 
 ## 2026-05-15
 
