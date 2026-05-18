@@ -96,7 +96,7 @@ func run(args []string) error {
 	case "reindex":
 		return cmdReindex(args[1:])
 	case "init":
-		return cmdInit(args[1:])
+		return cmdSetup(args[1:])
 	case "test-scope":
 		return cmdTestScope(args[1:])
 	case "ingest-scip":
@@ -119,7 +119,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  context  Generate graph-aware context for a task or files")
 	fmt.Fprintln(os.Stderr, "  export   Export the graph as JSON")
 	fmt.Fprintln(os.Stderr, "  reindex  Clear and re-index a repository from scratch")
-	fmt.Fprintln(os.Stderr, "  init     Generate CLAUDE.md with graph-derived project context")
+	fmt.Fprintln(os.Stderr, "  init     Set up knowing for a repository (index, enrich, configure MCP, generate CLAUDE.md)")
 	fmt.Fprintln(os.Stderr, "  test-scope  Compute affected tests from changed files")
 	fmt.Fprintln(os.Stderr, "  ingest-scip Import a SCIP index for external dependency symbols")
 	fmt.Fprintln(os.Stderr, "  version  Print version information")
