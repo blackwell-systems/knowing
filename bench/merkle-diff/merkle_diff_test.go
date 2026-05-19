@@ -305,16 +305,11 @@ GOWORK=off go test ./bench/merkle-diff/ -v -count=1
 }
 
 func extractPackagePath(qualifiedName string) string {
-	sep := strings.Index(qualifiedName, "://")
-	if sep < 0 {
+	pkg, err := snapshot.ExtractPackagePath(qualifiedName)
+	if err != nil {
 		return ""
 	}
-	rest := qualifiedName[sep+3:]
-	lastDot := strings.LastIndex(rest, ".")
-	if lastDot < 0 {
-		return rest
-	}
-	return rest[:lastDot]
+	return pkg
 }
 
 func largestPackage(pkgs map[string]int) string {

@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/blackwell-systems/knowing/internal/snapshot"
 	"github.com/blackwell-systems/knowing/internal/store"
 )
 
@@ -119,16 +120,10 @@ func writeNondestructive(path, section string) error {
 
 // extractPackage gets the package path from a qualified name.
 func extractPackage(qname string) string {
-	// Format: repoURL://path.Symbol
-	idx := strings.Index(qname, "://")
-	if idx < 0 {
+	pkg, err := snapshot.ExtractPackagePath(qname)
+	if err != nil {
 		return ""
 	}
-	rest := qname[idx+3:]
-	dotIdx := strings.LastIndex(rest, ".")
-	if dotIdx < 0 {
-		return rest
-	}
-	return rest[:dotIdx]
+	return pkg
 }
 

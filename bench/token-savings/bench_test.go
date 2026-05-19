@@ -364,21 +364,11 @@ func countGrepLinesWithRelevance(t *testing.T, repoRoot, pattern string, groundT
 // extractPackage extracts the package component from a qualified name.
 // e.g. "github.com/blackwell-systems/knowing/internal/context.ForTask" -> "internal/context"
 func extractPackage(qualifiedName string) string {
-	// Strip repo URL prefix.
-	const prefix = "github.com/blackwell-systems/knowing://"
-	s := qualifiedName
-	if idx := strings.Index(s, "://"); idx >= 0 {
-		s = s[idx+3:]
+	pkg, err := snapshot.ExtractPackagePath(qualifiedName)
+	if err != nil {
+		return ""
 	}
-	// Take everything before the last dot (the symbol name).
-	if dot := strings.LastIndex(s, "."); dot >= 0 {
-		s = s[:dot]
-	}
-	// For methods, strip the type name too.
-	if dot := strings.LastIndex(s, "."); dot >= 0 {
-		// Could be pkg.Type -- keep as-is, it's the file grouping.
-	}
-	return s
+	return pkg
 }
 
 func isRelevant(qualifiedName string, groundTruth []string) bool {

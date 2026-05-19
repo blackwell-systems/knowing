@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/blackwell-systems/knowing/internal/snapshot"
 	"github.com/blackwell-systems/knowing/internal/types"
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -274,26 +275,9 @@ func isTestFunction(n *types.Node) bool {
 // extractPackage extracts the package path from a qualified name.
 // Format: "repoURL://pkg/path.FuncName" -> "pkg/path"
 func extractPackage(qualifiedName string) string {
-	// Split on "://" to separate repo URL from package path.
-	parts := strings.SplitN(qualifiedName, "://", 2)
-	if len(parts) < 2 {
+	pkg, err := snapshot.ExtractPackagePath(qualifiedName)
+	if err != nil {
 		return ""
-	}
-	pkgAndSymbol := parts[1]
-	// The last dot separates the package from the symbol name.
-	// Handle method receivers: "pkg/path.Type.Method" -> "pkg/path"
-	lastDot := strings.LastIndex(pkgAndSymbol, ".")
-	if lastDot < 0 {
-		return pkgAndSymbol
-	}
-	pkg := pkgAndSymbol[:lastDot]
-	// If pkg still contains a dot (e.g. "pkg/path.Type"), strip again.
-	if idx := strings.LastIndex(pkg, "."); idx >= 0 {
-		// Check if the part after the dot starts with uppercase (method receiver).
-		after := pkg[idx+1:]
-		if len(after) > 0 && after[0] >= 'A' && after[0] <= 'Z' {
-			pkg = pkg[:idx]
-		}
 	}
 	return pkg
 }
