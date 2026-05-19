@@ -432,7 +432,12 @@ func cmdExport(args []string) error {
 		}
 	}
 
-	// Collect edges from each node.
+	// Collect edges from each node, filtering to edges where both endpoints
+	// are in the exported node set (prevents cross-repo orphan edges).
+	nodeHashSet := make(map[types.Hash]bool, len(nodes))
+	for _, n := range nodes {
+		nodeHashSet[n.NodeHash] = true
+	}
 	edgeSet := make(map[types.Hash]bool)
 	var edges []types.Edge
 	for _, n := range nodes {
@@ -441,7 +446,7 @@ func cmdExport(args []string) error {
 			return fmt.Errorf("querying edges from %x: %w", n.NodeHash, err)
 		}
 		for _, e := range outgoing {
-			if !edgeSet[e.EdgeHash] {
+			if !edgeSet[e.EdgeHash] && nodeHashSet[e.TargetHash] {
 				edgeSet[e.EdgeHash] = true
 				edges = append(edges, e)
 			}
@@ -567,7 +572,7 @@ func cmdExport(args []string) error {
 
 	for _, n := range nodes {
 		en := exportNode{
-			NodeHash:      fmt.Sprintf("%x", n.NodeHash),
+			NodeHash:      n.NodeHash.String(),
 			QualifiedName: n.QualifiedName,
 			Kind:          n.Kind,
 			Line:          n.Line,
@@ -584,9 +589,9 @@ func cmdExport(args []string) error {
 		srcComm := communityOf[e.SourceHash]
 		tgtComm := communityOf[e.TargetHash]
 		export.Edges = append(export.Edges, exportEdge{
-			EdgeHash:       fmt.Sprintf("%x", e.EdgeHash),
-			SourceHash:     fmt.Sprintf("%x", e.SourceHash),
-			TargetHash:     fmt.Sprintf("%x", e.TargetHash),
+			EdgeHash:       e.EdgeHash.String(),
+			SourceHash:     e.SourceHash.String(),
+			TargetHash:     e.TargetHash.String(),
 			EdgeType:       e.EdgeType,
 			Confidence:     e.Confidence,
 			Provenance:     e.Provenance,
