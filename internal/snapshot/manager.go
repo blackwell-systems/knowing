@@ -54,18 +54,15 @@ func (sm *SnapshotManager) ComputeSnapshot(ctx context.Context, repoHash types.H
 	edgeCount := len(edgeInputs)
 
 	// Build hierarchical Merkle tree (package -> edge-type -> leaf).
+	// The hierarchical root IS the snapshot hash. No flat tree is built;
+	// the hierarchical structure is the canonical representation.
 	htree := BuildHierarchicalTree(edgeInputs)
 
-	// Also build flat tree for backward-compatible root (same root value).
-	edgeHashes := make([]types.Hash, len(edgeInputs))
-	for i, e := range edgeInputs {
-		edgeHashes[i] = e.EdgeHash
-	}
-	tree := BuildMerkleTree(edgeHashes)
+	// Wrap the hierarchical root with a snapshot domain prefix for type safety.
+	snapshotHash := types.ComputeSnapshotHash(htree.Root)
 
 	// Store the hierarchical tree for later use by diff and caching.
 	sm.lastHierarchicalTree = htree
-	_ = tree // flat root used for snapshot hash
 
 	// Get the latest snapshot for parent chain.
 	var parentHash types.Hash
@@ -78,7 +75,7 @@ func (sm *SnapshotManager) ComputeSnapshot(ctx context.Context, repoHash types.H
 	}
 
 	snap := types.Snapshot{
-		SnapshotHash: tree.Root,
+		SnapshotHash: snapshotHash,
 		ParentHash:   parentHash,
 		RepoHash:     repoHash,
 		CommitHash:   commitHash,
