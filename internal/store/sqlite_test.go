@@ -941,3 +941,12 @@ func TestGetNode_NotFound(t *testing.T) {
 		t.Error("expected nil for nonexistent node")
 	}
 }
+
+func TestIntegrityCheck_Healthy(t *testing.T) {
+	s := tempDB(t)
+	ctx := context.Background()
+
+	if err := s.IntegrityCheck(ctx); err != nil {
+		t.Fatalf("IntegrityCheck on healthy DB: %v", err)
+	}
+}

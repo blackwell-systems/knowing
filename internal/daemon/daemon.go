@@ -100,6 +100,12 @@ func NewDaemon(cfg DaemonConfig) *Daemon {
 func (d *Daemon) Start(ctx context.Context) error {
 	ctx, d.cancel = context.WithCancel(ctx)
 
+	if d.cfg.DBPath != "" {
+		if err := AcquireLockfile(d.cfg.DBPath); err != nil {
+			return fmt.Errorf("daemon: %w", err)
+		}
+	}
+
 	gw, err := NewGitWatcher(500 * time.Millisecond)
 	if err != nil {
 		return fmt.Errorf("daemon: create watcher: %w", err)
@@ -182,6 +188,16 @@ func (d *Daemon) UnwatchRepo(repoPath string) error {
 		return d.watcher.Remove(repoPath)
 	}
 	return nil
+}
+
+// GarbageCollect runs garbage collection while holding the write lock
+// to prevent concurrent index writes during the reachability sweep.
+// The gcFunc callback performs the actual GC work (e.g., calling
+// SnapshotManager.GarbageCollect or GarbageCollectFull).
+func (d *Daemon) GarbageCollect(ctx context.Context, gcFunc func(ctx context.Context) error) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return gcFunc(ctx)
 }
 
 // GitHeadCommit reads the HEAD commit hash from a git repository without
@@ -307,6 +323,9 @@ func (d *Daemon) traceIngestLoop(ctx context.Context) {
 
 // shutdown cleans up watcher and waits for goroutines.
 func (d *Daemon) shutdown() error {
+	if d.cfg.DBPath != "" {
+		ReleaseLockfile(d.cfg.DBPath)
+	}
 	close(d.indexQueue)
 	if d.watcher != nil {
 		_ = d.watcher.Close()
