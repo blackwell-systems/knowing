@@ -610,7 +610,7 @@ distance, feedback weight, session boost, and equivalence class matches.
 knowing why -task "refactor auth" -symbol "SessionHandler"
 ```
 
-See the [CLI reference](CLI.md#why) for full usage and example output.
+See the [CLI reference](../guide/cli.md#why) for full usage and example output.
 
 ### Ranges
 

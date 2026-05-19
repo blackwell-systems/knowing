@@ -17,16 +17,35 @@ theme:
 
 nav:
   - Home: index.md
-  - Architecture: architecture.md
-  - Wire Formats: wire-formats.md
-  - CLI Reference: CLI.md
-  - MCP Tools: MCP-TOOLS.md
-  - Edge Types: edge-types.md
-  - Context Packing: context-packing.md
-  - Runtime Traces: runtime-traces.md
-  - Distribution: DISTRIBUTION.md
+  - Architecture:
+    - Overview: architecture/overview.md
+    - Concepts: architecture/concepts.md
+    - System Overview: architecture/system-overview.md
+    - Data Flow: architecture/data-flow.md
+    - Concurrency: architecture/concurrency.md
+    - Context Engine: architecture/context-engine.md
+    - Wire Formats: architecture/wire-formats.md
+    - CLI Commands: architecture/cli-commands.md
+    - Design Principles: architecture/design-principles.md
+    - Deep Dives: architecture/deep-dives.md
+    - Retrieval Pipeline: architecture/retrieval-pipeline.md
+    - Context Packing: architecture/context-packing.md
+    - Edge Types: architecture/edge-types.md
+    - Equivalence Classes: architecture/equivalence-classes.md
+    - Hooks Integration: architecture/hooks-integration.md
+    - Runtime Traces: architecture/runtime-traces.md
+  - Guide:
+    - CLI Reference: guide/cli.md
+    - MCP Tools: guide/mcp-tools.md
+    - Features: guide/features.md
+    - Distribution: guide/distribution.md
+  - Research:
+    - Whitepaper: research/whitepaper.md
+    - Eval Framework: research/eval-framework.md
+  - Operations:
+    - Deployment: operations/deployment.md
+    - Runtime Traces: operations/runtime-traces.md
   - Roadmap: roadmap.md
-  - Features: FEATURES.md
   - Changelog: CHANGELOG.md
 
 markdown_extensions:

@@ -5,7 +5,7 @@ query symbols, export graphs, compute semantic diffs, and run the daemon.
 
 ## Installation
 
-See [DISTRIBUTION.md](DISTRIBUTION.md) for installation instructions.
+See [distribution.md](distribution.md) for installation instructions.
 
 ## Usage
 

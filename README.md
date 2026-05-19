@@ -267,7 +267,7 @@ knowing records static, infrastructure, and runtime relationships, including:
 - `publishes`, `subscribes`, `connects_to`
 - `runtime_calls`, `runtime_rpc`, `runtime_produces`, `runtime_consumes`
 
-See [docs/edge-types.md](docs/edge-types.md) for exact semantics, producers, confidence tiers, and traversal behavior.
+See [docs/architecture/edge-types.md](docs/architecture/edge-types.md) for exact semantics, producers, confidence tiers, and traversal behavior.
 
 ### MCP Tools
 
@@ -284,7 +284,7 @@ The MCP server exposes 23 tools across indexing, graph queries, analysis, runtim
 
 MCP prompts: `refactor_safely`, `review_pr`, `investigate_dead_code`.
 
-Full reference: [docs/MCP-TOOLS.md](docs/MCP-TOOLS.md).
+Full reference: [docs/guide/mcp-tools.md](docs/guide/mcp-tools.md).
 
 ## Wire Formats
 
@@ -314,7 +314,7 @@ The identity model is described in the opening section. Two additional propertie
 - **Caching:** query results keyed to a snapshot hash remain valid forever for that snapshot. The hash is the cache key.
 - **Edge events:** relationship changes are explicit (added/removed per edge per commit), not inferred from full graph scans.
 
-For the full storage model and hash construction, see [docs/architecture.md](docs/architecture.md).
+For the full storage model and hash construction, see [docs/architecture/overview.md](docs/architecture/overview.md).
 
 ## Current Boundaries
 
@@ -325,21 +325,21 @@ knowing is implemented, benchmarked, and usable, but it is still explicit about 
 - LSP enrichment supports Go (gopls), TypeScript (tsserver), Python (pyright), Rust (rust-analyzer), Java (jdtls), and C# (OmniSharp). Servers are auto-detected from project markers and PATH. Languages without a detected server fall back to tree-sitter extraction and SCIP where available.
 - Some planned work remains: MCP resources, traversal caching, richer ownership routing, and federated graphs.
 
-See [docs/FEATURES.md](docs/FEATURES.md) for the implementation inventory and known gaps, and [docs/roadmap.md](docs/roadmap.md) for planned work.
+See [docs/guide/features.md](docs/guide/features.md) for the implementation inventory and known gaps, and [docs/roadmap.md](docs/roadmap.md) for planned work.
 
 ## Documentation
 
 | Doc | Contents |
 |---|---|
-| [Architecture](docs/architecture.md) | System design, schemas, content addressing, daemon model |
-| [Features](docs/FEATURES.md) | Implementation inventory, entry points, limitations |
-| [CLI Reference](docs/CLI.md) | Commands, flags, examples |
-| [MCP Tools](docs/MCP-TOOLS.md) | Tool schemas, parameters, return formats |
-| [Edge Types](docs/edge-types.md) | Relationship semantics and provenance |
-| [Context Packing](docs/context-packing.md) | RWR, HITS, ranking, token budgeting |
-| [Runtime Traces](docs/runtime-traces.md) | OTel ingestion and runtime confidence |
-| [Wire Formats](docs/wire-formats.md) | GCF, GCB, JSON formats and benchmarks |
-| [Distribution](docs/DISTRIBUTION.md) | Release channels and package managers |
+| [Architecture](docs/architecture/overview.md) | System design, schemas, content addressing, daemon model |
+| [Features](docs/guide/features.md) | Implementation inventory, entry points, limitations |
+| [CLI Reference](docs/guide/cli.md) | Commands, flags, examples |
+| [MCP Tools](docs/guide/mcp-tools.md) | Tool schemas, parameters, return formats |
+| [Edge Types](docs/architecture/edge-types.md) | Relationship semantics and provenance |
+| [Context Packing](docs/architecture/context-packing.md) | RWR, HITS, ranking, token budgeting |
+| [Runtime Traces](docs/operations/runtime-traces.md) | OTel ingestion and runtime confidence |
+| [Wire Formats](docs/architecture/wire-formats.md) | GCF, GCB, JSON formats and benchmarks |
+| [Distribution](docs/guide/distribution.md) | Release channels and package managers |
 | [Roadmap](docs/roadmap.md) | Completed workstreams and next priorities |
 | [Benchmarks](bench/README.md) | Reproducible value benchmarks |
 | [Hooks](hooks/README.md) | Claude Code hook integration |

@@ -7,7 +7,7 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 | # | Item | Why | Effort |
 |---|------|-----|--------|
 | 1 | **Real users** | Everything else is validated by benchmarks, not usage. Task memory compounds with use. | Ongoing |
-| 2 | **~~`knowing why <symbol>`~~** | **Shipped.** Explains why a symbol ranked where it did: seed channel/tier, RWR score, HITS authority/hub, blast radius, confidence, recency, distance, feedback weight, session boost, equivalence class matches. See [CLI reference](CLI.md#why). | Done |
+| 2 | **~~`knowing why <symbol>`~~** | **Shipped.** Explains why a symbol ranked where it did: seed channel/tier, RWR score, HITS authority/hub, blast radius, confidence, recency, distance, feedback weight, session boost, equivalence class matches. See [CLI reference](guide/cli.md#why). | Done |
 | 3 | **Session memory persistence** | SessionTracker is ephemeral (lost on session end), task memory is coarse (keyword-level, 7-day decay). Persist session working sets to SQLite so resumed sessions pick up where they left off and cross-session patterns compound. Extends `internal/context/session.go` with a `session_events` table. | Medium |
 | 4 | **~~Negative feedback~~** | **Already implemented.** `feedback` tool accepts `useful: false`, store computes useful/total ratio, ranking formula maps to [-0.15, +0.15] penalty/boost. Updated tool description to make negative feedback explicit. | Done |
 | 5 | **Traversal cache** | L1 in-memory LRU for hot paths. Repeat queries should be instant. | Medium |
@@ -69,7 +69,7 @@ These exist in the codebase but aren't wired into retrieval or workflows yet:
 
 ## Retrieval Pipeline
 
-Pipeline is shipped and measured (31.6% P@10, 55 fixtures, 23 experiments). See [retrieval-pipeline.md](retrieval-pipeline.md) for the authoritative reference.
+Pipeline is shipped and measured (31.6% P@10, 55 fixtures, 23 experiments). See [retrieval-pipeline.md](architecture/retrieval-pipeline.md) for the authoritative reference.
 
 **Next retrieval improvements (per local-first philosophy):**
 
@@ -182,6 +182,6 @@ Pipeline is shipped and measured (31.6% P@10, 55 fixtures, 23 experiments). See 
 
 knowing is an intelligence versioning system. Git versions files; knowing versions the understanding of code: relationships, confidence, provenance, and what changes mean. Every snapshot captures not just structure but learned intelligence (feedback, session patterns, task memory) that compounds with use.
 
-The retrieval pipeline uses equivalence classes (not embeddings) as the primary concept-matching mechanism. This is local, deterministic, inspectable, and compounds with use. See [retrieval-pipeline.md](retrieval-pipeline.md) for the design rationale.
+The retrieval pipeline uses equivalence classes (not embeddings) as the primary concept-matching mechanism. This is local, deterministic, inspectable, and compounds with use. See [retrieval-pipeline.md](architecture/retrieval-pipeline.md) for the design rationale.
 
 **What's shipped (v0.2.0):** ~60K LOC Go, 25 extractor types (12 languages + 13 infrastructure/cloud formats), 23 MCP tools, 5 wire formats (GCF/TOON/JSON/XML/markdown), 55 eval fixtures, 84 equivalence classes, multi-language LSP enrichment (Go, TS, Python, Java, Rust, C#), `knowing init` one-command setup, `knowing why` retrieval explainability.
