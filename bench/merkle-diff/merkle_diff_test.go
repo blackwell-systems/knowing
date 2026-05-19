@@ -163,6 +163,14 @@ func TestMerkleDiffBenchmark(t *testing.T) {
 	t.Logf("Hierarchical diff avg: %v", hierDiffAvg)
 	t.Logf("Speedup: %.0fx", speedup)
 
+	// Performance contracts.
+	if speedup < 10 {
+		t.Errorf("Hierarchical diff speedup %.1fx below 10x floor (regression)", speedup)
+	}
+	if hierDiffAvg > 1*time.Millisecond {
+		t.Errorf("Hierarchical diff avg %v exceeds 1ms contract", hierDiffAvg)
+	}
+
 	// Verify hierarchical diff correctness.
 	diff := snapshot.DiffHierarchicalTrees(hierTree, mutatedHier)
 	if !diff.RootChanged {
