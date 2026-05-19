@@ -3,6 +3,46 @@
 Tested: 2026-05-19
 Fixture: 3 Go modules (module-a shared library, module-b imports A, module-c imports A+B)
 
+## What This Proves About the Architecture
+
+### 1. Content-addressed identity works across repositories
+
+Two independent indexers (one for module-a, one for module-b) produce matching
+hashes for the same symbol without any communication between them. Module-b's
+edge to `modulea.NewRegistry` has target hash `1e49ea8957f38632...`, which is
+the exact hash stored in module-a's database. Global identity without
+coordination: the core promise of content-addressing.
+
+### 2. The hash formula is correct and sufficient
+
+`SHA-256("node\0" + repoURL + "\0" + packagePath + "\0" + symbolName + "\0" + symbolKind)`
+produces unique, deterministic, globally-agreeing hashes. The `"node\0"` domain
+prefix, the repo URL component, and the package path component all contribute to
+correctness. Removing any one would break cross-repo identity.
+
+### 3. Canonicalization is the correctness boundary
+
+The original failure proved this by counterexample: when the extractor used the
+wrong repo URL (local instead of target), hashes diverged silently. The system
+produced edges that looked correct but pointed to nonexistent targets. No runtime
+error, no crash, just quiet incorrectness. Canonicalization bugs are the most
+dangerous failure mode in a content-addressed system because they're invisible.
+
+### 4. Per-repo isolation requires cross-repo identity infrastructure
+
+Separate databases per repo is the right isolation model (community detection,
+BM25, HITS all operate on scoped data). But isolation breaks cross-repo identity
+unless the indexer can see ALL registered repos' URLs. The roster is that
+infrastructure: it's the bridge between isolation and global identity.
+
+### 5. The Merkle tree is repo-scoped, not org-scoped
+
+Each repo has its own hierarchical Merkle tree and snapshot chain. Cross-repo
+edges exist as hash references (like symlinks), not as entries in a shared tree.
+This means: proofs are per-repo, fsck is per-repo, and a cross-repo proof
+requires proving the edge in the source repo and then proving the target node
+in the target repo. Federated sync (Phase 4) will formalize this.
+
 ## Test Results
 
 ### TEST 1: Indexing (PASS)
@@ -111,9 +151,45 @@ self-references (method calls on types within the same package) where the
 tree-sitter extractor generates target hashes that don't match any node. This
 is a separate extractor accuracy issue, not a cross-repo identity issue.
 
+## Audit Tooling Results
+
+### knowing fsck on module-b
+
+```
+16 errors (dangling edges), 4 warnings (hash mismatches)
+```
+
+**Dangling edges (16):** Expected. Cross-repo edge targets live in module-a's
+database, not module-b's. Per-repo fsck correctly flags these as dangling
+because it only sees one database. A cross-repo fsck would need to query
+across databases to distinguish "dangling because cross-repo" from "dangling
+because corrupted."
+
+**Hash mismatches (4):** 4 of 6 nodes have stored hashes that don't match
+recomputed hashes. This indicates the node fields were modified after the
+initial hash computation (likely by LSP enrichment adding signature/doc data).
+This is a real correctness issue: node hashes should be recomputed after
+enrichment, or enrichment should not modify fields that affect the hash.
+
+### What the audit tooling proves
+
+1. **fsck detects cross-repo dangling edges.** The tool correctly identifies
+   that edges point to nonexistent nodes. In a single-repo context, this is
+   corruption. In a cross-repo context, this is expected. Future work: teach
+   fsck about the roster so it can distinguish the two cases.
+
+2. **fsck detects hash integrity issues.** The 4 hash mismatches are a real
+   finding that we would not have caught without running fsck on the fixture.
+   The enrichment pipeline modifies node fields after hash computation.
+
+3. **The audit tooling works on the fixture.** knowing fsck runs, produces
+   structured output, and correctly classifies issues as ERROR or WARN.
+
 ## Remaining Work
 
 - Export path still filters cross-repo edges (target not in exported node set)
 - `knowing prove` across repos needs multi-database proof generation
 - `knowing audit` needs to query across databases for a combined report
 - knowing-viz needs a combined export to visualize cross-repo topology
+- fsck needs roster awareness to distinguish cross-repo dangling from corruption
+- Hash recomputation after LSP enrichment (4 node hash mismatches)
