@@ -224,6 +224,19 @@ func (m *mockStore) Close() error { return nil }
 func (m *mockStore) DeleteNodesNotIn(_ context.Context, _ map[types.Hash]struct{}) (int64, error) { return 0, nil }
 func (m *mockStore) DeleteEdgesNotIn(_ context.Context, _ map[types.Hash]struct{}) (int64, error) { return 0, nil }
 
+func (m *mockStore) PutNote(_ context.Context, _ types.Note) error { return nil }
+func (m *mockStore) GetNote(_ context.Context, _ types.Hash, _ string) (*types.Note, error) {
+	return nil, nil
+}
+func (m *mockStore) GetNotes(_ context.Context, _ types.Hash) ([]types.Note, error) {
+	return nil, nil
+}
+func (m *mockStore) GetNotesByKey(_ context.Context, _ string) ([]types.Note, error) {
+	return nil, nil
+}
+func (m *mockStore) DeleteNote(_ context.Context, _ types.Hash, _ string) error { return nil }
+func (m *mockStore) DeleteNotesByObject(_ context.Context, _ types.Hash) error  { return nil }
+
 // ---------- Tests ----------
 
 func TestNewEnricher_Fields(t *testing.T) {

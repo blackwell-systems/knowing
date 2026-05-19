@@ -144,6 +144,19 @@ func (m *mockGraphStore) Close() error                                          
 func (m *mockGraphStore) DeleteNodesNotIn(_ context.Context, _ map[types.Hash]struct{}) (int64, error) { return 0, nil }
 func (m *mockGraphStore) DeleteEdgesNotIn(_ context.Context, _ map[types.Hash]struct{}) (int64, error) { return 0, nil }
 
+func (m *mockGraphStore) PutNote(_ context.Context, _ types.Note) error { return nil }
+func (m *mockGraphStore) GetNote(_ context.Context, _ types.Hash, _ string) (*types.Note, error) {
+	return nil, nil
+}
+func (m *mockGraphStore) GetNotes(_ context.Context, _ types.Hash) ([]types.Note, error) {
+	return nil, nil
+}
+func (m *mockGraphStore) GetNotesByKey(_ context.Context, _ string) ([]types.Note, error) {
+	return nil, nil
+}
+func (m *mockGraphStore) DeleteNote(_ context.Context, _ types.Hash, _ string) error { return nil }
+func (m *mockGraphStore) DeleteNotesByObject(_ context.Context, _ types.Hash) error  { return nil }
+
 // --- Merkle tests ---
 
 func TestMerkleRoot_Deterministic(t *testing.T) {

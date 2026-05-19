@@ -223,7 +223,7 @@ When the daemon detects a file change, it runs `DiffHierarchicalTrees` to find w
 
 Total diff plus invalidation overhead per re-index: ~6us. The re-index itself (parsing, SQLite writes) dominates at ~149ms. The invalidation overhead is invisible (`bench/merkle-diff/FINDINGS-phase2-cache.md`).
 
-**Queries against unchanged code are free.**
+**Queries against unchanged code are fast-path cache hits.**
 
 The end-to-end consequence: an agent repeatedly querying the same packages during a task session hits the cache on every warm call. The subgraph cache delivers 93x speedup (median) versus cold retrieval:
 
@@ -295,7 +295,7 @@ For a fixed analyzer version, configuration, and input source state, `SnapshotHa
 **Property 3: O(1) currency check.**
 Verifying currency requires exactly one hash comparison, regardless of graph size.
 
-**Property 4: History is free.**
+**Property 4: History is structurally available.**
 Every previous state is retrievable at O(1) cost by snapshot hash. The chain provides ordered traversal. No explicit versioning system required.
 
 **Property 5: Isolation without locking.**
@@ -327,7 +327,7 @@ The overhead is negligible. The dominant cost in every case is parsing or I/O, n
 
 ## 6. Structural Consequences of the Model
 
-The following capabilities are structural consequences of the hierarchical content-addressing choice. They require no additional implementation beyond the hash computations:
+The following capabilities are structural consequences of the hierarchical content-addressing choice. They still require ordinary implementation, but they do not require separate consistency, invalidation, versioning, or provenance mechanisms layered beside the data model:
 
 ### 6.1 Three-Layer Architecture
 
@@ -383,7 +383,7 @@ Any tampering (inserted edge, modified confidence, deleted relationship) changes
 ```
 current_root = SubgraphRoot(["internal/mcp", "internal/store"])
 if current_root == cached_root:
-    return cached_result  // free
+    return cached_result  // 42ns lookup
 ```
 
 Cache validity is checked in 42ns. A cache hit eliminates the full retrieval pipeline (median cold cost: ~160ms). The speedup is 93x (`bench/merkle-diff/FINDINGS-phase2-cache.md`).
@@ -416,7 +416,7 @@ Graph clustering (Louvain community detection) partitions the graph into densely
 CommunityRoot(auth_community) = MerkleRoot(PackageRoots(auth_community.packages))
 ```
 
-Two agents editing disjoint communities have disjoint roots. This proves at the identity level that their edits cannot conflict. Community roots enable safe agent parallelization without coordination.
+Two agents editing disjoint communities have disjoint roots, which proves non-overlap at the relationship-graph identity level. This does not eliminate all semantic conflicts (shared config, global state, generated code), but it provides a strong structural basis for safe parallelization and conflict pre-screening.
 
 ### 6.9 Deterministic CI
 
@@ -494,7 +494,7 @@ The hierarchical tree costs the same to build because the total hashing work is 
 
 ## 8. Agent Implications
 
-The hierarchical content-addressed model provides agents four properties that mutable graphs cannot:
+The hierarchical content-addressed model provides agents four properties that mutable graphs usually require additional machinery to approximate:
 
 **1. Trustworthy staleness signals.** An agent can verify that the graph it is reading reflects the current commit. With mutable graphs, the agent must trust a timestamp or "last indexed" field that may be wrong.
 
@@ -515,7 +515,7 @@ The content-addressing contract can be stated precisely. Any system claiming to 
 | Is this state genuine? | Verify hash chain (cryptographic) | Trust the system (operational) |
 | Can concurrent access corrupt? | No (immutable data) | Depends on locking strategy |
 | Do two instances agree? | Same content -> same hash (guaranteed) | Depends on sync protocol |
-| Can I query the past? | Point lookup by hash (free) | Depends on retention policy |
+| Can I query the past? | Point lookup by hash (O(1)) | Depends on retention policy |
 | Are cached results valid? | Compare package roots, O(1) | Depends on cache invalidation logic |
 
 ---
@@ -528,7 +528,7 @@ The most powerful consequence of hierarchical content-addressing is not what it 
 
 Consider an agent that reports: "the symbol `RankSymbols` was useful for this context-engine task." For this feedback to benefit future agents, it must be anchored to something stable. In mutable systems, anchoring feedback to a symbol name is fragile: renames, moves, and restructuring silently invalidate accumulated knowledge without detection.
 
-With content-addressing, feedback is keyed on the symbol's hash: `SHA-256("node\0" || repoURL || packagePath || "RankSymbols" || "function")`. This provides three guarantees that mutable systems usually cannot offer without a separate audit infrastructure:
+With content-addressing, feedback is keyed on the symbol's hash: `SHA-256("node\0" || repoURL || packagePath || "RankSymbols" || "function")`. This provides three guarantees that mutable systems usually require separate audit infrastructure to approximate:
 
 **Natural expiration.** When a symbol is renamed, it receives a new hash. Old feedback becomes structurally orphaned (no current node matches the hash). No garbage collection logic, no TTL heuristics, no manual curation. Staleness is a structural consequence of the identity model.
 
@@ -544,7 +544,7 @@ Feedback scoped by community compounds faster than global feedback because it re
 
 Content-addressing makes this possible because community structure is itself deterministic and verifiable. Communities are computed from edge structure at a snapshot. If the snapshot hash has not changed, communities have not changed. Feedback validity and community membership can be verified with hash comparisons, not recomputation.
 
-The disjoint community root property also enables safe agent parallelization: when two agents target disjoint community roots, their edits are provably non-conflicting at the identity level.
+The disjoint community root property also supports safe agent parallelization: when two agents target disjoint community roots, their edits are provably non-overlapping at the relationship-graph identity level, providing a strong structural basis for conflict pre-screening.
 
 ### 9.3 The Through-Line
 
@@ -582,14 +582,21 @@ The properties described in this paper hold under specific conditions. This sect
 
 We are not aware of an existing code intelligence system that uses hierarchical Merkle trees over code relationships.
 
-### 11.1 Historical Context
+### 11.1 Related System Categories
 
-Most code intelligence tools evolved from:
-- IDE plugins (mutable in-memory state, rebuilt on every session)
-- Search engines (inverted indices, updated in place)
-- Database applications (CRUD against mutable tables)
+Prior systems use content-addressing for files, artifacts, or build outputs; mutable or query-oriented stores for code intelligence; or graph indexes for search. The distinction here is using hierarchical content-addressed identity over relationship edges as the primary mechanism for diffing, invalidation, cache validity, and provenance.
 
-These origins embed the assumption that state is mutable and current. Content-addressing requires a different mental model: state is immutable and historical, with "current" being a pointer to the latest immutable snapshot.
+**Code intelligence indexes** (Sourcegraph/SCIP, LSIF, Kythe, CodeQL) build queryable databases of code relationships. These use mutable or append-only stores optimized for IDE-style queries: go-to-definition, find-references, hover documentation. They do not content-address the relationship graph itself, so they lack structural staleness detection, snapshot diffing, and cache-key derivation from identity.
+
+**Build graph systems** (Bazel, Buck2, Pants) content-address build artifacts and action outputs, enabling hermetic builds and remote caching. Their Merkle trees organize build actions, not code relationships. The insight that a Merkle tree over semantic code boundaries enables scoped invalidation of analysis results is orthogonal to build-graph content-addressing.
+
+**Graph databases** (Neo4j, Dgraph, Amazon Neptune) store and query graph-structured data with mutable state. They provide query languages (Cypher, GraphQL) but not content-addressed identity, snapshot chains, or Merkle-based diffing. Adding these properties requires application-layer machinery.
+
+**Content-addressed storage** (Git, IPFS, Nix store) content-addresses files, blocks, or derivations. Git's object model is the closest precedent: it uses hierarchical Merkle trees (commit -> tree -> blob) organized by filesystem structure. The insight in this work is that the same approach applies to derived analysis artifacts, with the tree organized by semantic boundaries (packages, edge types) rather than directory hierarchy.
+
+**LSP servers** maintain in-memory indexes of the currently open workspace. They are per-session, mutable, and do not persist or version the relationship state they compute.
+
+Most code intelligence tools evolved from IDE plugins (mutable in-memory state), search engines (inverted indices), or database applications (CRUD against mutable tables). These origins embed the assumption that state is mutable and current. Content-addressing requires a different mental model: state is immutable and historical, with "current" being a pointer to the latest immutable snapshot.
 
 ### 11.2 The Git Barrier
 

@@ -151,6 +151,20 @@ type EdgeProvenance struct {
 	Timestamp      int64   // unix timestamp of extraction
 }
 
+// Note attaches arbitrary key/value metadata to any content-addressed object
+// (node, edge, snapshot, community, pack root) without affecting Merkle
+// computation. Modeled after git notes: a parallel metadata layer that never
+// changes the identity of the object it annotates.
+//
+// Use cases: community assignments, context pack persistence, quality scores,
+// feedback annotations, agent session state.
+type Note struct {
+	ObjectHash Hash   // the content-addressed object this note is attached to
+	Key        string // the metadata key (e.g., "community_id", "context_pack")
+	Value      string // the metadata value (opaque to the store; callers may use JSON)
+	UpdatedAt  int64  // unix timestamp of last write
+}
+
 // ComputeNodeHash computes the content-addressed hash for a node.
 // The contentHash parameter is accepted for API compatibility but is
 // not included in the hash computation. Node identity depends on

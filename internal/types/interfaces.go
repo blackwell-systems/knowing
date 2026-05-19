@@ -63,6 +63,20 @@ type GraphStore interface {
 	FileByPath(ctx context.Context, repoHash Hash, path string) (*File, error)
 	NodesByFilePath(ctx context.Context, repoHash Hash, path string) ([]Node, error)
 
+	// Notes: metadata that never affects Merkle computation (git notes pattern).
+	// PutNote upserts a note (object_hash + key is the composite key).
+	PutNote(ctx context.Context, n Note) error
+	// GetNote retrieves a single note by object hash and key. Returns nil if not found.
+	GetNote(ctx context.Context, objectHash Hash, key string) (*Note, error)
+	// GetNotes retrieves all notes attached to an object.
+	GetNotes(ctx context.Context, objectHash Hash) ([]Note, error)
+	// GetNotesByKey retrieves all notes with the given key across all objects.
+	GetNotesByKey(ctx context.Context, key string) ([]Note, error)
+	// DeleteNote removes a single note by object hash and key.
+	DeleteNote(ctx context.Context, objectHash Hash, key string) error
+	// DeleteNotesByObject removes all notes attached to an object.
+	DeleteNotesByObject(ctx context.Context, objectHash Hash) error
+
 	// Close releases the underlying database connection.
 	Close() error
 }

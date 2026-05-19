@@ -173,6 +173,19 @@ func (m *mockStore) Close() error { return nil }
 func (m *mockStore) DeleteNodesNotIn(_ stdctx.Context, _ map[types.Hash]struct{}) (int64, error) { return 0, nil }
 func (m *mockStore) DeleteEdgesNotIn(_ stdctx.Context, _ map[types.Hash]struct{}) (int64, error) { return 0, nil }
 
+func (m *mockStore) PutNote(_ stdctx.Context, _ types.Note) error { return nil }
+func (m *mockStore) GetNote(_ stdctx.Context, _ types.Hash, _ string) (*types.Note, error) {
+	return nil, nil
+}
+func (m *mockStore) GetNotes(_ stdctx.Context, _ types.Hash) ([]types.Note, error) {
+	return nil, nil
+}
+func (m *mockStore) GetNotesByKey(_ stdctx.Context, _ string) ([]types.Note, error) {
+	return nil, nil
+}
+func (m *mockStore) DeleteNote(_ stdctx.Context, _ types.Hash, _ string) error { return nil }
+func (m *mockStore) DeleteNotesByObject(_ stdctx.Context, _ types.Hash) error  { return nil }
+
 // --- Tests ---
 
 func TestForTask_EmptyDescription(t *testing.T) {

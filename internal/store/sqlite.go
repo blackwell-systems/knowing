@@ -1174,3 +1174,92 @@ func splitCamelCase(s string) []string {
 	}
 	return result
 }
+
+// ----- Notes methods -----
+
+// PutNote upserts a note (object_hash + key is the composite key).
+func (s *SQLiteStore) PutNote(ctx context.Context, n types.Note) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT OR REPLACE INTO graph_notes (object_hash, key, value, updated_at)
+		 VALUES (?, ?, ?, ?)`,
+		n.ObjectHash[:], n.Key, n.Value, n.UpdatedAt,
+	)
+	return err
+}
+
+// GetNote retrieves a single note by object hash and key. Returns nil if not found.
+func (s *SQLiteStore) GetNote(ctx context.Context, objectHash types.Hash, key string) (*types.Note, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT object_hash, key, value, updated_at FROM graph_notes WHERE object_hash = ? AND key = ?`,
+		objectHash[:], key,
+	)
+	var n types.Note
+	var hashBytes []byte
+	if err := row.Scan(&hashBytes, &n.Key, &n.Value, &n.UpdatedAt); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	copy(n.ObjectHash[:], hashBytes)
+	return &n, nil
+}
+
+// GetNotes retrieves all notes attached to an object.
+func (s *SQLiteStore) GetNotes(ctx context.Context, objectHash types.Hash) ([]types.Note, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT object_hash, key, value, updated_at FROM graph_notes WHERE object_hash = ? ORDER BY key`,
+		objectHash[:],
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanNotes(rows)
+}
+
+// GetNotesByKey retrieves all notes with the given key across all objects.
+func (s *SQLiteStore) GetNotesByKey(ctx context.Context, key string) ([]types.Note, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT object_hash, key, value, updated_at FROM graph_notes WHERE key = ? ORDER BY object_hash`,
+		key,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanNotes(rows)
+}
+
+// DeleteNote removes a single note by object hash and key.
+func (s *SQLiteStore) DeleteNote(ctx context.Context, objectHash types.Hash, key string) error {
+	_, err := s.db.ExecContext(ctx,
+		`DELETE FROM graph_notes WHERE object_hash = ? AND key = ?`,
+		objectHash[:], key,
+	)
+	return err
+}
+
+// DeleteNotesByObject removes all notes attached to an object.
+func (s *SQLiteStore) DeleteNotesByObject(ctx context.Context, objectHash types.Hash) error {
+	_, err := s.db.ExecContext(ctx,
+		`DELETE FROM graph_notes WHERE object_hash = ?`,
+		objectHash[:],
+	)
+	return err
+}
+
+// scanNotes is a shared helper for scanning note rows.
+func scanNotes(rows *sql.Rows) ([]types.Note, error) {
+	var notes []types.Note
+	for rows.Next() {
+		var n types.Note
+		var hashBytes []byte
+		if err := rows.Scan(&hashBytes, &n.Key, &n.Value, &n.UpdatedAt); err != nil {
+			return nil, err
+		}
+		copy(n.ObjectHash[:], hashBytes)
+		notes = append(notes, n)
+	}
+	return notes, rows.Err()
+}
