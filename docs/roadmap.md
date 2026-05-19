@@ -16,8 +16,10 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 | Item | Description | Priority |
 |------|-------------|----------|
 | `knowing stats` | Cumulative session value: context calls, symbols served, feedback rate, token savings. | P2 |
-| `knowing fsck` roster awareness | Classify dangling edges as cross-repo (target in another roster DB), stdlib (no repo has it), or truly dangling (corruption). Currently reports all dangling as errors. | P1 |
-| Cross-repo method call resolution | Tree-sitter extractor generates different target hashes for method calls across repos (receiver naming mismatch). 9 of 16 dangling edges in cross-repo fixture are this issue. LSP enrichment fixes it within a repo but not across boundaries. | P1 |
+| `knowing fsck` roster awareness | ~~Classify dangling edges as cross-repo, stdlib, or truly dangling.~~ **Shipped**. Roster stores opened once per verify call. Stdlib heuristic checks import paths. | ~~P1~~ Done |
+| Cross-repo method call resolution | ~~Extractor naming mismatch for method calls.~~ **Shipped**. Extractor uses kind="method" for selector calls. LSP enricher resolves definitions across repos via roster. | ~~P1~~ Done |
+| **Removed-edge diff correctness** | Edges are deleted before "removed" events are recorded (`internal/indexer/indexer.go:300`). `SnapshotDiff` joins events back to edges, but removed edges no longer exist. Removed diffs likely come back empty. Undercuts the "what disappeared between snapshots" audit claim. | **P0** |
+| **Synthetic file node storage** | Import/reference edges use synthetic file nodes as sources (e.g., `fileNodeHash` in gotsextractor). These nodes are computed but never stored in the nodes table. Edges reference nonexistent source nodes. The snapshot manager has a TODO acknowledging this. | **P0** |
 | Staleness reporting | `knowing stale` reports stale edges from changed files since last snapshot. | P2 |
 | Daemon lifecycle | `knowing daemon start --detach`, `status`, `stop`, `restart`. | P2 |
 | `untrack_repo` MCP tool + CLI | Evict a repo's nodes, edges, files, and snapshots. | P2 |
