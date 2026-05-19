@@ -63,19 +63,6 @@ var (
 	date    = "unknown"
 )
 
-// defaultDB returns the default database path.
-// Priority: KNOWING_DB env > roster lookup for cwd > fallback to knowing.db in cwd.
-// Each repo gets its own DB file at ~/.knowing/repos/<safe-name>.db.
-func defaultDB() string {
-	if env := os.Getenv("KNOWING_DB"); env != "" {
-		return env
-	}
-	if db := dbForCurrentDir(); db != "" {
-		return db
-	}
-	return "knowing.db" // fallback for unregistered repos
-}
-
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)

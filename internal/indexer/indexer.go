@@ -14,6 +14,7 @@ import (
 
 	"github.com/blackwell-systems/knowing/internal/indexer/ownership"
 	"github.com/blackwell-systems/knowing/internal/resolver"
+	"github.com/blackwell-systems/knowing/internal/roster"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
@@ -481,18 +482,30 @@ func (idx *Indexer) ResolveEdges(ctx context.Context) (*resolver.ResolveStats, e
 // from Go module paths to stored repo URLs. This allows extractors to resolve
 // cross-repo call targets to the correct stored repo URL.
 func (idx *Indexer) buildModuleToRepoMap(ctx context.Context) map[string]string {
+	// Start with repos in the local database.
+	result := make(map[string]string)
 	repos, err := idx.store.AllRepos(ctx)
-	if err != nil {
-		return nil
-	}
-
-	result := make(map[string]string, len(repos))
-	for _, repo := range repos {
-		modulePath := readModulePath(repo.RepoURL)
-		if modulePath != "" {
-			result[modulePath] = repo.RepoURL
+	if err == nil {
+		for _, repo := range repos {
+			modulePath := readModulePath(repo.RepoURL)
+			if modulePath != "" {
+				result[modulePath] = repo.RepoURL
+			}
 		}
 	}
+
+	// Merge the global roster's module map. This is critical for cross-repo
+	// edge resolution with per-repo isolation: the local database only has
+	// one repo, but the roster knows all registered repos and their module
+	// paths. Without this, cross-repo target hashes use the wrong repo URL
+	// and never match the actual nodes in the target repo's database.
+	rosterMap := roster.ModuleMap()
+	for modPath, repoURL := range rosterMap {
+		if _, exists := result[modPath]; !exists {
+			result[modPath] = repoURL
+		}
+	}
+
 	return result
 }
 

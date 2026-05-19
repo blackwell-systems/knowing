@@ -13,6 +13,7 @@ import (
 
 	"github.com/blackwell-systems/knowing/internal/enrichment"
 	"github.com/blackwell-systems/knowing/internal/indexer"
+	"github.com/blackwell-systems/knowing/internal/roster"
 	"github.com/blackwell-systems/knowing/internal/indexer/gotsextractor"
 	"github.com/blackwell-systems/knowing/internal/snapshot"
 	"github.com/blackwell-systems/knowing/internal/store"
@@ -76,10 +77,10 @@ func cmdSetup(args []string) error {
 	}
 
 	// Register in roster for cross-repo tracking.
-	if err := addToRoster(gitRoot, *repoURL); err != nil {
+	if _, err := roster.Add(gitRoot, *repoURL); err != nil {
 		fmt.Fprintf(os.Stderr, "        Roster warning: %v\n", err)
 	} else {
-		fmt.Fprintf(os.Stderr, "        Registered in roster: %s\n", rosterPath())
+		fmt.Fprintf(os.Stderr, "        Registered in roster: %s\n", roster.Path())
 	}
 
 	// Step 2: Index the repository.

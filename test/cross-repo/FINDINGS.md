@@ -91,9 +91,29 @@ repo URL; the extractor just needs to read it.
 - Edge extraction: cross-repo calls ARE extracted (correct source, wrong target hash)
 - LSP enrichment: works per-repo (19/19 upgraded in module-a, 15/15 in module-b)
 
-## What Doesn't Work Yet
+## Fix Applied: Roster-Based Module Mapping
 
-- Cross-repo edge resolution (target hashes use wrong repo URL)
-- Cross-repo `knowing prove` (target hash doesn't match any real node)
-- Cross-repo `knowing audit` (cross-repo edges filtered from export)
-- Cross-repo visualization in knowing-viz (same filtering issue)
+**Commit:** Moved roster to `internal/roster` shared package. Indexer's
+`buildModuleToRepoMap` now merges the global roster's module map on top of
+the local database's repos. This gives the extractor access to all registered
+repo URLs, even when indexing into a per-repo database.
+
+### Results After Fix
+
+| Source | Target DB | Resolved | Dangling |
+|--------|-----------|----------|----------|
+| Module B edges | Module A nodes | **5** (ValidateNonEmpty, NewRegistry, NewEntity, Deduplicate, Normalize) | 13 |
+| Module C edges | Module A nodes | **5** | 8 |
+| Module C edges | Module B nodes | **1** | - |
+
+Cross-repo edges now resolve correctly. The 13 dangling edges in module-b are
+self-references (method calls on types within the same package) where the
+tree-sitter extractor generates target hashes that don't match any node. This
+is a separate extractor accuracy issue, not a cross-repo identity issue.
+
+## Remaining Work
+
+- Export path still filters cross-repo edges (target not in exported node set)
+- `knowing prove` across repos needs multi-database proof generation
+- `knowing audit` needs to query across databases for a combined report
+- knowing-viz needs a combined export to visualize cross-repo topology
