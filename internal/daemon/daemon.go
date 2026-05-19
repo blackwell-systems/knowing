@@ -438,6 +438,16 @@ func (d *Daemon) indexWorker(ctx context.Context) {
 			d.runIncrementalCommunities(ctx, req.repoURL, changedPkgs)
 		}
 
+		// Scoped FTS rebuild (Phase 3 P4):
+		// Rebuild BM25 index only for changed packages instead of full table.
+		if indexErr == nil && len(changedPkgs) > 0 {
+			if ftsStore, ok := d.cfg.Store.(interface {
+				RebuildFTSForPackages(ctx context.Context, packages []string) error
+			}); ok {
+				_ = ftsStore.RebuildFTSForPackages(ctx, changedPkgs)
+			}
+		}
+
 		d.mu.Unlock()
 
 		// Trigger background enrichment after successful index.

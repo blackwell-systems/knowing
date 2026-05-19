@@ -94,14 +94,14 @@ Phase 3 requires foundation work before the features can be built correctly. The
 | P1 | **Community assignment persistence** | **Shipped**. Save/Load via notes table, BatchPutNotes (21x vs individual inserts). | `bench/community-detection/` (E2E) |
 | P2 | **Context pack persistence** | **Shipped**. Three-layer cache: SubgraphCache (42ns) -> notes table (1.2ms, snapshot-validated) -> cold retrieval. Cross-session replay verified. | `bench/merkle-diff/` (persistence) |
 | P3 | **Incremental Louvain e2e** | **Shipped**. Daemon wired: diff -> ChangedPackages -> load previous -> DetectIncremental -> save. 11ms full cycle. | `bench/community-detection/` (E2E) |
-| P4 | **Incremental HITS/BM25** | Unblocked (F3 shipped). Wire `RebuildFTSForPackages` into daemon after re-index. | |
+| P4 | **Incremental HITS/BM25** | **Shipped**. Daemon wires `RebuildFTSForPackages` with changed packages from Merkle diff. | N/A |
 | P5 | **Context pack deduplication** | **Shipped**. `pack_root` parameter on `context_for_task`. 93-99% byte savings. | `bench/merkle-diff/` (dedup) |
 | P6 | **Context pack comparison** | **Shipped**. `CompareContextPacks` returns added/removed/common symbols between two packs. | |
 | P7 | **Semantic change classification** | **Shipped**. `ClassifyChanges` returns Behavioral/Structural/RuntimeDrift/MetadataOnly from edge-type roots. | |
 
 | P8 | **Delta-save community assignments** | **Shipped**. 5.0x e2e speedup (12.6ms -> 2.5ms). Save dropped from 81% to ~4% of cycle. | `bench/community-detection/` (E2E) |
 
-Remaining: P4 (wire scoped FTS into daemon, ~1h). All other Phase 3 items shipped.
+**Phase 3 complete.** All 11 items shipped (F1-F3, P1-P8).
 
 ### Phase 4: Proofs, Sync, Bisection
 
