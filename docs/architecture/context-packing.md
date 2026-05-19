@@ -8,45 +8,50 @@ window.
 
 ## How It Works (End-to-End Flow)
 
-The pipeline has nine stages:
+The pipeline has eleven stages:
 
 ```
 Task Description
     |
     v
-[1. Keyword Extraction]    -- split CamelCase, expand abbreviations, filter stop words
+[1. Cache Check]           -- compute cache key from normalized task; return cached result on hit
     |
     v
-[2. Seed Selection]        -- 4-channel RRF fusion (tiered keywords, BM25, vector, equivalence classes)
+[2. Keyword Extraction]    -- split CamelCase, expand abbreviations, filter stop words
     |
     v
-[3. Noise Filtering]       -- exclude mock/stub/fake symbols and build artifacts
+[3. Seed Selection]        -- 4-channel RRF fusion (tiered keywords, BM25, vector, equivalence classes)
     |
     v
-[4. Random Walk with Restart]  -- propagate relevance through graph structure (BFS depth limit: 4 hops)
+[4. Noise Filtering]       -- exclude mock/stub/fake symbols and build artifacts
     |
     v
-[5. Scoring]               -- weighted formula: blast_radius + confidence + recency + distance + session_boost
+[5. Random Walk with Restart]  -- propagate relevance through graph structure (BFS depth limit: 4 hops)
     |
     v
-[6. HITS Reranking]        -- authority/hub scores promote structurally important nodes
+[6. Scoring]               -- weighted formula: blast_radius + confidence + recency + distance + session_boost + feedback + task_memory
     |
     v
-[7. Token Budget Packing]  -- density-ranked greedy knapsack (score/cost ratio)
+[7. HITS Reranking]        -- authority/hub scores promote structurally important nodes
     |
     v
-[8. Output Formatting]     -- XML / Markdown / JSON / GCF / GCB with distance-based grouping
+[8. Token Budget Packing]  -- density-ranked greedy knapsack (score/cost ratio)
     |
     v
-[9. MCP Notification]      -- notifications/message when vector index is ready
+[9. PackRoot Computation]  -- hash(task_normalized + sorted selected_node_hashes) for content-addressed identity
+    |
+    v
+[10. Cache Store]          -- store result in SubgraphCache keyed by PackRoot
+    |
+    v
+[11. Output Formatting]    -- XML / Markdown / JSON / GCF / GCB with distance-based grouping
 ```
 
-Two entry points exist:
+Three entry points exist:
 
-- `ForTask(ctx, TaskOptions)`: starts from a task description string. Extracts keywords,
-  finds seed nodes by substring match, runs RWR, scores, packs.
-- `ForFiles(ctx, FileOptions)`: starts from a list of changed file paths. Finds all nodes
-  in those files, adds their direct callers as distance-1 candidates, scores, packs.
+- `ForTask(ctx, TaskOptions)`: starts from a task description string. Checks subgraph cache first (step 1). On miss: extracts keywords, finds seed nodes, runs RWR, scores, packs, caches result.
+- `ForFiles(ctx, FileOptions)`: starts from a list of changed file paths. Finds all nodes in those files, adds their direct callers as distance-1 candidates, scores, packs.
+- `ForPR(ctx, PROptions)`: similar to ForFiles but with a larger default budget (8000 tokens) and support for GCF output format.
 
 ## The Keyword Extraction Pipeline
 
@@ -214,7 +219,7 @@ merges ranked lists from all channels into a single seed set:
 | 1. Tiered keyword matching | 3.0 | 5-tier exact/prefix/substring/path/interface matching |
 | 2. BM25 FTS5 | 1.0 | SQLite FTS5 over qualified_name, signature, file_path (CamelCase-aware tokenization) |
 | 3. Vector/embedding search | 0.0 | BGE-small-en-v1.5 via HNSW (disabled pending code-tuned model) |
-| 4. Equivalence class matching | 2.0 | 20 hand-curated concept classes with 200+ phrases mapped to target symbols |
+| 4. Equivalence class matching | 2.0 | 84 equivalence classes (63 universal + 21 knowing-specific) with 1000+ phrases mapped to target symbols |
 
 ### BM25 Full-Text Search (Channel 2)
 
@@ -234,11 +239,7 @@ future code-tuned models. Enable with `KNOWING_EMBEDDINGS=1`.
 
 ### Equivalence Class Matching (Channel 4)
 
-The equivalence class system (`internal/context/equivalence.go`) bridges the vocabulary gap
-between natural-language task descriptions and code symbol names. It contains 20 hand-curated
-concept classes (TRANSITIVE_IMPACT, SYMBOL_LOOKUP, DATAFLOW_TRACE, TEST_SELECTION, etc.)
-with 200+ phrases mapped to specific target symbols. Cross-product expansion with action
-verbs generates additional phrase variants.
+The equivalence class system (`internal/context/equivalence.go` + `universal_seeds.go`) bridges the vocabulary gap between natural-language task descriptions and code symbol names. It contains 84 equivalence classes: 21 knowing-specific (TRANSITIVE_IMPACT, SYMBOL_LOOKUP, DATAFLOW_TRACE, TEST_SELECTION, etc.) and 63 universal software concepts (covering security, monitoring, scheduling, rate limiting, search, websockets, retry/circuit-breaker, health checks, feature flags, and more). Each class has 5-10 phrases mapped to common symbol name targets across Go/TS/Python/Java/Rust. Cross-product expansion with action verbs generates additional phrase variants.
 
 Example: the phrase "blast radius" maps to concept TRANSITIVE_IMPACT, which targets symbols
 like `TransitiveCallers`, `handleBlastRadius`, and `BlastRadius`.
@@ -255,12 +256,14 @@ This prevents test infrastructure and build artifacts from consuming token budge
 
 ## Token Budget Packing
 
-The `packIntoBudget` function implements a greedy algorithm:
+The `packIntoBudget` function implements a density-ranked greedy knapsack:
 
-1. Take the ranked symbols (sorted by score descending).
-2. For each symbol, estimate its token cost via `EstimateNodeTokens`.
-3. If adding this symbol would exceed the budget, stop.
-4. Otherwise, include it and accumulate the token cost.
+1. For each ranked symbol, compute density = score / token_cost.
+2. Sort by density descending (ties broken by raw score).
+3. Greedily pack in density order: if adding a symbol would exceed the budget, skip it and try smaller ones.
+4. Re-sort the packed symbols by score descending for output ordering.
+
+This outperforms pure score-order packing on constrained budgets because small, high-value symbols (types, constants) are preferred over large, medium-value symbols (long functions).
 
 The default budget is 50,000 tokens.
 
@@ -432,9 +435,9 @@ Flat scores across the result set indicate one of:
 ## Limitations
 
 1. **Limited semantic understanding of task descriptions.** The system uses substring matching,
-   BM25, and equivalence classes for seed selection. Equivalence classes bridge common
+   BM25, and equivalence classes for seed selection. The 84 equivalence classes bridge common
    vocabulary gaps (e.g., "blast radius" to `TransitiveCallers`), but concepts not covered
-   by the 20 curated classes still rely on lexical matching. The system cannot understand
+   by the curated classes still rely on lexical matching. The system cannot understand
    that "optimize database queries" relates to functions that issue SQL, unless those
    functions contain "database" or "query" in their names or are covered by an equivalence
    class.
@@ -457,9 +460,11 @@ Flat scores across the result set indicate one of:
    cross-service call chains visible only in traces do not expand the blast radius. They
    influence the recency component of scoring but not the structural component.
 
-6. **No incremental RWR.** The entire reachable subgraph is loaded and walked on every query.
+6. **No incremental RWR.** The entire reachable subgraph is loaded and walked on every cache miss.
    For very large graphs (thousands of nodes in the BFS frontier), this could become slow.
    In practice, the 100-candidate cap on seed nodes limits the reachable subgraph size.
+   The subgraph cache (`internal/cache/subgraph.go`) eliminates this cost for repeat queries:
+   identical tasks against unchanged code return cached results instantly.
 
 7. **Token estimation is approximate.** The 4-characters-per-token heuristic works reasonably
    for code but can over- or under-estimate for heavily symbolic code (operators, brackets)
