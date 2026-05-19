@@ -115,34 +115,49 @@ Phase 3 requires foundation work before the features can be built correctly. The
 | Lazy materialization (load only visited subtrees) | Planned (triggered when tree construction > 1s or memory > 500MB; estimated at ~1M+ edges. Static analysis alone reaches this at ~6M+ LOC, but OTLP trace ingestion changes the math: a 10-service architecture with a month of traces can produce 200K+ runtime edges on top of 150K static edges, reaching the threshold much sooner.) |
 | File-level roots (finer single-file invalidation) | Planned |
 
-## Cross-Repo Validation: Grafana Ecosystem
+## Cross-Repo Validation
 
-Stress-test the full cross-boundary product on a real multi-repo ecosystem.
+Two tiers: a synthetic fixture for CI regression testing, and a real-world ecosystem for scale validation.
+
+### Tier 1: Synthetic Multi-Repo Fixture (build first)
+
+3 small Go modules that import each other. ~500 LOC total, runs in seconds, lives in `test/cross-repo/`.
+
+```
+module-a/  (shared library: 50 functions)
+module-b/  (imports A, adds its own functions)
+module-c/  (imports A and B)
+```
+
+| Test | What it proves |
+|------|---------------|
+| Index all 3 modules | Per-repo isolation, roster management |
+| Cross-repo edge resolution | `ModuleToRepoURL` resolves imports across databases |
+| `knowing prove` across repos | "Prove module-c calls module-a.Helper at this snapshot" |
+| `knowing prove-absent` across repos | "Prove module-b never calls module-c directly" |
+| `knowing audit` across repos | All inter-module edges with provenance |
+| Incremental invalidation | Change a function in module-a, re-index, verify B and C caches invalidated |
+
+**Why synthetic:** runs in CI, deterministic, controlled edges. Proves the cross-repo product without external dependencies. Every edge is known, so assertions are exact.
+
+### Tier 2: Grafana Ecosystem (scale validation, run once)
 
 **Target:** Grafana + Loki + Tempo + Mimir (~1.3M LOC, 4 repos, Go + TypeScript)
 
-These repos share real cross-repo edges through `grafana/dskit` and shared pkg/ libraries. The Go module system provides exact import paths for cross-repo resolution.
+Real cross-repo edges through `grafana/dskit` and shared pkg/ libraries. At ~200K estimated edges, this validates cross-repo at realistic scale but will not stress tree memory. Run manually, not in CI.
 
 | Milestone | What it proves |
 |-----------|---------------|
-| Index all 4 repos | Indexer handles ~1.3M LOC, tree construction scales, per-repo isolation works |
-| Cross-repo edge resolution | `ModuleToRepoURL` resolves dskit/pkg imports across repo databases |
-| Cross-repo `knowing audit` | All inter-repo dependencies with provenance in one report |
-| Cross-repo `knowing prove` | "Prove Loki calls dskit.Ring.Get at this snapshot" |
-| Cross-repo `knowing prove-absent` | "Prove Tempo never directly calls Mimir storage" |
+| Index all 4 repos | Indexer handles ~1.3M LOC, tree construction scales |
+| Cross-repo edge resolution | dskit/pkg imports resolved across repo databases |
 | Multi-repo community detection | Do Louvain communities align with repo boundaries or cross them? |
-| Incremental at scale | Change one dskit file, re-index, verify only affected caches invalidated |
-| Multi-language extraction | Grafana's TypeScript frontend + Go backend in one repo |
-
-**Why this ecosystem:** shared libraries create genuine cross-repo edges (not just independent repos indexed together). The dskit dependency graph is the real test: dozens of packages consumed by all four repos. At ~1.3M LOC (~200K estimated edges), this validates the cross-repo product but will not stress tree memory or construction time. Lazy materialization triggers at ~1M+ edges (~6M+ LOC), which would require Kubernetes-scale monorepos or 20+ federated repos.
+| Multi-language extraction | Grafana's TypeScript frontend + Go backend |
 
 **Success criteria:**
 - All 4 repos index without error
-- Cross-repo edges resolved between repos (non-zero resolver output)
+- Cross-repo edges resolved (non-zero resolver output)
 - `knowing audit -proofs` generates valid proofs for cross-repo edges
-- `knowing prove-absent` correctly proves non-existent cross-repo relationships
-- Incremental re-index of one repo invalidates only affected caches in other repos
-- Total index time < 5 minutes for all 4 repos
+- Total index time < 5 minutes
 
 ## Production Scale: Permanent Runtime Record
 
