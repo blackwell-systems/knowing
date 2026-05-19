@@ -1,0 +1,91 @@
+[
+  {
+    "id": "blast-radius-handler",
+    "description": "What function handles the blast_radius MCP tool in the knowing codebase? In which file is it defined?",
+    "complexity": "low",
+    "answer_keywords": [
+      "handleBlastRadius",
+      "handlers.go"
+    ]
+  },
+  {
+    "id": "context-engine-scoring",
+    "description": "How does the context engine score symbols? What is the formula, and what weights are applied to each component?",
+    "complexity": "medium",
+    "answer_keywords": [
+      "RankSymbols",
+      "weight",
+      "feedback",
+      "session",
+      "recency"
+    ]
+  },
+  {
+    "id": "node-struct-blast-radius",
+    "description": "If I change the Node struct in internal/types/types.go, what breaks? Which packages and callers depend on it?",
+    "complexity": "medium",
+    "answer_keywords": [
+      "Node",
+      "types.go",
+      "store",
+      "indexer"
+    ]
+  },
+  {
+    "id": "louvain-community-detection",
+    "description": "How does the Louvain community detection work in the knowing codebase? Walk me through the algorithm implementation.",
+    "complexity": "medium",
+    "answer_keywords": [
+      "modularity",
+      "community",
+      "louvain",
+      "Detect"
+    ]
+  },
+  {
+    "id": "snapshot-package-coverage",
+    "description": "What test files exist for the snapshot package, and what aspects of the package do they cover?",
+    "complexity": "low",
+    "answer_keywords": [
+      "snapshot",
+      "hierarchical",
+      "test"
+    ]
+  },
+  {
+    "id": "hierarchical-merkle-diff",
+    "description": "How does the hierarchical Merkle tree improve diff performance in the knowing codebase? What is the algorithmic improvement over a flat diff?",
+    "complexity": "high",
+    "answer_keywords": [
+      "O(packages)",
+      "hierarchical",
+      "PackageRoots",
+      "EdgeTypeRoots",
+      "diff"
+    ]
+  },
+  {
+    "id": "edge-types",
+    "description": "What edge types does the knowing graph support and where are they defined? List all supported edge type strings.",
+    "complexity": "medium",
+    "answer_keywords": [
+      "calls",
+      "imports",
+      "implements",
+      "references",
+      "types.go"
+    ]
+  },
+  {
+    "id": "file-save-to-cache-invalidation",
+    "description": "Trace the data flow in the knowing daemon from a git commit (file save) to cache invalidation. Which functions are involved and in what order?",
+    "complexity": "high",
+    "answer_keywords": [
+      "GitWatcher",
+      "CommitEvent",
+      "reindex",
+      "InvalidatePackages",
+      "SubgraphCache"
+    ]
+  }
+]
