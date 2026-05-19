@@ -264,6 +264,18 @@
         "cached_at": "2026-05-15T03:02:21.417789-07:00"
       }
     },
+    "1b9624c26079276b6b6c2242ee490e14": {
+      "test": {
+        "gate_type": "test",
+        "command": "go test ./... -timeout 5m",
+        "passed": false,
+        "exit_code": 1,
+        "stdout": "",
+        "stderr": "go: cannot load module /Users/code/shelfctl listed in go.work file: open /Users/code/shelfctl/go.mod: no such file or directory\n",
+        "from_cache": true,
+        "cached_at": "2026-05-18T20:54:25.08158-07:00"
+      }
+    },
     "1d268a94de4722d93417f24ec78f9729": {
       "build": {
         "gate_type": "build",
@@ -1092,6 +1104,18 @@
         "cached_at": "2026-05-17T11:05:25.271421-07:00"
       }
     },
+    "639a44a1aff55c340c581b4288b29716": {
+      "lint": {
+        "gate_type": "lint",
+        "command": "go vet ./...",
+        "passed": false,
+        "exit_code": 1,
+        "stdout": "",
+        "stderr": "go: cannot load module /Users/code/shelfctl listed in go.work file: open /Users/code/shelfctl/go.mod: no such file or directory\n",
+        "from_cache": true,
+        "cached_at": "2026-05-18T20:54:24.973477-07:00"
+      }
+    },
     "663ba507ccad7a6e863e7f34823e764b": {
       "lint": {
         "gate_type": "lint",
@@ -1834,6 +1858,18 @@
         "stderr": "",
         "from_cache": true,
         "cached_at": "2026-05-15T12:22:27.087308-07:00"
+      }
+    },
+    "d3d183d702fc38d6e3f77556fe8a1f87": {
+      "build": {
+        "gate_type": "build",
+        "command": "go build ./...",
+        "passed": false,
+        "exit_code": 1,
+        "stdout": "",
+        "stderr": "go: cannot load module /Users/code/shelfctl listed in go.work file: open /Users/code/shelfctl/go.mod: no such file or directory\n",
+        "from_cache": true,
+        "cached_at": "2026-05-18T20:54:24.843242-07:00"
       }
     },
     "d41029b8f805faa4e6e3a3a5cc625cec": {
