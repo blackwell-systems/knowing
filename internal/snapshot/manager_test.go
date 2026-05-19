@@ -3,6 +3,7 @@ package snapshot
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/blackwell-systems/knowing/internal/types"
@@ -481,6 +482,100 @@ func TestComputeSnapshot_WithRealData(t *testing.T) {
 	if snap.SnapshotHash != snap2.SnapshotHash {
 		t.Errorf("same graph data should produce same snapshot hash: %s vs %s",
 			snap.SnapshotHash, snap2.SnapshotHash)
+	}
+}
+
+// --- extractPackagePath tests ---
+
+func TestExtractPackagePath_Valid(t *testing.T) {
+	pkg, err := extractPackagePath("https://github.com/example/repo://pkg/sub.Func1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if pkg != "pkg/sub" {
+		t.Errorf("expected %q, got %q", "pkg/sub", pkg)
+	}
+}
+
+func TestExtractPackagePath_MissingSeparator(t *testing.T) {
+	_, err := extractPackagePath("no-separator")
+	if err == nil {
+		t.Fatal("expected error for missing '://' separator, got nil")
+	}
+	if !strings.Contains(err.Error(), "malformed") {
+		t.Errorf("error should contain 'malformed', got: %v", err)
+	}
+}
+
+func TestExtractPackagePath_NoDot(t *testing.T) {
+	_, err := extractPackagePath("https://github.com/example/repo://nodot")
+	if err == nil {
+		t.Fatal("expected error for missing dot separator, got nil")
+	}
+	if !strings.Contains(err.Error(), "malformed") {
+		t.Errorf("error should contain 'malformed', got: %v", err)
+	}
+}
+
+func TestComputeSnapshot_SkipsMalformedNodes(t *testing.T) {
+	store := newMockGraphStore()
+	ctx := context.Background()
+
+	repoHash := types.NewHash([]byte("https://github.com/example/repo"))
+	store.repos[repoHash] = &types.Repo{
+		RepoHash: repoHash,
+		RepoURL:  "https://github.com/example/repo",
+	}
+
+	// Well-formed node.
+	goodNode := types.Node{
+		NodeHash:      types.NewHash([]byte("node-good")),
+		QualifiedName: "https://github.com/example/repo://pkg.Func1",
+		Kind:          "function",
+	}
+	// Malformed node: no "://" separator.
+	badNode := types.Node{
+		NodeHash:      types.NewHash([]byte("node-bad")),
+		QualifiedName: "no-separator",
+		Kind:          "function",
+	}
+
+	store.nodes[goodNode.NodeHash] = &goodNode
+	store.nodes[badNode.NodeHash] = &badNode
+	store.nodesByNameResult = []types.Node{goodNode, badNode}
+
+	goodEdge := types.Edge{
+		EdgeHash:   types.NewHash([]byte("edge-good")),
+		SourceHash: goodNode.NodeHash,
+		TargetHash: badNode.NodeHash,
+		EdgeType:   "calls",
+	}
+	badEdge := types.Edge{
+		EdgeHash:   types.NewHash([]byte("edge-bad")),
+		SourceHash: badNode.NodeHash,
+		TargetHash: goodNode.NodeHash,
+		EdgeType:   "calls",
+	}
+
+	store.edges[goodEdge.EdgeHash] = &goodEdge
+	store.edges[badEdge.EdgeHash] = &badEdge
+	store.edgesFromResult[goodNode.NodeHash] = []types.Edge{goodEdge}
+	store.edgesFromResult[badNode.NodeHash] = []types.Edge{badEdge}
+
+	sm := NewSnapshotManager(store)
+	snap, err := sm.ComputeSnapshot(ctx, repoHash, "commit-test")
+	if err != nil {
+		t.Fatalf("ComputeSnapshot should succeed even with malformed node, got: %v", err)
+	}
+
+	// Both nodes' edges are collected (edge deduplication is by hash, not package),
+	// but the malformed node's edges are excluded from the hierarchical tree.
+	// The snapshot edge count reflects all edges seen (2 in this case).
+	if snap.EdgeCount != 2 {
+		t.Errorf("expected 2 edges in snapshot (both edges collected), got %d", snap.EdgeCount)
+	}
+	if snap.NodeCount != 2 {
+		t.Errorf("expected 2 nodes, got %d", snap.NodeCount)
 	}
 }
 

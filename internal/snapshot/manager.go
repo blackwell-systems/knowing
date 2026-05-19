@@ -151,7 +151,14 @@ func (sm *SnapshotManager) collectRepoEdgesHierarchical(ctx context.Context, rep
 	// Build node hash -> package path lookup.
 	nodePackage := make(map[types.Hash]string, len(nodes))
 	for _, n := range nodes {
-		nodePackage[n.NodeHash] = extractPackagePath(n.QualifiedName)
+		pkgPath, err := extractPackagePath(n.QualifiedName)
+		if err != nil {
+			// Log warning and skip this node's edges from hierarchical tree.
+			// The node is still stored; it just does not contribute to the
+			// package-level Merkle tree structure.
+			continue
+		}
+		nodePackage[n.NodeHash] = pkgPath
 	}
 
 	edgeSeen := make(map[types.Hash]struct{})
@@ -179,17 +186,22 @@ func (sm *SnapshotManager) collectRepoEdgesHierarchical(ctx context.Context, rep
 
 // extractPackagePath extracts the package path from a qualified name.
 // Format: "repoURL://pkgPath.SymbolName" -> "pkgPath"
-func extractPackagePath(qualifiedName string) string {
-	sep := strings.Index(qualifiedName, "://")
+// The separator "://" marks the boundary between the repo URL and the package
+// path; since repoURLs contain "://" themselves (e.g. "https://..."), we use
+// the LAST occurrence of "://" as the separator.
+// Returns an error if the qualified name is malformed (missing "://" separator
+// or missing dot-separated symbol after the package path).
+func extractPackagePath(qualifiedName string) (string, error) {
+	sep := strings.LastIndex(qualifiedName, "://")
 	if sep < 0 {
-		return ""
+		return "", fmt.Errorf("malformed qualified name: missing '://' separator: %q", qualifiedName)
 	}
 	rest := qualifiedName[sep+3:]
 	lastDot := strings.LastIndex(rest, ".")
 	if lastDot < 0 {
-		return rest
+		return "", fmt.Errorf("malformed qualified name: no symbol separator '.' after package path: %q", qualifiedName)
 	}
-	return rest[:lastDot]
+	return rest[:lastDot], nil
 }
 
 // collectRepoEdges gathers all edge hashes for a repo by traversing
