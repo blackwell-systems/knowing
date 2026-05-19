@@ -93,6 +93,11 @@ func recordEdgeEvent(t *testing.T, s types.GraphStore, edge types.Edge, eventTyp
 		SourceCommit: "test-commit",
 		IndexerVer:   "v1",
 		Timestamp:    time.Now().Unix(),
+		SourceHash:   edge.SourceHash,
+		TargetHash:   edge.TargetHash,
+		EdgeType:     edge.EdgeType,
+		Confidence:   edge.Confidence,
+		Provenance:   edge.Provenance,
 	}
 	if err := s.RecordEdgeEvent(context.Background(), ev); err != nil {
 		t.Fatalf("RecordEdgeEvent: %v", err)
