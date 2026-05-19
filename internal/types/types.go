@@ -41,6 +41,20 @@ func (h Hash) String() string {
 	return hex.EncodeToString(h[:])
 }
 
+// ParseHash decodes a hex string into a Hash.
+func ParseHash(s string) (Hash, error) {
+	b, err := hex.DecodeString(s)
+	if err != nil {
+		return Hash{}, fmt.Errorf("invalid hash hex: %w", err)
+	}
+	if len(b) != 32 {
+		return Hash{}, fmt.Errorf("hash must be 32 bytes, got %d", len(b))
+	}
+	var h Hash
+	copy(h[:], b)
+	return h, nil
+}
+
 // IsZero returns true if the hash is the zero value.
 func (h Hash) IsZero() bool {
 	return h == EmptyHash

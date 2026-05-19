@@ -125,6 +125,10 @@ func run(args []string) error {
 		return cmdProve(args[1:])
 	case "verify":
 		return cmdVerify(args[1:])
+	case "audit":
+		return cmdAudit(args[1:])
+	case "audit-diff":
+		return cmdAuditDiff(args[1:])
 	case "enrich":
 		return cmdEnrich(args[1:])
 	case "add":
@@ -157,6 +161,8 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  fsck     Verify graph integrity (hash recomputation, referential checks)")
 	fmt.Fprintln(os.Stderr, "  prove    Generate a Merkle proof that a relationship exists in a snapshot")
 	fmt.Fprintln(os.Stderr, "  verify   Verify a Merkle proof offline (no database needed)")
+	fmt.Fprintln(os.Stderr, "  audit    Generate a structured compliance report with integrity check")
+	fmt.Fprintln(os.Stderr, "  audit-diff  Compare two audit point snapshots with change classification")
 	fmt.Fprintln(os.Stderr, "  version  Print version information")
 }
 
