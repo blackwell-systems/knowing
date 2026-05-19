@@ -263,3 +263,109 @@ Community roots enable:
 	}
 	t.Logf("Wrote %s", findingsPath)
 }
+
+// TestContextPackPersistence benchmarks the three-layer cache: in-memory SubgraphCache,
+// persistent notes table, and cold retrieval. Proves cross-session replay works.
+func TestContextPackPersistence(t *testing.T) {
+	repoPath, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(repoPath, "go.mod")); err != nil {
+		t.Skip("not in knowing repo root")
+	}
+
+	tmpDB := filepath.Join(t.TempDir(), "bench.db")
+	st, err := store.NewSQLiteStore(tmpDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	snapMgr := snapshot.NewSnapshotManager(st)
+	idx := indexer.NewIndexer(st, snapMgr)
+	idx.Register(gotsextractor.NewGoTreeSitterExtractor())
+
+	ctx := context.Background()
+	snap, err := idx.IndexRepo(ctx, "github.com/blackwell-systems/knowing", repoPath, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("Indexed: %d nodes, %d edges", snap.NodeCount, snap.EdgeCount)
+
+	task := "refactor the context engine retrieval pipeline"
+	budget := 50000 // full budget to exercise the complete pipeline
+
+	// --- Cold retrieval: no cache, no persisted pack ---
+	engine1 := knowctx.NewContextEngine(st)
+	statsCold := measure(5, 1, func() {
+		engine1.ForTask(ctx, knowctx.TaskOptions{
+			TaskDescription: task,
+			TokenBudget:     budget,
+			Format:          "json",
+		})
+	})
+	t.Logf("Cold retrieval (no cache):     %s", statsCold)
+
+	// Run once to persist the pack to notes table.
+	block, err := engine1.ForTask(ctx, knowctx.TaskOptions{
+		TaskDescription: task,
+		TokenBudget:     budget,
+		Format:          "json",
+	})
+	if err != nil {
+		t.Fatalf("ForTask: %v", err)
+	}
+	t.Logf("PackRoot: %s, Symbols: %d", block.PackRoot, len(block.Symbols))
+
+	// Verify the pack was persisted.
+	normalized := "refactor the context engine retrieval pipeline"
+	packNoteKey := types.NewHash([]byte("context_pack\x00" + normalized))
+	note, err := st.GetNote(ctx, packNoteKey, "context_pack")
+	if err != nil {
+		t.Fatalf("GetNote: %v", err)
+	}
+	if note == nil {
+		t.Fatal("context pack was not persisted to notes table")
+	}
+	t.Logf("Persisted pack size: %d bytes", len(note.Value))
+
+	// --- Persistent cache hit: new engine (simulating process restart) ---
+	engine2 := knowctx.NewContextEngine(st) // fresh engine, no in-memory cache
+	statsPersistent := measure(10, 2, func() {
+		engine2.ForTask(ctx, knowctx.TaskOptions{
+			TaskDescription: task,
+			TokenBudget:     budget,
+			Format:          "json",
+		})
+	})
+	t.Logf("Persistent cache hit (notes):  %s", statsPersistent)
+
+	// Verify the result matches.
+	block2, _ := engine2.ForTask(ctx, knowctx.TaskOptions{
+		TaskDescription: task,
+		TokenBudget:     budget,
+		Format:          "json",
+	})
+	if block2.PackRoot != block.PackRoot {
+		t.Errorf("PackRoot mismatch: cold=%s persistent=%s", block.PackRoot, block2.PackRoot)
+	}
+	if len(block2.Symbols) != len(block.Symbols) {
+		t.Errorf("Symbol count mismatch: cold=%d persistent=%d", len(block.Symbols), len(block2.Symbols))
+	}
+
+	// --- Speedup ---
+	speedup := float64(statsCold.Median) / float64(statsPersistent.Median)
+	t.Logf("")
+	t.Logf("=== Context Pack Persistence ===")
+	t.Logf("Cold retrieval:     %v", statsCold.Median)
+	t.Logf("Persistent hit:     %v", statsPersistent.Median)
+	t.Logf("Speedup:            %.1fx", speedup)
+	t.Logf("Pack persisted:     %d bytes in notes table", len(note.Value))
+	t.Logf("PackRoot match:     %v", block.PackRoot == block2.PackRoot)
+
+	// Performance contract: persistent hit should be under 10ms.
+	if statsPersistent.Median > 10*time.Millisecond {
+		t.Errorf("Persistent cache hit median %v exceeds 10ms contract", statsPersistent.Median)
+	}
+}
