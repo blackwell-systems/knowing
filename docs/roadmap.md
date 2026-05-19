@@ -229,13 +229,87 @@ Use root diffs to scope downstream recomputation.
 | Lazy materialization | Load only visited subtrees; 100K-symbol repos without proportional memory cost |
 | File-level roots | Add file roots between package and edge-type for finer single-file invalidation |
 
+## Lessons from Git Source (Examined 2026-05-18)
+
+Cloned `github.com/git/git` and studied the C implementation of tree diff, delta compression, and notes. These are battle-tested patterns from 20 years of production use that directly apply to knowing's architecture.
+
+### Notes Table (metadata without hash invalidation)
+
+**Git pattern:** `refs/notes/commits` is a separate tree. Notes attach arbitrary metadata to any object without changing its hash. Stored as a 16-way radix tree keyed by object SHA1 for O(1) lookup. (`notes.c`, `struct int_node`, `struct leaf_node`)
+
+**knowing application:** A `graph_notes` table (`object_hash -> note_key -> note_value`) that never affects Merkle computation. Stores feedback scores, agent annotations, quality assessments, usage counts, and context pack evaluations without invalidating any cached results. Currently, feedback lives in a separate table but blame/coverage are baked into the Node struct. A unified notes layer would let all intelligence accrue cleanly.
+
+| Priority | Effort |
+|----------|--------|
+| P1 (next) | Low (one table, one interface) |
+
+### Proposed Graph Overlay (staging area)
+
+**Git pattern:** The index (staging area) sits between working directory and commit. `git add` stages changes; `git diff --cached` shows what would be committed. Nothing is permanent until `git commit`.
+
+**knowing application:** An in-memory graph overlay that shows "here's what the graph would look like if I indexed these files." Agents could preview blast radius of proposed changes without running the indexer. Useful for: "if I change this function signature, what breaks?" without actually changing it. Compose with hierarchical diff: "which package roots would change?"
+
+| Priority | Effort |
+|----------|--------|
+| P2 | Medium |
+
+### Delta-Compressed Snapshots
+
+**Git pattern:** `diff-delta.c` uses Rabin rolling hash fingerprinting to find similar regions between two buffers, then stores copy/insert instructions. Packfiles store chains of deltas against base objects. A repo with 10,000 commits doesn't store 10,000 full copies.
+
+**knowing application:** Snapshot chains currently store full edge sets at each point. Delta compression would store "copy edges 0-10000 from parent, insert 50 new, delete 3" instead of re-storing all edges. Combined with hierarchical roots: delta per package (only changed packages store deltas, unchanged packages reference parent). Dramatically reduces storage for long snapshot chains.
+
+| Priority | Effort |
+|----------|--------|
+| P3 | High (needs careful design for query performance) |
+
+### N-Way Hierarchical Diff with Pathspec Filtering
+
+**Git pattern:** `ll_diff_tree_paths` in `tree-diff.c` does N-way merge (comparing multiple parents simultaneously), has early exit (`diff_can_quit_early`), and supports pathspec filtering (`skip_uninteresting`). Only descends into subtrees where roots differ.
+
+**knowing application:** Our `DiffHierarchicalTrees` is currently 2-way only. N-way diff would support "what changed across these 5 snapshots?" (sprint review). Pathspec filtering would support "diff only the `internal/mcp` subtree" without scanning other packages. Early exit would support "stop after finding N changes" for large diffs.
+
+| Priority | Effort |
+|----------|--------|
+| P3 | Medium |
+
+### Rerere (Reuse Recorded Resolution)
+
+**Git pattern:** `rerere.c` records how merge conflicts were resolved and auto-applies the same resolution when the same conflict reappears.
+
+**knowing application:** When two extractors disagree on a call target (tree-sitter says A calls B, LSP says A calls C), record the resolution. Next time the same conflict appears, apply it automatically instead of re-resolving. Makes enrichment idempotent and faster.
+
+| Priority | Effort |
+|----------|--------|
+| P4 | Low |
+
+### Transfer Protocol (Have/Want Negotiation)
+
+**Git pattern:** Smart HTTP/SSH protocol: client says "I have these roots," server says "you need these objects," sends a minimal thin packfile. Neither side sends everything.
+
+**knowing application:** Blueprint for federated graph sync. Local dev and CI exchange hierarchical Merkle roots, descend into differing package roots, transfer only changed subtrees. Combined with delta compression: transfer deltas for changed packages only. Already on the Phase 4 roadmap; git's protocol design (especially thin packs and multi-ack) is the implementation reference.
+
+| Priority | Effort |
+|----------|--------|
+| P4 (Phase 4) | High |
+
+### Replace/Grafts (Edge Correction Without Re-Snapshot)
+
+**Git pattern:** `git replace` creates a redirect from one object hash to another. The original stays in the object store; queries transparently see the replacement.
+
+**knowing application:** "This edge was wrong, here's the corrected version" without re-snapshotting. Old snapshots remain valid; new queries see the corrected edge. Useful for LSP enrichment corrections and manual edge fixes.
+
+| Priority | Effort |
+|----------|--------|
+| P4 | Medium |
+
 ## Agent Coordination
 
 | Item | Description |
 |------|-------------|
-| Pending mutations | Agents announce in-flight changes, others see proposed state |
+| Pending mutations | Agents announce in-flight changes, others see proposed state (see: proposed graph overlay above) |
 | Temporal reasoning | Walk snapshots backward to find when incompatibilities appeared |
-| Federated graphs | Cross-instance queries via Merkle diff exchange |
+| Federated graphs | Cross-instance queries via Merkle diff exchange (see: transfer protocol above) |
 
 ## Strategic Position
 
