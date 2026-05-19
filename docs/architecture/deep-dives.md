@@ -15,10 +15,12 @@ Mutable-state graphs (the default in every existing code intelligence tool) lose
 ```
 node_hash   = sha256(repo || package_path || content_hash || symbol_name || symbol_kind)
 edge_hash   = sha256(source_node_hash || target_node_hash || edge_type || provenance_json)
-snapshot    = merkle_root(sorted(all_edge_hashes))
+snapshot    = hierarchical_merkle_root(edges grouped by package and edge type)
 ```
 
-A snapshot chain links root hashes like git commits (each snapshot points to its parent). Diffing two snapshots is a Merkle tree comparison: only changed subtrees need traversal.
+The snapshot is the root of a four-level hierarchical Merkle tree (repo root -> package roots -> edge-type roots -> edge leaves), implemented in `internal/snapshot/hierarchical.go`. A flat tree (`merkle_root(sorted(all_edge_hashes))`) is also built alongside for backward compatibility; both roots are identical. The hierarchical structure enables `DiffHierarchicalTrees` to compare package roots instead of all edges: 114x faster on the knowing repo (11K edges), 517x on 100K synthetic edges. `SubgraphRoot` computes O(1) cache keys for any package set. `EdgeTypeRoot` answers "did call edges change?" in one lookup. Build cost is comparable to the flat tree.
+
+A snapshot chain links root hashes like git commits (each snapshot points to its parent). Diffing two snapshots compares package roots first, then descends into edge-type roots only for packages that changed.
 
 **What this enables:**
 
@@ -622,7 +624,7 @@ type L1Cache struct {
 }
 ```
 
-Keyed by `(target_hash, query_type, max_depth, snapshot_root)`. Same query against the same snapshot always returns the same result. On snapshot creation, the Merkle diff evicts only entries whose nodes fall within changed subtrees. Entries outside the diff survive across snapshots. Eviction is a performance choice, never a correctness one.
+Keyed by `(target_hash, query_type, max_depth, snapshot_root)`. Same query against the same snapshot always returns the same result. On snapshot creation, the hierarchical Merkle diff (via `DiffHierarchicalTrees`, `internal/snapshot/hierarchical.go`) identifies which packages changed; only entries whose nodes fall within changed package subtrees are evicted. Entries outside the diff survive across snapshots. Eviction is a performance choice, never a correctness one. For finer-grained keying, `SubgraphRoot` can replace the global snapshot root as the cache key, so a change in an unrelated package does not evict cache entries for a different package's queries.
 
 **L2: Materialized Results (SQLite, Persisted)**
 
@@ -1058,7 +1060,7 @@ If its value survives after the system stops (the last snapshot is still queryab
 
 | Decision | Core principle | Hard to retrofit? |
 |----------|---------------|-------------------|
-| Content-addressed graph | Integrity, history, staleness are structural | Yes (requires full rewrite of storage) |
+| Content-addressed graph (hierarchical Merkle tree) | Integrity, history, staleness are structural; package-scoped invalidation is 114x faster | Yes (requires full rewrite of storage) |
 | Symbol identity scheme | Stable primary key across all edges | Yes (changing means full reindex) |
 | Append-only edge log | Never lose history | Yes (can't recover deleted history) |
 | Edge provenance | Trust is quantifiable | Yes (old edges become unknowable) |

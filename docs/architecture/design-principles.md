@@ -9,6 +9,7 @@
 - **MCP-native**: exposed as MCP tools, consumed by agents directly
 - **Fast**: optimized for interactive agent queries over large multi-repo graphs
 - **Deterministic**: same input at same commit always produces the same graph (verifiable via hash)
+- **Hierarchical Merkle tree**: snapshots build a four-level tree (repo root -> package roots -> edge-type roots -> edge leaves) alongside the flat tree for backward compatibility; `DiffHierarchicalTrees` is 114x faster on real data (11K edges), 517x on 100K synthetic edges; `SubgraphRoot` gives O(1) cache keys per package set; `EdgeTypeRoot` answers "did call edges change?" in one lookup (see `internal/snapshot/hierarchical.go`)
 - **Computation cache as a primitive**: every derived result (traversals, blast radius, semantic diffs) is a content-addressed artifact that can be stored, shared, synced, and referenced with the same guarantees as the graph itself
 - **Artifact-boundary separation**: the system decomposes into execution (produces the graph), artifact (the graph itself), and intelligence (interprets the graph); intelligence features never write back to the graph and can operate entirely on a portable artifact
 
@@ -30,7 +31,7 @@ Execution Plane (produces the artifact)
 ├── Daemon
 │   ├── File watcher (fsnotify, git hook triggers)
 │   ├── Incremental reindex (changed files only)
-│   └── Snapshot manager (Merkle root computation, GC)
+│   └── Snapshot manager (hierarchical Merkle tree computation, GC)
 └── Graph store
     ├── SQLite backend (behind GraphStore interface)
     ├── Node/edge/snapshot storage

@@ -129,6 +129,10 @@ Before scoring, `filterNoisySymbols` removes low-signal candidates:
 3. Expand the blast radius by one hop (all callers of each node).
 4. Score, HITS-rerank, and density-pack identically to ForTask.
 
+## Subgraph Caching (Future)
+
+The hierarchical Merkle tree (`internal/snapshot/hierarchical.go`) provides `SubgraphRoot`, which computes an O(1) cache key for any set of packages. This enables caching `context_for_task` results against the subgraph root of the seed set's neighborhood rather than the global snapshot root: a one-line change in an unrelated package will not invalidate a cached context pack. `ContextPackRoot` (see `docs/architecture/merkle-algorithms.md` Section 4) formalizes the full pack deduplication scheme. These are planned for Phase 2 of the Merkle algorithm implementation.
+
 ## Integration Points
 
 - **MCP tools**: `context_for_task`, `context_for_files`, `context_for_pr`, and `explain_symbol` in `internal/mcp/context_handlers.go` delegate to `ContextEngine`.

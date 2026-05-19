@@ -10,7 +10,7 @@ knowing daemon (long-lived)
   ├── Indexer (two-tier: tree-sitter extraction + LSP enrichment)
   ├── Graph Store (SQLite behind GraphStore interface, WAL mode)
   ├── MCP Server (stdio or HTTP, 23 tools across execution/intelligence/runtime/context/feedback/discovery planes)
-  ├── Snapshot Manager (computes Merkle roots, GCs old snapshots)
+  ├── Snapshot Manager (computes hierarchical Merkle trees, GCs old snapshots)
   └── Trace Ingestor (OTel spans, HTTP logs → runtime edges)
 ```
 
@@ -101,7 +101,7 @@ Tier 1: tree-sitter extraction
     │  ├── Deleted file detection (compare walked files against stored files)
     │  │   └── Files no longer on disk: cleanup via DeleteEdgesBySourceFile + DeleteNodesByFile
     │  ├── Batch insert (nodes, edges, files in single transaction)
-    │  └── Snapshot computation (Merkle root of sorted edge hashes)
+    │  └── Snapshot computation (hierarchical Merkle tree: repo root -> package roots -> edge-type roots -> edge leaves)
     │
     ▼
 Graph is queryable (ast_inferred edges, confidence 0.7)
@@ -305,7 +305,8 @@ Commit detected (oldHead → newHead)
     │
     ▼
 5. Compute new snapshot
-   ├── Merkle root of all current edges
+   ├── Hierarchical Merkle tree (repo root -> package roots -> edge-type roots -> edge leaves)
+   ├── Flat tree also built alongside for backward compatibility
    ├── Link to parent snapshot (previous snapshot for this repo)
    └── Store commit hash in snapshot record
     │

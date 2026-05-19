@@ -147,27 +147,37 @@ Repo: github.com/blackwell-systems/knowing
   - Superseded by multi-language auto-detection (see Feature 65). Legacy single-server path still works for Go-only repos.
 - **Dependencies:** `github.com/blackwell-systems/agent-lsp/pkg/lsp`, GraphStore.
 
-### 12. Snapshot Manager (Merkle DAG)
+### 12. Snapshot Manager (Hierarchical Merkle DAG)
 
 - **Package(s):** `internal/snapshot`
 - **Entry point:** `snapshot.NewSnapshotManager(store).ComputeSnapshot(ctx, repoHash, commitHash) (*Snapshot, error)`
-- **What it does:** Collects all edge hashes for a repo (via nodes from `NodesByName`), builds a binary Merkle tree from sorted hashes, chains the new snapshot to the latest existing snapshot, stores it.
+- **What it does:** Collects all edge hashes for a repo (via nodes from `NodesByName`), builds both a hierarchical Merkle tree and a flat Merkle tree, chains the new snapshot to the latest existing snapshot, stores it. The hierarchical tree organizes edges by package and edge type (repo root -> package roots -> edge-type roots -> edge leaves); the flat tree is built alongside for backward compatibility. Both produce identical root hashes.
 - **Inputs:** Repo hash, commit hash.
 - **Outputs:** `*Snapshot` with Merkle root, parent pointer, node/edge counts.
 - **Limitations/known gaps:**
   - `GarbageCollect` uses `DeleteSnapshot` to remove old snapshots and their associated edge events.
   - Synthetic file nodes not included in Merkle tree (only nodes with qualified names).
-  - Merkle diff (`DiffMerkle`) is a set-diff on leaves, not a tree-walk optimization.
+  - Flat `DiffMerkle` is a set-diff on leaves; use `DiffHierarchicalTrees` for package-scoped diffs (114x faster on 11K edges).
 - **Dependencies:** GraphStore.
 
-### 13. Merkle Tree
+### 13. Hierarchical Merkle Tree
+
+- **Package(s):** `internal/snapshot`
+- **Entry point:** `snapshot.BuildHierarchicalTree(edges []EdgeInput) *HierarchicalTree`
+- **What it does:** Constructs a four-level Merkle tree from edges with package and edge-type metadata. Structure: repo root -> package roots -> edge-type roots -> edge leaves. `DiffHierarchicalTrees` compares package roots to find which packages changed (O(packages) instead of O(edges)). `SubgraphRoot` returns an O(1) cache key for any set of packages by combining their package roots. `EdgeTypeRoot` returns the root for a specific package and edge type in one lookup. `ContextPackRoot` enables content-addressed context pack deduplication across agents and sessions. See `bench/merkle-diff/` for benchmark results and `docs/architecture/merkle-algorithms.md` for the full algorithm specification.
+- **Inputs:** Slice of `EdgeInput` values (each carrying EdgeHash, PackagePath, EdgeType).
+- **Outputs:** `*HierarchicalTree` with Root, PackageRoots, EdgeTypeRoots, PackageEdgeCounts, TotalEdges.
+- **Performance:** 114x faster diff than flat tree on the knowing repo (11K edges), 517x on 100K synthetic edges. Subgraph root lookup: O(1), ~59ns. Build cost overhead: negligible.
+- **Dependencies:** `snapshot.BuildMerkleTree` (used internally for each subtree level).
+
+### 13a. Flat Merkle Tree (Backward Compatibility)
 
 - **Package(s):** `internal/snapshot`
 - **Entry point:** `snapshot.BuildMerkleTree(hashes []Hash) *MerkleTree`
-- **What it does:** Sorts hashes lexicographically via `bytes.Compare`, builds binary Merkle tree (odd leaf paired with itself), returns root hash and sorted leaves.
+- **What it does:** Sorts hashes lexicographically via `bytes.Compare`, builds binary Merkle tree (odd leaf paired with itself), returns root hash and sorted leaves. Built alongside the hierarchical tree by the snapshot manager. Both produce identical root hashes.
 - **Inputs:** Slice of `Hash` values.
 - **Outputs:** `*MerkleTree` with Root and Leaves.
-- **Limitations/known gaps:** Full reconstruction (no incremental update). `DiffMerkle` is O(n) set comparison, not O(log n) tree walk.
+- **Limitations/known gaps:** Full reconstruction (no incremental update). `DiffMerkle` is O(n) set comparison; prefer `DiffHierarchicalTrees` for performance-sensitive diff paths.
 - **Dependencies:** None.
 
 ### 14. Cross-Repo Edge Resolver
@@ -1171,7 +1181,7 @@ Parameters per tool:
 ### Table: `snapshots`
 | Column | Type | Description | Read by | Written by |
 |--------|------|-------------|---------|-----------|
-| snapshot_hash | BLOB PK | Merkle root of sorted edge hashes | GetSnapshot, chain walking | CreateSnapshot |
+| snapshot_hash | BLOB PK | Hierarchical Merkle root (repo root -> package roots -> edge-type roots -> edge leaves); flat root also computed and is identical | GetSnapshot, chain walking | CreateSnapshot |
 | parent_hash | BLOB FK | Previous snapshot | Chain walking, GC | CreateSnapshot |
 | repo_hash | BLOB FK | Which repo | LatestSnapshot | CreateSnapshot |
 | commit_hash | TEXT NOT NULL | Git commit | Display | CreateSnapshot |
@@ -1705,7 +1715,7 @@ File hash: `sha256(repoHash + path + contentHash)`
 
 Repo hash: `sha256(repoURL)`
 
-Snapshot hash: Merkle root of sorted edge hashes (binary tree, odd leaf paired with itself).
+Snapshot hash: Hierarchical Merkle root (repo root -> package roots -> edge-type roots -> edge leaves), implemented in `internal/snapshot/hierarchical.go`. A flat tree (binary tree of sorted edge hashes, odd leaf paired with itself) is also built alongside for backward compatibility; both roots are identical. `DiffHierarchicalTrees` compares package roots for O(packages) diff instead of O(edges). See `bench/merkle-diff/` for benchmark results.
 
 ---
 

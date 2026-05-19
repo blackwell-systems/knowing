@@ -46,7 +46,7 @@ knowing builds a content-addressed knowledge graph of software relationships and
 
 ## Documentation
 
-- [Architecture](architecture/overview.md): system design, concurrency model, data flow
+- [Architecture](architecture/): system design, concurrency model, data flow, hierarchical Merkle tree
 - [CLI Reference](guide/cli.md): all 12 commands with flags and examples
 - [MCP Tools](guide/mcp-tools.md): all 22 tools with parameters and return formats
 - [Edge Types](architecture/edge-types.md): all 16 edge types with provenance and confidence

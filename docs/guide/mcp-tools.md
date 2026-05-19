@@ -1000,13 +1000,14 @@ Given a task description, suggests which knowing MCP tools to call with pre-fill
 
 ### `communities`
 
-Detect communities in the knowledge graph using Louvain modularity clustering. Returns densely-connected groups of symbols.
+Detect communities in the knowledge graph using modularity clustering. Returns densely-connected groups of symbols.
 
 **Parameters:**
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `action` | string | no | `list` (default) returns all communities; `for_symbol` returns the community containing a specific symbol |
+| `algorithm` | string | no | Community detection algorithm to use (default: `louvain`). Pass the algorithm name; available options are reported in the tool description. |
 | `repo_url` | string | no | Filter nodes to a specific repository URL prefix |
 | `symbol` | string | no | Qualified symbol name (required when `action=for_symbol`) |
 

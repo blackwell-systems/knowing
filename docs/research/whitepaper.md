@@ -113,11 +113,13 @@ Mutable systems cannot prove this. They can log it, but logs are separate from d
 **With content-addressing:** the proof is the hash chain itself.
 
 ```
-Snapshot hash (Merkle root of edges)
-  -> Individual edge hashes (leaves of the Merkle tree)
-    -> Source/target node hashes (referenced by edges)
-      -> Repo hash + file content hash (referenced by nodes)
-        -> Git commit hash (stored on snapshot)
+Snapshot hash (hierarchical Merkle root)
+  -> Package roots (one per package, from edge-type roots)
+    -> Edge-type roots (one per package+type, from edge hashes)
+      -> Individual edge hashes (leaves)
+        -> Source/target node hashes (referenced by edges)
+          -> Repo hash + file content hash (referenced by nodes)
+            -> Git commit hash (stored on snapshot)
 ```
 
 Every step is a deterministic computation from content. An auditor can verify any claim by recomputing. The data *is* the audit trail.
@@ -145,10 +147,10 @@ Identity includes provenance. The same structural relationship (A calls B) obser
 
 **Snapshot** (a point-in-time graph state):
 ```
-SnapshotHash = MerkleRoot(sort(edgeHashes))
+SnapshotHash = HierarchicalMerkleRoot(edges grouped by package and edge type)
 ```
 
-A Merkle tree built from the sorted list of all edge hashes in a repository. The root hash changes if and only if the set of edges changes. Snapshots form a linked chain (each records its parent hash).
+A hierarchical Merkle tree (repo root -> package roots -> edge-type roots -> edge leaves) built from all edge hashes in a repository. The root hash changes if and only if the set of edges changes. A flat tree (`MerkleRoot(sort(edgeHashes))`) is also computed alongside for backward compatibility; both roots are identical. The hierarchical structure enables `DiffHierarchicalTrees` to compare package roots instead of all edges (114x faster on 11K edges, 517x on 100K synthetic edges), and `SubgraphRoot` to provide O(1) cache keys for any package set. Snapshots form a linked chain (each records its parent hash). See `internal/snapshot/hierarchical.go` for the implementation.
 
 ### 4.2 Properties (formally)
 
@@ -192,7 +194,8 @@ The implementation includes:
 
 - Deterministic node hashes for symbols across 10 language extractors
 - Deterministic edge hashes for relationships with provenance-aware identity
-- Snapshot hashes computed as Merkle roots over sorted edge sets
+- Hierarchical Merkle trees (repo root -> package roots -> edge-type roots -> edge leaves) enabling package-scoped diff (114x faster than flat diff on 11K edges, 517x on 100K synthetic); flat trees built alongside for backward compatibility
+- Snapshot hashes computed as hierarchical Merkle roots
 - Parent-linked snapshot chains with diff between adjacent states
 - Cross-repo symbol identity via canonical repo hashing
 - GCF/GCB wire formats for efficient graph transmission to LLM consumers
@@ -403,7 +406,8 @@ RepoHash     = SHA-256(canonicalRepoIdentity)
 NodeHash     = SHA-256(repoHash || packagePath || symbolName || symbolKind)
 EdgeHash     = SHA-256(sourceHash || targetHash || edgeType || provenance)
 FileHash     = SHA-256(repoHash || relativePath || contentHash)
-SnapshotHash = MerkleRoot(sort(all edge hashes in repo))
+SnapshotHash = HierarchicalMerkleRoot(edges grouped by package and edge type)
+             -- flat: MerkleRoot(sort(all edge hashes in repo)) built alongside for compatibility
 ```
 
 Each computation is deterministic, cheap (~800ns), and globally unique without coordination. Canonical repo identity is derived from normalized host, owner, and repository name, independent of transport protocol or URL scheme.

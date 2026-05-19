@@ -61,7 +61,8 @@ Developer commits code
 │    └── Record "added" edge events                      │
 │                                                       │
 │  Batch insert all new nodes, edges, and files          │
-│  Compute new snapshot (Merkle root of all edge hashes) │
+│  Compute new snapshot (hierarchical Merkle tree:       │
+│    repo root -> package roots -> edge-type roots)      │
 │  Link snapshot to parent; store commit hash            │
 │  Resolve cross-repo dangling edges                     │
 └───────────────────────────┬───────────────────────────┘
@@ -102,7 +103,7 @@ Developer commits code
 |-------|---------------------------|-----------|-----------------|
 | Git diff resolution | ~10ms | None | No |
 | Tier 1 extraction (tree-sitter) | ~1.5s | Write lock | Yes |
-| Snapshot computation | ~5ms | Write lock | Yes |
+| Snapshot computation (hierarchical + flat trees) | ~5ms | Write lock | Yes |
 | Tier 2 enrichment (LSP) | ~8s | None (WAL) | No |
 
 The write lock is held only during Tier 1 extraction and snapshot computation. Queries are blocked for approximately 1.5 seconds per commit. Enrichment runs in the background without blocking anything.

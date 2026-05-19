@@ -18,7 +18,6 @@ theme:
 nav:
   - Home: index.md
   - Architecture:
-    - Overview: architecture/overview.md
     - Concepts: architecture/concepts.md
     - System Overview: architecture/system-overview.md
     - Data Flow: architecture/data-flow.md
@@ -34,6 +33,8 @@ nav:
     - Equivalence Classes: architecture/equivalence-classes.md
     - Hooks Integration: architecture/hooks-integration.md
     - Runtime Traces: architecture/runtime-traces.md
+    - Merkle Algorithms: architecture/merkle-algorithms.md
+    - ADR - Hierarchical Merkle: architecture/adr-hierarchical-merkle.md
   - Guide:
     - CLI Reference: guide/cli.md
     - MCP Tools: guide/mcp-tools.md

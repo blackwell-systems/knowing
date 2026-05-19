@@ -317,7 +317,7 @@ The identity model is described in the opening section. Two additional propertie
 - **Caching:** query results keyed to a snapshot hash remain valid forever for that snapshot. The hash is the cache key.
 - **Edge events:** relationship changes are explicit (added/removed per edge per commit), not inferred from full graph scans.
 
-For the full storage model and hash construction, see [docs/architecture/overview.md](docs/architecture/overview.md).
+For the full storage model and hash construction, see [docs/architecture/](docs/architecture/).
 
 ## Current Boundaries
 
@@ -334,7 +334,7 @@ See [docs/guide/features.md](docs/guide/features.md) for the implementation inve
 
 | Doc | Contents |
 |---|---|
-| [Architecture](docs/architecture/overview.md) | System design, schemas, content addressing, daemon model |
+| [Architecture](docs/architecture/) | System design, schemas, content addressing, daemon model |
 | [Features](docs/guide/features.md) | Implementation inventory, entry points, limitations |
 | [CLI Reference](docs/guide/cli.md) | Commands, flags, examples |
 | [MCP Tools](docs/guide/mcp-tools.md) | Tool schemas, parameters, return formats |

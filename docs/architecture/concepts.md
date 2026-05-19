@@ -20,19 +20,24 @@ A Merkle DAG (Directed Acyclic Graph) is a data structure where every node conta
 
 **The Git analogy:** Git is a Merkle DAG. A commit hash summarizes the entire repository state at that point. If a single byte changes in any file, the commit hash changes. You can verify the integrity of the entire repository by checking the root hash.
 
-knowing works the same way. A snapshot hash is the Merkle root of all edge hashes in the graph at a point in time. If any edge changes, the snapshot hash changes. Two snapshots with the same hash contain exactly the same graph. Two snapshots with different hashes differ in at least one edge.
+knowing works the same way. A snapshot hash is the root of a hierarchical Merkle tree (repo root -> package roots -> edge-type roots -> edge leaves) built from all edge hashes in the graph at a point in time. If any edge changes, the snapshot hash changes. Two snapshots with the same hash contain exactly the same graph. Two snapshots with different hashes differ in at least one edge.
 
 **How it works in knowing:**
 
+knowing builds a hierarchical Merkle tree with four levels (implemented in `internal/snapshot/hierarchical.go`):
+
 ```
-                    snapshot_hash (Merkle root)
-                   /                           \
-            hash(h1+h2)                   hash(h3+h4)
-           /          \                  /          \
-    edge_hash_1  edge_hash_2    edge_hash_3  edge_hash_4
+repo_root
+  ├── package_root[pkg/A]   = merkle(sorted edge-type roots for pkg/A)
+  │     ├── edge_type_root[pkg/A:calls]
+  │     └── edge_type_root[pkg/A:imports]
+  └── package_root[pkg/B]
+        └── edge_type_root[pkg/B:calls]
 ```
 
-Edge hashes are sorted lexicographically, then paired and hashed upward until a single root remains. Diffing two snapshots is a tree comparison: only changed subtrees need traversal.
+Structure: repo root -> package roots -> edge-type roots -> edge leaves. The repo root is backward-compatible with the earlier flat design (`merkle_root(sorted(all_edge_hashes))`) but the hierarchical tree adds intermediate roots that enable package-scoped invalidation. A flat tree is also maintained alongside for backward compatibility; both roots are identical.
+
+`DiffHierarchicalTrees` compares package roots instead of all edges: 114x faster on the knowing repo (11K edges), 517x on 100K synthetic edges. `SubgraphRoot` computes O(1) cache keys for any set of packages. `EdgeTypeRoot` answers "did call edges change?" in one lookup. See `docs/architecture/merkle-algorithms.md` for the full algorithm specification and `bench/merkle-diff/` for benchmark results.
 
 ## Knowledge Graph vs. Tree vs. Table
 
@@ -51,7 +56,7 @@ knowing is a knowledge graph because code relationships are inherently graph-sha
 | **Node** | A symbol in source code (function, type, method, interface, constant, variable). Identified by qualified name. | `sha256(repo \|\| package_path \|\| symbol_name \|\| symbol_kind)` |
 | **Edge** | A relationship between two nodes (calls, imports, implements, references). Carries a type, confidence score, and provenance. | `sha256(source_hash \|\| target_hash \|\| edge_type \|\| provenance)` |
 | **Hash** | A 32-byte SHA-256 digest used as the content-addressed identifier for every entity. | n/a |
-| **Snapshot** | A point-in-time graph state. The Merkle root of all sorted edge hashes. Links to a parent snapshot (forming a chain like git commits) and records the git commit that produced it. | `merkle_root(sorted(all_edge_hashes))` |
+| **Snapshot** | A point-in-time graph state. The root of a hierarchical Merkle tree (repo root -> package roots -> edge-type roots -> edge leaves). Also stores intermediate package roots and edge-type roots for scoped invalidation. Links to a parent snapshot (forming a chain like git commits) and records the git commit that produced it. | `hierarchical_merkle_root(edges grouped by package and edge type)` |
 | **Provenance** | Metadata on an edge describing how it was derived, by which indexer version, at what confidence, from which commit. Provenance is what lets agents distinguish "confirmed by type checker" from "guessed from string matching." | Included in edge hash input. |
 
 ## Event Sourcing
@@ -95,7 +100,7 @@ Everything else is untouched. In a typical commit that changes 3 files in a 10,0
 
 **3. The Merkle root detects drift without scanning.**
 
-The snapshot hash is the Merkle root of all edge hashes. If you have the previous snapshot hash and the current snapshot hash, you know instantly whether the graph changed. You don't need to scan edges to find out.
+The snapshot hash is the hierarchical Merkle root. If you have the previous snapshot hash and the current snapshot hash, you know instantly whether the graph changed. You don't need to scan edges to find out. The hierarchical tree goes further: comparing package roots tells you which packages changed without enumerating all edges, and comparing edge-type roots tells you whether call edges changed independently of runtime trace edges.
 
 More importantly: if you have two snapshot hashes and they're identical, you know the graph is in the exact same state. This is a structural guarantee that no other representation can provide. A mutable graph database can't tell you "nothing changed" without scanning everything.
 

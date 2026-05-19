@@ -23,19 +23,17 @@ This document covers the suite of Merkle tree algorithms that exploit knowing's 
 
 ## 1. Hierarchical Graph Merkle Trees (Foundation)
 
-### Current State
+### Shipped Implementation
 
-The current snapshot is a flat sorted-edge hash:
+The hierarchical Merkle tree is implemented in `internal/snapshot/hierarchical.go` and wired into the snapshot manager. It organizes hashes in a tree that mirrors the structure of the codebase.
 
-```
-snapshot = merkle_root(sorted(all_edge_hashes))
-```
+A flat tree (`merkle_root(sorted(all_edge_hashes))`) is still built alongside for backward compatibility. Both produce the same root hash when given the same edges.
 
-This gives a single root hash that changes whenever any edge changes anywhere in the graph. It is correct and cheap to compute, but it is coarse: any change to any edge invalidates all caches keyed to the snapshot root, even if the change is in an unrelated package.
+Key results from `bench/merkle-diff/`: `DiffHierarchicalTrees` is 114x faster than flat diff on the knowing repo (11K edges), 517x faster on 100K synthetic edges. Subgraph root lookups are O(1) at 59ns. Build cost overhead is negligible.
 
-### Target: Multi-Level Tree
+### Structure
 
-The hierarchical design organizes hashes in a tree that mirrors the structure of the codebase:
+The hierarchical tree organizes hashes in a tree that mirrors the structure of the codebase:
 
 ```
 repo_root
@@ -502,19 +500,21 @@ Lazy-loaded subtrees are exactly the subgraph scope for cache keying (see Sectio
 
 These algorithms build on each other. The hierarchical tree structure (Phase 1) is a prerequisite for everything else.
 
-### Phase 1: Hierarchical Tree Structure (Foundation)
+### Phase 1: Hierarchical Tree Structure (Shipped)
 
-**Scope:** Replace the flat `merkle_root(sorted(all_edge_hashes))` computation with the multi-level tree.
+**Status:** Implemented in `internal/snapshot/hierarchical.go`, wired into the snapshot manager. Benchmark harness at `bench/merkle-diff/`.
 
-**Deliverables:**
-- `symbol_root` per symbol: computed on edge insertion.
-- `file_root` per file: computed from symbol roots on file indexing.
-- `package_root` per package: computed from file roots on snapshot commit.
-- `repo_root`: composed from package roots (replaces current snapshot hash).
-- Edge-type root variants per symbol.
-- Storage: new columns in `snapshots` table; new `package_roots` and `file_roots` tables.
+**What shipped:**
+- `BuildHierarchicalTree`: builds repo root -> package roots -> edge-type roots -> edge leaves from edge inputs with package and edge-type metadata.
+- `DiffHierarchicalTrees`: compares package roots only; O(packages) instead of O(edges). 114x faster on the knowing repo (11K edges), 517x on 100K synthetic edges.
+- `SubgraphRoot`: O(1) cache key for any set of packages.
+- `EdgeTypeRoot`: single-lookup answer for "did call edges change?"
+- `ContextPackRoot`: enables content-addressed context pack deduplication.
+- Flat tree built alongside for backward compatibility; both roots are identical.
 
-**Why first:** Every other algorithm requires package-level and file-level roots. Without them, subgraph caching degrades to global cache invalidation (no better than today), incremental recompute has no granularity signal, and community rooting has no tree to attach to.
+**Note:** The Phase 1 spec described `symbol_root` and `file_root` levels. The shipped implementation uses two levels (package and edge-type) rather than four. The intermediate file and symbol roots may be added in a later iteration if lazy materialization (Phase 4, Section 13) is implemented.
+
+**Why this enables everything else:** Every other algorithm requires package-level roots. Without them, subgraph caching degrades to global cache invalidation (no better than today), incremental recompute has no granularity signal, and community rooting has no tree to attach to.
 
 ### Phase 2: Subgraph Caching + Community Rooting (Immediate Value)
 
@@ -563,7 +563,7 @@ These algorithms build on each other. The hierarchical tree structure (Phase 1) 
 
 | Existing component | How Merkle algorithms extend it |
 |---|---|
-| Snapshot hash (deep-dives.md Section 1) | Replaced by hierarchical `repo_root` in Phase 1 |
+| Snapshot hash (deep-dives.md Section 1) | Extended by hierarchical `repo_root` (Phase 1 shipped); flat tree preserved for backward compatibility |
 | Computation cache (deep-dives.md Section 12) | Subgraph roots replace global root as cache keys in Phase 2 |
 | Community detection (roadmap.md) | Community roots added in Phase 2; enable safe agent parallelization |
 | Semantic PR Diff (deep-dives.md Section 14) | `classify_diff` output in Phase 4 extends it with change classification |
