@@ -1007,7 +1007,7 @@ Detect communities in the knowledge graph using modularity clustering. Returns d
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `action` | string | no | `list` (default) returns all communities; `for_symbol` returns the community containing a specific symbol |
-| `algorithm` | string | no | Community detection algorithm to use (default: `louvain`). Pass the algorithm name; available options are reported in the tool description. |
+| `algorithm` | string | no | Community detection algorithm: `louvain` (default), `louvain-fine` (higher resolution), or `label-propagation`. Additional algorithms can be registered via the `internal/community/` registry without changing this interface. |
 | `repo_url` | string | no | Filter nodes to a specific repository URL prefix |
 | `symbol` | string | no | Qualified symbol name (required when `action=for_symbol`) |
 

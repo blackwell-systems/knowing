@@ -149,6 +149,10 @@ What PackRoot enables:
 
 The hierarchical Merkle tree (`internal/snapshot/hierarchical.go`) provides `SubgraphRoot`, which computes an O(1) cache key for any set of packages. Full subgraph caching (keying `context_for_task` against `SubgraphRoot` so that changes in unrelated packages do not invalidate the cache) is the remaining Phase 2 deliverable.
 
+## Store-Layer Caching
+
+`ContextEngine` reads from `GraphStore` for every node lookup, caller lookup, and edge traversal during the RWR walk. `SQLiteStore` maintains an in-process LRU cache (`sync.Map`, 50K-entry cap) on `GetNode` and `GetEdge`. For hot-path traversals (multi-hop RWR, HITS subgraph construction), this eliminates redundant SQL round-trips on nodes visited repeatedly across the walk. The cache is invalidated at the start of each index run, so context queries after an index always see fresh graph state.
+
 ## Integration Points
 
 - **MCP tools**: `context_for_task`, `context_for_files`, `context_for_pr`, and `explain_symbol` in `internal/mcp/context_handlers.go` delegate to `ContextEngine`.

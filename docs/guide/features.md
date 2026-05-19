@@ -1,6 +1,6 @@
 # FEATURES.md -- Comprehensive Feature Dump for AI Reference
 
-Generated: 2026-05-15 (updated: 2026-05-17, features 40-69 added, stale statuses corrected)
+Generated: 2026-05-15 (updated: 2026-05-18, features 77-88 added: hash domain prefixes, fsck, GC reachability sweep, lockfile, LRU cache, modular community detection, DiffOptions, indexed_at migration, verify functions, knowing-viz React migration)
 Source: code inspection of all Go files across internal/, cmd/, and config
 Repo: github.com/blackwell-systems/knowing
 
@@ -880,6 +880,110 @@ Repo: github.com/blackwell-systems/knowing
 - **What it enables:** Scoped cache invalidation (change in one community invalidates only that community's root), safe agent parallelization (disjoint roots = disjoint work), retrieval scoping (prefer seeds that share a community root with the task's primary symbols).
 - **Dependencies:** `internal/community` (Louvain), `internal/snapshot` (hash utilities).
 
+### 77. Hash Domain-Type Prefixes (BREAKING CHANGE)
+
+- **Package(s):** `internal/types`
+- **Entry point:** `ComputeNodeHash`, `ComputeEdgeHash`, `ComputeSnapshotHash`, `ComputeMerkleNodeHash` in `internal/types/types.go`
+- **What it does:** Prepends a domain-type tag to every hash input before computing SHA-256: `node\0` for node hashes, `edge\0` for edge hashes, `snapshot\0` for snapshot hashes, and `merkle\0` for Merkle interior node hashes. This mirrors git's `"<type> <size>\0<content>"` object header, making cross-type hash collisions structurally impossible.
+- **Why it matters:** Before this change, a snapshot root hash and a Merkle interior node hash could theoretically share a hash value (both are SHA-256 of binary data with no type tag). After this change, a node hash always begins with the compressed form of `"node\0..."` and cannot collide with an edge hash that begins with `"edge\0..."`.
+- **Breaking change:** Any database populated before 2026-05-18 must be re-indexed. Gate this via schema migration that forces a full reindex on old databases.
+- **Dependencies:** None beyond stdlib.
+
+### 78. `VerifyNodeHash` / `VerifyEdgeHash` (Hash Integrity Functions)
+
+- **Package(s):** `internal/types`
+- **Entry point:** `VerifyNodeHash(n *Node) error`, `VerifyEdgeHash(e *Edge) error` in `internal/types/verify.go`
+- **What it does:** Recomputes the hash from a stored node or edge's fields and compares to the stored hash. Returns an error if they differ, indicating the row was mutated after insertion. Used by `knowing fsck` and available for debug-mode integrity checking.
+- **Why it matters:** Equivalent to git's `check_object_signature`. Enables detection of storage corruption, manual database edits, or bugs in the indexer that produce wrong hashes.
+- **Dependencies:** `internal/types/types.go` (hash computation functions).
+
+### 79. `knowing fsck` Integrity Checker
+
+- **Package(s):** `cmd/knowing`, `internal/snapshot`
+- **Entry point:** `knowing fsck [flags]` (in `cmd/knowing/fsck.go`); `Verify(ctx, repoHash) ([]VerifyError, error)` in `internal/snapshot/verify.go`
+- **What it does:** Walks the graph and verifies: (1) edge referential integrity (every edge's source and target hashes exist in the nodes table), (2) node file integrity (every node's file hash exists in the files table), (3) hash recomputation (recomputes each node and edge hash from stored fields), (4) snapshot chain continuity (every parent pointer resolves), (5) SQLite page integrity via `PRAGMA integrity_check`.
+- **Inputs:** Optional `-repo` to limit to one repo, `-quick` to run only the PRAGMA check.
+- **Outputs:** Classified issues (ERROR or WARN) printed to stdout. Exit code 1 if any ERROR found.
+- **Why it matters:** Equivalent to `git fsck`. Detects silent corruption, partial writes, and indexer bugs that would otherwise surface as wrong query results.
+- **Dependencies:** GraphStore, `internal/types/verify.go`.
+
+### 80. Daemon Lockfile (Prevent Multiple Instances)
+
+- **Package(s):** `internal/daemon`
+- **Entry point:** `internal/daemon/lockfile.go`
+- **What it does:** Creates a lockfile at `<db_path>.lock` with the daemon PID on startup. On startup, checks whether the file exists and the PID is alive; if so, refuses to start with a clear error message. Lockfile removed on clean shutdown.
+- **Why it matters:** Without this, two `knowing watch` processes on the same database compete at the SQLite WAL level: both respond to the same commit events, double-index, and interleave writes. This produces undefined graph state. The lockfile prevents the issue structurally.
+- **Dependencies:** None beyond stdlib.
+
+### 81. GC Reachability Sweep (`GarbageCollectFull`)
+
+- **Package(s):** `internal/snapshot`, `internal/store`
+- **Entry point:** `GarbageCollectFull(ctx, keepCount int) (GCStats, error)` in `internal/snapshot/gc.go`
+- **What it does:** After deleting old snapshots (beyond `keepCount`), collects all node and edge hashes referenced by the surviving snapshots. Calls `DeleteNodesNotIn` and `DeleteEdgesNotIn` on the store to prune unreferenced rows. Returns `GCStats` with counts of deleted nodes, deleted edges, and deleted snapshots.
+- **Why it matters:** The previous `GarbageCollect` only deleted snapshot rows; nodes and edges from deleted snapshots remained in the tables forever. On repos that are refactored frequently (functions renamed, packages restructured), the `nodes` table would grow without bound and degrade query performance.
+- **Dependencies:** GraphStore (`DeleteNodesNotIn`, `DeleteEdgesNotIn`).
+
+### 82. `DeleteNodesNotIn` / `DeleteEdgesNotIn` (GraphStore Additions)
+
+- **Package(s):** `internal/store`, `internal/types`
+- **Entry point:** `DeleteNodesNotIn(ctx, reachable []Hash) (int, error)`, `DeleteEdgesNotIn(ctx, reachable []Hash) (int, error)` on `SQLiteStore`
+- **What it does:** Deletes all rows in the `nodes` (or `edges`) table whose primary key is not in the provided set. Implemented using a SQLite temporary table and a DELETE with a NOT IN subquery for efficiency.
+- **Why it matters:** Required for the GC reachability sweep. These methods are added to the `GraphStore` interface so that any future store implementation must support GC.
+- **Dependencies:** `modernc.org/sqlite`.
+
+### 83. `indexed_at` Epoch Column (Migration 011)
+
+- **Package(s):** `internal/store`
+- **Migration:** `011_add_indexed_at.sql`
+- **What it does:** Adds an `indexed_at INTEGER` column to both the `nodes` and `edges` tables. The indexer sets this to the current Unix timestamp on every insert or update. `GarbageCollectFull` uses this column to identify rows from superseded index runs that are no longer referenced by any surviving snapshot.
+- **Why it matters:** Provides a freshness signal analogous to git's mtime freshening of loose objects. Objects with a recent `indexed_at` are actively referenced; objects with an old `indexed_at` that are not in the reachable set are safe to prune.
+- **Dependencies:** `internal/store/migrate.go`.
+
+### 84. In-Process LRU Cache on SQLiteStore
+
+- **Package(s):** `internal/store`
+- **Entry point:** `SQLiteStore.GetNode`, `SQLiteStore.GetEdge` in `internal/store/sqlite.go`
+- **What it does:** Maintains a `sync.Map`-based LRU cache capped at 50K entries for `GetNode` and `GetEdge` lookups. On cache hit, returns immediately without a SQL round-trip. On cache miss, executes the SQL query and populates the cache. Cache invalidated at the start of each index run.
+- **Why it matters:** Hot-path traversals (blast radius BFS, RWR walks, HITS subgraph construction) visit the same nodes repeatedly. Without caching, each visit incurs a SQL round-trip. At 50K entries, the cache covers the working set of any typical index-time query without unbounded memory growth.
+- **Dependencies:** `sync` (stdlib).
+
+### 85. `PRAGMA integrity_check` (`IntegrityCheck` Method)
+
+- **Package(s):** `internal/store`
+- **Entry point:** `IntegrityCheck(ctx) error` on `SQLiteStore` in `internal/store/sqlite.go`
+- **What it does:** Runs `PRAGMA integrity_check` against the SQLite database and returns an error if any page-level corruption is detected (truncated pages, mismatched page checksums, malformed B-tree structure).
+- **Why it matters:** Detects filesystem-level corruption before the application layer sees inconsistent data. Called by `knowing fsck --quick` and available for startup health checks.
+- **Dependencies:** `modernc.org/sqlite`.
+
+### 86. Modular Community Detection (`internal/community/`)
+
+- **Package(s):** `internal/community`
+- **Entry point:** `Algorithm` interface, `Register(name, factory)`, `New(name, graph) (Algorithm, error)` in `internal/community/registry.go`
+- **What it does:** Defines an `Algorithm` interface with a single `Detect(graph) ([]Community, error)` method. A global registry maps algorithm names to factory functions. Registered algorithms: `louvain` (standard Louvain modularity), `louvain-fine` (higher-resolution Louvain), `label-propagation`. The `communities` MCP tool and `knowing export --algorithm` flag select among registered algorithms; new implementations register via `Register()` without changing any callers.
+- **Why it matters:** Decouples algorithm selection from callers. Adding Leiden or any other community detection algorithm is a single `Register()` call.
+- **Dependencies:** `internal/types` (graph primitives).
+
+### 87. `DiffHierarchicalTreesWithOptions` (Package Filter + MaxChanges Cap)
+
+- **Package(s):** `internal/snapshot`
+- **Entry point:** `DiffHierarchicalTreesWithOptions(old, new *HierarchicalTree, opts DiffOptions) (*HierarchicalDiff, error)` in `internal/snapshot/hierarchical.go`
+- **What it does:** Extends `DiffHierarchicalTrees` with a `DiffOptions` struct carrying: `PackageFilter []string` (limit the diff to named packages only, skipping all others) and `MaxChanges int` (return early and mark `Truncated: true` once this many changed edge-type roots are found).
+- **Why it matters:** Mirrors git's pathspec filtering and `max_changes` early-exit from `tree-diff.c:462-465`. Allows tools like `blast_radius` to request a diff scoped to a single package without re-traversing the full tree, and prevents callers from being overwhelmed when a large batch commit touches many packages.
+- **Dependencies:** `internal/snapshot/hierarchical.go`.
+
+### 88. knowing-viz: Full React Migration
+
+- **Package:** knowing-viz (separate repo, referenced from `docs/roadmap.md`)
+- **What it does:** Complete migration from vanilla JS to React with Zustand state management, `@react-sigma/core` for 2D sigma.js rendering, and `react-force-graph-3d` for 3D force-directed rendering. Framer Motion provides transition animations. The graph rendering and state management are now fully decoupled from the data layer.
+- **New features shipped with the migration:**
+  - **Modular grouping system** (`src/grouping.ts`): 6 pluggable strategies (by package, community, edge type, file, author, none).
+  - **Provenance edge filtering with counts**: per-tier counts shown in sidebar; toggle tiers on/off.
+  - **Edge type filtering**: filter by `calls`, `references`, `throws`, `implements`, etc.
+  - **Timeline snapshot picker**: select any snapshot from the chain; shows commit, timestamp, and node/edge counts.
+  - **Blame author click-to-filter**: click any author name to filter graph to their symbols.
+  - **Configurable max groups slider**: range 1-100 (was hardcoded at 20).
+- **Why it matters:** Makes knowing-viz maintainable and extensible. React component model aligns with the modular grouping system. Zustand eliminates prop-drilling across deep component trees.
+
 ### GraphStore (`internal/types/interfaces.go`)
 
 All 27 methods:
@@ -915,6 +1019,10 @@ All 27 methods:
 | FilesByRepo | `(ctx, Hash) ([]File, error)` | SQLiteStore | indexer, enricher, mcp |
 | FileByPath | `(ctx, Hash, string) (*File, error)` | SQLiteStore | indexer |
 | DeleteSnapshot | `(ctx, Hash) error` | SQLiteStore | snapshot manager (GarbageCollect) |
+| DeleteNodesNotIn | `(ctx, []Hash) (int, error)` | SQLiteStore | snapshot manager (GarbageCollectFull) |
+| DeleteEdgesNotIn | `(ctx, []Hash) (int, error)` | SQLiteStore | snapshot manager (GarbageCollectFull) |
+| IntegrityCheck | `(ctx) error` | SQLiteStore | knowing fsck |
+| NodesByFilePath | `(ctx, string, string) ([]Node, error)` | SQLiteStore | context engine, test scope |
 | Close | `() error` | SQLiteStore | cmd/knowing |
 
 ### Extractor (`internal/types/interfaces.go`)

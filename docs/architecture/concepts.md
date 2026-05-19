@@ -53,10 +53,10 @@ knowing is a knowledge graph because code relationships are inherently graph-sha
 
 | Primitive | What it is | Hash computation |
 |-----------|-----------|-----------------|
-| **Node** | A symbol in source code (function, type, method, interface, constant, variable). Identified by qualified name. | `sha256(repo \|\| package_path \|\| symbol_name \|\| symbol_kind)` |
-| **Edge** | A relationship between two nodes (calls, imports, implements, references). Carries a type, confidence score, and provenance. | `sha256(source_hash \|\| target_hash \|\| edge_type \|\| provenance)` |
-| **Hash** | A 32-byte SHA-256 digest used as the content-addressed identifier for every entity. | n/a |
-| **Snapshot** | A point-in-time graph state. The root of a hierarchical Merkle tree (repo root -> package roots -> edge-type roots -> edge leaves). Also stores intermediate package roots and edge-type roots for scoped invalidation. Links to a parent snapshot (forming a chain like git commits) and records the git commit that produced it. | `hierarchical_merkle_root(edges grouped by package and edge type)` |
+| **Node** | A symbol in source code (function, type, method, interface, constant, variable). Identified by qualified name. | `sha256("node\0" \|\| repo \|\| package_path \|\| symbol_name \|\| symbol_kind)` |
+| **Edge** | A relationship between two nodes (calls, imports, implements, references). Carries a type, confidence score, and provenance. | `sha256("edge\0" \|\| source_hash \|\| target_hash \|\| edge_type \|\| provenance)` |
+| **Hash** | A 32-byte SHA-256 digest used as the content-addressed identifier for every entity. All hash inputs carry a domain-type prefix (`node\0`, `edge\0`, `snapshot\0`, `merkle\0`) so hashes from different entity types are structurally distinguishable -- the same approach git uses with its `"blob <size>\0"` header. | n/a |
+| **Snapshot** | A point-in-time graph state. The root of a hierarchical Merkle tree (repo root -> package roots -> edge-type roots -> edge leaves). Also stores intermediate package roots and edge-type roots for scoped invalidation. Links to a parent snapshot (forming a chain like git commits) and records the git commit that produced it. | `sha256("snapshot\0" \|\| hierarchical_merkle_root(edges grouped by package and edge type))` |
 | **Provenance** | Metadata on an edge describing how it was derived, by which indexer version, at what confidence, from which commit. Provenance is what lets agents distinguish "confirmed by type checker" from "guessed from string matching." | Included in edge hash input. |
 
 ## Event Sourcing

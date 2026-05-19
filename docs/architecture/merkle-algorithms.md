@@ -520,13 +520,25 @@ These algorithms build on each other. The hierarchical tree structure (Phase 1) 
 
 **What shipped:**
 - `BuildHierarchicalTree`: builds repo root -> package roots -> edge-type roots -> edge leaves from edge inputs with package and edge-type metadata.
-- `DiffHierarchicalTrees`: compares package roots only; O(packages) instead of O(edges). 114x faster on the knowing repo (11K edges), 517x on 100K synthetic edges.
+- `DiffHierarchicalTrees`: compares package roots only; O(packages) instead of O(edges). 114x faster on the knowing repo (11K edges), 517x on 100K synthetic edges. Subgraph root lookups: 59ns.
+- `DiffHierarchicalTreesWithOptions`: adds `DiffOptions` with `PackageFilter []string` and `MaxChanges int` cap. Matches git's pathspec filtering and early-exit from `tree-diff.c:462`.
 - `SubgraphRoot`: O(1) cache key for any set of packages.
 - `EdgeTypeRoot`: single-lookup answer for "did call edges change?"
 - `ContextPackRoot`: enables content-addressed context pack deduplication.
 - Flat tree built alongside for backward compatibility; both roots are identical.
+- Hash domain prefixes (`node\0`, `edge\0`, `snapshot\0`, `merkle\0`) applied to all hash computations. Cross-type hash collisions are now structurally impossible.
 
 **Note:** The Phase 1 spec described `symbol_root` and `file_root` levels. The shipped implementation uses two levels (package and edge-type) rather than four. The intermediate file and symbol roots may be added in a later iteration if lazy materialization (Phase 4, Section 13) is implemented.
+
+**MED fixes shipped alongside Phase 1:**
+- `extractPackagePath` returns an error on malformed qualified names instead of silently grouping them under `_root`. (`internal/snapshot/manager.go`)
+- In-process LRU cache on `SQLiteStore.GetNode` and `SQLiteStore.GetEdge` (50K entries, `sync.Map`). (`internal/store/sqlite.go`)
+- `GarbageCollectFull` runs a reachability sweep after pruning old snapshots. Calls `DeleteNodesNotIn` / `DeleteEdgesNotIn` to prune orphaned rows. Returns `GCStats`. (`internal/snapshot/gc.go`)
+- Daemon lockfile at `<db_path>.lock` prevents multiple daemon instances. (`internal/daemon/lockfile.go`)
+- `knowing fsck` CLI integrity checker. (`cmd/knowing/fsck.go`, `internal/snapshot/verify.go`)
+- `indexed_at` epoch column on `nodes` and `edges` (migration 011).
+- `VerifyNodeHash` / `VerifyEdgeHash` in `internal/types/verify.go`.
+- `PRAGMA integrity_check` via `IntegrityCheck` method on `SQLiteStore`.
 
 **Why this enables everything else:** Every other algorithm requires package-level roots. Without them, subgraph caching degrades to global cache invalidation (no better than today), incremental recompute has no granularity signal, and community rooting has no tree to attach to.
 
@@ -537,6 +549,7 @@ These algorithms build on each other. The hierarchical tree structure (Phase 1) 
 **Shipped:**
 - `PackRoot` field on `ContextBlock` (computed by `computePackRoot()` in `internal/context/context.go`): deterministic hash of normalized task + sorted selected node hashes. Verified: 5 queries, 2 unique tasks = 2 unique PackRoots (perfect dedup).
 - `MerkleRoot` and `Packages` fields on `communityInfo` in `internal/mcp/communities.go`: each Louvain community carries a Merkle root over the packages it spans. Community roots verified distinct per package set on live graph.
+- Modular community detection: `Algorithm` interface and registry in `internal/community/`. Louvain (`louvain`, `louvain-fine`) and label propagation (`label-propagation`) registered. `knowing export --algorithm` and `communities` MCP tool accept the algorithm parameter.
 
 **Remaining:**
 - Cache layer keyed by `(query_params_hash, subgraph_root)` for `blast_radius`, `context_for_task`, and `test_scope`.

@@ -100,7 +100,9 @@ Repository A has a function. Repository B calls it. Both repositories are indexe
 
 Mutable systems need either a global ID service (coordination overhead, single point of failure) or a naming convention (fragile, breaks on rename/move).
 
-**With content-addressing:** both compute `RepoHash = SHA-256(canonicalRepoIdentity)` and then `NodeHash = SHA-256(repoHash || packagePath || symbolName || symbolKind)`. Same canonical inputs, same hash. Global identity without coordination, without consensus, without a central registry. Two indexers running on different machines at different times produce the same hash for the same symbol.
+**With content-addressing:** both compute `RepoHash = SHA-256(canonicalRepoIdentity)` and then `NodeHash = SHA-256("node\0" || repoHash || packagePath || symbolName || symbolKind)`. Same canonical inputs, same hash. Global identity without coordination, without consensus, without a central registry. Two indexers running on different machines at different times produce the same hash for the same symbol.
+
+The `"node\0"` domain-type prefix (and `"edge\0"`, `"snapshot\0"`, `"merkle\0"` for other entity types) ensures hashes from different entity types are structurally distinguishable, making cross-type hash collisions structurally impossible. This mirrors git's `"<type> <size>\0<content>"` object header.
 
 In practice, `repoURL` must be canonicalized before hashing: normalized host, owner, repository name, and transport-independent identity. Systems may also choose to hash a repository root identity derived from the VCS remote and commit lineage rather than the literal URL string.
 
@@ -133,14 +135,14 @@ Every step is a deterministic computation from content. An auditor can verify an
 **Node** (a symbol declaration):
 ```
 RepoHash = SHA-256(canonicalRepoIdentity)
-NodeHash = SHA-256(repoHash || packagePath || symbolName || symbolKind)
+NodeHash = SHA-256("node\0" || repoHash || packagePath || symbolName || symbolKind)
 ```
 
 Identity depends on logical position (repo, package, name, kind), not physical location (file, line number). Moving a function between files does not change its hash. Renaming it does (creating a new entity; the old entity's edges become stale, detectable via snapshot diff).
 
 **Edge** (a directed relationship):
 ```
-EdgeHash = SHA-256(sourceHash || targetHash || edgeType || provenance)
+EdgeHash = SHA-256("edge\0" || sourceHash || targetHash || edgeType || provenance)
 ```
 
 Identity includes provenance. The same structural relationship (A calls B) observed by tree-sitter AST analysis, LSP type resolution, and runtime tracing produces three distinct edges. This preserves the audit trail (how was this discovered?) while allowing confidence merging (take the maximum).
@@ -192,16 +194,21 @@ The content-addressed relationship model is implemented in `github.com/blackwell
 
 The implementation includes:
 
-- Deterministic node hashes for symbols across 10 language extractors
+- Deterministic node hashes for symbols across 25 language/infrastructure extractors, with domain-type prefixes (`node\0`, `edge\0`, `snapshot\0`, `merkle\0`) making cross-type collisions structurally impossible
 - Deterministic edge hashes for relationships with provenance-aware identity
-- Hierarchical Merkle trees (repo root -> package roots -> edge-type roots -> edge leaves) enabling package-scoped diff (114x faster than flat diff on 11K edges, 517x on 100K synthetic); flat trees built alongside for backward compatibility
-- Snapshot hashes computed as hierarchical Merkle roots
+- Hierarchical Merkle trees (repo root -> package roots -> edge-type roots -> edge leaves) enabling package-scoped diff (114x faster than flat diff on 11K edges, 517x on 100K synthetic edges, 59ns subgraph root lookups); flat trees built alongside for backward compatibility
+- `DiffHierarchicalTreesWithOptions` with `PackageFilter` and `MaxChanges` cap for scoped diffs
+- Snapshot hashes computed as hierarchical Merkle roots with `snapshot\0` domain prefix
+- Content-addressed context packs: `ContextBlock.PackRoot = hash(task_normalized + sorted(selected_node_hashes))`; verified at 5 queries, 2 unique tasks = 2 unique PackRoots (perfect dedup)
+- Community Merkle roots: each detected community carries a Merkle root over the packages it spans
 - Parent-linked snapshot chains with diff between adjacent states
+- `GarbageCollectFull` with reachability sweep pruning orphaned nodes and edges
+- `knowing fsck` integrity checker for edge referential integrity, hash recomputation, and snapshot chain continuity
 - Cross-repo symbol identity via canonical repo hashing
-- GCF/GCB wire formats for efficient graph transmission to LLM consumers
+- GCF/GCB wire formats for efficient graph transmission to LLM consumers (84% token savings)
 - Tests validating deterministic identity, snapshot reproducibility, and round-trip integrity
 
-The system is deployed as a CLI tool and MCP server (22 tools), processing repositories of 40K+ lines of code with sub-second incremental reindexing. These measurements come from indexing the `knowing` repository itself and related test fixtures.
+The system is deployed as a CLI tool and MCP server (23 tools), processing repositories of 60K+ lines of code with sub-second incremental reindexing. These measurements come from indexing the `knowing` repository itself and related test fixtures.
 
 ---
 

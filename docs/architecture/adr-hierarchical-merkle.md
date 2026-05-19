@@ -54,9 +54,18 @@ No competitor uses hierarchical Merkle trees over code relationship graphs. Most
 
 ## Implementation
 
-- `internal/snapshot/hierarchical.go`: `HierarchicalTree`, `BuildHierarchicalTree`, `DiffHierarchicalTrees`, `SubgraphRoot`, `EdgeTypeRoot`, `ContextPackRoot`
-- `internal/snapshot/manager.go`: `ComputeSnapshot` builds both flat and hierarchical trees
-- `bench/merkle-diff/`: benchmark harness with auto-generated FINDINGS.md
+- `internal/snapshot/hierarchical.go`: `HierarchicalTree`, `BuildHierarchicalTree`, `DiffHierarchicalTrees`, `DiffHierarchicalTreesWithOptions` (with `DiffOptions`: `PackageFilter`, `MaxChanges`), `SubgraphRoot`, `EdgeTypeRoot`, `ContextPackRoot`
+- `internal/snapshot/manager.go`: `ComputeSnapshot` builds both flat and hierarchical trees; `extractPackagePath` now returns an error on malformed names
+- `internal/snapshot/gc.go`: `GarbageCollectFull` with reachability sweep and `GCStats` return type
+- `internal/snapshot/verify.go`: integrity verification functions used by `knowing fsck`
+- `internal/store/sqlite.go`: in-process LRU cache (50K entries) on `GetNode`/`GetEdge`; `IntegrityCheck` method for `PRAGMA integrity_check`
+- `internal/store/gc.go`: `DeleteNodesNotIn`, `DeleteEdgesNotIn` implementations
+- `internal/daemon/lockfile.go`: daemon lockfile to prevent multiple instances
+- `internal/types/types.go`: hash domain prefixes (`node\0`, `edge\0`, `snapshot\0`, `merkle\0`)
+- `internal/types/verify.go`: `VerifyNodeHash`, `VerifyEdgeHash`
+- `internal/community/`: `Algorithm` interface, registry, Louvain and label propagation implementations
+- `cmd/knowing/fsck.go`: `knowing fsck` CLI command
+- `bench/merkle-diff/`: benchmark harness with auto-generated `FINDINGS.md` and `FINDINGS-context-packs.md`
 - `docs/architecture/merkle-algorithms.md`: full specification of 13 algorithms across 4 phases
 
 ## Alternatives Considered

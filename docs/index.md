@@ -38,17 +38,18 @@ knowing builds a content-addressed knowledge graph of software relationships and
 
 - **25 extractors** (12 languages + 13 infrastructure/cloud formats): Go, TypeScript/JS, Python, Rust, Java, C#, Terraform, SQL, Kubernetes YAML, Cloud YAML (CloudFormation/SAM, Docker Compose, GitHub Actions, Serverless Framework), CSS, Protocol Buffers, Dockerfile, Makefile, Helm Charts, GitLab CI, package.json/npm, GraphQL, Ansible
 - **18 web frameworks**: route detection for net/http, chi, gin, echo, gorilla/mux, Express.js, Fastify, Hono, NestJS, Next.js, Flask, FastAPI, Django, Actix, Axum, Rocket, Spring, ASP.NET
-- **22 MCP tools**: graph queries, runtime traffic, semantic diff, PR impact, context packing, feedback, test scope, flow analysis, community detection
-- **12 CLI commands**: serve, index, query, export, diff, context, mcp, reindex, init, test-scope, ingest-scip, version
+- **23 MCP tools**: graph queries, runtime traffic, semantic diff, PR impact, context packing, feedback, test scope, flow analysis, community detection (with algorithm selection)
+- **13 CLI commands**: serve, index, query, export (with --algorithm), diff, context, mcp, reindex, init, test-scope, ingest-scip, fsck, version
 - **Runtime intelligence**: OTel trace ingestion with observation-based confidence scoring
 - **Incremental updates**: git-based change detection, re-indexes only changed files
-- **Content-addressed**: every node, edge, and snapshot is a hash with full audit trail
+- **Content-addressed**: every node, edge, and snapshot is a hash with domain-type prefix tags (`node\0`, `edge\0`, `snapshot\0`, `merkle\0`) for structural type safety
+- **Hierarchical Merkle tree**: 114x faster diff on real graphs (517x at 100K edges), O(1) subgraph root lookups at 59ns, modular community detection registry
 
 ## Documentation
 
-- [Architecture](architecture/): system design, concurrency model, data flow, hierarchical Merkle tree
-- [CLI Reference](guide/cli.md): all 12 commands with flags and examples
-- [MCP Tools](guide/mcp-tools.md): all 22 tools with parameters and return formats
+- [Architecture](architecture/): system design, concurrency model, data flow, hierarchical Merkle tree, git design audit
+- [CLI Reference](guide/cli.md): all 13 commands with flags and examples (including `fsck` and `export --algorithm`)
+- [MCP Tools](guide/mcp-tools.md): all 23 tools with parameters and return formats
 - [Edge Types](architecture/edge-types.md): all 16 edge types with provenance and confidence
 - [Runtime Traces](operations/runtime-traces.md): OTel ingestion design
 - [Roadmap](roadmap.md): what's done, what's next

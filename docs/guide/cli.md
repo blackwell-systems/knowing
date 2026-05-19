@@ -13,7 +13,7 @@ See [distribution.md](distribution.md) for installation instructions.
 knowing <subcommand> [flags]
 ```
 
-Subcommands: `serve`, `index`, `query`, `export`, `diff`, `context`, `why`, `mcp`, `watch`, `reindex`, `init`, `add`, `remove`, `list`, `test-scope`, `ingest-scip`, `enrich`, `version`.
+Subcommands: `serve`, `index`, `query`, `export`, `diff`, `context`, `why`, `mcp`, `watch`, `reindex`, `init`, `add`, `remove`, `list`, `test-scope`, `ingest-scip`, `enrich`, `fsck`, `version`.
 
 ## Environment
 
@@ -222,13 +222,14 @@ containing nodes, edges, and metadata.
 |------|------|---------|-------------|
 | `-db` | string | *(per-repo, from roster)* | Path to the SQLite database |
 | `-format` | string | `json` | Output format: `json` (with community annotations) or `dot` (Graphviz with Louvain subgraphs) |
+| `-algorithm` | string | `louvain` | Community detection algorithm: `louvain`, `louvain-fine`, or `label-propagation` |
 | `-repo` | string | *(empty)* | Filter by repository URL. When set, only nodes belonging to files in that repo are included. |
 | `-snapshot` | string | *(empty)* | Filter by snapshot hash (recorded in metadata; does not currently filter nodes) |
 
 **Examples:**
 
 ```bash
-# Export the entire graph as JSON (with community annotations)
+# Export the entire graph as JSON (with community annotations, default Louvain)
 knowing export > graph.json
 
 # Export filtered to one repo
@@ -236,6 +237,12 @@ knowing export -repo github.com/org/repo > repo.json
 
 # Export as Graphviz DOT with Louvain community subgraphs
 knowing export -format dot > graph.dot
+
+# Export using label propagation community detection
+knowing export -algorithm label-propagation > graph.json
+
+# Export using fine-grained Louvain (higher resolution)
+knowing export -algorithm louvain-fine > graph.json
 
 # Export from a non-default database
 knowing export -db /tmp/test.db -repo github.com/org/repo
@@ -901,6 +908,56 @@ knowing enrich coverage -profile /tmp/cover.out -db /var/lib/knowing/data.db ./m
 - Cover profiles use full module paths; the pass matches by suffix against
   the file paths stored in the graph.
 - Logs a summary: symbols stamped, files without coverage data.
+
+---
+
+### fsck
+
+Check the integrity of the knowledge graph database.
+
+```
+knowing fsck [flags]
+```
+
+Walks the graph and verifies:
+
+1. **Edge referential integrity:** every edge's source and target hashes refer to existing nodes.
+2. **Hash recomputation:** recomputes each node hash and edge hash from its stored fields and compares to the stored value. A mismatch indicates the row was mutated after insertion.
+3. **Snapshot chain continuity:** every snapshot's parent pointer refers to an existing snapshot.
+4. **SQLite page integrity:** runs `PRAGMA integrity_check` to detect filesystem-level corruption before the application layer sees inconsistent data.
+
+Issues are classified as ERROR (data inconsistency) or WARN (advisory, graph is queryable).
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `-db` | string | *(per-repo, from roster)* | Path to the SQLite database |
+| `-repo` | string | *(all repos)* | Limit the check to a specific repository URL |
+| `-quick` | bool | `false` | Run only `PRAGMA integrity_check`; skip hash recomputation and edge walks |
+
+**Examples:**
+
+```bash
+# Full integrity check on the current repo's database
+knowing fsck
+
+# Quick SQLite-level check only
+knowing fsck --quick
+
+# Check a specific repo's database
+knowing fsck -db ~/.knowing/repos/my-repo.db
+
+# Limit to one repo when the database contains multiple repos
+knowing fsck -repo github.com/org/repo
+```
+
+**Notes:**
+
+- Requires a pre-built database. Run `knowing index` first.
+- Hash recomputation will report mismatches if the database was built before the hash domain prefix change (2026-05-18 release). In that case, re-index the repo.
+- The `--quick` mode (PRAGMA only) runs in milliseconds. Full recomputation time scales with node and edge count.
+- Exit code 0 if no ERRORs found (warnings do not affect exit code). Exit code 1 if any ERROR is found.
 
 ---
 

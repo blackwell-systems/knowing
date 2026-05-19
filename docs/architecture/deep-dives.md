@@ -13,10 +13,13 @@ Mutable-state graphs (the default in every existing code intelligence tool) lose
 **How it works:**
 
 ```
-node_hash   = sha256(repo || package_path || content_hash || symbol_name || symbol_kind)
-edge_hash   = sha256(source_node_hash || target_node_hash || edge_type || provenance_json)
-snapshot    = hierarchical_merkle_root(edges grouped by package and edge type)
+node_hash     = sha256("node\0"     || repo || package_path || symbol_name || symbol_kind)
+edge_hash     = sha256("edge\0"     || source_node_hash || target_node_hash || edge_type || provenance_json)
+merkle_node   = sha256("merkle\0"   || left_hash || right_hash)
+snapshot_hash = sha256("snapshot\0" || hierarchical_merkle_root(edges grouped by package and edge type))
 ```
+
+Domain-type prefixes (`node\0`, `edge\0`, `snapshot\0`, `merkle\0`) ensure that hashes from different entity types are structurally distinguishable. A snapshot root hash and a Merkle interior node hash cannot share a value even if their content bytes happen to collide. This is the same protection git provides with its `"<type> <size>\0<content>"` object header format. Implemented in `internal/types/types.go`. Note: this was a breaking change from the original prefix-free scheme; databases built before 2026-05-18 must be re-indexed.
 
 The snapshot is the root of a four-level hierarchical Merkle tree (repo root -> package roots -> edge-type roots -> edge leaves), implemented in `internal/snapshot/hierarchical.go`. A flat tree (`merkle_root(sorted(all_edge_hashes))`) is also built alongside for backward compatibility; both roots are identical. The hierarchical structure enables `DiffHierarchicalTrees` to compare package roots instead of all edges: 114x faster on the knowing repo (11K edges), 517x on 100K synthetic edges. `SubgraphRoot` computes O(1) cache keys for any package set. `EdgeTypeRoot` answers "did call edges change?" in one lookup. Build cost is comparable to the flat tree.
 
@@ -188,6 +191,10 @@ internal/store/migrations/
   004_add_runtime_columns.sql
   006_add_fts5_index.sql
   007_add_doc_column.sql
+  008_add_task_memory.sql
+  009_add_blame_columns.sql
+  010_add_coverage_column.sql
+  011_add_indexed_at.sql
 ```
 
 **Why:**

@@ -27,7 +27,7 @@ knowing is an intelligence versioning system: a content-addressed graph where ev
 |---|---|---|
 | What it versions | File contents | Code relationships and their meaning |
 | Unit of storage | file blob | node (symbol) + edge (relationship) + provenance + confidence |
-| Identity model | `sha256(file content)` | `sha256(repo + package + name + kind)` for nodes, `sha256(source + target + type + provenance)` for edges |
+| Identity model | `sha256(file content)` | `sha256("node\0" + repo + package + name + kind)` for nodes, `sha256("edge\0" + source + target + type + provenance)` for edges -- domain-type prefixes make cross-type collisions structurally impossible (same principle as git's `"blob <size>\0"` header) |
 | Snapshot | tree hash of file blobs | Hierarchical Merkle root: repo -> package -> edge-type -> leaf |
 | What a diff tells you | Which lines changed | Which packages changed, which edge types changed, what broke, what's new |
 | What history tells you | What the code looked like | What the codebase understood about itself at each point in time |
@@ -89,7 +89,7 @@ The repository includes benchmark harnesses that regenerate their own findings f
 | Test scope | 92.9% precision, 80.0% recall | Call-graph BFS selects affected test packages with few false positives |
 | Feedback loop | 16% -> 36% precision after one feedback round | Relevance improves as agents mark useful symbols |
 | Edge accuracy | 53.6% import confirmation, 32.2% miss rate | Two-tier extraction provides meaningful fast signal |
-| Hierarchical Merkle diff | 517x faster at 100K edges (12us vs 6.2ms) | Package-level root comparison replaces full edge scan |
+| Hierarchical Merkle diff | 114x faster on real graph (11K edges), 517x at 100K synthetic edges; 59ns subgraph root lookups | Package-level root comparison replaces full edge scan; `DiffOptions` enables package-scoped diffs |
 
 Run the suites:
 
@@ -164,6 +164,12 @@ Serve MCP over stdio for local agents:
 
 ```bash
 knowing mcp
+```
+
+Check graph integrity:
+
+```bash
+knowing fsck
 ```
 
 ## Agent Integration
@@ -322,6 +328,8 @@ For the full storage model and hash construction, see [docs/architecture/](docs/
 ## Current Boundaries
 
 knowing is implemented, benchmarked, and usable, but it is still explicit about where precision depends on available data:
+
+- **Breaking hash change (2026-05-18):** Hash domain prefixes (`node\0`, `edge\0`, `snapshot\0`, `merkle\0`) were added to all hash computations. Databases built before this release must be re-indexed (`knowing reindex <path>`). Run `knowing fsck` after re-indexing to verify integrity.
 
 - Static call-graph impact follows `calls` edges; other edge types are used for context and relationship awareness, not every blast-radius traversal.
 - Runtime tools require OpenTelemetry trace ingestion and route-symbol mappings; without trace data they have no runtime observations to report.

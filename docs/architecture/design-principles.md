@@ -2,7 +2,7 @@
 
 ## Design Goals
 
-- **Content-addressed**: every graph state is a hash; history, staleness, and integrity are structural properties, not bolted-on features
+- **Content-addressed**: every graph state is a hash; history, staleness, and integrity are structural properties, not bolted-on features. All hash inputs carry domain-type prefixes (`node\0`, `edge\0`, `snapshot\0`, `merkle\0`) so hashes from different entity types are structurally distinguishable, making cross-type hash collisions structurally impossible (same approach as git's `"blob <size>\0"` header)
 - **Two-tier extraction**: tree-sitter for fast AST parsing (seconds), LSP enrichment for type-resolved confidence (seconds more); graph is queryable after Tier 1
 - **Git-driven incremental**: commits are the unit of change; git diff provides the exact changed file set; no filesystem walking or content hashing for change detection
 - **Language-aware at boundaries**: Go calling Go is straightforward; Go calling a Python service via HTTP needs route mapping

@@ -1,6 +1,6 @@
 # Benchmarks
 
-Seven benchmark harnesses that prove knowing's value with hard data. Each benchmark
+Eight benchmark harnesses that prove knowing's value with hard data. Each benchmark
 is a standalone Go test package that indexes the knowing repo, runs measurements,
 and auto-generates a `FINDINGS.md` with results and interpretation.
 
@@ -14,7 +14,7 @@ and auto-generates a `FINDINGS.md` with results and interpretation.
 | [edge-accuracy](edge-accuracy/) | Two-tier extraction provides meaningful signal | 53.6% import confirmation, 26.7% overall |
 | [test-scope-accuracy](test-scope-accuracy/) | Call-graph BFS predicts affected tests | 98.9% precision vs independent Go import DAG |
 | [wire-format](wire-format/) | GCF is dramatically more token-efficient than JSON | 84% token savings, 74% byte savings |
-| [merkle-diff](merkle-diff/) | Hierarchical Merkle tree enables scoped invalidation; context pack determinism and community root distinctness | 114x faster diff on real graph, 59ns subgraph root lookups; 5 queries, 2 unique tasks = 2 unique PackRoots (perfect dedup) |
+| [merkle-diff](merkle-diff/) | Hierarchical Merkle tree enables scoped invalidation; context pack determinism and community root distinctness | 114x faster diff on real graph (11K edges), 517x on 100K synthetic edges, 59ns subgraph root lookups; 5 queries, 2 unique tasks = 2 unique PackRoots (perfect dedup) |
 
 ## Running
 
@@ -69,6 +69,10 @@ A/B comparison of 3 engine configurations across 10 task fixtures:
 Shows that feedback is the strongest enhancement for precision at current repo scale,
 while HITS/RWR provides score differentiation that matters more on larger repos.
 
+### integrity (new in 2026-05-18 session)
+
+Validates the `knowing fsck` integrity checker and hash domain prefix correctness. Indexes the repo, verifies all node and edge hashes using `VerifyNodeHash`/`VerifyEdgeHash`, checks edge referential integrity, and confirms snapshot chain continuity. Confirms that the `node\0`, `edge\0`, `snapshot\0`, and `merkle\0` prefixes are present and consistent across all stored rows.
+
 ### token-savings
 
 Simulates agent workflows: for 5 task scenarios, measures how many grep/read tool
@@ -93,7 +97,7 @@ Measures GCF (token-optimized) and GCB (byte-optimized) against JSON across 6
 fixture payloads. Verifies round-trip integrity, monotonic improvement (GCF never
 worse than JSON), and p99 encode latency < 1ms.
 
-### merkle-diff
+### merkle-diff (Phase 2 extension)
 
 Benchmarks hierarchical vs flat Merkle tree operations on the live knowing graph.
 Indexes the repo, collects all edges with package and edge-type metadata, mutates

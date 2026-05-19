@@ -8,9 +8,10 @@ knowing is a persistent daemon that builds and serves a content-addressed knowle
 knowing daemon (long-lived)
   ├── Change Detector (git-based: post-commit hooks, .git/HEAD watch, polling fallback)
   ├── Indexer (two-tier: tree-sitter extraction + LSP enrichment)
-  ├── Graph Store (SQLite behind GraphStore interface, WAL mode)
+  ├── Graph Store (SQLite behind GraphStore interface, WAL mode, 50K-entry in-process LRU cache)
   ├── MCP Server (stdio or HTTP, 23 tools across execution/intelligence/runtime/context/feedback/discovery planes)
-  ├── Snapshot Manager (computes hierarchical Merkle trees, GCs old snapshots)
+  ├── Snapshot Manager (computes hierarchical Merkle trees, GCs old snapshots + orphaned nodes/edges)
+  ├── Lockfile (internal/daemon/lockfile.go, prevents multiple instances on same database)
   └── Trace Ingestor (OTel spans, HTTP logs → runtime edges)
 ```
 
@@ -370,6 +371,18 @@ DeleteEdgesBySourceFile(ctx context.Context, fileHash Hash) error
 // Used to compute the "removed" set before deletion.
 EdgesBySourceFile(ctx context.Context, fileHash Hash) ([]Edge, error)
 ```
+
+## Integrity and Garbage Collection
+
+**In-process LRU cache:** `SQLiteStore.GetNode` and `SQLiteStore.GetEdge` maintain a `sync.Map`-based LRU cache capped at 50K entries. Hot-path traversals (blast radius, RWR walks) eliminate redundant SQL round-trips. The cache is invalidated at the start of each index run.
+
+**Daemon lockfile:** `internal/daemon/lockfile.go` creates `<db_path>.lock` with the daemon PID on startup. A second daemon instance on the same database fails with a clear error instead of competing for the SQLite WAL.
+
+**GC reachability sweep:** `GarbageCollectFull` (in `internal/snapshot/gc.go` and `internal/store/gc.go`) runs after deleting old snapshots. It collects all node and edge hashes referenced by surviving snapshots, then calls `DeleteNodesNotIn` and `DeleteEdgesNotIn` on the store to prune orphaned rows. Returns a `GCStats` struct with counts of pruned nodes and edges. This prevents the `nodes` table from growing without bound on frequently-refactored repos.
+
+**`knowing fsck`:** CLI integrity checker (`cmd/knowing/fsck.go` + `internal/snapshot/verify.go`). Verifies edge referential integrity, hash recomputation (detects mutated rows), snapshot chain continuity, and SQLite-level page integrity via `PRAGMA integrity_check`. Issues classified as ERROR or WARN.
+
+**`indexed_at` epoch (migration 011):** `indexed_at INTEGER` column on the `nodes` and `edges` tables. `GarbageCollectFull` uses this to identify objects from superseded index runs.
 
 ## Edge Types
 

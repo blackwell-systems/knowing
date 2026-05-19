@@ -700,31 +700,31 @@ running server on either side. The wire format infrastructure in
 The table below lists every recommendation in priority order. "Effort" is a
 rough estimate for a single engineer working on the knowing codebase.
 
-| # | Rec | Severity | Effort | Files |
-|---|-----|----------|--------|-------|
-| 1.1 | Add domain-type prefix to all hash computations | CRITICAL | 2h + reindex | `internal/types/types.go`, `internal/snapshot/merkle.go` |
-| 1.2 | Add `VerifyHash` recomputation function | HIGH | 1h | `internal/types/types.go` |
-| 6.1 | GC: prune unreachable nodes and edges | HIGH | 4h | `internal/snapshot/manager.go` |
-| 6.3 | GC: hold write lock during GC | HIGH | 2h | `internal/daemon/daemon.go` |
-| 8.1 | Add `knowing fsck` integrity checker | HIGH | 1 day | `internal/snapshot/manager.go`, new `cmd/` subcommand |
-| 8.2 | Add `PRAGMA integrity_check` on startup | HIGH | 2h | `internal/store/sqlite.go` |
-| 9.1 | Add lockfile to prevent multiple daemon instances | HIGH | 2h | `internal/daemon/daemon.go` |
-| 3.1 | Make `extractPackagePath` return error on malformed names | HIGH | 2h | `internal/snapshot/manager.go` |
-| 2.1 | Add `indexed_at` epoch for GC freshness signal | MED | 4h | `internal/store/migrations/` |
-| 2.2 | Add in-process node/edge LRU cache | MED | 3h | `internal/store/sqlite.go` |
-| 4.1 | Add package filter and max-changes cap to `DiffHierarchicalTrees` | MED | 3h | `internal/snapshot/hierarchical.go` |
-| 6.2 | Add `GarbageCollectStats` return type | MED | 2h | `internal/snapshot/manager.go` |
-| 9.2 | Set `MaxOpenConns(1)` on SQLite connection | LOW | 1h | `internal/store/sqlite.go` |
-| 3.2 | Guard `DiffHierarchicalTrees` against nil trees | LOW | 1h | `internal/snapshot/hierarchical.go` |
-| 3.3 | Add package-prefix filtering to diff | LOW | 2h | `internal/snapshot/hierarchical.go` |
-| 4.2 | Add max-edges cap to `DiffMerkle` | LOW | 2h | `internal/snapshot/merkle.go` |
-| 5.1 | Add `ReconstructEdgeSet` from event log | LOW | 1 week | `internal/snapshot/manager.go` |
-| 5.2 | Add incremental snapshot computation for changed files | LOW | 3h | `internal/snapshot/manager.go` |
-| 7.1 | Add named snapshot refs (`snapshot_refs` table) | LOW | 4h | `internal/types/interfaces.go`, new SQL migration |
-| 7.2 | Add reflog table for snapshot chain audit trail | LOW | 2h | new SQL migration |
-| 2.3 | Consider per-row column split for edge observations | LOW | 1 day | `internal/store/migrations/` |
-| 10.1 | Design Merkle-diff-based sync protocol | LOW | 2 weeks | new `internal/sync/` package |
-| 10.2 | Add `knowing export` / `knowing import` commands | LOW | 1 week | `cmd/`, `internal/wire/` |
+| # | Rec | Severity | Effort | Files | Status |
+|---|-----|----------|--------|-------|--------|
+| 1.1 | Add domain-type prefix to all hash computations | CRITICAL | 2h + reindex | `internal/types/types.go`, `internal/snapshot/merkle.go` | **Shipped 2026-05-18** |
+| 1.2 | Add `VerifyHash` recomputation function | HIGH | 1h | `internal/types/types.go` | **Shipped 2026-05-18** (`VerifyNodeHash`, `VerifyEdgeHash` in `internal/types/verify.go`) |
+| 6.1 | GC: prune unreachable nodes and edges | HIGH | 4h | `internal/snapshot/manager.go` | **Shipped 2026-05-18** (`GarbageCollectFull` with reachability sweep) |
+| 6.3 | GC: hold write lock during GC | HIGH | 2h | `internal/daemon/daemon.go` | **Shipped 2026-05-18** |
+| 8.1 | Add `knowing fsck` integrity checker | HIGH | 1 day | `internal/snapshot/manager.go`, new `cmd/` subcommand | **Shipped 2026-05-18** (`cmd/knowing/fsck.go`, `internal/snapshot/verify.go`) |
+| 8.2 | Add `PRAGMA integrity_check` on startup | HIGH | 2h | `internal/store/sqlite.go` | **Shipped 2026-05-18** (`IntegrityCheck` method) |
+| 9.1 | Add lockfile to prevent multiple daemon instances | HIGH | 2h | `internal/daemon/daemon.go` | **Shipped 2026-05-18** (`internal/daemon/lockfile.go`) |
+| 3.1 | Make `extractPackagePath` return error on malformed names | HIGH | 2h | `internal/snapshot/manager.go` | **Shipped 2026-05-18** |
+| 2.1 | Add `indexed_at` epoch for GC freshness signal | MED | 4h | `internal/store/migrations/` | **Shipped 2026-05-18** (migration 011) |
+| 2.2 | Add in-process node/edge LRU cache | MED | 3h | `internal/store/sqlite.go` | **Shipped 2026-05-18** (50K-entry `sync.Map` on `GetNode`/`GetEdge`) |
+| 4.1 | Add package filter and max-changes cap to `DiffHierarchicalTrees` | MED | 3h | `internal/snapshot/hierarchical.go` | **Shipped 2026-05-18** (`DiffHierarchicalTreesWithOptions` with `DiffOptions`) |
+| 6.2 | Add `GarbageCollectStats` return type | MED | 2h | `internal/snapshot/manager.go` | **Shipped 2026-05-18** (`GCStats` return type on `GarbageCollectFull`) |
+| 9.2 | Set `MaxOpenConns(1)` on SQLite connection | LOW | 1h | `internal/store/sqlite.go` | Open |
+| 3.2 | Guard `DiffHierarchicalTrees` against nil trees | LOW | 1h | `internal/snapshot/hierarchical.go` | **Shipped 2026-05-18** |
+| 3.3 | Add package-prefix filtering to diff | LOW | 2h | `internal/snapshot/hierarchical.go` | **Shipped 2026-05-18** (via `DiffOptions.PackageFilter`) |
+| 4.2 | Add max-edges cap to `DiffMerkle` | LOW | 2h | `internal/snapshot/merkle.go` | **Shipped 2026-05-18** (via `DiffOptions.MaxChanges`) |
+| 5.1 | Add `ReconstructEdgeSet` from event log | LOW | 1 week | `internal/snapshot/manager.go` | Open |
+| 5.2 | Add incremental snapshot computation for changed files | LOW | 3h | `internal/snapshot/manager.go` | Open |
+| 7.1 | Add named snapshot refs (`snapshot_refs` table) | LOW | 4h | `internal/types/interfaces.go`, new SQL migration | Open |
+| 7.2 | Add reflog table for snapshot chain audit trail | LOW | 2h | new SQL migration | Open |
+| 2.3 | Consider per-row column split for edge observations | LOW | 1 day | `internal/store/migrations/` | Open |
+| 10.1 | Design Merkle-diff-based sync protocol | LOW | 2 weeks | new `internal/sync/` package | Open |
+| 10.2 | Add `knowing export` / `knowing import` commands | LOW | 1 week | `cmd/`, `internal/wire/` | Open |
 
 ---
 
