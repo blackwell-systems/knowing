@@ -31,6 +31,9 @@ func (s *Server) handleContextForTask(ctx context.Context, req mcp.CallToolReque
 	if s.taskMemory != nil {
 		engine.SetTaskMemory(s.taskMemory)
 	}
+	if s.resultCache != nil {
+		engine.SetCache(s.resultCache)
+	}
 	block, err := engine.ForTask(ctx, knowingctx.TaskOptions{
 		TaskDescription: taskDesc,
 		TokenBudget:     tokenBudget,
