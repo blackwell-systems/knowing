@@ -1,6 +1,6 @@
 # Benchmarks
 
-Six benchmark harnesses that prove knowing's value with hard data. Each benchmark
+Seven benchmark harnesses that prove knowing's value with hard data. Each benchmark
 is a standalone Go test package that indexes the knowing repo, runs measurements,
 and auto-generates a `FINDINGS.md` with results and interpretation.
 
@@ -14,6 +14,7 @@ and auto-generates a `FINDINGS.md` with results and interpretation.
 | [edge-accuracy](edge-accuracy/) | Two-tier extraction provides meaningful signal | 53.6% import confirmation, 26.7% overall |
 | [test-scope-accuracy](test-scope-accuracy/) | Call-graph BFS predicts affected tests | 98.9% precision vs independent Go import DAG |
 | [wire-format](wire-format/) | GCF is dramatically more token-efficient than JSON | 84% token savings, 74% byte savings |
+| [merkle-diff](merkle-diff/) | Hierarchical Merkle tree enables scoped invalidation | 114x faster diff on real graph, 59ns subgraph root lookups |
 
 ## Running
 
@@ -91,3 +92,12 @@ truth. Skips gracefully on shallow clones (CI).
 Measures GCF (token-optimized) and GCB (byte-optimized) against JSON across 6
 fixture payloads. Verifies round-trip integrity, monotonic improvement (GCF never
 worse than JSON), and p99 encode latency < 1ms.
+
+### merkle-diff
+
+Benchmarks hierarchical vs flat Merkle tree operations on the live knowing graph.
+Indexes the repo, collects all edges with package and edge-type metadata, mutates
+one package, and measures diff performance. Validates that hierarchical diffs are
+O(packages) instead of O(edges), subgraph root lookups are O(1), and the build
+cost overhead is negligible. Also verifies correctness: the diff correctly identifies
+which packages and edge types changed.
