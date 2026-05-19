@@ -1,3 +1,4 @@
+completion_date: "2026-05-18"
 title: Fix CRITICAL and HIGH severity items from git design audit
 feature_slug: git-audit-fixes
 verdict: SUITABLE
@@ -847,6 +848,7 @@ waves:
           dependencies:
             - A
             - C
+      base_commit: e823ce76710c7d00b4c44209d1e03e9387c98243
 quality_gates:
     level: standard
     gates:
@@ -886,6 +888,44 @@ completion_reports:
         status: complete
         commit: ee6f8f2d83bb929b75fa2683262a5e376f08ca75
         notes: Wave 1 complete
+    D:
+        status: complete
+        worktree: /Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/git-audit-fixes/wave2-agent-D
+        commit: f0fd40ae514c1f4b4a189d7585f8c2b78632b7dd
+        files_changed:
+            - internal/types/interfaces.go
+            - internal/snapshot/manager_test.go
+            - internal/context/context_test.go
+            - internal/enrichment/enricher_test.go
+            - internal/indexer/indexer_test.go
+            - internal/mcp/handlers_test.go
+        files_created:
+            - internal/store/gc.go
+            - internal/store/gc_test.go
+            - internal/snapshot/gc.go
+        tests_added:
+            - TestDeleteNodesNotIn
+            - TestDeleteEdgesNotIn
+            - TestDeleteNodesNotIn_EmptyKeepSet
+            - TestDeleteEdgesNotIn_EmptyDB
+        verification: 'build: pass, vet: pass, tests: all pass (49 packages)'
+        notes: Rec 6.1 complete. Added DeleteNodesNotIn/DeleteEdgesNotIn to GraphStore interface and SQLiteStore. Added GarbageCollectFull to SnapshotManager. Updated 5 additional mock stores across context, enrichment, indexer, and mcp packages to satisfy the interface.
+    E:
+        status: complete
+        branch: polywave/git-audit-fixes/wave2-agent-E
+        commit: 74b8135eb659b9a241cb86839eb216ba774c57de
+        files_changed:
+            - cmd/knowing/main.go
+        files_created:
+            - internal/snapshot/verify.go
+            - internal/snapshot/verify_test.go
+            - cmd/knowing/fsck.go
+        tests_added:
+            - TestVerify_CleanRepo
+            - TestVerify_DanglingEdge
+            - TestVerify_BrokenChain
+        verification: 'build: pass, vet: pass, tests: all pass (full suite clean)'
+        notes: 'Implemented Rec 8.1: VerifyError struct, Verify method on SnapshotManager, fsck CLI subcommand, registered in main.go.'
 pre_mortem:
     overall_risk: medium
     rows:
@@ -950,5 +990,5 @@ critic_report:
     summary: Skipped by operator (--skip-critic)
     reviewed_at: "2026-05-19T03:54:15Z"
     issue_count: 0
-state: REVIEWED
+state: COMPLETE
 injection_method: hook
