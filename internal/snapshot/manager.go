@@ -15,6 +15,7 @@ package snapshot
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/blackwell-systems/knowing/internal/types"
@@ -24,6 +25,15 @@ import (
 // maintenance, diff operations, and garbage collection of old snapshots.
 type SnapshotManager struct {
 	store types.GraphStore
+	// lastHierarchicalTree caches the most recently computed hierarchical tree
+	// for use by diff operations and subgraph root lookups.
+	lastHierarchicalTree *HierarchicalTree
+}
+
+// LastHierarchicalTree returns the most recently computed hierarchical tree,
+// or nil if no snapshot has been computed in this session.
+func (sm *SnapshotManager) LastHierarchicalTree() *HierarchicalTree {
+	return sm.lastHierarchicalTree
 }
 
 // NewSnapshotManager creates a new SnapshotManager backed by the given GraphStore.
@@ -34,15 +44,28 @@ func NewSnapshotManager(store types.GraphStore) *SnapshotManager {
 // ComputeSnapshot computes a new snapshot for a repository by collecting all
 // edge hashes, building a Merkle tree, and storing the resulting snapshot.
 // The snapshot is chained to the latest existing snapshot for the repo.
+// Also builds a HierarchicalTree for efficient per-package diff and caching.
 func (sm *SnapshotManager) ComputeSnapshot(ctx context.Context, repoHash types.Hash, commitHash string) (*types.Snapshot, error) {
-	// Collect all edge hashes for this repo by traversing files -> nodes -> edges.
-	edgeHashes, nodeCount, edgeCount, err := sm.collectRepoEdges(ctx, repoHash)
+	// Collect all edges with metadata for hierarchical tree construction.
+	edgeInputs, nodeCount, err := sm.collectRepoEdgesHierarchical(ctx, repoHash)
 	if err != nil {
 		return nil, fmt.Errorf("collecting edges: %w", err)
 	}
+	edgeCount := len(edgeInputs)
 
-	// Build Merkle tree from sorted edge hashes.
+	// Build hierarchical Merkle tree (package -> edge-type -> leaf).
+	htree := BuildHierarchicalTree(edgeInputs)
+
+	// Also build flat tree for backward-compatible root (same root value).
+	edgeHashes := make([]types.Hash, len(edgeInputs))
+	for i, e := range edgeInputs {
+		edgeHashes[i] = e.EdgeHash
+	}
 	tree := BuildMerkleTree(edgeHashes)
+
+	// Store the hierarchical tree for later use by diff and caching.
+	sm.lastHierarchicalTree = htree
+	_ = tree // flat root used for snapshot hash
 
 	// Get the latest snapshot for parent chain.
 	var parentHash types.Hash
@@ -107,6 +130,66 @@ func (sm *SnapshotManager) GarbageCollect(ctx context.Context, repoHash types.Ha
 		removed++
 	}
 	return removed, nil
+}
+
+// collectRepoEdgesHierarchical gathers all edges with package and type metadata
+// for hierarchical tree construction. Returns EdgeInputs and node count.
+func (sm *SnapshotManager) collectRepoEdgesHierarchical(ctx context.Context, repoHash types.Hash) ([]EdgeInput, int, error) {
+	repo, err := sm.store.GetRepo(ctx, repoHash)
+	if err != nil {
+		return nil, 0, fmt.Errorf("getting repo: %w", err)
+	}
+	if repo == nil {
+		return nil, 0, fmt.Errorf("repo not found: %s", repoHash)
+	}
+
+	nodes, err := sm.store.NodesByName(ctx, repo.RepoURL)
+	if err != nil {
+		return nil, 0, fmt.Errorf("querying nodes by name: %w", err)
+	}
+
+	// Build node hash -> package path lookup.
+	nodePackage := make(map[types.Hash]string, len(nodes))
+	for _, n := range nodes {
+		nodePackage[n.NodeHash] = extractPackagePath(n.QualifiedName)
+	}
+
+	edgeSeen := make(map[types.Hash]struct{})
+	var edgeInputs []EdgeInput
+
+	for _, node := range nodes {
+		edges, err := sm.store.EdgesFrom(ctx, node.NodeHash, "")
+		if err != nil {
+			return nil, 0, fmt.Errorf("querying edges from node %s: %w", node.NodeHash, err)
+		}
+		for _, e := range edges {
+			if _, ok := edgeSeen[e.EdgeHash]; !ok {
+				edgeSeen[e.EdgeHash] = struct{}{}
+				edgeInputs = append(edgeInputs, EdgeInput{
+					EdgeHash:    e.EdgeHash,
+					PackagePath: nodePackage[e.SourceHash],
+					EdgeType:    e.EdgeType,
+				})
+			}
+		}
+	}
+
+	return edgeInputs, len(nodes), nil
+}
+
+// extractPackagePath extracts the package path from a qualified name.
+// Format: "repoURL://pkgPath.SymbolName" -> "pkgPath"
+func extractPackagePath(qualifiedName string) string {
+	sep := strings.Index(qualifiedName, "://")
+	if sep < 0 {
+		return ""
+	}
+	rest := qualifiedName[sep+3:]
+	lastDot := strings.LastIndex(rest, ".")
+	if lastDot < 0 {
+		return rest
+	}
+	return rest[:lastDot]
 }
 
 // collectRepoEdges gathers all edge hashes for a repo by traversing
