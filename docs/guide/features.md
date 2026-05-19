@@ -1,6 +1,6 @@
 # FEATURES.md -- Comprehensive Feature Dump for AI Reference
 
-Generated: 2026-05-15 (updated: 2026-05-18, features 77-88 added: hash domain prefixes, fsck, GC reachability sweep, lockfile, LRU cache, modular community detection, DiffOptions, indexed_at migration, verify functions, knowing-viz React migration)
+Generated: 2026-05-15 (updated: 2026-05-19, features 77-90 added: hash domain prefixes, fsck, GC reachability sweep, lockfile, LRU cache, modular community detection, DiffOptions, indexed_at migration, verify functions, knowing-viz React migration, MCP resources, graph notes table)
 Source: code inspection of all Go files across internal/, cmd/, and config
 Repo: github.com/blackwell-systems/knowing
 
@@ -1001,9 +1001,23 @@ Repo: github.com/blackwell-systems/knowing
 - **Session counters:** `contextCalls` and `symbolsServed` are `sync/atomic` counters on the MCP Server struct. They are incremented in the context tool handlers (`context_for_task`, `context_for_files`, `context_for_pr`) and read by `knowing://session`.
 - **Why it matters:** Agents can orient to the graph without spending a tool call. The session resource lets agents and users see accumulated value (how many symbols have been served this session).
 
+### 90. Graph Notes Table (Phase 3 Foundation F1)
+
+- **Package(s):** `internal/store`, `internal/types`
+- **Migration:** `internal/store/migrations/012_add_notes.sql`
+- **What it does:** General-purpose metadata layer that never affects Merkle computation. Attaches arbitrary key/value pairs to any content-addressed object (node, edge, snapshot, community, pack root). Modeled after git notes: a parallel metadata layer that never changes the identity of the object it annotates. Composite primary key `(object_hash, key)` with `INSERT OR REPLACE` upsert semantics matching the rest of the schema.
+- **Type:** `types.Note` struct with `ObjectHash Hash`, `Key string`, `Value string`, `UpdatedAt int64`.
+- **Interface methods (6):** `PutNote`, `GetNote`, `GetNotes`, `GetNotesByKey`, `DeleteNote`, `DeleteNotesByObject` on `GraphStore`.
+- **Use cases:** Community assignment persistence (P1), context pack persistence (P2), quality scores, feedback annotations, agent session state.
+- **Why it matters:** Foundation for all Phase 3 incremental recompute features. Notes store derived state (community assignments, cached context packs) without polluting the content-addressed identity layer. When a symbol's hash changes, its notes are naturally orphaned (no stale metadata).
+- **Inputs:** `Note` struct with object hash, string key, string value, unix timestamp.
+- **Outputs:** Standard GraphStore return patterns: `*Note` (nil if not found), `[]Note`, `error`.
+- **Tests:** 8 tests in `internal/store/notes_test.go`: put/get, not-found, upsert semantics, get-all-for-object, get-by-key across objects, delete single, delete all for object, cross-object isolation.
+- **Dependencies:** None beyond existing SQLite store.
+
 ### GraphStore (`internal/types/interfaces.go`)
 
-All 27 methods:
+All 33 methods:
 
 | Method | Signature | Implementors | Consumers |
 |--------|-----------|-------------|-----------|
@@ -1040,6 +1054,12 @@ All 27 methods:
 | DeleteEdgesNotIn | `(ctx, []Hash) (int, error)` | SQLiteStore | snapshot manager (GarbageCollectFull) |
 | IntegrityCheck | `(ctx) error` | SQLiteStore | knowing fsck |
 | NodesByFilePath | `(ctx, string, string) ([]Node, error)` | SQLiteStore | context engine, test scope |
+| PutNote | `(ctx, Note) error` | SQLiteStore | (Phase 3 consumers) |
+| GetNote | `(ctx, Hash, string) (*Note, error)` | SQLiteStore | (Phase 3 consumers) |
+| GetNotes | `(ctx, Hash) ([]Note, error)` | SQLiteStore | (Phase 3 consumers) |
+| GetNotesByKey | `(ctx, string) ([]Note, error)` | SQLiteStore | (Phase 3 consumers) |
+| DeleteNote | `(ctx, Hash, string) error` | SQLiteStore | (Phase 3 consumers) |
+| DeleteNotesByObject | `(ctx, Hash) error` | SQLiteStore | (Phase 3 consumers) |
 | Close | `() error` | SQLiteStore | cmd/knowing |
 
 ### Extractor (`internal/types/interfaces.go`)
@@ -1853,17 +1873,17 @@ bench/
 
 Format: `{repo}://{module_path}/{package_path}.{TypeName}.{MemberName}`
 
-Hash computation: `sha256(repoURL + "\x00" + packagePath + "\x00" + symbolName + "\x00" + symbolKind)`
+Hash computation: `sha256("node\0" + repoURL + "\x00" + packagePath + "\x00" + symbolName + "\x00" + symbolKind)`
 
-Note: `contentHash` parameter exists in `ComputeNodeHash` for API compatibility but is NOT included in the hash. Node identity depends on (repo, package, name, kind) only.
+Note: `contentHash` parameter exists in `ComputeNodeHash` for API compatibility but is NOT included in the hash. Node identity depends on (repo, package, name, kind) only. The `"node\0"` domain-type prefix prevents cross-type hash collisions.
 
-Edge hash: `sha256(sourceHash.String() + "\x00" + targetHash.String() + "\x00" + edgeType + "\x00" + provenanceJSON)`
+Edge hash: `sha256("edge\0" + sourceHash.String() + "\x00" + targetHash.String() + "\x00" + edgeType + "\x00" + provenanceJSON)`
 
 File hash: `sha256(repoHash + path + contentHash)`
 
 Repo hash: `sha256(repoURL)`
 
-Snapshot hash: Hierarchical Merkle root (repo root -> package roots -> edge-type roots -> edge leaves), implemented in `internal/snapshot/hierarchical.go`. A flat tree (binary tree of sorted edge hashes, odd leaf paired with itself) is also built alongside for backward compatibility; both roots are identical. `DiffHierarchicalTrees` compares package roots for O(packages) diff instead of O(edges). See `bench/merkle-diff/` for benchmark results.
+Snapshot hash: Hierarchical Merkle root (repo root -> package roots -> edge-type roots -> edge leaves), implemented in `internal/snapshot/hierarchical.go`. The hierarchical root is the canonical snapshot hash; no flat tree is maintained. `DiffHierarchicalTrees` compares package roots for O(packages) diff instead of O(edges). Domain prefixes: `"snapshot\0"` wraps the Merkle root, `"merkle\0"` prefixes interior nodes. See `bench/merkle-diff/` for benchmark results.
 
 ---
 
