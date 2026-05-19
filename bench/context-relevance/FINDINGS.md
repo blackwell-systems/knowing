@@ -23,20 +23,20 @@ recall@10 (fraction of ground-truth symbols found in top-10).
 | context_engine | 30% | 38% | 30% | 38% | 30% | 38% |
 | mcp_server | 90% | 129% | 90% | 129% | 100% | 143% |
 | indexer_pipeline | 30% | 43% | 30% | 43% | 60% | 86% |
-| store_layer | 60% | 75% | 60% | 75% | 60% | 75% |
+| store_layer | 60% | 75% | 60% | 75% | 50% | 62% |
 | test_selection | 30% | 43% | 30% | 43% | 30% | 43% |
 | enrichment_pipeline | 60% | 150% | 60% | 150% | 60% | 150% |
 | snapshot_diffing | 10% | 20% | 10% | 20% | 20% | 40% |
 | wire_format | 20% | 67% | 20% | 67% | 30% | 100% |
 | cross_repo_resolver | 20% | 67% | 10% | 33% | 10% | 33% |
 | incremental_index | 70% | 175% | 80% | 200% | 90% | 225% |
-| **MEAN** | **42.0%** | **80.5%** | **42.0%** | **79.7%** | **49.0%** | **93.2%** |
+| **MEAN** | **42.0%** | **80.5%** | **42.0%** | **79.7%** | **48.0%** | **92.0%** |
 
 ## Delta Analysis
 
 - **Config B vs A (value of graph walk + HITS):** Precision +0.0%, Recall -0.8%
-- **Config C vs B (value of feedback):** Precision +7.0%, Recall +13.5%
-- **Config C vs A (cumulative improvement):** Precision +7.0%, Recall +12.7%
+- **Config C vs B (value of feedback):** Precision +6.0%, Recall +12.3%
+- **Config C vs A (cumulative improvement):** Precision +6.0%, Recall +11.5%
 
 ## Interpretation
 
