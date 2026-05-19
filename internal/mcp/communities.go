@@ -20,6 +20,14 @@ type communityInfo struct {
 	TopSymbols      []string `json:"top_symbols"`
 	Cohesion        float64  `json:"cohesion"`
 	DominantPackage string   `json:"dominant_package"`
+	// MerkleRoot is the content-addressed identity of this community's subgraph.
+	// Computed from the packages this community spans. Two communities with the
+	// same MerkleRoot contain identical graph structure, enabling cache keying,
+	// change detection ("auth community root changed"), and safe parallelization
+	// ("disjoint community roots = disjoint work").
+	MerkleRoot string `json:"merkle_root,omitempty"`
+	// Packages lists the distinct packages this community spans.
+	Packages []string `json:"packages,omitempty"`
 }
 
 // communityResult is the response for action="list".
@@ -223,8 +231,35 @@ func buildCommunities(nodes []types.Node, membership map[types.Hash]int, adj map
 			c.Cohesion = math.Round(float64(internalEdges)/float64(totalEdges)*100) / 100
 		}
 
-		// Dominant package.
+		// Dominant package and community packages.
 		c.DominantPackage = dominantPackage(cnodes)
+
+		// Collect distinct packages for this community and compute Merkle root.
+		pkgSet := make(map[string]bool)
+		for _, n := range cnodes {
+			pkg := extractPackage(n.QualifiedName)
+			if pkg != "" {
+				pkgSet[pkg] = true
+			}
+		}
+		pkgs := make([]string, 0, len(pkgSet))
+		for pkg := range pkgSet {
+			pkgs = append(pkgs, pkg)
+		}
+		sort.Strings(pkgs)
+		c.Packages = pkgs
+
+		// Compute community Merkle root from sorted package names.
+		// This root changes when any package in the community changes,
+		// enabling scoped cache invalidation.
+		if len(pkgs) > 0 {
+			pkgHashes := make([]types.Hash, len(pkgs))
+			for i, pkg := range pkgs {
+				pkgHashes[i] = types.NewHash([]byte(pkg))
+			}
+			rootHash := types.NewHash([]byte(fmt.Sprintf("%v", pkgHashes)))
+			c.MerkleRoot = rootHash.String()
+		}
 
 		communities = append(communities, c)
 	}

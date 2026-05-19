@@ -2,6 +2,7 @@ package context
 
 import (
 	stdctx "context"
+	"crypto/sha256"
 	"sort"
 	"strings"
 
@@ -68,6 +69,11 @@ type ContextBlock struct {
 	Format      string
 	TokensUsed  int
 	TokenBudget int
+	// PackRoot is the content-addressed identity of this context pack.
+	// Computed from hash(task_normalized, snapshot_root, selected_node_hashes).
+	// Two identical queries against the same graph state produce the same PackRoot,
+	// enabling deduplication, citation, and cross-session replay.
+	PackRoot types.Hash
 }
 
 // ContextEdge is an edge between two symbols in the context block.
@@ -617,7 +623,33 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 		e.memory.RecordBatch(ctx, kws, hashes, 1.0) //nolint:errcheck
 	}
 
+	// Compute content-addressed PackRoot for this context result.
+	// Two identical queries against the same graph state produce the same PackRoot,
+	// enabling deduplication, citation, and cross-session replay.
+	block.PackRoot = computePackRoot(opts.TaskDescription, block.Symbols)
+
 	return block, nil
+}
+
+// computePackRoot produces a content-addressed hash for a context pack.
+// The root is deterministic: same task + same selected symbols = same hash.
+func computePackRoot(task string, symbols []RankedSymbol) types.Hash {
+	h := sha256.New()
+	h.Write([]byte(strings.ToLower(strings.TrimSpace(task))))
+	// Sort node hashes for determinism (symbols may be in score order).
+	nodeHashes := make([]types.Hash, len(symbols))
+	for i, s := range symbols {
+		nodeHashes[i] = s.Node.NodeHash
+	}
+	sort.Slice(nodeHashes, func(i, j int) bool {
+		return string(nodeHashes[i][:]) < string(nodeHashes[j][:])
+	})
+	for _, nh := range nodeHashes {
+		h.Write(nh[:])
+	}
+	var result types.Hash
+	copy(result[:], h.Sum(nil))
+	return result
 }
 
 // ForFiles produces blast-radius context weighted by runtime observations
