@@ -15,7 +15,9 @@ and auto-generates a `FINDINGS.md` with results and interpretation.
 | [test-scope-accuracy](test-scope-accuracy/) | Call-graph BFS predicts affected tests | 98.9% precision vs independent Go import DAG |
 | [wire-format](wire-format/) | GCF is dramatically more token-efficient than JSON | 84% token savings, 74% byte savings |
 | [merkle-diff](merkle-diff/) | Hierarchical Merkle tree enables scoped invalidation; context pack determinism and community root distinctness | 114x faster diff on real graph (11K edges), 517x on 100K synthetic edges, 59ns subgraph root lookups; 5 queries, 2 unique tasks = 2 unique PackRoots (perfect dedup) |
-| [community-detection](community-detection/) | Incremental detection skips work the Merkle tree proves unchanged | Louvain 6.9x faster (1 pkg), LP 38.4x faster (1 pkg), LP 79.2x faster (0 changes) |
+| [community-detection](community-detection/) | Incremental detection skips work the Merkle tree proves unchanged | Louvain 6.9x faster (1 pkg), LP 38.4x faster (1 pkg), delta-save 5.0x e2e |
+| [merkle-diff](merkle-diff/) (P2 persistence) | Context packs survive process restart via notes table | Cross-session PackRoot match verified, 154KB persisted, snapshot staleness detection |
+| [merkle-diff](merkle-diff/) (P5 dedup) | Agents skip retransmitting unchanged context | 95-100% token savings (557-7,661 -> 26 tokens) |
 
 ## Running
 
