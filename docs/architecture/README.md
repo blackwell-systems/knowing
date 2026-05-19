@@ -17,6 +17,7 @@ If you are new to knowing, read these in order:
 9. **Design Principles** (goals, architectural planes, MCP tool split)
 10. **Deep Dives** (15 foundational architecture decisions)
 11. **Merkle Tree Algorithms** (hierarchical roots, subgraph caching, incremental recompute)
+12. **Git Design Audit** (gap analysis vs. git's reference implementation, actionable recommendations)
 
 ## Documents
 
@@ -34,3 +35,4 @@ If you are new to knowing, read these in order:
 | [deep-dives.md](deep-dives.md) | 15 foundational architecture decisions with rationale and retrofit cost |
 | [merkle-algorithms.md](merkle-algorithms.md) | 13 Merkle tree algorithms: hierarchical roots (repo -> package -> edge-type -> leaf), subgraph caching, incremental recompute, context packs, proofs, federated sync, semantic change classification, bisection. Phase 1 shipped (114x faster diff). |
 | [adr-hierarchical-merkle.md](adr-hierarchical-merkle.md) | Architecture decision record: why the hierarchical Merkle tree changes knowing's identity from integrity mechanism to performance architecture. |
+| [git-design-audit.md](git-design-audit.md) | Systematic audit of knowing's content-addressed design against git's reference implementation: 10 areas, 23 recommendations, severity-ranked. |
