@@ -233,6 +233,18 @@ Use root diffs to scope downstream recomputation.
 
 Cloned `github.com/git/git` and studied the C implementation of tree diff, delta compression, and notes. These are battle-tested patterns from 20 years of production use that directly apply to knowing's architecture.
 
+### Linus's Regrets (applied to knowing)
+
+Linus has publicly discussed things he would change about git. These inform our design choices:
+
+1. **SHA-1 was a mistake.** Picked for speed, not security. SHAttered attack in 2017 forced a multi-year migration to SHA-256. knowing started on SHA-256 and added domain-type prefixes ("node\0", "edge\0", etc.) early, before any production databases exist. Lesson: make identity changes before users depend on the format.
+
+2. **The staging area confuses users.** The three-state model (working tree / index / HEAD) is powerful but most developers don't need it. If knowing adds a proposed graph overlay (the staging-area equivalent for previewing blast radius of uncommitted changes), keep it optional and implicit. Never force users through an explicit staging step.
+
+3. **The reflog should be more prominent.** Git's most important safety net is invisible to most users. When knowing adds snapshot refs and reflog (Rec 7.1, 7.2), surface the chain prominently in `knowing fsck` and a future `knowing history` command. Don't hide the audit trail.
+
+4. **Submodules are broken by design.** They try to version-pin external repos by commit hash, but the abstraction leaks. knowing's multi-repo model (roster + per-repo DBs) is already better: each repo is independent with its own DB and snapshot chain. Cross-repo references use qualified names, not pinned commit hashes. Don't introduce submodule-like coupling.
+
 ### Notes Table (metadata without hash invalidation)
 
 **Git pattern:** `refs/notes/commits` is a separate tree. Notes attach arbitrary metadata to any object without changing its hash. Stored as a 16-way radix tree keyed by object SHA1 for O(1) lookup. (`notes.c`, `struct int_node`, `struct leaf_node`)
