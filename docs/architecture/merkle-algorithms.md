@@ -27,7 +27,7 @@ This document covers the suite of Merkle tree algorithms that exploit knowing's 
 
 The hierarchical Merkle tree is implemented in `internal/snapshot/hierarchical.go` and wired into the snapshot manager. It organizes hashes in a tree that mirrors the structure of the codebase.
 
-A flat tree (`merkle_root(sorted(all_edge_hashes))`) is still built alongside for backward compatibility. Both produce the same root hash when given the same edges.
+The hierarchical root is the canonical snapshot identity. No flat tree is built; the flat tree was dropped after the hash domain prefix change made backward compatibility moot. The snapshot hash is `ComputeSnapshotHash(hierarchicalTree.Root)`, which applies a `"snapshot\0"` domain prefix to the hierarchical root.
 
 Key results from `bench/merkle-diff/`: `DiffHierarchicalTrees` is 114x faster than flat diff on the knowing repo (11K edges), 517x faster on 100K synthetic edges. Subgraph root lookups are O(1) at 59ns. Build cost overhead is negligible.
 
@@ -525,7 +525,7 @@ These algorithms build on each other. The hierarchical tree structure (Phase 1) 
 - `SubgraphRoot`: O(1) cache key for any set of packages.
 - `EdgeTypeRoot`: single-lookup answer for "did call edges change?"
 - `ContextPackRoot`: enables content-addressed context pack deduplication.
-- Flat tree built alongside for backward compatibility; both roots are identical.
+- Flat tree dropped; hierarchical root is the canonical snapshot hash (wrapped with `ComputeSnapshotHash` for domain-type safety).
 - Hash domain prefixes (`node\0`, `edge\0`, `snapshot\0`, `merkle\0`) applied to all hash computations. Cross-type hash collisions are now structurally impossible.
 
 **Note:** The Phase 1 spec described `symbol_root` and `file_root` levels. The shipped implementation uses two levels (package and edge-type) rather than four. The intermediate file and symbol roots may be added in a later iteration if lazy materialization (Phase 4, Section 13) is implemented.
@@ -542,20 +542,21 @@ These algorithms build on each other. The hierarchical tree structure (Phase 1) 
 
 **Why this enables everything else:** Every other algorithm requires package-level roots. Without them, subgraph caching degrades to global cache invalidation (no better than today), incremental recompute has no granularity signal, and community rooting has no tree to attach to.
 
-### Phase 2: Content-Addressed Context Packs + Community Rooting (Partially Shipped)
+### Phase 2: Content-Addressed Context Packs + Community Rooting + Subgraph Cache (Shipped)
 
-**Status:** Two of the four deliverables are shipped. Subgraph caching remains.
+**Status:** All deliverables shipped.
 
 **Shipped:**
 - `PackRoot` field on `ContextBlock` (computed by `computePackRoot()` in `internal/context/context.go`): deterministic hash of normalized task + sorted selected node hashes. Verified: 5 queries, 2 unique tasks = 2 unique PackRoots (perfect dedup).
 - `MerkleRoot` and `Packages` fields on `communityInfo` in `internal/mcp/communities.go`: each Louvain community carries a Merkle root over the packages it spans. Community roots verified distinct per package set on live graph.
 - Modular community detection: `Algorithm` interface and registry in `internal/community/`. Louvain (`louvain`, `louvain-fine`) and label propagation (`label-propagation`) registered. `knowing export --algorithm` and `communities` MCP tool accept the algorithm parameter.
+- `SubgraphCache` in `internal/cache/subgraph.go`: thread-safe, TTL-bounded (default 1h), max-entries (default 10K) cache keyed by `types.Hash`. Random eviction at capacity. `InvalidatePackages` evicts entries for changed packages using the hierarchical tree. `Stats()` returns hits/misses/size/evictions.
+- `context_for_task` caching: cache key from `SHA-256("task\x00" + normalized_task)`. Hit = skip entire retrieval pipeline. Miss = full retrieval, then cache result.
+- `blast_radius` caching: cache key from `SHA-256("blast_radius\x00" + targetHash + SubgraphRoot(package))`. Hit = skip BFS traversal.
+- `test_scope` caching: cache key from `SHA-256("test_scope\x00" + sorted_files + SubgraphRoot(affected_packages))`.
+- Daemon invalidation: after each index run, `DiffHierarchicalTrees(prevTree, newTree)` identifies changed packages, `ResultCache.InvalidatePackages` evicts only stale entries. Unchanged code stays cached.
 
-**Remaining:**
-- Cache layer keyed by `(query_params_hash, subgraph_root)` for `blast_radius`, `context_for_task`, and `test_scope`.
-- Daemon invalidation: on re-index, evict only cache entries for changed packages.
-
-**Why second:** These deliver the highest immediate value. Repeat queries (same task, no relevant code change) become instant. Community rooting enables safe agent parallelization, which is needed for multi-agent workflows.
+**The full cache chain:** file save -> re-index -> hierarchical diff -> selective eviction -> next query hits cache or recomputes. Queries against unchanged code are free.
 
 ### Phase 3: Incremental Recompute (Retrieval Improvement)
 
