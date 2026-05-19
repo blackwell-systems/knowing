@@ -16,6 +16,7 @@ These subdocuments contain the full architecture specification for knowing. Each
 | [cli-commands.md](cli-commands.md) | All CLI commands: index, export, watch, why, enrich, mcp, init |
 | [design-principles.md](design-principles.md) | Architectural goals, MCP tool design split, local-first philosophy |
 | [deep-dives.md](deep-dives.md) | 15 foundational architecture decisions with rationale |
+| [merkle-algorithms.md](merkle-algorithms.md) | 13 Merkle tree algorithms: hierarchical roots, subgraph caching, incremental recompute, context packs, proofs, federated sync, bisection |
 
 ## Reading Order
 

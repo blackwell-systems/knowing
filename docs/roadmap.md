@@ -170,6 +170,43 @@ Pipeline is shipped and measured (31.6% P@10, 55 fixtures, 23 experiments). See 
 | Ownership routing | "Who to notify" computed from graph edges (depends on ownership edges) |
 | Staleness dashboard | Surface unverified edges and subgraphs |
 
+## Merkle Tree Algorithms
+
+Full specification in [architecture/merkle-algorithms.md](architecture/merkle-algorithms.md). The algorithms build on the existing content-addressed graph structure (Merkle DAG) to enable fine-grained invalidation, subgraph caching, incremental recompute, agent trust proofs, federated sync, and semantic change classification. Implementation is phased so each phase delivers standalone value.
+
+### Phase 1: Hierarchical Tree Structure (Foundation)
+
+Replace the flat `merkle_root(sorted(all_edge_hashes))` snapshot with a multi-level tree: symbol roots, file roots, package roots, and repo root. Add per-symbol edge-type roots (calls, imports, runtime_calls, owns). This is the prerequisite for all subsequent phases.
+
+| Deliverable | Notes |
+|-------------|-------|
+| `symbol_root` per symbol | Computed on edge insertion |
+| `file_root` per file | Composed from symbol roots |
+| `package_root` per package | Composed from file roots |
+| `repo_root` | Replaces current flat snapshot hash |
+| Edge-type root variants | Per symbol, per edge type |
+
+### Phase 2: Subgraph Caching + Community Rooting (Immediate Value)
+
+Cache `blast_radius`, `context_for_task`, and `test_scope` against subgraph roots rather than the global root. A change in `pkg/util` no longer invalidates caches for queries scoped to `pkg/api`. Add a Merkle root per Louvain community to enable cheap per-community invalidation and safe agent parallelization across disjoint communities.
+
+### Phase 3: Incremental Recompute + Context Packs (Retrieval Improvement)
+
+Use root diffs to determine which derived indexes (Louvain, HITS, BM25) need rebuilding after a commit. If only one package root changed, skip global community detection. Add `ContextPackRoot` (a content-addressed identifier for a retrieval result) to enable agent deduplication, cross-session replay, and context pack comparison between snapshots.
+
+### Phase 4: Proofs, Sync, Bisection, and Advanced Features
+
+| Feature | Description |
+|---------|-------------|
+| Merkle proofs | Prove a caller relationship existed in snapshot X; useful for CI, review, compliance |
+| Federated sync | Exchange root hashes, descend only differing branches; sync local dev, CI, remote team without shipping the full DB |
+| Semantic change classification | Diff edge-type roots to classify changes: structural, production drift, documentation-only, ownership reassignment |
+| Snapshot-aware retrieval | Stability and activity signals derived from neighborhood root history |
+| Merkleized feedback validity | Feedback expires when `symbol_hash` or `neighborhood_root` changes, not just by age |
+| Merkle-based bisection | Binary search on snapshot chain to find when a subgraph property first changed |
+| Proof of absence | Prove an edge does NOT exist; for security audits and agent confidence |
+| Lazy materialization | Load only visited subtrees; enables 100K-symbol repos without proportional memory cost |
+
 ## Agent Coordination
 
 | Item | Description |

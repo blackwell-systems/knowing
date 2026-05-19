@@ -80,3 +80,7 @@ Fifteen foundational architecture decisions, each with rationale, alternatives c
 15. Artifact-Boundary Plane Separation
 
 Includes the summary table mapping each decision to its core principle and retrofit difficulty.
+
+### [Merkle Tree Algorithms](merkle-algorithms.md)
+
+Thirteen algorithms that exploit knowing's hierarchical Merkle tree structure to enable cheap invalidation, subgraph caching, and incremental recompute. Covers the upgrade from a flat snapshot hash to a multi-level tree (repo root, package roots, file roots, symbol roots, edge-type roots); Merkleized caching for `blast_radius`, `context_for_task`, and `test_scope` against subgraph roots rather than the global root; diff-guided incremental recompute that skips Louvain and HITS when unchanged packages can be identified by root comparison; content-addressed context packs with a `ContextPackRoot` for agent deduplication, cross-session replay, and retrieval history; Merkle proofs for agent trust and CI enforcement; federated graph sync via root exchange; semantic change classification from edge-type root diffs; snapshot-aware retrieval scoring; Merkleized feedback validity keyed to neighborhood roots; community rooting for safe agent parallelization; Merkle-based bisection for topology regression hunting; proof of absence for security audits; and lazy materialization for large-repo scalability. Includes a four-phase implementation plan.
