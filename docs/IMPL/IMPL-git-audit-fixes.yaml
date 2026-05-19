@@ -936,5 +936,5 @@ critic_report:
     summary: Skipped by operator (--skip-critic)
     reviewed_at: "2026-05-19T03:54:15Z"
     issue_count: 0
-state: SCOUT_PENDING
+state: "REVIEWED"
 injection_method: hook
