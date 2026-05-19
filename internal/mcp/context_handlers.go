@@ -22,6 +22,7 @@ func (s *Server) handleContextForTask(ctx context.Context, req mcp.CallToolReque
 	}
 	tokenBudget := getIntArg(req, "token_budget", 50000)
 	format := getStringArg(req, "format")
+	priorPackRoot := getStringArg(req, "pack_root")
 
 	engine := knowingctx.NewContextEngine(s.store)
 	engine.SetSession(s.ctxSession)
@@ -41,6 +42,16 @@ func (s *Server) handleContextForTask(ctx context.Context, req mcp.CallToolReque
 	})
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("context_for_task failed: %v", err)), nil
+	}
+
+	// Context pack deduplication (P5): if the agent sent a prior PackRoot
+	// and it matches the current result, return an "unchanged" signal.
+	// The agent already has this context; no need to resend.
+	if priorPackRoot != "" && block.PackRoot.String() == priorPackRoot {
+		return mcp.NewToolResultText(fmt.Sprintf(
+			"unchanged pack_root=%s symbols=%d\nContext is identical to your prior request. No retransmission needed.",
+			block.PackRoot, len(block.Symbols),
+		)), nil
 	}
 
 	// Track session metrics for the knowing://session resource.
@@ -271,11 +282,12 @@ func formatExplain(r *knowingctx.ExplainResult) string {
 
 func contextForTaskTool() mcp.Tool {
 	return mcp.NewTool("context_for_task",
-		mcp.WithDescription("Generate graph-ranked, token-budgeted context for a task description. Returns symbols ranked by blast radius, confidence, recency, and graph distance. Supports multiple output formats."),
+		mcp.WithDescription("Generate graph-ranked, token-budgeted context for a task description. Returns symbols ranked by blast radius, confidence, recency, and graph distance. Supports multiple output formats. Pass pack_root from a prior call to check if context changed; returns 'unchanged' signal if identical, saving retransmission."),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithString("task_description", mcp.Required(), mcp.Description("Description of the task to generate context for (e.g. add caching to the user lookup endpoint)"), Examples("add caching to the user lookup endpoint")),
 		mcp.WithInteger("token_budget", mcp.Description("Maximum token budget for the context block (default 50000)")),
 		mcp.WithString("format", mcp.Description("Output format: gcf (compact graph-native, 75%+ token savings), gcb (binary), json, xml (default), markdown"), Examples("gcf")),
+		mcp.WithString("pack_root", mcp.Description("PackRoot from a prior context_for_task call (64-char hex). If the current result has the same PackRoot, returns 'unchanged' instead of resending context."), Examples("a1b2c3d4e5f6...")),
 	)
 }
 
