@@ -4,77 +4,75 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased] - 2026-05-18
+## [v0.3.0] - 2026-05-19
+
+### Breaking
+
+- **Hash domain prefixes (requires re-index):** All hash computations now include git-style type separation prefixes: `node\0`, `edge\0`, `snapshot\0`, `merkle\0`. Eliminates cross-type hash collisions. Databases built before this release must be re-indexed (`knowing index <path>`). Run `knowing fsck` after re-indexing to verify integrity.
 
 ### Architecture
 
-- **Hash domain prefixes (BREAKING -- requires re-index):** All hash computations now include git-style type separation prefixes: `node\0`, `edge\0`, `snapshot\0`, `merkle\0`. Eliminates cross-type hash collisions and makes every hash self-identifying. Implemented in `internal/types/types.go`. Any database populated with the old scheme must be re-indexed.
-- **Hierarchical Merkle tree (Phase 1, complete):** `HierarchicalTree` struct with `BuildHierarchicalTree`, `DiffHierarchicalTrees`, `SubgraphRoot`, `EdgeTypeRoot`, and `ContextPackRoot` in `internal/snapshot/hierarchical.go`. Wired into `SnapshotManager.ComputeSnapshot`. Benchmarked at 114x faster diff on the knowing repo (11K edges, 109 packages) and 517x faster on 100K synthetic edges. Subgraph root lookups are O(1) at 59ns.
-- **`DiffOptions` with `PackageFilter` and `MaxChanges` cap** on `DiffHierarchicalTreesWithOptions`: callers can scope diffs to specific packages and cap result size. Matches git tree-diff's pathspec filtering and early-exit from `tree-diff.c`.
-- **Content-addressed context packs (Phase 2, shipped):** `PackRoot` field on `ContextBlock`, computed as `hash(task_normalized + sorted(selected_node_hashes))`. Deterministic pack identity. 5 queries with 2 unique tasks produce 2 unique PackRoots (perfect dedup). Implemented in `internal/context/context.go`.
-- **Community Merkle roots (Phase 2, shipped):** `MerkleRoot` and `Packages` fields on `communityInfo` in `internal/mcp/communities.go`. Each Louvain community carries a Merkle root over the packages it spans. Community roots verified distinct per package set on live graph.
-- **Modular community detection:** `Algorithm` interface and registry in `internal/community/`. Louvain (two resolution presets: `louvain`, `louvain-fine`) and label propagation (`label-propagation`) registered. `knowing export --algorithm` and `communities` MCP tool accept algorithm parameter. New algorithm implementations register via the registry without changing callers.
-- **`knowing fsck` integrity checker:** `cmd/knowing/fsck.go` + `internal/snapshot/verify.go`. Checks edge referential integrity (every edge's source/target exists in the nodes table), hash recomputation (detects mutated rows), and snapshot chain continuity. Classifies issues as ERROR or WARN.
-- **Daemon lockfile:** `internal/daemon/lockfile.go` prevents multiple daemon instances from running against the same database. Lock file at `<db_path>.lock` with PID tracking.
-- **GC reachability sweep:** `GarbageCollectFull` in `internal/snapshot/gc.go` and `internal/store/gc.go` prunes orphaned nodes and edges after deleting old snapshots. Collects all node and edge hashes referenced by surviving snapshots, then deletes unreferenced rows. Returns `GCStats` with counts of pruned objects.
-- **`DeleteNodesNotIn` / `DeleteEdgesNotIn`** added to `GraphStore` interface and implemented on `SQLiteStore`.
-- **`PRAGMA integrity_check`:** `IntegrityCheck` method on `SQLiteStore` in `internal/store/sqlite.go`. Catches SQLite-level corruption before the application layer sees inconsistent data.
-- **`extractPackagePath` error handling:** Returns an error (and logs a warning, skipping the edge) on malformed qualified names instead of silently grouping them under `_root`. `internal/snapshot/manager.go`.
-- **`indexed_at` epoch column:** Migration 011 adds `indexed_at INTEGER` to the `nodes` and `edges` tables. `GarbageCollectFull` uses this column to identify and prune stale objects from superseded index runs.
-- **In-process LRU cache:** `sync.Map` with a 50K-entry cap on `SQLiteStore.GetNode` and `SQLiteStore.GetEdge`. Eliminates redundant SQL round-trips on hot-path traversals. Cache invalidated at the start of each index run.
-- **`VerifyNodeHash` / `VerifyEdgeHash`:** Recomputes and compares stored hashes against inputs in `internal/types/verify.go`. Used by `knowing fsck` and available for debug-mode integrity checking in the store.
-
-### Correctness
-
-- Multiple daemon instances on the same database now produce a clear startup error instead of competing at the SQLite WAL level.
-- GC now prunes orphaned nodes and edges (not just old snapshots), preventing the `nodes` table from growing without bound on frequently-refactored repos.
-- `extractPackagePath` no longer silently groups malformed qualified names under `_root`, preventing false-positive diff results.
-- `DiffHierarchicalTrees` nil-tree guard added; previously would panic on nil input.
-
-### Visualization (knowing-viz)
-
-- **Full React migration:** knowing-viz now uses React with Zustand for state management, `@react-sigma/core` for 2D graph rendering, and `react-force-graph-3d` for 3D force-directed rendering. Framer Motion provides transition animations.
-- **Modular grouping system:** 6 grouping strategies in `src/grouping.ts` (by package, community, edge type, file, author, and none). Strategies are pluggable without changes to the rendering layer.
-- **Provenance edge filtering with counts:** UI shows edge counts per provenance tier and allows toggling tiers on/off. Selection state is reflected in the graph immediately.
-- **Edge type filtering:** Filter graph edges by type (calls, references, throws, implements, etc.) from the sidebar. Filter state is composable with provenance filtering.
-- **Timeline snapshot picker:** Select any snapshot from the chain to view the graph at that point in time. Snapshot metadata (commit, timestamp, node/edge counts) shown in the picker.
-- **Blame author click-to-filter:** Click any author name in the blame panel to filter the graph to symbols authored by that person.
-- **Configurable max groups slider:** Previously hardcoded at 20 groups; now a UI slider with range 1 to 100.
-
-### Documentation
-
-- Docs reorg complete: flat `docs/` structure migrated to `guide/`, `architecture/`, `research/`, `operations/`, and `internal/` subdirectories.
-- `overview.md` merged into `architecture/README.md`.
-- ADR added for hierarchical Merkle tree (`docs/architecture/adr-hierarchical-merkle.md`).
-- Git design audit added (`docs/architecture/git-design-audit.md`): systematic comparison of knowing vs git's reference implementation across 10 areas, 23 recommendations.
-- Roadmap expanded with git-inspired features: notes table (graph_notes), proposed graph overlay (staging area), delta-compressed snapshots, N-way hierarchical diff with pathspec filtering, rerere (conflict resolution reuse), transfer protocol (have/want negotiation), replace/grafts (edge correction without re-snapshot).
-- `bench/merkle-diff/` harness extended with `FINDINGS-context-packs.md` documenting Phase 2 Merkle verification results.
-
-## [Unreleased] (prior)
+- **Hierarchical Merkle tree (Phase 1+2, complete):** `HierarchicalTree` struct with `BuildHierarchicalTree`, `DiffHierarchicalTrees`, `SubgraphRoot`, `EdgeTypeRoot`, and `ContextPackRoot`. Wired into `SnapshotManager.ComputeSnapshot`. The hierarchical root is the canonical snapshot hash; no flat tree is maintained. Benchmarked at 114x faster diff (11K edges, 111 packages), 517x at 100K synthetic edges. Subgraph root lookups at 59ns.
+- **Subgraph cache:** Content-addressed cache keyed by Merkle package roots. 93x faster repeat queries (160ms -> 1.7ms). Daemon invalidation via `DiffHierarchicalTrees` scoped to changed packages (~6us overhead per re-index). 42ns raw cache lookups.
+- **Content-addressed context packs:** `PackRoot` field on `ContextBlock`, computed as `hash(task_normalized + sorted(selected_node_hashes))`. Same task + same graph = same PackRoot. Perfect deduplication verified.
+- **Community Merkle roots:** Each Louvain community carries a Merkle root over the packages it spans. Roots verified distinct per community on live graph.
+- **`DiffOptions` with `PackageFilter` and `MaxChanges` cap:** Callers can scope diffs to specific packages and cap result size. Matches git tree-diff's pathspec filtering.
+- **Modular community detection:** `Algorithm` interface and registry in `internal/community/`. Louvain (two presets), label propagation. `knowing export --algorithm` and `communities` MCP tool accept algorithm parameter.
+- **Graph notes table (Phase 3 Foundation F1):** `graph_notes` table (migration 012) for metadata that never affects Merkle computation. Composite key `(object_hash, key)` with upsert semantics. 6 new `GraphStore` methods. Foundation for community assignment persistence and context pack persistence.
+- **`knowing fsck` integrity checker:** Edge referential integrity, hash recomputation, snapshot chain continuity. Classifies issues as ERROR or WARN. 98ms median on live graph.
+- **GC reachability sweep:** `GarbageCollectFull` prunes orphaned nodes and edges after snapshot deletion. 70ms with 500 injected orphans, 53ms steady state.
+- **Daemon lockfile:** Prevents multiple daemon instances on the same database. PID tracking with stale lock cleanup.
+- **`PRAGMA integrity_check` on startup:** Catches SQLite-level corruption before the application layer sees inconsistent data.
+- **In-process LRU cache:** 50K-entry cap on `GetNode`/`GetEdge`. Eliminates redundant SQL round-trips on hot-path traversals.
+- **`VerifyNodeHash` / `VerifyEdgeHash`:** Recomputation functions for integrity verification.
+- **`indexed_at` epoch column:** Migration 011. Used by GC to identify stale objects.
+- **`extractPackagePath` error handling:** Returns error on malformed qualified names instead of silently grouping under `_root`.
 
 ### Added
 
-- Per-repo database isolation: each repo now gets its own database at `~/.knowing/repos/<safe-name>.db`. Graph algorithms (community detection, RWR, HITS, BM25) operate only on the target repo's data, preventing unrelated repos from blending results. The old shared global database (`~/.knowing/knowing.db`) is no longer used.
-- `defaultDB()` checks the roster for the current directory's per-repo DB path. Falls back to `~/.knowing/knowing.db` if no roster entry exists.
-- `knowing add` assigns a per-repo DB path at registration time.
-- `knowing list` now shows per-repo DB path and database file size.
-- Cross-repo edges are planned as a future feature via a separate `cross-repo.db`.
-- Repo roster: `knowing add [path]` registers a repo and indexes it. `knowing remove [path]` unregisters a repo. `knowing list` shows all registered repos.
-- `knowing init` now registers the repo in the global roster and uses the global DB by default.
-- `knowing watch` subcommand: lightweight file watcher that re-indexes changed files on save with debounce and optional LSP enrichment
-- `knowing mcp --watch` flag: combines the stdio MCP server with file watching in a single process, so agents always query up-to-date graph data without a separate watcher
-- `knowing enrich blame` subcommand: stamps git blame metadata (last_author, last_commit_at) onto symbols. Migration 009 adds blame columns to nodes table.
-- `knowing enrich coverage` subcommand: stamps coverage_pct on symbols from Go cover profiles. Migration 010 adds coverage_pct column to nodes table. Usage: `knowing enrich coverage -profile cover.out -url <url> <repo-path>`.
-- Format comprehension eval (`eval/comprehension_test.go`): GCF vs JSON vs XML vs TOON token comparison benchmark measuring symbol density per token budget
-- TOON token estimation in `EstimateNodeTokensForFormat`: extends format-aware packing to include TOON wire format
-- 84 equivalence classes (expanded from 41): 43 new universal software concepts added to `internal/context/universal_seeds.go`
-- `knowing-retrieve` library extraction tracked as blackwell-systems/knowing#1
+- **8 MCP resources:** `knowing://report`, `knowing://schema`, `knowing://stats`, `knowing://repos`, `knowing://session`, `knowing://index-health`, `knowing://communities`, `knowing://community/{id}`. Read-only orientation for agents at zero tool-call cost.
+- **`knowing mcp` subcommand:** Stdio MCP server mode for AI agent integration via `.mcp.json`.
+- **`knowing watch` subcommand:** Lightweight file watcher with debounce and optional LSP enrichment.
+- **`knowing mcp --watch` flag:** Combined MCP server + file watching in a single process.
+- **Per-repo database isolation:** Each repo gets its own database at `~/.knowing/repos/<safe-name>.db`. Community detection, RWR, HITS, BM25 operate on isolated data.
+- **Repo roster:** `knowing add`, `knowing remove`, `knowing list` for multi-repo management.
+- **`knowing enrich blame`:** Git blame metadata (last_author, last_commit_at) on symbols.
+- **`knowing enrich coverage`:** Coverage percentages from Go cover profiles on symbols.
+- **84 equivalence classes:** Expanded from 41 with 43 universal software concepts.
+- **TOON wire format support:** Token estimation and format-aware packing.
+- **10 benchmark harnesses:** Merkle diff, context packs, subgraph cache, fsck, GC, context relevance, edge accuracy, test scope, token savings, feedback loop. All self-documenting with FINDINGS.md.
+
+### Correctness
+
+- Multiple daemon instances on the same database now produce a clear startup error.
+- GC prunes orphaned nodes and edges (not just old snapshots), preventing unbounded table growth.
+- `extractPackagePath` no longer silently groups malformed names under `_root`.
+- `DiffHierarchicalTrees` nil-tree guard added (previously would panic).
+- `DeleteNodesNotIn` / `DeleteEdgesNotIn` added to `GraphStore` for GC.
+
+### Visualization (knowing-viz)
+
+- **Full React migration:** React + Zustand + `@react-sigma/core` + `react-force-graph-3d` + Framer Motion.
+- **6 modular grouping strategies:** Package, community, edge type, file, author, none.
+- **Provenance and edge type filtering:** Composable filters with live counts.
+- **Timeline snapshot picker:** View graph at any point in the snapshot chain.
+- **Blame author click-to-filter:** Click author name to filter to their symbols.
+- **Configurable max groups slider:** Range 1-100 (previously hardcoded at 20).
+
+### Documentation
+
+- Docs reorg: flat `docs/` migrated to `guide/`, `architecture/`, `research/`, `operations/`, `internal/`.
+- ADR for hierarchical Merkle tree (`docs/architecture/adr-hierarchical-merkle.md`).
+- Git design audit (`docs/architecture/git-design-audit.md`): 10-area comparison, 23 recommendations, all CRITICAL/HIGH/MEDIUM fixed.
+- Whitepaper revised: "The Hierarchical Identity Architecture" with editorial review applied.
+- Features.md updated to 90 features with 33 GraphStore methods.
+- Roadmap updated with Phase 3 foundation and feature specifications.
 
 ### Changed
 
-- Positioning reframed as "intelligence versioning" to emphasize content-addressed graph snapshots over time
-- Wire formats doc (`docs/wire-formats.md`) updated with comprehension eval results comparing GCF, JSON, XML, and TOON
-- Leiden algorithm noted as future community detection improvement (replacing current Louvain implementation)
+- Positioning reframed as "intelligence versioning system."
+- Flat Merkle tree dropped; hierarchical root is canonical snapshot hash.
+- npm and PyPI READMEs rewritten for current capabilities.
 
 ## [v0.2.0] - 2026-05-18
 
