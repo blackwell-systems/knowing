@@ -61,10 +61,13 @@ func cmdProve(args []string) error {
 	}
 	repoHash := types.NewHash([]byte(repoURL))
 
-	// Find the edge.
+	// Find the edge. Try exact prefix first, then substring match.
 	sourceNodes, err := st.NodesByName(ctx, *source)
 	if err != nil {
 		return fmt.Errorf("looking up source: %w", err)
+	}
+	if len(sourceNodes) == 0 {
+		sourceNodes, _ = st.NodesByName(ctx, "%"+*source)
 	}
 	if len(sourceNodes) == 0 {
 		return fmt.Errorf("source symbol %q not found", *source)
@@ -73,6 +76,9 @@ func cmdProve(args []string) error {
 	targetNodes, err := st.NodesByName(ctx, *target)
 	if err != nil {
 		return fmt.Errorf("looking up target: %w", err)
+	}
+	if len(targetNodes) == 0 {
+		targetNodes, _ = st.NodesByName(ctx, "%"+*target)
 	}
 	if len(targetNodes) == 0 {
 		return fmt.Errorf("target symbol %q not found", *target)

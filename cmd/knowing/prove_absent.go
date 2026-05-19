@@ -61,9 +61,12 @@ func cmdProveAbsent(args []string) error {
 	}
 	repoHash := types.NewHash([]byte(repoURL))
 
-	// Find source nodes to determine the package.
+	// Find source nodes to determine the package. Try substring match on fallback.
 	sourceNodes, err := st.NodesByName(ctx, *source)
 	if err != nil || len(sourceNodes) == 0 {
+		sourceNodes, _ = st.NodesByName(ctx, "%"+*source)
+	}
+	if len(sourceNodes) == 0 {
 		return fmt.Errorf("source symbol %q not found", *source)
 	}
 
@@ -75,6 +78,9 @@ func cmdProveAbsent(args []string) error {
 	// Compute the edge hash that would exist if this relationship were real.
 	targetNodes, err := st.NodesByName(ctx, *target)
 	if err != nil || len(targetNodes) == 0 {
+		targetNodes, _ = st.NodesByName(ctx, "%"+*target)
+	}
+	if len(targetNodes) == 0 {
 		return fmt.Errorf("target symbol %q not found", *target)
 	}
 
