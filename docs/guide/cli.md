@@ -13,7 +13,7 @@ See [distribution.md](distribution.md) for installation instructions.
 knowing <subcommand> [flags]
 ```
 
-Subcommands: `serve`, `index`, `query`, `export`, `diff`, `context`, `why`, `mcp`, `watch`, `reindex`, `init`, `add`, `remove`, `list`, `test-scope`, `ingest-scip`, `enrich`, `fsck`, `version`.
+Subcommands: `serve`, `index`, `query`, `export`, `diff`, `context`, `why`, `mcp`, `watch`, `reindex`, `init`, `add`, `remove`, `list`, `test-scope`, `ingest-scip`, `enrich`, `fsck`, `prove`, `verify`, `version`.
 
 ## Environment
 
@@ -958,6 +958,82 @@ knowing fsck -repo github.com/org/repo
 - Hash recomputation will report mismatches if the database was built before the hash domain prefix change (2026-05-18 release). In that case, re-index the repo.
 - The `--quick` mode (PRAGMA only) runs in milliseconds. Full recomputation time scales with node and edge count.
 - Exit code 0 if no ERRORs found (warnings do not affect exit code). Exit code 1 if any ERROR is found.
+
+---
+
+### prove
+
+Generate a Merkle proof that a specific relationship exists in the current snapshot.
+The proof is a JSON file that can be shared, stored, or verified offline.
+
+```
+knowing prove -source <symbol> -target <symbol> [-type calls] [-repo url] [-o file]
+```
+
+The proof contains a three-level path from the edge hash to the repo root, with
+sibling hashes at each level. An auditor or CI system can verify the proof without
+access to the database.
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `-source` | string | *(required)* | Qualified name (or prefix) of the source symbol |
+| `-target` | string | *(required)* | Qualified name (or prefix) of the target symbol |
+| `-type` | string | `calls` | Edge type to prove (`calls`, `imports`, `implements`, etc.) |
+| `-repo` | string | *(auto-detect)* | Repository URL |
+| `-db` | string | *(per-repo, from roster)* | Path to the SQLite database |
+| `-o` | string | *(stdout)* | Write proof to file instead of stdout |
+
+**Examples:**
+
+```bash
+# Prove that ForTask calls ComputeHITS
+knowing prove -source "%ForTask" -target "%ComputeHITS" -type calls -o proof.json
+
+# Prove an import relationship
+knowing prove -source "%server" -target "%types" -type imports
+```
+
+**Output:** JSON with `source`, `target`, `edge_type`, `snapshot_hash`, and `proof`
+(containing `edge_hash`, `package_path`, three levels of proof steps, and the repo root).
+
+See [Merkle Proofs architecture doc](../architecture/merkle-proofs.md) for format details.
+
+---
+
+### verify
+
+Verify a Merkle proof offline. No database needed.
+
+```
+knowing verify <proof.json>
+knowing verify -proof <file>
+```
+
+Recomputes the repo root from the edge hash and proof steps. If the recomputed
+root matches the claimed root, the proof is valid: the edge existed in that
+snapshot. Any tampering (modified edge, swapped sibling, changed root) fails.
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `-proof` | string | *(required, or positional arg)* | Path to proof JSON (or `-` for stdin) |
+
+**Examples:**
+
+```bash
+# Verify a proof file
+knowing verify proof.json
+
+# Pipe from prove
+knowing prove -source "%ForTask" -target "%ComputeHITS" | knowing verify -proof -
+```
+
+**Output:**
+- `VERIFIED` with edge details and step count (exit code 0)
+- `FAILED` if the proof does not verify (exit code 1)
 
 ---
 

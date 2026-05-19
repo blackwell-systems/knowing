@@ -33,6 +33,7 @@ If you are new to knowing, read these in order:
 | [cli-commands.md](cli-commands.md) | All CLI commands: index, export (with --algorithm flag), watch, why, enrich (blame, coverage), mcp, init, fsck |
 | [design-principles.md](design-principles.md) | Nine design goals, three architectural planes, MCP tool split, artifact boundary |
 | [deep-dives.md](deep-dives.md) | 15 foundational architecture decisions with rationale and retrofit cost |
-| [merkle-algorithms.md](merkle-algorithms.md) | 13 Merkle tree algorithms: hierarchical roots (repo -> package -> edge-type -> leaf), subgraph caching, incremental recompute, context packs, proofs, federated sync, semantic change classification, bisection. Phase 1 shipped (114x faster diff). |
+| [merkle-algorithms.md](merkle-algorithms.md) | 13 Merkle tree algorithms: hierarchical roots, subgraph caching, incremental recompute, context packs, proofs, federated sync, semantic change classification, bisection. Phase 1+2+3 shipped. |
+| [merkle-proofs.md](merkle-proofs.md) | Merkle proof format, generation/verification, CLI (`knowing prove`/`knowing verify`), performance (72us generate, 1.2us verify), use cases (audit, CI gates, federated trust). |
 | [adr-hierarchical-merkle.md](adr-hierarchical-merkle.md) | Architecture decision record: why the hierarchical Merkle tree changes knowing's identity from integrity mechanism to performance architecture. |
 | [git-design-audit.md](git-design-audit.md) | Systematic audit of knowing's content-addressed design against git's reference implementation: 10 areas, 23 recommendations, severity-ranked. |
