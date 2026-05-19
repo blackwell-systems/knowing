@@ -92,16 +92,16 @@ Phase 3 requires foundation work before the features can be built correctly. The
 | # | Item | Status | Benchmarked |
 |---|------|--------|-------------|
 | P1 | **Community assignment persistence** | **Shipped**. Save/Load via notes table, BatchPutNotes (21x vs individual inserts). | `bench/community-detection/` (E2E) |
-| P2 | **Context pack persistence** | Pending. Store ContextBlocks by PackRoot in notes. Cross-session replay. | |
+| P2 | **Context pack persistence** | **Shipped**. Three-layer cache: SubgraphCache (42ns) -> notes table (1.2ms, snapshot-validated) -> cold retrieval. Cross-session replay verified. | `bench/merkle-diff/` (persistence) |
 | P3 | **Incremental Louvain e2e** | **Shipped**. Daemon wired: diff -> ChangedPackages -> load previous -> DetectIncremental -> save. 11ms full cycle. | `bench/community-detection/` (E2E) |
 | P4 | **Incremental HITS/BM25** | Pending (needs F3). Scope FTS rebuild to changed packages. | |
 | P5 | **Context pack deduplication** | Pending (needs P2). Agents reference PackRoot instead of resending. | |
 | P6 | **Context pack comparison** | Pending (needs P2). Diff two PackRoots. | |
 | P7 | **Semantic change classification** | Pending. `ClassifyChanges` returns Behavioral/Structural/RuntimeDrift/MetadataOnly. | |
 
-| P8 | **Delta-save community assignments** | Pending (optimization). Save only changed assignments instead of all nodes. Reduces save from 8.8ms (~2,486 rows) to ~0.5ms estimated (~146 rows for 1-package edit). Currently save is 81% of the incremental cycle. | |
+| P8 | **Delta-save community assignments** | **Shipped**. 5.0x e2e speedup (12.6ms -> 2.5ms). Save dropped from 81% to ~4% of cycle. | `bench/community-detection/` (E2E) |
 
-Remaining: F3 + P2 + P4-P8 (~13h). F3 and P2 are independent and unblocked.
+Remaining: F3 + P4 + P5 + P6 + P7 (~7h). F3 is independent. P5/P6 unblocked by P2.
 
 ### Phase 4: Proofs, Sync, Bisection
 
