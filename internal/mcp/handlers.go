@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"strings"
 
 	"github.com/blackwell-systems/knowing/internal/diff"
 	"github.com/blackwell-systems/knowing/internal/types"
@@ -191,6 +192,10 @@ func (s *Server) handleRepoGraph(ctx context.Context, req mcp.CallToolRequest) (
 // --- Intelligence plane handlers (read-only) ---
 
 // handleBlastRadius computes the blast radius of a symbol.
+// When a SubgraphCache and SnapshotManager are wired in, results are cached
+// by a key derived from hash(targetHash bytes + SubgraphRoot of the symbol's
+// package). A snapshot_hash argument bypasses the cache to ensure correctness
+// for point-in-time queries.
 func (s *Server) handleBlastRadius(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	targetHash, errResult := requireHash(req, "target_hash")
 	if errResult != nil {
@@ -199,6 +204,20 @@ func (s *Server) handleBlastRadius(ctx context.Context, req mcp.CallToolRequest)
 	snapshotHash, errResult := optionalHash(req, "snapshot_hash")
 	if errResult != nil {
 		return errResult, nil
+	}
+
+	// Cache lookup: only when caching is enabled and no snapshot_hash is given
+	// (point-in-time queries must bypass cache to stay correct).
+	var cacheKey types.Hash
+	if s.resultCache != nil && s.snapMgr != nil && snapshotHash.IsZero() {
+		cacheKey = blastRadiusCacheKey(ctx, s, targetHash)
+		if !cacheKey.IsZero() {
+			if data, ok := s.resultCache.Get(cacheKey); ok {
+				return &mcp.CallToolResult{
+					Content: []mcp.Content{mcp.TextContent{Type: "text", Text: string(data)}},
+				}, nil
+			}
+		}
 	}
 
 	br, err := s.store.BlastRadius(ctx, targetHash, snapshotHash)
@@ -210,7 +229,70 @@ func (s *Server) handleBlastRadius(ctx context.Context, req mcp.CallToolRequest)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("failed to marshal result: %v", err)), nil
 	}
+
+	// Cache store.
+	if s.resultCache != nil && !cacheKey.IsZero() && len(result.Content) > 0 {
+		if tc, ok := result.Content[0].(mcp.TextContent); ok {
+			s.resultCache.Put(cacheKey, []byte(tc.Text))
+		}
+	}
+
 	return result, nil
+}
+
+// blastRadiusCacheKey computes a cache key for a blast_radius call by combining
+// the target node hash with the subgraph root of the node's package from the
+// most recently computed HierarchicalTree. Returns EmptyHash when the node
+// cannot be looked up or no tree is available.
+func blastRadiusCacheKey(ctx context.Context, s *Server, targetHash types.Hash) types.Hash {
+	tree := s.snapMgr.LastHierarchicalTree()
+	if tree == nil {
+		return types.EmptyHash
+	}
+
+	// Look up the node to find its package path.
+	node, err := s.store.GetNode(ctx, targetHash)
+	if err != nil || node == nil {
+		return types.EmptyHash
+	}
+
+	pkg := extractQualifiedPackage(node.QualifiedName)
+	if pkg == "" {
+		return types.EmptyHash
+	}
+
+	subgraphRoot := tree.SubgraphRoot([]string{pkg})
+	// Key: sha256("blast_radius\x00" + targetHash + subgraphRoot)
+	// "blast_radius" is 12 bytes, NUL is 1 byte, two hashes are 32 bytes each = 77 total.
+	var buf [77]byte
+	copy(buf[:12], "blast_radius")
+	buf[12] = 0
+	copy(buf[13:45], targetHash[:])
+	copy(buf[45:77], subgraphRoot[:])
+	return types.NewHash(buf[:])
+}
+
+// extractQualifiedPackage extracts the package path from a qualified node name.
+// Format: "repoURL://pkg/path.SymbolName" -> "pkg/path"
+func extractQualifiedPackage(qualifiedName string) string {
+	parts := strings.SplitN(qualifiedName, "://", 2)
+	if len(parts) < 2 {
+		return ""
+	}
+	pkgAndSymbol := parts[1]
+	lastDot := strings.LastIndex(pkgAndSymbol, ".")
+	if lastDot < 0 {
+		return pkgAndSymbol
+	}
+	pkg := pkgAndSymbol[:lastDot]
+	// Strip method receiver if present: "pkg/path.Type.Method" -> "pkg/path"
+	if idx := strings.LastIndex(pkg, "."); idx >= 0 {
+		after := pkg[idx+1:]
+		if len(after) > 0 && after[0] >= 'A' && after[0] <= 'Z' {
+			pkg = pkg[:idx]
+		}
+	}
+	return pkg
 }
 
 // handleTraceDataflow traces all transitive callees from a symbol.

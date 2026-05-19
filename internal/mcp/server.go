@@ -45,8 +45,10 @@ import (
 	"os"
 	"strings"
 
+	"github.com/blackwell-systems/knowing/internal/cache"
 	knowingctx "github.com/blackwell-systems/knowing/internal/context"
 	"github.com/blackwell-systems/knowing/internal/embedding"
+	"github.com/blackwell-systems/knowing/internal/snapshot"
 	knowingstore "github.com/blackwell-systems/knowing/internal/store"
 	"github.com/blackwell-systems/knowing/internal/types"
 	"github.com/blackwell-systems/knowing/internal/wire"
@@ -58,13 +60,15 @@ import (
 // a reference to the GraphStore for executing queries and delegates transport
 // handling to the mcp-go library.
 type Server struct {
-	store      types.GraphStore
-	mcpServer  *mcpserver.MCPServer
-	sqlStore   *knowingstore.SQLiteStore  // populated via type assertion for runtime queries
-	session    *wire.Session              // GCF session state for cross-call deduplication
-	ctxSession *knowingctx.SessionTracker // session-aware retrieval boosts
-	vecSearch  *embedding.Searcher        // semantic vector search (nil if model unavailable)
-	taskMemory *knowingctx.TaskMemory     // passive task-symbol learning (nil if no SQLite)
+	store       types.GraphStore
+	mcpServer   *mcpserver.MCPServer
+	sqlStore    *knowingstore.SQLiteStore   // populated via type assertion for runtime queries
+	session     *wire.Session               // GCF session state for cross-call deduplication
+	ctxSession  *knowingctx.SessionTracker  // session-aware retrieval boosts
+	vecSearch   *embedding.Searcher         // semantic vector search (nil if model unavailable)
+	taskMemory  *knowingctx.TaskMemory      // passive task-symbol learning (nil if no SQLite)
+	snapMgr     *snapshot.SnapshotManager   // nil if no snapshot manager is wired in
+	resultCache *cache.SubgraphCache        // nil if caching is disabled
 }
 
 // NewServer creates a new MCP server backed by the given GraphStore.
@@ -98,6 +102,20 @@ func NewServer(store types.GraphStore) *Server {
 	s.registerTools()
 	s.registerPrompts()
 	return s
+}
+
+// SetSnapshotManager attaches a SnapshotManager so MCP handlers can access
+// the most recently computed HierarchicalTree for subgraph cache keying.
+// Call this before Start if you want cache-aware blast_radius and test_scope.
+func (s *Server) SetSnapshotManager(sm *snapshot.SnapshotManager) {
+	s.snapMgr = sm
+}
+
+// SetResultCache attaches a SubgraphCache for memoizing blast_radius and
+// test_scope results. When set, handlers check the cache before computing
+// and store results after a miss. Pass nil to disable caching.
+func (s *Server) SetResultCache(c *cache.SubgraphCache) {
+	s.resultCache = c
 }
 
 // registerTools registers all 22 MCP tools on the server.

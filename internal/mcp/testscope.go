@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/blackwell-systems/knowing/internal/types"
@@ -58,6 +59,21 @@ func (s *Server) handleTestScope(ctx context.Context, req mcp.CallToolRequest) (
 
 	// Parse depth.
 	maxDepth := getIntArg(req, "depth", 3)
+
+	// Cache lookup: build a key from the sorted file list and the subgraph root
+	// of the packages those files belong to. Only when caching is enabled and
+	// a hierarchical tree is available.
+	var cacheKey types.Hash
+	if s.resultCache != nil && s.snapMgr != nil {
+		cacheKey = testScopeCacheKey(paths, s)
+		if !cacheKey.IsZero() {
+			if data, ok := s.resultCache.Get(cacheKey); ok {
+				return &mcp.CallToolResult{
+					Content: []mcp.Content{mcp.TextContent{Type: "text", Text: string(data)}},
+				}, nil
+			}
+		}
+	}
 
 	// Step 1: Find all symbols in the specified files.
 	repos, err := s.sqlStore.AllRepos(ctx)
@@ -186,9 +202,64 @@ func (s *Server) handleTestScope(ctx context.Context, req mcp.CallToolRequest) (
 		return nil, fmt.Errorf("json.Marshal: %w", err)
 	}
 
+	// Cache store.
+	if s.resultCache != nil && !cacheKey.IsZero() {
+		s.resultCache.Put(cacheKey, data)
+	}
+
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{mcp.TextContent{Type: "text", Text: string(data)}},
 	}, nil
+}
+
+// testScopeCacheKey builds a cache key for a test_scope call from the sorted
+// file paths and the subgraph root of the packages those files belong to.
+// Returns EmptyHash if no hierarchical tree is available.
+func testScopeCacheKey(paths []string, s *Server) types.Hash {
+	tree := s.snapMgr.LastHierarchicalTree()
+	if tree == nil {
+		return types.EmptyHash
+	}
+
+	// Sort file paths for a deterministic key.
+	sorted := make([]string, len(paths))
+	copy(sorted, paths)
+	sort.Strings(sorted)
+
+	// Extract package names from the file paths: strip file basename and extension.
+	// File paths like "internal/store/sqlite.go" map to package "internal/store".
+	pkgSet := make(map[string]bool)
+	for _, p := range sorted {
+		pkg := extractPackageFromFilePath(p)
+		if pkg != "" {
+			pkgSet[pkg] = true
+		}
+	}
+	var pkgs []string
+	for pkg := range pkgSet {
+		pkgs = append(pkgs, pkg)
+	}
+	sort.Strings(pkgs)
+
+	subgraphRoot := tree.SubgraphRoot(pkgs)
+
+	// Key: sha256("test_scope\x00" + sortedFiles + subgraphRoot)
+	h := types.NewHash(append(
+		[]byte("test_scope\x00"+strings.Join(sorted, "\x00")+"\x00"),
+		subgraphRoot[:]...,
+	))
+	return h
+}
+
+// extractPackageFromFilePath returns the directory of a relative file path,
+// which corresponds to the Go package path.
+// "internal/store/sqlite.go" -> "internal/store"
+func extractPackageFromFilePath(filePath string) string {
+	idx := strings.LastIndex(filePath, "/")
+	if idx < 0 {
+		return "" // top-level file; package is the repo root
+	}
+	return filePath[:idx]
 }
 
 // isTestFunction returns true if the node represents a Go test or benchmark function.
