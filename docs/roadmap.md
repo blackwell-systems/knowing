@@ -62,7 +62,7 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 | Merkleized feedback validity (expires when neighborhood_root changes) | Planned |
 | Merkle-based bisection (binary search on snapshot chain) | Planned |
 | Lazy materialization (load only visited subtrees; triggered at ~1M+ edges) | Planned |
-| File-level roots (finer single-file invalidation) | Decision pending |
+| File-level roots (finer single-file invalidation) | **Deferred.** Package-level granularity is sufficient at current and projected scale (200K+ edges). Scoped FTS rebuild handles the primary use case. Revisit only if a user demonstrates single-file invalidation need. This locks the tree depth at 3 levels and clears the extraction stability gate. |
 
 ## Cross-Repo Validation
 
