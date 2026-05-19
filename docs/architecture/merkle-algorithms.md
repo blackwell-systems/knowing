@@ -558,18 +558,26 @@ These algorithms build on each other. The hierarchical tree structure (Phase 1) 
 
 **The full cache chain:** file save -> re-index -> hierarchical diff -> selective eviction -> next query hits cache or recomputes. Queries against unchanged code are free.
 
-### Phase 3: Incremental Recompute (Retrieval Improvement)
+### Phase 3: Incremental Recompute (Shipped)
 
-**Scope:** Use root diffs to skip unnecessary index rebuilds. Wire `ContextPackRoot` into L2 cache storage and cross-session replay.
+**Status:** All 11 items shipped (F1-F3, P1-P8).
 
-**Deliverables:**
-- `diff_roots` function: descend tree, produce `changed_packages[]` list.
-- Decision table wired into the post-ingest pipeline (skip Louvain, skip HITS recompute when scope permits).
-- Pack storage in L2 cache keyed by `ContextPackRoot`.
-- Cross-session pack replay in the MCP `context_for_task` tool.
-- Pack comparison: diff two `ContextPackRoot` values.
+**Foundation shipped:**
+- **F1: Graph notes table** (`internal/store/migrations/012_add_notes.sql`): general-purpose `(object_hash, key, value)` metadata layer. 6 GraphStore methods. Never affects Merkle computation.
+- **F2: IncrementalAlgorithm interface** (`internal/community/algorithm.go`): `DetectIncremental(g, previous, changedNodes)` on Louvain (6.9x) and label propagation (38.4x). Benchmarked at `bench/community-detection/`.
+- **F3: Scoped FTS rebuild** (`internal/store/sqlite.go`): `RebuildFTSForPackages(ctx, packages)` scopes BM25 index rebuild to changed packages. 2.9x faster than full rebuild.
 
-**Why third:** Incremental recompute reduces post-commit latency significantly. Context packs make retrieval history auditable and enable agent deduplication.
+**Features shipped:**
+- **P1: Community assignment persistence**: `SaveAssignments`/`LoadAssignments` via notes table. `BatchPutNotes` for 21x faster bulk writes. Communities survive daemon restart.
+- **P2: Context pack persistence**: three-layer cache (SubgraphCache 42ns -> notes table 1.2ms -> cold retrieval). Cross-session replay verified. Snapshot-validated staleness detection.
+- **P3: Incremental Louvain e2e**: daemon wired: diff -> ChangedPackages -> load previous -> DetectIncremental -> delta-save. Full cycle: 2.5ms.
+- **P4: Incremental HITS/BM25**: daemon calls `RebuildFTSForPackages` with changed packages from Merkle diff after each re-index.
+- **P5: Context pack deduplication**: `pack_root` parameter on `context_for_task`. Agent passes prior PackRoot, gets "unchanged" (165 bytes) instead of full payload (2-30KB). 93-99% byte savings.
+- **P6: Context pack comparison**: `CompareContextPacks` returns added/removed/common symbols. Answers "what changed in what this agent would see?"
+- **P7: Semantic change classification**: `ClassifyChanges` returns Behavioral/Structural/RuntimeDrift/MetadataOnly based on which edge-type roots changed. Agents decide whether to re-query based on change kind.
+- **P8: Delta-save community assignments**: `SaveChangedAssignments` writes only the delta. 5.0x e2e speedup (12.6ms -> 2.5ms).
+
+**The full pipeline:** file edit -> re-index -> hierarchical diff -> scoped cache invalidation -> incremental community detection -> delta-save -> scoped FTS rebuild -> context pack persistence -> PackRoot dedup -> semantic change classification.
 
 ### Phase 4: Proofs, Sync, Bisection, and Advanced Features
 
@@ -585,7 +593,7 @@ These algorithms build on each other. The hierarchical tree structure (Phase 1) 
 - `feedback_valid` check using `neighborhood_root` comparison.
 - `classify_diff` output in `knowing export --diff`.
 
-**Why last:** These are high-value but depend on the complete tree structure (Phase 1) and the caching layer (Phase 2). Bisection is most useful once the snapshot chain is dense with real usage data. Federated sync requires team adoption. Proofs require an ordered trie, which is a non-trivial tree restructuring.
+**Why next:** Phase 3 (incremental recompute) is complete. The tree structure is stable. Proofs, sync, and bisection build on the shipped infrastructure. Proofs require an ordered trie (non-trivial tree restructuring). Federated sync requires team adoption. Bisection is most useful once the snapshot chain is dense with real usage data.
 
 ---
 
@@ -593,9 +601,11 @@ These algorithms build on each other. The hierarchical tree structure (Phase 1) 
 
 | Existing component | How Merkle algorithms extend it |
 |---|---|
-| Snapshot hash (deep-dives.md Section 1) | Extended by hierarchical `repo_root` (Phase 1 shipped); flat tree preserved for backward compatibility |
-| Computation cache (deep-dives.md Section 12) | Subgraph roots replace global root as cache keys in Phase 2 |
-| Community detection (roadmap.md) | Community roots added in Phase 2; enable safe agent parallelization |
-| Semantic PR Diff (deep-dives.md Section 14) | `classify_diff` output in Phase 4 extends it with change classification |
-| Feedback scoring (context-engine.md) | `feedback_valid` check in Phase 4 replaces time-only decay |
-| Retrieval pipeline (retrieval-pipeline.md) | Stability + activity signals added in Phase 4 |
+| Snapshot hash | Extended by hierarchical `repo_root` (Phase 1); flat tree dropped |
+| Computation cache | SubgraphCache keyed by Merkle package roots (Phase 2); three-layer cache with notes persistence (Phase 3) |
+| Community detection | Modular algorithm registry (Phase 2); incremental detection with delta-save (Phase 3, 6.9x/5.0x) |
+| Context retrieval | PackRoot dedup (Phase 3 P5, 99% savings); persistent packs (Phase 3 P2); pack comparison (Phase 3 P6) |
+| FTS/BM25 index | Scoped FTS rebuild for changed packages (Phase 3 F3, 2.9x) |
+| Semantic PR Diff | `ClassifyChanges` returns Behavioral/Structural/RuntimeDrift/MetadataOnly (Phase 3 P7) |
+| Feedback scoring | `feedback_valid` check using `neighborhood_root` comparison (Phase 4, planned) |
+| Retrieval pipeline | Stability + activity signals (Phase 4, planned) |
