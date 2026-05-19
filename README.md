@@ -65,6 +65,7 @@ For security, audit, and compliance:
 - "Verify the entire graph has not been tampered with." (`knowing fsck` recomputes every hash from source data in 98ms.)
 - "Show every service that touches this symbol, route, table, queue, or proto message." (Transitive callers with provenance and confidence.)
 - "When did this cross-service dependency first appear?" (Walk the snapshot chain; each snapshot is a Merkle root tied to a git commit.)
+- "Generate a complete compliance report with one command." (`knowing audit -proofs` produces integrity check, edge inventory, and Merkle proofs in a single JSON artifact.)
 
 ## Why It Is Different
 

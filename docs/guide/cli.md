@@ -13,7 +13,7 @@ See [distribution.md](distribution.md) for installation instructions.
 knowing <subcommand> [flags]
 ```
 
-Subcommands: `serve`, `index`, `query`, `export`, `diff`, `context`, `why`, `mcp`, `watch`, `reindex`, `init`, `add`, `remove`, `list`, `test-scope`, `ingest-scip`, `enrich`, `fsck`, `prove`, `verify`, `version`.
+Subcommands: `serve`, `index`, `query`, `export`, `diff`, `context`, `why`, `mcp`, `watch`, `reindex`, `init`, `add`, `remove`, `list`, `test-scope`, `ingest-scip`, `enrich`, `fsck`, `prove`, `verify`, `audit`, `audit-diff`, `version`.
 
 ## Environment
 
@@ -1034,6 +1034,82 @@ knowing prove -source "%ForTask" -target "%ComputeHITS" | knowing verify -proof 
 **Output:**
 - `VERIFIED` with edge details and step count (exit code 0)
 - `FAILED` if the proof does not verify (exit code 1)
+
+---
+
+### audit
+
+Generate a structured compliance report: integrity check, graph summary, cross-package edges with provenance and confidence, and optional Merkle proofs. One command for a complete audit artifact.
+
+```
+knowing audit [-proofs] [-o report.json] [-repo url] [-max-edges 500]
+```
+
+The report includes an integrity check (equivalent to `knowing fsck`), a graph summary (node count, edge count, package count, edge type breakdown), all cross-package edges with provenance and confidence, and optionally a Merkle proof for each cross-package relationship. The snapshot hash is tied to the current git commit.
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `-db` | string | *(per-repo, from roster)* | Path to the SQLite database |
+| `-repo` | string | *(auto-detect)* | Repository URL |
+| `-o` | string | *(stdout)* | Write report to file instead of stdout |
+| `-proofs` | bool | `false` | Include a Merkle proof for each cross-package edge |
+| `-max-edges` | int | `500` | Maximum number of cross-package edges to include |
+
+**Examples:**
+
+```bash
+# Generate a full compliance report with Merkle proofs
+knowing audit -proofs -o quarterly-audit.json
+
+# Generate a report for a specific repo with a higher edge limit
+knowing audit -max-edges 1000 -repo github.com/org/repo
+```
+
+**Notes:**
+
+- Requires a pre-built database. Run `knowing index` first.
+- The `-proofs` flag generates a Merkle proof for every cross-package edge in the report. Performance: 5 proofs in ~210us.
+- Output is a single JSON file containing all audit data. Suitable for archiving alongside git commit hashes as a compliance artifact.
+
+---
+
+### audit-diff
+
+Compare two audit point snapshots: added and removed edge counts, change classification, and edge type breakdown.
+
+```
+knowing audit-diff <old-snapshot> <new-snapshot> [-o report.json]
+```
+
+Compares two snapshot hashes and reports how the cross-package edge set changed between them. Each changed edge is classified by type: `behavioral` (call or import edges changed), `structural` (implements or reference edges changed), `runtime_drift` (runtime-observed edges changed), or `metadata_only` (only confidence or provenance changed, not the edge itself).
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `-db` | string | *(per-repo, from roster)* | Path to the SQLite database |
+| `-repo` | string | *(auto-detect)* | Repository URL |
+| `-o` | string | *(stdout)* | Write report to file instead of stdout |
+
+Both positional arguments are required and must be 64-character hex snapshot hashes.
+
+**Examples:**
+
+```bash
+# Compare two quarterly audit snapshots
+knowing audit-diff abc123... def456... -o q1-q2-diff.json
+
+# Write the diff to stdout for piping
+knowing audit-diff $Q1_SNAPSHOT $Q2_SNAPSHOT
+```
+
+**Notes:**
+
+- Requires a pre-built database containing both snapshots.
+- Change classifications: `behavioral` (calls, imports), `structural` (implements, references), `runtime_drift` (runtime_calls, runtime_rpc), `metadata_only` (confidence or provenance change only).
+- Output is a JSON report with added edge count, removed edge count, classification breakdown, and per-edge details.
 
 ---
 

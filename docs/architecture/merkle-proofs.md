@@ -124,6 +124,16 @@ knowing verify proof.json
 
 See [CLI reference](../guide/cli.md#prove) for full flag documentation.
 
+## Batch Proofs via knowing audit
+
+`knowing audit -proofs` generates Merkle proofs for all cross-package edges in one call, not just individual edges. This is the preferred path when you need a complete compliance artifact rather than a proof for a single relationship.
+
+```bash
+knowing audit -proofs -o quarterly-audit.json
+```
+
+The output JSON includes the integrity check, graph summary, all cross-package edges with provenance and confidence, and a Merkle proof for each one. Performance: 5 proofs in ~210us. For the full flag reference, see [`knowing audit`](../guide/cli.md#audit) in the CLI reference.
+
 ## Implementation
 
 - `internal/snapshot/proof.go`: `GenerateProof`, `VerifyProof`, `binaryProof`

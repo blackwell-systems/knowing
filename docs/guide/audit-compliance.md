@@ -7,6 +7,7 @@ knowing is a cryptographically verifiable record of code relationships. Every re
 | Claim | How knowing proves it |
 |-------|----------------------|
 | "Service A calls service B" | `knowing prove` generates a Merkle proof path from the specific edge to the snapshot root. `knowing verify` checks it without database access. |
+| "Generate a complete audit report" | `knowing audit -proofs` produces integrity check + edge inventory + Merkle proofs in one JSON file |
 | "This graph reflects commit abc123" | Every snapshot records the git commit hash. The snapshot's Merkle root is deterministic: same source = same root on any machine. |
 | "The graph has not been tampered with" | `knowing fsck` recomputes every node hash, edge hash, and Merkle root from source data. Any mutation changes a hash, which propagates to the root. |
 | "This dependency appeared between Tuesday and Wednesday" | Walk the snapshot chain backwards. Diff adjacent pairs (O(packages) per diff). The first snapshot containing the edge is the answer, tied to a specific git commit. |
@@ -51,6 +52,8 @@ Every step is a deterministic computation from content. The data is the audit tr
 
 "Prove that `AuthService.ValidateToken` calls `UserRepo.FindByID` at snapshot `abc123`."
 
+For a single edge, use `knowing prove`:
+
 ```bash
 # Generate the proof
 knowing prove \
@@ -71,6 +74,8 @@ knowing verify auth-calls-user.proof.json
 #   Snapshot:  abc123...
 #   Proof:     16 steps
 ```
+
+For a full compliance artifact covering all cross-package edges, use `knowing audit -proofs` (see Workflow 6).
 
 The proof is 3KB of JSON. The auditor needs only the `knowing` binary (or any SHA-256 implementation that understands the `"merkle\0"` domain prefix).
 
@@ -143,7 +148,30 @@ knowing fsck
 knowing prove -source "%PaymentService" -target "%StripeClient" -type calls
 ```
 
+For a complete artifact that includes the integrity check, full edge inventory, and proofs in one file, use `knowing audit -proofs` (see Workflow 6).
+
 The snapshot hash is the audit artifact. It's 64 hex characters that uniquely identify the entire graph state. Two parties who agree on the hash agree on every relationship in the graph.
+
+### 6. Batch Compliance Report
+
+"Generate a single JSON artifact with the full audit picture: integrity, edge inventory, and proofs for all cross-package relationships."
+
+```bash
+# Generate a full compliance report with proofs for all cross-package edges
+knowing audit -proofs -o audit-$(date +%Y-%m-%d).json
+
+# The report includes:
+#   - Integrity verification (fsck)
+#   - Graph summary (nodes, edges, packages, edge types)
+#   - All cross-package edges with provenance and confidence
+#   - Merkle proofs for each cross-package relationship
+#   - Snapshot hash tied to git commit
+
+# Compare quarterly audit points
+knowing audit-diff $Q1_SNAPSHOT $Q2_SNAPSHOT -o q1-q2-changes.json
+```
+
+The diff report shows added and removed edge counts, classified by change type (`behavioral`, `structural`, `runtime_drift`, or `metadata_only`), making it straightforward to demonstrate what changed between audit periods.
 
 ## What Sets This Apart
 
