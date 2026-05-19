@@ -1,6 +1,6 @@
 # Benchmarks
 
-Eleven benchmark harnesses that prove knowing's value with hard data. Each benchmark
+Fourteen benchmark harnesses that prove knowing's value with hard data. Each benchmark
 is a standalone Go test package that indexes the knowing repo, runs measurements,
 and auto-generates a `FINDINGS.md` with results and interpretation.
 
@@ -18,6 +18,8 @@ and auto-generates a `FINDINGS.md` with results and interpretation.
 | [community-detection](community-detection/) | Incremental detection skips work the Merkle tree proves unchanged | Louvain 6.9x faster (1 pkg), LP 38.4x faster (1 pkg), delta-save 5.0x e2e |
 | [merkle-diff](merkle-diff/) (P2 persistence) | Context packs survive process restart via notes table | Cross-session PackRoot match verified, 154KB persisted, snapshot staleness detection |
 | [merkle-diff](merkle-diff/) (P5 dedup) | Agents skip retransmitting unchanged context | 95-100% token savings (557-7,661 -> 26 tokens) |
+| [merkle-diff](merkle-diff/) (proof) | Merkle proof generation and verification (Phase 4) | Proves relationship existed in a given snapshot |
+| [merkle-diff](merkle-diff/) (scoped FTS) | Scoped FTS rebuild vs full rebuild (Phase 3 F3/P4) | Package-scoped rebuild avoids full-table reindex |
 
 ## Running
 
