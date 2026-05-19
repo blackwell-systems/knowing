@@ -85,22 +85,27 @@ Single transaction with prepared statement: 6.4ms save (21x faster).
 
 ### E2E Statistical Measurement
 
-| Path | Median |
-|------|--------|
-| Full e2e (detect + save) | 12.2ms |
-| Incremental e2e (load + mark + detect + save) | 11.4ms |
-| **E2E speedup** | **1.1x** |
+| Path | Median | vs Full |
+|------|--------|---------|
+| Full e2e (detect + save all) | 12.6ms | baseline |
+| Incremental + save all | 11.7ms | 1.1x |
+| **Incremental + delta-save** | **2.5ms** | **5.0x** |
 
-The e2e speedup is modest because save dominates both paths equally. The real
-win is absolute latency: 11ms total for the daemon community update cycle,
-well under the 1s performance contract. For comparison, the re-index itself
-takes ~8 seconds; community detection adds 0.1% overhead.
+Delta-save (P8) writes only assignments that changed. When no communities
+move (common case for single-package edits), save drops to ~0.1ms. Load
+(1.9ms) becomes the dominant cost.
 
-### Future optimization
+### Cost Breakdown (with delta-save)
 
-Save only changed assignments (delta save) instead of all 2,486. This would
-make save proportional to changed nodes (~146 for 1-package edit) instead of
-total nodes, reducing save from 8.8ms to ~0.5ms estimated.
+| Step | Time | % of cycle |
+|------|------|-----------|
+| Load 2,486 assignments | 1.9ms | ~75% |
+| Incremental detect | 439us | ~17% |
+| Delta-save (0 changes) | ~0.1ms | ~4% |
+| **Total** | **~2.5ms** | |
+
+For comparison, the re-index itself takes ~8 seconds; community detection
+adds 0.03% overhead.
 
 ## Running
 
