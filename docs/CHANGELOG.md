@@ -40,7 +40,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`knowing enrich coverage`:** Coverage percentages from Go cover profiles on symbols.
 - **84 equivalence classes:** Expanded from 41 with 43 universal software concepts.
 - **TOON wire format support:** Token estimation and format-aware packing.
-- **10 benchmark harnesses:** Merkle diff, context packs, subgraph cache, fsck, GC, context relevance, edge accuracy, test scope, token savings, feedback loop. All self-documenting with FINDINGS.md.
+- **14 benchmark harnesses:** Merkle diff (core + context packs + Phase 2 persistence + P5 dedup + proof + FTS scoped), community detection, subgraph cache, fsck, GC, context relevance, edge accuracy, test scope, token savings, feedback loop. All self-documenting with FINDINGS.md.
 
 ### Correctness
 

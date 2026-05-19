@@ -112,7 +112,9 @@ The same data in JSON: ~965 tokens. In GCF: ~233 tokens. **75.9% savings.**
 
 ### Format Elements
 
-**Header:** `GCF tool=<name> budget=<N> tokens=<N> symbols=<N>`
+**Header:** `GCF tool=<name> budget=<N> tokens=<N> symbols=<N> [pack_root=<64-char hex>]`
+
+When a PackRoot is computed (all `context_for_task` calls), the header includes a `pack_root` field. Agents can store this value and pass it back as the `pack_root` parameter on the next call: if the result is unchanged, the server returns `"unchanged"` instead of resending the full context (93-99% byte savings).
 
 **Group headers:** `## targets` (distance 0), `## related` (distance 1), `## extended` (distance 2+), `## edges`
 
@@ -243,6 +245,7 @@ Standard JSON serialization. Maximum compatibility, zero configuration, works wi
   "tool": "context_for_task",
   "tokens_used": 1847,
   "token_budget": 5000,
+  "pack_root": "<64-char hex>",
   "symbols": [
     {
       "qualified_name": "github.com/blackwell-systems/knowing/internal/mcp.requireHash",

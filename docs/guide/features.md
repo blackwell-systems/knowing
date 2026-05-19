@@ -1,6 +1,6 @@
 # FEATURES.md -- Comprehensive Feature Dump for AI Reference
 
-Generated: 2026-05-15 (updated: 2026-05-19, features 77-90 added: hash domain prefixes, fsck, GC reachability sweep, lockfile, LRU cache, modular community detection, DiffOptions, indexed_at migration, verify functions, knowing-viz React migration, MCP resources, graph notes table)
+Generated: 2026-05-15 (updated: 2026-05-19, features 77-101 added: hash domain prefixes, fsck, GC, lockfile, LRU cache, modular community detection, DiffOptions, indexed_at, verify, React viz, MCP resources, graph notes, Phase 3 complete, Merkle proofs)
 Source: code inspection of all Go files across internal/, cmd/, and config
 Repo: github.com/blackwell-systems/knowing
 
@@ -1014,6 +1014,79 @@ Repo: github.com/blackwell-systems/knowing
 - **Outputs:** Standard GraphStore return patterns: `*Note` (nil if not found), `[]Note`, `error`.
 - **Tests:** 8 tests in `internal/store/notes_test.go`: put/get, not-found, upsert semantics, get-all-for-object, get-by-key across objects, delete single, delete all for object, cross-object isolation.
 - **Dependencies:** None beyond existing SQLite store.
+
+### 91. Incremental Algorithm Interface (Phase 3 F2)
+
+- **Package:** `internal/community`
+- **What it does:** `IncrementalAlgorithm` interface with `DetectIncremental(g, previous, changedNodes)`. Seeds from previous community assignments, freezes unchanged nodes. Implemented on both Louvain (6.9x faster) and LabelPropagation (38.4x faster) for single-package changes.
+- **Tests:** 8 tests in `internal/community/community_test.go`. Compile-time interface satisfaction checks.
+- **Benchmark:** `bench/community-detection/bench_test.go` with performance contracts.
+
+### 92. Community Assignment Persistence (Phase 3 P1)
+
+- **Package:** `internal/community/persistence.go`
+- **What it does:** `SaveAssignments`/`LoadAssignments`/`SaveChangedAssignments` persist community assignments to the notes table. `BatchPutNotes` on SQLiteStore wraps inserts in a single transaction (21x faster than individual inserts). Delta-save writes only changed assignments (5.0x e2e speedup).
+- **Tests:** 7 tests in `internal/community/persistence_test.go`: save/load, empty, upsert, delta-only, deletes-removed, no-changes, incremental round-trip.
+- **Benchmark:** `bench/community-detection/e2e_bench_test.go` with performance contracts.
+
+### 93. Scoped FTS Rebuild (Phase 3 F3)
+
+- **Package:** `internal/store/sqlite.go`
+- **Entry point:** `SQLiteStore.RebuildFTSForPackages(ctx, packages []string)`
+- **What it does:** Deletes and re-inserts FTS rows only for nodes whose qualified name starts with a changed package prefix. Falls back to full `RebuildFTS` if packages is empty. 2.9x faster than full rebuild for single-package edits.
+- **Benchmark:** `bench/merkle-diff/fts_scoped_test.go` with performance contract.
+
+### 94. Context Pack Persistence (Phase 3 P2)
+
+- **Package:** `internal/context/context.go`
+- **What it does:** Three-layer cache for `context_for_task`: SubgraphCache (42ns, in-memory) -> notes table (1.2ms, persists across restarts, snapshot-validated) -> cold retrieval (~160ms). Stored packs include snapshot hash for staleness detection. Cross-session replay verified.
+- **Benchmark:** `bench/merkle-diff/context_pack_test.go` (TestContextPackPersistence).
+
+### 95. Context Pack Deduplication (Phase 3 P5)
+
+- **Package:** `internal/mcp/context_handlers.go`, `internal/wire/gcf.go`, `internal/wire/json.go`, `internal/wire/session.go`
+- **What it does:** `context_for_task` MCP tool accepts optional `pack_root` parameter. If the current result's PackRoot matches, returns "unchanged" (165 bytes) instead of the full payload (2-30KB). PackRoot exposed in GCF header line and JSON `pack_root` field. 93-99% byte savings.
+- **Tests:** `TestHandleContextForTask_PackRootDedup` in `internal/mcp/context_handlers_test.go`.
+- **Benchmark:** `bench/merkle-diff/dedup_bench_test.go` with >90% savings contract.
+
+### 96. Context Pack Comparison (Phase 3 P6)
+
+- **Package:** `internal/context/pack_compare.go`
+- **Entry point:** `CompareContextPacks(old, new *ContextBlock) PackDiff`
+- **What it does:** Computes symmetric difference between two context blocks: added, removed, and common symbols. Answers "what changed in the context this agent would see?"
+- **Tests:** 7 tests in `internal/context/pack_compare_test.go`.
+
+### 97. Semantic Change Classification (Phase 3 P7)
+
+- **Package:** `internal/snapshot/classify.go`
+- **Entry point:** `ClassifyChanges(diff *HierarchicalDiff) ChangeClassification`
+- **What it does:** Categorizes changes as Behavioral (calls, throws, publishes), Structural (imports, implements, extends), RuntimeDrift (runtime_calls, runtime_rpc), or MetadataOnly (references, handles_route). Added/removed packages count as structural. Highest severity wins.
+- **Tests:** 10 tests in `internal/snapshot/classify_test.go`.
+
+### 98. Incremental Louvain E2E (Phase 3 P3)
+
+- **Package:** `internal/daemon/daemon.go`
+- **What it does:** After each re-index, the daemon: computes Merkle diff (ChangedPackages), loads previous community assignments from notes, marks nodes in changed packages as movable, runs DetectIncremental, saves via delta-save. Full cycle: 2.5ms.
+
+### 99. Incremental HITS/BM25 (Phase 3 P4)
+
+- **Package:** `internal/daemon/daemon.go`
+- **What it does:** After re-index, daemon calls `RebuildFTSForPackages` with changed packages from the Merkle diff. BM25 index rebuild scoped to changed packages.
+
+### 100. Merkle Proofs (Phase 4)
+
+- **Package:** `internal/snapshot/proof.go`
+- **Entry points:** `GenerateProof(tree, edgeHash, packagePath, edgeType, edges)`, `VerifyProof(proof)`
+- **What it does:** Three-level proof path: edge -> edge-type root -> package root -> repo root. Each level includes binary Merkle tree sibling hashes. Verifier recomputes root from edge hash and proof steps; any tampering fails verification. Proof size is logarithmic: 16 steps for 12K edges.
+- **Performance:** Generation 72us, verification 1.2us on live graph.
+- **Tests:** 9 tests in `internal/snapshot/proof_test.go`: single/multiple/many edges, tampering detection, not-found, nil tree, proof size.
+- **Benchmark:** `bench/merkle-diff/proof_bench_test.go` with contracts (generation < 10ms, verification < 100us).
+
+### 101. Canonical Package Path Extraction
+
+- **Package:** `internal/snapshot/manager.go`
+- **Entry point:** `ExtractPackagePath(qualifiedName string) (string, error)` (exported), `CollectEdgeInputs(ctx, repoHash) ([]EdgeInput, int, error)` (exported)
+- **What it does:** Single canonical source for extracting package paths from qualified names and collecting edge inputs for tree construction. Previously 6 duplicate implementations existed; all consolidated to use these functions.
 
 ### GraphStore (`internal/types/interfaces.go`)
 

@@ -695,6 +695,7 @@ Generate graph-ranked, token-budgeted context for a task description.
 | `task_description` | string | yes | Natural language description of the task |
 | `token_budget` | integer | no | Token budget (default 50000) |
 | `format` | string | no | Output format: `gcf`, `gcb`, `toon`, `json`, `xml` (default), or `markdown` |
+| `pack_root` | string | no | PackRoot from a prior `context_for_task` call (64-char hex). If the current result has the same PackRoot, returns `"unchanged"` instead of resending context. Enables 93-99% byte savings on repeated calls when the graph has not changed. |
 
 **Return format:**
 
@@ -703,11 +704,12 @@ Generate graph-ranked, token-budgeted context for a task description.
   "content": "<context>...</context>",
   "token_count": 12345,
   "symbols_included": 42,
-  "symbols_available": 200
+  "symbols_available": 200,
+  "pack_root": "<64-char hex>"
 }
 ```
 
-Returns a formatted context block containing ranked symbols from the graph, packed within the specified token budget.
+Returns a formatted context block containing ranked symbols from the graph, packed within the specified token budget. The `pack_root` field in the response is a content-addressed identity for this pack: same task + same graph = same PackRoot. Pass it back on the next call to enable deduplication.
 
 **Example:**
 

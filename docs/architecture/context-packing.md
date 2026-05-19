@@ -432,6 +432,26 @@ Flat scores across the result set indicate one of:
 3. **Single-file scope:** If all matched symbols are in one file with no cross-file edges,
    RWR adds no signal beyond the keyword match itself.
 
+## Caching
+
+### Three-Layer Cache (Phase 3)
+
+| Layer | Speed | Lifetime | Invalidation |
+|---|---|---|---|
+| SubgraphCache (in-memory) | 42ns | Process | Package roots change |
+| Notes table (SQLite) | ~1.2ms | Persistent | Snapshot hash mismatch |
+| Cold retrieval | ~160ms | N/A | Always fresh |
+
+Context packs are persisted to the notes table by PackRoot. On process restart, the notes table provides cached results validated against the current snapshot hash. If the snapshot has changed since the pack was stored, the cache entry is skipped and cold retrieval runs.
+
+### Deduplication via `pack_root` (P5)
+
+The `pack_root` parameter on `context_for_task` enables agent-side deduplication. Agents pass the PackRoot from the previous response; if the current result has the same PackRoot, the server returns `"unchanged"` instead of resending the full context. Benchmarked at 93-99% byte savings (557-7,661 tokens reduced to 26 tokens on repeated calls).
+
+### Context Pack Comparison (P6)
+
+`CompareContextPacks` accepts two PackRoots and returns the added, removed, and common symbols between them. Useful for detecting what changed between two context retrievals on the same task across different snapshots.
+
 ## Limitations
 
 1. **Limited semantic understanding of task descriptions.** The system uses substring matching,

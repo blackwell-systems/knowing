@@ -9,7 +9,7 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 | 1 | **Real users** | Everything else is validated by benchmarks, not usage. Task memory compounds with use. | Ongoing |
 | 2 | **Session memory persistence** | SessionTracker is ephemeral. Persist session working sets to SQLite so resumed sessions compound. | Medium |
 | 3 | **`knowing stats`** | Show session value: context calls, symbols served, feedback rate. | Low |
-| 4 | **Notes table** | Metadata without hash invalidation (git-inspired). Feedback, annotations, quality scores. | Low |
+| 4 | **Notes table** | ~~Metadata without hash invalidation (git-inspired). Feedback, annotations, quality scores.~~ **Shipped** (v0.3.0, Phase 3 F1). | Low |
 
 ## Operational
 
@@ -119,7 +119,7 @@ Phase 3 requires foundation work before the features can be built correctly. The
 
 | Item | Priority | Effort |
 |------|----------|--------|
-| Notes table | P1 | Low |
+| Notes table | ~~P1~~ **Shipped** (v0.3.0) | Low |
 | Proposed graph overlay (staging area) | P2 | Medium |
 | Delta-compressed snapshots | P3 | High |
 | N-way hierarchical diff | P3 | Medium |
@@ -135,4 +135,4 @@ The retrieval pipeline uses equivalence classes (not embeddings). Local, determi
 
 The hierarchical Merkle tree structures snapshots by semantic boundaries. The identity structure is the query structure: 114x faster diffs, O(1) subgraph roots, 93x cached retrieval, scoped invalidation.
 
-**What's shipped:** ~67K LOC Go, 25 extractors, 23 MCP tools, 8 MCP resources, 5 wire formats, 10 benchmark harnesses, 84 equivalence classes, multi-language LSP enrichment, hierarchical Merkle tree (Phase 1+2), content-addressed context packs, subgraph cache with daemon invalidation, git-audited integrity layer, modular community detection, React visualization.
+**What's shipped:** ~67K LOC Go, 25 extractors, 23 MCP tools, 8 MCP resources, 5 wire formats, 14 benchmark harnesses, 84 equivalence classes, multi-language LSP enrichment, hierarchical Merkle tree (Phase 1+2+3), content-addressed context packs, subgraph cache with daemon invalidation, git-audited integrity layer, modular community detection, React visualization.
