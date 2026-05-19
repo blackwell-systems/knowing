@@ -112,7 +112,29 @@ func (s *Server) handleCommunities(ctx context.Context, req mcp.CallToolRequest)
 		Adj:     adj,
 		NodeSet: nodeSet,
 	}
-	membership := algo.Detect(g)
+
+	// Try incremental detection: load previous assignments from notes,
+	// use DetectIncremental if the algorithm supports it.
+	var membership map[types.Hash]int
+	if incAlgo, ok := algo.(community.IncrementalAlgorithm); ok {
+		previous, _ := community.LoadAssignments(ctx, s.store)
+		if previous != nil {
+			// Use all nodes as changed (no Merkle diff available in MCP handler).
+			// The daemon path will scope changedNodes from DiffHierarchicalTrees.
+			allChanged := make(map[types.Hash]bool, len(nodeHashes))
+			for _, h := range nodeHashes {
+				allChanged[h] = true
+			}
+			membership = incAlgo.DetectIncremental(g, previous, allChanged)
+		} else {
+			membership = algo.Detect(g)
+		}
+	} else {
+		membership = algo.Detect(g)
+	}
+
+	// Persist assignments for future incremental runs.
+	_ = community.SaveAssignments(ctx, s.store, membership)
 
 	// Build community metadata.
 	communities := buildCommunities(nodes, membership, adj, nodeSet)

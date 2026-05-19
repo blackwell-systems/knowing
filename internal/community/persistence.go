@@ -1,0 +1,51 @@
+package community
+
+import (
+	"context"
+	"fmt"
+	"strconv"
+	"time"
+
+	"github.com/blackwell-systems/knowing/internal/types"
+)
+
+// NoteKey is the notes table key used for community assignments.
+const NoteKey = "community_id"
+
+// SaveAssignments persists community assignments to the notes table.
+// Each node's community ID is stored as a note with key "community_id".
+func SaveAssignments(ctx context.Context, store types.GraphStore, assignments map[types.Hash]int) error {
+	now := time.Now().Unix()
+	for hash, cid := range assignments {
+		if err := store.PutNote(ctx, types.Note{
+			ObjectHash: hash,
+			Key:        NoteKey,
+			Value:      strconv.Itoa(cid),
+			UpdatedAt:  now,
+		}); err != nil {
+			return fmt.Errorf("saving community assignment for %s: %w", hash, err)
+		}
+	}
+	return nil
+}
+
+// LoadAssignments retrieves previously persisted community assignments from
+// the notes table. Returns nil (not an error) if no assignments are stored.
+func LoadAssignments(ctx context.Context, store types.GraphStore) (map[types.Hash]int, error) {
+	notes, err := store.GetNotesByKey(ctx, NoteKey)
+	if err != nil {
+		return nil, fmt.Errorf("loading community assignments: %w", err)
+	}
+	if len(notes) == 0 {
+		return nil, nil
+	}
+	assignments := make(map[types.Hash]int, len(notes))
+	for _, n := range notes {
+		cid, err := strconv.Atoi(n.Value)
+		if err != nil {
+			continue // skip corrupt entries
+		}
+		assignments[n.ObjectHash] = cid
+	}
+	return assignments, nil
+}
