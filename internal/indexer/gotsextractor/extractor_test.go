@@ -747,9 +747,19 @@ import (
 		t.Fatalf("Extract() error: %v", err)
 	}
 
-	// No declaration nodes should be produced.
-	if len(result.Nodes) != 0 {
-		t.Errorf("expected 0 nodes, got %d: %+v", len(result.Nodes), result.Nodes)
+	// Nodes should include: 1 file node (import source) + 3 phantom external
+	// nodes (stdlib packages fmt, os, strings). No declaration nodes.
+	declNodes := 0
+	for _, n := range result.Nodes {
+		if n.Kind != "file" && n.Kind != "package" {
+			declNodes++
+		}
+	}
+	if declNodes != 0 {
+		t.Errorf("expected 0 declaration nodes, got %d", declNodes)
+	}
+	if len(result.Nodes) < 4 {
+		t.Errorf("expected at least 4 nodes (1 file + 3 stdlib), got %d", len(result.Nodes))
 	}
 
 	// Import edges should still be created.

@@ -92,6 +92,10 @@ func (e *GoTreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractO
 
 	var nodes []types.Node
 	var edges []types.Edge
+	// externalNodes accumulates phantom nodes for external targets (stdlib,
+	// unresolved third-party). Edge-creating functions insert into this map
+	// when they create an edge whose target is outside the current repo.
+	externalNodes := make(map[types.Hash]types.Node)
 
 	// Walk top-level children of the root node. Tree-sitter represents Go
 	// source as a flat list of top-level declarations under the root. Each
@@ -103,7 +107,7 @@ func (e *GoTreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractO
 			node := extractFuncDecl(child, opts, pkgPath)
 			nodes = append(nodes, node)
 			body := child.ChildByFieldName("body")
-			callEdges := extractCallEdges(body, opts, pkgPath, node.NodeHash, imports)
+			callEdges := extractCallEdges(body, opts, pkgPath, node.NodeHash, imports, externalNodes)
 			edges = append(edges, callEdges...)
 			// Extract throws edges for error returns and panics.
 			throwsEdges := extractGoThrowsEdges(body, opts, pkgPath, node.NodeHash, imports)
@@ -118,7 +122,7 @@ func (e *GoTreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractO
 			node := extractMethodDecl(child, opts, pkgPath)
 			nodes = append(nodes, node)
 			body := child.ChildByFieldName("body")
-			callEdges := extractCallEdges(body, opts, pkgPath, node.NodeHash, imports)
+			callEdges := extractCallEdges(body, opts, pkgPath, node.NodeHash, imports, externalNodes)
 			edges = append(edges, callEdges...)
 			// Extract throws edges for error returns and panics.
 			throwsEdges := extractGoThrowsEdges(body, opts, pkgPath, node.NodeHash, imports)
@@ -142,7 +146,7 @@ func (e *GoTreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractO
 			nodes = append(nodes, varNodes...)
 
 		case "import_declaration":
-			importEdges := extractImportEdges(child, opts, pkgPath)
+			importEdges := extractImportEdges(child, opts, pkgPath, externalNodes)
 			edges = append(edges, importEdges...)
 		}
 	}
@@ -166,6 +170,23 @@ func (e *GoTreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractO
 			Kind:          "file",
 			Line:          1,
 		})
+	}
+
+	// Create phantom external nodes for edges that target stdlib or
+	// unresolved external packages. These nodes make the graph complete:
+	// every edge has a real source and target, fsck is clean, and the
+	// edges are provable. Phantom nodes are collected during edge creation
+	// via the externalNodes map, which preserves the target's qualified name
+	// and kind from when the edge was generated.
+	nodeSet := make(map[types.Hash]bool, len(nodes))
+	for _, n := range nodes {
+		nodeSet[n.NodeHash] = true
+	}
+	for hash, pn := range externalNodes {
+		if !nodeSet[hash] {
+			nodes = append(nodes, pn)
+			nodeSet[hash] = true
+		}
 	}
 
 	// Sort nodes by QualifiedName then Kind.
@@ -490,24 +511,24 @@ func extractValueDecl(node *sitter.Node, opts types.ExtractOptions, pkgPath, kin
 
 // extractCallEdges walks a function/method body for call_expression nodes
 // and creates call edges.
-func extractCallEdges(body *sitter.Node, opts types.ExtractOptions, pkgPath string, sourceHash types.Hash, imports map[string]string) []types.Edge {
+func extractCallEdges(body *sitter.Node, opts types.ExtractOptions, pkgPath string, sourceHash types.Hash, imports map[string]string, extNodes map[types.Hash]types.Node) []types.Edge {
 	if body == nil {
 		return nil
 	}
 	var edges []types.Edge
-	walkForCalls(body, opts, pkgPath, sourceHash, imports, &edges)
+	walkForCalls(body, opts, pkgPath, sourceHash, imports, &edges, extNodes)
 	return edges
 }
 
 // walkForCalls recursively walks nodes looking for call_expression nodes.
-func walkForCalls(node *sitter.Node, opts types.ExtractOptions, pkgPath string, sourceHash types.Hash, imports map[string]string, edges *[]types.Edge) {
+func walkForCalls(node *sitter.Node, opts types.ExtractOptions, pkgPath string, sourceHash types.Hash, imports map[string]string, edges *[]types.Edge, extNodes map[types.Hash]types.Node) {
 	if node == nil {
 		return
 	}
 	if node.Type() == "call_expression" {
 		funcNode := node.ChildByFieldName("function")
 		if funcNode != nil {
-			edge := resolveCallEdge(funcNode, opts, pkgPath, sourceHash, imports)
+			edge := resolveCallEdge(funcNode, opts, pkgPath, sourceHash, imports, extNodes)
 			if edge != nil {
 				// Store the call-site position so the LSP enricher can query
 				// gopls GetDefinition at exactly this location. For selector
@@ -524,7 +545,7 @@ func walkForCalls(node *sitter.Node, opts types.ExtractOptions, pkgPath string, 
 		}
 	}
 	for i := 0; i < int(node.ChildCount()); i++ {
-		walkForCalls(node.Child(i), opts, pkgPath, sourceHash, imports, edges)
+		walkForCalls(node.Child(i), opts, pkgPath, sourceHash, imports, edges, extNodes)
 	}
 }
 
@@ -663,7 +684,7 @@ func callSitePositionNode(funcNode *sitter.Node) *sitter.Node {
 //   - If the operand is itself a selector expression (chained access like
 //     p.registry.Method()), we extract the method name and treat it as a
 //     method call with lower confidence.
-func resolveCallEdge(funcNode *sitter.Node, opts types.ExtractOptions, pkgPath string, sourceHash types.Hash, imports map[string]string) *types.Edge {
+func resolveCallEdge(funcNode *sitter.Node, opts types.ExtractOptions, pkgPath string, sourceHash types.Hash, imports map[string]string, extNodes map[types.Hash]types.Node) *types.Edge {
 	content := opts.Content
 	var targetName, targetKind, targetPkg string
 	confidence := 0.7
@@ -742,6 +763,20 @@ func resolveCallEdge(funcNode *sitter.Node, opts types.ExtractOptions, pkgPath s
 	provenance := "ast_inferred"
 	edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "calls", provenance)
 
+	// Register phantom external node if the target is outside this repo.
+	if targetRepoURL != opts.RepoURL {
+		if extNodes != nil {
+			if _, exists := extNodes[targetHash]; !exists {
+				extNodes[targetHash] = types.Node{
+					NodeHash:      targetHash,
+					FileHash:      types.EmptyHash,
+					QualifiedName: fmt.Sprintf("%s://%s.%s", targetRepoURL, targetPkg, targetName),
+					Kind:          targetKind,
+				}
+			}
+		}
+	}
+
 	return &types.Edge{
 		EdgeHash:   edgeHash,
 		SourceHash: sourceHash,
@@ -753,14 +788,14 @@ func resolveCallEdge(funcNode *sitter.Node, opts types.ExtractOptions, pkgPath s
 }
 
 // extractImportEdges creates import edges for an import declaration.
-func extractImportEdges(node *sitter.Node, opts types.ExtractOptions, pkgPath string) []types.Edge {
+func extractImportEdges(node *sitter.Node, opts types.ExtractOptions, pkgPath string, extNodes map[types.Hash]types.Node) []types.Edge {
 	var edges []types.Edge
 	fileNodeHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, filepath.Base(opts.FilePath), "file")
 
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
 		if child.Type() == "import_spec" {
-			edge := makeImportEdge(child, opts, pkgPath, fileNodeHash)
+			edge := makeImportEdge(child, opts, pkgPath, fileNodeHash, extNodes)
 			if edge != nil {
 				edges = append(edges, *edge)
 			}
@@ -768,7 +803,7 @@ func extractImportEdges(node *sitter.Node, opts types.ExtractOptions, pkgPath st
 			for j := 0; j < int(child.ChildCount()); j++ {
 				spec := child.Child(j)
 				if spec.Type() == "import_spec" {
-					edge := makeImportEdge(spec, opts, pkgPath, fileNodeHash)
+					edge := makeImportEdge(spec, opts, pkgPath, fileNodeHash, extNodes)
 					if edge != nil {
 						edges = append(edges, *edge)
 					}
@@ -780,7 +815,7 @@ func extractImportEdges(node *sitter.Node, opts types.ExtractOptions, pkgPath st
 }
 
 // makeImportEdge creates a single import edge from an import_spec node.
-func makeImportEdge(spec *sitter.Node, opts types.ExtractOptions, pkgPath string, fileNodeHash types.Hash) *types.Edge {
+func makeImportEdge(spec *sitter.Node, opts types.ExtractOptions, pkgPath string, fileNodeHash types.Hash, extNodes map[types.Hash]types.Node) *types.Edge {
 	pathNode := spec.ChildByFieldName("path")
 	if pathNode == nil {
 		return nil
@@ -789,6 +824,18 @@ func makeImportEdge(spec *sitter.Node, opts types.ExtractOptions, pkgPath string
 
 	impRepoURL := inferRepoURL(opts, impPath, pkgPath)
 	impHash := types.ComputeNodeHash(impRepoURL, impPath, types.EmptyHash, impPath, "package")
+
+	// Register phantom external node for stdlib/external imports.
+	if impRepoURL != opts.RepoURL && extNodes != nil {
+		if _, exists := extNodes[impHash]; !exists {
+			extNodes[impHash] = types.Node{
+				NodeHash:      impHash,
+				FileHash:      types.EmptyHash,
+				QualifiedName: fmt.Sprintf("%s://%s", impRepoURL, impPath),
+				Kind:          "package",
+			}
+		}
+	}
 
 	provenance := "ast_inferred"
 	edgeHash := types.ComputeEdgeHash(fileNodeHash, impHash, "imports", provenance)
