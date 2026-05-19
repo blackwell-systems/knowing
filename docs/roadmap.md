@@ -112,7 +112,7 @@ Phase 3 requires foundation work before the features can be built correctly. The
 | Federated sync (exchange roots, transfer only differing branches) | Planned |
 | Merkleized feedback validity (expires when neighborhood_root changes) | Planned |
 | Merkle-based bisection (binary search on snapshot chain) | Planned |
-| Lazy materialization (load only visited subtrees) | Planned |
+| Lazy materialization (load only visited subtrees) | Planned (Grafana ecosystem validation will determine if needed; ~1.3M LOC is the trigger threshold test) |
 | File-level roots (finer single-file invalidation) | Planned |
 
 ## Cross-Repo Validation: Grafana Ecosystem
@@ -134,7 +134,7 @@ These repos share real cross-repo edges through `grafana/dskit` and shared pkg/ 
 | Incremental at scale | Change one dskit file, re-index, verify only affected caches invalidated |
 | Multi-language extraction | Grafana's TypeScript frontend + Go backend in one repo |
 
-**Why this ecosystem:** shared libraries create genuine cross-repo edges (not just independent repos indexed together). The dskit dependency graph is the real test: dozens of packages consumed by all four repos.
+**Why this ecosystem:** shared libraries create genuine cross-repo edges (not just independent repos indexed together). The dskit dependency graph is the real test: dozens of packages consumed by all four repos. At ~1.3M LOC and 4 repos, this also serves as the decision point for lazy materialization: if the Merkle tree fits in memory and builds in acceptable time, lazy materialization is deferred. If it doesn't, lazy materialization becomes the next build priority.
 
 **Success criteria:**
 - All 4 repos index without error
