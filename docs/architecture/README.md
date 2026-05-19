@@ -38,3 +38,5 @@ If you are new to knowing, read these in order:
 | [merkle-proofs.md](merkle-proofs.md) | Merkle proof format, generation/verification, CLI (`knowing prove`/`knowing verify`), performance (72us generate, 1.2us verify), use cases (audit, CI gates, federated trust). |
 | [adr-hierarchical-merkle.md](adr-hierarchical-merkle.md) | Architecture decision record: why the hierarchical Merkle tree changes knowing's identity from integrity mechanism to performance architecture. |
 | [git-design-audit.md](git-design-audit.md) | Systematic audit of knowing's content-addressed design against git's reference implementation: 10 areas, 23 recommendations, severity-ranked. |
+| [cross-repo.md](cross-repo.md) | Per-repo isolation model, content-addressed cross-repo identity, roster infrastructure, module mapping, phantom external nodes, limitations, and architectural proofs from the cross-repo fixture test. |
+| [semantic-pr-diff.md](semantic-pr-diff.md) | Relationship-level PR diff: design, output format, implementation (`internal/diff/`), MCP tools (`snapshot_diff`, `semantic_diff`, `pr_impact`), CLI (`knowing audit-diff`), GitHub Actions workflow. |
