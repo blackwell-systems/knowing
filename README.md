@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <strong>Content-addressed, provenance-scored graph artifact for software relationships. Designed to make AI agents retrieve, trust, diff, and reuse structural context cheaply.</strong>
+  <strong>Intelligence versioning system. Content-addressed graph where every relationship is tracked, scored, snapshotted, and retrievable. Designed to make AI agents trust, diff, cache, and reuse structural context cheaply.</strong>
 </p>
 
 ---
@@ -96,6 +96,7 @@ The repository includes benchmark harnesses that regenerate their own findings f
 | Test scope | 98% precision, 82% recall | Call-graph BFS selects affected test packages accurately |
 | Feedback loop | 16% -> 36% precision after one round | Relevance improves as agents mark useful symbols |
 | Edge accuracy | 27% overall confirmation rate | Two-tier extraction provides meaningful fast signal |
+| Cross-repo retrieval | 46.7% R@10 on foreign codebase | Works on any Go repo with zero configuration |
 
 Run the suites:
 
@@ -221,16 +222,18 @@ Claude Code hooks are included for automatic context injection on session start,
 ## How It Works
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                    knowing daemon                       │
-├──────────────┬───────────────────┬───────────────────────┤
-│   Indexer    │   Graph Store     │      MCP Server       │
-│              │                   │                       │
-│ 25 extractors│ Content-addressed │ 23 tools + 8 resources│
-│ tree-sitter  │ SQLite + Merkle   │ stdio / HTTP          │
-│ LSP + SCIP   │ Snapshot chain    │ GCF / GCB / JSON      │
-│ OTel traces  │ Edge events       │                       │
-└──────────────┴───────────────────┴───────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                         knowing daemon                          │
+├──────────────┬────────────────────────┬──────────────────────────┤
+│   Indexer    │     Graph Store        │      MCP Server          │
+│              │                        │                          │
+│ 25 extractors│ Content-addressed      │ 23 tools + 8 resources   │
+│ tree-sitter  │ SQLite + Merkle tree   │ stdio / HTTP             │
+│ LSP + SCIP   │ Hierarchical snapshots │ GCF / GCB / JSON         │
+│ OTel traces  │ Subgraph cache (93x)   │ PackRoot dedup (99%)     │
+│              │ Graph notes (metadata)  │                          │
+│              │ Community detection     │                          │
+└──────────────┴────────────────────────┴──────────────────────────┘
 ```
 
 The pipeline has two planes:
@@ -337,12 +340,21 @@ Session statefulness: when the same symbols appear across multiple MCP calls in 
 
 Round-trip integrity is verified: encode -> decode -> re-encode produces identical output for all codecs.
 
-## Content Addressing
+## Content Addressing and Caching
 
-The identity model is described in the opening section. Two additional properties worth noting:
+The identity model (described in the opening section) provides three layers of caching that build on each other:
 
-- **Caching:** query results keyed to a snapshot hash remain valid forever for that snapshot. The hash is the cache key.
+| Layer | Speed | What it does |
+|---|---|---|
+| **SubgraphCache** (in-memory) | 42ns lookup | Keyed by Merkle package roots. Invalidated per re-index via `DiffHierarchicalTrees`. Queries against unchanged packages return instantly. |
+| **Graph notes** (SQLite) | ~1.2ms | Persists context packs and community assignments across restarts. Snapshot-validated: stale entries recomputed automatically. |
+| **PackRoot dedup** (protocol) | 26 tokens | Agents pass `pack_root` from prior calls. If the context hasn't changed, knowing returns "unchanged" (165 bytes) instead of the full payload (2-30KB). |
+
+Additional structural properties:
+
 - **Edge events:** relationship changes are explicit (added/removed per edge per commit), not inferred from full graph scans.
+- **Incremental community detection:** after re-index, only nodes in changed packages are allowed to move. Unchanged communities are frozen. 6.9x faster (Louvain) on single-package edits.
+- **`knowing fsck`:** verifies edge referential integrity, hash recomputation, and snapshot chain continuity from a single Merkle root. 98ms on the live graph.
 
 For the full storage model and hash construction, see [docs/architecture/](docs/architecture/).
 
@@ -350,12 +362,12 @@ For the full storage model and hash construction, see [docs/architecture/](docs/
 
 knowing is implemented, benchmarked, and usable, but it is still explicit about where precision depends on available data:
 
-- **Breaking hash change (2026-05-18):** Hash domain prefixes (`node\0`, `edge\0`, `snapshot\0`, `merkle\0`) were added to all hash computations. Databases built before this release must be re-indexed (`knowing reindex <path>`). Run `knowing fsck` after re-indexing to verify integrity.
+- **Breaking hash change (v0.3.0):** Hash domain prefixes (`node\0`, `edge\0`, `snapshot\0`, `merkle\0`) were added to all hash computations. Databases built before v0.3.0 must be re-indexed (`knowing add <path>` or `knowing index <path>`). Run `knowing fsck` after re-indexing to verify integrity.
 
 - Static call-graph impact follows `calls` edges; other edge types are used for context and relationship awareness, not every blast-radius traversal.
 - Runtime tools require OpenTelemetry trace ingestion and route-symbol mappings; without trace data they have no runtime observations to report.
 - LSP enrichment supports Go (gopls), TypeScript (tsserver), Python (pyright), Rust (rust-analyzer), Java (jdtls), and C# (OmniSharp). Servers are auto-detected from project markers and PATH. Languages without a detected server fall back to tree-sitter extraction and SCIP where available.
-- Some planned work remains: traversal caching, richer ownership routing, and federated graphs.
+- Phase 3 incremental recompute is partially shipped (community persistence, context pack persistence, incremental detection). Scoped FTS rebuild, semantic change classification, and federated graphs are planned.
 
 See [docs/guide/features.md](docs/guide/features.md) for the implementation inventory and known gaps, and [docs/roadmap.md](docs/roadmap.md) for planned work.
 
@@ -373,7 +385,8 @@ See [docs/guide/features.md](docs/guide/features.md) for the implementation inve
 | [Wire Formats](docs/architecture/wire-formats.md) | GCF, GCB, JSON formats and benchmarks |
 | [Distribution](docs/guide/distribution.md) | Release channels and package managers |
 | [Roadmap](docs/roadmap.md) | Completed workstreams and next priorities |
-| [Benchmarks](bench/README.md) | Reproducible value benchmarks |
+| [Benchmarks](bench/README.md) | 13 reproducible value benchmarks with performance contracts |
+| [Whitepaper](docs/research/whitepaper.md) | Hierarchical Identity Architecture thesis |
 | [Hooks](hooks/README.md) | Claude Code hook integration |
 
 ## License
