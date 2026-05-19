@@ -35,7 +35,7 @@ repo_root
         └── edge_type_root[pkg/B:calls]
 ```
 
-Structure: repo root -> package roots -> edge-type roots -> edge leaves. The repo root is backward-compatible with the earlier flat design (`merkle_root(sorted(all_edge_hashes))`) but the hierarchical tree adds intermediate roots that enable package-scoped invalidation. A flat tree is also maintained alongside for backward compatibility; both roots are identical.
+Structure: repo root -> package roots -> edge-type roots -> edge leaves. The hierarchical root IS the canonical snapshot identity. No separate flat tree is maintained. `types.ComputeSnapshotHash` wraps the hierarchical root with a `"snapshot\0"` domain prefix to produce the snapshot hash stored in the database. The root is numerically equivalent to what a flat `merkle_root(sorted(all_edge_hashes))` would produce for the same edges, ensuring backward compatibility of stored hashes without requiring a parallel data structure.
 
 `DiffHierarchicalTrees` compares package roots instead of all edges: 114x faster on the knowing repo (11K edges), 517x on 100K synthetic edges. `SubgraphRoot` computes O(1) cache keys for any set of packages. `EdgeTypeRoot` answers "did call edges change?" in one lookup. See `docs/architecture/merkle-algorithms.md` for the full algorithm specification and `bench/merkle-diff/` for benchmark results.
 
@@ -75,6 +75,8 @@ This means:
 **Heuristic staleness:** An edge has not been re-confirmed by the indexer for N days, or a runtime edge has not been observed in production for N days. This requires time-based reasoning on top of the structural property.
 
 Both forms of staleness are exposed through the `StaleEdges` API. Structural staleness is authoritative. Heuristic staleness is advisory.
+
+**SubgraphCache:** The daemon maintains a `SubgraphCache` (in `internal/cache/subgraph.go`) that stores query results keyed by Merkle subgraph roots rather than by snapshot hash. When the hierarchical tree confirms that a package's root has not changed between two index runs, all cached results for queries scoped to that package remain valid. After each index run the cache invalidates only the entries whose package roots changed, using `InvalidatePackages` to compare the old and new hierarchical trees. This makes query caching precise: an unrelated package changing elsewhere in the graph does not evict results for the unchanged package.
 
 ## Why Content Addressing Eliminates Re-Indexing
 
@@ -148,3 +150,35 @@ knowing decomposes into two planes separated by an artifact boundary:
 The **artifact** is the content-addressed graph itself: a SQLite file containing nodes, edges, snapshots, and edge events. It is portable (copy one file), self-contained, and queryable by any tool that understands the schema.
 
 The bright-line rule: intelligence features never write edges, nodes, or snapshots back into the graph. They read the artifact and may produce derived results (which are themselves content-addressed artifacts stored separately). A buggy intelligence feature produces a bad report, not a bad graph.
+
+## Equivalence Classes
+
+Equivalence classes bridge the vocabulary gap between how developers describe tasks in natural language and the symbol names that live in the graph. An equivalence class maps a canonical concept (like `TRANSITIVE_IMPACT`) to a set of natural-language phrases ("blast radius," "downstream callers," "what breaks") and a set of code symbol targets that should be boosted when those phrases appear in a query.
+
+knowing ships **84 seed equivalence classes** organized into two tiers:
+
+- **63 universal classes** (in `internal/context/universal_seeds.go`): software engineering concepts that appear in any codebase (entry points, error handling, caching, authentication, testing, concurrency, etc.). These are language-agnostic and shared across all projects.
+- **21 knowing-specific classes** (in `internal/context/equivalence.go`): concepts specific to knowing's own domain (transitive impact, snapshot management, wire format, community detection, feedback loop, etc.). These bootstrap the context engine for queries about knowing itself.
+
+At runtime, matching a phrase from an equivalence class boosts the seed weight of the associated symbols before the retrieval walk begins. After the walk, graph-derived aliases (from `internal/context/graph_aliases.go`) and session feedback further adjust weights. The 84 seed classes provide the floor; graph learning builds on top.
+
+## Content-Addressed Context Packs
+
+A `ContextBlock` (the result returned by `context.ForTask` and `context.ForFiles`) carries a `PackRoot` field of type `types.Hash`. This is the content-addressed identity of the context pack: a hash over the full retrieval result, including all symbols, scores, edges, and metadata.
+
+Two identical queries against the same graph state produce the same `PackRoot`. This has three consequences:
+
+1. **Session deduplication.** The GCF wire format can skip retransmitting symbols whose `PackRoot` was already sent in the current session. The daemon compares `PackRoot` hashes instead of diffing symbol lists.
+2. **Cross-team sharing.** If two agents have the same `PackRoot`, they have the same context. Precomputed summaries or annotations can be shared by hash without re-running the retrieval pipeline.
+3. **Cache key.** The `SubgraphCache` can use `PackRoot` as a secondary key alongside the Merkle subgraph root, ensuring results are evicted only when the underlying graph changes.
+
+## Community Merkle Roots
+
+Louvain community detection partitions the graph into clusters of densely connected symbols (subsystems, modules, ownership boundaries). Each detected community corresponds to a set of packages. Because the hierarchical Merkle tree assigns a `SubgraphRoot` to any package set in O(1) time, each community gets a stable, content-addressed identity.
+
+Community Merkle roots enable:
+- **Parallel cache invalidation.** Two non-overlapping communities have different roots, so their cached data can be invalidated independently.
+- **Scoped retrieval.** A retrieval walk can be bounded to a community's package set using `SubgraphRoot` as the cache key, making community-scoped queries cheap to cache and re-run.
+- **Ownership routing.** Code review and alerting workflows can route to the owning community by comparing the changed package's `SubgraphRoot` against stored community roots.
+
+See `bench/merkle-diff/context_pack_test.go` (`TestContextPackAndCommunityRoots`) for the benchmark that verifies distinct community roots across disjoint package sets.
