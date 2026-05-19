@@ -112,7 +112,7 @@ Phase 3 requires foundation work before the features can be built correctly. The
 | Federated sync (exchange roots, transfer only differing branches) | Planned |
 | Merkleized feedback validity (expires when neighborhood_root changes) | Planned |
 | Merkle-based bisection (binary search on snapshot chain) | Planned |
-| Lazy materialization (load only visited subtrees) | Planned (triggered when tree construction > 1s or memory > 500MB; estimated at ~1M+ edges / ~6M+ LOC; Grafana ecosystem at ~200K edges will stress cross-repo, not tree scale) |
+| Lazy materialization (load only visited subtrees) | Planned (triggered when tree construction > 1s or memory > 500MB; estimated at ~1M+ edges. Static analysis alone reaches this at ~6M+ LOC, but OTLP trace ingestion changes the math: a 10-service architecture with a month of traces can produce 200K+ runtime edges on top of 150K static edges, reaching the threshold much sooner.) |
 | File-level roots (finer single-file invalidation) | Planned |
 
 ## Cross-Repo Validation: Grafana Ecosystem
