@@ -43,6 +43,7 @@ type Payload struct {
 	Tool        string
 	TokensUsed  int
 	TokenBudget int
+	PackRoot    string // content-addressed identity of this context pack (hex hash)
 	Symbols     []Symbol
 	Edges       []Edge
 }
@@ -82,6 +83,9 @@ func Encode(p *Payload) string {
 	// Header line.
 	b.WriteString(fmt.Sprintf("GCF tool=%s budget=%d tokens=%d symbols=%d",
 		p.Tool, p.TokenBudget, p.TokensUsed, len(p.Symbols)))
+	if p.PackRoot != "" {
+		b.WriteString(fmt.Sprintf(" pack_root=%s", p.PackRoot))
+	}
 	b.WriteByte('\n')
 
 	// Build symbol index for edge references.

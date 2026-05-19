@@ -63,11 +63,6 @@ func (s *Server) handleContextForTask(ctx context.Context, req mcp.CallToolReque
 		return mcp.NewToolResultError(fmt.Sprintf("format failed: %v", err)), nil
 	}
 
-	// Append PackRoot so agents can reference it in subsequent calls for dedup.
-	if !block.PackRoot.IsZero() {
-		output += fmt.Sprintf("\npack_root=%s", block.PackRoot)
-	}
-
 	return mcp.NewToolResultText(output), nil
 }
 

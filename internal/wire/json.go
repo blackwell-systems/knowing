@@ -11,6 +11,7 @@ type jsonPayload struct {
 	Tool        string       `json:"tool"`
 	TokensUsed  int          `json:"tokens_used"`
 	TokenBudget int          `json:"token_budget"`
+	PackRoot    string       `json:"pack_root,omitempty"`
 	Symbols     []jsonSymbol `json:"symbols"`
 	Edges       []jsonEdge   `json:"edges,omitempty"`
 }
@@ -44,6 +45,7 @@ func encodeJSON(p *Payload) (string, error) {
 		Tool:        p.Tool,
 		TokensUsed:  p.TokensUsed,
 		TokenBudget: p.TokenBudget,
+		PackRoot:    p.PackRoot,
 	}
 
 	for _, s := range p.Symbols {

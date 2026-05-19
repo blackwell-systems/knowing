@@ -15,6 +15,9 @@ func FromContextBlock(ctx stdctx.Context, block *knowingctx.ContextBlock, tool s
 		TokensUsed:  block.TokensUsed,
 		TokenBudget: block.TokenBudget,
 	}
+	if !block.PackRoot.IsZero() {
+		p.PackRoot = block.PackRoot.String()
+	}
 
 	// Convert symbols.
 	hashToQName := make(map[types.Hash]string, len(block.Symbols))
