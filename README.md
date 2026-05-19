@@ -61,6 +61,7 @@ For platform and runtime teams:
 For security, audit, and compliance:
 
 - "Prove that service A calls service B at this specific snapshot." (`knowing prove` generates a cryptographic Merkle proof; `knowing verify` checks it offline without database access.)
+- "Prove a dependency does NOT exist." (`knowing prove-absent` generates an absence proof using adjacent sorted leaves; verifiable offline without database access.)
 - "What relationships were added or removed between two audit points?" (Hierarchical diff, O(packages) instead of O(edges).)
 - "Verify the entire graph has not been tampered with." (`knowing fsck` recomputes every hash from source data in 98ms.)
 - "Show every service that touches this symbol, route, table, queue, or proto message." (Transitive callers with provenance and confidence.)

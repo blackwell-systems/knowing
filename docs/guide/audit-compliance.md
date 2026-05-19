@@ -7,6 +7,7 @@ knowing is a cryptographically verifiable record of code relationships. Every re
 | Claim | How knowing proves it |
 |-------|----------------------|
 | "Service A calls service B" | `knowing prove` generates a Merkle proof path from the specific edge to the snapshot root. `knowing verify` checks it without database access. |
+| "Prove a dependency does NOT exist" | `knowing prove-absent` generates a cryptographic absence proof using adjacent sorted leaves. Verifiable offline. |
 | "Generate a complete audit report" | `knowing audit -proofs` produces integrity check + edge inventory + Merkle proofs in one JSON file |
 | "This graph reflects commit abc123" | Every snapshot records the git commit hash. The snapshot's Merkle root is deterministic: same source = same root on any machine. |
 | "The graph has not been tampered with" | `knowing fsck` recomputes every node hash, edge hash, and Merkle root from source data. Any mutation changes a hash, which propagates to the root. |
@@ -200,7 +201,7 @@ All operations are fast enough for interactive use, CI pipelines, and batch audi
 
 ## Limitations
 
-- **Proof of absence is not yet supported.** You can prove an edge exists, but you cannot yet prove an edge does NOT exist. This requires an ordered Merkle trie (Phase 4 roadmap).
+- **Proof of absence is supported.** Use `knowing prove-absent` to generate a cryptographic proof that an edge does NOT exist. The proof uses adjacent sorted leaves from the Merkle tree; both neighbor inclusion proofs are verifiable offline against the same root.
 - **Cross-snapshot proofs require one proof per snapshot.** To prove a relationship persisted from Tuesday to Friday, you need proofs from both snapshots.
 - **Proofs verify identity, not semantic correctness.** A proof confirms the edge hash is in the tree. It does not confirm the extractor correctly identified the relationship in the source code. Correctness depends on the extraction pipeline.
 - **Analyzer version affects determinism.** Different extractor versions may produce different edge sets from the same source. Snapshot determinism holds only when the analyzer version is fixed.

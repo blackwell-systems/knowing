@@ -105,15 +105,15 @@ Phase 3 requires foundation work before the features can be built correctly. The
 
 ### Phase 4: Proofs, Sync, Bisection
 
-| Feature |
-|---------|
-| Merkle proofs (prove relationship existed in snapshot X) |
-| Federated sync (exchange roots, transfer only differing branches) |
-| Merkleized feedback validity (expires when neighborhood_root changes) |
-| Merkle-based bisection (binary search on snapshot chain) |
-| Proof of absence |
-| Lazy materialization (load only visited subtrees) |
-| File-level roots (finer single-file invalidation) |
+| Feature | Status |
+|---------|--------|
+| Merkle proofs (prove relationship existed in snapshot X) | Shipped |
+| Proof of absence (`knowing prove-absent`: adjacent sorted leaves bracket the missing edge; no tree restructuring needed) | Shipped |
+| Federated sync (exchange roots, transfer only differing branches) | Planned |
+| Merkleized feedback validity (expires when neighborhood_root changes) | Planned |
+| Merkle-based bisection (binary search on snapshot chain) | Planned |
+| Lazy materialization (load only visited subtrees) | Planned |
+| File-level roots (finer single-file invalidation) | Planned |
 
 ## Git-Inspired (Not Yet Built)
 

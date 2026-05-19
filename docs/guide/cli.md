@@ -13,7 +13,7 @@ See [distribution.md](distribution.md) for installation instructions.
 knowing <subcommand> [flags]
 ```
 
-Subcommands: `serve`, `index`, `query`, `export`, `diff`, `context`, `why`, `mcp`, `watch`, `reindex`, `init`, `add`, `remove`, `list`, `test-scope`, `ingest-scip`, `enrich`, `fsck`, `prove`, `verify`, `audit`, `audit-diff`, `version`.
+Subcommands: `serve`, `index`, `query`, `export`, `diff`, `context`, `why`, `mcp`, `watch`, `reindex`, `init`, `add`, `remove`, `list`, `test-scope`, `ingest-scip`, `enrich`, `fsck`, `prove`, `verify`, `prove-absent`, `audit`, `audit-diff`, `version`.
 
 ## Environment
 
@@ -1034,6 +1034,40 @@ knowing prove -source "%ForTask" -target "%ComputeHITS" | knowing verify -proof 
 **Output:**
 - `VERIFIED` with edge details and step count (exit code 0)
 - `FAILED` if the proof does not verify (exit code 1)
+
+---
+
+### prove-absent
+
+Prove that a relationship does NOT exist in the current snapshot.
+
+```
+knowing prove-absent -source <symbol> -target <symbol> [-type calls] [-repo url] [-o file]
+```
+
+The proof shows the two adjacent sorted leaves that bracket where the missing edge would be. Because `BuildMerkleTree` sorts by `bytes.Compare`, adjacency of those two leaves proves there is no gap between them, and therefore the edge does not exist. The proof includes inclusion proofs for both neighbors, verified against the same root.
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `-source` | string | *(required)* | Qualified name (or prefix) of the source symbol |
+| `-target` | string | *(required)* | Qualified name (or prefix) of the target symbol |
+| `-type` | string | `calls` | Edge type to prove absent (`calls`, `imports`, `implements`, etc.) |
+| `-repo` | string | *(auto-detect)* | Repository URL |
+| `-db` | string | *(per-repo, from roster)* | Path to the SQLite database |
+| `-o` | string | *(stdout)* | Write proof to file instead of stdout |
+
+**Examples:**
+
+```bash
+knowing prove-absent -source "%PaymentService" -target "%UserDataService" -type calls
+knowing prove-absent -source "%AuthHandler" -target "%StripeClient" -type calls -o absence.json
+```
+
+**Output:** JSON with `source`, `target`, `edge_type`, `snapshot_hash`, and `absence_proof` (containing the two bracketing neighbor hashes, their inclusion proofs, and the repo root).
+
+See [Merkle Proofs architecture doc](../architecture/merkle-proofs.md#proof-of-absence) for format details.
 
 ---
 

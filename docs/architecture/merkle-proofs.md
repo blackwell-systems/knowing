@@ -134,6 +134,31 @@ knowing audit -proofs -o quarterly-audit.json
 
 The output JSON includes the integrity check, graph summary, all cross-package edges with provenance and confidence, and a Merkle proof for each one. Performance: 5 proofs in ~210us. For the full flag reference, see [`knowing audit`](../guide/cli.md#audit) in the CLI reference.
 
+## Proof of Absence
+
+`knowing prove-absent` proves that a specific relationship does NOT exist in the current snapshot. No tree restructuring was needed: the sorted binary tree already provides the ordering invariant required for absence proofs.
+
+### How It Works
+
+`BuildMerkleTree` sorts all edge hashes by `bytes.Compare` before building the tree. To prove edge hash `H` is absent:
+
+1. Find the two adjacent sorted leaves `H_prev` and `H_next` such that `H_prev < H < H_next`.
+2. Generate standard inclusion proofs for both `H_prev` and `H_next` against the same repo root.
+3. Because the tree is sorted and `H_prev` and `H_next` are adjacent (no hash between them), `H` cannot exist in the tree.
+
+Both neighbor proofs are verified against the same root, so an auditor can confirm the adjacency claim without database access.
+
+### CLI
+
+```bash
+knowing prove-absent -source "%PaymentService" -target "%UserDataService" -type calls
+knowing prove-absent -source "%AuthHandler" -target "%StripeClient" -type calls -o absence.json
+```
+
+See [`knowing prove-absent`](../guide/cli.md#prove-absent) in the CLI reference for full flag documentation.
+
+---
+
 ## Implementation
 
 - `internal/snapshot/proof.go`: `GenerateProof`, `VerifyProof`, `binaryProof`
@@ -143,7 +168,6 @@ The output JSON includes the integrity check, graph summary, all cross-package e
 
 ## What Proofs Do Not Cover
 
-- **Proof of absence.** The current tree is not an ordered trie, so you cannot prove an edge does NOT exist. This requires a tree restructuring (Phase 4 roadmap).
 - **Cross-snapshot proofs.** A proof is valid for one snapshot. To prove a relationship persisted across snapshots, you need proofs from each.
 - **Semantic correctness.** A proof proves the edge hash existed in the tree, not that the edge correctly represents the source code. Correctness depends on the extractor that produced the edge.
 

@@ -581,17 +581,17 @@ These algorithms build on each other. The hierarchical tree structure (Phase 1) 
 
 ### Phase 4: Proofs, Sync, Bisection, and Advanced Features (In Progress)
 
-**Status:** Started. Merkle proofs shipped; remaining items planned.
+**Status:** Started. Merkle proofs and proof of absence shipped; remaining items planned.
 
 **Scope:** Merkle proofs for agent trust, federated sync protocol, bisection, proof of absence, lazy materialization, snapshot-aware retrieval, Merkleized feedback validity, semantic change classification.
 
 **Shipped:**
 - `GenerateProof` and `VerifyProof` in `internal/snapshot/proof.go`: Merkle proof path generation and verification API.
+- Proof of absence (`knowing prove-absent`): finds the two adjacent sorted leaves that bracket the missing edge hash. No tree restructuring was needed; the sorted binary tree already provides the ordering invariant. Both neighbor inclusion proofs are verified against the same root.
 
 **Remaining deliverables:**
 - Federated sync protocol (root exchange, subtree transfer).
 - Bisection API: `knowing bisect --predicate "callers(X) > 5" <snapshot_A> <snapshot_B>`.
-- Ordered Merkle trie for proof-of-absence support.
 - Lazy subtree loader replacing eager full-graph load.
 - Stability and activity signals wired into retrieval scoring.
 - `feedback_valid` check using `neighborhood_root` comparison.
