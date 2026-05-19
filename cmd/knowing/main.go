@@ -119,6 +119,8 @@ func run(args []string) error {
 		return cmdWhy(args[1:])
 	case "watch":
 		return cmdWatch(args[1:])
+	case "fsck":
+		return cmdFsck(args[1:])
 	case "enrich":
 		return cmdEnrich(args[1:])
 	case "add":
@@ -148,6 +150,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  init     Set up knowing for a repository (index, enrich, configure MCP, generate CLAUDE.md)")
 	fmt.Fprintln(os.Stderr, "  test-scope  Compute affected tests from changed files")
 	fmt.Fprintln(os.Stderr, "  ingest-scip Import a SCIP index for external dependency symbols")
+	fmt.Fprintln(os.Stderr, "  fsck     Verify graph integrity (hash recomputation, referential checks)")
 	fmt.Fprintln(os.Stderr, "  version  Print version information")
 }
 
