@@ -123,6 +123,27 @@ func TestE2ECommunityBenchmark(t *testing.T) {
 	})
 	t.Logf("E2E incremental cycle (load+mark+detect+save): %s", statsE2E)
 
+	// --- Phase 4: Delta-save path ---
+	statsDelta := measure(runs, warmup, func() {
+		prev, _ := community.LoadAssignments(ctx, st)
+		changed := make(map[types.Hash]bool)
+		for _, n := range allNodes {
+			if _, inPrev := prev[n.NodeHash]; !inPrev {
+				changed[n.NodeHash] = true
+				continue
+			}
+			for _, pkg := range changedPkgs {
+				if strings.HasPrefix(n.QualifiedName, pkg) {
+					changed[n.NodeHash] = true
+					break
+				}
+			}
+		}
+		result := algo.DetectIncremental(g, prev, changed)
+		_ = community.SaveChangedAssignments(ctx, st, result, prev)
+	})
+	t.Logf("E2E delta-save cycle (load+mark+detect+delta-save): %s", statsDelta)
+
 	statsFullE2E := measure(runs, warmup, func() {
 		result := algo.Detect(g)
 		_ = community.SaveAssignments(ctx, st, result)
@@ -130,11 +151,12 @@ func TestE2ECommunityBenchmark(t *testing.T) {
 	t.Logf("E2E full cycle (detect+save):                  %s", statsFullE2E)
 
 	speedup := float64(statsFullE2E.Median) / float64(statsE2E.Median)
+	deltaSpeedup := float64(statsFullE2E.Median) / float64(statsDelta.Median)
 	t.Logf("")
 	t.Logf("=== E2E Speedup ===")
 	t.Logf("Full e2e:        %v", statsFullE2E.Median)
-	t.Logf("Incremental e2e: %v", statsE2E.Median)
-	t.Logf("Speedup:         %.1fx", speedup)
+	t.Logf("Incremental e2e: %v (%.1fx)", statsE2E.Median, speedup)
+	t.Logf("Delta-save e2e:  %v (%.1fx)", statsDelta.Median, deltaSpeedup)
 
 	// --- Breakdown ---
 	totalInc := loadTime + incDetectTime + reSaveTime

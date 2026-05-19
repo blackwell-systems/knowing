@@ -556,5 +556,10 @@ func (d *Daemon) runIncrementalCommunities(ctx context.Context, repoURL string, 
 		membership = algo.Detect(g)
 	}
 
-	_ = community.SaveAssignments(ctx, d.cfg.Store, membership)
+	// Delta-save: only write assignments that changed.
+	if previous != nil {
+		_ = community.SaveChangedAssignments(ctx, d.cfg.Store, membership, previous)
+	} else {
+		_ = community.SaveAssignments(ctx, d.cfg.Store, membership)
+	}
 }

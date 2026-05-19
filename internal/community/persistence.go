@@ -47,6 +47,48 @@ func SaveAssignments(ctx context.Context, store types.GraphStore, assignments ma
 	return nil
 }
 
+// SaveChangedAssignments persists only the assignments that differ from previous.
+// Nodes whose community ID is unchanged are skipped. Nodes in previous but not
+// in current are deleted (node was removed from graph). This makes save cost
+// proportional to the number of changes, not the total graph size.
+func SaveChangedAssignments(ctx context.Context, store types.GraphStore, current, previous map[types.Hash]int) error {
+	now := time.Now().Unix()
+
+	var changed []types.Note
+	for hash, cid := range current {
+		if prevCid, ok := previous[hash]; ok && prevCid == cid {
+			continue // unchanged
+		}
+		changed = append(changed, types.Note{
+			ObjectHash: hash,
+			Key:        NoteKey,
+			Value:      strconv.Itoa(cid),
+			UpdatedAt:  now,
+		})
+	}
+
+	// Delete assignments for nodes that were removed from the graph.
+	for hash := range previous {
+		if _, ok := current[hash]; !ok {
+			_ = store.DeleteNote(ctx, hash, NoteKey)
+		}
+	}
+
+	if len(changed) == 0 {
+		return nil
+	}
+
+	if bs, ok := store.(batchNoteStore); ok {
+		return bs.BatchPutNotes(ctx, changed)
+	}
+	for _, n := range changed {
+		if err := store.PutNote(ctx, n); err != nil {
+			return fmt.Errorf("saving community assignment for %s: %w", n.ObjectHash, err)
+		}
+	}
+	return nil
+}
+
 // LoadAssignments retrieves previously persisted community assignments from
 // the notes table. Returns nil (not an error) if no assignments are stored.
 func LoadAssignments(ctx context.Context, store types.GraphStore) (map[types.Hash]int, error) {
