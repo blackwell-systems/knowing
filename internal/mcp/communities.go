@@ -6,13 +6,15 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 
+	"github.com/blackwell-systems/knowing/internal/community"
 	"github.com/blackwell-systems/knowing/internal/types"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-// community represents a detected graph community with metadata.
-type community struct {
+// communityInfo represents a detected graph community with metadata.
+type communityInfo struct {
 	ID              int      `json:"id"`
 	Size            int      `json:"size"`
 	TopSymbols      []string `json:"top_symbols"`
@@ -22,30 +24,25 @@ type community struct {
 
 // communityResult is the response for action="list".
 type communityResult struct {
-	Communities []community `json:"communities"`
-	NodeCount   int         `json:"node_count"`
-	EdgeCount   int         `json:"edge_count"`
+	Communities []communityInfo `json:"communities"`
+	NodeCount   int             `json:"node_count"`
+	EdgeCount   int             `json:"edge_count"`
 }
 
 // symbolCommunityResult is the response for action="for_symbol".
 type symbolCommunityResult struct {
-	Symbol    string      `json:"symbol"`
-	Community community   `json:"community"`
-	Neighbors []community `json:"neighbors"`
-}
-
-// weightedEdge represents an edge with a weight for the Louvain algorithm.
-type weightedEdge struct {
-	Target types.Hash
-	Weight float64
+	Symbol    string          `json:"symbol"`
+	Community communityInfo   `json:"community"`
+	Neighbors []communityInfo `json:"neighbors"`
 }
 
 // communitiesTool defines the "communities" MCP tool.
 func communitiesTool() mcp.Tool {
 	return mcp.NewTool("communities",
-		mcp.WithDescription("Detect communities in the knowledge graph using Louvain modularity clustering. Returns densely-connected groups of symbols."),
+		mcp.WithDescription("Detect communities in the knowledge graph. Returns densely-connected groups of symbols. Supports multiple algorithms: "+strings.Join(community.Names(), ", ")),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithString("action", mcp.Description("Action to perform: 'list' returns all communities, 'for_symbol' returns the community containing a specific symbol (default: list)"), Examples("list", "for_symbol")),
+		mcp.WithString("algorithm", mcp.Description("Community detection algorithm (default: louvain). Options: "+strings.Join(community.Names(), ", ")), Examples(community.Names()...)),
 		mcp.WithString("repo_url", mcp.Description("Filter nodes to a specific repository URL prefix"), Examples("https://github.com/org/repo")),
 		mcp.WithString("symbol", mcp.Description("Qualified symbol name, required when action=for_symbol"), Examples("github.com/org/repo://pkg.FunctionName")),
 	)
@@ -60,6 +57,11 @@ func (s *Server) handleCommunities(ctx context.Context, req mcp.CallToolRequest)
 
 	repoURL := getStringArg(req, "repo_url")
 	symbol := getStringArg(req, "symbol")
+
+	algoName := getStringArg(req, "algorithm")
+	if algoName == "" {
+		algoName = community.Default
+	}
 
 	if action == "for_symbol" && symbol == "" {
 		return &mcp.CallToolResult{
@@ -87,12 +89,22 @@ func (s *Server) handleCommunities(ctx context.Context, req mcp.CallToolRequest)
 
 	adj, edgeCount := s.buildAdjacencyList(ctx, nodes, nodeSet)
 
-	// Run Louvain clustering.
+	// Run community detection via the registry.
 	nodeHashes := make([]types.Hash, len(nodes))
 	for i, n := range nodes {
 		nodeHashes[i] = n.NodeHash
 	}
-	membership := louvain(nodeHashes, adj)
+
+	algo := community.Get(algoName)
+	if algo == nil {
+		algo = community.Get(community.Default)
+	}
+	g := &community.Graph{
+		Nodes:   nodeHashes,
+		Adj:     adj,
+		NodeSet: nodeSet,
+	}
+	membership := algo.Detect(g)
 
 	// Build community metadata.
 	communities := buildCommunities(nodes, membership, adj, nodeSet)
@@ -116,8 +128,8 @@ func (s *Server) loadCommunityNodes(ctx context.Context, repoURL string) ([]type
 
 // buildAdjacencyList builds an undirected weighted adjacency list from edges
 // between nodes in the set. Returns the adjacency map and total edge count.
-func (s *Server) buildAdjacencyList(ctx context.Context, nodes []types.Node, nodeSet map[types.Hash]bool) (map[types.Hash][]weightedEdge, int) {
-	adj := make(map[types.Hash][]weightedEdge, len(nodes))
+func (s *Server) buildAdjacencyList(ctx context.Context, nodes []types.Node, nodeSet map[types.Hash]bool) (map[types.Hash][]community.WeightedEdge, int) {
+	adj := make(map[types.Hash][]community.WeightedEdge, len(nodes))
 	edgeCount := 0
 
 	// For large graphs, sample to avoid loading too many edges.
@@ -136,12 +148,12 @@ func (s *Server) buildAdjacencyList(ctx context.Context, nodes []types.Node, nod
 			if !nodeSet[e.TargetHash] {
 				continue
 			}
-			adj[n.NodeHash] = append(adj[n.NodeHash], weightedEdge{
+			adj[n.NodeHash] = append(adj[n.NodeHash], community.WeightedEdge{
 				Target: e.TargetHash,
 				Weight: e.Confidence,
 			})
 			// Add reverse edge for undirected graph.
-			adj[e.TargetHash] = append(adj[e.TargetHash], weightedEdge{
+			adj[e.TargetHash] = append(adj[e.TargetHash], community.WeightedEdge{
 				Target: n.NodeHash,
 				Weight: e.Confidence,
 			})
@@ -151,119 +163,8 @@ func (s *Server) buildAdjacencyList(ctx context.Context, nodes []types.Node, nod
 	return adj, edgeCount
 }
 
-// louvain partitions nodes into communities maximizing modularity.
-// This is a simplified single-pass (Phase 1 only) implementation.
-// Uses the standard modularity gain formula:
-//
-//	deltaQ = [k_i_in / m - (sigma_tot * k_i) / (2 * m^2)]
-//
-// where k_i_in = sum of weights from node i to community C,
-// sigma_tot = sum of all weights of edges incident to nodes in C,
-// k_i = weighted degree of node i, m = sum of all edge weights / 2.
-func louvain(nodes []types.Hash, adj map[types.Hash][]weightedEdge) map[types.Hash]int {
-	// Initialize: each node in its own community.
-	comm := make(map[types.Hash]int, len(nodes))
-	for i, n := range nodes {
-		comm[n] = i
-	}
-
-	// Compute total edge weight. Since adj is undirected (each edge stored twice),
-	// summing all gives 2m.
-	var twoM float64
-	for _, edges := range adj {
-		for _, e := range edges {
-			twoM += e.Weight
-		}
-	}
-	if twoM == 0 {
-		return comm
-	}
-	m := twoM / 2.0
-
-	// Compute node strengths (weighted degree = sum of edge weights).
-	ki := make(map[types.Hash]float64, len(nodes))
-	for _, n := range nodes {
-		for _, e := range adj[n] {
-			ki[n] += e.Weight
-		}
-	}
-
-	// Maintain sigma_tot per community (sum of ki for all nodes in community).
-	sigmaTot := make(map[int]float64, len(nodes))
-	for _, n := range nodes {
-		sigmaTot[comm[n]] += ki[n]
-	}
-
-	// Iterate until no improvement.
-	improved := true
-	for pass := 0; improved && pass < 20; pass++ {
-		improved = false
-		for _, node := range nodes {
-			currentComm := comm[node]
-			bestComm := currentComm
-			bestGain := 0.0
-
-			// Compute weight from node to each neighboring community.
-			kiIn := make(map[int]float64)
-			for _, e := range adj[node] {
-				kiIn[comm[e.Target]] += e.Weight
-			}
-
-			// Remove node from its current community for gain calculation.
-			// sigma_tot of current community without this node:
-			sigCurr := sigmaTot[currentComm] - ki[node]
-			kiInCurr := kiIn[currentComm]
-
-			for c, w := range kiIn {
-				if c == currentComm {
-					continue
-				}
-				sigC := sigmaTot[c]
-
-				// Gain = moving from current to c.
-				// gain_remove = ki_in_curr/m - (sigCurr * ki[node]) / (2*m*m)
-				// gain_add = w/m - (sigC * ki[node]) / (2*m*m)
-				// net gain = gain_add - gain_remove... but standard Louvain uses:
-				// deltaQ = [w - sigC*ki[node]/(2m)] / m
-				//        - [kiInCurr - sigCurr*ki[node]/(2m)] / m ... (for removal)
-				// Simplified: compare gain of adding to c vs staying.
-				gainAdd := w/m - (sigC*ki[node])/(2*m*m)
-				gainRemove := kiInCurr/m - (sigCurr*ki[node])/(2*m*m)
-				gain := gainAdd - gainRemove
-
-				if gain > bestGain {
-					bestGain = gain
-					bestComm = c
-				}
-			}
-
-			if bestComm != currentComm {
-				// Move node.
-				sigmaTot[currentComm] -= ki[node]
-				sigmaTot[bestComm] += ki[node]
-				comm[node] = bestComm
-				improved = true
-			}
-		}
-	}
-
-	// Renumber communities to be contiguous starting from 0.
-	remap := make(map[int]int)
-	nextID := 0
-	for _, n := range nodes {
-		c := comm[n]
-		if _, ok := remap[c]; !ok {
-			remap[c] = nextID
-			nextID++
-		}
-		comm[n] = remap[c]
-	}
-
-	return comm
-}
-
 // buildCommunities computes metadata for each community.
-func buildCommunities(nodes []types.Node, membership map[types.Hash]int, adj map[types.Hash][]weightedEdge, nodeSet map[types.Hash]bool) []community {
+func buildCommunities(nodes []types.Node, membership map[types.Hash]int, adj map[types.Hash][]community.WeightedEdge, nodeSet map[types.Hash]bool) []communityInfo {
 	// Group nodes by community.
 	commNodes := make(map[int][]types.Node)
 	for _, n := range nodes {
@@ -271,9 +172,9 @@ func buildCommunities(nodes []types.Node, membership map[types.Hash]int, adj map
 		commNodes[cid] = append(commNodes[cid], n)
 	}
 
-	communities := make([]community, 0, len(commNodes))
+	communities := make([]communityInfo, 0, len(commNodes))
 	for cid, cnodes := range commNodes {
-		c := community{
+		c := communityInfo{
 			ID:   cid,
 			Size: len(cnodes),
 		}
@@ -335,7 +236,7 @@ func buildCommunities(nodes []types.Node, membership map[types.Hash]int, adj map
 
 	// Cap at 50 communities, merge smallest into "other".
 	if len(communities) > 50 {
-		other := community{
+		other := communityInfo{
 			ID:         -1,
 			Size:       0,
 			TopSymbols: []string{},
@@ -377,7 +278,7 @@ func dominantPackage(nodes []types.Node) string {
 }
 
 // handleCommunitiesList handles action="list".
-func handleCommunitiesList(communities []community, nodeCount, edgeCount int) (*mcp.CallToolResult, error) {
+func handleCommunitiesList(communities []communityInfo, nodeCount, edgeCount int) (*mcp.CallToolResult, error) {
 	result := communityResult{
 		Communities: communities,
 		NodeCount:   nodeCount,
@@ -393,7 +294,7 @@ func handleCommunitiesList(communities []community, nodeCount, edgeCount int) (*
 }
 
 // handleCommunitiesForSymbol handles action="for_symbol".
-func (s *Server) handleCommunitiesForSymbol(ctx context.Context, symbol string, nodes []types.Node, membership map[types.Hash]int, communities []community, adj map[types.Hash][]weightedEdge, nodeSet map[types.Hash]bool) (*mcp.CallToolResult, error) {
+func (s *Server) handleCommunitiesForSymbol(ctx context.Context, symbol string, nodes []types.Node, membership map[types.Hash]int, communities []communityInfo, adj map[types.Hash][]community.WeightedEdge, nodeSet map[types.Hash]bool) (*mcp.CallToolResult, error) {
 	// Resolve symbol to node.
 	resolved, err := s.store.NodesByQualifiedName(ctx, symbol)
 	if err != nil {
@@ -423,7 +324,7 @@ func (s *Server) handleCommunitiesForSymbol(ctx context.Context, symbol string, 
 	}
 
 	// Map membership IDs to community objects by matching group members.
-	membershipToComm := make(map[int]int) // membership ID -> community.ID
+	membershipToComm := make(map[int]int) // membership ID -> communityInfo.ID
 	for memID, members := range commGroups {
 		memberSet := make(map[types.Hash]bool, len(members))
 		for _, h := range members {
@@ -447,7 +348,7 @@ func (s *Server) handleCommunitiesForSymbol(ctx context.Context, symbol string, 
 
 	// Find the community for our target symbol.
 	targetCommID := membershipToComm[targetMembership]
-	var symbolComm community
+	var symbolComm communityInfo
 	for _, c := range communities {
 		if c.ID == targetCommID {
 			symbolComm = c
@@ -472,7 +373,7 @@ func (s *Server) handleCommunitiesForSymbol(ctx context.Context, symbol string, 
 		}
 	}
 
-	var neighbors []community
+	var neighbors []communityInfo
 	for _, c := range communities {
 		if neighborCommIDs[c.ID] && c.ID != symbolComm.ID {
 			neighbors = append(neighbors, c)
@@ -485,7 +386,7 @@ func (s *Server) handleCommunitiesForSymbol(ctx context.Context, symbol string, 
 		Neighbors: neighbors,
 	}
 	if result.Neighbors == nil {
-		result.Neighbors = []community{}
+		result.Neighbors = []communityInfo{}
 	}
 
 	data, err := json.Marshal(result)

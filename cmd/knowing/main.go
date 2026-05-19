@@ -49,6 +49,7 @@ import (
 	"github.com/blackwell-systems/knowing/internal/indexer/terraformextractor"
 	"github.com/blackwell-systems/knowing/internal/indexer/treesitter"
 	"github.com/blackwell-systems/knowing/internal/indexer/tsextractor"
+	"github.com/blackwell-systems/knowing/internal/community"
 	knowingmcp "github.com/blackwell-systems/knowing/internal/mcp"
 	"github.com/blackwell-systems/knowing/internal/snapshot"
 	"github.com/blackwell-systems/knowing/internal/store"
@@ -378,6 +379,7 @@ func cmdExport(args []string) error {
 	format := fs.String("format", "json", "Output format (only json supported)")
 	repoFilter := fs.String("repo", "", "Filter by repo URL")
 	snapshotFilter := fs.String("snapshot", "", "Filter by snapshot hash")
+	algoFlag := fs.String("algorithm", community.Default, "Community detection algorithm (louvain, louvain-fine, label-propagation)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -498,8 +500,8 @@ func cmdExport(args []string) error {
 		return exportDot(nodes, edges)
 	}
 
-	// Run Louvain to annotate nodes with community IDs.
-	communityOf, communityLabels := computeExportCommunities(nodes, edges)
+	// Run community detection to annotate nodes with community IDs.
+	communityOf, communityLabels := computeExportCommunities(nodes, edges, *algoFlag)
 
 	// Build community summary. Communities smaller than minSize are merged into "other".
 	const minCommunitySize = 10
@@ -597,8 +599,10 @@ func cmdExport(args []string) error {
 	return nil
 }
 
-// computeExportCommunities runs Louvain and returns community assignments + labels.
-func computeExportCommunities(nodes []types.Node, edges []types.Edge) (map[types.Hash]int, map[int]string) {
+// computeExportCommunities runs community detection and returns community assignments + labels.
+// The algoName parameter selects the algorithm (e.g. "louvain", "louvain-fine", "label-propagation").
+// If algoName is empty or not found, defaults to community.Default.
+func computeExportCommunities(nodes []types.Node, edges []types.Edge, algoName string) (map[types.Hash]int, map[int]string) {
 	// Build undirected adjacency.
 	nodeSet := make(map[types.Hash]bool, len(nodes))
 	nodeHashes := make([]types.Hash, 0, len(nodes))
@@ -609,105 +613,25 @@ func computeExportCommunities(nodes []types.Node, edges []types.Edge) (map[types
 		nodeByHash[n.NodeHash] = n
 	}
 
-	type wEdge struct {
-		target types.Hash
-		weight float64
-	}
-	adj := make(map[types.Hash][]wEdge, len(nodes))
+	adj := make(map[types.Hash][]community.WeightedEdge, len(nodes))
 	for _, e := range edges {
 		if nodeSet[e.SourceHash] && nodeSet[e.TargetHash] {
-			adj[e.SourceHash] = append(adj[e.SourceHash], wEdge{e.TargetHash, 1.0})
-			adj[e.TargetHash] = append(adj[e.TargetHash], wEdge{e.SourceHash, 1.0})
+			adj[e.SourceHash] = append(adj[e.SourceHash], community.WeightedEdge{Target: e.TargetHash, Weight: 1.0})
+			adj[e.TargetHash] = append(adj[e.TargetHash], community.WeightedEdge{Target: e.SourceHash, Weight: 1.0})
 		}
 	}
 
-	// Louvain with resolution parameter.
-	// gamma < 1.0 produces fewer, larger communities (closer to package-level).
-	// gamma = 1.0 is standard Louvain (many fine-grained clusters).
-	// gamma = 0.3 works well for repos with 3-10 packages.
-	const gamma = 0.3
-
-	communityOf := make(map[types.Hash]int, len(nodeHashes))
-	for i, h := range nodeHashes {
-		communityOf[h] = i
+	// Select and run algorithm.
+	algo := community.Get(algoName)
+	if algo == nil {
+		algo = community.Get(community.Default)
 	}
-
-	var twoM float64
-	for _, neighbors := range adj {
-		for _, e := range neighbors {
-			twoM += e.weight
-		}
+	g := &community.Graph{
+		Nodes:   nodeHashes,
+		Adj:     adj,
+		NodeSet: nodeSet,
 	}
-	if twoM == 0 {
-		twoM = 1
-	}
-	m := twoM / 2.0
-
-	ki := make(map[types.Hash]float64, len(nodeHashes))
-	for _, h := range nodeHashes {
-		for _, e := range adj[h] {
-			ki[h] += e.weight
-		}
-	}
-
-	sigmaTot := make(map[int]float64, len(nodeHashes))
-	for _, h := range nodeHashes {
-		sigmaTot[communityOf[h]] += ki[h]
-	}
-
-	for pass := 0; pass < 20; pass++ {
-		moved := false
-		for _, node := range nodeHashes {
-			currentComm := communityOf[node]
-			bestComm := currentComm
-			bestGain := 0.0
-
-			kiIn := make(map[int]float64)
-			for _, e := range adj[node] {
-				kiIn[communityOf[e.target]] += e.weight
-			}
-
-			sigCurr := sigmaTot[currentComm] - ki[node]
-			kiInCurr := kiIn[currentComm]
-
-			for c, w := range kiIn {
-				if c == currentComm {
-					continue
-				}
-				sigC := sigmaTot[c]
-				gainAdd := w/m - gamma*(sigC*ki[node])/(2*m*m)
-				gainRemove := kiInCurr/m - gamma*(sigCurr*ki[node])/(2*m*m)
-				gain := gainAdd - gainRemove
-				if gain > bestGain {
-					bestGain = gain
-					bestComm = c
-				}
-			}
-
-			if bestComm != currentComm {
-				sigmaTot[currentComm] -= ki[node]
-				sigmaTot[bestComm] += ki[node]
-				communityOf[node] = bestComm
-				moved = true
-			}
-		}
-		if !moved {
-			break
-		}
-	}
-
-	// Renumber and label.
-	commIDs := make(map[int]int)
-	nextID := 0
-	for _, c := range communityOf {
-		if _, ok := commIDs[c]; !ok {
-			commIDs[c] = nextID
-			nextID++
-		}
-	}
-	for h := range communityOf {
-		communityOf[h] = commIDs[communityOf[h]]
-	}
+	communityOf := algo.Detect(g)
 
 	// Label by dominant package.
 	communityLabels := make(map[int]string)
@@ -788,10 +712,10 @@ func computeExportCommunities(nodes []types.Node, edges []types.Edge) (map[types
 }
 
 // exportDot renders the graph as a Graphviz DOT file with community subgraphs.
-// Communities are detected via Louvain and rendered as cluster subgraphs.
+// Communities are detected via the community package and rendered as cluster subgraphs.
 // Cross-community edges are colored red to highlight architectural boundaries.
 func exportDot(nodes []types.Node, edges []types.Edge) error {
-	// Build node hash -> node map and adjacency for Louvain.
+	// Build node hash -> node map and adjacency for community detection.
 	nodeByHash := make(map[types.Hash]types.Node, len(nodes))
 	nodeHashes := make([]types.Hash, 0, len(nodes))
 	for _, n := range nodes {
@@ -799,112 +723,27 @@ func exportDot(nodes []types.Node, edges []types.Edge) error {
 		nodeHashes = append(nodeHashes, n.NodeHash)
 	}
 
-	// Build adjacency list for Louvain (undirected).
 	nodeSet := make(map[types.Hash]bool, len(nodes))
 	for _, h := range nodeHashes {
 		nodeSet[h] = true
 	}
 
-	type wEdge struct {
-		target types.Hash
-		weight float64
-	}
-	adj := make(map[types.Hash][]wEdge, len(nodes))
+	adj := make(map[types.Hash][]community.WeightedEdge, len(nodes))
 	for _, e := range edges {
 		if nodeSet[e.SourceHash] && nodeSet[e.TargetHash] {
-			adj[e.SourceHash] = append(adj[e.SourceHash], wEdge{e.TargetHash, 1.0})
-			adj[e.TargetHash] = append(adj[e.TargetHash], wEdge{e.SourceHash, 1.0})
+			adj[e.SourceHash] = append(adj[e.SourceHash], community.WeightedEdge{Target: e.TargetHash, Weight: 1.0})
+			adj[e.TargetHash] = append(adj[e.TargetHash], community.WeightedEdge{Target: e.SourceHash, Weight: 1.0})
 		}
 	}
 
-	// Run Louvain with resolution parameter (same gamma as JSON export).
-	const gamma = 0.3
-
-	communityOf := make(map[types.Hash]int, len(nodeHashes))
-	for i, h := range nodeHashes {
-		communityOf[h] = i
+	// Run community detection using louvain-fine (low resolution for package-level clusters).
+	algo := community.Get("louvain-fine")
+	g := &community.Graph{
+		Nodes:   nodeHashes,
+		Adj:     adj,
+		NodeSet: nodeSet,
 	}
-
-	// Total weight (sum of all edge weights; adj is undirected so twoM = sum of all entries).
-	var twoM float64
-	for _, neighbors := range adj {
-		for _, e := range neighbors {
-			twoM += e.weight
-		}
-	}
-	if twoM == 0 {
-		twoM = 1
-	}
-	m := twoM / 2.0
-
-	// Node strengths (weighted degree).
-	ki := make(map[types.Hash]float64, len(nodeHashes))
-	for _, h := range nodeHashes {
-		for _, e := range adj[h] {
-			ki[h] += e.weight
-		}
-	}
-
-	// Sigma_tot per community.
-	sigmaTot := make(map[int]float64, len(nodeHashes))
-	for _, h := range nodeHashes {
-		sigmaTot[communityOf[h]] += ki[h]
-	}
-
-	// Iterate.
-	for pass := 0; pass < 20; pass++ {
-		moved := false
-		for _, node := range nodeHashes {
-			currentComm := communityOf[node]
-			bestComm := currentComm
-			bestGain := 0.0
-
-			kiIn := make(map[int]float64)
-			for _, e := range adj[node] {
-				kiIn[communityOf[e.target]] += e.weight
-			}
-
-			sigCurr := sigmaTot[currentComm] - ki[node]
-			kiInCurr := kiIn[currentComm]
-
-			for c, w := range kiIn {
-				if c == currentComm {
-					continue
-				}
-				sigC := sigmaTot[c]
-				gainAdd := w/m - gamma*(sigC*ki[node])/(2*m*m)
-				gainRemove := kiInCurr/m - gamma*(sigCurr*ki[node])/(2*m*m)
-				gain := gainAdd - gainRemove
-				if gain > bestGain {
-					bestGain = gain
-					bestComm = c
-				}
-			}
-
-			if bestComm != currentComm {
-				sigmaTot[currentComm] -= ki[node]
-				sigmaTot[bestComm] += ki[node]
-				communityOf[node] = bestComm
-				moved = true
-			}
-		}
-		if !moved {
-			break
-		}
-	}
-
-	// Renumber communities to 0..N-1.
-	commIDs := make(map[int]int)
-	nextID := 0
-	for _, c := range communityOf {
-		if _, ok := commIDs[c]; !ok {
-			commIDs[c] = nextID
-			nextID++
-		}
-	}
-	for h := range communityOf {
-		communityOf[h] = commIDs[communityOf[h]]
-	}
+	communityOf := algo.Detect(g)
 
 	// Group nodes by community, keep only communities with 5+ members.
 	// Cap at 20 communities (merge smallest into the largest).
