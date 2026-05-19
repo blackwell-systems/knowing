@@ -144,6 +144,55 @@ These repos share real cross-repo edges through `grafana/dskit` and shared pkg/ 
 - Incremental re-index of one repo invalidates only affected caches in other repos
 - Total index time < 5 minutes for all 4 repos
 
+## Production Scale: Permanent Runtime Record
+
+The endgame: knowing becomes the permanent record of every relationship your software has ever had, both in code and in production. An ops team runs knowing with continuous OTLP trace ingestion alongside static analysis. After a year of production:
+
+- **Static edges:** ~150K (stable, changes with commits)
+- **Runtime edges:** millions (every unique call path, endpoint, queue message observed)
+- **Temporal density:** every edge has observation history (appeared, peaked, decayed, disappeared)
+- **Snapshot chain:** 365+ daily snapshots, each a Merkle root tied to a deployment
+
+### What Breaks at This Scale
+
+| Problem | Current approach | What breaks | What's needed |
+|---------|-----------------|-------------|---------------|
+| Tree construction | Full rebuild in memory (~3ms at 12K edges) | OOM at millions of edges | Lazy materialization: store tree in SQLite, load subtrees on demand |
+| Snapshot walk | Linear chain traversal | 365 snapshots * O(packages) per diff | Merkle bisection: O(log N) binary search |
+| FTS rebuild | Full or package-scoped | Millions of runtime edge descriptions | Incremental FTS append (no rebuild, just insert new) |
+| GC | Reachability sweep of all edges | Minutes at millions of rows | Partitioned GC by edge age or provenance tier |
+| Proof generation | Linear scan of edge list per package | Slow at 100K+ edges per package | Pre-indexed edge lookup by (package, type) |
+| Storage | Single SQLite file per repo | Multi-GB files, WAL contention | Partitioned storage: static edges in one file, runtime in another |
+
+### What Needs to Exist
+
+| Capability | Why |
+|-----------|-----|
+| **Lazy materialization** | Load only visited subtrees. A proof for one edge shouldn't require the entire tree in memory. |
+| **Merkle bisection** | "When did this cross-service dependency first appear?" as O(log N) snapshots, not O(N). |
+| **Partitioned storage** | Static edges (change with commits) and runtime edges (change with traffic) have different lifecycles. Separate storage lets each be optimized independently. |
+| **Runtime edge compaction** | Collapse observation history: "called 50K times over 90 days" instead of 50K individual observations. |
+| **Dashboard** | Real-time visualization of the runtime graph: traffic patterns, dead routes, confidence drift, new dependencies appearing. |
+| **Automated compliance reports** | Scheduled `knowing audit` runs with diff against previous audit point. Alert on new cross-service dependencies. |
+| **Federated sync** | CI instance indexes code. Production instance ingests traces. They exchange Merkle roots and sync only the diff. |
+| **Drift alerts** | "Production traffic shows a call path that static analysis doesn't know about" or "static analysis says this is called, but production hasn't observed it in 30 days." |
+
+### Who Runs This
+
+This is not an individual developer tool. This is the "knowing Cloud" product: a managed service where an ops/platform team connects their repos and their OTLP pipeline. The value proposition is the permanent, verifiable, cryptographically provable record of how their software actually works, both as designed and as observed.
+
+### Commercial Angle
+
+| Offering | Revenue model |
+|----------|--------------|
+| **knowing Cloud** | Managed hosting, per-service pricing. Connect repos + OTLP endpoint, get a dashboard. |
+| **Compliance reporting** | Automated quarterly audit reports with proofs. SOC 2 / ISO 27001 evidence. |
+| **Federated sync service** | Coordination layer between team instances. Org-wide intelligence sharing. |
+| **Drift detection** | Alerts when production behavior diverges from static analysis. SLA on detection latency. |
+| **Enterprise dashboard** | Visualize graph across all repos and services. Team analytics. Dependency governance. |
+
+The open source tool proves the technology. The production-scale offering monetizes the data density that only continuous operation produces.
+
 ## Git-Inspired (Not Yet Built)
 
 | Item | Priority | Effort |
