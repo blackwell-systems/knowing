@@ -1107,6 +1107,76 @@ func (s *SQLiteStore) RebuildFTS(ctx context.Context) error {
 	return nil
 }
 
+// RebuildFTSForPackages deletes and re-inserts FTS rows only for nodes whose
+// qualified name starts with one of the given package prefixes. Falls back to
+// full RebuildFTS if packages is empty. This makes FTS rebuild proportional to
+// the number of changed packages, not the total graph size.
+func (s *SQLiteStore) RebuildFTSForPackages(ctx context.Context, packages []string) error {
+	if len(packages) == 0 {
+		return s.RebuildFTS(ctx)
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin fts tx: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	// Delete existing FTS rows for nodes in the changed packages.
+	delStmt, err := tx.PrepareContext(ctx,
+		`DELETE FROM nodes_fts_content WHERE qualified_name LIKE ?`)
+	if err != nil {
+		return fmt.Errorf("prepare fts delete: %w", err)
+	}
+	defer delStmt.Close()
+	for _, pkg := range packages {
+		if _, err := delStmt.ExecContext(ctx, pkg+"%"); err != nil {
+			return fmt.Errorf("delete fts for %s: %w", pkg, err)
+		}
+	}
+
+	// Re-insert FTS rows for nodes in the changed packages.
+	insStmt, err := tx.PrepareContext(ctx,
+		`INSERT INTO nodes_fts_content(node_hash, qualified_name, signature, file_path) VALUES (?, ?, ?, ?)`)
+	if err != nil {
+		return fmt.Errorf("prepare fts insert: %w", err)
+	}
+	defer insStmt.Close()
+
+	for _, pkg := range packages {
+		rows, err := s.db.QueryContext(ctx,
+			`SELECT n.node_hash, n.qualified_name, COALESCE(n.signature, ''), COALESCE(f.path, '')
+			 FROM nodes n LEFT JOIN files f ON n.file_hash = f.file_hash
+			 WHERE n.qualified_name LIKE ?`, pkg+"%")
+		if err != nil {
+			return fmt.Errorf("read nodes for fts (%s): %w", pkg, err)
+		}
+		for rows.Next() {
+			var nodeHash []byte
+			var qn, sig, fp string
+			if err := rows.Scan(&nodeHash, &qn, &sig, &fp); err != nil {
+				rows.Close()
+				return fmt.Errorf("scan node for fts: %w", err)
+			}
+			if _, err := insStmt.ExecContext(ctx, nodeHash, splitForFTS(qn), splitForFTS(sig), fp); err != nil {
+				rows.Close()
+				return fmt.Errorf("insert fts for %s: %w", qn, err)
+			}
+		}
+		rows.Close()
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit fts: %w", err)
+	}
+
+	// Rebuild the FTS index to pick up the changes.
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO nodes_fts(nodes_fts) VALUES('rebuild')`); err != nil {
+		return fmt.Errorf("rebuild fts index: %w", err)
+	}
+	return nil
+}
+
 // splitForFTS splits a qualified name or signature into space-separated tokens
 // for full-text indexing. Splits on CamelCase boundaries, underscores, dots, and slashes.
 // Preserves the original tokens alongside the splits for exact-match capability.
