@@ -141,6 +141,8 @@ func (m *mockGraphStore) DeleteEdgesBySourceFile(_ context.Context, _ types.Hash
 func (m *mockGraphStore) EdgesBySourceFile(_ context.Context, _ types.Hash) ([]types.Edge, error) { return nil, nil }
 func (m *mockGraphStore) DeleteSnapshot(_ context.Context, _ types.Hash) error                 { return nil }
 func (m *mockGraphStore) Close() error                                                        { return nil }
+func (m *mockGraphStore) DeleteNodesNotIn(_ context.Context, _ map[types.Hash]struct{}) (int64, error) { return 0, nil }
+func (m *mockGraphStore) DeleteEdgesNotIn(_ context.Context, _ map[types.Hash]struct{}) (int64, error) { return 0, nil }
 
 // --- Merkle tests ---
 

@@ -175,6 +175,8 @@ func (m *mockGraphStore) EdgesBySourceFile(_ context.Context, _ types.Hash) ([]t
 func (m *mockGraphStore) Close() error {
 	return nil
 }
+func (m *mockGraphStore) DeleteNodesNotIn(_ context.Context, _ map[types.Hash]struct{}) (int64, error) { return 0, nil }
+func (m *mockGraphStore) DeleteEdgesNotIn(_ context.Context, _ map[types.Hash]struct{}) (int64, error) { return 0, nil }
 
 // testHash creates a deterministic hash from a string for testing.
 func testHash(s string) types.Hash {

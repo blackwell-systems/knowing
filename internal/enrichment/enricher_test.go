@@ -221,6 +221,8 @@ func (m *mockStore) EdgesBySourceFile(_ context.Context, _ types.Hash) ([]types.
 }
 
 func (m *mockStore) Close() error { return nil }
+func (m *mockStore) DeleteNodesNotIn(_ context.Context, _ map[types.Hash]struct{}) (int64, error) { return 0, nil }
+func (m *mockStore) DeleteEdgesNotIn(_ context.Context, _ map[types.Hash]struct{}) (int64, error) { return 0, nil }
 
 // ---------- Tests ----------
 

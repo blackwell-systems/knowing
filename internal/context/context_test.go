@@ -170,6 +170,8 @@ func (m *mockStore) NodesByFilePath(_ stdctx.Context, repoHash types.Hash, path 
 	return nodes, nil
 }
 func (m *mockStore) Close() error { return nil }
+func (m *mockStore) DeleteNodesNotIn(_ stdctx.Context, _ map[types.Hash]struct{}) (int64, error) { return 0, nil }
+func (m *mockStore) DeleteEdgesNotIn(_ stdctx.Context, _ map[types.Hash]struct{}) (int64, error) { return 0, nil }
 
 // --- Tests ---
 

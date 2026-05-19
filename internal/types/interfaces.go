@@ -39,6 +39,9 @@ type GraphStore interface {
 	NodesByQualifiedName(ctx context.Context, qualifiedName string) ([]Node, error)
 
 	// Delete operations for incremental re-indexing and garbage collection.
+	// GC operations: delete nodes/edges not in the keep set.
+	DeleteNodesNotIn(ctx context.Context, keep map[Hash]struct{}) (int64, error)
+	DeleteEdgesNotIn(ctx context.Context, keep map[Hash]struct{}) (int64, error)
 	DeleteEdge(ctx context.Context, hash Hash) error
 	DeleteNodesByFile(ctx context.Context, fileHash Hash) (int, error)
 	DeleteEdgesBySourceFile(ctx context.Context, fileHash Hash) ([]Edge, error)

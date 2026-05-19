@@ -214,6 +214,9 @@ func (s *mockStore) EdgesBySourceFile(_ context.Context, fileHash types.Hash) ([
 	return result, nil
 }
 
+func (s *mockStore) DeleteNodesNotIn(_ context.Context, _ map[types.Hash]struct{}) (int64, error) { return 0, nil }
+func (s *mockStore) DeleteEdgesNotIn(_ context.Context, _ map[types.Hash]struct{}) (int64, error) { return 0, nil }
+
 // mockSnapshotComputer is a test double for SnapshotComputer.
 type mockSnapshotComputer struct {
 	snap *types.Snapshot
