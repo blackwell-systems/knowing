@@ -85,7 +85,7 @@ func (sm *SnapshotManager) Verify(ctx context.Context, repoHash types.Hash) ([]V
 		}
 
 		// c. Node hash verification.
-		pkgPath, pkgErr := extractPackagePath(node.QualifiedName)
+		pkgPath, pkgErr := ExtractPackagePath(node.QualifiedName)
 		if pkgErr == nil {
 			if hashErr := types.VerifyNodeHash(node, repo.RepoURL, pkgPath); hashErr != nil {
 				errs = append(errs, VerifyError{

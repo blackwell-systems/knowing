@@ -129,6 +129,14 @@ func (sm *SnapshotManager) GarbageCollect(ctx context.Context, repoHash types.Ha
 	return removed, nil
 }
 
+// CollectEdgeInputs gathers all edges with package and type metadata for a
+// repo. This is the canonical source of EdgeInput data: both hierarchical
+// tree construction and Merkle proof generation must use this method to
+// ensure consistent package paths and edge hashes.
+func (sm *SnapshotManager) CollectEdgeInputs(ctx context.Context, repoHash types.Hash) ([]EdgeInput, int, error) {
+	return sm.collectRepoEdgesHierarchical(ctx, repoHash)
+}
+
 // collectRepoEdgesHierarchical gathers all edges with package and type metadata
 // for hierarchical tree construction. Returns EdgeInputs and node count.
 func (sm *SnapshotManager) collectRepoEdgesHierarchical(ctx context.Context, repoHash types.Hash) ([]EdgeInput, int, error) {
@@ -148,7 +156,7 @@ func (sm *SnapshotManager) collectRepoEdgesHierarchical(ctx context.Context, rep
 	// Build node hash -> package path lookup.
 	nodePackage := make(map[types.Hash]string, len(nodes))
 	for _, n := range nodes {
-		pkgPath, err := extractPackagePath(n.QualifiedName)
+		pkgPath, err := ExtractPackagePath(n.QualifiedName)
 		if err != nil {
 			// Log warning and skip this node's edges from hierarchical tree.
 			// The node is still stored; it just does not contribute to the
@@ -181,14 +189,18 @@ func (sm *SnapshotManager) collectRepoEdgesHierarchical(ctx context.Context, rep
 	return edgeInputs, len(nodes), nil
 }
 
-// extractPackagePath extracts the package path from a qualified name.
+// ExtractPackagePath extracts the package path from a qualified name.
 // Format: "repoURL://pkgPath.SymbolName" -> "pkgPath"
 // The separator "://" marks the boundary between the repo URL and the package
 // path; since repoURLs contain "://" themselves (e.g. "https://..."), we use
 // the LAST occurrence of "://" as the separator.
 // Returns an error if the qualified name is malformed (missing "://" separator
 // or missing dot-separated symbol after the package path).
-func extractPackagePath(qualifiedName string) (string, error) {
+//
+// This is the canonical package path extractor. All code that needs to derive
+// a package path from a qualified name should use this function to avoid
+// divergent implementations.
+func ExtractPackagePath(qualifiedName string) (string, error) {
 	sep := strings.LastIndex(qualifiedName, "://")
 	if sep < 0 {
 		return "", fmt.Errorf("malformed qualified name: missing '://' separator: %q", qualifiedName)

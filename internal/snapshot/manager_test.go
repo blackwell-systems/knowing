@@ -503,7 +503,7 @@ func TestComputeSnapshot_WithRealData(t *testing.T) {
 // --- extractPackagePath tests ---
 
 func TestExtractPackagePath_Valid(t *testing.T) {
-	pkg, err := extractPackagePath("https://github.com/example/repo://pkg/sub.Func1")
+	pkg, err := ExtractPackagePath("https://github.com/example/repo://pkg/sub.Func1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -513,7 +513,7 @@ func TestExtractPackagePath_Valid(t *testing.T) {
 }
 
 func TestExtractPackagePath_MissingSeparator(t *testing.T) {
-	_, err := extractPackagePath("no-separator")
+	_, err := ExtractPackagePath("no-separator")
 	if err == nil {
 		t.Fatal("expected error for missing '://' separator, got nil")
 	}
@@ -523,7 +523,7 @@ func TestExtractPackagePath_MissingSeparator(t *testing.T) {
 }
 
 func TestExtractPackagePath_NoDot(t *testing.T) {
-	_, err := extractPackagePath("https://github.com/example/repo://nodot")
+	_, err := ExtractPackagePath("https://github.com/example/repo://nodot")
 	if err == nil {
 		t.Fatal("expected error for missing dot separator, got nil")
 	}
