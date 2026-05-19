@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/blackwell-systems/knowing/internal/cache"
 	"github.com/blackwell-systems/knowing/internal/types"
@@ -226,15 +227,46 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	// keyed by the normalized task description. On a hit, deserialize and return
 	// immediately, skipping all retrieval. The Format field is not cached because
 	// it is a caller-specified rendering hint, not part of the result content.
+	normalized := strings.ToLower(strings.TrimSpace(opts.TaskDescription))
 	var cacheKey types.Hash
 	if e.cache != nil {
-		normalized := strings.ToLower(strings.TrimSpace(opts.TaskDescription))
 		cacheKey = types.NewHash([]byte("task\x00" + normalized))
 		if data, ok := e.cache.Get(cacheKey); ok {
 			var cached cachedContextBlock
 			if err := json.Unmarshal(data, &cached); err == nil {
 				block := cached.toContextBlock()
 				block.Format = opts.Format
+				return block, nil
+			}
+		}
+	}
+
+	// Persistent cache: check notes table for a stored context pack.
+	// This survives process restarts, enabling cross-session replay.
+	// The note is keyed by task hash; the value includes a snapshot hash
+	// for staleness detection. If the latest snapshot changed, the cached
+	// pack is stale and we recompute.
+	packNoteKey := types.NewHash([]byte("context_pack\x00" + normalized))
+	if note, err := e.store.GetNote(ctx, packNoteKey, "context_pack"); err == nil && note != nil {
+		var persisted persistedContextPack
+		if err := json.Unmarshal([]byte(note.Value), &persisted); err == nil {
+			// Staleness check: compare stored snapshot hash against current.
+			stale := false
+			if repos, err := e.store.AllRepos(ctx); err == nil && len(repos) > 0 {
+				if snap, err := e.store.LatestSnapshot(ctx, repos[0].RepoHash); err == nil && snap != nil {
+					if persisted.SnapshotHash != snap.SnapshotHash {
+						stale = true
+					}
+				}
+			}
+			if !stale {
+				block := persisted.Block.toContextBlock()
+				block.Format = opts.Format
+				if e.cache != nil && !cacheKey.IsZero() {
+					if data, err := json.Marshal(persisted.Block); err == nil {
+						e.cache.Put(cacheKey, data)
+					}
+				}
 				return block, nil
 			}
 		}
@@ -660,14 +692,39 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 
 	// Cache store: persist the result for future identical queries. The Format
 	// field is excluded from the cached payload because it is caller-specified.
-	if e.cache != nil && !cacheKey.IsZero() {
-		cached := newCachedContextBlock(block)
-		if data, err := json.Marshal(cached); err == nil {
+	cachedBlock := newCachedContextBlock(block)
+	if data, err := json.Marshal(cachedBlock); err == nil {
+		if e.cache != nil && !cacheKey.IsZero() {
 			e.cache.Put(cacheKey, data)
+		}
+	}
+	// Persistent cache: store in notes table with snapshot hash for staleness.
+	if repos, err := e.store.AllRepos(ctx); err == nil && len(repos) > 0 {
+		if snap, err := e.store.LatestSnapshot(ctx, repos[0].RepoHash); err == nil && snap != nil {
+			persisted := persistedContextPack{
+				Block:        cachedBlock,
+				SnapshotHash: snap.SnapshotHash,
+			}
+			if data, err := json.Marshal(persisted); err == nil {
+				_ = e.store.PutNote(ctx, types.Note{
+					ObjectHash: packNoteKey,
+					Key:        "context_pack",
+					Value:      string(data),
+					UpdatedAt:  time.Now().Unix(),
+				})
+			}
 		}
 	}
 
 	return block, nil
+}
+
+// persistedContextPack wraps a cached context block with a snapshot hash for
+// staleness detection. Stored in the notes table for cross-session replay.
+// If the snapshot hash differs from the current latest, the pack is stale.
+type persistedContextPack struct {
+	Block        cachedContextBlock `json:"block"`
+	SnapshotHash types.Hash         `json:"snapshot_hash"`
 }
 
 // cachedContextBlock is the JSON-serializable form of ContextBlock stored in the
