@@ -375,6 +375,37 @@ The token savings are too large to ignore. A 76.7% reduction in tool response to
 
 ---
 
+## 10.1 TOON: A Safe Default for Agent Workflows
+
+GCF is the most token-efficient format. But token savings only matter if the model comprehends the format reliably. A format that saves 85% of tokens but causes 5% parsing errors is worse than one that saves 61% with 0% errors.
+
+TOON (Token-Oriented Object Notation) is a compact, human-readable format that uses tabular arrays (header plus rows) for uniform object collections. A TOON-encoded symbol list looks like a markdown table with a standardized schema declaration. Every LLM understands this pattern. GCF's `@0<@4 calls` edge references are novel to most models.
+
+The knowing system implements both formats. TOON is available as a first-class codec in the `internal/wire` package (`internal/wire/toon.go`), using the official `github.com/toon-format/toon-go` library.
+
+### Format Comprehension Eval Results
+
+The `eval/TestFormatComprehension` benchmark measures token cost across 6 fixture tasks with a 5,000-token budget, comparing GCF, TOON, JSON, and XML on the same payloads:
+
+| Format | Avg tokens | vs JSON (baseline) |
+|--------|-----------|-------------------|
+| JSON | 1,818 | 100% |
+| XML | 1,818 | 100% |
+| TOON | 707 | **39%** |
+| GCF | 265 | **15%** |
+
+TOON uses 39% of JSON's token cost. GCF uses 15% of JSON's token cost. Both deliver substantial savings over JSON and XML.
+
+**The practical guidance:**
+
+- Use TOON as the default format for production agent workflows. Its tabular structure is a pattern every LLM understands; it delivers 61% token savings versus JSON with near-zero comprehension risk.
+- Use GCF for maximum compression in contexts where GCF comprehension has been validated: evaluated models (Claude Sonnet/Opus, GPT-4o), or workflows where you have verified the model parses `@N<@M edge_type` correctly.
+- Use JSON or XML for debugging, human inspection, or fallback on smaller/older models.
+
+The comprehension risk is not symmetric. TOON's tabular format maps onto a schema the model already knows. GCF's integer ID references (`@0`, `@4`) and arrow notation (`@0<@4`) are novel to most models without explicit instruction. The 15% vs 39% difference is real; the comprehension risk difference is also real.
+
+---
+
 ## 11. Conclusion
 
 JSON is the default encoding for LLM tool responses because it is universal, not because it is efficient. For graph-structured data, JSON wastes more than three-quarters of its tokens on structural overhead that carries no semantic content.
