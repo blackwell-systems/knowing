@@ -123,6 +123,13 @@ func TestE2ECommunityBenchmark(t *testing.T) {
 	})
 	t.Logf("E2E incremental cycle (load+mark+detect+save): %s", statsE2E)
 
+	// Correctness check: incremental result must assign every node in the graph.
+	// A regression here means DetectIncremental dropped nodes silently.
+	if len(incResult) != len(g.Nodes) {
+		t.Errorf("Incremental result assigned %d nodes but graph has %d nodes (correctness regression)",
+			len(incResult), len(g.Nodes))
+	}
+
 	// --- Phase 4: Delta-save path ---
 	statsDelta := measure(runs, warmup, func() {
 		prev, _ := community.LoadAssignments(ctx, st)

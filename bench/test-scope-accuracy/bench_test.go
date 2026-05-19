@@ -135,6 +135,16 @@ func TestTestScopeAccuracy(t *testing.T) {
 	t.Logf("  Median recall:    %.1f%%", medianRecall*100)
 	t.Logf("  Mean CI savings:  %.1f%%", avgSavings*100)
 
+	// Performance contracts: catch BFS regression.
+	meanPrecision := avgPrecision * 100
+	meanRecall := avgRecall * 100
+	if meanPrecision < 50.0 {
+		t.Errorf("Mean precision %.1f%% below 50%% floor (regression)", meanPrecision)
+	}
+	if meanRecall < 40.0 {
+		t.Errorf("Mean recall %.1f%% below 40%% floor (regression)", meanRecall)
+	}
+
 	// Write FINDINGS.md.
 	writeFindingsReport(t, results, avgPrecision, medianPrecision, avgRecall, medianRecall, avgSavings)
 }

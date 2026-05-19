@@ -145,6 +145,12 @@ func TestEdgeAccuracy(t *testing.T) {
 	confirmRate := float64(overall.Confirmed) / float64(overall.TotalInferred) * 100
 	t.Logf("\n  CONFIRMATION RATE: %.1f%% of tree-sitter edges confirmed by go/ast", confirmRate)
 
+	// Performance contract: two-tier extraction must achieve minimum accuracy.
+	overallConfirmationRate := confirmRate
+	if overallConfirmationRate < 15.0 {
+		t.Errorf("Overall confirmation rate %.1f%% below 15%% floor (regression)", overallConfirmationRate)
+	}
+
 	// Write FINDINGS.md with actual results.
 	writeFindingsReport(t, overall, byType, edgeTypes)
 }

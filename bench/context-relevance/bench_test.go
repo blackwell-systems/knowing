@@ -256,6 +256,17 @@ func TestContextRelevance(t *testing.T) {
 		avgAP*100, avgAR*100, avgBP*100, avgBR*100, avgCP*100, avgCR*100)
 	t.Log("")
 
+	// Performance contracts: catch engine regressions.
+	// Floors are set well below current values to avoid CI flakes.
+	meanPrecisionC := avgCP * 100
+	meanRecallC := avgCR * 100
+	if meanPrecisionC < 20.0 {
+		t.Errorf("Config C mean precision %.1f%% below 20%% floor (regression)", meanPrecisionC)
+	}
+	if meanRecallC < 40.0 {
+		t.Errorf("Config C mean recall %.1f%% below 40%% floor (regression)", meanRecallC)
+	}
+
 	// Delta analysis.
 	t.Log("=== Delta Analysis ===")
 	t.Logf("  Config B vs A (value of graph walk + HITS):")
