@@ -21,22 +21,22 @@ recall@10 (fraction of ground-truth symbols found in top-10).
 | Fixture | Config A P@10 | Config A R@10 | Config B P@10 | Config B R@10 | Config C P@10 | Config C R@10 |
 |---------|---------------|---------------|---------------|---------------|---------------|---------------|
 | context_engine | 30% | 38% | 30% | 38% | 30% | 38% |
-| mcp_server | 90% | 129% | 90% | 129% | 90% | 129% |
+| mcp_server | 90% | 129% | 90% | 129% | 100% | 143% |
 | indexer_pipeline | 30% | 43% | 30% | 43% | 60% | 86% |
 | store_layer | 50% | 62% | 50% | 62% | 60% | 75% |
 | test_selection | 30% | 43% | 30% | 43% | 30% | 43% |
 | enrichment_pipeline | 60% | 150% | 60% | 150% | 60% | 150% |
 | snapshot_diffing | 10% | 20% | 10% | 20% | 20% | 40% |
-| wire_format | 20% | 67% | 20% | 67% | 20% | 67% |
+| wire_format | 20% | 67% | 20% | 67% | 30% | 100% |
 | cross_repo_resolver | 20% | 67% | 10% | 33% | 10% | 33% |
-| incremental_index | 70% | 175% | 70% | 175% | 70% | 175% |
-| **MEAN** | **41.0%** | **79.3%** | **40.0%** | **75.9%** | **45.0%** | **83.5%** |
+| incremental_index | 70% | 175% | 80% | 200% | 90% | 225% |
+| **MEAN** | **41.0%** | **79.3%** | **41.0%** | **78.4%** | **49.0%** | **93.2%** |
 
 ## Delta Analysis
 
-- **Config B vs A (value of graph walk + HITS):** Precision -1.0%, Recall -3.3%
-- **Config C vs B (value of feedback):** Precision +5.0%, Recall +7.5%
-- **Config C vs A (cumulative improvement):** Precision +4.0%, Recall +4.2%
+- **Config B vs A (value of graph walk + HITS):** Precision +0.0%, Recall -0.8%
+- **Config C vs B (value of feedback):** Precision +8.0%, Recall +14.8%
+- **Config C vs A (cumulative improvement):** Precision +8.0%, Recall +14.0%
 
 ## Interpretation
 

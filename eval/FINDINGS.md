@@ -18,15 +18,15 @@ The engine returns ranked results; we measure Precision@10, Recall@10, and MRR.
 | Task | P@10 | R@10 | MRR | Tier |
 |------|------|------|-----|------|
 | Add a new MCP tool that returns symbol documentation | 100.0% | 200.0% | 1.00 | easy |
-| Add a method to SQLiteStore that queries nodes by communi... | 30.0% | 50.0% | 0.20 | easy |
+| Add a method to SQLiteStore that queries nodes by communi... | 40.0% | 66.7% | 0.20 | easy |
 | Add a new language extractor for Ruby files | 0.0% | 0.0% | 0.00 | easy |
 | Add a new wire format codec for MessagePack encoding | 0.0% | 0.0% | 0.00 | easy |
 | Implement garbage collection for old snapshots beyond ret... | 30.0% | 75.0% | 0.50 | easy |
 | Add full-text search to the store layer for finding nodes... | 60.0% | 150.0% | 1.00 | easy |
 | Register a new language extractor with the indexer | 30.0% | 60.0% | 1.00 | easy |
-| Create a new snapshot of the current graph state | 10.0% | 25.0% | 0.12 | easy |
+| Create a new snapshot of the current graph state | 20.0% | 50.0% | 0.12 | easy |
 | Fix keyword extraction logic in the context engine | 20.0% | 66.7% | 0.25 | easy |
-| Encode a graph payload using the wire format codec | 20.0% | 50.0% | 0.25 | easy |
+| Encode a graph payload using the wire format codec | 20.0% | 50.0% | 0.33 | easy |
 | Initialize and start the knowing daemon process | 0.0% | 0.0% | 0.00 | easy |
 | Query edges coming into and out of a node in the store | 40.0% | 100.0% | 0.25 | easy |
 | Expose community detection results through the MCP server | 60.0% | 150.0% | 0.33 | easy |
@@ -38,7 +38,7 @@ The engine returns ranked results; we measure Precision@10, Recall@10, and MRR.
 | Find all transitive callers of a function in the graph store | 0.0% | 0.0% | 0.00 | easy |
 | Enrich graph edges with LSP type information | 60.0% | 200.0% | 1.00 | easy |
 | Resolve dangling cross-repo edges by matching module path... | 10.0% | 16.7% | 0.12 | medium |
-| Combine vector similarity search with graph-based ranking... | 20.0% | 33.3% | 0.14 | medium |
+| Combine vector similarity search with graph-based ranking... | 20.0% | 33.3% | 0.25 | medium |
 | Link symbols that reference external packages to their de... | 0.0% | 0.0% | 0.00 | medium |
 | Determine which tests need to run based on which files ch... | 0.0% | 0.0% | 0.00 | medium |
 | Build a vector index over all graph nodes so they can be ... | 20.0% | 33.3% | 0.50 | medium |
@@ -52,23 +52,23 @@ The engine returns ranked results; we measure Precision@10, Recall@10, and MRR.
 | Watch for git commits and trigger re-indexing of changed ... | 10.0% | 16.7% | 0.50 | medium |
 | Use random walk with restart over the graph store edges t... | 40.0% | 57.1% | 0.50 | medium |
 | Expose blast radius analysis through the MCP protocol so ... | 90.0% | 150.0% | 1.00 | medium |
-| Implement HITS hub/authority reranking in the context eng... | 20.0% | 25.0% | 0.17 | medium |
+| Implement HITS hub/authority reranking in the context eng... | 30.0% | 37.5% | 0.17 | medium |
 | Find affected tests by tracing the call graph backward fr... | 50.0% | 71.4% | 0.50 | medium |
 | Wire feedback scoring into the context engine so that pre... | 0.0% | 0.0% | 0.00 | medium |
 | Compute a semantic diff between two graph snapshots showi... | 30.0% | 50.0% | 1.00 | medium |
 | Index a Go repository and persist the extracted graph int... | 30.0% | 42.9% | 1.00 | medium |
-| For a pull request review, diff the changed files semanti... | 20.0% | 25.0% | 0.50 | hard |
+| For a pull request review, diff the changed files semanti... | 20.0% | 25.0% | 1.00 | hard |
 | Keep the code graph fresh by watching for file changes, r... | 40.0% | 50.0% | 1.00 | hard |
-| Bootstrap the system from scratch: parse a Go codebase wi... | 10.0% | 12.5% | 0.25 | hard |
-| When an agent reports that retrieved context was unhelpfu... | 10.0% | 12.5% | 0.12 | hard |
+| Bootstrap the system from scratch: parse a Go codebase wi... | 10.0% | 12.5% | 0.33 | hard |
+| When an agent reports that retrieved context was unhelpfu... | 10.0% | 12.5% | 0.17 | hard |
 | Index multiple repositories, resolve cross-repo symbol re... | 0.0% | 0.0% | 0.00 | hard |
-| Detect changed files from git, clean up stale nodes and e... | 10.0% | 11.1% | 0.11 | hard |
+| Detect changed files from git, clean up stale nodes and e... | 10.0% | 11.1% | 0.14 | hard |
 | Detect when the stored graph has drifted from the actual ... | 30.0% | 37.5% | 1.00 | hard |
 | Before an agent renames a function, check all downstream ... | 0.0% | 0.0% | 0.00 | hard |
 | Ingest OpenTelemetry spans and create runtime edges with ... | 30.0% | 37.5% | 1.00 | hard |
 | Implement a hybrid retrieval strategy that combines BM25 ... | 10.0% | 12.5% | 0.14 | hard |
 | Ingest production telemetry traces, resolve span names to... | 0.0% | 0.0% | 0.00 | hard |
-| Build an end-to-end pipeline where an AI coding agent ask... | 10.0% | 12.5% | 0.11 | hard |
+| Build an end-to-end pipeline where an AI coding agent ask... | 10.0% | 12.5% | 0.14 | hard |
 | Generate full PR impact analysis: semantic diff of change... | 30.0% | 33.3% | 1.00 | hard |
 | Compute blast radius for a symbol change across multiple ... | 10.0% | 12.5% | 0.10 | hard |
 | Given a task description, seed the graph walk from keywor... | 50.0% | 50.0% | 0.50 | hard |
@@ -77,10 +77,10 @@ The engine returns ranked results; we measure Precision@10, Recall@10, and MRR.
 
 | Tier | Precision@10 | Recall@10 | MRR | Fixtures |
 |------|-------------|-----------|-----|----------|
-| easy | 31.5% | 79.8% | 0.46 | 20 |
-| medium | 32.0% | 52.0% | 0.52 | 20 |
-| hard | 17.3% | 20.5% | 0.39 | 15 |
-| **Overall** | **27.8%** | **53.5%** | **0.46** | **55** |
+| easy | 32.5% | 81.9% | 0.46 | 20 |
+| medium | 32.5% | 52.6% | 0.53 | 20 |
+| hard | 17.3% | 20.5% | 0.44 | 15 |
+| **Overall** | **28.4%** | **54.5%** | **0.48** | **55** |
 
 ## Reproducibility
 
