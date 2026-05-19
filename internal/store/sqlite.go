@@ -62,6 +62,39 @@ func (s *SQLiteStore) Close() error {
 	return s.db.Close()
 }
 
+// IntegrityCheck runs PRAGMA integrity_check on the SQLite database.
+// Returns nil if the database passes all checks, or an error describing
+// the first corruption issues found.
+func (s *SQLiteStore) IntegrityCheck(ctx context.Context) error {
+	rows, err := s.db.QueryContext(ctx, "PRAGMA integrity_check")
+	if err != nil {
+		return fmt.Errorf("sqlite integrity_check query: %w", err)
+	}
+	defer rows.Close()
+
+	var issues []string
+	for rows.Next() {
+		var msg string
+		if err := rows.Scan(&msg); err != nil {
+			return fmt.Errorf("sqlite integrity_check scan: %w", err)
+		}
+		if msg == "ok" {
+			return nil
+		}
+		issues = append(issues, msg)
+		if len(issues) >= 10 {
+			break
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("sqlite integrity_check rows: %w", err)
+	}
+	if len(issues) == 0 {
+		return nil
+	}
+	return fmt.Errorf("sqlite integrity check failed: %s", strings.Join(issues, "; "))
+}
+
 // ----- Put methods -----
 // All Put methods use INSERT OR REPLACE (upsert) semantics. If a row with
 // the same primary key (hash) already exists, it is replaced entirely.
