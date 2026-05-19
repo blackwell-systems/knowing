@@ -83,14 +83,19 @@ The repository includes benchmark harnesses that regenerate their own findings f
 
 | Benchmark | Result | What it demonstrates |
 |---|---:|---|
-| Context retrieval | 47% fewer tool calls, 31.6% P@10 | One call replaces 6-8 grep+read cycles with ranked, relevant context |
-| Retrieval (cross-repo) | 46.7% R@10 on foreign codebase | Works on any Go repo with zero configuration |
-| GCF wire format | 84.0% fewer tokens than JSON | MCP responses can carry dense graph context cheaply |
-| Test scope | 92.9% precision, 80.0% recall | Call-graph BFS selects affected test packages with few false positives |
-| Feedback loop | 16% -> 36% precision after one feedback round | Relevance improves as agents mark useful symbols |
-| Edge accuracy | 53.6% import confirmation, 32.2% miss rate | Two-tier extraction provides meaningful fast signal |
-| Hierarchical Merkle diff | 114x faster on real graph (11K edges), 517x at 100K synthetic edges; 59ns subgraph root lookups | Package-level root comparison replaces full edge scan; `DiffOptions` enables package-scoped diffs |
-| Subgraph cache | 92x faster repeat queries (170ms -> 1.85ms median); 42ns raw cache lookup; 60% hit rate in agent sessions | Queries against unchanged code skip retrieval entirely; daemon invalidation adds 5.7us per re-index |
+| Hierarchical Merkle diff | 131x faster on real graph, 517x at 100K edges | Package-level root comparison replaces full edge scan |
+| Subgraph cache | 93x faster repeat queries (160ms -> 1.7ms) | Queries against unchanged code skip retrieval entirely |
+| Incremental community detection | Louvain 6.9x, LP 38.4x faster (1-pkg change) | Incremental detection skips work the Merkle tree proves unchanged |
+| E2E daemon community cycle | 12.6ms -> 2.5ms (5.0x with delta-save) | Full load+detect+save production path stays under 3ms |
+| Context pack dedup (P5) | 93-99% byte savings (30KB -> 165 bytes) | Agents skip retransmitting unchanged context |
+| Context pack persistence (P2) | Cross-session replay verified | Same task + same graph = instant context from SQLite |
+| `knowing fsck` | 98ms (2,338 nodes, 11,664 edges) | Graph integrity verification in under 100ms |
+| GC reachability sweep | 70ms (500 orphans pruned) | Garbage collection with full reachability sweep |
+| GCF wire format | 84% fewer tokens than JSON | MCP responses carry dense graph context cheaply |
+| Context retrieval | 47% fewer tool calls, 38% P@10 | One call replaces 6-8 grep+read cycles with ranked context |
+| Test scope | 98% precision, 82% recall | Call-graph BFS selects affected test packages accurately |
+| Feedback loop | 16% -> 36% precision after one round | Relevance improves as agents mark useful symbols |
+| Edge accuracy | 27% overall confirmation rate | Two-tier extraction provides meaningful fast signal |
 
 Run the suites:
 
