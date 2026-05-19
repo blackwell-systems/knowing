@@ -79,27 +79,27 @@ All 8 resources shipped. Implemented in `internal/mcp/resources.go`, registered 
 
 Phase 3 requires foundation work before the features can be built correctly. The foundation items are prerequisites; the features build on them.
 
-#### Foundation (build first, in order)
+#### Foundation
 
-| # | Item | What | Where | Effort |
-|---|------|------|-------|--------|
-| F1 | **Notes table** | General-purpose `graph_notes` table (`object_hash, key, value`). Replaces ad-hoc metadata with a unified layer that never affects Merkle computation. Prerequisite for context pack persistence and community assignment storage. Migration 012. | `internal/store/migrations/012_add_notes.sql`, `internal/store/sqlite.go`, `internal/types/interfaces.go` | 3h |
-| F2 | **Incremental Algorithm interface** | Add `IncrementalAlgorithm` interface with `DetectIncremental(g, previous, changedNodes)`. Seeded Louvain: start from previous community assignments, only iterate on changed nodes. Label propagation gets it for free. | `internal/community/algorithm.go`, `internal/community/louvain.go` | 6h |
-| F3 | **Scoped FTS rebuild** | `RebuildFTSForPackages(ctx, packages)` deletes and re-inserts FTS rows only for nodes in the given packages. Falls back to full rebuild if packages is empty. | `internal/store/sqlite.go` | 2h |
+| # | Item | Status | Benchmarked |
+|---|------|--------|-------------|
+| F1 | **Notes table** | **Shipped** (v0.3.0). Migration 012, 6 GraphStore methods, 8 tests. | N/A |
+| F2 | **Incremental Algorithm interface** | **Shipped**. `IncrementalAlgorithm` on Louvain (6.9x) and LP (38.4x). | `bench/community-detection/` |
+| F3 | **Scoped FTS rebuild** | Pending. `RebuildFTSForPackages(ctx, packages)`. | |
 
-#### Features (build after foundation)
+#### Features
 
-| # | Item | Depends on | What | Effort |
-|---|------|-----------|------|--------|
-| P1 | **Community assignment persistence** | F1 | Store `node_hash -> community_id` mapping from last detection run in the notes table. Incremental detection seeds from stored assignments. | 2h |
-| P2 | **Context pack persistence** | F1 | Store completed ContextBlocks by PackRoot in notes (key=`"context_pack"`). `GetContextPack(packRoot)` retrieves without recomputation. Wire into ForTask for cross-session dedup. | 3h |
-| P3 | **Incremental Louvain** | F2, P1 | After re-index, load previous community assignments from notes. Compute changed nodes from `DiffHierarchicalTrees.ChangedPackages`. Call `DetectIncremental` with only changed nodes allowed to move. Store new assignments. | 4h |
-| P4 | **Incremental HITS/BM25** | F3 | After re-index, use `ChangedPackages` to scope FTS rebuild. HITS is already per-query (top-200 symbols), so no change needed; caching HITS results per PackRoot is a follow-up. | 2h |
-| P5 | **Context pack deduplication** | P2 | Agents reference prior `ContextPackRoot` instead of resending content. MCP tool returns PackRoot; subsequent calls with same root return "unchanged" signal. | 2h |
-| P6 | **Context pack comparison** | P2 | Diff two PackRoots: "what changed in the context this agent would see?" Symmetric difference of the two packs' symbol sets. | 2h |
-| P7 | **Semantic change classification** | None (uses existing diff) | `ClassifyChanges(diff, oldTree, newTree)` returns `{Behavioral, Structural, RuntimeDrift, MetadataOnly}` based on which edge-type roots changed. | 1h |
+| # | Item | Status | Benchmarked |
+|---|------|--------|-------------|
+| P1 | **Community assignment persistence** | **Shipped**. Save/Load via notes table, BatchPutNotes (21x vs individual inserts). | `bench/community-detection/` (E2E) |
+| P2 | **Context pack persistence** | Pending. Store ContextBlocks by PackRoot in notes. Cross-session replay. | |
+| P3 | **Incremental Louvain e2e** | **Shipped**. Daemon wired: diff -> ChangedPackages -> load previous -> DetectIncremental -> save. 11ms full cycle. | `bench/community-detection/` (E2E) |
+| P4 | **Incremental HITS/BM25** | Pending (needs F3). Scope FTS rebuild to changed packages. | |
+| P5 | **Context pack deduplication** | Pending (needs P2). Agents reference PackRoot instead of resending. | |
+| P6 | **Context pack comparison** | Pending (needs P2). Diff two PackRoots. | |
+| P7 | **Semantic change classification** | Pending. `ClassifyChanges` returns Behavioral/Structural/RuntimeDrift/MetadataOnly. | |
 
-Total: ~27h. Foundation (F1-F3) is ~11h. Features (P1-P7) are ~16h.
+Remaining: F3 + P2 + P4 + P5 + P6 + P7 (~12h). F3 and P2 are independent and unblocked.
 
 ### Phase 4: Proofs, Sync, Bisection
 
