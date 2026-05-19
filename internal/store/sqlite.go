@@ -1175,6 +1175,34 @@ func splitCamelCase(s string) []string {
 	return result
 }
 
+// ----- Batch notes -----
+
+// BatchPutNotes upserts multiple notes in a single transaction.
+// Significantly faster than individual PutNote calls for bulk operations
+// like persisting community assignments.
+func (s *SQLiteStore) BatchPutNotes(ctx context.Context, notes []types.Note) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	stmt, err := tx.PrepareContext(ctx,
+		`INSERT OR REPLACE INTO graph_notes (object_hash, key, value, updated_at)
+		 VALUES (?, ?, ?, ?)`)
+	if err != nil {
+		return fmt.Errorf("prepare: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, n := range notes {
+		if _, err := stmt.ExecContext(ctx, n.ObjectHash[:], n.Key, n.Value, n.UpdatedAt); err != nil {
+			return fmt.Errorf("exec note %s/%s: %w", n.ObjectHash, n.Key, err)
+		}
+	}
+	return tx.Commit()
+}
+
 // ----- Notes methods -----
 
 // PutNote upserts a note (object_hash + key is the composite key).
