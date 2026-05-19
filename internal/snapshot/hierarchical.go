@@ -141,10 +141,39 @@ type HierarchicalDiff struct {
 
 	// RootChanged is true if the overall repo root differs.
 	RootChanged bool
+
+	// Truncated is true when the diff was cut short by a MaxChanges cap.
+	Truncated bool
 }
 
-// DiffHierarchical compares two hierarchical trees at each level.
+// DiffOptions controls the behaviour of DiffHierarchicalTreesWithOptions.
+type DiffOptions struct {
+	// PackageFilter restricts the diff to the listed package paths. When
+	// empty, all packages are compared (default behaviour).
+	PackageFilter []string
+
+	// MaxChanges caps the total number of changed/added/removed packages
+	// reported. Once the cap is reached the diff is marked Truncated and no
+	// further packages are added. 0 means no cap.
+	MaxChanges int
+}
+
+// DiffHierarchicalTrees compares two hierarchical trees at each level.
+// It is a convenience wrapper around DiffHierarchicalTreesWithOptions with
+// nil options (no filter, no cap).
 func DiffHierarchicalTrees(oldTree, newTree *HierarchicalTree) *HierarchicalDiff {
+	return DiffHierarchicalTreesWithOptions(oldTree, newTree, nil)
+}
+
+// DiffHierarchicalTreesWithOptions compares two hierarchical trees with
+// optional package filtering and a maximum-changes cap.
+//
+// When opts.PackageFilter is non-empty, only the listed packages are
+// examined; the resulting diff reflects only those packages. When
+// opts.MaxChanges is positive, the diff stops accumulating entries once
+// that many total changed/added/removed packages have been recorded and
+// sets HierarchicalDiff.Truncated = true.
+func DiffHierarchicalTreesWithOptions(oldTree, newTree *HierarchicalTree, opts *DiffOptions) *HierarchicalDiff {
 	diff := &HierarchicalDiff{
 		RootChanged: oldTree.Root != newTree.Root,
 	}
@@ -153,18 +182,59 @@ func DiffHierarchicalTrees(oldTree, newTree *HierarchicalTree) *HierarchicalDiff
 		return diff
 	}
 
+	// Build package filter set for O(1) lookup.
+	var filterSet map[string]bool
+	if opts != nil && len(opts.PackageFilter) > 0 {
+		filterSet = make(map[string]bool, len(opts.PackageFilter))
+		for _, p := range opts.PackageFilter {
+			filterSet[p] = true
+		}
+	}
+
+	maxChanges := 0
+	if opts != nil {
+		maxChanges = opts.MaxChanges
+	}
+
+	// totalChanges tracks entries across all three change lists for cap enforcement.
+	totalChanges := 0
+
+	// reachedCap returns true and marks Truncated when the cap has been hit.
+	reachedCap := func() bool {
+		if maxChanges > 0 && totalChanges >= maxChanges {
+			diff.Truncated = true
+			return true
+		}
+		return false
+	}
+
 	// Compare package roots.
 	for pkg, newRoot := range newTree.PackageRoots {
+		if filterSet != nil && !filterSet[pkg] {
+			continue
+		}
+		if reachedCap() {
+			break
+		}
 		oldRoot, exists := oldTree.PackageRoots[pkg]
 		if !exists {
 			diff.AddedPackages = append(diff.AddedPackages, pkg)
+			totalChanges++
 		} else if oldRoot != newRoot {
 			diff.ChangedPackages = append(diff.ChangedPackages, pkg)
+			totalChanges++
 		}
 	}
 	for pkg := range oldTree.PackageRoots {
+		if filterSet != nil && !filterSet[pkg] {
+			continue
+		}
+		if reachedCap() {
+			break
+		}
 		if _, exists := newTree.PackageRoots[pkg]; !exists {
 			diff.RemovedPackages = append(diff.RemovedPackages, pkg)
+			totalChanges++
 		}
 	}
 

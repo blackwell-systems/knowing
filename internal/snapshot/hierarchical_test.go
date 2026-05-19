@@ -264,3 +264,91 @@ func TestContextPackRoot_Deterministic(t *testing.T) {
 		t.Error("different tasks should produce different roots")
 	}
 }
+
+func TestDiffHierarchicalTreesWithOptions_PackageFilter(t *testing.T) {
+	old := []EdgeInput{
+		makeEdge("store", "calls", "e1"),
+		makeEdge("mcp", "calls", "e2"),
+		makeEdge("indexer", "calls", "e3"),
+	}
+	// Change mcp and indexer packages, leave store unchanged.
+	new := []EdgeInput{
+		makeEdge("store", "calls", "e1"),
+		makeEdge("mcp", "calls", "e2-changed"),
+		makeEdge("indexer", "calls", "e3-changed"),
+	}
+
+	oldTree := BuildHierarchicalTree(old)
+	newTree := BuildHierarchicalTree(new)
+
+	// Filter to only "store" and "mcp"; indexer changes should be invisible.
+	opts := &DiffOptions{PackageFilter: []string{"store", "mcp"}}
+	diff := DiffHierarchicalTreesWithOptions(oldTree, newTree, opts)
+
+	if !diff.RootChanged {
+		t.Error("roots should differ")
+	}
+	if len(diff.ChangedPackages) != 1 || diff.ChangedPackages[0] != "mcp" {
+		t.Errorf("expected changed=[mcp], got %v", diff.ChangedPackages)
+	}
+	for _, pkg := range diff.ChangedPackages {
+		if pkg == "indexer" {
+			t.Error("indexer should be excluded by package filter")
+		}
+	}
+	if diff.Truncated {
+		t.Error("should not be truncated when cap is not set")
+	}
+}
+
+func TestDiffHierarchicalTreesWithOptions_MaxChanges(t *testing.T) {
+	old := []EdgeInput{
+		makeEdge("a", "calls", "e1"),
+		makeEdge("b", "calls", "e2"),
+		makeEdge("c", "calls", "e3"),
+		makeEdge("d", "calls", "e4"),
+	}
+	// All four packages change.
+	new := []EdgeInput{
+		makeEdge("a", "calls", "e1-x"),
+		makeEdge("b", "calls", "e2-x"),
+		makeEdge("c", "calls", "e3-x"),
+		makeEdge("d", "calls", "e4-x"),
+	}
+
+	oldTree := BuildHierarchicalTree(old)
+	newTree := BuildHierarchicalTree(new)
+
+	opts := &DiffOptions{MaxChanges: 2}
+	diff := DiffHierarchicalTreesWithOptions(oldTree, newTree, opts)
+
+	totalReported := len(diff.ChangedPackages) + len(diff.AddedPackages) + len(diff.RemovedPackages)
+	if totalReported > 2 {
+		t.Errorf("expected at most 2 changes reported, got %d", totalReported)
+	}
+	if !diff.Truncated {
+		t.Error("diff should be marked Truncated when MaxChanges is hit")
+	}
+}
+
+func TestDiffHierarchicalTreesWithOptions_NilOpts(t *testing.T) {
+	// nil opts should behave identically to DiffHierarchicalTrees.
+	old := []EdgeInput{makeEdge("a", "calls", "e1")}
+	new := []EdgeInput{makeEdge("a", "calls", "e2")}
+
+	oldTree := BuildHierarchicalTree(old)
+	newTree := BuildHierarchicalTree(new)
+
+	d1 := DiffHierarchicalTrees(oldTree, newTree)
+	d2 := DiffHierarchicalTreesWithOptions(oldTree, newTree, nil)
+
+	if d1.RootChanged != d2.RootChanged {
+		t.Error("RootChanged should match between wrapper and direct call")
+	}
+	if len(d1.ChangedPackages) != len(d2.ChangedPackages) {
+		t.Errorf("ChangedPackages length mismatch: %d vs %d", len(d1.ChangedPackages), len(d2.ChangedPackages))
+	}
+	if d2.Truncated {
+		t.Error("should not be truncated with nil opts")
+	}
+}
