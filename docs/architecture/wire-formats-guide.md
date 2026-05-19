@@ -273,6 +273,61 @@ Use JSON when: debugging, piping to `jq`, integrating with tools that expect JSO
 
 ---
 
+## TOON (Token-Oriented Object Notation)
+
+Structured text format using the open [TOON v3.0 spec](https://github.com/toon-format/spec). TOON sits between JSON (maximum compatibility, verbose) and GCF (maximum compression, custom). Its defining feature is tabular encoding: uniform object collections are written as a header row plus data rows, a pattern every LLM recognizes from markdown tables.
+
+**Implementation:** `internal/wire/toon.go` uses the official `toon-format/toon-go` library.
+
+### Format Characteristics
+
+- **Token efficiency:** 39% of JSON token cost at the same payload size. Approximately 2.7x more tokens than GCF.
+- **LLM familiarity:** Medium-high. The tabular header-row-plus-data-rows structure is a pattern every model has seen. No custom ID references.
+- **Human readability:** Yes. The format is structured text, legible without tooling.
+- **Open standard:** Interoperable with any consumer that supports TOON, not just knowing tools.
+
+### When to Use TOON
+
+- When feeding context to external tools or agents that support TOON but not GCF.
+- When sharing context outside knowing's ecosystem and you need better compression than JSON without committing to a knowing-specific format.
+- As the default format for agent workflows where GCF comprehension has not been verified. TOON's tabular structure is safe; GCF's integer ID references are novel to most models.
+
+### Example
+
+A TOON-encoded payload for the same 10-symbol, 8-edge context used in the GCF example:
+
+```
+tool: context_for_task
+tokens_used: 1847
+token_budget: 5000
+symbols:
+  name | kind | score | signature | provenance | distance
+  github.com/blackwell-systems/knowing/internal/mcp.requireHash | fn | 0.78 | func requireHash(args map[string]any, key string) (types.Hash, error) | lsp_resolved | 0
+  github.com/blackwell-systems/knowing/internal/mcp.Server.registerTools | method | 0.74 | func (s *Server) registerTools() | lsp_resolved | 0
+  ...
+edges:
+  source | target | type
+  github.com/blackwell-systems/knowing/internal/mcp.NewServer | github.com/blackwell-systems/knowing/internal/mcp.requireHash | calls
+  ...
+```
+
+The tabular layout eliminates field name repetition for each row (same saving mechanism as TSV), while the TOON spec adds nested object support and a standardized schema declaration.
+
+### Format Comprehension Eval Results
+
+From `eval/TestFormatComprehension` (6 fixture tasks, 5000 token budget):
+
+| Format | Avg tokens | vs JSON |
+|--------|-----------|---------|
+| JSON | 1,818 | baseline |
+| XML | 1,818 | 100% |
+| TOON | 707 | **39%** |
+| GCF | 265 | **15%** |
+
+TOON at 39% of JSON token cost is the recommended default for production agent workflows until GCF comprehension is validated by a live LLM eval. See the [Format Comprehension Eval](#format-comprehension-eval) section below for per-fixture results.
+
+---
+
 ## Benchmark Comparison
 
 All three codecs encoding the same 10-symbol, 8-edge payload:
