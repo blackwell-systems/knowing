@@ -28,8 +28,8 @@ knowing is an intelligence versioning system: a content-addressed graph where ev
 | What it versions | File contents | Code relationships and their meaning |
 | Unit of storage | file blob | node (symbol) + edge (relationship) + provenance + confidence |
 | Identity model | `sha256(file content)` | `sha256(repo + package + name + kind)` for nodes, `sha256(source + target + type + provenance)` for edges |
-| Snapshot | tree hash of file blobs | Merkle root of relationship hashes |
-| What a diff tells you | Which lines changed | Which relationships changed, what broke, what's new, what went stale |
+| Snapshot | tree hash of file blobs | Hierarchical Merkle root: repo -> package -> edge-type -> leaf |
+| What a diff tells you | Which lines changed | Which packages changed, which edge types changed, what broke, what's new |
 | What history tells you | What the code looked like | What the codebase understood about itself at each point in time |
 | Incremental update | changed file = new blob | changed file = stale edges, surgical re-extraction |
 | Integrity | verify tree from root hash | verify intelligence snapshot from Merkle root |
@@ -73,7 +73,9 @@ Most code-intelligence tools answer one slice of the problem:
 
 knowing's unit of record is the relationship itself: `source -edge_type-> target`, with confidence and provenance. The intelligence is versioned, so you can ask "what did we understand about the service graph on Tuesday?" and get an answer, not "what did the files look like on Tuesday?"
 
-knowing is the only code-intelligence tool where every node, edge, and snapshot is content-addressed (`sha256`). Other tools use auto-increment IDs, UUIDs, or ephemeral in-memory graphs that are regenerated from scratch each session. Content-addressing means staleness is structurally detectable (changed file = new hash = stale edges are known without scanning), snapshots are verifiable from a single Merkle root, and query results keyed to a snapshot hash are valid forever. Intelligence diffs ("3 new cross-service calls appeared, 2 routes went dead, blast radius of AuthMiddleware grew 40%") are computed from hash set differences, not full graph scans.
+knowing is the only code-intelligence tool where every node, edge, and snapshot is content-addressed (`sha256`). Other tools use auto-increment IDs, UUIDs, or ephemeral in-memory graphs that are regenerated from scratch each session. Content-addressing means staleness is structurally detectable (changed file = new hash = stale edges are known without scanning), snapshots are verifiable from a single Merkle root, and query results keyed to a snapshot hash are valid forever.
+
+Snapshots are structured as hierarchical Merkle trees: repo root -> package roots -> edge-type roots -> edge leaves. This means "which packages changed?" is an O(packages) root comparison instead of an O(edges) full scan (benchmarked at 517x faster for 100K-edge graphs). "Did call edges change?" is a single root lookup. Subgraph cache keys are computed from package roots, so queries against unchanged code return cached results instantly. Intelligence diffs ("3 new cross-service calls appeared in `internal/mcp`, 2 routes went dead in `cmd/`, blast radius of AuthMiddleware grew 40%") are scoped to the packages that actually changed.
 
 ## Proof Points
 
@@ -87,6 +89,7 @@ The repository includes benchmark harnesses that regenerate their own findings f
 | Test scope | 92.9% precision, 80.0% recall | Call-graph BFS selects affected test packages with few false positives |
 | Feedback loop | 16% -> 36% precision after one feedback round | Relevance improves as agents mark useful symbols |
 | Edge accuracy | 53.6% import confirmation, 32.2% miss rate | Two-tier extraction provides meaningful fast signal |
+| Hierarchical Merkle diff | 517x faster at 100K edges (12us vs 6.2ms) | Package-level root comparison replaces full edge scan |
 
 Run the suites:
 
