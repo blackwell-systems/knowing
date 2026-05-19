@@ -152,13 +152,16 @@ func cmdProve(args []string) error {
 		return fmt.Errorf("marshaling proof: %w", err)
 	}
 
+	totalSteps := len(proof.EdgeToEdgeTypeRoot) + len(proof.EdgeTypeToPackageRoot) + len(proof.PackageToRepoRoot)
+
 	if *outFile != "" {
 		if err := os.WriteFile(*outFile, data, 0644); err != nil {
 			return fmt.Errorf("writing proof to %s: %w", *outFile, err)
 		}
-		fmt.Fprintf(os.Stderr, "Proof written to %s (%d bytes, %d steps)\n",
-			*outFile, len(data),
-			len(proof.EdgeToEdgeTypeRoot)+len(proof.EdgeTypeToPackageRoot)+len(proof.PackageToRepoRoot))
+		fmt.Fprintf(os.Stderr, "\n  ✓ relationship found\n\n")
+		fmt.Fprintf(os.Stderr, "  proof:   %s\n", *outFile)
+		fmt.Fprintf(os.Stderr, "  size:    %d bytes (%d cryptographic steps)\n", len(data), totalSteps)
+		fmt.Fprintf(os.Stderr, "  verify:  knowing verify %s\n\n", *outFile)
 	} else {
 		fmt.Println(string(data))
 	}
