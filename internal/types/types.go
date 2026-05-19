@@ -156,19 +156,47 @@ type EdgeProvenance struct {
 // not included in the hash computation. Node identity depends on
 // (repo, package, name, kind) only.
 //
-// The hash formula is: SHA-256(repoURL + NUL + packagePath + NUL + symbolName + NUL + symbolKind).
+// The hash formula is: SHA-256("node" + NUL + repoURL + NUL + packagePath + NUL + symbolName + NUL + symbolKind).
+// The "node\0" domain prefix distinguishes node hashes from edge, snapshot,
+// and Merkle interior node hashes, preventing cross-domain hash collisions.
 // NUL bytes are used as field separators to prevent ambiguous concatenation
 // (e.g., "a/b" + "c" vs "a" + "b/c").
+//
+// WARNING: This formula changed to include the "node\0" prefix. Existing
+// databases must be re-indexed.
 func ComputeNodeHash(repoURL, packagePath string, _ Hash, symbolName, symbolKind string) Hash {
-	data := fmt.Sprintf("%s\x00%s\x00%s\x00%s", repoURL, packagePath, symbolName, symbolKind)
+	data := fmt.Sprintf("node\x00%s\x00%s\x00%s\x00%s", repoURL, packagePath, symbolName, symbolKind)
 	return NewHash([]byte(data))
 }
 
 // ComputeEdgeHash computes the content-addressed hash for an edge.
-// The hash formula is: SHA-256(sourceHash + NUL + targetHash + NUL + edgeType + NUL + provenance).
+// The hash formula is: SHA-256("edge" + NUL + sourceHash + NUL + targetHash + NUL + edgeType + NUL + provenance).
+// The "edge\0" domain prefix distinguishes edge hashes from node, snapshot,
+// and Merkle interior node hashes, preventing cross-domain hash collisions.
 // Because provenance is included, upgrading an edge from "ast_inferred" to
 // "lsp_resolved" produces a new hash (the old edge must be deleted first).
+//
+// WARNING: This formula changed to include the "edge\0" prefix. Existing
+// databases must be re-indexed.
 func ComputeEdgeHash(sourceHash, targetHash Hash, edgeType, provenanceJSON string) Hash {
-	data := fmt.Sprintf("%s\x00%s\x00%s\x00%s", sourceHash, targetHash, edgeType, provenanceJSON)
+	data := fmt.Sprintf("edge\x00%s\x00%s\x00%s\x00%s", sourceHash, targetHash, edgeType, provenanceJSON)
 	return NewHash([]byte(data))
+}
+
+// ComputeSnapshotHash wraps a Merkle root hash with a "snapshot" domain
+// prefix, distinguishing snapshot identity from raw Merkle interior nodes.
+func ComputeSnapshotHash(merkleRoot Hash) Hash {
+	data := append([]byte("snapshot\x00"), merkleRoot[:]...)
+	return NewHash(data)
+}
+
+// ComputeMerkleNodeHash computes a Merkle interior node hash with a "merkle"
+// domain prefix. This distinguishes interior tree nodes from leaf hashes
+// and snapshot root hashes.
+func ComputeMerkleNodeHash(left, right Hash) Hash {
+	var buf [71]byte
+	copy(buf[:7], "merkle\x00")
+	copy(buf[7:39], left[:])
+	copy(buf[39:71], right[:])
+	return NewHash(buf[:])
 }

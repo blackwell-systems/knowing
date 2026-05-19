@@ -2,7 +2,6 @@ package snapshot
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"sort"
 
 	"github.com/blackwell-systems/knowing/internal/types"
@@ -60,15 +59,13 @@ func computeMerkleRoot(hashes []types.Hash) types.Hash {
 	return computeMerkleRoot(nextLevel)
 }
 
-// combineHashes produces a parent node hash from two child hashes by
-// concatenating them (left || right, 64 bytes total) and computing SHA-256.
-// The concatenation is order-dependent, so swapping left and right produces
-// a different parent hash, preserving tree structure.
+// combineHashes produces a parent node hash from two child hashes using
+// types.ComputeMerkleNodeHash, which prefixes the concatenation with "merkle\0"
+// to distinguish interior tree hashes from leaf hashes and snapshot roots.
+// The combination is order-dependent: swapping left and right produces a
+// different parent hash, preserving tree structure.
 func combineHashes(left, right types.Hash) types.Hash {
-	var data [64]byte
-	copy(data[:32], left[:])
-	copy(data[32:], right[:])
-	return sha256.Sum256(data[:])
+	return types.ComputeMerkleNodeHash(left, right)
 }
 
 // DiffMerkle returns the leaf hashes that differ between two Merkle trees.
