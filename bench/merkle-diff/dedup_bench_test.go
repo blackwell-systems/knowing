@@ -1,6 +1,9 @@
 // Benchmarks context pack deduplication (Phase 3 P5):
-// measures token savings when agent passes pack_root and gets "unchanged"
+// measures byte savings when agent passes pack_root and gets "unchanged"
 // instead of the full context payload.
+//
+// Uses the real wire encoder to measure actual GCF output size (what agents
+// receive), and compares against the known "unchanged" response.
 //
 // Run: GOWORK=off go test ./bench/merkle-diff/ -v -count=1 -run TestContextPackDedup -timeout 120s
 package merkle_diff
@@ -10,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	knowingctx "github.com/blackwell-systems/knowing/internal/context"
@@ -41,10 +45,11 @@ func TestContextPackDedup(t *testing.T) {
 	idx.Register(gotsextractor.NewGoTreeSitterExtractor())
 
 	ctx := context.Background()
-	_, err = idx.IndexRepo(ctx, "github.com/blackwell-systems/knowing", repoPath, "HEAD")
+	snap, err := idx.IndexRepo(ctx, "github.com/blackwell-systems/knowing", repoPath, "HEAD")
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Logf("Indexed: %d nodes, %d edges", snap.NodeCount, snap.EdgeCount)
 
 	tasks := []struct {
 		name   string
@@ -56,70 +61,70 @@ func TestContextPackDedup(t *testing.T) {
 		{"large", "implement incremental community detection with Merkle tree change tracking", 50000},
 	}
 
-	unchangedResponse := "unchanged pack_root=XXXX symbols=N\nContext is identical to your prior request. No retransmission needed."
-	unchangedTokens := len(unchangedResponse) / 4 // rough token estimate
-
 	t.Logf("=== Context Pack Deduplication (P5) ===")
 	t.Logf("")
 
-	var totalFullTokens, totalSaved int
+	type dedupResult struct {
+		name           string
+		symbols        int
+		fullBytes      int
+		unchangedBytes int
+		savingsPct     float64
+		packRoot       string
+	}
+	var results []dedupResult
 
 	for _, task := range tasks {
 		engine := knowingctx.NewContextEngine(st)
 		block, err := engine.ForTask(ctx, knowingctx.TaskOptions{
 			TaskDescription: task.desc,
 			TokenBudget:     task.budget,
-			Format:          "xml",
 		})
 		if err != nil {
 			t.Fatalf("ForTask(%s): %v", task.name, err)
 		}
 
-		// Encode to GCF to measure actual token cost.
+		// Encode with the real wire encoder (what agents receive).
 		payload, err := wire.FromContextBlock(ctx, block, "context_for_task", st)
 		if err != nil {
-			t.Fatalf("FromContextBlock: %v", err)
+			t.Fatalf("FromContextBlock(%s): %v", task.name, err)
 		}
 		gcfOutput := wire.Encode(payload)
-		fullTokens := len(gcfOutput) / 4 // rough token estimate (4 chars per token)
 		fullBytes := len(gcfOutput)
 
-		saved := fullTokens - unchangedTokens
-		savingsPct := float64(saved) / float64(fullTokens) * 100
+		// The "unchanged" response is what the MCP handler returns on dedup hit.
+		unchangedResponse := fmt.Sprintf(
+			"unchanged pack_root=%s symbols=%d\nContext is identical to your prior request. No retransmission needed.",
+			block.PackRoot, len(block.Symbols))
+		unchangedBytes := len(unchangedResponse)
+
+		savingsPct := float64(fullBytes-unchangedBytes) / float64(fullBytes) * 100
+
+		results = append(results, dedupResult{
+			name:           task.name,
+			symbols:        len(block.Symbols),
+			fullBytes:      fullBytes,
+			unchangedBytes: unchangedBytes,
+			savingsPct:     savingsPct,
+			packRoot:       block.PackRoot.String(),
+		})
 
 		t.Logf("Task %q (%s, budget=%d):", task.desc, task.name, task.budget)
 		t.Logf("  Symbols: %d, PackRoot: %s", len(block.Symbols), block.PackRoot)
-		t.Logf("  Full response: %d bytes (~%d tokens)", fullBytes, fullTokens)
-		t.Logf("  Unchanged response: %d bytes (~%d tokens)", len(unchangedResponse), unchangedTokens)
-		t.Logf("  Savings per dedup: %d tokens (%.0f%%)", saved, savingsPct)
+		t.Logf("  Full GCF response:  %d bytes", fullBytes)
+		t.Logf("  Unchanged response: %d bytes", unchangedBytes)
+		t.Logf("  Savings: %.1f%%", savingsPct)
 		t.Logf("")
-
-		totalFullTokens += fullTokens
-		totalSaved += saved
 	}
 
-	t.Logf("=== Summary ===")
-	t.Logf("Total full tokens (3 tasks): %d", totalFullTokens)
-	t.Logf("Total saved by dedup:        %d tokens", totalSaved)
-	t.Logf("Unchanged response cost:     ~%d tokens (fixed)", unchangedTokens)
-
-	// Performance contract: dedup should save at least 90% of tokens.
-	for _, task := range tasks {
-		engine := knowingctx.NewContextEngine(st)
-		block, _ := engine.ForTask(ctx, knowingctx.TaskOptions{
-			TaskDescription: task.desc,
-			TokenBudget:     task.budget,
-		})
-		payload, _ := wire.FromContextBlock(ctx, block, "context_for_task", st)
-		gcf := wire.Encode(payload)
-		fullTokens := len(gcf) / 4
-		savingsPct := float64(fullTokens-unchangedTokens) / float64(fullTokens) * 100
-		if savingsPct < 90 {
-			t.Errorf("task %q: dedup saves only %.0f%% (expected >90%%)", task.desc, savingsPct)
+	// --- Performance contracts ---
+	for _, r := range results {
+		if r.savingsPct < 90 {
+			t.Errorf("task %q: dedup saves only %.1f%% (contract: >90%%)", r.name, r.savingsPct)
 		}
 	}
 
-	// Verify PackRoot determinism: same task twice = same PackRoot.
+	// --- PackRoot determinism: same task, two independent engines ---
 	engine1 := knowingctx.NewContextEngine(st)
 	engine2 := knowingctx.NewContextEngine(st)
 	b1, _ := engine1.ForTask(ctx, knowingctx.TaskOptions{TaskDescription: "refactor auth", TokenBudget: 5000})
@@ -129,7 +134,26 @@ func TestContextPackDedup(t *testing.T) {
 	}
 	t.Logf("PackRoot determinism: verified (%s)", b1.PackRoot)
 
-	// Measure latency: cached ForTask (which dedup hits) vs cold.
+	// --- Wire format: PackRoot in GCF header ---
+	payload, _ := wire.FromContextBlock(ctx, b1, "context_for_task", st)
+	gcf := wire.Encode(payload)
+	if !strings.Contains(gcf, "pack_root="+b1.PackRoot.String()) {
+		t.Error("PackRoot missing from GCF header")
+	}
+	t.Logf("GCF header pack_root: verified")
+
+	// --- Wire format: PackRoot in JSON ---
+	jsonOutput, err := wire.EncodeWith("json", payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(jsonOutput, `"pack_root"`) {
+		t.Errorf("PackRoot missing from JSON output (first 200 chars): %s", jsonOutput[:min(200, len(jsonOutput))])
+	} else {
+		t.Logf("JSON pack_root field: verified")
+	}
+
+	// --- Latency: cold vs persistent cache ---
 	statsCold := measure(5, 1, func() {
 		e := knowingctx.NewContextEngine(st)
 		e.ForTask(ctx, knowingctx.TaskOptions{
@@ -137,9 +161,9 @@ func TestContextPackDedup(t *testing.T) {
 			TokenBudget:     50000,
 		})
 	})
-	t.Logf("Cold ForTask (no cache):  %s", statsCold)
+	t.Logf("Cold ForTask:         %s", statsCold)
 
-	// Warm the persistent cache, then measure with fresh engine.
+	// Warm persistent cache.
 	warmEngine := knowingctx.NewContextEngine(st)
 	warmEngine.ForTask(ctx, knowingctx.TaskOptions{
 		TaskDescription: "incremental community detection",
@@ -152,12 +176,14 @@ func TestContextPackDedup(t *testing.T) {
 			TokenBudget:     50000,
 		})
 	})
-	t.Logf("Persistent cache ForTask: %s", statsWarm)
-	t.Logf("")
-	t.Logf("Agent workflow: first call gets full context + pack_root.")
-	t.Logf("Subsequent calls pass pack_root, get 'unchanged' (~%d tokens).", unchangedTokens)
-	t.Logf("Savings compound: %d calls/session * %d tokens saved = significant budget recovery.",
-		5, totalSaved/len(tasks))
+	t.Logf("Persistent cache hit: %s", statsWarm)
 
-	_ = fmt.Sprintf("") // keep fmt import
+	// --- Summary ---
+	t.Logf("")
+	t.Logf("=== Summary ===")
+	for _, r := range results {
+		t.Logf("  %s: %d -> %d bytes (%.0f%% saved)", r.name, r.fullBytes, r.unchangedBytes, r.savingsPct)
+	}
+	t.Logf("Agent gets full context + pack_root on first call.")
+	t.Logf("Subsequent calls with same pack_root: ~%d bytes instead of full payload.", results[0].unchangedBytes)
 }
