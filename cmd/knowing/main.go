@@ -125,6 +125,8 @@ func run(args []string) error {
 		return cmdProve(args[1:])
 	case "verify":
 		return cmdVerify(args[1:])
+	case "prove-absent":
+		return cmdProveAbsent(args[1:])
 	case "audit":
 		return cmdAudit(args[1:])
 	case "audit-diff":

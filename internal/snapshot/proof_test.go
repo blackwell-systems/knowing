@@ -152,6 +152,107 @@ func TestGenerateAndVerifyProof_ManyEdges(t *testing.T) {
 	}
 }
 
+func TestGenerateAbsenceProof_EdgeNotInTree(t *testing.T) {
+	edges := []EdgeInput{
+		{EdgeHash: h("e1"), PackagePath: "pkg/a", EdgeType: "calls"},
+		{EdgeHash: h("e2"), PackagePath: "pkg/a", EdgeType: "calls"},
+		{EdgeHash: h("e3"), PackagePath: "pkg/a", EdgeType: "calls"},
+	}
+	tree := BuildHierarchicalTree(edges)
+
+	// Prove that a non-existent edge is absent.
+	missing := h("nonexistent")
+	proof, err := GenerateAbsenceProof(tree, missing, "pkg/a", "calls", edges)
+	if err != nil {
+		t.Fatalf("GenerateAbsenceProof: %v", err)
+	}
+	if !VerifyAbsenceProof(proof) {
+		t.Error("absence proof failed verification")
+	}
+	if proof.LeftNeighbor == nil && proof.RightNeighbor == nil {
+		t.Error("expected at least one neighbor")
+	}
+}
+
+func TestGenerateAbsenceProof_EdgeExists(t *testing.T) {
+	edges := []EdgeInput{
+		{EdgeHash: h("e1"), PackagePath: "pkg/a", EdgeType: "calls"},
+	}
+	tree := BuildHierarchicalTree(edges)
+
+	_, err := GenerateAbsenceProof(tree, h("e1"), "pkg/a", "calls", edges)
+	if err == nil {
+		t.Error("expected error when proving absence of existing edge")
+	}
+}
+
+func TestGenerateAbsenceProof_PackageNotInTree(t *testing.T) {
+	edges := []EdgeInput{
+		{EdgeHash: h("e1"), PackagePath: "pkg/a", EdgeType: "calls"},
+	}
+	tree := BuildHierarchicalTree(edges)
+
+	// Package doesn't exist: trivial absence.
+	proof, err := GenerateAbsenceProof(tree, h("missing"), "pkg/nonexistent", "calls", edges)
+	if err != nil {
+		t.Fatalf("GenerateAbsenceProof: %v", err)
+	}
+	if !VerifyAbsenceProof(proof) {
+		t.Error("trivial absence proof failed verification")
+	}
+	// No neighbors needed for trivial proof.
+	if proof.LeftNeighbor != nil || proof.RightNeighbor != nil {
+		t.Error("trivial proof should have no neighbors")
+	}
+}
+
+func TestGenerateAbsenceProof_ManyEdges(t *testing.T) {
+	var edges []EdgeInput
+	for i := 0; i < 50; i++ {
+		edges = append(edges, EdgeInput{
+			EdgeHash:    types.NewHash([]byte{byte(i)}),
+			PackagePath: "pkg/a",
+			EdgeType:    "calls",
+		})
+	}
+	tree := BuildHierarchicalTree(edges)
+
+	// Pick a hash that's NOT in the set.
+	missing := types.NewHash([]byte("definitely-not-in-set"))
+	proof, err := GenerateAbsenceProof(tree, missing, "pkg/a", "calls", edges)
+	if err != nil {
+		t.Fatalf("GenerateAbsenceProof: %v", err)
+	}
+	if !VerifyAbsenceProof(proof) {
+		t.Error("absence proof for 50-edge tree failed verification")
+	}
+}
+
+func TestVerifyAbsenceProof_TamperedNeighbor(t *testing.T) {
+	edges := []EdgeInput{
+		{EdgeHash: h("e1"), PackagePath: "pkg/a", EdgeType: "calls"},
+		{EdgeHash: h("e2"), PackagePath: "pkg/a", EdgeType: "calls"},
+		{EdgeHash: h("e3"), PackagePath: "pkg/a", EdgeType: "calls"},
+	}
+	tree := BuildHierarchicalTree(edges)
+
+	missing := h("nonexistent")
+	proof, err := GenerateAbsenceProof(tree, missing, "pkg/a", "calls", edges)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Tamper: swap the missing hash to equal a neighbor, breaking the ordering invariant.
+	if proof.LeftNeighbor != nil {
+		proof.MissingHash = *proof.LeftNeighbor // missing == left, violates left < missing
+	} else if proof.RightNeighbor != nil {
+		proof.MissingHash = *proof.RightNeighbor // missing == right, violates missing < right
+	}
+	if VerifyAbsenceProof(proof) {
+		t.Error("tampered absence proof (ordering violated) should fail verification")
+	}
+}
+
 func TestProofSize(t *testing.T) {
 	// Verify proof is logarithmic: 50 edges should need O(log N) steps per level.
 	var edges []EdgeInput

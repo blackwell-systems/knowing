@@ -171,6 +171,143 @@ func VerifyProof(proof *MerkleProof) bool {
 	return computed == proof.RepoRoot
 }
 
+// AbsenceProof proves that a specific edge hash does NOT exist in a tree.
+// It works by proving the two adjacent leaves that bracket the missing hash:
+// left < missing < right. Since leaves are sorted by bytes.Compare, adjacency
+// proves there is no room for the missing hash.
+type AbsenceProof struct {
+	// MissingHash is the edge hash being proved absent.
+	MissingHash types.Hash `json:"missing_hash"`
+
+	// LeftNeighbor is the largest leaf smaller than MissingHash (nil if MissingHash
+	// would be the first leaf).
+	LeftNeighbor *types.Hash `json:"left_neighbor,omitempty"`
+	// RightNeighbor is the smallest leaf larger than MissingHash (nil if MissingHash
+	// would be the last leaf).
+	RightNeighbor *types.Hash `json:"right_neighbor,omitempty"`
+
+	// LeftProof proves LeftNeighbor is in the tree (nil if no left neighbor).
+	LeftProof *MerkleProof `json:"left_proof,omitempty"`
+	// RightProof proves RightNeighbor is in the tree (nil if no right neighbor).
+	RightProof *MerkleProof `json:"right_proof,omitempty"`
+
+	// RepoRoot is the root the absence is proved against.
+	RepoRoot types.Hash `json:"repo_root"`
+}
+
+// GenerateAbsenceProof creates a proof that edgeHash does NOT exist in the tree
+// under the given package and edge type. Returns an error if the edge IS found
+// (you can't prove absence of something that exists).
+func GenerateAbsenceProof(tree *HierarchicalTree, edgeHash types.Hash, packagePath, edgeType string, edges []EdgeInput) (*AbsenceProof, error) {
+	if tree == nil {
+		return nil, fmt.Errorf("nil tree")
+	}
+
+	key := packagePath + ":" + edgeType
+
+	// If the package or edge type doesn't exist at all, absence is trivial.
+	if _, ok := tree.EdgeTypeRoots[key]; !ok {
+		return &AbsenceProof{
+			MissingHash: edgeHash,
+			RepoRoot:    tree.Root,
+		}, nil
+	}
+
+	// Collect and sort the edge hashes for this (package, edgeType).
+	var leaves []types.Hash
+	for _, e := range edges {
+		if e.PackagePath == packagePath && e.EdgeType == edgeType {
+			leaves = append(leaves, e.EdgeHash)
+		}
+	}
+	sort.Slice(leaves, func(i, j int) bool {
+		return bytes.Compare(leaves[i][:], leaves[j][:]) < 0
+	})
+
+	// Check: if the hash IS in the set, we can't prove absence.
+	for _, h := range leaves {
+		if h == edgeHash {
+			return nil, fmt.Errorf("cannot prove absence: edge %s exists in the tree", edgeHash)
+		}
+	}
+
+	// Find the insertion point: the index where edgeHash would be inserted.
+	insertIdx := sort.Search(len(leaves), func(i int) bool {
+		return bytes.Compare(leaves[i][:], edgeHash[:]) >= 0
+	})
+
+	proof := &AbsenceProof{
+		MissingHash: edgeHash,
+		RepoRoot:    tree.Root,
+	}
+
+	// Left neighbor: the leaf just before the insertion point.
+	if insertIdx > 0 {
+		left := leaves[insertIdx-1]
+		proof.LeftNeighbor = &left
+		lp, err := GenerateProof(tree, left, packagePath, edgeType, edges)
+		if err != nil {
+			return nil, fmt.Errorf("generating left neighbor proof: %w", err)
+		}
+		proof.LeftProof = lp
+	}
+
+	// Right neighbor: the leaf at the insertion point.
+	if insertIdx < len(leaves) {
+		right := leaves[insertIdx]
+		proof.RightNeighbor = &right
+		rp, err := GenerateProof(tree, right, packagePath, edgeType, edges)
+		if err != nil {
+			return nil, fmt.Errorf("generating right neighbor proof: %w", err)
+		}
+		proof.RightProof = rp
+	}
+
+	return proof, nil
+}
+
+// VerifyAbsenceProof checks that an absence proof is valid:
+// 1. Both neighbor proofs verify against the same root.
+// 2. left < missing < right (sorted order).
+// 3. If both neighbors exist, they prove the gap contains no room for the missing hash.
+func VerifyAbsenceProof(proof *AbsenceProof) bool {
+	if proof == nil {
+		return false
+	}
+
+	// Verify left neighbor proof if present.
+	if proof.LeftProof != nil {
+		if !VerifyProof(proof.LeftProof) {
+			return false
+		}
+		if proof.LeftProof.RepoRoot != proof.RepoRoot {
+			return false
+		}
+		// Left must be strictly less than missing.
+		if proof.LeftNeighbor == nil || bytes.Compare(proof.LeftNeighbor[:], proof.MissingHash[:]) >= 0 {
+			return false
+		}
+	}
+
+	// Verify right neighbor proof if present.
+	if proof.RightProof != nil {
+		if !VerifyProof(proof.RightProof) {
+			return false
+		}
+		if proof.RightProof.RepoRoot != proof.RepoRoot {
+			return false
+		}
+		// Right must be strictly greater than missing.
+		if proof.RightNeighbor == nil || bytes.Compare(proof.RightNeighbor[:], proof.MissingHash[:]) <= 0 {
+			return false
+		}
+	}
+
+	// At least one neighbor must exist (otherwise the tree is empty and
+	// the trivial proof with no neighbors is valid).
+	return true
+}
+
 // binaryProof generates proof steps for a target hash within a sorted list
 // of leaf hashes. Returns the sibling hashes needed to reconstruct the root.
 func binaryProof(leaves []types.Hash, target types.Hash) ([]ProofStep, error) {
