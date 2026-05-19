@@ -191,9 +191,10 @@ func (s *SQLiteStore) PutRepo(ctx context.Context, r types.Repo) error {
 // edge_events table. These events are append-only and power snapshot diffing.
 func (s *SQLiteStore) RecordEdgeEvent(ctx context.Context, ev types.EdgeEvent) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO edge_events (edge_hash, event_type, snapshot_hash, source_commit, indexer_ver, timestamp)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO edge_events (edge_hash, event_type, snapshot_hash, source_commit, indexer_ver, timestamp, source_hash, target_hash, edge_type, confidence, provenance)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		ev.EdgeHash[:], ev.EventType, ev.SnapshotHash[:], ev.SourceCommit, ev.IndexerVer, ev.Timestamp,
+		ev.SourceHash[:], ev.TargetHash[:], ev.EdgeType, ev.Confidence, ev.Provenance,
 	)
 	return err
 }
@@ -621,11 +622,22 @@ func (s *SQLiteStore) SnapshotDiff(ctx context.Context, oldRoot, newRoot types.H
 		return nil, err
 	}
 
-	// Edges removed: events in the new snapshot that are "removed".
+	// Edges removed: read directly from edge_events (not joining to edges,
+	// because removed edges have been deleted from the edges table).
+	// Migration 013 added source_hash, target_hash, edge_type, confidence,
+	// provenance columns to edge_events. Pre-migration events have NULLs;
+	// we fall back to joining edges for those (which will return nothing
+	// for truly removed edges, matching the old broken behavior).
 	removedRows, err := s.db.QueryContext(ctx, `
-		SELECT e.edge_hash, e.source_hash, e.target_hash, e.edge_type, e.confidence, e.provenance, e.callsite_line, e.callsite_col, e.callsite_file
+		SELECT ev.edge_hash,
+		       COALESCE(ev.source_hash, e.source_hash),
+		       COALESCE(ev.target_hash, e.target_hash),
+		       COALESCE(ev.edge_type, e.edge_type, ''),
+		       COALESCE(ev.confidence, e.confidence, 1.0),
+		       COALESCE(ev.provenance, e.provenance, 'unknown'),
+		       0, 0, ''
 		FROM edge_events ev
-		JOIN edges e ON e.edge_hash = ev.edge_hash
+		LEFT JOIN edges e ON e.edge_hash = ev.edge_hash
 		WHERE ev.snapshot_hash = ? AND ev.event_type = 'removed'`,
 		newRoot[:],
 	)

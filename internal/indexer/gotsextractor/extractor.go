@@ -147,6 +147,27 @@ func (e *GoTreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractO
 		}
 	}
 
+	// Create a synthetic file node for import edge sources. Import edges use
+	// a file-level node as their source (since imports belong to the file, not
+	// a function). This node must be stored so the edge's source is not dangling.
+	fileNodeHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, filepath.Base(opts.FilePath), "file")
+	hasImportEdges := false
+	for _, e := range edges {
+		if e.EdgeType == "imports" {
+			hasImportEdges = true
+			break
+		}
+	}
+	if hasImportEdges {
+		nodes = append(nodes, types.Node{
+			NodeHash:      fileNodeHash,
+			FileHash:      opts.FileHash,
+			QualifiedName: fmt.Sprintf("%s://%s.%s", opts.RepoURL, pkgPath, filepath.Base(opts.FilePath)),
+			Kind:          "file",
+			Line:          1,
+		})
+	}
+
 	// Sort nodes by QualifiedName then Kind.
 	sort.Slice(nodes, func(i, j int) bool {
 		if nodes[i].QualifiedName != nodes[j].QualifiedName {

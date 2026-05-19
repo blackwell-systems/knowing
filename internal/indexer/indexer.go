@@ -428,7 +428,9 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 
 		now := time.Now().Unix()
 
-		// Record "removed" events for edges that were deleted and not re-added.
+		// Record "removed" events with full edge data. The edge itself has been
+		// deleted from the edges table, so the event must be self-contained:
+		// SnapshotDiff reads these columns directly without joining to edges.
 		for _, e := range removedEdges {
 			if !newEdgeSet[e.EdgeHash] {
 				_ = idx.store.RecordEdgeEvent(ctx, types.EdgeEvent{
@@ -438,11 +440,16 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 					SourceCommit: commitHash,
 					IndexerVer:   "v1",
 					Timestamp:    now,
+					SourceHash:   e.SourceHash,
+					TargetHash:   e.TargetHash,
+					EdgeType:     e.EdgeType,
+					Confidence:   e.Confidence,
+					Provenance:   e.Provenance,
 				})
 			}
 		}
 
-		// Record "added" events for new edges that were not in the removed set.
+		// Record "added" events with full edge data for consistency.
 		for _, e := range allEdges {
 			if !removedSet[e.EdgeHash] {
 				_ = idx.store.RecordEdgeEvent(ctx, types.EdgeEvent{
@@ -452,6 +459,11 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 					SourceCommit: commitHash,
 					IndexerVer:   "v1",
 					Timestamp:    now,
+					SourceHash:   e.SourceHash,
+					TargetHash:   e.TargetHash,
+					EdgeType:     e.EdgeType,
+					Confidence:   e.Confidence,
+					Provenance:   e.Provenance,
 				})
 			}
 		}

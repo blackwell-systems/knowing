@@ -165,13 +165,20 @@ type Snapshot struct {
 // recorded. These events power the SnapshotDiff query by tracking which edges
 // changed between snapshots.
 type EdgeEvent struct {
-	EventID      int64  // auto-increment primary key
-	EdgeHash     Hash   // hash of the edge that was added or removed
-	EventType    string // "added" or "removed"
-	SnapshotHash Hash   // the snapshot during which this event occurred
-	SourceCommit string // git commit that triggered the event
-	IndexerVer   string // version of the indexer that produced this event (e.g., "v1")
-	Timestamp    int64  // unix timestamp of the event
+	EventID      int64   // auto-increment primary key
+	EdgeHash     Hash    // hash of the edge that was added or removed
+	EventType    string  // "added" or "removed"
+	SnapshotHash Hash    // the snapshot during which this event occurred
+	SourceCommit string  // git commit that triggered the event
+	IndexerVer   string  // version of the indexer that produced this event (e.g., "v1")
+	Timestamp    int64   // unix timestamp of the event
+	// Full edge data stored so removed-edge diffs work without joining
+	// back to the edges table (removed edges are deleted from edges).
+	SourceHash   Hash    // source node hash (nullable for pre-migration events)
+	TargetHash   Hash    // target node hash
+	EdgeType     string  // calls, imports, etc.
+	Confidence   float64 // confidence score
+	Provenance   string  // provenance tier
 }
 
 // EdgeProvenance captures the full derivation history of an edge.
