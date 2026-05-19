@@ -90,6 +90,7 @@ The repository includes benchmark harnesses that regenerate their own findings f
 | Feedback loop | 16% -> 36% precision after one feedback round | Relevance improves as agents mark useful symbols |
 | Edge accuracy | 53.6% import confirmation, 32.2% miss rate | Two-tier extraction provides meaningful fast signal |
 | Hierarchical Merkle diff | 114x faster on real graph (11K edges), 517x at 100K synthetic edges; 59ns subgraph root lookups | Package-level root comparison replaces full edge scan; `DiffOptions` enables package-scoped diffs |
+| Subgraph cache | 92x faster repeat queries (170ms -> 1.85ms median); 42ns raw cache lookup; 60% hit rate in agent sessions | Queries against unchanged code skip retrieval entirely; daemon invalidation adds 5.7us per re-index |
 
 Run the suites:
 
