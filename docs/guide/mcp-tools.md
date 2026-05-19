@@ -1021,7 +1021,9 @@ Detect communities in the knowledge graph using modularity clustering. Returns d
       "size": 25,
       "top_symbols": ["store.SQLiteStore", "store.NewSQLiteStore", "store.Migrate"],
       "cohesion": 0.82,
-      "dominant_package": "store"
+      "dominant_package": "store",
+      "merkle_root": "a3f7c2...",
+      "packages": ["internal/store", "internal/store/migrations"]
     }
   ],
   "node_count": 500,
@@ -1029,12 +1031,16 @@ Detect communities in the knowledge graph using modularity clustering. Returns d
 }
 ```
 
+Each community entry now includes:
+- `merkle_root`: Merkle root computed over the packages the community spans. Two agents working on communities with disjoint `merkle_root` values operate on disjoint subtrees and cannot conflict at the Merkle level.
+- `packages`: sorted list of package paths spanned by this community.
+
 **Return format (action=for_symbol):**
 
 ```json
 {
   "symbol": "github.com/org/repo://internal/store.SQLiteStore",
-  "community": { "id": 0, "size": 25, "top_symbols": [...], "cohesion": 0.82, "dominant_package": "store" },
+  "community": { "id": 0, "size": 25, "top_symbols": [...], "cohesion": 0.82, "dominant_package": "store", "merkle_root": "a3f7c2...", "packages": ["internal/store"] },
   "neighbors": [{ "id": 1, "size": 15, ... }]
 }
 ```

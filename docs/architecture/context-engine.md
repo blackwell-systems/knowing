@@ -129,9 +129,25 @@ Before scoring, `filterNoisySymbols` removes low-signal candidates:
 3. Expand the blast radius by one hop (all callers of each node).
 4. Score, HITS-rerank, and density-pack identically to ForTask.
 
-## Subgraph Caching (Future)
+## Content-Addressed Context Packs (Phase 2, Shipped)
 
-The hierarchical Merkle tree (`internal/snapshot/hierarchical.go`) provides `SubgraphRoot`, which computes an O(1) cache key for any set of packages. This enables caching `context_for_task` results against the subgraph root of the seed set's neighborhood rather than the global snapshot root: a one-line change in an unrelated package will not invalidate a cached context pack. `ContextPackRoot` (see `docs/architecture/merkle-algorithms.md` Section 4) formalizes the full pack deduplication scheme. These are planned for Phase 2 of the Merkle algorithm implementation.
+`ContextBlock` carries a `PackRoot` field computed by `computePackRoot()` in `internal/context/context.go`. The hash is derived from the normalized task description and the sorted hashes of all selected nodes:
+
+```
+PackRoot = hash(task_normalized + sorted(selected_node_hashes))
+```
+
+This produces a deterministic, content-addressed identity for every context pack. Same task against the same graph always yields the same PackRoot. Benchmark verification: 5 queries with 2 unique tasks produced exactly 2 unique PackRoots (perfect dedup). See `bench/merkle-diff/FINDINGS-context-packs.md`.
+
+What PackRoot enables:
+
+- **Cache lookup:** a cached pack is valid as long as its PackRoot has been seen before and the underlying subgraph has not changed. Skip re-running retrieval entirely for repeated tasks.
+- **Citation by hash:** an agent can cite a PackRoot in a code review comment; the reviewer can replay the exact pack and inspect every scoring decision.
+- **Cross-session replay:** a resumed session loads the prior pack by PackRoot and picks up exactly where it left off.
+- **Pack diffing:** compare PackRoot values from two snapshots to see which symbols entered or left the retrieval set as the codebase evolved.
+- **Feedback anchoring:** feedback records can be tied to a PackRoot instead of just a symbol hash, scoping validity to the exact graph state at feedback time.
+
+The hierarchical Merkle tree (`internal/snapshot/hierarchical.go`) provides `SubgraphRoot`, which computes an O(1) cache key for any set of packages. Full subgraph caching (keying `context_for_task` against `SubgraphRoot` so that changes in unrelated packages do not invalidate the cache) is the remaining Phase 2 deliverable.
 
 ## Integration Points
 

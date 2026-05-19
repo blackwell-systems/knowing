@@ -152,11 +152,21 @@ For a typical one-file edit, only one package root changes. Community detection 
 
 ## 4. Content-Addressed Context Packs
 
-### Design
+### Shipped Implementation
+
+`ContextBlock` (returned by `context_for_task`) now carries a `PackRoot` field computed by `computePackRoot()` in `internal/context/context.go`. The shipped hash function:
+
+```
+PackRoot = hash(task_normalized + sorted(selected_node_hashes))
+```
+
+This is a subset of the full design below. Benchmark: 5 queries with 2 unique tasks produced exactly 2 unique PackRoots (perfect dedup). Community roots verified distinct per package set on live graph. See `bench/merkle-diff/FINDINGS-context-packs.md`.
+
+### Full Design
 
 A context pack is the output of `context_for_task`: the scored, packed set of symbols and edges returned to an agent. It is expensive to produce and highly reproducible given the same inputs.
 
-Define a `ContextPackRoot` that uniquely identifies a pack:
+The full `ContextPackRoot` design (target for a later iteration):
 
 ```
 ContextPackRoot = hash(
@@ -376,6 +386,10 @@ If `symbol_hash` unchanged but `neighborhood_root` changed: the symbol's context
 
 ## 10. Community Rooting
 
+### Shipped Implementation
+
+The `communityInfo` struct in `internal/mcp/communities.go` now carries `MerkleRoot` (string) and `Packages` ([]string) fields. Each community detected by Louvain receives a Merkle root computed from the packages it spans. The `communities` MCP tool (action: list) returns `merkle_root` and `packages` per community entry. Community roots verified distinct per package set on live graph (see `bench/merkle-diff/FINDINGS-context-packs.md`).
+
 ### Design
 
 Louvain community detection assigns every symbol to a community. Each community gets its own Merkle root:
@@ -516,26 +530,28 @@ These algorithms build on each other. The hierarchical tree structure (Phase 1) 
 
 **Why this enables everything else:** Every other algorithm requires package-level roots. Without them, subgraph caching degrades to global cache invalidation (no better than today), incremental recompute has no granularity signal, and community rooting has no tree to attach to.
 
-### Phase 2: Subgraph Caching + Community Rooting (Immediate Value)
+### Phase 2: Content-Addressed Context Packs + Community Rooting (Partially Shipped)
 
-**Scope:** Cache `blast_radius`, `context_for_task`, and `test_scope` against subgraph roots. Add community roots to the tree.
+**Status:** Two of the four deliverables are shipped. Subgraph caching remains.
 
-**Deliverables:**
-- Subgraph root computation for the three primary query types.
-- Cache layer keyed by `(query_params_hash, subgraph_root)`.
-- Community root computation post-Louvain.
-- Cache invalidation scoped to changed community roots.
+**Shipped:**
+- `PackRoot` field on `ContextBlock` (computed by `computePackRoot()` in `internal/context/context.go`): deterministic hash of normalized task + sorted selected node hashes. Verified: 5 queries, 2 unique tasks = 2 unique PackRoots (perfect dedup).
+- `MerkleRoot` and `Packages` fields on `communityInfo` in `internal/mcp/communities.go`: each Louvain community carries a Merkle root over the packages it spans. Community roots verified distinct per package set on live graph.
+
+**Remaining:**
+- Cache layer keyed by `(query_params_hash, subgraph_root)` for `blast_radius`, `context_for_task`, and `test_scope`.
+- Daemon invalidation: on re-index, evict only cache entries for changed packages.
 
 **Why second:** These deliver the highest immediate value. Repeat queries (same task, no relevant code change) become instant. Community rooting enables safe agent parallelization, which is needed for multi-agent workflows.
 
-### Phase 3: Incremental Recompute + Context Packs (Retrieval Improvement)
+### Phase 3: Incremental Recompute (Retrieval Improvement)
 
-**Scope:** Use root diffs to skip unnecessary index rebuilds. Add `ContextPackRoot` and pack storage.
+**Scope:** Use root diffs to skip unnecessary index rebuilds. Wire `ContextPackRoot` into L2 cache storage and cross-session replay.
 
 **Deliverables:**
 - `diff_roots` function: descend tree, produce `changed_packages[]` list.
 - Decision table wired into the post-ingest pipeline (skip Louvain, skip HITS recompute when scope permits).
-- `ContextPackRoot` computation and pack storage in L2 cache.
+- Pack storage in L2 cache keyed by `ContextPackRoot`.
 - Cross-session pack replay in the MCP `context_for_task` tool.
 - Pack comparison: diff two `ContextPackRoot` values.
 

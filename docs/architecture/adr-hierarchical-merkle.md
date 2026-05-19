@@ -38,9 +38,10 @@ After: "Did package X change?" (compare one package root). "Did call edges chang
 - Build cost: roughly the same as the flat tree (within 3-27% depending on graph structure).
 
 **What this unlocks (Phase 2 and beyond):**
-- Subgraph caching: `context_for_task`, `blast_radius`, `test_scope` keyed to package subgraph roots. Unchanged code = cached result.
+- Content-addressed context packs (shipped): `ContextBlock.PackRoot` = `hash(task_normalized + sorted(selected_node_hashes))`. Same task + same graph = same PackRoot. Enables cache lookup, citation by hash, cross-session replay, and feedback anchoring. Benchmark: 5 queries, 2 unique tasks = 2 unique PackRoots (perfect dedup).
+- Community Merkle roots (shipped): `communityInfo.MerkleRoot` and `communityInfo.Packages` fields in `internal/mcp/communities.go`. Each Louvain community carries a Merkle root over the packages it spans. Enables safe agent parallelization (disjoint roots = disjoint work) and scoped cache invalidation. Community roots verified distinct per package set on live graph.
+- Subgraph caching: `context_for_task`, `blast_radius`, `test_scope` keyed to package subgraph roots. Unchanged code = cached result. (Next deliverable in Phase 2.)
 - Daemon invalidation: file save changes one package; only invalidate that package's caches.
-- Community rooting: Merkle root per community for safe agent parallelization.
 - Semantic change classification: "only call edges changed" vs "only imports changed" vs "runtime drift detected."
 - Merkle proofs: prove a relationship existed in a specific snapshot.
 - Federated sync: exchange roots, descend only differing branches.

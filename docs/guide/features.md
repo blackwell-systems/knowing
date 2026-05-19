@@ -578,9 +578,10 @@ Repo: github.com/blackwell-systems/knowing
 
 - **Package(s):** `internal/mcp`
 - **Entry point:** `communities` MCP tool (action: "list" or "for_symbol")
-- **What it does:** Detects communities in the knowledge graph using the Louvain modularity optimization algorithm. The `list` action returns all communities with top symbols, cohesion scores, and dominant package labels. The `for_symbol` action returns the community containing a specific symbol and its neighboring communities.
+- **What it does:** Detects communities in the knowledge graph using the Louvain modularity optimization algorithm. The `list` action returns all communities with top symbols, cohesion scores, dominant package labels, a `merkle_root` (Merkle root over the packages the community spans), and a `packages` list (sorted package paths). The `for_symbol` action returns the community containing a specific symbol and its neighboring communities.
 - **Inputs:** `action` (list/for_symbol), `repo_url` (optional filter), `symbol` (required for for_symbol).
-- **Outputs:** JSON with communities array or symbol-specific community result.
+- **Outputs:** JSON with communities array or symbol-specific community result. Each community includes `merkle_root` and `packages` fields (Phase 2 Merkle, shipped).
+- **Why it matters:** Disjoint `merkle_root` values across communities signal that two agents can work in parallel without Merkle-level conflicts. Community roots are also the natural invalidation scope: a change inside one community changes only that community's root, leaving all other community caches valid.
 - **Dependencies:** GraphStore (NodesByName, EdgesFrom).
 
 ### 48. Cloud YAML Extractor (CloudFormation/SAM, Docker Compose, GitHub Actions, Serverless)
@@ -856,6 +857,28 @@ Repo: github.com/blackwell-systems/knowing
 - **Inputs:** Repo path (positional), `-profile` (default `cover.out`), optional `-db` and `-url`.
 - **Outputs:** Logs summary (symbols stamped, files without coverage data).
 - **Why it matters:** Enables coverage-aware ranking and auditing. Agents can prioritize untested symbols for review or use coverage as a signal in context retrieval.
+
+### 75. Content-Addressed Context Pack Roots (Phase 2 Merkle)
+
+- **Package(s):** `internal/context`
+- **Entry point:** `computePackRoot()` in `internal/context/context.go`; `PackRoot` field on `ContextBlock`
+- **What it does:** Every `context_for_task` response carries a `PackRoot`: a deterministic SHA-256 hash derived from the normalized task description and the sorted hashes of all selected nodes. Same task against the same graph always produces the same `PackRoot`.
+- **Inputs:** Task description string + selected node hash set (produced during knapsack packing).
+- **Outputs:** `PackRoot` string on `ContextBlock`.
+- **Benchmark:** 5 queries with 2 unique tasks = 2 unique PackRoots (perfect dedup). See `bench/merkle-diff/FINDINGS-context-packs.md`.
+- **What it enables:** Cache lookup (skip retrieval if PackRoot seen before), citation by hash in code review, cross-session replay, context pack diffing between snapshots, feedback anchoring to a specific pack state.
+- **Dependencies:** `internal/snapshot` (hash utilities).
+
+### 76. Community Merkle Roots (Phase 2 Merkle)
+
+- **Package(s):** `internal/mcp`
+- **Entry point:** `communityInfo.MerkleRoot` and `communityInfo.Packages` fields in `internal/mcp/communities.go`
+- **What it does:** After Louvain community detection, each community receives a Merkle root computed from the packages it spans. The `MerkleRoot` and `Packages` fields are included in every `communities` tool response.
+- **Inputs:** Louvain output (community membership), package paths of member nodes.
+- **Outputs:** `merkle_root` (string) and `packages` ([]string) per community in the `communities` tool JSON response.
+- **Benchmark:** Community roots verified distinct per package set on live graph. See `bench/merkle-diff/FINDINGS-context-packs.md`.
+- **What it enables:** Scoped cache invalidation (change in one community invalidates only that community's root), safe agent parallelization (disjoint roots = disjoint work), retrieval scoping (prefer seeds that share a community root with the task's primary symbols).
+- **Dependencies:** `internal/community` (Louvain), `internal/snapshot` (hash utilities).
 
 ### GraphStore (`internal/types/interfaces.go`)
 

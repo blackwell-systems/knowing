@@ -190,20 +190,19 @@ Full specification in [architecture/merkle-algorithms.md](architecture/merkle-al
 
 Benchmarked: 283x faster diff at 10K edges, 517x faster at 100K edges. Build cost unchanged.
 
-### Phase 2: Subgraph Caching + Community Rooting -- NEXT
+### Phase 2: Content-Addressed Context Packs + Community Rooting -- PARTIALLY SHIPPED
 
-The hierarchical tree produces roots but nothing consumes them yet. This phase makes every query faster.
+Two deliverables are shipped. Subgraph caching remains the primary outstanding item.
 
-| Item | Description | Where |
-|------|-------------|-------|
-| Subgraph cache store | `map[Hash][]byte` keyed by subgraph roots, with TTL and size limits | `internal/cache/subgraph.go` (new) |
-| Cache `context_for_task` | Key: `hash(task + SubgraphRoot(seeded packages))`. Same subgraph root = same result. | `internal/context/context.go` |
-| Cache `blast_radius` | Key: `hash(symbol + SubgraphRoot(symbol pkg + neighbor pkgs))`. | `internal/mcp/handlers.go` |
-| Cache `test_scope` | Key: `hash(changed files + SubgraphRoot(affected pkgs))`. | `internal/mcp/testscope.go` |
-| Daemon invalidation | On re-index: `DiffHierarchicalTrees` -> only evict cache entries for changed packages. | `internal/daemon/watcher.go` |
-| Community roots | `SubgraphRoot(packages in community)` per community after detection. | `internal/community/` |
-| Community cache invalidation | "Auth community root changed" -> invalidate auth-scoped caches only. | `internal/mcp/communities.go` |
-| Agent parallelization signal | Disjoint community roots = safe to parallelize. Surface via MCP. | `internal/mcp/handlers.go` |
+| Item | Description | Where | Status |
+|------|-------------|-------|--------|
+| `PackRoot` on `ContextBlock` | `hash(task_normalized + sorted(selected_node_hashes))`. Deterministic pack identity. 5 queries, 2 unique tasks = 2 unique PackRoots (perfect dedup). | `internal/context/context.go` | **Shipped** |
+| Community `MerkleRoot` + `Packages` | `communityInfo` struct carries Merkle root over packages spanned. Returned by `communities` MCP tool. Community roots verified distinct per package set on live graph. | `internal/mcp/communities.go` | **Shipped** |
+| Subgraph cache store | `map[Hash][]byte` keyed by subgraph roots, with TTL and size limits | `internal/cache/subgraph.go` (new) | Next |
+| Cache `context_for_task` | Key: `hash(task + SubgraphRoot(seeded packages))`. Same subgraph root = same result. | `internal/context/context.go` | Next |
+| Cache `blast_radius` | Key: `hash(symbol + SubgraphRoot(symbol pkg + neighbor pkgs))`. | `internal/mcp/handlers.go` | Next |
+| Cache `test_scope` | Key: `hash(changed files + SubgraphRoot(affected pkgs))`. | `internal/mcp/testscope.go` | Next |
+| Daemon invalidation | On re-index: `DiffHierarchicalTrees` -> only evict cache entries for changed packages. | `internal/daemon/watcher.go` | Next |
 
 ### Phase 3: Incremental Recompute + Context Packs
 

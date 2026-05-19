@@ -14,7 +14,7 @@ and auto-generates a `FINDINGS.md` with results and interpretation.
 | [edge-accuracy](edge-accuracy/) | Two-tier extraction provides meaningful signal | 53.6% import confirmation, 26.7% overall |
 | [test-scope-accuracy](test-scope-accuracy/) | Call-graph BFS predicts affected tests | 98.9% precision vs independent Go import DAG |
 | [wire-format](wire-format/) | GCF is dramatically more token-efficient than JSON | 84% token savings, 74% byte savings |
-| [merkle-diff](merkle-diff/) | Hierarchical Merkle tree enables scoped invalidation | 114x faster diff on real graph, 59ns subgraph root lookups |
+| [merkle-diff](merkle-diff/) | Hierarchical Merkle tree enables scoped invalidation; context pack determinism and community root distinctness | 114x faster diff on real graph, 59ns subgraph root lookups; 5 queries, 2 unique tasks = 2 unique PackRoots (perfect dedup) |
 
 ## Running
 
@@ -101,3 +101,10 @@ one package, and measures diff performance. Validates that hierarchical diffs ar
 O(packages) instead of O(edges), subgraph root lookups are O(1), and the build
 cost overhead is negligible. Also verifies correctness: the diff correctly identifies
 which packages and edge types changed.
+
+The `context_pack_test.go` suite (Phase 2 Merkle) extends the harness with two
+additional proofs: (1) `PackRoot` determinism: 5 queries with 2 unique tasks
+produce exactly 2 unique PackRoots (perfect dedup, verified on the live graph);
+(2) community root distinctness: each Louvain community receives a distinct
+Merkle root based on the packages it spans. Results are written to
+`FINDINGS-context-packs.md`.
