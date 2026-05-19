@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/blackwell-systems/knowing/internal/cache"
+	"github.com/blackwell-systems/knowing/internal/community"
 	"github.com/blackwell-systems/knowing/internal/snapshot"
 	"github.com/blackwell-systems/knowing/internal/trace"
 	"github.com/blackwell-systems/knowing/internal/types"
@@ -409,25 +410,32 @@ func (d *Daemon) indexWorker(ctx context.Context) {
 		d.mu.Lock()
 		indexErr := d.cfg.IndexFunc(ctx, req.repoURL, req.repoPath, commit, req.changedFiles)
 
-		// After a successful index: invalidate cache entries for changed packages.
-		// This is done inside the write lock so the cache stays consistent with
-		// the graph state visible to concurrent readers.
-		if indexErr == nil && d.cfg.SnapMgr != nil && d.cfg.ResultCache != nil {
+		// After a successful index: compute Merkle diff, invalidate cache,
+		// and run incremental community detection. All inside the write lock
+		// so readers see consistent state.
+		var changedPkgs []string
+		if indexErr == nil && d.cfg.SnapMgr != nil {
 			newTree := d.cfg.SnapMgr.LastHierarchicalTree()
 			if newTree != nil {
 				if d.prevTree != nil {
 					diff := snapshot.DiffHierarchicalTrees(d.prevTree, newTree)
-					changed := make([]string, 0,
+					changedPkgs = make([]string, 0,
 						len(diff.ChangedPackages)+len(diff.AddedPackages)+len(diff.RemovedPackages))
-					changed = append(changed, diff.ChangedPackages...)
-					changed = append(changed, diff.AddedPackages...)
-					changed = append(changed, diff.RemovedPackages...)
-					if len(changed) > 0 {
-						d.cfg.ResultCache.InvalidatePackages(changed, newTree)
+					changedPkgs = append(changedPkgs, diff.ChangedPackages...)
+					changedPkgs = append(changedPkgs, diff.AddedPackages...)
+					changedPkgs = append(changedPkgs, diff.RemovedPackages...)
+					if len(changedPkgs) > 0 && d.cfg.ResultCache != nil {
+						d.cfg.ResultCache.InvalidatePackages(changedPkgs, newTree)
 					}
 				}
 				d.prevTree = newTree
 			}
+		}
+
+		// Incremental community detection (Phase 3 P3):
+		// Use changedPkgs from the Merkle diff to scope detection.
+		if indexErr == nil && d.cfg.Store != nil {
+			d.runIncrementalCommunities(ctx, req.repoURL, changedPkgs)
 		}
 
 		d.mu.Unlock()
@@ -442,4 +450,111 @@ func (d *Daemon) indexWorker(ctx context.Context) {
 			}()
 		}
 	}
+}
+
+// runIncrementalCommunities loads previous community assignments from notes,
+// builds the graph, marks nodes in changedPkgs as changed, and runs
+// incremental detection. Results are persisted back to notes for the next run.
+//
+// changedPkgs comes from the Merkle diff (ChangedPackages + AddedPackages +
+// RemovedPackages). If nil, all nodes are treated as changed (full detection).
+//
+// Must be called inside the write lock (d.mu held for write).
+func (d *Daemon) runIncrementalCommunities(ctx context.Context, repoURL string, changedPkgs []string) {
+	nodes, err := d.cfg.Store.NodesByName(ctx, repoURL)
+	if err != nil || len(nodes) == 0 {
+		return
+	}
+
+	// Build adjacency list.
+	nodeSet := make(map[types.Hash]bool, len(nodes))
+	nodeHashes := make([]types.Hash, len(nodes))
+	for i, n := range nodes {
+		nodeSet[n.NodeHash] = true
+		nodeHashes[i] = n.NodeHash
+	}
+
+	adj := make(map[types.Hash][]community.WeightedEdge, len(nodes))
+	edgeCount := 0
+	maxNodes := len(nodes)
+	if maxNodes > 5000 {
+		maxNodes = 5000
+	}
+	for i := 0; i < maxNodes; i++ {
+		edges, err := d.cfg.Store.EdgesFrom(ctx, nodes[i].NodeHash, "")
+		if err != nil {
+			continue
+		}
+		for _, e := range edges {
+			if !nodeSet[e.TargetHash] {
+				continue
+			}
+			adj[nodes[i].NodeHash] = append(adj[nodes[i].NodeHash], community.WeightedEdge{
+				Target: e.TargetHash, Weight: e.Confidence,
+			})
+			adj[e.TargetHash] = append(adj[e.TargetHash], community.WeightedEdge{
+				Target: nodes[i].NodeHash, Weight: e.Confidence,
+			})
+			edgeCount++
+		}
+	}
+
+	g := &community.Graph{
+		Nodes:     nodeHashes,
+		Adj:       adj,
+		NodeSet:   nodeSet,
+		EdgeCount: edgeCount,
+	}
+
+	algo := community.Get(community.Default)
+	incAlgo, ok := algo.(community.IncrementalAlgorithm)
+	if !ok {
+		membership := algo.Detect(g)
+		_ = community.SaveAssignments(ctx, d.cfg.Store, membership)
+		return
+	}
+
+	previous, _ := community.LoadAssignments(ctx, d.cfg.Store)
+
+	// Build changed node set from changed packages.
+	// A node is changed if: (a) its qualified name contains a changed package,
+	// or (b) it's new (not in previous assignments).
+	changedNodes := make(map[types.Hash]bool)
+	if previous != nil && len(changedPkgs) > 0 {
+		// Build a set for fast lookup.
+		pkgSet := make(map[string]bool, len(changedPkgs))
+		for _, p := range changedPkgs {
+			pkgSet[p] = true
+		}
+		// Mark nodes whose package is in the changed set.
+		for _, n := range nodes {
+			if _, inPrev := previous[n.NodeHash]; !inPrev {
+				changedNodes[n.NodeHash] = true
+				continue
+			}
+			// Check if node's qualified name starts with any changed package.
+			for _, pkg := range changedPkgs {
+				if len(n.QualifiedName) >= len(pkg) && n.QualifiedName[:len(pkg)] == pkg {
+					changedNodes[n.NodeHash] = true
+					break
+				}
+			}
+		}
+	} else {
+		// No previous or no diff: all nodes changed (full detection).
+		for _, h := range nodeHashes {
+			changedNodes[h] = true
+		}
+	}
+
+	var membership map[types.Hash]int
+	if len(changedNodes) > 0 {
+		membership = incAlgo.DetectIncremental(g, previous, changedNodes)
+	} else if previous != nil {
+		membership = previous
+	} else {
+		membership = algo.Detect(g)
+	}
+
+	_ = community.SaveAssignments(ctx, d.cfg.Store, membership)
 }
