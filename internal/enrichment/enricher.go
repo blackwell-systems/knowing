@@ -147,6 +147,13 @@ func (e *Enricher) runFiltered(ctx context.Context, repoHash types.Hash, fileFil
 		e.runForServer(ctx, serverCfg, repoHash, files, filePathByHash, fileFilter)
 	}
 
+	// Create phantom external nodes for any edge targets that don't exist
+	// in the local database. This covers edges created or retargeted during
+	// enrichment (lsp_resolved calls to stdlib, new reference edges, etc.).
+	if err := e.createPhantomNodes(ctx, repoHash); err != nil {
+		log.Printf("enrichment: phantom nodes: %v", err)
+	}
+
 	return nil
 }
 
@@ -214,6 +221,75 @@ func (e *Enricher) Close(ctx context.Context) error {
 	if e.client != nil {
 		e.client.Shutdown(ctx)
 		e.client = nil
+	}
+	return nil
+}
+
+// createPhantomNodes scans all edges in the repo and creates phantom external
+// nodes for any targets or sources that don't exist in the database. This
+// ensures the graph is complete after enrichment: every edge has both endpoints.
+// Phantom nodes have Kind="external", FileHash=EmptyHash, and QualifiedName
+// derived from the edge context where possible.
+func (e *Enricher) createPhantomNodes(ctx context.Context, repoHash types.Hash) error {
+	repo, err := e.store.GetRepo(ctx, repoHash)
+	if err != nil || repo == nil {
+		return err
+	}
+
+	nodes, err := e.store.NodesByName(ctx, repo.RepoURL)
+	if err != nil {
+		return err
+	}
+
+	nodeSet := make(map[types.Hash]bool, len(nodes))
+	for _, n := range nodes {
+		nodeSet[n.NodeHash] = true
+	}
+
+	// Scan all edges from all nodes and also check dangling edges
+	// (edges whose source is not in our node set, created by discoverNewEdges).
+	created := 0
+	seen := make(map[types.Hash]bool)
+
+	createPhantom := func(hash types.Hash, label string) {
+		if nodeSet[hash] || seen[hash] {
+			return
+		}
+		seen[hash] = true
+		phantom := types.Node{
+			NodeHash:      hash,
+			FileHash:      types.EmptyHash,
+			QualifiedName: fmt.Sprintf("external://%s", label),
+			Kind:          "external",
+		}
+		if err := e.store.PutNode(ctx, phantom); err == nil {
+			nodeSet[hash] = true
+			created++
+		}
+	}
+
+	// Check targets from known source nodes.
+	for _, node := range nodes {
+		edges, err := e.store.EdgesFrom(ctx, node.NodeHash, "")
+		if err != nil {
+			continue
+		}
+		for _, edge := range edges {
+			createPhantom(edge.TargetHash, edge.EdgeType+".target")
+		}
+	}
+
+	// Check dangling edges (source outside our node set).
+	danglingEdges, err := e.store.DanglingEdges(ctx)
+	if err == nil {
+		for _, edge := range danglingEdges {
+			createPhantom(edge.SourceHash, edge.EdgeType+".source")
+			createPhantom(edge.TargetHash, edge.EdgeType+".target")
+		}
+	}
+
+	if created > 0 {
+		log.Printf("enrichment: created %d phantom external nodes", created)
 	}
 	return nil
 }
