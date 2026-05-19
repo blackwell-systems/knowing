@@ -55,7 +55,7 @@ The engine returns ranked results; we measure Precision@10, Recall@10, and MRR.
 | Implement HITS hub/authority reranking in the context eng... | 30.0% | 37.5% | 0.17 | medium |
 | Find affected tests by tracing the call graph backward fr... | 50.0% | 71.4% | 0.50 | medium |
 | Wire feedback scoring into the context engine so that pre... | 0.0% | 0.0% | 0.00 | medium |
-| Compute a semantic diff between two graph snapshots showi... | 30.0% | 50.0% | 1.00 | medium |
+| Compute a semantic diff between two graph snapshots showi... | 40.0% | 66.7% | 1.00 | medium |
 | Index a Go repository and persist the extracted graph int... | 30.0% | 42.9% | 1.00 | medium |
 | For a pull request review, diff the changed files semanti... | 20.0% | 25.0% | 1.00 | hard |
 | Keep the code graph fresh by watching for file changes, r... | 40.0% | 50.0% | 1.00 | hard |
@@ -78,9 +78,9 @@ The engine returns ranked results; we measure Precision@10, Recall@10, and MRR.
 | Tier | Precision@10 | Recall@10 | MRR | Fixtures |
 |------|-------------|-----------|-----|----------|
 | easy | 32.5% | 81.9% | 0.46 | 20 |
-| medium | 32.5% | 52.6% | 0.53 | 20 |
+| medium | 33.0% | 53.4% | 0.53 | 20 |
 | hard | 17.3% | 20.5% | 0.44 | 15 |
-| **Overall** | **28.4%** | **54.5%** | **0.48** | **55** |
+| **Overall** | **28.5%** | **54.8%** | **0.48** | **55** |
 
 ## Reproducibility
 

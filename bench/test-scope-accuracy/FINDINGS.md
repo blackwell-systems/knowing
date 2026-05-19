@@ -32,18 +32,16 @@ ensures we're measuring real accuracy, not circular consistency.
 | 337562c | 5 | 1 | 2 | 100.0% | 50.0% | 2.3% |
 | 39d0abc | 1 | 1 | 1 | 100.0% | 100.0% | 2.3% |
 | 1e115ac | 1 | 1 | 1 | 100.0% | 100.0% | 2.3% |
-| 0155d7a | 2 | 1 | 1 | 100.0% | 100.0% | 2.3% |
-| 67b09d3 | 1 | 1 | 1 | 100.0% | 100.0% | 2.3% |
 
 ## Aggregate Statistics
 
 | Metric | Mean | Median |
 |--------|------|--------|
-| Precision | 97.8% | 100.0% |
-| Recall | 83.6% | 100.0% |
-| CI Time Savings | 6.3% | - |
+| Precision | 97.2% | 100.0% |
+| Recall | 79.5% | 100.0% |
+| CI Time Savings | 7.3% | - |
 
-Commits analyzed: 10
+Commits analyzed: 8
 
 ## Interpretation
 

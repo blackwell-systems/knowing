@@ -860,6 +860,7 @@ quality_gates:
           required: true
 scaffolds:
     - file_path: internal/types/verify.go
+      status: committed (ebe66d5)
       contents: |
         package types
 
@@ -871,7 +872,6 @@ scaffolds:
         // Returns nil if the hash matches, or an error describing the mismatch.
         func VerifyEdgeHash(e Edge) error { return nil }
       import_path: github.com/blackwell-systems/knowing/internal/types
-      status: pending
 pre_mortem:
     overall_risk: medium
     rows:
