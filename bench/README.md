@@ -1,6 +1,6 @@
 # Benchmarks
 
-Eight benchmark harnesses that prove knowing's value with hard data. Each benchmark
+Eleven benchmark harnesses that prove knowing's value with hard data. Each benchmark
 is a standalone Go test package that indexes the knowing repo, runs measurements,
 and auto-generates a `FINDINGS.md` with results and interpretation.
 
@@ -15,6 +15,7 @@ and auto-generates a `FINDINGS.md` with results and interpretation.
 | [test-scope-accuracy](test-scope-accuracy/) | Call-graph BFS predicts affected tests | 98.9% precision vs independent Go import DAG |
 | [wire-format](wire-format/) | GCF is dramatically more token-efficient than JSON | 84% token savings, 74% byte savings |
 | [merkle-diff](merkle-diff/) | Hierarchical Merkle tree enables scoped invalidation; context pack determinism and community root distinctness | 114x faster diff on real graph (11K edges), 517x on 100K synthetic edges, 59ns subgraph root lookups; 5 queries, 2 unique tasks = 2 unique PackRoots (perfect dedup) |
+| [community-detection](community-detection/) | Incremental detection skips work the Merkle tree proves unchanged | Louvain 6.9x faster (1 pkg), LP 38.4x faster (1 pkg), LP 79.2x faster (0 changes) |
 
 ## Running
 
@@ -112,3 +113,29 @@ produce exactly 2 unique PackRoots (perfect dedup, verified on the live graph);
 (2) community root distinctness: each Louvain community receives a distinct
 Merkle root based on the packages it spans. Results are written to
 `FINDINGS-context-packs.md`.
+
+### community-detection
+
+Proves that incremental community detection (Phase 3 F2) delivers real speedups
+by exploiting the Merkle tree's change information. When the daemon knows which
+packages changed (from `DiffHierarchicalTrees`), it can freeze all unchanged
+nodes and only allow changed nodes to move during community optimization.
+
+The benchmark indexes the live repo, runs full detection, then re-runs with only
+`internal/store` nodes marked as changed (5.9% of the graph). This simulates the
+common case: a developer edits files in one package, the daemon re-indexes, and
+community assignments need updating.
+
+- Louvain: 2.99ms full, 436us incremental (6.9x speedup), 375us frozen (8.0x)
+- Label propagation: 14.3ms full, 372us incremental (38.4x), 180us frozen (79.2x)
+- LP benefits more because its iteration cost is O(N * iterations); freezing 94%
+  of nodes cuts 94% of the work. Louvain converges in fewer passes, so the
+  per-iteration savings are proportionally smaller.
+- Correctness verified: incremental with 0 changes produces identical assignments
+  to full detection (bit-for-bit match on all 2,472 nodes).
+
+The end-to-end chain (Phase 3 complete): file edit -> re-index -> hierarchical
+diff -> `ChangedPackages` -> load previous assignments from notes table ->
+`DetectIncremental(changedNodes)` -> store new assignments. The benchmark proves
+the middle step; the wiring depends on P1 (community assignment persistence in
+notes table).
