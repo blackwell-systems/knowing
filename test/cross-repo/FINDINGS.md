@@ -1,0 +1,99 @@
+# Cross-Repo Test Findings
+
+Tested: 2026-05-19
+Fixture: 3 Go modules (module-a shared library, module-b imports A, module-c imports A+B)
+
+## Test Results
+
+### TEST 1: Indexing (PASS)
+All 3 modules index successfully into separate databases.
+
+| Module | Nodes | Edges | LSP upgraded | LSP discovered |
+|--------|-------|-------|-------------|---------------|
+| A (shared library) | 15 | 20 | 19 | 5 |
+| B (imports A) | 6 | 16 | 15 | 1 |
+| C (imports A+B) | 8 | 13 | 11 | 0 |
+
+### TEST 2: Edge extraction (PASS)
+Cross-repo call edges are extracted. Module-b has edges to module-a symbols.
+Module-c has edges to both module-a and module-b symbols.
+
+### TEST 3: Export filtering (EXPECTED BEHAVIOR)
+`knowing export` filters edges where the target node is not in the exported
+node set. Since cross-repo targets live in a different database, they are
+excluded from the export. This is correct for single-repo export but means
+cross-repo edges are invisible in the default export path.
+
+### TEST 4: Cross-repo hash resolution (FAIL)
+
+**Root cause:** The tree-sitter extractor computes target node hashes using
+the LOCAL repo URL, not the TARGET repo URL. When module-b indexes a call to
+`modulea.NewRegistry`, the target hash is:
+
+```
+SHA-256("node\0" + module-b-repo-url + "\0" + module-a-package + "\0" + NewRegistry + "\0" + function)
+```
+
+But the actual node in module-a's database has hash:
+
+```
+SHA-256("node\0" + module-a-repo-url + "\0" + module-a-package + "\0" + NewRegistry + "\0" + function)
+```
+
+These produce different hashes because the repo URL differs. The cross-repo
+edge target `087cdc945a37ee50...` does not match module-a's actual node hash
+`1e49ea8957f38632...`.
+
+**Why this happens:** `ModuleToRepoURL` is populated from the repos table in
+the same database. With per-repo isolation (separate databases per repo),
+module-b's database has no entry for module-a's repo, so the mapping is empty.
+The extractor falls back to using the local repo URL for all targets.
+
+**Impact:** Cross-repo edges exist in the database but point to non-existent
+hashes. The resolver cannot match them because the hashes are fundamentally
+different. `knowing prove` across repos would fail because the target hash
+in module-b doesn't correspond to any real node.
+
+### TEST 5-8: Not tested (blocked by TEST 4)
+
+The following tests are blocked by the cross-repo hash resolution failure:
+- `knowing prove` across repos
+- `knowing prove-absent` across repos
+- `knowing audit` with cross-repo edges
+- Incremental invalidation across repos
+
+## Fix Required
+
+The extractor needs access to a cross-database repo mapping so it can compute
+target hashes with the correct repo URL. Options:
+
+1. **Shared roster lookup at extraction time.** The extractor reads the global
+   roster (or a shared index DB) to map Go module paths to stored repo URLs,
+   even when indexing into a per-repo database. This is the simplest fix:
+   populate `ModuleToRepoURL` from the roster, not from the local repos table.
+
+2. **Post-index resolution pass.** After indexing all repos, run a cross-database
+   resolver that retargets dangling edges using node lookups across all roster
+   databases. This is the existing resolver design but adapted for per-repo isolation.
+
+3. **Shared cross-repo database.** A separate `cross-repo.db` that stores only
+   repo records and node identity mappings. Each per-repo database reads from
+   it to populate `ModuleToRepoURL`.
+
+**Recommended:** Option 1 (roster-based module mapping) is the smallest change
+and directly addresses the root cause. The roster already knows every registered
+repo URL; the extractor just needs to read it.
+
+## What Works Today
+
+- Single-repo indexing, proofs, audit, fsck: fully functional
+- Per-repo isolation: each repo gets its own database, community detection is scoped
+- Edge extraction: cross-repo calls ARE extracted (correct source, wrong target hash)
+- LSP enrichment: works per-repo (19/19 upgraded in module-a, 15/15 in module-b)
+
+## What Doesn't Work Yet
+
+- Cross-repo edge resolution (target hashes use wrong repo URL)
+- Cross-repo `knowing prove` (target hash doesn't match any real node)
+- Cross-repo `knowing audit` (cross-repo edges filtered from export)
+- Cross-repo visualization in knowing-viz (same filtering issue)
