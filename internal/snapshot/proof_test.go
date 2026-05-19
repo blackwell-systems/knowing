@@ -1,0 +1,185 @@
+package snapshot
+
+import (
+	"testing"
+
+	"github.com/blackwell-systems/knowing/internal/types"
+)
+
+func h(s string) types.Hash {
+	return types.NewHash([]byte(s))
+}
+
+func TestGenerateAndVerifyProof_SingleEdge(t *testing.T) {
+	edge := EdgeInput{EdgeHash: h("e1"), PackagePath: "pkg/a", EdgeType: "calls"}
+	edges := []EdgeInput{edge}
+	tree := BuildHierarchicalTree(edges)
+
+	proof, err := GenerateProof(tree, edge.EdgeHash, "pkg/a", "calls", edges)
+	if err != nil {
+		t.Fatalf("GenerateProof: %v", err)
+	}
+	if proof.RepoRoot != tree.Root {
+		t.Errorf("proof root %s != tree root %s", proof.RepoRoot, tree.Root)
+	}
+	if !VerifyProof(proof) {
+		t.Error("proof failed verification")
+	}
+}
+
+func TestGenerateAndVerifyProof_MultipleEdges(t *testing.T) {
+	edges := []EdgeInput{
+		{EdgeHash: h("e1"), PackagePath: "pkg/a", EdgeType: "calls"},
+		{EdgeHash: h("e2"), PackagePath: "pkg/a", EdgeType: "calls"},
+		{EdgeHash: h("e3"), PackagePath: "pkg/a", EdgeType: "imports"},
+		{EdgeHash: h("e4"), PackagePath: "pkg/b", EdgeType: "calls"},
+		{EdgeHash: h("e5"), PackagePath: "pkg/b", EdgeType: "implements"},
+	}
+	tree := BuildHierarchicalTree(edges)
+
+	// Prove each edge.
+	for _, e := range edges {
+		proof, err := GenerateProof(tree, e.EdgeHash, e.PackagePath, e.EdgeType, edges)
+		if err != nil {
+			t.Fatalf("GenerateProof(%s): %v", e.EdgeHash, err)
+		}
+		if proof.RepoRoot != tree.Root {
+			t.Errorf("proof root mismatch for %s", e.EdgeHash)
+		}
+		if !VerifyProof(proof) {
+			t.Errorf("proof failed verification for edge %s (pkg=%s, type=%s)",
+				e.EdgeHash, e.PackagePath, e.EdgeType)
+		}
+	}
+}
+
+func TestVerifyProof_TamperedEdge(t *testing.T) {
+	edges := []EdgeInput{
+		{EdgeHash: h("e1"), PackagePath: "pkg/a", EdgeType: "calls"},
+		{EdgeHash: h("e2"), PackagePath: "pkg/a", EdgeType: "calls"},
+	}
+	tree := BuildHierarchicalTree(edges)
+
+	proof, err := GenerateProof(tree, h("e1"), "pkg/a", "calls", edges)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Tamper with the edge hash.
+	proof.EdgeHash = h("tampered")
+	if VerifyProof(proof) {
+		t.Error("tampered proof should fail verification")
+	}
+}
+
+func TestVerifyProof_TamperedSibling(t *testing.T) {
+	edges := []EdgeInput{
+		{EdgeHash: h("e1"), PackagePath: "pkg/a", EdgeType: "calls"},
+		{EdgeHash: h("e2"), PackagePath: "pkg/a", EdgeType: "calls"},
+		{EdgeHash: h("e3"), PackagePath: "pkg/b", EdgeType: "calls"},
+	}
+	tree := BuildHierarchicalTree(edges)
+
+	proof, err := GenerateProof(tree, h("e1"), "pkg/a", "calls", edges)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Tamper with a sibling at the package level.
+	if len(proof.PackageToRepoRoot) > 0 {
+		proof.PackageToRepoRoot[0].Sibling = h("tampered-sibling")
+	}
+	if VerifyProof(proof) {
+		t.Error("tampered sibling should fail verification")
+	}
+}
+
+func TestGenerateProof_EdgeNotFound(t *testing.T) {
+	edges := []EdgeInput{
+		{EdgeHash: h("e1"), PackagePath: "pkg/a", EdgeType: "calls"},
+	}
+	tree := BuildHierarchicalTree(edges)
+
+	_, err := GenerateProof(tree, h("nonexistent"), "pkg/a", "calls", edges)
+	if err == nil {
+		t.Error("expected error for nonexistent edge")
+	}
+}
+
+func TestGenerateProof_PackageNotFound(t *testing.T) {
+	edges := []EdgeInput{
+		{EdgeHash: h("e1"), PackagePath: "pkg/a", EdgeType: "calls"},
+	}
+	tree := BuildHierarchicalTree(edges)
+
+	_, err := GenerateProof(tree, h("e1"), "pkg/nonexistent", "calls", edges)
+	if err == nil {
+		t.Error("expected error for nonexistent package")
+	}
+}
+
+func TestGenerateProof_NilTree(t *testing.T) {
+	_, err := GenerateProof(nil, h("e1"), "pkg/a", "calls", nil)
+	if err == nil {
+		t.Error("expected error for nil tree")
+	}
+}
+
+func TestGenerateAndVerifyProof_ManyEdges(t *testing.T) {
+	// Build a larger tree with 50 edges across 5 packages and 3 edge types.
+	var edges []EdgeInput
+	pkgs := []string{"pkg/a", "pkg/b", "pkg/c", "pkg/d", "pkg/e"}
+	etypes := []string{"calls", "imports", "implements"}
+	for i := 0; i < 50; i++ {
+		edges = append(edges, EdgeInput{
+			EdgeHash:    types.NewHash([]byte{byte(i), byte(i >> 8)}),
+			PackagePath: pkgs[i%len(pkgs)],
+			EdgeType:    etypes[i%len(etypes)],
+		})
+	}
+	tree := BuildHierarchicalTree(edges)
+
+	// Prove every 5th edge.
+	for i := 0; i < len(edges); i += 5 {
+		e := edges[i]
+		proof, err := GenerateProof(tree, e.EdgeHash, e.PackagePath, e.EdgeType, edges)
+		if err != nil {
+			t.Fatalf("GenerateProof(edge %d): %v", i, err)
+		}
+		if !VerifyProof(proof) {
+			t.Errorf("proof failed for edge %d (pkg=%s, type=%s)", i, e.PackagePath, e.EdgeType)
+		}
+	}
+}
+
+func TestProofSize(t *testing.T) {
+	// Verify proof is logarithmic: 50 edges should need O(log N) steps per level.
+	var edges []EdgeInput
+	for i := 0; i < 50; i++ {
+		edges = append(edges, EdgeInput{
+			EdgeHash:    types.NewHash([]byte{byte(i)}),
+			PackagePath: "pkg/a",
+			EdgeType:    "calls",
+		})
+	}
+	tree := BuildHierarchicalTree(edges)
+
+	proof, err := GenerateProof(tree, edges[25].EdgeHash, "pkg/a", "calls", edges)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 50 leaves -> binary tree depth ~6. Proof should have ~6 steps at level 1.
+	t.Logf("Proof steps: level1=%d, level2=%d, level3=%d",
+		len(proof.EdgeToEdgeTypeRoot),
+		len(proof.EdgeTypeToPackageRoot),
+		len(proof.PackageToRepoRoot))
+
+	if len(proof.EdgeToEdgeTypeRoot) > 10 {
+		t.Errorf("proof level 1 has %d steps (expected <=10 for 50 leaves)",
+			len(proof.EdgeToEdgeTypeRoot))
+	}
+	if !VerifyProof(proof) {
+		t.Error("proof failed verification")
+	}
+}
