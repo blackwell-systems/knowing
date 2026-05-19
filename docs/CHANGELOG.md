@@ -4,6 +4,48 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Phase 4: Proofs and Audit (Continued)
+
+- **Proof of absence.** `GenerateAbsenceProof`/`VerifyAbsenceProof` prove an edge does NOT exist by showing adjacent sorted leaves that bracket the missing hash. No tree restructuring needed: the sorted binary tree already has the ordering invariant. `knowing prove-absent` CLI command.
+- **`knowing audit` CLI.** Generates a structured compliance report: integrity check (fsck), graph summary, all cross-package edges with provenance and confidence, optional Merkle proofs for every cross-package relationship. One command for a complete audit artifact.
+- **`knowing audit-diff` CLI.** Compares two audit point snapshots: added/removed edge counts, change classification (behavioral/structural/runtime_drift/metadata_only).
+- **Hash JSON marshaling.** `types.Hash` now implements `MarshalJSON`/`UnmarshalJSON` as hex strings. Proofs serialize as 3KB (was 11KB with byte arrays). `types.ParseHash` for hex decoding.
+
+### Graph Correctness
+
+- **Removed-edge diffs fixed (P0).** Migration 013 adds `source_hash`, `target_hash`, `edge_type`, `confidence`, `provenance` to `edge_events`. `RecordEdgeEvent` stores full edge data. `SnapshotDiff` reads from events directly via COALESCE, no longer joins to deleted edges. `knowing diff` now correctly shows removed edges.
+- **Synthetic file nodes stored (P0).** Go tree-sitter extractor creates file nodes (kind="file") when import edges exist. Import edge sources are no longer dangling.
+- **Phantom external nodes.** Extractor creates `kind="external"` nodes for stdlib/external targets at extraction time. LSP enricher runs a post-enrichment sweep for any remaining dangling targets. Result: zero dangling edges on a correctly indexed repo. `knowing fsck` reports 0 errors.
+- **`knowing fsck` roster awareness.** Dangling edges classified as `cross_repo` (target in another roster DB), `stdlib`, or `truly_dangling`. Only truly_dangling counts as an error. Roster stores opened once per verify call.
+- **Cross-repo method call resolution.** Extractor uses kind="method" for selector expression calls on non-import operands. LSP enricher resolves definitions across repos via roster lookup.
+- **`ExtractPackagePath` method name fix.** Splits at first dot after last slash (not last dot overall). Fixes false hash mismatches on method nodes like `pkg.Type.Method`.
+
+### Cross-Repo
+
+- **Roster moved to `internal/roster` shared package.** Both CLI and indexer use the same roster code. Eliminates duplicate logic.
+- **Roster-based module mapping.** Indexer's `buildModuleToRepoMap` merges the global roster's module map. Cross-repo edge targets now use the correct repo URL.
+- **Synthetic cross-repo test fixture.** 3 Go modules (module-a shared library, module-b imports A, module-c imports A+B) with real cross-repo edges. setup.sh initializes independent git repos.
+- **Cross-repo findings documented.** 5 architectural proofs, full dangling edge classification, P0 verification results.
+- **6 duplicate `extractPackage` functions consolidated** to canonical `snapshot.ExtractPackagePath`.
+- **`CollectEdgeInputs` exported** as canonical edge source for tree construction and proof generation.
+
+### Positioning
+
+- **Dual identity (agents + audit/compliance)** established across README, tagline, GitHub description, GitHub topics, competitive analysis.
+- **Audit & compliance guide** (`docs/guide/audit-compliance.md`): 6 provable claims, 6 workflows, comparison table.
+- **Merkle proofs architecture doc** (`docs/architecture/merkle-proofs.md`): proof format, verification algorithm, batch proofs, absence proofs.
+- **Data model architecture doc** (`docs/architecture/data-model.md`): full schema, 13 migrations, cross-repo identity, phantom nodes.
+- **GitHub topics** added: `audit`, `compliance`, `merkle-proof`, `software-supply-chain`, `static-analysis`.
+
+### Documentation
+
+- CLI guide: `prove`, `verify`, `prove-absent`, `audit`, `audit-diff` (24 subcommands).
+- Architecture docs swept: 11 files fixed for flat tree references, equivalence class counts, Phase 4 status.
+- Roadmap: Production Scale vision, Grafana ecosystem validation, cross-repo awareness for non-Go extractors.
+- All benchmark FINDINGS refreshed.
+
 ## [v0.4.0] - 2026-05-19
 
 ### Phase 3: Incremental Recompute (Complete)
