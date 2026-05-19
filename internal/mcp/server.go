@@ -44,6 +44,8 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"github.com/blackwell-systems/knowing/internal/cache"
 	knowingctx "github.com/blackwell-systems/knowing/internal/context"
@@ -62,22 +64,28 @@ import (
 type Server struct {
 	store       types.GraphStore
 	mcpServer   *mcpserver.MCPServer
-	sqlStore    *knowingstore.SQLiteStore   // populated via type assertion for runtime queries
-	session     *wire.Session               // GCF session state for cross-call deduplication
-	ctxSession  *knowingctx.SessionTracker  // session-aware retrieval boosts
-	vecSearch   *embedding.Searcher         // semantic vector search (nil if model unavailable)
-	taskMemory  *knowingctx.TaskMemory      // passive task-symbol learning (nil if no SQLite)
-	snapMgr     *snapshot.SnapshotManager   // nil if no snapshot manager is wired in
-	resultCache *cache.SubgraphCache        // nil if caching is disabled
+	sqlStore    *knowingstore.SQLiteStore  // populated via type assertion for runtime queries
+	session     *wire.Session             // GCF session state for cross-call deduplication
+	ctxSession  *knowingctx.SessionTracker // session-aware retrieval boosts
+	vecSearch   *embedding.Searcher        // semantic vector search (nil if model unavailable)
+	taskMemory  *knowingctx.TaskMemory     // passive task-symbol learning (nil if no SQLite)
+	snapMgr     *snapshot.SnapshotManager  // nil if no snapshot manager is wired in
+	resultCache *cache.SubgraphCache       // nil if caching is disabled
+	startTime   time.Time                  // server creation time for uptime tracking
+
+	// Session counters for the knowing://session resource.
+	contextCalls  atomic.Int64 // incremented on each context_for_task / context_for_files call
+	symbolsServed atomic.Int64 // incremented by the number of symbols returned per context call
 }
 
 // NewServer creates a new MCP server backed by the given GraphStore.
-// It registers all 22 tools (execution, intelligence, runtime, context, feedback, and discovery planes).
+// It registers all tools, prompts, and resources.
 func NewServer(store types.GraphStore) *Server {
 	s := &Server{
 		store:      store,
 		session:    wire.NewSession(),
 		ctxSession: knowingctx.NewSessionTracker(),
+		startTime:  time.Now(),
 	}
 	// Initialize embedding-based vector search (best-effort).
 	// Only when KNOWING_EMBEDDINGS=1 is set (opt-in, requires ~30MB model download).
@@ -101,6 +109,7 @@ func NewServer(store types.GraphStore) *Server {
 	)
 	s.registerTools()
 	s.registerPrompts()
+	s.registerResources()
 	return s
 }
 

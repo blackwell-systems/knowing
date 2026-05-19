@@ -43,6 +43,10 @@ func (s *Server) handleContextForTask(ctx context.Context, req mcp.CallToolReque
 		return mcp.NewToolResultError(fmt.Sprintf("context_for_task failed: %v", err)), nil
 	}
 
+	// Track session metrics for the knowing://session resource.
+	s.contextCalls.Add(1)
+	s.symbolsServed.Add(int64(len(block.Symbols)))
+
 	output, err := formatBlock(ctx, block, format, "context_for_task", s)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("format failed: %v", err)), nil
@@ -81,6 +85,10 @@ func (s *Server) handleContextForFiles(ctx context.Context, req mcp.CallToolRequ
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("context_for_files failed: %v", err)), nil
 	}
+
+	// Track session metrics for the knowing://session resource.
+	s.contextCalls.Add(1)
+	s.symbolsServed.Add(int64(len(block.Symbols)))
 
 	output, err := formatBlock(ctx, block, format, "context_for_files", s)
 	if err != nil {
