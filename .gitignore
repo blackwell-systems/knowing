@@ -3,3 +3,6 @@ docs/research/competitive-analysis.md
 docs/internal/onboarding-audit.md
 .knowing-hooks.jsonl
 /knowing
+test/cross-repo/module-a/.git
+test/cross-repo/module-b/.git
+test/cross-repo/module-c/.git
