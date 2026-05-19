@@ -32,6 +32,19 @@ type Algorithm interface {
 	Detect(g *Graph) map[types.Hash]int
 }
 
+// IncrementalAlgorithm extends Algorithm with incremental detection.
+// DetectIncremental seeds community assignments from previous results and
+// only allows changedNodes to move. Nodes not in changedNodes keep their
+// previous assignment (frozen). This enables O(changed) detection instead
+// of O(all) after a partial re-index.
+//
+// If previous is nil or empty, falls back to full Detect behavior.
+// changedNodes is the set of nodes whose edges may have changed.
+type IncrementalAlgorithm interface {
+	Algorithm
+	DetectIncremental(g *Graph, previous map[types.Hash]int, changedNodes map[types.Hash]bool) map[types.Hash]int
+}
+
 // Registry maps algorithm names to implementations.
 var Registry = map[string]Algorithm{
 	"louvain":           &Louvain{Resolution: 1.0, MaxPasses: 20},
