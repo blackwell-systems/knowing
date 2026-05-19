@@ -4,6 +4,44 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.4.0] - 2026-05-19
+
+### Phase 3: Incremental Recompute (Complete)
+
+All 11 items shipped. The system now skips work the Merkle tree proves unchanged.
+
+- **F1: Graph notes table.** `graph_notes` (migration 012): general-purpose metadata layer. 6 GraphStore methods, `BatchPutNotes` for 21x faster bulk writes.
+- **F2: Incremental Algorithm interface.** `DetectIncremental` on Louvain (6.9x) and LabelPropagation (38.4x). Freezes unchanged nodes; only changed nodes move.
+- **F3: Scoped FTS rebuild.** `RebuildFTSForPackages` scopes BM25 index to changed packages (2.9x faster).
+- **P1: Community assignment persistence.** Save/Load via notes table. Communities survive daemon restart.
+- **P2: Context pack persistence.** Three-layer cache: SubgraphCache (42ns) -> notes table (1.2ms) -> cold retrieval. Cross-session replay verified.
+- **P3: Incremental Louvain e2e.** Daemon wired: diff -> ChangedPackages -> load previous -> DetectIncremental -> delta-save. Full cycle: 2.5ms.
+- **P4: Incremental HITS/BM25.** Daemon calls scoped FTS rebuild with changed packages from Merkle diff.
+- **P5: Context pack deduplication.** `pack_root` parameter on `context_for_task`. Returns "unchanged" (165 bytes) instead of full payload (2-30KB). 93-99% byte savings. PackRoot exposed in GCF header and JSON output.
+- **P6: Context pack comparison.** `CompareContextPacks` returns added/removed/common symbols between two packs.
+- **P7: Semantic change classification.** `ClassifyChanges` returns Behavioral/Structural/RuntimeDrift/MetadataOnly based on which edge-type roots changed.
+- **P8: Delta-save community assignments.** Writes only changed assignments. 5.0x e2e speedup (12.6ms -> 2.5ms).
+
+### Phase 4: Proofs (Started)
+
+- **Merkle proofs.** `GenerateProof`/`VerifyProof` in `internal/snapshot/proof.go`. Three-level proof path: edge -> edge-type root -> package root -> repo root. Generation: 72us. Verification: 1.2us. Proof size: 16 steps, 656 bytes on the live graph (12,604 edges).
+
+### Code Quality
+
+- **Benchmark robustness.** Performance contracts added to context-relevance, test-scope-accuracy, edge-accuracy, merkle-diff, community-detection e2e. Every quality metric now has a regression floor.
+- **Canonical package path extraction.** 6 duplicate `extractPackage` functions consolidated to `snapshot.ExtractPackagePath`. `CollectEdgeInputs` exported as canonical edge source. Prevents divergence between tree construction and proof generation.
+- **14 benchmark harnesses** with self-documenting FINDINGS.md and performance contracts.
+
+### Documentation
+
+- Features.md updated to 101 features (91-101 for Phase 3 + Phase 4).
+- Architecture docs swept: 11 files fixed (flat tree references, equivalence class counts, Phase 4 status).
+- MCP tools docs: `pack_root` parameter documented.
+- Wire format docs: PackRoot in GCF header and JSON output.
+- Context packing docs: three-layer cache, P5 dedup, P6 comparison.
+- npm and PyPI READMEs rewritten.
+- README: 14 benchmarks, three-layer cache section, updated diagram.
+
 ## [v0.3.0] - 2026-05-19
 
 ### Breaking
