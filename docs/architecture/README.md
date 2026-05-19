@@ -25,7 +25,7 @@ If you are new to knowing, read these in order:
 |----------|---------------|
 | [concepts.md](concepts.md) | Content-addressed storage, Merkle DAG, domain primitives (Node, Edge, Hash, Snapshot, Provenance), event sourcing, staleness, artifact boundary |
 | [system-overview.md](system-overview.md) | Component map, language-agnostic graph model, two-tier extraction (tree-sitter + LSP), 25 extractors, multi-language auto-detection, edge type taxonomy |
-| [data-flow.md](data-flow.md) | End-to-end trace of a single commit: git detection, indexing, snapshot computation (flat + hierarchical Merkle), LSP enrichment |
+| [data-flow.md](data-flow.md) | End-to-end trace of a single commit: git detection, indexing, snapshot computation (hierarchical Merkle), LSP enrichment |
 | [concurrency.md](concurrency.md) | Daemon goroutine architecture, RWMutex coordination, channel buffer sizes, SQLite WAL mode |
 | [runtime-traces.md](runtime-traces.md) | OTLP trace ingestion, span-to-edge mapping, confidence scoring, production observability edges |
 | [context-engine.md](context-engine.md) | Retrieval pipeline: 4-channel seed fusion, RWR, HITS, BM25, knapsack packing, 84 equivalence classes |

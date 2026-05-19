@@ -55,7 +55,7 @@ No competitor uses hierarchical Merkle trees over code relationship graphs. Most
 ## Implementation
 
 - `internal/snapshot/hierarchical.go`: `HierarchicalTree`, `BuildHierarchicalTree`, `DiffHierarchicalTrees`, `DiffHierarchicalTreesWithOptions` (with `DiffOptions`: `PackageFilter`, `MaxChanges`), `SubgraphRoot`, `EdgeTypeRoot`, `ContextPackRoot`
-- `internal/snapshot/manager.go`: `ComputeSnapshot` builds both flat and hierarchical trees; `extractPackagePath` now returns an error on malformed names
+- `internal/snapshot/manager.go`: `ComputeSnapshot` builds the hierarchical tree (flat tree was dropped); `extractPackagePath` now returns an error on malformed names
 - `internal/snapshot/gc.go`: `GarbageCollectFull` with reachability sweep and `GCStats` return type
 - `internal/snapshot/verify.go`: integrity verification functions used by `knowing fsck`
 - `internal/store/sqlite.go`: in-process LRU cache (50K entries) on `GetNode`/`GetEdge`; `IntegrityCheck` method for `PRAGMA integrity_check`

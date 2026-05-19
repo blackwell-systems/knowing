@@ -151,7 +151,7 @@ Phrases are expanded via cross-product with action verbs ("find blast radius", "
 blast radius", etc.). Matching is case-insensitive substring containment of any phrase
 within the task description.
 
-**Layer 2: Universal classes** (`universal_seeds.go`). 20 classes for concepts common to
+**Layer 2: Universal classes** (`universal_seeds.go`). 63 classes for concepts common to
 all software projects: ENTRY_POINT, CONFIGURATION, ERROR_HANDLING, DATABASE, HTTP_SERVER,
 AUTHENTICATION, TESTING, CONCURRENCY, CLI, etc. These have weight 0.8 (lower than
 knowing-specific seeds at 1.0) and ship as defaults for any repo.
@@ -673,7 +673,7 @@ This is validated by 23 experiments (see `eval/EXPERIMENTS.md`):
 
 ## Limitations
 
-1. **Vocabulary gap beyond equivalence classes.** The 41 curated concepts (21 seed + 20
+1. **Vocabulary gap beyond equivalence classes.** The 84 curated concepts (21 seed + 63
    universal) cover common patterns but not every domain concept. Queries using
    terminology not covered by any class fall back to lexical matching only.
 
@@ -701,7 +701,7 @@ This is validated by 23 experiments (see `eval/EXPERIMENTS.md`):
 |------|-----------------|
 | `internal/context/context.go` | `ForTask`, `ForFiles`, `ForPR`, `extractKeywords`, `rrfFuseMulti`, `packIntoBudget`, `filterNoisySymbols` |
 | `internal/context/equivalence.go` | `seedEquivalenceClasses`, `matchEquivalenceClasses`, `EquivalenceClass` type |
-| `internal/context/universal_seeds.go` | `universalEquivalenceClasses` (20 cross-project concepts) |
+| `internal/context/universal_seeds.go` | `universalEquivalenceClasses` (63 cross-project concepts) |
 | `internal/context/graph_aliases.go` | `graphDerivedAliases`, `extractMeaningfulWords` |
 | `internal/context/ranking.go` | `RankSymbols`, `ScoringInput`, `ScoreComponents`, `recencyFromTimestamp` |
 | `internal/context/walk.go` | `RandomWalkWithRestart`, `buildAdjacencyMap` |

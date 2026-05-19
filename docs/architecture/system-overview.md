@@ -307,7 +307,6 @@ Commit detected (oldHead → newHead)
     ▼
 5. Compute new snapshot
    ├── Hierarchical Merkle tree (repo root -> package roots -> edge-type roots -> edge leaves)
-   ├── Flat tree also built alongside for backward compatibility
    ├── Link to parent snapshot (previous snapshot for this repo)
    └── Store commit hash in snapshot record
     │

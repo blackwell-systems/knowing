@@ -8,7 +8,7 @@ The context packing subsystem (`internal/context/`) produces token-budgeted, gra
 internal/context/
 ├── context.go          ContextEngine: ForTask, ForFiles entry points, 4-channel RRF fusion, knapsack packing
 ├── equivalence.go      Equivalence class seed retrieval: 84 equivalence classes (63 universal + 21 knowing-specific) -> target symbols
-├── universal_seeds.go  20 universal software concepts (weight 0.8), cross-repo retrieval
+├── universal_seeds.go  63 universal software concepts (weight 0.8), cross-repo retrieval
 ├── graph_aliases.go    Auto-generated equivalence classes from caller/callee names (weight 0.7)
 ├── task_memory.go      Passive task memory: records top-5 symbols per call, 7-day decay recall
 ├── ranking.go          RankSymbols: weighted scoring formula with HITS authority + session boost

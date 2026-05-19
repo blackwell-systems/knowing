@@ -35,7 +35,7 @@ repo_root
         └── edge_type_root[pkg/B:calls]
 ```
 
-Structure: repo root -> package roots -> edge-type roots -> edge leaves. The hierarchical root IS the canonical snapshot identity. No separate flat tree is maintained. `types.ComputeSnapshotHash` wraps the hierarchical root with a `"snapshot\0"` domain prefix to produce the snapshot hash stored in the database. The root is numerically equivalent to what a flat `merkle_root(sorted(all_edge_hashes))` would produce for the same edges, ensuring backward compatibility of stored hashes without requiring a parallel data structure.
+Structure: repo root -> package roots -> edge-type roots -> edge leaves. The hierarchical root IS the canonical snapshot identity. No separate flat tree is maintained; the flat tree was dropped after the hash domain prefix change made backward compatibility moot. `types.ComputeSnapshotHash` wraps the hierarchical root with a `"snapshot\0"` domain prefix to produce the snapshot hash stored in the database.
 
 `DiffHierarchicalTrees` compares package roots instead of all edges: 114x faster on the knowing repo (11K edges), 517x on 100K synthetic edges. `SubgraphRoot` computes O(1) cache keys for any set of packages. `EdgeTypeRoot` answers "did call edges change?" in one lookup. See `docs/architecture/merkle-algorithms.md` for the full algorithm specification and `bench/merkle-diff/` for benchmark results.
 

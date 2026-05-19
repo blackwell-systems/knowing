@@ -87,7 +87,7 @@ each phrase-to-target mapping.
 Defined in `universalEquivalenceClasses()` in
 `internal/context/universal_seeds.go`. These capture concepts common to
 virtually all software projects (Go, TypeScript, Python, Rust, Java) and
-require no repo-specific knowledge. There are currently 20 universal concepts:
+require no repo-specific knowledge. There are currently 63 universal concepts:
 
 | Concept | Example phrases | Example targets |
 |---------|----------------|-----------------|

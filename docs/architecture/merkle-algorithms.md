@@ -579,12 +579,16 @@ These algorithms build on each other. The hierarchical tree structure (Phase 1) 
 
 **The full pipeline:** file edit -> re-index -> hierarchical diff -> scoped cache invalidation -> incremental community detection -> delta-save -> scoped FTS rebuild -> context pack persistence -> PackRoot dedup -> semantic change classification.
 
-### Phase 4: Proofs, Sync, Bisection, and Advanced Features
+### Phase 4: Proofs, Sync, Bisection, and Advanced Features (In Progress)
+
+**Status:** Started. Merkle proofs shipped; remaining items planned.
 
 **Scope:** Merkle proofs for agent trust, federated sync protocol, bisection, proof of absence, lazy materialization, snapshot-aware retrieval, Merkleized feedback validity, semantic change classification.
 
-**Deliverables:**
-- Proof path generation and verification API.
+**Shipped:**
+- `GenerateProof` and `VerifyProof` in `internal/snapshot/proof.go`: Merkle proof path generation and verification API.
+
+**Remaining deliverables:**
 - Federated sync protocol (root exchange, subtree transfer).
 - Bisection API: `knowing bisect --predicate "callers(X) > 5" <snapshot_A> <snapshot_B>`.
 - Ordered Merkle trie for proof-of-absence support.
@@ -593,7 +597,7 @@ These algorithms build on each other. The hierarchical tree structure (Phase 1) 
 - `feedback_valid` check using `neighborhood_root` comparison.
 - `classify_diff` output in `knowing export --diff`.
 
-**Why next:** Phase 3 (incremental recompute) is complete. The tree structure is stable. Proofs, sync, and bisection build on the shipped infrastructure. Proofs require an ordered trie (non-trivial tree restructuring). Federated sync requires team adoption. Bisection is most useful once the snapshot chain is dense with real usage data.
+**Why next:** Phase 3 (incremental recompute) is complete. The tree structure is stable. Proofs, sync, and bisection build on the shipped infrastructure. Federated sync requires team adoption. Bisection is most useful once the snapshot chain is dense with real usage data.
 
 ---
 
