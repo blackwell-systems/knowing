@@ -16,6 +16,8 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/blackwell-systems/knowing/internal/types"
@@ -23,12 +25,33 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// nodeCacheMaxEntries is the maximum number of nodes held in the in-process
+// cache before it is reset to avoid unbounded memory growth.
+const nodeCacheMaxEntries = 50_000
+
+// edgeCacheMaxEntries is the maximum number of edges held in the in-process
+// cache before it is reset.
+const edgeCacheMaxEntries = 50_000
+
 // SQLiteStore implements types.GraphStore backed by a SQLite database.
 // It uses WAL (Write-Ahead Logging) mode, which allows concurrent readers
 // while a single writer is active. All hash columns store raw 32-byte
 // blobs; the Go layer handles hex encoding/decoding.
+//
+// An in-process node/edge cache is layered on top of SQLite to eliminate
+// redundant SQL round-trips on hot-path traversals such as blast_radius,
+// which can walk hundreds of edges. The cache is invalidated at the start
+// of each index run via InvalidateCache.
 type SQLiteStore struct {
 	db *sql.DB
+
+	// nodeCache caches *types.Node values keyed by types.Hash.
+	nodeCache      sync.Map
+	nodeCacheCount atomic.Int64
+
+	// edgeCache caches *types.Edge values keyed by types.Hash.
+	edgeCache      sync.Map
+	edgeCacheCount atomic.Int64
 }
 
 // Compile-time check that SQLiteStore implements GraphStore.
@@ -271,22 +294,77 @@ func (s *SQLiteStore) DeleteSnapshot(ctx context.Context, hash types.Hash) error
 // All Get methods return (nil, nil) when the requested entity is not found,
 // following the convention that "not found" is not an error.
 
+// InvalidateCache clears the in-process node and edge caches. Call this at
+// the start of each index run so that freshly written rows are not shadowed
+// by stale cached values.
+func (s *SQLiteStore) InvalidateCache() {
+	s.nodeCache.Range(func(k, _ any) bool {
+		s.nodeCache.Delete(k)
+		return true
+	})
+	s.nodeCacheCount.Store(0)
+
+	s.edgeCache.Range(func(k, _ any) bool {
+		s.edgeCache.Delete(k)
+		return true
+	})
+	s.edgeCacheCount.Store(0)
+}
+
 // GetNode retrieves a node by its content-addressed hash. Returns nil if not found.
+// Results are cached in memory; the cache is bounded to nodeCacheMaxEntries and
+// is invalidated by InvalidateCache at the start of each index run.
 func (s *SQLiteStore) GetNode(ctx context.Context, hash types.Hash) (*types.Node, error) {
+	if v, ok := s.nodeCache.Load(hash); ok {
+		return v.(*types.Node), nil
+	}
 	row := s.db.QueryRowContext(ctx,
 		`SELECT node_hash, file_hash, qualified_name, kind, line, signature, doc, last_author, last_commit_at, coverage_pct FROM nodes WHERE node_hash = ?`,
 		hash[:],
 	)
-	return scanNode(row)
+	n, err := scanNode(row)
+	if err != nil || n == nil {
+		return n, err
+	}
+	// Store in cache, evicting everything if cap is reached.
+	if s.nodeCacheCount.Load() >= nodeCacheMaxEntries {
+		s.nodeCache.Range(func(k, _ any) bool {
+			s.nodeCache.Delete(k)
+			return true
+		})
+		s.nodeCacheCount.Store(0)
+	}
+	s.nodeCache.Store(hash, n)
+	s.nodeCacheCount.Add(1)
+	return n, nil
 }
 
 // GetEdge retrieves an edge by its content-addressed hash. Returns nil if not found.
+// Results are cached in memory; the cache is bounded to edgeCacheMaxEntries and
+// is invalidated by InvalidateCache at the start of each index run.
 func (s *SQLiteStore) GetEdge(ctx context.Context, hash types.Hash) (*types.Edge, error) {
+	if v, ok := s.edgeCache.Load(hash); ok {
+		return v.(*types.Edge), nil
+	}
 	row := s.db.QueryRowContext(ctx,
 		`SELECT edge_hash, source_hash, target_hash, edge_type, confidence, provenance, callsite_line, callsite_col, callsite_file FROM edges WHERE edge_hash = ?`,
 		hash[:],
 	)
-	return scanEdge(row)
+	e, err := scanEdge(row)
+	if err != nil || e == nil {
+		return e, err
+	}
+	// Store in cache, evicting everything if cap is reached.
+	if s.edgeCacheCount.Load() >= edgeCacheMaxEntries {
+		s.edgeCache.Range(func(k, _ any) bool {
+			s.edgeCache.Delete(k)
+			return true
+		})
+		s.edgeCacheCount.Store(0)
+	}
+	s.edgeCache.Store(hash, e)
+	s.edgeCacheCount.Add(1)
+	return e, nil
 }
 
 // GetSnapshot retrieves a snapshot by its Merkle root hash. Returns nil if not found.
@@ -744,6 +822,9 @@ func (s *SQLiteStore) DeleteEdge(ctx context.Context, hash types.Hash) error {
 		`DELETE FROM edges WHERE edge_hash = ?`,
 		hash[:],
 	)
+	if err == nil {
+		s.edgeCache.Delete(hash)
+	}
 	return err
 }
 
@@ -761,6 +842,16 @@ func (s *SQLiteStore) DeleteNodesByFile(ctx context.Context, fileHash types.Hash
 	n, err := result.RowsAffected()
 	if err != nil {
 		return 0, err
+	}
+	// Evict all cached nodes since we don't have the individual hashes here.
+	// This is conservative but correct; DeleteNodesByFile is called during
+	// incremental re-indexing which immediately re-populates via PutNode.
+	if n > 0 {
+		s.nodeCache.Range(func(k, _ any) bool {
+			s.nodeCache.Delete(k)
+			return true
+		})
+		s.nodeCacheCount.Store(0)
 	}
 	return int(n), nil
 }
@@ -791,6 +882,10 @@ func (s *SQLiteStore) DeleteEdgesBySourceFile(ctx context.Context, fileHash type
 	)
 	if err != nil {
 		return nil, err
+	}
+	// Evict deleted edges from the cache.
+	for _, e := range edges {
+		s.edgeCache.Delete(e.EdgeHash)
 	}
 	return edges, nil
 }
