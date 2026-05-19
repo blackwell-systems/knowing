@@ -24,18 +24,26 @@ ensures we're measuring real accuracy, not circular consistency.
 
 | Commit | Changed Files | Predicted Pkgs | Actual Pkgs | Precision | Recall | CI Savings |
 |--------|--------------|----------------|-------------|-----------|--------|------------|
-| 6812b85 | 1 | 7 | 10 | 85.7% | 60.0% | 20.6% |
-| a6609d1 | 1 | 1 | 1 | 100.0% | 100.0% | 2.9% |
+| 39d0abc | 1 | 1 | 1 | 100.0% | 100.0% | 2.4% |
+| 1e115ac | 1 | 1 | 1 | 100.0% | 100.0% | 2.4% |
+| 0155d7a | 2 | 1 | 1 | 100.0% | 100.0% | 2.4% |
+| 67b09d3 | 1 | 1 | 1 | 100.0% | 100.0% | 2.4% |
+| 76dcc1c | 1 | 1 | 1 | 100.0% | 100.0% | 2.4% |
+| 3fa42d4 | 3 | 1 | 1 | 100.0% | 100.0% | 2.4% |
+| ae41f62 | 4 | 41 | 44 | 95.1% | 88.6% | 97.6% |
+| 3ade44f | 2 | 2 | 10 | 100.0% | 20.0% | 4.8% |
+| 1ff377a | 1 | 1 | 1 | 100.0% | 100.0% | 2.4% |
+| 2fe16ed | 1 | 0 | 2 | 0.0% | 0.0% | 0.0% |
 
 ## Aggregate Statistics
 
 | Metric | Mean | Median |
 |--------|------|--------|
-| Precision | 92.9% | 100.0% |
-| Recall | 80.0% | 100.0% |
-| CI Time Savings | 11.8% | - |
+| Precision | 89.5% | 100.0% |
+| Recall | 80.9% | 100.0% |
+| CI Time Savings | 11.9% | - |
 
-Commits analyzed: 2
+Commits analyzed: 10
 
 ## Interpretation
 
