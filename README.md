@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <strong>Intelligence versioning system. Content-addressed graph where every relationship is tracked, scored, snapshotted, and retrievable. Designed to make AI agents trust, diff, cache, and reuse structural context cheaply.</strong>
+  <strong>Intelligence versioning system. Content-addressed graph where every code relationship is tracked, scored, snapshotted, and cryptographically verifiable. For AI agents: trustworthy cached context. For security and compliance: Merkle proofs, offline verification, tamper detection.</strong>
 </p>
 
 ---
@@ -19,9 +19,13 @@
 
 **Git versions files. knowing versions the understanding of code.**
 
-Files are the wrong unit for AI agents. An agent doesn't need to know "this file changed." It needs to know "this change breaks 14 callers, adds a new dependency path, and disagrees with what production traffic shows." That's intelligence, not source.
+knowing is an intelligence versioning system: a content-addressed graph where every relationship between symbols is tracked, scored, snapshotted, and cryptographically verifiable.
 
-knowing is an intelligence versioning system: a content-addressed graph where every relationship between symbols is tracked, scored, and snapshotted. Each snapshot captures not just what the code looks like, but what it means: who calls what, how confident we are, what production observed, and what changed since last time.
+**For AI agents:** files are the wrong unit. An agent doesn't need "this file changed." It needs "this change breaks 14 callers, adds a new dependency path, and disagrees with production traffic." knowing delivers that as cached, ranked, deduplicated context.
+
+**For security and compliance:** every snapshot is a Merkle root tied to a git commit. `knowing prove` generates a cryptographic proof that a specific relationship existed at a specific point in time. `knowing verify` checks it offline. `knowing fsck` verifies the entire graph in 98ms. No other code intelligence tool has an audit story.
+
+Both use cases rest on the same foundation: content-addressed identity where every node, edge, and snapshot is SHA-256 hashed, and every snapshot is a hierarchical Merkle tree.
 
 | | Git (code versioning) | knowing (intelligence versioning) |
 |---|---|---|
@@ -38,7 +42,7 @@ The hard problems (staleness, history, integrity, incremental updates) are struc
 
 On top of this foundation, knowing fuses static analysis, infrastructure declarations, SCIP indexes, and OpenTelemetry runtime traces into one graph. Every edge carries provenance and confidence. Feedback from past queries compounds into the intelligence: the system learns which symbols matter for which tasks, and rankings improve with use.
 
-Use knowing when code search is too shallow, LSP is too workspace-local, and dependency graphs stop at package boundaries.
+Use knowing when code search is too shallow, LSP is too workspace-local, dependency graphs stop at package boundaries, or you need a verifiable record of code relationships.
 
 ## What It Answers
 
