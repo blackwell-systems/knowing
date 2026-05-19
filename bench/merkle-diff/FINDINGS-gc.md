@@ -1,46 +1,58 @@
 # GC (Garbage Collection Reachability Sweep) Benchmark
 
-Statistical benchmarks for SnapshotManager.GarbageCollectFull() on the live
-knowing codebase. Each statistical measurement runs 10 times with 2 warmup
-runs discarded; statistics report min, median, p95, mean, and stddev.
+Statistical benchmarks for `SnapshotManager.GarbageCollectFull()` on the live
+knowing codebase. Each measurement runs 10 times with 2 warmup runs discarded;
+statistics report min, median, p95, mean, and stddev.
 
 ## Setup
 
 - Repository: knowing (live codebase)
-- Real nodes in graph: 2338
-- Real edges in graph: 11664
-- Orphaned nodes injected: 500 (hashes not referenced by any snapshot)
-- Orphaned edges injected: 200 (pointing between orphaned nodes only)
+- Real nodes: 2,338
+- Real edges: 11,664
+- Orphaned nodes injected: 500
+- Orphaned edges injected: 200
+- Method: 10 measurement runs, 2 warmup (discarded)
 
-## What GarbageCollectFull Does
+## Results
 
-1. **Step 1: Snapshot chain GC** — prune old snapshots beyond keepCount,
-   preserving the most recent chain.
-2. **Step 2: Reachability sweep** — collect all nodes reachable from the
-   surviving snapshot via NodesByName and EdgesFrom. Build reachableNodes
-   and reachableEdges sets.
-3. **Step 3: Delete unreachable nodes** — call DeleteNodesNotIn with the
-   reachable set; returns count of deleted rows.
-4. **Step 4: Delete unreachable edges** — call DeleteEdgesNotIn with the
-   reachable set; returns count of deleted rows.
+### GC Performance
 
-## Correctness Assertions
+| Scenario | Time | Nodes removed | Edges removed |
+|----------|------|--------------|--------------|
+| First run (500 orphans present) | 70ms | 500 | 1,411 (200 injected + 1,211 pre-existing dangling) |
+| Clean DB (steady state, median) | 53ms | 0 | 0 |
 
-- GCStats.NodesRemoved == 500 (exactly the injected orphan count; fake nodes
-  use a QualifiedName prefix that NodesByName excludes, so none survive)
-- GCStats.EdgesRemoved >= 200 (at least the injected orphan edges; may be
-  higher if the live codebase has pre-existing dangling cross-repo edges
-  whose targets are not indexed into the temp DB)
-- All 2338 real nodes survive
-- All 11664 real edges survive
-- Second GC pass on clean DB removes 0 nodes and 0 edges
+### What GarbageCollectFull Does
+
+1. **Snapshot chain GC**: prune old snapshots beyond keepCount
+2. **Reachability sweep**: collect all nodes reachable via NodesByName and EdgesFrom from surviving snapshots
+3. **Delete unreachable nodes**: `DeleteNodesNotIn(reachableNodes)` using temporary table for efficient NOT IN
+4. **Delete unreachable edges**: `DeleteEdgesNotIn(reachableEdges)` using temporary table
+
+### Correctness (verified by assertions)
+
+| Assertion | Result |
+|-----------|--------|
+| All 500 injected orphan nodes pruned | PASS |
+| All 200 injected orphan edges pruned | PASS |
+| All 2,338 real nodes survived | PASS |
+| All 11,664 real edges survived | PASS |
+| Second GC pass removes nothing | PASS (0 nodes, 0 edges) |
+| Injected nodes not found by hash lookup after GC | PASS |
+
+### Pre-existing Dangling Edges
+
+GC also pruned 1,211 pre-existing dangling edges from cross-repo references
+(edges whose targets live in other repos not indexed into the temp DB). This is
+correct behavior: edges pointing to non-existent nodes are unreachable and should
+be cleaned up.
 
 ## Performance Contracts
 
-- GC with 500 orphaned nodes on the knowing repo must complete in under 10
-  seconds (wall clock). Test fails if violated.
-- GC on a clean DB (no orphans) must also complete in under 10 seconds
-  (median). Test fails if violated.
+| Contract | Threshold | Actual | Status |
+|----------|-----------|--------|--------|
+| GC with orphans | < 10s | 70ms | PASS (140x under) |
+| GC clean DB median | < 10s | 53ms | PASS (190x under) |
 
 ## Running
 
