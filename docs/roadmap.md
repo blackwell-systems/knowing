@@ -10,7 +10,7 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 | 2 | **~~`knowing why <symbol>`~~** | **Shipped.** Explains why a symbol ranked where it did: seed channel/tier, RWR score, HITS authority/hub, blast radius, confidence, recency, distance, feedback weight, session boost, equivalence class matches. See [CLI reference](guide/cli.md#why). | Done |
 | 3 | **Session memory persistence** | SessionTracker is ephemeral (lost on session end), task memory is coarse (keyword-level, 7-day decay). Persist session working sets to SQLite so resumed sessions pick up where they left off and cross-session patterns compound. Extends `internal/context/session.go` with a `session_events` table. | Medium |
 | 4 | **~~Negative feedback~~** | **Already implemented.** `feedback` tool accepts `useful: false`, store computes useful/total ratio, ranking formula maps to [-0.15, +0.15] penalty/boost. Updated tool description to make negative feedback explicit. | Done |
-| 5 | **Traversal cache** | L1 in-memory LRU for hot paths. Repeat queries should be instant. | Medium |
+| 5 | **Subgraph cache (Phase 2)** | Cache context_for_task, blast_radius, test_scope against hierarchical Merkle subgraph roots. Invalidate only changed packages on re-index. Subsumes the previous "traversal cache" item. See Merkle Tree Algorithms section. | Medium |
 | 6 | **`knowing stats`** | Show session value: context calls, symbols served, symbols marked relevant, feedback rate. Lets users see the value accumulating. | Low |
 | 7 | **MCP resources** | Lightweight context that doesn't cost a tool call. Resources are read directly by the MCP host for agent orientation. See detailed list below. | Medium |
 | 8 | **~~v0.2.0 release~~** | **Shipped.** 25 extractors, retrieval pipeline, TOON, `knowing init`, multi-language LSP enrichment, `knowing why`, 84 equivalence classes, 23 MCP tools, ~60K LOC. | Done |
@@ -63,7 +63,7 @@ These exist in the codebase but aren't wired into retrieval or workflows yet:
 | Item | Status | Next step |
 |------|--------|-----------|
 | Community-aware retrieval | Communities computed, not used for scoping | Constrain RWR walk to seed communities (on roadmap) |
-| Leiden algorithm | Louvain can produce internally disconnected communities | Replace Louvain with Leiden when community-aware retrieval ships, since community quality directly affects retrieval accuracy. Leiden is a drop-in fix (same modularity objective, guarantees connected communities). |
+| ~~Modular community detection~~ | **Shipped.** `internal/community/` package with `Algorithm` interface and registry. Louvain (two resolution presets) + label propagation. MCP tool and export command accept `--algorithm` flag. Client-side viz has 6 grouping strategies. | Add Leiden when a Go implementation is available; it's a drop-in via the registry. |
 | Edge event log | Events recorded, nothing reads them | Temporal queries: "when did this dependency appear?" |
 | LSP enrichment (TS/Python/Java) | Shipped. TS: 98.9% upgrade rate. Python: 83% upgrade + 15K new edges. Java: working via jdtls with workspace readiness waiting. | Rust and C# enrichment available via rust-analyzer and OmniSharp when installed. |
 
@@ -172,40 +172,63 @@ Pipeline is shipped and measured (31.6% P@10, 55 fixtures, 23 experiments). See 
 
 ## Merkle Tree Algorithms
 
-Full specification in [architecture/merkle-algorithms.md](architecture/merkle-algorithms.md). The algorithms build on the existing content-addressed graph structure (Merkle DAG) to enable fine-grained invalidation, subgraph caching, incremental recompute, agent trust proofs, federated sync, and semantic change classification. Implementation is phased so each phase delivers standalone value.
+Full specification in [architecture/merkle-algorithms.md](architecture/merkle-algorithms.md). Builds on the content-addressed graph structure to enable fine-grained invalidation, subgraph caching, incremental recompute, agent trust proofs, federated sync, and semantic change classification.
 
-### Phase 1: Hierarchical Tree Structure (Foundation)
+### Phase 1: Hierarchical Tree Structure -- SHIPPED
 
-Replace the flat `merkle_root(sorted(all_edge_hashes))` snapshot with a multi-level tree: symbol roots, file roots, package roots, and repo root. Add per-symbol edge-type roots (calls, imports, runtime_calls, owns). This is the prerequisite for all subsequent phases.
+`internal/snapshot/hierarchical.go`. Repo root -> package roots -> edge-type roots -> edge leaves. Wired into `SnapshotManager.ComputeSnapshot`. Backward compatible (same root hash).
 
-| Deliverable | Notes |
-|-------------|-------|
-| `symbol_root` per symbol | Computed on edge insertion |
-| `file_root` per file | Composed from symbol roots |
-| `package_root` per package | Composed from file roots |
-| `repo_root` | Replaces current flat snapshot hash |
-| Edge-type root variants | Per symbol, per edge type |
+| Deliverable | Status |
+|-------------|--------|
+| `HierarchicalTree` struct (package roots, edge-type roots) | Shipped |
+| `BuildHierarchicalTree` from `EdgeInput` slice | Shipped |
+| `DiffHierarchicalTrees` (O(packages) instead of O(edges)) | Shipped |
+| `SubgraphRoot` (cache key for any set of packages) | Shipped |
+| `EdgeTypeRoot` ("did call edges change?" in one lookup) | Shipped |
+| `ContextPackRoot` (content-addressed context pack identity) | Shipped |
+| Wired into `SnapshotManager` (builds alongside flat tree) | Shipped |
 
-### Phase 2: Subgraph Caching + Community Rooting (Immediate Value)
+Benchmarked: 283x faster diff at 10K edges, 517x faster at 100K edges. Build cost unchanged.
 
-Cache `blast_radius`, `context_for_task`, and `test_scope` against subgraph roots rather than the global root. A change in `pkg/util` no longer invalidates caches for queries scoped to `pkg/api`. Add a Merkle root per Louvain community to enable cheap per-community invalidation and safe agent parallelization across disjoint communities.
+### Phase 2: Subgraph Caching + Community Rooting -- NEXT
 
-### Phase 3: Incremental Recompute + Context Packs (Retrieval Improvement)
+The hierarchical tree produces roots but nothing consumes them yet. This phase makes every query faster.
 
-Use root diffs to determine which derived indexes (Louvain, HITS, BM25) need rebuilding after a commit. If only one package root changed, skip global community detection. Add `ContextPackRoot` (a content-addressed identifier for a retrieval result) to enable agent deduplication, cross-session replay, and context pack comparison between snapshots.
+| Item | Description | Where |
+|------|-------------|-------|
+| Subgraph cache store | `map[Hash][]byte` keyed by subgraph roots, with TTL and size limits | `internal/cache/subgraph.go` (new) |
+| Cache `context_for_task` | Key: `hash(task + SubgraphRoot(seeded packages))`. Same subgraph root = same result. | `internal/context/context.go` |
+| Cache `blast_radius` | Key: `hash(symbol + SubgraphRoot(symbol pkg + neighbor pkgs))`. | `internal/mcp/handlers.go` |
+| Cache `test_scope` | Key: `hash(changed files + SubgraphRoot(affected pkgs))`. | `internal/mcp/testscope.go` |
+| Daemon invalidation | On re-index: `DiffHierarchicalTrees` -> only evict cache entries for changed packages. | `internal/daemon/watcher.go` |
+| Community roots | `SubgraphRoot(packages in community)` per community after detection. | `internal/community/` |
+| Community cache invalidation | "Auth community root changed" -> invalidate auth-scoped caches only. | `internal/mcp/communities.go` |
+| Agent parallelization signal | Disjoint community roots = safe to parallelize. Surface via MCP. | `internal/mcp/handlers.go` |
 
-### Phase 4: Proofs, Sync, Bisection, and Advanced Features
+### Phase 3: Incremental Recompute + Context Packs
+
+Use root diffs to scope downstream recomputation.
+
+| Item | Description |
+|------|-------------|
+| Incremental Louvain | If only one package root changed, recompute community membership locally instead of global re-detection |
+| Incremental HITS/BM25 | Only rebuild text indexes for changed packages |
+| Context pack deduplication | Agents reference prior `ContextPackRoot` instead of resending content; GCF chunk-level deduplication |
+| Context pack comparison | "What changed in the context this agent would see?" between two snapshots |
+| Semantic change classification | Diff edge-type roots to classify: only calls changed (behavioral), only imports (structural), runtime drift (runtime roots changed, static unchanged) |
+
+### Phase 4: Proofs, Sync, Bisection
 
 | Feature | Description |
 |---------|-------------|
-| Merkle proofs | Prove a caller relationship existed in snapshot X; useful for CI, review, compliance |
-| Federated sync | Exchange root hashes, descend only differing branches; sync local dev, CI, remote team without shipping the full DB |
-| Semantic change classification | Diff edge-type roots to classify changes: structural, production drift, documentation-only, ownership reassignment |
-| Snapshot-aware retrieval | Stability and activity signals derived from neighborhood root history |
-| Merkleized feedback validity | Feedback expires when `symbol_hash` or `neighborhood_root` changes, not just by age |
-| Merkle-based bisection | Binary search on snapshot chain to find when a subgraph property first changed |
-| Proof of absence | Prove an edge does NOT exist; for security audits and agent confidence |
-| Lazy materialization | Load only visited subtrees; enables 100K-symbol repos without proportional memory cost |
+| Merkle proofs | Prove a caller relationship existed in snapshot X; for CI, review, compliance |
+| Federated sync | Exchange root hashes, descend only differing branches; sync without shipping the full DB |
+| Snapshot-aware retrieval | Prefer symbols with stable neighborhood roots; boost recently changed subgraphs |
+| Merkleized feedback validity | Feedback expires when `neighborhood_root` changes, not just by age |
+| Merkle-based bisection | Binary search on snapshot chain to find when a subgraph property first diverged |
+| Proof of absence | Prove an edge does NOT exist with a compact proof path; security audits, agent confidence |
+| Lazy materialization | Load only visited subtrees; 100K-symbol repos without proportional memory cost |
+| File-level roots | Add file roots between package and edge-type for finer single-file invalidation |
 
 ## Agent Coordination
 
@@ -221,4 +244,6 @@ knowing is an intelligence versioning system. Git versions files; knowing versio
 
 The retrieval pipeline uses equivalence classes (not embeddings) as the primary concept-matching mechanism. This is local, deterministic, inspectable, and compounds with use. See [retrieval-pipeline.md](architecture/retrieval-pipeline.md) for the design rationale.
 
-**What's shipped (v0.2.0):** ~60K LOC Go, 25 extractor types (12 languages + 13 infrastructure/cloud formats), 23 MCP tools, 5 wire formats (GCF/TOON/JSON/XML/markdown), 55 eval fixtures, 84 equivalence classes, multi-language LSP enrichment (Go, TS, Python, Java, Rust, C#), `knowing init` one-command setup, `knowing why` retrieval explainability.
+The hierarchical Merkle tree (shipped) structures snapshots by semantic boundaries (package, edge type) instead of flat edge hashes. This enables 283-517x faster diffs, O(1) subgraph root lookups for cache keys, and scoped invalidation. Phase 2 (subgraph caching) will make most queries near-instant for unchanged subgraphs. No competitor uses content-addressed hierarchical graph Merkle trees.
+
+**What's shipped (v0.2.0+):** ~60K LOC Go, 25 extractor types (12 languages + 13 infrastructure/cloud formats), 23 MCP tools, 5 wire formats (GCF/TOON/JSON/XML/markdown), 55 eval fixtures, 84 equivalence classes, multi-language LSP enrichment (Go, TS, Python, Java, Rust, C#), `knowing init` one-command setup, `knowing why` retrieval explainability, hierarchical Merkle tree with package/edge-type subtrees, modular community detection (Louvain + label propagation registry), React viz with 6 grouping strategies.
