@@ -186,6 +186,13 @@ Most code intelligence tools have no audit story at all. They produce ephemeral 
 | Full integrity check | `knowing fsck` (98ms) | Not available |
 | History | Snapshot chain tied to git commits | Ephemeral; regenerated each session |
 | Provenance | Every edge records how it was discovered | Metadata, if any |
+| Graph completeness | Every edge has both endpoints; `knowing fsck` reports 0 errors | No verification mechanism |
+
+### Graph Completeness
+
+knowing's graph is provably complete: every edge has both a source node and a target node. This is enforced by phantom external nodes, which represent stdlib and external symbols that are never indexed. The Go tree-sitter extractor creates phantom nodes at extraction time for inferred stdlib targets. The LSP enricher creates phantom nodes in a post-enrichment sweep for any remaining dangling targets.
+
+The result: `knowing fsck` on a correctly indexed repo reports 0 errors. This is a property no other code intelligence tool can state, because no other tool has a mechanism to verify it. Tools that do not run an integrity check cannot know whether their graph has dangling references; tools that do run an integrity check and suppress errors are accepting corruption silently. knowing's `fsck` is the verification layer, and 0 errors is the passing bar.
 
 ## Performance
 

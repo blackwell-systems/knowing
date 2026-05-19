@@ -76,6 +76,8 @@ CREATE TABLE nodes (
 
 Moving a function between files does not change its hash (identity is logical, not physical). Renaming it creates a new node (old node's edges become stale, detectable via snapshot diff).
 
+Nodes with `kind='external'` and `file_hash=EmptyHash` are phantom nodes representing stdlib or external symbols. They are created by the Go tree-sitter extractor (for edges to inferred stdlib targets at extraction time) and by the LSP enricher (post-enrichment sweep for any remaining dangling targets). Phantom nodes make the graph complete: every edge has both a source and a target, and `knowing fsck` reports zero dangling errors on a correctly indexed repo.
+
 ### edges
 
 Content-addressed relationships. Identity includes provenance, so the same structural relationship observed by different methods produces distinct edges.
@@ -228,6 +230,7 @@ When the tree needs to be larger than memory (lazy materialization), the roots a
 | 010 | add_coverage_column.sql | coverage_pct on nodes |
 | 011 | add_indexed_at.sql | indexed_at on nodes and edges |
 | 012 | add_notes.sql | graph_notes table |
+| 013 | add_edge_event_data.sql | source_hash, target_hash, edge_type, confidence, provenance on edge_events (removed-edge diffs) |
 
 Migrations run automatically on `NewSQLiteStore`. Each runs in its own transaction. Schema version is tracked in `schema_version` table. No rollback/down migrations.
 

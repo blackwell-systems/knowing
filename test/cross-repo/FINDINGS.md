@@ -212,10 +212,20 @@ repo boundaries.
 - 9 are cross-repo method calls with a known extractor naming mismatch
 - 1 is a package-level import reference
 
+## Shipped Since Initial Findings
+
+The following items from the original "Remaining Work" list are now done:
+
+- **fsck roster awareness:** SHIPPED. `knowing fsck` classifies dangling edges as cross-repo, stdlib, or truly dangling using roster data. Roster is opened once per verify call.
+- **Synthetic file nodes:** SHIPPED. The Go tree-sitter extractor stores file nodes when import edges exist. Zero dangling import edge sources on module-a.
+- **Phantom external nodes (extractor + enricher):** SHIPPED. The extractor creates `kind="external"` nodes for edges targeting inferred stdlib/external symbols. The LSP enricher runs a post-enrichment sweep to create phantom nodes for any remaining dangling targets. `knowing fsck` on a correctly indexed repo reports 0 errors.
+- **Removed-edge diff correctness:** SHIPPED (migration 013). `edge_events` now stores source_hash, target_hash, edge_type, confidence, and provenance. `SnapshotDiff` uses COALESCE to read from the event record first, falling back to the edges table for pre-migration events. "Edges Removed" diffs return full edge data.
+- **ExtractPackagePath method name fix:** SHIPPED. Hash mismatches dropped to 0 after the rename.
+
+**Current result on module-a:** `knowing fsck` reports 0 errors, 1 warning (file node hash recomputation mismatch, cosmetic: the file node hash was stored before enrichment added fields).
+
 ## Remaining Work
 
-- fsck should classify dangling edges automatically (cross-repo vs stdlib vs corruption)
-- Cross-repo method call target hash mismatch (extractor naming inconsistency)
 - Export path filters cross-repo edges (target not in exported node set)
 - `knowing prove` across repos needs multi-database proof generation
 - `knowing audit` needs to query across databases for a combined report

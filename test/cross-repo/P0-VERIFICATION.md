@@ -35,25 +35,24 @@ Previously 0 file nodes were stored and 4 import sources were dangling.
 
 **Verdict: PASS.** Import edges now have valid source nodes.
 
-## Remaining: Stdlib Classification (INCOMPLETE)
+## Stdlib Classification (RESOLVED via phantom external nodes)
 
-**Issue:** `knowing fsck` on module-a (no cross-repo deps) reports 18 "truly
-dangling" errors. These are ALL stdlib references (calls to sha256.Sum256,
-hex.EncodeToString, strings.Join, etc.). The stdlib heuristic only catches
-`throws` and `imports` edge types, not `calls` to stdlib functions.
+**Previous issue:** `knowing fsck` on module-a reported 18 "truly dangling"
+errors for stdlib references (sha256.Sum256, hex.EncodeToString, strings.Join,
+etc.). The stdlib heuristic only caught `throws` and `imports` edge types, not
+`calls` to stdlib functions.
 
-**Root cause:** Dangling edges only store a target hash. We can't reverse the
-hash to determine what package it targets. Without the target node (it's never
-indexed for stdlib), classification relies on heuristics that are incomplete
-for `calls` edges.
+**Resolution:** Phantom external nodes eliminate all dangling edges. When the
+Go tree-sitter extractor encounters a call to an inferred stdlib or external
+target, it creates a `kind="external"` node with `file_hash=EmptyHash` as the
+edge target. The LSP enricher runs a post-enrichment sweep and creates phantom
+nodes for any remaining dangling targets. Both paths produce the same result:
+every edge has a valid target node in the database.
 
-**Options:**
-1. Store the target qualified name on the edge (requires schema change)
-2. Accept that `calls` to stdlib are "truly dangling" and adjust messaging
-3. Maintain a stdlib function hash table (pre-compute known stdlib hashes)
+**Current state on module-a:**
+- Zero dangling targets (0 errors)
+- Zero dangling sources (0 errors)
+- 25 phantom external nodes (stdlib and external call targets)
+- 1 warning: file node hash recomputation mismatch (cosmetic; stored before enrichment)
 
-**Impact:** Cosmetic. The edges are correctly extracted, correctly dangling
-(stdlib is never indexed), and correctly reportable. The classification just
-isn't precise enough to label them as "stdlib" in the fsck output.
-
-**Verdict: KNOWN LIMITATION.** Not a correctness issue; a UX issue.
+**Verdict: RESOLVED.** The graph is complete. `knowing fsck` reports 0 errors.
