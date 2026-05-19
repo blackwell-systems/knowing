@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/blackwell-systems/knowing/internal/roster"
 	"github.com/blackwell-systems/knowing/internal/snapshot"
 	"github.com/blackwell-systems/knowing/internal/store"
 	"github.com/blackwell-systems/knowing/internal/types"
@@ -38,6 +39,9 @@ func cmdFsck(args []string) error {
 		return nil
 	}
 
+	// Load the global roster to classify dangling edges as cross-repo vs truly dangling.
+	rosterDBPaths := collectRosterDBPaths()
+
 	sm := snapshot.NewSnapshotManager(st)
 
 	var repos []types.Repo
@@ -60,7 +64,7 @@ func cmdFsck(args []string) error {
 
 	var allErrors []snapshot.VerifyError
 	for _, r := range repos {
-		verifyErrs, err := sm.Verify(ctx, r.RepoHash)
+		verifyErrs, err := sm.Verify(ctx, r.RepoHash, rosterDBPaths, *dbPath)
 		if err != nil {
 			return fmt.Errorf("verifying repo %s: %w", r.RepoURL, err)
 		}
@@ -69,20 +73,57 @@ func cmdFsck(args []string) error {
 
 	errorCount := 0
 	warnCount := 0
+	infoCount := 0
+	crossRepoCount := 0
+	stdlibCount := 0
+	trulyDanglingCount := 0
+
 	for _, ve := range allErrors {
-		fmt.Fprintf(os.Stderr, "[%s] %s: %s (hash: %s)\n", ve.Level, ve.Kind, ve.Message, ve.Hash)
 		switch ve.Level {
 		case "ERROR":
 			errorCount++
+			fmt.Fprintf(os.Stderr, "[%s] %s: %s (hash: %s)\n", ve.Level, ve.Kind, ve.Message, ve.Hash)
 		case "WARN":
 			warnCount++
+			fmt.Fprintf(os.Stderr, "[%s] %s: %s (hash: %s)\n", ve.Level, ve.Kind, ve.Message, ve.Hash)
+		case "INFO":
+			infoCount++
+		}
+
+		// Count by classification.
+		switch ve.Classification {
+		case snapshot.ClassCrossRepo:
+			crossRepoCount++
+		case snapshot.ClassStdlib:
+			stdlibCount++
+		case snapshot.ClassTrulyDangling:
+			trulyDanglingCount++
 		}
 	}
 
-	fmt.Printf("Checked %d repos: %d errors, %d warnings\n", len(repos), errorCount, warnCount)
+	fmt.Printf("Checked %d repos: %d errors, %d warnings, %d info\n", len(repos), errorCount, warnCount, infoCount)
+	if crossRepoCount > 0 || stdlibCount > 0 || trulyDanglingCount > 0 {
+		fmt.Printf("Dangling edges: %d cross-repo, %d stdlib, %d truly dangling\n", crossRepoCount, stdlibCount, trulyDanglingCount)
+	}
 
 	if errorCount > 0 {
 		return fmt.Errorf("integrity check failed: %d errors found", errorCount)
 	}
 	return nil
+}
+
+// collectRosterDBPaths loads the global roster and returns the DB paths
+// of all tracked repositories. Returns nil if the roster cannot be loaded.
+func collectRosterDBPaths() []string {
+	r, err := roster.Load()
+	if err != nil {
+		return nil
+	}
+	var paths []string
+	for _, entry := range r.Repos {
+		if entry.DB != "" {
+			paths = append(paths, entry.DB)
+		}
+	}
+	return paths
 }

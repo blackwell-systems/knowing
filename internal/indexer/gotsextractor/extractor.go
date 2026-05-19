@@ -489,11 +489,14 @@ func walkForCalls(node *sitter.Node, opts types.ExtractOptions, pkgPath string, 
 			edge := resolveCallEdge(funcNode, opts, pkgPath, sourceHash, imports)
 			if edge != nil {
 				// Store the call-site position so the LSP enricher can query
-				// gopls GetDefinition at exactly this location. Tree-sitter
-				// rows are 0-indexed; we convert to 1-indexed lines to match
-				// the LSP protocol and our own Node.Line convention.
-				edge.CallSiteLine = int(node.StartPoint().Row) + 1
-				edge.CallSiteCol = int(node.StartPoint().Column)
+				// gopls GetDefinition at exactly this location. For selector
+				// expressions (pkg.Func or receiver.Method), use the field
+				// (method/function name) position rather than the operand
+				// position. This ensures gopls resolves the called symbol,
+				// not the receiver variable.
+				posNode := callSitePositionNode(funcNode)
+				edge.CallSiteLine = int(posNode.StartPoint().Row) + 1
+				edge.CallSiteCol = int(posNode.StartPoint().Column)
 				edge.CallSiteFile = opts.FilePath
 				*edges = append(*edges, *edge)
 			}
@@ -608,10 +611,41 @@ func walkReturnForErrors(node *sitter.Node, opts types.ExtractOptions, pkgPath s
 	}
 }
 
+// callSitePositionNode returns the tree-sitter node whose position should be
+// used as the call-site location for LSP enrichment. For selector expressions,
+// this is the "field" child (the method/function name) because gopls resolves
+// the symbol at that position. For plain identifiers, the node itself is used.
+//
+// Example: for `p.registry.Register(entity)`, the call_expression's function
+// is the selector `p.registry.Register`. Using the expression's start position
+// (column of `p`) would cause gopls to resolve the variable `p` rather than
+// the method `Register`. By using the field's position, gopls correctly
+// resolves `Register` to its definition in the target package.
+func callSitePositionNode(funcNode *sitter.Node) *sitter.Node {
+	if funcNode.Type() == "selector_expression" {
+		field := funcNode.ChildByFieldName("field")
+		if field != nil {
+			return field
+		}
+	}
+	return funcNode
+}
+
 // resolveCallEdge creates an edge for a call expression's function node.
+//
+// For selector expressions (pkg.Func or receiver.Method), the function
+// distinguishes between package-qualified calls and method calls:
+//   - If the operand is an import alias, this is a package function call
+//     (kind="function", package=the import path).
+//   - If the operand is a local variable (not in imports), this is a method
+//     call (kind="method", package=current package or inferred from type).
+//   - If the operand is itself a selector expression (chained access like
+//     p.registry.Method()), we extract the method name and treat it as a
+//     method call with lower confidence.
 func resolveCallEdge(funcNode *sitter.Node, opts types.ExtractOptions, pkgPath string, sourceHash types.Hash, imports map[string]string) *types.Edge {
 	content := opts.Content
 	var targetName, targetKind, targetPkg string
+	confidence := 0.7
 
 	switch funcNode.Type() {
 	case "identifier":
@@ -628,17 +662,49 @@ func resolveCallEdge(funcNode *sitter.Node, opts types.ExtractOptions, pkgPath s
 			return nil
 		}
 		targetName = fieldNode.Content(content)
-		targetKind = "function"
 
-		if operandNode.Type() == "identifier" {
+		switch operandNode.Type() {
+		case "identifier":
 			operandName := operandNode.Content(content)
 			// Look up in import map to resolve to full package path.
 			if importPath, ok := imports[operandName]; ok {
+				// Package-qualified call: modulea.NewRegistry()
+				targetKind = "function"
 				targetPkg = importPath
 			} else {
-				targetPkg = operandName
+				// Method call on a local variable: r.Register(), e.QualifiedName()
+				// The operand is not an import alias, so this is a method call.
+				targetKind = "method"
+				targetPkg = pkgPath
+				confidence = 0.5
 			}
-		} else {
+
+		case "selector_expression":
+			// Chained selector: p.registry.Method()
+			// The innermost field is the receiver variable, and the outer field
+			// is the method name. We treat this as a method call. We cannot
+			// determine the target package without type information, so we use
+			// the current package and lower confidence.
+			targetKind = "method"
+			targetPkg = pkgPath
+			confidence = 0.4
+
+			// Try to resolve through the import map if the chain root is an
+			// imported package. For example: modulea.SomeType.Method() would
+			// have the root identifier as an import alias. Walk down to find it.
+			rootOperand := operandNode
+			for rootOperand != nil && rootOperand.Type() == "selector_expression" {
+				rootOperand = rootOperand.ChildByFieldName("operand")
+			}
+			if rootOperand != nil && rootOperand.Type() == "identifier" {
+				rootName := rootOperand.Content(content)
+				if importPath, ok := imports[rootName]; ok {
+					targetPkg = importPath
+					confidence = 0.5
+				}
+			}
+
+		default:
 			return nil
 		}
 
@@ -660,7 +726,7 @@ func resolveCallEdge(funcNode *sitter.Node, opts types.ExtractOptions, pkgPath s
 		SourceHash: sourceHash,
 		TargetHash: targetHash,
 		EdgeType:   "calls",
-		Confidence: 0.7,
+		Confidence: confidence,
 		Provenance: provenance,
 	}
 }

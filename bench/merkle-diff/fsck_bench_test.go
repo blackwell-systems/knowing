@@ -60,7 +60,7 @@ func TestFsckBenchmark(t *testing.T) {
 		var verifyErrs []snapshot.VerifyError
 		stats := measure(measureN, warmupN, func() {
 			var ferr error
-			verifyErrs, ferr = snapMgr.Verify(ctx, repoHash)
+			verifyErrs, ferr = snapMgr.Verify(ctx, repoHash, nil, "")
 			if ferr != nil {
 				t.Error(ferr)
 			}
@@ -129,7 +129,7 @@ func TestFsckBenchmark(t *testing.T) {
 		var corruptVerifyErrs []snapshot.VerifyError
 		corruptStats := measure(measureN, warmupN, func() {
 			var ferr error
-			corruptVerifyErrs, ferr = snapMgr.Verify(ctx, repoHash)
+			corruptVerifyErrs, ferr = snapMgr.Verify(ctx, repoHash, nil, "")
 			if ferr != nil {
 				t.Error(ferr)
 			}

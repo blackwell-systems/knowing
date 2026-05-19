@@ -119,7 +119,7 @@ func cmdAudit(args []string) error {
 	fmt.Fprintf(os.Stderr, "Running integrity check...\n")
 	fsckStart := time.Now()
 	snapMgr := snapshot.NewSnapshotManager(st)
-	errs, err := snapMgr.Verify(ctx, repoHash)
+	errs, err := snapMgr.Verify(ctx, repoHash, collectRosterDBPaths(), *dbPath)
 	fsckDuration := time.Since(fsckStart)
 	if err != nil {
 		return fmt.Errorf("verify failed: %w", err)

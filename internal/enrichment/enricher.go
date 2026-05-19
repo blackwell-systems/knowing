@@ -38,6 +38,8 @@ import (
 
 	"github.com/blackwell-systems/agent-lsp/pkg/lsp"
 	lsptypes "github.com/blackwell-systems/agent-lsp/pkg/types"
+	"github.com/blackwell-systems/knowing/internal/roster"
+	"github.com/blackwell-systems/knowing/internal/store"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
@@ -297,6 +299,15 @@ func (e *Enricher) upgradeCallEdges(
 			}
 
 			// gopls confirmed a definition exists at this call site.
+			// Try to retarget the edge to the correct node hash by matching
+			// the definition location to a node in the database. This fixes
+			// cross-repo method call edges where tree-sitter could not
+			// determine the correct target package or kind.
+			retargetedEdge := edge
+			if defNode := e.resolveDefinitionToNode(ctx, locs[0], repoHash); defNode != nil {
+				retargetedEdge.TargetHash = defNode.NodeHash
+			}
+
 			// Delete the old ast_inferred edge and create a new lsp_resolved
 			// edge. We must delete first because the provenance string is part
 			// of the edge hash; changing provenance produces a new hash.
@@ -305,7 +316,7 @@ func (e *Enricher) upgradeCallEdges(
 				continue
 			}
 
-			upgraded := upgradeEdge(edge)
+			upgraded := upgradeEdge(retargetedEdge)
 			upgraded.CallSiteLine = edge.CallSiteLine
 			upgraded.CallSiteCol = edge.CallSiteCol
 			upgraded.CallSiteFile = edge.CallSiteFile
@@ -316,6 +327,107 @@ func (e *Enricher) upgradeCallEdges(
 			stats.edgesUpgraded++
 		}
 	}
+}
+
+// resolveDefinitionToNode tries to match an LSP definition location to a node
+// in the database. It converts the LSP URI to a workspace-relative path, looks
+// up nodes at that file, and returns the best match by line number. This allows
+// the enricher to retarget edges whose tree-sitter-generated target hashes are
+// wrong (e.g., method calls with incorrect package or kind).
+//
+// For cross-repo definitions (where the file is outside the current workspace),
+// the method checks the global roster to find the owning repo and queries that
+// repo's database.
+//
+// Returns nil if no matching node is found (the edge will keep its original
+// target hash).
+func (e *Enricher) resolveDefinitionToNode(ctx context.Context, loc lsptypes.Location, repoHash types.Hash) *types.Node {
+	absPath := strings.TrimPrefix(loc.URI, "file://")
+	defLine := loc.Range.Start.Line + 1
+
+	// Try the local workspace first.
+	if strings.HasPrefix(absPath, e.workspaceRoot) {
+		relPath := strings.TrimPrefix(absPath, e.workspaceRoot)
+		relPath = strings.TrimPrefix(relPath, "/")
+		if relPath != "" {
+			if node := e.findNodeByFileLine(ctx, e.store, repoHash, relPath, defLine); node != nil {
+				return node
+			}
+		}
+	}
+
+	// Definition is outside the workspace (cross-repo). Check the roster to
+	// find which repo owns this file and query its database.
+	return e.resolveDefinitionViaRoster(ctx, absPath, defLine)
+}
+
+// resolveDefinitionViaRoster checks the global roster to find which repo
+// contains the given absolute file path, then queries that repo's database
+// for a node at the specified line.
+func (e *Enricher) resolveDefinitionViaRoster(ctx context.Context, absPath string, defLine int) *types.Node {
+	r, err := roster.Load()
+	if err != nil || r == nil {
+		return nil
+	}
+
+	for _, entry := range r.Repos {
+		if entry.Path == "" || entry.DB == "" {
+			continue
+		}
+		// Check if the file is under this repo's path.
+		if !strings.HasPrefix(absPath, entry.Path) {
+			continue
+		}
+		relPath := strings.TrimPrefix(absPath, entry.Path)
+		relPath = strings.TrimPrefix(relPath, "/")
+		if relPath == "" {
+			continue
+		}
+
+		// Open the repo's database and look for the node.
+		otherStore, err := store.NewSQLiteStore(entry.DB)
+		if err != nil {
+			continue
+		}
+
+		// Find the repo hash in this database.
+		otherRepoHash := types.NewHash([]byte(entry.URL))
+		node := e.findNodeByFileLine(ctx, otherStore, otherRepoHash, relPath, defLine)
+		otherStore.Close()
+		if node != nil {
+			return node
+		}
+	}
+	return nil
+}
+
+// findNodeByFileLine looks up nodes in a store by file path and returns
+// the node closest to the given line number (within a 2-line tolerance).
+func (e *Enricher) findNodeByFileLine(ctx context.Context, st types.GraphStore, repoHash types.Hash, relPath string, defLine int) *types.Node {
+	nodes, err := st.NodesByFilePath(ctx, repoHash, relPath)
+	if err != nil || len(nodes) == 0 {
+		return nil
+	}
+
+	var best *types.Node
+	bestDist := int(^uint(0) >> 1) // max int
+	for i := range nodes {
+		dist := defLine - nodes[i].Line
+		if dist < 0 {
+			dist = -dist
+		}
+		if dist < bestDist {
+			bestDist = dist
+			best = &nodes[i]
+		}
+	}
+
+	// Only accept matches within 2 lines (LSP may point to the keyword line
+	// while the node's Line field points to the name identifier).
+	if best != nil && bestDist <= 2 {
+		return best
+	}
+	return nil
 }
 
 // openFilesForLanguage opens files matching the filter via textDocument/didOpen.

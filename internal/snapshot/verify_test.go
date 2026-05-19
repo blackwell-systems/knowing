@@ -60,7 +60,7 @@ func TestVerify_CleanRepo(t *testing.T) {
 	store.latestSnapshotResult = &snap
 
 	sm := NewSnapshotManager(store)
-	verifyErrs, err := sm.Verify(ctx, repoHash)
+	verifyErrs, err := sm.Verify(ctx, repoHash, nil, "")
 	if err != nil {
 		t.Fatalf("Verify failed: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestVerify_DanglingEdge(t *testing.T) {
 	store.edgesFromResult[node1.NodeHash] = []types.Edge{edge1}
 
 	sm := NewSnapshotManager(store)
-	verifyErrs, err := sm.Verify(ctx, repoHash)
+	verifyErrs, err := sm.Verify(ctx, repoHash, nil, "")
 	if err != nil {
 		t.Fatalf("Verify failed: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestVerify_BrokenChain(t *testing.T) {
 	// Note: missingParentHash is NOT in store.snapshots
 
 	sm := NewSnapshotManager(store)
-	verifyErrs, err := sm.Verify(ctx, repoHash)
+	verifyErrs, err := sm.Verify(ctx, repoHash, nil, "")
 	if err != nil {
 		t.Fatalf("Verify failed: %v", err)
 	}
