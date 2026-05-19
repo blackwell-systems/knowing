@@ -54,11 +54,13 @@ For platform and runtime teams:
 - "What did the service graph look like at the snapshot we deployed on Tuesday?"
 - "Which runtime-observed paths disagree with static analysis?"
 
-For security and compliance:
+For security, audit, and compliance:
 
-- "Prove this graph was derived from these source commits."
-- "Show every service that touches this symbol, route, table, queue, or proto message."
-- "What relationships were added or removed between two audit points?"
+- "Prove that service A calls service B at this specific snapshot." (`knowing prove` generates a cryptographic Merkle proof; `knowing verify` checks it offline without database access.)
+- "What relationships were added or removed between two audit points?" (Hierarchical diff, O(packages) instead of O(edges).)
+- "Verify the entire graph has not been tampered with." (`knowing fsck` recomputes every hash from source data in 98ms.)
+- "Show every service that touches this symbol, route, table, queue, or proto message." (Transitive callers with provenance and confidence.)
+- "When did this cross-service dependency first appear?" (Walk the snapshot chain; each snapshot is a Merkle root tied to a git commit.)
 
 ## Why It Is Different
 
@@ -74,6 +76,8 @@ Most code-intelligence tools answer one slice of the problem:
 knowing's unit of record is the relationship itself: `source -edge_type-> target`, with confidence and provenance. The intelligence is versioned, so you can ask "what did we understand about the service graph on Tuesday?" and get an answer, not "what did the files look like on Tuesday?"
 
 knowing is the only code-intelligence tool where every node, edge, and snapshot is content-addressed (`sha256`). Other tools use auto-increment IDs, UUIDs, or ephemeral in-memory graphs that are regenerated from scratch each session. Content-addressing means staleness is structurally detectable (changed file = new hash = stale edges are known without scanning), snapshots are verifiable from a single Merkle root, and query results keyed to a snapshot hash are valid forever.
+
+This also makes knowing an **audit primitive**. No other code intelligence tool can answer "prove this specific relationship existed at this specific point in time" with a cryptographic proof that verifies offline. `knowing prove` generates a Merkle proof (72us, ~3KB); `knowing verify` checks it without database access (1.2us). `knowing fsck` verifies the entire graph (98ms). The snapshot chain ties every graph state to a git commit. This is the foundation for compliance workflows, CI gates, and federated trust between teams.
 
 Snapshots are structured as hierarchical Merkle trees: repo root -> package roots -> edge-type roots -> edge leaves. This means "which packages changed?" is an O(packages) root comparison instead of an O(edges) full scan (benchmarked at 517x faster for 100K-edge graphs). "Did call edges change?" is a single root lookup. Subgraph cache keys are computed from package roots, so queries against unchanged code return cached results instantly. Intelligence diffs ("3 new cross-service calls appeared in `internal/mcp`, 2 routes went dead in `cmd/`, blast radius of AuthMiddleware grew 40%") are scoped to the packages that actually changed.
 
@@ -377,6 +381,7 @@ See [docs/guide/features.md](docs/guide/features.md) for the implementation inve
 |---|---|
 | [Architecture](docs/architecture/) | System design, schemas, content addressing, daemon model |
 | [Features](docs/guide/features.md) | Implementation inventory, entry points, limitations |
+| [Audit & Compliance](docs/guide/audit-compliance.md) | Merkle proofs, fsck, snapshot chain, CI gates, compliance workflows |
 | [CLI Reference](docs/guide/cli.md) | Commands, flags, examples |
 | [MCP Tools](docs/guide/mcp-tools.md) | Tool schemas, parameters, return formats |
 | [Edge Types](docs/architecture/edge-types.md) | Relationship semantics and provenance |
