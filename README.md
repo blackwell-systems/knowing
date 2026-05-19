@@ -350,7 +350,7 @@ knowing is implemented, benchmarked, and usable, but it is still explicit about 
 - Static call-graph impact follows `calls` edges; other edge types are used for context and relationship awareness, not every blast-radius traversal.
 - Runtime tools require OpenTelemetry trace ingestion and route-symbol mappings; without trace data they have no runtime observations to report.
 - LSP enrichment supports Go (gopls), TypeScript (tsserver), Python (pyright), Rust (rust-analyzer), Java (jdtls), and C# (OmniSharp). Servers are auto-detected from project markers and PATH. Languages without a detected server fall back to tree-sitter extraction and SCIP where available.
-- Some planned work remains: MCP resources, traversal caching, richer ownership routing, and federated graphs.
+- Some planned work remains: traversal caching, richer ownership routing, and federated graphs.
 
 See [docs/guide/features.md](docs/guide/features.md) for the implementation inventory and known gaps, and [docs/roadmap.md](docs/roadmap.md) for planned work.
 

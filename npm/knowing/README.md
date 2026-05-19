@@ -1,6 +1,8 @@
 # @blackwell-systems/knowing
 
-Content-addressed knowledge graph for software systems.
+**Git versions files. knowing versions the understanding of code.**
+
+An intelligence versioning system: a content-addressed graph where every relationship between symbols is tracked, scored, and snapshotted with hierarchical Merkle trees.
 
 ## Install
 
@@ -13,13 +15,42 @@ Or use directly:
 ```bash
 npx @blackwell-systems/knowing index ./my-repo
 npx @blackwell-systems/knowing context -task "refactor auth" -format gcf
-npx @blackwell-systems/knowing mcp -db knowing.db
+npx @blackwell-systems/knowing mcp --watch
 ```
 
-## What This Is
+## What It Does
 
-knowing indexes code across 10 languages into a content-addressed knowledge graph (SHA-256 hashed nodes, edges, and Merkle-tree snapshots). It fuses static analysis with runtime traces and serves the result over MCP with 84% token savings via the GCF wire format.
+knowing indexes code across 12 languages and 25 extractor types into a content-addressed knowledge graph. Every node, edge, and snapshot is SHA-256 hashed with domain-type prefixes. Snapshots are structured as hierarchical Merkle trees (repo -> package -> edge-type -> leaf), enabling O(packages) diffs instead of O(edges) full scans.
+
+**For AI agents:** 23 MCP tools + 8 MCP resources serve graph-ranked context over stdio or HTTP. The GCF wire format delivers 84% token savings versus JSON. Agents get trustworthy, cacheable, replayable context with provenance and confidence on every edge.
+
+**Key capabilities:**
+
+- **25 extractors:** Go, TypeScript, Python, Rust, Java, C#, Protobuf, Terraform, SQL, Kubernetes, CloudFormation, Docker Compose, GitHub Actions, Helm, GraphQL, and more
+- **Hierarchical Merkle diffs:** 114x faster on real graphs, 517x at 100K edges
+- **Subgraph cache:** 93x faster repeat queries via content-addressed cache keys
+- **Runtime fusion:** OpenTelemetry trace ingestion merges static and runtime views
+- **`knowing fsck`:** git-style integrity verification of the entire graph
+- **Feedback loop:** rankings improve with use as agents mark useful symbols
+
+## Agent Integration
+
+Add to `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "knowing": {
+      "command": "knowing",
+      "args": ["mcp", "--watch"],
+      "transport": "stdio"
+    }
+  }
+}
+```
 
 ## Documentation
 
-See https://blackwell-systems.github.io/knowing
+Full docs, architecture, benchmarks, and roadmap at https://blackwell-systems.github.io/knowing
+
+Source: https://github.com/blackwell-systems/knowing
