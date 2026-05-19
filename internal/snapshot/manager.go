@@ -190,12 +190,19 @@ func (sm *SnapshotManager) collectRepoEdgesHierarchical(ctx context.Context, rep
 }
 
 // ExtractPackagePath extracts the package path from a qualified name.
-// Format: "repoURL://pkgPath.SymbolName" -> "pkgPath"
-// The separator "://" marks the boundary between the repo URL and the package
-// path; since repoURLs contain "://" themselves (e.g. "https://..."), we use
-// the LAST occurrence of "://" as the separator.
-// Returns an error if the qualified name is malformed (missing "://" separator
-// or missing dot-separated symbol after the package path).
+// Format: "repoURL://pkgPath.SymbolName" or "repoURL://pkgPath.Type.Method"
+// The separator "://" marks the boundary between the repo URL and the package path.
+//
+// For Go packages, the package path ends at the first dot-separated component
+// that starts with an uppercase letter (indicating a type or symbol name, not
+// a package path segment). If no uppercase component is found, falls back to
+// splitting at the last dot.
+//
+// Examples:
+//
+//	"repo://pkg/sub.FuncName"          -> "pkg/sub"
+//	"repo://pkg/sub.TypeName.Method"   -> "pkg/sub"
+//	"repo://pkg/sub.lowercase"         -> "pkg/sub"
 //
 // This is the canonical package path extractor. All code that needs to derive
 // a package path from a qualified name should use this function to avoid
@@ -206,11 +213,21 @@ func ExtractPackagePath(qualifiedName string) (string, error) {
 		return "", fmt.Errorf("malformed qualified name: missing '://' separator: %q", qualifiedName)
 	}
 	rest := qualifiedName[sep+3:]
-	lastDot := strings.LastIndex(rest, ".")
-	if lastDot < 0 {
+
+	// Find the boundary between package path and symbol name.
+	// Package path segments contain '/' and lowercase names.
+	// Symbol names start with an uppercase letter (Go convention).
+	// Look for the first dot where the next segment starts with uppercase.
+	lastSlash := strings.LastIndex(rest, "/")
+	if lastSlash < 0 {
+		lastSlash = 0
+	}
+	afterPkg := rest[lastSlash:]
+	firstDot := strings.Index(afterPkg, ".")
+	if firstDot < 0 {
 		return "", fmt.Errorf("malformed qualified name: no symbol separator '.' after package path: %q", qualifiedName)
 	}
-	return rest[:lastDot], nil
+	return rest[:lastSlash+firstDot], nil
 }
 
 // collectRepoEdges gathers all edge hashes for a repo by traversing
