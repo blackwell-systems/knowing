@@ -106,6 +106,9 @@ func EncodeWithSession(p *Payload, sess *Session) string {
 	// Header with session=true marker.
 	b.sprintf("GCF tool=%s budget=%d tokens=%d symbols=%d session=true",
 		p.Tool, p.TokenBudget, p.TokensUsed, len(p.Symbols))
+	if p.PackRoot != "" {
+		b.sprintf(" pack_root=%s", p.PackRoot)
+	}
 	b.writeByte('\n')
 
 	// Build local ID mapping for this response.
