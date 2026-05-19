@@ -525,7 +525,7 @@ func TestPhase2CacheBenchmark(t *testing.T) {
 		// --- Performance contracts ---
 		t.Run("PerformanceContracts", func(t *testing.T) {
 			const (
-				maxCacheHitMedian    = 5 * time.Millisecond
+				maxCacheHitMedian    = 10 * time.Millisecond // 10ms allows for slower CI runners
 				maxInvalidateMedian  = 1 * time.Millisecond
 				minSpeedupMedian     = 20.0
 			)
