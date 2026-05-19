@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/blackwell-systems/knowing/internal/cache"
+	"github.com/blackwell-systems/knowing/internal/snapshot"
 	"github.com/blackwell-systems/knowing/internal/trace"
 	"github.com/blackwell-systems/knowing/internal/types"
 	_ "modernc.org/sqlite"
@@ -54,6 +56,15 @@ type DaemonConfig struct {
 	// DBPath is the path to the SQLite database file, used by the trace
 	// ingestor for direct DB access. Must be set when TraceConfig is enabled.
 	DBPath string
+
+	// SnapMgr is the SnapshotManager used to obtain the most recently computed
+	// HierarchicalTree after each index run. Required for cache invalidation.
+	// If nil, cache invalidation is skipped.
+	SnapMgr *snapshot.SnapshotManager
+
+	// ResultCache is the SubgraphCache to invalidate after each successful index.
+	// If nil, no cache invalidation occurs.
+	ResultCache *cache.SubgraphCache
 }
 
 // TraceIngestConfig holds configuration for the runtime trace ingestion pipeline.
@@ -77,6 +88,11 @@ type Daemon struct {
 	wg     sync.WaitGroup     // tracks all daemon goroutines for graceful shutdown
 
 	indexQueue chan indexRequest // buffered channel of pending index requests
+
+	// prevTree is the HierarchicalTree from the previous index run, used to
+	// compute a diff and invalidate stale cache entries after each reindex.
+	// Protected by mu (written during indexWorker's write-lock window).
+	prevTree *snapshot.HierarchicalTree
 }
 
 type indexRequest struct {
@@ -374,7 +390,8 @@ func (d *Daemon) watchLoop(ctx context.Context) {
 // indexWorker processes index requests sequentially from the indexQueue channel.
 // It holds the daemon's write lock during indexing to ensure readers see a
 // consistent graph state. After each successful index, it spawns a background
-// goroutine for LSP enrichment (which does not hold the write lock).
+// goroutine for LSP enrichment (which does not hold the write lock) and
+// invalidates stale subgraph cache entries using the HierarchicalTree diff.
 func (d *Daemon) indexWorker(ctx context.Context) {
 	for req := range d.indexQueue {
 		if ctx.Err() != nil {
@@ -391,6 +408,28 @@ func (d *Daemon) indexWorker(ctx context.Context) {
 		// Acquire write lock during indexing so readers wait.
 		d.mu.Lock()
 		indexErr := d.cfg.IndexFunc(ctx, req.repoURL, req.repoPath, commit, req.changedFiles)
+
+		// After a successful index: invalidate cache entries for changed packages.
+		// This is done inside the write lock so the cache stays consistent with
+		// the graph state visible to concurrent readers.
+		if indexErr == nil && d.cfg.SnapMgr != nil && d.cfg.ResultCache != nil {
+			newTree := d.cfg.SnapMgr.LastHierarchicalTree()
+			if newTree != nil {
+				if d.prevTree != nil {
+					diff := snapshot.DiffHierarchicalTrees(d.prevTree, newTree)
+					changed := make([]string, 0,
+						len(diff.ChangedPackages)+len(diff.AddedPackages)+len(diff.RemovedPackages))
+					changed = append(changed, diff.ChangedPackages...)
+					changed = append(changed, diff.AddedPackages...)
+					changed = append(changed, diff.RemovedPackages...)
+					if len(changed) > 0 {
+						d.cfg.ResultCache.InvalidatePackages(changed, newTree)
+					}
+				}
+				d.prevTree = newTree
+			}
+		}
+
 		d.mu.Unlock()
 
 		// Trigger background enrichment after successful index.
