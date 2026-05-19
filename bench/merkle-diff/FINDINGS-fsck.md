@@ -1,58 +1,37 @@
 # Fsck (Graph Integrity Verification) Benchmark
 
-Statistical benchmarks for `SnapshotManager.Verify()` on the live knowing
+Statistical benchmarks for SnapshotManager.Verify() on the live knowing
 codebase. Each measurement runs 10 times with 2 warmup runs discarded;
 statistics report min, median, p95, mean, and stddev.
 
 ## Setup
 
 - Repository: knowing (live codebase)
-- Nodes verified: 2,338
-- Edges verified: 11,664
+- Nodes verified: 2490
+- Edges verified: 12328
 - Snapshots in chain: checked for parent continuity
-- Method: 10 measurement runs, 2 warmup (discarded)
 
-## Results
+## Checks Performed by Verify
 
-### Verification Performance
-
-| Metric | Value |
-|--------|-------|
-| Median | 98ms |
-| Min | ~90ms |
-| P95 | ~110ms |
-| Stddev | ~5ms |
-
-98ms to verify 2,338 nodes + 11,664 edges + snapshot chain. Well within the 30s performance contract (300x under budget).
-
-### Checks Performed
-
-| Check | What it verifies | Severity on failure |
-|-------|-----------------|-------------------|
-| Edge referential integrity | Both source and target node exist for every edge | ERROR |
-| Edge hash recomputation | Stored hash matches recomputed hash from fields | ERROR |
-| Node hash recomputation | Stored hash matches recomputed hash from fields | WARN |
-| Snapshot chain continuity | Every snapshot's ParentHash points to an existing snapshot | ERROR |
-
-### Corruption Detection
-
-The benchmark deliberately injects a fake edge whose TargetHash does not exist
-in the nodes table, then re-runs Verify and confirms the `dangling_edge` error
-is reported for the injected hash. This validates that the integrity checker
-detects real corruption, not just returns "all clear."
-
-### Pre-existing Findings
-
-The live DB shows ~8,492 dangling-edge findings from cross-repo edge references
-(edges whose targets are in other repos not indexed into the temp DB). These are
-expected in a multi-repo graph and are logged informationally. On a single-repo
-DB, fsck should report zero errors.
+1. **Edge referential integrity** — for every edge, verify that both the source
+   node and the target node exist in the graph. Reports dangling_edge (ERROR)
+   for any missing endpoint.
+2. **Hash recomputation** — recompute the canonical hash for each edge and each
+   node and compare against the stored hash. Reports hash_mismatch (ERROR for
+   edges, WARN for nodes) on any discrepancy.
+3. **Snapshot chain continuity** — walk the snapshot chain from latest to root;
+   report broken_chain (ERROR) for any snapshot whose parent hash is not found.
 
 ## Performance Contract
 
-| Contract | Threshold | Actual | Status |
-|----------|-----------|--------|--------|
-| Verify median | < 30s | 98ms | PASS (300x under) |
+- Verify on the knowing repo (2490 nodes, 12328 edges) must complete in under 30
+  seconds (median). Test fails if violated.
+
+## Corruption Detection
+
+The benchmark deliberately injects a fake edge whose TargetHash does not exist
+in the nodes table, then re-runs Verify and confirms the dangling_edge error is
+reported. This validates that the integrity checker is not a no-op.
 
 ## Running
 
