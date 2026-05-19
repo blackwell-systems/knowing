@@ -121,6 +121,10 @@ func run(args []string) error {
 		return cmdWatch(args[1:])
 	case "fsck":
 		return cmdFsck(args[1:])
+	case "prove":
+		return cmdProve(args[1:])
+	case "verify":
+		return cmdVerify(args[1:])
 	case "enrich":
 		return cmdEnrich(args[1:])
 	case "add":
@@ -151,6 +155,8 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  test-scope  Compute affected tests from changed files")
 	fmt.Fprintln(os.Stderr, "  ingest-scip Import a SCIP index for external dependency symbols")
 	fmt.Fprintln(os.Stderr, "  fsck     Verify graph integrity (hash recomputation, referential checks)")
+	fmt.Fprintln(os.Stderr, "  prove    Generate a Merkle proof that a relationship exists in a snapshot")
+	fmt.Fprintln(os.Stderr, "  verify   Verify a Merkle proof offline (no database needed)")
 	fmt.Fprintln(os.Stderr, "  version  Print version information")
 }
 

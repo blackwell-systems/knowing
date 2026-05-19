@@ -46,6 +46,27 @@ func (h Hash) IsZero() bool {
 	return h == EmptyHash
 }
 
+// MarshalJSON encodes the hash as a hex string for JSON output.
+func (h Hash) MarshalJSON() ([]byte, error) {
+	return []byte(`"` + hex.EncodeToString(h[:]) + `"`), nil
+}
+
+// UnmarshalJSON decodes a hex string into the hash.
+func (h *Hash) UnmarshalJSON(data []byte) error {
+	if len(data) < 2 || data[0] != '"' || data[len(data)-1] != '"' {
+		return fmt.Errorf("Hash.UnmarshalJSON: expected quoted string")
+	}
+	b, err := hex.DecodeString(string(data[1 : len(data)-1]))
+	if err != nil {
+		return fmt.Errorf("Hash.UnmarshalJSON: %w", err)
+	}
+	if len(b) != 32 {
+		return fmt.Errorf("Hash.UnmarshalJSON: expected 32 bytes, got %d", len(b))
+	}
+	copy(h[:], b)
+	return nil
+}
+
 // Node represents a symbol in the knowledge graph. A node is a function,
 // type, method, interface, const, or var declaration extracted from source
 // code. Nodes are identified by a content-addressed hash computed from
