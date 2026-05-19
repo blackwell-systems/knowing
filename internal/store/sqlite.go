@@ -16,6 +16,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/blackwell-systems/knowing/internal/types"
 
@@ -102,9 +103,9 @@ func (s *SQLiteStore) IntegrityCheck(ctx context.Context) error {
 // PutNode upserts a single node into the nodes table.
 func (s *SQLiteStore) PutNode(ctx context.Context, n types.Node) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT OR REPLACE INTO nodes (node_hash, file_hash, qualified_name, kind, line, signature, doc, last_author, last_commit_at, coverage_pct)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		n.NodeHash[:], n.FileHash[:], n.QualifiedName, n.Kind, n.Line, n.Signature, n.Doc, n.LastAuthor, n.LastCommitAt, n.CoveragePct,
+		`INSERT OR REPLACE INTO nodes (node_hash, file_hash, qualified_name, kind, line, signature, doc, last_author, last_commit_at, coverage_pct, indexed_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		n.NodeHash[:], n.FileHash[:], n.QualifiedName, n.Kind, n.Line, n.Signature, n.Doc, n.LastAuthor, n.LastCommitAt, n.CoveragePct, time.Now().Unix(),
 	)
 	if err != nil {
 		return err
@@ -135,10 +136,10 @@ func (s *SQLiteStore) UpdateNodeCoverage(ctx context.Context, nodeHash types.Has
 // PutEdge upserts a single edge into the edges table.
 func (s *SQLiteStore) PutEdge(ctx context.Context, e types.Edge) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT OR REPLACE INTO edges (edge_hash, source_hash, target_hash, edge_type, confidence, provenance, callsite_line, callsite_col, callsite_file)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT OR REPLACE INTO edges (edge_hash, source_hash, target_hash, edge_type, confidence, provenance, callsite_line, callsite_col, callsite_file, indexed_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		e.EdgeHash[:], e.SourceHash[:], e.TargetHash[:], e.EdgeType, e.Confidence, e.Provenance,
-		e.CallSiteLine, e.CallSiteCol, e.CallSiteFile,
+		e.CallSiteLine, e.CallSiteCol, e.CallSiteFile, time.Now().Unix(),
 	)
 	return err
 }
