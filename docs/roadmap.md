@@ -115,6 +115,35 @@ Phase 3 requires foundation work before the features can be built correctly. The
 | Lazy materialization (load only visited subtrees) | Planned |
 | File-level roots (finer single-file invalidation) | Planned |
 
+## Cross-Repo Validation: Grafana Ecosystem
+
+Stress-test the full cross-boundary product on a real multi-repo ecosystem.
+
+**Target:** Grafana + Loki + Tempo + Mimir (~1.3M LOC, 4 repos, Go + TypeScript)
+
+These repos share real cross-repo edges through `grafana/dskit` and shared pkg/ libraries. The Go module system provides exact import paths for cross-repo resolution.
+
+| Milestone | What it proves |
+|-----------|---------------|
+| Index all 4 repos | Indexer handles ~1.3M LOC, tree construction scales, per-repo isolation works |
+| Cross-repo edge resolution | `ModuleToRepoURL` resolves dskit/pkg imports across repo databases |
+| Cross-repo `knowing audit` | All inter-repo dependencies with provenance in one report |
+| Cross-repo `knowing prove` | "Prove Loki calls dskit.Ring.Get at this snapshot" |
+| Cross-repo `knowing prove-absent` | "Prove Tempo never directly calls Mimir storage" |
+| Multi-repo community detection | Do Louvain communities align with repo boundaries or cross them? |
+| Incremental at scale | Change one dskit file, re-index, verify only affected caches invalidated |
+| Multi-language extraction | Grafana's TypeScript frontend + Go backend in one repo |
+
+**Why this ecosystem:** shared libraries create genuine cross-repo edges (not just independent repos indexed together). The dskit dependency graph is the real test: dozens of packages consumed by all four repos.
+
+**Success criteria:**
+- All 4 repos index without error
+- Cross-repo edges resolved between repos (non-zero resolver output)
+- `knowing audit -proofs` generates valid proofs for cross-repo edges
+- `knowing prove-absent` correctly proves non-existent cross-repo relationships
+- Incremental re-index of one repo invalidates only affected caches in other repos
+- Total index time < 5 minutes for all 4 repos
+
 ## Git-Inspired (Not Yet Built)
 
 | Item | Priority | Effort |
@@ -135,4 +164,4 @@ The retrieval pipeline uses equivalence classes (not embeddings). Local, determi
 
 The hierarchical Merkle tree structures snapshots by semantic boundaries. The identity structure is the query structure: 114x faster diffs, O(1) subgraph roots, 93x cached retrieval, scoped invalidation.
 
-**What's shipped:** ~67K LOC Go, 25 extractors, 23 MCP tools, 8 MCP resources, 5 wire formats, 14 benchmark harnesses, 84 equivalence classes, multi-language LSP enrichment, hierarchical Merkle tree (Phase 1+2+3), content-addressed context packs, subgraph cache with daemon invalidation, git-audited integrity layer, modular community detection, React visualization.
+**What's shipped:** ~70K LOC Go, 25 extractors, 23 MCP tools, 8 MCP resources, 5 wire formats, 14 benchmark harnesses, 84 equivalence classes, multi-language LSP enrichment, hierarchical Merkle tree (Phase 1+2+3 complete, Phase 4 in progress), Merkle proofs + proof of absence, `knowing audit`/`audit-diff`/`prove`/`verify`/`prove-absent` (6 compliance CLI commands), content-addressed context packs with three-layer cache and PackRoot dedup, subgraph cache with daemon invalidation, incremental community detection with delta-save, semantic change classification, git-audited integrity layer, modular community detection, React visualization.
