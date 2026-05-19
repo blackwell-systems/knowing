@@ -140,6 +140,13 @@ module-c/  (imports A and B)
 
 **Why synthetic:** runs in CI, deterministic, controlled edges. Proves the cross-repo product without external dependencies. Every edge is known, so assertions are exact.
 
+**Dogfooding:** validation uses knowing's own tools, not just unit tests:
+- `knowing export` feeds knowing-viz: cross-repo edges visible as inter-cluster connections, communities should show 3 distinct module clusters
+- `context_for_task` with a task that spans modules: "refactor the shared helper in module-a"
+- `blast_radius` on a module-a function: callers should include module-b and module-c symbols
+- `flow_between` across repos: path from module-c through module-b to module-a
+- `communities`: verify modules detected as separate communities connected by bridge edges
+
 ### Tier 2: Grafana Ecosystem (scale validation, run once)
 
 **Target:** Grafana + Loki + Tempo + Mimir (~1.3M LOC, 4 repos, Go + TypeScript)
