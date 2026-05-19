@@ -3,9 +3,11 @@ package context
 import (
 	stdctx "context"
 	"crypto/sha256"
+	"encoding/json"
 	"sort"
 	"strings"
 
+	"github.com/blackwell-systems/knowing/internal/cache"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
@@ -30,11 +32,12 @@ type VectorSearcher interface {
 // token-budgeted context blocks ranked by graph relationships and runtime traffic.
 type ContextEngine struct {
 	store    types.GraphStore
-	feedback FeedbackProvider // nil if store doesn't support feedback
-	bm25     BM25Searcher    // nil if store doesn't support BM25
-	vector   VectorSearcher   // nil if embeddings not available
-	session  *SessionTracker  // nil disables session-aware boosting
-	memory   *TaskMemory      // nil disables passive task memory
+	feedback FeedbackProvider    // nil if store doesn't support feedback
+	bm25     BM25Searcher        // nil if store doesn't support BM25
+	vector   VectorSearcher      // nil if embeddings not available
+	session  *SessionTracker     // nil disables session-aware boosting
+	memory   *TaskMemory         // nil disables passive task memory
+	cache    *cache.SubgraphCache // nil disables subgraph result caching
 }
 
 // TaskOptions configures a task-based context query.
@@ -135,6 +138,15 @@ func (e *ContextEngine) SetTaskMemory(tm *TaskMemory) {
 	e.memory = tm
 }
 
+// SetCache attaches a SubgraphCache for result memoization. When set,
+// ForTask checks the cache before running retrieval and stores the result
+// after a cache miss. Cache keys are derived from the normalized task
+// description so that identical queries skip the full retrieval pipeline.
+// Pass nil to disable caching.
+func (e *ContextEngine) SetCache(c *cache.SubgraphCache) {
+	e.cache = c
+}
+
 // stopWords is the set of words filtered from task descriptions during keyword extraction.
 // Includes both English stop words and common Go/programming terms that match too broadly.
 var stopWords = map[string]bool{
@@ -208,6 +220,24 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 			Format:      opts.Format,
 			TokenBudget: budget,
 		}, nil
+	}
+
+	// Cache lookup: if a SubgraphCache is attached, check for a cached result
+	// keyed by the normalized task description. On a hit, deserialize and return
+	// immediately, skipping all retrieval. The Format field is not cached because
+	// it is a caller-specified rendering hint, not part of the result content.
+	var cacheKey types.Hash
+	if e.cache != nil {
+		normalized := strings.ToLower(strings.TrimSpace(opts.TaskDescription))
+		cacheKey = types.NewHash([]byte("task\x00" + normalized))
+		if data, ok := e.cache.Get(cacheKey); ok {
+			var cached cachedContextBlock
+			if err := json.Unmarshal(data, &cached); err == nil {
+				block := cached.toContextBlock()
+				block.Format = opts.Format
+				return block, nil
+			}
+		}
 	}
 
 	// Seed retrieval uses two independent channels fused with Reciprocal Rank Fusion:
@@ -628,7 +658,46 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	// enabling deduplication, citation, and cross-session replay.
 	block.PackRoot = computePackRoot(opts.TaskDescription, block.Symbols)
 
+	// Cache store: persist the result for future identical queries. The Format
+	// field is excluded from the cached payload because it is caller-specified.
+	if e.cache != nil && !cacheKey.IsZero() {
+		cached := newCachedContextBlock(block)
+		if data, err := json.Marshal(cached); err == nil {
+			e.cache.Put(cacheKey, data)
+		}
+	}
+
 	return block, nil
+}
+
+// cachedContextBlock is the JSON-serializable form of ContextBlock stored in the
+// SubgraphCache. Format is excluded because it is a caller-specified rendering hint.
+type cachedContextBlock struct {
+	Symbols     []RankedSymbol `json:"symbols"`
+	Edges       []ContextEdge  `json:"edges"`
+	TokensUsed  int            `json:"tokens_used"`
+	TokenBudget int            `json:"token_budget"`
+	PackRoot    types.Hash     `json:"pack_root"`
+}
+
+func newCachedContextBlock(b *ContextBlock) cachedContextBlock {
+	return cachedContextBlock{
+		Symbols:     b.Symbols,
+		Edges:       b.Edges,
+		TokensUsed:  b.TokensUsed,
+		TokenBudget: b.TokenBudget,
+		PackRoot:    b.PackRoot,
+	}
+}
+
+func (c *cachedContextBlock) toContextBlock() *ContextBlock {
+	return &ContextBlock{
+		Symbols:     c.Symbols,
+		Edges:       c.Edges,
+		TokensUsed:  c.TokensUsed,
+		TokenBudget: c.TokenBudget,
+		PackRoot:    c.PackRoot,
+	}
 }
 
 // computePackRoot produces a content-addressed hash for a context pack.
