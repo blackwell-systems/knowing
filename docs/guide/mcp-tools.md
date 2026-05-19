@@ -1059,6 +1059,27 @@ Each community entry now includes:
 
 ---
 
+---
+
+## Resources
+
+knowing exposes 8 MCP resources. Resources are read directly by the MCP host without consuming a tool call slot. They are useful for agent orientation at session start.
+
+| Resource URI | What it returns |
+|---|---|
+| `knowing://report` | Graph size, top node kinds, hotspot count, and snapshot age. Useful as a session-opening orientation summary. |
+| `knowing://schema` | Node kinds, edge types, provenance tiers, and the qualified-ID hash format. Helps agents interpret graph data. |
+| `knowing://stats` | Node and edge counts broken down by repo and kind. |
+| `knowing://repos` | All tracked repositories with node/edge counts and last-indexed timestamps. |
+| `knowing://session` | Live session metrics: context calls made, symbols served, cache hits and misses, and server uptime. Backed by atomic counters on the MCP Server struct incremented in context handlers. |
+| `knowing://index-health` | Per-repo health status (healthy, stale, or corrupted) and integrity check results. |
+| `knowing://communities` | Community list with cohesion scores and Merkle roots from the latest community detection run. |
+| `knowing://community/{id}` | Single community detail (resource template). Accepts a numeric community ID and returns members, key files, and cross-community connections. |
+
+Resources are implemented in `internal/mcp/resources.go`.
+
+---
+
 ## Hash Format
 
 All hash parameters are hex-encoded SHA-256 digests (64 lowercase hex characters, representing 32 bytes). You can obtain node and repo hashes from `graph_query`, `repo_graph`, or `index_repo` results.

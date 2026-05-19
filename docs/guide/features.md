@@ -984,6 +984,23 @@ Repo: github.com/blackwell-systems/knowing
   - **Configurable max groups slider**: range 1-100 (was hardcoded at 20).
 - **Why it matters:** Makes knowing-viz maintainable and extensible. React component model aligns with the modular grouping system. Zustand eliminates prop-drilling across deep component trees.
 
+### 89. MCP Resources (8 Resources)
+
+- **Package:** `internal/mcp/resources.go`
+- **Registration:** `NewServer` in `internal/mcp/server.go`
+- **What it does:** Exposes 8 read-only MCP resources that the MCP host can fetch without consuming a tool call. Resources are registered via `mcp-go`'s resource and resource template APIs.
+- **Resources shipped:**
+  - `knowing://report`: graph size, top node kinds, hotspot count, snapshot age. Session-opener orientation.
+  - `knowing://schema`: node kinds, edge types, provenance tiers, qualified-ID hash format.
+  - `knowing://stats`: node and edge counts broken down by repo and kind.
+  - `knowing://repos`: all tracked repositories with node/edge counts and last-indexed timestamps.
+  - `knowing://session`: live session metrics: context calls made, symbols served, cache hits/misses, uptime.
+  - `knowing://index-health`: per-repo health status (healthy/stale/corrupted) and integrity check results.
+  - `knowing://communities`: community list with cohesion scores and Merkle roots.
+  - `knowing://community/{id}`: single community detail via resource template. Numeric ID resolves to members, key files, and cross-community connections.
+- **Session counters:** `contextCalls` and `symbolsServed` are `sync/atomic` counters on the MCP Server struct. They are incremented in the context tool handlers (`context_for_task`, `context_for_files`, `context_for_pr`) and read by `knowing://session`.
+- **Why it matters:** Agents can orient to the graph without spending a tool call. The session resource lets agents and users see accumulated value (how many symbols have been served this session).
+
 ### GraphStore (`internal/types/interfaces.go`)
 
 All 27 methods:

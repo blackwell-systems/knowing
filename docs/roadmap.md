@@ -26,6 +26,21 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 | GraphML/Cypher export | `knowing export -format graphml|cypher` for Neo4j, Gephi. | P3 |
 | Active project scoping | `set_active_project` / `get_active_project` MCP tools. | P3 |
 
+## MCP Resources (Shipped)
+
+All 8 resources shipped. Implemented in `internal/mcp/resources.go`, registered in `NewServer`.
+
+| Resource | What it provides |
+|----------|-----------------|
+| `knowing://report` | Graph size, top kinds, hotspot count, snapshot age |
+| `knowing://schema` | Node kinds, edge types, provenance tiers, hash format |
+| `knowing://stats` | Counts by repo, kind, and edge type |
+| `knowing://repos` | All tracked repos with node/edge counts and last-indexed time |
+| `knowing://session` | Context calls, symbols served, cache hits/misses, uptime |
+| `knowing://index-health` | Healthy/stale/corrupted status, integrity check |
+| `knowing://communities` | Community list with cohesion and Merkle roots |
+| `knowing://community/{id}` | Single community detail (resource template) |
+
 ## Underexploited Capabilities
 
 | Item | Next step |

@@ -38,7 +38,7 @@ knowing builds a content-addressed knowledge graph of software relationships and
 
 - **25 extractors** (12 languages + 13 infrastructure/cloud formats): Go, TypeScript/JS, Python, Rust, Java, C#, Terraform, SQL, Kubernetes YAML, Cloud YAML (CloudFormation/SAM, Docker Compose, GitHub Actions, Serverless Framework), CSS, Protocol Buffers, Dockerfile, Makefile, Helm Charts, GitLab CI, package.json/npm, GraphQL, Ansible
 - **18 web frameworks**: route detection for net/http, chi, gin, echo, gorilla/mux, Express.js, Fastify, Hono, NestJS, Next.js, Flask, FastAPI, Django, Actix, Axum, Rocket, Spring, ASP.NET
-- **23 MCP tools**: graph queries, runtime traffic, semantic diff, PR impact, context packing, feedback, test scope, flow analysis, community detection (with algorithm selection)
+- **23 MCP tools + 8 MCP resources**: graph queries, runtime traffic, semantic diff, PR impact, context packing, feedback, test scope, flow analysis, community detection (with algorithm selection); resources for graph orientation without tool calls (`knowing://report`, `knowing://schema`, `knowing://stats`, `knowing://repos`, `knowing://session`, `knowing://index-health`, `knowing://communities`, `knowing://community/{id}`)
 - **13 CLI commands**: serve, index, query, export (with --algorithm), diff, context, mcp, reindex, init, test-scope, ingest-scip, fsck, version
 - **Runtime intelligence**: OTel trace ingestion with observation-based confidence scoring
 - **Incremental updates**: git-based change detection, re-indexes only changed files
@@ -49,7 +49,7 @@ knowing builds a content-addressed knowledge graph of software relationships and
 
 - [Architecture](architecture/): system design, concurrency model, data flow, hierarchical Merkle tree, git design audit
 - [CLI Reference](guide/cli.md): all 13 commands with flags and examples (including `fsck` and `export --algorithm`)
-- [MCP Tools](guide/mcp-tools.md): all 23 tools with parameters and return formats
+- [MCP Tools](guide/mcp-tools.md): all 23 tools and 8 resources with parameters and return formats
 - [Edge Types](architecture/edge-types.md): all 16 edge types with provenance and confidence
 - [Runtime Traces](operations/runtime-traces.md): OTel ingestion design
 - [Roadmap](roadmap.md): what's done, what's next

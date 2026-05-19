@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/blackwell-systems"><img src="https://raw.githubusercontent.com/blackwell-systems/blackwell-docs-theme/main/badge-trademark.svg" alt="Blackwell Systems"></a>
-  <a href="#mcp-tools"><img src="https://img.shields.io/badge/MCP_tools-23-brightgreen.svg" alt="MCP Tools"></a>
+  <a href="#mcp-tools"><img src="https://img.shields.io/badge/MCP_tools-23%20tools%20%2B%208%20resources-brightgreen.svg" alt="MCP Tools"></a>
   <a href="#languages-and-formats"><img src="https://img.shields.io/badge/extractor_types-25-blue.svg" alt="Extractor Types"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
 </p>
@@ -221,7 +221,7 @@ Claude Code hooks are included for automatic context injection on session start,
 ├──────────────┬───────────────────┬───────────────────────┤
 │   Indexer    │   Graph Store     │      MCP Server       │
 │              │                   │                       │
-│ 25 extractors│ Content-addressed │ 23 tools + 3 prompts  │
+│ 25 extractors│ Content-addressed │ 23 tools + 8 resources│
 │ tree-sitter  │ SQLite + Merkle   │ stdio / HTTP          │
 │ LSP + SCIP   │ Snapshot chain    │ GCF / GCB / JSON      │
 │ OTel traces  │ Edge events       │                       │
@@ -293,6 +293,21 @@ The MCP server exposes 23 tools across indexing, graph queries, analysis, runtim
 | `ownership`, `test_scope`, `communities`, `plan_turn`, `feedback` | Route work, select tests, cluster graph, improve ranking |
 
 MCP prompts: `refactor_safely`, `review_pr`, `investigate_dead_code`.
+
+### MCP Resources
+
+8 read-only resources let agents orient to the graph without spending a tool call:
+
+| Resource | What it returns |
+|---|---|
+| `knowing://report` | Graph size, top kinds, hotspot count, snapshot age |
+| `knowing://schema` | Node kinds, edge types, provenance tiers, hash format |
+| `knowing://stats` | Counts by repo, kind, and edge type |
+| `knowing://repos` | All tracked repos with counts and last-indexed time |
+| `knowing://session` | Context calls, symbols served, cache hits/misses, uptime |
+| `knowing://index-health` | Healthy/stale/corrupted status, integrity check |
+| `knowing://communities` | Community list with cohesion and Merkle roots |
+| `knowing://community/{id}` | Single community detail (resource template) |
 
 Full reference: [docs/guide/mcp-tools.md](docs/guide/mcp-tools.md).
 
