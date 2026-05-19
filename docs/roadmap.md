@@ -99,7 +99,9 @@ Phase 3 requires foundation work before the features can be built correctly. The
 | P6 | **Context pack comparison** | Pending (needs P2). Diff two PackRoots. | |
 | P7 | **Semantic change classification** | Pending. `ClassifyChanges` returns Behavioral/Structural/RuntimeDrift/MetadataOnly. | |
 
-Remaining: F3 + P2 + P4 + P5 + P6 + P7 (~12h). F3 and P2 are independent and unblocked.
+| P8 | **Delta-save community assignments** | Pending (optimization). Save only changed assignments instead of all nodes. Reduces save from 8.8ms (~2,486 rows) to ~0.5ms estimated (~146 rows for 1-package edit). Currently save is 81% of the incremental cycle. | |
+
+Remaining: F3 + P2 + P4-P8 (~13h). F3 and P2 are independent and unblocked.
 
 ### Phase 4: Proofs, Sync, Bisection
 
