@@ -82,6 +82,9 @@ func measure(n, warmup int, fn func()) benchStats {
 }
 
 func TestPhase2CacheBenchmark(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping heavy benchmark in short mode")
+	}
 	repoPath, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
