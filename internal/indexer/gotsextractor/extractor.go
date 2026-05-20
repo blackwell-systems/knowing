@@ -167,6 +167,15 @@ func (e *GoTreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractO
 		}
 	}
 
+	// Extract documents edges for all declarations with doc comments.
+	docNodes, docEdges := ExtractDocumentsEdges(root, opts, pkgPath, nodes)
+	nodes = append(nodes, docNodes...)
+	edges = append(edges, docEdges...)
+
+	// Extract tests edges for test files (_test.go).
+	testsEdges := ExtractTestsEdges(root, opts, pkgPath, imports)
+	edges = append(edges, testsEdges...)
+
 	// Create a synthetic file node for import edge sources. Import edges use
 	// a file-level node as their source (since imports belong to the file, not
 	// a function). This node must be stored so the edge's source is not dangling.
