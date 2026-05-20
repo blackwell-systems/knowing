@@ -23,6 +23,7 @@ func cmdProveAbsent(args []string) error {
 	edgeType := fs.String("type", "calls", "Edge type (calls, imports, implements, etc.)")
 	repo := fs.String("repo", "", "Repository URL (default: auto-detect)")
 	outFile := fs.String("o", "", "Write proof to file instead of stdout")
+	human := fs.Bool("human", false, "Human-readable output instead of JSON")
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: knowing prove-absent -source <symbol> -target <symbol> [-type calls]\n\n")
 		fmt.Fprintf(os.Stderr, "Prove that a relationship does NOT exist in the current snapshot.\n")
@@ -121,12 +122,12 @@ func cmdProveAbsent(args []string) error {
 	}
 
 	output := struct {
-		Source       string                  `json:"source"`
-		Target       string                  `json:"target"`
-		EdgeType     string                  `json:"edge_type"`
-		Absent       bool                    `json:"absent"`
-		SnapshotHash string                  `json:"snapshot_hash"`
-		Proof        *snapshot.AbsenceProof  `json:"proof"`
+		Source       string                 `json:"source"`
+		Target       string                 `json:"target"`
+		EdgeType     string                 `json:"edge_type"`
+		Absent       bool                   `json:"absent"`
+		SnapshotHash string                 `json:"snapshot_hash"`
+		Proof        *snapshot.AbsenceProof `json:"proof"`
 	}{
 		Source:       *source,
 		Target:       *target,
@@ -134,6 +135,33 @@ func cmdProveAbsent(args []string) error {
 		Absent:       true,
 		SnapshotHash: latestSnap.SnapshotHash.String(),
 		Proof:        proof,
+	}
+
+	if *human {
+		fmt.Println("ABSENCE PROOF")
+		fmt.Println()
+		fmt.Printf("  Source:     %s\n", *source)
+		fmt.Printf("  Target:     %s\n", *target)
+		fmt.Printf("  Edge type:  %s\n", *edgeType)
+		fmt.Printf("  Absent:     true\n")
+		fmt.Printf("  Snapshot:   %s...\n", latestSnap.SnapshotHash.String()[:16])
+		fmt.Println()
+		if proof.LeftNeighbor != nil {
+			fmt.Printf("  Left neighbor:   %s...\n", proof.LeftNeighbor.String()[:16])
+		}
+		if proof.RightNeighbor != nil {
+			fmt.Printf("  Right neighbor:  %s...\n", proof.RightNeighbor.String()[:16])
+		}
+		fmt.Printf("  Package:         %s\n", pkgPath)
+		if proof.LeftProof != nil {
+			fmt.Printf("  Proof steps:     %d (leaf→edge-type)\n", len(proof.LeftProof.EdgeToEdgeTypeRoot))
+			fmt.Printf("                   %d (edge-type→package)\n", len(proof.LeftProof.EdgeTypeToPackageRoot))
+			fmt.Printf("                   %d (package→repo)\n", len(proof.LeftProof.PackageToRepoRoot))
+		}
+		fmt.Printf("  Repo root:       %s...\n", tree.Root.String()[:16])
+		fmt.Println()
+		fmt.Printf("  VERIFIED: No \"%s\" edge exists from %s to %s\n", *edgeType, *source, *target)
+		return nil
 	}
 
 	data, err := json.MarshalIndent(output, "", "  ")
