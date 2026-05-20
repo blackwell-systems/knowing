@@ -2,6 +2,8 @@
 
 The full architecture specification for knowing, split into focused subdocuments. Each covers one area of the system.
 
+**New to knowing?** Start with the **[Introduction](../guide/introduction.md)**: builds understanding from zero with no assumed background. Covers the problem, content-addressing, hierarchical Merkle trees, proofs, and learning with worked examples.
+
 ## Reading Order
 
 If you are new to knowing, read these in order:
