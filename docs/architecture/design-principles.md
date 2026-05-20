@@ -107,6 +107,10 @@ The intelligence plane does not need the same trust. It interprets the graph but
 | `plan_turn` | Discovery | Suggest relevant knowing tools for a task description |
 | `communities` | Discovery | Louvain modularity-based graph clustering |
 | `explain_symbol` | Context | Detailed scoring breakdown for a specific symbol given a task description |
+| `ownership_query` | Discovery | Query code owners and authors for a file or symbol |
+| `prove` | Audit | Generate Merkle inclusion proof for a relationship |
+| `prove_absent` | Audit | Generate Merkle absence proof (relationship does NOT exist) |
+| `fsck` | Audit | Verify graph integrity (hashes, referential integrity, snapshot chain) |
 
 Basic graph reads (`cross_repo_callers`, `graph_query`, `repo_graph`) are execution-plane operations: they return what the graph contains without interpretation. Intelligence-plane tools compute, classify, compare, or aggregate, and they produce derived results that are themselves content-addressed artifacts. Context-plane tools (`context_for_task`, `context_for_files`, `context_for_pr`) are a specialized form of intelligence: they score and rank symbols from the graph, then pack them into a token budget for agent consumption.
 

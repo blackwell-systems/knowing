@@ -14,12 +14,12 @@ participates in blast radius traversal and context ranking.
 | `handles_route` | HTTP handler bound to a route | ast_inferred | 0.7 | Go, TS, Python, Ruby, Rust, Java, C# extractors | No | 0.7 |
 | `references` | Non-call identifier usage | ast_inferred / lsp_resolved / scip_resolved | 0.7 / 0.9 / 0.95 | Go extractor, Proto extractor, GraphQL extractor, SQL extractor, SCIP ingestor, enricher | No | 0.4 |
 | `depends_on` | Resource/symbol dependency | ast_inferred | 0.7 | Terraform, SQL, CSS, Dockerfile, Makefile, Helm, GitLab CI, package.json extractors | No | 0.5 |
-| `deploys` | K8s Service routes to Deployment | ast_inferred | 0.7 | K8s YAML extractor | No | 0.5 |
-| `exposes` | K8s Ingress exposes Service | ast_inferred | 0.7 | K8s YAML extractor | No | 0.5 |
-| `configures` | ConfigMap/Secret provides config | ast_inferred | 0.7 | K8s YAML extractor | No | 0.5 |
-| `publishes` | Producer publishes to a topic/queue | ast_inferred | 0.7 | Cloud extractor (Serverless, CFN) | No | 0.5 |
-| `subscribes` | Consumer subscribes to a topic/queue | ast_inferred | 0.7 | Cloud extractor (Serverless, CFN) | No | 0.5 |
-| `connects_to` | Service connects to another service/network | ast_inferred | 0.7 | Cloud extractor (Docker Compose) | No | 0.5 |
+| `deploys` | K8s Service routes to Deployment | ast_inferred | 0.7 | K8s YAML extractor | No | 0.3 (default) |
+| `exposes` | K8s Ingress exposes Service | ast_inferred | 0.7 | K8s YAML extractor | No | 0.3 (default) |
+| `configures` | ConfigMap/Secret provides config | ast_inferred | 0.7 | K8s YAML extractor | No | 0.3 (default) |
+| `publishes` | Producer publishes to a topic/queue | ast_inferred | 0.7 | Cloud extractor (Serverless, CFN) | No | 0.3 (default) |
+| `subscribes` | Consumer subscribes to a topic/queue | ast_inferred | 0.7 | Cloud extractor (Serverless, CFN) | No | 0.3 (default) |
+| `connects_to` | Service connects to another service/network | ast_inferred | 0.7 | Cloud extractor (Docker Compose) | No | 0.3 (default) |
 | `extends` | Class inheritance / template inheritance | ast_inferred | 0.7 | TS, Java, Python, C#, GitLab CI extractors | No | 0.7 |
 | `overrides` | Method overrides parent | ast_inferred | 0.7 | TS, Java, C# extractors | No | 0.8 |
 | `decorates` | Decorator/annotation applied | ast_inferred | 0.7 | TS, Java, Python, C#, Rust extractors | No | 0.3 |
@@ -183,7 +183,7 @@ A Kubernetes Service routes traffic to a Deployment (selector match).
 - **Producers:** K8s YAML extractor (selector-to-label matching).
 - **Provenance:** `ast_inferred` (confidence 0.7).
 - **Blast radius:** Not traversed.
-- **RWR weight:** 0.5.
+- **RWR weight:** 0.3 (default; not explicitly listed in the weight map).
 
 ### `exposes`
 
@@ -194,7 +194,7 @@ A Kubernetes Ingress exposes a Service.
 - **Producers:** K8s YAML extractor (ingress backend references).
 - **Provenance:** `ast_inferred` (confidence 0.7).
 - **Blast radius:** Not traversed.
-- **RWR weight:** 0.5.
+- **RWR weight:** 0.3 (default; not explicitly listed in the weight map).
 
 ### `configures`
 
@@ -205,7 +205,7 @@ A Kubernetes ConfigMap or Secret provides configuration to a Deployment.
 - **Producers:** K8s YAML extractor (volume mount and envFrom references).
 - **Provenance:** `ast_inferred` (confidence 0.7).
 - **Blast radius:** Not traversed.
-- **RWR weight:** 0.5.
+- **RWR weight:** 0.3 (default; not explicitly listed in the weight map).
 
 ### `publishes`
 
@@ -216,7 +216,7 @@ A function or service publishes messages to a topic or queue.
 - **Producers:** Cloud extractor (Serverless Framework event sources, CloudFormation/SAM SNS/SQS subscriptions).
 - **Provenance:** `ast_inferred` (confidence 0.7).
 - **Blast radius:** Not traversed.
-- **RWR weight:** 0.5.
+- **RWR weight:** 0.3 (default; not explicitly listed in the weight map).
 
 ### `subscribes`
 
@@ -227,7 +227,7 @@ A function or service subscribes to (consumes from) a topic or queue.
 - **Producers:** Cloud extractor (Serverless Framework SQS/SNS/Kafka event triggers, CloudFormation/SAM event source mappings).
 - **Provenance:** `ast_inferred` (confidence 0.7).
 - **Blast radius:** Not traversed.
-- **RWR weight:** 0.5.
+- **RWR weight:** 0.3 (default; not explicitly listed in the weight map).
 
 ### `connects_to`
 
@@ -238,7 +238,7 @@ A service connects to another service or network resource.
 - **Producers:** Cloud extractor (Docker Compose `depends_on` links and shared network membership).
 - **Provenance:** `ast_inferred` (confidence 0.7).
 - **Blast radius:** Not traversed.
-- **RWR weight:** 0.5.
+- **RWR weight:** 0.3 (default; not explicitly listed in the weight map).
 
 ### `extends`
 

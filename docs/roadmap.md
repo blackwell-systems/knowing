@@ -37,17 +37,19 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 
 ## Edge Type Expansion
 
-| Category | Items | Priority |
-|----------|-------|----------|
-| **Test coverage** | `tests` (test function → function under test, explicit call-graph link) | P1 |
-| **Ownership** | `owned_by` (CODEOWNERS), `authored_by` (git blame) | P1 |
+30 edge types shipped. See [Edge Types Reference](architecture/edge-types.md) and [CHANGELOG](CHANGELOG.md) for full details.
+
+| Category | Items | Status |
+|----------|-------|--------|
+| **Test coverage** | `tests` (test function to function under test) | **Shipped (P1).** |
+| **Ownership** | `owned_by` (CODEOWNERS), `authored_by` (git blame) | **Shipped (P1).** |
+| **Documentation** | `documents` (doc comment to symbol) | **Shipped (P2).** |
+| **API contracts** | `consumes_endpoint` (HTTP client call), `implements_rpc` / `consumes_rpc` (gRPC) | **Shipped (P2).** |
+| **Feature flags** | `gated_by_flag` (function gated by flag check) | **Shipped (P2).** |
+| **Deployment** | `deployed_by` (service deployed by CI workflow), `tested_by` (package tested by CI) | **Shipped (P2).** |
 | Runtime | `runtime_queries`, `runtime_connects_to` | P2 |
-| Configuration | `configures` (config key → symbol that reads it) | P2 |
-| Contract/API | `implements_endpoint` / `consumes_endpoint`, `implements_rpc` / `consumes_rpc` | P2 |
-| Documentation | `documents` (doc comment → symbol) | P3 |
-| Static semantic | `extends` / `inherits` / `overrides` | P3 |
+| Configuration | `configures` (config key to symbol that reads it) | P2 |
 | Agent workflow | `suggested_for_task` / `used_by_agent` | P3 |
-| Deployment | `runs_on` / `deployed_by` | P3 |
 
 ## Observability Ingestion
 
@@ -59,9 +61,9 @@ Beyond OTLP traces (shipped), these observability signals map to graph edges. Th
 | HTTP access logs (nginx, ALB, API gateway) | `runtime_serves`, frequency metadata | Dead route detection without full APM | P2 |
 | Message queue metrics (Kafka consumer lag, SQS depth) | `runtime_consumes`, `runtime_produces` | Verify static pub/sub edges against reality | P2 |
 | Error tracking (Sentry, Bugsnag) | `runtime_throws`, error frequency | Prioritize blast radius by error-prone paths | P3 |
-| Feature flags (LaunchDarkly, Unleash) | `gated_by_flag` | "Disable this flag, what code becomes dead?" | P3 |
-| CI/CD pipeline (GitHub Actions, Jenkins) | `tested_by`, `deployed_by` | Test coverage as graph edges, deployment topology | P3 |
-| Git blame/log | `authored_by`, `recently_changed` | Ownership routing, change frequency for ranking | P3 |
+| ~~Feature flags (LaunchDarkly, Unleash)~~ | ~~`gated_by_flag`~~ | ~~"Disable this flag, what code becomes dead?"~~ | ~~P3~~ **Shipped (static extractor).** |
+| ~~CI/CD pipeline (GitHub Actions, Jenkins)~~ | ~~`tested_by`, `deployed_by`~~ | ~~Test coverage as graph edges, deployment topology~~ | ~~P3~~ **Shipped (static extractor).** |
+| ~~Git blame/log~~ | ~~`authored_by`, `recently_changed`~~ | ~~Ownership routing, change frequency for ranking~~ | ~~P3~~ **Shipped (P1, authorship extractor).** |
 | Container orchestration (K8s events) | `runs_on`, `colocated_with` | Infrastructure topology in the graph | P4 |
 | Service mesh (Envoy, Istio, Consul) | `runtime_connects_to` | Compare declared vs actual service topology | P4 |
 | Continuous profiling (pprof) | `hot_path`, duration metadata | Weight blast radius by performance impact | P4 |

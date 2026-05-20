@@ -1,6 +1,6 @@
 # knowing MCP Tools Reference
 
-Complete reference for the 23 MCP tools exposed by knowing's MCP server.
+Complete reference for the 27 MCP tools exposed by knowing's MCP server.
 
 ## Connecting to the Server
 

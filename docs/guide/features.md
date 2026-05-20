@@ -505,7 +505,7 @@ Repo: github.com/blackwell-systems/knowing
 
 - **Package(s):** `cmd/knowing`
 - **Entry point:** `knowing mcp [flags]`
-- **What it does:** Launches the MCP server in stdio transport mode. Reads JSON-RPC messages from stdin, writes responses to stdout. Designed for use as a subprocess MCP server (e.g., configured in `.mcp.json` or Claude Desktop). Provides all 23 MCP tools and 3 prompts over stdio without requiring HTTP.
+- **What it does:** Launches the MCP server in stdio transport mode. Reads JSON-RPC messages from stdin, writes responses to stdout. Designed for use as a subprocess MCP server (e.g., configured in `.mcp.json` or Claude Desktop). Provides all 27 MCP tools and 3 prompts over stdio without requiring HTTP.
 - **Flags:** `--db` (default: `~/.knowing/knowing.db`): SQLite database path.
 - **Dependencies:** `internal/mcp`, `internal/store`.
 

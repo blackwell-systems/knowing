@@ -422,7 +422,7 @@ The broader point: as AI agents become the primary consumers of tool output, wir
 
 - **Encoder/decoder:** `github.com/blackwell-systems/knowing/internal/wire` (Go)
 - **Benchmark harness:** `github.com/blackwell-systems/knowing/bench/wire-format`
-- **MCP server using GCF:** `github.com/blackwell-systems/knowing` (23 tools, context-plane tools supporting GCF output)
+- **MCP server using GCF:** `github.com/blackwell-systems/knowing` (27 tools, context-plane tools supporting GCF output)
 
 ---
 

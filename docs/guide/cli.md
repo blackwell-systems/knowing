@@ -452,7 +452,7 @@ knowing mcp [flags]
 
 This is the mode used by AI agents via `.mcp.json` configuration. Opens the
 database and serves MCP tool calls over stdin/stdout until the input stream
-closes or SIGINT/SIGTERM is received. All 23 MCP tools are available.
+closes or SIGINT/SIGTERM is received. All 27 MCP tools are available.
 
 When `--watch` is enabled, the MCP server also watches the repository for file
 changes and re-indexes automatically on save. This combines the MCP server with

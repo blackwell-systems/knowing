@@ -11,9 +11,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`tests` edges.** Go tree-sitter extractor detects Test*/Benchmark* functions in `_test.go` files and creates `tests` edges to each production function they call. Makes test coverage a graph-queryable relationship. Provenance: ast_inferred, confidence 0.7, RWR weight 0.6.
 - **`authored_by` edges.** New `internal/indexer/authorship` package runs git blame per file and creates `authored_by` edges from each symbol to its primary author (most lines). Synthetic author nodes (kind="author"). Provenance: git_blame, confidence 1.0, RWR weight 0.0.
 - **`ownership_query` MCP tool.** Queries `owned_by` and `authored_by` graph edges to answer "who owns this code?" Accepts file_path or symbol name, returns CODEOWNERS teams and git blame authors. Tool #27.
-- **`internal/edgetype` constants package.** Single source of truth for all 23 edge type string constants. `RWRWeight()` function returns canonical weights for each type.
+- **`internal/edgetype` constants package.** Single source of truth for all edge type string constants. `RWRWeight()` function returns canonical weights for each type.
 - **RWR zero-weight fix.** Changed `if w == 0 { w = 0.3 }` to `w, ok := map[...]; if !ok { w = 0.3 }` in walk.go so explicit 0.0 weights (owned_by, authored_by) are respected. Ownership edges are genuinely excluded from the random walk.
 - **Ownership extractor tests.** 14 tests covering ParseCodeowners, FindCodeowners, matchPattern, and ExtractOwnership.
+
+### Edge Type Expansion (P2)
+
+- **`documents` edges.** Go tree-sitter extractor creates synthetic doc_comment nodes and `documents` edges from them to the documented function, method, or type. Makes documentation a graph-queryable relationship. Provenance: ast_inferred, confidence 0.9, RWR weight 0.2.
+- **`consumes_endpoint` edges.** Go and TypeScript extractors detect HTTP client calls (`http.Get(...)`, `fetch("/api/...")`, `axios.get(...)`) and create `consumes_endpoint` edges from the calling function to a synthetic endpoint node. Bridges frontend-to-backend and service-to-service API contracts. Provenance: ast_inferred, confidence 0.6, RWR weight 0.5.
+- **`implements_rpc` edges.** Go tree-sitter extractor detects structs embedding `pb.Unimplemented*Server` patterns and creates `implements_rpc` edges to the corresponding proto service. Makes gRPC service implementations graph-queryable. Provenance: ast_inferred, confidence 0.9, RWR weight 0.8.
+- **`consumes_rpc` edges.** Go tree-sitter extractor detects `pb.New*Client(conn)` patterns and creates `consumes_rpc` edges from the calling function to the proto service. Maps gRPC client dependencies. Provenance: ast_inferred, confidence 0.8, RWR weight 0.6.
+- **`gated_by_flag` edges.** Go tree-sitter extractor detects feature flag SDK calls (`client.BoolVariation("flag")`, `unleash.IsEnabled("flag")`) and creates `gated_by_flag` edges from the function to a synthetic flag node. Enables "what code is behind this flag?" queries. Provenance: ast_inferred, confidence 0.8, RWR weight 0.3.
+- **`deployed_by` edges.** GitHub Actions extractor detects deployment steps (docker push, kubectl apply, cloud deploy actions) and creates `deployed_by` edges from deployment targets to workflow nodes. Maps CI/CD deployment topology. Provenance: ast_inferred, confidence 0.9, RWR weight 0.4.
+- **`tested_by` edges.** GitHub Actions extractor detects test commands (go test, npm test, pytest, cargo test) in workflow run steps and creates `tested_by` edges from package/module nodes to the testing workflow job. Makes CI test coverage graph-queryable. Provenance: ast_inferred, confidence 0.8, RWR weight 0.5.
+- **Edge type count now 30.** All edge types registered in `internal/edgetype/constants.go` with canonical `RWRWeight()` function.
+- **All 18 edge weights in walk.go.** The `edgeWeight` map in `internal/context/walk.go` now covers all static edge types with explicit weights; zero-weight fix ensures ownership/authorship edges are genuinely excluded.
 
 ### Phase 4: Proofs and Audit (Continued)
 

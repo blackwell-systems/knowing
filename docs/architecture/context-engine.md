@@ -164,6 +164,37 @@ The hierarchical Merkle tree (`internal/snapshot/hierarchical.go`) provides `Sub
 - **CLI**: `knowing why` subcommand (in `cmd/knowing/why.go`) runs the full retrieval pipeline and returns a detailed scoring breakdown for a specific symbol via `ExplainSymbol` (`internal/context/explain.go`).
 - **Test scope**: `knowing test-scope` (in `cmd/knowing/testscope.go`) uses `NodesByFilePath` to resolve symbols in changed files and BFS backward through `calls` edges to find affected tests.
 
+## RWR Edge Weights
+
+The Random Walk with Restart algorithm (`internal/context/walk.go`) uses edge-type-specific weights to control transition probabilities. Edges with higher weights transfer more probability mass during the walk, making their targets rank higher. The weight map has 20 explicit entries; unknown edge types default to 0.3.
+
+| Edge Type | RWR Weight | Rationale |
+|-----------|-----------|-----------|
+| `calls` | 1.0 | Direct invocation is the strongest structural signal |
+| `implements` | 0.8 | Interface satisfaction indicates tight coupling |
+| `implements_rpc` | 0.8 | gRPC service implementation (same as implements) |
+| `overrides` | 0.8 | Method override affects all overriding methods |
+| `handles_route` | 0.7 | HTTP handler binding is structurally significant |
+| `extends` | 0.7 | Class inheritance is structurally significant |
+| `tests` | 0.6 | Test coverage is relevant but weaker than calls |
+| `consumes_rpc` | 0.6 | gRPC client indicates inter-service dependency |
+| `imports` | 0.5 | Package-level proximity |
+| `depends_on` | 0.5 | Resource dependency |
+| `consumes_endpoint` | 0.5 | HTTP client call to endpoint |
+| `tested_by` | 0.5 | CI workflow tests package |
+| `references` | 0.4 | Non-call identifier usage |
+| `throws` | 0.4 | Error type relationship |
+| `deployed_by` | 0.4 | Deployment relationship |
+| `gated_by_flag` | 0.3 | Feature flag gating (cross-cutting) |
+| `decorates` | 0.3 | Decorator/annotation (cross-cutting) |
+| `documents` | 0.2 | Doc comment (informational only) |
+| `owned_by` | 0.0 | Organizational; excluded from walk |
+| `authored_by` | 0.0 | Organizational; excluded from walk |
+
+Zero-weight edges (`owned_by`, `authored_by`) are genuinely excluded from the random walk. The implementation uses `w, ok := edgeWeight[e.EdgeType]; if !ok { w = 0.3 }` so that explicit 0.0 weights are respected rather than treated as "unknown."
+
+Edge-type filtering: callers can scope the RWR walk by filtering edges before traversal. The `edgeWeight` map serves as both a weighting mechanism and an implicit type registry; edge types not in the map receive the default weight but still participate in the walk.
+
 ## Token Estimation
 
 `EstimateNodeTokens` computes a rough token cost per symbol based on the length of the qualified name, signature, and kind. This is an approximation sufficient for budget enforcement without requiring a tokenizer dependency.

@@ -9,7 +9,7 @@ knowing daemon (long-lived)
   ├── Change Detector (git-based: post-commit hooks, .git/HEAD watch, polling fallback)
   ├── Indexer (two-tier: tree-sitter extraction + LSP enrichment)
   ├── Graph Store (SQLite behind GraphStore interface, WAL mode, 50K-entry in-process LRU cache)
-  ├── MCP Server (stdio or HTTP, 23 tools across execution/intelligence/runtime/context/feedback/discovery planes; 8 read-only resources for agent orientation)
+  ├── MCP Server (stdio or HTTP, 27 tools across execution/intelligence/runtime/context/feedback/discovery planes; 8 read-only resources for agent orientation)
   ├── Snapshot Manager (computes hierarchical Merkle trees via merkle-forest library, GCs old snapshots + orphaned nodes/edges, auto-GC at 5000 edge_events)
   ├── Lockfile (internal/daemon/lockfile.go, prevents multiple instances on same database)
   └── Trace Ingestor (OTel spans, HTTP logs → runtime edges)
@@ -393,9 +393,16 @@ The graph connects symbols with typed, provenance-annotated edges:
 
 | Category | Edge types |
 |----------|-----------|
-| Code | `calls`, `imports`, `implements`, `references` |
+| Code | `calls`, `imports`, `implements`, `references`, `extends`, `overrides`, `decorates`, `throws` |
 | Route | `handles_route` (route handler node to handler function, from static extraction) |
 | Infrastructure | `depends_on` (Terraform, SQL, CSS), `deploys` (K8s Service to Deployment), `exposes` (K8s Ingress to Service), `configures` (K8s ConfigMap/Secret to Deployment) |
+| Messaging | `publishes`, `subscribes`, `connects_to` |
+| Test coverage | `tests` (test function to production function), `tested_by` (package tested by CI workflow) |
+| Ownership | `owned_by` (CODEOWNERS extractor, confidence 1.0), `authored_by` (git blame) |
+| Documentation | `documents` (doc comment to symbol) |
+| API contracts | `consumes_endpoint` (HTTP client call), `implements_rpc` (gRPC service impl), `consumes_rpc` (gRPC client) |
+| Feature flags | `gated_by_flag` (function gated by feature flag check) |
+| Deployment | `deployed_by` (service deployed by CI workflow) |
 | Runtime | `runtime_calls`, `runtime_rpc`, `runtime_produces`, `runtime_consumes` |
-| Ownership | `owned_by` (CODEOWNERS extractor, confidence 1.0) |
-| Planned | `rpc_calls`, `produces_event`, `consumes_event`, `reads_field`, `writes_field` |
+
+30 edge types total across static, infrastructure, runtime, ownership, and operational categories. See [Edge Types Reference](edge-types.md) for full details.

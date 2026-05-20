@@ -10,7 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## 2026-05-19
 
-#### MCP audit tools (26 tools total)
+#### MCP audit tools (27 tools total with ownership_query)
 - `prove` MCP tool: generate inclusion proofs from agent conversations
 - `prove_absent` MCP tool: generate absence proofs from agent conversations
 - `fsck` MCP tool: verify graph integrity from agent conversations
