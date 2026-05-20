@@ -117,6 +117,14 @@ func (e *GoTreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractO
 			rn, re := routeSymbolsToNodesAndEdges(routes, opts, pkgPath)
 			nodes = append(nodes, rn...)
 			edges = append(edges, re...)
+			// Extract feature flag edges.
+			flagNodes, flagEdges := ExtractFeatureFlagEdges(body, opts, pkgPath, node.NodeHash, imports)
+			nodes = append(nodes, flagNodes...)
+			edges = append(edges, flagEdges...)
+			// Extract HTTP endpoint consumption edges.
+			epNodes, epEdges := ExtractGoEndpointEdges(body, opts, pkgPath, node.NodeHash, imports)
+			nodes = append(nodes, epNodes...)
+			edges = append(edges, epEdges...)
 
 		case "method_declaration":
 			node := extractMethodDecl(child, opts, pkgPath)
@@ -132,6 +140,14 @@ func (e *GoTreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractO
 			rn, re := routeSymbolsToNodesAndEdges(routes, opts, pkgPath)
 			nodes = append(nodes, rn...)
 			edges = append(edges, re...)
+			// Extract feature flag edges.
+			flagNodes, flagEdges := ExtractFeatureFlagEdges(body, opts, pkgPath, node.NodeHash, imports)
+			nodes = append(nodes, flagNodes...)
+			edges = append(edges, flagEdges...)
+			// Extract HTTP endpoint consumption edges.
+			epNodes, epEdges := ExtractGoEndpointEdges(body, opts, pkgPath, node.NodeHash, imports)
+			nodes = append(nodes, epNodes...)
+			edges = append(edges, epEdges...)
 
 		case "type_declaration":
 			typeNodes := extractTypeDecl(child, opts, pkgPath)
@@ -188,6 +204,11 @@ func (e *GoTreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractO
 			nodeSet[hash] = true
 		}
 	}
+
+	// Extract documents edges for declarations with doc comments.
+	docNodes, docEdges := ExtractDocumentsEdges(root, opts, pkgPath, nodes)
+	nodes = append(nodes, docNodes...)
+	edges = append(edges, docEdges...)
 
 	// Sort nodes by QualifiedName then Kind.
 	sort.Slice(nodes, func(i, j int) bool {
