@@ -1296,6 +1296,18 @@
         "cached_at": "2026-05-17T11:05:25.271421-07:00"
       }
     },
+    "60a7744b58d35e2fd9b7edb595ff4a9d": {
+      "lint": {
+        "gate_type": "lint",
+        "command": "GOWORK=off go vet ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-20T10:48:27.350195-07:00"
+      }
+    },
     "639a44a1aff55c340c581b4288b29716": {
       "lint": {
         "gate_type": "lint",
@@ -2566,6 +2578,18 @@
         "stderr": "",
         "from_cache": true,
         "cached_at": "2026-05-15T21:13:25.859631-07:00"
+      }
+    },
+    "fa7f71fb0e60114678de7ea67e1efbb1": {
+      "build": {
+        "gate_type": "build",
+        "command": "GOWORK=off go build ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-20T10:48:26.497753-07:00"
       }
     },
     "ffaaefe1e671176baaa010c82ebcfae8": {
