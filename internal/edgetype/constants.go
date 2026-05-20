@@ -27,3 +27,36 @@ const (
 	RuntimeProduces = "runtime_produces"
 	RuntimeConsumes = "runtime_consumes"
 )
+
+// RWRWeight returns the Random Walk with Restart weight for the given edge type.
+// Unknown edge types return 0.3 (the default).
+func RWRWeight(edgeType string) float64 {
+	switch edgeType {
+	case Calls:
+		return 1.0
+	case Implements:
+		return 0.8
+	case Overrides:
+		return 0.8
+	case HandlesRoute:
+		return 0.7
+	case Extends:
+		return 0.7
+	case Imports:
+		return 0.5
+	case DependsOn:
+		return 0.5
+	case Tests:
+		return 0.6
+	case References:
+		return 0.4
+	case Throws:
+		return 0.4
+	case Decorates:
+		return 0.3
+	case OwnedBy, AuthoredBy:
+		return 0.0
+	default:
+		return 0.3
+	}
+}
