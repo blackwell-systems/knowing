@@ -196,6 +196,10 @@ func (e *TypeScriptExtractor) extractNode(
 		// Extract call edges from the function body.
 		body := node.ChildByFieldName("body")
 		extractCallEdgesFromBody(body, opts, qnamePrefix, n.NodeHash, hasExpress, nodes, edges)
+		// Extract endpoint edges (consumes_endpoint) from HTTP client calls.
+		epNodes, epEdges := ExtractEndpointEdges(body, opts, qnamePrefix, n.NodeHash)
+		*nodes = append(*nodes, epNodes...)
+		*edges = append(*edges, epEdges...)
 
 	case "class_declaration":
 		n := extractClassDecl(node, opts, qnamePrefix)
@@ -232,6 +236,10 @@ func (e *TypeScriptExtractor) extractNode(
 
 					mBody := child.ChildByFieldName("body")
 					extractCallEdgesFromBody(mBody, opts, qnamePrefix, m.NodeHash, hasExpress, nodes, edges)
+					// Extract endpoint edges (consumes_endpoint) from HTTP client calls.
+					mEpNodes, mEpEdges := ExtractEndpointEdges(mBody, opts, qnamePrefix, m.NodeHash)
+					*nodes = append(*nodes, mEpNodes...)
+					*edges = append(*edges, mEpEdges...)
 				}
 			}
 		}
@@ -298,6 +306,10 @@ func (e *TypeScriptExtractor) extractVariableDeclarator(
 		*nodes = append(*nodes, n)
 		body := valueNode.ChildByFieldName("body")
 		extractCallEdgesFromBody(body, opts, qnamePrefix, n.NodeHash, hasExpress, nodes, edges)
+		// Extract endpoint edges (consumes_endpoint) from HTTP client calls.
+		arrowEpNodes, arrowEpEdges := ExtractEndpointEdges(body, opts, qnamePrefix, n.NodeHash)
+		*nodes = append(*nodes, arrowEpNodes...)
+		*edges = append(*edges, arrowEpEdges...)
 
 	case "call_expression":
 		// Check for require() calls.
