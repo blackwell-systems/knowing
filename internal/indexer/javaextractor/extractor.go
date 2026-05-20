@@ -77,9 +77,8 @@ func (e *JavaExtractor) Extract(ctx context.Context, opts types.ExtractOptions) 
 
 	root := tree.RootNode()
 
-	// For Java, the "package path" is derived from the file path.
-	// We use the directory of the file as a pseudo-package path.
-	pkgPath := computeJavaPkgPath(opts)
+	// Extract Java package declaration from AST for proper qualified names.
+	pkgPath := extractJavaPackage(root, opts)
 
 	var nodes []types.Node
 	var edges []types.Edge
@@ -140,9 +139,23 @@ func (e *JavaExtractor) Extract(ctx context.Context, opts types.ExtractOptions) 
 	}, nil
 }
 
-// computeJavaPkgPath builds a package path from the file path.
-// For Java, we use the repo URL and file directory as the package identifier.
-func computeJavaPkgPath(opts types.ExtractOptions) string {
+// extractJavaPackage extracts the package declaration from the AST root.
+// Returns the Java package path (e.g., "org.springframework.samples.petclinic.owner").
+// Falls back to file-path-based package if no declaration found.
+func extractJavaPackage(root *sitter.Node, opts types.ExtractOptions) string {
+	for i := 0; i < int(root.ChildCount()); i++ {
+		child := root.Child(i)
+		if child.Type() == "package_declaration" {
+			// package_declaration has a child that is the scoped_identifier or identifier.
+			for j := 0; j < int(child.ChildCount()); j++ {
+				pkgNode := child.Child(j)
+				if pkgNode.Type() == "scoped_identifier" || pkgNode.Type() == "identifier" {
+					return pkgNode.Content(opts.Content)
+				}
+			}
+		}
+	}
+	// Fallback: use directory path.
 	dir := filepath.Dir(opts.FilePath)
 	if dir == "." {
 		return opts.RepoURL
@@ -172,7 +185,7 @@ func extractClassDecl(node *sitter.Node, opts types.ExtractOptions, pkgPath, par
 	nodes = append(nodes, types.Node{
 		NodeHash:      nodeHash,
 		FileHash:      opts.FileHash,
-		QualifiedName: fmt.Sprintf("%s://%s/%s.%s", opts.RepoURL, opts.ModuleRoot, opts.FilePath, qualifiedClass),
+		QualifiedName: fmt.Sprintf("%s://%s.%s", opts.RepoURL, pkgPath, qualifiedClass),
 		Kind:          "type",
 		Line:          line,
 		Signature:     fmt.Sprintf("class %s", className),
@@ -234,7 +247,7 @@ func extractInterfaceDecl(node *sitter.Node, opts types.ExtractOptions, pkgPath 
 	nodes = append(nodes, types.Node{
 		NodeHash:      nodeHash,
 		FileHash:      opts.FileHash,
-		QualifiedName: fmt.Sprintf("%s://%s/%s.%s", opts.RepoURL, opts.ModuleRoot, opts.FilePath, name),
+		QualifiedName: fmt.Sprintf("%s://%s.%s", opts.RepoURL, pkgPath, name),
 		Kind:          "interface",
 		Line:          line,
 		Signature:     fmt.Sprintf("interface %s", name),
@@ -269,7 +282,7 @@ func extractEnumDecl(node *sitter.Node, opts types.ExtractOptions, pkgPath strin
 	return []types.Node{{
 		NodeHash:      nodeHash,
 		FileHash:      opts.FileHash,
-		QualifiedName: fmt.Sprintf("%s://%s/%s.%s", opts.RepoURL, opts.ModuleRoot, opts.FilePath, name),
+		QualifiedName: fmt.Sprintf("%s://%s.%s", opts.RepoURL, pkgPath, name),
 		Kind:          "type",
 		Line:          line,
 		Signature:     fmt.Sprintf("enum %s", name),
@@ -297,7 +310,7 @@ func extractMethodDecl(node *sitter.Node, opts types.ExtractOptions, pkgPath, cl
 	nodes = append(nodes, types.Node{
 		NodeHash:      nodeHash,
 		FileHash:      opts.FileHash,
-		QualifiedName: fmt.Sprintf("%s://%s/%s.%s", opts.RepoURL, opts.ModuleRoot, opts.FilePath, qualifiedName),
+		QualifiedName: fmt.Sprintf("%s://%s.%s", opts.RepoURL, pkgPath, qualifiedName),
 		Kind:          kind,
 		Line:          line,
 		Signature:     fmt.Sprintf("%s.%s()", className, methodName),
@@ -363,7 +376,7 @@ func extractConstructorDecl(node *sitter.Node, opts types.ExtractOptions, pkgPat
 	nodes = append(nodes, types.Node{
 		NodeHash:      nodeHash,
 		FileHash:      opts.FileHash,
-		QualifiedName: fmt.Sprintf("%s://%s/%s.%s", opts.RepoURL, opts.ModuleRoot, opts.FilePath, qualifiedName),
+		QualifiedName: fmt.Sprintf("%s://%s.%s", opts.RepoURL, pkgPath, qualifiedName),
 		Kind:          kind,
 		Line:          line,
 		Signature:     fmt.Sprintf("%s()", className),
