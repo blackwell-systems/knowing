@@ -33,9 +33,9 @@ Before: "Did anything change?" (compare one root, then scan all edges to find wh
 After: "Did package X change?" (compare one package root). "Did call edges change?" (compare one edge-type root). "Is my cached blast_radius still valid?" (compare the subgraph root for the relevant packages).
 
 **Performance:**
-- Diff: O(packages) with semantically meaningful output (package names, edge types). 281x faster than flat linear scan on the knowing repo (13K edges, 57 packages). 517x on 100K-edge synthetic graphs.
-- Subgraph root lookup: 65ns regardless of graph size.
-- Build cost: faster than flat construction (3.47ms vs 6.03ms) due to smaller per-group sorts.
+- Diff: O(packages) with semantically meaningful output (package names, edge types). Scales with edge count: 249x at 10K, 516x at 50K, 565x at 100K edges (vs flat linear scan). Validated on Grafana (249K edges, 3552 packages): diff remains microseconds.
+- Subgraph root lookup: 65ns (knowing), 1.5us (Grafana scale, 10 packages).
+- Build cost: 1.4-1.7x slower than flat construction (additional intermediate root computation). Amortized over every subsequent diff and cache lookup.
 
 **What this unlocked (shipped):**
 - Content-addressed context packs: `ContextBlock.PackRoot` = `hash(task_normalized + sorted(selected_node_hashes))`. Same task + same graph = same PackRoot. Enables cache lookup, dedup (93-99% byte savings), cross-session replay.
