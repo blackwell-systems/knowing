@@ -37,14 +37,17 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 
 ## Edge Type Expansion
 
-| Category | Items |
-|----------|-------|
-| Runtime | `runtime_queries`, `runtime_connects_to` |
-| Contract/API | `implements_endpoint` / `consumes_endpoint`, `implements_rpc` / `consumes_rpc` |
-| Ownership | `owned_by` (CODEOWNERS) |
-| Static semantic | `extends` / `inherits` / `overrides` |
-| Agent workflow | `suggested_for_task` / `used_by_agent` |
-| Deployment | `runs_on` / `deployed_by` |
+| Category | Items | Priority |
+|----------|-------|----------|
+| **Test coverage** | `tests` (test function → function under test, explicit call-graph link) | P1 |
+| **Ownership** | `owned_by` (CODEOWNERS), `authored_by` (git blame) | P1 |
+| Runtime | `runtime_queries`, `runtime_connects_to` | P2 |
+| Configuration | `configures` (config key → symbol that reads it) | P2 |
+| Contract/API | `implements_endpoint` / `consumes_endpoint`, `implements_rpc` / `consumes_rpc` | P2 |
+| Documentation | `documents` (doc comment → symbol) | P3 |
+| Static semantic | `extends` / `inherits` / `overrides` | P3 |
+| Agent workflow | `suggested_for_task` / `used_by_agent` | P3 |
+| Deployment | `runs_on` / `deployed_by` | P3 |
 
 ## Observability Ingestion
 
