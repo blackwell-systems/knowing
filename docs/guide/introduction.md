@@ -43,6 +43,28 @@ When you ask "what's the blast radius of changing this function signature?", the
 
 None of them version the relationships. None of them can prove a relationship existed at a specific point in time. None of them learn from use.
 
+### The emerging landscape
+
+The AI coding agent era has produced several categories of tools trying to solve the context problem:
+
+**Context packers** (Aider, Repo Map, etc) analyze your repo and produce a condensed map for the agent's context window. They run at query time, produce text, and are stateless: they don't remember what was useful last time. They don't version their output or prove anything about it.
+
+**Code graphs / indexers** (Sourcegraph, GitNexus, Stack Graphs) build a queryable index of code relationships. Most use mutable state (database rows with auto-increment IDs). They can answer "who calls X?" but can't answer "who called X last Tuesday?" or "prove no one calls X." They don't learn from feedback.
+
+**Agent memory systems** (MemGPT, various RAG frameworks) persist information across sessions. They remember conversations but not code structure. They can recall "you asked about auth last time" but can't tell you "auth's blast radius grew by 3 callers since then."
+
+**Runtime observability** (OpenTelemetry, Datadog, Honeycomb) tracks what actually happens in production. Rich temporal data but disconnected from source code. Knows "service A called service B 10,000 times today" but not "the code that enables this call lives in file X at line 42."
+
+**Where knowing sits:**
+knowing combines elements of all four categories into one system:
+- Builds a code graph (like Sourcegraph) but content-addressed and versioned
+- Packs context for agents (like Aider) but graph-ranked and cached
+- Remembers what was useful (like agent memory) but expires when code changes
+- Can ingest runtime traces (like APM) and compare against static analysis
+- Does something none of them do: cryptographic proofs of existence and absence
+
+The categories overlap, but no existing tool occupies knowing's exact position: a versioned, provable, learning code graph that serves both agents and auditors from the same foundation.
+
 ## What a Code Graph Is
 
 ### Why a graph, not a tree
