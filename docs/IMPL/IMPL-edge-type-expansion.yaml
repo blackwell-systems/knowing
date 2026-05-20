@@ -614,6 +614,7 @@ waves:
             - internal/edgetype/constants.go
             - internal/edgetype/constants_test.go
             - docs/architecture/edge-types.md
+      base_commit: 9dab08d57e641f68c303a189f9479a7a246279cc
     - number: 2
       agents:
         - id: E
@@ -829,6 +830,10 @@ post_merge_checklist:
           items:
             - description: Wire ExtractTestsEdges into gotsextractor Extract method
               command: echo 'TODO - internal/indexer/gotsextractor/extractor.go needs update to call ExtractTestsEdges for _test.go files'
+        - title: Background Service Initialization
+          items:
+            - description: Verify if tests_edges_test.go needs initialization in Server constructor
+            - description: Verify if ownership_test.go needs initialization in Server constructor
 scaffolds:
     - file_path: internal/edgetype/constants.go
       contents: |
@@ -863,6 +868,97 @@ scaffolds:
         )
       import_path: github.com/blackwell-systems/knowing/internal/edgetype
       status: committed
+completion_reports:
+    A:
+        status: complete
+        branch: polywave/edge-type-expansion/wave1-agent-A
+        commit: f61c4aa
+        files_changed:
+            - internal/indexer/gotsextractor/tests_edges.go
+            - internal/indexer/gotsextractor/tests_edges_test.go
+        files_created:
+            - internal/indexer/gotsextractor/tests_edges.go
+            - internal/indexer/gotsextractor/tests_edges_test.go
+        tests_added:
+            - TestExtractTestsEdges_BasicTest
+            - TestExtractTestsEdges_MultipleCalls
+            - TestExtractTestsEdges_NoTestFunctions
+            - TestExtractTestsEdges_BenchmarkFunction
+            - TestExtractTestsEdges_TestCallingTest
+            - TestExtractTestsEdges_CrossPackageCall
+        verification: PASS
+        notes: ExtractTestsEdges implemented and fully tested. All 6 tests pass. Integration into Extract method is Wave 2 scope.
+    B:
+        status: complete
+        branch: polywave/edge-type-expansion/wave1-agent-B
+        commit: fcd561d
+        files_changed:
+            - internal/indexer/authorship/authorship.go
+            - internal/indexer/authorship/authorship_test.go
+        files_created:
+            - internal/indexer/authorship/authorship.go
+            - internal/indexer/authorship/authorship_test.go
+        tests_added:
+            - TestExtractAuthorship_SingleAuthor
+            - TestExtractAuthorship_MultipleAuthors
+            - TestExtractAuthorship_NoNodes
+            - TestExtractAuthorship_GitBlameError
+            - TestParseBlamePorcelain
+            - TestExtractAuthorship_MultipleSymbols
+            - TestFindPrimaryAuthor
+        verification: PASS
+        notes: Authorship package complete with ExtractAuthorship function and 7 tests (all passing). Parser correctly handles git blame porcelain format including repeated commit blocks without author headers.
+    C:
+        status: complete
+        branch: polywave/edge-type-expansion/wave1-agent-C
+        commit: 0d153c0
+        files_changed:
+            - internal/indexer/ownership/ownership_test.go
+            - internal/mcp/ownership.go
+            - internal/mcp/ownership_test.go
+        files_created:
+            - internal/indexer/ownership/ownership_test.go
+            - internal/mcp/ownership.go
+            - internal/mcp/ownership_test.go
+        tests_added:
+            - TestParseCodeowners_Basic
+            - TestParseCodeowners_EmptyFile
+            - TestParseCodeowners_CommentsAndBlanks
+            - TestFindCodeowners_RootLocation
+            - TestFindCodeowners_GithubLocation
+            - TestFindCodeowners_NotFound
+            - TestMatchPattern_GlobStar
+            - TestMatchPattern_DirectorySlash
+            - TestMatchPattern_DoubleGlob
+            - TestExtractOwnership_BasicMatching
+            - TestExtractOwnership_LastMatchWins
+            - TestExtractOwnership_TeamVsUser
+            - TestExtractOwnership_EmptyRules
+            - TestExtractOwnership_NoMatchingFiles
+            - TestHandleOwnershipQuery_ByFilePath
+            - TestHandleOwnershipQuery_BySymbol
+            - TestHandleOwnershipQuery_NoEdges
+            - TestHandleOwnershipQuery_MissingArgs
+        verification: PASS
+        notes: All 18 tests passing. Tool registration in server.go is Wave 2 scope.
+    D:
+        status: complete
+        branch: polywave/edge-type-expansion/wave1-agent-D
+        commit: a13834f
+        files_changed:
+            - internal/edgetype/constants.go
+            - internal/edgetype/constants_test.go
+            - docs/architecture/edge-types.md
+        files_created:
+            - internal/edgetype/constants_test.go
+        tests_added:
+            - TestRWRWeight_KnownTypes
+            - TestRWRWeight_UnknownType
+            - TestRWRWeight_OwnershipZero
+            - TestRWRWeight_TestsEdge
+            - TestConstants_NoEmpty
+        verification: PASS
+        notes: All 23 edge type constants defined, RWRWeight function maps all known types. 5 tests passing. edge-types.md updated with tests and authored_by sections.
 pre_mortem:
     overall_risk: low
     rows:
