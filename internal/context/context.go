@@ -14,7 +14,7 @@ import (
 
 // FeedbackProvider is implemented by stores that support feedback queries.
 type FeedbackProvider interface {
-	FeedbackBoosts(ctx stdctx.Context, hashes []types.Hash) (map[types.Hash]float64, error)
+	FeedbackBoosts(ctx stdctx.Context, hashes []types.Hash, neighborhoodRoots map[types.Hash]types.Hash) (map[types.Hash]float64, error)
 }
 
 // BM25Searcher is implemented by stores that support full-text BM25 search.
@@ -600,7 +600,8 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 		for i, inp := range inputs {
 			hashes[i] = inp.Node.NodeHash
 		}
-		if boosts, err := e.feedback.FeedbackBoosts(ctx, hashes); err == nil && len(boosts) > 0 {
+		// TODO: Pass neighborhood roots for merkleized expiration once hierarchical tree is available.
+		if boosts, err := e.feedback.FeedbackBoosts(ctx, hashes, nil); err == nil && len(boosts) > 0 {
 			for i := range inputs {
 				if boost, ok := boosts[inputs[i].Node.NodeHash]; ok {
 					inputs[i].FeedbackBoost = boost

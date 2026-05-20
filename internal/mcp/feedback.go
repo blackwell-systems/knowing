@@ -3,7 +3,10 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"strings"
 
+	"github.com/blackwell-systems/knowing/internal/snapshot"
+	"github.com/blackwell-systems/knowing/internal/types"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -58,7 +61,10 @@ func (s *Server) handleFeedback(ctx context.Context, req mcp.CallToolRequest) (*
 			return mcp.NewToolResultError("argument 'useful' must be a boolean"), nil
 		}
 
-		if err := s.sqlStore.RecordFeedback(ctx, symbolHash, sessionID, useful); err != nil {
+		// Compute neighborhood_root for merkleized expiration (best-effort).
+		neighborhoodRoot := s.computeNeighborhoodRoot(ctx, symbolHash)
+
+		if err := s.sqlStore.RecordFeedback(ctx, symbolHash, sessionID, useful, neighborhoodRoot); err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("RecordFeedback failed: %v", err)), nil
 		}
 
@@ -79,4 +85,40 @@ func (s *Server) handleFeedback(ctx context.Context, req mcp.CallToolRequest) (*
 	default:
 		return mcp.NewToolResultError(fmt.Sprintf("unknown action %q: must be 'record' or 'query'", action)), nil
 	}
+}
+
+// computeNeighborhoodRoot computes the SubgraphRoot for the package containing
+// the given symbol. Returns EmptyHash if the computation fails (best-effort).
+func (s *Server) computeNeighborhoodRoot(ctx context.Context, symbolHash types.Hash) types.Hash {
+	if s.snapMgr == nil || s.sqlStore == nil {
+		return types.EmptyHash
+	}
+
+	// Look up the symbol to get its qualified name.
+	node, err := s.sqlStore.GetNode(ctx, symbolHash)
+	if err != nil || node == nil {
+		return types.EmptyHash
+	}
+
+	// Extract the package path from the qualified name.
+	pkgPath, err := snapshot.ExtractPackagePath(node.QualifiedName)
+	if err != nil {
+		return types.EmptyHash
+	}
+
+	// Extract repo URL from qualified name (format: "repoURL://pkgPath.Symbol").
+	sep := strings.LastIndex(node.QualifiedName, "://")
+	if sep < 0 {
+		return types.EmptyHash
+	}
+	repoURL := node.QualifiedName[:sep]
+	repoHash := types.NewHash([]byte(repoURL))
+
+	edgeInputs, _, err := s.snapMgr.CollectEdgeInputs(ctx, repoHash)
+	if err != nil {
+		return types.EmptyHash
+	}
+
+	tree := snapshot.BuildHierarchicalTree(edgeInputs)
+	return tree.SubgraphRoot([]string{pkgPath})
 }

@@ -155,16 +155,18 @@ Current uses:
 
 ### feedback
 
-Symbol usefulness signals from agent sessions.
+Symbol usefulness signals from agent sessions. As of migration 014, feedback records store the `neighborhood_root` (SubgraphRoot of the symbol's package at feedback time) to enable merkleized expiration: feedback becomes invalid when the symbol's package changes (detected via SubgraphRoot mismatch).
 
 ```sql
 CREATE TABLE feedback (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    symbol_hash  BLOB NOT NULL,
-    session_id   TEXT NOT NULL,
-    useful       INTEGER NOT NULL,  -- 1 = relevant, 0 = noise
-    timestamp    INTEGER NOT NULL
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol_hash      BLOB NOT NULL,
+    session_id       TEXT NOT NULL,
+    useful           INTEGER NOT NULL,  -- 1 = relevant, 0 = noise
+    timestamp        INTEGER NOT NULL,
+    neighborhood_root BLOB              -- SubgraphRoot of symbol's package (migration 014)
 );
+CREATE INDEX idx_feedback_neighborhood ON feedback(neighborhood_root);
 ```
 
 ### task_memory
@@ -231,6 +233,7 @@ When the tree needs to be larger than memory (lazy materialization), the roots a
 | 011 | add_indexed_at.sql | indexed_at on nodes and edges |
 | 012 | add_notes.sql | graph_notes table |
 | 013 | add_edge_event_data.sql | source_hash, target_hash, edge_type, confidence, provenance on edge_events (removed-edge diffs) |
+| 014 | add_neighborhood_root.sql | neighborhood_root on feedback (merkleized expiration) |
 
 Migrations run automatically on `NewSQLiteStore`. Each runs in its own transaction. Schema version is tracked in `schema_version` table. No rollback/down migrations.
 

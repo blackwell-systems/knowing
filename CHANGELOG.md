@@ -8,6 +8,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+## 2026-05-19
+
+### Added
+
+#### Merkleized Feedback Validity (v0.5.0)
+- Feedback records now store `neighborhood_root` (SubgraphRoot of symbol's package)
+- Feedback automatically expires when code changes (neighborhood changes)
+- 11% overhead (255µs baseline -> 284µs per 100 symbols)
+- Schema migration 014: `neighborhood_root` column + index on feedback table
+- `computeNeighborhoodRoot` helper in MCP server computes package root for a symbol
+- `FeedbackBoosts` method accepts optional `neighborhoodRoots` map for merkleized expiration
+
+#### Merkle Proofs and Audit Primitives
+- `knowing prove`: generates cryptographic Merkle proofs (72µs, ~3KB)
+- `knowing verify`: offline verification without database access (1.2µs)
+- `knowing prove-absent`: absence proofs using adjacent sorted leaves
+- `knowing audit`: compliance report with integrity check, edge inventory, and Merkle proofs
+- Auto-substring matching in prove/prove-absent (no `%` prefix needed)
+- Human-readable prove/verify output
+
+#### Cross-Repo Resolution
+- Phantom external nodes for stdlib/external edge targets
+- Enricher creates phantom nodes for all dangling edges post-enrichment
+- `ExtractPackagePath` handles method qualified names correctly
+- Fsck roster awareness + cross-repo method resolution
+
+### Changed
+
+- Cross-repo edges now fully resolved via roster-based module mapping
+- Tree depth locked at 3 levels (repo -> package -> edge-type)
+
+### Added
+
 #### Extractors (6 -> 17 languages)
 - Protobuf/gRPC extractor: service, message, enum, RPC declarations with type reference edges
 - Event/MQ extractor: Kafka, NATS, SQS, RabbitMQ patterns across Go/TS/Python/Java

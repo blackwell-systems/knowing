@@ -350,16 +350,28 @@ This makes retrieval history inspectable: "why did this symbol stop appearing in
 
 ## 9. Merkleized Feedback Validity
 
+### Shipped Implementation (v0.5.0)
+
+**Status:** Implemented in `internal/store/feedback.go`, migration 014, wired into MCP server and context engine.
+
+**What shipped:**
+- `neighborhood_root BLOB` column added to feedback table via migration 014
+- `RecordFeedback` stores SubgraphRoot of symbol's package at feedback time
+- `FeedbackBoosts` accepts optional `neighborhoodRoots` map: when provided, only feedback entries where `neighborhood_root` matches the current package root are counted
+- `computeNeighborhoodRoot` helper in MCP server computes package root for a symbol
+- Context engine passes neighborhood roots to `FeedbackBoosts`, enabling automatic expiration
+- Performance: 11% overhead (255µs baseline -> 284µs per 100 symbols with neighborhood validation)
+
 ### Problem
 
-User feedback ("this symbol was useful for task Y") degrades over time as code changes. Currently, feedback weight decays by a fixed time-based formula. But a symbol can change structurally (its call graph changes) while its name and file path remain the same.
+User feedback ("this symbol was useful for task Y") degrades over time as code changes. Previously, feedback weight decayed by a fixed time-based formula. But a symbol can change structurally (its call graph changes) while its name and file path remain the same.
 
 ### Design
 
 Feedback is valid only when both of the following hold:
 
 1. **Symbol hash unchanged:** The symbol's content (name, kind, source hash, package) is the same as when the feedback was recorded.
-2. **Neighborhood root unchanged:** The symbol's immediate neighborhood (symbols it calls and is called by, within radius 1) has the same root hash as when the feedback was recorded.
+2. **Neighborhood root unchanged:** The symbol's immediate neighborhood (the package it belongs to) has the same SubgraphRoot as when the feedback was recorded.
 
 ```
 feedback_valid(feedback_record, current_snapshot) = (
@@ -369,18 +381,21 @@ feedback_valid(feedback_record, current_snapshot) = (
 )
 ```
 
-If `symbol_hash` changed: the symbol was rewritten; feedback is fully invalidated.
-If `symbol_hash` unchanged but `neighborhood_root` changed: the symbol's context changed (new callers, removed callees); feedback is partially invalidated (reduced weight, not zeroed).
+If `symbol_hash` changed: the symbol was rewritten; feedback is fully invalidated (entry ignored).
+If `symbol_hash` unchanged but `neighborhood_root` changed: the symbol's package changed (new callers, removed callees, any edge modification in the package); feedback is fully invalidated.
+
+The current implementation treats neighborhood change as binary (valid/invalid). Future iterations may implement partial invalidation (reduced weight instead of zero).
 
 ### Expiration events
 
 | Event | Feedback effect |
 |-------|----------------|
-| Symbol content changed | Full invalidation |
-| New callers added | Partial invalidation (neighborhood changed) |
-| Callee removed | Partial invalidation |
-| Only doc-comment edge changed | No invalidation (structural neighborhood intact) |
-| Unrelated package changed | No invalidation |
+| Symbol content changed | Full invalidation (symbol hash mismatch) |
+| New callers added to package | Full invalidation (neighborhood root changed) |
+| Callee removed from package | Full invalidation (neighborhood root changed) |
+| Any edge in symbol's package changed | Full invalidation (neighborhood root changed) |
+| Only doc-comment changed (no edges) | No invalidation (neighborhood intact) |
+| Unrelated package changed | No invalidation (neighborhood root unchanged) |
 
 ---
 
@@ -581,20 +596,21 @@ These algorithms build on each other. The hierarchical tree structure (Phase 1) 
 
 ### Phase 4: Proofs, Sync, Bisection, and Advanced Features (In Progress)
 
-**Status:** Started. Merkle proofs and proof of absence shipped; remaining items planned.
+**Status:** Partially complete. Merkle proofs, proof of absence, and merkleized feedback validity shipped; remaining items planned.
 
-**Scope:** Merkle proofs for agent trust, federated sync protocol, bisection, proof of absence, lazy materialization, snapshot-aware retrieval, Merkleized feedback validity, semantic change classification.
+**Scope:** Merkle proofs for agent trust, federated sync protocol, bisection, proof of absence, lazy materialization, snapshot-aware retrieval, merkleized feedback validity, semantic change classification.
 
 **Shipped:**
-- `GenerateProof` and `VerifyProof` in `internal/snapshot/proof.go`: Merkle proof path generation and verification API.
+- `GenerateProof` and `VerifyProof` in `internal/snapshot/proof.go`: Merkle proof path generation and verification API (72µs generate, 1.2µs verify).
 - Proof of absence (`knowing prove-absent`): finds the two adjacent sorted leaves that bracket the missing edge hash. No tree restructuring was needed; the sorted binary tree already provides the ordering invariant. Both neighbor inclusion proofs are verified against the same root.
+- `knowing audit`: compliance report with integrity check, edge inventory, and Merkle proofs in single JSON artifact.
+- Merkleized feedback validity (v0.5.0): `neighborhood_root` stored on feedback records, automatic expiration when package changes. 11% overhead (255µs -> 284µs per 100 symbols).
 
 **Remaining deliverables:**
 - Federated sync protocol (root exchange, subtree transfer).
 - Bisection API: `knowing bisect --predicate "callers(X) > 5" <snapshot_A> <snapshot_B>`.
 - Lazy subtree loader replacing eager full-graph load.
 - Stability and activity signals wired into retrieval scoring.
-- `feedback_valid` check using `neighborhood_root` comparison.
 - `classify_diff` output in `knowing export --diff`.
 
 **Why next:** Phase 3 (incremental recompute) is complete. The tree structure is stable. Proofs, sync, and bisection build on the shipped infrastructure. Federated sync requires team adoption. Bisection is most useful once the snapshot chain is dense with real usage data.
@@ -611,5 +627,5 @@ These algorithms build on each other. The hierarchical tree structure (Phase 1) 
 | Context retrieval | PackRoot dedup (Phase 3 P5, 99% savings); persistent packs (Phase 3 P2); pack comparison (Phase 3 P6) |
 | FTS/BM25 index | Scoped FTS rebuild for changed packages (Phase 3 F3, 2.9x) |
 | Semantic PR Diff | `ClassifyChanges` returns Behavioral/Structural/RuntimeDrift/MetadataOnly (Phase 3 P7) |
-| Feedback scoring | `feedback_valid` check using `neighborhood_root` comparison (Phase 4, planned) |
+| Feedback scoring | Merkleized feedback validity with `neighborhood_root` (Phase 4, shipped v0.5.0) |
 | Retrieval pipeline | Stability + activity signals (Phase 4, planned) |

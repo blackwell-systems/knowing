@@ -139,7 +139,8 @@ func (e *ContextEngine) ExplainSymbol(ctx stdctx.Context, task string, symbolQue
 		for i, inp := range inputs {
 			hashes[i] = inp.Node.NodeHash
 		}
-		if boosts, err := e.feedback.FeedbackBoosts(ctx, hashes); err == nil {
+		// TODO: Pass neighborhood roots for merkleized expiration once hierarchical tree is available.
+		if boosts, err := e.feedback.FeedbackBoosts(ctx, hashes, nil); err == nil {
 			for i := range inputs {
 				if boost, ok := boosts[inputs[i].Node.NodeHash]; ok {
 					inputs[i].FeedbackBoost = boost

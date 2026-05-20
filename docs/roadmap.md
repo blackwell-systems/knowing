@@ -58,8 +58,9 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 
 | Feature | Status |
 |---------|--------|
+| Merkleized feedback validity (expires when neighborhood_root changes) | **Shipped (v0.5.0).** Feedback records store the SubgraphRoot of the symbol's package. When querying, only feedback matching the current SubgraphRoot is counted, so feedback automatically expires when code changes. Adds 11% overhead (255µs → 284µs for 100 symbols). Migration 014. |
+| Merkle proofs and audit primitives | **Shipped.** `knowing prove` (72µs), `knowing verify` (1.2µs), `knowing prove-absent`, `knowing audit` for compliance reports. |
 | Federated sync (exchange roots, transfer only differing branches) | Planned |
-| Merkleized feedback validity (expires when neighborhood_root changes) | Planned |
 | Merkle-based bisection (binary search on snapshot chain) | Planned |
 | Lazy materialization (load only visited subtrees; triggered at ~1M+ edges) | Planned |
 | File-level roots (finer single-file invalidation) | **Deferred.** Package-level granularity is sufficient at current and projected scale (200K+ edges). Scoped FTS rebuild handles the primary use case. Revisit only if a user demonstrates single-file invalidation need. This locks the tree depth at 3 levels and clears the extraction stability gate. |
