@@ -806,6 +806,7 @@ waves:
             - B
             - C
             - D
+      base_commit: 3faeedf53fe640a8e03ad643b049baa449e289b8
 quality_gates:
     level: standard
     gates:
