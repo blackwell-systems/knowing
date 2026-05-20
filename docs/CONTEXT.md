@@ -5,3 +5,5 @@
   - IMPL doc: docs/IMPL/complete/IMPL-git-audit-fixes.yaml
 - **edge-type-expansion**: completed 2026-05-20, 2 waves, 5 agents
   - IMPL doc: docs/IMPL/complete/IMPL-edge-type-expansion.yaml
+- **edge-type-expansion-p2**: completed 2026-05-20, 2 waves, 7 agents
+  - IMPL doc: docs/IMPL/complete/IMPL-edge-type-expansion-p2.yaml

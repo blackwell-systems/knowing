@@ -1,3 +1,4 @@
+completion_date: "2026-05-20"
 title: 'P2/P3 Edge Type Expansion: documents, consumes_endpoint, implements_rpc, consumes_rpc, gated_by_flag, deployed_by, tested_by'
 feature_slug: edge-type-expansion-p2
 verdict: SUITABLE
@@ -1328,6 +1329,7 @@ waves:
           dependencies:
             - B
             - D
+      base_commit: 2830a1728ecfe328b873e8981064f0cf352d936c
 quality_gates:
     level: standard
     gates:
@@ -1446,6 +1448,40 @@ completion_reports:
             - TestExtractTestedByEdges_Pytest
         verification: PASS
         notes: Both helper functions implemented with full detection logic. 10/10 tests passing. Integration into actionsExtractor.extract() is Wave 2 scope.
+    E:
+        status: complete
+        branch: polywave/edge-type-expansion-p2/wave2-agent-E
+        commit: 02760fe
+        files_changed:
+            - internal/edgetype/constants.go
+            - internal/edgetype/constants_test.go
+            - internal/context/walk.go
+            - internal/indexer/gotsextractor/extractor.go
+            - internal/indexer/tsextractor/extractor.go
+            - internal/indexer/cloudextractor/actions.go
+            - docs/architecture/edge-types.md
+        tests_added:
+            - TestRWRWeight_KnownTypes(7 new cases)
+            - TestConstants_NoEmpty(7 new constants)
+        verification: PASS
+        notes: All 7 edge type constants added, RWR weights configured, walk.go map expanded, all 3 extractors wired with Wave 1 functions, docs updated. Build/vet/test all pass.
+    F:
+        status: complete
+        branch: polywave/edge-type-expansion-p2/wave2-agent-F
+        commit: 875cc50
+        files_changed:
+            - internal/indexer/gotsextractor/extractor.go
+        verification: PASS
+        notes: Wired ExtractFeatureFlagEdges, ExtractGoEndpointEdges, ExtractDocumentsEdges, and ExtractTestsEdges into the main Extract method. All quality gates pass (build, vet, tests).
+    G:
+        status: complete
+        branch: polywave/edge-type-expansion-p2/wave2-agent-G
+        commit: b53d15f
+        files_changed:
+            - internal/indexer/tsextractor/extractor.go
+            - internal/indexer/cloudextractor/actions.go
+        verification: PASS
+        notes: Wired ExtractEndpointEdges into TS extractor (function declarations, class methods, arrow functions) and extractDeployedByEdges/extractTestedByEdges into cloud actions extractor. All tests pass.
 pre_mortem:
     overall_risk: medium
     rows:
@@ -1532,5 +1568,5 @@ critic_report:
     summary: 'Wave 1 agents A, B, C, D all have accurate briefs with correct file existence, symbol accuracy, and import chains. Wave 2 Agent E has one error-severity issue: the interface between Agent D (extractDeployedByEdges/extractTestedByEdges) and Agent E''s wiring code has a type mismatch. The interface contract specifies map[string]map[string]interface{}, Agent D''s brief uses map[string]jobDef, and Agent E''s wiring code passes []jobDef (a slice). This will cause a compile error at integration time. Additionally, Agent E''s brief incorrectly describes the current state of walk.go (edgeWeight map has 8 entries, not 5) and instructs a zero-value fix that has already been applied.'
     reviewed_at: "2026-05-20T17:16:44Z"
     issue_count: 3
-state: REVIEWED
+state: COMPLETE
 injection_method: hook
