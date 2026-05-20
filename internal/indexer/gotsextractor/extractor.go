@@ -214,11 +214,6 @@ func (e *GoTreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractO
 		}
 	}
 
-	// Extract documents edges for declarations with doc comments.
-	docNodes, docEdges := ExtractDocumentsEdges(root, opts, pkgPath, nodes)
-	nodes = append(nodes, docNodes...)
-	edges = append(edges, docEdges...)
-
 	// Sort nodes by QualifiedName then Kind.
 	sort.Slice(nodes, func(i, j int) bool {
 		if nodes[i].QualifiedName != nodes[j].QualifiedName {
