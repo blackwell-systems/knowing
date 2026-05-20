@@ -45,6 +45,22 @@ None of them version the relationships. None of them can prove a relationship ex
 
 ## What a Code Graph Is
 
+### Why a graph, not a tree
+
+A tree enforces one parent per node. File systems are trees: every file has exactly one directory. But code relationships violate this constantly:
+
+- A function is called by **12 different callers** (12 inbound edges, not 1 parent)
+- A type implements **3 interfaces** simultaneously
+- A service publishes to a queue AND handles HTTP routes AND connects to a database
+- A symbol in repo A is called by repos B and C (cross-repo fan-in)
+- Runtime traces show a call path that static analysis doesn't see (multiple views of the same relationship)
+
+You can't represent "function X is called by A, B, and C, implements interface D, handles route /users, and was observed calling external service E" in a tree without duplicating nodes or losing edges. A graph stores all of these naturally: multiple inbound edges, multiple outbound edges, multiple types, no structural constraint.
+
+The Merkle tree is layered ON TOP of the graph for integrity and efficient querying. It doesn't constrain the graph's topology. The tree organizes edges by package and type; the graph stores the actual multi-directional relationships.
+
+### Structure
+
 A code graph has two things:
 
 **Nodes** are symbols: functions, methods, types, interfaces, variables, routes, database tables, queue topics, config keys.
