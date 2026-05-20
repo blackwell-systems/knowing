@@ -143,6 +143,7 @@ func (s *Server) registerTools() {
 	s.mcpServer.AddTool(semanticDiffTool(), s.handleSemanticDiff)
 	s.mcpServer.AddTool(prImpactTool(), s.handlePRImpact)
 	s.mcpServer.AddTool(ownershipTool(), s.handleOwnership)
+	s.mcpServer.AddTool(ownershipQueryTool(), s.handleOwnershipQuery)
 
 	// Runtime trace query tools
 	s.mcpServer.AddTool(runtimeTrafficTool(), s.handleRuntimeTraffic)
@@ -184,6 +185,7 @@ func (s *Server) ToolNames() []string {
 		"semantic_diff",
 		"pr_impact",
 		"ownership",
+		"ownership_query",
 		"runtime_traffic",
 		"dead_routes",
 		"trace_stats",
@@ -334,6 +336,7 @@ func ownershipTool() mcp.Tool {
 		mcp.WithString("repo_hash", mcp.Required(), mcp.Description("Hash of the repository (64-char hex, e.g. a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2)"), Examples("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2")),
 	)
 }
+
 
 func runtimeTrafficTool() mcp.Tool {
 	return mcp.NewTool("runtime_traffic",
