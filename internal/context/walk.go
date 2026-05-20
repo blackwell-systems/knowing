@@ -52,14 +52,24 @@ func RandomWalkWithRestart(ctx stdctx.Context, store types.GraphStore, seeds []t
 
 	// Edge weight multipliers by type.
 	edgeWeight := map[string]float64{
-		"calls":         1.0,
-		"implements":    0.8,
-		"handles_route": 0.7,
-		"tests":         0.6,
-		"imports":       0.5,
-		"references":    0.4,
-		"owned_by":      0.0,
-		"authored_by":   0.0,
+		"calls":             1.0,
+		"implements":        0.8,
+		"implements_rpc":    0.8,
+		"handles_route":     0.7,
+		"tests":             0.6,
+		"consumes_rpc":      0.6,
+		"imports":           0.5,
+		"depends_on":        0.5,
+		"consumes_endpoint": 0.5,
+		"tested_by":         0.5,
+		"references":        0.4,
+		"throws":            0.4,
+		"deployed_by":       0.4,
+		"gated_by_flag":     0.3,
+		"decorates":         0.3,
+		"documents":         0.2,
+		"owned_by":          0.0,
+		"authored_by":       0.0,
 	}
 
 	// Iterate: at each step, walk along edges with (1-alpha) probability,
