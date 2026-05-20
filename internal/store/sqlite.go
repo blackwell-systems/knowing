@@ -274,9 +274,9 @@ func (s *SQLiteStore) BatchPutFiles(ctx context.Context, files []types.File) err
 // CreateSnapshot upserts a snapshot record into the snapshots table.
 func (s *SQLiteStore) CreateSnapshot(ctx context.Context, snap types.Snapshot) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT OR REPLACE INTO snapshots (snapshot_hash, parent_hash, repo_hash, commit_hash, timestamp, node_count, edge_count)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		snap.SnapshotHash[:], snap.ParentHash[:], snap.RepoHash[:], snap.CommitHash, snap.Timestamp, snap.NodeCount, snap.EdgeCount,
+		`INSERT OR REPLACE INTO snapshots (snapshot_hash, parent_hash, repo_hash, commit_hash, timestamp, node_count, edge_count, generation)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		snap.SnapshotHash[:], snap.ParentHash[:], snap.RepoHash[:], snap.CommitHash, snap.Timestamp, snap.NodeCount, snap.EdgeCount, snap.Generation,
 	)
 	return err
 }
@@ -371,7 +371,7 @@ func (s *SQLiteStore) GetEdge(ctx context.Context, hash types.Hash) (*types.Edge
 // GetSnapshot retrieves a snapshot by its Merkle root hash. Returns nil if not found.
 func (s *SQLiteStore) GetSnapshot(ctx context.Context, hash types.Hash) (*types.Snapshot, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT snapshot_hash, parent_hash, repo_hash, commit_hash, timestamp, node_count, edge_count
+		`SELECT snapshot_hash, parent_hash, repo_hash, commit_hash, timestamp, node_count, edge_count, generation
 		 FROM snapshots WHERE snapshot_hash = ?`,
 		hash[:],
 	)
@@ -686,7 +686,7 @@ func (s *SQLiteStore) StaleEdges(ctx context.Context, snapshot types.Hash) ([]ty
 // by timestamp descending. Returns nil if no snapshots exist for the repo.
 func (s *SQLiteStore) LatestSnapshot(ctx context.Context, repoHash types.Hash) (*types.Snapshot, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT snapshot_hash, parent_hash, repo_hash, commit_hash, timestamp, node_count, edge_count
+		`SELECT snapshot_hash, parent_hash, repo_hash, commit_hash, timestamp, node_count, edge_count, generation
 		 FROM snapshots WHERE repo_hash = ? ORDER BY timestamp DESC LIMIT 1`,
 		repoHash[:],
 	)
@@ -1009,7 +1009,7 @@ func scanNodes(rows *sql.Rows) ([]types.Node, error) {
 func scanSnapshot(row scannable) (*types.Snapshot, error) {
 	var snap types.Snapshot
 	var sh, ph, rh []byte
-	if err := row.Scan(&sh, &ph, &rh, &snap.CommitHash, &snap.Timestamp, &snap.NodeCount, &snap.EdgeCount); err != nil {
+	if err := row.Scan(&sh, &ph, &rh, &snap.CommitHash, &snap.Timestamp, &snap.NodeCount, &snap.EdgeCount, &snap.Generation); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}

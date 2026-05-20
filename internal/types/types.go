@@ -158,6 +158,7 @@ type Snapshot struct {
 	Timestamp    int64  // unix timestamp when the snapshot was created
 	NodeCount    int    // total number of nodes in the graph at snapshot time
 	EdgeCount    int    // total number of edges in the graph at snapshot time
+	Generation   int    // chain depth: parent.Generation + 1; enables O(1) ancestry checks
 }
 
 // EdgeEvent represents an append-only edge mutation event for event sourcing.

@@ -64,14 +64,16 @@ func (sm *SnapshotManager) ComputeSnapshot(ctx context.Context, repoHash types.H
 	// Store the hierarchical tree for later use by diff and caching.
 	sm.lastHierarchicalTree = htree
 
-	// Get the latest snapshot for parent chain.
+	// Get the latest snapshot for parent chain and generation number.
 	var parentHash types.Hash
+	var generation int
 	latest, err := sm.store.LatestSnapshot(ctx, repoHash)
 	if err != nil {
 		return nil, fmt.Errorf("getting latest snapshot: %w", err)
 	}
 	if latest != nil {
 		parentHash = latest.SnapshotHash
+		generation = latest.Generation + 1
 	}
 
 	snap := types.Snapshot{
@@ -82,6 +84,7 @@ func (sm *SnapshotManager) ComputeSnapshot(ctx context.Context, repoHash types.H
 		Timestamp:    time.Now().Unix(),
 		NodeCount:    nodeCount,
 		EdgeCount:    edgeCount,
+		Generation:   generation,
 	}
 
 	if err := sm.store.CreateSnapshot(ctx, snap); err != nil {

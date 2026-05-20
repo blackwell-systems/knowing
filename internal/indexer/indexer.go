@@ -3,6 +3,7 @@ package indexer
 import (
 	"bufio"
 	"context"
+	"database/sql"
 	"fmt"
 	"io/fs"
 	"os"
@@ -480,7 +481,51 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 	// dangling edges (they just won't link across repos).
 	_, _ = idx.ResolveEdges(ctx)
 
+	// Auto-GC: if edge_events exceed threshold, run incremental GC.
+	// Inspired by git's gc_auto_threshold (6700 loose objects triggers gc).
+	idx.maybeAutoGC(ctx, repoHash)
+
 	return snap, nil
+}
+
+// autoGCThreshold is the number of edge_events that triggers automatic GC.
+// Edge events accumulate on every re-index; when they exceed this threshold,
+// old snapshots are pruned to prevent unbounded growth.
+const autoGCThreshold = 5000
+
+// autoGCKeepCount is the number of recent snapshots preserved by auto-GC.
+const autoGCKeepCount = 10
+
+// gcCapable is an optional interface for snapshot managers that support GC.
+type gcCapable interface {
+	GarbageCollect(ctx context.Context, repoHash types.Hash, keepCount int) (int, error)
+}
+
+// maybeAutoGC checks if edge_events have exceeded the threshold and runs
+// incremental GC if so. Best-effort: failures are logged but don't fail indexing.
+func (idx *Indexer) maybeAutoGC(ctx context.Context, repoHash types.Hash) {
+	sqlStore, ok := idx.store.(interface {
+		DB() *sql.DB
+	})
+	if !ok {
+		return
+	}
+	db := sqlStore.DB()
+
+	var eventCount int64
+	err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM edge_events").Scan(&eventCount)
+	if err != nil {
+		return
+	}
+
+	if eventCount < autoGCThreshold {
+		return
+	}
+
+	// Trigger GC via snapshot manager.
+	if gc, ok := idx.snapshot.(gcCapable); ok {
+		_, _ = gc.GarbageCollect(ctx, repoHash, autoGCKeepCount)
+	}
 }
 
 // ResolveEdges runs the cross-repo edge resolver to retarget dangling edges
