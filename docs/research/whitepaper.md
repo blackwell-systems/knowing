@@ -10,7 +10,7 @@ Content-addressing is usually treated as an integrity mechanism: a way to verify
 
 A flat Merkle tree proves state. A hierarchical Merkle tree organizes computation.
 
-When the tree is organized by package and edge type rather than by flat sorted hash, the identity structure itself becomes the query optimization layer. Diffs become O(packages) instead of O(edges), 281x faster on real graphs (~13.1K edges) and 517x faster at 100K synthetic edges. Cache keys become O(1) subgraph root lookups. Invalidation is scoped to the packages that actually changed. The tree does not merely prove state; it organizes computation.
+When the tree is organized by package and edge type rather than by flat sorted hash, the identity structure itself becomes the query optimization layer. Diffs become O(packages) instead of O(edges). Cache keys become O(1) subgraph root lookups. Invalidation is scoped to the packages that actually changed. Critically, the hierarchical diff's output is semantically meaningful: it names changed packages and edge types, not arbitrary tree positions. This is what makes scoped invalidation possible. The tree does not merely prove state; it organizes computation.
 
 This paper presents both insights together: the original argument (content-addressing solves six structural problems with mutable graphs) and the hierarchical revelation (organizing the Merkle tree by semantic boundaries turns identity into a query engine). Each capability in the system is a structural consequence of the hierarchical identity model, not a feature bolted onto it.
 
@@ -172,8 +172,6 @@ The structure mirrors the conceptual hierarchy of the codebase: repo contains pa
 
 This alignment between the identity tree and the semantic structure of the code is not accidental. It is the design. And it produces algorithmic consequences that flat content-addressing cannot deliver.
 
-**A flat Merkle tree proves state. A hierarchical Merkle tree organizes computation.**
-
 ### 4.2 Worked Example
 
 Consider two packages:
@@ -205,11 +203,11 @@ For the knowing codebase (~13.1K edges, 57 packages):
 
 | Operation | Latency |
 |-----------|---------|
-| Flat diff (compare 13,103 edges) | 1.76ms |
+| Flat linear scan (compare 13,103 edges) | 1.76ms |
 | Hierarchical diff (compare 57 package roots) | 6.26us |
-| **Speedup** | **281x** |
+| **Speedup (hierarchical vs flat linear scan)** | **281x** |
 
-For a 100K-edge synthetic graph with 100 packages, the speedup is 517x. The speedup grows with graph size because the ratio of packages to edges grows. See `bench/merkle-diff/FINDINGS.md`.
+For a 100K-edge synthetic graph with 100 packages, the speedup over flat linear scan is 517x. Note: a flat Merkle tree with descend-to-localize would also be fast for small changes (O(d * log E)), but would localize changes to arbitrary leaf positions without semantic context. The hierarchical structure enables O(packages) diff with semantically meaningful output: changed package names and changed edge types. This is what makes scoped invalidation and package-aware cache keys possible. See `bench/merkle-diff/FINDINGS.md`.
 
 **Cache keys become O(1) subgraph root lookups.**
 
@@ -225,13 +223,13 @@ Total diff plus invalidation overhead per re-index: ~6us. The re-index itself (p
 
 **Queries against unchanged code are fast-path cache hits.**
 
-The end-to-end consequence: an agent repeatedly querying the same packages during a task session hits the cache on every warm call. The subgraph cache delivers 93x speedup (median) versus cold retrieval:
+With a measured cache hit rate of ~20% for varied queries (60% for exact repeats), the expected session-level speedup is approximately 0.2 * 93 + 0.8 * 1 = 19x. The 93x figure is the warm-path peak when a query hits a primed cache entry:
 
 | Condition | Median |
 |-----------|--------|
 | Cache disabled | ~160ms |
 | Cache enabled (primed) | ~1.7ms |
-| **Speedup** | **93x** |
+| **Peak speedup (warm path)** | **93x** |
 
 The identity structure itself becomes the query optimization layer.
 
@@ -269,7 +267,7 @@ Identity includes provenance. The same structural relationship (A calls B) obser
 SnapshotHash = HierarchicalMerkleRoot(edges grouped by package and edge type)
 ```
 
-A hierarchical Merkle tree (repo root -> package roots -> edge-type roots -> edge leaves) built from all edge hashes in a repository. The root hash changes if and only if the set of edges changes. The hierarchical structure enables `DiffHierarchicalTrees` to compare package roots instead of all edges (281x on real graphs; 517x on 100K synthetic edges), and `SubgraphRoot` to provide O(1) cache keys for any package set. Snapshots form a linked chain (each records its parent hash). See `internal/snapshot/hierarchical.go` for the implementation.
+A hierarchical Merkle tree (repo root -> package roots -> edge-type roots -> edge leaves) built from all edge hashes in a repository. The root hash changes if and only if the set of edges changes. The hierarchical structure enables `DiffHierarchicalTrees` to compare package roots instead of all edges (281x vs flat linear scan on real graphs; 517x at 100K synthetic edges), producing semantically meaningful output (changed package names, edge types). `SubgraphRoot` provides O(1) cache keys for any package set. Snapshots form a linked chain (each records its parent hash). See `internal/snapshot/hierarchical.go` for the implementation.
 
 The domain-type prefix system (`"node\0"`, `"edge\0"`, `"snapshot\0"`, `"merkle\0"`) eliminates cross-type ambiguity at the input-construction level, assuming standard collision resistance of SHA-256. The hierarchical Merkle root is the canonical snapshot hash; no flat tree is maintained alongside it.
 
@@ -289,25 +287,21 @@ The formal properties below hold under the following assumptions:
 **Property 1: Determinism.**
 For any source state S, under the assumptions above, the function `Index(S) -> SnapshotHash` is pure. Same S produces same hash on any machine, at any time, by any operator.
 
-**Property 2: Completeness of staleness detection.**
-For a fixed analyzer version, configuration, and input source state, `SnapshotHash(current_edges) == stored_snapshot_hash` if and only if the graph exactly reflects the indexed relationship set for that source state. No false positives (declaring current when stale). No false negatives (declaring stale when current).
+By construction, staleness detection has no false positives or negatives (if the hash matches, the edge set is identical; if it differs, something changed), and currency verification is O(1) hash comparison regardless of graph size. These follow directly from the determinism assumption and the definition of cryptographic hashing.
 
-**Property 3: O(1) currency check.**
-Verifying currency requires exactly one hash comparison, regardless of graph size.
-
-**Property 4: History is structurally available.**
+**Property 2: History is structurally available.**
 Every previous state is retrievable at O(1) cost by snapshot hash. The chain provides ordered traversal. No explicit versioning system required.
 
-**Property 5: Isolation without locking.**
+**Property 3: Isolation without locking.**
 Any read pinned to a snapshot hash is consistent and cannot be affected by concurrent writes (writes produce new hashes that don't mutate existing data).
 
-**Property 6: Global identity without coordination.**
+**Property 4: Global identity without coordination.**
 For any symbol S described by the same canonical identity inputs, independent indexers compute the same `NodeHash(S)` without communication. Agreement comes from deterministic canonicalization, not from a central ID service.
 
-**Property 7: O(packages) diff.**
+**Property 5: O(packages) diff.**
 `DiffHierarchicalTrees(snapshot_a, snapshot_b)` identifies changed packages by comparing P package roots, not E edge leaves. Complexity is O(P), not O(E).
 
-**Property 8: O(1) subgraph cache keys.**
+**Property 6: O(1) subgraph cache keys.**
 `SubgraphRoot(package_set)` returns a binary Merkle tree root over the sorted package roots in `package_set` in O(|package_set|) time. Cache validity is determined by one hash comparison.
 
 ### 5.4 Overhead Analysis
@@ -318,7 +312,7 @@ Content-addressing adds a SHA-256 computation per entity. The hierarchical tree 
 |-----------|------------------------|---------------------|----------|
 | Index one node | ~800 nanoseconds (SHA-256) | ~2 milliseconds (parse + store) | 0.04% |
 | Index one edge | ~800 nanoseconds | ~500 microseconds (store) | 0.16% |
-| Build hierarchical tree (~13.1K edges) | Faster than flat tree | ~8 seconds (full index) | 0.01% |
+| Build hierarchical tree (~13.1K edges) | 3.47ms (vs 6.03ms flat) | ~8 seconds (full index) | 0.04% |
 | Compute snapshot (10K edges) | ~3 milliseconds (sort + Merkle) | ~8 seconds (full index) | 0.04% |
 
 The overhead is negligible. The dominant cost in every case is parsing or I/O, not hashing. Measurements were taken from the `knowing` indexing pipeline.
@@ -362,11 +356,11 @@ For each adjacent pair (snap_n, snap_n-1):
     return snap_n.commit_hash, snap_n.timestamp
 ```
 
-Change attribution falls out of the snapshot chain. The hierarchical diff makes each step O(packages). No separate "history" table.
+Change attribution falls out of the snapshot chain. The hierarchical diff makes each step O(packages). No separate "history" table. Note: the blame walk is O(snapshots * packages) and has not been benchmarked for long-lived repos with thousands of snapshots. This is a known limitation for the scale roadmap.
 
 ### 6.4 Integrity Verification
 
-"Prove this graph was not tampered with."
+"Verify this graph has not been modified since the snapshot was anchored."
 
 ```
 Recompute: for each edge in snapshot, verify EdgeHash == SHA-256(source || target || type || prov)
@@ -374,7 +368,9 @@ Recompute: HierarchicalMerkleRoot(verified_edge_hashes grouped by package) == sn
 Verify: snapshot.CommitHash matches git log
 ```
 
-Any tampering (inserted edge, modified confidence, deleted relationship) changes a hash, which changes the package root, which changes the snapshot root, which fails verification. The data is self-authenticating.
+Any tampering with edge identity (inserted edge, deleted relationship, altered provenance) changes a hash, which changes the package root, which changes the snapshot root, which fails verification. Confidence, however, is mutable metadata on an immutable edge identity: it is not included in `EdgeHash` (which uses sourceHash, targetHash, edgeType, provenance). Tampering with confidence does not break referential integrity but may degrade ranking quality. The integrity guarantee covers edge existence and provenance, not confidence scores.
+
+The data is tamper-evident relative to a trusted root hash. The guarantee becomes meaningful when the snapshot root is anchored to something unforgeable (a signed git commit, an external witness log). Without such anchoring, an attacker with write access can tamper and recompute.
 
 ### 6.5 Subgraph Caching
 
@@ -402,7 +398,7 @@ Content-addressed context packs use:
 PackRoot = SHA-256(sort(selectedNodeHashes))
 ```
 
-This gives each context selection a stable identity. Verified: 5 queries with 2 unique tasks produce exactly 2 unique PackRoots (perfect deduplication). Same context selection against the same graph state produces the same PackRoot, enabling:
+This gives each context selection a stable identity. Validated in a small demonstration: 5 queries with 2 unique tasks produce exactly 2 unique PackRoots (correct deduplication). This validates the mechanism; production characterization requires longer sessions with varied query patterns. Same context selection against the same graph state produces the same PackRoot, enabling:
 
 - Cache lookup: if PackRoot matches, skip retrieval
 - Citation: agents reference a PackRoot instead of resending content
@@ -455,15 +451,15 @@ All benchmarks run on the knowing codebase itself. The repository includes harne
 
 | Benchmark | Result | Source |
 |-----------|--------|--------|
-| Hierarchical diff vs flat diff (~13.1K edges, 57 packages) | 281x faster | `bench/merkle-diff/FINDINGS.md` |
-| Hierarchical diff at 100K synthetic edges | 517x faster | `bench/merkle-diff/FINDINGS.md` |
+| Hierarchical diff vs flat linear scan (~13.1K edges, 57 packages) | 281x faster | `bench/merkle-diff/FINDINGS.md` |
+| Hierarchical diff vs flat linear scan at 100K synthetic edges | 517x faster | `bench/merkle-diff/FINDINGS.md` |
 | SubgraphRoot lookup (1 package) | 59ns | `bench/merkle-diff/FINDINGS.md` |
 | Raw subgraph cache hit | 42ns | `bench/merkle-diff/FINDINGS-phase2-cache.md` |
 | Full warm retrieval (cache hit path) | 1.7ms | `bench/merkle-diff/FINDINGS-phase2-cache.md` |
 | Cache speedup vs cold | 93x | `bench/merkle-diff/FINDINGS-phase2-cache.md` |
 | Daemon diff + invalidation overhead | ~6us | `bench/merkle-diff/FINDINGS-phase2-cache.md` |
 
-The 281x figure is measured on the live ~13.1K-edge graph with 57 packages. At 100K synthetic edges the speedup reaches 517x.
+The 281x and 517x figures compare hierarchical diff against flat linear scan of all edges. A flat Merkle tree with descend-to-localize would also be fast for small changes, but would not produce package-scoped, semantically meaningful output.
 
 ### 7.2 Integrity and Maintenance
 
@@ -482,14 +478,16 @@ The 281x figure is measured on the live ~13.1K-edge graph with 57 packages. At 1
 | GCF wire format | median 76.7% fewer tokens than JSON |
 | Test scope | 76.5% mean precision (91.7% median), 51.4% recall |
 
+Methodology: measured against a 55-fixture eval harness (20 easy, 20 medium, 15 hard tasks) on the knowing codebase. Baseline is no-feedback, no-session-boost retrieval. P@10 measures what fraction of top-10 results match hand-curated ground truth. R@10 measures what fraction of ground-truth items appear in the top 10. See `eval/FINDINGS.md` for full methodology and fixture definitions.
+
 ### 7.4 Build and Indexing
 
-| Operation | Hierarchical tree | Flat tree | Overhead |
-|-----------|------------------|-----------|----------|
-| Build time (~13.1K edges) | Faster than flat | baseline | none (hierarchical is faster) |
-| Full index (70K+ LOC repo) | ~8 seconds | ~8 seconds | negligible |
+| Operation | Hierarchical tree | Flat tree | Notes |
+|-----------|------------------|-----------|-------|
+| Build time (~13.1K edges) | 3.47ms | 6.03ms | Hierarchical faster due to smaller per-group sorts |
+| Full index (70K+ LOC repo) | ~8 seconds | ~8 seconds | Build time negligible vs parse + I/O |
 
-The hierarchical tree is faster to build than the flat tree on the current graph because the recursive binary Merkle construction operates on smaller sorted sets per package. Build overhead is zero; the hierarchical structure is both faster to construct and faster to diff.
+Build time for the hierarchical tree is comparable to flat construction (3.47ms vs 6.03ms for the knowing repo, actually faster due to smaller per-group sorts). The operational complexity of maintaining intermediate roots is offset by the query-time benefits at scale.
 
 ---
 
@@ -513,7 +511,7 @@ The content-addressing contract can be stated precisely. Any system claiming to 
 |----------|------------------------|---------------------|
 | Is the graph current? | Compare one hash (O(1), provable) | Check timestamps (heuristic, lossy) |
 | What changed? | Diff two hierarchical Merkle roots, O(packages) | Query audit log (separate from data) |
-| Is this state genuine? | Verify hash chain (cryptographic) | Trust the system (operational) |
+| Is this state tamper-evident? | Verify hash chain (relative to trusted root) | Trust the system (operational) |
 | Can concurrent access corrupt? | No (immutable data) | Depends on locking strategy |
 | Do two instances agree? | Same content -> same hash (guaranteed) | Depends on sync protocol |
 | Can I query the past? | Point lookup by hash (O(1)) | Depends on retention policy |
@@ -581,7 +579,7 @@ The properties described in this paper hold under specific conditions. This sect
 
 ## 11. Related Systems
 
-We are not aware of an existing code intelligence system that uses hierarchical Merkle trees over code relationships.
+Content-addressing of code is not new. Unison content-addresses code definitions by AST hash, providing rename-immune identity for individual terms. Git content-addresses file trees. The novelty here is narrower: hierarchical content-addressed identity over relationship edges, grouped by package and edge type, used as a query-optimization substrate for diffing, invalidation, and cache validity.
 
 ### 11.1 Related System Categories
 
@@ -627,13 +625,11 @@ Every mutable-graph approach to software relationship intelligence is fighting a
 
 The original content-addressing insight (hash everything, use the hash as identity) solves the first six requirements. The hierarchical Merkle revelation solves the last: by organizing the tree to match the semantic structure of the codebase, the identity structure becomes the query optimization layer. Diffs are O(packages). Cache keys are O(1). Invalidation is scoped. The tree proves state and organizes computation simultaneously.
 
-**A flat Merkle tree proves state. A hierarchical Merkle tree organizes computation.**
-
-The overhead of the hierarchical choice is zero: the hierarchical tree is faster to build than the flat tree on the current graph. The speedups are not incremental: 93x for cached queries, 281x for diffs on the live graph, 517x for diffs at 100K synthetic edges.
+Build time for the hierarchical tree is comparable to flat construction (3.47ms vs 6.03ms for the knowing repo, actually faster due to smaller per-group sorts). The operational complexity of maintaining intermediate roots is offset by the query-time benefits at scale. The speedups are significant: up to 93x for cached queries (warm path), 281x for diffs vs flat linear scan on the live graph, 517x at 100K synthetic edges.
 
 These properties hold under the assumptions stated in Section 5.2. The limitations in Section 10 are real and must be addressed as core infrastructure, not afterthoughts. Canonicalization is not a detail; it is a precondition. Deterministic extractors are not optional; they are required for Property 1 to hold.
 
-We are not aware of an existing code intelligence system that uses this approach. The reason is not technical difficulty. It is conceptual: you only see the algorithmic opportunity when you stop thinking about content-addressing as an integrity mechanism and start thinking about it as a computation architecture.
+While content-addressing of code elements exists (Unison for definitions, Git for files), we are not aware of an existing system that applies hierarchical content-addressed identity over relationship edges as a query-optimization substrate. The reason is likely conceptual: you only see the algorithmic opportunity when you stop thinking about content-addressing as an integrity mechanism and start thinking about it as a computation architecture.
 
 Git proved this for source code. The same insight applies, with equal force and deeper consequences, to everything derived from source code.
 
