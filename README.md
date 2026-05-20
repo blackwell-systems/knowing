@@ -11,22 +11,23 @@
 
 ---
 
-Your agent grep-searches your repo 47 times per task. It reads 15 files, builds context from scratch, forgets everything next session.
+Your architecture diagram says service A calls service B. Can you prove it?
 
-**knowing gives it the right symbols in one call.** Ranked by graph distance, weighted by past usefulness, packed to fit a token budget, deduplicated across turns. One MCP call replaces the grep-read-grep-read loop.
+**knowing can.** It builds a content-addressed graph of every code relationship, snapshots it as a Merkle tree tied to a git commit, and generates cryptographic proofs that verify offline. Agents use it for ranked context. Security teams use it for audit. Platform teams use it to compare code against production traces.
 
-It gets better every time you use it. And when your code changes, stale knowledge expires automatically.
+It gets better every time you use it. When code changes, stale knowledge expires automatically.
 
 ```bash
 brew install blackwell-systems/tap/knowing
 knowing add .
+knowing prove -source "AuthService" -target "SessionStore"  # cryptographic proof in 72us
 ```
 
 ```json
 { "mcpServers": { "knowing": { "command": "knowing", "args": ["mcp", "--watch"] } } }
 ```
 
-That's it. Your agent now has ranked code context, blast radius analysis, test scope selection, and memory that compounds.
+Your agent now has ranked context (one call replaces grep-read loops), blast radius, test scope, and memory that compounds.
 
 ---
 
@@ -41,7 +42,7 @@ One call returns the most relevant symbols for a task, ranked by graph centralit
 Every graph state is a Merkle root tied to a git commit. `knowing prove` generates a cryptographic proof that a relationship existed. `knowing verify` checks it offline. `knowing fsck` verifies the entire graph in 98ms.
 
 **3. Memory layer that learns**
-Feedback from agents compounds across sessions. When code changes, feedback expires automatically (verified via package Merkle roots). The system gets smarter over time, not noisier. No other code intelligence tool has this property.
+Feedback from agents compounds across sessions. When code changes, feedback expires automatically (verified via package Merkle roots). The system gets smarter over time, not noisier. That is the property knowing is built around.
 
 These aren't separate features. They're structural consequences of content-addressing: the same hash that makes context cacheable also makes it provable, and the same Merkle root that detects staleness also expires stale feedback.
 
@@ -70,7 +71,7 @@ These aren't separate features. They're structural consequences of content-addre
 | What | Result |
 |---|---:|
 | Agent context precision | +20pp after 1 round, +34pp after 5 |
-| Tool calls saved | 47% fewer (one call replaces grep+read loops) |
+| Tool calls saved | 47% fewer (one context call replaces repeated grep+read) |
 | Token savings | 84% fewer tokens (GCF wire format) |
 | Repeat query speed | 93x faster (Merkle-keyed subgraph cache) |
 | Merkle diff | 517x faster than full edge scan at 100K edges |
@@ -204,7 +205,7 @@ The boundary matters: intelligence features read the graph and produce derived r
 
 | Language/Format | Extractor | Framework/Pattern Detection |
 |---|---|---|
-| Go | tree-sitter + `go/packages` + SCIP | net/http, gin, echo, chi, gorilla/mux, fiber |
+| Go | tree-sitter + `go/packages` + SCIP | net/http, gin, echo, chi, gorilla/mux |
 | TypeScript/JavaScript | tree-sitter | Express.js, Fastify, Hono, NestJS, Next.js |
 | Python | tree-sitter | Flask, FastAPI, Django |
 | Rust | tree-sitter | Actix, Axum, Rocket |
