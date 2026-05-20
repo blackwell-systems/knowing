@@ -59,8 +59,8 @@
   "steps": [
     {
       "step": "resume_detection",
-      "status": "warning",
-      "detail": "4 orphaned worktree(s) for edge-type-expansion-p2 (wave 1)"
+      "status": "success",
+      "detail": "no orphaned worktrees"
     },
     {
       "step": "dep_check",
@@ -85,7 +85,7 @@
     {
       "step": "stale_cleanup",
       "status": "success",
-      "detail": "cleaned 4 stale worktree(s)"
+      "detail": "no stale worktrees"
     },
     {
       "step": "repo_match",
@@ -100,7 +100,7 @@
     {
       "step": "commit_baseline",
       "status": "success",
-      "detail": "committed 3 file(s)"
+      "detail": "committed 4 file(s)"
     },
     {
       "step": "baseline_gates",

@@ -916,7 +916,7 @@ waves:
           files:
             - internal/indexer/cloudextractor/actions_deploy.go
             - internal/indexer/cloudextractor/actions_deploy_test.go
-      base_commit: cf078559facbe9706c3d243d57ed60ee14dd0267
+      base_commit: 8720db3a0cfedcae4197069da318c505d8c2c22f
     - number: 2
       agents:
         - id: E
@@ -1340,6 +1340,112 @@ quality_gates:
         - type: test
           command: GOWORK=off go test -short ./... -timeout 5m
           required: true
+post_merge_checklist:
+    groups:
+        - title: Background Service Initialization
+          items:
+            - description: Verify if endpoint_edges_test.go needs initialization in Server constructor
+            - description: Verify if rpc_edges_test.go needs initialization in Server constructor
+completion_reports:
+    A:
+        status: complete
+        branch: polywave/edge-type-expansion-p2/wave1-agent-A
+        commit: 33a8748
+        files_changed:
+            - internal/indexer/gotsextractor/documents_edges.go
+            - internal/indexer/gotsextractor/documents_edges_test.go
+            - internal/indexer/gotsextractor/featureflag_edges.go
+            - internal/indexer/gotsextractor/featureflag_edges_test.go
+        files_created:
+            - internal/indexer/gotsextractor/documents_edges.go
+            - internal/indexer/gotsextractor/documents_edges_test.go
+            - internal/indexer/gotsextractor/featureflag_edges.go
+            - internal/indexer/gotsextractor/featureflag_edges_test.go
+        tests_added:
+            - TestExtractDocumentsEdges_FunctionWithDoc
+            - TestExtractDocumentsEdges_NoDoc
+            - TestExtractDocumentsEdges_TypeWithDoc
+            - TestExtractDocumentsEdges_MethodWithDoc
+            - TestExtractDocumentsEdges_MultipleDecls
+            - TestExtractFeatureFlagEdges_LaunchDarkly
+            - TestExtractFeatureFlagEdges_Unleash
+            - TestExtractFeatureFlagEdges_CustomFunction
+            - TestExtractFeatureFlagEdges_NoFlags
+            - TestExtractFeatureFlagEdges_MultipleFlagsSameFunc
+            - TestExtractFeatureFlagEdges_DynamicString
+        verification: PASS
+        notes: Both edge type extractors complete. Integration into extractor.go's Extract() function is Wave 2 Agent E scope.
+    B:
+        status: complete
+        branch: polywave/edge-type-expansion-p2/wave1-agent-B
+        commit: a4dd306
+        files_changed:
+            - internal/indexer/tsextractor/endpoint_edges.go
+            - internal/indexer/tsextractor/endpoint_edges_test.go
+            - internal/indexer/gotsextractor/endpoint_edges.go
+            - internal/indexer/gotsextractor/endpoint_edges_test.go
+        files_created:
+            - internal/indexer/tsextractor/endpoint_edges.go
+            - internal/indexer/tsextractor/endpoint_edges_test.go
+            - internal/indexer/gotsextractor/endpoint_edges.go
+            - internal/indexer/gotsextractor/endpoint_edges_test.go
+        tests_added:
+            - TestExtractEndpointEdges_Fetch
+            - TestExtractEndpointEdges_Axios
+            - TestExtractEndpointEdges_AxiosPost
+            - TestExtractEndpointEdges_FullURL
+            - TestExtractEndpointEdges_NoHTTPCalls
+            - TestExtractEndpointEdges_DynamicURL
+            - TestExtractEndpointEdges_MultipleEndpoints
+            - TestExtractGoEndpointEdges_HttpGet
+            - TestExtractGoEndpointEdges_HttpPost
+            - TestExtractGoEndpointEdges_NewRequest
+            - TestExtractGoEndpointEdges_NoHTTPCalls
+            - TestExtractGoEndpointEdges_NonHTTPPackage
+        verification: PASS
+        notes: Both extractors complete with all 12 tests passing. Integration into main Extract() functions is Wave 2 scope.
+    C:
+        status: complete
+        branch: polywave/edge-type-expansion-p2/wave1-agent-C
+        commit: 1f1e34b
+        files_changed:
+            - internal/indexer/protoextractor/rpc_edges.go
+            - internal/indexer/protoextractor/rpc_edges_test.go
+        files_created:
+            - internal/indexer/protoextractor/rpc_edges.go
+            - internal/indexer/protoextractor/rpc_edges_test.go
+        tests_added:
+            - TestExtractRPCEdges_ImplementsServer
+            - TestExtractRPCEdges_ClientCreation
+            - TestExtractRPCEdges_NoGRPC
+            - TestExtractRPCEdges_MultipleServices
+            - TestExtractRPCEdges_CustomAlias
+            - TestExtractRPCEdges_NonProtoFile
+        verification: PASS
+        notes: ExtractRPCEdges implemented with both detection patterns. All 6 tests passing. Uses lazy-initialized Go tree-sitter parser. Integration into main extractor pipeline is future/Wave 2 scope.
+    D:
+        status: complete
+        branch: polywave/edge-type-expansion-p2/wave1-agent-D
+        commit: c781dd8
+        files_changed:
+            - internal/indexer/cloudextractor/actions_deploy.go
+            - internal/indexer/cloudextractor/actions_deploy_test.go
+        files_created:
+            - internal/indexer/cloudextractor/actions_deploy.go
+            - internal/indexer/cloudextractor/actions_deploy_test.go
+        tests_added:
+            - TestExtractDeployedByEdges_DockerPush
+            - TestExtractDeployedByEdges_KubectlApply
+            - TestExtractDeployedByEdges_DeployAction
+            - TestExtractDeployedByEdges_NoDeployment
+            - TestExtractDeployedByEdges_HelmUpgrade
+            - TestExtractTestedByEdges_GoTest
+            - TestExtractTestedByEdges_NpmTest
+            - TestExtractTestedByEdges_MultiplePackages
+            - TestExtractTestedByEdges_NoTests
+            - TestExtractTestedByEdges_Pytest
+        verification: PASS
+        notes: Both helper functions implemented with full detection logic. 10/10 tests passing. Integration into actionsExtractor.extract() is Wave 2 scope.
 pre_mortem:
     overall_risk: medium
     rows:
