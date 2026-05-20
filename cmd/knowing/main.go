@@ -126,6 +126,8 @@ func run(args []string) error {
 		return cmdRemove(args[1:])
 	case "list":
 		return cmdList(args[1:])
+	case "stats":
+		return cmdStats(args[1:])
 	default:
 		printUsage()
 		return fmt.Errorf("unknown subcommand: %s", args[0])
@@ -152,6 +154,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  verify   Verify a Merkle proof offline (no database needed)")
 	fmt.Fprintln(os.Stderr, "  audit    Generate a structured compliance report with integrity check")
 	fmt.Fprintln(os.Stderr, "  audit-diff  Compare two audit point snapshots with change classification")
+	fmt.Fprintln(os.Stderr, "  stats    Show cumulative graph statistics and feedback metrics")
 	fmt.Fprintln(os.Stderr, "  version  Print version information")
 }
 
@@ -986,6 +989,109 @@ func cmdReindex(args []string) error {
 	}
 
 	return nil
+}
+
+// cmdStats shows cumulative graph statistics and feedback metrics.
+func cmdStats(args []string) error {
+	fs := flag.NewFlagSet("stats", flag.ExitOnError)
+	dbPath := fs.String("db", defaultDB(), "Path to the SQLite database (env: KNOWING_DB)")
+	jsonOutput := fs.Bool("json", false, "Output as JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	st, err := store.NewSQLiteStore(*dbPath)
+	if err != nil {
+		return fmt.Errorf("open store: %w", err)
+	}
+	defer st.Close()
+
+	ctx := context.Background()
+	db := st.DB()
+
+	// Node count.
+	var nodeCount int64
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM nodes").Scan(&nodeCount)
+
+	// Edge count.
+	var edgeCount int64
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM edges").Scan(&edgeCount)
+
+	// Snapshot count.
+	var snapshotCount int64
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM snapshots").Scan(&snapshotCount)
+
+	// Feedback stats.
+	var feedbackTotal int64
+	var feedbackUseful int64
+	var feedbackNotUseful int64
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM feedback").Scan(&feedbackTotal)
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM feedback WHERE useful = 1").Scan(&feedbackUseful)
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM feedback WHERE useful = 0").Scan(&feedbackNotUseful)
+
+	// Unique symbols with feedback.
+	var feedbackSymbols int64
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(DISTINCT symbol_hash) FROM feedback").Scan(&feedbackSymbols)
+
+	// Feedback with neighborhood_root (merkleized).
+	var merkleizedFeedback int64
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM feedback WHERE neighborhood_root IS NOT NULL AND length(neighborhood_root) = 32").Scan(&merkleizedFeedback)
+
+	// File count.
+	var fileCount int64
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM files").Scan(&fileCount)
+
+	// Repo count.
+	var repoCount int64
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM repos").Scan(&repoCount)
+
+	// Community count (if table exists).
+	var communityCount int64
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(DISTINCT community_id) FROM community_assignments").Scan(&communityCount)
+
+	// Graph notes count.
+	var notesCount int64
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM graph_notes").Scan(&notesCount)
+
+	if *jsonOutput {
+		fmt.Printf(`{"nodes":%d,"edges":%d,"files":%d,"repos":%d,"snapshots":%d,"communities":%d,"graph_notes":%d,"feedback":{"total":%d,"useful":%d,"not_useful":%d,"symbols_with_feedback":%d,"merkleized":%d,"usefulness_rate":"%.1f%%"}}`,
+			nodeCount, edgeCount, fileCount, repoCount, snapshotCount, communityCount, notesCount,
+			feedbackTotal, feedbackUseful, feedbackNotUseful, feedbackSymbols, merkleizedFeedback,
+			usefulnessRate(feedbackUseful, feedbackTotal))
+		fmt.Println()
+		return nil
+	}
+
+	fmt.Println("knowing stats")
+	fmt.Println("=============")
+	fmt.Println()
+	fmt.Println("Graph")
+	fmt.Printf("  Repos:        %d\n", repoCount)
+	fmt.Printf("  Nodes:        %d\n", nodeCount)
+	fmt.Printf("  Edges:        %d\n", edgeCount)
+	fmt.Printf("  Files:        %d\n", fileCount)
+	fmt.Printf("  Snapshots:    %d\n", snapshotCount)
+	fmt.Printf("  Communities:  %d\n", communityCount)
+	fmt.Printf("  Graph notes:  %d\n", notesCount)
+	fmt.Println()
+	fmt.Println("Feedback")
+	fmt.Printf("  Total:        %d\n", feedbackTotal)
+	fmt.Printf("  Useful:       %d\n", feedbackUseful)
+	fmt.Printf("  Not useful:   %d\n", feedbackNotUseful)
+	fmt.Printf("  Symbols:      %d (unique symbols with feedback)\n", feedbackSymbols)
+	fmt.Printf("  Merkleized:   %d (with neighborhood_root for expiration)\n", merkleizedFeedback)
+	if feedbackTotal > 0 {
+		fmt.Printf("  Usefulness:   %.1f%%\n", usefulnessRate(feedbackUseful, feedbackTotal))
+	}
+
+	return nil
+}
+
+func usefulnessRate(useful, total int64) float64 {
+	if total == 0 {
+		return 0
+	}
+	return float64(useful) / float64(total) * 100
 }
 
 // registerAllExtractors registers all language extractors with the indexer.
