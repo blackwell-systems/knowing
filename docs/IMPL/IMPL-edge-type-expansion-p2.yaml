@@ -916,7 +916,7 @@ waves:
           files:
             - internal/indexer/cloudextractor/actions_deploy.go
             - internal/indexer/cloudextractor/actions_deploy_test.go
-      base_commit: 1fe7d147c91f31b9e9f285f1882b85a771acce21
+      base_commit: cf078559facbe9706c3d243d57ed60ee14dd0267
     - number: 2
       agents:
         - id: E
