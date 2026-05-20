@@ -547,6 +547,19 @@ Repo: github.com/blackwell-systems/knowing
 - **Outputs:** For record: `{"status":"recorded"}`. For query: usefulness ratio and counts.
 - **Dependencies:** SQLiteStore (RecordFeedback, QueryFeedback methods).
 
+### 43a. Merkleized Feedback Validity (v0.5.0)
+
+- **Package(s):** `internal/store`, `internal/mcp`
+- **Entry point:** Migration 014, `RecordFeedback`, `FeedbackBoosts` in `internal/store/feedback.go`
+- **What it does:** Feedback records now store `neighborhood_root` (SubgraphRoot of the symbol's package at feedback time). When querying feedback, only records where `neighborhood_root` matches the current SubgraphRoot are counted. This provides automatic expiration: feedback becomes invalid when the symbol's package changes (any edge modification in the package invalidates the neighborhood root).
+- **Migration:** 014 adds `neighborhood_root BLOB` column and index to feedback table
+- **Performance:** 11% overhead (255µs → 284µs for 100 symbols retrieving feedback boosts)
+- **Backward compatibility:** NULL `neighborhood_root` = legacy path (no expiration)
+- **Inputs:** Symbol hash, current SubgraphRoot map (package path → root hash)
+- **Outputs:** Filtered feedback records (only matching neighborhood roots counted)
+- **Why it matters:** Prevents stale feedback from influencing context ranking after code refactors. Feedback automatically expires when the local code neighborhood changes, without requiring manual cleanup or timestamp-based heuristics. Uses cryptographic identity (Merkle root) instead of timestamps for expiration.
+- **Dependencies:** Hierarchical Merkle tree (`SubgraphRoot` computation), SQLiteStore feedback methods.
+
 ### 44. Test Scope MCP Tool (Affected Test Discovery)
 
 - **Package(s):** `internal/mcp`

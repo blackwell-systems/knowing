@@ -398,6 +398,11 @@ From `FeedbackProvider`. Score is `useful/(useful+not_useful)`, range [0, 1]. Ce
 around 0 in the formula: score 1.0 contributes +0.15, score 0.5 contributes 0, score 0.0
 contributes -0.15. Net negative feedback actively penalizes symbols.
 
+As of v0.5.0, feedback records are merkleized: each stores the SubgraphRoot of the symbol's
+package at feedback time. When querying, only records where `neighborhood_root` matches the
+current SubgraphRoot are counted, providing automatic expiration when code changes. Adds
+11% overhead (255µs → 284µs for 100 symbols).
+
 Task memory boosts (see section 8) compound into this channel at 0.3x scale.
 
 **Session (0.20 weight)**

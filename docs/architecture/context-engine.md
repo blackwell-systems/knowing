@@ -86,6 +86,10 @@ The graph alias system (`internal/context/graph_aliases.go`) auto-generates equi
 
 Migration 008 creates the `task_memory` table (columns: keywords, symbol_hash, score, timestamp). The task memory system (`internal/context/task_memory.go`) records the top-5 symbols from each `context_for_task` call. On subsequent calls, it matches keywords against stored entries with a 7-day linear decay. Matched symbols receive a boost added to the `FeedbackBoost` channel at 0.3x scale. This provides passive learning from agent behavior without requiring explicit feedback.
 
+## Merkleized Feedback Validity (v0.5.0)
+
+Migration 014 adds `neighborhood_root BLOB` to the feedback table. When recording feedback, `computeNeighborhoodRoot` in `internal/mcp/feedback.go` computes the SubgraphRoot of the symbol's package and stores it alongside the feedback. When querying feedback via `FeedbackBoosts`, only records where `neighborhood_root` matches the current SubgraphRoot are counted. This provides automatic expiration: feedback becomes invalid when the symbol's package changes (detected via SubgraphRoot mismatch). Backward compatible: NULL `neighborhood_root` uses the legacy path (no expiration). Performance overhead: 11% (255µs → 284µs for 100 symbols).
+
 ## BM25 Full-Text Search (FTS5 Index)
 
 Migration 006 adds an SQLite FTS5 virtual table (`nodes_fts`) over `qualified_name`, `signature`, and `file_path`. Tokenization uses CamelCase-aware splitting (`splitForFTS`, `splitCamelCase`) so that a query for "Store" matches "SQLiteStore" or "NewSQLiteStore". `RebuildFTS` is called after batch indexing to keep the index current. BM25 is fused as RRF Channel 2 with weight 1.0.

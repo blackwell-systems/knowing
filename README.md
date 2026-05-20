@@ -10,16 +10,16 @@
 </p>
 
 <p align="center">
-  <strong>Intelligence versioning system. Content-addressed graph where every code relationship is tracked, scored, snapshotted, and cryptographically verifiable. For AI agents: trustworthy cached context. For security and compliance: Merkle proofs, offline verification, tamper detection.</strong>
+  <strong>Permanent code intelligence layer. Learns what matters, expires what changed, proves what existed. Content-addressed graph where every relationship is tracked, scored, snapshotted, and cryptographically verifiable. Gets smarter with use.</strong>
 </p>
 
 ---
 
 ## What knowing Is
 
-**Git versions files. knowing versions the understanding of code.**
+**Git versions files. knowing versions the understanding of code. It learns which code matters for which tasks, and that knowledge self-heals when code changes.**
 
-knowing is an intelligence versioning system: a content-addressed graph where every relationship between symbols is tracked, scored, snapshotted, and cryptographically verifiable.
+knowing is a permanent code intelligence layer: a content-addressed graph where every relationship between symbols is tracked, scored, snapshotted, and cryptographically verifiable. Feedback compounds across sessions. When code changes, stale knowledge expires automatically (cryptographically verified via Merkle roots). The system gets smarter over time, not noisier.
 
 **For AI agents:** files are the wrong unit. An agent doesn't need "this file changed." It needs "this change breaks 14 callers, adds a new dependency path, and disagrees with production traffic." knowing delivers that as cached, ranked, deduplicated context.
 
@@ -40,7 +40,7 @@ Both use cases rest on the same foundation: content-addressed identity where eve
 
 The hard problems (staleness, history, integrity, incremental updates) are structural consequences of choosing content-addressing. knowing watches for changes, detects stale files, invalidates their hashes, re-extracts only affected edges, and computes a new snapshot root. Staleness is structurally detectable and recovery is bounded to the changed files, not a full re-index.
 
-On top of this foundation, knowing fuses static analysis, infrastructure declarations, SCIP indexes, and OpenTelemetry runtime traces into one graph. Every edge carries provenance and confidence. Feedback from past queries compounds into the intelligence: the system learns which symbols matter for which tasks, and rankings improve with use.
+On top of this foundation, knowing fuses static analysis, infrastructure declarations, SCIP indexes, and OpenTelemetry runtime traces into one graph. Every edge carries provenance and confidence. Feedback from past queries compounds into the intelligence: the system learns which symbols matter for which tasks, and rankings improve with use. Feedback records are merkleized (v0.5.0): each stores the SubgraphRoot of the symbol's package at the time of feedback, automatically expiring when the code changes.
 
 Use knowing when code search is too shallow, LSP is too workspace-local, dependency graphs stop at package boundaries, or you need a verifiable record of code relationships.
 
@@ -78,6 +78,7 @@ Most code-intelligence tools answer one slice of the problem:
 | Code search | Text matches | Semantic relationships and provenance |
 | Dependency graphs | Package-level imports | Function-level callers, routes, infra, runtime behavior |
 | APM/tracing | Production traffic | Static ownership, source-level blast radius, historical graph diffs |
+| Feedback/learning tools | None (stateless per session) | Merkleized feedback: learns which symbols matter, expires automatically when code changes, compounds across sessions without poisoning |
 
 knowing's unit of record is the relationship itself: `source -edge_type-> target`, with confidence and provenance. The intelligence is versioned, so you can ask "what did we understand about the service graph on Tuesday?" and get an answer, not "what did the files look like on Tuesday?"
 
@@ -93,6 +94,8 @@ The repository includes benchmark harnesses that regenerate their own findings f
 
 | Benchmark | Result | What it demonstrates |
 |---|---:|---|
+| Feedback compounding | 16% -> 50% precision over 5 rounds | System learns which symbols matter; knowledge accumulates without poisoning |
+| Merkleized expiration | 100% expire on change, 11% overhead | Feedback auto-expires when code changes; no stale knowledge |
 | Hierarchical Merkle diff | 131x faster on real graph, 517x at 100K edges | Package-level root comparison replaces full edge scan |
 | Subgraph cache | 93x faster repeat queries (160ms -> 1.7ms) | Queries against unchanged code skip retrieval entirely |
 | Incremental community detection | Louvain 6.9x, LP 38.4x faster (1-pkg change) | Incremental detection skips work the Merkle tree proves unchanged |
@@ -104,7 +107,6 @@ The repository includes benchmark harnesses that regenerate their own findings f
 | GCF wire format | 84% fewer tokens than JSON | MCP responses carry dense graph context cheaply |
 | Context retrieval | 47% fewer tool calls, 38% P@10 | One call replaces 6-8 grep+read cycles with ranked context |
 | Test scope | 98% precision, 82% recall | Call-graph BFS selects affected test packages accurately |
-| Feedback loop | 16% -> 36% precision after one round | Relevance improves as agents mark useful symbols |
 | Edge accuracy | 27% overall confirmation rate | Two-tier extraction provides meaningful fast signal |
 | Cross-repo retrieval | 46.7% R@10 on foreign codebase | Works on any Go repo with zero configuration |
 

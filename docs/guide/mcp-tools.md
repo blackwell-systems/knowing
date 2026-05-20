@@ -837,7 +837,7 @@ Markdown-formatted scoring breakdown including all ranking signals and the symbo
 
 ### `feedback`
 
-Record or query symbol usefulness feedback from agents. Used to improve ranking over time.
+Record or query symbol usefulness feedback from agents. Used to improve ranking over time. As of v0.5.0, feedback records are merkleized: each stores the SubgraphRoot of the symbol's package, automatically expiring when the code changes (11% overhead).
 
 **Parameters:**
 

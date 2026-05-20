@@ -208,6 +208,12 @@ The half-life is tuned for AI agent sessions where a context query every 30-90 s
 typical. Symbols accessed within the last minute receive near-maximum boost; those from
 5+ minutes ago contribute negligibly.
 
+### Feedback (15%)
+
+Historical usefulness signals from the `feedback` MCP tool. The usefulness ratio (useful / total) is centered around 0.5: symbols with >50% usefulness receive a positive boost, <50% receive a penalty. Weight is 0.15, contributing between -0.15 and +0.15 to the final score.
+
+As of v0.5.0, feedback records are merkleized: each stores the SubgraphRoot of the symbol's package at feedback time. When querying feedback, only records where `neighborhood_root` matches the current SubgraphRoot are counted. This provides automatic expiration: feedback becomes invalid when the symbol's package changes (any edge modification in the package invalidates the neighborhood root). Adds 11% overhead (255µs → 284µs for 100 symbols). Backward compatible: NULL `neighborhood_root` uses the legacy path (no expiration).
+
 ## Seed Retrieval: 4-Channel RRF Fusion
 
 Seed selection uses Reciprocal Rank Fusion (RRF) across four channels, replacing the
