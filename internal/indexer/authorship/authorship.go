@@ -151,23 +151,41 @@ func runGitBlame(repoPath, filePath string) ([]blameLine, error) {
 // parseBlamePorcelain parses git blame --porcelain output into per-line data.
 // Porcelain format:
 //
-//	<sha1> <orig-line> <final-line> [<num-lines>]
+//	<sha1> <orig-line> <final-line> [<num-lines>]  ← first occurrence of commit
 //	author <name>
 //	author-mail <email>
 //	author-time <timestamp>
 //	...
 //	\t<line-content>
+//
+// For subsequent lines from a previously-seen commit, only the SHA line and
+// content line appear (no author/committer headers). We track commit→author
+// mappings to handle this correctly.
 func parseBlamePorcelain(output string) ([]blameLine, error) {
 	var lines []blameLine
 	scanner := bufio.NewScanner(strings.NewReader(output))
 
+	// commitAuthors maps commit SHA (first 40 chars) to author name.
+	commitAuthors := make(map[string]string)
+	var currentCommit string
 	var currentAuthor string
 
 	for scanner.Scan() {
 		line := scanner.Text()
 
-		if strings.HasPrefix(line, "author ") {
+		if isCommitLine(line) {
+			// Extract the commit SHA (first 40 hex chars).
+			currentCommit = line[:40]
+			// Look up previously seen author for this commit.
+			if author, ok := commitAuthors[currentCommit]; ok {
+				currentAuthor = author
+			}
+		} else if strings.HasPrefix(line, "author ") {
 			currentAuthor = strings.TrimPrefix(line, "author ")
+			// Store the mapping for when this commit appears again.
+			if currentCommit != "" {
+				commitAuthors[currentCommit] = currentAuthor
+			}
 		} else if strings.HasPrefix(line, "\t") {
 			// Content line marks end of this blame block.
 			lines = append(lines, blameLine{
@@ -177,4 +195,18 @@ func parseBlamePorcelain(output string) ([]blameLine, error) {
 	}
 
 	return lines, scanner.Err()
+}
+
+// isCommitLine checks if a line is a blame header line starting with a 40-char hex SHA.
+func isCommitLine(line string) bool {
+	if len(line) < 41 || line[40] != ' ' {
+		return false
+	}
+	for i := 0; i < 40; i++ {
+		c := line[i]
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return true
 }
