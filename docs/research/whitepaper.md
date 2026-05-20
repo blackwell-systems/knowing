@@ -10,7 +10,7 @@ Content-addressing is usually treated as an integrity mechanism: a way to verify
 
 A flat Merkle tree proves state. A hierarchical Merkle tree organizes computation.
 
-When the tree is organized by package and edge type rather than by flat sorted hash, the identity structure itself becomes the query optimization layer. Diffs become O(packages) instead of O(edges), 114x across benchmark configurations (single-run peak of 193x) on real graphs (~11.6K edges) and 517x faster at 100K synthetic edges. Cache keys become O(1) subgraph root lookups. Invalidation is scoped to the packages that actually changed. The tree does not merely prove state; it organizes computation.
+When the tree is organized by package and edge type rather than by flat sorted hash, the identity structure itself becomes the query optimization layer. Diffs become O(packages) instead of O(edges), 281x faster on real graphs (~13.1K edges) and 517x faster at 100K synthetic edges. Cache keys become O(1) subgraph root lookups. Invalidation is scoped to the packages that actually changed. The tree does not merely prove state; it organizes computation.
 
 This paper presents both insights together: the original argument (content-addressing solves six structural problems with mutable graphs) and the hierarchical revelation (organizing the Merkle tree by semantic boundaries turns identity into a query engine). Each capability in the system is a structural consequence of the hierarchical identity model, not a feature bolted onto it.
 
@@ -40,7 +40,7 @@ Most existing systems do not track these relationships with all of the following
 
 The reason is that most systems use mutable state. And mutable state cannot provide these properties without extraordinary complexity.
 
-The knowing system tracks approximately 11,600 edges in its live codebase, spanning 111 packages and 25 extractor types. The hierarchical Merkle structure operates over this graph in production and is the basis for all benchmark results in this paper. Edge counts vary by run and snapshot; prose uses "~11.6K edges" and exact counts appear only in tables.
+The knowing system tracks approximately 13,100 edges in its live codebase, spanning 57 packages and 25 extractor types. The hierarchical Merkle structure operates over this graph in production and is the basis for all benchmark results in this paper. Edge counts vary by run and snapshot; prose uses "~13.1K edges" and exact counts appear only in tables.
 
 ---
 
@@ -90,7 +90,7 @@ Repository A has a function. Repository B calls it. Both repositories are indexe
 
 Mutable systems need either a global ID service (coordination overhead, single point of failure) or a naming convention (fragile, breaks on rename/move).
 
-**With content-addressing:** both compute `RepoHash = SHA-256(canonicalRepoIdentity)` and then `NodeHash = SHA-256("node\0" || repoHash || packagePath || symbolName || symbolKind)`. Same canonical inputs, same hash. Global identity without coordination, without consensus, without a central registry. Two indexers running on different machines at different times produce the same hash for the same symbol.
+**With content-addressing:** both compute `NodeHash = SHA-256("node\0" || repoURL || packagePath || symbolName || symbolKind)`. Same canonical inputs, same hash. Global identity without coordination, without consensus, without a central registry. Two indexers running on different machines at different times produce the same hash for the same symbol.
 
 The `"node\0"` domain-type prefix (and `"edge\0"`, `"snapshot\0"`, `"merkle\0"` for other entity types) eliminates cross-type ambiguity by construction, assuming standard collision resistance of SHA-256. This mirrors git's `"<type> <size>\0<content>"` object header.
 
@@ -137,7 +137,7 @@ These properties are not features bolted onto a mutable store. They are structur
 
 Content-addressing removes the need for a central ID service, but it does not remove the need to define canonical repo identity, package paths, symbol names, and symbol kinds precisely. Canonicalization is part of the correctness boundary: if two indexers canonicalize the same entity differently, they will correctly produce different hashes.
 
-The guarantee of global identity depends on deterministic canonicalization. Canonical repo identity is derived from normalized host, owner, and repository name, independent of transport protocol or URL scheme. This canonicalization must be treated as core infrastructure, not an implementation detail.
+The guarantee of global identity depends on deterministic canonicalization. Canonical repo identity is the repository URL, hashed directly via `SHA-256(repoURL)`. This canonicalization must be treated as core infrastructure, not an implementation detail.
 
 ---
 
@@ -201,13 +201,13 @@ An agent querying only billing packages hits the cache even though auth was just
 
 When one package changes, its `PackageRoot` changes. The diff of two hierarchical trees identifies the change by comparing P package roots, where P is the number of packages. The diff of two flat trees requires comparing all E edge hashes.
 
-For the knowing codebase (~11.6K edges, 111 packages):
+For the knowing codebase (~13.1K edges, 57 packages):
 
 | Operation | Latency |
 |-----------|---------|
-| Flat diff (compare 11,529 edges) | 1.21ms |
-| Hierarchical diff (compare 111 package roots) | 6.26us |
-| **Speedup** | **193x** |
+| Flat diff (compare 13,103 edges) | 1.76ms |
+| Hierarchical diff (compare 57 package roots) | 6.26us |
+| **Speedup** | **281x** |
 
 For a 100K-edge synthetic graph with 100 packages, the speedup is 517x. The speedup grows with graph size because the ratio of packages to edges grows. See `bench/merkle-diff/FINDINGS.md`.
 
@@ -251,8 +251,8 @@ The knowing implementation enforces this at the write layer: every edge insertio
 
 **Node** (a symbol declaration):
 ```
-RepoHash = SHA-256(canonicalRepoIdentity)
-NodeHash = SHA-256("node\0" || repoHash || packagePath || symbolName || symbolKind)
+RepoHash = SHA-256(repoURL)
+NodeHash = SHA-256("node\0" || repoURL || packagePath || symbolName || symbolKind)
 ```
 
 Identity depends on logical position (repo, package, name, kind), not physical location (file, line number). Moving a function between files does not change its hash. Renaming it does (creating a new entity; the old entity's edges become stale, detectable via snapshot diff).
@@ -269,7 +269,7 @@ Identity includes provenance. The same structural relationship (A calls B) obser
 SnapshotHash = HierarchicalMerkleRoot(edges grouped by package and edge type)
 ```
 
-A hierarchical Merkle tree (repo root -> package roots -> edge-type roots -> edge leaves) built from all edge hashes in a repository. The root hash changes if and only if the set of edges changes. The hierarchical structure enables `DiffHierarchicalTrees` to compare package roots instead of all edges (114x across benchmark configurations, single-run peak of 193x on real graphs; 517x on 100K synthetic edges), and `SubgraphRoot` to provide O(1) cache keys for any package set. Snapshots form a linked chain (each records its parent hash). See `internal/snapshot/hierarchical.go` for the implementation.
+A hierarchical Merkle tree (repo root -> package roots -> edge-type roots -> edge leaves) built from all edge hashes in a repository. The root hash changes if and only if the set of edges changes. The hierarchical structure enables `DiffHierarchicalTrees` to compare package roots instead of all edges (281x on real graphs; 517x on 100K synthetic edges), and `SubgraphRoot` to provide O(1) cache keys for any package set. Snapshots form a linked chain (each records its parent hash). See `internal/snapshot/hierarchical.go` for the implementation.
 
 The domain-type prefix system (`"node\0"`, `"edge\0"`, `"snapshot\0"`, `"merkle\0"`) eliminates cross-type ambiguity at the input-construction level, assuming standard collision resistance of SHA-256. The hierarchical Merkle root is the canonical snapshot hash; no flat tree is maintained alongside it.
 
@@ -308,7 +308,7 @@ For any symbol S described by the same canonical identity inputs, independent in
 `DiffHierarchicalTrees(snapshot_a, snapshot_b)` identifies changed packages by comparing P package roots, not E edge leaves. Complexity is O(P), not O(E).
 
 **Property 8: O(1) subgraph cache keys.**
-`SubgraphRoot(package_set)` returns a hash over the package roots in `package_set` in O(|package_set|) time. Cache validity is determined by one hash comparison.
+`SubgraphRoot(package_set)` returns a binary Merkle tree root over the sorted package roots in `package_set` in O(|package_set|) time. Cache validity is determined by one hash comparison.
 
 ### 5.4 Overhead Analysis
 
@@ -318,7 +318,7 @@ Content-addressing adds a SHA-256 computation per entity. The hierarchical tree 
 |-----------|------------------------|---------------------|----------|
 | Index one node | ~800 nanoseconds (SHA-256) | ~2 milliseconds (parse + store) | 0.04% |
 | Index one edge | ~800 nanoseconds | ~500 microseconds (store) | 0.16% |
-| Build hierarchical tree (~11.6K edges) | ~2.9ms (vs ~2.0ms flat) | ~8 seconds (full index) | 0.01% |
+| Build hierarchical tree (~13.1K edges) | Faster than flat tree | ~8 seconds (full index) | 0.01% |
 | Compute snapshot (10K edges) | ~3 milliseconds (sort + Merkle) | ~8 seconds (full index) | 0.04% |
 
 The overhead is negligible. The dominant cost in every case is parsing or I/O, not hashing. Measurements were taken from the `knowing` indexing pipeline.
@@ -335,7 +335,7 @@ The following capabilities are structural consequences of the hierarchical conte
 |-------|-----------|-------------|
 | Content-addressed entities | NodeHash, EdgeHash, SnapshotHash | Determinism, provenance, immutable history |
 | Hierarchical Merkle roots | PackageRoot, EdgeTypeRoot, SubgraphRoot | Scoped diffing, cache keys, invalidation |
-| Agent-facing context layer | PackRoot, community roots, GCF | Replay, deduplication, stable citations, compounding feedback |
+| Agent-facing context layer | PackRoot, community roots (planned), GCF | Replay, deduplication, stable citations, compounding feedback |
 
 Each layer depends on the one below it. The agent-facing layer is only trustworthy because the hierarchical roots are authoritative, and the roots are only authoritative because the entity hashes are deterministic.
 
@@ -399,24 +399,26 @@ The total overhead added to each re-index cycle by the diff and invalidation is 
 Content-addressed context packs use:
 
 ```
-PackRoot = SHA-256(normalize(taskDescription) || sort(selectedNodeHashes))
+PackRoot = SHA-256(sort(selectedNodeHashes))
 ```
 
-This gives each context selection a stable identity. Verified: 5 queries with 2 unique tasks produce exactly 2 unique PackRoots (perfect deduplication). Same task against the same graph state produces the same PackRoot, enabling:
+This gives each context selection a stable identity. Verified: 5 queries with 2 unique tasks produce exactly 2 unique PackRoots (perfect deduplication). Same context selection against the same graph state produces the same PackRoot, enabling:
 
 - Cache lookup: if PackRoot matches, skip retrieval
 - Citation: agents reference a PackRoot instead of resending content
 - Cross-session replay: same task, same graph state, same context
 
-### 6.8 Community Roots for Agent Parallelization
+### 6.8 Community Roots for Agent Parallelization *(Design)*
 
-Graph clustering (Louvain community detection) partitions the graph into densely-connected modules. Each community carries a Merkle root over the packages it spans:
+Graph clustering (Louvain community detection, implemented in `internal/community/louvain.go`) partitions the graph into densely-connected modules. The design calls for each community to carry a Merkle root over the packages it spans:
 
 ```
 CommunityRoot(auth_community) = MerkleRoot(PackageRoots(auth_community.packages))
 ```
 
-Two agents editing disjoint communities have disjoint roots, which proves non-overlap at the relationship-graph identity level. This does not eliminate all semantic conflicts (shared config, global state, generated code), but it provides a strong structural basis for safe parallelization and conflict pre-screening.
+*(Note: CommunityRoot computation is not yet implemented. The existing `SubgraphRoot` function takes arbitrary package sets, but no code currently passes community-derived package sets to it. This section describes the design, not current behavior.)*
+
+Two agents editing disjoint communities would have disjoint roots, which proves non-overlap at the relationship-graph identity level. This does not eliminate all semantic conflicts (shared config, global state, generated code), but it provides a strong structural basis for safe parallelization and conflict pre-screening.
 
 ### 6.9 Deterministic CI
 
@@ -453,8 +455,7 @@ All benchmarks run on the knowing codebase itself. The repository includes harne
 
 | Benchmark | Result | Source |
 |-----------|--------|--------|
-| Hierarchical diff vs flat diff (~11.6K edges, 111 packages), cross-config range | 114x faster | `bench/merkle-diff/FINDINGS.md` |
-| Hierarchical diff vs flat diff, single-run peak | 193x faster | `bench/merkle-diff/FINDINGS.md` |
+| Hierarchical diff vs flat diff (~13.1K edges, 57 packages) | 281x faster | `bench/merkle-diff/FINDINGS.md` |
 | Hierarchical diff at 100K synthetic edges | 517x faster | `bench/merkle-diff/FINDINGS.md` |
 | SubgraphRoot lookup (1 package) | 59ns | `bench/merkle-diff/FINDINGS.md` |
 | Raw subgraph cache hit | 42ns | `bench/merkle-diff/FINDINGS-phase2-cache.md` |
@@ -462,13 +463,13 @@ All benchmarks run on the knowing codebase itself. The repository includes harne
 | Cache speedup vs cold | 93x | `bench/merkle-diff/FINDINGS-phase2-cache.md` |
 | Daemon diff + invalidation overhead | ~6us | `bench/merkle-diff/FINDINGS-phase2-cache.md` |
 
-The 114x figure represents the cross-configuration median on the live ~11.6K-edge graph. The single-configuration peak is 193x. At 100K synthetic edges the speedup reaches 517x.
+The 281x figure is measured on the live ~13.1K-edge graph with 57 packages. At 100K synthetic edges the speedup reaches 517x.
 
 ### 7.2 Integrity and Maintenance
 
 | Benchmark | Result | Source |
 |-----------|--------|--------|
-| `knowing fsck` (2,338 nodes, 11,664 edges) | 98ms median | `bench/merkle-diff/FINDINGS-fsck.md` |
+| `knowing fsck` (2,611 nodes, 13,103 edges) | 98ms median | `bench/merkle-diff/FINDINGS-fsck.md` |
 | GarbageCollectFull (500 orphans injected) | 70ms | `bench/merkle-diff/FINDINGS-gc.md` |
 | GarbageCollectFull (clean DB, steady state) | 53ms | `bench/merkle-diff/FINDINGS-gc.md` |
 
@@ -476,19 +477,19 @@ The 114x figure represents the cross-configuration median on the live ~11.6K-edg
 
 | Benchmark | Result |
 |-----------|--------|
-| Context retrieval vs baseline | 47% fewer tool calls, 31.6% P@10 |
+| Context retrieval vs baseline | 55.6% fewer tool calls, 26.9% P@10 |
 | Cross-repo retrieval | 46.7% R@10 on foreign codebase |
-| GCF wire format | 84% fewer tokens than JSON |
-| Test scope | 92.9% precision, 80.0% recall |
+| GCF wire format | median 76.7% fewer tokens than JSON |
+| Test scope | 76.5% mean precision (91.7% median), 51.4% recall |
 
 ### 7.4 Build and Indexing
 
 | Operation | Hierarchical tree | Flat tree | Overhead |
 |-----------|------------------|-----------|----------|
-| Build time (~11.6K edges) | 2.9ms | 2.0ms | +45.5% |
-| Full index (60K+ LOC repo) | ~8 seconds | ~8 seconds | negligible |
+| Build time (~13.1K edges) | Faster than flat | baseline | none (hierarchical is faster) |
+| Full index (70K+ LOC repo) | ~8 seconds | ~8 seconds | negligible |
 
-The hierarchical tree costs the same to build because the total hashing work is identical; it is organized differently. The 45.5% build overhead for the tree structure adds ~0.9ms to an 8-second index cycle.
+The hierarchical tree is faster to build than the flat tree on the current graph because the recursive binary Merkle construction operates on smaller sorted sets per package. Build overhead is zero; the hierarchical structure is both faster to construct and faster to diff.
 
 ---
 
@@ -502,7 +503,7 @@ The hierarchical content-addressed model provides agents four properties that mu
 
 **3. Provenance for confidence.** Every edge carries provenance (how it was discovered) and confidence (how certain we are). The agent can weight its decisions accordingly: "this call path is confirmed by production traces at confidence 0.9" vs "this call path is inferred from AST pattern matching at confidence 0.7."
 
-**4. Context pack identity.** Every context selection carries a `PackRoot` hash. The agent can cite a PackRoot instead of resending content. The same task against the same graph state produces the same PackRoot, enabling cross-session replay and deduplication. Cache hits against the PackRoot cost 42ns; the full retrieval they replace costs ~160ms.
+**4. Context pack identity.** Every context selection carries a `PackRoot` hash. The agent can cite a PackRoot instead of resending content. The same symbol selection produces the same PackRoot, enabling cross-session replay and deduplication. Cache hits against the PackRoot cost 42ns; the full retrieval they replace costs ~160ms.
 
 Content-addressing solves the trust problem: whether relationship data is current, attributable, immutable, and independently verifiable. GCF (Graph Context Format, a compact wire encoding for transmitting selected graph context to language models with less structural overhead than JSON) solves the consumption problem: how that trusted graph is transmitted to an LLM without wasting most of the context window on JSON structure. Together, the hierarchical Merkle model and the compact wire format make graph-backed agent reasoning both correct and cheap.
 
@@ -536,15 +537,15 @@ With content-addressing, feedback is keyed on the symbol's hash: `SHA-256("node\
 
 **Temporal provenance.** "When was this feedback recorded, and was the symbol in the same architectural context?" Walk the snapshot chain to the recording point, verify the symbol's community membership. The chain makes this a lookup, not a guess.
 
-### 9.2 Community-Scoped Learning
+### 9.2 Community-Scoped Learning *(Planned)*
 
-Graph clustering (Louvain community detection) partitions the graph into densely-connected modules: groups of symbols that interact heavily with each other. These communities correspond to architectural subsystems. Each community carries a Merkle root over the packages it spans.
+Graph clustering (Louvain community detection, implemented in `internal/community/louvain.go`) partitions the graph into densely-connected modules: groups of symbols that interact heavily with each other. These communities correspond to architectural subsystems.
 
-Feedback scoped by community compounds faster than global feedback because it respects architectural boundaries. "RankSymbols is useful for context-engine tasks" is more precise than "RankSymbols is useful." The community root provides the scope that makes the signal actionable.
+*(Note: feedback is currently scoped by package SubgraphRoot, not by community. Community-scoped feedback and CommunityRoot computation are planned. The following describes the design goal.)*
 
-Content-addressing makes this possible because community structure is itself deterministic and verifiable. Communities are computed from edge structure at a snapshot. If the snapshot hash has not changed, communities have not changed. Feedback validity and community membership can be verified with hash comparisons, not recomputation.
+Feedback scoped by community would compound faster than global feedback because it respects architectural boundaries. "RankSymbols is useful for context-engine tasks" is more precise than "RankSymbols is useful." The community root would provide the scope that makes the signal actionable.
 
-The disjoint community root property also supports safe agent parallelization: when two agents target disjoint community roots, their edits are provably non-overlapping at the relationship-graph identity level, providing a strong structural basis for conflict pre-screening.
+Content-addressing makes this possible because community structure is itself deterministic and verifiable. Communities are computed from edge structure at a snapshot. If the snapshot hash has not changed, communities have not changed.
 
 ### 9.3 The Through-Line
 
@@ -552,7 +553,7 @@ The three layers of the architecture depend on each other in a specific order:
 
 1. **Hierarchical content-addressing** makes the graph trustworthy and cheap to diff (can I rely on this data, and can I find what changed efficiently?)
 2. **Trustworthy, efficiently diffable data** enables persistent feedback and cache-backed retrieval (can I accumulate intelligence on top of it?)
-3. **Persistent, community-scoped feedback with cache identity** enables compounding learning (does it get better over time?)
+3. **Persistent, structurally-scoped feedback with cache identity** enables compounding learning (does it get better over time? Currently scoped by package SubgraphRoot; community-scoped: planned.)
 
 Without layer 1, layer 3 is impossible. You cannot accumulate intelligence on top of data you cannot trust. Every mutable-graph approach that attempts to add "learning" must build an entire verification system to determine whether accumulated signals are still valid. The hierarchical content-addressed structure provides that verification as a structural property: if the hash exists in the current graph, the feedback applies. If it does not, it does not.
 
@@ -572,7 +573,7 @@ The properties described in this paper hold under specific conditions. This sect
 
 **Generated code, vendored dependencies, and monorepos need policy decisions.** The system must decide how to handle code that is not written by project authors. Including vendored dependencies inflates the graph and can produce spurious cross-repo identity conflicts. Excluding them requires explicit filtering. Monorepo layouts may not align cleanly with package boundaries, requiring canonicalization policy specific to the repository structure.
 
-**The benchmark comes from one live codebase plus synthetic tests; broader validation is future work.** The ~11.6K-edge live graph represents a single Go codebase of approximately 50K lines. Synthetic tests extend coverage to 100K edges with controlled parameters. Performance characteristics on other language ecosystems, significantly different package structures, or much larger codebases have not been measured. The speedup ratios should be treated as directionally correct for graphs where packages are natural query boundaries.
+**The benchmark comes from one live codebase plus synthetic tests; broader validation is future work.** The ~13.1K-edge live graph represents a single Go codebase of approximately 70K lines. Synthetic tests extend coverage to 100K edges with controlled parameters. Performance characteristics on other language ecosystems, significantly different package structures, or much larger codebases have not been measured. The speedup ratios should be treated as directionally correct for graphs where packages are natural query boundaries.
 
 **The subgraph cache hit rate depends on agent query patterns.** Realistic sessions observed in development show approximately 20% subgraph cache hit rate; for exact repeated queries the rate reaches 60%. These numbers depend heavily on how agents are prompted and what tasks they perform. Different agent architectures or query strategies will produce different hit rates.
 
@@ -628,7 +629,7 @@ The original content-addressing insight (hash everything, use the hash as identi
 
 **A flat Merkle tree proves state. A hierarchical Merkle tree organizes computation.**
 
-The overhead of the hierarchical choice is negligible: the tree costs 45.5% more to build than a flat tree, but the build step adds less than 1ms to an 8-second index cycle. The speedups are not incremental: 93x for cached queries, 114x across benchmark configurations (single-run peak 193x) for diffs on the live graph, 517x for diffs at 100K synthetic edges.
+The overhead of the hierarchical choice is zero: the hierarchical tree is faster to build than the flat tree on the current graph. The speedups are not incremental: 93x for cached queries, 281x for diffs on the live graph, 517x for diffs at 100K synthetic edges.
 
 These properties hold under the assumptions stated in Section 5.2. The limitations in Section 10 are real and must be addressed as core infrastructure, not afterthoughts. Canonicalization is not a detail; it is a precondition. Deterministic extractors are not optional; they are required for Property 1 to hold.
 
@@ -641,18 +642,18 @@ Git proved this for source code. The same insight applies, with equal force and 
 ## Appendix: Hash Computations
 
 ```
-RepoHash     = SHA-256(canonicalRepoIdentity)
-NodeHash     = SHA-256("node\0" || repoHash || packagePath || symbolName || symbolKind)
+RepoHash     = SHA-256(repoURL)
+NodeHash     = SHA-256("node\0" || repoURL || packagePath || symbolName || symbolKind)
 EdgeHash     = SHA-256("edge\0" || sourceHash || targetHash || edgeType || provenance)
 FileHash     = SHA-256(repoHash || relativePath || contentHash)
 PackageRoot  = MerkleRoot(sort(EdgeTypeRoots for all edge types in package))
 EdgeTypeRoot = MerkleRoot(sort(EdgeHashes for all edges of that type in package))
 SnapshotHash = MerkleRoot(sort(PackageRoots for all packages in repo))
-PackRoot     = SHA-256(normalize(taskDescription) || sort(selectedNodeHashes))
-SubgraphRoot = SHA-256(sort(PackageRoots for packages in query scope))
+PackRoot     = SHA-256(sort(selectedNodeHashes))
+SubgraphRoot = BuildMerkleTree(sort(PackageRoots for packages in query scope))
 ```
 
-Each computation is deterministic, cheap (~800ns per entity), and produces globally unique identities without coordination, under the assumption of SHA-256 collision resistance and deterministic canonicalization. Canonical repo identity is derived from normalized host, owner, and repository name, independent of transport protocol or URL scheme.
+Each computation is deterministic, cheap (~800ns per entity), and produces globally unique identities without coordination, under the assumption of SHA-256 collision resistance and deterministic canonicalization. Canonical repo identity is the repository URL, hashed directly.
 
 The domain-type prefix system (`"node\0"`, `"edge\0"`, `"snapshot\0"`, `"merkle\0"`) eliminates cross-type ambiguity at the input-construction level. This mirrors git's `"<type> <size>\0<content>"` object header. The hierarchical Merkle root is the canonical snapshot hash; no flat tree is maintained alongside it.
 

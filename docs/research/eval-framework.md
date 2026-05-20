@@ -194,11 +194,11 @@ Add a new MCP tool that returns symbol doc...      |  90.0% |  180.0%|  1.00 | e
 
 Tier     |  P@10  |  R@10  |  MRR  | N
 ---------+--------+--------+-------+---
-easy     |  39.0% |  96.0% |  0.66 | 20
-medium   |  31.0% |  50.1% |  0.65 | 20
-hard     |  19.3% |  22.9% |  0.32 | 15
+easy     |  28.5% |  67.4% |  0.52 | 20
+medium   |  29.0% |  50.1% |  0.49 | 20
+hard     |  22.0% |  27.4% |  0.35 | 15
 
-OVERALL  |  30.7% |  59.4% |  0.56 | 55 fixtures
+OVERALL  |  26.9% |  50.8% |  0.46 | 55 fixtures
 ```
 
 Key things to check:
@@ -266,10 +266,12 @@ As of the latest eval run (55 fixtures total: 20 easy, 20 medium, 15 hard):
 
 | Tier | P@10 | R@10 | MRR | Fixtures |
 |------|------|------|-----|----------|
-| Easy | 39.0% | 96.0% | 0.66 | 20 |
-| Medium | 31.0% | 50.1% | 0.65 | 20 |
-| Hard | 19.3% | 22.9% | 0.32 | 15 |
-| **Overall** | **30.7%** | **59.4%** | **0.56** | **55** |
+| Easy | 28.5% | 67.4% | 0.52 | 20 |
+| Medium | 29.0% | 50.1% | 0.49 | 20 |
+| Hard | 22.0% | 27.4% | 0.35 | 15 |
+| **Overall** | **26.9%** | **50.8%** | **0.46** | **55** |
+
+Note: the easy tier regressed from a previous high of 39.0% (see experiment history). This is a known issue to investigate; it may be caused by recent extractor additions changing the graph's edge distribution.
 
 The shipped pipeline includes:
 
@@ -321,7 +323,7 @@ Add an entry to `eval/EXPERIMENTS.md` with date, hypothesis, what was tried, per
 
 ## Key Lessons from 21 Experiments
 
-The `eval/EXPERIMENTS.md` file documents 20 experiments run against the framework. Here are the distilled lessons.
+The `eval/EXPERIMENTS.md` file documents 21 experiments run against the framework. Here are the distilled lessons.
 
 ### What works
 
