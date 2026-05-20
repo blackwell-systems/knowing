@@ -1,0 +1,31 @@
+{
+  "source": "ProcessPayment",
+  "target": "ValidateCard",
+  "edge_type": "calls",
+  "snapshot_hash": "0d615d5c00d812a56bddf8564a56f01a159d30a3bfeb2bf37efe16ce31705764",
+  "proof": {
+    "edge_hash": "4c44aba24de9a08635eea3536dc65193c4881c4620f1f58acc5aa035d5f975ab",
+    "package_path": "PaymentService",
+    "edge_type": "calls",
+    "edge_to_edge_type_root": null,
+    "edge_type_root": "4c44aba24de9a08635eea3536dc65193c4881c4620f1f58acc5aa035d5f975ab",
+    "edge_type_to_package_root": [
+      {
+        "sibling": "a9e430d96f4340a28b051eaaa4ca606ae03a7a5d98d77cac0ce0b1420d22c586",
+        "is_left": false
+      }
+    ],
+    "package_root": "1dec1543958b4ea6c66bbc4a6ec62fe1fae6a9c1e2516e22053a34652b82d0ae",
+    "package_to_repo_root": [
+      {
+        "sibling": "05ceffa2b2af0c4cc2ce3e8bc33d0ecd52325eb9523e2d5b9bb0d61e82a70107",
+        "is_left": true
+      },
+      {
+        "sibling": "85d61c983cab5e522c964db00e4db20bf37d6f02dd51b5b3d3a70acfa3bf51de",
+        "is_left": false
+      }
+    ],
+    "repo_root": "80e61190fa8424991db499e5eb6effc0c2c162a3c837fa0e148f55786dcd5bef"
+  }
+}

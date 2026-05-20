@@ -1,0 +1,44 @@
+{
+  "source": "ProcessPayment",
+  "target": "CreateCharge",
+  "edge_type": "runtime_calls",
+  "snapshot_hash": "0d615d5c00d812a56bddf8564a56f01a159d30a3bfeb2bf37efe16ce31705764",
+  "proof": {
+    "edge_hash": "c6eb1057fd3ff7fe558a006af393792ddcd6de40eb7db8592cb9f16c36707423",
+    "package_path": "PaymentService",
+    "edge_type": "runtime_calls",
+    "edge_to_edge_type_root": [
+      {
+        "sibling": "c6eb1057fd3ff7fe558a006af393792ddcd6de40eb7db8592cb9f16c36707423",
+        "is_left": false
+      },
+      {
+        "sibling": "91f160b58c1987e633d4299631e45957671cd94fb88b1ff008655e153a6f7943",
+        "is_left": false
+      },
+      {
+        "sibling": "bff1b28e8c920de5ea8a59239b6467a1b3e22d9816fc32b0c6eca72bc61418dd",
+        "is_left": true
+      }
+    ],
+    "edge_type_root": "a9e430d96f4340a28b051eaaa4ca606ae03a7a5d98d77cac0ce0b1420d22c586",
+    "edge_type_to_package_root": [
+      {
+        "sibling": "4c44aba24de9a08635eea3536dc65193c4881c4620f1f58acc5aa035d5f975ab",
+        "is_left": true
+      }
+    ],
+    "package_root": "1dec1543958b4ea6c66bbc4a6ec62fe1fae6a9c1e2516e22053a34652b82d0ae",
+    "package_to_repo_root": [
+      {
+        "sibling": "05ceffa2b2af0c4cc2ce3e8bc33d0ecd52325eb9523e2d5b9bb0d61e82a70107",
+        "is_left": true
+      },
+      {
+        "sibling": "85d61c983cab5e522c964db00e4db20bf37d6f02dd51b5b3d3a70acfa3bf51de",
+        "is_left": false
+      }
+    ],
+    "repo_root": "80e61190fa8424991db499e5eb6effc0c2c162a3c837fa0e148f55786dcd5bef"
+  }
+}

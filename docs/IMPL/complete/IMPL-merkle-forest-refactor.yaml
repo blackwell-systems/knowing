@@ -1,0 +1,525 @@
+title: 'Refactor internal Merkle tree to use merkle-forest library'
+feature_slug: merkle-forest-refactor
+verdict: SUITABLE
+state: COMPLETE
+
+suitability_assessment: |
+  1. File decomposition: The work decomposes into 2 agents across disjoint files:
+     (a) Replace internal merkle.go and hierarchical.go with a thin adapter over
+         merkle-forest, maintaining the existing exported API surface.
+     (b) Update tests to use the refactored API (hierarchical_test.go,
+         hierarchical_bench_test.go, forest_parity_test.go becomes a regression test).
+
+     Since proof.go is being KEPT (per requirements) and it depends on
+     HierarchicalTree and combineHashes, the adapter layer must preserve these symbols.
+     The adapter in hierarchical.go will re-export HierarchicalTree (now backed by
+     forest.MultiLevel), and combineHashes stays as a thin wrapper so proof.go compiles
+     unchanged. This makes proof.go NOT need changes, and the whole thing fits in 1 wave
+     with 2 agents: one for the implementation files, one for the test files.
+
+  2. Investigation-first items: None. The parity test already passes, proving the
+     library produces identical output. The migration path is clear.
+
+  3. Interface discoverability: Yes. The exported API of the snapshot package is
+     well-defined. The mapping between internal types and forest types is documented
+     in the feature request. Zero-cost casts are confirmed (both [32]byte).
+
+  4. Pre-implementation status: The parity test proves the approach works. merkle-forest
+     is already in go.mod (indirect). The refactor replaces internals while preserving
+     the exported surface.
+
+  5. Parallelization value: 2 agents in 1 wave. Build/test cycle is ~30s (go test ./...).
+     Agent A touches 2 implementation files; Agent B touches 3 test files. Both are
+     non-trivial (implementation logic, not just string edits). Single wave means maximum
+     parallelization. Clear speedup over sequential: both agents work simultaneously.
+
+  Estimated times:
+  - Scout phase: ~5 min
+  - Agent execution: ~8 min (2 agents x 8 min, running in parallel = 8 min)
+  - Merge and verification: ~3 min
+  Total Polywave time: ~16 min
+
+  Sequential baseline: ~20 min (2 agents x 10 min sequential)
+  Time savings: ~4 min (20% faster)
+
+  Recommendation: Clear speedup. The coordination value is high because the interface
+  contract between implementation and tests must be precise to avoid post-merge breaks.
+
+  Note on pre-wave validation warnings: The finalize-scout tool reports test cascade
+  and wave structure warnings because external test files (bench/, internal/cache/,
+  internal/mcp/) call functions that Agent A modifies. These are false positives for
+  this refactoring because ALL exported signatures are PRESERVED (API-compatible
+  internal delegation). The parity test proves output identity. External tests require
+  no changes and will pass post-merge without modification.
+
+test_command: GOWORK=off go test ./...
+lint_command: GOWORK=off go vet ./...
+
+quality_gates:
+  level: standard
+  gates:
+    - type: build
+      command: GOWORK=off go build ./...
+      required: true
+    - type: lint
+      command: GOWORK=off go vet ./...
+      required: true
+    - type: test
+      command: GOWORK=off go test ./... -timeout 5m
+      required: true
+
+scaffolds: []
+
+file_ownership:
+  - file: internal/snapshot/merkle.go
+    agent: A
+    wave: 1
+    action: modify
+    depends_on: []
+  - file: internal/snapshot/hierarchical.go
+    agent: A
+    wave: 1
+    action: modify
+    depends_on: []
+  - file: internal/snapshot/hierarchical_test.go
+    agent: B
+    wave: 1
+    action: modify
+    depends_on: []
+  - file: internal/snapshot/hierarchical_bench_test.go
+    agent: B
+    wave: 1
+    action: modify
+    depends_on: []
+  - file: internal/snapshot/forest_parity_test.go
+    agent: B
+    wave: 1
+    action: modify
+    depends_on: []
+
+interface_contracts:
+  - name: BuildHierarchicalTree
+    description: |
+      Retained exported function signature. Implementation delegates to
+      forest.BuildMultiLevel internally. Returns the same HierarchicalTree struct
+      with identical field values.
+    definition: |
+      func BuildHierarchicalTree(edges []EdgeInput) *HierarchicalTree
+    location: internal/snapshot/hierarchical.go
+
+  - name: HierarchicalTree
+    description: |
+      Retained exported struct. All fields preserved. Internally backed by a
+      forest.MultiLevel but the struct exposes the same map fields for backward
+      compatibility with proof.go, classify.go, cache, and MCP callers.
+    definition: |
+      type HierarchicalTree struct {
+          Root              types.Hash
+          PackageRoots      map[string]types.Hash
+          EdgeTypeRoots     map[string]types.Hash
+          PackageEdgeCounts map[string]int
+          TotalEdges        int
+      }
+    location: internal/snapshot/hierarchical.go
+
+  - name: DiffHierarchicalTrees
+    description: |
+      Retained convenience wrapper. Delegates to DiffHierarchicalTreesWithOptions.
+    definition: |
+      func DiffHierarchicalTrees(oldTree, newTree *HierarchicalTree) *HierarchicalDiff
+    location: internal/snapshot/hierarchical.go
+
+  - name: DiffHierarchicalTreesWithOptions
+    description: |
+      Retained exported function with PackageFilter and MaxChanges support.
+      forest.DiffMultiLevelTrees does not support these options, so this function
+      retains the manual implementation (comparing the map fields of HierarchicalTree).
+    definition: |
+      func DiffHierarchicalTreesWithOptions(oldTree, newTree *HierarchicalTree, opts *DiffOptions) *HierarchicalDiff
+    location: internal/snapshot/hierarchical.go
+
+  - name: SubgraphRoot method
+    description: |
+      Retained method on HierarchicalTree. Delegates to internal forest.MultiLevel
+      SubgraphRoot (both produce same output, confirmed by parity test).
+    definition: |
+      func (ht *HierarchicalTree) SubgraphRoot(packages []string) types.Hash
+    location: internal/snapshot/hierarchical.go
+
+  - name: BuildMerkleTree
+    description: |
+      Retained exported function. Delegates to forest.Build with a single group.
+      Returns a MerkleTree with Root and Leaves fields.
+    definition: |
+      func BuildMerkleTree(hashes []types.Hash) *MerkleTree
+    location: internal/snapshot/merkle.go
+
+  - name: MerkleTree
+    description: |
+      Retained exported struct with Root and Leaves fields.
+    definition: |
+      type MerkleTree struct {
+          Root   types.Hash
+          Leaves []types.Hash
+      }
+    location: internal/snapshot/merkle.go
+
+  - name: DiffMerkle
+    description: |
+      Retained exported function for flat leaf-level diff.
+    definition: |
+      func DiffMerkle(oldTree, newTree *MerkleTree) (added, removed []types.Hash)
+    location: internal/snapshot/merkle.go
+
+  - name: SortHashes
+    description: |
+      Retained exported function. Can delegate to forest.SortHashes with type cast.
+    definition: |
+      func SortHashes(hashes []types.Hash)
+    location: internal/snapshot/merkle.go
+
+  - name: combineHashes
+    description: |
+      CRITICAL: Retained unexported function used by proof.go. Must produce identical
+      output to types.ComputeMerkleNodeHash(left, right). proof.go calls this for
+      Merkle proof verification and it must NOT change behavior.
+    definition: |
+      func combineHashes(left, right types.Hash) types.Hash
+    location: internal/snapshot/merkle.go
+
+  - name: EdgeInput
+    description: |
+      Retained exported struct used by proof.go and all external callers.
+    definition: |
+      type EdgeInput struct {
+          EdgeHash    types.Hash
+          PackagePath string
+          EdgeType    string
+      }
+    location: internal/snapshot/hierarchical.go
+
+  - name: ContextPackRoot
+    description: |
+      Retained standalone function. Does NOT use Merkle tree construction
+      (uses raw SHA-256 over task + root + sorted nodes). Unchanged.
+    definition: |
+      func ContextPackRoot(taskNormalized string, snapshotRoot types.Hash, selectedNodes []types.Hash) types.Hash
+    location: internal/snapshot/hierarchical.go
+
+  - name: EdgeTypeRoot method
+    description: |
+      Retained method on HierarchicalTree. Collects subgroup roots matching
+      the edge type suffix and builds a Merkle tree from them.
+    definition: |
+      func (ht *HierarchicalTree) EdgeTypeRoot(edgeType string) types.Hash
+    location: internal/snapshot/hierarchical.go
+
+waves:
+  - number: 1
+    agents:
+      - id: A
+        task: |
+          ## Task: Replace internal Merkle implementation with merkle-forest delegation
+
+          Replace the internal Merkle tree construction in `internal/snapshot/merkle.go`
+          and `internal/snapshot/hierarchical.go` with calls to the merkle-forest library
+          (`github.com/blackwell-systems/merkle-forest`), using `forest.WithPrefix([]byte("merkle\x00"))`
+          for hash parity.
+
+          ### What to implement
+
+          **internal/snapshot/merkle.go** - Rewrite to delegate to merkle-forest:
+
+          1. `BuildMerkleTree(hashes []types.Hash) *MerkleTree`:
+             - Convert `[]types.Hash` to `[]forest.Hash` (zero-cost cast: both are [32]byte)
+             - Build a single-group forest: `forest.Build(map[string][]forest.Hash{"_": hashes}, forest.WithPrefix([]byte("merkle\x00")))`
+             - Return `&MerkleTree{Root: types.Hash(f.Root), Leaves: sorted}` where sorted
+               is the input hashes sorted by bytes.Compare (same as before)
+             - Empty case: return `&MerkleTree{Root: types.EmptyHash, Leaves: nil}`
+
+          2. `computeMerkleRoot` - REMOVE this function entirely. It is only called by
+             BuildMerkleTree which now delegates to forest.
+
+          3. `combineHashes(left, right types.Hash) types.Hash` - KEEP this function
+             unchanged. It is called by proof.go for Merkle proof verification. It must
+             continue to call `types.ComputeMerkleNodeHash(left, right)`.
+
+          4. `DiffMerkle(oldTree, newTree *MerkleTree) (added, removed []types.Hash)` -
+             KEEP unchanged. This does set-based leaf comparison, not tree-structure
+             comparison. It does not call any Merkle tree construction.
+
+          5. `SortHashes(hashes []types.Hash)` - KEEP unchanged (or optionally delegate
+             to `forest.SortHashes` with appropriate type conversion).
+
+          **internal/snapshot/hierarchical.go** - Rewrite to delegate to merkle-forest:
+
+          1. `BuildHierarchicalTree(edges []EdgeInput) *HierarchicalTree`:
+             - Convert EdgeInputs to `[]forest.MultiLevelInput`:
+               ```go
+               inputs := make([]forest.MultiLevelInput, len(edges))
+               for i, e := range edges {
+                   group := e.PackagePath
+                   if group == "" {
+                       group = "_root"
+                   }
+                   inputs[i] = forest.MultiLevelInput{
+                       Leaf:     forest.Hash(e.EdgeHash),
+                       Group:    group,
+                       Subgroup: e.EdgeType,
+                   }
+               }
+               ```
+             - Call `ml := forest.BuildMultiLevel(inputs, forest.WithPrefix([]byte("merkle\x00")))`
+             - Convert results back to HierarchicalTree:
+               ```go
+               packageRoots := make(map[string]types.Hash, len(ml.GroupRoots))
+               for k, v := range ml.GroupRoots {
+                   packageRoots[k] = types.Hash(v)
+               }
+               edgeTypeRoots := make(map[string]types.Hash, len(ml.SubgroupRoots))
+               for k, v := range ml.SubgroupRoots {
+                   edgeTypeRoots[k] = types.Hash(v)
+               }
+               ```
+             - Compute PackageEdgeCounts from the input edges (same logic as before;
+               forest.MultiLevel.GroupLeafCounts maps to this)
+             - Return HierarchicalTree with Root: types.Hash(ml.Root), etc.
+             - Empty case: same as before, return zero-value maps and EmptyHash root.
+
+          2. `HierarchicalTree` struct - KEEP the exported struct unchanged. Add an
+             unexported field to store the forest.MultiLevel for SubgraphRoot delegation:
+             ```go
+             type HierarchicalTree struct {
+                 Root              types.Hash
+                 PackageRoots      map[string]types.Hash
+                 EdgeTypeRoots     map[string]types.Hash
+                 PackageEdgeCounts map[string]int
+                 TotalEdges        int
+                 ml                *forest.MultiLevel // internal, for SubgraphRoot
+             }
+             ```
+
+          3. `SubgraphRoot(packages []string) types.Hash` - Delegate to `ht.ml.SubgraphRoot(packages)`
+             and cast result. If ht.ml is nil (e.g., empty tree), return types.EmptyHash.
+
+          4. `EdgeTypeRoot(edgeType string) types.Hash` - KEEP the existing implementation.
+             It uses BuildMerkleTree which now delegates to forest internally.
+
+          5. `DiffHierarchicalTrees` and `DiffHierarchicalTreesWithOptions` - KEEP the
+             existing implementation. forest.DiffMultiLevelTrees does not support
+             PackageFilter or MaxChanges options, and the existing implementation
+             already works correctly by comparing the map fields.
+
+          6. `HierarchicalDiff`, `DiffOptions` structs - KEEP unchanged.
+
+          7. `ContextPackRoot` - KEEP unchanged (does not use Merkle tree construction).
+
+          8. `EdgeInput` struct - KEEP unchanged.
+
+          **Import changes:**
+          - `merkle.go`: Add `forest "github.com/blackwell-systems/merkle-forest"`.
+            Keep `"bytes"` and `"sort"` (used by SortHashes and DiffMerkle).
+          - `hierarchical.go`: Add `forest "github.com/blackwell-systems/merkle-forest"`.
+            Keep `"crypto/sha256"` (used by ContextPackRoot), `"sort"`, `"strings"`.
+
+          **go.mod change:** Move `github.com/blackwell-systems/merkle-forest v0.1.0`
+          from `// indirect` to a direct dependency. Run `go mod tidy` after changes.
+
+          ### Interfaces (contracts with other agents)
+          - All exported symbols must remain with identical signatures
+          - combineHashes must remain unexported and produce identical output
+          - HierarchicalTree struct must have all existing exported fields
+          - The new `ml` field must be unexported (lowercase)
+
+          ### Verification gate
+          ```bash
+          cd /Users/dayna.blackwell/code/knowing && GOWORK=off go build ./internal/snapshot/...
+          cd /Users/dayna.blackwell/code/knowing && GOWORK=off go vet ./internal/snapshot/...
+          cd /Users/dayna.blackwell/code/knowing && GOWORK=off go build ./...
+          ```
+
+          Postconditions:
+          ```bash
+          # combineHashes still exists (proof.go depends on it)
+          grep -c "func combineHashes" /Users/dayna.blackwell/code/knowing/internal/snapshot/merkle.go
+          # Expected: 1
+
+          # computeMerkleRoot is removed
+          grep -c "func computeMerkleRoot" /Users/dayna.blackwell/code/knowing/internal/snapshot/merkle.go
+          # Expected: 0
+
+          # forest import present in both files
+          grep -c 'forest "github.com/blackwell-systems/merkle-forest"' /Users/dayna.blackwell/code/knowing/internal/snapshot/merkle.go
+          # Expected: 1
+          grep -c 'forest "github.com/blackwell-systems/merkle-forest"' /Users/dayna.blackwell/code/knowing/internal/snapshot/hierarchical.go
+          # Expected: 1
+
+          # ml field present in HierarchicalTree
+          grep -c "ml.*\*forest.MultiLevel" /Users/dayna.blackwell/code/knowing/internal/snapshot/hierarchical.go
+          # Expected: 1
+          ```
+
+          ### Constraints
+          - Do NOT modify proof.go, classify.go, verify.go, gc.go, or manager.go
+          - Do NOT change any exported function signatures or struct field types
+          - Do NOT remove combineHashes (proof.go calls it for verification)
+          - Do NOT change the behavior of DiffHierarchicalTreesWithOptions (it must
+            still support PackageFilter and MaxChanges)
+          - Do NOT modify test files (owned by Agent B)
+        files:
+          - internal/snapshot/merkle.go
+          - internal/snapshot/hierarchical.go
+
+      - id: B
+        task: |
+          ## Task: Update tests for merkle-forest refactored implementation
+
+          Update the test files in `internal/snapshot/` to work with the refactored
+          implementation that delegates to merkle-forest. The refactored code maintains
+          the same exported API, so most tests should pass WITHOUT changes. Your job is
+          to verify this and make minimal adjustments where needed.
+
+          ### What to implement
+
+          **internal/snapshot/hierarchical_test.go** - Verify all existing tests pass:
+          - All tests call `BuildHierarchicalTree`, `DiffHierarchicalTrees`,
+            `DiffHierarchicalTreesWithOptions`, `SubgraphRoot`, `EdgeTypeRoot`,
+            `ContextPackRoot` via the exported API
+          - These functions maintain their signatures, so tests should compile and pass
+            without changes
+          - If any test references `computeMerkleRoot` (unexported, being removed):
+            remove that reference. (Current inspection shows no test references it.)
+          - Run tests and fix any failures. The behavior is identical (proven by parity
+            test) so failures indicate either a missed edge case or a compilation issue.
+
+          **internal/snapshot/hierarchical_bench_test.go** - Verify benchmarks compile:
+          - Benchmarks reference `BuildHierarchicalTree`, `BuildMerkleTree`, `DiffMerkle`,
+            `DiffHierarchicalTrees`, `SubgraphRoot`, `EdgeTypeRoot` via unexported calls
+            (same package)
+          - All of these are preserved. Verify benchmarks compile and run.
+          - No changes expected unless a removed internal function was benchmarked.
+
+          **internal/snapshot/forest_parity_test.go** - Convert to regression test:
+          - This test currently proves that merkle-forest produces identical output to
+            the internal implementation. After the refactor, the internal implementation
+            IS merkle-forest, so the test becomes a regression test.
+          - Rename the test function to `TestForestRegressionParity` and update the
+            doc comment to explain it verifies the adapter layer produces correct output.
+          - The test should still build the tree via `BuildHierarchicalTree` and compare
+            against direct `forest.BuildMultiLevel` calls to verify the adapter works.
+          - Keep the test as-is functionally; just update the name and comments.
+          - Keep the import of `forest "github.com/blackwell-systems/merkle-forest"`.
+
+          ### Verification gate
+          ```bash
+          cd /Users/dayna.blackwell/code/knowing && GOWORK=off go test ./internal/snapshot/ -v -timeout 2m
+          cd /Users/dayna.blackwell/code/knowing && GOWORK=off go test ./internal/snapshot/ -bench=. -benchtime=1x -timeout 2m
+          ```
+
+          Postconditions:
+          ```bash
+          # Parity test renamed
+          grep -c "TestForestRegressionParity" /Users/dayna.blackwell/code/knowing/internal/snapshot/forest_parity_test.go
+          # Expected: 1
+
+          # Old name removed
+          grep -c "TestForestParity" /Users/dayna.blackwell/code/knowing/internal/snapshot/forest_parity_test.go
+          # Expected: 0
+          ```
+
+          ### Constraints
+          - Do NOT modify merkle.go or hierarchical.go (owned by Agent A)
+          - Do NOT modify proof.go, proof_test.go, classify.go, classify_test.go,
+            manager.go, manager_test.go, verify.go, verify_test.go, or gc.go
+          - Do NOT change the test logic (assertions, expected values) unless a test
+            genuinely fails due to the refactor. The parity test proves identical output,
+            so test logic should remain valid.
+          - The only substantive change is renaming TestForestParity to
+            TestForestRegressionParity and updating its doc comment.
+        files:
+          - internal/snapshot/hierarchical_test.go
+          - internal/snapshot/hierarchical_bench_test.go
+          - internal/snapshot/forest_parity_test.go
+
+pre_mortem:
+  overall_risk: low
+  rows:
+    - scenario: |
+        Agent A removes combineHashes, breaking proof.go which calls it for
+        Merkle proof verification.
+      likelihood: low
+      impact: high
+      mitigation: |
+        Agent A's task explicitly states "KEEP combineHashes" and lists it
+        as a constraint. Postcondition check verifies it still exists.
+
+    - scenario: |
+        The forest library's combineWithPrefix uses sha256.New() streaming while
+        types.ComputeMerkleNodeHash uses a fixed buffer. Subtle hash difference
+        despite same prefix.
+      likelihood: low
+      impact: high
+      mitigation: |
+        The parity test (TestForestParity) already passes, proving hash identity.
+        Both use SHA-256 with identical input bytes. The streaming vs buffer
+        distinction does not affect output.
+
+    - scenario: |
+        Agent A changes the HierarchicalTree struct in a way that breaks proof.go
+        compilation (e.g., removing PackageRoots or EdgeTypeRoots fields).
+      likelihood: low
+      impact: high
+      mitigation: |
+        Interface contract explicitly lists all fields. Agent A's constraint says
+        "Do NOT change any exported function signatures or struct field types."
+        Build gate catches this immediately.
+
+    - scenario: |
+        DiffHierarchicalTreesWithOptions loses PackageFilter/MaxChanges support
+        if Agent A naively delegates to forest.DiffMultiLevelTrees (which lacks
+        these options).
+      likelihood: medium
+      impact: medium
+      mitigation: |
+        Agent A's task explicitly states to KEEP the existing DiffHierarchicalTrees
+        implementation since forest.DiffMultiLevelTrees lacks these options.
+        Existing tests in hierarchical_test.go verify both options work.
+
+    - scenario: |
+        Agent B's tests fail because Agent A's changes aren't merged yet
+        (worktree isolation).
+      likelihood: medium
+      impact: low
+      mitigation: |
+        Both agents are in Wave 1, so they work in parallel on separate worktrees.
+        Agent B's tests reference exported API that Agent A preserves. The tests
+        will compile against Agent A's refactored code at merge time. If Agent B
+        runs tests during development, they will pass against the OLD code (still
+        present in B's worktree). Post-merge verification catches any issues.
+
+    - scenario: |
+        go mod tidy removes or downgrades merkle-forest because no direct import
+        exists in the committed code during intermediate states.
+      likelihood: low
+      impact: medium
+      mitigation: |
+        Agent A adds direct imports of merkle-forest in both merkle.go and
+        hierarchical.go. After merge, go mod tidy will see the direct imports
+        and promote from indirect to direct.
+
+known_issues: []
+
+post_merge_checklist:
+  groups:
+    - title: "Build Verification"
+      items:
+        - description: "Full test suite passes including benchmarks and external callers"
+          command: "GOWORK=off go test ./... -timeout 5m"
+        - description: "go.mod shows merkle-forest as direct (not indirect) dependency"
+          command: "grep -v indirect go.mod | grep merkle-forest"
+    - title: "Integration Verification"
+      items:
+        - description: "prove command generates valid proofs (proof.go uses combineHashes from refactored merkle.go)"
+          command: "go build -o knowing ./cmd/knowing && ./knowing version && rm knowing"
+        - description: "Benchmark regression check (hierarchical build should be same order of magnitude)"
+          command: "GOWORK=off go test ./internal/snapshot/ -bench=BenchmarkFlatDiff_10K -benchtime=3x -timeout 2m"
