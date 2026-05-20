@@ -27,6 +27,13 @@ participates in blast radius traversal and context ranking.
 | `owned_by` | File/symbol owned by team/user | deterministic | 1.0 | CODEOWNERS parser | No | 0.0 |
 | `tests` | Test function tests production function | ast_inferred | 0.7 | Go tree-sitter extractor | No | 0.6 |
 | `authored_by` | Symbol primarily authored by person | git_blame | 1.0 | Authorship extractor (git blame) | No | 0.0 |
+| `documents` | Doc comment documents a symbol | ast_inferred | 0.9 | Go tree-sitter extractor | No | 0.2 |
+| `consumes_endpoint` | Code calls HTTP endpoint | ast_inferred | 0.6 | TS, Go tree-sitter extractors | No | 0.5 |
+| `implements_rpc` | Struct implements gRPC service | ast_inferred | 0.9 | Proto extractor (Go source) | No | 0.8 |
+| `consumes_rpc` | Code creates gRPC client | ast_inferred | 0.8 | Proto extractor (Go source) | No | 0.6 |
+| `gated_by_flag` | Function gated by feature flag | ast_inferred | 0.8 | Go tree-sitter extractor | No | 0.3 |
+| `deployed_by` | Binary/service deployed by workflow | ast_inferred | 0.9 | GitHub Actions extractor | No | 0.4 |
+| `tested_by` | Package tested by CI workflow | ast_inferred | 0.8 | GitHub Actions extractor | No | 0.5 |
 | `runtime_calls` | HTTP call observed in traces | otel_trace | 0.2 - 0.95 | Trace ingestor | No | 0.3 (default) |
 | `runtime_rpc` | gRPC/RPC call observed in traces | otel_trace | 0.2 - 0.95 | Trace ingestor | No | 0.3 (default) |
 | `runtime_produces` | Message published to a topic | otel_trace | 0.2 - 0.95 | Trace ingestor | No | 0.3 (default) |
@@ -341,6 +348,111 @@ A symbol is primarily authored by a person (determined via git blame).
 - **Blast radius:** Not traversed. Authorship is organizational, not functional.
 - **RWR weight:** 0.0. Like owned_by, authorship edges do not participate in the
   random walk. They serve ownership queries and team routing.
+
+### `documents`
+
+A doc comment documents a symbol declaration.
+
+- **Direction:** source doc comment documents target symbol.
+  `doc_comment:"HandleLogin validates credentials..." -documents-> api.HandleLogin` means
+  the doc comment block describes the HandleLogin function.
+- **Producers:** Go tree-sitter extractor. For each function, method, or type declaration
+  with a preceding doc comment (detected by `extractDocComment`), creates a synthetic
+  "doc_comment" node and a `documents` edge from it to the declaration.
+- **Provenance:** `ast_inferred` (confidence 0.9). Doc comments are syntactically unambiguous.
+- **Blast radius:** Not traversed.
+- **RWR weight:** 0.2. Low weight because documentation is informational context, not a
+  structural dependency. However, doc comments are surfaced in context packs for LLM
+  comprehension.
+
+### `consumes_endpoint`
+
+Code makes an HTTP client call to a specific endpoint URL path.
+
+- **Direction:** source function consumes target endpoint.
+  `api.FetchUser -consumes_endpoint-> GET /api/users/:id` means FetchUser contains an
+  HTTP client call to that endpoint.
+- **Producers:** Two language extractors:
+  - Go: `http.Get("...")`, `http.Post("...")`, `client.Get("...")` patterns detected via tree-sitter.
+  - TypeScript/JavaScript: `fetch("/api/...")`, `axios.get("/api/...")`, `http.get("/api/...")` patterns.
+- **Provenance:** `ast_inferred` (confidence 0.6). URL paths extracted from string literals
+  may be partial or templated.
+- **Blast radius:** Not traversed.
+- **RWR weight:** 0.5. Moderate weight; endpoint consumption indicates functional dependency
+  between services or between frontend and backend.
+
+### `implements_rpc`
+
+A Go struct implements a gRPC service interface.
+
+- **Direction:** source struct implements target RPC service.
+  `pkg.UserServer -implements_rpc-> proto.UserService` means UserServer embeds
+  `pb.UnimplementedUserServiceServer`.
+- **Producers:** Go tree-sitter extractor via `ExtractRPCEdges`. Detects structs embedding
+  `pb.Unimplemented*Server` patterns.
+- **Provenance:** `ast_inferred` (confidence 0.9). The embedding pattern is highly specific.
+- **Blast radius:** Not traversed.
+- **RWR weight:** 0.8. High weight (same as `implements`) because gRPC service implementation
+  is a strong structural relationship; changes to the proto definition affect all implementors.
+
+### `consumes_rpc`
+
+Code creates a gRPC client connection to a service.
+
+- **Direction:** source function consumes target RPC service.
+  `api.CreateOrder -consumes_rpc-> proto.InventoryService` means CreateOrder calls
+  `pb.NewInventoryServiceClient(conn)`.
+- **Producers:** Go tree-sitter extractor via `ExtractRPCEdges`. Detects `pb.New*Client()`
+  call patterns.
+- **Provenance:** `ast_inferred` (confidence 0.8).
+- **Blast radius:** Not traversed.
+- **RWR weight:** 0.6. Moderate-high weight; gRPC client usage indicates inter-service
+  dependency that should surface in context when either side changes.
+
+### `gated_by_flag`
+
+A function is gated by a feature flag check.
+
+- **Direction:** source function gated by target flag.
+  `api.NewCheckout -gated_by_flag-> flag:enable-new-checkout` means NewCheckout contains
+  a feature flag SDK call that checks the "enable-new-checkout" flag.
+- **Producers:** Go tree-sitter extractor via `ExtractFeatureFlagEdges`. Detects patterns like
+  `client.BoolVariation("flag-name")`, `unleash.IsEnabled("flag-name")`, and custom
+  `IsFeatureEnabled("flag-name")` calls.
+- **Provenance:** `ast_inferred` (confidence 0.8). Feature flag SDK patterns are distinctive.
+- **Blast radius:** Not traversed.
+- **RWR weight:** 0.3. Low weight because feature flags are cross-cutting configuration
+  concerns. However, these edges enable querying "what code is behind this flag?" for
+  safe rollout analysis.
+
+### `deployed_by`
+
+A service or binary is deployed by a CI/CD workflow.
+
+- **Direction:** source deployment target deployed by target workflow.
+  `deployment:api-service -deployed_by-> .github/workflows/deploy.yml` means the workflow
+  deploys the api-service.
+- **Producers:** GitHub Actions extractor via `extractDeployedByEdges`. Detects deployment
+  steps (docker push, kubectl apply, deploy actions like `aws-actions/amazon-ecs-deploy-task-definition`)
+  and links detected targets to the workflow node.
+- **Provenance:** `ast_inferred` (confidence 0.9). Deployment action patterns are specific.
+- **Blast radius:** Not traversed.
+- **RWR weight:** 0.4. Moderate-low weight. Deployment relationships are operationally
+  important but represent infrastructure-level coupling rather than code-level dependency.
+
+### `tested_by`
+
+A package or module is tested by a CI workflow job.
+
+- **Direction:** source test target tested by target workflow job.
+  `test_target:internal/store -tested_by-> job:test` means the test job runs
+  `go test ./internal/store/...`.
+- **Producers:** GitHub Actions extractor via `extractTestedByEdges`. Detects test commands
+  (go test, npm test, pytest, cargo test) in workflow run steps and extracts package paths.
+- **Provenance:** `ast_inferred` (confidence 0.8).
+- **Blast radius:** Not traversed.
+- **RWR weight:** 0.5. Moderate weight; knowing which CI job tests a package is useful for
+  test-scope queries and understanding CI coverage.
 
 ## Runtime Edge Types
 
