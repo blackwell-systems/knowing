@@ -10,6 +10,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## 2026-05-19
 
+#### MCP audit tools (26 tools total)
+- `prove` MCP tool: generate inclusion proofs from agent conversations
+- `prove_absent` MCP tool: generate absence proofs from agent conversations
+- `fsck` MCP tool: verify graph integrity from agent conversations
+- Enables agent-native compliance workflows without CLI
+
+#### Database management
+- `knowing reset`: delete all graph data (nodes, edges, snapshots) without removing DB file
+- `knowing vacuum`: compact database after deletions (reports before/after size)
+- `knowing remove --purge`: remove from roster AND delete the DB file
+- `snapMgr` now initialized in plain MCP stdio mode (prove tools work without --watch)
+
 #### Human-readable proof output
 - `knowing prove -human` and `knowing prove-absent -human` for terminal-friendly output
 - Clean format for screenshots and demos (default remains JSON)

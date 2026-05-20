@@ -745,6 +745,63 @@ knowing stats -db ~/.knowing/repos/my-repo.db
 
 ---
 
+### reset
+
+Delete all graph data for a repository without removing the database file.
+
+```
+knowing reset [flags]
+```
+
+Truncates all tables (nodes, edges, snapshots, edge_events, files, feedback) but preserves the schema and DB file. Run `knowing index` afterward to rebuild.
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `-db` | string | *(per-repo, from roster)* | Path to the SQLite database |
+
+**Examples:**
+
+```bash
+# Reset the current repo's graph
+knowing reset
+
+# Reset a specific database
+knowing reset -db ~/.knowing/repos/my-repo.db
+```
+
+---
+
+### vacuum
+
+Compact the database file after deletions.
+
+```
+knowing vacuum [flags]
+```
+
+Runs SQLite VACUUM to reclaim space from deleted rows. Reports before/after file size and savings.
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `-db` | string | *(per-repo, from roster)* | Path to the SQLite database |
+
+**Examples:**
+
+```bash
+# Compact after a reset or GC
+knowing vacuum
+# Output:
+#   Before: 27.7 MB
+#   After:  25.9 MB
+#   Saved:  1.9 MB (6.7%)
+```
+
+---
+
 ### reindex
 
 Clear all graph data and re-index a repository from scratch.
