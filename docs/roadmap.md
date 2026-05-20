@@ -112,6 +112,37 @@ The endgame: knowing with continuous OTLP trace ingestion alongside static analy
 - Runtime edges: millions (every observed call path)
 - Snapshot chain: 365+ daily snapshots
 
+### Git-Inspired Optimizations
+
+Derived from a deep dive into git's C implementation (pack-objects, commit-graph, refs, bitmaps, merge-ort, shallow clones).
+
+**Quick wins (< 1 day each):**
+
+| Capability | Git Pattern | Why |
+|-----------|-------------|-----|
+| Generation numbers on snapshots | commit-graph generation_number | O(1) ancestry checks ("is snapshot A ancestor of B?"), prune chain walks |
+| Auto-GC with threshold | gc_auto_threshold=6700 | Trigger GC when deleted edges exceed threshold; prevents unbounded edge_events growth |
+
+**Medium (1-3 days):**
+
+| Capability | Git Pattern | Why |
+|-----------|-------------|-----|
+| Filter-based graph materialization | list-objects-filter.c | Push predicates into SQL queries; context retrieval skips irrelevant subgraphs (2-5x speedup) |
+| Persistent named snapshot refs | refs/packed-backend.c | `knowing tag stable`, `knowing diff stable..latest`; stored in snapshot_refs table |
+| Bloom filters for package changes | commit-graph bloom filters | Per-snapshot bloom filter of changed packages; eliminates edge_events scan during diff |
+| Snapshot-graph acceleration file | commit-graph binary format | Binary file with fanout+hashes+metadata avoids N SQL queries for chain walking |
+| String interning for package paths | merge-ort strmap | Pointer equality for hot-path comparisons; reduce allocation pressure |
+
+**Architectural (3-5 days):**
+
+| Capability | Git Pattern | Why |
+|-----------|-------------|-----|
+| EWAH edge-reachability bitmaps | pack-bitmap.c | One bit per edge per snapshot; Diff = XOR + popcount instead of O(E) scan; blast_radius via precomputed reachability |
+| XOR-compressed bitmap chains | stored_bitmap.xor | Store consecutive snapshot bitmaps as XOR deltas; 100 snapshots in <10KB vs 125KB |
+| Delta-compressed snapshot packs | diff-delta.c, Rabin fingerprint | Sliding-window delta over edge groups; 40-60% smaller sync payloads |
+| Promisor nodes (lazy cross-repo) | shallow.c promisor semantics | Record cross-repo edge targets as "promisor" nodes; fetch full data on-demand from source DB |
+| Three-way graph merge | merge-ort.c staged computation | Federated sync with conflict awareness: confidence_conflict, provenance_conflict, type_conflict |
+
 ### What's Needed at Scale
 
 | Capability | Why |
