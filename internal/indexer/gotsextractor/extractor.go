@@ -117,6 +117,14 @@ func (e *GoTreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractO
 			rn, re := routeSymbolsToNodesAndEdges(routes, opts, pkgPath)
 			nodes = append(nodes, rn...)
 			edges = append(edges, re...)
+			// Extract feature flag edges.
+			flagNodes, flagEdges := ExtractFeatureFlagEdges(body, opts, pkgPath, node.NodeHash, imports)
+			nodes = append(nodes, flagNodes...)
+			edges = append(edges, flagEdges...)
+			// Extract HTTP endpoint consumption edges.
+			epNodes, epEdges := ExtractGoEndpointEdges(body, opts, pkgPath, node.NodeHash, imports)
+			nodes = append(nodes, epNodes...)
+			edges = append(edges, epEdges...)
 
 		case "method_declaration":
 			node := extractMethodDecl(child, opts, pkgPath)
@@ -132,6 +140,14 @@ func (e *GoTreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractO
 			rn, re := routeSymbolsToNodesAndEdges(routes, opts, pkgPath)
 			nodes = append(nodes, rn...)
 			edges = append(edges, re...)
+			// Extract feature flag edges.
+			flagNodes, flagEdges := ExtractFeatureFlagEdges(body, opts, pkgPath, node.NodeHash, imports)
+			nodes = append(nodes, flagNodes...)
+			edges = append(edges, flagEdges...)
+			// Extract HTTP endpoint consumption edges.
+			epNodes, epEdges := ExtractGoEndpointEdges(body, opts, pkgPath, node.NodeHash, imports)
+			nodes = append(nodes, epNodes...)
+			edges = append(edges, epEdges...)
 
 		case "type_declaration":
 			typeNodes := extractTypeDecl(child, opts, pkgPath)
@@ -150,6 +166,15 @@ func (e *GoTreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractO
 			edges = append(edges, importEdges...)
 		}
 	}
+
+	// Extract documents edges for all declarations with doc comments.
+	docNodes, docEdges := ExtractDocumentsEdges(root, opts, pkgPath, nodes)
+	nodes = append(nodes, docNodes...)
+	edges = append(edges, docEdges...)
+
+	// Extract tests edges for test files (_test.go).
+	testsEdges := ExtractTestsEdges(root, opts, pkgPath, imports)
+	edges = append(edges, testsEdges...)
 
 	// Create a synthetic file node for import edge sources. Import edges use
 	// a file-level node as their source (since imports belong to the file, not
