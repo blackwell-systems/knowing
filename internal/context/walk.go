@@ -55,8 +55,11 @@ func RandomWalkWithRestart(ctx stdctx.Context, store types.GraphStore, seeds []t
 		"calls":         1.0,
 		"implements":    0.8,
 		"handles_route": 0.7,
+		"tests":         0.6,
 		"imports":       0.5,
 		"references":    0.4,
+		"owned_by":      0.0,
+		"authored_by":   0.0,
 	}
 
 	// Iterate: at each step, walk along edges with (1-alpha) probability,
@@ -89,8 +92,8 @@ func RandomWalkWithRestart(ctx stdctx.Context, store types.GraphStore, seeds []t
 			// Compute total edge weight for normalization.
 			totalWeight := 0.0
 			for _, e := range edges {
-				w := edgeWeight[e.EdgeType]
-				if w == 0 {
+				w, ok := edgeWeight[e.EdgeType]
+				if !ok {
 					w = 0.3 // default for unknown edge types
 				}
 				totalWeight += w
@@ -98,8 +101,8 @@ func RandomWalkWithRestart(ctx stdctx.Context, store types.GraphStore, seeds []t
 
 			// Distribute probability along edges proportional to weight.
 			for _, e := range edges {
-				w := edgeWeight[e.EdgeType]
-				if w == 0 {
+				w, ok := edgeWeight[e.EdgeType]
+				if !ok {
 					w = 0.3
 				}
 				// Target is the other end of the edge.
