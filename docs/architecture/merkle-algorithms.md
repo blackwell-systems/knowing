@@ -25,7 +25,7 @@ This document covers the suite of Merkle tree algorithms that exploit knowing's 
 
 ### Shipped Implementation
 
-The hierarchical Merkle tree is implemented in `internal/snapshot/hierarchical.go` and wired into the snapshot manager. It organizes hashes in a tree that mirrors the structure of the codebase.
+The hierarchical Merkle tree is implemented in `internal/snapshot/hierarchical.go` and wired into the snapshot manager. The core Merkle construction has been extracted to `github.com/blackwell-systems/merkle-forest` v0.1.1, a standalone library. `BuildMerkleTree` delegates to `forest.Build` with `WithPrefix([]byte("merkle\x00"))` for hash parity, and `BuildHierarchicalTree` delegates to `forest.BuildMultiLevel`. All exported APIs are preserved unchanged (zero-breaking-change refactor, net -44 lines from knowing).
 
 The hierarchical root is the canonical snapshot identity. No flat tree is built; the flat tree was dropped after the hash domain prefix change made backward compatibility moot. The snapshot hash is `ComputeSnapshotHash(hierarchicalTree.Root)`, which applies a `"snapshot\0"` domain prefix to the hierarchical root.
 

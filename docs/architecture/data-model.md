@@ -129,9 +129,12 @@ CREATE TABLE snapshots (
     commit_hash   TEXT NOT NULL,
     timestamp     INTEGER NOT NULL,
     node_count    INTEGER NOT NULL,
-    edge_count    INTEGER NOT NULL
+    edge_count    INTEGER NOT NULL,
+    generation    INTEGER NOT NULL DEFAULT 0  -- chain depth: parent.Generation + 1 (migration 015)
 );
 ```
+
+Generation numbers enable O(1) ancestry checks: "is snapshot A an ancestor of B?" reduces to `A.Generation < B.Generation` when A is on B's chain. This prunes chain walks during diff and GC operations.
 
 ### graph_notes
 
@@ -198,7 +201,7 @@ CREATE VIRTUAL TABLE nodes_fts USING fts5(
 
 ## Merkle Tree (Computed, Not Stored)
 
-The hierarchical Merkle tree is computed in memory from the edge table, not stored in SQLite. `BuildHierarchicalTree` constructs:
+The hierarchical Merkle tree is computed in memory from the edge table, not stored in SQLite. Tree construction delegates to `github.com/blackwell-systems/merkle-forest` v0.1.1: `BuildMerkleTree` calls `forest.Build` and `BuildHierarchicalTree` calls `forest.BuildMultiLevel`. The `merkle\0` hash domain prefix is passed via `forest.WithPrefix`. `BuildHierarchicalTree` constructs:
 
 ```
 repo_root = merkle(sorted(package_roots))
@@ -234,8 +237,9 @@ When the tree needs to be larger than memory (lazy materialization), the roots a
 | 012 | add_notes.sql | graph_notes table |
 | 013 | add_edge_event_data.sql | source_hash, target_hash, edge_type, confidence, provenance on edge_events (removed-edge diffs) |
 | 014 | add_neighborhood_root.sql | neighborhood_root on feedback (merkleized expiration) |
+| 015 | snapshot_generation.sql | generation column on snapshots (O(1) ancestry checks) |
 
-Migrations run automatically on `NewSQLiteStore`. Each runs in its own transaction. Schema version is tracked in `schema_version` table. No rollback/down migrations.
+Migrations run automatically on `NewSQLiteStore`. Each runs in its own transaction. Schema version is tracked in `schema_version` table (current version: 15). No rollback/down migrations.
 
 ## Per-Repo Isolation
 

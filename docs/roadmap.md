@@ -8,13 +8,13 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 |---|------|-----|--------|
 | 1 | **Real users** | Everything else is validated by benchmarks, not usage. Task memory compounds with use. | Ongoing |
 | 2 | **Session memory persistence** | SessionTracker is ephemeral. Persist session working sets to SQLite so resumed sessions compound. | Medium |
-| 3 | **`knowing stats`** | Show session value: context calls, symbols served, feedback rate. | Low |
+| 3 | ~~**`knowing stats`**~~ | ~~Show session value: context calls, symbols served, feedback rate.~~ **Shipped.** | Low |
 
 ## Operational
 
 | Item | Description | Priority |
 |------|-------------|----------|
-| `knowing stats` | Cumulative session value: context calls, symbols served, feedback rate, token savings. | P2 |
+| ~~`knowing stats`~~ | ~~Cumulative session value: context calls, symbols served, feedback rate, token savings.~~ **Shipped.** | ~~P2~~ |
 | Cross-repo awareness for non-Go extractors | TypeScript, Python, Rust, Java, and C# extractors use the local repo URL for all targets. Only the Go extractor has `inferRepoURL` with stdlib detection. | P2 |
 | Staleness reporting | `knowing stale` reports stale edges from changed files since last snapshot. | P2 |
 | Daemon lifecycle | `knowing daemon start --detach`, `status`, `stop`, `restart`. | P2 |
@@ -120,8 +120,8 @@ Derived from a deep dive into git's C implementation (pack-objects, commit-graph
 
 | Capability | Git Pattern | Why |
 |-----------|-------------|-----|
-| Generation numbers on snapshots | commit-graph generation_number | O(1) ancestry checks ("is snapshot A ancestor of B?"), prune chain walks |
-| Auto-GC with threshold | gc_auto_threshold=6700 | Trigger GC when deleted edges exceed threshold; prevents unbounded edge_events growth |
+| ~~Generation numbers on snapshots~~ | ~~commit-graph generation_number~~ | ~~O(1) ancestry checks ("is snapshot A ancestor of B?"), prune chain walks~~ **Shipped.** Migration 015, `Snapshot.Generation` field. |
+| ~~Auto-GC with threshold~~ | ~~gc_auto_threshold=6700~~ | ~~Trigger GC when deleted edges exceed threshold; prevents unbounded edge_events growth~~ **Shipped.** Threshold 5000 edge_events, keeps 10 snapshots. |
 
 **Medium (1-3 days):**
 

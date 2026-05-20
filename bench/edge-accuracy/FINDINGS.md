@@ -18,20 +18,20 @@ is excluded from matching since it differs by design.
 
 | Metric | Count | Rate |
 |--------|-------|------|
-| Tree-sitter edges (ast_inferred) | 14484 | - |
-| Go/ast edges (ast_resolved) | 49642 | - |
-| Confirmed (in both) | 5773 | 39.9% of inferred |
-| Inferred-only (potential FP) | 8711 | 60.1% of inferred |
-| Resolved-only (missed) | 43869 | 88.4% of resolved |
+| Tree-sitter edges (ast_inferred) | 14655 | - |
+| Go/ast edges (ast_resolved) | 50476 | - |
+| Confirmed (in both) | 5857 | 40.0% of inferred |
+| Inferred-only (potential FP) | 8798 | 60.0% of inferred |
+| Resolved-only (missed) | 44619 | 88.4% of resolved |
 
 ## Per-Edge-Type Breakdown
 
 | Edge Type | Tree-sitter | Go/ast | Confirmed | FP Rate | Miss Rate |
 |-----------|-------------|--------|-----------|---------|----------|
-| calls | 12965 | 5564 | 38.8% | 61.2% | 9.6% |
-| imports | 1381 | 755 | 53.8% | 46.2% | 1.6% |
+| calls | 13116 | 5644 | 38.9% | 61.1% | 9.7% |
+| imports | 1400 | 770 | 54.1% | 45.9% | 1.6% |
 | implements | 0 | 9 | 0.0% | 0.0% | 100.0% |
-| references | 0 | 43314 | 0.0% | 0.0% | 100.0% |
+| references | 0 | 44053 | 0.0% | 0.0% | 100.0% |
 
 ## Fair Comparison (calls + imports only)
 
@@ -42,11 +42,11 @@ attempt:
 
 | Metric | Count | Rate |
 |--------|-------|------|
-| Tree-sitter edges | 14346 | - |
-| Go/ast edges | 6319 | - |
-| Confirmed | 5773 | 40.2% of inferred |
-| Inferred-only (FP) | 8573 | 59.8% of inferred |
-| Resolved-only (missed) | 546 | 8.6% of resolved |
+| Tree-sitter edges | 14516 | - |
+| Go/ast edges | 6414 | - |
+| Confirmed | 5857 | 40.3% of inferred |
+| Inferred-only (FP) | 8659 | 59.7% of inferred |
+| Resolved-only (missed) | 557 | 8.7% of resolved |
 
 ## Interpretation
 
@@ -66,7 +66,7 @@ hash computation differs.
 
 ### What this means for knowing's two-tier strategy
 
-The 40.2% confirmation rate for calls+imports means tree-sitter provides
+The 40.3% confirmation rate for calls+imports means tree-sitter provides
 a noisy but non-zero signal. The lower confidence score (0.7 vs 1.0) causes the
 context engine to rank tree-sitter-only edges below confirmed edges in scoring.
 This is the intended behavior: tree-sitter provides fast initial coverage that

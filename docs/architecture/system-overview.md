@@ -10,7 +10,7 @@ knowing daemon (long-lived)
   ├── Indexer (two-tier: tree-sitter extraction + LSP enrichment)
   ├── Graph Store (SQLite behind GraphStore interface, WAL mode, 50K-entry in-process LRU cache)
   ├── MCP Server (stdio or HTTP, 23 tools across execution/intelligence/runtime/context/feedback/discovery planes; 8 read-only resources for agent orientation)
-  ├── Snapshot Manager (computes hierarchical Merkle trees, GCs old snapshots + orphaned nodes/edges)
+  ├── Snapshot Manager (computes hierarchical Merkle trees via merkle-forest library, GCs old snapshots + orphaned nodes/edges, auto-GC at 5000 edge_events)
   ├── Lockfile (internal/daemon/lockfile.go, prevents multiple instances on same database)
   └── Trace Ingestor (OTel spans, HTTP logs → runtime edges)
 ```
@@ -378,6 +378,10 @@ EdgesBySourceFile(ctx context.Context, fileHash Hash) ([]Edge, error)
 **Daemon lockfile:** `internal/daemon/lockfile.go` creates `<db_path>.lock` with the daemon PID on startup. A second daemon instance on the same database fails with a clear error instead of competing for the SQLite WAL.
 
 **GC reachability sweep:** `GarbageCollectFull` (in `internal/snapshot/gc.go` and `internal/store/gc.go`) runs after deleting old snapshots. It collects all node and edge hashes referenced by surviving snapshots, then calls `DeleteNodesNotIn` and `DeleteEdgesNotIn` on the store to prune orphaned rows. Returns a `GCStats` struct with counts of pruned nodes and edges. This prevents the `nodes` table from growing without bound on frequently-refactored repos.
+
+**Auto-GC threshold:** After each index run, if the `edge_events` table exceeds 5,000 rows, the indexer automatically triggers GC (keeping the 10 most recent snapshots). This is inspired by git's `gc.auto` threshold (6,700 loose objects). The auto-GC prevents unbounded edge_events growth without manual intervention.
+
+**Generation numbers on snapshots:** Each snapshot carries a `Generation` integer (migration 015). On creation, `Generation = parent.Generation + 1` (or 0 for the first snapshot). This enables O(1) ancestry checks ("is snapshot A an ancestor of B?" reduces to `A.Generation < B.Generation` when A is on B's chain) and prunes unnecessary chain walks during diff and GC operations.
 
 **`knowing fsck`:** CLI integrity checker (`cmd/knowing/fsck.go` + `internal/snapshot/verify.go`). Verifies edge referential integrity, hash recomputation (detects mutated rows), snapshot chain continuity, and SQLite-level page integrity via `PRAGMA integrity_check`. Issues classified as ERROR or WARN.
 

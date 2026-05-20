@@ -36,6 +36,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Supports `-json` flag for structured output
 - Supports `-db` flag for custom database path
 
+#### Generation numbers on snapshots
+- Schema migration 015: `generation INTEGER NOT NULL DEFAULT 0` on snapshots table
+- `Snapshot.Generation` field: `parent.Generation + 1` on each new snapshot
+- Enables O(1) ancestry checks without walking the chain
+- Inspired by git's commit-graph `generation_number`
+
+#### Auto-GC threshold
+- After indexing, if `edge_events` table exceeds 5,000 rows, automatically prunes old snapshots (keeps 10)
+- Inspired by git's `gc.auto` threshold (6,700 loose objects triggers gc)
+- Prevents unbounded edge_events growth without manual intervention
+
 #### Merkleized Feedback Validity (v0.5.0)
 - Feedback records now store `neighborhood_root` (SubgraphRoot of symbol's package)
 - Feedback automatically expires when code changes (neighborhood changes)

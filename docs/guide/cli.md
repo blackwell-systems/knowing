@@ -13,7 +13,7 @@ See [distribution.md](distribution.md) for installation instructions.
 knowing <subcommand> [flags]
 ```
 
-Subcommands: `serve`, `index`, `query`, `export`, `diff`, `context`, `why`, `mcp`, `watch`, `reindex`, `init`, `add`, `remove`, `list`, `test-scope`, `ingest-scip`, `enrich`, `fsck`, `prove`, `verify`, `prove-absent`, `audit`, `audit-diff`, `version`.
+Subcommands: `serve`, `index`, `query`, `export`, `diff`, `context`, `why`, `mcp`, `watch`, `reindex`, `init`, `add`, `remove`, `list`, `stats`, `test-scope`, `ingest-scip`, `enrich`, `fsck`, `prove`, `verify`, `prove-absent`, `audit`, `audit-diff`, `version`.
 
 ## Environment
 
@@ -701,6 +701,47 @@ database file size, and last-indexed timestamp.
 # List all registered repos
 knowing list
 ```
+
+---
+
+### stats
+
+Show cumulative graph statistics and feedback metrics.
+
+```
+knowing stats [flags]
+```
+
+Prints a summary of the knowledge graph: repos, nodes, edges, files, snapshots,
+communities, graph notes. Also shows feedback metrics: total feedback records,
+useful vs. not useful, unique symbols with feedback, merkleized feedback count,
+and usefulness rate.
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `-db` | string | *(per-repo, from roster)* | Path to the SQLite database |
+| `-json` | bool | `false` | Output as JSON |
+
+**Examples:**
+
+```bash
+# Show graph stats for the current repo
+knowing stats
+
+# JSON output for programmatic consumption
+knowing stats -json
+
+# Stats for a specific database
+knowing stats -db ~/.knowing/repos/my-repo.db
+```
+
+**Notes:**
+
+- Requires a pre-built database. Run `knowing index` first.
+- Feedback metrics include merkleized count (feedback records with a
+  `neighborhood_root` stored, enabling automatic expiration).
 
 ---
 

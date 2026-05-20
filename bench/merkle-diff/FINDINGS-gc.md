@@ -7,8 +7,8 @@ runs discarded; statistics report min, median, p95, mean, and stddev.
 ## Setup
 
 - Repository: knowing (live codebase)
-- Real nodes in graph: 2611
-- Real edges in graph: 13103
+- Real nodes in graph: 2861
+- Real edges in graph: 14655
 - Orphaned nodes injected: 500 (hashes not referenced by any snapshot)
 - Orphaned edges injected: 200 (pointing between orphaned nodes only)
 
@@ -31,8 +31,8 @@ runs discarded; statistics report min, median, p95, mean, and stddev.
 - GCStats.EdgesRemoved >= 200 (at least the injected orphan edges; may be
   higher if the live codebase has pre-existing dangling cross-repo edges
   whose targets are not indexed into the temp DB)
-- All 2611 real nodes survive
-- All 13103 real edges survive
+- All 2861 real nodes survive
+- All 14655 real edges survive
 - Second GC pass on clean DB removes 0 nodes and 0 edges
 
 ## Performance Contracts

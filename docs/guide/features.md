@@ -1,6 +1,6 @@
 # FEATURES.md -- Comprehensive Feature Dump for AI Reference
 
-Generated: 2026-05-15 (updated: 2026-05-19, features 77-101 added: hash domain prefixes, fsck, GC, lockfile, LRU cache, modular community detection, DiffOptions, indexed_at, verify, React viz, MCP resources, graph notes, Phase 3 complete, Merkle proofs)
+Generated: 2026-05-15 (updated: 2026-05-19, features 77-106 added: hash domain prefixes, fsck, GC, lockfile, LRU cache, modular community detection, DiffOptions, indexed_at, verify, React viz, MCP resources, graph notes, Phase 3 complete, Merkle proofs, stats CLI, named refs, generation numbers, auto-GC, merkle-forest extraction)
 Source: code inspection of all Go files across internal/, cmd/, and config
 Repo: github.com/blackwell-systems/knowing
 
@@ -1100,6 +1100,43 @@ Repo: github.com/blackwell-systems/knowing
 - **Package:** `internal/snapshot/manager.go`
 - **Entry point:** `ExtractPackagePath(qualifiedName string) (string, error)` (exported), `CollectEdgeInputs(ctx, repoHash) ([]EdgeInput, int, error)` (exported)
 - **What it does:** Single canonical source for extracting package paths from qualified names and collecting edge inputs for tree construction. Previously 6 duplicate implementations existed; all consolidated to use these functions.
+
+### 102. `knowing stats` CLI
+
+- **Package:** `cmd/knowing/main.go` (cmdStats function)
+- **What it does:** Prints cumulative graph statistics (repos, nodes, edges, files, snapshots, communities, graph notes) and feedback metrics (total, useful, not useful, unique symbols, merkleized count, usefulness rate).
+- **Flags:** `-db` (database path), `-json` (structured output).
+- **Why it matters:** Surfaces accumulated value of the knowledge graph without requiring MCP access. Shows how much feedback has been merkleized (neighborhood_root stored) vs. legacy.
+
+### 103. Named Snapshot Refs
+
+- **Package:** `cmd/knowing/main.go` (resolveSnapshotRef helper)
+- **What it does:** Resolves human-friendly refs to snapshot hashes in `diff` and `audit-diff` commands. Supports `@latest`, `@prev`, `@first`, `@N` (Nth from most recent, 0-indexed).
+- **Inspired by:** git's ref system (HEAD, HEAD~1, HEAD~N).
+- **Why it matters:** Eliminates the need to copy 64-character hex hashes. `knowing diff @prev @latest` replaces `knowing diff <64 hex> <64 hex>`.
+
+### 104. Generation Numbers on Snapshots
+
+- **Package:** `internal/snapshot/manager.go`, `internal/types/types.go`
+- **Migration:** `internal/store/migrations/015_snapshot_generation.sql`
+- **What it does:** Each snapshot stores a `Generation` integer (`parent.Generation + 1`). Enables O(1) ancestry checks without walking the snapshot chain.
+- **Inspired by:** git's commit-graph `generation_number`.
+- **Why it matters:** Prunes chain walks during diff, GC, and bisection operations. At 1000+ snapshots, avoids O(N) linear scans.
+
+### 105. Auto-GC Threshold
+
+- **Package:** `internal/indexer/indexer.go` (maybeAutoGC function)
+- **Constants:** `autoGCThreshold = 5000` (edge_events count), `autoGCKeepCount = 10` (snapshots preserved).
+- **What it does:** After each index run, checks if edge_events exceed threshold. If so, triggers `GarbageCollect` keeping the 10 most recent snapshots and pruning orphaned nodes/edges.
+- **Inspired by:** git's `gc.auto` threshold (6,700 loose objects triggers gc).
+- **Why it matters:** Prevents unbounded edge_events growth and database bloat without requiring manual `knowing gc` invocations.
+
+### 106. Merkle-Forest Library Extraction
+
+- **Dependency:** `github.com/blackwell-systems/merkle-forest` v0.1.1
+- **What it does:** Core Merkle tree construction (`computeMerkleRoot`, binary tree building, multi-level tree building) extracted to a standalone reusable library. `BuildMerkleTree` delegates to `forest.Build` with `WithPrefix([]byte("merkle\x00"))`. `BuildHierarchicalTree` delegates to `forest.BuildMultiLevel`. All exported APIs preserved unchanged.
+- **Net impact:** -44 lines from knowing; construction logic reusable by other projects.
+- **Library source:** https://github.com/blackwell-systems/merkle-forest
 
 ### GraphStore (`internal/types/interfaces.go`)
 
