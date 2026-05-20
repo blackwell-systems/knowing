@@ -1,0 +1,1321 @@
+title: 'P2/P3 Edge Type Expansion: documents, consumes_endpoint, implements_rpc, consumes_rpc, gated_by_flag, deployed_by, tested_by'
+feature_slug: edge-type-expansion-p2
+verdict: SUITABLE
+suitability_assessment: |
+    File decomposition: The work cleanly decomposes into 5+ agents across disjoint files.
+    Each new edge type maps to one or two existing extractor packages. The gotsextractor
+    handles documents + gated_by_flag (Go source patterns). The tsextractor handles
+    consumes_endpoint (fetch/axios patterns). The protoextractor handles implements_rpc
+    and consumes_rpc. The cloudextractor (GitHub Actions) handles deployed_by and
+    tested_by. All share only constants.go and edge-types.md (which go to a dedicated
+    constants agent). No file is the sole bottleneck.
+
+    Investigation-first items: None. All six edge types have clear detection patterns
+    from the feature spec. The existing extractors provide established code patterns
+    (tree-sitter walking, call detection, YAML parsing) to follow.
+
+    Interface discoverability: All cross-agent interfaces are definable now. The only
+    shared artifacts are the edge type string constants (already centralized in
+    internal/edgetype/constants.go) and the RWR weights in internal/context/walk.go.
+    Extractors are self-contained: they receive ExtractOptions, return ExtractResult.
+
+    Pre-implementation status:
+    - documents: TODO. The gotsextractor already calls extractDocComment() and stores
+      the result in node.Doc, but no 'documents' edge exists.
+    - consumes_endpoint: TODO. No implementation exists.
+    - implements_rpc / consumes_rpc: TODO. The protoextractor creates nodes for services
+      and RPCs but does not link concrete Go implementations back to proto definitions.
+    - gated_by_flag: TODO. No implementation exists.
+    - deployed_by: TODO. The cloudextractor/actions.go creates workflow/job/action nodes
+      but does not create deployed_by edges to binary targets.
+    - tested_by: TODO. The cloudextractor/actions.go does not parse test step commands.
+
+    Parallelization value: High. 5 independent agents in wave 1 (each touching 2-3
+    files in distinct packages). Build/test cycle is ~30-60s. Tasks involve non-trivial
+    AST analysis and YAML parsing logic.
+
+    Estimated times:
+    - Scout phase: ~10 min
+    - Agent execution: ~15 min (5 agents x 10 min avg, wave 1 parallel + wave 2 integration)
+    - Merge and verification: ~5 min
+    Total Polywave time: ~30 min
+
+    Sequential baseline: ~55 min (6 tasks x 10 min avg)
+    Time savings: ~25 min (45% faster)
+
+    Recommendation: Clear speedup. Proceed.
+test_command: GOWORK=off go test -short ./... -timeout 5m
+lint_command: go vet ./...
+file_ownership:
+    - file: internal/indexer/gotsextractor/documents_edges.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/indexer/gotsextractor/documents_edges_test.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/indexer/gotsextractor/featureflag_edges.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/indexer/gotsextractor/featureflag_edges_test.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/indexer/tsextractor/endpoint_edges.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/indexer/tsextractor/endpoint_edges_test.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/indexer/gotsextractor/endpoint_edges.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/indexer/gotsextractor/endpoint_edges_test.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/indexer/protoextractor/rpc_edges.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/indexer/protoextractor/rpc_edges_test.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/indexer/cloudextractor/actions_deploy.go
+      agent: D
+      wave: 1
+      action: new
+    - file: internal/indexer/cloudextractor/actions_deploy_test.go
+      agent: D
+      wave: 1
+      action: new
+    - file: internal/edgetype/constants.go
+      agent: E
+      wave: 2
+      action: modify
+    - file: internal/edgetype/constants_test.go
+      agent: E
+      wave: 2
+      action: modify
+    - file: internal/context/walk.go
+      agent: E
+      wave: 2
+      action: modify
+    - file: docs/architecture/edge-types.md
+      agent: E
+      wave: 2
+      action: modify
+    - file: internal/indexer/gotsextractor/extractor.go
+      agent: E
+      wave: 2
+      action: modify
+    - file: internal/indexer/tsextractor/extractor.go
+      agent: E
+      wave: 2
+      action: modify
+    - file: internal/indexer/cloudextractor/actions.go
+      agent: E
+      wave: 2
+      action: modify
+interface_contracts:
+    - name: ExtractDocumentsEdges
+      description: |
+        Extract 'documents' edges from Go source files. For each symbol declaration
+        (function, method, type) that has a preceding doc comment (already detected by
+        extractDocComment), create a 'documents' edge from a synthetic comment node to
+        the declared symbol node.
+      definition: |
+        // ExtractDocumentsEdges creates 'documents' edges for declarations that have
+        // doc comments. For each declaration node with a non-empty Doc field, creates
+        // a synthetic "doc_comment" node and a 'documents' edge from it to the declaration.
+        // Parameters:
+        //   root: tree-sitter root node of the file
+        //   opts: standard ExtractOptions
+        //   pkgPath: resolved Go package path
+        //   declNodes: nodes already extracted by Extract (with Doc field populated)
+        // Returns: (commentNodes []types.Node, edges []types.Edge)
+        func ExtractDocumentsEdges(root *sitter.Node, opts types.ExtractOptions, pkgPath string, declNodes []types.Node) ([]types.Node, []types.Edge)
+      location: internal/indexer/gotsextractor/documents_edges.go
+    - name: ExtractFeatureFlagEdges
+      description: |
+        Detect feature flag SDK calls and create 'gated_by_flag' edges from the
+        enclosing function to a synthetic flag node. Supports patterns like
+        client.BoolVariation("flag-name"), unleash.IsEnabled("flag-name"),
+        and custom IsFeatureEnabled("flag-name") calls.
+      definition: |
+        // ExtractFeatureFlagEdges walks function bodies looking for feature flag SDK
+        // call patterns and creates 'gated_by_flag' edges from the enclosing function
+        // to a synthetic flag node.
+        // Parameters:
+        //   body: tree-sitter node of the function body
+        //   opts: standard ExtractOptions
+        //   pkgPath: resolved Go package path
+        //   funcNodeHash: hash of the enclosing function node
+        //   imports: import alias map
+        // Returns: (flagNodes []types.Node, edges []types.Edge)
+        func ExtractFeatureFlagEdges(body *sitter.Node, opts types.ExtractOptions, pkgPath string, funcNodeHash types.Hash, imports map[string]string) ([]types.Node, []types.Edge)
+      location: internal/indexer/gotsextractor/featureflag_edges.go
+    - name: ExtractEndpointEdgesTS
+      description: |
+        Detect HTTP client calls with literal URL paths in TypeScript/JavaScript
+        (fetch, axios.get, etc.) and create 'consumes_endpoint' edges from the calling
+        function to a synthetic route node.
+      definition: |
+        // ExtractEndpointEdges walks a function body for HTTP client call patterns
+        // (fetch("/api/..."), axios.get("/api/..."), etc.) and creates 'consumes_endpoint'
+        // edges from the enclosing function to a synthetic endpoint node.
+        // Parameters:
+        //   body: tree-sitter node of the function body
+        //   opts: standard ExtractOptions
+        //   qnamePrefix: qualified name prefix for this file
+        //   sourceHash: hash of the enclosing function node
+        // Returns: (endpointNodes []types.Node, edges []types.Edge)
+        func ExtractEndpointEdges(body *sitter.Node, opts types.ExtractOptions, qnamePrefix string, sourceHash types.Hash) ([]types.Node, []types.Edge)
+      location: internal/indexer/tsextractor/endpoint_edges.go
+    - name: ExtractEndpointEdgesGo
+      description: |
+        Detect HTTP client calls with literal URL paths in Go (http.Get, http.Post,
+        client.Get, etc.) and create 'consumes_endpoint' edges from the calling
+        function to a synthetic route node.
+      definition: |
+        // ExtractGoEndpointEdges walks a function body for HTTP client call patterns
+        // (http.Get("..."), http.Post("..."), client.Get("...")) and creates
+        // 'consumes_endpoint' edges from the enclosing function to a synthetic endpoint node.
+        // Parameters:
+        //   body: tree-sitter node of the function body
+        //   opts: standard ExtractOptions
+        //   pkgPath: resolved Go package path
+        //   funcNodeHash: hash of the enclosing function node
+        //   imports: import alias map
+        // Returns: (endpointNodes []types.Node, edges []types.Edge)
+        func ExtractGoEndpointEdges(body *sitter.Node, opts types.ExtractOptions, pkgPath string, funcNodeHash types.Hash, imports map[string]string) ([]types.Node, []types.Edge)
+      location: internal/indexer/gotsextractor/endpoint_edges.go
+    - name: ExtractRPCImplementsEdges
+      description: |
+        Detect Go structs that embed pb.Unimplemented*Server and create
+        'implements_rpc' edges from the concrete server struct to the proto
+        service definition node. Also detect client call sites (pb.NewFooClient)
+        and create 'consumes_rpc' edges.
+      definition: |
+        // ExtractRPCEdges scans Go source for gRPC implementation and client patterns.
+        // For structs embedding pb.Unimplemented*Server: creates 'implements_rpc' edge
+        // from the struct to the proto service node.
+        // For pb.New*Client() calls: creates 'consumes_rpc' edge from the calling function
+        // to the proto service node.
+        // Parameters:
+        //   root: tree-sitter root node of the Go file
+        //   opts: standard ExtractOptions
+        //   pkgPath: resolved Go package path
+        //   imports: import alias map
+        // Returns: (serviceNodes []types.Node, edges []types.Edge)
+        func ExtractRPCEdges(root *sitter.Node, opts types.ExtractOptions, pkgPath string, imports map[string]string) ([]types.Node, []types.Edge)
+      location: internal/indexer/protoextractor/rpc_edges.go
+    - name: ExtractDeployedByEdges
+      description: |
+        Parse GitHub Actions workflow YAML to create 'deployed_by' edges from
+        service/binary targets to the workflow that deploys them. Detects
+        deployment steps (docker push, kubectl apply, deploy actions) and links
+        them to the workflow node.
+      definition: |
+        // ExtractDeployedByEdges parses GitHub Actions workflow YAML and creates
+        // 'deployed_by' edges from detected deployment targets to the workflow.
+        // Also creates 'tested_by' edges from packages referenced in test steps
+        // (go test ./pkg/..., npm test, pytest) to the workflow test job.
+        // Parameters:
+        //   opts: standard ExtractOptions (Content is the YAML)
+        //   workflowHash: hash of the parent workflow node
+        //   jobDefs: map of jobID -> parsed job definition
+        // These are helper functions called from the actionsExtractor.
+        func extractDeployedByEdges(opts types.ExtractOptions, workflowHash types.Hash, jobDefs map[string]map[string]interface{}) ([]types.Node, []types.Edge)
+        func extractTestedByEdges(opts types.ExtractOptions, jobDefs map[string]map[string]interface{}) ([]types.Node, []types.Edge)
+      location: internal/indexer/cloudextractor/actions_deploy.go
+waves:
+    - number: 1
+      agents:
+        - id: A
+          task: |
+            ## Task: Implement 'documents' and 'gated_by_flag' edges in Go tree-sitter extractor
+
+            ### What to implement
+
+            Two new edge types, each in its own file within `internal/indexer/gotsextractor/`.
+
+            #### File 1: documents_edges.go
+
+            Create `ExtractDocumentsEdges` that creates 'documents' edges from comment nodes
+            to the symbols they document. The gotsextractor already calls `extractDocComment()`
+            and populates `node.Doc`. This function takes the already-extracted nodes and creates
+            edges for those with non-empty Doc fields.
+
+            **Function signature:**
+            ```go
+            package gotsextractor
+
+            import (
+                sitter "github.com/smacker/go-tree-sitter"
+                "github.com/blackwell-systems/knowing/internal/types"
+            )
+
+            // ExtractDocumentsEdges creates 'documents' edges for declarations that have
+            // doc comments. For each declaration node with a non-empty Doc field, creates
+            // a synthetic "doc_comment" node and a 'documents' edge from it to the declaration.
+            func ExtractDocumentsEdges(root *sitter.Node, opts types.ExtractOptions, pkgPath string, declNodes []types.Node) ([]types.Node, []types.Edge)
+            ```
+
+            **Logic:**
+            1. For each node in `declNodes` where `node.Doc != ""`:
+               a. Create a synthetic doc_comment node:
+                  ```go
+                  commentName := "doc:" + node.QualifiedName  // e.g., "doc:repo://pkg.FuncName"
+                  commentHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, commentName, "doc_comment")
+                  commentNode := types.Node{
+                      NodeHash:      commentHash,
+                      FileHash:      opts.FileHash,
+                      QualifiedName: fmt.Sprintf("%s://%s.%s", opts.RepoURL, pkgPath, commentName),
+                      Kind:          "doc_comment",
+                      Line:          node.Line - 1, // comment precedes the declaration
+                      Doc:           node.Doc,       // store the comment text
+                  }
+                  ```
+               b. Create a 'documents' edge:
+                  ```go
+                  provenance := "ast_inferred"
+                  edgeHash := types.ComputeEdgeHash(commentHash, node.NodeHash, "documents", provenance)
+                  edge := types.Edge{
+                      EdgeHash:   edgeHash,
+                      SourceHash: commentHash,
+                      TargetHash: node.NodeHash,
+                      EdgeType:   "documents",
+                      Confidence: 0.9,
+                      Provenance: provenance,
+                  }
+                  ```
+            2. Return accumulated comment nodes and edges.
+
+            **Note:** Confidence is 0.9 (doc comments are unambiguous). The edge goes FROM
+            the comment node TO the symbol (comment documents symbol).
+
+            #### File 2: featureflag_edges.go
+
+            Create `ExtractFeatureFlagEdges` that detects feature flag SDK calls and creates
+            'gated_by_flag' edges from the enclosing function to a synthetic flag node.
+
+            **Function signature:**
+            ```go
+            package gotsextractor
+
+            import (
+                sitter "github.com/smacker/go-tree-sitter"
+                "github.com/blackwell-systems/knowing/internal/types"
+            )
+
+            // ExtractFeatureFlagEdges walks function bodies looking for feature flag SDK
+            // call patterns and creates 'gated_by_flag' edges.
+            func ExtractFeatureFlagEdges(body *sitter.Node, opts types.ExtractOptions, pkgPath string, funcNodeHash types.Hash, imports map[string]string) ([]types.Node, []types.Edge)
+            ```
+
+            **Detection patterns (all are selector_expression call patterns):**
+            1. `*.BoolVariation("flag-name", ...)` - LaunchDarkly
+            2. `*.StringVariation("flag-name", ...)` - LaunchDarkly
+            3. `*.IntVariation("flag-name", ...)` - LaunchDarkly
+            4. `*.Float64Variation("flag-name", ...)` - LaunchDarkly
+            5. `*.JSONVariation("flag-name", ...)` - LaunchDarkly
+            6. `*.IsEnabled("flag-name")` - Unleash
+            7. `*.isEnabled("flag-name")` - generic
+            8. `IsFeatureEnabled("flag-name")` - custom (plain identifier call)
+            9. `isFeatureEnabled("flag-name")` - custom (plain identifier call)
+            10. `*.GetFlag("flag-name")` - generic
+            11. `*.Enabled("flag-name")` - generic
+
+            **Logic:**
+            1. Walk the function body recursively for call_expression nodes
+            2. For each call matching a pattern above:
+               a. Extract the flag name from the first string argument
+               b. Create a synthetic flag node:
+                  ```go
+                  flagHash := types.ComputeNodeHash(opts.RepoURL, "flags", types.EmptyHash, flagName, "feature_flag")
+                  flagNode := types.Node{
+                      NodeHash:      flagHash,
+                      FileHash:      types.EmptyHash, // synthetic, not tied to a file
+                      QualifiedName: fmt.Sprintf("%s://flags.%s", opts.RepoURL, flagName),
+                      Kind:          "feature_flag",
+                      Signature:     "flag " + flagName,
+                  }
+                  ```
+               c. Create a 'gated_by_flag' edge:
+                  ```go
+                  provenance := "ast_inferred"
+                  edgeHash := types.ComputeEdgeHash(funcNodeHash, flagHash, "gated_by_flag", provenance)
+                  edge := types.Edge{
+                      EdgeHash:   edgeHash,
+                      SourceHash: funcNodeHash,
+                      TargetHash: flagHash,
+                      EdgeType:   "gated_by_flag",
+                      Confidence: 0.8,
+                      Provenance: provenance,
+                  }
+                  ```
+            3. Deduplicate edges and flag nodes by hash.
+            4. Return accumulated flag nodes and edges.
+
+            **String argument extraction:** Reuse the existing `extractFirstStringArg` function
+            pattern from extractor.go (looks for `interpreted_string_literal` or
+            `raw_string_literal` in the arguments node).
+
+            **Method name matching:** Create a package-level map for fast lookup:
+            ```go
+            var featureFlagMethods = map[string]bool{
+                "BoolVariation":    true,
+                "StringVariation":  true,
+                "IntVariation":     true,
+                "Float64Variation": true,
+                "JSONVariation":    true,
+                "IsEnabled":        true,
+                "isEnabled":        true,
+                "GetFlag":          true,
+                "Enabled":          true,
+            }
+
+            var featureFlagFunctions = map[string]bool{
+                "IsFeatureEnabled":  true,
+                "isFeatureEnabled":  true,
+            }
+            ```
+
+            ### Tests to write
+
+            #### documents_edges_test.go
+            1. TestExtractDocumentsEdges_FunctionWithDoc: function with // comment creates edge
+            2. TestExtractDocumentsEdges_NoDoc: function without comment returns empty
+            3. TestExtractDocumentsEdges_TypeWithDoc: type declaration with comment creates edge
+            4. TestExtractDocumentsEdges_MethodWithDoc: method with comment creates edge
+            5. TestExtractDocumentsEdges_MultipleDecls: multiple documented decls create multiple edges
+
+            #### featureflag_edges_test.go
+            1. TestExtractFeatureFlagEdges_LaunchDarkly: BoolVariation("my-flag") detected
+            2. TestExtractFeatureFlagEdges_Unleash: IsEnabled("flag-name") detected
+            3. TestExtractFeatureFlagEdges_CustomFunction: IsFeatureEnabled("flag") detected
+            4. TestExtractFeatureFlagEdges_NoFlags: function without flag calls returns empty
+            5. TestExtractFeatureFlagEdges_MultipleFlagsSameFunc: two flag calls in one function
+            6. TestExtractFeatureFlagEdges_DynamicString: non-literal argument is skipped
+
+            ### Verification gate
+            ```bash
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go build ./internal/indexer/gotsextractor/... && GOWORK=off go test ./internal/indexer/gotsextractor/ -run "TestExtractDocuments|TestExtractFeatureFlag" -count=1 -timeout 30s
+            ```
+
+            ### Postconditions
+            ```bash
+            grep -c "func ExtractDocumentsEdges" internal/indexer/gotsextractor/documents_edges.go
+            # Expected: 1
+            grep -c "func ExtractFeatureFlagEdges" internal/indexer/gotsextractor/featureflag_edges.go
+            # Expected: 1
+            grep -c "documents" internal/indexer/gotsextractor/documents_edges.go
+            # Expected: >= 3
+            grep -c "gated_by_flag" internal/indexer/gotsextractor/featureflag_edges.go
+            # Expected: >= 3
+            ```
+
+            ### Constraints
+            - Do NOT modify extractor.go (integration is Wave 2 Agent E scope)
+            - Do NOT import internal/edgetype; use raw strings "documents" and "gated_by_flag"
+            - Do NOT modify any files outside your ownership list
+            - The `extractDocComment` function and `extractFirstStringArg` function already exist
+              in extractor.go; you can reference their logic but create your own helper if needed
+              (same package, so you have access to unexported functions)
+          files:
+            - internal/indexer/gotsextractor/documents_edges.go
+            - internal/indexer/gotsextractor/documents_edges_test.go
+            - internal/indexer/gotsextractor/featureflag_edges.go
+            - internal/indexer/gotsextractor/featureflag_edges_test.go
+        - id: B
+          task: |
+            ## Task: Implement 'consumes_endpoint' edges in TypeScript and Go extractors
+
+            ### What to implement
+
+            Two new files: one in the tsextractor for TypeScript/JS patterns, and one in
+            the gotsextractor for Go patterns.
+
+            #### File 1: internal/indexer/tsextractor/endpoint_edges.go
+
+            Create `ExtractEndpointEdges` that detects HTTP client calls with literal URL
+            paths and creates 'consumes_endpoint' edges.
+
+            **Function signature:**
+            ```go
+            package tsextractor
+
+            import (
+                sitter "github.com/smacker/go-tree-sitter"
+                "github.com/blackwell-systems/knowing/internal/types"
+            )
+
+            // ExtractEndpointEdges walks a function body for HTTP client call patterns
+            // and creates 'consumes_endpoint' edges from the function to synthetic endpoint nodes.
+            func ExtractEndpointEdges(body *sitter.Node, opts types.ExtractOptions, qnamePrefix string, sourceHash types.Hash) ([]types.Node, []types.Edge)
+            ```
+
+            **Detection patterns (TypeScript/JavaScript):**
+            1. `fetch("/api/users")` - plain function call with string arg starting with "/" or "http"
+            2. `fetch(\`/api/users\`)` - template literal (only extract if no interpolation)
+            3. `axios.get("/api/users")` - member expression call
+            4. `axios.post("/api/users", ...)` - member expression call
+            5. `axios.put("/api/users")` - member expression call
+            6. `axios.delete("/api/users")` - member expression call
+            7. `axios.patch("/api/users")` - member expression call
+            8. `http.get("/api/users")` - Angular HttpClient pattern
+            9. `http.post("/api/users")` - Angular HttpClient pattern
+            10. `client.get("/api/users")` - generic HTTP client pattern
+            11. `api.get("/api/users")` - generic API client pattern
+
+            **Method name matching:**
+            ```go
+            var httpClientMethods = map[string]bool{
+                "get": true, "post": true, "put": true,
+                "delete": true, "patch": true, "head": true,
+                "request": true,
+            }
+
+            var httpClientObjects = map[string]bool{
+                "axios": true, "http": true, "client": true,
+                "api": true, "httpClient": true,
+            }
+            ```
+
+            **Logic:**
+            1. Walk the body recursively for call_expression nodes
+            2. For each call matching a pattern:
+               a. Extract the URL path from the first string argument
+               b. Derive the HTTP method from the call (fetch = "ANY", axios.get = "GET", etc.)
+               c. Extract just the path portion (strip "http://...", keep "/api/users")
+               d. Create a synthetic endpoint node:
+                  ```go
+                  endpointSig := httpMethod + " " + urlPath
+                  endpointHash := types.ComputeNodeHash(opts.RepoURL, "endpoints", types.EmptyHash, endpointSig, "endpoint")
+                  endpointNode := types.Node{
+                      NodeHash:      endpointHash,
+                      FileHash:      types.EmptyHash,
+                      QualifiedName: fmt.Sprintf("%s://endpoints.%s", opts.RepoURL, endpointSig),
+                      Kind:          "endpoint",
+                      Signature:     endpointSig,
+                  }
+                  ```
+               e. Create a 'consumes_endpoint' edge:
+                  ```go
+                  provenance := "ast_inferred"
+                  edgeHash := types.ComputeEdgeHash(sourceHash, endpointHash, "consumes_endpoint", provenance)
+                  edge := types.Edge{
+                      EdgeHash:   edgeHash,
+                      SourceHash: sourceHash,
+                      TargetHash: endpointHash,
+                      EdgeType:   "consumes_endpoint",
+                      Confidence: 0.6,
+                      Provenance: provenance,
+                  }
+                  ```
+            3. Deduplicate by edge hash. Return nodes and edges.
+
+            **URL extraction helper:**
+            ```go
+            // extractURLPath extracts the path portion from a URL string.
+            // "/api/users" -> "/api/users"
+            // "http://service/api/users" -> "/api/users"
+            // "https://api.example.com/v1/users" -> "/v1/users"
+            func extractURLPath(rawURL string) string
+            ```
+
+            #### File 2: internal/indexer/gotsextractor/endpoint_edges.go
+
+            Create `ExtractGoEndpointEdges` for Go HTTP client patterns.
+
+            **Function signature:**
+            ```go
+            package gotsextractor
+
+            import (
+                sitter "github.com/smacker/go-tree-sitter"
+                "github.com/blackwell-systems/knowing/internal/types"
+            )
+
+            // ExtractGoEndpointEdges walks a function body for Go HTTP client call patterns
+            // and creates 'consumes_endpoint' edges.
+            func ExtractGoEndpointEdges(body *sitter.Node, opts types.ExtractOptions, pkgPath string, funcNodeHash types.Hash, imports map[string]string) ([]types.Node, []types.Edge)
+            ```
+
+            **Detection patterns (Go):**
+            1. `http.Get("http://service/api/users")` - net/http package
+            2. `http.Post("http://service/api/users", ...)` - net/http package
+            3. `http.NewRequest("GET", "http://service/api/users", ...)` - net/http package
+            4. `client.Get("http://service/api/users")` - generic client
+            5. `client.Post("http://service/api/users", ...)` - generic client
+            6. `req, _ := http.NewRequest("POST", "/api/users", ...)` - request construction
+
+            **Method name matching:**
+            ```go
+            var goHTTPClientMethods = map[string]bool{
+                "Get": true, "Post": true, "Head": true,
+                "Do": false, // Skip Do() - no URL argument
+            }
+
+            var goHTTPClientNewRequest = "NewRequest" // special case: method is first arg, URL is second
+            ```
+
+            **Logic:** Same pattern as TypeScript version but using Go tree-sitter node types
+            (selector_expression, interpreted_string_literal). Check `imports` map to confirm
+            the receiver is from "net/http" or a known HTTP client package.
+
+            For `NewRequest` pattern: extract HTTP method from first string arg, URL from second
+            string arg.
+
+            ### Tests to write
+
+            #### tsextractor/endpoint_edges_test.go
+            1. TestExtractEndpointEdges_Fetch: `fetch("/api/users")` creates edge
+            2. TestExtractEndpointEdges_Axios: `axios.get("/api/users")` creates edge with GET method
+            3. TestExtractEndpointEdges_AxiosPost: `axios.post("/api/users")` creates edge with POST
+            4. TestExtractEndpointEdges_FullURL: `fetch("http://service/api/users")` extracts path
+            5. TestExtractEndpointEdges_NoHTTPCalls: function without HTTP calls returns empty
+            6. TestExtractEndpointEdges_DynamicURL: template literal with interpolation is skipped
+            7. TestExtractEndpointEdges_MultipleEndpoints: multiple calls create multiple edges
+
+            #### gotsextractor/endpoint_edges_test.go
+            1. TestExtractGoEndpointEdges_HttpGet: `http.Get("http://x/api/users")` creates edge
+            2. TestExtractGoEndpointEdges_HttpPost: `http.Post("http://x/api/users", ...)` creates edge
+            3. TestExtractGoEndpointEdges_NewRequest: `http.NewRequest("GET", "/api/users", nil)` creates edge
+            4. TestExtractGoEndpointEdges_NoHTTPCalls: no HTTP client calls returns empty
+            5. TestExtractGoEndpointEdges_NonHTTPPackage: method called "Get" on non-http package is skipped
+
+            ### Verification gate
+            ```bash
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go build ./internal/indexer/tsextractor/... ./internal/indexer/gotsextractor/... && GOWORK=off go test ./internal/indexer/tsextractor/ -run TestExtractEndpoint -count=1 -timeout 30s && GOWORK=off go test ./internal/indexer/gotsextractor/ -run TestExtractGoEndpoint -count=1 -timeout 30s
+            ```
+
+            ### Postconditions
+            ```bash
+            grep -c "func ExtractEndpointEdges" internal/indexer/tsextractor/endpoint_edges.go
+            # Expected: 1
+            grep -c "func ExtractGoEndpointEdges" internal/indexer/gotsextractor/endpoint_edges.go
+            # Expected: 1
+            grep -c "consumes_endpoint" internal/indexer/tsextractor/endpoint_edges.go
+            # Expected: >= 2
+            grep -c "consumes_endpoint" internal/indexer/gotsextractor/endpoint_edges.go
+            # Expected: >= 2
+            ```
+
+            ### Constraints
+            - Do NOT modify tsextractor/extractor.go or gotsextractor/extractor.go (integration is Wave 2)
+            - Do NOT import internal/edgetype; use raw string "consumes_endpoint"
+            - Do NOT modify any files outside your ownership list
+            - You have access to unexported functions in the same package (extractFirstStringArg,
+              extractFirstStringArgTS, etc.)
+          files:
+            - internal/indexer/tsextractor/endpoint_edges.go
+            - internal/indexer/tsextractor/endpoint_edges_test.go
+            - internal/indexer/gotsextractor/endpoint_edges.go
+            - internal/indexer/gotsextractor/endpoint_edges_test.go
+        - id: C
+          task: |
+            ## Task: Implement 'implements_rpc' and 'consumes_rpc' edges
+
+            ### What to implement
+
+            Create `internal/indexer/protoextractor/rpc_edges.go` with logic to detect gRPC
+            implementation patterns in Go source and create cross-referencing edges to proto
+            service definitions.
+
+            **Important context:** The protoextractor already creates nodes for gRPC services
+            (kind="service") and RPC methods (kind="function") from .proto files. This new file
+            adds a Go source code scanner that detects concrete implementations and client usage,
+            creating edges that link Go code back to proto definitions.
+
+            **This file is in the protoextractor package** but it parses Go source code (not .proto
+            files). It uses the Go tree-sitter parser to detect patterns in Go files. The existing
+            protoextractor only handles .proto files; this extends it to handle the Go side of gRPC.
+
+            **Function signature:**
+            ```go
+            package protoextractor
+
+            import (
+                "context"
+                "path/filepath"
+                "strings"
+
+                sitter "github.com/smacker/go-tree-sitter"
+                "github.com/smacker/go-tree-sitter/golang"
+
+                "github.com/blackwell-systems/knowing/internal/types"
+            )
+
+            // ExtractRPCEdges scans Go source for gRPC implementation and client patterns.
+            // It creates 'implements_rpc' edges from server structs to proto service nodes,
+            // and 'consumes_rpc' edges from client call sites to proto service nodes.
+            func ExtractRPCEdges(root *sitter.Node, opts types.ExtractOptions, pkgPath string, imports map[string]string) ([]types.Node, []types.Edge)
+            ```
+
+            **Detection pattern 1: implements_rpc (server side)**
+
+            In Go, gRPC server implementations embed `pb.Unimplemented*Server`:
+            ```go
+            type UserServer struct {
+                pb.UnimplementedUserServiceServer
+            }
+            ```
+
+            Detection logic:
+            1. Walk top-level `type_declaration` nodes
+            2. For each `type_spec` with a `struct_type` body:
+               a. Walk the struct's field list
+               b. Look for fields whose type is a selector_expression matching
+                  `*.Unimplemented*Server` pattern
+               c. Extract the service name: strip "Unimplemented" prefix and "Server" suffix
+                  (e.g., "UnimplementedUserServiceServer" -> "UserService")
+               d. Resolve the proto package from imports map (the `pb` or similar alias)
+               e. Create implements_rpc edge:
+                  ```go
+                  // The struct node
+                  structHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, structName, "type")
+                  // The proto service node (in the proto package's namespace)
+                  protoServiceHash := types.NewHash([]byte(protoPkgPath + "://" + serviceName + "/service"))
+                  provenance := "ast_inferred"
+                  edgeHash := types.ComputeEdgeHash(structHash, protoServiceHash, "implements_rpc", provenance)
+                  ```
+                  Confidence: 0.9 (embedding Unimplemented*Server is deterministic).
+
+            **Detection pattern 2: consumes_rpc (client side)**
+
+            Client creation: `pb.NewUserServiceClient(conn)`
+
+            Detection logic:
+            1. Walk function bodies for call_expression nodes
+            2. Look for selector_expression calls matching `*.New*Client(...)` pattern
+            3. Extract service name: strip "New" prefix and "Client" suffix
+               (e.g., "NewUserServiceClient" -> "UserService")
+            4. Create consumes_rpc edge:
+               ```go
+               protoServiceHash := types.NewHash([]byte(protoPkgPath + "://" + serviceName + "/service"))
+               provenance := "ast_inferred"
+               edgeHash := types.ComputeEdgeHash(funcNodeHash, protoServiceHash, "consumes_rpc", provenance)
+               ```
+               Confidence: 0.8 (New*Client pattern is highly reliable).
+
+            **Proto package path resolution:**
+            Use the imports map. If `pb` maps to `"github.com/example/api/proto/user"`, that is
+            the proto package path. The service hash must match what the protoextractor produces:
+            ```go
+            // protoextractor creates service hashes as:
+            serviceHash := types.NewHash([]byte(opts.RepoURL + "://" + pkgName + "." + serviceName + "/service"))
+            ```
+            Use the same pattern, substituting the resolved import path for the proto package.
+
+            **Note on package placement:** This file is in `protoextractor` because it creates
+            edges that reference proto service nodes (conceptual ownership). However, it needs
+            its own tree-sitter Go parser since the protoextractor normally only parses .proto
+            files. Create a package-level `goParser` variable (lazy-initialized) for this purpose.
+
+            **Alternative approach:** If putting a Go parser in protoextractor feels wrong, you may
+            instead create this as a standalone package `internal/indexer/rpcextractor/`. But for
+            simplicity, keep it in protoextractor since it references proto service hash computation.
+
+            ### Tests to write
+
+            #### rpc_edges_test.go
+            1. TestExtractRPCEdges_ImplementsServer: struct embedding pb.UnimplementedFooServer
+            2. TestExtractRPCEdges_ClientCreation: pb.NewFooClient(conn) detected
+            3. TestExtractRPCEdges_NoGRPC: Go file without gRPC patterns returns empty
+            4. TestExtractRPCEdges_MultipleServices: multiple server impls and client calls
+            5. TestExtractRPCEdges_CustomAlias: import alias `userpb` instead of `pb`
+            6. TestExtractRPCEdges_NonProtoFile: non-Go patterns are not detected
+
+            ### Verification gate
+            ```bash
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go build ./internal/indexer/protoextractor/... && GOWORK=off go test ./internal/indexer/protoextractor/ -run TestExtractRPCEdges -count=1 -timeout 30s
+            ```
+
+            ### Postconditions
+            ```bash
+            grep -c "func ExtractRPCEdges" internal/indexer/protoextractor/rpc_edges.go
+            # Expected: 1
+            grep -c "implements_rpc" internal/indexer/protoextractor/rpc_edges.go
+            # Expected: >= 2
+            grep -c "consumes_rpc" internal/indexer/protoextractor/rpc_edges.go
+            # Expected: >= 2
+            ```
+
+            ### Constraints
+            - Do NOT modify protoextractor/extractor.go (integration is Wave 2 scope or future)
+            - Do NOT import internal/edgetype; use raw strings "implements_rpc" and "consumes_rpc"
+            - Do NOT modify any files outside your ownership list
+            - The protoextractor package already has a tree-sitter parser for protobuf; you need
+              a separate Go parser for this file
+          files:
+            - internal/indexer/protoextractor/rpc_edges.go
+            - internal/indexer/protoextractor/rpc_edges_test.go
+        - id: D
+          task: |
+            ## Task: Implement 'deployed_by' and 'tested_by' edges in GitHub Actions extractor
+
+            ### What to implement
+
+            Create `internal/indexer/cloudextractor/actions_deploy.go` with helper functions
+            that the existing `actionsExtractor.extract()` can call to produce 'deployed_by'
+            and 'tested_by' edges.
+
+            **Context:** The existing `actions.go` already parses GitHub Actions workflow YAML
+            and creates workflow, job, and action nodes. It processes `jobs[*].steps[*].uses`.
+            The new file adds detection of deployment steps and test steps.
+
+            #### deployed_by edges
+
+            **Detection logic:**
+            Parse each job's steps looking for deployment indicators:
+            1. Steps with `uses:` matching deployment actions:
+               - `aws-actions/amazon-ecs-deploy-task-definition@*`
+               - `azure/webapps-deploy@*`
+               - `google-github-actions/deploy-cloudrun@*`
+               - `docker/build-push-action@*`
+               - Contains "deploy" in the action name (heuristic)
+            2. Steps with `run:` commands containing deployment patterns:
+               - `docker push`
+               - `kubectl apply`
+               - `kubectl rollout`
+               - `helm upgrade`
+               - `terraform apply`
+               - `serverless deploy`
+               - `flyctl deploy`
+               - `gcloud.*deploy`
+
+            **For each detected deployment step:**
+            1. Identify the deployment target:
+               - From `docker push <image>`: target is the image name
+               - From `kubectl apply -f <file>`: target is the file/resource name
+               - From action inputs (e.g., `with.service`, `with.app-name`): target from inputs
+               - Fallback: use the job name as the target identifier
+            2. Create a synthetic deployment target node:
+               ```go
+               targetHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, targetName, "deployment_target")
+               ```
+            3. Create a 'deployed_by' edge from the target to the workflow:
+               ```go
+               provenance := "ast_inferred"
+               edgeHash := types.ComputeEdgeHash(targetHash, workflowHash, "deployed_by", provenance)
+               edge := types.Edge{
+                   EdgeHash:   edgeHash,
+                   SourceHash: targetHash,
+                   TargetHash: workflowHash,
+                   EdgeType:   "deployed_by",
+                   Confidence: 0.9,
+                   Provenance: provenance,
+               }
+               ```
+
+            #### tested_by edges
+
+            **Detection logic:**
+            Parse each job's steps looking for test commands:
+            1. Steps with `run:` containing test patterns:
+               - `go test ./pkg/...` or `go test ./...` - extract package path
+               - `npm test` or `npx jest` - target is "npm:test"
+               - `pytest` or `python -m pytest` - target is "pytest"
+               - `cargo test` - target is "cargo:test"
+               - `make test` - target is "make:test"
+
+            **For Go test commands:** Extract the package argument:
+            - `go test ./internal/store/...` -> package = "internal/store"
+            - `go test ./...` -> package = "." (entire repo)
+            - `go test ./pkg/auth/ ./pkg/user/` -> multiple packages
+
+            **For each detected test step:**
+            1. Create a synthetic test target node (the package being tested):
+               ```go
+               testTargetHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, pkgName, "test_target")
+               ```
+            2. Create a 'tested_by' edge from the test target to the job:
+               ```go
+               provenance := "ast_inferred"
+               edgeHash := types.ComputeEdgeHash(testTargetHash, jobHash, "tested_by", provenance)
+               edge := types.Edge{
+                   EdgeHash:   edgeHash,
+                   SourceHash: testTargetHash,
+                   TargetHash: jobHash,
+                   EdgeType:   "tested_by",
+                   Confidence: 0.8,
+                   Provenance: provenance,
+               }
+               ```
+
+            **Helper functions (exported for integration):**
+            ```go
+            package cloudextractor
+
+            // extractDeployedByEdges parses job definitions for deployment patterns.
+            func extractDeployedByEdges(opts types.ExtractOptions, workflowHash types.Hash, jobDefs map[string]jobDef) ([]types.Node, []types.Edge)
+
+            // extractTestedByEdges parses job definitions for test command patterns.
+            func extractTestedByEdges(opts types.ExtractOptions, jobDefs map[string]jobDef) ([]types.Node, []types.Edge)
+
+            // jobDef is a convenience type for parsed job YAML.
+            type jobDef struct {
+                ID    string
+                Hash  types.Hash
+                Steps []map[string]interface{}
+            }
+            ```
+
+            **Important:** These helper functions receive pre-parsed job data (already extracted
+            in actions.go). The integration in Wave 2 will call these from within the existing
+            actionsExtractor.extract() method.
+
+            ### Tests to write
+
+            #### actions_deploy_test.go
+            1. TestExtractDeployedByEdges_DockerPush: `docker push myimage:latest` creates edge
+            2. TestExtractDeployedByEdges_KubectlApply: `kubectl apply -f deploy.yaml` creates edge
+            3. TestExtractDeployedByEdges_DeployAction: uses deploy action creates edge
+            4. TestExtractDeployedByEdges_NoDeployment: job without deploy steps returns empty
+            5. TestExtractDeployedByEdges_HelmUpgrade: `helm upgrade release chart` creates edge
+            6. TestExtractTestedByEdges_GoTest: `go test ./internal/store/...` creates edge
+            7. TestExtractTestedByEdges_NpmTest: `npm test` creates edge
+            8. TestExtractTestedByEdges_MultiplePackages: multiple go test args create multiple edges
+            9. TestExtractTestedByEdges_NoTests: job without test commands returns empty
+            10. TestExtractTestedByEdges_Pytest: `pytest tests/` creates edge
+
+            ### Verification gate
+            ```bash
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go build ./internal/indexer/cloudextractor/... && GOWORK=off go test ./internal/indexer/cloudextractor/ -run "TestExtractDeployedBy|TestExtractTestedBy" -count=1 -timeout 30s
+            ```
+
+            ### Postconditions
+            ```bash
+            grep -c "func extractDeployedByEdges" internal/indexer/cloudextractor/actions_deploy.go
+            # Expected: 1
+            grep -c "func extractTestedByEdges" internal/indexer/cloudextractor/actions_deploy.go
+            # Expected: 1
+            grep -c "deployed_by" internal/indexer/cloudextractor/actions_deploy.go
+            # Expected: >= 2
+            grep -c "tested_by" internal/indexer/cloudextractor/actions_deploy.go
+            # Expected: >= 2
+            ```
+
+            ### Constraints
+            - Do NOT modify actions.go (integration is Wave 2 Agent E scope)
+            - Do NOT import internal/edgetype; use raw strings "deployed_by" and "tested_by"
+            - Do NOT modify any files outside your ownership list
+            - You can use the shared `makeEdge` and `buildQN` functions from extractor.go
+              (same package, so they are accessible)
+            - Use the same `provenance` and `confidence` constants from extractor.go
+          files:
+            - internal/indexer/cloudextractor/actions_deploy.go
+            - internal/indexer/cloudextractor/actions_deploy_test.go
+    - number: 2
+      agents:
+        - id: E
+          task: |
+            ## Task: Integration - constants, RWR weights, documentation, extractor wiring
+
+            ### What to implement
+
+            This agent wires all Wave 1 deliverables into the existing codebase.
+
+            #### 1. Add new edge type constants (internal/edgetype/constants.go)
+
+            Add the 7 new edge type constants to the existing const block. Insert after
+            the `RuntimeConsumes` constant:
+
+            Insert after this exact text:
+            ```go
+            	RuntimeConsumes = "runtime_consumes"
+            ```
+
+            Add:
+            ```go
+            	// P2/P3 static edge types
+            	Documents        = "documents"
+            	ConsumesEndpoint = "consumes_endpoint"
+            	ImplementsRPC    = "implements_rpc"
+            	ConsumesRPC      = "consumes_rpc"
+            	GatedByFlag      = "gated_by_flag"
+            	DeployedBy       = "deployed_by"
+            	TestedBy         = "tested_by"
+            ```
+
+            Update RWRWeight function. Insert new cases before the `default:` case:
+
+            Insert after this exact text:
+            ```go
+            	case OwnedBy, AuthoredBy:
+            		return 0.0
+            ```
+
+            Add:
+            ```go
+            	case Documents:
+            		return 0.2
+            	case ConsumesEndpoint:
+            		return 0.5
+            	case ImplementsRPC:
+            		return 0.8
+            	case ConsumesRPC:
+            		return 0.6
+            	case GatedByFlag:
+            		return 0.3
+            	case DeployedBy:
+            		return 0.4
+            	case TestedBy:
+            		return 0.5
+            ```
+
+            #### 2. Update edge type tests (internal/edgetype/constants_test.go)
+
+            Add the new constants to TestRWRWeight_KnownTypes test cases and to the
+            TestConstants_NoEmpty list.
+
+            In the `tests` slice in TestRWRWeight_KnownTypes, add after `{Decorates, 0.3}`:
+            ```go
+            {Documents, 0.2},
+            {ConsumesEndpoint, 0.5},
+            {ImplementsRPC, 0.8},
+            {ConsumesRPC, 0.6},
+            {GatedByFlag, 0.3},
+            {DeployedBy, 0.4},
+            {TestedBy, 0.5},
+            ```
+
+            In TestConstants_NoEmpty, add the 7 new constants to the slice.
+
+            #### 3. Update RWR walk (internal/context/walk.go)
+
+            Add new edge types to the edgeWeight map. The current map (approximately line 54-60):
+            ```go
+            edgeWeight := map[string]float64{
+                "calls":         1.0,
+                "implements":    0.8,
+                "handles_route": 0.7,
+                "imports":       0.5,
+                "references":    0.4,
+            }
+            ```
+
+            Change to:
+            ```go
+            edgeWeight := map[string]float64{
+                "calls":             1.0,
+                "implements":        0.8,
+                "implements_rpc":    0.8,
+                "handles_route":     0.7,
+                "tests":             0.6,
+                "consumes_rpc":      0.6,
+                "imports":           0.5,
+                "depends_on":        0.5,
+                "consumes_endpoint": 0.5,
+                "tested_by":         0.5,
+                "references":        0.4,
+                "throws":            0.4,
+                "deployed_by":       0.4,
+                "gated_by_flag":     0.3,
+                "decorates":         0.3,
+                "documents":         0.2,
+                "owned_by":          0.0,
+                "authored_by":       0.0,
+            }
+            ```
+
+            **CRITICAL:** Also fix the zero-value override bug. Change both instances of:
+            ```go
+            w := edgeWeight[e.EdgeType]
+            if w == 0 {
+                w = 0.3 // default for unknown edge types
+            }
+            ```
+            To:
+            ```go
+            w, ok := edgeWeight[e.EdgeType]
+            if !ok {
+                w = 0.3 // default for unknown edge types
+            }
+            ```
+            This ensures owned_by/authored_by with explicit 0.0 are genuinely excluded.
+            There are two instances: around line 92-95 and line 101-104.
+
+            #### 4. Wire new extractors into gotsextractor/extractor.go
+
+            In the Extract method, after the existing `tests_edges` integration (or after the
+            main extraction loop), call the new functions for _test.go and regular files.
+
+            For regular .go files, in the `function_declaration` and `method_declaration` cases,
+            add calls to extract feature flag edges and endpoint edges from the function body.
+
+            Insert after this exact text in the `function_declaration` case:
+            ```go
+            		// Extract HTTP route registrations from function bodies.
+            		routes := extractRouteSymbols(body, opts, pkgPath, imports)
+            		rn, re := routeSymbolsToNodesAndEdges(routes, opts, pkgPath)
+            		nodes = append(nodes, rn...)
+            		edges = append(edges, re...)
+            ```
+
+            Add:
+            ```go
+            		// Extract feature flag edges.
+            		flagNodes, flagEdges := ExtractFeatureFlagEdges(body, opts, pkgPath, node.NodeHash, imports)
+            		nodes = append(nodes, flagNodes...)
+            		edges = append(edges, flagEdges...)
+            		// Extract HTTP endpoint consumption edges.
+            		epNodes, epEdges := ExtractGoEndpointEdges(body, opts, pkgPath, node.NodeHash, imports)
+            		nodes = append(nodes, epNodes...)
+            		edges = append(edges, epEdges...)
+            ```
+
+            Do the same for the `method_declaration` case (after the route extraction block).
+
+            Also add documents edge extraction. After the main extraction loop (after all
+            nodes have been collected), before sorting:
+
+            Insert before this exact text:
+            ```go
+            	// Sort nodes by QualifiedName then Kind.
+            	sort.Slice(nodes, func(i, j int) bool {
+            ```
+
+            Add:
+            ```go
+            	// Extract documents edges for declarations with doc comments.
+            	docNodes, docEdges := ExtractDocumentsEdges(root, opts, pkgPath, nodes)
+            	nodes = append(nodes, docNodes...)
+            	edges = append(edges, docEdges...)
+
+            ```
+
+            #### 5. Wire endpoint edges into tsextractor/extractor.go
+
+            In the `extractCallEdgesFromBody` function (or in the `walkForCalls` function),
+            add endpoint edge extraction alongside existing call edge extraction.
+
+            In `extractNode`, for the `function_declaration` case, after calling
+            `extractCallEdgesFromBody`:
+
+            Insert after this exact text:
+            ```go
+            	case "function_declaration":
+            		n := extractFuncDecl(node, opts, qnamePrefix, className)
+            		*nodes = append(*nodes, n)
+            		// Extract call edges from the function body.
+            		body := node.ChildByFieldName("body")
+            		extractCallEdgesFromBody(body, opts, qnamePrefix, n.NodeHash, hasExpress, nodes, edges)
+            ```
+
+            Add:
+            ```go
+            		// Extract HTTP endpoint consumption edges.
+            		epNodes, epEdges := ExtractEndpointEdges(body, opts, qnamePrefix, n.NodeHash)
+            		*nodes = append(*nodes, epNodes...)
+            		*edges = append(*edges, epEdges...)
+            ```
+
+            Do the same for `class_declaration` methods and `arrow_function` (variable declarator).
+
+            #### 6. Wire deployed_by and tested_by into cloudextractor/actions.go
+
+            In the `actionsExtractor.extract()` function, after processing all jobs and their
+            steps, call the new helper functions.
+
+            Insert before the final `return result, nil`:
+            ```go
+            	// Extract deployed_by and tested_by edges.
+            	var jDefs []jobDef
+            	for jobID, jobVal := range jobsMap {
+            		jd, ok := jobVal.(map[string]interface{})
+            		if !ok {
+            			continue
+            		}
+            		var steps []map[string]interface{}
+            		if stepsVal, ok := jd["steps"]; ok {
+            			if stepsList, ok := stepsVal.([]interface{}); ok {
+            				for _, s := range stepsList {
+            					if sm, ok := s.(map[string]interface{}); ok {
+            						steps = append(steps, sm)
+            					}
+            				}
+            			}
+            		}
+            		jDefs = append(jDefs, jobDef{
+            			ID:    jobID,
+            			Hash:  jobHashes[jobID],
+            			Steps: steps,
+            		})
+            	}
+            	deployNodes, deployEdges := extractDeployedByEdges(opts, workflowHash, jDefs)
+            	result.Nodes = append(result.Nodes, deployNodes...)
+            	result.Edges = append(result.Edges, deployEdges...)
+            	testNodes, testEdges := extractTestedByEdges(opts, jDefs)
+            	result.Nodes = append(result.Nodes, testNodes...)
+            	result.Edges = append(result.Edges, testEdges...)
+            ```
+
+            #### 7. Update docs/architecture/edge-types.md
+
+            Add the 7 new edge types to the Summary Table and add full description sections.
+            Add to the Summary Table (after the `authored_by` row):
+            ```
+            | `documents` | Doc comment documents a symbol | ast_inferred | 0.9 | Go tree-sitter extractor | No | 0.2 |
+            | `consumes_endpoint` | Code calls HTTP endpoint | ast_inferred | 0.6 | TS, Go tree-sitter extractors | No | 0.5 |
+            | `implements_rpc` | Struct implements gRPC service | ast_inferred | 0.9 | Proto extractor (Go source) | No | 0.8 |
+            | `consumes_rpc` | Code creates gRPC client | ast_inferred | 0.8 | Proto extractor (Go source) | No | 0.6 |
+            | `gated_by_flag` | Function gated by feature flag | ast_inferred | 0.8 | Go tree-sitter extractor | No | 0.3 |
+            | `deployed_by` | Binary/service deployed by workflow | ast_inferred | 0.9 | GitHub Actions extractor | No | 0.4 |
+            | `tested_by` | Package tested by CI workflow | ast_inferred | 0.8 | GitHub Actions extractor | No | 0.5 |
+            ```
+
+            Add full description sections for each (follow the pattern of existing sections).
+
+            ### Verification gate
+            ```bash
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go build ./... && GOWORK=off go vet ./... && GOWORK=off go test ./internal/edgetype/ ./internal/context/ ./internal/indexer/gotsextractor/ ./internal/indexer/tsextractor/ ./internal/indexer/cloudextractor/ -short -count=1 -timeout 60s
+            ```
+
+            ### Postconditions
+            ```bash
+            grep -c "Documents" internal/edgetype/constants.go
+            # Expected: >= 2 (const + RWRWeight case)
+            grep -c "ConsumesEndpoint" internal/edgetype/constants.go
+            # Expected: >= 2
+            grep -c "consumes_endpoint" internal/context/walk.go
+            # Expected: >= 1
+            grep -c "gated_by_flag" internal/context/walk.go
+            # Expected: >= 1
+            grep -c "!ok" internal/context/walk.go
+            # Expected: >= 2 (both zero-value fixes)
+            grep -c "documents" docs/architecture/edge-types.md
+            # Expected: >= 3
+            grep -c "ExtractFeatureFlagEdges" internal/indexer/gotsextractor/extractor.go
+            # Expected: >= 1
+            grep -c "ExtractEndpointEdges" internal/indexer/tsextractor/extractor.go
+            # Expected: >= 1
+            ```
+
+            ### Constraints
+            - Do NOT modify files owned by Wave 1 agents (documents_edges.go, featureflag_edges.go,
+              endpoint_edges.go, rpc_edges.go, actions_deploy.go)
+            - Do NOT create new files; only modify the listed files
+            - The RWR zero-value fix is CRITICAL; without it, owned_by/authored_by edges will
+              incorrectly participate in the random walk at weight 0.3
+          files:
+            - internal/edgetype/constants.go
+            - internal/edgetype/constants_test.go
+            - internal/context/walk.go
+            - docs/architecture/edge-types.md
+            - internal/indexer/gotsextractor/extractor.go
+            - internal/indexer/tsextractor/extractor.go
+            - internal/indexer/cloudextractor/actions.go
+          dependencies:
+            - A
+            - B
+            - C
+            - D
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: GOWORK=off go build ./...
+          required: true
+        - type: lint
+          command: GOWORK=off go vet ./...
+          required: true
+        - type: test
+          command: GOWORK=off go test -short ./... -timeout 5m
+          required: true
+pre_mortem:
+    overall_risk: medium
+    rows:
+        - scenario: Agent A documents edges create nodes with Line=-1 when doc comment line is unknown
+          likelihood: low
+          impact: low
+          mitigation: |
+            Use `node.Line - 1` with a floor of 1 (max(1, node.Line-1)). The node.Line field
+            is always populated by the existing extractor.
+        - scenario: Agent B endpoint detection has false positives (fetch used for non-HTTP things)
+          likelihood: medium
+          impact: low
+          mitigation: |
+            Confidence is set to 0.6 (lower than most edges) to account for URL strings that may
+            be dynamic or non-HTTP. The edge still provides useful signal for most cases.
+        - scenario: Agent C proto service hash does not match what protoextractor produces
+          likelihood: medium
+          impact: high
+          mitigation: |
+            The protoextractor uses `types.NewHash([]byte(repoURL + "://" + pkgName + "." + serviceName + "/service"))`
+            for service hashes. Agent C MUST use the same hash computation pattern. The brief
+            includes the exact hash formula from protoextractor/extractor.go line 131.
+        - scenario: Agent D deploy detection regex has false positives on non-deployment workflows
+          likelihood: medium
+          impact: low
+          mitigation: |
+            Confidence is 0.9 for action-based detection (deterministic) and lower for command
+            heuristics. The worst case is extra edges that do not harm retrieval quality.
+        - scenario: Agent E walk.go zero-value fix breaks existing tests
+          likelihood: low
+          impact: medium
+          mitigation: |
+            The fix changes `if w == 0` to `if !ok` which is semantically correct for all
+            existing edge types (none have an explicit 0.0 except the new owned_by/authored_by).
+            Existing tests only test known types with non-zero weights.
+        - scenario: Agent B TypeScript tree-sitter parser panics on template literals
+          likelihood: low
+          impact: medium
+          mitigation: |
+            Template literals with interpolation should be skipped (only extract plain string
+            or simple template literal without ${} expressions). The brief explicitly states to
+            skip template literals with interpolation.
+        - scenario: Agent E integration wiring causes import cycles
+          likelihood: low
+          impact: high
+          mitigation: |
+            All new functions are in the same package as the extractor that calls them.
+            No cross-package imports are introduced. The only new import in constants.go is
+            already the existing edgetype package pattern.
+critic_report:
+    verdict: ISSUES
+    agent_reviews:
+        A:
+            agent_id: A
+            verdict: PASS
+        B:
+            agent_id: B
+            verdict: PASS
+        C:
+            agent_id: C
+            verdict: PASS
+        D:
+            agent_id: D
+            verdict: PASS
+        E:
+            agent_id: E
+            verdict: ISSUES
+            issues:
+                - check: interface_consistency
+                  severity: error
+                  description: Type mismatch between Agent D and Agent E for extractDeployedByEdges/extractTestedByEdges. Interface contract uses map[string]map[string]interface{}, Agent D brief uses map[string]jobDef, Agent E wiring code passes []jobDef (a slice). These are mutually incompatible and will cause a compile error at integration.
+                  file: internal/indexer/cloudextractor/actions_deploy.go
+                  symbol: extractDeployedByEdges
+                - check: pattern_accuracy
+                  severity: warning
+                  description: Brief describes walk.go edgeWeight map as having 5 entries (calls, implements, handles_route, imports, references) but it actually has 8 entries (also includes tests:0.6, owned_by:0.0, authored_by:0.0). The target state replacement is still correct but the description of current state is inaccurate.
+                  file: internal/context/walk.go
+                  symbol: edgeWeight
+                - check: pattern_accuracy
+                  severity: warning
+                  description: Brief instructs Agent E to fix a zero-value override bug (change w := edgeWeight[e.EdgeType] / if w == 0 to w, ok := / if !ok) but this fix has already been applied in the codebase. The code already uses the w, ok pattern. This instruction will confuse the agent as there is nothing matching the described before-state to change.
+                  file: internal/context/walk.go
+                  symbol: edgeWeight
+    summary: 'Wave 1 agents A, B, C, D all have accurate briefs with correct file existence, symbol accuracy, and import chains. Wave 2 Agent E has one error-severity issue: the interface between Agent D (extractDeployedByEdges/extractTestedByEdges) and Agent E''s wiring code has a type mismatch. The interface contract specifies map[string]map[string]interface{}, Agent D''s brief uses map[string]jobDef, and Agent E''s wiring code passes []jobDef (a slice). This will cause a compile error at integration time. Additionally, Agent E''s brief incorrectly describes the current state of walk.go (edgeWeight map has 8 entries, not 5) and instructs a zero-value fix that has already been applied.'
+    reviewed_at: "2026-05-20T17:16:44Z"
+    issue_count: 3
+state: SCOUT_PENDING
+injection_method: hook

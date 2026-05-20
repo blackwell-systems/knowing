@@ -76,49 +76,16 @@ Code ownership queries. Who owns this file? Who wrote this function? Route this 
 
 This one is smaller and might not justify a separate repo. Could be a GitHub Action that wraps the ownership MCP tool. Evaluate after the P1 edge expansion ships.
 
-## Architecture
+## Architecture (as-built, no extraction needed)
 
 ```
-┌─────────────────────────────────────────────────┐
-│              knowing (full product)              │
-│  MCP server, CLI, daemon, 27+ tools             │
-└────────────────────┬────────────────────────────┘
-                     │ imports
-┌────────────────────▼────────────────────────────┐
-│           knowing/pkg/engine (shared)            │
-│  GraphStore, Extractor, MerkleTree, Snapshot    │
-│  SQLite, tree-sitter, types, hashing            │
-└──┬──────────────────┬───────────────────────┬───┘
-   │                  │                       │
-   ▼                  ▼                       ▼
-knowing-scope     knowing-audit         knowing-own
-(test selection)  (proofs + gates)      (ownership)
+cmd/knowing           # full CLI (27 subcommands, MCP server, daemon)
+cmd/knowing-scope     # focused: test selection + architecture gates
+cmd/knowing-audit     # focused: proofs + compliance reports
+internal/             # shared engine (graph, extractors, Merkle, store)
 ```
 
-### Shared engine extraction
-
-Move the core into an importable package (`pkg/engine` or a separate module `github.com/blackwell-systems/knowing-engine`). The restricted products import it and expose only their surface.
-
-Option A: **Monorepo with multiple binaries** (`cmd/knowing`, `cmd/knowing-scope`, `cmd/knowing-audit`). Single repo, multiple install targets. Each binary imports from `internal/` but only exposes its commands. GitHub Actions wrappers live in separate repos for Marketplace listing.
-
-Option B: **Separate repos** importing a shared module. Each repo has its own README, topics, stars, issues. More discoverability surface. More maintenance.
-
-Option C: **Monorepo + separate "face" repos** that are thin wrappers. The face repos have READMEs, GitHub Actions workflow definitions, and installation docs. They import the monorepo as a module. Stars accumulate on the face repos (which people actually find), code lives in the monorepo.
-
-**Recommendation: Option C.** Maximum discoverability (4 repos in search results instead of 1), minimum code duplication (face repos are <200 LOC each), single place to fix bugs (monorepo). The face repos are presentation layers, not implementation.
-
-## Discoverability Impact
-
-Current state (1 repo):
-- 1 README competing for all keywords
-- 1 set of GitHub topics (diluted across audiences)
-- 1 search result for "test selection ci github action"
-
-After split (4 repos):
-- knowing-scope ranks for: test-selection, ci, affected-tests, smart-testing
-- knowing-audit ranks for: compliance, soc2, code-audit, merkle-proof, architecture-enforcement
-- knowing ranks for: code-graph, mcp, ai-agents, code-intelligence
-- Each README speaks one language to one audience
+All binaries live in one repo, import from `internal/`, share one CI pipeline, one issue tracker, one set of docs. The restricted binaries are ~100 LOC each (flag parsing + edge filter + subset of commands).
 
 ## Cognitive Load Reduction
 
@@ -129,23 +96,86 @@ After split (4 repos):
 | knowing-audit | 4 | Prove, verify | 5 min |
 | knowing-own | 1 | Who owns X? | 1 min |
 
-## Sequencing
+## Recommendation: Staged Approach
 
-1. **Now:** Ship the P1 edge expansion (tests, owned_by, authored_by). This is prerequisite for knowing-scope and knowing-own having real value.
-2. **Next:** Extract `knowing-scope` as a GitHub Action. CI test selection is the most immediately valuable restricted product (saves real money on CI minutes, measurable ROI).
-3. **Then:** Extract `knowing-audit`. Compliance use case is high-value but longer sales cycle.
-4. **Later:** Evaluate knowing-own once ownership edges are battle-tested.
+Don't fragment repos before validating which wedge has traction. Stars, issues, contributors, and docs all compound in one place. Splitting early trades compound value for speculative discoverability.
+
+### Stage 1: Focused binaries in this repo
+
+Build restricted entry points inside the existing repo:
+
+```
+cmd/knowing          # full CLI (existing)
+cmd/knowing-scope    # test selection only
+cmd/knowing-audit    # proofs + compliance only
+```
+
+Each binary imports from `internal/` but exposes only its surface. One repo, multiple `go install` targets. The README keeps its "one architecture" positioning.
+
+### Stage 2: GitHub Action wrappers
+
+Publish `blackwell-systems/knowing-scope-action` as a thin Action wrapper that downloads and runs `knowing-scope`. The Action repo is presentation (README + action.yml + Dockerfile), not implementation. This is the first external discoverability surface.
+
+### Stage 3: Product pages and SEO-targeted docs
+
+Create `docs/products/` with focused landing pages:
+
+```
+docs/products/test-selection.md    # "Run only the tests that matter"
+docs/products/compliance.md        # "Prove code structure with cryptographic certainty"
+docs/products/ownership.md         # "Who owns this code?"
+```
+
+Each page speaks one language to one audience, links to the relevant binary, and targets distinct search keywords. These are internal to the repo but can be deployed as standalone pages.
+
+### Stage 4: Extract public APIs only where needed
+
+If a face repo needs to import knowing logic, extract the minimum into `pkg/`:
+
+```
+pkg/scope/    # test scope computation (graph walk + test detection)
+pkg/proof/    # proof generation + verification
+```
+
+Only do this when a face repo actually exists and needs the code. Not speculatively.
+
+### Stage 5: Create separate repos only for proven channels
+
+If `knowing-scope-action` gets real adoption (installs, stars, issues), THEN create `knowing-scope` as a standalone repo with its own README and topics. By then you know the messaging works, the audience exists, and the split is justified.
+
+## Why This Order
+
+- Stage 1 costs nothing (new cmd/ directories, same CI, same tests)
+- Stage 2 tests discoverability with minimal maintenance burden (one action.yml)
+- Stage 3 tests messaging without code changes
+- Stage 4 and 5 only happen with evidence of demand
+
+Premature repo splitting fragments stars/issues/docs, doubles CI maintenance, and solves a problem that might not exist. The compound value of one well-positioned repo with multiple entry points outweighs the discoverability gain of four repos with 0 stars each.
+
+## Edge-Type Filtering as Product Differentiator
+
+The restricted products map directly to edge-type visibility:
+
+| Product | Visible edges | What disappears |
+|---------|--------------|-----------------|
+| knowing (full) | All | Nothing |
+| knowing-scope | calls, tests | Ownership, runtime, proofs, routes |
+| knowing-audit | calls, handles_route, consumes_endpoint | Feedback, learning, runtime, ownership |
+| knowing-own | owned_by, authored_by, calls | Runtime, routes, proofs |
+
+Same graph, different projections. The binary determines which edges participate in queries. This means the restricted binaries are trivially thin: they set the edge filter and expose a focused CLI surface. No separate data model, no separate extraction.
+
+A future visualization with edge-type checkboxes makes this tangible to users: toggle "runtime_*" off and the graph shows design intent. Toggle everything off except "gated_by_flag" and you see your feature surface. The product IS the filter.
 
 ## What This Does NOT Change
 
 - knowing itself stays fully featured. Nothing is removed.
-- The restricted products are additive discoverability, not a fragmentation.
-- All products share the same graph, same extraction, same Merkle tree.
+- The restricted binaries are additive entry points, not a fragmentation.
+- All binaries share the same graph, same extraction, same Merkle tree.
 - A user who discovers knowing-scope and outgrows it graduates to knowing naturally.
 
 ## Open Questions
 
-1. Should the face repos contain any logic at all, or literally just a README + GitHub Action YAML + go.mod importing the monorepo?
-2. Does knowing-scope need its own graph, or does it require knowing to be running (daemon dependency)? Probably: self-contained binary that indexes on first run, caches the graph in `.knowing/`, updates incrementally.
-3. Naming: `knowing-scope` vs `test-scope` vs `affected-tests`? The `knowing-` prefix ties them together but might hurt independent discoverability.
-4. Pricing: all MIT? Or freemium (open core for knowing, restricted products free, cloud offering paid)?
+1. Naming: `knowing-scope` vs `test-scope` vs `affected-tests`? The `knowing-` prefix ties them together but might hurt independent discoverability for the Action.
+2. Does `knowing-scope` need its own index, or assume `knowing` daemon is running? Likely: self-contained binary that indexes on first run (CI use case has no daemon).
+3. When does a focused doc page in `docs/products/` become worth deploying as a standalone site?
