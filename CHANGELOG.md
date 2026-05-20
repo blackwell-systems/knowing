@@ -10,6 +10,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## 2026-05-19
 
+#### Named snapshot refs
+- `knowing diff @latest @prev` (diff last two snapshots)
+- `knowing diff @0 @3` (offset from most recent)
+- `knowing audit-diff @prev @latest`
+- Supports: `@latest`, `@first`, `@prev`, `@N` (offset), or raw hex hash
+- Inspired by git's ref system (HEAD, HEAD~1)
+
 ### Changed
 
 #### Merkle tree implementation extracted to `merkle-forest` library

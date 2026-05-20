@@ -271,11 +271,20 @@ knowing export -db /tmp/test.db -repo github.com/org/repo
 Compute a semantic diff between two snapshots.
 
 ```
-knowing diff [flags] <old-snapshot-hash> <new-snapshot-hash>
+knowing diff [flags] <old-ref> <new-ref>
 ```
 
-Compares two snapshots by hash and reports added, removed, and modified nodes
-and edges.
+Compares two snapshots and reports added, removed, and modified nodes and edges.
+
+**Snapshot refs:** Both arguments accept named refs or raw hex hashes:
+
+| Ref | Meaning |
+|-----|---------|
+| `@latest` | Most recent snapshot |
+| `@prev` | Previous snapshot (alias for `@1`) |
+| `@first` | Oldest snapshot |
+| `@N` | Nth from most recent (0 = latest, 1 = prev, 2 = two back, ...) |
+| `abc123...` | Raw 64-character hex hash |
 
 **Flags:**
 
@@ -284,20 +293,23 @@ and edges.
 | `-db` | string | *(per-repo, from roster)* | Path to the SQLite database |
 | `-format` | string | `text` | Output format: `text` or `json` |
 
-Both positional arguments are required. Snapshot hashes must be 64-character
-hex strings (32 bytes).
-
 **Examples:**
 
 ```bash
-# Text diff between two snapshots
-knowing diff abc123...old abc123...new
+# Diff the last two snapshots
+knowing diff @prev @latest
+
+# Diff the oldest against the newest
+knowing diff @first @latest
+
+# Diff 3 snapshots back against latest
+knowing diff @3 @latest
 
 # JSON diff for programmatic consumption
-knowing diff -format json abc123...old abc123...new
+knowing diff -format json @prev @latest
 
-# Using a specific database
-knowing diff -db /var/lib/knowing/data.db abc123...old abc123...new
+# Using raw hex hashes (still supported)
+knowing diff abc123...old abc123...new
 ```
 
 **Notes:**
@@ -1114,10 +1126,12 @@ knowing audit -max-edges 1000 -repo github.com/org/repo
 Compare two audit point snapshots: added and removed edge counts, change classification, and edge type breakdown.
 
 ```
-knowing audit-diff <old-snapshot> <new-snapshot> [-o report.json]
+knowing audit-diff <old-ref> <new-ref> [-o report.json]
 ```
 
-Compares two snapshot hashes and reports how the cross-package edge set changed between them. Each changed edge is classified by type: `behavioral` (call or import edges changed), `structural` (implements or reference edges changed), `runtime_drift` (runtime-observed edges changed), or `metadata_only` (only confidence or provenance changed, not the edge itself).
+Compares two snapshots and reports how the cross-package edge set changed between them. Each changed edge is classified by type: `behavioral` (call or import edges changed), `structural` (implements or reference edges changed), `runtime_drift` (runtime-observed edges changed), or `metadata_only` (only confidence or provenance changed, not the edge itself).
+
+**Snapshot refs:** Same as `diff`: `@latest`, `@prev`, `@first`, `@N`, or raw hex hash.
 
 **Flags:**
 
@@ -1127,16 +1141,17 @@ Compares two snapshot hashes and reports how the cross-package edge set changed 
 | `-repo` | string | *(auto-detect)* | Repository URL |
 | `-o` | string | *(stdout)* | Write report to file instead of stdout |
 
-Both positional arguments are required and must be 64-character hex snapshot hashes.
-
 **Examples:**
 
 ```bash
-# Compare two quarterly audit snapshots
+# Compare last two snapshots
+knowing audit-diff @prev @latest -o latest-changes.json
+
+# Compare two quarterly audit snapshots by hash
 knowing audit-diff abc123... def456... -o q1-q2-diff.json
 
-# Write the diff to stdout for piping
-knowing audit-diff $Q1_SNAPSHOT $Q2_SNAPSHOT
+# Pipe to stdout
+knowing audit-diff @prev @latest
 ```
 
 **Notes:**
