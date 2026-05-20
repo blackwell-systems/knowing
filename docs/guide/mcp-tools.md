@@ -1061,6 +1061,57 @@ Each community entry now includes:
 
 ---
 
+## Audit Tools
+
+### prove
+
+Generate a cryptographic Merkle proof that a relationship EXISTS between two symbols.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `source` | string | yes | Source symbol name (substring match) |
+| `target` | string | yes | Target symbol name (substring match) |
+| `edge_type` | string | no | Edge type to prove (default: `calls`) |
+
+**Returns:** JSON proof artifact with hash path from edge leaf through edge-type root, package root, to repo root. Verifiable offline.
+
+---
+
+### prove_absent
+
+Generate a cryptographic proof that a relationship does NOT exist between two symbols.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `source` | string | yes | Source symbol name (substring match) |
+| `target` | string | yes | Target symbol name (substring match) |
+| `edge_type` | string | no | Edge type to prove absent (default: `calls`) |
+
+**Returns:** Absence proof using adjacent sorted Merkle leaves. Proves the gap where the missing edge would be. Verifiable offline.
+
+**Use cases:**
+- Prove service isolation ("PaymentService cannot call UserDB")
+- Validate architectural boundaries
+- Compliance certification ("no unauthorized dependency exists")
+
+---
+
+### fsck
+
+Verify graph integrity.
+
+**Parameters:** None.
+
+**Returns:** Pass/fail with details:
+- SQLite PRAGMA integrity_check
+- Referential integrity (edges with missing source/target nodes)
+- Snapshot chain continuity (broken parent references)
+- Node and edge counts
+
 ---
 
 ## Resources

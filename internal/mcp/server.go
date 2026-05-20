@@ -163,6 +163,11 @@ func (s *Server) registerTools() {
 	s.mcpServer.AddTool(flowBetweenTool(), s.handleFlowBetween)
 	s.mcpServer.AddTool(planTurnTool(), s.handlePlanTurn)
 	s.mcpServer.AddTool(communitiesTool(), s.handleCommunities)
+
+	// Audit plane
+	s.mcpServer.AddTool(proveTool(), s.handleProve)
+	s.mcpServer.AddTool(proveAbsentTool(), s.handleProveAbsent)
+	s.mcpServer.AddTool(fsckTool(), s.handleFsck)
 }
 
 // ToolNames returns the names of all registered tools, useful for testing.
@@ -191,6 +196,9 @@ func (s *Server) ToolNames() []string {
 		"flow_between",
 		"plan_turn",
 		"communities",
+		"prove",
+		"prove_absent",
+		"fsck",
 	}
 }
 

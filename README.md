@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/blackwell-systems"><img src="https://raw.githubusercontent.com/blackwell-systems/blackwell-docs-theme/main/badge-trademark.svg" alt="Blackwell Systems"></a>
-  <a href="#mcp-tools"><img src="https://img.shields.io/badge/MCP_tools-23%20tools%20%2B%208%20resources-brightgreen.svg" alt="MCP Tools"></a>
+  <a href="#mcp-tools"><img src="https://img.shields.io/badge/MCP_tools-26%20tools%20%2B%208%20resources-brightgreen.svg" alt="MCP Tools"></a>
   <a href="#languages-and-formats"><img src="https://img.shields.io/badge/languages_and_formats-25-blue.svg" alt="Languages and Formats"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
 </p>
@@ -183,7 +183,7 @@ The entire system is built on one idea: content-addressed identity. Every symbol
 +----------------+------------------------+--------------------------+
 |   Indexer      |     Graph Store        |      MCP Server          |
 |                |                        |                          |
-| 25 extractors  | Content-addressed      | 23 tools + 8 resources   |
+| 25 extractors  | Content-addressed      | 26 tools + 8 resources   |
 | tree-sitter    | SQLite + Merkle tree   | stdio / HTTP             |
 | LSP + SCIP     | Hierarchical snapshots | GCF / GCB / JSON         |
 | OTel traces    | Subgraph cache (93x)   | PackRoot dedup (99%)     |
@@ -243,6 +243,7 @@ All extractors fire per file via multi-dispatch; results are merged. Tree-sitter
 | `runtime_traffic`, `dead_routes`, `trace_stats` | Query runtime-observed relationships |
 | `context_for_task`, `context_for_files`, `context_for_pr`, `explain_symbol` | Ranked context for agents |
 | `ownership`, `test_scope`, `communities`, `plan_turn`, `feedback` | Route work, select tests, improve ranking |
+| `prove`, `prove_absent`, `fsck` | Cryptographic proofs, absence proofs, integrity verification |
 
 MCP prompts: `refactor_safely`, `review_pr`, `investigate_dead_code`.
 
