@@ -37,8 +37,8 @@ func TestCmdDiff_InvalidHash(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for short hash")
 	}
-	if !strings.Contains(err.Error(), "invalid old snapshot hash") {
-		t.Errorf("expected 'invalid old snapshot hash' in error, got %q", err.Error())
+	if !strings.Contains(err.Error(), "resolving old ref") {
+		t.Errorf("expected 'resolving old ref' in error, got %q", err.Error())
 	}
 
 	// Invalid hex characters.
@@ -48,8 +48,8 @@ func TestCmdDiff_InvalidHash(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for invalid hex")
 	}
-	if !strings.Contains(err.Error(), "invalid old snapshot hash") {
-		t.Errorf("expected 'invalid old snapshot hash' in error, got %q", err.Error())
+	if !strings.Contains(err.Error(), "resolving old ref") {
+		t.Errorf("expected 'resolving old ref' in error, got %q", err.Error())
 	}
 
 	// Valid old hash, invalid new hash.
@@ -57,8 +57,8 @@ func TestCmdDiff_InvalidHash(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for invalid new hash")
 	}
-	if !strings.Contains(err.Error(), "invalid new snapshot hash") {
-		t.Errorf("expected 'invalid new snapshot hash' in error, got %q", err.Error())
+	if !strings.Contains(err.Error(), "resolving new ref") {
+		t.Errorf("expected 'resolving new ref' in error, got %q", err.Error())
 	}
 }
 
