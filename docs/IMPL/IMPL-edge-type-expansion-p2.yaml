@@ -112,15 +112,15 @@ file_ownership:
       wave: 2
       action: modify
     - file: internal/indexer/gotsextractor/extractor.go
-      agent: E
+      agent: F
       wave: 2
       action: modify
     - file: internal/indexer/tsextractor/extractor.go
-      agent: E
+      agent: G
       wave: 2
       action: modify
     - file: internal/indexer/cloudextractor/actions.go
-      agent: E
+      agent: G
       wave: 2
       action: modify
 interface_contracts:
@@ -916,6 +916,7 @@ waves:
           files:
             - internal/indexer/cloudextractor/actions_deploy.go
             - internal/indexer/cloudextractor/actions_deploy_test.go
+      base_commit: 1fe7d147c91f31b9e9f285f1882b85a771acce21
     - number: 2
       agents:
         - id: E
@@ -1200,13 +1201,132 @@ waves:
             - internal/edgetype/constants_test.go
             - internal/context/walk.go
             - docs/architecture/edge-types.md
-            - internal/indexer/gotsextractor/extractor.go
-            - internal/indexer/tsextractor/extractor.go
-            - internal/indexer/cloudextractor/actions.go
           dependencies:
             - A
             - B
             - C
+            - D
+        - id: F
+          task: |
+            ## Task: Wire documents, gated_by_flag, and endpoint edges into Go extractor
+
+            Wire the Wave 1 extraction functions into `internal/indexer/gotsextractor/extractor.go`.
+
+            In the `function_declaration` case of the Extract method, after the route extraction block:
+            ```go
+            		// Extract HTTP route registrations from function bodies.
+            		routes := extractRouteSymbols(body, opts, pkgPath, imports)
+            		rn, re := routeSymbolsToNodesAndEdges(routes, opts, pkgPath)
+            		nodes = append(nodes, rn...)
+            		edges = append(edges, re...)
+            ```
+
+            Add:
+            ```go
+            		// Extract feature flag edges.
+            		flagNodes, flagEdges := ExtractFeatureFlagEdges(body, opts, pkgPath, node.NodeHash, imports)
+            		nodes = append(nodes, flagNodes...)
+            		edges = append(edges, flagEdges...)
+            		// Extract HTTP endpoint consumption edges.
+            		epNodes, epEdges := ExtractGoEndpointEdges(body, opts, pkgPath, node.NodeHash, imports)
+            		nodes = append(nodes, epNodes...)
+            		edges = append(edges, epEdges...)
+            ```
+
+            Do the same for the `method_declaration` case (after its route extraction block).
+
+            After all declarations are processed (after the main switch loop), add document edge extraction:
+            ```go
+            	// Extract documents edges for all declarations with doc comments.
+            	docNodes, docEdges := ExtractDocumentsEdges(root, opts, pkgPath, nodes)
+            	nodes = append(nodes, docNodes...)
+            	edges = append(edges, docEdges...)
+            ```
+
+            Also wire `ExtractTestsEdges` if not already wired (check if it's called; if not, add it for `_test.go` files).
+
+            ### Verification gate
+            ```bash
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go build ./internal/indexer/gotsextractor/...
+            ```
+
+            ### Constraints
+            - Only modify internal/indexer/gotsextractor/extractor.go
+            - Do NOT modify any Wave 1 files
+          files:
+            - internal/indexer/gotsextractor/extractor.go
+          dependencies:
+            - A
+            - B
+        - id: G
+          task: |
+            ## Task: Wire endpoint edges into TS extractor + deployed_by/tested_by into cloud extractor
+
+            Two files to wire:
+
+            #### 1. internal/indexer/tsextractor/extractor.go
+
+            In the Extract method, after processing function bodies (where call edges are extracted),
+            add endpoint edge extraction. For each function body processed, call:
+            ```go
+            	epNodes, epEdges := ExtractEndpointEdgesTS(body, opts, pkgPath, funcNodeHash, imports)
+            	nodes = append(nodes, epNodes...)
+            	edges = append(edges, epEdges...)
+            ```
+
+            Find the appropriate insertion point in the function/method processing loop.
+
+            #### 2. internal/indexer/cloudextractor/actions.go
+
+            In the `actionsExtractor.extract()` function, after processing all jobs,
+            wire the deployed_by and tested_by extraction. Insert before `return result, nil`:
+            ```go
+            	// Extract deployed_by and tested_by edges.
+            	jDefs := make(map[string]jobDef)
+            	for jobID, jobVal := range jobsMap {
+            		jd, ok := jobVal.(map[string]interface{})
+            		if !ok { continue }
+            		var steps []stepDef
+            		if stepsVal, ok := jd["steps"]; ok {
+            			if stepsList, ok := stepsVal.([]interface{}); ok {
+            				for _, s := range stepsList {
+            					if sm, ok := s.(map[string]interface{}); ok {
+            						sd := stepDef{}
+            						if r, ok := sm["run"].(string); ok { sd.Run = r }
+            						if u, ok := sm["uses"].(string); ok { sd.Uses = u }
+            						if n, ok := sm["name"].(string); ok { sd.Name = n }
+            						steps = append(steps, sd)
+            					}
+            				}
+            			}
+            		}
+            		name, _ := jd["name"].(string)
+            		uses, _ := jd["uses"].(string)
+            		jDefs[jobID] = jobDef{Name: name, Steps: steps, Uses: uses}
+            	}
+            	deployNodes, deployEdges := extractDeployedByEdges(opts, workflowHash, jDefs)
+            	result.Nodes = append(result.Nodes, deployNodes...)
+            	result.Edges = append(result.Edges, deployEdges...)
+            	testNodes, testEdges := extractTestedByEdges(opts, jDefs)
+            	result.Nodes = append(result.Nodes, testNodes...)
+            	result.Edges = append(result.Edges, testEdges...)
+            ```
+
+            Import the actions_deploy.go types (same package, no import needed).
+
+            ### Verification gate
+            ```bash
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go build ./internal/indexer/tsextractor/... ./internal/indexer/cloudextractor/...
+            ```
+
+            ### Constraints
+            - Only modify the two listed files
+            - Do NOT modify Wave 1 files or Agent E/F files
+          files:
+            - internal/indexer/tsextractor/extractor.go
+            - internal/indexer/cloudextractor/actions.go
+          dependencies:
+            - B
             - D
 quality_gates:
     level: standard
