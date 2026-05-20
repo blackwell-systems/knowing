@@ -1,6 +1,6 @@
 # Audit and Compliance
 
-knowing is a cryptographically verifiable record of code relationships. Every relationship, every snapshot, and every derivation step is content-addressed with SHA-256 and linked in a hierarchical Merkle tree. This makes knowing an audit primitive: you can prove claims about code structure, verify them offline, and detect tampering.
+knowing is a cryptographically verifiable record of code relationships. Every relationship, every snapshot, and every derivation step is content-addressed with SHA-256 and linked in a hierarchical Merkle tree. This makes knowing an audit primitive: you can prove claims about code structure, verify them offline, and detect modification. The guarantees are tamper-evident relative to a trusted root hash (exactly git's property): an auditor who knows the snapshot root can verify any claim by recomputation. The root becomes unforgeable when anchored to a signed git commit or external witness log.
 
 ## What You Can Prove
 
@@ -10,7 +10,8 @@ knowing is a cryptographically verifiable record of code relationships. Every re
 | "Prove a dependency does NOT exist" | `knowing prove-absent` generates a cryptographic absence proof using adjacent sorted leaves. Verifiable offline. |
 | "Generate a complete audit report" | `knowing audit -proofs` produces integrity check + edge inventory + Merkle proofs in one JSON file |
 | "This graph reflects commit abc123" | Every snapshot records the git commit hash. The snapshot's Merkle root is deterministic: same source = same root on any machine. |
-| "The graph has not been tampered with" | `knowing fsck` recomputes every node hash, edge hash, and Merkle root from source data. Any mutation changes a hash, which propagates to the root. |
+| "The graph has not been modified since the snapshot" | `knowing fsck` recomputes every node hash, edge hash, and Merkle root from source data. Any mutation changes a hash, which propagates to the root. |
+| "This feedback was valid when recorded" | Feedback records store the SubgraphRoot (Merkle root of the symbol's package). When code changes, the root changes and old feedback becomes invisible. Provable temporal validity. |
 | "This dependency appeared between Tuesday and Wednesday" | Walk the snapshot chain backwards. Diff adjacent pairs (O(packages) per diff). The first snapshot containing the edge is the answer, tied to a specific git commit. |
 | "These two teams' codebases have no shared dependencies" | Each team runs knowing independently. Disjoint community Merkle roots prove non-overlap at the identity level. |
 | "No new cross-service calls were introduced in this PR" | CI indexes both branches, diffs the snapshots, and checks for new edges crossing service boundaries. Deterministic indexing means CI produces the same snapshot as any developer. |
@@ -26,12 +27,14 @@ Same source code + same analyzer version = same snapshot hash. On any machine, a
 Every entity's hash is computed from its content:
 
 ```
-NodeHash = SHA-256("node\0" + repo + package + name + kind)
+NodeHash = SHA-256("node\0" + repoURL + package + name + kind)
 EdgeHash = SHA-256("edge\0" + source + target + type + provenance)
 SnapshotHash = HierarchicalMerkleRoot(all edge hashes, grouped by package and type)
 ```
 
 Changing any field changes the hash. Changing any hash changes the parent. Changing any parent changes the root. An auditor who knows the root can verify any claim by recomputation.
+
+Note: edge confidence scores are mutable metadata on immutable edge identity (not included in EdgeHash). Tampering with confidence does not break referential integrity but may degrade ranking quality. The integrity guarantee covers edge existence and provenance, not confidence scores.
 
 ### Provenance Chain
 
@@ -92,7 +95,7 @@ knowing fsck
 #   3. Snapshot chain continuity (every parent pointer is valid)
 #   4. SQLite page integrity (PRAGMA integrity_check)
 #
-# Time: 98ms on a graph with 2,338 nodes and 11,664 edges
+# Time: 98ms on a graph with 2,611 nodes and 13,103 edges
 ```
 
 Exit code 0 = clean. Exit code 1 = corruption detected.
@@ -102,15 +105,20 @@ Exit code 0 = clean. Exit code 1 = corruption detected.
 "When did the dependency between billing and payments first appear?"
 
 ```bash
-# Diff two snapshots
-knowing diff <old-snapshot-hash> <new-snapshot-hash>
+# Diff the last two snapshots using named refs
+knowing diff @prev @latest
+
+# Or diff specific snapshots by offset
+knowing diff @3 @latest
 
 # The diff shows which packages changed, which edge types changed,
 # and which specific edges were added or removed.
 # Each snapshot records the git commit that produced it.
 ```
 
-For systematic bisection (finding the exact commit), walk the snapshot chain and diff adjacent pairs. Each diff is O(packages), not O(edges).
+Named refs: `@latest`, `@prev`, `@first`, `@N` (offset from latest), or raw hex hash.
+
+For systematic bisection (finding the exact commit), walk the snapshot chain and diff adjacent pairs. Each diff is O(packages), not O(edges). Snapshots carry generation numbers (parent.generation + 1) enabling O(1) ancestry checks without walking the full chain.
 
 ### 4. CI Gate
 
@@ -168,7 +176,8 @@ knowing audit -proofs -o audit-$(date +%Y-%m-%d).json
 #   - Merkle proofs for each cross-package relationship
 #   - Snapshot hash tied to git commit
 
-# Compare quarterly audit points
+# Compare quarterly audit points (named refs or hex hashes)
+knowing audit-diff @prev @latest -o latest-changes.json
 knowing audit-diff $Q1_SNAPSHOT $Q2_SNAPSHOT -o q1-q2-changes.json
 ```
 
@@ -200,7 +209,7 @@ The result: `knowing fsck` on a correctly indexed repo reports 0 errors. This is
 |-----------|---------|-----------------|
 | Proof generation | 72us | One specific edge exists in a snapshot |
 | Proof verification | 1.2us | The proof is cryptographically valid |
-| `knowing fsck` | 98ms | Entire graph integrity (2,338 nodes, 11,664 edges) |
+| `knowing fsck` | 98ms | Entire graph integrity (2,611 nodes, 13,103 edges) |
 | Snapshot diff | 6us | Which packages changed between two snapshots |
 | Snapshot chain walk | O(N) snapshots, O(packages) per diff | When a relationship first appeared |
 
