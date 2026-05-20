@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://github.com/blackwell-systems"><img src="https://raw.githubusercontent.com/blackwell-systems/blackwell-docs-theme/main/badge-trademark.svg" alt="Blackwell Systems"></a>
   <a href="#mcp-tools"><img src="https://img.shields.io/badge/MCP_tools-23%20tools%20%2B%208%20resources-brightgreen.svg" alt="MCP Tools"></a>
-  <a href="#languages-and-formats"><img src="https://img.shields.io/badge/extractor_types-25-blue.svg" alt="Extractor Types"></a>
+  <a href="#languages-and-formats"><img src="https://img.shields.io/badge/languages_and_formats-25-blue.svg" alt="Languages and Formats"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
 </p>
 
@@ -13,7 +13,7 @@
 
 Your agent grep-searches your repo 47 times per task. It reads 15 files, builds context from scratch, forgets everything next session.
 
-**knowing gives it the right 10 symbols in one call.** Ranked by graph distance, weighted by past usefulness, deduplicated across turns. One MCP call replaces the grep-read-grep-read loop.
+**knowing gives it the right symbols in one call.** Ranked by graph distance, weighted by past usefulness, packed to fit a token budget, deduplicated across turns. One MCP call replaces the grep-read-grep-read loop.
 
 It gets better every time you use it. And when your code changes, stale knowledge expires automatically.
 
@@ -35,7 +35,7 @@ That's it. Your agent now has ranked code context, blast radius analysis, test s
 knowing is three products built on one foundation (content-addressed graph with hierarchical Merkle trees):
 
 **1. Context engine for AI agents**
-One call returns the 10 most relevant symbols for a task, ranked by graph centrality, recency, and learned usefulness. 47% fewer tool calls. 84% fewer tokens. Results improve with feedback.
+One call returns the most relevant symbols for a task, ranked by graph centrality, recency, and learned usefulness, packed to fit your token budget. 47% fewer tool calls. 84% fewer tokens. Results improve with feedback.
 
 **2. Audit primitive for compliance**
 Every graph state is a Merkle root tied to a git commit. `knowing prove` generates a cryptographic proof that a relationship existed. `knowing verify` checks it offline. `knowing fsck` verifies the entire graph in 98ms.
@@ -56,7 +56,7 @@ These aren't separate features. They're structural consequences of content-addre
 
 **For your platform team:**
 - "Is this route used in production?" (static analysis + OTel runtime traces)
-- "What did the service graph look like on Tuesday?" (snapshot chain, O(1) lookup)
+- "What did the service graph look like at a specific snapshot?" (snapshot chain, each root tied to a git commit)
 
 **For your security team:**
 - "Prove service A calls service B at this commit." (Merkle proof, verifiable offline)
@@ -69,7 +69,7 @@ These aren't separate features. They're structural consequences of content-addre
 
 | What | Result |
 |---|---:|
-| Agent context precision | 16% -> 50% over 5 feedback rounds |
+| Agent context precision | +20pp after 1 round, +34pp after 5 |
 | Tool calls saved | 47% fewer (one call replaces grep+read loops) |
 | Token savings | 84% fewer tokens (GCF wire format) |
 | Repeat query speed | 93x faster (Merkle-keyed subgraph cache) |
@@ -99,11 +99,11 @@ knowing add .
 # Get context for a task
 knowing context -task "refactor auth middleware" -format gcf
 
-# Blast radius of a change
-knowing blast-radius -symbol "SessionHandler"
+# Find affected tests
+knowing test-scope -files internal/auth/middleware.go
 
-# Affected tests
-knowing test-scope -files internal/auth/session.go
+# Explain why a symbol ranked where it did
+knowing why -task "refactor auth" -symbol "SessionHandler"
 
 # Prove a relationship exists (cryptographic Merkle proof)
 knowing prove -source "AuthService" -target "SessionStore"
@@ -158,7 +158,7 @@ The entire system is built on one idea: content-addressed identity. Every symbol
 
 - **Staleness detection for free.** Changed file = new hash = stale edges are known without scanning.
 - **Caching for free.** Same package root = same results. 93x speedup on unchanged queries.
-- **Integrity for free.** Verify the entire graph from one Merkle root. 98ms.
+- **Integrity for free.** Verify all stored hashes and snapshot chain continuity. 98ms.
 - **History for free.** Each snapshot is a Merkle root tied to a git commit. Walk the chain.
 - **Feedback expiration for free.** Feedback stores the package Merkle root. Code changes = root changes = old feedback is invisible.
 - **Proofs for free.** Merkle path from leaf to root is a self-contained cryptographic proof.
@@ -227,7 +227,8 @@ The boundary matters: intelligence features read the graph and produce derived r
 | GitLab CI | yaml.v3 | job needs, extends templates, include files, artifacts |
 | package.json (npm) | json | dependencies, devDependencies, peerDependencies, scripts |
 | GraphQL | parser | type definitions, field type references, interface implementations |
-| Ansible | yaml.v3 | playbook roles, task dependencies, variable references |
+| Ruby | tree-sitter | classes, modules, method definitions, require edges |
+| .env files | parser | environment variable declarations, cross-file references |
 
 All extractors fire per file via multi-dispatch; results are merged. Tree-sitter produces edges at confidence 0.7 (`ast_inferred`); `go/packages` and SCIP at 0.95-1.0 (`ast_resolved`, `scip_resolved`).
 
