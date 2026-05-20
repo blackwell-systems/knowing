@@ -30,7 +30,27 @@ Source code is text organized into files. But the *meaning* of code is relations
 
 These relationships cross file boundaries, package boundaries, and repository boundaries. No single file contains the information "this change breaks 14 callers in 3 repos." That information lives in the *graph* of relationships between symbols.
 
-When you ask "what's the blast radius of changing this function signature?", the answer isn't in any file. It's in the set of edges pointing TO that function from everywhere else.
+When you ask "what's the blast radius of changing this function signature?", the answer isn't in any file. It's in the set of edges pointing TO that function from everywhere else. Concretely, for `BuildHierarchicalTree` in knowing's own codebase:
+
+```
+BlastRadius(BuildHierarchicalTree) = {
+  e | e.target = BuildHierarchicalTree ∧ e.type = "calls"
+} = {
+  SnapshotManager.ComputeSnapshot       --calls-->  BuildHierarchicalTree
+  cmd/knowing/prove.cmdProve            --calls-->  BuildHierarchicalTree
+  cmd/knowing/prove_absent.cmdProveAbsent --calls--> BuildHierarchicalTree
+  cmd/knowing/audit.cmdAudit            --calls-->  BuildHierarchicalTree
+  mcp/feedback.computeNeighborhoodRoot  --calls-->  BuildHierarchicalTree
+  TestBuildHierarchicalTree_Deterministic --calls--> BuildHierarchicalTree
+  TestBuildHierarchicalTree_PackageRoots  --calls--> BuildHierarchicalTree
+  TestMerkleDiffBenchmark               --calls-->  BuildHierarchicalTree
+  TestContextPackAndCommunityRoots      --calls-->  BuildHierarchicalTree
+  cache.TestInvalidatePackages          --calls-->  BuildHierarchicalTree
+  ... (10+ callers across 5 packages)
+}
+```
+
+Change `BuildHierarchicalTree`'s signature? Every one of these breaks. No single file contains this information. The edges do.
 
 ### What existing tools provide
 
@@ -337,7 +357,7 @@ The verifier needs: the edge hash, the proof steps (sibling hashes + directions)
 
 An absence proof answers: "Prove that edge X does NOT exist in the tree."
 
-The key insight: leaves are sorted. If edge X doesn't exist, there must be two adjacent leaves A and B such that A < X < B (in byte order). If you can prove A is in the tree, prove B is in the tree, and show they're adjacent (no room between them), then X cannot be there.
+The mechanism: leaves are sorted. If edge X doesn't exist, there must be two adjacent leaves A and B such that A < X < B (in byte order). If you can prove A is in the tree, prove B is in the tree, and show they're adjacent (no room between them), then X cannot be there.
 
 ```
 Sorted leaves: ... a27e, b91f, c44d, e88b, f77a ...
