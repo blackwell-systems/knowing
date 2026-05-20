@@ -10,7 +10,7 @@ Content-addressing is usually treated as an integrity mechanism: a way to verify
 
 A flat Merkle tree proves state. A hierarchical Merkle tree organizes computation.
 
-When the tree is organized by package and edge type rather than by flat sorted hash, the identity structure itself becomes the query optimization layer. Diffs become O(packages) instead of O(edges). Cache keys become O(1) subgraph root lookups. Invalidation is scoped to the packages that actually changed. Critically, the hierarchical diff's output is semantically meaningful: it names changed packages and edge types, not arbitrary tree positions. This is what makes scoped invalidation possible. The tree does not merely prove state; it organizes computation.
+When the tree is organized by package and edge type rather than by flat sorted hash, the identity structure itself becomes the query optimization layer. Diffs become O(packages) instead of O(edges) with semantically meaningful output: changed package names and edge types, not arbitrary tree positions (281x faster than naive linear scan on the knowing repo). Cache keys become O(1) subgraph root lookups. Invalidation is scoped to the packages that actually changed. This is what makes scoped invalidation possible. The tree does not merely prove state; it organizes computation.
 
 This paper presents both insights together: the original argument (content-addressing solves six structural problems with mutable graphs) and the hierarchical revelation (organizing the Merkle tree by semantic boundaries turns identity into a query engine). Each capability in the system is a structural consequence of the hierarchical identity model, not a feature bolted onto it.
 
@@ -382,7 +382,7 @@ if current_root == cached_root:
     return cached_result  // 42ns lookup
 ```
 
-Cache validity is checked in 42ns. A cache hit eliminates the full retrieval pipeline (median cold cost: ~160ms). The speedup is 93x (`bench/merkle-diff/FINDINGS-phase2-cache.md`).
+Cache validity is checked in 42ns (a single root comparison). When the cache holds a valid entry, the full warm retrieval completes in 1.7ms versus 160ms cold, a 93x warm-path speedup. At a measured ~20% hit rate for varied queries, the expected session-level speedup is approximately 19x (`bench/merkle-diff/FINDINGS-phase2-cache.md`).
 
 ### 6.6 Scoped Daemon Invalidation
 
@@ -533,7 +533,7 @@ With content-addressing, feedback is keyed on the symbol's hash: `SHA-256("node\
 
 **Validity verification.** Feedback recorded at snapshot S is valid as long as the symbol still exists in the current graph with the same hash. One lookup confirms or invalidates. No "is this feedback still relevant?" heuristic.
 
-**Temporal provenance.** "When was this feedback recorded, and was the symbol in the same architectural context?" Walk the snapshot chain to the recording point, verify the symbol's community membership. The chain makes this a lookup, not a guess.
+**Temporal provenance.** "When was this feedback recorded, and was the symbol in the same architectural context?" Walk the snapshot chain to the recording point, verify the symbol's package membership. The chain makes this a lookup, not a guess.
 
 ### 9.2 Community-Scoped Learning *(Planned)*
 
@@ -625,7 +625,7 @@ Every mutable-graph approach to software relationship intelligence is fighting a
 
 The original content-addressing insight (hash everything, use the hash as identity) solves the first six requirements. The hierarchical Merkle revelation solves the last: by organizing the tree to match the semantic structure of the codebase, the identity structure becomes the query optimization layer. Diffs are O(packages). Cache keys are O(1). Invalidation is scoped. The tree proves state and organizes computation simultaneously.
 
-Build time for the hierarchical tree is comparable to flat construction (3.47ms vs 6.03ms for the knowing repo, actually faster due to smaller per-group sorts). The operational complexity of maintaining intermediate roots is offset by the query-time benefits at scale. The speedups are significant: up to 93x for cached queries (warm path), 281x for diffs vs flat linear scan on the live graph, 517x at 100K synthetic edges.
+Build time for the hierarchical tree is comparable to flat construction (3.47ms vs 6.03ms for the knowing repo, actually faster due to smaller per-group sorts). The operational complexity of maintaining intermediate roots is offset by the query-time benefits at scale. The speedups are significant: O(packages) diff with semantically meaningful output (changed package names, edge types), enabling scoped invalidation and cache-key derivation (281x faster than flat linear scan on the live graph; 517x at 100K synthetic edges); up to 93x on the warm path, approximately 19x expected at realistic hit rates.
 
 These properties hold under the assumptions stated in Section 5.2. The limitations in Section 10 are real and must be addressed as core infrastructure, not afterthoughts. Canonicalization is not a detail; it is a precondition. Deterministic extractors are not optional; they are required for Property 1 to hold.
 
