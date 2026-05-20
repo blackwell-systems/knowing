@@ -10,6 +10,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## 2026-05-19
 
+### Changed
+
+#### Merkle tree implementation extracted to `merkle-forest` library
+- Internal `computeMerkleRoot` replaced by `github.com/blackwell-systems/merkle-forest` v0.1.1
+- `BuildMerkleTree` delegates to `forest.Build` with `WithPrefix([]byte("merkle\x00"))` for hash parity
+- `BuildHierarchicalTree` delegates to `forest.BuildMultiLevel`
+- All exported API preserved unchanged (zero-breaking-change refactor)
+- `combineHashes` retained for proof.go compatibility
+- Net: -44 lines from knowing, delegated to standalone library
+- Library: https://github.com/blackwell-systems/merkle-forest
+
 ### Added
 
 #### `knowing stats` CLI
