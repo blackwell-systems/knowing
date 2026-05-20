@@ -66,6 +66,7 @@ func cmdAdd(args []string) error {
 // cmdRemove removes a repository from the roster.
 func cmdRemove(args []string) error {
 	fs := flag.NewFlagSet("remove", flag.ExitOnError)
+	purge := fs.Bool("purge", false, "Also delete the database file")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -79,11 +80,22 @@ func cmdRemove(args []string) error {
 		return fmt.Errorf("resolving path: %w", err)
 	}
 
+	// Get the DB path before removing from roster.
+	dbPath := roster.DBForPath(absPath)
+
 	if err := roster.Remove(absPath); err != nil {
 		return err
 	}
 
 	fmt.Printf("Removed %s from roster\n", absPath)
+
+	if *purge && dbPath != "" {
+		if err := os.Remove(dbPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("deleting database %s: %w", dbPath, err)
+		}
+		fmt.Printf("Deleted database: %s\n", dbPath)
+	}
+
 	return nil
 }
 

@@ -128,6 +128,10 @@ func run(args []string) error {
 		return cmdList(args[1:])
 	case "stats":
 		return cmdStats(args[1:])
+	case "reset":
+		return cmdReset(args[1:])
+	case "vacuum":
+		return cmdVacuum(args[1:])
 	default:
 		printUsage()
 		return fmt.Errorf("unknown subcommand: %s", args[0])
@@ -139,8 +143,10 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Repository management:")
 	fmt.Fprintln(os.Stderr, "  add         Register and index a repository")
-	fmt.Fprintln(os.Stderr, "  remove      Remove a repository from the roster")
+	fmt.Fprintln(os.Stderr, "  remove      Remove a repository from the roster (-purge to delete DB)")
 	fmt.Fprintln(os.Stderr, "  list        List all tracked repositories")
+	fmt.Fprintln(os.Stderr, "  reset       Delete all graph data for a repo (keep DB file)")
+	fmt.Fprintln(os.Stderr, "  vacuum      Compact the database after deletions")
 	fmt.Fprintln(os.Stderr, "  init        Set up knowing (index, enrich, configure MCP)")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Indexing:")
@@ -1108,6 +1114,78 @@ func usefulnessRate(useful, total int64) float64 {
 		return 0
 	}
 	return float64(useful) / float64(total) * 100
+}
+
+// cmdReset deletes all graph data for a repository without removing the DB file.
+func cmdReset(args []string) error {
+	fs := flag.NewFlagSet("reset", flag.ExitOnError)
+	dbPath := fs.String("db", defaultDB(), "Path to the SQLite database (env: KNOWING_DB)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	st, err := store.NewSQLiteStore(*dbPath)
+	if err != nil {
+		return fmt.Errorf("opening store: %w", err)
+	}
+	defer st.Close()
+
+	ctx := context.Background()
+	if err := st.TruncateGraph(ctx); err != nil {
+		return fmt.Errorf("truncating graph: %w", err)
+	}
+
+	fmt.Println("Graph data deleted. Database file preserved.")
+	fmt.Println("Run 'knowing index' to re-index.")
+	return nil
+}
+
+// cmdVacuum compacts the database file after deletions.
+func cmdVacuum(args []string) error {
+	fs := flag.NewFlagSet("vacuum", flag.ExitOnError)
+	dbPath := fs.String("db", defaultDB(), "Path to the SQLite database (env: KNOWING_DB)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	st, err := store.NewSQLiteStore(*dbPath)
+	if err != nil {
+		return fmt.Errorf("opening store: %w", err)
+	}
+	defer st.Close()
+
+	// Get size before.
+	info, _ := os.Stat(*dbPath)
+	sizeBefore := info.Size()
+
+	_, err = st.DB().ExecContext(context.Background(), "VACUUM")
+	if err != nil {
+		return fmt.Errorf("vacuum: %w", err)
+	}
+
+	// Get size after.
+	info, _ = os.Stat(*dbPath)
+	sizeAfter := info.Size()
+
+	saved := sizeBefore - sizeAfter
+	fmt.Printf("Vacuumed %s\n", *dbPath)
+	fmt.Printf("  Before: %s\n", formatBytes(sizeBefore))
+	fmt.Printf("  After:  %s\n", formatBytes(sizeAfter))
+	if saved > 0 {
+		fmt.Printf("  Saved:  %s (%.1f%%)\n", formatBytes(saved), float64(saved)/float64(sizeBefore)*100)
+	}
+	return nil
+}
+
+func formatBytes(b int64) string {
+	switch {
+	case b >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(b)/(1<<20))
+	case b >= 1<<10:
+		return fmt.Sprintf("%.1f KB", float64(b)/(1<<10))
+	default:
+		return fmt.Sprintf("%d bytes", b)
+	}
 }
 
 // registerAllExtractors registers all language extractors with the indexer.
