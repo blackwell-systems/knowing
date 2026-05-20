@@ -1872,6 +1872,18 @@
         "cached_at": "2026-05-15T08:46:11.028488-07:00"
       }
     },
+    "b5ecea3e9dbc0a842cf571e0060b6059": {
+      "build": {
+        "gate_type": "build",
+        "command": "GOWORK=off go build ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-20T10:20:13.568873-07:00"
+      }
+    },
     "b6e68c382d2b92bc4539e32a04ca7cc0": {
       "lint": {
         "gate_type": "lint",
@@ -1990,6 +2002,18 @@
         "stderr": "",
         "from_cache": true,
         "cached_at": "2026-05-16T19:50:40.542737-07:00"
+      }
+    },
+    "cabcf855b40bc57fe9cdf0785f8db3d1": {
+      "lint": {
+        "gate_type": "lint",
+        "command": "GOWORK=off go vet ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-20T10:20:14.466419-07:00"
       }
     },
     "cacb13fe009233464d828203ee677690": {
