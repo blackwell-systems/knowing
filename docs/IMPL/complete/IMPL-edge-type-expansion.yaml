@@ -1,3 +1,4 @@
+completion_date: "2026-05-20"
 title: 'P1 Edge Type Expansion: tests, owned_by, authored_by'
 feature_slug: edge-type-expansion
 verdict: SUITABLE
@@ -806,7 +807,7 @@ waves:
             - B
             - C
             - D
-      base_commit: 3faeedf53fe640a8e03ad643b049baa449e289b8
+      base_commit: 403f444bd6b1f6251ecbb5a065164d7d5894d6a9
 quality_gates:
     level: standard
     gates:
@@ -960,6 +961,17 @@ completion_reports:
             - TestConstants_NoEmpty
         verification: PASS
         notes: All 23 edge type constants defined, RWRWeight function maps all known types. 5 tests passing. edge-types.md updated with tests and authored_by sections.
+    E:
+        status: complete
+        branch: polywave/edge-type-expansion/wave2-agent-E
+        commit: 10de1a1
+        files_changed:
+            - internal/indexer/indexer.go
+            - internal/mcp/server.go
+            - internal/context/walk.go
+            - internal/mcp/handlers_test.go
+        verification: PASS
+        notes: 'All three integration points wired: authorship extractor in indexer, ownership_query tool registered in MCP, tests/owned_by/authored_by weights added to RWR walk. Also updated handlers_test.go tool count to match new registration.'
 pre_mortem:
     overall_risk: low
     rows:
@@ -1022,5 +1034,5 @@ critic_report:
     summary: 'All file existence checks pass (new files absent, modify files present). Symbol accuracy verified for all function signatures (ComputeEdgeHash, ComputeNodeHash, ExtractOwnership, buildImportMap, extractCallEdges, extractFuncDecl). Insertion points in indexer.go and server.go match actual source. One error found: Agent E instructs setting owned_by and authored_by to 0.0 in the edgeWeight map, but walk.go uses ''if w == 0 { w = 0.3 }'' which would override any explicit 0.0 back to 0.3, making the intended exclusion of these edge types from RWR ineffective. The brief must either instruct changing the default-handling logic or use a different sentinel value.'
     reviewed_at: "2026-05-20T16:04:18Z"
     issue_count: 1
-state: REVIEWED
+state: COMPLETE
 injection_method: hook
