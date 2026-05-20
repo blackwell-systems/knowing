@@ -11,6 +11,12 @@
 
 ---
 
+<p align="center">
+Code intelligence graph. MCP server with 26 tools. Static analysis, call graphs, runtime traces, cryptographic proofs. Gets smarter with use.
+</p>
+
+---
+
 Your architecture diagram says service A calls service B. Can you prove it?
 
 **knowing can.** It builds a content-addressed graph of extracted code relationships, snapshots it as a Merkle tree tied to a git commit, and generates cryptographic proofs that verify offline. Agents use it for ranked context. Security teams use it for audit. Platform teams use it to compare code against production traces.
