@@ -78,6 +78,28 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 - `blast_radius` on module-a function showing callers in B and C
 - Incremental invalidation across repos
 
+### Tier 1.5: Java Monolith + Frontend (cross-language validation)
+
+**Target:** Spring PetClinic (Java REST API) + React/Vue frontend consuming it.
+
+**What it validates:**
+- **Cross-language HTTP edges**: TypeScript `fetch()` → Java `@GetMapping` resolution
+- **Java extractor correctness**: Spring Boot annotations, layered architecture (Controller → Service → Repository)
+- **API contract detection**: Which frontend components consume which backend endpoints
+- **Runtime vs static comparison**: Spin up service, generate OTLP traces, compare observed vs extracted edges
+- **Full-stack test scope**: Change Java service → knowing surfaces which frontend tests to run
+- **Dead endpoint detection**: REST endpoints defined but never called (static or runtime evidence)
+- **Breaking change prevention**: "You're removing `/api/users` but 5 frontend components call it"
+
+**Why useful:**
+- Knowing is heavily validated on Go (dogfooding itself), less on Java/TypeScript
+- REST API consumption edges aren't validated cross-language yet
+- Enables full-stack test selection (backend change → frontend tests)
+- Realistic monolith structure (50K LOC, deep call hierarchies, framework-heavy)
+
+**Effort:** Low (4-8 hours to setup, index, validate)  
+**Priority:** After session memory persistence (Priority #2). Useful once we have real users requesting Java/cross-language support.
+
 ### Tier 2: Grafana Ecosystem (scale validation)
 
 Grafana + Loki + Tempo + Mimir (~1.3M LOC, 4 repos). Validates cross-repo at realistic scale. Run manually, not in CI.
