@@ -145,6 +145,57 @@ func (e *actionsExtractor) extract(ctx context.Context, opts types.ExtractOption
 		}
 	}
 
+	// Extract deployed_by and tested_by edges.
+	jDefs := make(map[string]jobDef)
+	for jobID, jobVal := range jobsMap {
+		jd, ok := jobVal.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		var steps []stepDef
+		if stepsVal, ok := jd["steps"]; ok {
+			if stepsList, ok := stepsVal.([]interface{}); ok {
+				for _, s := range stepsList {
+					if sm, ok := s.(map[string]interface{}); ok {
+						sd := stepDef{}
+						if r, ok := sm["run"].(string); ok {
+							sd.Run = r
+						}
+						if u, ok := sm["uses"].(string); ok {
+							sd.Uses = u
+						}
+						if n, ok := sm["name"].(string); ok {
+							sd.Name = n
+						}
+						if sm["with"] != nil {
+							if withMap, ok := sm["with"].(map[string]interface{}); ok {
+								sd.With = make(map[string]string)
+								for k, v := range withMap {
+									if vs, ok := v.(string); ok {
+										sd.With[k] = vs
+									}
+								}
+							}
+						}
+						steps = append(steps, sd)
+					}
+				}
+			}
+		}
+		name, _ := jd["name"].(string)
+		jDefs[jobID] = jobDef{
+			Name:  name,
+			Hash:  jobHashes[jobID],
+			Steps: steps,
+		}
+	}
+	deployNodes, deployEdges := extractDeployedByEdges(opts, workflowHash, jDefs)
+	result.Nodes = append(result.Nodes, deployNodes...)
+	result.Edges = append(result.Edges, deployEdges...)
+	testNodes, testEdges := extractTestedByEdges(opts, jDefs)
+	result.Nodes = append(result.Nodes, testNodes...)
+	result.Edges = append(result.Edges, testEdges...)
+
 	return result, nil
 }
 
