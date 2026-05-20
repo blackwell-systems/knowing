@@ -10,6 +10,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## 2026-05-19
 
+#### Human-readable proof output
+- `knowing prove -human` and `knowing prove-absent -human` for terminal-friendly output
+- Clean format for screenshots and demos (default remains JSON)
+
+#### Java extractor: proper package paths
+- Qualified names now use Java package declaration (e.g., `org.springframework.samples.petclinic.owner.OwnerController`)
+- Previously embedded absolute file paths; now extracts from `package_declaration` AST node
+- Validated on Spring PetClinic (47 files, 5522 nodes, 3048 edges, 21 Spring routes)
+
+#### Grafana scale validation
+- Indexed Grafana (~500K LOC Go+TypeScript): 338K nodes, 714K edges, 15,921 files
+- Hierarchical tree build: 88ms for 249K edges (3,552 packages)
+- Context retrieval operational at 50x primary codebase scale
+
 #### Named snapshot refs
 - `knowing diff @latest @prev` (diff last two snapshots)
 - `knowing diff @0 @3` (offset from most recent)
