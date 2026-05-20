@@ -118,6 +118,7 @@ The endgame: knowing with continuous OTLP trace ingestion alongside static analy
 |-----------|-----|
 | Lazy materialization | Load only visited subtrees at millions of edges |
 | Merkle bisection | O(log N) snapshot search instead of O(N) |
+| Parallel tree hashing | Concurrent bottom-up hash computation for 1M+ edge trees. Current `computeMerkleRoot` is single-threaded; goroutine pool pattern for leaf-level parallelism. |
 | Partitioned storage | Static and runtime edges have different lifecycles |
 | Runtime edge compaction | Collapse observation history |
 | Federated sync | CI instance + production instance exchange diffs |
