@@ -4,8 +4,12 @@ import (
 	"bytes"
 	"sort"
 
+	forest "github.com/blackwell-systems/merkle-forest"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
+
+// forestPrefix matches knowing's historical "merkle\x00" domain prefix.
+var forestPrefix = []byte("merkle\x00")
 
 // MerkleTree represents a binary Merkle tree built from sorted hashes.
 // The tree is constructed bottom-up: leaves are sorted edge hashes, and
@@ -31,32 +35,14 @@ func BuildMerkleTree(hashes []types.Hash) *MerkleTree {
 		return bytes.Compare(sorted[i][:], sorted[j][:]) < 0
 	})
 
-	root := computeMerkleRoot(sorted)
-	return &MerkleTree{Root: root, Leaves: sorted}
-}
-
-// computeMerkleRoot recursively computes the Merkle root from sorted hashes.
-// At each level, adjacent pairs are combined via combineHashes. If the count
-// is odd, the last hash is paired with itself (standard Merkle tree padding).
-// Recursion terminates when a single hash remains: the root.
-func computeMerkleRoot(hashes []types.Hash) types.Hash {
-	if len(hashes) == 1 {
-		return hashes[0]
+	// Delegate to merkle-forest: build a single-group forest.
+	forestHashes := make([]forest.Hash, len(sorted))
+	for i, h := range sorted {
+		forestHashes[i] = forest.Hash(h)
 	}
+	f := forest.Build(map[string][]forest.Hash{"_": forestHashes}, forest.WithPrefix(forestPrefix))
 
-	var nextLevel []types.Hash
-	for i := 0; i < len(hashes); i += 2 {
-		if i+1 < len(hashes) {
-			combined := combineHashes(hashes[i], hashes[i+1])
-			nextLevel = append(nextLevel, combined)
-		} else {
-			// Odd leaf: pair with itself so every level has an even count.
-			combined := combineHashes(hashes[i], hashes[i])
-			nextLevel = append(nextLevel, combined)
-		}
-	}
-
-	return computeMerkleRoot(nextLevel)
+	return &MerkleTree{Root: types.Hash(f.Root), Leaves: sorted}
 }
 
 // combineHashes produces a parent node hash from two child hashes using

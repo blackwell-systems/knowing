@@ -4,6 +4,7 @@ go 1.26.0
 
 require (
 	github.com/blackwell-systems/agent-lsp v0.11.2-0.20260518143556-2469d52998d6
+	github.com/blackwell-systems/merkle-forest v0.1.1
 	github.com/coder/hnsw v0.6.1
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/knights-analytics/hugot v0.7.2
@@ -20,7 +21,6 @@ require (
 )
 
 require (
-	github.com/blackwell-systems/merkle-forest v0.1.0 // indirect
 	github.com/chewxy/math32 v1.11.1 // indirect
 	github.com/daulet/tokenizers v1.27.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect

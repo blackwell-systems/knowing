@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	forest "github.com/blackwell-systems/merkle-forest"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
@@ -38,6 +39,9 @@ type HierarchicalTree struct {
 
 	// TotalEdges is the total number of edges across all packages.
 	TotalEdges int
+
+	// ml is the underlying forest.MultiLevel for SubgraphRoot delegation.
+	ml *forest.MultiLevel
 }
 
 // EdgeInput is the input for building a hierarchical tree: an edge hash with
@@ -66,61 +70,42 @@ func BuildHierarchicalTree(edges []EdgeInput) *HierarchicalTree {
 		}
 	}
 
-	// Group edges by package and edge type.
-	// Key: "package:edgeType" -> list of edge hashes
-	byPkgType := make(map[string][]types.Hash)
+	// Convert EdgeInputs to forest.MultiLevelInput.
+	inputs := make([]forest.MultiLevelInput, len(edges))
 	pkgEdgeCounts := make(map[string]int)
-
-	for _, e := range edges {
-		pkg := e.PackagePath
-		if pkg == "" {
-			pkg = "_root"
+	for i, e := range edges {
+		group := e.PackagePath
+		if group == "" {
+			group = "_root"
 		}
-		key := pkg + ":" + e.EdgeType
-		byPkgType[key] = append(byPkgType[key], e.EdgeHash)
-		pkgEdgeCounts[pkg]++
+		inputs[i] = forest.MultiLevelInput{
+			Leaf:     forest.Hash(e.EdgeHash),
+			Group:    group,
+			Subgroup: e.EdgeType,
+		}
+		pkgEdgeCounts[group]++
 	}
 
-	// Build edge-type roots: for each (package, edgeType), build a Merkle tree.
-	edgeTypeRoots := make(map[string]types.Hash, len(byPkgType))
-	for key, hashes := range byPkgType {
-		tree := BuildMerkleTree(hashes)
-		edgeTypeRoots[key] = tree.Root
-	}
+	// Build via merkle-forest with knowing's domain prefix.
+	ml := forest.BuildMultiLevel(inputs, forest.WithPrefix(forestPrefix))
 
-	// Group edge-type roots by package.
-	pkgTypeRoots := make(map[string][]types.Hash)
-	for key, root := range edgeTypeRoots {
-		pkg := key[:strings.LastIndex(key, ":")]
-		pkgTypeRoots[pkg] = append(pkgTypeRoots[pkg], root)
+	// Convert results back to knowing types.
+	packageRoots := make(map[string]types.Hash, len(ml.GroupRoots))
+	for k, v := range ml.GroupRoots {
+		packageRoots[k] = types.Hash(v)
 	}
-
-	// Build package roots: for each package, combine its edge-type roots.
-	packageRoots := make(map[string]types.Hash, len(pkgTypeRoots))
-	for pkg, roots := range pkgTypeRoots {
-		tree := BuildMerkleTree(roots)
-		packageRoots[pkg] = tree.Root
+	edgeTypeRoots := make(map[string]types.Hash, len(ml.SubgroupRoots))
+	for k, v := range ml.SubgroupRoots {
+		edgeTypeRoots[k] = types.Hash(v)
 	}
-
-	// Build repo root from sorted package roots.
-	pkgNames := make([]string, 0, len(packageRoots))
-	for pkg := range packageRoots {
-		pkgNames = append(pkgNames, pkg)
-	}
-	sort.Strings(pkgNames)
-
-	pkgRootHashes := make([]types.Hash, len(pkgNames))
-	for i, pkg := range pkgNames {
-		pkgRootHashes[i] = packageRoots[pkg]
-	}
-	repoTree := BuildMerkleTree(pkgRootHashes)
 
 	return &HierarchicalTree{
-		Root:              repoTree.Root,
+		Root:              types.Hash(ml.Root),
 		PackageRoots:      packageRoots,
 		EdgeTypeRoots:     edgeTypeRoots,
 		PackageEdgeCounts: pkgEdgeCounts,
 		TotalEdges:        len(edges),
+		ml:                ml,
 	}
 }
 
@@ -270,6 +255,11 @@ func DiffHierarchicalTreesWithOptions(oldTree, newTree *HierarchicalTree, opts *
 // This is useful for caching results of operations that only depend on certain
 // packages (e.g., blast_radius for a symbol in package X).
 func (ht *HierarchicalTree) SubgraphRoot(packages []string) types.Hash {
+	if ht.ml != nil {
+		return types.Hash(ht.ml.SubgraphRoot(packages))
+	}
+
+	// Fallback for trees constructed without ml (e.g., zero-value).
 	if len(packages) == 0 {
 		return types.EmptyHash
 	}
