@@ -51,6 +51,10 @@ func cmdMCP(args []string) error {
 
 	mcpServer := knowingmcp.NewServer(st)
 
+	// Always create snapshot manager so prove/prove_absent MCP tools work.
+	snapMgr := snapshot.NewSnapshotManager(st)
+	mcpServer.SetSnapshotManager(snapMgr)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -78,7 +82,6 @@ func cmdMCP(args []string) error {
 			*repoURL = detectRepoURL(absRepo)
 		}
 
-		snapMgr := snapshot.NewSnapshotManager(st)
 		idx := indexer.NewIndexer(st, snapMgr)
 		registerAllExtractors(idx, false)
 		repoHash := types.NewHash([]byte(*repoURL))
