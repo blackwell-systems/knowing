@@ -28,6 +28,15 @@ jobs:
       - name: Test
         run: go test ./... -timeout 5m
 
+      - name: Eval (retrieval regression)
+        run: go test ./eval/ -run TestEval -timeout 5m -count=1
+
+      - name: Benchmark (diff regression)
+        run: go test ./bench/merkle-diff/ -run TestMerkleDiffBenchmark -timeout 2m -count=1
+
+      - name: Cross-repo edges
+        run: go test ./test/... -timeout 2m -count=1
+
       - name: Binary smoke test
         run: |
           go build -o knowing ./cmd/knowing
