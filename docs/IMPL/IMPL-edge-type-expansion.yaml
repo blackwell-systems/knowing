@@ -1,0 +1,910 @@
+title: 'P1 Edge Type Expansion: tests, owned_by, authored_by'
+feature_slug: edge-type-expansion
+verdict: SUITABLE
+suitability_assessment: |
+    File decomposition: The work decomposes cleanly into 5+ agents across disjoint files.
+    The three edge types (tests, owned_by, authored_by) touch different extraction packages,
+    a new MCP tool (ownership query), and documentation updates. No single file is the
+    sole bottleneck; the work fans out across extractor packages, MCP handlers, CLI enrichment,
+    and documentation.
+
+    Investigation-first items: None. All three edge types have clear semantics. The owned_by
+    extractor already exists (internal/indexer/ownership/ownership.go) and just needs tests
+    and an enhanced MCP tool. The authored_by logic already exists in cmd/knowing/enrich.go
+    (blame enrichment) but stamps node fields rather than edges; converting to edges is a
+    straightforward refactor. The tests edge type is new but the call-graph analysis pattern
+    is well-established in the codebase (see testscope.go BFS).
+
+    Interface discoverability: All interfaces are definable now. The Extractor interface is
+    stable, edge types are just string constants, and the MCP tool pattern is well-established
+    (26 existing tools as templates).
+
+    Pre-implementation status:
+    - owned_by: PARTIAL. The ownership extractor exists and emits owned_by edges during
+      indexing. Missing: tests for the ownership package, enhanced MCP ownership tool that
+      queries owned_by edges (current tool just lists files/nodes without using ownership edges).
+    - authored_by: PARTIAL. git blame enrichment stamps node fields (LastAuthor, LastCommitAt)
+      but does not create graph edges. Need: authored_by edge creation from blame data,
+      and integration with the ownership MCP tool.
+    - tests: TODO. No implementation exists. Need: extraction logic in Go extractors to
+      detect Test* functions and create tests edges to called production functions.
+
+    Parallelization value: High. 4 agents in wave 1 with independent file ownership.
+    Build/test cycle is ~30-60s (go test ./... with -short). Each agent touches 2-5 files.
+    Tasks involve non-trivial logic (AST analysis, git blame parsing, MCP handler implementation).
+
+    Estimated times:
+    - Scout phase: ~8 min (dependency mapping, interface contracts, IMPL doc)
+    - Agent execution: ~12 min (4 agents x 8 min avg, wave 1 parallel + wave 2 integration)
+    - Merge and verification: ~4 min
+    Total Polywave time: ~24 min
+
+    Sequential baseline: ~40 min (5 tasks x 8 min avg)
+    Time savings: ~16 min (40% faster)
+
+    Recommendation: Clear speedup. Proceed.
+test_command: GOWORK=off go test -short ./... -timeout 5m
+lint_command: go vet ./...
+file_ownership:
+    - file: internal/indexer/gotsextractor/tests_edges.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/indexer/gotsextractor/tests_edges_test.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/indexer/authorship/authorship.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/indexer/authorship/authorship_test.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/indexer/ownership/ownership_test.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/mcp/ownership.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/mcp/ownership_test.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/edgetype/constants.go
+      agent: D
+      wave: 1
+      action: new
+    - file: internal/edgetype/constants_test.go
+      agent: D
+      wave: 1
+      action: new
+    - file: docs/architecture/edge-types.md
+      agent: D
+      wave: 1
+      action: modify
+    - file: internal/indexer/indexer.go
+      agent: E
+      wave: 2
+      action: modify
+    - file: internal/mcp/server.go
+      agent: E
+      wave: 2
+      action: modify
+    - file: internal/context/walk.go
+      agent: E
+      wave: 2
+      action: modify
+interface_contracts:
+    - name: ExtractTestsEdges
+      description: |
+        Extract 'tests' edges from a Go test file. For each Test* or Benchmark* function,
+        creates edges from the test function node to each non-test function it calls.
+      definition: |
+        // ExtractTestsEdges analyzes a test file's function bodies and produces
+        // 'tests' edges from each Test*/Benchmark* function to production functions it calls.
+        // Parameters:
+        //   root: tree-sitter root node of the file
+        //   opts: standard ExtractOptions for the test file
+        //   pkgPath: resolved Go package path
+        //   imports: import alias map from buildImportMap
+        // Returns: slice of Edge with EdgeType="tests", Provenance="ast_inferred", Confidence=0.7
+        func ExtractTestsEdges(root *sitter.Node, opts types.ExtractOptions, pkgPath string, imports map[string]string) []types.Edge
+      location: internal/indexer/gotsextractor/tests_edges.go
+    - name: ExtractAuthorship
+      description: |
+        Extract 'authored_by' edges from git blame data. For each symbol (function, type, method)
+        in a file, determines the primary author (most lines) and creates an authored_by edge.
+      definition: |
+        // Rule represents a per-symbol authorship determination.
+        type SymbolAuthorship struct {
+            NodeHash types.Hash
+            Author   string // primary author (most lines in the symbol's range)
+        }
+
+        // ExtractAuthorship runs git blame on a file and determines the primary author
+        // for each symbol based on line ranges. Returns authored_by edges from symbol
+        // nodes to synthetic author nodes.
+        // Parameters:
+        //   repoURL: repository URL for node hash computation
+        //   repoPath: absolute path to repo root (for running git blame)
+        //   file: the File record
+        //   nodes: all nodes in this file (need Line field for range computation)
+        // Returns: (authorNodes []types.Node, edges []types.Edge)
+        func ExtractAuthorship(repoURL, repoPath string, file types.File, nodes []types.Node) ([]types.Node, []types.Edge, error)
+      location: internal/indexer/authorship/authorship.go
+    - name: HandleOwnershipQuery
+      description: |
+        Enhanced ownership MCP tool handler that queries owned_by and authored_by edges
+        to answer 'who owns this code?' queries. Accepts a file path or symbol name
+        and returns owners (from CODEOWNERS) and authors (from git blame).
+      definition: |
+        // ownershipQueryTool defines the enhanced "ownership_query" MCP tool.
+        func ownershipQueryTool() mcp.Tool
+
+        // handleOwnershipQuery implements the ownership_query tool handler.
+        // Accepts: file_path (string) or symbol (string), repo_hash (string)
+        // Returns: JSON with owners (from owned_by edges) and authors (from authored_by edges)
+        func (s *Server) handleOwnershipQuery(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error)
+      location: internal/mcp/ownership.go
+    - name: EdgeTypeConstants
+      description: |
+        Canonical string constants for all edge types in the knowledge graph.
+        Provides a single source of truth; extractors and handlers import these
+        rather than using raw string literals.
+      definition: |
+        package edgetype
+
+        const (
+            Calls        = "calls"
+            Imports      = "imports"
+            Implements   = "implements"
+            References   = "references"
+            HandlesRoute = "handles_route"
+            DependsOn    = "depends_on"
+            OwnedBy      = "owned_by"
+            AuthoredBy   = "authored_by"
+            Tests        = "tests"
+            // ... all other edge types
+        )
+      location: internal/edgetype/constants.go
+waves:
+    - number: 1
+      agents:
+        - id: A
+          task: |
+            ## Task: Implement 'tests' edge extraction in Go tree-sitter extractor
+
+            ### What to implement
+
+            Create `internal/indexer/gotsextractor/tests_edges.go` containing an
+            `ExtractTestsEdges` function that analyzes Go test files and produces
+            'tests' edges from test functions to the production functions they call.
+
+            The function signature:
+            ```go
+            func ExtractTestsEdges(root *sitter.Node, opts types.ExtractOptions, pkgPath string, imports map[string]string) []types.Edge
+            ```
+
+            Logic:
+            1. Walk top-level declarations in the file
+            2. For each `function_declaration` whose name starts with "Test" or "Benchmark":
+               a. Get the function's node hash (same computation as extractFuncDecl)
+               b. Walk the function body for call expressions (same pattern as extractCallEdges)
+               c. For each call target that is NOT a test function:
+                  - Compute target hash
+                  - Create edge with EdgeType="tests", Provenance="ast_inferred", Confidence=0.7
+            3. Deduplicate edges by EdgeHash
+            4. Return the edges
+
+            ### Integration point
+
+            The existing `Extract` method in `extractor.go` already processes test files
+            (CanHandle returns true for `_test.go`). The integration agent (Wave 2) will
+            call `ExtractTestsEdges` from within the Extract method for files matching
+            `_test.go`. For now, implement the standalone function with its own test file.
+
+            ### How to detect test files
+
+            Check `opts.FilePath` for `_test.go` suffix using `strings.HasSuffix`.
+
+            ### How to detect test functions
+
+            Function name starts with "Test" or "Benchmark" (tree-sitter `function_declaration`
+            node, get name via `child.ChildByFieldName("name").Content(opts.Content)`).
+
+            ### Call target filtering
+
+            Exclude calls to other test helper functions. A call target is "production" if:
+            - It does not start with "Test" or "Benchmark"
+            - Or it is in a different package (cross-package call)
+
+            ### Edge construction
+
+            ```go
+            provenance := "ast_inferred"
+            edgeHash := types.ComputeEdgeHash(testNodeHash, targetHash, "tests", provenance)
+            edge := types.Edge{
+                EdgeHash:   edgeHash,
+                SourceHash: testNodeHash,
+                TargetHash: targetHash,
+                EdgeType:   "tests",
+                Confidence: 0.7,
+                Provenance: provenance,
+            }
+            ```
+
+            ### Tests to write
+
+            Create `internal/indexer/gotsextractor/tests_edges_test.go` with:
+            1. TestExtractTestsEdges_BasicTest: a test file with TestFoo calling prod func Bar
+            2. TestExtractTestsEdges_MultipleCalls: test calling multiple prod functions
+            3. TestExtractTestsEdges_NoTestFunctions: non-test file returns empty
+            4. TestExtractTestsEdges_BenchmarkFunction: Benchmark* also creates tests edges
+            5. TestExtractTestsEdges_TestCallingTest: calls to other Test* functions are excluded
+            6. TestExtractTestsEdges_CrossPackageCall: test calling function via package alias
+
+            Use the existing `setupTestModule` pattern from `extractor_test.go` for test setup.
+            Parse the source with tree-sitter, then call ExtractTestsEdges directly.
+
+            ### Verification gate
+            ```bash
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go build ./internal/indexer/gotsextractor/... && GOWORK=off go test ./internal/indexer/gotsextractor/ -run TestExtractTestsEdges -count=1 -timeout 30s
+            ```
+
+            ### Postconditions
+            ```bash
+            grep -c "func ExtractTestsEdges" internal/indexer/gotsextractor/tests_edges.go
+            # Expected: 1
+            grep -c "func TestExtractTestsEdges" internal/indexer/gotsextractor/tests_edges_test.go
+            # Expected: >= 5
+            ```
+
+            ### Constraints
+            - Do NOT modify extractor.go (that is Wave 2 integration scope)
+            - Do NOT import internal/edgetype; use raw string "tests" for now (constants package is scaffold, may not exist yet)
+            - Do NOT modify any files outside your ownership list
+          files:
+            - internal/indexer/gotsextractor/tests_edges.go
+            - internal/indexer/gotsextractor/tests_edges_test.go
+        - id: B
+          task: |
+            ## Task: Implement 'authored_by' edge extraction from git blame
+
+            ### What to implement
+
+            Create package `internal/indexer/authorship/` with `authorship.go` containing
+            the `ExtractAuthorship` function that runs git blame and produces authored_by
+            edges from symbol nodes to synthetic author nodes.
+
+            ### Function signature
+
+            ```go
+            package authorship
+
+            // SymbolAuthorship holds the primary author for a symbol.
+            type SymbolAuthorship struct {
+                NodeHash types.Hash
+                Author   string
+            }
+
+            // ExtractAuthorship runs git blame on a file and creates authored_by edges
+            // from each symbol to its primary author (most lines attributed).
+            func ExtractAuthorship(repoURL, repoPath string, file types.File, nodes []types.Node) ([]types.Node, []types.Edge, error)
+            ```
+
+            ### Logic
+
+            1. Run `git blame --porcelain <file.Path>` in `repoPath`
+            2. Parse porcelain output to get per-line author data (reuse the parsing
+               pattern from `cmd/knowing/enrich.go:parseBlamePorcelain`)
+            3. For each node in `nodes`:
+               a. Determine the line range: from `node.Line` to the next node's line (or EOF)
+               b. Count lines per author in that range
+               c. The author with the most lines is the "primary author"
+            4. Create synthetic author nodes (kind="author"):
+               ```go
+               authorHash := types.ComputeNodeHash(repoURL, "authors", types.EmptyHash, authorName, "author")
+               ```
+            5. Create authored_by edges:
+               ```go
+               provenance := "git_blame"
+               edgeHash := types.ComputeEdgeHash(node.NodeHash, authorHash, "authored_by", provenance)
+               ```
+               Confidence: 1.0 (deterministic from git blame)
+
+            ### Deduplication
+
+            Track seen author nodes by name to avoid duplicates (same pattern as
+            ownership.go's `seenOwners` map).
+
+            ### Tests to write
+
+            Create `internal/indexer/authorship/authorship_test.go` with:
+            1. TestExtractAuthorship_SingleAuthor: one function, one author
+            2. TestExtractAuthorship_MultipleAuthors: function where primary author differs from secondary
+            3. TestExtractAuthorship_NoNodes: empty nodes slice returns nil, nil, nil
+            4. TestExtractAuthorship_GitBlameError: non-existent file returns error gracefully
+            5. TestParseBlamePorcelain: unit test for blame parsing (copy pattern from enrich.go)
+            6. TestExtractAuthorship_MultipleSymbols: two functions, same author
+
+            For tests that need git blame, create a temp git repo with commits by
+            different authors (use `git -c user.name=X commit`).
+
+            ### Verification gate
+            ```bash
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go build ./internal/indexer/authorship/... && GOWORK=off go test ./internal/indexer/authorship/ -count=1 -timeout 30s
+            ```
+
+            ### Postconditions
+            ```bash
+            grep -c "func ExtractAuthorship" internal/indexer/authorship/authorship.go
+            # Expected: 1
+            grep -c "func Test" internal/indexer/authorship/authorship_test.go
+            # Expected: >= 5
+            grep -c "authored_by" internal/indexer/authorship/authorship.go
+            # Expected: >= 1
+            ```
+
+            ### Constraints
+            - Do NOT modify cmd/knowing/enrich.go (existing blame enrichment stays as-is)
+            - Do NOT import internal/edgetype; use raw string "authored_by" for now
+            - Do NOT modify any files outside your ownership list
+            - The git blame parsing logic should be self-contained in this package
+              (do not import from cmd/knowing)
+          files:
+            - internal/indexer/authorship/authorship.go
+            - internal/indexer/authorship/authorship_test.go
+        - id: C
+          task: |
+            ## Task: owned_by extractor tests + enhanced ownership MCP tool
+
+            ### What to implement
+
+            Two deliverables:
+
+            #### 1. Tests for existing ownership extractor
+
+            Create `internal/indexer/ownership/ownership_test.go` with comprehensive tests
+            for the existing functions in `internal/indexer/ownership/ownership.go`:
+
+            Tests to write:
+            1. TestParseCodeowners_Basic: parse a simple CODEOWNERS file with multiple rules
+            2. TestParseCodeowners_EmptyFile: empty file returns nil rules
+            3. TestParseCodeowners_CommentsAndBlanks: lines with # and blank lines are skipped
+            4. TestFindCodeowners_RootLocation: finds CODEOWNERS at repo root
+            5. TestFindCodeowners_GithubLocation: finds .github/CODEOWNERS
+            6. TestFindCodeowners_NotFound: returns empty when no CODEOWNERS exists
+            7. TestMatchPattern_GlobStar: `*.go` matches any .go file
+            8. TestMatchPattern_DirectorySlash: `internal/` matches all files under internal
+            9. TestMatchPattern_DoubleGlob: `**/test_*.go` matches test files in any directory
+            10. TestExtractOwnership_BasicMatching: files matched to correct owners
+            11. TestExtractOwnership_LastMatchWins: later rules override earlier ones
+            12. TestExtractOwnership_TeamVsUser: @org/team creates "team" kind, @user creates "user" kind
+            13. TestExtractOwnership_EmptyRules: empty rules returns nil, nil
+            14. TestExtractOwnership_NoMatchingFiles: files that match no rule produce no edges
+
+            #### 2. Enhanced ownership_query MCP tool
+
+            Create `internal/mcp/ownership.go` with a new `ownership_query` MCP tool that
+            queries owned_by and authored_by edges to answer "who owns this code?" queries.
+
+            The existing `ownership` tool (in handlers.go) lists files and symbols but does NOT
+            query owned_by edges. The new `ownership_query` tool queries the graph edges.
+
+            Tool definition:
+            ```go
+            func ownershipQueryTool() mcp.Tool {
+                return mcp.NewTool("ownership_query",
+                    mcp.WithDescription("Query code ownership: find owners (from CODEOWNERS) and authors (from git blame) for a file or symbol."),
+                    mcp.WithReadOnlyHintAnnotation(true),
+                    mcp.WithString("file_path", mcp.Description("File path relative to repo root")),
+                    mcp.WithString("symbol", mcp.Description("Qualified symbol name to query authorship for")),
+                    mcp.WithString("repo_hash", mcp.Required(), mcp.Description("Hash of the repository")),
+                )
+            }
+            ```
+
+            Handler logic:
+            1. If file_path is provided:
+               a. Look up the File record via FileByPath
+               b. Query EdgesFrom(fileHash, "owned_by") to find owners
+               c. Return owners with their kind (team/user)
+            2. If symbol is provided:
+               a. Look up the Node via NodesByQualifiedName
+               b. Query EdgesFrom(nodeHash, "authored_by") to find authors
+               c. Also look up the file's owned_by edges for CODEOWNERS data
+               d. Return both owners and authors
+            3. Return JSON response with both ownership sources
+
+            Response format:
+            ```json
+            {
+              "file_path": "internal/store/sqlite.go",
+              "codeowners": [{"name": "@backend-team", "kind": "team"}],
+              "authors": [{"name": "alice", "kind": "author", "symbol": "SQLiteStore.PutNode"}]
+            }
+            ```
+
+            #### 3. Tests for the MCP tool
+
+            Create `internal/mcp/ownership_test.go` with:
+            1. TestHandleOwnershipQuery_ByFilePath: queries owned_by edges for a file
+            2. TestHandleOwnershipQuery_BySymbol: queries authored_by edges for a symbol
+            3. TestHandleOwnershipQuery_NoEdges: file with no ownership returns empty arrays
+            4. TestHandleOwnershipQuery_MissingArgs: missing repo_hash returns error
+
+            Use the existing `mockGraphStore` pattern from `handlers_test.go`.
+
+            ### Verification gate
+            ```bash
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go build ./internal/indexer/ownership/... ./internal/mcp/... && GOWORK=off go test ./internal/indexer/ownership/ ./internal/mcp/ -run "TestParseCodeowners|TestFindCodeowners|TestMatchPattern|TestExtractOwnership|TestHandleOwnershipQuery" -count=1 -timeout 30s
+            ```
+
+            ### Postconditions
+            ```bash
+            grep -c "func Test" internal/indexer/ownership/ownership_test.go
+            # Expected: >= 12
+            grep -c "func ownershipQueryTool" internal/mcp/ownership.go
+            # Expected: 1
+            grep -c "func.*handleOwnershipQuery" internal/mcp/ownership.go
+            # Expected: 1
+            ```
+
+            ### Constraints
+            - Do NOT modify internal/indexer/ownership/ownership.go (it is complete)
+            - Do NOT modify internal/mcp/server.go (tool registration is Wave 2)
+            - Do NOT modify internal/mcp/handlers.go (existing ownership tool stays)
+            - Do NOT modify any files outside your ownership list
+          files:
+            - internal/indexer/ownership/ownership_test.go
+            - internal/mcp/ownership.go
+            - internal/mcp/ownership_test.go
+        - id: D
+          task: |
+            ## Task: Edge type constants package + RWR weight documentation + edge-types.md update
+
+            ### What to implement
+
+            #### 1. Edge type constants package
+
+            Create `internal/edgetype/constants.go` with canonical string constants for ALL
+            edge types in the knowledge graph. This provides a single source of truth that
+            extractors and handlers can import (future refactors will migrate raw strings).
+
+            Include ALL existing edge types from docs/architecture/edge-types.md plus the
+            three new ones (tests, authored_by, owned_by is already documented):
+
+            ```go
+            package edgetype
+
+            // Edge type constants for the knowing knowledge graph.
+            const (
+                Calls           = "calls"
+                Imports         = "imports"
+                Implements      = "implements"
+                References      = "references"
+                HandlesRoute    = "handles_route"
+                DependsOn       = "depends_on"
+                Deploys         = "deploys"
+                Exposes         = "exposes"
+                Configures      = "configures"
+                Publishes       = "publishes"
+                Subscribes      = "subscribes"
+                ConnectsTo      = "connects_to"
+                Extends         = "extends"
+                Overrides       = "overrides"
+                Decorates       = "decorates"
+                Throws          = "throws"
+                OwnedBy         = "owned_by"
+                AuthoredBy      = "authored_by"
+                Tests           = "tests"
+                RuntimeCalls    = "runtime_calls"
+                RuntimeRPC      = "runtime_rpc"
+                RuntimeProduces = "runtime_produces"
+                RuntimeConsumes = "runtime_consumes"
+            )
+
+            // RWRWeight returns the Random Walk with Restart weight for the given edge type.
+            // Unknown edge types return 0.3 (the default).
+            func RWRWeight(edgeType string) float64 {
+                switch edgeType {
+                case Calls:
+                    return 1.0
+                case Implements:
+                    return 0.8
+                case Overrides:
+                    return 0.8
+                case HandlesRoute:
+                    return 0.7
+                case Extends:
+                    return 0.7
+                case Imports:
+                    return 0.5
+                case DependsOn:
+                    return 0.5
+                case Tests:
+                    return 0.6
+                case References:
+                    return 0.4
+                case Throws:
+                    return 0.4
+                case Decorates:
+                    return 0.3
+                case OwnedBy, AuthoredBy:
+                    return 0.0
+                default:
+                    return 0.3
+                }
+            }
+            ```
+
+            #### 2. Tests
+
+            Create `internal/edgetype/constants_test.go` with:
+            1. TestRWRWeight_KnownTypes: verify all known edge types return expected weights
+            2. TestRWRWeight_UnknownType: verify unknown type returns 0.3
+            3. TestRWRWeight_OwnershipZero: verify owned_by and authored_by return 0.0
+            4. TestRWRWeight_TestsEdge: verify tests returns 0.6
+            5. TestConstants_NoEmpty: verify no constant is empty string
+
+            #### 3. Update docs/architecture/edge-types.md
+
+            Add entries for the two new edge types (`tests` and `authored_by`) to the
+            Summary Table and add full description sections. The `owned_by` entry already exists.
+
+            Add to the Summary Table after the `owned_by` row:
+
+            ```
+            | `tests` | Test function tests production function | ast_inferred | 0.7 | Go tree-sitter extractor | No | 0.6 |
+            | `authored_by` | Symbol primarily authored by person | git_blame | 1.0 | Authorship extractor (git blame) | No | 0.0 |
+            ```
+
+            Add full sections:
+
+            ### `tests`
+
+            A test function exercises (calls into) a production function.
+
+            - **Direction:** source test function tests target production function.
+              `TestHandleLogin -tests-> HandleLogin` means TestHandleLogin calls HandleLogin.
+            - **Producers:** Go tree-sitter extractor, from _test.go files.
+            - **Provenance:** `ast_inferred` (confidence 0.7).
+            - **Blast radius:** Not traversed. Tests edges make test coverage graph-queryable
+              but do not affect blast radius computation (which follows calls edges only).
+            - **RWR weight:** 0.6. Moderate weight: a test function covering a production
+              function is structurally relevant but weaker than a direct call or implementation.
+
+            ### `authored_by`
+
+            A symbol is primarily authored by a person (determined via git blame).
+
+            - **Direction:** source symbol authored by target person.
+              `SQLiteStore.PutNode -authored_by-> alice` means alice wrote most lines of PutNode.
+            - **Producers:** Authorship extractor (runs git blame, determines primary author per symbol).
+            - **Provenance:** `git_blame` (confidence 1.0, deterministic from git history).
+            - **Blast radius:** Not traversed. Authorship is organizational, not functional.
+            - **RWR weight:** 0.0. Like owned_by, authorship edges do not participate in the
+              random walk. They serve ownership queries and team routing.
+
+            ### Verification gate
+            ```bash
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go build ./internal/edgetype/... && GOWORK=off go test ./internal/edgetype/ -count=1 -timeout 30s
+            ```
+
+            ### Postconditions
+            ```bash
+            grep -c "Tests.*=" internal/edgetype/constants.go
+            # Expected: 1
+            grep -c "AuthoredBy.*=" internal/edgetype/constants.go
+            # Expected: 1
+            grep -c "func RWRWeight" internal/edgetype/constants.go
+            # Expected: 1
+            grep "authored_by" docs/architecture/edge-types.md | grep -c "git_blame"
+            # Expected: >= 1
+            ```
+
+            ### Constraints
+            - Do NOT modify internal/context/walk.go (RWR integration is Wave 2)
+            - Do NOT modify any files outside your ownership list
+          files:
+            - internal/edgetype/constants.go
+            - internal/edgetype/constants_test.go
+            - docs/architecture/edge-types.md
+    - number: 2
+      agents:
+        - id: E
+          task: |
+            ## Task: Integration - wire new extractors into indexer, register MCP tool, update RWR
+
+            ### What to implement
+
+            Three integration points:
+
+            #### 1. Wire tests edge extraction into indexer (internal/indexer/indexer.go)
+
+            After the existing CODEOWNERS ownership extraction block (around line 370-390),
+            add a call to the authorship extractor for authored_by edges.
+
+            Additionally, the tests edges are extracted during normal file extraction in the
+            gotsextractor. The gotsextractor's Extract method needs to call ExtractTestsEdges
+            for _test.go files. However, since we are modifying indexer.go (not extractor.go),
+            the integration here is for the authorship extractor only.
+
+            Insert after this exact text in internal/indexer/indexer.go:
+            ```go
+            	// Extract CODEOWNERS ownership edges if a CODEOWNERS file exists.
+            	if coPath := ownership.FindCodeowners(repoPath); coPath != "" {
+            		rules, err := ownership.ParseCodeowners(coPath)
+            		if err == nil && len(rules) > 0 {
+            			ownerNodes, ownerEdges := ownership.ExtractOwnership(repoURL, allFiles, rules)
+            			if bs, ok := idx.store.(batchStore); ok {
+            				if len(ownerNodes) > 0 {
+            					_ = bs.BatchPutNodes(ctx, ownerNodes)
+            				}
+            				if len(ownerEdges) > 0 {
+            					_ = bs.BatchPutEdges(ctx, ownerEdges)
+            				}
+            			} else {
+            				for _, n := range ownerNodes {
+            					_ = idx.store.PutNode(ctx, n)
+            				}
+            				for _, e := range ownerEdges {
+            					_ = idx.store.PutEdge(ctx, e)
+            				}
+            			}
+            		}
+            	}
+            ```
+
+            Add after that block:
+            ```go
+            	// Extract authored_by edges from git blame for changed files.
+            	if len(changedFilePaths) > 0 {
+            		for _, f := range allFiles {
+            			nodes, err := idx.store.NodesByFilePath(ctx, repoHash, f.Path)
+            			if err != nil || len(nodes) == 0 {
+            				continue
+            			}
+            			authorNodes, authorEdges, err := authorship.ExtractAuthorship(repoURL, repoPath, f, nodes)
+            			if err != nil {
+            				continue // best-effort, like ownership
+            			}
+            			if bs, ok := idx.store.(batchStore); ok {
+            				if len(authorNodes) > 0 {
+            					_ = bs.BatchPutNodes(ctx, authorNodes)
+            				}
+            				if len(authorEdges) > 0 {
+            					_ = bs.BatchPutEdges(ctx, authorEdges)
+            				}
+            			} else {
+            				for _, n := range authorNodes {
+            					_ = idx.store.PutNode(ctx, n)
+            				}
+            				for _, e := range authorEdges {
+            					_ = idx.store.PutEdge(ctx, e)
+            				}
+            			}
+            		}
+            	}
+            ```
+
+            Add the import:
+            ```go
+            "github.com/blackwell-systems/knowing/internal/indexer/authorship"
+            ```
+
+            #### 2. Register new MCP tool (internal/mcp/server.go)
+
+            In the `registerTools` method, add the ownership_query tool registration.
+
+            Insert after this exact text in internal/mcp/server.go:
+            ```go
+            	s.mcpServer.AddTool(ownershipTool(), s.handleOwnership)
+            ```
+
+            Add:
+            ```go
+            	s.mcpServer.AddTool(ownershipQueryTool(), s.handleOwnershipQuery)
+            ```
+
+            Also update the ToolNames() method to include "ownership_query".
+
+            #### 3. Update RWR edge weights (internal/context/walk.go)
+
+            Add the "tests" edge type to the edgeWeight map in the RandomWalkWithRestart function.
+
+            The current map at approximately line 54 looks like:
+            ```go
+            edgeWeight := map[string]float64{
+                "calls":         1.0,
+                "implements":    0.8,
+                "handles_route": 0.7,
+                "imports":       0.5,
+                "references":    0.4,
+            }
+            ```
+
+            Change to:
+            ```go
+            edgeWeight := map[string]float64{
+                "calls":         1.0,
+                "implements":    0.8,
+                "handles_route": 0.7,
+                "tests":         0.6,
+                "imports":       0.5,
+                "references":    0.4,
+            }
+            ```
+
+            Note: owned_by and authored_by get weight 0.0 (the default for unknown types
+            is 0.3, but these should explicitly be 0.0). Add them:
+            ```go
+            edgeWeight := map[string]float64{
+                "calls":         1.0,
+                "implements":    0.8,
+                "handles_route": 0.7,
+                "tests":         0.6,
+                "imports":       0.5,
+                "references":    0.4,
+                "owned_by":      0.0,
+                "authored_by":   0.0,
+            }
+            ```
+
+            ### Verification gate
+            ```bash
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go build ./... && GOWORK=off go test ./internal/mcp/ ./internal/context/ ./internal/indexer/ -short -count=1 -timeout 60s
+            ```
+
+            ### Postconditions
+            ```bash
+            grep -c "authorship" internal/indexer/indexer.go
+            # Expected: >= 2 (import + usage)
+            grep -c "ownershipQueryTool" internal/mcp/server.go
+            # Expected: >= 1
+            grep -c '"tests"' internal/context/walk.go
+            # Expected: >= 1
+            grep -c '"authored_by"' internal/context/walk.go
+            # Expected: >= 1
+            ```
+
+            ### Constraints
+            - Do NOT modify internal/indexer/gotsextractor/extractor.go (tests edge integration
+              into the tree-sitter extractor is a follow-up; the standalone function is sufficient
+              for the initial release since the indexer already processes test files)
+            - Do NOT create new files; only modify the three listed files
+            - Do NOT change existing test assertions; only add new behavior
+          files:
+            - internal/indexer/indexer.go
+            - internal/mcp/server.go
+            - internal/context/walk.go
+          dependencies:
+            - B
+            - C
+            - D
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: GOWORK=off go build ./...
+          required: true
+        - type: lint
+          command: GOWORK=off go vet ./...
+          required: true
+        - type: test
+          command: GOWORK=off go test -short ./... -timeout 5m
+          required: true
+post_merge_checklist:
+    groups:
+        - title: Build Verification
+          items:
+            - description: Run full test suite including eval regression
+              command: GOWORK=off go test ./... -timeout 5m
+            - description: Verify edge-types.md renders correctly
+              command: cat docs/architecture/edge-types.md | grep -c 'tests\|authored_by'
+        - title: Follow-up
+          items:
+            - description: Wire ExtractTestsEdges into gotsextractor Extract method
+              command: echo 'TODO - internal/indexer/gotsextractor/extractor.go needs update to call ExtractTestsEdges for _test.go files'
+scaffolds:
+    - file_path: internal/edgetype/constants.go
+      contents: |
+        package edgetype
+
+        // Edge type constants for the knowing knowledge graph.
+        // These constants define the canonical string identifiers for each edge type.
+        const (
+            Calls        = "calls"
+            Imports      = "imports"
+            Implements   = "implements"
+            References   = "references"
+            HandlesRoute = "handles_route"
+            DependsOn    = "depends_on"
+            Deploys      = "deploys"
+            Exposes      = "exposes"
+            Configures   = "configures"
+            Publishes    = "publishes"
+            Subscribes   = "subscribes"
+            ConnectsTo   = "connects_to"
+            Extends      = "extends"
+            Overrides    = "overrides"
+            Decorates    = "decorates"
+            Throws       = "throws"
+            OwnedBy      = "owned_by"
+            AuthoredBy   = "authored_by"
+            Tests        = "tests"
+            RuntimeCalls    = "runtime_calls"
+            RuntimeRPC      = "runtime_rpc"
+            RuntimeProduces = "runtime_produces"
+            RuntimeConsumes = "runtime_consumes"
+        )
+      import_path: github.com/blackwell-systems/knowing/internal/edgetype
+      status: pending
+pre_mortem:
+    overall_risk: low
+    rows:
+        - scenario: Agent A uses wrong tree-sitter API for walking function bodies
+          likelihood: medium
+          impact: low
+          mitigation: |
+            Agent A has the existing extractCallEdges pattern in the same package to follow.
+            The verification gate catches compilation errors immediately.
+        - scenario: Agent B git blame test fails in CI (no git user configured)
+          likelihood: medium
+          impact: medium
+          mitigation: |
+            Agent B tests that need git should configure git user via
+            `git -c user.name=Test -c user.email=test@test.com commit`.
+            The temp repo must be fully initialized with at least one commit.
+        - scenario: Agent E integration conflicts with uncommitted changes in indexer.go
+          likelihood: low
+          impact: medium
+          mitigation: |
+            Wave 2 runs after Wave 1 merges. The text anchors for insertion points are
+            stable (CODEOWNERS block has not changed recently). Agent E has exact context
+            for where to insert.
+        - scenario: Ownership MCP tool registration conflicts with existing handleOwnership
+          likelihood: low
+          impact: low
+          mitigation: |
+            The new tool is named "ownership_query" (distinct from existing "ownership").
+            Agent C creates it in a separate file. Agent E only adds one line to server.go.
+        - scenario: RWR weight for tests edge (0.6) is too high or too low
+          likelihood: low
+          impact: low
+          mitigation: |
+            Weight can be tuned post-merge. 0.6 is between imports (0.5) and handles_route (0.7),
+            reflecting that test coverage is structurally meaningful but weaker than route binding.
+critic_report:
+    verdict: ISSUES
+    agent_reviews:
+        A:
+            agent_id: A
+            verdict: PASS
+        B:
+            agent_id: B
+            verdict: PASS
+        C:
+            agent_id: C
+            verdict: PASS
+        D:
+            agent_id: D
+            verdict: PASS
+        E:
+            agent_id: E
+            verdict: ISSUES
+            issues:
+                - check: pattern_accuracy
+                  severity: error
+                  description: Brief instructs adding owned_by:0.0 and authored_by:0.0 to edgeWeight map, but walk.go lines 93-94 and 102-103 use if w == 0 { w = 0.3 } which overrides any explicit 0.0 value back to 0.3. The intended zero-weight exclusion will not work without also modifying the default-handling logic (e.g., using map ok-pattern or a negative sentinel). The brief does not describe this required change.
+                  file: internal/context/walk.go
+                  symbol: edgeWeight
+    summary: 'All file existence checks pass (new files absent, modify files present). Symbol accuracy verified for all function signatures (ComputeEdgeHash, ComputeNodeHash, ExtractOwnership, buildImportMap, extractCallEdges, extractFuncDecl). Insertion points in indexer.go and server.go match actual source. One error found: Agent E instructs setting owned_by and authored_by to 0.0 in the edgeWeight map, but walk.go uses ''if w == 0 { w = 0.3 }'' which would override any explicit 0.0 back to 0.3, making the intended exclusion of these edge types from RWR ineffective. The brief must either instruct changing the default-handling logic or use a different sentinel value.'
+    reviewed_at: "2026-05-20T16:04:18Z"
+    issue_count: 1
+state: SCOUT_PENDING
+injection_method: hook
