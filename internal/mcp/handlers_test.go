@@ -239,6 +239,9 @@ func TestNewServer_RegistersAllTools(t *testing.T) {
 		"flow_between",
 		"plan_turn",
 		"communities",
+		"prove",
+		"prove_absent",
+		"fsck",
 	}
 
 	names := srv.ToolNames()
