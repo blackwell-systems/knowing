@@ -46,6 +46,25 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 | Agent workflow | `suggested_for_task` / `used_by_agent` |
 | Deployment | `runs_on` / `deployed_by` |
 
+## Observability Ingestion
+
+Beyond OTLP traces (shipped), these observability signals map to graph edges. The pattern: any system that records "X talked to Y" at runtime becomes a `runtime_*` edge. Static analysis says what CAN happen. Runtime signals say what DID happen. The diff is where findings live.
+
+| Signal Source | Edge Types | What It Enables | Priority |
+|---|---|---|---|
+| Database query logs (pg_stat_statements, slow query log) | `queries_table`, `writes_table`, `reads_table` | "Change this table schema, what code breaks?" | P2 |
+| HTTP access logs (nginx, ALB, API gateway) | `runtime_serves`, frequency metadata | Dead route detection without full APM | P2 |
+| Message queue metrics (Kafka consumer lag, SQS depth) | `runtime_consumes`, `runtime_produces` | Verify static pub/sub edges against reality | P2 |
+| Error tracking (Sentry, Bugsnag) | `runtime_throws`, error frequency | Prioritize blast radius by error-prone paths | P3 |
+| Feature flags (LaunchDarkly, Unleash) | `gated_by_flag` | "Disable this flag, what code becomes dead?" | P3 |
+| CI/CD pipeline (GitHub Actions, Jenkins) | `tested_by`, `deployed_by` | Test coverage as graph edges, deployment topology | P3 |
+| Git blame/log | `authored_by`, `recently_changed` | Ownership routing, change frequency for ranking | P3 |
+| Container orchestration (K8s events) | `runs_on`, `colocated_with` | Infrastructure topology in the graph | P4 |
+| Service mesh (Envoy, Istio, Consul) | `runtime_connects_to` | Compare declared vs actual service topology | P4 |
+| Continuous profiling (pprof) | `hot_path`, duration metadata | Weight blast radius by performance impact | P4 |
+
+**Key insight:** Static edge with no runtime observation = dead code candidate. Runtime observation with no static edge = undocumented dependency. Both agree = high-confidence relationship.
+
 ## Underexploited Capabilities
 
 | Item | Next step |
