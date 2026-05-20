@@ -25,6 +25,8 @@ participates in blast radius traversal and context ranking.
 | `decorates` | Decorator/annotation applied | ast_inferred | 0.7 | TS, Java, Python, C#, Rust extractors | No | 0.3 |
 | `throws` | Function throws/raises error | ast_inferred | 0.7 | Go, TS, Ruby extractors | No | 0.4 |
 | `owned_by` | File/symbol owned by team/user | deterministic | 1.0 | CODEOWNERS parser | No | 0.0 |
+| `tests` | Test function tests production function | ast_inferred | 0.7 | Go tree-sitter extractor | No | 0.6 |
+| `authored_by` | Symbol primarily authored by person | git_blame | 1.0 | Authorship extractor (git blame) | No | 0.0 |
 | `runtime_calls` | HTTP call observed in traces | otel_trace | 0.2 - 0.95 | Trace ingestor | No | 0.3 (default) |
 | `runtime_rpc` | gRPC/RPC call observed in traces | otel_trace | 0.2 - 0.95 | Trace ingestor | No | 0.3 (default) |
 | `runtime_produces` | Message published to a topic | otel_trace | 0.2 - 0.95 | Trace ingestor | No | 0.3 (default) |
@@ -314,6 +316,31 @@ A file or symbol is owned by a team or individual (from CODEOWNERS).
 - **RWR weight:** 0.0. Ownership edges do not participate in the random walk. They serve a
   different purpose: identifying who should review changes, filtering context by team scope,
   and surfacing ownership in PR impact reports.
+
+### `tests`
+
+A test function exercises (calls into) a production function.
+
+- **Direction:** source test function tests target production function.
+  `TestHandleLogin -tests-> HandleLogin` means TestHandleLogin calls HandleLogin.
+- **Producers:** Go tree-sitter extractor, from _test.go files.
+- **Provenance:** `ast_inferred` (confidence 0.7).
+- **Blast radius:** Not traversed. Tests edges make test coverage graph-queryable
+  but do not affect blast radius computation (which follows calls edges only).
+- **RWR weight:** 0.6. Moderate weight: a test function covering a production
+  function is structurally relevant but weaker than a direct call or implementation.
+
+### `authored_by`
+
+A symbol is primarily authored by a person (determined via git blame).
+
+- **Direction:** source symbol authored by target person.
+  `SQLiteStore.PutNode -authored_by-> alice` means alice wrote most lines of PutNode.
+- **Producers:** Authorship extractor (runs git blame, determines primary author per symbol).
+- **Provenance:** `git_blame` (confidence 1.0, deterministic from git history).
+- **Blast radius:** Not traversed. Authorship is organizational, not functional.
+- **RWR weight:** 0.0. Like owned_by, authorship edges do not participate in the
+  random walk. They serve ownership queries and team routing.
 
 ## Runtime Edge Types
 
