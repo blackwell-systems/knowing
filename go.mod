@@ -20,6 +20,7 @@ require (
 )
 
 require (
+	github.com/blackwell-systems/merkle-forest v0.1.0 // indirect
 	github.com/chewxy/math32 v1.11.1 // indirect
 	github.com/daulet/tokenizers v1.27.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
