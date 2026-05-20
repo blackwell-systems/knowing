@@ -297,14 +297,14 @@ func cmdAuditDiff(args []string) error {
 		}
 	}
 
-	// Get snapshots.
-	oldHash, err := types.ParseHash(oldHashStr)
+	// Get snapshots (supports @latest, @prev, @N refs).
+	oldHash, err := resolveSnapshotRef(st, oldHashStr)
 	if err != nil {
-		return fmt.Errorf("parsing old snapshot hash: %w", err)
+		return fmt.Errorf("resolving old snapshot: %w", err)
 	}
-	newHash, err := types.ParseHash(newHashStr)
+	newHash, err := resolveSnapshotRef(st, newHashStr)
 	if err != nil {
-		return fmt.Errorf("parsing new snapshot hash: %w", err)
+		return fmt.Errorf("resolving new snapshot: %w", err)
 	}
 
 	oldSnap, err := st.GetSnapshot(ctx, oldHash)

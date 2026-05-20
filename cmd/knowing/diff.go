@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 
 	"github.com/blackwell-systems/knowing/internal/diff"
 	"github.com/blackwell-systems/knowing/internal/store"
@@ -25,7 +28,7 @@ func cmdDiff(args []string) error {
 	}
 
 	if fs.NArg() != 2 {
-		return fmt.Errorf("usage: knowing diff [flags] <old-snapshot-hash> <new-snapshot-hash>")
+		return fmt.Errorf("usage: knowing diff [flags] <old-ref> <new-ref>\n  refs: @latest, @prev, @first, @N, or 64-char hex hash")
 	}
 
 	st, err := store.NewSQLiteStore(*dbPath)
@@ -34,14 +37,14 @@ func cmdDiff(args []string) error {
 	}
 	defer st.Close()
 
-	oldHash, err := parseSnapshotHash(fs.Arg(0))
+	oldHash, err := resolveSnapshotRef(st, fs.Arg(0))
 	if err != nil {
-		return fmt.Errorf("invalid old snapshot hash: %w", err)
+		return fmt.Errorf("resolving old ref: %w", err)
 	}
 
-	newHash, err := parseSnapshotHash(fs.Arg(1))
+	newHash, err := resolveSnapshotRef(st, fs.Arg(1))
 	if err != nil {
-		return fmt.Errorf("invalid new snapshot hash: %w", err)
+		return fmt.Errorf("resolving new ref: %w", err)
 	}
 
 	ctx := context.Background()
@@ -79,6 +82,71 @@ func parseSnapshotHash(s string) (types.Hash, error) {
 	var h types.Hash
 	copy(h[:], b)
 	return h, nil
+}
+
+// resolveSnapshotRef resolves a snapshot reference to a hash.
+// Supports:
+//   - @latest: most recent snapshot
+//   - @first: oldest snapshot
+//   - @N: Nth snapshot from latest (0 = latest, 1 = previous, etc.)
+//   - @prev: alias for @1
+//   - Raw 64-char hex hash
+func resolveSnapshotRef(st *store.SQLiteStore, ref string) (types.Hash, error) {
+	ctx := context.Background()
+
+	if !strings.HasPrefix(ref, "@") {
+		return parseSnapshotHash(ref)
+	}
+
+	name := ref[1:] // strip @
+
+	db := st.DB()
+	switch name {
+	case "latest":
+		var hashBytes []byte
+		err := db.QueryRowContext(ctx, "SELECT snapshot_hash FROM snapshots ORDER BY timestamp DESC LIMIT 1").Scan(&hashBytes)
+		if err != nil {
+			return types.Hash{}, fmt.Errorf("no snapshots found")
+		}
+		var h types.Hash
+		copy(h[:], hashBytes)
+		return h, nil
+
+	case "first":
+		var hashBytes []byte
+		err := db.QueryRowContext(ctx, "SELECT snapshot_hash FROM snapshots ORDER BY timestamp ASC LIMIT 1").Scan(&hashBytes)
+		if err != nil {
+			return types.Hash{}, fmt.Errorf("no snapshots found")
+		}
+		var h types.Hash
+		copy(h[:], hashBytes)
+		return h, nil
+
+	case "prev":
+		return resolveSnapshotRef(st, "@1")
+
+	default:
+		// Try numeric offset: @N means Nth from latest.
+		offset, err := strconv.Atoi(name)
+		if err != nil {
+			return types.Hash{}, fmt.Errorf("unknown ref %q (use @latest, @first, @prev, @N, or a hex hash)", ref)
+		}
+		var hashBytes []byte
+		err = db.QueryRowContext(ctx,
+			"SELECT snapshot_hash FROM snapshots ORDER BY timestamp DESC LIMIT 1 OFFSET ?", offset).Scan(&hashBytes)
+		if err != nil {
+			return types.Hash{}, fmt.Errorf("snapshot @%d not found (only %d snapshots exist)", offset, countSnapshots(db))
+		}
+		var h types.Hash
+		copy(h[:], hashBytes)
+		return h, nil
+	}
+}
+
+func countSnapshots(db interface{ QueryRowContext(context.Context, string, ...any) *sql.Row }) int {
+	var count int
+	_ = db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM snapshots").Scan(&count)
+	return count
 }
 
 // printTextDiff renders a SemanticDiffResult as human-readable text to stdout.
