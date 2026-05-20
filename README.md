@@ -13,14 +13,14 @@
 
 Your architecture diagram says service A calls service B. Can you prove it?
 
-**knowing can.** It builds a content-addressed graph of every code relationship, snapshots it as a Merkle tree tied to a git commit, and generates cryptographic proofs that verify offline. Agents use it for ranked context. Security teams use it for audit. Platform teams use it to compare code against production traces.
+**knowing can.** It builds a content-addressed graph of extracted code relationships, snapshots it as a Merkle tree tied to a git commit, and generates cryptographic proofs that verify offline. Agents use it for ranked context. Security teams use it for audit. Platform teams use it to compare code against production traces.
 
 It gets better every time you use it. When code changes, stale knowledge expires automatically.
 
 ```bash
 brew install blackwell-systems/tap/knowing
 knowing add .
-knowing prove -source "AuthService" -target "SessionStore"  # cryptographic proof in 72us
+knowing context -task "refactor auth middleware" -format gcf  # ranked context in one call
 ```
 
 ```json
