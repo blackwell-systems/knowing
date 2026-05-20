@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/blackwell-systems/knowing/internal/indexer/authorship"
 	"github.com/blackwell-systems/knowing/internal/indexer/ownership"
 	"github.com/blackwell-systems/knowing/internal/resolver"
 	"github.com/blackwell-systems/knowing/internal/roster"
@@ -383,6 +384,35 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 					_ = idx.store.PutNode(ctx, n)
 				}
 				for _, e := range ownerEdges {
+					_ = idx.store.PutEdge(ctx, e)
+				}
+			}
+		}
+	}
+
+	// Extract authored_by edges from git blame for changed files.
+	if len(changedFilePaths) > 0 {
+		for _, f := range allFiles {
+			nodes, err := idx.store.NodesByFilePath(ctx, repoHash, f.Path)
+			if err != nil || len(nodes) == 0 {
+				continue
+			}
+			authorNodes, authorEdges, err := authorship.ExtractAuthorship(repoURL, repoPath, f, nodes)
+			if err != nil {
+				continue // best-effort, like ownership
+			}
+			if bs, ok := idx.store.(batchStore); ok {
+				if len(authorNodes) > 0 {
+					_ = bs.BatchPutNodes(ctx, authorNodes)
+				}
+				if len(authorEdges) > 0 {
+					_ = bs.BatchPutEdges(ctx, authorEdges)
+				}
+			} else {
+				for _, n := range authorNodes {
+					_ = idx.store.PutNode(ctx, n)
+				}
+				for _, e := range authorEdges {
 					_ = idx.store.PutEdge(ctx, e)
 				}
 			}
