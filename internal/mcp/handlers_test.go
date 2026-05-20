@@ -227,6 +227,7 @@ func TestNewServer_RegistersAllTools(t *testing.T) {
 		"semantic_diff",
 		"pr_impact",
 		"ownership",
+		"ownership_query",
 		"runtime_traffic",
 		"dead_routes",
 		"trace_stats",
