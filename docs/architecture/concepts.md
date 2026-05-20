@@ -12,7 +12,7 @@ This has three consequences:
 2. **Integrity is verifiable.** Recompute the hash from the data. If it matches the stored hash, the data is uncorrupted. If it doesn't, something changed.
 3. **Cache invalidation is structural.** A query result computed against hash X is valid for all time. When the underlying data changes, it gets a new hash Y. Results keyed to X are still correct for X; results for Y must be recomputed.
 
-knowing uses content-addressed storage for nodes, edges, files, snapshots, and derived computation results. Every piece of data in the system is identified by its hash.
+knowing uses content-addressed storage for nodes, edges, files, snapshots, feedback, and derived computation results. Every piece of data in the system is identified by its hash. This includes feedback records, which store the SubgraphRoot (Merkle root of the symbol's package) at recording time; when code changes, old feedback becomes invisible because its stored root no longer matches the current root.
 
 ## Merkle DAG
 
@@ -24,7 +24,7 @@ knowing works the same way. A snapshot hash is the root of a hierarchical Merkle
 
 **How it works in knowing:**
 
-knowing builds a hierarchical Merkle tree with four levels (implemented in `internal/snapshot/hierarchical.go`):
+knowing builds a hierarchical Merkle tree with three levels (implemented in `internal/snapshot/hierarchical.go`, delegating to the [`merkle-forest`](https://github.com/blackwell-systems/merkle-forest) library):
 
 ```
 repo_root
@@ -37,7 +37,7 @@ repo_root
 
 Structure: repo root -> package roots -> edge-type roots -> edge leaves. The hierarchical root IS the canonical snapshot identity. No separate flat tree is maintained; the flat tree was dropped after the hash domain prefix change made backward compatibility moot. `types.ComputeSnapshotHash` wraps the hierarchical root with a `"snapshot\0"` domain prefix to produce the snapshot hash stored in the database.
 
-`DiffHierarchicalTrees` compares package roots instead of all edges: 114x faster on the knowing repo (11K edges), 517x on 100K synthetic edges. `SubgraphRoot` computes O(1) cache keys for any set of packages. `EdgeTypeRoot` answers "did call edges change?" in one lookup. See `docs/architecture/merkle-algorithms.md` for the full algorithm specification and `bench/merkle-diff/` for benchmark results.
+`DiffHierarchicalTrees` compares package roots instead of all edges: 281x faster on the knowing repo (13K edges), 517x on 100K synthetic edges. `SubgraphRoot` computes O(1) cache keys for any set of packages. `EdgeTypeRoot` answers "did call edges change?" in one lookup. See `docs/architecture/merkle-algorithms.md` for the full algorithm specification and `bench/merkle-diff/` for benchmark results.
 
 ## Knowledge Graph vs. Tree vs. Table
 
@@ -56,7 +56,7 @@ knowing is a knowledge graph because code relationships are inherently graph-sha
 | **Node** | A symbol in source code (function, type, method, interface, constant, variable). Identified by qualified name. | `sha256("node\0" \|\| repo \|\| package_path \|\| symbol_name \|\| symbol_kind)` |
 | **Edge** | A relationship between two nodes (calls, imports, implements, references). Carries a type, confidence score, and provenance. | `sha256("edge\0" \|\| source_hash \|\| target_hash \|\| edge_type \|\| provenance)` |
 | **Hash** | A 32-byte SHA-256 digest used as the content-addressed identifier for every entity. All hash inputs carry a domain-type prefix (`node\0`, `edge\0`, `snapshot\0`, `merkle\0`) so hashes from different entity types are structurally distinguishable -- the same approach git uses with its `"blob <size>\0"` header. | n/a |
-| **Snapshot** | A point-in-time graph state. The root of a hierarchical Merkle tree (repo root -> package roots -> edge-type roots -> edge leaves). Also stores intermediate package roots and edge-type roots for scoped invalidation. Links to a parent snapshot (forming a chain like git commits) and records the git commit that produced it. | `sha256("snapshot\0" \|\| hierarchical_merkle_root(edges grouped by package and edge type))` |
+| **Snapshot** | A point-in-time graph state. The root of a hierarchical Merkle tree (repo root -> package roots -> edge-type roots -> edge leaves). Also stores intermediate package roots and edge-type roots for scoped invalidation. Links to a parent snapshot (forming a chain like git commits), records the git commit that produced it, and carries a generation number (parent.Generation + 1) for O(1) ancestry checks. | `sha256("snapshot\0" \|\| hierarchical_merkle_root(edges grouped by package and edge type))` |
 | **Provenance** | Metadata on an edge describing how it was derived, by which indexer version, at what confidence, from which commit. Provenance is what lets agents distinguish "confirmed by type checker" from "guessed from string matching." | Included in edge hash input. |
 
 ## Event Sourcing
