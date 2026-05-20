@@ -862,7 +862,7 @@ scaffolds:
             RuntimeConsumes = "runtime_consumes"
         )
       import_path: github.com/blackwell-systems/knowing/internal/edgetype
-      status: pending
+      status: committed
 pre_mortem:
     overall_risk: low
     rows:
