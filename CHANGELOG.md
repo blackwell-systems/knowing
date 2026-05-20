@@ -12,6 +12,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+#### `knowing stats` CLI
+- Cumulative graph statistics: repos, nodes, edges, files, snapshots, communities, graph notes
+- Feedback metrics: total, useful, not useful, unique symbols, merkleized count, usefulness rate
+- Supports `-json` flag for structured output
+- Supports `-db` flag for custom database path
+
 #### Merkleized Feedback Validity (v0.5.0)
 - Feedback records now store `neighborhood_root` (SubgraphRoot of symbol's package)
 - Feedback automatically expires when code changes (neighborhood changes)
