@@ -1,0 +1,14 @@
+name: prove generates inclusion proof
+server:
+  command: ./knowing
+  args: [mcp, -db, knowing.db]
+assert:
+  tool: prove
+  args:
+    source: "ForTask"
+    target: "extractKeywords"
+    edge_type: "calls"
+  expect:
+    not_error: true
+    contains: ["verified", "true", "proof_steps"]
+timeout: 30s

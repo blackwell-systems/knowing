@@ -1,0 +1,14 @@
+name: prove_absent generates absence proof
+server:
+  command: ./knowing
+  args: [mcp, -db, knowing.db]
+assert:
+  tool: prove_absent
+  args:
+    source: "RecordFeedback"
+    target: "DeleteSnapshot"
+    edge_type: "calls"
+  expect:
+    not_error: true
+    contains: ["absent", "true", "left_neighbor", "right_neighbor"]
+timeout: 30s

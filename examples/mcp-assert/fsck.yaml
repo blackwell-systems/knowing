@@ -1,0 +1,11 @@
+name: fsck reports integrity status
+server:
+  command: ./knowing
+  args: [mcp, -db, knowing.db]
+assert:
+  tool: fsck
+  args: {}
+  expect:
+    not_error: true
+    contains: ["sqlite_integrity", "ok", "nodes", "edges", "snapshots"]
+timeout: 30s
