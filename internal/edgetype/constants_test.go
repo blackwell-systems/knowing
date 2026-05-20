@@ -18,6 +18,13 @@ func TestRWRWeight_KnownTypes(t *testing.T) {
 		{References, 0.4},
 		{Throws, 0.4},
 		{Decorates, 0.3},
+		{Documents, 0.2},
+		{ConsumesEndpoint, 0.5},
+		{ImplementsRPC, 0.8},
+		{ConsumesRPC, 0.6},
+		{GatedByFlag, 0.3},
+		{DeployedBy, 0.4},
+		{TestedBy, 0.5},
 	}
 
 	for _, tt := range tests {
@@ -83,6 +90,13 @@ func TestConstants_NoEmpty(t *testing.T) {
 		RuntimeRPC,
 		RuntimeProduces,
 		RuntimeConsumes,
+		Documents,
+		ConsumesEndpoint,
+		ImplementsRPC,
+		ConsumesRPC,
+		GatedByFlag,
+		DeployedBy,
+		TestedBy,
 	}
 
 	for _, c := range constants {

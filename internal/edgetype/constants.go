@@ -26,6 +26,15 @@ const (
 	RuntimeRPC      = "runtime_rpc"
 	RuntimeProduces = "runtime_produces"
 	RuntimeConsumes = "runtime_consumes"
+
+	// P2/P3 static edge types
+	Documents        = "documents"
+	ConsumesEndpoint = "consumes_endpoint"
+	ImplementsRPC    = "implements_rpc"
+	ConsumesRPC      = "consumes_rpc"
+	GatedByFlag      = "gated_by_flag"
+	DeployedBy       = "deployed_by"
+	TestedBy         = "tested_by"
 )
 
 // RWRWeight returns the Random Walk with Restart weight for the given edge type.
@@ -56,6 +65,20 @@ func RWRWeight(edgeType string) float64 {
 		return 0.3
 	case OwnedBy, AuthoredBy:
 		return 0.0
+	case Documents:
+		return 0.2
+	case ConsumesEndpoint:
+		return 0.5
+	case ImplementsRPC:
+		return 0.8
+	case ConsumesRPC:
+		return 0.6
+	case GatedByFlag:
+		return 0.3
+	case DeployedBy:
+		return 0.4
+	case TestedBy:
+		return 0.5
 	default:
 		return 0.3
 	}
