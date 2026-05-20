@@ -139,6 +139,16 @@ The graph store uses SQLite in Write-Ahead Logging (WAL) mode:
 - **Single writer:** Only one goroutine can write at a time. SQLite serializes writes internally. The daemon-level `sync.RWMutex` ensures the indexer is the sole writer during bulk indexing; enrichment writes individual edges after the mutex is released.
 - **No read-write blocking:** Readers do not block writers, and writers do not block readers. A reader sees a consistent snapshot of the database as of the moment it started reading, even if a writer commits during the read.
 
+## Auto-GC After Indexing
+
+After each successful `IndexRepo` call, the indexer checks the `edge_events` table count. If it exceeds 5,000 rows, it triggers garbage collection (keeps the 10 most recent snapshots, prunes older ones). This runs inline in the index worker goroutine after the write lock is released. GC is fast (~70ms) and infrequent (only fires when edge_events accumulate past the threshold).
+
+This matches git's `gc.auto` pattern (triggers pack-objects when loose object count exceeds 6,700).
+
+## Daemon Lockfile
+
+The daemon acquires a lockfile on startup to prevent multiple instances from writing to the same database. The lockfile is released on clean shutdown. This avoids SQLite corruption from concurrent writers in separate processes (WAL mode handles concurrent goroutines within one process, but not concurrent processes writing without coordination).
+
 ## Why This Model
 
 The daemon is a single process on a single machine. It does not need distributed consensus, message brokers, or coordination services. Go's goroutines, channels, and mutexes provide exactly the concurrency primitives needed:
