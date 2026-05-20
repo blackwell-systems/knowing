@@ -80,7 +80,7 @@ The intelligence plane does not need the same trust. It interprets the graph but
 | Control flow test | Do they affect what the indexer produces? | No. They read the graph; they don't write to it. |
 | Trust test | Would users trust the graph if these features were proprietary? | Yes. The graph is content-addressed and verifiable regardless. |
 
-**The MCP tool split (23 tools):**
+**The MCP tool split (27 tools):**
 
 | Tool | Plane | Why |
 |------|-------|-----|

@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Edge Type Expansion (P1)
+
+- **`tests` edges.** Go tree-sitter extractor detects Test*/Benchmark* functions in `_test.go` files and creates `tests` edges to each production function they call. Makes test coverage a graph-queryable relationship. Provenance: ast_inferred, confidence 0.7, RWR weight 0.6.
+- **`authored_by` edges.** New `internal/indexer/authorship` package runs git blame per file and creates `authored_by` edges from each symbol to its primary author (most lines). Synthetic author nodes (kind="author"). Provenance: git_blame, confidence 1.0, RWR weight 0.0.
+- **`ownership_query` MCP tool.** Queries `owned_by` and `authored_by` graph edges to answer "who owns this code?" Accepts file_path or symbol name, returns CODEOWNERS teams and git blame authors. Tool #27.
+- **`internal/edgetype` constants package.** Single source of truth for all 23 edge type string constants. `RWRWeight()` function returns canonical weights for each type.
+- **RWR zero-weight fix.** Changed `if w == 0 { w = 0.3 }` to `w, ok := map[...]; if !ok { w = 0.3 }` in walk.go so explicit 0.0 weights (owned_by, authored_by) are respected. Ownership edges are genuinely excluded from the random walk.
+- **Ownership extractor tests.** 14 tests covering ParseCodeowners, FindCodeowners, matchPattern, and ExtractOwnership.
+
 ### Phase 4: Proofs and Audit (Continued)
 
 - **Proof of absence.** `GenerateAbsenceProof`/`VerifyAbsenceProof` prove an edge does NOT exist by showing adjacent sorted leaves that bracket the missing hash. No tree restructuring needed: the sorted binary tree already has the ordering invariant. `knowing prove-absent` CLI command.

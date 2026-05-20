@@ -12,7 +12,7 @@
 ---
 
 <p align="center">
-Code intelligence graph. MCP server with 26 tools. Static analysis, call graphs, runtime traces, cryptographic proofs. Gets smarter with use.
+Code intelligence graph. MCP server with 27 tools. Static analysis, call graphs, runtime traces, cryptographic proofs. Gets smarter with use.
 </p>
 
 ---
@@ -189,7 +189,7 @@ The entire system is built on one idea: content-addressed identity. Every symbol
 +----------------+------------------------+--------------------------+
 |   Indexer      |     Graph Store        |      MCP Server          |
 |                |                        |                          |
-| 25 extractors  | Content-addressed      | 26 tools + 8 resources   |
+| 25 extractors  | Content-addressed      | 27 tools + 8 resources   |
 | tree-sitter    | SQLite + Merkle tree   | stdio / HTTP             |
 | LSP + SCIP     | Hierarchical snapshots | GCF / GCB / JSON         |
 | OTel traces    | Subgraph cache (93x)   | PackRoot dedup (99%)     |
@@ -248,7 +248,7 @@ All extractors fire per file via multi-dispatch; results are merged. Tree-sitter
 | `snapshot_diff`, `semantic_diff`, `pr_impact`, `stale_edges` | Compare graph states and review changes |
 | `runtime_traffic`, `dead_routes`, `trace_stats` | Query runtime-observed relationships |
 | `context_for_task`, `context_for_files`, `context_for_pr`, `explain_symbol` | Ranked context for agents |
-| `ownership`, `test_scope`, `communities`, `plan_turn`, `feedback` | Route work, select tests, improve ranking |
+| `ownership`, `ownership_query`, `test_scope`, `communities`, `plan_turn`, `feedback` | Route work, query code owners/authors, select tests, improve ranking |
 | `prove`, `prove_absent`, `fsck` | Cryptographic proofs, absence proofs, integrity verification |
 
 MCP prompts: `refactor_safely`, `review_pr`, `investigate_dead_code`.
