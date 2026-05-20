@@ -399,7 +399,7 @@ Repo: github.com/blackwell-systems/knowing
   1. `runtime_traffic`: Queries runtime-observed edges by service name and optional route pattern (LIKE syntax). Parameters: `service_name` (required), `route_pattern` (optional), `limit` (optional, default 100). Calls `SQLiteStore.RuntimeEdgesByService`.
   2. `dead_routes`: Finds route symbols with no runtime observations in N days. Parameters: `stale_days` (optional, default 30). Calls `SQLiteStore.DeadRoutes`.
   3. `trace_stats`: Returns aggregate statistics about runtime-derived edges (total, active, stale, GC-eligible, by edge type). No parameters. Calls `SQLiteStore.RuntimeEdgeStatsAggregate`.
-  Total MCP tools: 23. Also registers 3 MCP prompts (refactor_safely, review_pr, investigate_dead_code).
+  Total MCP tools: 27. Also registers 3 MCP prompts (refactor_safely, review_pr, investigate_dead_code).
 - **Limitations/known gaps:**
   - Runtime tools return "runtime queries not available: store does not support runtime methods" if the store is not a `*SQLiteStore`.
   - No authentication or rate limiting on runtime queries.
