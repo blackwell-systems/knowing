@@ -102,6 +102,16 @@ Every edge carries metadata:
 
 The graph represents what your codebase *understands about itself*: who calls what, who depends on what, what routes exist, what runtime traffic looks like.
 
+### Edges are the intelligence, nodes are the vocabulary
+
+Both nodes and edges are stored, content-addressed, and queryable. But the Merkle tree (the versioning structure) is built from **edges**, not nodes. This is deliberate.
+
+A node's existence rarely changes: functions get added or removed occasionally. But relationships change constantly: new callers appear, imports shift, runtime traffic patterns evolve, dependencies get added or removed. The edge set is where the interesting changes happen.
+
+If you built the tree from nodes, "did anything change?" would mean "was a symbol added or removed?" That's a coarse signal. Building from edges means "did any relationship change?" which captures: new callers, removed dependencies, changed routes, different runtime traffic. Every downstream operation (diff, cache invalidation, proofs, blast radius) cares about relationships, not symbol existence.
+
+Think of it this way: knowing that `CreateOwner` exists tells you almost nothing. Knowing that `CreateOwner` calls `save`, handles `POST /owners/new`, is called by 3 controllers, and was observed 10K times in production: that's the intelligence. The edges carry the meaning. The nodes are just anchor points.
+
 ## Why Content-Addressing
 
 ### The idea
