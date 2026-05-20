@@ -1,7 +1,7 @@
 # ADR: Hierarchical Merkle Tree
 
-**Date:** 2026-05-18
-**Status:** Shipped (Phase 1)
+**Date:** 2026-05-18 (updated 2026-05-19)
+**Status:** Shipped (Phases 1-3, Phase 4 partially shipped). Implementation extracted to `merkle-forest` library (v0.1.2).
 **Impact:** Foundational. Changes the role of the Merkle tree from integrity mechanism to performance architecture.
 
 ## Context
@@ -33,18 +33,24 @@ Before: "Did anything change?" (compare one root, then scan all edges to find wh
 After: "Did package X change?" (compare one package root). "Did call edges change?" (compare one edge-type root). "Is my cached blast_radius still valid?" (compare the subgraph root for the relevant packages).
 
 **Performance:**
-- Diff: O(packages) instead of O(edges). 114x faster on the knowing repo (11K edges, 109 packages). 517x faster on 100K-edge synthetic graphs.
-- Subgraph root lookup: 59ns regardless of graph size.
-- Build cost: roughly the same as the flat tree (within 3-27% depending on graph structure).
+- Diff: O(packages) with semantically meaningful output (package names, edge types). 281x faster than flat linear scan on the knowing repo (13K edges, 57 packages). 517x on 100K-edge synthetic graphs.
+- Subgraph root lookup: 65ns regardless of graph size.
+- Build cost: faster than flat construction (3.47ms vs 6.03ms) due to smaller per-group sorts.
 
-**What this unlocks (Phase 2 and beyond):**
-- Content-addressed context packs (shipped): `ContextBlock.PackRoot` = `hash(task_normalized + sorted(selected_node_hashes))`. Same task + same graph = same PackRoot. Enables cache lookup, citation by hash, cross-session replay, and feedback anchoring. Benchmark: 5 queries, 2 unique tasks = 2 unique PackRoots (perfect dedup).
-- Community Merkle roots (shipped): `communityInfo.MerkleRoot` and `communityInfo.Packages` fields in `internal/mcp/communities.go`. Each Louvain community carries a Merkle root over the packages it spans. Enables safe agent parallelization (disjoint roots = disjoint work) and scoped cache invalidation. Community roots verified distinct per package set on live graph.
-- Subgraph caching: `context_for_task`, `blast_radius`, `test_scope` keyed to package subgraph roots. Unchanged code = cached result. (Next deliverable in Phase 2.)
-- Daemon invalidation: file save changes one package; only invalidate that package's caches.
-- Semantic change classification: "only call edges changed" vs "only imports changed" vs "runtime drift detected."
-- Merkle proofs: prove a relationship existed in a specific snapshot.
+**What this unlocked (shipped):**
+- Content-addressed context packs: `ContextBlock.PackRoot` = `hash(task_normalized + sorted(selected_node_hashes))`. Same task + same graph = same PackRoot. Enables cache lookup, dedup (93-99% byte savings), cross-session replay.
+- Community Merkle roots: each Louvain community carries a root over its packages. Disjoint roots = disjoint work.
+- Subgraph caching (93x speedup): `context_for_task`, `blast_radius`, `test_scope` keyed to package subgraph roots. Unchanged code = cached result.
+- Daemon invalidation: file save changes one package; only that package's caches invalidated.
+- Semantic change classification: behavioral, structural, runtime_drift, metadata_only.
+- Merkle proofs (shipped): `knowing prove` (72us), `knowing verify` (1.2us), `knowing prove-absent`. Offline verifiable.
+- Merkleized feedback validity (v0.5.0): feedback records store SubgraphRoot; expires automatically when code changes.
+- Generation numbers on snapshots: O(1) ancestry checks without chain walking.
+
+**Remaining (planned):**
 - Federated sync: exchange roots, descend only differing branches.
+- EWAH bitmaps for reachability (from git deep dive).
+- Bloom filters for per-snapshot package changes.
 
 **What changed about knowing's identity:**
 
@@ -54,8 +60,9 @@ No competitor uses hierarchical Merkle trees over code relationship graphs. Most
 
 ## Implementation
 
-- `internal/snapshot/hierarchical.go`: `HierarchicalTree`, `BuildHierarchicalTree`, `DiffHierarchicalTrees`, `DiffHierarchicalTreesWithOptions` (with `DiffOptions`: `PackageFilter`, `MaxChanges`), `SubgraphRoot`, `EdgeTypeRoot`, `ContextPackRoot`
-- `internal/snapshot/manager.go`: `ComputeSnapshot` builds the hierarchical tree (flat tree was dropped); `extractPackagePath` now returns an error on malformed names
+- `internal/snapshot/hierarchical.go`: `HierarchicalTree`, `BuildHierarchicalTree` (delegates to `github.com/blackwell-systems/merkle-forest` v0.1.2 via `forest.BuildMultiLevel` with `WithPrefix([]byte("merkle\x00"))`), `DiffHierarchicalTrees`, `DiffHierarchicalTreesWithOptions` (with `DiffOptions`: `PackageFilter`, `MaxChanges`), `SubgraphRoot`, `EdgeTypeRoot`, `ContextPackRoot`
+- `internal/snapshot/merkle.go`: `BuildMerkleTree` delegates to `forest.Build`; `combineHashes` retained for proof.go compatibility
+- `internal/snapshot/manager.go`: `ComputeSnapshot` builds the hierarchical tree (flat tree was dropped); `extractPackagePath` now returns an error on malformed names; sets `Snapshot.Generation` for O(1) ancestry
 - `internal/snapshot/gc.go`: `GarbageCollectFull` with reachability sweep and `GCStats` return type
 - `internal/snapshot/verify.go`: integrity verification functions used by `knowing fsck`
 - `internal/store/sqlite.go`: in-process LRU cache (50K entries) on `GetNode`/`GetEdge`; `IntegrityCheck` method for `PRAGMA integrity_check`
