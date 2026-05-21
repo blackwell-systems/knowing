@@ -2,6 +2,8 @@
 
 **Dayna Blackwell, Blackwell Systems**
 
+May 2026, v1.0
+
 ---
 
 ## Abstract
@@ -40,7 +42,7 @@ Most existing systems do not track these relationships with all of the following
 
 The reason is that most systems use mutable state. And mutable state cannot provide these properties without extraordinary complexity.
 
-The knowing system tracks approximately 13,100 edges in its live codebase, spanning 57 packages and 25 extractor types. The hierarchical Merkle structure operates over this graph in production and is the basis for all benchmark results in this paper. Edge counts vary by run and snapshot; prose uses "~13.1K edges" and exact counts appear only in tables.
+The knowing system tracks approximately 13,100 edges in its live codebase, spanning 57 packages and 26 extractor types. The hierarchical Merkle structure operates over this graph in production and is the basis for all benchmark results in this paper. Edge counts vary by run and snapshot; prose uses "~13.1K edges" and exact counts appear only in tables.
 
 ---
 
@@ -660,3 +662,27 @@ Each computation is deterministic, cheap (~800ns per entity), and produces globa
 The domain-type prefix system (`"node\0"`, `"edge\0"`, `"snapshot\0"`, `"merkle\0"`) eliminates cross-type ambiguity at the input-construction level. This mirrors git's `"<type> <size>\0<content>"` object header. The hierarchical Merkle root is the canonical snapshot hash; no flat tree is maintained alongside it.
 
 Implementation: `internal/snapshot/hierarchical.go`.
+
+---
+
+## References
+
+1. Merkle, R. C. (1979). "A Certified Digital Signature." *Advances in Cryptology (CRYPTO '89)*, pp. 218-238. The original Merkle tree construction.
+
+2. Torvalds, L. (2005). "Git: A Content-Addressable Filesystem." The reference implementation of content-addressed storage for source code. Git's object model (`blob <size>\0<content>`) directly inspires knowing's domain-type prefix system.
+
+3. Chiusano, P. and Bjarnason, R. (2015-present). "Unison: A Friendly Programming Language from the Future." Content-addressed definitions (hash of the AST) for referentially transparent code. Knowing extends this principle from definitions to relationships.
+
+4. Laurie, B. et al. (2013). "Certificate Transparency." RFC 6962. Merkle trees for absence proofs (proving a certificate was NOT issued). Knowing adapts this technique for proving code relationships do not exist.
+
+5. Page, L. et al. (1999). "The PageRank Citation Ranking: Bringing Order to the Web." Random Walk with Restart (a variant of PageRank) is the primary graph traversal algorithm in knowing's context engine.
+
+---
+
+## License
+
+This document is licensed under [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/). The knowing software is licensed under MIT.
+
+---
+
+*Source: [github.com/blackwell-systems/knowing](https://github.com/blackwell-systems/knowing)*
