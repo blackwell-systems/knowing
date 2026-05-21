@@ -1063,6 +1063,10 @@ func (s *SQLiteStore) upsertFTS(ctx context.Context, nodeHash []byte, qualifiedN
 // Splits CamelCase and snake_case identifiers into individual tokens so that
 // searching for "ingest" matches "TraceIngestor".
 // Call after batch indexing operations for best performance (avoids per-node rebuilds).
+//
+// Optimization: pre-computes all splitForFTS strings in parallel (CPU-bound),
+// then does a single batch INSERT (I/O-bound, sequential). The split computation
+// is the expensive part for large repos (100K+ nodes).
 func (s *SQLiteStore) RebuildFTS(ctx context.Context) error {
 	// Clear content table.
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM nodes_fts_content`); err != nil {
@@ -1076,8 +1080,62 @@ func (s *SQLiteStore) RebuildFTS(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("read nodes for fts: %w", err)
 	}
-	defer rows.Close()
 
+	// Phase 1: collect all rows into memory.
+	type ftsRow struct {
+		nodeHash []byte
+		qn, sig, fp string
+	}
+	var allRows []ftsRow
+	for rows.Next() {
+		var r ftsRow
+		if err := rows.Scan(&r.nodeHash, &r.qn, &r.sig, &r.fp); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan node for fts: %w", err)
+		}
+		allRows = append(allRows, r)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("rows error: %w", err)
+	}
+
+	// Phase 2: parallel splitForFTS computation.
+	type ftsPrepped struct {
+		nodeHash []byte
+		splitQN, splitSig, fp string
+	}
+	prepped := make([]ftsPrepped, len(allRows))
+
+	var wg sync.WaitGroup
+	workers := 8
+	chunkSize := (len(allRows) + workers - 1) / workers
+	for w := 0; w < workers; w++ {
+		start := w * chunkSize
+		end := start + chunkSize
+		if end > len(allRows) {
+			end = len(allRows)
+		}
+		if start >= len(allRows) {
+			break
+		}
+		wg.Add(1)
+		go func(s, e int) {
+			defer wg.Done()
+			for i := s; i < e; i++ {
+				r := allRows[i]
+				prepped[i] = ftsPrepped{
+					nodeHash: r.nodeHash,
+					splitQN:  splitForFTS(r.qn),
+					splitSig: splitForFTS(r.sig),
+					fp:       r.fp,
+				}
+			}
+		}(start, end)
+	}
+	wg.Wait()
+
+	// Phase 3: batch INSERT (sequential, SQLite single-writer).
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin fts tx: %w", err)
@@ -1091,21 +1149,10 @@ func (s *SQLiteStore) RebuildFTS(ctx context.Context) error {
 	}
 	defer stmt.Close()
 
-	for rows.Next() {
-		var nodeHash []byte
-		var qn, sig, fp string
-		if err := rows.Scan(&nodeHash, &qn, &sig, &fp); err != nil {
-			return fmt.Errorf("scan node for fts: %w", err)
-		}
-		// Split CamelCase/snake_case in qualified name and signature for better tokenization.
-		splitQN := splitForFTS(qn)
-		splitSig := splitForFTS(sig)
-		if _, err := stmt.ExecContext(ctx, nodeHash, splitQN, splitSig, fp); err != nil {
+	for _, p := range prepped {
+		if _, err := stmt.ExecContext(ctx, p.nodeHash, p.splitQN, p.splitSig, p.fp); err != nil {
 			return fmt.Errorf("insert fts content: %w", err)
 		}
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("rows error: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {

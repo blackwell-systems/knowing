@@ -224,7 +224,9 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 				"vendor", "node_modules", "testdata",
 				"__pycache__", ".mypy_cache", ".pytest_cache",
 				"target", "build", "dist", "out",
-				"corpus":
+				"corpus",
+				// Large monorepo dirs that are mirrors/generated/third-party.
+				"staging", "third_party", "_output", "hack":
 				return filepath.SkipDir
 			}
 			// Skip hidden directories (dot-prefixed), except .github (contains CI workflows).
@@ -234,6 +236,12 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 			return nil
 		}
 		// Only collect files an extractor can handle (avoids reading binary/media files).
+		// Also skip generated files (protobuf, deepcopy, mocks).
+		name := d.Name()
+		if strings.HasPrefix(name, "zz_generated") || strings.HasSuffix(name, ".pb.go") ||
+			strings.HasSuffix(name, ".pb.gw.go") || strings.HasSuffix(name, "_generated.go") {
+			return nil
+		}
 		relP, _ := filepath.Rel(repoPath, path)
 		if relP != "" && idx.registry.FindExtractor(relP) != nil {
 			filePaths = append(filePaths, path)
