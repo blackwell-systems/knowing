@@ -1255,6 +1255,13 @@ func filterNoisySymbols(nodes []types.Node) []types.Node {
 			strings.Contains(qn, ".min.") || strings.Contains(qn, ".bundle.") {
 			continue
 		}
+		// Skip test fixtures and test helpers (they have high call-edge counts
+		// from being called by many tests, but are noise for most tasks).
+		if strings.Contains(qn, "conftest.py.") || strings.Contains(qn, "fixtures.py.") ||
+			strings.Contains(qn, "/testutil") || strings.Contains(qn, "/testhelper") ||
+			strings.Contains(qn, "test_helper") {
+			continue
+		}
 		// Skip test mock implementations (they duplicate real interface methods).
 		// Match patterns like "mockStore.PutEdge" or "walkMockStore.EdgesFrom".
 		lastDot := strings.LastIndex(n.QualifiedName, ".")
