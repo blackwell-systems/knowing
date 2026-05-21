@@ -269,32 +269,38 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 		}
 	}
 
+	// Phase 1: Filter to extractable, changed files and do cleanup (sequential, needs DB).
+	type fileWork struct {
+		absPath  string
+		relPath  string
+		content  []byte
+		fileHash types.Hash
+	}
+	var work []fileWork
+
 	for _, absPath := range filePaths {
 		relPath, err := filepath.Rel(repoPath, absPath)
 		if err != nil {
 			continue
 		}
 
-		// Check if any extractor can handle this file.
 		if idx.registry.FindExtractor(relPath) == nil {
 			continue
 		}
 
-		// Read file content and compute content hash.
 		content, err := os.ReadFile(absPath)
 		if err != nil {
 			continue
 		}
 		contentHash := types.NewHash(content)
 
-		// Skip unchanged files.
 		if oldHash, exists := existingByPath[relPath]; exists && oldHash == contentHash {
 			continue
 		}
 
 		changedFilePaths = append(changedFilePaths, relPath)
 
-		// Clean up old nodes/edges for changed files.
+		// Clean up old nodes/edges for changed files (must be sequential, touches DB).
 		if hasCleanup {
 			if _, exists := existingByPath[relPath]; exists {
 				oldFile, err := idx.store.FileByPath(ctx, repoHash, relPath)
@@ -308,33 +314,108 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 			}
 		}
 
-		// FileHash = sha256(repoHash || relativePath || contentHash).
-		// This mirrors the formula in types.File and ensures the file's
-		// identity changes whenever its content or location changes.
 		fileHashInput := append(repoHash[:], []byte(relPath)...)
 		fileHashInput = append(fileHashInput, contentHash[:]...)
 		fileHash := types.NewHash(fileHashInput)
 
-		opts := types.ExtractOptions{
-			RepoURL:         repoURL,
-			RepoHash:        repoHash,
-			CommitHash:       commitHash,
-			FilePath:         relPath,
-			FileHash:         fileHash,
-			Content:          content,
-			ModuleRoot:       repoPath,
-			ModuleToRepoURL: moduleToRepo,
-		}
+		work = append(work, fileWork{
+			absPath:  absPath,
+			relPath:  relPath,
+			content:  content,
+			fileHash: fileHash,
+		})
+	}
 
-		result, file, err := idx.extractFile(ctx, opts)
-		if err != nil {
-			return nil, fmt.Errorf("extract file %s: %w", relPath, err)
-		}
+	// Phase 2: Parallel extraction (CPU-bound, no DB access).
+	type fileResult struct {
+		idx    int
+		result *types.ExtractResult
+		file   *types.File
+		err    error
+	}
 
-		allNodes = append(allNodes, result.Nodes...)
-		allEdges = append(allEdges, result.Edges...)
-		if file != nil {
-			allFiles = append(allFiles, *file)
+	numWorkers := idx.Concurrency
+	if numWorkers <= 0 {
+		numWorkers = 8 // default parallelism
+	}
+	if numWorkers > len(work) {
+		numWorkers = len(work)
+	}
+
+	results := make([]fileResult, len(work))
+	var wg sync.WaitGroup
+	workCh := make(chan int, len(work))
+
+	// Progress tracking.
+	var progressMu sync.Mutex
+	completed := 0
+	totalFiles := len(work)
+	startTime := time.Now()
+	lastReport := time.Now()
+
+	for w := 0; w < numWorkers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range workCh {
+				fw := work[i]
+				opts := types.ExtractOptions{
+					RepoURL:         repoURL,
+					RepoHash:        repoHash,
+					CommitHash:      commitHash,
+					FilePath:        fw.relPath,
+					FileHash:        fw.fileHash,
+					Content:         fw.content,
+					ModuleRoot:      repoPath,
+					ModuleToRepoURL: moduleToRepo,
+				}
+
+				result, file, err := idx.extractFile(ctx, opts)
+				results[i] = fileResult{idx: i, result: result, file: file, err: err}
+
+				// Report progress.
+				progressMu.Lock()
+				completed++
+				if time.Since(lastReport) > 2*time.Second || completed == totalFiles {
+					elapsed := time.Since(startTime)
+					filesPerSec := float64(completed) / elapsed.Seconds()
+					remaining := time.Duration(float64(totalFiles-completed)/filesPerSec) * time.Second
+					edgeCount := 0
+					for _, r := range results[:completed] {
+						if r.result != nil {
+							edgeCount += len(r.result.Edges)
+						}
+					}
+					fmt.Fprintf(os.Stderr, "\r  [%d/%d] %.0f files/s, %d edges, ETA %s",
+						completed, totalFiles, filesPerSec, edgeCount, remaining.Truncate(time.Second))
+					lastReport = time.Now()
+				}
+				progressMu.Unlock()
+			}
+		}()
+	}
+
+	// Feed work to the pool.
+	for i := range work {
+		workCh <- i
+	}
+	close(workCh)
+	wg.Wait()
+
+	// Clear progress line.
+	fmt.Fprintf(os.Stderr, "\r%80s\r", "")
+
+	// Phase 3: Collect results (sequential, accumulate into slices).
+	for _, fr := range results {
+		if fr.err != nil {
+			return nil, fmt.Errorf("extract file %s: %w", work[fr.idx].relPath, fr.err)
+		}
+		if fr.result != nil {
+			allNodes = append(allNodes, fr.result.Nodes...)
+			allEdges = append(allEdges, fr.result.Edges...)
+		}
+		if fr.file != nil {
+			allFiles = append(allFiles, *fr.file)
 		}
 	}
 

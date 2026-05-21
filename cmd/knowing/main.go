@@ -332,13 +332,15 @@ func cmdIndex(args []string) error {
 	registerAllExtractors(idx, *full)
 
 	ctx := context.Background()
+	fmt.Fprintf(os.Stderr, "Indexing %s (%s)...\n", repoPath, *repoURL)
+	indexStart := time.Now()
 	snap, err := idx.IndexRepo(ctx, *repoURL, repoPath, *commitHash)
 	if err != nil {
 		return fmt.Errorf("indexing: %w", err)
 	}
 
 	repoHash := types.NewHash([]byte(*repoURL))
-	fmt.Printf("Indexed %s\n", repoPath)
+	fmt.Printf("Indexed %s in %s\n", repoPath, time.Since(indexStart).Truncate(time.Millisecond))
 	fmt.Printf("Repo:     %x\n", repoHash)
 	fmt.Printf("Snapshot: %x\n", snap.SnapshotHash)
 	fmt.Printf("Nodes: %d, Edges: %d\n", snap.NodeCount, snap.EdgeCount)
