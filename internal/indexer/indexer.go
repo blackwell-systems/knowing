@@ -624,12 +624,13 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 	var snapErr error
 	var finalWg sync.WaitGroup
 
-	// FTS rebuild (parallel string split + sequential INSERT + rebuild).
+	// FTS rebuild: run in background goroutine that outlives IndexRepo.
+	// The graph is immediately queryable without FTS (RWR, HITS, blast radius all work).
+	// Only BM25 text search is degraded until FTS completes.
+	// This avoids blocking index completion on the expensive FTS5 rebuild command.
 	if fr, ok := idx.store.(ftsRebuilder); ok {
-		finalWg.Add(1)
 		go func() {
-			defer finalWg.Done()
-			ftsErr = fr.RebuildFTS(ctx)
+			_ = fr.RebuildFTS(context.Background())
 		}()
 	}
 
