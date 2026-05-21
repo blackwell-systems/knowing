@@ -38,16 +38,13 @@ var openFile = func(path string) (io.ReadCloser, error) {
 // GoTreeSitterExtractor implements types.Extractor for Go files using
 // tree-sitter AST parsing. It is the fast-path extractor: AST-only,
 // no type resolution, completes in milliseconds per file.
-type GoTreeSitterExtractor struct {
-	parser *sitter.Parser
-}
+// Thread-safe: each Extract call creates its own parser (required for
+// concurrent use; tree-sitter parsers are not goroutine-safe).
+type GoTreeSitterExtractor struct{}
 
-// NewGoTreeSitterExtractor creates a new GoTreeSitterExtractor with a
-// tree-sitter parser configured for Go.
+// NewGoTreeSitterExtractor creates a new GoTreeSitterExtractor.
 func NewGoTreeSitterExtractor() *GoTreeSitterExtractor {
-	parser := sitter.NewParser()
-	parser.SetLanguage(golang.GetLanguage())
-	return &GoTreeSitterExtractor{parser: parser}
+	return &GoTreeSitterExtractor{}
 }
 
 // Name returns the extractor name.
@@ -73,7 +70,9 @@ func (e *GoTreeSitterExtractor) CanHandle(path string) bool {
 // Extract parses the Go file with tree-sitter and produces nodes for
 // declarations and edges for calls and imports.
 func (e *GoTreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error) {
-	tree, err := e.parser.ParseCtx(ctx, nil, opts.Content)
+	parser := sitter.NewParser()
+	parser.SetLanguage(golang.GetLanguage())
+	tree, err := parser.ParseCtx(ctx, nil, opts.Content)
 	if err != nil {
 		return nil, fmt.Errorf("tree-sitter parse: %w", err)
 	}

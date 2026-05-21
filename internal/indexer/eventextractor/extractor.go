@@ -33,39 +33,30 @@ var supportedExtensions = map[string]bool{
 
 // EventExtractor detects message queue producer and consumer patterns in source
 // code using tree-sitter AST parsing.
-type EventExtractor struct {
-	parsers map[string]*sitter.Parser
+// Thread-safe: each Extract call creates its own parser.
+type EventExtractor struct{}
+
+// NewEventExtractor creates a new EventExtractor.
+func NewEventExtractor() *EventExtractor {
+	return &EventExtractor{}
 }
 
-// NewEventExtractor creates a new EventExtractor with parsers for each
-// supported language.
-func NewEventExtractor() *EventExtractor {
-	parsers := map[string]*sitter.Parser{}
-
-	// Go
-	goParser := sitter.NewParser()
-	goParser.SetLanguage(golang.GetLanguage())
-	parsers[".go"] = goParser
-
-	// TypeScript/JavaScript
-	tsParser := sitter.NewParser()
-	tsParser.SetLanguage(typescript.GetLanguage())
-	parsers[".ts"] = tsParser
-	parsers[".tsx"] = tsParser
-	parsers[".js"] = tsParser
-	parsers[".jsx"] = tsParser
-
-	// Python
-	pyParser := sitter.NewParser()
-	pyParser.SetLanguage(python.GetLanguage())
-	parsers[".py"] = pyParser
-
-	// Java
-	javaParser := sitter.NewParser()
-	javaParser.SetLanguage(java.GetLanguage())
-	parsers[".java"] = javaParser
-
-	return &EventExtractor{parsers: parsers}
+// parserForExt creates a fresh tree-sitter parser for the given file extension.
+func parserForExt(ext string) *sitter.Parser {
+	parser := sitter.NewParser()
+	switch ext {
+	case ".go":
+		parser.SetLanguage(golang.GetLanguage())
+	case ".ts", ".tsx", ".js", ".jsx":
+		parser.SetLanguage(typescript.GetLanguage())
+	case ".py":
+		parser.SetLanguage(python.GetLanguage())
+	case ".java":
+		parser.SetLanguage(java.GetLanguage())
+	default:
+		return nil
+	}
+	return parser
 }
 
 // Name returns the extractor identifier.
@@ -93,8 +84,8 @@ func (e *EventExtractor) CanHandle(path string) bool {
 // Extract parses the file and detects message queue patterns.
 func (e *EventExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error) {
 	ext := strings.ToLower(filepath.Ext(opts.FilePath))
-	parser, ok := e.parsers[ext]
-	if !ok {
+	parser := parserForExt(ext)
+	if parser == nil {
 		return &types.ExtractResult{}, nil
 	}
 

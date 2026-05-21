@@ -26,9 +26,9 @@ import (
 )
 
 // TreeSitterExtractor implements types.Extractor using tree-sitter for AST parsing.
+// Thread-safe: each Extract call creates its own parser.
 type TreeSitterExtractor struct {
 	language string
-	parser   *sitter.Parser
 }
 
 // NewTreeSitterExtractor creates a new tree-sitter extractor for the given language.
@@ -39,12 +39,8 @@ func NewTreeSitterExtractor(language string) (*TreeSitterExtractor, error) {
 		return nil, fmt.Errorf("unsupported language: %s (only python is supported)", language)
 	}
 
-	parser := sitter.NewParser()
-	parser.SetLanguage(python.GetLanguage())
-
 	return &TreeSitterExtractor{
 		language: lang,
-		parser:   parser,
 	}, nil
 }
 
@@ -60,7 +56,9 @@ func (e *TreeSitterExtractor) CanHandle(path string) bool {
 
 // Extract parses the given Python source and returns nodes and edges.
 func (e *TreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error) {
-	tree, err := e.parser.ParseCtx(ctx, nil, opts.Content)
+	parser := sitter.NewParser()
+	parser.SetLanguage(python.GetLanguage())
+	tree, err := parser.ParseCtx(ctx, nil, opts.Content)
 	if err != nil {
 		return nil, fmt.Errorf("tree-sitter parse: %w", err)
 	}
