@@ -33,11 +33,24 @@ func TestCrossSystem(t *testing.T) {
 		t.Skip("cross-system benchmark requires pre-indexed repos; run with -timeout 30m")
 	}
 
-	tasks := loadTasks(t, "corpus/tasks")
-	if len(tasks) == 0 {
+	rawTasks := loadTasks(t, "corpus/tasks")
+	if len(rawTasks) == 0 {
 		t.Fatal("no task fixtures found in corpus/tasks/")
 	}
-	t.Logf("Loaded %d task fixtures", len(tasks))
+
+	// Filter ground truth to only symbols that exist in the indexed repos.
+	// Standard IR practice: can't penalize for symbols not in the corpus.
+	tasks := filterAchievableGroundTruth(rawTasks, "corpus/repos")
+	achievable := 0
+	for _, task := range tasks {
+		achievable += len(task.GroundTruth)
+	}
+	total := 0
+	for _, task := range rawTasks {
+		total += len(task.GroundTruth)
+	}
+	t.Logf("Loaded %d tasks, %d/%d ground truth symbols achievable (%.0f%%)",
+		len(tasks), achievable, total, 100*float64(achievable)/float64(total))
 
 	// Initialize available adapters (only those with dependencies installed)
 	available := adapters.Available()
