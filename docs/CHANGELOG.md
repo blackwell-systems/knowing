@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Performance
+
+- **Parallel extraction.** File extraction now runs across 8 worker goroutines (configurable via `Indexer.Concurrency`). Tree-sitter parsing is CPU-bound with no shared state between files, so parallelism is linear. Expected 4-6x speedup on multi-core machines for large repos.
+- **Progress output.** `knowing index` now prints live progress to stderr during extraction: `[N/M] files/s, edges, ETA`. Updates every 2 seconds. Prints total elapsed time on completion.
+- **Phase separation in IndexRepo.** The indexer now operates in three phases: (1) sequential cleanup (DB operations for changed/deleted files), (2) parallel extraction (CPU-only, no DB), (3) sequential storage (batch insert). This ensures correctness while maximizing throughput.
+
+### Benchmarking
+
+- **Cross-system context retrieval benchmark.** `bench/cross-system/`: rigorous comparison of context retrieval quality across 5 systems (knowing, GitNexus, Aider repo-map, CGC, raw grep) on identical tasks. 100 ground truth fixtures across 5 repos (kubernetes, TypeScript, flask, cargo, django), 3 difficulty tiers. Metrics: P@K, R@K, NDCG@10, MRR, F1, token efficiency. Statistical significance via Wilcoxon signed-rank test + Cohen's d + bootstrap CI. Spec: `docs/research/cross-system-benchmark.md`.
+- **Benchmark adapters.** 5 system adapters with auto-detection of installed dependencies. Adapter registry reports available vs unavailable systems at runtime.
+- **Symbol normalization.** Cross-system symbol matching handles knowing/GitNexus/Aider/SCIP/grep output format differences. 14 test cases covering all formats.
+
+### Documentation
+
+- **Product split proposal.** `docs/proposals/product-split.md`: staged approach to restricted product surfaces (knowing-scope for CI, knowing-audit for compliance). Monorepo binaries first, face repos only with proven demand. Edge-type filtering as product differentiator.
+- **Comprehensive docs update.** All tool counts (27), edge type counts (30), and feature references updated across README, design-principles, system-overview, context-engine, roadmap, and CHANGELOG.
+
 ### Edge Type Expansion (P1)
 
 - **`tests` edges.** Go tree-sitter extractor detects Test*/Benchmark* functions in `_test.go` files and creates `tests` edges to each production function they call. Makes test coverage a graph-queryable relationship. Provenance: ast_inferred, confidence 0.7, RWR weight 0.6.
