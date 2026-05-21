@@ -89,7 +89,8 @@ func (e *GoTreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractO
 		if err != nil {
 			return nil, fmt.Errorf("tree-sitter parse: %w", err)
 		}
-		defer tree.Close()
+		// Only close the tree if we're NOT sharing it with other extractors.
+		// If we share (result.ParsedTree set below), the indexer closes it.
 		root = tree.RootNode()
 	}
 
@@ -253,12 +254,24 @@ func (e *GoTreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractO
 		Nodes: nodes,
 		Edges: edges,
 	}
-	// Share the parsed tree root with subsequent extractors (if we parsed it).
+	// Share the parsed tree root node with subsequent extractors (if we parsed it).
+	// We pass both the root node (for extractors) and the tree (for the indexer to close).
 	// Only set if WE parsed (not if we received a shared tree).
-	if opts.ParsedTree == nil {
-		result.ParsedTree = root
+	if opts.ParsedTree == nil && tree != nil {
+		// Pack both the root node and tree into a struct the indexer can unpack.
+		result.ParsedTree = &SharedTree{Root: root, Tree: tree}
+	} else if tree != nil {
+		// We shouldn't have parsed (opts had a tree). Close ours.
+		tree.Close()
 	}
 	return result, nil
+}
+
+// SharedTree holds both the root node (for extractors to walk) and the
+// tree handle (for the indexer to close after all extractors finish).
+type SharedTree struct {
+	Root *sitter.Node
+	Tree *sitter.Tree
 }
 
 // computePkgPath determines the full Go package path by combining the module

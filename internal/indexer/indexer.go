@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/blackwell-systems/knowing/internal/indexer/authorship"
+	"github.com/blackwell-systems/knowing/internal/indexer/gotsextractor"
 	"github.com/blackwell-systems/knowing/internal/indexer/ownership"
 	"github.com/blackwell-systems/knowing/internal/resolver"
 	"github.com/blackwell-systems/knowing/internal/roster"
@@ -155,6 +156,8 @@ func (idx *Indexer) extractFile(ctx context.Context, opts types.ExtractOptions) 
 	}
 
 	merged := &types.ExtractResult{}
+	var sharedTree interface{ Close() } // track tree for cleanup
+
 	for _, ext := range extractors {
 		result, err := ext.Extract(ctx, opts)
 		if err != nil {
@@ -164,11 +167,19 @@ func (idx *Indexer) extractFile(ctx context.Context, opts types.ExtractOptions) 
 			merged.Nodes = append(merged.Nodes, result.Nodes...)
 			merged.Edges = append(merged.Edges, result.Edges...)
 		}
-		// If the extractor populated ParsedTree (first tree-sitter extractor to run),
-		// subsequent extractors in this loop will see it and skip re-parsing.
+		// If the extractor shared a parsed tree, extract the root node for
+		// subsequent extractors and track the tree for closing.
 		if opts.ParsedTree == nil && result != nil && result.ParsedTree != nil {
-			opts.ParsedTree = result.ParsedTree
+			if st, ok := result.ParsedTree.(*gotsextractor.SharedTree); ok {
+				opts.ParsedTree = st.Root // pass root node to subsequent extractors
+				sharedTree = st.Tree      // track for closing
+			}
 		}
+	}
+
+	// Close shared tree after all extractors have used it.
+	if sharedTree != nil {
+		sharedTree.Close()
 	}
 
 	contentHash := types.NewHash(opts.Content)
