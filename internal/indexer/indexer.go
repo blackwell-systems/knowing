@@ -367,37 +367,38 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 		})
 	}
 
-	// Phase 2: Parallel extraction (CPU-bound, no DB access).
+	// Phase 2+3: Producer-consumer pipeline.
+	// Extract workers produce results into a channel. A storage writer consumes
+	// them in batches and commits to SQLite. Extraction and storage run concurrently.
+	// DB gets data within seconds of starting. Kill at any time = partial data persists.
+
 	type fileResult struct {
-		idx    int
 		result *types.ExtractResult
 		file   *types.File
 		err    error
+		relPath string
 	}
 
 	numWorkers := idx.Concurrency
 	if numWorkers <= 0 {
-		numWorkers = runtime.GOMAXPROCS(0) // use all available cores
+		numWorkers = runtime.GOMAXPROCS(0)
 	}
 	if numWorkers > len(work) {
 		numWorkers = len(work)
 	}
 
-	results := make([]fileResult, len(work))
-	var wg sync.WaitGroup
-	workCh := make(chan int, len(work))
-
-	// Progress tracking.
-	var progressMu sync.Mutex
-	completed := 0
+	resultCh := make(chan fileResult, numWorkers*2) // buffered to avoid blocking workers
 	totalFiles := len(work)
 	startTime := time.Now()
-	lastReport := time.Now()
+
+	// --- Producer: extraction workers ---
+	var extractWg sync.WaitGroup
+	workCh := make(chan int, len(work))
 
 	for w := 0; w < numWorkers; w++ {
-		wg.Add(1)
+		extractWg.Add(1)
 		go func() {
-			defer wg.Done()
+			defer extractWg.Done()
 			for i := range workCh {
 				fw := work[i]
 				opts := types.ExtractOptions{
@@ -411,123 +412,110 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 					ModuleToRepoURL: moduleToRepo,
 				}
 
-				// Per-file timeout: skip files that take too long (usually huge
-				// generated test files with thousands of call expressions).
 				fileCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 				result, file, err := idx.extractFile(fileCtx, opts)
 				cancel()
 				if fileCtx.Err() == context.DeadlineExceeded {
-					// File timed out. Skip it rather than blocking the pipeline.
-					results[i] = fileResult{idx: i, result: &types.ExtractResult{}, file: nil}
+					resultCh <- fileResult{result: &types.ExtractResult{}, relPath: fw.relPath}
 				} else {
-					results[i] = fileResult{idx: i, result: result, file: file, err: err}
+					resultCh <- fileResult{result: result, file: file, err: err, relPath: fw.relPath}
 				}
-
-				// Report progress.
-				progressMu.Lock()
-				completed++
-				if time.Since(lastReport) > 2*time.Second || completed == totalFiles {
-					elapsed := time.Since(startTime)
-					filesPerSec := float64(completed) / elapsed.Seconds()
-					remaining := time.Duration(float64(totalFiles-completed)/filesPerSec) * time.Second
-					edgeCount := 0
-					for _, r := range results[:completed] {
-						if r.result != nil {
-							edgeCount += len(r.result.Edges)
-						}
-					}
-					fmt.Fprintf(os.Stderr, "\r  [%d/%d] %.0f files/s, %d edges, ETA %s",
-						completed, totalFiles, filesPerSec, edgeCount, remaining.Truncate(time.Second))
-					lastReport = time.Now()
-				}
-				progressMu.Unlock()
 			}
 		}()
 	}
 
-	// Feed work to the pool.
-	for i := range work {
-		workCh <- i
-	}
-	close(workCh)
-	wg.Wait()
+	// Feed work to extractors.
+	go func() {
+		for i := range work {
+			workCh <- i
+		}
+		close(workCh)
+		extractWg.Wait()
+		close(resultCh) // signal storage writer that extraction is done
+	}()
 
-	// Clear progress line.
-	fmt.Fprintf(os.Stderr, "\r%80s\r", "")
-
-	// Phase 3: Streaming commit. Insert results in batches of 500 files.
-	// This makes the index resumable (partial data survives a kill) and
-	// provides visible progress during the storage phase.
+	// --- Consumer: storage writer (single goroutine, owns all DB writes) ---
 	const batchSize = 500
-	storeStart := time.Now()
-	storedFiles := 0
-	storedNodes := 0
-	storedEdges := 0
+	var batchNodes []types.Node
+	var batchEdges []types.Edge
+	var batchFiles []types.File
+	completed := 0
+	lastReport := time.Now()
+	var storeErr error
 
 	bs, hasBatch := idx.store.(batchStore)
 
-	for batchStart := 0; batchStart < len(results); batchStart += batchSize {
-		batchEnd := batchStart + batchSize
-		if batchEnd > len(results) {
-			batchEnd = len(results)
+	for fr := range resultCh {
+		if fr.err != nil {
+			storeErr = fmt.Errorf("extract file %s: %w", fr.relPath, fr.err)
+			break
 		}
-
-		var batchNodes []types.Node
-		var batchEdges []types.Edge
-		var batchFiles []types.File
-
-		for i := batchStart; i < batchEnd; i++ {
-			fr := results[i]
-			if fr.err != nil {
-				return nil, fmt.Errorf("extract file %s: %w", work[fr.idx].relPath, fr.err)
-			}
-			if fr.result != nil {
-				batchNodes = append(batchNodes, fr.result.Nodes...)
-				batchEdges = append(batchEdges, fr.result.Edges...)
-				allNodes = append(allNodes, fr.result.Nodes...)
-				allEdges = append(allEdges, fr.result.Edges...)
-			}
-			if fr.file != nil {
-				batchFiles = append(batchFiles, *fr.file)
-				allFiles = append(allFiles, *fr.file)
-			}
+		if fr.result != nil {
+			batchNodes = append(batchNodes, fr.result.Nodes...)
+			batchEdges = append(batchEdges, fr.result.Edges...)
+			allNodes = append(allNodes, fr.result.Nodes...)
+			allEdges = append(allEdges, fr.result.Edges...)
 		}
+		if fr.file != nil {
+			batchFiles = append(batchFiles, *fr.file)
+			allFiles = append(allFiles, *fr.file)
+		}
+		completed++
 
-		if hasBatch {
-			if len(batchFiles) > 0 {
-				if err := bs.BatchPutFiles(ctx, batchFiles); err != nil {
-					return nil, fmt.Errorf("batch store files: %w", err)
+		// Flush batch to DB every batchSize files.
+		if len(batchFiles) >= batchSize || completed == totalFiles {
+			if hasBatch {
+				if len(batchFiles) > 0 {
+					if err := bs.BatchPutFiles(ctx, batchFiles); err != nil {
+						storeErr = fmt.Errorf("batch store files: %w", err)
+						break
+					}
+				}
+				if len(batchNodes) > 0 {
+					if err := bs.BatchPutNodes(ctx, batchNodes); err != nil {
+						storeErr = fmt.Errorf("batch store nodes: %w", err)
+						break
+					}
+				}
+				if len(batchEdges) > 0 {
+					if err := bs.BatchPutEdges(ctx, batchEdges); err != nil {
+						storeErr = fmt.Errorf("batch store edges: %w", err)
+						break
+					}
+				}
+			} else {
+				for _, f := range batchFiles {
+					_ = idx.store.PutFile(ctx, f)
+				}
+				for _, n := range batchNodes {
+					_ = idx.store.PutNode(ctx, n)
+				}
+				for _, e := range batchEdges {
+					_ = idx.store.PutEdge(ctx, e)
 				}
 			}
-			if len(batchNodes) > 0 {
-				if err := bs.BatchPutNodes(ctx, batchNodes); err != nil {
-					return nil, fmt.Errorf("batch store nodes: %w", err)
-				}
-			}
-			if len(batchEdges) > 0 {
-				if err := bs.BatchPutEdges(ctx, batchEdges); err != nil {
-					return nil, fmt.Errorf("batch store edges: %w", err)
-				}
-			}
-		} else {
-			for _, f := range batchFiles {
-				_ = idx.store.PutFile(ctx, f)
-			}
-			for _, n := range batchNodes {
-				_ = idx.store.PutNode(ctx, n)
-			}
-			for _, e := range batchEdges {
-				_ = idx.store.PutEdge(ctx, e)
-			}
+			batchNodes = batchNodes[:0]
+			batchEdges = batchEdges[:0]
+			batchFiles = batchFiles[:0]
 		}
 
-		storedFiles += len(batchFiles)
-		storedNodes += len(batchNodes)
-		storedEdges += len(batchEdges)
-		fmt.Fprintf(os.Stderr, "\r  Stored %d/%d files, %d nodes, %d edges",
-			storedFiles, len(results), storedNodes, storedEdges)
+		// Progress report.
+		if time.Since(lastReport) > 2*time.Second || completed == totalFiles {
+			elapsed := time.Since(startTime)
+			filesPerSec := float64(completed) / elapsed.Seconds()
+			remaining := time.Duration(float64(totalFiles-completed)/filesPerSec) * time.Second
+			fmt.Fprintf(os.Stderr, "\r  [%d/%d] %.0f files/s, %d edges, ETA %s",
+				completed, totalFiles, filesPerSec, len(allEdges), remaining.Truncate(time.Second))
+			lastReport = time.Now()
+		}
 	}
-	fmt.Fprintf(os.Stderr, "\n  Storage complete in %s\n", time.Since(storeStart).Truncate(time.Millisecond))
+
+	fmt.Fprintf(os.Stderr, "\r  [%d/%d] done, %d edges in %s%40s\n",
+		completed, totalFiles, len(allEdges), time.Since(startTime).Truncate(time.Millisecond), "")
+
+	if storeErr != nil {
+		return nil, storeErr
+	}
 
 	// Extract CODEOWNERS ownership edges if a CODEOWNERS file exists.
 	if coPath := ownership.FindCodeowners(repoPath); coPath != "" {
