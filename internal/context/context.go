@@ -422,6 +422,7 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	// Auto-concepts only add value if they generate conceptual aliases that
 	// differ from the name, which requires domain understanding.
 	allClasses := append(seedEquivalenceClasses(), universalEquivalenceClasses()...)
+	allClasses = append(allClasses, languageEquivalenceClasses()...)
 	eqMatches := matchEquivalenceClasses(opts.TaskDescription, allClasses)
 
 	// Source 2: Graph-derived aliases from the candidates we already found.

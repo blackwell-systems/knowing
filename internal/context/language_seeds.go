@@ -1,0 +1,272 @@
+package context
+
+// languageEquivalenceClasses returns equivalence concepts with language-specific
+// target patterns. The universal classes use Go-centric targets (NewConfig,
+// HandleError, ParseFlags). These extend them with Python, TypeScript, Rust,
+// Java, and C# patterns so the same task description finds relevant symbols
+// regardless of the repo's language.
+//
+// Cross-system benchmark (v0.6.0) showed knowing scoring 10.2% P@10 on
+// Python/Rust/TS repos partly because keyword seeding missed language-specific
+// symbol names. These classes directly address that gap.
+func languageEquivalenceClasses() []EquivalenceClass {
+	return []EquivalenceClass{
+		// ---- Python / Django / Flask ----
+		{
+			Concept:    "PY_ENTRY_POINT",
+			Phrases:    []string{"entry point", "app factory", "application", "wsgi", "asgi", "startup"},
+			Targets:    []string{"create_app", "app", "application", "wsgi_app", "asgi_app", "__main__", "main"},
+			TargetType: "symbol",
+			Weight:     0.8,
+			Source:     "language",
+		},
+		{
+			Concept:    "PY_ROUTING",
+			Phrases:    []string{"route", "url", "endpoint", "view", "handler", "request handler", "url pattern"},
+			Targets:    []string{"route", "urlpatterns", "path", "url_for", "add_url_rule", "blueprint", "Blueprint", "before_request", "after_request", "app_errorhandler"},
+			TargetType: "symbol",
+			Weight:     0.8,
+			Source:     "language",
+		},
+		{
+			Concept:    "PY_MIDDLEWARE",
+			Phrases:    []string{"middleware", "request processing", "before request", "after request", "hook", "interceptor"},
+			Targets:    []string{"before_request", "after_request", "before_app_request", "process_request", "process_response", "process_view", "process_exception", "teardown_request", "middleware"},
+			TargetType: "symbol",
+			Weight:     0.8,
+			Source:     "language",
+		},
+		{
+			Concept:    "PY_ORM",
+			Phrases:    []string{"database", "query", "model", "orm", "queryset", "migration", "schema"},
+			Targets:    []string{"QuerySet", "Manager", "Model", "objects", "filter", "exclude", "annotate", "aggregate", "get_queryset", "Meta", "ForeignKey", "ManyToManyField", "migration", "RunSQL", "RunPython"},
+			TargetType: "symbol",
+			Weight:     0.8,
+			Source:     "language",
+		},
+		{
+			Concept:    "PY_SERIALIZATION",
+			Phrases:    []string{"serialization", "serializer", "schema", "validation", "form", "marshal"},
+			Targets:    []string{"Serializer", "ModelSerializer", "Schema", "Form", "ModelForm", "Field", "validate", "clean", "to_representation", "to_internal_value"},
+			TargetType: "symbol",
+			Weight:     0.8,
+			Source:     "language",
+		},
+		{
+			Concept:    "PY_AUTH",
+			Phrases:    []string{"authentication", "authorization", "login", "permission", "session", "user"},
+			Targets:    []string{"authenticate", "login", "logout", "login_required", "permission_required", "is_authenticated", "get_user", "AnonymousUser", "AbstractUser", "PermissionMixin", "has_perm"},
+			TargetType: "symbol",
+			Weight:     0.8,
+			Source:     "language",
+		},
+		{
+			Concept:    "PY_TEMPLATE",
+			Phrases:    []string{"template", "render", "view", "context", "response"},
+			Targets:    []string{"render_template", "render", "render_to_response", "TemplateView", "get_context_data", "template_name", "get_template_names"},
+			TargetType: "symbol",
+			Weight:     0.8,
+			Source:     "language",
+		},
+		{
+			Concept:    "PY_ERROR",
+			Phrases:    []string{"error", "exception", "error handling", "abort", "error handler"},
+			Targets:    []string{"HTTPException", "ValidationError", "abort", "errorhandler", "handle_exception", "app_errorhandler", "Http404", "PermissionDenied", "SuspiciousOperation"},
+			TargetType: "symbol",
+			Weight:     0.8,
+			Source:     "language",
+		},
+		{
+			Concept:    "PY_CONFIG",
+			Phrases:    []string{"configuration", "settings", "config", "environment"},
+			Targets:    []string{"settings", "config", "from_object", "from_envvar", "INSTALLED_APPS", "MIDDLEWARE", "DATABASES", "SECRET_KEY", "DEBUG", "BaseSettings"},
+			TargetType: "symbol",
+			Weight:     0.8,
+			Source:     "language",
+		},
+		{
+			Concept:    "PY_TESTING",
+			Phrases:    []string{"test", "testing", "fixture", "mock", "assert"},
+			Targets:    []string{"TestCase", "SimpleTestCase", "TransactionTestCase", "setUp", "tearDown", "client", "RequestFactory", "pytest", "fixture", "parametrize", "mock", "patch"},
+			TargetType: "symbol",
+			Weight:     0.8,
+			Source:     "language",
+		},
+
+		// ---- TypeScript / JavaScript / React ----
+		{
+			Concept:    "TS_COMPONENT",
+			Phrases:    []string{"component", "ui", "render", "view", "widget", "element"},
+			Targets:    []string{"Component", "FC", "Props", "useState", "useEffect", "useRef", "useMemo", "useCallback", "render", "createElement"},
+			TargetType: "symbol",
+			Weight:     0.8,
+			Source:     "language",
+		},
+		{
+			Concept:    "TS_STATE",
+			Phrases:    []string{"state", "store", "redux", "state management", "reducer", "action"},
+			Targets:    []string{"store", "createStore", "reducer", "action", "dispatch", "useSelector", "useDispatch", "createSlice", "configureStore", "Provider"},
+			TargetType: "symbol",
+			Weight:     0.8,
+			Source:     "language",
+		},
+		{
+			Concept:    "TS_ROUTING",
+			Phrases:    []string{"route", "router", "navigation", "page", "link"},
+			Targets:    []string{"Router", "Route", "Switch", "useRouter", "useNavigate", "useParams", "Link", "NavLink", "createBrowserRouter", "Outlet"},
+			TargetType: "symbol",
+			Weight:     0.8,
+			Source:     "language",
+		},
+		{
+			Concept:    "TS_API",
+			Phrases:    []string{"api", "fetch", "request", "http", "client", "endpoint"},
+			Targets:    []string{"fetch", "axios", "useSWR", "useQuery", "useMutation", "createApi", "client", "request", "response", "interceptor"},
+			TargetType: "symbol",
+			Weight:     0.8,
+			Source:     "language",
+		},
+		{
+			Concept:    "TS_VALIDATION",
+			Phrases:    []string{"validation", "schema", "type check", "parse", "transform"},
+			Targets:    []string{"schema", "validate", "parse", "safeParse", "transform", "refine", "z.object", "z.string", "yup", "Joi"},
+			TargetType: "symbol",
+			Weight:     0.8,
+			Source:     "language",
+		},
+		{
+			Concept:    "TS_TYPE_SYSTEM",
+			Phrases:    []string{"type", "interface", "generic", "type parameter", "inference", "narrowing", "declaration"},
+			Targets:    []string{"Type", "TypeNode", "TypeChecker", "checker", "getTypeOfSymbol", "isTypeAssignableTo", "createType", "getSignatureFromDeclaration", "resolveSignature", "inferTypeArguments"},
+			TargetType: "symbol",
+			Weight:     0.8,
+			Source:     "language",
+		},
+		{
+			Concept:    "TS_COMPILER",
+			Phrases:    []string{"compiler", "emit", "transform", "visitor", "node", "ast", "parse", "scanner"},
+			Targets:    []string{"Transformer", "Visitor", "visitNode", "visitEachChild", "createSourceFile", "emitFiles", "transformNodes", "Scanner", "Parser", "createPrinter"},
+			TargetType: "symbol",
+			Weight:     0.8,
+			Source:     "language",
+		},
+		{
+			Concept:    "TS_MODULE",
+			Phrases:    []string{"module", "import", "export", "resolution", "bundle", "package"},
+			Targets:    []string{"resolveModuleName", "resolveModuleNames", "getResolvedModule", "moduleSpecifierToSourceFile", "createModuleSpecifierResolutionHost", "NodeModulePathResolver"},
+			TargetType: "symbol",
+			Weight:     0.8,
+			Source:     "language",
+		},
+
+		// ---- Rust ----
+		{
+			Concept:    "RS_ERROR",
+			Phrases:    []string{"error", "result", "error handling", "unwrap", "panic"},
+			Targets:    []string{"Error", "Result", "anyhow", "thiserror", "From", "Display", "source", "context", "bail", "ensure"},
+			TargetType: "symbol",
+			Weight:     0.8,
+			Source:     "language",
+		},
+		{
+			Concept:    "RS_ASYNC",
+			Phrases:    []string{"async", "await", "future", "runtime", "concurrent", "spawn"},
+			Targets:    []string{"async", "await", "Future", "spawn", "block_on", "Runtime", "tokio", "poll", "Pin", "Waker"},
+			TargetType: "symbol",
+			Weight:     0.8,
+			Source:     "language",
+		},
+		{
+			Concept:    "RS_TRAITS",
+			Phrases:    []string{"trait", "impl", "interface", "derive", "generic", "bound"},
+			Targets:    []string{"impl", "trait", "From", "Into", "Display", "Debug", "Clone", "Default", "Serialize", "Deserialize"},
+			TargetType: "symbol",
+			Weight:     0.8,
+			Source:     "language",
+		},
+		{
+			Concept:    "RS_BUILD",
+			Phrases:    []string{"build", "compile", "cargo", "dependency", "crate", "package", "manifest"},
+			Targets:    []string{"resolve", "Resolve", "Registry", "Source", "SourceId", "PackageId", "Manifest", "Target", "CompileOptions", "BuildContext"},
+			TargetType: "symbol",
+			Weight:     0.8,
+			Source:     "language",
+		},
+		{
+			Concept:    "RS_BUILDER",
+			Phrases:    []string{"builder", "config", "options", "construct", "new"},
+			Targets:    []string{"Builder", "build", "new", "default", "with_", "set_", "Config", "Options"},
+			TargetType: "symbol",
+			Weight:     0.8,
+			Source:     "language",
+		},
+		{
+			Concept:    "RS_TESTING",
+			Phrases:    []string{"test", "testing", "assert", "mock", "fixture"},
+			Targets:    []string{"test", "cfg_test", "assert_eq", "assert_ne", "should_panic", "mock", "fixture", "proptest"},
+			TargetType: "symbol",
+			Weight:     0.8,
+			Source:     "language",
+		},
+
+		// ---- Java / Spring ----
+		{
+			Concept:    "JAVA_CONTROLLER",
+			Phrases:    []string{"controller", "endpoint", "api", "rest", "handler", "mapping"},
+			Targets:    []string{"Controller", "RestController", "GetMapping", "PostMapping", "PutMapping", "DeleteMapping", "RequestMapping", "PathVariable", "RequestBody"},
+			TargetType: "symbol",
+			Weight:     0.8,
+			Source:     "language",
+		},
+		{
+			Concept:    "JAVA_SERVICE",
+			Phrases:    []string{"service", "business logic", "component", "bean", "inject"},
+			Targets:    []string{"Service", "Component", "Bean", "Autowired", "Inject", "Transactional", "Repository"},
+			TargetType: "symbol",
+			Weight:     0.8,
+			Source:     "language",
+		},
+		{
+			Concept:    "JAVA_DATA",
+			Phrases:    []string{"repository", "database", "jpa", "entity", "query", "persistence"},
+			Targets:    []string{"Repository", "JpaRepository", "CrudRepository", "Entity", "Table", "Column", "Query", "EntityManager", "Specification"},
+			TargetType: "symbol",
+			Weight:     0.8,
+			Source:     "language",
+		},
+
+		// ---- Kubernetes / Infrastructure ----
+		{
+			Concept:    "K8S_CONTROLLER",
+			Phrases:    []string{"controller", "reconcile", "operator", "custom resource", "watch"},
+			Targets:    []string{"Reconcile", "Reconciler", "Controller", "controllerutil", "SetControllerReference", "Watch", "Owns", "For"},
+			TargetType: "symbol",
+			Weight:     0.8,
+			Source:     "language",
+		},
+		{
+			Concept:    "K8S_SCHEDULER",
+			Phrases:    []string{"scheduler", "scheduling", "pod placement", "node selection", "predicate", "priority"},
+			Targets:    []string{"Schedule", "Scheduler", "Filter", "Score", "Preempt", "Bind", "Reserve", "Permit", "PreFilter", "PostFilter", "QueueSort"},
+			TargetType: "symbol",
+			Weight:     0.8,
+			Source:     "language",
+		},
+		{
+			Concept:    "K8S_API",
+			Phrases:    []string{"api server", "admission", "webhook", "api resource", "api group"},
+			Targets:    []string{"Admit", "Validate", "Mutate", "AdmissionReview", "AdmissionResponse", "WebhookHandler", "Register", "AddToScheme", "GroupVersion"},
+			TargetType: "symbol",
+			Weight:     0.8,
+			Source:     "language",
+		},
+		{
+			Concept:    "K8S_WORKLOAD",
+			Phrases:    []string{"pod", "deployment", "statefulset", "daemonset", "job", "container"},
+			Targets:    []string{"Pod", "PodSpec", "Container", "Deployment", "StatefulSet", "DaemonSet", "ReplicaSet", "Job", "CronJob"},
+			TargetType: "symbol",
+			Weight:     0.8,
+			Source:     "language",
+		},
+	}
+}

@@ -473,6 +473,7 @@ func (e *ContextEngine) vectorSearch(ctx stdctx.Context, task string) []types.No
 // plus the names of matched concepts.
 func (e *ContextEngine) equivSearch(ctx stdctx.Context, task string, tieredResults []types.Node) ([]types.Node, []string) {
 	allClasses := append(seedEquivalenceClasses(), universalEquivalenceClasses()...)
+	allClasses = append(allClasses, languageEquivalenceClasses()...)
 	eqMatches := matchEquivalenceClasses(task, allClasses)
 
 	var candidateHashes []types.Hash
