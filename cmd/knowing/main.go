@@ -281,6 +281,8 @@ func cmdIndex(args []string) error {
 	repoURL := fs.String("url", "", "Repository URL (e.g. github.com/org/repo)")
 	commitHash := fs.String("commit", "HEAD", "Commit hash to record")
 	full := fs.Bool("full", false, "Use full type resolution (go/packages) instead of fast tree-sitter extraction")
+	skipBlame := fs.Bool("skip-blame", false, "Skip git blame authorship extraction (faster, no authored_by edges)")
+	workers := fs.Int("workers", 0, "Number of parallel extraction workers (default: 8)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -327,6 +329,10 @@ func cmdIndex(args []string) error {
 
 	snapMgr := snapshot.NewSnapshotManager(st)
 	idx := indexer.NewIndexer(st, snapMgr)
+	idx.SkipBlame = *skipBlame
+	if *workers > 0 {
+		idx.Concurrency = *workers
+	}
 
 	// Register extractors.
 	registerAllExtractors(idx, *full)

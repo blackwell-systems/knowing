@@ -59,7 +59,8 @@ type Indexer struct {
 	store       types.GraphStore
 	snapshot    SnapshotComputer
 	registry    *ExtractorRegistry
-	Concurrency int // number of parallel extraction workers; 0 means use runtime.GOMAXPROCS
+	Concurrency int  // number of parallel extraction workers; 0 means 8
+	SkipBlame   bool // skip git blame authorship extraction (expensive on large repos)
 
 	// changedMu protects lastChangedFiles, which is read by the daemon to
 	// determine which files need LSP enrichment after an index run.
@@ -471,33 +472,75 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 		}
 	}
 
-	// Extract authored_by edges from git blame for changed files.
-	if len(changedFilePaths) > 0 {
-		for _, f := range allFiles {
-			nodes, err := idx.store.NodesByFilePath(ctx, repoHash, f.Path)
-			if err != nil || len(nodes) == 0 {
-				continue
+	// Extract authored_by edges from git blame (parallel, best-effort).
+	// This is expensive (one git blame subprocess per file) so it runs in parallel
+	// and is skippable via idx.SkipBlame.
+	if !idx.SkipBlame && len(changedFilePaths) > 0 {
+		fmt.Fprintf(os.Stderr, "  Authorship extraction (%d files)...\n", len(allFiles))
+		blameStart := time.Now()
+
+		type blameResult struct {
+			nodes []types.Node
+			edges []types.Edge
+		}
+
+		blameResults := make([]blameResult, len(allFiles))
+		var blameWg sync.WaitGroup
+		blameCh := make(chan int, len(allFiles))
+
+		blameWorkers := numWorkers
+		if blameWorkers > len(allFiles) {
+			blameWorkers = len(allFiles)
+		}
+
+		for w := 0; w < blameWorkers; w++ {
+			blameWg.Add(1)
+			go func() {
+				defer blameWg.Done()
+				for i := range blameCh {
+					f := allFiles[i]
+					nodes, err := idx.store.NodesByFilePath(ctx, repoHash, f.Path)
+					if err != nil || len(nodes) == 0 {
+						continue
+					}
+					an, ae, err := authorship.ExtractAuthorship(repoURL, repoPath, f, nodes)
+					if err != nil {
+						continue
+					}
+					blameResults[i] = blameResult{nodes: an, edges: ae}
+				}
+			}()
+		}
+
+		for i := range allFiles {
+			blameCh <- i
+		}
+		close(blameCh)
+		blameWg.Wait()
+
+		// Collect and store authorship results.
+		var authorNodes []types.Node
+		var authorEdges []types.Edge
+		for _, br := range blameResults {
+			authorNodes = append(authorNodes, br.nodes...)
+			authorEdges = append(authorEdges, br.edges...)
+		}
+		if bs, ok := idx.store.(batchStore); ok {
+			if len(authorNodes) > 0 {
+				_ = bs.BatchPutNodes(ctx, authorNodes)
 			}
-			authorNodes, authorEdges, err := authorship.ExtractAuthorship(repoURL, repoPath, f, nodes)
-			if err != nil {
-				continue // best-effort, like ownership
+			if len(authorEdges) > 0 {
+				_ = bs.BatchPutEdges(ctx, authorEdges)
 			}
-			if bs, ok := idx.store.(batchStore); ok {
-				if len(authorNodes) > 0 {
-					_ = bs.BatchPutNodes(ctx, authorNodes)
-				}
-				if len(authorEdges) > 0 {
-					_ = bs.BatchPutEdges(ctx, authorEdges)
-				}
-			} else {
-				for _, n := range authorNodes {
-					_ = idx.store.PutNode(ctx, n)
-				}
-				for _, e := range authorEdges {
-					_ = idx.store.PutEdge(ctx, e)
-				}
+		} else {
+			for _, n := range authorNodes {
+				_ = idx.store.PutNode(ctx, n)
+			}
+			for _, e := range authorEdges {
+				_ = idx.store.PutEdge(ctx, e)
 			}
 		}
+		fmt.Fprintf(os.Stderr, "  Authorship: %d edges in %s\n", len(authorEdges), time.Since(blameStart).Truncate(time.Millisecond))
 	}
 
 	// Rebuild FTS index after batch inserts for BM25 search.
