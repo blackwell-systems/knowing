@@ -32,16 +32,13 @@ var interpolationRef = regexp.MustCompile(`\$\{([a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-
 
 // TerraformExtractor implements types.Extractor for Terraform HCL files using
 // tree-sitter AST parsing.
-type TerraformExtractor struct {
-	parser *sitter.Parser
-}
+// Thread-safe: each Extract call creates its own parser (required for
+// concurrent use; tree-sitter parsers are not goroutine-safe).
+type TerraformExtractor struct{}
 
-// NewTerraformExtractor creates a new TerraformExtractor with a tree-sitter
-// parser configured for HCL.
+// NewTerraformExtractor creates a new TerraformExtractor.
 func NewTerraformExtractor() *TerraformExtractor {
-	parser := sitter.NewParser()
-	parser.SetLanguage(hcl.GetLanguage())
-	return &TerraformExtractor{parser: parser}
+	return &TerraformExtractor{}
 }
 
 // Name returns the extractor name.
@@ -66,7 +63,9 @@ func (e *TerraformExtractor) CanHandle(path string) bool {
 // Extract parses the Terraform HCL file with tree-sitter and produces nodes
 // for block declarations and edges for references.
 func (e *TerraformExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error) {
-	tree, err := e.parser.ParseCtx(ctx, nil, opts.Content)
+	parser := sitter.NewParser()
+	parser.SetLanguage(hcl.GetLanguage())
+	tree, err := parser.ParseCtx(ctx, nil, opts.Content)
 	if err != nil {
 		return nil, fmt.Errorf("tree-sitter parse: %w", err)
 	}

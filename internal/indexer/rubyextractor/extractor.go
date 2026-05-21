@@ -92,16 +92,13 @@ var routeMethods = map[string]string{
 
 // RubyExtractor implements types.Extractor for Ruby files using tree-sitter
 // AST parsing.
-type RubyExtractor struct {
-	parser *sitter.Parser
-}
+// Thread-safe: each Extract call creates its own parser (required for
+// concurrent use; tree-sitter parsers are not goroutine-safe).
+type RubyExtractor struct{}
 
-// NewRubyExtractor creates a new RubyExtractor with a tree-sitter parser
-// configured for Ruby.
+// NewRubyExtractor creates a new RubyExtractor.
 func NewRubyExtractor() *RubyExtractor {
-	parser := sitter.NewParser()
-	parser.SetLanguage(ruby.GetLanguage())
-	return &RubyExtractor{parser: parser}
+	return &RubyExtractor{}
 }
 
 // Name returns the extractor name.
@@ -126,7 +123,9 @@ func (e *RubyExtractor) CanHandle(path string) bool {
 // Extract parses the Ruby file with tree-sitter and produces nodes for
 // declarations and edges for calls and imports.
 func (e *RubyExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error) {
-	tree, err := e.parser.ParseCtx(ctx, nil, opts.Content)
+	parser := sitter.NewParser()
+	parser.SetLanguage(ruby.GetLanguage())
+	tree, err := parser.ParseCtx(ctx, nil, opts.Content)
 	if err != nil {
 		return nil, fmt.Errorf("tree-sitter parse: %w", err)
 	}

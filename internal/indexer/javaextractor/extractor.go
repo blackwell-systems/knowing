@@ -24,16 +24,13 @@ import (
 
 // JavaExtractor implements types.Extractor for Java files using tree-sitter
 // AST parsing.
-type JavaExtractor struct {
-	parser *sitter.Parser
-}
+// Thread-safe: each Extract call creates its own parser (required for
+// concurrent use; tree-sitter parsers are not goroutine-safe).
+type JavaExtractor struct{}
 
-// NewJavaExtractor creates a new JavaExtractor with a tree-sitter parser
-// configured for Java.
+// NewJavaExtractor creates a new JavaExtractor.
 func NewJavaExtractor() *JavaExtractor {
-	parser := sitter.NewParser()
-	parser.SetLanguage(java.GetLanguage())
-	return &JavaExtractor{parser: parser}
+	return &JavaExtractor{}
 }
 
 // Name returns the extractor name.
@@ -69,7 +66,9 @@ var springAnnotations = map[string]string{
 // Extract parses the Java file with tree-sitter and produces nodes for
 // declarations and edges for calls and imports.
 func (e *JavaExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error) {
-	tree, err := e.parser.ParseCtx(ctx, nil, opts.Content)
+	parser := sitter.NewParser()
+	parser.SetLanguage(java.GetLanguage())
+	tree, err := parser.ParseCtx(ctx, nil, opts.Content)
 	if err != nil {
 		return nil, fmt.Errorf("tree-sitter parse: %w", err)
 	}

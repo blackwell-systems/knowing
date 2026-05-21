@@ -24,16 +24,13 @@ import (
 
 // CSharpExtractor implements types.Extractor for C# files using tree-sitter
 // AST parsing.
-type CSharpExtractor struct {
-	parser *sitter.Parser
-}
+// Thread-safe: each Extract call creates its own parser (required for
+// concurrent use; tree-sitter parsers are not goroutine-safe).
+type CSharpExtractor struct{}
 
-// NewCSharpExtractor creates a new CSharpExtractor with a tree-sitter parser
-// configured for C#.
+// NewCSharpExtractor creates a new CSharpExtractor.
 func NewCSharpExtractor() *CSharpExtractor {
-	parser := sitter.NewParser()
-	parser.SetLanguage(csharp.GetLanguage())
-	return &CSharpExtractor{parser: parser}
+	return &CSharpExtractor{}
 }
 
 // Name returns the extractor name.
@@ -63,7 +60,9 @@ func (e *CSharpExtractor) Extract(ctx context.Context, opts types.ExtractOptions
 		return &types.ExtractResult{}, nil
 	}
 
-	tree, err := e.parser.ParseCtx(ctx, nil, opts.Content)
+	parser := sitter.NewParser()
+	parser.SetLanguage(csharp.GetLanguage())
+	tree, err := parser.ParseCtx(ctx, nil, opts.Content)
 	if err != nil {
 		return nil, fmt.Errorf("tree-sitter parse: %w", err)
 	}

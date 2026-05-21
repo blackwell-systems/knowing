@@ -33,16 +33,13 @@ const (
 
 // RustExtractor implements types.Extractor for Rust files using tree-sitter
 // AST parsing. It is AST-only with no type resolution.
-type RustExtractor struct {
-	parser *sitter.Parser
-}
+// Thread-safe: each Extract call creates its own parser (required for
+// concurrent use; tree-sitter parsers are not goroutine-safe).
+type RustExtractor struct{}
 
-// NewRustExtractor creates a new RustExtractor with a tree-sitter parser
-// configured for Rust.
+// NewRustExtractor creates a new RustExtractor.
 func NewRustExtractor() *RustExtractor {
-	parser := sitter.NewParser()
-	parser.SetLanguage(rust.GetLanguage())
-	return &RustExtractor{parser: parser}
+	return &RustExtractor{}
 }
 
 // Name returns the extractor name.
@@ -67,7 +64,9 @@ func (e *RustExtractor) CanHandle(path string) bool {
 // Extract parses the Rust file with tree-sitter and produces nodes for
 // declarations and edges for calls, imports, and routes.
 func (e *RustExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error) {
-	tree, err := e.parser.ParseCtx(ctx, nil, opts.Content)
+	parser := sitter.NewParser()
+	parser.SetLanguage(rust.GetLanguage())
+	tree, err := parser.ParseCtx(ctx, nil, opts.Content)
 	if err != nil {
 		return nil, fmt.Errorf("tree-sitter parse: %w", err)
 	}

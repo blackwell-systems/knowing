@@ -25,16 +25,13 @@ const (
 
 // ProtoExtractor implements types.Extractor for Protocol Buffer files using
 // tree-sitter AST parsing.
-type ProtoExtractor struct {
-	parser *sitter.Parser
-}
+// Thread-safe: each Extract call creates its own parser (required for
+// concurrent use; tree-sitter parsers are not goroutine-safe).
+type ProtoExtractor struct{}
 
-// NewProtoExtractor creates a new ProtoExtractor with a tree-sitter parser
-// configured for protobuf.
+// NewProtoExtractor creates a new ProtoExtractor.
 func NewProtoExtractor() *ProtoExtractor {
-	parser := sitter.NewParser()
-	parser.SetLanguage(protobuf.GetLanguage())
-	return &ProtoExtractor{parser: parser}
+	return &ProtoExtractor{}
 }
 
 // Name returns the extractor name.
@@ -59,7 +56,9 @@ func (e *ProtoExtractor) CanHandle(path string) bool {
 // Extract parses the .proto file with tree-sitter and produces nodes for
 // declarations and edges for references.
 func (e *ProtoExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error) {
-	tree, err := e.parser.ParseCtx(ctx, nil, opts.Content)
+	parser := sitter.NewParser()
+	parser.SetLanguage(protobuf.GetLanguage())
+	tree, err := parser.ParseCtx(ctx, nil, opts.Content)
 	if err != nil {
 		return nil, fmt.Errorf("tree-sitter parse: %w", err)
 	}

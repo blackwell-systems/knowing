@@ -33,16 +33,13 @@ import (
 
 // TypeScriptExtractor implements types.Extractor for TypeScript and JavaScript
 // files using tree-sitter AST parsing.
-type TypeScriptExtractor struct {
-	parser *sitter.Parser
-}
+// Thread-safe: each Extract call creates its own parser (required for
+// concurrent use; tree-sitter parsers are not goroutine-safe).
+type TypeScriptExtractor struct{}
 
-// NewTypeScriptExtractor creates a new TypeScriptExtractor with a tree-sitter
-// parser configured for TypeScript.
+// NewTypeScriptExtractor creates a new TypeScriptExtractor.
 func NewTypeScriptExtractor() *TypeScriptExtractor {
-	parser := sitter.NewParser()
-	parser.SetLanguage(typescript.GetLanguage())
-	return &TypeScriptExtractor{parser: parser}
+	return &TypeScriptExtractor{}
 }
 
 // Name returns the extractor name.
@@ -72,7 +69,9 @@ func (e *TypeScriptExtractor) CanHandle(path string) bool {
 // Extract parses the TypeScript/JavaScript file with tree-sitter and produces
 // nodes for declarations and edges for calls and imports.
 func (e *TypeScriptExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error) {
-	tree, err := e.parser.ParseCtx(ctx, nil, opts.Content)
+	parser := sitter.NewParser()
+	parser.SetLanguage(typescript.GetLanguage())
+	tree, err := parser.ParseCtx(ctx, nil, opts.Content)
 	if err != nil {
 		return nil, fmt.Errorf("tree-sitter parse: %w", err)
 	}

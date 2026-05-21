@@ -32,16 +32,13 @@ import (
 
 // CSSExtractor implements types.Extractor for CSS and SCSS files using
 // tree-sitter AST parsing.
-type CSSExtractor struct {
-	parser *sitter.Parser
-}
+// Thread-safe: each Extract call creates its own parser (required for
+// concurrent use; tree-sitter parsers are not goroutine-safe).
+type CSSExtractor struct{}
 
-// NewCSSExtractor creates a new CSSExtractor with a tree-sitter parser
-// configured for CSS.
+// NewCSSExtractor creates a new CSSExtractor.
 func NewCSSExtractor() *CSSExtractor {
-	parser := sitter.NewParser()
-	parser.SetLanguage(css.GetLanguage())
-	return &CSSExtractor{parser: parser}
+	return &CSSExtractor{}
 }
 
 // Name returns the extractor name.
@@ -71,7 +68,9 @@ func (e *CSSExtractor) CanHandle(path string) bool {
 // Extract parses the CSS file with tree-sitter and produces nodes for
 // selectors and custom properties, and edges for imports and var() references.
 func (e *CSSExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error) {
-	tree, err := e.parser.ParseCtx(ctx, nil, opts.Content)
+	parser := sitter.NewParser()
+	parser.SetLanguage(css.GetLanguage())
+	tree, err := parser.ParseCtx(ctx, nil, opts.Content)
 	if err != nil {
 		return nil, fmt.Errorf("tree-sitter parse: %w", err)
 	}

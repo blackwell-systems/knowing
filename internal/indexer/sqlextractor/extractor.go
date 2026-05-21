@@ -25,16 +25,13 @@ const (
 
 // SQLExtractor implements types.Extractor for SQL files using tree-sitter
 // AST parsing.
-type SQLExtractor struct {
-	parser *sitter.Parser
-}
+// Thread-safe: each Extract call creates its own parser (required for
+// concurrent use; tree-sitter parsers are not goroutine-safe).
+type SQLExtractor struct{}
 
-// NewSQLExtractor creates a new SQLExtractor with a tree-sitter parser
-// configured for SQL.
+// NewSQLExtractor creates a new SQLExtractor.
 func NewSQLExtractor() *SQLExtractor {
-	parser := sitter.NewParser()
-	parser.SetLanguage(sql.GetLanguage())
-	return &SQLExtractor{parser: parser}
+	return &SQLExtractor{}
 }
 
 // Name returns the extractor name.
@@ -50,7 +47,9 @@ func (e *SQLExtractor) CanHandle(path string) bool {
 // Extract parses the SQL file with tree-sitter and produces nodes for
 // DDL statements and edges for references between objects.
 func (e *SQLExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error) {
-	tree, err := e.parser.ParseCtx(ctx, nil, opts.Content)
+	parser := sitter.NewParser()
+	parser.SetLanguage(sql.GetLanguage())
+	tree, err := parser.ParseCtx(ctx, nil, opts.Content)
 	if err != nil {
 		return nil, fmt.Errorf("tree-sitter parse: %w", err)
 	}
