@@ -7,7 +7,7 @@
 
 set -euo pipefail
 
-CORPUS_DIR="${1:-bench/cross-system/corpus/repos}"
+CORPUS_DIR="$(cd "${1:-bench/cross-system/corpus/repos}" && pwd)"
 
 if ! command -v knowing &>/dev/null; then
     echo "Error: knowing not found on PATH"
