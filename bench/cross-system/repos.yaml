@@ -1,0 +1,44 @@
+# Cross-system benchmark evaluation corpus.
+# 5 repos spanning different sizes, languages, and architectures.
+# Commits are pinned for reproducibility.
+
+repos:
+  - name: kubernetes
+    url: https://github.com/kubernetes/kubernetes
+    commit: v1.30.0  # Pin to a release tag
+    language: Go
+    size_class: large  # ~3.5M LOC
+    clone_depth: 1
+    notes: "Large Go monorepo. Deep call hierarchies, generated code, multi-package architecture."
+
+  - name: typescript
+    url: https://github.com/microsoft/TypeScript
+    commit: v5.5.4
+    language: TypeScript
+    size_class: large  # ~800K LOC
+    clone_depth: 1
+    notes: "Self-hosting compiler. Dense internal APIs, complex type relationships."
+
+  - name: flask
+    url: https://github.com/pallets/flask
+    commit: "3.1.0"
+    language: Python
+    size_class: small  # ~15K LOC
+    clone_depth: 1
+    notes: "Small Python framework. Well-defined public API, extension architecture."
+
+  - name: cargo
+    url: https://github.com/rust-lang/cargo
+    commit: "0.82.0"
+    language: Rust
+    size_class: medium  # ~150K LOC
+    clone_depth: 1
+    notes: "Rust build tool. Complex dependency resolution, multi-crate workspace."
+
+  - name: django
+    url: https://github.com/django/django
+    commit: "5.1"
+    language: Python
+    size_class: large  # ~300K LOC
+    clone_depth: 1
+    notes: "Large Python framework. ORM, views, middleware. SWE-bench tasks available."
