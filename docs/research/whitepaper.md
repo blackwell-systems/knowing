@@ -205,7 +205,7 @@ For the knowing codebase (~24.9K edges, 62 packages):
 
 | Operation | Latency |
 |-----------|---------|
-| Flat linear scan (compare 13,103 edges) | 1.76ms |
+| Flat linear scan (compare ~24.9K edges) | 1.76ms |
 | Hierarchical diff (compare 62 package roots) | 6.26us |
 | **Speedup (hierarchical vs flat linear scan)** | **281x** |
 
@@ -315,7 +315,7 @@ Content-addressing adds a SHA-256 computation per entity. The hierarchical tree 
 | Index one node | ~800 nanoseconds (SHA-256) | ~2 milliseconds (parse + store) | 0.04% |
 | Index one edge | ~800 nanoseconds | ~500 microseconds (store) | 0.16% |
 | Build hierarchical tree (~24.9K edges) | 3.47ms (vs 6.03ms flat) | ~1.8 seconds (full index) | 0.19% |
-| Compute snapshot (10K edges) | ~3 milliseconds (sort + Merkle) | ~8 seconds (full index) | 0.04% |
+| Compute snapshot (10K edges) | ~3 milliseconds (sort + Merkle) | ~1.8 seconds (parallel index) | 0.17% |
 
 The overhead is negligible. The dominant cost in every case is parsing or I/O, not hashing. Measurements were taken from the `knowing` indexing pipeline.
 
@@ -467,7 +467,7 @@ The 281x and 517x figures compare hierarchical diff against flat linear scan of 
 
 | Benchmark | Result | Source |
 |-----------|--------|--------|
-| `knowing fsck` (2,611 nodes, 13,103 edges) | 98ms median | `bench/merkle-diff/FINDINGS-fsck.md` |
+| `knowing fsck` (7,224 nodes, 24,936 edges) | 98ms median | `bench/merkle-diff/FINDINGS-fsck.md` |
 | GarbageCollectFull (500 orphans injected) | 70ms | `bench/merkle-diff/FINDINGS-gc.md` |
 | GarbageCollectFull (clean DB, steady state) | 53ms | `bench/merkle-diff/FINDINGS-gc.md` |
 

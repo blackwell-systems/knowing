@@ -157,7 +157,7 @@ Repo: github.com/blackwell-systems/knowing
 - **Limitations/known gaps:**
   - `GarbageCollect` uses `DeleteSnapshot` to remove old snapshots and their associated edge events.
   - Synthetic file nodes not included in Merkle tree (only nodes with qualified names).
-  - Flat `DiffMerkle` is a set-diff on leaves; use `DiffHierarchicalTrees` for package-scoped diffs (114x faster on 11K edges).
+  - Flat `DiffMerkle` is a set-diff on leaves; use `DiffHierarchicalTrees` for package-scoped diffs (216x faster on ~24.9K edges).
 - **Dependencies:** GraphStore.
 
 ### 13. Hierarchical Merkle Tree
@@ -167,7 +167,7 @@ Repo: github.com/blackwell-systems/knowing
 - **What it does:** Constructs a four-level Merkle tree from edges with package and edge-type metadata. Structure: repo root -> package roots -> edge-type roots -> edge leaves. `DiffHierarchicalTrees` compares package roots to find which packages changed (O(packages) instead of O(edges)). `SubgraphRoot` returns an O(1) cache key for any set of packages by combining their package roots. `EdgeTypeRoot` returns the root for a specific package and edge type in one lookup. `ContextPackRoot` enables content-addressed context pack deduplication across agents and sessions. See `bench/merkle-diff/` for benchmark results and `docs/architecture/merkle-algorithms.md` for the full algorithm specification.
 - **Inputs:** Slice of `EdgeInput` values (each carrying EdgeHash, PackagePath, EdgeType).
 - **Outputs:** `*HierarchicalTree` with Root, PackageRoots, EdgeTypeRoots, PackageEdgeCounts, TotalEdges.
-- **Performance:** 114x faster diff than flat tree on the knowing repo (11K edges), 517x on 100K synthetic edges. Subgraph root lookup: O(1), ~59ns. Build cost overhead: negligible.
+- **Performance:** 216x faster diff than flat tree on the knowing repo (~24.9K edges), 517x on 100K synthetic edges. Subgraph root lookup: O(1), ~59ns. Build cost overhead: negligible.
 - **Dependencies:** `snapshot.BuildMerkleTree` (used internally for each subtree level).
 
 ### 13a. Flat Merkle Tree (Backward Compatibility)
@@ -253,7 +253,7 @@ Repo: github.com/blackwell-systems/knowing
 
 - **Package(s):** `internal/mcp`
 - **Entry point:** `mcp.NewServer(store GraphStore) *Server`
-- **What it does:** Wraps `mcp-go` server library. Registers 22 tools across six planes (execution, intelligence, runtime, context, feedback, discovery) and 3 prompts (refactor_safely, review_pr, investigate_dead_code). Supports stdio and HTTP transports. Tool definitions include parameter schemas with descriptions and required flags. The Server holds a `sqlStore *SQLiteStore` (populated via type assertion from GraphStore) for runtime query tools.
+- **What it does:** Wraps `mcp-go` server library. Registers 27 tools across six planes (execution, intelligence, runtime, context, feedback, discovery) and 3 prompts (refactor_safely, review_pr, investigate_dead_code). Supports stdio and HTTP transports. Tool definitions include parameter schemas with descriptions and required flags. The Server holds a `sqlStore *SQLiteStore` (populated via type assertion from GraphStore) for runtime query tools.
 - **Inputs:** GraphStore (runtime tools additionally require `*SQLiteStore`).
 - **Outputs:** Serves MCP protocol over stdio or HTTP.
 - **Limitations/known gaps:**
@@ -1338,16 +1338,16 @@ Parameters per tool:
 
 - **Flags:** `--db` (default: `~/.knowing/knowing.db`), `--addr` (default: `:8080`), `--trace` (enable trace ingestion), `--trace-endpoint` (default: `localhost:4317`), `--trace-batch-size` (default: 1000)
 - **Positional args:** repo paths to watch (0 or more)
-- **What it does:** Opens SQLite store, creates snapshot manager and indexer, registers all 25 extractors (Go, Python, Ruby, TypeScript/JS, Rust, Java, C#, Terraform, SQL, K8s YAML, Cloud YAML [CFN/SAM, Compose, Actions, Serverless], CSS, Protocol Buffers, Dockerfile, Makefile, Helm, GitLab CI, package.json/npm, GraphQL, Ansible), creates MCP server (22 tools across six planes, 3 prompts), creates daemon with GitWatcher, optionally starts trace ingestion pipeline (OTLPReceiver + Ingestor + periodic flush/decay), watches listed repos, blocks until SIGINT/SIGTERM.
+- **What it does:** Opens SQLite store, creates snapshot manager and indexer, registers all 26 extractor packages (Go, Python, Ruby, TypeScript/JS, Rust, Java, C#, Terraform, SQL, K8s YAML, Cloud YAML [CFN/SAM, Compose, Actions, Serverless], CSS, Protocol Buffers, Dockerfile, Makefile, Helm, GitLab CI, package.json/npm, GraphQL, Ansible), creates MCP server (27 tools across six planes, 3 prompts), creates daemon with GitWatcher, optionally starts trace ingestion pipeline (OTLPReceiver + Ingestor + periodic flush/decay), watches listed repos, blocks until SIGINT/SIGTERM.
 - **Extractors registered:** `gotsextractor` (Go), `treesitter` (Python), `tsextractor` (TypeScript/JS), `rustextractor` (Rust), `javaextractor` (Java), `csharpextractor` (C#), `terraformextractor` (Terraform HCL), `sqlextractor` (SQL), `k8sextractor` (Kubernetes YAML), `cssextractor` (CSS), `protoextractor` (Protocol Buffers). Route detection covers 18 frameworks across 6 languages (Go: 5, Python: 3, TypeScript: 5).
 - **Enrichment:** Background EnrichFunc wired with scoped or full enrichment.
 - **Trace ingestion:** When `--trace` is set, launches a fourth daemon goroutine that opens a dedicated DB connection, creates SymbolResolver + Ingestor + OTLPReceiver, flushes batches every 10s, and decays confidence every 1h.
 
 ### `knowing index`
 
-- **Flags:** `--db` (default: `~/.knowing/knowing.db`), `--url` (default: repo path), `--commit` (default: HEAD), `--full` (use go/packages instead of tree-sitter)
+- **Flags:** `--db` (default: `~/.knowing/knowing.db`), `--url` (default: repo path), `--commit` (default: HEAD), `--full` (use go/packages instead of tree-sitter), `--workers` (default: 8, number of parallel extraction goroutines), `--skip-blame` (skip git blame authorship pass for faster structural-only index)
 - **Positional args:** repo-path (required)
-- **What it does:** Opens store, creates indexer, registers extractor (tree-sitter by default, go/packages if `--full`), indexes repo, prints stats, runs LSP enrichment synchronously (if not `--full`).
+- **What it does:** Opens store, creates indexer, registers extractor (tree-sitter by default, go/packages if `--full`), indexes repo with parallel extraction (8-worker goroutine pool, progress output to stderr every 2s), prints stats, runs LSP enrichment synchronously (if not `--full`). Phase separation: walk -> parallel extract -> batch store -> authorship -> snapshot. On the knowing codebase (84K LOC, 429 files), completes in 1.8 seconds at 1,451 files/sec throughput.
 
 ### `knowing query`
 
@@ -1365,7 +1365,7 @@ Parameters per tool:
 
 - **Flags:** `--db` (default: `~/.knowing/knowing.db`)
 - **No positional args.**
-- **What it does:** Launches the MCP server in stdio transport mode. Reads JSON-RPC messages from stdin and writes responses to stdout. Provides all 22 tools and 3 prompts. Designed for subprocess MCP usage (configured in `.mcp.json` or Claude Desktop).
+- **What it does:** Launches the MCP server in stdio transport mode. Reads JSON-RPC messages from stdin and writes responses to stdout. Provides all 27 tools and 3 prompts. Designed for subprocess MCP usage (configured in `.mcp.json` or Claude Desktop).
 
 ### `knowing reindex`
 
@@ -1819,10 +1819,13 @@ Hardcoded in `cmd/knowing/main.go` via daemon startup: `500 * time.Millisecond`.
 
 | Repo | Approach | Wall Time | Nodes | Edges | Cross-Repo Edges |
 |------|----------|-----------|-------|-------|-----------------|
-| knowing (self) | tree-sitter + LSP | ~9s | 231 (initial), 2,564 (polywave-go scale) | 672 (initial), 8,604 (polywave-go scale) | -- |
+| knowing (self) | parallel extraction (8 workers) | **1.8s** | 7,224 | 24,936 (30 edge types) | -- |
+| knowing (self, earlier) | tree-sitter + LSP | ~9s | 2,564 | 8,604 | -- |
 | polywave-go | go/packages (baseline) | 16m 24s | 6,340 | 17,232 | -- |
 | polywave-go | tree-sitter + LSP (final) | 9.1s | 2,564 | 8,604 (all lsp_resolved) + 213 discovered | -- |
 | polywave-go + polywave-web | tree-sitter | -- | 6,340 + 1,569 | 17,232 + 5,939 | 228 |
+
+**Parallel indexer stats (knowing codebase, 84K LOC):** 429 source files, 62 packages, 1,451 files/sec throughput, 8-worker goroutine pool, progress output every 2s. Flags: `--workers` (parallelism), `--skip-blame` (skip authorship for structural-only index).
 
 ---
 
@@ -1973,8 +1976,8 @@ bench/
 
 | Provenance | Confidence | Source | When Available |
 |-----------|-----------|--------|----------------|
-| `ast_inferred` | 0.7 | tree-sitter syntactic matching | After Tier 1 (~1.5s) |
-| `lsp_resolved` | 0.9 | LSP GetDefinition/GetImplementation/GetReferences (gopls, pyright, tsserver, rust-analyzer, jdtls, OmniSharp) | After Tier 2 (~8s more) |
+| `ast_inferred` | 0.7 | tree-sitter syntactic matching | After Tier 1 (~1.8s with parallel extraction) |
+| `lsp_resolved` | 0.9 | LSP GetDefinition/GetImplementation/GetReferences (gopls, pyright, tsserver, rust-analyzer, jdtls, OmniSharp) | After Tier 2 (~8s more for LSP enrichment) |
 | `ast_resolved` | 1.0 | go/packages full type resolution | `--full` flag only (~16min) |
 | `otel_trace` | 0.5-0.95 | Runtime observation via OTLP spans | After trace ingestion (continuous). Confidence from ConfidenceFromCount: 1 obs=0.5, 10+=0.7, 100+=0.85, 1000+=0.95. Decays to 0.2 after 30 days without observations, 0.0 after 90 days. |
 | `scip_resolved` | 0.95 | SCIP index file (via `knowing ingest-scip`) | After SCIP ingest. Near-full confidence from compiler-grade indexers. |

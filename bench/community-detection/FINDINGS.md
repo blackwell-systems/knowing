@@ -104,8 +104,8 @@ move (common case for single-package edits), save drops to ~0.1ms. Load
 | Delta-save (0 changes) | ~0.1ms | ~4% |
 | **Total** | **~2.5ms** | |
 
-For comparison, the re-index itself takes ~8 seconds; community detection
-adds 0.03% overhead.
+For comparison, the re-index itself takes ~1.8 seconds (parallel extraction); community detection
+adds ~0.14% overhead.
 
 ## Running
 

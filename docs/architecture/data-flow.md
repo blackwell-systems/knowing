@@ -102,8 +102,8 @@ Developer commits code
 | Phase | Duration (6,000-node repo) | Lock held | Queries blocked |
 |-------|---------------------------|-----------|-----------------|
 | Git diff resolution | ~10ms | None | No |
-| Tier 1 extraction (tree-sitter) | ~1.5s | Write lock | Yes |
+| Tier 1 extraction (tree-sitter, parallel) | ~1.8s | Write lock | Yes |
 | Snapshot computation (hierarchical Merkle tree) | ~5ms | Write lock | Yes |
-| Tier 2 enrichment (LSP) | ~8s | None (WAL) | No |
+| Tier 2 enrichment (LSP) | ~8s | None (WAL) | No (background) |
 
 The write lock is held only during Tier 1 extraction and snapshot computation. Queries are blocked for approximately 1.5 seconds per commit. Enrichment runs in the background without blocking anything.

@@ -29,7 +29,7 @@ The hierarchical Merkle tree is implemented in `internal/snapshot/hierarchical.g
 
 The hierarchical root is the canonical snapshot identity. No flat tree is built; the flat tree was dropped after the hash domain prefix change made backward compatibility moot. The snapshot hash is `ComputeSnapshotHash(hierarchicalTree.Root)`, which applies a `"snapshot\0"` domain prefix to the hierarchical root.
 
-Key results from `bench/merkle-diff/`: `DiffHierarchicalTrees` is 114x faster than flat diff on the knowing repo (11K edges), 517x faster on 100K synthetic edges. Subgraph root lookups are O(1) at 59ns. Build cost overhead is negligible.
+Key results from `bench/merkle-diff/`: `DiffHierarchicalTrees` is 216x faster than flat diff on the knowing repo (~24.9K edges), 517x faster on 100K synthetic edges. Subgraph root lookups are O(1) at 59ns. Build cost overhead is negligible.
 
 ### Structure
 
@@ -535,7 +535,7 @@ These algorithms build on each other. The hierarchical tree structure (Phase 1) 
 
 **What shipped:**
 - `BuildHierarchicalTree`: builds repo root -> package roots -> edge-type roots -> edge leaves from edge inputs with package and edge-type metadata.
-- `DiffHierarchicalTrees`: compares package roots only; O(packages) instead of O(edges). 114x faster on the knowing repo (11K edges), 517x on 100K synthetic edges. Subgraph root lookups: 59ns.
+- `DiffHierarchicalTrees`: compares package roots only; O(packages) instead of O(edges). 216x faster on the knowing repo (~24.9K edges), 517x on 100K synthetic edges. Subgraph root lookups: 59ns.
 - `DiffHierarchicalTreesWithOptions`: adds `DiffOptions` with `PackageFilter []string` and `MaxChanges int` cap. Matches git's pathspec filtering and early-exit from `tree-diff.c:462`.
 - `SubgraphRoot`: O(1) cache key for any set of packages.
 - `EdgeTypeRoot`: single-lookup answer for "did call edges change?"

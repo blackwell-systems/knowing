@@ -4,7 +4,7 @@ This document records foundational design decisions for knowing. These choices a
 
 ## 1. Content-Addressed Graph (Merkle DAG)
 
-The graph is a Merkle DAG. Every node, edge, and graph state is identified by its content hash. Domain-type prefixes (`node\0`, `edge\0`, `snapshot\0`, `merkle\0`) ensure hashes from different entity types are structurally distinguishable. The four-level hierarchical Merkle tree (repo root -> package roots -> edge-type roots -> edge leaves) enables `DiffHierarchicalTrees` to compare package roots instead of all edges: 114x faster on the knowing repo, 517x on 100K synthetic edges.
+The graph is a Merkle DAG. Every node, edge, and graph state is identified by its content hash. Domain-type prefixes (`node\0`, `edge\0`, `snapshot\0`, `merkle\0`) ensure hashes from different entity types are structurally distinguishable. The four-level hierarchical Merkle tree (repo root -> package roots -> edge-type roots -> edge leaves) enables `DiffHierarchicalTrees` to compare package roots instead of all edges: 216x faster on the knowing repo (~24.9K edges), 517x on 100K synthetic edges.
 
 For full details, see [concepts.md](concepts.md) and [data-model.md](data-model.md).
 
@@ -70,7 +70,7 @@ For full details, see [data-model.md](data-model.md) (the `edge_events` table se
 | `ast_resolved` | 1.0 | Parsed from source with full type resolution | Implemented (Python extractor, Go `--full`) |
 | `scip_resolved` | 0.95 | Imported from SCIP index (external dependency) | Implemented (`knowing ingest-scip`) |
 | `lsp_resolved` | 0.9 | Resolved via language server query | Implemented (enrichment pipeline) |
-| `ast_inferred` | 0.7 | Tree-sitter AST extraction without type resolution | Implemented (all 25 extractors) |
+| `ast_inferred` | 0.7 | Tree-sitter AST extraction without type resolution | Implemented (all 26 extractor packages) |
 | `otel_trace` | 0.2-0.95 | Observed in runtime traces | Implemented (trace ingestor) |
 | `config_declared` | 0.8 | Declared in infrastructure config (Terraform, K8s) | Not implemented (infra extractors use ast_inferred) |
 | `inferred_from_import` | 0.7 | Inferred from import statement (no call site found) | Not implemented |
@@ -341,7 +341,7 @@ If its value survives after the system stops (the last snapshot is still queryab
 
 | Decision | Core principle | Hard to retrofit? |
 |----------|---------------|-------------------|
-| Content-addressed graph (hierarchical Merkle tree) | Integrity, history, staleness are structural; package-scoped invalidation is 114x faster | Yes (requires full rewrite of storage) |
+| Content-addressed graph (hierarchical Merkle tree) | Integrity, history, staleness are structural; package-scoped invalidation is 216x faster | Yes (requires full rewrite of storage) |
 | Symbol identity scheme | Stable primary key across all edges | Yes (changing means full reindex) |
 | Append-only edge log | Never lose history | Yes (can't recover deleted history) |
 | Edge provenance | Trust is quantifiable | Yes (old edges become unknowable) |

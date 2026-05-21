@@ -314,4 +314,4 @@ Non-interface methods on `SQLiteStore` (accessed via type assertion):
 - Embedded: no external service to configure, manage, or secure.
 - PRAGMA integrity_check: filesystem-level corruption detection built in.
 - Pure Go driver (modernc.org/sqlite): no CGo, cross-compiles to all platforms.
-- Fast enough: 98ms fsck on 2,338 nodes + 11,664 edges. 72us proof generation. 42ns cache lookup.
+- Fast enough: 98ms fsck on 7,224 nodes + 24,936 edges. 72us proof generation. 42ns cache lookup.

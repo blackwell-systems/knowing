@@ -67,7 +67,7 @@ Tier 1: tree-sitter (fast, all languages)
   ├── Extract import edges
   ├── Store call-site positions (line, column, file) on each call edge
   ├── Provenance: "ast_inferred", confidence: 0.7
-  └── Completes in ~1.5 seconds for a 6,000-node repo
+  └── Completes in ~1.8 seconds for a 7,224-node repo (84K LOC, parallel extraction with 8 workers)
 
 Tier 2: LSP enrichment (type-resolved, per-language)
   ├── Start language server (gopls, pyright, rust-analyzer)
@@ -77,7 +77,7 @@ Tier 2: LSP enrichment (type-resolved, per-language)
   ├── Discover new edges: query GetImplementation, GetReferences on symbols
   │   └── implements and references edges (tree-sitter cannot produce these)
   ├── Close all files, shutdown language server
-  └── Completes in ~8 seconds for a 6,000-node repo
+  └── Completes in ~8 seconds for a 6,000-node repo (LSP enrichment only; tree-sitter extraction is separate)
 ```
 
 **Why two tiers instead of one:**
@@ -86,7 +86,7 @@ Full type resolution via `go/packages` (or equivalent per-language) requires loa
 
 tree-sitter parses syntax without type checking. It produces the same declaration nodes and most of the same call edges in seconds. The edges have lower confidence (syntactic string matching vs. type-resolved targeting) but are correct for the vast majority of direct calls.
 
-LSP enrichment bridges the gap. Language servers (gopls, pyright, etc.) perform type checking incrementally on opened files rather than in a single batch pass. gopls resolves 8,600+ edges in ~8 seconds because it processes files incrementally as they're opened, leveraging its own internal caching.
+LSP enrichment bridges the gap. Language servers (gopls, pyright, etc.) perform type checking incrementally on opened files rather than in a single batch pass. gopls resolves 8,600+ edges in ~8 seconds because it processes files incrementally as they're opened, leveraging its own internal caching. Note: Tier 1 tree-sitter extraction now uses parallel extraction (8-worker goroutine pool) and completes in 1.8 seconds for the knowing codebase (84K LOC, 429 files, 7,224 nodes, ~24.9K edges).
 
 **Data flow:**
 
@@ -128,9 +128,19 @@ Tier 2: LSP enrichment
 Graph is fully enriched (all edges lsp_resolved or ast_resolved)
 ```
 
-**Worker pool (Tier 1):**
+**Parallel Indexer (Tier 1):**
 
-File extraction is parallelized across `runtime.GOMAXPROCS` goroutines using a fan-out/fan-in pattern. Work items are buffered into a channel; workers pull items and write results to a pre-sized array indexed by submission order (no locks, deterministic output). The worker pool handles tree-sitter extraction only; LSP enrichment is sequential (language servers are not designed for concurrent requests from the same client).
+The indexer uses an 8-worker goroutine pool (configurable via `--workers` flag) with phase separation for deterministic, high-throughput extraction:
+
+1. **Walk phase:** enumerate source files, skip unchanged (content hash comparison)
+2. **Parallel extract phase:** fan-out files to workers; each worker creates a per-call tree-sitter parser (thread-safe, no shared state). Results written to a pre-sized array indexed by submission order (no locks, deterministic output)
+3. **Batch store phase:** single transaction for all nodes, edges, and file records
+4. **Authorship phase:** `git blame` stamps (skippable via `--skip-blame` for faster structural-only index)
+5. **Snapshot phase:** hierarchical Merkle tree computation
+
+Progress output to stderr every 2 seconds shows files processed and extraction rate. On the knowing codebase (84K LOC, 429 source files, 62 packages), the parallel indexer produces 7,224 nodes and ~24.9K edges in 1.8 seconds (1,451 files/sec throughput).
+
+The worker pool handles tree-sitter extraction only; LSP enrichment is sequential (language servers are not designed for concurrent requests from the same client).
 
 **Call-site positions:**
 
@@ -152,7 +162,7 @@ LSP servers require files to be opened via `textDocument/didOpen` before they ca
 
 These limitations exist only between Tier 1 and Tier 2 completion. After enrichment, all limitations are resolved.
 
-**Extractors (25 registered: 12 language + 13 infrastructure/cloud):**
+**Extractors (26 registered: 12 language + 13 infrastructure/cloud + CODEOWNERS):**
 
 | Language / Format | Tier 1 (fast) | Tier 2 (enrichment) | LSP server |
 |----------|--------------|--------------------|-----------| 

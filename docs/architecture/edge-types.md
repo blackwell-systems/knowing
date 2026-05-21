@@ -8,8 +8,8 @@ participates in blast radius traversal and context ranking.
 
 | Edge Type | Meaning | Provenance | Confidence | Producers | Blast Radius | RWR Weight |
 |---|---|---|---|---|---|---|
-| `calls` | Function/method invocation | ast_inferred / lsp_resolved | 0.7 / 0.9 | All 25 extractor types, enricher | Yes (traversed) | 1.0 |
-| `imports` | Module/package import | ast_inferred | 0.7 | All 25 extractor types | No | 0.5 |
+| `calls` | Function/method invocation | ast_inferred / lsp_resolved | 0.7 / 0.9 | All 26 extractor packages, enricher | Yes (traversed) | 1.0 |
+| `imports` | Module/package import | ast_inferred | 0.7 | All 26 extractor packages | No | 0.5 |
 | `implements` | Type satisfies an interface | ast_inferred / lsp_resolved | 0.7 / 0.9 | Go, TS, Java, C#, Ruby, Rust, GraphQL extractors, enricher | No | 0.8 |
 | `handles_route` | HTTP handler bound to a route | ast_inferred | 0.7 | Go, TS, Python, Ruby, Rust, Java, C# extractors | No | 0.7 |
 | `references` | Non-call identifier usage | ast_inferred / lsp_resolved / scip_resolved | 0.7 / 0.9 / 0.95 | Go extractor, Proto extractor, GraphQL extractor, SQL extractor, SCIP ingestor, enricher | No | 0.4 |
@@ -47,7 +47,7 @@ A function or method invokes another function or method.
 
 - **Direction:** source calls target. `pkg.HandleLogin -calls-> pkg.AuthService.Validate` means
   HandleLogin contains a call expression that resolves to AuthService.Validate.
-- **Producers:** All 25 extractor types (Go, TypeScript, Rust, Java, C#, Python,
+- **Producers:** All 26 extractor packages (Go, TypeScript, Rust, Java, C#, Python,
   Terraform, SQL, Kubernetes YAML, Cloud YAML, CSS, Protocol Buffers, and tree-sitter generic extractors) produce `calls` edges.
   The enricher upgrades ast_inferred calls to lsp_resolved when the language server (gopls, pyright, tsserver, rust-analyzer, jdtls, or OmniSharp) confirms the definition.
 - **Provenance:** `ast_inferred` (confidence 0.7) from tree-sitter extraction; `lsp_resolved`
@@ -69,7 +69,7 @@ A file imports a module or package.
 
 - **Direction:** source imports target. `cmd/server/main.go -imports-> github.com/example/pkg`
   means the file declares an import of that package.
-- **Producers:** All 25 extractor types. For Go: import declarations. For TypeScript:
+- **Producers:** All 26 extractor packages. For Go: import declarations. For TypeScript:
   `import` statements and `require()` calls. For Rust: `use` declarations. For Java:
   `import` declarations. For C#: `using` directives. For Python: `import` and
   `from ... import` statements. For Protocol Buffers: `import` statements. For CSS:

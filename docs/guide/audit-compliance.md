@@ -95,7 +95,7 @@ knowing fsck
 #   3. Snapshot chain continuity (every parent pointer is valid)
 #   4. SQLite page integrity (PRAGMA integrity_check)
 #
-# Time: 98ms on a graph with 2,611 nodes and 13,103 edges
+# Time: 98ms on a graph with 7,224 nodes and 24,936 edges
 ```
 
 Exit code 0 = clean. Exit code 1 = corruption detected.
@@ -209,7 +209,7 @@ The result: `knowing fsck` on a correctly indexed repo reports 0 errors. This is
 |-----------|---------|-----------------|
 | Proof generation | 72us | One specific edge exists in a snapshot |
 | Proof verification | 1.2us | The proof is cryptographically valid |
-| `knowing fsck` | 98ms | Entire graph integrity (2,611 nodes, 13,103 edges) |
+| `knowing fsck` | 98ms | Entire graph integrity (7,224 nodes, 24,936 edges) |
 | Snapshot diff | 6us | Which packages changed between two snapshots |
 | Snapshot chain walk | O(N) snapshots, O(packages) per diff | When a relationship first appeared |
 

@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://github.com/blackwell-systems"><img src="https://raw.githubusercontent.com/blackwell-systems/blackwell-docs-theme/main/badge-trademark.svg" alt="Blackwell Systems"></a>
   <a href="#mcp-tools"><img src="https://img.shields.io/badge/MCP_tools-27%20tools%20%2B%208%20resources-brightgreen.svg" alt="MCP Tools"></a>
-  <a href="#languages-and-formats"><img src="https://img.shields.io/badge/languages_and_formats-25-blue.svg" alt="Languages and Formats"></a>
+  <a href="#languages-and-formats"><img src="https://img.shields.io/badge/languages_and_formats-26-blue.svg" alt="Languages and Formats"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
 </p>
 
@@ -82,7 +82,7 @@ These aren't separate features. They're structural consequences of content-addre
 | Repeat query speed | 93x faster (Merkle-keyed subgraph cache) |
 | Merkle diff | 517x faster than full edge scan at 100K edges |
 | Test scope | 98% precision, 82% recall |
-| Graph integrity check | 98ms (11,664 edges) |
+| Graph integrity check | 98ms (24,936 edges) |
 | Proof generation | 72us generate, 1.2us verify |
 | Feedback expiration | 100% expire on code change, 11% overhead |
 | Cross-repo retrieval | 46.7% R@10 on foreign codebase, zero config |
@@ -189,8 +189,8 @@ The entire system is built on one idea: content-addressed identity. Every symbol
 +----------------+------------------------+--------------------------+
 |   Indexer      |     Graph Store        |      MCP Server          |
 |                |                        |                          |
-| 25 extractors  | Content-addressed      | 27 tools + 8 resources   |
-| tree-sitter    | SQLite + Merkle tree   | stdio / HTTP             |
+| 26 extractors  | Content-addressed      | 27 tools + 8 resources   |
+| tree-sitter    | SQLite + Merkle tree   | stdio / HTTP (1.8s index)|
 | LSP + SCIP     | Hierarchical snapshots | GCF / GCB / JSON         |
 | OTel traces    | Subgraph cache (93x)   | PackRoot dedup (99%)     |
 |                | Community detection    |                          |
