@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -59,7 +60,7 @@ type Indexer struct {
 	store       types.GraphStore
 	snapshot    SnapshotComputer
 	registry    *ExtractorRegistry
-	Concurrency int  // number of parallel extraction workers; 0 means 8
+	Concurrency int  // number of parallel extraction workers; 0 means runtime.GOMAXPROCS
 	SkipBlame   bool // skip git blame authorship extraction (expensive on large repos)
 
 	// changedMu protects lastChangedFiles, which is read by the daemon to
@@ -310,6 +311,12 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 		if err != nil {
 			continue
 		}
+
+		// Skip generated files by checking for "Code generated" or "DO NOT EDIT" in first 256 bytes.
+		if isGeneratedContent(content) {
+			continue
+		}
+
 		contentHash := types.NewHash(content)
 
 		if oldHash, exists := existingByPath[relPath]; exists && oldHash == contentHash {
@@ -354,7 +361,7 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 
 	numWorkers := idx.Concurrency
 	if numWorkers <= 0 {
-		numWorkers = 8 // default parallelism
+		numWorkers = runtime.GOMAXPROCS(0) // use all available cores
 	}
 	if numWorkers > len(work) {
 		numWorkers = len(work)
@@ -423,51 +430,79 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 	// Clear progress line.
 	fmt.Fprintf(os.Stderr, "\r%80s\r", "")
 
-	// Phase 3: Collect results (sequential, accumulate into slices).
-	for _, fr := range results {
-		if fr.err != nil {
-			return nil, fmt.Errorf("extract file %s: %w", work[fr.idx].relPath, fr.err)
-		}
-		if fr.result != nil {
-			allNodes = append(allNodes, fr.result.Nodes...)
-			allEdges = append(allEdges, fr.result.Edges...)
-		}
-		if fr.file != nil {
-			allFiles = append(allFiles, *fr.file)
-		}
-	}
-
-	// Batch insert if the store supports it, otherwise fall back to individual inserts.
-	fmt.Fprintf(os.Stderr, "  Storing %d nodes, %d edges, %d files...\n", len(allNodes), len(allEdges), len(allFiles))
+	// Phase 3: Streaming commit. Insert results in batches of 500 files.
+	// This makes the index resumable (partial data survives a kill) and
+	// provides visible progress during the storage phase.
+	const batchSize = 500
 	storeStart := time.Now()
-	if bs, ok := idx.store.(batchStore); ok {
-		if err := bs.BatchPutFiles(ctx, allFiles); err != nil {
-			return nil, fmt.Errorf("batch store files: %w", err)
+	storedFiles := 0
+	storedNodes := 0
+	storedEdges := 0
+
+	bs, hasBatch := idx.store.(batchStore)
+
+	for batchStart := 0; batchStart < len(results); batchStart += batchSize {
+		batchEnd := batchStart + batchSize
+		if batchEnd > len(results) {
+			batchEnd = len(results)
 		}
-		if err := bs.BatchPutNodes(ctx, allNodes); err != nil {
-			return nil, fmt.Errorf("batch store nodes: %w", err)
-		}
-		if err := bs.BatchPutEdges(ctx, allEdges); err != nil {
-			return nil, fmt.Errorf("batch store edges: %w", err)
-		}
-	} else {
-		for _, f := range allFiles {
-			if err := idx.store.PutFile(ctx, f); err != nil {
-				return nil, fmt.Errorf("store file %s: %w", f.Path, err)
+
+		var batchNodes []types.Node
+		var batchEdges []types.Edge
+		var batchFiles []types.File
+
+		for i := batchStart; i < batchEnd; i++ {
+			fr := results[i]
+			if fr.err != nil {
+				return nil, fmt.Errorf("extract file %s: %w", work[fr.idx].relPath, fr.err)
+			}
+			if fr.result != nil {
+				batchNodes = append(batchNodes, fr.result.Nodes...)
+				batchEdges = append(batchEdges, fr.result.Edges...)
+				allNodes = append(allNodes, fr.result.Nodes...)
+				allEdges = append(allEdges, fr.result.Edges...)
+			}
+			if fr.file != nil {
+				batchFiles = append(batchFiles, *fr.file)
+				allFiles = append(allFiles, *fr.file)
 			}
 		}
-		for _, n := range allNodes {
-			if err := idx.store.PutNode(ctx, n); err != nil {
-				return nil, fmt.Errorf("store node %s: %w", n.QualifiedName, err)
+
+		if hasBatch {
+			if len(batchFiles) > 0 {
+				if err := bs.BatchPutFiles(ctx, batchFiles); err != nil {
+					return nil, fmt.Errorf("batch store files: %w", err)
+				}
+			}
+			if len(batchNodes) > 0 {
+				if err := bs.BatchPutNodes(ctx, batchNodes); err != nil {
+					return nil, fmt.Errorf("batch store nodes: %w", err)
+				}
+			}
+			if len(batchEdges) > 0 {
+				if err := bs.BatchPutEdges(ctx, batchEdges); err != nil {
+					return nil, fmt.Errorf("batch store edges: %w", err)
+				}
+			}
+		} else {
+			for _, f := range batchFiles {
+				_ = idx.store.PutFile(ctx, f)
+			}
+			for _, n := range batchNodes {
+				_ = idx.store.PutNode(ctx, n)
+			}
+			for _, e := range batchEdges {
+				_ = idx.store.PutEdge(ctx, e)
 			}
 		}
-		for _, e := range allEdges {
-			if err := idx.store.PutEdge(ctx, e); err != nil {
-				return nil, fmt.Errorf("store edge: %w", err)
-			}
-		}
+
+		storedFiles += len(batchFiles)
+		storedNodes += len(batchNodes)
+		storedEdges += len(batchEdges)
+		fmt.Fprintf(os.Stderr, "\r  Stored %d/%d files, %d nodes, %d edges",
+			storedFiles, len(results), storedNodes, storedEdges)
 	}
-	fmt.Fprintf(os.Stderr, "  Stored in %s\n", time.Since(storeStart).Truncate(time.Millisecond))
+	fmt.Fprintf(os.Stderr, "\n  Storage complete in %s\n", time.Since(storeStart).Truncate(time.Millisecond))
 
 	// Extract CODEOWNERS ownership edges if a CODEOWNERS file exists.
 	if coPath := ownership.FindCodeowners(repoPath); coPath != "" {
@@ -767,4 +802,35 @@ func readModulePath(repoPath string) string {
 		}
 	}
 	return ""
+}
+
+// isGeneratedContent checks the first 512 bytes of a file for generated-code markers.
+// Returns true if the file should be skipped.
+func isGeneratedContent(content []byte) bool {
+	// Check first 512 bytes (covers all standard generated-code headers).
+	header := content
+	if len(header) > 512 {
+		header = header[:512]
+	}
+	s := string(header)
+
+	// Standard Go generated markers.
+	if strings.Contains(s, "Code generated") || strings.Contains(s, "DO NOT EDIT") ||
+		strings.Contains(s, "AUTO-GENERATED") || strings.Contains(s, "auto-generated") ||
+		strings.Contains(s, "Autogenerated") || strings.Contains(s, "GENERATED FILE") {
+		return true
+	}
+
+	// Python generated markers.
+	if strings.Contains(s, "# Generated by") || strings.Contains(s, "# This file is generated") {
+		return true
+	}
+
+	// TypeScript/JS generated markers.
+	if strings.Contains(s, "// This file was automatically generated") ||
+		strings.Contains(s, "/* tslint:disable */") && strings.Contains(s, "auto-generated") {
+		return true
+	}
+
+	return false
 }
