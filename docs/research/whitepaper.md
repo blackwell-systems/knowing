@@ -42,7 +42,7 @@ Most existing systems do not track these relationships with all of the following
 
 The reason is that most systems use mutable state. And mutable state cannot provide these properties without extraordinary complexity.
 
-The knowing system tracks approximately 13,100 edges in its live codebase, spanning 57 packages and 26 extractor types. The hierarchical Merkle structure operates over this graph in production and is the basis for all benchmark results in this paper. Edge counts vary by run and snapshot; prose uses "~13.1K edges" and exact counts appear only in tables.
+The knowing system tracks approximately 24,900 edges across 7,200 nodes in its live codebase (84K LOC Go, 429 source files, 62 packages, 26 extractor types). The hierarchical Merkle structure operates over this graph in production and is the basis for all benchmark results in this paper. Edge counts vary by run and snapshot; prose uses "~24.9K edges" and exact counts appear only in tables.
 
 ---
 
@@ -201,12 +201,12 @@ An agent querying only billing packages hits the cache even though auth was just
 
 When one package changes, its `PackageRoot` changes. The diff of two hierarchical trees identifies the change by comparing P package roots, where P is the number of packages. The diff of two flat trees requires comparing all E edge hashes.
 
-For the knowing codebase (~13.1K edges, 57 packages):
+For the knowing codebase (~24.9K edges, 62 packages):
 
 | Operation | Latency |
 |-----------|---------|
 | Flat linear scan (compare 13,103 edges) | 1.76ms |
-| Hierarchical diff (compare 57 package roots) | 6.26us |
+| Hierarchical diff (compare 62 package roots) | 6.26us |
 | **Speedup (hierarchical vs flat linear scan)** | **281x** |
 
 For a 100K-edge synthetic graph with 100 packages, the speedup over flat linear scan is 517x. Note: a flat Merkle tree with descend-to-localize would also be fast for small changes (O(d * log E)), but would localize changes to arbitrary leaf positions without semantic context. The hierarchical structure enables O(packages) diff with semantically meaningful output: changed package names and changed edge types. This is what makes scoped invalidation and package-aware cache keys possible. See `bench/merkle-diff/FINDINGS.md`.
@@ -314,7 +314,7 @@ Content-addressing adds a SHA-256 computation per entity. The hierarchical tree 
 |-----------|------------------------|---------------------|----------|
 | Index one node | ~800 nanoseconds (SHA-256) | ~2 milliseconds (parse + store) | 0.04% |
 | Index one edge | ~800 nanoseconds | ~500 microseconds (store) | 0.16% |
-| Build hierarchical tree (~13.1K edges) | 3.47ms (vs 6.03ms flat) | ~8 seconds (full index) | 0.04% |
+| Build hierarchical tree (~24.9K edges) | 3.47ms (vs 6.03ms flat) | ~1.8 seconds (full index) | 0.19% |
 | Compute snapshot (10K edges) | ~3 milliseconds (sort + Merkle) | ~8 seconds (full index) | 0.04% |
 
 The overhead is negligible. The dominant cost in every case is parsing or I/O, not hashing. Measurements were taken from the `knowing` indexing pipeline.
@@ -453,7 +453,7 @@ All benchmarks run on the knowing codebase itself. The repository includes harne
 
 | Benchmark | Result | Source |
 |-----------|--------|--------|
-| Hierarchical diff vs flat linear scan (~13.1K edges, 57 packages) | 281x faster | `bench/merkle-diff/FINDINGS.md` |
+| Hierarchical diff vs flat linear scan (~24.9K edges, 62 packages) | 281x faster | `bench/merkle-diff/FINDINGS.md` |
 | Hierarchical diff vs flat linear scan at 100K synthetic edges | 517x faster | `bench/merkle-diff/FINDINGS.md` |
 | SubgraphRoot lookup (1 package) | 59ns | `bench/merkle-diff/FINDINGS.md` |
 | Raw subgraph cache hit | 42ns | `bench/merkle-diff/FINDINGS-phase2-cache.md` |
@@ -579,7 +579,7 @@ The properties described in this paper hold under specific conditions. This sect
 
 **Generated code, vendored dependencies, and monorepos need policy decisions.** The system must decide how to handle code that is not written by project authors. Including vendored dependencies inflates the graph and can produce spurious cross-repo identity conflicts. Excluding them requires explicit filtering. Monorepo layouts may not align cleanly with package boundaries, requiring canonicalization policy specific to the repository structure.
 
-**The benchmark comes from three live codebases plus synthetic tests.** The primary evaluation uses the knowing codebase (~70K LOC Go, ~13.1K edges, 57 packages). A scale validation uses Grafana (~500K LOC Go+TypeScript, 714K edges, 338K nodes, 15,921 files): context retrieval and hierarchical diff remain operational at 50x the primary codebase's scale. A portability validation uses Spring PetClinic (Java/Spring Boot, 47 source files, 5,522 nodes, 3,048 edges, 21 HTTP routes detected via Spring annotation extraction), confirming the hierarchical structure works across language ecosystems with different package granularity. Speedup ratios scale with edge count: 249x at 10K, 516x at 50K, 565x at 100K (synthetic, controlled parameters). Grafana's 714K edges confirms the system remains operational at production scale; per-operation benchmarks at that size are future work.
+**The benchmark comes from three live codebases plus synthetic tests.** The primary evaluation uses the knowing codebase (~84K LOC Go, ~24.9K edges, 62 packages). A scale validation uses Grafana (~500K LOC Go+TypeScript, 714K edges, 338K nodes, 15,921 files): context retrieval and hierarchical diff remain operational at 29x the primary codebase's scale. A portability validation uses Spring PetClinic (Java/Spring Boot, 47 source files, 5,522 nodes, 3,048 edges, 21 HTTP routes detected via Spring annotation extraction), confirming the hierarchical structure works across language ecosystems with different package granularity. Speedup ratios scale with edge count: 249x at 10K, 516x at 50K, 565x at 100K (synthetic, controlled parameters). Grafana's 714K edges confirms the system remains operational at production scale; per-operation benchmarks at that size are future work.
 
 **The subgraph cache hit rate depends on agent query patterns.** Realistic sessions observed in development show approximately 20% subgraph cache hit rate; for exact repeated queries the rate reaches 60%. These numbers depend heavily on how agents are prompted and what tasks they perform. Different agent architectures or query strategies will produce different hit rates.
 
