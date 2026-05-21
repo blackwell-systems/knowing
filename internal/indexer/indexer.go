@@ -227,8 +227,8 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 				"corpus":
 				return filepath.SkipDir
 			}
-			// Skip hidden directories (dot-prefixed).
-			if len(name) > 1 && name[0] == '.' {
+			// Skip hidden directories (dot-prefixed), except .github (contains CI workflows).
+			if len(name) > 1 && name[0] == '.' && name != ".github" {
 				return filepath.SkipDir
 			}
 			return nil

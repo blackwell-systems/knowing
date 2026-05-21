@@ -5,8 +5,8 @@ server:
 assert:
   tool: prove
   args:
-    source: "ForTask"
-    target: "extractKeywords"
+    source: "NewSQLiteStore"
+    target: "Migrate"
     edge_type: "calls"
   expect:
     not_error: true
