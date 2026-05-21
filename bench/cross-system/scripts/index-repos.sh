@@ -27,11 +27,13 @@ index_repo() {
         return
     fi
 
-    local db_path="$repo_dir/.knowing/graph.db"
+    local db_dir="$repo_dir/.knowing"
+    local db_path="$db_dir/graph.db"
     if [ -f "$db_path" ]; then
         echo "[$name] Already indexed at $db_path"
         return
     fi
+    mkdir -p "$db_dir"
 
     echo "[$name] Indexing..."
     local start=$(date +%s)
