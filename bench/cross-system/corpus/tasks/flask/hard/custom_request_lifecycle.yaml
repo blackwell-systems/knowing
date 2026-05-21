@@ -1,0 +1,16 @@
+id: flask-hard-001
+repo: flask
+tier: hard
+description: "Implement a custom request context that adds correlation ID tracking through the entire request lifecycle including error handling and teardown"
+source: manual
+ground_truth:
+  - flask.ctx.RequestContext
+  - flask.ctx.RequestContext.push
+  - flask.ctx.RequestContext.pop
+  - flask.app.Flask.full_dispatch_request
+  - flask.app.Flask.process_response
+  - flask.app.Flask.do_teardown_request
+  - flask.globals.request_ctx
+  - flask.wrappers.Request
+tags: [request-lifecycle, context-management, cross-package, cross-cutting]
+notes: "Understanding the full request lifecycle requires tracing from RequestContext push/pop through dispatch and teardown. The developer needs to see how the context stack works (ctx module), how dispatch flows (app module), and how the global proxy (globals module) exposes the context."

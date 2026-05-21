@@ -1,0 +1,16 @@
+id: cargo-hard-001
+repo: cargo
+tier: hard
+description: "Debug and fix a dependency resolution failure where two workspace members require incompatible versions of the same crate due to a yanked intermediate version"
+source: manual
+ground_truth:
+  - src/cargo/core/resolver/mod.rs.resolve
+  - src/cargo/core/resolver/context.rs.ResolverContext
+  - src/cargo/core/resolver/errors.rs.activation_error
+  - src/cargo/core/resolver/dep_cache.rs.RegistryQueryer
+  - src/cargo/core/resolver/types.rs.ConflictReason
+  - src/cargo/sources/registry/index/mod.rs.RegistryIndex
+  - src/cargo/core/registry.rs.PackageRegistry
+  - src/cargo/core/workspace.rs.Workspace
+tags: [resolver, registry, cross-package, bug-fix, cross-cutting]
+notes: "Debugging resolution failures requires understanding the resolver loop (resolve), its state tracking (ResolverContext), error generation (activation_error), how the registry is queried (RegistryQueryer, RegistryIndex), conflict classification (ConflictReason), and workspace handling."

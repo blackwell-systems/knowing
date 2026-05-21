@@ -1,0 +1,13 @@
+id: typescript-easy-001
+repo: typescript
+tier: easy
+description: "Add a new compiler diagnostic message for when a decorator is applied to a class with a private constructor"
+source: manual
+ground_truth:
+  - src/compiler/diagnosticMessages.json
+  - src/compiler/checker.ts.checkDecorators
+  - src/compiler/types.ts.DiagnosticMessage
+  - src/compiler/types.ts.Diagnostics
+  - src/compiler/utilities.ts.createDiagnosticForNode
+tags: [diagnostics, checker, single-package, feature-addition]
+notes: "Adding a diagnostic requires the message definition file, the checker function where decorators are validated, the DiagnosticMessage type, and the utility to create node-level diagnostics."

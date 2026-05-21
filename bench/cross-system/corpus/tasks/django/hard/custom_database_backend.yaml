@@ -1,0 +1,16 @@
+id: django-hard-001
+repo: django
+tier: hard
+description: "Implement a custom database backend that adds query-level read replica routing and automatic failover"
+source: manual
+ground_truth:
+  - django.db.backends.base.base.BaseDatabaseWrapper
+  - django.db.backends.base.base.BaseDatabaseWrapper.ensure_connection
+  - django.db.backends.base.base.BaseDatabaseWrapper.cursor
+  - django.db.utils.ConnectionHandler
+  - django.db.utils.ConnectionRouter
+  - django.db.utils.ConnectionRouter.db_for_read
+  - django.db.backends.base.creation.BaseDatabaseCreation
+  - django.db.backends.base.operations.BaseDatabaseOperations
+tags: [database, backend, cross-package, cross-cutting, understanding]
+notes: "Building a database backend requires understanding the full backend abstraction: BaseDatabaseWrapper for the connection, ConnectionHandler/ConnectionRouter for routing, and the auxiliary classes (creation, operations) that a backend must provide."

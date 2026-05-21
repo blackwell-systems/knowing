@@ -1,0 +1,14 @@
+id: typescript-medium-002
+repo: typescript
+tier: medium
+description: "Add support for a new module resolution condition (similar to 'import' and 'require') that resolves differently for test files"
+source: manual
+ground_truth:
+  - src/compiler/moduleNameResolver.ts.resolveModuleName
+  - src/compiler/moduleNameResolver.ts.nodeModuleNameResolverWorker
+  - src/compiler/moduleNameResolver.ts.loadNodeModuleFromDirectoryWorker
+  - src/compiler/types.ts.ModuleResolutionKind
+  - src/compiler/types.ts.CompilerOptions
+  - src/compiler/commandLineParser.ts.optionsForWatch
+tags: [module-resolution, compiler-options, cross-package, feature-addition]
+notes: "Adding a module resolution condition requires understanding the resolution pipeline (resolveModuleName -> nodeModuleNameResolverWorker -> loadNodeModuleFromDirectoryWorker), the resolution kind enum, compiler options, and where options are parsed."

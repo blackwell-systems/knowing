@@ -1,0 +1,14 @@
+id: flask-medium-001
+repo: flask
+tier: medium
+description: "Replace Flask's default JSON serialization to handle datetime objects and custom SQLAlchemy model serialization"
+source: manual
+ground_truth:
+  - flask.json.provider.DefaultJSONProvider
+  - flask.json.provider.DefaultJSONProvider.default
+  - flask.json.provider.DefaultJSONProvider.dumps
+  - flask.json.provider.JSONProvider
+  - flask.sansio.app.App.json_provider_class
+  - flask.json.provider.DefaultJSONProvider.ensure_ascii
+tags: [json, serialization, cross-package, refactoring]
+notes: "Developer needs to understand the JSON provider abstraction layer. The json.provider module defines the interface (JSONProvider) and default implementation (DefaultJSONProvider), while the app module wires it in via json_provider_class."

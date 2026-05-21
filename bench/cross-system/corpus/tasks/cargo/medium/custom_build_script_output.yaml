@@ -1,0 +1,14 @@
+id: cargo-medium-001
+repo: cargo
+tier: medium
+description: "Add a new build script instruction (cargo::metadata) that allows build scripts to pass structured metadata to dependent crates"
+source: manual
+ground_truth:
+  - src/cargo/core/compiler/custom_build.rs.BuildOutput
+  - src/cargo/core/compiler/custom_build.rs.BuildOutput.parse
+  - src/cargo/core/compiler/build_context/mod.rs.BuildContext
+  - src/cargo/core/compiler/fingerprint/mod.rs.Fingerprint
+  - src/cargo/core/compiler/compilation.rs.Compilation
+  - src/cargo/core/compiler/mod.rs.compile
+tags: [build-scripts, compiler, cross-package, feature-addition]
+notes: "Adding a build script instruction requires understanding how build output is parsed (BuildOutput.parse), the build context that carries state, fingerprinting for rebuild detection, and how compilation aggregates results."

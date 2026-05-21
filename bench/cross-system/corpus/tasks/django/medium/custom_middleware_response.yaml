@@ -1,0 +1,15 @@
+id: django-medium-001
+repo: django
+tier: medium
+description: "Write middleware that adds security headers to all responses and short-circuits requests from blocked IP ranges"
+source: manual
+ground_truth:
+  - django.utils.deprecation.MiddlewareMixin
+  - django.utils.deprecation.MiddlewareMixin.__call__
+  - django.middleware.security.SecurityMiddleware
+  - django.middleware.security.SecurityMiddleware.process_request
+  - django.middleware.security.SecurityMiddleware.process_response
+  - django.core.handlers.base.BaseHandler.get_response
+  - django.http.response.HttpResponseForbidden
+tags: [middleware, security, cross-package, feature-addition]
+notes: "Developer needs to understand the middleware contract (MiddlewareMixin), see a concrete example (SecurityMiddleware), understand how the handler invokes middleware (get_response), and know the response type for blocking."

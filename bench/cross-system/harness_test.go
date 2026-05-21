@@ -39,11 +39,12 @@ func TestCrossSystem(t *testing.T) {
 	}
 	t.Logf("Loaded %d task fixtures", len(tasks))
 
-	// Initialize available adapters
-	available := []benchtype.Adapter{
-		adapters.NewKnowing(),
-		adapters.NewGrep(),
+	// Initialize available adapters (only those with dependencies installed)
+	available := adapters.Available()
+	if missing := adapters.UnavailableNames(); len(missing) > 0 {
+		t.Logf("Unavailable adapters (not installed): %v", missing)
 	}
+	t.Logf("Running with %d adapters: %v", len(available), adapterNames(available))
 
 	var allResults []benchtype.MetricResult
 
@@ -123,6 +124,14 @@ func loadTasks(t *testing.T, dir string) []benchtype.Task {
 		t.Fatalf("Failed to walk %s: %v", dir, err)
 	}
 	return tasks
+}
+
+func adapterNames(adapts []benchtype.Adapter) []string {
+	names := make([]string, len(adapts))
+	for i, a := range adapts {
+		names[i] = a.Name()
+	}
+	return names
 }
 
 func writeResults(t *testing.T, results []benchtype.MetricResult, available []benchtype.Adapter) {

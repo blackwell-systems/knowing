@@ -1,0 +1,15 @@
+id: kubernetes-hard-002
+repo: kubernetes
+tier: hard
+description: "Debug why pods are being evicted under memory pressure: trace the eviction decision path from kubelet memory threshold detection through pod selection and eviction execution"
+source: manual
+ground_truth:
+  - pkg/kubelet/eviction/eviction_manager.managerImpl.synchronize
+  - pkg/kubelet/eviction/eviction_manager.managerImpl.reclaimNodeLevelResources
+  - pkg/kubelet/eviction/helpers.podMissingRequests
+  - pkg/kubelet/eviction/helpers.orderByQOS
+  - pkg/kubelet/eviction/types.ThresholdValue
+  - pkg/kubelet/lifecycle/predicate.AdmitResult
+  - pkg/kubelet/kubelet.Kubelet.HandlePodRemoves
+tags: [kubelet, eviction, debugging, cross-package, bug-fix]
+notes: "Debugging eviction requires tracing from the eviction manager's synchronize loop through threshold evaluation, pod ordering (orderByQOS), and the actual removal path. Spans eviction, lifecycle, and kubelet packages."
