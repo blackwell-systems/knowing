@@ -8,9 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Performance
 
-- **Parallel extraction.** File extraction now runs across 8 worker goroutines (configurable via `Indexer.Concurrency`). Tree-sitter parsing is CPU-bound with no shared state between files, so parallelism is linear. Expected 4-6x speedup on multi-core machines for large repos.
-- **Progress output.** `knowing index` now prints live progress to stderr during extraction: `[N/M] files/s, edges, ETA`. Updates every 2 seconds. Prints total elapsed time on completion.
-- **Phase separation in IndexRepo.** The indexer now operates in three phases: (1) sequential cleanup (DB operations for changed/deleted files), (2) parallel extraction (CPU-only, no DB), (3) sequential storage (batch insert). This ensures correctness while maximizing throughput.
+- **Single-pass body walk.** The Go extractor now visits each AST node in a function body exactly once, dispatching to all pattern detectors (calls, throws, routes, feature flags, endpoints) at each node. Previously 5 separate recursive walks per function body (5N node visits → N). This is the biggest extraction speedup: eliminates 80% of AST node visits.
+- **Tree sharing across extractors.** When multiple extractors handle the same file (e.g., GoTreeSitterExtractor + EventExtractor for .go files), the file is parsed ONCE and the tree root is shared. Eliminates redundant tree-sitter parsing.
+- **Parallel extraction.** File extraction runs across GOMAXPROCS worker goroutines (configurable via `--workers`). Thread-safe extractors create per-call parser instances.
+- **Streaming commits.** Results are committed in batches of 500 files instead of one transaction at the end. Partial data survives a kill (resumable indexing).
+- **Generated file detection.** Files with "Code generated", "DO NOT EDIT", or "AUTO-GENERATED" in the first 512 bytes are skipped.
+- **Smart directory filtering.** Skips staging/, third_party/, _output/, hack/, generated protobuf, vendor, node_modules, dot-dirs (except .github), build output dirs.
+- **Parallel FTS string splitting.** The expensive `splitForFTS` computation runs across 8 workers before the sequential SQLite INSERT phase.
+- **Parallel git blame.** Authorship extraction (git blame per file) runs in parallel. `--skip-blame` flag skips it entirely for fast structural-only index.
+- **Per-file timeout (10s).** Files that take too long to extract (usually huge generated test files) are skipped rather than blocking the pipeline.
+- **Progress output.** Live progress to stderr: `[N/M] files/s, edges, ETA` during extraction, `Stored N/M files, nodes, edges` during storage. Total elapsed time on completion.
 
 ### Benchmarking
 
