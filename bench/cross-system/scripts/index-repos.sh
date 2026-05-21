@@ -18,20 +18,34 @@ fi
 echo "Indexing repos for cross-system benchmark..."
 echo ""
 
-for repo_dir in "$CORPUS_DIR"/*/; do
-    name=$(basename "$repo_dir")
+index_repo() {
+    local name="$1" url="$2"
+    local repo_dir="$CORPUS_DIR/$name"
+
     if [ ! -d "$repo_dir/.git" ]; then
-        echo "[$name] Skipping (not a git repo)"
-        continue
+        echo "[$name] Skipping (not cloned)"
+        return
+    fi
+
+    local db_path="$repo_dir/.knowing/graph.db"
+    if [ -f "$db_path" ]; then
+        echo "[$name] Already indexed at $db_path"
+        return
     fi
 
     echo "[$name] Indexing..."
-    start=$(date +%s)
-    knowing index --repo "$repo_dir" 2>&1 | tail -3
-    end=$(date +%s)
+    local start=$(date +%s)
+    (cd "$repo_dir" && knowing index -url "$url" -db "$db_path" .) 2>&1 | tail -3
+    local end=$(date +%s)
     echo "[$name] Done in $((end - start))s"
     echo ""
-done
+}
+
+index_repo kubernetes "github.com/kubernetes/kubernetes"
+index_repo typescript "github.com/microsoft/TypeScript"
+index_repo flask      "github.com/pallets/flask"
+index_repo cargo      "github.com/rust-lang/cargo"
+index_repo django     "github.com/django/django"
 
 echo "All repos indexed. Run the benchmark with:"
 echo "  GOWORK=off go test ./bench/cross-system/ -run TestCrossSystem -v -timeout 30m"
