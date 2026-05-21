@@ -611,20 +611,43 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 		fmt.Fprintf(os.Stderr, "  Authorship: %d edges in %s\n", len(authorEdges), time.Since(blameStart).Truncate(time.Millisecond))
 	}
 
-	// Rebuild FTS index after batch inserts for BM25 search.
+	// Rebuild FTS and compute snapshot concurrently (independent operations).
+	fmt.Fprintf(os.Stderr, "  Finalizing (FTS + snapshot)...\n")
+	finalStart := time.Now()
+
 	type ftsRebuilder interface {
 		RebuildFTS(ctx context.Context) error
 	}
+
+	var ftsErr error
+	var snap *types.Snapshot
+	var snapErr error
+	var finalWg sync.WaitGroup
+
+	// FTS rebuild (parallel string split + sequential INSERT + rebuild).
 	if fr, ok := idx.store.(ftsRebuilder); ok {
-		if err := fr.RebuildFTS(ctx); err != nil {
-			return nil, fmt.Errorf("rebuild fts: %w", err)
-		}
+		finalWg.Add(1)
+		go func() {
+			defer finalWg.Done()
+			ftsErr = fr.RebuildFTS(ctx)
+		}()
 	}
 
-	// Compute and store snapshot.
-	snap, err := idx.snapshot.ComputeSnapshot(ctx, repoHash, commitHash)
-	if err != nil {
-		return nil, fmt.Errorf("compute snapshot: %w", err)
+	// Snapshot computation (hierarchical Merkle tree).
+	finalWg.Add(1)
+	go func() {
+		defer finalWg.Done()
+		snap, snapErr = idx.snapshot.ComputeSnapshot(ctx, repoHash, commitHash)
+	}()
+
+	finalWg.Wait()
+	fmt.Fprintf(os.Stderr, "  Finalized in %s\n", time.Since(finalStart).Truncate(time.Millisecond))
+
+	if ftsErr != nil {
+		return nil, fmt.Errorf("rebuild fts: %w", ftsErr)
+	}
+	if snapErr != nil {
+		return nil, fmt.Errorf("compute snapshot: %w", snapErr)
 	}
 
 	// Record edge events for the diff between old and new edges. These
