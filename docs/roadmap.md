@@ -6,9 +6,42 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 
 | # | Item | Why | Effort |
 |---|------|-----|--------|
-| 1 | **Real users** | Everything else is validated by benchmarks, not usage. Task memory compounds with use. | Ongoing |
-| 2 | **Session memory persistence** | SessionTracker is ephemeral. Persist session working sets to SQLite so resumed sessions compound. | Medium |
-| 3 | ~~**`knowing stats`**~~ | ~~Show session value: context calls, symbols served, feedback rate.~~ **Shipped.** | Low |
+| 1 | **Parallel write backend** | SQLite single-writer funnels all extraction results through one goroutine. Even with producer-consumer pipeline, writes are serial. Need parallel write support for large repos. | High |
+| 2 | **Real users** | Everything else is validated by benchmarks, not usage. Task memory compounds with use. | Ongoing |
+| 3 | **Session memory persistence** | SessionTracker is ephemeral. Persist session working sets to SQLite so resumed sessions compound. | Medium |
+| 4 | ~~**`knowing stats`**~~ | ~~Show session value: context calls, symbols served, feedback rate.~~ **Shipped.** | Low |
+
+## Storage Backend (P0 Performance)
+
+Current: SQLite (single-writer, FTS5 deferred to background). Extraction is parallel (GOMAXPROCS workers, producer-consumer pipeline), but all DB writes funnel through one goroutine.
+
+### Options under evaluation
+
+| Backend | Parallel writes | Query model | Deployment | Status |
+|---------|----------------|-------------|-----------|--------|
+| **SQLite sharded by package** | Yes (one file per package) | Cross-package queries need federation | Multiple files | Prototype next |
+| **DuckDB** | Yes (appender API) | SQL, columnar scans | Single file, CGO | Evaluate |
+| **BadgerDB/Pebble** | Yes (LSM concurrent memtable) | Key-value (custom query layer) | Single dir, pure Go | Evaluate |
+| **SQLite + deferred FTS** | No (serial) | SQL + FTS5 | Single file | **Shipped (current)** |
+
+### Sharding by package (leading candidate)
+
+Packages are already the unit of Merkle computation, cache invalidation, diffing, and RWR scoring. One SQLite file per package means:
+- Parallel writes: each extraction worker writes to its own package's DB
+- No contention: workers never touch the same file
+- Package-scoped queries are local reads
+- Delete a package = delete the file
+- Merkle computation per-package is already isolated
+- Cross-package queries (blast radius, transitive callers) federate across shards
+
+### Current performance (v0.6.0 + optimizations)
+
+| Repo | Files | Edges | Extraction | Total (with deferred FTS) |
+|------|-------|-------|-----------|--------------------------|
+| knowing (84K LOC) | 448 | 25K | 0.4s | 1.7s |
+| flask (15K LOC) | 97 | 5K | 0.04s | 0.3s |
+| cargo (150K LOC) | 979 | 79K | 0.2s | 5.5s |
+| kubernetes (3.5M LOC) | 4,877 | 229K | ~10s | ~15s (data queryable immediately) |
 
 ## Operational
 
