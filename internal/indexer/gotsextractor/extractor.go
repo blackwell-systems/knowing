@@ -70,15 +70,28 @@ func (e *GoTreeSitterExtractor) CanHandle(path string) bool {
 // Extract parses the Go file with tree-sitter and produces nodes for
 // declarations and edges for calls and imports.
 func (e *GoTreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error) {
-	parser := sitter.NewParser()
-	parser.SetLanguage(golang.GetLanguage())
-	tree, err := parser.ParseCtx(ctx, nil, opts.Content)
-	if err != nil {
-		return nil, fmt.Errorf("tree-sitter parse: %w", err)
-	}
-	defer tree.Close()
+	var root *sitter.Node
+	var tree *sitter.Tree
 
-	root := tree.RootNode()
+	// Reuse pre-parsed tree if available (shared across extractors for same file).
+	if opts.ParsedTree != nil {
+		if n, ok := opts.ParsedTree.(*sitter.Node); ok {
+			root = n
+		}
+	}
+
+	// Parse if no shared tree available.
+	if root == nil {
+		parser := sitter.NewParser()
+		parser.SetLanguage(golang.GetLanguage())
+		var err error
+		tree, err = parser.ParseCtx(ctx, nil, opts.Content)
+		if err != nil {
+			return nil, fmt.Errorf("tree-sitter parse: %w", err)
+		}
+		defer tree.Close()
+		root = tree.RootNode()
+	}
 
 	// Determine the package path.
 	pkgPath, err := computePkgPath(root, opts)
@@ -236,10 +249,16 @@ func (e *GoTreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractO
 	// Deduplicate edges by EdgeHash.
 	edges = deduplicateEdges(edges)
 
-	return &types.ExtractResult{
+	result := &types.ExtractResult{
 		Nodes: nodes,
 		Edges: edges,
-	}, nil
+	}
+	// Share the parsed tree root with subsequent extractors (if we parsed it).
+	// Only set if WE parsed (not if we received a shared tree).
+	if opts.ParsedTree == nil {
+		result.ParsedTree = root
+	}
+	return result, nil
 }
 
 // computePkgPath determines the full Go package path by combining the module

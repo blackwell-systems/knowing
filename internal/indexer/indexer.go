@@ -146,8 +146,8 @@ func (idx *Indexer) IndexFile(ctx context.Context, opts types.ExtractOptions) (*
 
 // extractFile extracts nodes and edges from a single file without storing them.
 // It runs ALL matching extractors (not just the first) and merges results.
-// This enables a .go file to be processed by both the Go extractor and the
-// event extractor (for Kafka/NATS patterns).
+// When multiple extractors handle the same file, the first extractor that
+// parses with tree-sitter sets opts.ParsedTree; subsequent extractors reuse it.
 func (idx *Indexer) extractFile(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, *types.File, error) {
 	extractors := idx.registry.FindAllExtractors(opts.FilePath)
 	if len(extractors) == 0 {
@@ -158,12 +158,16 @@ func (idx *Indexer) extractFile(ctx context.Context, opts types.ExtractOptions) 
 	for _, ext := range extractors {
 		result, err := ext.Extract(ctx, opts)
 		if err != nil {
-			// Log but continue with other extractors.
 			continue
 		}
 		if result != nil {
 			merged.Nodes = append(merged.Nodes, result.Nodes...)
 			merged.Edges = append(merged.Edges, result.Edges...)
+		}
+		// If the extractor populated ParsedTree (first tree-sitter extractor to run),
+		// subsequent extractors in this loop will see it and skip re-parsing.
+		if opts.ParsedTree == nil && result != nil && result.ParsedTree != nil {
+			opts.ParsedTree = result.ParsedTree
 		}
 	}
 

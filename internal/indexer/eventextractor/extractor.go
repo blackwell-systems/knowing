@@ -82,20 +82,34 @@ func (e *EventExtractor) CanHandle(path string) bool {
 }
 
 // Extract parses the file and detects message queue patterns.
+// If opts.ParsedTree is set (shared from a prior extractor), reuses it
+// instead of parsing again.
 func (e *EventExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (*types.ExtractResult, error) {
+	var root *sitter.Node
+
+	// Reuse shared tree if available.
+	if opts.ParsedTree != nil {
+		if n, ok := opts.ParsedTree.(*sitter.Node); ok {
+			root = n
+		}
+	}
+
+	// Parse ourselves if no shared tree.
+	if root == nil {
+		ext := strings.ToLower(filepath.Ext(opts.FilePath))
+		parser := parserForExt(ext)
+		if parser == nil {
+			return &types.ExtractResult{}, nil
+		}
+		tree, err := parser.ParseCtx(ctx, nil, opts.Content)
+		if err != nil {
+			return &types.ExtractResult{}, nil
+		}
+		defer tree.Close()
+		root = tree.RootNode()
+	}
+
 	ext := strings.ToLower(filepath.Ext(opts.FilePath))
-	parser := parserForExt(ext)
-	if parser == nil {
-		return &types.ExtractResult{}, nil
-	}
-
-	tree, err := parser.ParseCtx(ctx, nil, opts.Content)
-	if err != nil {
-		return &types.ExtractResult{}, nil
-	}
-	defer tree.Close()
-
-	root := tree.RootNode()
 	result := &types.ExtractResult{}
 
 	switch ext {

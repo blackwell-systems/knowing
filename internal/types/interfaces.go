@@ -97,6 +97,13 @@ type Extractor interface {
 	Extract(ctx context.Context, opts ExtractOptions) (*ExtractResult, error)
 }
 
+// ParsedTree is an opaque handle to a pre-parsed tree-sitter tree.
+// Passed through ExtractOptions.ParsedTree when the indexer has already
+// parsed the file for another extractor sharing the same language.
+// The value is *sitter.Node (the root node) but typed as any to avoid
+// importing tree-sitter in the types package.
+type ParsedTree = any
+
 // ExtractOptions contains all inputs needed for a single file extraction run.
 // The indexer populates these fields and passes them to the selected Extractor.
 type ExtractOptions struct {
@@ -113,12 +120,24 @@ type ExtractOptions struct {
 	// rather than using heuristic inference from the import path.
 	// Example: "github.com/org/repo" -> "/Users/user/code/repo"
 	ModuleToRepoURL map[string]string
+
+	// ParsedTree is an optional pre-parsed tree-sitter root node (*sitter.Node).
+	// When set, extractors should use this instead of parsing the file again.
+	// The indexer sets this when multiple extractors share the same language,
+	// eliminating redundant parsing. Extractors that receive a non-nil ParsedTree
+	// MUST NOT close the tree (the indexer owns it).
+	ParsedTree ParsedTree
 }
 
 // ExtractResult contains the nodes and edges produced by an extractor.
 type ExtractResult struct {
 	Nodes []Node
 	Edges []Edge
+	// ParsedTree is set by tree-sitter extractors after parsing. The indexer
+	// reads this and passes it to subsequent extractors handling the same file,
+	// eliminating redundant parsing. Only the FIRST extractor to parse sets this;
+	// subsequent extractors receive it via opts.ParsedTree and leave this nil.
+	ParsedTree ParsedTree `json:"-"`
 }
 
 // ComputationCache manages content-addressed derived computation results
