@@ -40,8 +40,11 @@ func TestCompareSystems_SignificantDifference(t *testing.T) {
 	if comp.Difference <= 0 {
 		t.Errorf("Expected positive difference (A > B), got %.4f", comp.Difference)
 	}
-	if comp.CohensD <= 0.5 {
-		t.Errorf("Expected large effect size, got d=%.4f", comp.CohensD)
+	if comp.CohensD < 0.8 {
+		t.Errorf("Expected large effect size (>0.8), got d=%.4f", comp.CohensD)
+	}
+	if comp.CohensD > 10 {
+		t.Errorf("Cohen's d should be capped at 10, got d=%.4f", comp.CohensD)
 	}
 	if comp.TaskCount != 10 {
 		t.Errorf("Expected 10 paired tasks, got %d", comp.TaskCount)

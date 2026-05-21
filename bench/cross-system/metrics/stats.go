@@ -168,13 +168,22 @@ func wilcoxonSignedRank(a, b []float64) float64 {
 }
 
 // cohensD computes Cohen's d for paired differences.
+// When stddev is near zero (all differences are identical), returns a capped
+// value indicating the direction rather than dividing by floating-point noise.
 func cohensD(diffs []float64) float64 {
 	if len(diffs) == 0 {
 		return 0
 	}
 	m := mean(diffs)
 	s := stddev(diffs)
-	if s == 0 {
+	if s < 1e-10 {
+		// All differences are essentially identical.
+		// Return direction indicator capped at a large but finite value.
+		if m > 0 {
+			return 10.0 // "very large positive effect"
+		} else if m < 0 {
+			return -10.0
+		}
 		return 0
 	}
 	return m / s
