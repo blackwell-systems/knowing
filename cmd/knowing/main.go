@@ -282,6 +282,7 @@ func cmdIndex(args []string) error {
 	commitHash := fs.String("commit", "HEAD", "Commit hash to record")
 	full := fs.Bool("full", false, "Use full type resolution (go/packages) instead of fast tree-sitter extraction")
 	skipBlame := fs.Bool("skip-blame", false, "Skip git blame authorship extraction (faster, no authored_by edges)")
+	noEnrich := fs.Bool("no-enrich", false, "Skip LSP enrichment (faster, edges stay at 0.7 confidence)")
 	workers := fs.Int("workers", 0, "Number of parallel extraction workers (default: 8)")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -351,7 +352,7 @@ func cmdIndex(args []string) error {
 	fmt.Printf("Snapshot: %x\n", snap.SnapshotHash)
 	fmt.Printf("Nodes: %d, Edges: %d\n", snap.NodeCount, snap.EdgeCount)
 
-	if !*full {
+	if !*full && !*noEnrich {
 		fmt.Println("Running LSP enrichment...")
 		enricher := enrichment.NewEnricher(st, repoPath)
 		if err := enricher.Run(ctx, repoHash); err != nil {
