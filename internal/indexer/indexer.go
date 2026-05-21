@@ -312,10 +312,11 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 			continue
 		}
 
-		// Skip generated files by checking for "Code generated" or "DO NOT EDIT" in first 256 bytes.
+		// Skip generated files by checking for "Code generated" or "DO NOT EDIT" in first 512 bytes.
 		if isGeneratedContent(content) {
 			continue
 		}
+
 
 		contentHash := types.NewHash(content)
 
@@ -395,8 +396,17 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 					ModuleToRepoURL: moduleToRepo,
 				}
 
-				result, file, err := idx.extractFile(ctx, opts)
-				results[i] = fileResult{idx: i, result: result, file: file, err: err}
+				// Per-file timeout: skip files that take too long (usually huge
+				// generated test files with thousands of call expressions).
+				fileCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+				result, file, err := idx.extractFile(fileCtx, opts)
+				cancel()
+				if fileCtx.Err() == context.DeadlineExceeded {
+					// File timed out. Skip it rather than blocking the pipeline.
+					results[i] = fileResult{idx: i, result: &types.ExtractResult{}, file: nil}
+				} else {
+					results[i] = fileResult{idx: i, result: result, file: file, err: err}
+				}
 
 				// Report progress.
 				progressMu.Lock()
