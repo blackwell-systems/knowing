@@ -1,0 +1,13 @@
+id: django-medium-100
+repo: django
+tier: medium
+description: "Annotate with Subquery followed by filter on that annotation generates invalid SQL with duplicate column references when combined with values() grouping"
+source: swe-bench
+ground_truth:
+  - django.db.models.query.QuerySet.annotate
+  - django.db.models.sql.query.Query.resolve_ref
+  - django.db.models.sql.query.Query.build_filter
+  - django.db.models.expressions.Subquery
+  - django.db.models.sql.compiler.SQLCompiler.get_group_by
+tags: [orm, annotations, subquery, swe-bench, bug-fix]
+notes: "Based on Django ticket #33397. The SQL compiler incorrectly duplicates subquery expressions in GROUP BY when a filter references an annotated subquery column."

@@ -1,0 +1,13 @@
+id: flask-easy-003
+repo: flask
+tier: easy
+description: "Register a custom URL converter that matches UUIDs in route paths so I can use <uuid:user_id> in my route definitions"
+source: manual
+ground_truth:
+  - flask.sansio.app.App.url_map
+  - flask.sansio.app.App.url_rule_class
+  - werkzeug.routing.converters.UUIDConverter
+  - werkzeug.routing.map.Map.converters
+  - werkzeug.routing.converters.BaseConverter
+tags: [routing, url-converters, single-package, feature-addition]
+notes: "Adding a URL converter requires understanding Flask's url_map (a Werkzeug Map), the existing UUIDConverter as a pattern, the BaseConverter interface to implement, and how converters are registered on the Map."

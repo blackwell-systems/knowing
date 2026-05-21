@@ -1,0 +1,11 @@
+id: django-easy-100
+repo: django
+tier: easy
+description: "QuerySet.union() loses ordering when combined with values_list() - results come back in arbitrary order instead of respecting the ORDER BY on the unioned querysets"
+source: swe-bench
+ground_truth:
+  - django.db.models.query.QuerySet.union
+  - django.db.models.query.QuerySet.values_list
+  - django.db.models.sql.query.Query.combine
+tags: [orm, queryset, swe-bench, bug-fix]
+notes: "Based on Django ticket #31639. The fix ensures ordering is preserved through union operations by not clearing order_by when values_list is chained after union."

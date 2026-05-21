@@ -1,0 +1,14 @@
+id: cross-cutting-edge-002
+repo: kubernetes
+tier: medium
+description: "How does Kubernetes handle errors?"
+source: synthetic
+ground_truth:
+  - staging/src/k8s.io/apimachinery/pkg/api/errors/errors.go.StatusError
+  - staging/src/k8s.io/apimachinery/pkg/api/errors/errors.go.NewNotFound
+  - staging/src/k8s.io/apimachinery/pkg/api/errors/errors.go.IsNotFound
+  - staging/src/k8s.io/apiserver/pkg/endpoints/handlers/responsewriters/errors.go.ErrorNegotiated
+  - staging/src/k8s.io/apimachinery/pkg/util/errors/errors.go.Aggregate
+  - staging/src/k8s.io/client-go/rest/request.go.Request.Do
+tags: [error-handling, understanding, broad-query, cross-package]
+notes: "Edge case: intentionally vague query. Tests whether retrieval can surface the core error handling infrastructure despite an underspecified description. A good system should identify the StatusError type hierarchy and common error patterns."

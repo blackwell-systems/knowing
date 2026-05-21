@@ -1,0 +1,14 @@
+id: kubernetes-medium-003
+repo: kubernetes
+tier: medium
+description: "Add a custom metrics source to the Horizontal Pod Autoscaler that scales based on a Prometheus query result"
+source: manual
+ground_truth:
+  - pkg/controller/podautoscaler/horizontal.HorizontalController
+  - pkg/controller/podautoscaler/horizontal.HorizontalController.reconcileAutoscaler
+  - pkg/controller/podautoscaler/metrics/client.go.MetricsClient
+  - pkg/controller/podautoscaler/replica_calculator.ReplicaCalculator
+  - staging/src/k8s.io/api/autoscaling/v2/types.MetricSpec
+  - staging/src/k8s.io/api/autoscaling/v2/types.ExternalMetricSource
+tags: [autoscaling, metrics, cross-package, feature-addition]
+notes: "Extending HPA metrics requires the HorizontalController and its reconciliation loop, the MetricsClient interface for fetching metric values, the ReplicaCalculator that converts metrics to desired replicas, and the API types (MetricSpec, ExternalMetricSource) defining metric sources."

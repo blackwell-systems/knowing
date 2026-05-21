@@ -1,0 +1,15 @@
+id: django-medium-003
+repo: django
+tier: medium
+description: "Implement a custom encrypted model field that transparently encrypts data before storage and decrypts on retrieval, with migration support"
+source: manual
+ground_truth:
+  - django.db.models.fields.Field
+  - django.db.models.fields.Field.from_db_value
+  - django.db.models.fields.Field.get_prep_value
+  - django.db.models.fields.Field.deconstruct
+  - django.db.models.fields.CharField
+  - django.db.migrations.state.ModelState.from_model
+  - django.db.backends.base.schema.BaseDatabaseSchemaEditor.column_sql
+tags: [models, fields, migrations, cross-package, feature-addition]
+notes: "Custom fields require understanding the Field class lifecycle methods (from_db_value for read, get_prep_value for write, deconstruct for migrations), a concrete field as a pattern (CharField), migration state handling (ModelState.from_model), and schema generation (column_sql)."

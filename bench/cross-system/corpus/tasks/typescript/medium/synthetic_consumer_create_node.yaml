@@ -1,0 +1,13 @@
+id: typescript-medium-201
+repo: typescript
+tier: medium
+description: "Find all transformers that call factory.createIdentifier to understand what would need updating if we added a new parameter to track identifier origin"
+source: synthetic
+ground_truth:
+  - typescript.factory.createIdentifier
+  - typescript.transformers.es2015.visitClassExpression
+  - typescript.transformers.module.transformECMAScriptModule
+  - typescript.transformers.jsx.transformJsxElement
+  - typescript.transformers.typescript.visitMethodDeclaration
+tags: [api-consumer, factory, transformers, impact-analysis]
+notes: "Tests finding consumers of a factory API. createIdentifier is called from dozens of transformer modules; changing its signature requires finding every call site across all transformation passes."

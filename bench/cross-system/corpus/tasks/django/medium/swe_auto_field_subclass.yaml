@@ -1,0 +1,11 @@
+id: django-medium-103
+repo: django
+tier: medium
+description: "DEFAULT_AUTO_FIELD set to BigAutoField causes crash during makemigrations when third-party app models inherit from abstract models without explicit primary key"
+source: swe-bench
+ground_truth:
+  - django.db.models.options.Options.pk
+  - django.db.models.fields.AutoField
+  - django.db.models.fields.BigAutoField
+tags: [models, migrations, swe-bench, bug-fix]
+notes: "Based on Django ticket #32645. The fix involves how Options resolves the primary key when DEFAULT_AUTO_FIELD is set and the model has an inherited abstract parent."

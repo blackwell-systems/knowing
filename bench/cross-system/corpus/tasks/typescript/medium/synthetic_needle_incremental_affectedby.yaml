@@ -1,0 +1,10 @@
+id: typescript-medium-200
+repo: typescript
+tier: medium
+description: "Find the function that determines whether a source file is 'affected' during incremental compilation by checking if its shape signature has changed"
+source: synthetic
+ground_truth:
+  - typescript.BuilderState.getFilesAffectedByUpdatedShape
+  - typescript.BuilderState.computeShapeSignature
+tags: [needle-in-haystack, incremental, builder, single-symbol]
+notes: "Tests finding a specific incremental compilation mechanism. The builder has many functions; the shape signature comparison is the core decision point for whether a file triggers downstream recompilation."

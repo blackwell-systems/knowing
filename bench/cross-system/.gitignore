@@ -1,0 +1,5 @@
+# Cloned evaluation repos (large, regeneratable)
+corpus/repos/
+
+# Benchmark run results (generated output)
+results/

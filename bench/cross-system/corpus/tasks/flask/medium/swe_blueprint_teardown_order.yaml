@@ -1,0 +1,12 @@
+id: flask-medium-100
+repo: flask
+tier: medium
+description: "Blueprint teardown_appcontext functions execute in registration order rather than reverse registration order, causing resource cleanup to happen before dependent teardowns"
+source: swe-bench
+ground_truth:
+  - flask.app.Flask.do_teardown_appcontext
+  - flask.blueprints.Blueprint.teardown_app_request
+  - flask.ctx.AppContext.pop
+  - flask.app.Flask.teardown_appcontext_funcs
+tags: [blueprints, lifecycle, teardown, swe-bench, bug-fix]
+notes: "Based on Flask issue #4291. Teardown functions should execute in LIFO order to maintain proper resource cleanup ordering, similar to how context managers work."

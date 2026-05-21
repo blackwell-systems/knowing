@@ -33,7 +33,7 @@ func TestCrossSystem(t *testing.T) {
 		t.Skip("cross-system benchmark requires pre-indexed repos; run with -timeout 30m")
 	}
 
-	tasks := loadTasks(t, "bench/cross-system/corpus/tasks")
+	tasks := loadTasks(t, "corpus/tasks")
 	if len(tasks) == 0 {
 		t.Fatal("no task fixtures found in corpus/tasks/")
 	}
@@ -52,7 +52,7 @@ func TestCrossSystem(t *testing.T) {
 		t.Logf("\n--- System: %s ---", adapter.Name())
 
 		for _, task := range tasks {
-			repoPath := filepath.Join("bench", "cross-system", "corpus", "repos", task.Repo)
+			repoPath := filepath.Join("corpus", "repos", task.Repo)
 
 			// Index (idempotent, only meaningful for knowing)
 			if _, err := adapter.Index(repoPath); err != nil {
@@ -93,6 +93,24 @@ func TestCrossSystem(t *testing.T) {
 			agg.MeanPrecisionAt10, agg.MeanRecallAt10,
 			agg.MeanNDCGAt10, agg.MeanMRR,
 			agg.MeanTokenEff, agg.MedianLatencyMs, agg.TaskCount)
+	}
+
+	// Pairwise statistical comparisons (all systems vs knowing)
+	if len(available) > 1 {
+		t.Log("\n=== PAIRWISE COMPARISONS (vs knowing) ===")
+		for _, adapter := range available[1:] { // skip knowing itself
+			for _, metric := range []string{"precision_at_10", "recall_at_10", "ndcg_at_10", "token_efficiency"} {
+				comp := metrics.CompareSystems(allResults, "knowing", adapter.Name(), metric)
+				sig := ""
+				if comp.Significant {
+					sig = "*"
+				}
+				t.Logf("  knowing vs %s on %s: diff=%.3f p=%.4f%s d=%.2f CI=[%.3f,%.3f]",
+					adapter.Name(), metric,
+					comp.Difference, comp.WilcoxonP, sig,
+					comp.CohensD, comp.CI95Lower, comp.CI95Upper)
+			}
+		}
 	}
 
 	writeResults(t, allResults, available)

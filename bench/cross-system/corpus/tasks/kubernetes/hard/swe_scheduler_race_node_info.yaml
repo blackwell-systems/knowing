@@ -1,0 +1,14 @@
+id: kubernetes-hard-100
+repo: kubernetes
+tier: hard
+description: "Scheduler race condition: NodeInfo snapshot becomes stale between Filter and Reserve phases when a pod is bound to the node concurrently, causing double-booking of resources"
+source: swe-bench
+ground_truth:
+  - k8s.io/kubernetes/pkg/scheduler/schedule_one.schedulingCycle
+  - k8s.io/kubernetes/pkg/scheduler/framework.CycleState
+  - k8s.io/kubernetes/pkg/scheduler/internal/cache.schedulerCache.UpdateSnapshot
+  - k8s.io/kubernetes/pkg/scheduler/internal/cache.nodeInfo.AddPod
+  - k8s.io/kubernetes/pkg/scheduler/framework/plugins/noderesources.Fit.Reserve
+  - k8s.io/kubernetes/pkg/scheduler/framework/plugins/noderesources.Fit.Filter
+tags: [scheduler, race-condition, resource-accounting, swe-bench, bug-fix]
+notes: "Based on kubernetes/kubernetes#106884. The scheduling cycle uses a snapshot that can become stale between scheduling phases, and the Reserve plugin doesn't re-verify resource availability against current state."

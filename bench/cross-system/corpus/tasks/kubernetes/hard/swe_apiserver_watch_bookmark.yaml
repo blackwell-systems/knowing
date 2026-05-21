@@ -1,0 +1,13 @@
+id: kubernetes-hard-101
+repo: kubernetes
+tier: hard
+description: "API server watch with bookmark events loses events when etcd compaction happens between bookmark resourceVersion and the next real event, causing client to miss updates"
+source: swe-bench
+ground_truth:
+  - k8s.io/apiserver/pkg/storage/etcd3.watcher.processEvent
+  - k8s.io/apiserver/pkg/storage/etcd3.watcher.sendBookmarkEvent
+  - k8s.io/apiserver/pkg/storage/cacher.cacheWatcher.processInterval
+  - k8s.io/apiserver/pkg/storage/cacher.Cacher.processEvent
+  - k8s.io/apiserver/pkg/storage/cacher.watchCache.waitUntilFreshAndBlock
+tags: [apiserver, watch, etcd, bookmark, swe-bench, bug-fix]
+notes: "Based on kubernetes/kubernetes#105476. The cacher sends bookmark events at a resourceVersion that may get compacted before the next real event arrives, leaving the watch client with a stale RV that etcd rejects."

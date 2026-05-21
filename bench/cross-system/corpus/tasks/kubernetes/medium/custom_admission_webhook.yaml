@@ -1,0 +1,14 @@
+id: kubernetes-medium-002
+repo: kubernetes
+tier: medium
+description: "Implement a mutating admission webhook that injects sidecar containers into pods based on namespace labels, following the existing admission plugin patterns"
+source: manual
+ground_truth:
+  - plugin/pkg/admission/admit/admission.go.Plugin
+  - staging/src/k8s.io/apiserver/pkg/admission/plugin/webhook/mutating/dispatcher.go.mutatingDispatcher
+  - staging/src/k8s.io/apiserver/pkg/admission/interfaces.go.MutationInterface
+  - staging/src/k8s.io/apiserver/pkg/admission/interfaces.go.Interface
+  - staging/src/k8s.io/api/admissionregistration/v1/types.MutatingWebhookConfiguration
+  - staging/src/k8s.io/apiserver/pkg/admission/handler.go.Handler
+tags: [admission, webhooks, cross-package, feature-addition]
+notes: "Building a mutating admission webhook requires the admission interfaces (MutationInterface, Interface), the mutating dispatcher that invokes webhooks, existing admission plugins as patterns (admit/Plugin), the webhook configuration type, and the Handler base struct."

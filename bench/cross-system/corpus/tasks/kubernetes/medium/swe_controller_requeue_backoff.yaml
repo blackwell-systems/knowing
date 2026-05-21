@@ -1,0 +1,12 @@
+id: kubernetes-medium-101
+repo: kubernetes
+tier: medium
+description: "Deployment controller requeue backoff resets to zero when an unrelated field update (like annotation change) triggers a re-sync, causing hot-loop reconciliation on failing deployments"
+source: swe-bench
+ground_truth:
+  - k8s.io/kubernetes/pkg/controller/deployment.DeploymentController.syncDeployment
+  - k8s.io/kubernetes/pkg/controller/deployment.DeploymentController.enqueue
+  - k8s.io/client-go/util/workqueue.RateLimitingInterface
+  - k8s.io/client-go/util/workqueue.ItemExponentialFailureRateLimiter.When
+tags: [controller, deployment, workqueue, backoff, swe-bench, bug-fix]
+notes: "Based on kubernetes/kubernetes#107433. The enqueue function calls AddRateLimited without checking if the item is already rate-limited, causing the rate limiter to reset its failure count on unrelated updates."

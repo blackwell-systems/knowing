@@ -1,0 +1,11 @@
+id: typescript-easy-100
+repo: typescript
+tier: easy
+description: "Template literal type inference fails to narrow string literal types when used inside a conditional type with infer keyword, producing 'string' instead of the literal"
+source: swe-bench
+ground_truth:
+  - typescript.checker.inferTypesFromTemplateLiteralType
+  - typescript.checker.getTemplateLiteralType
+  - typescript.checker.inferFromTypes
+tags: [type-inference, template-literals, swe-bench, bug-fix]
+notes: "Based on TypeScript issue #47050. The inference engine doesn't properly propagate template literal type constraints through conditional type inference boundaries."

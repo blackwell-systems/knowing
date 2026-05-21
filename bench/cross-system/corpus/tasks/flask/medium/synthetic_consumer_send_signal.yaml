@@ -1,0 +1,12 @@
+id: flask-medium-200
+repo: flask
+tier: medium
+description: "Find all consumers of the request_started signal to understand what code runs before every request handler and what would break if we changed the signal's sender argument"
+source: synthetic
+ground_truth:
+  - flask.signals.request_started
+  - flask.app.Flask.full_dispatch_request
+  - flask.debugtoolbar.DebugToolbarExtension.process_request
+  - flask.app.Flask.try_trigger_before_first_request_functions
+tags: [api-consumer, signals, callers, impact-analysis]
+notes: "Tests finding signal consumers. The retrieval system must find both the signal emission site (full_dispatch_request) and the receiver registrations across Flask and common extensions."

@@ -1,0 +1,16 @@
+id: kubernetes-hard-003
+repo: kubernetes
+tier: hard
+description: "Trace how a PersistentVolumeClaim gets bound to a PersistentVolume through the volume controller, then provisioned via a CSI driver, to debug why dynamic provisioning is timing out"
+source: manual
+ground_truth:
+  - pkg/controller/volume/persistentvolume/pv_controller.PersistentVolumeController
+  - pkg/controller/volume/persistentvolume/pv_controller.PersistentVolumeController.syncClaim
+  - pkg/controller/volume/persistentvolume/pv_controller.PersistentVolumeController.syncVolume
+  - pkg/volume/csi/csi_plugin.go.csiPlugin
+  - pkg/volume/csi/csi_plugin.go.csiPlugin.NewProvisioner
+  - staging/src/k8s.io/api/storage/v1/types.CSIDriver
+  - staging/src/k8s.io/api/core/v1/types.PersistentVolumeClaim
+  - pkg/controller/volume/persistentvolume/pv_controller_base.go.NewController
+tags: [storage, csi, volume-controller, cross-package, cross-cutting, understanding]
+notes: "Tracing dynamic provisioning requires the PV controller (syncClaim/syncVolume for binding logic), the CSI plugin interface (csiPlugin, NewProvisioner), the storage types (CSIDriver, PersistentVolumeClaim), and controller initialization (NewController) to understand queue and informer setup."

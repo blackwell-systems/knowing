@@ -1,0 +1,14 @@
+id: flask-hard-100
+repo: flask
+tier: hard
+description: "Nested blueprint error handlers don't propagate to parent when the nested blueprint is registered with url_prefix and the error occurs during URL rule matching"
+source: swe-bench
+ground_truth:
+  - flask.app.Flask.handle_exception
+  - flask.app.Flask.trap_http_exception
+  - flask.blueprints.Blueprint.register
+  - flask.blueprints.BlueprintSetupState.add_url_rule
+  - flask.app.Flask.find_handler
+  - flask.app.Flask.error_handler_spec
+tags: [blueprints, error-handling, nested, swe-bench, bug-fix]
+notes: "Based on Flask issue #4542. Error handler lookup traverses the blueprint hierarchy but fails to find handlers registered on parent blueprints when the error originates from URL matching in a nested blueprint with a prefix."

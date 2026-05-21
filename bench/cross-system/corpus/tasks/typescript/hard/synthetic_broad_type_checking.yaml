@@ -1,0 +1,15 @@
+id: typescript-hard-200
+repo: typescript
+tier: hard
+description: "How does the type checker handle assignability checking for generic types with constraints, including variance, instantiation, and structural comparison?"
+source: synthetic
+ground_truth:
+  - typescript.checker.isTypeRelatedTo
+  - typescript.checker.structuredTypeRelatedTo
+  - typescript.checker.typeRelatedToSomeType
+  - typescript.checker.instantiateType
+  - typescript.checker.getVariances
+  - typescript.checker.isGenericMappedType
+  - typescript.checker.getBaseConstraintOfType
+tags: [broad-scope, architecture, type-system, assignability]
+notes: "Tests deep architectural retrieval in the checker. Assignability is the most complex subsystem in the TypeScript compiler with dozens of interrelated functions; the ground truth captures the critical path."

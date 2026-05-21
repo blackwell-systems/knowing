@@ -1,0 +1,13 @@
+id: typescript-easy-002
+repo: typescript
+tier: easy
+description: "Add a new compiler option --strictEnumChecks that makes enum member access type-safe by default"
+source: manual
+ground_truth:
+  - src/compiler/commandLineParser.ts.optionDeclarations
+  - src/compiler/types.ts.CompilerOptions
+  - src/compiler/utilities.ts.getStrictOptionValue
+  - src/compiler/diagnosticMessages.json
+  - src/compiler/checker.ts.checkEnumMember
+tags: [compiler-options, enums, single-package, feature-addition]
+notes: "Adding a compiler option requires optionDeclarations for CLI parsing, CompilerOptions interface for the type definition, getStrictOptionValue for strict-mode integration, diagnosticMessages for error text, and the checker function where the option takes effect."

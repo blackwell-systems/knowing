@@ -1,0 +1,13 @@
+id: kubernetes-medium-201
+repo: kubernetes
+tier: medium
+description: "Find all controllers that use SharedInformerFactory to watch Pod resources, to understand the impact of changing the Pod watch cache behavior"
+source: synthetic
+ground_truth:
+  - k8s.io/client-go/informers.SharedInformerFactory.ForResource
+  - k8s.io/kubernetes/pkg/controller/deployment.NewDeploymentController
+  - k8s.io/kubernetes/pkg/controller/replicaset.NewReplicaSetController
+  - k8s.io/kubernetes/pkg/controller/job.NewController
+  - k8s.io/kubernetes/pkg/controller/daemon.NewDaemonSetsController
+tags: [api-consumer, informers, controllers, impact-analysis]
+notes: "Tests finding consumers of a shared API. Multiple controllers register Pod informers; changing the watch cache affects all of them. The system must enumerate concrete consumer registration sites."

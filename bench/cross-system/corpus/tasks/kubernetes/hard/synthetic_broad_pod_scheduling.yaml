@@ -1,0 +1,16 @@
+id: kubernetes-hard-200
+repo: kubernetes
+tier: hard
+description: "Explain the full pod scheduling pipeline from when a pod enters the scheduling queue to when it's bound to a node, including all extension points"
+source: synthetic
+ground_truth:
+  - k8s.io/kubernetes/pkg/scheduler.Scheduler.Run
+  - k8s.io/kubernetes/pkg/scheduler.Scheduler.scheduleOne
+  - k8s.io/kubernetes/pkg/scheduler/internal/queue.PriorityQueue.Pop
+  - k8s.io/kubernetes/pkg/scheduler/framework.Framework.RunFilterPlugins
+  - k8s.io/kubernetes/pkg/scheduler/framework.Framework.RunScorePlugins
+  - k8s.io/kubernetes/pkg/scheduler/framework.Framework.RunReservePlugins
+  - k8s.io/kubernetes/pkg/scheduler/framework.Framework.RunBindPlugins
+  - k8s.io/kubernetes/pkg/scheduler.Scheduler.assume
+tags: [broad-scope, architecture, scheduler-pipeline, cross-package]
+notes: "Tests architectural understanding retrieval. The scheduling pipeline spans queue management, framework extension points, and binding logic across multiple packages."

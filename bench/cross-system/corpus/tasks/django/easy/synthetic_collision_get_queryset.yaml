@@ -1,0 +1,10 @@
+id: django-easy-200
+repo: django
+tier: easy
+description: "Fix the get_queryset method that filters by the current user in the admin changelist view, not the one in the model manager or the generic list view"
+source: synthetic
+ground_truth:
+  - django.contrib.admin.options.ModelAdmin.get_queryset
+  - django.contrib.admin.views.main.ChangeList.get_queryset
+tags: [naming-collision, disambiguation, admin, get_queryset]
+notes: "Tests disambiguation. 'get_queryset' exists in ModelAdmin, ChangeList, Manager, ListView, and dozens of other places. The description must be matched to the admin-specific variants."

@@ -1,0 +1,15 @@
+id: cargo-medium-002
+repo: cargo
+tier: medium
+description: "Add a new cargo lint that warns when a workspace member has dependencies not shared by any other workspace member, indicating possible extraction"
+source: manual
+ground_truth:
+  - src/cargo/core/workspace.rs.Workspace
+  - src/cargo/core/workspace.rs.Workspace.members
+  - src/cargo/util/lints.rs.analyze_cargo_lints
+  - src/cargo/core/package.rs.Package
+  - src/cargo/core/package.rs.Package.dependencies
+  - src/cargo/core/dependency.rs.Dependency
+  - src/cargo/util/diagnostic_server.rs.DiagnosticPrinter
+tags: [lints, workspace, cross-package, feature-addition]
+notes: "Adding a cargo lint requires the workspace API (Workspace, members), the lint analysis infrastructure (analyze_cargo_lints), package and dependency access (Package.dependencies, Dependency type), and diagnostic reporting (DiagnosticPrinter)."

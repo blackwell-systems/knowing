@@ -1,0 +1,13 @@
+id: kubernetes-easy-003
+repo: kubernetes
+tier: easy
+description: "Add a --dry-run=server flag to kubectl apply that sends the request with the dryRun query parameter so the API server validates without persisting"
+source: manual
+ground_truth:
+  - staging/src/k8s.io/kubectl/pkg/cmd/apply/apply.go.ApplyOptions
+  - staging/src/k8s.io/kubectl/pkg/cmd/apply/apply.go.ApplyOptions.Run
+  - staging/src/k8s.io/kubectl/pkg/cmd/util/helpers.go.AddDryRunFlag
+  - staging/src/k8s.io/apimachinery/pkg/apis/meta/v1/types.CreateOptions
+  - staging/src/k8s.io/kubectl/pkg/cmd/apply/apply.go.NewCmdApply
+tags: [kubectl, cli, dry-run, single-package, feature-addition]
+notes: "Adding a kubectl flag requires the ApplyOptions struct for command state, the Run method where logic executes, AddDryRunFlag for flag registration patterns, CreateOptions for the API-level dry-run parameter, and NewCmdApply for cobra command setup."

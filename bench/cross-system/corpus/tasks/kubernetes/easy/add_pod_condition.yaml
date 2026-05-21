@@ -1,0 +1,13 @@
+id: kubernetes-easy-002
+repo: kubernetes
+tier: easy
+description: "Add a new PodCondition type that reports whether a pod's readiness gates have all been satisfied"
+source: manual
+ground_truth:
+  - staging/src/k8s.io/api/core/v1/types.PodCondition
+  - staging/src/k8s.io/api/core/v1/types.PodConditionType
+  - staging/src/k8s.io/api/core/v1/types.PodReadinessGate
+  - staging/src/k8s.io/api/core/v1/types.PodStatus
+  - pkg/apis/core/types.PodCondition
+tags: [api-types, pod-lifecycle, single-package, feature-addition]
+notes: "Adding a PodCondition type requires the PodCondition struct, the PodConditionType enum for type constants, PodReadinessGate for gate semantics, PodStatus where conditions are reported, and the internal types mirror."

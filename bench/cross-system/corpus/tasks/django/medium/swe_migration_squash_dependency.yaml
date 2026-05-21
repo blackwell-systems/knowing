@@ -1,0 +1,12 @@
+id: django-medium-101
+repo: django
+tier: medium
+description: "squashmigrations fails with KeyError when squashing a range that includes a migration with a replaced migration dependency from another app"
+source: swe-bench
+ground_truth:
+  - django.core.management.commands.squashmigrations.Command.handle
+  - django.db.migrations.loader.MigrationLoader.build_graph
+  - django.db.migrations.graph.MigrationGraph.remove_replaced_nodes
+  - django.db.migrations.optimizer.MigrationOptimizer.optimize
+tags: [migrations, squash, swe-bench, bug-fix]
+notes: "Based on Django ticket #31788. The squash command doesn't account for replaced migration nodes when resolving cross-app dependencies during graph trimming."

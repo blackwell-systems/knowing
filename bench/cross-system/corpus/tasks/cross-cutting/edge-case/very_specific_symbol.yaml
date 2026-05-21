@@ -1,0 +1,11 @@
+id: cross-cutting-edge-001
+repo: typescript
+tier: easy
+description: "What does the getEffectiveTypeParameterDeclarations function do and where is it called from?"
+source: synthetic
+ground_truth:
+  - src/compiler/utilities.ts.getEffectiveTypeParameterDeclarations
+  - src/compiler/checker.ts.checkTypeParameterListsIdentical
+  - src/compiler/checker.ts.getTypeParametersForTypeReference
+tags: [understanding, specific-symbol, single-package]
+notes: "Edge case: very specific symbol lookup. Tests whether retrieval can find a single utility function by exact name and surface its callers. Minimal description, maximum specificity."

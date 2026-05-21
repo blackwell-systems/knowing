@@ -1,0 +1,15 @@
+id: django-hard-201
+repo: django
+tier: hard
+description: "When a model's save() method is called, understand how the ORM invalidates the queryset result cache, updates the model state, and signals post_save to connected receivers"
+source: synthetic
+ground_truth:
+  - django.db.models.base.Model.save
+  - django.db.models.base.Model.save_base
+  - django.db.models.sql.compiler.SQLInsertCompiler.execute_sql
+  - django.db.models.query.QuerySet._result_cache
+  - django.db.models.base.Model._state
+  - django.dispatch.dispatcher.Signal.send
+  - django.db.models.signals.post_save
+tags: [cross-package, orm, signals, model-save, multi-system]
+notes: "Tests cross-package understanding. The save path touches django.db.models.base, django.db.models.sql, django.db.models.query (cache), django.db.models.base (state), and django.dispatch (signals)."

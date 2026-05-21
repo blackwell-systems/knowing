@@ -1,0 +1,10 @@
+id: cargo-easy-200
+repo: cargo
+tier: easy
+description: "Fix the resolve function that handles path dependencies when the path is relative and the manifest is in a workspace subdirectory"
+source: synthetic
+ground_truth:
+  - cargo.core.source.PathSource.resolve
+  - cargo.util.toml.resolve_relative_path
+tags: [naming-collision, disambiguation, resolve, path-dependencies]
+notes: "Tests disambiguation. 'resolve' appears throughout Cargo in the dependency resolver, source resolution, path resolution, and feature resolution. The context of path + relative + workspace narrows it."

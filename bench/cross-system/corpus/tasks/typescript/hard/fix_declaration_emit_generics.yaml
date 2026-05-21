@@ -1,0 +1,16 @@
+id: typescript-hard-003
+repo: typescript
+tier: hard
+description: "Fix declaration emit producing invalid .d.ts when a generic class extends a conditional type that references its own type parameter in the constraint"
+source: manual
+ground_truth:
+  - src/compiler/declarationEmitter.ts.transformDeclarations
+  - src/compiler/checker.ts.typeToTypeNode
+  - src/compiler/checker.ts.resolveStructuredTypeMembers
+  - src/compiler/checker.ts.getConstraintOfTypeParameter
+  - src/compiler/types.ts.ConditionalType
+  - src/compiler/types.ts.TypeParameter
+  - src/compiler/checker.ts.instantiateType
+  - src/compiler/transformers/declarations.ts.transformDeclarations
+tags: [declaration-emit, generics, type-system, cross-package, bug-fix]
+notes: "Declaration emit bugs with generics require the declaration transformer, the checker's type serialization (typeToTypeNode), type resolution (resolveStructuredTypeMembers), constraint handling (getConstraintOfTypeParameter), the relevant type structures (ConditionalType, TypeParameter), and instantiation logic."

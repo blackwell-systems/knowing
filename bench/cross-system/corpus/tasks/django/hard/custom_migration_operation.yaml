@@ -1,0 +1,16 @@
+id: django-hard-002
+repo: django
+tier: hard
+description: "Create a custom migration operation that performs zero-downtime column type changes by adding a shadow column, backfilling data, and swapping in a single transaction"
+source: manual
+ground_truth:
+  - django.db.migrations.operations.base.Operation
+  - django.db.migrations.operations.base.Operation.state_forwards
+  - django.db.migrations.operations.base.Operation.database_forwards
+  - django.db.migrations.operations.fields.AlterField
+  - django.db.migrations.state.ProjectState
+  - django.db.backends.base.schema.BaseDatabaseSchemaEditor
+  - django.db.backends.base.schema.BaseDatabaseSchemaEditor.alter_field
+  - django.db.migrations.executor.MigrationExecutor.migrate
+tags: [migrations, schema, database, cross-package, cross-cutting, feature-addition]
+notes: "Custom migration operations require the Operation base class and its contract (state_forwards/database_forwards), an existing field operation as a pattern (AlterField), the project state system for migration planning, the schema editor for DDL execution, and the executor for understanding transaction boundaries."

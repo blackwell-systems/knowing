@@ -1,0 +1,14 @@
+id: django-medium-004
+repo: django
+tier: medium
+description: "Add an authentication backend that validates SAML assertions and creates or updates user accounts on first login"
+source: manual
+ground_truth:
+  - django.contrib.auth.backends.ModelBackend
+  - django.contrib.auth.backends.ModelBackend.authenticate
+  - django.contrib.auth.get_user_model
+  - django.contrib.auth.signals.user_logged_in
+  - django.contrib.auth.models.AbstractBaseUser
+  - django.contrib.auth.hashers.make_password
+tags: [auth, backends, signals, cross-package, feature-addition]
+notes: "A custom auth backend requires the ModelBackend as a reference implementation, the authenticate method contract, user model access (get_user_model), the login signal for post-auth hooks, AbstractBaseUser for the user interface, and password handling (make_password) for account creation."

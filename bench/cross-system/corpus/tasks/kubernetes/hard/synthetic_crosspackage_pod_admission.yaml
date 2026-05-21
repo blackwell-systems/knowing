@@ -1,0 +1,14 @@
+id: kubernetes-hard-201
+repo: kubernetes
+tier: hard
+description: "Trace how a pod creation request flows through admission controllers, resource quota checking, limit range defaulting, and finally gets persisted to etcd"
+source: synthetic
+ground_truth:
+  - k8s.io/apiserver/pkg/admission.chainAdmissionHandler.Admit
+  - k8s.io/kubernetes/plugin/pkg/admission/resourcequota.QuotaAdmission.Validate
+  - k8s.io/kubernetes/plugin/pkg/admission/limitranger.LimitRanger.Admit
+  - k8s.io/apiserver/pkg/registry/rest.Storage.Create
+  - k8s.io/apiserver/pkg/storage/etcd3.store.Create
+  - k8s.io/apiserver/pkg/endpoints/handlers.createHandler
+tags: [cross-package, admission, resourcequota, limitrange, etcd, multi-system]
+notes: "Tests cross-package flow understanding. Pod admission spans apiserver admission chain, quota plugin, limitranger plugin, REST storage abstraction, and etcd storage layer."

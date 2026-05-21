@@ -1,0 +1,14 @@
+id: flask-medium-003
+repo: flask
+tier: medium
+description: "Fix a bug where errors raised in nested blueprint before_request hooks are not caught by the parent blueprint's error handler"
+source: manual
+ground_truth:
+  - flask.blueprints.Blueprint.register
+  - flask.blueprints.BlueprintSetupState
+  - flask.app.Flask.handle_user_exception
+  - flask.app.Flask.find_handler
+  - flask.sansio.app.App._find_error_handler
+  - flask.blueprints.Blueprint.app_errorhandler
+tags: [blueprints, error-handling, cross-package, bug-fix]
+notes: "Understanding blueprint error propagation requires knowing how blueprints register (BlueprintSetupState), how errors bubble up (handle_user_exception), and how the error handler lookup works across blueprint hierarchy (_find_error_handler)."

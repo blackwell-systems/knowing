@@ -1,0 +1,14 @@
+id: cross-cutting-issue-002
+repo: typescript
+tier: medium
+description: "Fix a bug where the satisfies operator does not narrow the type of a variable when used with a generic constraint, losing type information for subsequent usage"
+source: swe-bench
+ground_truth:
+  - src/compiler/checker.ts.checkSatisfiesExpression
+  - src/compiler/checker.ts.checkTypeAssertionWorker
+  - src/compiler/checker.ts.isTypeRelatedTo
+  - src/compiler/types.ts.SatisfiesExpression
+  - src/compiler/checker.ts.getWidenedType
+  - src/compiler/checker.ts.getRegularTypeOfLiteralType
+tags: [satisfies, type-narrowing, checker, cross-package, bug-fix]
+notes: "Based on TypeScript issue #51556. The satisfies narrowing bug involves the checker's satisfies handling (checkSatisfiesExpression), type relation checks (isTypeRelatedTo), the SatisfiesExpression AST node, and type widening logic that may discard narrowed information."

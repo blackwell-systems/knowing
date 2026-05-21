@@ -1,0 +1,15 @@
+id: cross-cutting-multi-003
+repo: typescript
+tier: hard
+description: "Fix a bug in project references where declaration maps from a referenced project are not correctly resolved when the referencing project uses path mapping, spanning the builder, module resolution, and project system"
+source: synthetic
+ground_truth:
+  - src/compiler/tsbuildPublic.ts.createSolutionBuilder
+  - src/compiler/tsbuildPublic.ts.createSolutionBuilderWorker
+  - src/compiler/moduleNameResolver.ts.resolveModuleName
+  - src/compiler/moduleNameResolver.ts.tryLoadModuleUsingPathsIfEligible
+  - src/server/project.ts.ConfiguredProject
+  - src/compiler/builderState.ts.BuilderState.getFilesAffectedByUpdatedShape
+  - src/compiler/program.ts.resolveProjectReferencePath
+tags: [project-references, module-resolution, builder, cross-package, cross-cutting, bug-fix]
+notes: "Project reference bugs span the solution builder (createSolutionBuilder), module resolution with path mapping (tryLoadModuleUsingPathsIfEligible), the server project system (ConfiguredProject), builder state for incremental tracking, and project reference path resolution."

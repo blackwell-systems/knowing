@@ -1,0 +1,16 @@
+id: cargo-hard-004
+repo: cargo
+tier: hard
+description: "Debug unexpected feature unification where enabling a feature in a dev-dependency activates it for all normal dependencies, causing compilation failures in production builds"
+source: manual
+ground_truth:
+  - src/cargo/core/resolver/features.rs.FeatureResolver
+  - src/cargo/core/resolver/features.rs.FeatureResolver.resolve
+  - src/cargo/core/resolver/features.rs.RequestedFeatures
+  - src/cargo/core/resolver/dep_cache.rs.RegistryQueryer.build_deps
+  - src/cargo/core/features.rs.Features
+  - src/cargo/core/summary.rs.Summary
+  - src/cargo/core/summary.rs.FeatureMap
+  - src/cargo/core/compiler/standard_lib.rs.resolve_std
+tags: [features, resolver, dev-dependencies, cross-package, bug-fix, cross-cutting]
+notes: "Feature unification bugs require the FeatureResolver and its resolve method, RequestedFeatures for tracking what's requested, RegistryQueryer.build_deps for understanding how features propagate through the dependency graph, the Features/FeatureMap types, and standard library resolution which has special unification rules."

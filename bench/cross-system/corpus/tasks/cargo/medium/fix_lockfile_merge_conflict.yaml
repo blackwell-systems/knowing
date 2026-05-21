@@ -1,0 +1,14 @@
+id: cargo-medium-003
+repo: cargo
+tier: medium
+description: "Fix a bug where Cargo.lock merge conflicts cause cargo to panic instead of producing a helpful error message with resolution suggestions"
+source: manual
+ground_truth:
+  - src/cargo/core/resolver/resolve.rs.Resolve
+  - src/cargo/ops/lockfile.rs.resolve_to_string
+  - src/cargo/ops/lockfile.rs.load_pkg_lockfile
+  - src/cargo/core/resolver/encode.rs.EncodableResolve
+  - src/cargo/core/resolver/encode.rs.EncodableResolve.into_resolve
+  - src/cargo/util/toml/mod.rs.parse_document
+tags: [lockfile, resolver, error-handling, cross-package, bug-fix]
+notes: "Lockfile merge conflict handling requires the Resolve type, lockfile serialization/deserialization (resolve_to_string, load_pkg_lockfile), the encodable intermediate representation (EncodableResolve), and TOML parsing where conflicts would first surface as parse errors."
