@@ -120,47 +120,20 @@ func (e *GoTreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractO
 			node := extractFuncDecl(child, opts, pkgPath)
 			nodes = append(nodes, node)
 			body := child.ChildByFieldName("body")
-			callEdges := extractCallEdges(body, opts, pkgPath, node.NodeHash, imports, externalNodes)
-			edges = append(edges, callEdges...)
-			// Extract throws edges for error returns and panics.
-			throwsEdges := extractGoThrowsEdges(body, opts, pkgPath, node.NodeHash, imports)
-			edges = append(edges, throwsEdges...)
-			// Extract HTTP route registrations from function bodies.
-			routes := extractRouteSymbols(body, opts, pkgPath, imports)
-			rn, re := routeSymbolsToNodesAndEdges(routes, opts, pkgPath)
-			nodes = append(nodes, rn...)
-			edges = append(edges, re...)
-			// Extract feature flag edges.
-			flagNodes, flagEdges := ExtractFeatureFlagEdges(body, opts, pkgPath, node.NodeHash, imports)
-			nodes = append(nodes, flagNodes...)
-			edges = append(edges, flagEdges...)
-			// Extract HTTP endpoint consumption edges.
-			epNodes, epEdges := ExtractGoEndpointEdges(body, opts, pkgPath, node.NodeHash, imports)
-			nodes = append(nodes, epNodes...)
-			edges = append(edges, epEdges...)
+			// Single-pass walk: visits every node in the body once, dispatching to
+			// all pattern detectors (calls, throws, routes, flags, endpoints).
+			bodyResult := walkBodyOnce(body, opts, pkgPath, node.NodeHash, imports, externalNodes)
+			nodes = append(nodes, bodyResult.Nodes...)
+			edges = append(edges, bodyResult.Edges...)
 
 		case "method_declaration":
 			node := extractMethodDecl(child, opts, pkgPath)
 			nodes = append(nodes, node)
 			body := child.ChildByFieldName("body")
-			callEdges := extractCallEdges(body, opts, pkgPath, node.NodeHash, imports, externalNodes)
-			edges = append(edges, callEdges...)
-			// Extract throws edges for error returns and panics.
-			throwsEdges := extractGoThrowsEdges(body, opts, pkgPath, node.NodeHash, imports)
-			edges = append(edges, throwsEdges...)
-			// Extract HTTP route registrations from method bodies.
-			routes := extractRouteSymbols(body, opts, pkgPath, imports)
-			rn, re := routeSymbolsToNodesAndEdges(routes, opts, pkgPath)
-			nodes = append(nodes, rn...)
-			edges = append(edges, re...)
-			// Extract feature flag edges.
-			flagNodes, flagEdges := ExtractFeatureFlagEdges(body, opts, pkgPath, node.NodeHash, imports)
-			nodes = append(nodes, flagNodes...)
-			edges = append(edges, flagEdges...)
-			// Extract HTTP endpoint consumption edges.
-			epNodes, epEdges := ExtractGoEndpointEdges(body, opts, pkgPath, node.NodeHash, imports)
-			nodes = append(nodes, epNodes...)
-			edges = append(edges, epEdges...)
+			// Single-pass walk: same as function_declaration.
+			bodyResult := walkBodyOnce(body, opts, pkgPath, node.NodeHash, imports, externalNodes)
+			nodes = append(nodes, bodyResult.Nodes...)
+			edges = append(edges, bodyResult.Edges...)
 
 		case "type_declaration":
 			typeNodes := extractTypeDecl(child, opts, pkgPath)
