@@ -1,7 +1,7 @@
 // Package mcp exposes the knowing knowledge graph as MCP (Model Context
 // Protocol) tools over stdio and HTTP transports.
 //
-// The server registers 23 tools organized into six planes:
+// The server registers 27 tools organized into seven planes:
 //
 // Execution plane (write operations):
 //   - index_repo: trigger indexing of a repository
@@ -17,6 +17,7 @@
 //   - semantic_diff: enriched diff with summary statistics
 //   - pr_impact: blast radius analysis of all symbols changed between snapshots
 //   - ownership: list files and their symbols for code ownership analysis
+//   - ownership_query: query ownership by file path pattern
 //
 // Runtime plane (runtime trace queries, requires SQLiteStore):
 //   - runtime_traffic: query runtime-observed edges by service and route
@@ -26,6 +27,8 @@
 // Context plane (graph-aware context packing):
 //   - context_for_task: generate token-budgeted context for a task description
 //   - context_for_files: generate blast-radius context for changed files
+//   - context_for_pr: generate context for a pull request (changed files between refs)
+//   - explain_symbol: explain why a symbol ranked where it did for a task
 //
 // Feedback plane (agent learning loop):
 //   - feedback: record/query symbol usefulness for ranking improvement
@@ -35,6 +38,11 @@
 //   - flow_between: find all paths between two symbols via BFS
 //   - plan_turn: suggest relevant knowing tools for a task description
 //   - communities: Louvain modularity-based graph clustering
+//
+// Audit plane (integrity and proofs):
+//   - prove: generate a Merkle proof that a relationship exists
+//   - prove_absent: prove a relationship does NOT exist (absence proof)
+//   - fsck: verify graph integrity (hashes, references, snapshot chain)
 package mcp
 
 import (
@@ -127,7 +135,7 @@ func (s *Server) SetResultCache(c *cache.SubgraphCache) {
 	s.resultCache = c
 }
 
-// registerTools registers all 22 MCP tools on the server.
+// registerTools registers all 27 MCP tools on the server.
 func (s *Server) registerTools() {
 	// Execution plane tools
 	s.mcpServer.AddTool(indexRepoTool(), s.handleIndexRepo)
