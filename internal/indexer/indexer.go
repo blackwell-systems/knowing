@@ -421,6 +421,8 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 	}
 
 	// Batch insert if the store supports it, otherwise fall back to individual inserts.
+	fmt.Fprintf(os.Stderr, "  Storing %d nodes, %d edges, %d files...\n", len(allNodes), len(allEdges), len(allFiles))
+	storeStart := time.Now()
 	if bs, ok := idx.store.(batchStore); ok {
 		if err := bs.BatchPutFiles(ctx, allFiles); err != nil {
 			return nil, fmt.Errorf("batch store files: %w", err)
@@ -448,6 +450,7 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 			}
 		}
 	}
+	fmt.Fprintf(os.Stderr, "  Stored in %s\n", time.Since(storeStart).Truncate(time.Millisecond))
 
 	// Extract CODEOWNERS ownership edges if a CODEOWNERS file exists.
 	if coPath := ownership.FindCodeowners(repoPath); coPath != "" {
