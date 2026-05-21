@@ -217,14 +217,27 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 			return err
 		}
 		if d.IsDir() {
-			// Skip hidden directories and vendor.
 			name := d.Name()
-			if name == ".git" || name == ".claude" || name == "vendor" || name == "node_modules" || name == "testdata" {
+			// Skip hidden dirs, dependency dirs, and common non-source dirs.
+			switch name {
+			case ".git", ".claude", ".knowing", ".polywave-state",
+				"vendor", "node_modules", "testdata",
+				"__pycache__", ".mypy_cache", ".pytest_cache",
+				"target", "build", "dist", "out",
+				"corpus":
+				return filepath.SkipDir
+			}
+			// Skip hidden directories (dot-prefixed).
+			if len(name) > 1 && name[0] == '.' {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		filePaths = append(filePaths, path)
+		// Only collect files an extractor can handle (avoids reading binary/media files).
+		relP, _ := filepath.Rel(repoPath, path)
+		if relP != "" && idx.registry.FindExtractor(relP) != nil {
+			filePaths = append(filePaths, path)
+		}
 		return nil
 	})
 	if err != nil {
@@ -282,10 +295,6 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 	for _, absPath := range filePaths {
 		relPath, err := filepath.Rel(repoPath, absPath)
 		if err != nil {
-			continue
-		}
-
-		if idx.registry.FindExtractor(relPath) == nil {
 			continue
 		}
 
