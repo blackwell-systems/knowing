@@ -1092,7 +1092,7 @@ func (s *SQLiteStore) SearchBM25Nodes(ctx context.Context, query string, limit i
 		 JOIN nodes_fts_content c ON c.rowid = nodes_fts.rowid
 		 JOIN nodes n ON n.node_hash = c.node_hash
 		 WHERE nodes_fts MATCH ?
-		 ORDER BY bm25(nodes_fts, 10.0, 3.0, 1.0, 1.0)
+		 ORDER BY bm25(nodes_fts, 10.0, 5.0, 3.0, 1.0, 1.0)
 		 LIMIT ?`,
 		query, limit,
 	)
@@ -1112,9 +1112,67 @@ func (s *SQLiteStore) upsertFTS(ctx context.Context, nodeHash []byte, qualifiedN
 		`DELETE FROM nodes_fts_content WHERE node_hash = ?`, nodeHash)
 	// Insert new entry.
 	s.db.ExecContext(ctx, //nolint:errcheck
-		`INSERT INTO nodes_fts_content(node_hash, symbol_name, qualified_name, signature, file_path)
-		 VALUES (?, ?, ?, ?, ?)`,
-		nodeHash, extractSymbolName(qualifiedName), qualifiedName, signature, filePath)
+		`INSERT INTO nodes_fts_content(node_hash, symbol_name, concepts, qualified_name, signature, file_path)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		nodeHash, extractSymbolName(qualifiedName), extractConcepts(filePath), qualifiedName, signature, filePath)
+}
+
+// extractConcepts derives searchable concept tokens from a file path.
+// "src/compiler/commandLineParser.ts" -> "command Line Parser compiler"
+// "src/flask/sansio/scaffold.py" -> "scaffold sansio flask"
+// These tokens bridge the vocabulary gap: developers search for "parser"
+// or "compiler" and find symbols defined in files with those concepts.
+func extractConcepts(filePath string) string {
+	if filePath == "" {
+		return ""
+	}
+
+	var concepts []string
+
+	// Split path into components.
+	parts := strings.Split(strings.ReplaceAll(filePath, "\\", "/"), "/")
+
+	// Process each path component (directories + filename).
+	for _, part := range parts {
+		// Skip common non-informative directories.
+		lower := strings.ToLower(part)
+		if lower == "src" || lower == "lib" || lower == "internal" || lower == "pkg" ||
+			lower == "." || lower == "" {
+			continue
+		}
+
+		// Strip file extension.
+		if idx := strings.LastIndex(part, "."); idx > 0 {
+			part = part[:idx]
+		}
+
+		// Split CamelCase and snake_case into words.
+		words := splitCamelCase(part)
+		if len(words) == 0 {
+			// Not CamelCase; try snake_case.
+			if strings.Contains(part, "_") {
+				for _, w := range strings.Split(part, "_") {
+					if len(w) >= 3 {
+						concepts = append(concepts, w)
+					}
+				}
+			} else if len(part) >= 3 {
+				concepts = append(concepts, part)
+			}
+		} else {
+			for _, w := range words {
+				if len(w) >= 3 {
+					concepts = append(concepts, w)
+				}
+			}
+			// Also add the unsplit name for exact matching.
+			if len(part) >= 3 {
+				concepts = append(concepts, part)
+			}
+		}
+	}
+
+	return strings.Join(concepts, " ")
 }
 
 // extractSymbolName returns the terminal symbol identifier from a qualified name.
@@ -1186,7 +1244,7 @@ func (s *SQLiteStore) RebuildFTS(ctx context.Context) error {
 	// Phase 2: parallel splitForFTS computation.
 	type ftsPrepped struct {
 		nodeHash []byte
-		symbolName, splitQN, splitSig, fp string
+		symbolName, concepts, splitQN, splitSig, fp string
 	}
 	prepped := make([]ftsPrepped, len(allRows))
 
@@ -1210,6 +1268,7 @@ func (s *SQLiteStore) RebuildFTS(ctx context.Context) error {
 				prepped[i] = ftsPrepped{
 					nodeHash:   r.nodeHash,
 					symbolName: splitForFTS(extractSymbolName(r.qn)),
+					concepts:   extractConcepts(r.fp),
 					splitQN:    splitForFTS(r.qn),
 					splitSig:   splitForFTS(r.sig),
 					fp:         r.fp,
@@ -1227,14 +1286,14 @@ func (s *SQLiteStore) RebuildFTS(ctx context.Context) error {
 	defer tx.Rollback() //nolint:errcheck
 
 	stmt, err := tx.PrepareContext(ctx,
-		`INSERT INTO nodes_fts_content(node_hash, symbol_name, qualified_name, signature, file_path) VALUES (?, ?, ?, ?, ?)`)
+		`INSERT INTO nodes_fts_content(node_hash, symbol_name, concepts, qualified_name, signature, file_path) VALUES (?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("prepare fts insert: %w", err)
 	}
 	defer stmt.Close()
 
 	for _, p := range prepped {
-		if _, err := stmt.ExecContext(ctx, p.nodeHash, p.symbolName, p.splitQN, p.splitSig, p.fp); err != nil {
+		if _, err := stmt.ExecContext(ctx, p.nodeHash, p.symbolName, p.concepts, p.splitQN, p.splitSig, p.fp); err != nil {
 			return fmt.Errorf("insert fts content: %w", err)
 		}
 	}
@@ -1280,7 +1339,7 @@ func (s *SQLiteStore) RebuildFTSForPackages(ctx context.Context, packages []stri
 
 	// Re-insert FTS rows for nodes in the changed packages.
 	insStmt, err := tx.PrepareContext(ctx,
-		`INSERT INTO nodes_fts_content(node_hash, symbol_name, qualified_name, signature, file_path) VALUES (?, ?, ?, ?, ?)`)
+		`INSERT INTO nodes_fts_content(node_hash, symbol_name, concepts, qualified_name, signature, file_path) VALUES (?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("prepare fts insert: %w", err)
 	}
@@ -1301,7 +1360,7 @@ func (s *SQLiteStore) RebuildFTSForPackages(ctx context.Context, packages []stri
 				rows.Close()
 				return fmt.Errorf("scan node for fts: %w", err)
 			}
-			if _, err := insStmt.ExecContext(ctx, nodeHash, splitForFTS(extractSymbolName(qn)), splitForFTS(qn), splitForFTS(sig), fp); err != nil {
+			if _, err := insStmt.ExecContext(ctx, nodeHash, splitForFTS(extractSymbolName(qn)), extractConcepts(fp), splitForFTS(qn), splitForFTS(sig), fp); err != nil {
 				rows.Close()
 				return fmt.Errorf("insert fts for %s: %w", qn, err)
 			}
