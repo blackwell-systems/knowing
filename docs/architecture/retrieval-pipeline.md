@@ -8,7 +8,7 @@ relevant code symbols that fit within a context window.
 This document is the authoritative reference for how the context engine finds and ranks
 symbols. It supersedes `context-packing.md`.
 
-**Current eval baseline:** 55 fixtures (20 easy, 20 medium, 15 hard), 31.6% P@10, 0.58 MRR (internal eval). Cross-system benchmark (97 manual fixtures, 5 repos): P@10=0.230, 11.5x vs grep, d=0.92 recall (very large effect).
+**Current eval baseline:** 55 fixtures (20 easy, 20 medium, 15 hard), 31.6% P@10, 0.58 MRR (internal eval). Cross-system benchmark (~117 manual fixtures, 7 repos): P@10=0.230, 11.5x vs grep, d=0.92 recall (very large effect).
 
 ## Pipeline Overview
 
@@ -16,7 +16,7 @@ symbols. It supersedes `context-packing.md`.
 Task Description
     |
     v
-[1. Keyword Extraction]        split CamelCase, expand abbreviations, bigram compounds
+[1. Keyword Extraction]        KeywordSet: Exact (backtick), Compounds (CamelCase/snake), Components (fallback)
     |
     v
 [2. Seed Retrieval]            4-channel RRF fusion (tiered, equivalence, BM25, vector)
@@ -25,7 +25,7 @@ Task Description
 [3. Interface-Aware Seeding]   add implementors of matched interface types
     |
     v
-[4. Noise Filtering]           exclude mocks, stubs, fakes, dist/, vendor/, minified
+[4. Noise Filtering]           exclude externals, mocks, stubs, dist/, vendor/, minified
     |
     v
 [5. Random Walk with Restart]  propagate relevance through graph (alpha=0.2, 20 iter)
@@ -55,29 +55,52 @@ Three entry points:
 
 ## 1. Keyword Extraction
 
-The `extractKeywords` function converts a free-text task description into searchable terms.
+The `extractKeywordSet` function converts a free-text task description into a structured
+`KeywordSet` with three specificity tiers. The tiered structure enables compound-first
+retrieval: higher-specificity keywords are queried before lower-specificity fallbacks.
 
-**Steps:**
+### KeywordSet structure
 
-1. **Tokenize** on whitespace with `strings.Fields`.
-2. **Strip punctuation** from edges of each word.
-3. **Verb-pattern detection**: if the first word is an action verb ("add", "implement",
-   "build", etc.), the first non-filler noun after it is boosted to the front of the
-   keyword list with a capitalized variant.
-4. **Split identifiers**: decompose CamelCase (`HandleLogin` becomes `Handle`, `Login`)
-   and snake_case (`route_handler` becomes `route`, `handler`).
-5. **Filter stop words**: English stop words (`the`, `a`, `in`), programming terms
+| Tier | Source | Purpose |
+|------|--------|---------|
+| **Exact** | Backtick-quoted identifiers (e.g., `` `before_request` ``) | Explicit symbol references from the user |
+| **Compounds** | snake_case, CamelCase, dotted identifiers + bigram-generated compounds | Multi-part identifiers with high specificity |
+| **Components** | Individual words split from identifiers, abbreviation expansions, priority terms | Fallback when compounds yield insufficient results |
+
+### Extraction steps
+
+**Phase 1: Backtick-quoted identifiers (Exact tier)**
+
+Backtick-delimited text (e.g., `` `before_request` ``) is extracted as explicit symbol
+references. Only valid identifiers are accepted (no spaces, <= 100 chars). Both original
+case and lowercase variant are added.
+
+**Phase 2: Standard word extraction (Compounds + Components)**
+
+1. **Verb-pattern detection**: if the first word is an action verb ("add", "implement",
+   "build", etc.), the first non-filler noun after it is boosted. If that noun is a
+   compound identifier (contains `_`, `.`, or mixed case), it goes to Compounds;
+   otherwise it becomes a priority term in Components (with capitalized variant).
+2. **Process each word**: split CamelCase and snake_case identifiers into component
+   parts. If the original word is a compound identifier (multi-part or contains `_`/`.`),
+   add it to Compounds. Split parts go to Components.
+3. **Filter stop words**: English stop words (`the`, `a`, `in`), programming terms
    (`func`, `type`, `var`, `err`), and action verbs (`refactor`, `fix`, `update`).
-6. **Length filter**: discard anything shorter than 2 characters.
-7. **Expand abbreviations**: `ctx` adds `context`, `cfg` adds `config`, `svc` adds
-   `service`, etc. Both forms are included.
-8. **Preserve compound terms**: if the original was multi-part, keep the full lowercase
-   form for exact matching.
-9. **Bigram compound detection**: adjacent non-stop-words are joined into CamelCase and
-   snake_case compounds. "blast radius" produces `BlastRadius` and `blast_radius`.
-   "transitive callers" produces `TransitiveCallers` and `transitive_callers`.
-10. **Sort by length descending**: longer (more specific) terms first, with priority terms
-    (verb-pattern nouns) pinned to the front.
+4. **Length filter**: discard anything shorter than 2 characters.
+5. **Expand abbreviations**: `ctx` adds `context`, `cfg` adds `config`, `svc` adds
+   `service`, etc. Both forms are included in Components.
+
+**Phase 3: Bigram compound generation (Compounds)**
+
+Adjacent non-stop-words (both >= 3 chars, neither an action verb) are joined into
+CamelCase and snake_case compounds. "blast radius" produces `BlastRadius` and
+`blast_radius`. "transitive callers" produces `TransitiveCallers` and
+`transitive_callers`. At least one word must be >= 4 chars.
+
+**Final assembly:**
+
+Components are ordered with priority terms (verb-pattern nouns) first, then remaining
+terms sorted by length descending (more specific terms first).
 
 ### Example
 
@@ -85,9 +108,12 @@ Task: `"add a new MCP tool for snapshot diffing"`
 
 - "add" filtered (action verb), "a" filtered (stop word), "new" filtered (programming
   stop word), "for" filtered (stop word)
-- Priority term extracted: "snapshot" (first noun after verb "add")
-- Bigram compounds: `SnapshotDiffing`, `snapshot_diffing`
-- Result: `["snapshot", "Snapshot", "SnapshotDiffing", "snapshot_diffing", "diffing", "tool", "mcp"]`
+- Priority term extracted: "snapshot" (first noun after verb "add") -> Components
+- Bigram compounds: `SnapshotDiffing`, `snapshot_diffing` -> Compounds
+- Result KeywordSet:
+  - Exact: `[]`
+  - Compounds: `["SnapshotDiffing", "snapshot_diffing"]`
+  - Components: `["snapshot", "Snapshot", "diffing", "tool", "mcp"]`
 
 ---
 
@@ -122,12 +148,29 @@ removes artificial suppression of BM25 recall without degrading precision.
 
 ### Channel 1: Tiered keyword matching (weight 2.0)
 
-Five tiers, evaluated in order with progressive relaxation:
+Uses compound-first `tieredSearchSet`: queries Exact+Compounds (the "primary" keywords)
+through tiers 1-2 first, and falls back to Components only when fewer than 5 results
+are found. This prevents split components like "before" and "request" from drowning out
+the actual compound "before_request".
+
+**Phase 1: Primary keywords (Exact + Compounds) through tiers 1-2:**
 
 | Tier | Condition | What matches | Cap |
 |------|-----------|-------------|-----|
-| 1: Exact | Always runs | Symbol name equals keyword (case-insensitive) | No cap |
-| 2: Prefix | < 15 results so far | Symbol name starts with keyword | 30 total |
+| 1: Exact | Always runs | Symbol name equals primary keyword (case-insensitive) | No cap |
+| 2: Prefix | < 15 results so far | Symbol name starts with primary keyword | 30 total |
+
+**Phase 2: Component fallback (only when Phase 1 yields < 5 results):**
+
+| Tier | Condition | What matches | Cap |
+|------|-----------|-------------|-----|
+| 1: Exact | Phase 1 < 5 results | Symbol name equals component keyword (case-insensitive) | No cap |
+| 2: Prefix | < 15 results so far | Symbol name starts with component keyword | 30 total |
+
+**Phase 3: All keywords through remaining tiers (always runs):**
+
+| Tier | Condition | What matches | Cap |
+|------|-----------|-------------|-----|
 | 3: Substring | < 5 results so far | Keyword (4+ chars) appears anywhere in qualified name | 20 total |
 | 4: File path | < 30 results so far | Keyword (3+ chars) appears as a path segment | 40 total |
 | 5: Interface | After RRF fusion | If any candidate is an interface/type, add all implementors | No cap |
@@ -138,7 +181,7 @@ seeds.
 
 ### Channel 2: Equivalence classes (weight 2.0)
 
-Three layers of equivalence classes are checked:
+Four layers of equivalence classes are checked (115 curated concepts total):
 
 **Layer 1: Seed dictionary** (`equivalence.go`). 21 hand-curated concept classes mapping
 natural-language phrases to target symbols. Each concept has a canonical ID, a list of
@@ -160,7 +203,15 @@ all software projects: ENTRY_POINT, CONFIGURATION, ERROR_HANDLING, DATABASE, HTT
 AUTHENTICATION, TESTING, CONCURRENCY, CLI, etc. These have weight 0.8 (lower than
 knowing-specific seeds at 1.0) and ship as defaults for any repo.
 
-**Layer 3: Graph-derived aliases** (`graph_aliases.go`). Auto-generated from the graph
+**Layer 3: Language-specific classes** (`language_seeds.go`). 31 classes extending
+universal concepts with Python, TypeScript, Rust, Java, and C# symbol patterns. The
+universal classes use Go-centric targets (NewConfig, HandleError, ParseFlags); these
+add language-specific equivalents (e.g., PY_ENTRY_POINT targets `create_app`, `wsgi_app`;
+TS_ROUTING targets `Router`, `useRouter`). Weight 0.8, same as universal. Added after
+cross-system benchmark showed knowing scoring lower on non-Go repos partly because
+keyword seeding missed language-specific symbol names.
+
+**Layer 4: Graph-derived aliases** (`graph_aliases.go`). Auto-generated from the graph
 structure of top-10 tiered results. For each seed node, the system:
 
 1. Looks up callers and callees via `EdgesTo`/`EdgesFrom`.
@@ -184,8 +235,10 @@ from the name, which requires domain understanding.
 
 ### Channel 3: BM25 FTS5 (weight 2.0)
 
-Always runs when available. Queries the `nodes_fts` FTS5 virtual table with keywords
-joined by `OR`. Returns up to 30 results ordered by BM25 relevance.
+Always runs when available. Uses `buildFTSQuery` to construct a compound-targeted query:
+compound identifiers (snake_case, CamelCase, dotted) are quoted as phrases and targeted
+at the `symbol_name` column for maximum BM25 relevance; simple words are joined with OR
+for broad matching. Returns up to 30 results ordered by BM25 relevance.
 
 **What is indexed:**
 
@@ -235,15 +288,23 @@ experimentation.
 
 `filterNoisySymbols` removes candidates before scoring:
 
+- **Phantom external nodes**: nodes with `kind="external"` or qualified name starting with
+  `external://`. These are unresolved targets from LSP enrichment with no source code. On
+  repos with partial LSP coverage (e.g., Spark Java: 2282 phantom nodes, 63% of all nodes),
+  they act as probability sinks that starve real symbols of RWR score.
 - **Build artifacts**: paths containing `/dist/`, `/build/`, `/vendor/`, `/node_modules/`
 - **Minified code**: paths containing `.min.` or `.bundle.`
+- **Test fixtures and helpers**: paths containing `conftest.py.`, `fixtures.py.`,
+  `/testutil`, `/testhelper`, or `test_helper`
 - **Test mocks**: symbols whose type name contains `mock`, `fake`, or `stub`
   (e.g., `mockStore.PutEdge`, `fakeClient.Do`)
 - **Minified names**: symbols with 2-character-or-shorter names (except common short names
   like `ID`, `OK`, `DB`, `IP`, `IO`, `Go`, `Do`)
 
 Mock filtering was validated in experiment 5: mocks were ranking above real implementations
-because test files generated many caller edges.
+because test files generated many caller edges. Phantom node filtering was added in
+cross-system Run 20 after Spark Java scored 0.00 P@10 due to external framework references
+overwhelming the graph.
 
 ---
 
@@ -274,9 +335,24 @@ structurally close to the seeds and sit at the intersection of many paths.
 |-----------|--------|-----------|
 | `calls` | 1.0 | Direct call relationships; strongest structural signal |
 | `implements` | 0.8 | Interface implementations; tight coupling |
+| `implements_rpc` | 0.8 | RPC service implementations; same tier as interface impls |
+| `overrides` | 0.8 | Method overrides in OOP; tight coupling |
 | `handles_route` | 0.7 | Route bindings; HTTP surface to handlers |
+| `extends` | 0.7 | Class inheritance; parent-child relationship |
+| `tests` | 0.6 | Test-to-subject relationship |
+| `consumes_rpc` | 0.6 | RPC client call sites |
 | `imports` | 0.5 | Package-level dependency; weaker than function-level |
-| `references` | 0.4 | Type/constant usage; weakest static signal |
+| `depends_on` | 0.5 | Build/module dependency |
+| `consumes_endpoint` | 0.5 | HTTP client call sites |
+| `tested_by` | 0.5 | Inverse of tests |
+| `references` | 0.4 | Type/constant usage; weakest structural signal |
+| `throws` | 0.4 | Exception throw sites |
+| `deployed_by` | 0.4 | Deployment relationship |
+| `gated_by_flag` | 0.3 | Feature flag gates |
+| `decorates` | 0.3 | Decorator/annotation relationships |
+| `documents` | 0.2 | Documentation links; minimal structural coupling |
+| `owned_by` | 0.0 | Ownership metadata; zero walk weight (not structural) |
+| `authored_by` | 0.0 | Authorship metadata; zero walk weight (not structural) |
 | `inherits` | 0.3 (default) | Child-to-parent-method via inheritance propagation; uses default weight |
 | unknown | 0.3 | Default for any edge type not in the weight map |
 
@@ -296,6 +372,12 @@ effectively acting as an implicit restart.
 After convergence, scores are normalized to [0, 1] relative to the maximum. The RWR
 score is scaled to an integer 0-100 range to serve as the `CallerCount` proxy in the
 scoring formula.
+
+Before scoring, the RWR result loop skips phantom external nodes (`kind="external"` or
+`external://` prefix). These nodes may accumulate RWR probability from import edges but
+contain no source code and must not enter the scoring pipeline. This filter is separate
+from `filterNoisySymbols` (which runs on seed candidates before RWR) and catches external
+nodes that were reached by walk propagation rather than seeding.
 
 ### Critical finding: RWR is the primary differentiator
 
@@ -525,10 +607,11 @@ table, so quality compounds with usage even across MCP server restarts.
 ### Recording
 
 After packing, the top 5 symbols (by score) are stored alongside normalized keywords
-from the task description. Keywords are the 10 longest terms from `extractKeywords`,
-joined with spaces. The association is stored in the `task_memory` SQLite table with a
-timestamp and a boost score computed as `0.5 + score * 0.4` (range [0.5, 0.9]). The
-formula was corrected from a version that produced negative boosts when score < 0.5.
+from the task description. Keywords are produced by `NormalizeKeywords` (the 10 longest
+terms from keyword extraction, joined with spaces). The association is stored in the
+`task_memory` SQLite table with a timestamp and a boost score of 1.0. The boost score
+is transformed during recall (see "Integration with scoring" below) via the formula
+`0.5 + recallScore * 0.4` (range [0.5, 0.9]).
 
 ### Recall
 
@@ -546,15 +629,21 @@ has 1/10 the weight.
 
 ### Integration with scoring
 
-Memory boosts are added to the feedback channel at 0.3x scale:
+Memory boosts are integrated into the feedback channel via replacement (not addition).
+The memory recall score is transformed to a boost value:
 
 ```
-FeedbackBoost += memoryScore * 0.3
+memoryBoost = 0.5 + (recallScore * 0.4)    // range [0.5, 0.9]
+if FeedbackBoost < memoryBoost {
+    FeedbackBoost = memoryBoost             // replace only if memory is stronger
+}
 ```
 
-This prevents memory from dominating (the feedback component is weighted at 0.15, so
-memory's effective maximum contribution is `0.3 * 0.15 = 0.045`, about 4.5% of the
-total score).
+This ensures memory always produces a positive boost (range [0.5, 0.9]) without
+overwhelming explicit feedback (which can reach 1.0). The feedback component is
+weighted at 0.15, so memory's effective maximum contribution is `0.9 * 0.15 = 0.135`
+when centered around the neutral point (where 0.5 maps to zero contribution), giving
+an effective range of 0 to +0.06 (about 6% of total score).
 
 ---
 
@@ -586,6 +675,22 @@ lower bound; actual output includes XML/Markdown overhead.
 - `ForFiles`: 50,000 tokens
 - `ForPR`: 8,000 tokens
 
+### Persistent pack cache
+
+`ForTask` uses a two-layer caching strategy:
+
+1. **In-memory SubgraphCache**: keyed by `sha256("task\x00" + normalized_task)`. Provides
+   instant replay within a single process lifetime.
+2. **Persistent notes table** (`graph_notes`): keyed by
+   `sha256("context_pack\x00" + normalized_task)`, stored via `PutNote` with key
+   `"context_pack"`. Survives process restarts, enabling cross-session replay.
+
+**Staleness detection**: the persisted pack includes the `SnapshotHash` at write time.
+On cache hit, the engine compares it against `LatestSnapshot` for the repo. If the
+snapshot hash differs (i.e., the graph was re-indexed), the cached pack is considered
+stale and the full pipeline re-runs. This ensures results reflect the current code state
+while avoiding redundant computation across identical queries.
+
 ---
 
 ## Tuning Guidance
@@ -598,7 +703,8 @@ cross-package tasks. Decrease for faster, more focused results.
 **Equivalence classes.** The highest-ROI tuning lever. Adding phrases to existing
 concepts is cheap, safe, and has consistent returns. Adding new concepts for
 domain-specific vocabulary gaps is the primary way to improve hard-tier retrieval.
-Target: expand from 21 to 50+ concepts.
+Current count: 115 (21 seed + 63 universal + 31 language-specific). Further expansion
+targets domain-specific concepts not covered by universal/language layers.
 
 **BM25 column weights.** The current weights (symbol_name: 10.0, concepts: 5.0,
 qualified_name: 3.0, signature: 1.0, file_path: 1.0) were tuned to prioritize terminal
@@ -771,9 +877,11 @@ This is validated by 23 experiments (see `eval/EXPERIMENTS.md`):
 
 | File | What it contains |
 |------|-----------------|
-| `internal/context/context.go` | `ForTask`, `ForFiles`, `ForPR`, `extractKeywords`, `rrfFuseMulti`, `packIntoBudget`, `filterNoisySymbols` |
+| `internal/context/context.go` | `ForTask`, `ForFiles`, `ForPR`, `extractKeywordSet`, `KeywordSet`, `buildFTSQuery`, `rrfFuseMulti`, `packIntoBudget`, `filterNoisySymbols` |
+| `internal/context/explain.go` | `ExplainSymbol`, `tieredSearchSet`, `bm25Search`, `vectorSearch`, `equivSearch` |
 | `internal/context/equivalence.go` | `seedEquivalenceClasses`, `matchEquivalenceClasses`, `EquivalenceClass` type |
 | `internal/context/universal_seeds.go` | `universalEquivalenceClasses` (63 cross-project concepts) |
+| `internal/context/language_seeds.go` | `languageEquivalenceClasses` (31 language-specific concepts) |
 | `internal/context/graph_aliases.go` | `graphDerivedAliases`, `extractMeaningfulWords` |
 | `internal/context/ranking.go` | `RankSymbols`, `ScoringInput`, `ScoreComponents`, `recencyFromTimestamp` |
 | `internal/context/walk.go` | `RandomWalkWithRestart`, `buildAdjacencyMap` |
