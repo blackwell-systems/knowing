@@ -175,6 +175,37 @@ Two fixes: (1) FTS was never populated in CLI mode (background goroutine killed 
 
 **Critical finding:** RWR (graph traversal) is the primary differentiator. FTS adds minimally because tiered search already finds the same symbols by keyword. Import resolution helps because it creates more edges for RWR to walk, not because it surfaces new seed symbols.
 
+### Run 11: Rust cross-file import resolution (2026-05-21)
+
+`buildRustImportMap` extracts `use` declarations (`crate::`, `super::`, `self::` paths, group imports). 9,795 resolved cross-file edges on Cargo.
+
+| System | P@10 | R@10 | NDCG@10 | MRR |
+|--------|------|------|---------|-----|
+| knowing | 0.155 | 0.209 | 0.227 | 0.268 |
+| grep | 0.021 | 0.037 | 0.037 | 0.064 |
+
+**Cumulative Runs 7-11:** P@10 0.141->0.155 (+10%). 7.4x vs grep.
+
+### Run 12: Test file deprioritization + failure analysis (2026-05-21)
+
+Added 0.3x score penalty for symbols from test files (path-based detection, conditional on task not being about testing). No P@10 change (0.155).
+
+**Failure analysis of 84% miss rate:**
+
+| Category | % of misses | Meaning |
+|----------|-------------|---------|
+| noise | 56.2% | No apparent relationship to ground truth |
+| test_symbol | 36.4% | Symbols from test files |
+| related_name | 5.0% | Contains a keyword from ground truth |
+| same_package | 2.3% | Same package as a GT symbol |
+
+**Root cause diagnosis:** The bottleneck is NOT ranking (reordering the top-10). It is RWR REACH: the graph walk doesn't visit ground truth symbols because there aren't enough edges connecting them to the seed keywords. Only 155/1000 top-10 slots contain GT symbols regardless of ranking strategy. Ranking changes (test penalty, BM25 weights, FTS tokenizer) have diminishing returns. The next significant gain requires more graph connectivity.
+
+**Next steps:**
+1. Type hierarchy edges (extends/implements) to inherit method reachability from parent classes
+2. Deeper call chain extraction (nested functions, closures, callbacks currently missed)
+3. Session memory persistence (feedback compounding in real usage)
+
 ---
 
 ## Identified Bottlenecks (from analysis)
