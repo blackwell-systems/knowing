@@ -35,16 +35,16 @@ var fixtures = []taskFixture{
 	// 5 fixtures from feedback-loop benchmark.
 	{
 		Name:        "context_engine",
-		Description: "Implement HITS hub/authority reranking in the context engine ranking pipeline",
+		Description: "Add a new scoring component to RankSymbols in the context engine that boosts symbols based on blast radius",
 		GroundTruth: []string{
 			"context.RankSymbols",
-			"context.HITSScores",
-			"context.ComputeHITS",
+			"context.ScoringInput",
+			"context.RankedSymbol",
+			"context.ScoreComponents",
 			"context.ContextEngine",
 			"context.ForTask",
-			"context.RankedSymbol",
-			"context.packIntoBudget",
 			"context.RandomWalkWithRestart",
+			"context.buildFTSQuery",
 		},
 	},
 	{
@@ -54,10 +54,10 @@ var fixtures = []taskFixture{
 			"mcp.Server",
 			"mcp.NewServer",
 			"mcp.blastRadiusTool",
-			"mcp.handleBlastRadius",
-			"mcp.registerTools",
+			"mcp.Server.handleBlastRadius",
 			"mcp.requireStringArg",
 			"mcp.requireHash",
+			"mcp.blastRadiusCacheKey",
 		},
 	},
 	{
