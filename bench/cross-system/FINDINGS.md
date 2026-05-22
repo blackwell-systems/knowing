@@ -400,7 +400,7 @@ Installed GitNexus (npm install -g gitnexus) and benchmarked indexing performanc
 | Cargo (150K LOC) | 1.5s | 12.0s | 8x | ~400MB |
 | Django (400K LOC) | 3.7s | ~30s (est) | 8x | ~1GB |
 | Kubernetes (3.5M LOC) | **18.6s** | **>60 min (killed)** | **>193x** | **5.7GB** |
-| VS Code (1M LOC) | 4.1s | Not attempted | - | - |
+| VS Code (1M LOC) | **4.1s** | **>22 min (killed)** | **>321x** | **2.8GB** |
 
 **Why GitNexus fails at scale:**
 - All-in-memory architecture: entire graph lives in RAM until final flush (5.7GB for kubernetes)
