@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+#### Community-Aware Random Walk with Restart
+- RWR walk now constrained to seed communities when candidates cluster in 1-3 communities
+- `CommunityFilteredRWR`: BFS expansion skips nodes outside the allowed community set
+- `buildAdjacencyMapFiltered`: community-filtered variant of the adjacency pre-load
+- `CommunitiesForNodes` on SQLiteStore: batch lookup of community_id notes
+- When seeds span 4+ communities (diverse query), falls back to unconstrained walk (backward compatible)
+- Prevents RWR from drifting into unrelated packages on large repos
+- Benchmark adapter now runs Louvain community detection on index (matching daemon behavior)
+
 #### Cross-File Import Resolution (Java, C#)
 - **Java**: `buildJavaImportMap` extracts `import com.pkg.Class` and `import static com.pkg.Class.method` declarations into a lookup map
 - **C#**: `buildCSharpImportMap` extracts `using Namespace.Sub` and `using static Namespace.Class` directives
