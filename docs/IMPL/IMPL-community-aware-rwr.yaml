@@ -1,0 +1,465 @@
+title: Community-Aware Random Walk with Restart
+feature_slug: community-aware-rwr
+verdict: SUITABLE
+suitability_assessment: |
+    1. File decomposition: The work decomposes cleanly into 3 disjoint file sets:
+       (a) SQLiteStore.CommunitiesForNodes method (internal/store/sqlite.go + test),
+       (b) walk.go community-filtered BFS variant + new CommunityFilteredRWR function,
+       (c) context.go wiring to pass commCounts through to the filtered walk.
+       Each agent touches 2-3 files with no overlap.
+
+    2. Investigation-first: No unknowns. The code paths are well-understood from
+       existing commCounts computation at context.go:414-428. The community_id notes
+       are already persisted by community/persistence.go. Only implementation work remains.
+
+    3. Interface discoverability: Yes. The communityProvider interface already exists
+       locally in context.go:415-417 (defined but not implemented on SQLiteStore).
+       The buildAdjacencyMap signature extension and new exported function signature
+       can be fully defined before implementation.
+
+    4. Pre-implementation status: commCounts is computed but unused (PARTIAL).
+       CommunitiesForNodes interface is defined locally but not on SQLiteStore (TODO).
+       buildAdjacencyMap has no community filter (TODO). Wiring in ForTask is TODO.
+
+    5. Parallelization value: Go build+test cycle is ~30s. Three agents with 2-3
+       files each. Wave 1 has 2 independent agents (store method + walk filter),
+       wave 2 wires them together. Clear speedup over sequential.
+
+    Estimated times:
+    - Scout phase: ~5 min (dependency mapping, interface contracts, IMPL doc)
+    - Agent execution: ~8 min (2 agents wave 1 parallel + 1 agent wave 2)
+    - Merge and verification: ~3 min
+    Total Polywave time: ~16 min
+
+    Sequential baseline: ~20 min (3 agents x 6 min avg sequential time + overhead)
+    Time savings: ~4 min (20% faster)
+
+    Recommendation: Clear speedup. Wave 1 agents are fully independent (different
+    packages, no shared types). Proceed.
+test_command: GOWORK=off go test -short ./... -timeout 5m
+lint_command: GOWORK=off go vet ./...
+file_ownership:
+    - file: internal/store/sqlite.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/store/notes_test.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/context/walk.go
+      agent: B
+      wave: 1
+      action: modify
+    - file: internal/context/walk_test.go
+      agent: B
+      wave: 1
+      action: modify
+    - file: internal/context/context.go
+      agent: C
+      wave: 2
+      action: modify
+      depends_on:
+        - A
+        - B
+    - file: internal/context/context_test.go
+      agent: C
+      wave: 2
+      action: modify
+      depends_on:
+        - B
+interface_contracts:
+    - name: CommunitiesForNodes
+      description: |
+        Batch lookup of community_id notes for a set of node hashes. Returns a map
+        from hash to community ID (integer). Hashes without a community assignment
+        are omitted from the result (not an error). Already referenced as a local
+        interface at context.go:415-417; this contract makes it concrete on SQLiteStore.
+      definition: |
+        func (s *SQLiteStore) CommunitiesForNodes(ctx context.Context, hashes []types.Hash) (map[types.Hash]int, error)
+      location: internal/store/sqlite.go
+    - name: CommunityFilteredRWR
+      description: |
+        A variant of RandomWalkWithRestart that accepts an optional community filter.
+        When communityIDs is non-nil, buildAdjacencyMap BFS skips nodes whose community
+        assignment is not in the allowed set. When nil, behavior is identical to the
+        existing RandomWalkWithRestart (unconstrained walk). This preserves backward
+        compatibility: existing callers continue to use the old function unchanged.
+      definition: |
+        func CommunityFilteredRWR(ctx context.Context, store types.GraphStore, seeds []types.Hash, alpha float64, maxIter int, communityIDs map[int]bool) (map[types.Hash]float64, error)
+      location: internal/context/walk.go
+    - name: buildAdjacencyMapFiltered
+      description: |
+        Internal (unexported) variant of buildAdjacencyMap that accepts a communityFilter.
+        During BFS expansion, nodes whose community_id note does not match any ID in the
+        filter are not added to the frontier (but edges to them are still recorded so the
+        walk can "see" them as dead ends). When filter is nil, behaves identically to
+        the existing buildAdjacencyMap.
+      definition: |
+        func buildAdjacencyMapFiltered(ctx context.Context, store types.GraphStore, seeds []types.Hash, communityFilter map[int]bool) (adjFrom, adjTo map[types.Hash][]types.Edge, err error)
+      location: internal/context/walk.go
+waves:
+    - number: 1
+      agents:
+        - id: A
+          task: |
+            ## Implement CommunitiesForNodes on SQLiteStore
+
+            ### What to implement
+            Add a `CommunitiesForNodes` method to `SQLiteStore` that performs a batch lookup
+            of community_id notes for a set of node hashes. This method satisfies the
+            `communityProvider` interface already defined in `internal/context/context.go:415-417`.
+
+            ### Implementation details
+
+            **File: internal/store/sqlite.go**
+
+            Add the following method after the existing Notes methods section (after line 1550,
+            near the `scanNotes` helper):
+
+            ```go
+            // CommunitiesForNodes batch-retrieves community_id notes for the given hashes.
+            // Returns a map from hash to community ID. Hashes without a community_id note
+            // are omitted from the result.
+            func (s *SQLiteStore) CommunitiesForNodes(ctx context.Context, hashes []types.Hash) (map[types.Hash]int, error) {
+            ```
+
+            Implementation approach:
+            1. If len(hashes) == 0, return nil, nil early.
+            2. Build a single SQL query using `WHERE object_hash IN (?, ?, ...)` with the
+               hash bytes, filtered to `key = 'community_id'`.
+            3. Chunk the query if len(hashes) > 99 (SQLite variable limit is 999; with 2 params
+               per placeholder this is safe up to ~499, but chunk at 99 for consistency with
+               BatchPutNodes pattern).
+            4. For each result row, parse the value as int (strconv.Atoi) and populate the map.
+            5. Skip rows with non-integer values (corrupt data, same as LoadAssignments).
+
+            The query pattern follows GetNotesByKey but with an IN clause:
+            ```sql
+            SELECT object_hash, value FROM graph_notes WHERE key = 'community_id' AND object_hash IN (?, ?, ...)
+            ```
+
+            Insert after this exact text in sqlite.go:
+            ```go
+            // scanNotes is a shared helper for scanning note rows.
+            func scanNotes(rows *sql.Rows) ([]types.Note, error) {
+            ```
+
+            Actually, place the new method BEFORE scanNotes (after DeleteNotesByObject, before
+            the scanNotes helper). Insert after:
+            ```go
+            func (s *SQLiteStore) DeleteNotesByObject(ctx context.Context, objectHash types.Hash) error {
+            	_, err := s.db.ExecContext(ctx,
+            		`DELETE FROM graph_notes WHERE object_hash = ?`,
+            		objectHash[:],
+            	)
+            	return err
+            }
+            ```
+
+            ### Tests
+
+            **File: internal/store/notes_test.go**
+
+            Add test functions:
+            - `TestCommunitiesForNodes_Empty`: call with empty slice, expect nil map.
+            - `TestCommunitiesForNodes_Found`: insert 3 community_id notes via PutNote, call
+              CommunitiesForNodes with those hashes plus one unknown hash, verify the map has
+              exactly 3 entries with correct values and the unknown hash is absent.
+            - `TestCommunitiesForNodes_LargeBatch`: insert 150 notes, call with all 150 hashes,
+              verify all are returned (exercises chunking logic).
+            - `TestCommunitiesForNodes_CorruptValue`: insert a note with value "notanumber",
+              verify it is skipped (map does not contain that hash, no error returned).
+
+            ### Verification gate
+            ```bash
+            cd /Users/dayna.blackwell/code/knowing && go build ./internal/store/... && go test ./internal/store/ -run TestCommunitiesForNodes -count=1 -v
+            ```
+
+            Postconditions:
+            - `grep -c "func (s \*SQLiteStore) CommunitiesForNodes" internal/store/sqlite.go` returns 1
+            - `grep -c "func TestCommunitiesForNodes" internal/store/notes_test.go` returns at least 3
+
+            ### Constraints
+            - Do NOT modify internal/types/interfaces.go. The method is NOT added to the
+              GraphStore interface; it is discovered via type assertion (communityProvider pattern).
+            - Do NOT modify any files outside your ownership list.
+            - Do NOT change existing Notes method implementations.
+          files:
+            - internal/store/sqlite.go
+            - internal/store/notes_test.go
+        - id: B
+          task: |
+            ## Implement Community-Filtered RWR variant
+
+            ### What to implement
+            Add a `CommunityFilteredRWR` function and a `buildAdjacencyMapFiltered` helper to
+            `internal/context/walk.go`. These provide community-constrained random walks without
+            modifying the existing `RandomWalkWithRestart` or `buildAdjacencyMap` functions.
+
+            ### Implementation details
+
+            **File: internal/context/walk.go**
+
+            1. Add `buildAdjacencyMapFiltered` (unexported) after the existing `buildAdjacencyMap`:
+
+            ```go
+            // buildAdjacencyMapFiltered is like buildAdjacencyMap but skips BFS expansion
+            // into nodes whose community assignment doesn't match the allowed set.
+            // Seeds are always included regardless of community. When communityFilter is nil,
+            // behaves identically to buildAdjacencyMap (no filtering).
+            func buildAdjacencyMapFiltered(ctx stdctx.Context, store types.GraphStore, seeds []types.Hash, communityFilter map[int]bool) (adjFrom, adjTo map[types.Hash][]types.Edge, err error) {
+            ```
+
+            Implementation:
+            - If communityFilter is nil, delegate to `buildAdjacencyMap(ctx, store, seeds)`.
+            - Otherwise, replicate the BFS logic from buildAdjacencyMap but before adding a
+              discovered node to nextFrontier, check its community assignment. Use a type
+              assertion on store to the communityProvider interface:
+              ```go
+              type communityProvider interface {
+                  CommunitiesForNodes(ctx stdctx.Context, hashes []types.Hash) (map[types.Hash]int, error)
+              }
+              ```
+            - At each BFS depth, collect all newly discovered hashes, batch-query their
+              communities, and only add those whose community is in communityFilter to the
+              next frontier. Seed nodes are always in the frontier regardless of community.
+            - The maxDepth constant remains 4 (same as buildAdjacencyMap).
+            - Edges TO/FROM filtered-out nodes ARE still loaded for the current frontier node
+              (so the walk sees them as potential targets). The filtering prevents the BFS
+              from EXPANDING beyond filtered nodes, not from traversing edges to them.
+
+            2. Add `CommunityFilteredRWR` (exported) after the existing `RandomWalkWithRestart`:
+
+            ```go
+            // CommunityFilteredRWR is like RandomWalkWithRestart but constrains the BFS
+            // adjacency pre-load to nodes in the specified communities. When communityIDs
+            // is nil, the walk is unconstrained (identical to RandomWalkWithRestart).
+            func CommunityFilteredRWR(ctx stdctx.Context, store types.GraphStore, seeds []types.Hash, alpha float64, maxIter int, communityIDs map[int]bool) (map[types.Hash]float64, error) {
+            ```
+
+            Implementation:
+            - Same parameter validation as RandomWalkWithRestart (empty seeds -> nil, alpha/maxIter defaults).
+            - Call `buildAdjacencyMapFiltered(ctx, store, seeds, communityIDs)` instead of `buildAdjacencyMap`.
+            - The rest of the iteration logic is identical to RandomWalkWithRestart. Copy the
+              iteration loop (lines 41-161 of walk.go: seedVec, prob, edgeWeight map, iteration,
+              normalization). Do NOT call RandomWalkWithRestart internally; duplicate the loop
+              so both functions remain independently testable.
+
+            Insert `buildAdjacencyMapFiltered` after this exact text:
+            ```go
+            	return adjFrom, adjTo, nil
+            }
+
+            func abs(x float64) float64 {
+            ```
+
+            Actually: place `buildAdjacencyMapFiltered` between the end of `buildAdjacencyMap`
+            (line 217: `return adjFrom, adjTo, nil` + closing brace) and the `abs` helper.
+            Place `CommunityFilteredRWR` between the end of `RandomWalkWithRestart` (line 161)
+            and `buildAdjacencyMap` (line 167).
+
+            ### Tests
+
+            **File: internal/context/walk_test.go**
+
+            Add test functions:
+            - `TestCommunityFilteredRWR_NilFilter`: call with nil communityIDs, verify result
+              matches RandomWalkWithRestart output (same scores within 0.001 tolerance).
+            - `TestCommunityFilteredRWR_FilterExcludesNodes`: build a graph where nodes A, B
+              are in community 1 and nodes C, D are in community 2. Seed from A with filter
+              {1: true}. Verify B has a non-trivial score and C, D have zero or negligible
+              scores (< 0.01). This requires the walkMockStore to also implement the
+              communityProvider interface.
+            - `TestCommunityFilteredRWR_SeedsAlwaysIncluded`: seed from node X in community 3
+              with filter {1: true} (X's community not in filter). Verify X still gets a
+              score (seeds are never filtered out).
+
+            To support these tests, extend `walkMockStore` with a `communities` field:
+            ```go
+            type walkMockStore struct {
+                mockStore
+                communities map[types.Hash]int // optional: if set, enables communityProvider
+            }
+
+            func (m *walkMockStore) CommunitiesForNodes(_ stdctx.Context, hashes []types.Hash) (map[types.Hash]int, error) {
+                if m.communities == nil {
+                    return nil, nil
+                }
+                result := make(map[types.Hash]int)
+                for _, h := range hashes {
+                    if cid, ok := m.communities[h]; ok {
+                        result[h] = cid
+                    }
+                }
+                return result, nil
+            }
+            ```
+
+            ### Verification gate
+            ```bash
+            cd /Users/dayna.blackwell/code/knowing && go build ./internal/context/... && go test ./internal/context/ -run "TestCommunityFiltered|TestRWR" -count=1 -v
+            ```
+
+            Postconditions:
+            - `grep -c "func CommunityFilteredRWR" internal/context/walk.go` returns 1
+            - `grep -c "func buildAdjacencyMapFiltered" internal/context/walk.go` returns 1
+            - `grep -c "func TestCommunityFilteredRWR" internal/context/walk_test.go` returns at least 3
+
+            ### Constraints
+            - Do NOT modify the existing `RandomWalkWithRestart` function signature or behavior.
+            - Do NOT modify the existing `buildAdjacencyMap` function.
+            - Do NOT modify context.go or context_test.go (those are Agent C's files).
+            - Do NOT modify files outside your ownership list.
+          files:
+            - internal/context/walk.go
+            - internal/context/walk_test.go
+    - number: 2
+      agents:
+        - id: C
+          task: |
+            ## Wire community filter into ForTask RWR call
+
+            ### What to implement
+            In `internal/context/context.go`, wire the existing `commCounts` computation
+            (lines 412-428) to the new `CommunityFilteredRWR` function. The logic:
+            - If seeds cluster in 1-3 communities (len(commCounts) <= 3 AND len(commCounts) > 0),
+              build a community filter set and call `CommunityFilteredRWR` instead of
+              `RandomWalkWithRestart`.
+            - If seeds span 4+ communities OR commCounts is empty (no community data),
+              continue calling the existing unconstrained `RandomWalkWithRestart`.
+
+            ### Implementation details
+
+            **File: internal/context/context.go**
+
+            Locate the RWR call site (around line 440). Currently:
+            ```go
+            	rwrScores, err := RandomWalkWithRestart(ctx, e.store, seedHashes, 0.2, 20)
+            	if err != nil {
+            		return nil, err
+            	}
+            ```
+
+            Replace with:
+            ```go
+            	// Use community-constrained RWR when seeds cluster in few communities.
+            	var rwrScores map[types.Hash]float64
+            	if len(commCounts) > 0 && len(commCounts) <= 3 {
+            		communityFilter := make(map[int]bool, len(commCounts))
+            		for cid := range commCounts {
+            			communityFilter[cid] = true
+            		}
+            		rwrScores, err = CommunityFilteredRWR(ctx, e.store, seedHashes, 0.2, 20, communityFilter)
+            	} else {
+            		rwrScores, err = RandomWalkWithRestart(ctx, e.store, seedHashes, 0.2, 20)
+            	}
+            	if err != nil {
+            		return nil, err
+            	}
+            ```
+
+            The `err` variable is already declared earlier in the function (from candidate
+            resolution), so use `=` not `:=` for the RWR assignment.
+
+            Do NOT modify the other RWR call sites (explain.go:92, context.go:850 in ForPR).
+            Those are different code paths without community data; they remain unconstrained.
+
+            ### Tests
+
+            **File: internal/context/context_test.go**
+
+            Add a test `TestForTask_CommunityFilteredRWR` that:
+            1. Creates a mockStore with community support (add CommunitiesForNodes to the mock).
+            2. Builds a graph with 2 communities: nodes A, B in community 1; nodes C, D in
+               community 2. Seed keyword matches node A.
+            3. Verifies that with community filtering active (seeds in 1 community), the
+               resulting context block does NOT contain nodes from community 2 (or they have
+               negligible scores below the 0.02 threshold).
+
+            To support this test, add `CommunitiesForNodes` to the existing `mockStore`:
+            ```go
+            func (m *mockStore) CommunitiesForNodes(_ stdctx.Context, hashes []types.Hash) (map[types.Hash]int, error) {
+                // Return community assignments based on a communities field
+                ...
+            }
+            ```
+
+            Add a `communities map[types.Hash]int` field to the mockStore struct (line 12-16
+            of context_test.go).
+
+            ### Verification gate
+            ```bash
+            cd /Users/dayna.blackwell/code/knowing && go build ./internal/context/... && go test ./internal/context/ -run "TestForTask_Community" -count=1 -v
+            ```
+
+            Postconditions:
+            - `grep -c "CommunityFilteredRWR" internal/context/context.go` returns at least 1
+            - `grep -c "func TestForTask_CommunityFilteredRWR" internal/context/context_test.go` returns 1
+            - `grep -c "communityFilter" internal/context/context.go` returns at least 2
+
+            ### Constraints
+            - Do NOT modify walk.go or walk_test.go (those are Agent B's files).
+            - Do NOT modify internal/store/ files (those are Agent A's files).
+            - Do NOT modify the ForPR RWR call (context.go:850) or the Explain RWR call
+              (explain.go:92). Only the ForTask call site changes.
+            - Do NOT change the existing commCounts computation logic (lines 414-428).
+              It already works correctly; you are only consuming its output.
+            - Do NOT modify files outside your ownership list.
+          files:
+            - internal/context/context.go
+            - internal/context/context_test.go
+          dependencies:
+            - A
+            - B
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: GOWORK=off go build ./...
+          required: true
+        - type: lint
+          command: GOWORK=off go vet ./...
+          required: true
+        - type: test
+          command: GOWORK=off go test -short ./... -timeout 5m
+          required: true
+pre_mortem:
+    overall_risk: low
+    rows:
+        - scenario: |
+            Agent B duplicates the RWR iteration loop incorrectly, introducing subtle
+            score differences between CommunityFilteredRWR and RandomWalkWithRestart.
+          likelihood: low
+          impact: medium
+          mitigation: |
+            TestCommunityFilteredRWR_NilFilter asserts score equivalence with the
+            unconstrained variant. Any divergence fails the test.
+        - scenario: |
+            The communityProvider type assertion in buildAdjacencyMapFiltered fails
+            because the store passed in tests doesn't implement it.
+          likelihood: medium
+          impact: low
+          mitigation: |
+            Agent B's task explicitly requires extending walkMockStore to implement
+            communityProvider. Test will fail to compile if the interface isn't satisfied.
+        - scenario: |
+            Agent C's mockStore modifications conflict with existing test structure
+            (adding a new field to mockStore struct).
+          likelihood: low
+          impact: low
+          mitigation: |
+            The mockStore struct is simple (3 fields). Adding a 4th field (communities)
+            is backward-compatible; existing tests that don't set it get nil behavior.
+        - scenario: |
+            Community filter is too aggressive on small graphs where all nodes happen
+            to be in one community, returning fewer results than unconstrained walk.
+          likelihood: medium
+          impact: low
+          mitigation: |
+            The filter only constrains BFS expansion, not edge loading. Nodes adjacent
+            to seeds still receive probability. The 0.02 threshold in ForTask already
+            gates what enters the scoring pipeline. If results are too few, the engine
+            falls through to other retrieval paths (BM25, feedback).
+state: SCOUT_PENDING
+injection_method: hook

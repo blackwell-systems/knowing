@@ -40,8 +40,8 @@ type EquivalenceClass struct {
     Phrases    []string // natural-language phrases that refer to this concept
     Targets    []string // symbol/tool identifiers to boost when phrases match
     TargetType string   // "symbol", "mcp_tool", "edge_type", "workflow", "file"
-    Weight     float64  // source strength (seed: 1.0, universal: 0.8, graph: 0.7)
-    Source     string   // "seed", "universal", "graph", "feedback", "generated"
+    Weight     float64  // source strength (seed: 1.0, universal: 0.8, language: 0.8, graph: 0.7)
+    Source     string   // "seed", "universal", "language", "graph", "feedback", "generated"
 }
 ```
 
@@ -55,9 +55,11 @@ Each field serves a distinct purpose:
   are resolved against the graph to find actual nodes.
 - **TargetType**: Categorizes what the targets represent. Currently all seed
   classes use `"symbol"`.
-- **Weight**: Controls the confidence of the source. Higher weight means
-  stronger boost in the RRF fusion.
+- **Weight**: Controls the confidence of the source. Seed classes carry 1.0,
+  universal and language-specific carry 0.8, graph-derived carry 0.7.
 - **Source**: Tracks provenance for debugging and potential future decay.
+  Values: `"seed"`, `"universal"`, `"language"`, `"graph"`, `"feedback"`,
+  `"generated"`.
 
 ## Four layers
 
@@ -112,13 +114,13 @@ multi-hop queries, demonstrating the value of universal classes.
 Defined in `languageEquivalenceClasses()` in `internal/context/language_seeds.go`.
 These are 31 equivalence classes that bridge language-specific vocabulary:
 
-| Language | Example concepts |
-|----------|-----------------|
-| Python | `__init__`/constructor, `self`/`this`, `def`/`function`, Django/Flask patterns |
-| TypeScript | React hooks, Express/Fastify/Hono patterns, `interface`/`type` |
-| Rust | trait/impl, `Result`/`Option`, `unwrap`/`expect` |
-| Java | Spring annotations, `@Override`/`implements` |
-| Kubernetes | resource type aliases, `spec`/`template`/`containers` |
+| Language | Concepts | Count |
+|----------|----------|-------|
+| Python | entry point, routing, middleware, ORM, serialization, auth, template, errors, config, testing | 10 |
+| TypeScript | components/React hooks, state/Redux, routing, API/fetch, validation/Zod, type system, compiler/AST, module resolution | 8 |
+| Rust | error/Result, async/Future/tokio, traits/impl, build/cargo, builder pattern, testing | 6 |
+| Java | Spring controllers, services/DI, JPA/data repositories | 3 |
+| Kubernetes | controller/reconcile, scheduler, API server/admission, workloads (Pod, Deployment) | 4 |
 
 Language-specific classes carry weight 0.8 (same as universal) because they are
 curated per-language mappings. They improve retrieval on non-Go repos by mapping
@@ -217,31 +219,38 @@ This cross-product approach is why a small number of seed concepts (21)
 produces 200+ matchable phrases. Each concept with 8 noun phrases generates
 approximately 88 total phrases (8 original + 80 verb-expanded).
 
+Note: verb expansion applies to seed and universal classes only. Language-specific
+classes (Layer 3) do not expand with verbs because their phrases are typically
+short single-word triggers (e.g., "route", "component", "trait") where verb
+prefixes would produce low-quality matches.
+
 ## How equivalence results enter the RRF pipeline
 
 In `ForTask()` in `internal/context/context.go`, equivalence matching runs as
-Channel 4 in the Reciprocal Rank Fusion pipeline:
+one of the active channels in the Reciprocal Rank Fusion pipeline:
 
 ```go
 candidates := rrfFuseMulti([]rankedChannel{
-    {nodes: tieredResults, weight: 3.0},   // Channel 1: keyword tiers
-    {nodes: equivResults, weight: 2.0},    // Channel 4: equivalence classes
-    {nodes: bm25Results, weight: 1.0},     // Channel 2: BM25 full-text
-    {nodes: vectorResults, weight: 0.0},   // Channel 3: vector (disabled)
+    {nodes: tieredResults, weight: 2.0},   // Channel 1: keyword tiers (exact/prefix)
+    {nodes: bm25Results, weight: 2.0},     // Channel 2: BM25 full-text
+    {nodes: equivResults, weight: 2.0},    // Channel 3: equivalence classes
+    {nodes: vectorResults, weight: 0.0},   // Channel 4: vector (disabled)
 }, 60, 40)
 ```
 
-The equivalence channel has weight 2.0, making it the second-strongest signal
-after tiered keyword matching (3.0) and twice as strong as BM25 (1.0). This
-weighting reflects measured precision: equivalence matches are concept-level
-(high confidence) while BM25 is lexical (lower confidence).
+All three active channels (tiered, BM25, equivalence) carry equal weight 2.0.
+Tiered matching finds exact/prefix symbol hits; BM25 adds relevance-ranked
+signature matching and multi-term queries; equivalence provides concept-level
+bridging for zero-overlap vocabulary gaps. Equal weighting lets RRF promote
+symbols that appear in multiple channels without any single channel dominating.
 
 The fusion process for equivalence results:
 
-1. Seed + universal classes are combined and matched against the task description
+1. Seed + universal + language-specific classes are combined and matched against
+   the task description
 2. The top 10 tiered results serve as input to `graphDerivedAliases()`, which
    generates additional classes from graph structure
-3. Graph-derived matches are appended to seed/universal matches
+3. Graph-derived matches are appended to seed/universal/language matches
 4. For each match, all targets are resolved by querying `NodesByName` and
    filtering for exact symbol name matches (case-insensitive)
 5. The resolved nodes form the `equivResults` list, which enters RRF fusion
@@ -404,10 +413,11 @@ This is why equivalence classes outperformed all embedding approaches tested
 and enumerable; a general model is an expensive way to approximate what a lookup
 table does exactly.
 
-**3. Compounds with feedback.** The three layers are designed to compound:
+**3. Compounds with feedback.** The four layers are designed to compound:
 
 - Seed classes provide high-confidence bootstrap (weight 1.0)
 - Universal classes extend coverage to common patterns (weight 0.8)
+- Language-specific classes bridge non-Go vocabulary (weight 0.8)
 - Graph-derived aliases auto-generate from structure (weight 0.7)
 - Feedback (future, weight 0.5) will accumulate (task, useful_symbol) pairs
   from real usage, reinforcing or extending existing concepts
