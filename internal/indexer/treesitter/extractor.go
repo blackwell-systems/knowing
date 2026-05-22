@@ -122,7 +122,7 @@ func (e *TreeSitterExtractor) walkNodeWithImports(node *sitter.Node, opts types.
 	case "function_definition":
 		e.extractFunction(node, opts, classContext, result)
 	case "class_definition":
-		e.extractClass(node, opts, result)
+		e.extractClassWithImports(node, opts, pyImports, result)
 	case "import_statement", "import_from_statement":
 		e.extractImport(node, opts, classContext, result)
 	case "call":
@@ -190,6 +190,45 @@ func (e *TreeSitterExtractor) extractFunction(node *sitter.Node, opts types.Extr
 }
 
 // extractClass extracts a class definition and its methods.
+func (e *TreeSitterExtractor) extractClassWithImports(node *sitter.Node, opts types.ExtractOptions, pyImports map[string]string, result *types.ExtractResult) {
+	nameNode := node.ChildByFieldName("name")
+	if nameNode == nil {
+		return
+	}
+	className := nameNode.Content(opts.Content)
+	line := int(nameNode.StartPoint().Row) + 1
+
+	qname := e.qualifiedName(opts, "", className)
+	n := e.makeNode(opts, qname, "type", line)
+	result.Nodes = append(result.Nodes, n)
+
+	// Emit extends edges with import-resolved target hashes.
+	e.extractPythonBaseClasses(node, opts, n.NodeHash, pyImports, result)
+
+	// Emit decorates edges for decorators on this class.
+	e.extractPythonDecoratorEdges(node, opts, n.NodeHash, result)
+
+	// Walk class body for method definitions.
+	body := node.ChildByFieldName("body")
+	if body == nil {
+		return
+	}
+	for i := 0; i < int(body.ChildCount()); i++ {
+		child := body.Child(i)
+		switch child.Type() {
+		case "function_definition":
+			e.extractFunction(child, opts, className, result)
+		case "decorated_definition":
+			for j := 0; j < int(child.ChildCount()); j++ {
+				inner := child.Child(j)
+				if inner.Type() == "function_definition" {
+					e.extractFunction(inner, opts, className, result)
+				}
+			}
+		}
+	}
+}
+
 func (e *TreeSitterExtractor) extractClass(node *sitter.Node, opts types.ExtractOptions, result *types.ExtractResult) {
 	nameNode := node.ChildByFieldName("name")
 	if nameNode == nil {
@@ -203,7 +242,7 @@ func (e *TreeSitterExtractor) extractClass(node *sitter.Node, opts types.Extract
 	result.Nodes = append(result.Nodes, n)
 
 	// Emit extends edges for base classes (argument_list after class name).
-	e.extractPythonBaseClasses(node, opts, n.NodeHash, result)
+	e.extractPythonBaseClasses(node, opts, n.NodeHash, nil, result)
 
 	// Emit decorates edges for decorators on this class.
 	e.extractPythonDecoratorEdges(node, opts, n.NodeHash, result)
@@ -745,7 +784,9 @@ func (e *TreeSitterExtractor) tryExtractDjangoPath(callNode *sitter.Node, opts t
 
 // extractPythonBaseClasses checks a class_definition for base classes in the
 // superclasses/argument_list field and emits "extends" edges.
-func (e *TreeSitterExtractor) extractPythonBaseClasses(classNode *sitter.Node, opts types.ExtractOptions, classHash types.Hash, result *types.ExtractResult) {
+// Uses pyImports to resolve base class names to their actual definition file,
+// ensuring the target hash matches the actual class node's hash.
+func (e *TreeSitterExtractor) extractPythonBaseClasses(classNode *sitter.Node, opts types.ExtractOptions, classHash types.Hash, pyImports map[string]string, result *types.ExtractResult) {
 	// In Python tree-sitter grammar, base classes appear in the "superclasses"
 	// field (an argument_list node).
 	superclasses := classNode.ChildByFieldName("superclasses")
@@ -766,18 +807,53 @@ func (e *TreeSitterExtractor) extractPythonBaseClasses(classNode *sitter.Node, o
 		if baseName == "" {
 			continue
 		}
-		targetHash := types.ComputeNodeHash(opts.RepoURL, opts.ModuleRoot, types.EmptyHash, baseName, "type")
+
+		// Resolve base class through import map to compute the SAME hash
+		// that makeNode produces when the target class is indexed.
+		// makeNode uses: ComputeNodeHash(repoURL, moduleRoot, _, qualifiedName, kind)
+		// where qualifiedName is "repoURL://moduleRoot/filepath.ClassName"
+		targetQName := resolveBaseClassQName(baseName, opts, pyImports)
+		targetHash := types.ComputeNodeHash(opts.RepoURL, opts.ModuleRoot, types.EmptyHash, targetQName, "type")
+
 		provenance := "ast_inferred"
+		confidence := 0.7
+		if pyImports != nil {
+			if _, ok := pyImports[baseName]; ok {
+				provenance = "ast_resolved"
+				confidence = 0.85
+			}
+		}
+
 		edgeHash := types.ComputeEdgeHash(classHash, targetHash, "extends", provenance)
 		result.Edges = append(result.Edges, types.Edge{
 			EdgeHash:   edgeHash,
 			SourceHash: classHash,
 			TargetHash: targetHash,
 			EdgeType:   "extends",
-			Confidence: 0.7,
+			Confidence: confidence,
 			Provenance: provenance,
 		})
 	}
+}
+
+// resolveBaseClassQName builds the full qualified name for a base class,
+// matching the format that makeNode/qualifiedName produces when the target
+// class is indexed. Format: "repoURL://moduleRoot/filepath.ClassName"
+func resolveBaseClassQName(className string, opts types.ExtractOptions, pyImports map[string]string) string {
+	if pyImports == nil {
+		// No import map: assume defined in same file.
+		return fmt.Sprintf("%s://%s/%s.%s", opts.RepoURL, opts.ModuleRoot, opts.FilePath, className)
+	}
+
+	srcModule, ok := pyImports[className]
+	if !ok {
+		// Not imported: assume defined in same file.
+		return fmt.Sprintf("%s://%s/%s.%s", opts.RepoURL, opts.ModuleRoot, opts.FilePath, className)
+	}
+
+	// Resolve module to file path.
+	modulePath := resolveModuleToPath(srcModule, opts.ModuleRoot)
+	return fmt.Sprintf("%s://%s/%s.%s", opts.RepoURL, opts.ModuleRoot, modulePath, className)
 }
 
 // extractPythonDecoratorEdges checks for decorator nodes that precede a

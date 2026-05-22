@@ -14,6 +14,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Rust**: `buildRustImportMap` extracts `use` declarations, `resolveCallEdgeWithImports` resolves `crate::`, `super::`, `self::` paths. 9,795 resolved cross-file edges on Cargo.
 - Import resolution creates more edges for RWR to walk, improving recall on cross-file tasks.
 
+#### Inheritance Propagation (language-agnostic)
+- `propagateInheritance` post-processing pass finds all `extends` edges and creates `inherits` edges from child classes to parent class methods
+- Enables RWR to walk from `Flask` -> `Scaffold.before_request` via inheritance chain
+- Uses import-resolved qualified names to match extends edge targets to actual class node hashes
+- 83 edges in Flask, 14,539 edges in Django (deep class hierarchies)
+- Works on any language whose extractor produces `extends` edges and `method` nodes (Python, TypeScript, Java, C#, Rust)
+
+#### Test File Deprioritization
+- 0.3x score penalty for symbols from test files in ranking
+- Detection by file path patterns (not symbol names): `/tests/`, `_test.go`, `.test.ts`, `.spec.ts`, `/__tests__/`
+- Penalty removed when task description mentions testing (conditional, not absolute)
+- Avoids false positives on production code with "test" in legitimate names
+
+#### Failure Analysis Tool
+- `bench/cross-system/cmd/failure-analysis/` diagnoses miss categories across all benchmark tasks
+- Categories: noise (56%), test_symbol (36%), related_name (5%), same_package (2%)
+- Key finding: bottleneck is RWR reach (graph connectivity), not ranking
+
 ### Fixed
 
 #### FTS was never populated in CLI mode (critical)

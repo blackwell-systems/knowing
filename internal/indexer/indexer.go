@@ -563,6 +563,23 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 		}
 	}
 
+	// Propagate method inheritance: for each "extends" edge, find the parent's
+	// methods and create edges from the child class to those methods. This lets
+	// RWR walk from Flask -> Scaffold.before_request via inheritance.
+	fmt.Fprintf(os.Stderr, "  Inheritance propagation...\n")
+	inheritEdges := propagateInheritance(allNodes, allEdges)
+	if len(inheritEdges) > 0 {
+		allEdges = append(allEdges, inheritEdges...)
+		if bs, ok := idx.store.(batchStore); ok {
+			_ = bs.BatchPutEdges(ctx, inheritEdges)
+		} else {
+			for _, e := range inheritEdges {
+				_ = idx.store.PutEdge(ctx, e)
+			}
+		}
+		fmt.Fprintf(os.Stderr, "  Inheritance: %d edges propagated\n", len(inheritEdges))
+	}
+
 	// Extract authored_by edges from git blame (parallel, best-effort).
 	// This is expensive (one git blame subprocess per file) so it runs in parallel
 	// and is skippable via idx.SkipBlame.
@@ -916,4 +933,148 @@ func isGeneratedContent(content []byte) bool {
 	}
 
 	return false
+}
+
+// propagateInheritance finds "extends" edges in the graph and creates
+// additional edges from child classes to parent class methods. This allows
+// RWR to walk from Flask -> Scaffold.before_request via inheritance.
+//
+// Uses name-based matching because extends edge target hashes are computed
+// with a generic base name (e.g., "Scaffold") that doesn't match the actual
+// Scaffold class node's hash (which includes the full file path context).
+func propagateInheritance(allNodes []types.Node, allEdges []types.Edge) []types.Edge {
+	// Build class terminal name -> class node hash + methods.
+	// Terminal name = last component after the last dot in qualified name.
+	type classInfo struct {
+		hash    types.Hash
+		methods []types.Hash // method node hashes
+	}
+	classByName := make(map[string]*classInfo)
+
+	// First pass: identify class/type nodes and build name -> hash map.
+	for i := range allNodes {
+		n := &allNodes[i]
+		if n.Kind != "type" {
+			continue
+		}
+		name := terminalName(n.QualifiedName)
+		if name == "" {
+			continue
+		}
+		classByName[name] = &classInfo{hash: n.NodeHash}
+	}
+
+	// Second pass: associate methods with their parent class by name.
+	// Method QN: "repo://path/file.py.ClassName.method_name"
+	// We extract "ClassName" and find it in classByName.
+	for i := range allNodes {
+		n := &allNodes[i]
+		if n.Kind != "method" {
+			continue
+		}
+		qn := n.QualifiedName
+		lastDot := strings.LastIndex(qn, ".")
+		if lastDot < 0 {
+			continue
+		}
+		prefix := qn[:lastDot]
+		secondLastDot := strings.LastIndex(prefix, ".")
+		if secondLastDot < 0 {
+			continue
+		}
+		className := prefix[secondLastDot+1:]
+
+		if ci, ok := classByName[className]; ok {
+			ci.methods = append(ci.methods, n.NodeHash)
+		}
+	}
+
+	// Find all "extends" edges and resolve parent by name.
+	// The extends edge source is a child class hash; we look up the child's
+	// terminal name, then for each extends edge find which parent class name
+	// it targets. Since extends target hash uses a bare name, we need to find
+	// the child class node and look at the AST to know the parent name.
+	// Simpler approach: for each child class (type node), find ALL classes it
+	// could inherit from by looking at extends edges FROM it.
+
+	// Build child hash -> child class name.
+	childHashToName := make(map[types.Hash]string)
+	for i := range allNodes {
+		n := &allNodes[i]
+		if n.Kind == "type" {
+			childHashToName[n.NodeHash] = terminalName(n.QualifiedName)
+		}
+	}
+
+	// For each extends edge, find the parent class by trying all class names.
+	// The target hash was computed as ComputeNodeHash(repoURL, moduleRoot, empty, baseName, "type")
+	// We can't reverse-hash, but we CAN match by checking all known class names.
+	// Build target hash -> parent class name candidates.
+	targetHashToParent := make(map[types.Hash]string)
+	for _, e := range allEdges {
+		if e.EdgeType == "extends" {
+			targetHashToParent[e.TargetHash] = "" // mark for resolution
+		}
+	}
+
+	// Try to match each target hash to a known class.
+	// Since we can't reverse the hash, we match by scanning: which class node's
+	// hash equals the extends target hash?
+	for name, ci := range classByName {
+		if _, isTarget := targetHashToParent[ci.hash]; isTarget {
+			targetHashToParent[ci.hash] = name
+		}
+	}
+
+	// Create inherits edges: child class -> parent's methods.
+	var inheritEdges []types.Edge
+	seen := make(map[types.Hash]bool)
+
+	for _, e := range allEdges {
+		if e.EdgeType != "extends" {
+			continue
+		}
+		childHash := e.SourceHash
+
+		// Find parent class name from target hash.
+		parentName := targetHashToParent[e.TargetHash]
+		if parentName == "" {
+			// Target hash doesn't match any known class node.
+			// This is common for external base classes (Exception, object, etc.)
+			continue
+		}
+
+		parentInfo, ok := classByName[parentName]
+		if !ok || len(parentInfo.methods) == 0 {
+			continue
+		}
+
+		for _, methodHash := range parentInfo.methods {
+			edgeHash := types.ComputeEdgeHash(childHash, methodHash, "inherits", "ast_resolved")
+			if seen[edgeHash] {
+				continue
+			}
+			seen[edgeHash] = true
+			inheritEdges = append(inheritEdges, types.Edge{
+				EdgeHash:   edgeHash,
+				SourceHash: childHash,
+				TargetHash: methodHash,
+				EdgeType:   "inherits",
+				Confidence: 0.9,
+				Provenance: "ast_resolved",
+			})
+		}
+	}
+
+	return inheritEdges
+}
+
+// terminalName extracts the last dot-separated component of a qualified name.
+// "repo://path/file.py.ClassName.method" -> "method"
+// "repo://path/file.py.ClassName" -> "ClassName"
+func terminalName(qn string) string {
+	if idx := strings.LastIndex(qn, "."); idx >= 0 {
+		return qn[idx+1:]
+	}
+	return qn
 }
