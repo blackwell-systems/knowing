@@ -425,6 +425,169 @@ func TestJavaExtractor_EmptyFile(t *testing.T) {
 	}
 }
 
+func TestJavaExtractor_ImportResolution(t *testing.T) {
+	ext := NewJavaExtractor()
+	source := `package com.example.app;
+
+import com.example.service.UserService;
+import com.example.util.StringHelper;
+
+public class App {
+    public void run() {
+        UserService.findAll();
+        StringHelper.format("test");
+        localMethod();
+    }
+}
+`
+	opts := makeOpts("src/com/example/app/App.java", source)
+
+	result, err := ext.Extract(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Extract() error: %v", err)
+	}
+
+	callEdges := filterEdgesByType(result.Edges, "calls")
+	if len(callEdges) < 3 {
+		t.Fatalf("expected at least 3 call edges, got %d", len(callEdges))
+	}
+
+	// Track which edges we found and their provenance/confidence.
+	var foundUserService, foundStringHelper, foundLocalMethod bool
+	for _, e := range callEdges {
+		// Check edge provenance and confidence by looking at the target hash.
+		// UserService.findAll should be ast_resolved with 0.85.
+		if e.Provenance == "ast_resolved" && e.Confidence == 0.85 {
+			if e.CallSiteLine > 0 {
+				// This is one of the import-resolved edges.
+				if !foundUserService {
+					foundUserService = true
+				} else {
+					foundStringHelper = true
+				}
+			}
+		}
+		if e.Provenance == "ast_inferred" && e.Confidence == 0.7 {
+			if e.CallSiteLine > 0 && e.EdgeType == "calls" {
+				foundLocalMethod = true
+			}
+		}
+	}
+
+	// Verify import-resolved edges.
+	resolvedEdges := filterEdgesByProvenance(callEdges, "ast_resolved")
+	if len(resolvedEdges) < 2 {
+		t.Errorf("expected at least 2 ast_resolved call edges (UserService.findAll, StringHelper.format), got %d", len(resolvedEdges))
+		for _, e := range callEdges {
+			t.Logf("  edge: provenance=%s confidence=%v line=%d", e.Provenance, e.Confidence, e.CallSiteLine)
+		}
+	}
+	for _, e := range resolvedEdges {
+		if e.Confidence != 0.85 {
+			t.Errorf("ast_resolved edge has confidence %v, want 0.85", e.Confidence)
+		}
+	}
+
+	// Verify unresolved edges (localMethod should remain ast_inferred).
+	inferredCallEdges := filterEdgesByProvenance(callEdges, "ast_inferred")
+	if len(inferredCallEdges) < 1 {
+		t.Errorf("expected at least 1 ast_inferred call edge (localMethod), got %d", len(inferredCallEdges))
+	}
+	for _, e := range inferredCallEdges {
+		if e.Confidence != 0.7 {
+			t.Errorf("ast_inferred edge has confidence %v, want 0.7", e.Confidence)
+		}
+	}
+
+	_ = foundUserService
+	_ = foundStringHelper
+	_ = foundLocalMethod
+}
+
+func TestJavaExtractor_ImportResolution_Static(t *testing.T) {
+	ext := NewJavaExtractor()
+	source := `package com.example.app;
+
+import static com.example.util.MathHelper.calculate;
+
+public class App {
+    public void run() {
+        MathHelper.doWork();
+    }
+}
+`
+	opts := makeOpts("src/com/example/app/App.java", source)
+
+	result, err := ext.Extract(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Extract() error: %v", err)
+	}
+
+	callEdges := filterEdgesByType(result.Edges, "calls")
+	if len(callEdges) < 1 {
+		t.Fatalf("expected at least 1 call edge, got %d", len(callEdges))
+	}
+
+	// MathHelper should resolve through the static import map.
+	resolvedEdges := filterEdgesByProvenance(callEdges, "ast_resolved")
+	if len(resolvedEdges) < 1 {
+		t.Errorf("expected at least 1 ast_resolved call edge (MathHelper.doWork), got %d", len(resolvedEdges))
+		for _, e := range callEdges {
+			t.Logf("  edge: provenance=%s confidence=%v line=%d", e.Provenance, e.Confidence, e.CallSiteLine)
+		}
+	}
+	for _, e := range resolvedEdges {
+		if e.Confidence != 0.85 {
+			t.Errorf("ast_resolved edge has confidence %v, want 0.85", e.Confidence)
+		}
+	}
+}
+
+func TestJavaExtractor_ImportResolution_Wildcard(t *testing.T) {
+	ext := NewJavaExtractor()
+	source := `package com.example.app;
+
+import com.example.model.*;
+
+public class App {
+    public void run() {
+        User.create();
+    }
+}
+`
+	opts := makeOpts("src/com/example/app/App.java", source)
+
+	result, err := ext.Extract(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Extract() error: %v", err)
+	}
+
+	callEdges := filterEdgesByType(result.Edges, "calls")
+	if len(callEdges) < 1 {
+		t.Fatalf("expected at least 1 call edge, got %d", len(callEdges))
+	}
+
+	// Wildcard imports should NOT resolve; call edge should be ast_inferred.
+	resolvedEdges := filterEdgesByProvenance(callEdges, "ast_resolved")
+	if len(resolvedEdges) != 0 {
+		t.Errorf("expected 0 ast_resolved call edges for wildcard import, got %d", len(resolvedEdges))
+		for _, e := range resolvedEdges {
+			t.Logf("  resolved edge: provenance=%s confidence=%v line=%d", e.Provenance, e.Confidence, e.CallSiteLine)
+		}
+	}
+
+	// Should have ast_inferred edges.
+	inferredEdges := filterEdgesByProvenance(callEdges, "ast_inferred")
+	if len(inferredEdges) < 1 {
+		t.Errorf("expected at least 1 ast_inferred call edge (User.create), got %d", len(inferredEdges))
+	}
+	for _, e := range inferredEdges {
+		if e.Confidence != 0.7 {
+			t.Errorf("ast_inferred edge has confidence %v, want 0.7", e.Confidence)
+		}
+	}
+}
+
 // --- Helpers ---
 
 func filterNodesByKind(nodes []types.Node, kind string) []types.Node {
@@ -441,6 +604,16 @@ func filterEdgesByType(edges []types.Edge, edgeType string) []types.Edge {
 	var result []types.Edge
 	for _, e := range edges {
 		if e.EdgeType == edgeType {
+			result = append(result, e)
+		}
+	}
+	return result
+}
+
+func filterEdgesByProvenance(edges []types.Edge, provenance string) []types.Edge {
+	var result []types.Edge
+	for _, e := range edges {
+		if e.Provenance == provenance {
 			result = append(result, e)
 		}
 	}
