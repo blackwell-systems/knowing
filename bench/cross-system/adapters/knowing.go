@@ -5,6 +5,7 @@ import (
 
 	"github.com/blackwell-systems/knowing/bench/cross-system/benchtype"
 	"github.com/blackwell-systems/knowing/bench/cross-system/normalize"
+	"github.com/blackwell-systems/knowing/internal/community"
 	knowingctx "github.com/blackwell-systems/knowing/internal/context"
 	"github.com/blackwell-systems/knowing/internal/store"
 	"github.com/blackwell-systems/knowing/internal/types"
@@ -47,6 +48,55 @@ func (a *Knowing) Index(repoPath string) (int64, error) {
 	a.stores[repoPath] = s
 	// Initialize task memory for this repo (enables compounding across queries).
 	a.memories[repoPath] = knowingctx.NewTaskMemory(s.DB())
+
+	// Run community detection if not already computed. This enables
+	// community-aware RWR filtering in the retrieval pipeline.
+	ctx := stdctx.Background()
+	existing, _ := community.LoadAssignments(ctx, s)
+	if len(existing) == 0 {
+		if nodes, err := s.NodesByName(ctx, "%"); err == nil && len(nodes) > 0 {
+			nodeSet := make(map[types.Hash]bool, len(nodes))
+			nodeHashes := make([]types.Hash, len(nodes))
+			for i, n := range nodes {
+				nodeSet[n.NodeHash] = true
+				nodeHashes[i] = n.NodeHash
+			}
+			adj := make(map[types.Hash][]community.WeightedEdge, len(nodes))
+			edgeCount := 0
+			maxNodes := len(nodes)
+			if maxNodes > 5000 {
+				maxNodes = 5000
+			}
+			for i := 0; i < maxNodes; i++ {
+				edges, err := s.EdgesFrom(ctx, nodes[i].NodeHash, "")
+				if err != nil {
+					continue
+				}
+				for _, e := range edges {
+					if !nodeSet[e.TargetHash] {
+						continue
+					}
+					adj[nodes[i].NodeHash] = append(adj[nodes[i].NodeHash], community.WeightedEdge{
+						Target: e.TargetHash, Weight: e.Confidence,
+					})
+					adj[e.TargetHash] = append(adj[e.TargetHash], community.WeightedEdge{
+						Target: nodes[i].NodeHash, Weight: e.Confidence,
+					})
+					edgeCount++
+				}
+			}
+			g := &community.Graph{
+				Nodes:     nodeHashes,
+				Adj:       adj,
+				NodeSet:   nodeSet,
+				EdgeCount: edgeCount,
+			}
+			algo := community.Get(community.Default)
+			membership := algo.Detect(g)
+			_ = community.SaveAssignments(ctx, s, membership)
+		}
+	}
+
 	return time.Since(start).Milliseconds(), nil
 }
 
