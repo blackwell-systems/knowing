@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+#### Cross-File Import Resolution (Java, C#)
+- **Java**: `buildJavaImportMap` extracts `import com.pkg.Class` and `import static com.pkg.Class.method` declarations into a lookup map
+- **C#**: `buildCSharpImportMap` extracts `using Namespace.Sub` and `using static Namespace.Class` directives
+- Both resolve call targets through the import map when the object name matches an imported class (uppercase-first heuristic)
+- Resolved edges get provenance `ast_resolved` with confidence 0.85 (up from `ast_inferred` / 0.7)
+- Follows the established Rust pattern (`buildRustImportMap` / `resolveCallEdgeWithImports`)
+- Wildcard imports (`import com.pkg.*`) correctly skipped (cannot resolve individual names)
+- Completes cross-file import resolution for all 4 OOP languages: Python, TypeScript, Rust, Java, C#
+
 ### Changed
 
 #### Compound-First Keyword Extraction (Language-Aware Tiered Search)
