@@ -1,0 +1,15 @@
+id: vscode-hard-001
+repo: vscode
+tier: hard
+description: "Implement a keyboard shortcut conflict resolution system that detects collisions between user, extension, and default keybindings across all keyboard layouts"
+source: manual
+ground_truth:
+  - UserKeybindings.readUserKeybindings
+  - UserKeybindings.reload
+  - UserKeybindings.initialize
+  - KeybindingsJsonSchema.updateSchema
+  - ScanCodeKeyCodeMapper._encode
+  - ScanCodeCombo.getProducedChar
+  - isValidContributedKeyBinding
+tags: [workbench, keybindings, keyboard-layout, cross-module]
+notes: "Cross-module: keybindingService.ts, keyboardLayoutService.ts, and macLinuxKeyboardMapper.ts span browser and common layers"

@@ -1,0 +1,14 @@
+id: vscode-medium-007
+repo: vscode
+tier: medium
+description: "Add validation to the configuration service that prevents writing invalid JSON paths to settings files"
+source: manual
+ground_truth:
+  - ConfigurationEditing.write
+  - ConfigurationEditing.getEdits
+  - ConfigurationEditing.doWriteConfiguration
+  - ConfigurationInspectValue.value
+  - ConfigurationInspectValue.defaultValue
+  - doRemoveFromValueTree
+tags: [platform, configuration, validation]
+notes: "Cross-file: configurationService.ts editing logic depends on configurationModels.ts and configuration.ts"

@@ -1,0 +1,14 @@
+id: vscode-medium-008
+repo: vscode
+tier: medium
+description: "Optimize the editor view layer to batch DOM mutations when rendering many invalidated lines at once"
+source: manual
+ground_truth:
+  - ViewLayerRenderer.render
+  - ViewLayerRenderer._finishRendering
+  - ViewLayerRenderer._finishRenderingInvalidLines
+  - EditorRenderingCoordinator.scheduleCoordinatedRendering
+  - EditorRenderingCoordinator._scheduleRender
+  - Widget._prepareRenderWidget
+tags: [editor, rendering, performance, dom]
+notes: "Cross-file: viewLayer.ts renderer coordinates with view.ts scheduler and contentWidgets rendering"

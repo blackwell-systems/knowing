@@ -1,0 +1,14 @@
+id: vscode-hard-005
+repo: vscode
+tier: hard
+description: "Implement a dynamic theme contribution system where extensions can register and resolve colors and icons at runtime with proper inheritance and fallback chains"
+source: manual
+ground_truth:
+  - ColorRegistry.registerColor
+  - ColorRegistry.resolveDefaultColor
+  - ColorRegistry.getColors
+  - IconRegistry.registerIcon
+  - IconRegistry.getIcon
+  - IconRegistry.getIcons
+tags: [platform, theme, colors, icons, extensibility]
+notes: "Cross-module: colorUtils.ts and iconRegistry.ts in platform/theme provide the registration infrastructure used by all workbench components"

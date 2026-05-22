@@ -1,0 +1,14 @@
+id: vscode-medium-001
+repo: vscode
+tier: medium
+description: "Add an editor command that selects all occurrences of the current word and places cursors at each match"
+source: manual
+ground_truth:
+  - InsertCursorAtEndOfEachLineSelected
+  - InsertCursorAtEndOfEachLineSelected.getCursorsForSelection
+  - SelectionHighlighterState.findMatches
+  - announceCursorChange
+  - modelRangesContainSameText
+  - getValueInRange
+tags: [editor, multicursor, selection, commands]
+notes: "Cross-file: multicursor actions depend on selection state and cursor positioning utilities"

@@ -1,0 +1,16 @@
+id: vscode-hard-006
+repo: vscode
+tier: hard
+description: "Design a leak detection system for the event emitter infrastructure that tracks listener registration, monitors for leaks, and integrates with the disposable lifecycle"
+source: manual
+ground_truth:
+  - EventDeliveryQueuePrivate.enqueue
+  - EventDeliveryQueuePrivate.reset
+  - LeakageMonitor.check
+  - LeakageMonitor.dispose
+  - UniqueContainer.constructor
+  - forEachListener
+  - setParentOfDisposable
+  - setParentOfDisposables
+tags: [base, events, lifecycle, disposables, leak-detection]
+notes: "Cross-module: base/common/event.ts emitter internals connect to base/common/lifecycle.ts disposable tracking, foundational to the entire codebase"

@@ -1,0 +1,13 @@
+id: vscode-easy-002
+repo: vscode
+tier: easy
+description: "Add a new fold level action that collapses all regions deeper than N levels from the cursor position"
+source: manual
+ground_truth:
+  - FoldAction
+  - UnfoldAction
+  - FoldAllAction
+  - FoldLevelAction
+  - FoldLevelAction.getFoldingLevel
+tags: [editor, folding, commands]
+notes: "Single file contribution: all fold/unfold actions live in folding.ts"

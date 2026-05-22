@@ -1,0 +1,14 @@
+id: vscode-medium-005
+repo: vscode
+tier: medium
+description: "Fix a race condition where cursor commands execute out of order during rapid composition input"
+source: manual
+ground_truth:
+  - CommandExecutor.executeCommands
+  - CommandExecutor._getEditOperations
+  - CommandExecutor._innerExecuteCommands
+  - CursorModelState.equals
+  - CursorModelState.from
+  - AutoClosedAction.isValid
+tags: [editor, cursor, commands, composition]
+notes: "Cross-file: cursor.ts command execution interacts with model state tracking and auto-close"

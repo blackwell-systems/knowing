@@ -1,0 +1,13 @@
+id: vscode-easy-003
+repo: vscode
+tier: easy
+description: "Improve word highlighting to debounce re-rendering when the cursor moves rapidly between words"
+source: manual
+ground_truth:
+  - WordHighlighter._beginRenderDecorations
+  - WordHighlighter._getWord
+  - WordHighlighter._onPositionChanged
+  - WordHighlighter._removeAllDecorations
+  - TextualOccurenceRequest._compute
+tags: [editor, highlighting, performance]
+notes: "Single class focus: WordHighlighter manages decoration lifecycle in one file"

@@ -25,7 +25,9 @@ clone_repo() {
 }
 
 clone_repo kubernetes "https://github.com/kubernetes/kubernetes" "v1.30.0"
-clone_repo typescript "https://github.com/microsoft/TypeScript" "v5.5.4"
+# Note: "typescript" was replaced by "vscode" (the TS compiler uses an unusual
+# factory-function pattern that isn't representative of normal TS codebases)
+clone_repo vscode "https://github.com/microsoft/vscode" "1.90.0"
 clone_repo flask      "https://github.com/pallets/flask"        "3.1.0"
 clone_repo cargo      "https://github.com/rust-lang/cargo"      "0.82.0"
 clone_repo django     "https://github.com/django/django"        "5.1"

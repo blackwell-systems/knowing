@@ -1,0 +1,14 @@
+id: vscode-medium-003
+repo: vscode
+tier: medium
+description: "Fix code actions so they auto-trigger when diagnostics change but only for visible editor ranges"
+source: manual
+ground_truth:
+  - ManagedCodeActionSet.constructor
+  - ManagedCodeActionSet.hasAutoFix
+  - getCodeActionProviders
+  - CodeActionOracle._tryAutoTrigger
+  - CodeActionOracle._onMarkerChanges
+  - triggerCodeActionsForEditorSelection
+tags: [editor, code-actions, diagnostics]
+notes: "Cross-file: codeAction.ts, codeActionModel.ts, and codeActionCommands.ts coordinate the trigger flow"

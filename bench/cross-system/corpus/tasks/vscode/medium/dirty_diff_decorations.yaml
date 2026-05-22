@@ -1,0 +1,14 @@
+id: vscode-medium-004
+repo: vscode
+tier: medium
+description: "Improve the SCM dirty diff gutter to show inline change previews on hover for modified lines"
+source: manual
+ground_truth:
+  - DirtyDiffDecorator.createDecoration
+  - DirtyDiffDecorator.onDidChange
+  - DirtyDiffWidget.showChange
+  - DirtyDiffWidget.revealChange
+  - DiffActionRunner.runAction
+  - UIEditorAction.run
+tags: [workbench, scm, diff, decorations]
+notes: "Cross-file within scm/browser: decorators create gutter marks, widget displays change details"

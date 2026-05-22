@@ -48,7 +48,7 @@ func main() {
 
 	// Open all DBs.
 	dbs := map[string]*sql.DB{}
-	repos := []string{"flask", "django", "cargo", "kubernetes", "typescript"}
+	repos := []string{"flask", "django", "cargo", "kubernetes", "vscode"}
 	for _, repo := range repos {
 		dbPath := filepath.Join(corpusDir, "repos", repo, ".knowing", "graph.db")
 		db, err := sql.Open("sqlite", dbPath)

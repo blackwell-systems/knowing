@@ -1,0 +1,13 @@
+id: vscode-easy-004
+repo: vscode
+tier: easy
+description: "Fix a memory leak where editor decorations are not properly cleaned up when a model is disposed"
+source: manual
+ground_truth:
+  - DecorationsTrees.insert
+  - DecorationsTrees.delete
+  - DecorationsTrees.acceptReplace
+  - DecorationsTrees.getAllInInterval
+  - DidChangeDecorationsEmitter.fire
+tags: [editor, model, decorations, memory]
+notes: "DecorationsTrees is the internal data structure in textModel.ts managing interval-based decorations"

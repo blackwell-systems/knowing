@@ -1,0 +1,14 @@
+id: vscode-medium-002
+repo: vscode
+tier: medium
+description: "Extend the rename refactoring to show a preview diff before applying changes across multiple files"
+source: manual
+ground_truth:
+  - RenameController.run
+  - RenameController.acceptRenameInput
+  - RenameController.cancelRenameInput
+  - RenameSkeleton.resolveRenameLocation
+  - RenameSkeleton.provideRenameEdits
+  - InputWithButton.domNode
+tags: [editor, rename, refactoring, ui]
+notes: "Cross-file: rename.ts orchestrates between the controller, skeleton provider, and widget"

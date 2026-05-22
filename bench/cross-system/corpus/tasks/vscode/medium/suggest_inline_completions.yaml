@@ -1,0 +1,14 @@
+id: vscode-medium-006
+repo: vscode
+tier: medium
+description: "Integrate the suggest widget with inline completions so accepted suggestions also dismiss ghost text"
+source: manual
+ground_truth:
+  - SuggestInlineCompletion.constructor
+  - InlineCompletionResults.canBeReused
+  - UpdateRequest.satisfies
+  - UpdateOperation.dispose
+  - convertItemsToStableObservables
+  - renderLines
+tags: [editor, suggest, inline-completions, integration]
+notes: "Cross-file: suggest and inlineCompletions contributions share state through observable signals"

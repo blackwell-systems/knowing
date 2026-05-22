@@ -1,0 +1,16 @@
+id: vscode-hard-003
+repo: vscode
+tier: hard
+description: "Implement task reconnection that restores running terminal tasks after a remote connection drop, including variable resolution and profile matching"
+source: manual
+ground_truth:
+  - RemoteTerminalBackend.createProcess
+  - RemoteTerminalBackend.attachToProcess
+  - RemoteTerminalBackend.getDefaultSystemShell
+  - RemoteTerminalBackend.getProfiles
+  - VariableResolver.resolve
+  - VerifiedTask.verify
+  - TaskMap.add
+  - ProblemReporter.error
+tags: [workbench, terminal, tasks, remote, reconnection]
+notes: "Cross-module: terminal remoteTerminalBackend.ts + tasks terminalTaskSystem.ts + abstractTaskService.ts span two workbench contributions"

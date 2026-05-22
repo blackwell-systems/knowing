@@ -1,0 +1,14 @@
+id: vscode-hard-004
+repo: vscode
+tier: hard
+description: "Improve the diff algorithm to detect moved code blocks and present them as relocations rather than separate insertions and deletions"
+source: manual
+ground_truth:
+  - computeMovesFromSimpleDeletionsToSimpleInsertions
+  - joinCloseConsecutiveMoves
+  - areLinesSimilar
+  - joinSequenceDiffsByShifting
+  - shiftDiffToBetterPosition
+  - mergeSequenceDiffs
+tags: [editor, diff, algorithm, move-detection]
+notes: "Cross-module within editor/common/diff: computeMovedLines.ts and heuristicSequenceOptimizations.ts implement the multi-pass diff pipeline"

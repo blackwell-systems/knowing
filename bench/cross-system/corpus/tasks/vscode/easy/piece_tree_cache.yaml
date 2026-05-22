@@ -1,0 +1,13 @@
+id: vscode-easy-005
+repo: vscode
+tier: easy
+description: "Optimize the PieceTree search cache to evict stale entries when the document is heavily edited"
+source: manual
+ground_truth:
+  - PieceTreeSearchCache.get
+  - PieceTreeSearchCache.set
+  - PieceTreeSearchCache.validate
+  - PieceTreeSnapshot.read
+  - PieceTreeTextBufferFactory.create
+tags: [editor, text-buffer, performance, cache]
+notes: "PieceTree buffer internals: cache and snapshot are in pieceTreeBase.ts"

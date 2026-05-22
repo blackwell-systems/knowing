@@ -1,0 +1,15 @@
+id: vscode-hard-002
+repo: vscode
+tier: hard
+description: "Add a secure extension URL handler that validates trust, caches permissions, and routes deep links to the correct extension host process"
+source: manual
+ground_truth:
+  - ExtensionUrlHandler.handleURL
+  - ExtensionUrlHandler.registerExtensionHandler
+  - ExtensionUrlHandler.unregisterExtensionHandler
+  - BrowserExtensionHostFactory.createExtensionHost
+  - UserTrustedExtensionIdStorage.has
+  - UserTrustedExtensionIdStorage.add
+  - ActivationFeatureMarkdowneRenderer.render
+tags: [workbench, extensions, url-handling, security]
+notes: "Cross-module: extensionUrlHandler.ts, extensionService.ts, and abstractExtensionService.ts coordinate URL routing and trust"

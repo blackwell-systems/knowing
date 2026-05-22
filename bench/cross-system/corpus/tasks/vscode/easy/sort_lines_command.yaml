@@ -1,0 +1,13 @@
+id: vscode-easy-001
+repo: vscode
+tier: easy
+description: "Fix a bug where the sort lines command does not preserve original line endings when sorting"
+source: manual
+ground_truth:
+  - sortLines
+  - getSortData
+  - MoveLinesDownAction
+  - MoveLinesUpAction
+  - CopyLinesDownAction
+tags: [editor, lines-operations, commands]
+notes: "All symbols are in the linesOperations contribution; single file focus on sorting logic"
