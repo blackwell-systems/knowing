@@ -596,6 +596,7 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 			Confidence:         confidence,
 			LastObserved:       lastObserved,
 			DistanceFromTarget: distance,
+			IsTestFile:         isTestFilePath(node.QualifiedName),
 		})
 	}
 
@@ -639,6 +640,15 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 					inputs[i].FeedbackBoost += boost * 0.3 // scale down to avoid dominating
 				}
 			}
+		}
+	}
+
+	// If the task is about testing, don't penalize test file symbols.
+	// Detect by checking if task description contains test-related keywords.
+	taskIsAboutTesting := isTestRelatedTask(opts.TaskDescription)
+	if taskIsAboutTesting {
+		for i := range inputs {
+			inputs[i].IsTestFile = false
 		}
 	}
 
@@ -976,6 +986,7 @@ func (e *ContextEngine) ForPR(ctx stdctx.Context, opts PROptions) (*ContextBlock
 			Confidence:         confidence,
 			LastObserved:       lastObserved,
 			DistanceFromTarget: distance,
+			IsTestFile:         isTestFilePath(node.QualifiedName),
 		})
 	}
 
@@ -1347,6 +1358,45 @@ func isCommonShortName(name string) bool {
 		"DB": true, "IP": true, "IO": true,
 	}
 	return common[name]
+}
+
+// isTestRelatedTask returns true if the task description is about testing,
+// in which case test file symbols should NOT be penalized.
+func isTestRelatedTask(desc string) bool {
+	lower := strings.ToLower(desc)
+	testKeywords := []string{"test", "testing", "spec", "unit test", "integration test", "mock", "fixture", "assert"}
+	for _, kw := range testKeywords {
+		if strings.Contains(lower, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+// isTestFilePath detects whether a qualified name refers to a symbol in a test file.
+// Uses file path patterns (not symbol names) to avoid false positives on production
+// code that legitimately contains "test" in a name (e.g., TestConnection, contest).
+func isTestFilePath(qualifiedName string) bool {
+	lower := strings.ToLower(qualifiedName)
+	// Go test files.
+	if strings.Contains(lower, "_test.go") {
+		return true
+	}
+	// Python test files and directories.
+	if strings.Contains(lower, "/tests/") || strings.Contains(lower, "/test_") ||
+		strings.Contains(lower, "tests/test_") {
+		return true
+	}
+	// TypeScript/JavaScript test files and directories.
+	if strings.Contains(lower, ".test.") || strings.Contains(lower, ".spec.") ||
+		strings.Contains(lower, "/__tests__/") || strings.Contains(lower, "/test/") {
+		return true
+	}
+	// Rust test modules (tests/ directory at crate root).
+	if strings.Contains(lower, "/tests/") {
+		return true
+	}
+	return false
 }
 
 // rankedChannel is one retrieval channel's output with its RRF weight.

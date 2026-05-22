@@ -16,6 +16,7 @@ type ScoringInput struct {
 	DistanceFromTarget int     // hops from the task target symbol
 	FeedbackBoost      float64 // 0.0 = no feedback, >0 = positive signal (0.0-1.0)
 	SessionBoost       float64 // 0.0 = not seen this session, >0 = recently accessed (0.0-2.0)
+	IsTestFile         bool    // true if the symbol is from a test file (deprioritized unless task is about testing)
 }
 
 // RankSymbols scores each symbol by a weighted formula incorporating blast radius,
@@ -103,6 +104,14 @@ func RankSymbols(symbols []ScoringInput, hitsScores ...map[types.Hash]HITSScores
 			recency = recencyFromTimestamp(s.LastObserved) * 0.20
 			distance = (1.0 / (1.0 + float64(s.DistanceFromTarget))) * 0.15
 			total = blastRadius + confidence + recency + distance + feedback + session
+		}
+
+		// Test file penalty: deprioritize symbols from test files.
+		// Applied as a multiplicative factor so it doesn't completely eliminate
+		// test symbols (they can still rank high if they have strong signals),
+		// but pushes them below equally-scored production symbols.
+		if s.IsTestFile {
+			total *= 0.3
 		}
 
 		results = append(results, RankedSymbol{

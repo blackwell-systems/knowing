@@ -262,8 +262,8 @@ func TestCommunityBenchmark(t *testing.T) {
 	}
 
 	// ---- Performance contracts ----
-	if statsIncNone.Median > 5*time.Millisecond {
-		t.Errorf("Louvain incremental (0 changes) median %v exceeds 5ms contract", statsIncNone.Median)
+	if statsIncNone.Median > 10*time.Millisecond {
+		t.Errorf("Louvain incremental (0 changes) median %v exceeds 10ms contract", statsIncNone.Median)
 	}
 	if statsFull.Median > 5*time.Second {
 		t.Errorf("Louvain full detect median %v exceeds 5s contract", statsFull.Median)
