@@ -237,10 +237,39 @@ The `bench/feedback-loop/` benchmark independently proves that feedback compound
 
 **For real users:** Session memory persistence (shipping next) would deliver the compounded quality automatically. A developer who uses knowing daily compounds feedback; their effective P@10 trends toward 0.40+ over the first week.
 
+### Per-Tier and Per-Repo Breakdown (Run 14)
+
+| Repo | P@10 | Tasks | Notes |
+|------|------|-------|-------|
+| Django | 0.330 | 23 | Best: deep inheritance (14.5K propagated edges) |
+| Flask | 0.321 | 14 | Small, well-connected graph |
+| Cross-cutting | 0.200 | 12 | Multi-repo tasks |
+| Kubernetes | 0.184 | 19 | Large but flat (Go, few class hierarchies) |
+| Cargo | 0.123 | 13 | Rust module system, fewer edges |
+| TypeScript | 0.026 | 19 | Near-zero: graph sparsity in flat codebase |
+
+| Tier | P@10 | Tasks |
+|------|------|-------|
+| Hard | 0.231 | 32 |
+| Medium | 0.212 | 34 |
+| Easy | 0.141 | 22 |
+
+**Key findings:**
+
+1. **TypeScript drags the aggregate.** 16/19 TS tasks score P@10=0.00. Without TS, aggregate would be ~0.25. The TS compiler is a flat, loosely-connected codebase (72K nodes, mostly isolated functions). RWR can't reach target symbols because there aren't enough intermediate edges.
+
+2. **Django is the star.** Inheritance propagation pays off hugely (14.5K edges). Class hierarchies create dense connectivity that RWR exploits.
+
+3. **Hard > Easy is counterintuitive.** Hard tasks have more ground truth symbols (bigger target) and the graph's broad reach helps on cross-package queries.
+
+4. **TypeScript is the #1 improvement target.** Fixing TS extraction (deeper symbol extraction from large files, or smarter keyword seeding for flat codebases) would boost aggregate P@10 significantly.
+
+**RWR hub penalization:** Tested, no improvement. Noise symbols aren't reaching top-10 via high-degree hubs; they're legitimate graph neighbors that happen not to be in ground truth.
+
 **Next steps:**
-1. Session memory persistence (ship feedback compounding for real users)
-2. Consider v0.6.2 release with current gains
-3. RWR hub penalization tested: no improvement (noise symbols aren't reaching top-10 via hubs)
+1. TypeScript extraction improvement (extract more internal functions from large files)
+2. Session memory persistence (ship feedback compounding for real users)
+3. SWE-bench derived fixtures (publication-grade ground truth)
 
 ---
 
