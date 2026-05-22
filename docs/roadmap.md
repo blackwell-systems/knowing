@@ -102,7 +102,7 @@ Packages are already the unit of Merkle computation, cache invalidation, diffing
 | 6a | ~~**Phantom external node filtering**~~ | ~~External nodes from failed LSP enrichment dominated RWR results on repos with unresolved imports (Spark Java: 2282 externals, 63% of nodes).~~ **Shipped.** Filter at `filterNoisySymbols` (seed candidates) and RWR result loop (before scoring). Spark Java P@10 0.00->0.10. | Spark Java fixed | ~~P1~~ |
 | 7 | **More equivalence concepts (115 -> 150+)** | Graph-derived aliases help but are limited to the repo's own vocabulary. Need broader coverage of common patterns across ecosystems. | +1-2pp P@10 | Ongoing |
 | 8 | **Code-tuned embedding model** | BGE-small-en-v1.5 tested net-negative. A code-tuned model (CodeBERT, UniXcoder) might improve semantic matching between task descriptions and symbol names. | Unknown (needs evaluation) | Planned (optional) |
-| 9 | **Community-aware retrieval** | Constrain RWR walk to seed communities. Reduces noise from unrelated packages. | +1-3pp P@10 on large repos | Planned |
+| 9 | ~~**Community-aware retrieval**~~ | ~~Constrain RWR walk to seed communities. Reduces noise from unrelated packages.~~ **Shipped.** `CommunityFilteredRWR` constrains BFS to seed communities when candidates cluster in 1-3 communities. Falls back to unconstrained walk on diverse queries (4+ communities). Benchmark adapter runs Louvain on index. | Benchmark pending | ~~P2~~ |
 
 ## Edge Type Expansion
 
