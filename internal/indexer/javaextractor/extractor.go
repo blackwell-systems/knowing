@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode"
 
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/java"
@@ -79,6 +80,9 @@ func (e *JavaExtractor) Extract(ctx context.Context, opts types.ExtractOptions) 
 	// Extract Java package declaration from AST for proper qualified names.
 	pkgPath := extractJavaPackage(root, opts)
 
+	// Build Java import map for cross-file call resolution.
+	javaImports := buildJavaImportMap(root, opts)
+
 	var nodes []types.Node
 	var edges []types.Edge
 
@@ -88,7 +92,7 @@ func (e *JavaExtractor) Extract(ctx context.Context, opts types.ExtractOptions) 
 		child := root.Child(i)
 		switch child.Type() {
 		case "class_declaration":
-			cn, ce := extractClassDecl(child, opts, pkgPath, "")
+			cn, ce := extractClassDeclWithImports(child, opts, pkgPath, "", javaImports)
 			nodes = append(nodes, cn...)
 			edges = append(edges, ce...)
 
@@ -162,9 +166,163 @@ func extractJavaPackage(root *sitter.Node, opts types.ExtractOptions) string {
 	return opts.RepoURL + "/" + filepath.ToSlash(dir)
 }
 
+// buildJavaImportMap extracts all import declarations from a Java AST root and
+// builds a map from simple class/type names to their fully-qualified package path.
+// Handles: import com.pkg.Class (maps "Class" -> "com.pkg"),
+// import static com.pkg.Class.method (maps "Class" -> "com.pkg").
+// Wildcard imports (import com.pkg.*) are skipped (cannot resolve individual names).
+func buildJavaImportMap(root *sitter.Node, opts types.ExtractOptions) map[string]string {
+	imports := make(map[string]string)
+
+	for i := 0; i < int(root.ChildCount()); i++ {
+		child := root.Child(i)
+		if child == nil || child.Type() != "import_declaration" {
+			continue
+		}
+
+		text := strings.TrimSpace(child.Content(opts.Content))
+		text = strings.TrimPrefix(text, "import ")
+		isStatic := strings.HasPrefix(text, "static ")
+		text = strings.TrimPrefix(text, "static ")
+		text = strings.TrimSuffix(text, ";")
+		text = strings.TrimSpace(text)
+
+		if text == "" {
+			continue
+		}
+
+		// Skip wildcard imports (import com.example.model.*).
+		if strings.HasSuffix(text, ".*") {
+			continue
+		}
+
+		lastDot := strings.LastIndex(text, ".")
+		if lastDot < 0 {
+			continue
+		}
+
+		if isStatic {
+			// For static imports like "com.example.util.MathHelper.calculate",
+			// the last segment is the method name; we want the class name
+			// (second-to-last segment).
+			packagePath := text[:lastDot]
+			secondLastDot := strings.LastIndex(packagePath, ".")
+			if secondLastDot < 0 {
+				// Single-segment package with a class name: e.g., "MathHelper.calculate"
+				// className = packagePath, classPackage = ""
+				imports[packagePath] = ""
+				continue
+			}
+			className := packagePath[secondLastDot+1:]
+			classPackage := packagePath[:secondLastDot]
+			imports[className] = classPackage
+		} else {
+			// Regular import: "com.example.service.UserService"
+			simpleName := text[lastDot+1:]
+			packagePath := text[:lastDot]
+			imports[simpleName] = packagePath
+		}
+	}
+
+	return imports
+}
+
+// extractMethodInvocationWithImports creates a call edge for a method_invocation node,
+// using the import map to resolve cross-file targets. When the method_invocation has
+// an object field whose name matches an imported class (uppercase first letter heuristic),
+// resolves the target hash against the import's qualified path with provenance
+// "ast_resolved" and confidence 0.85.
+func extractMethodInvocationWithImports(node *sitter.Node, opts types.ExtractOptions, pkgPath string, sourceHash types.Hash, javaImports map[string]string) *types.Edge {
+	nameNode := node.ChildByFieldName("name")
+	if nameNode == nil {
+		return nil
+	}
+	methodName := nameNode.Content(opts.Content)
+
+	objectNode := node.ChildByFieldName("object")
+	targetName := methodName
+	targetBasePath := pkgPath
+	edgeProvenance := "ast_inferred"
+	edgeConfidence := 0.7
+
+	if objectNode != nil {
+		objectName := objectNode.Content(opts.Content)
+		targetName = objectName + "." + methodName
+
+		// Class reference heuristic: first character is uppercase.
+		if len(objectName) > 0 && unicode.IsUpper(rune(objectName[0])) {
+			if importPath, ok := javaImports[objectName]; ok {
+				targetBasePath = importPath
+				edgeProvenance = "ast_resolved"
+				edgeConfidence = 0.85
+			}
+		}
+	}
+
+	targetHash := types.ComputeNodeHash(opts.RepoURL, targetBasePath, types.EmptyHash, targetName, "method")
+	edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "calls", edgeProvenance)
+
+	return &types.Edge{
+		EdgeHash:     edgeHash,
+		SourceHash:   sourceHash,
+		TargetHash:   targetHash,
+		EdgeType:     "calls",
+		Confidence:   edgeConfidence,
+		Provenance:   edgeProvenance,
+		CallSiteLine: int(node.StartPoint().Row) + 1,
+		CallSiteCol:  int(node.StartPoint().Column),
+		CallSiteFile: opts.FilePath,
+	}
+}
+
+// extractCallEdgesWithImports recursively walks a node tree looking for method
+// invocations and object creation expressions, producing call edges with
+// import-aware resolution.
+func extractCallEdgesWithImports(node *sitter.Node, opts types.ExtractOptions, pkgPath string, sourceHash types.Hash, javaImports map[string]string) []types.Edge {
+	if node == nil {
+		return nil
+	}
+	var edges []types.Edge
+	walkForCallsWithImports(node, opts, pkgPath, sourceHash, javaImports, &edges)
+	return edges
+}
+
+// walkForCallsWithImports recursively visits nodes looking for call expressions,
+// using the import map to resolve cross-file targets.
+func walkForCallsWithImports(node *sitter.Node, opts types.ExtractOptions, pkgPath string, sourceHash types.Hash, javaImports map[string]string, edges *[]types.Edge) {
+	if node == nil {
+		return
+	}
+
+	switch node.Type() {
+	case "method_invocation":
+		edge := extractMethodInvocationWithImports(node, opts, pkgPath, sourceHash, javaImports)
+		if edge != nil {
+			*edges = append(*edges, *edge)
+		}
+
+	case "object_creation_expression":
+		edge := extractObjectCreation(node, opts, pkgPath, sourceHash)
+		if edge != nil {
+			*edges = append(*edges, *edge)
+		}
+	}
+
+	for i := 0; i < int(node.ChildCount()); i++ {
+		walkForCallsWithImports(node.Child(i), opts, pkgPath, sourceHash, javaImports, edges)
+	}
+}
+
 // extractClassDecl extracts a class declaration and its members (methods,
 // constructors). parentClass is non-empty for nested classes.
+// Delegates to extractClassDeclWithImports with a nil import map.
 func extractClassDecl(node *sitter.Node, opts types.ExtractOptions, pkgPath, parentClass string) ([]types.Node, []types.Edge) {
+	return extractClassDeclWithImports(node, opts, pkgPath, parentClass, nil)
+}
+
+// extractClassDeclWithImports extracts a class declaration and its members,
+// passing the Java import map through for cross-file call resolution.
+func extractClassDeclWithImports(node *sitter.Node, opts types.ExtractOptions, pkgPath, parentClass string, javaImports map[string]string) ([]types.Node, []types.Edge) {
 	var nodes []types.Node
 	var edges []types.Edge
 
@@ -209,18 +367,18 @@ func extractClassDecl(node *sitter.Node, opts types.ExtractOptions, pkgPath, par
 			member := body.Child(i)
 			switch member.Type() {
 			case "method_declaration":
-				mn, me := extractMethodDecl(member, opts, pkgPath, qualifiedClass, classRoutePrefix)
+				mn, me := extractMethodDeclWithImports(member, opts, pkgPath, qualifiedClass, classRoutePrefix, javaImports)
 				nodes = append(nodes, mn...)
 				edges = append(edges, me...)
 
 			case "constructor_declaration":
-				cn, ce := extractConstructorDecl(member, opts, pkgPath, qualifiedClass)
+				cn, ce := extractConstructorDeclWithImports(member, opts, pkgPath, qualifiedClass, javaImports)
 				nodes = append(nodes, cn...)
 				edges = append(edges, ce...)
 
 			case "class_declaration":
 				// Nested class.
-				nn, ne := extractClassDecl(member, opts, pkgPath, qualifiedClass)
+				nn, ne := extractClassDeclWithImports(member, opts, pkgPath, qualifiedClass, javaImports)
 				nodes = append(nodes, nn...)
 				edges = append(edges, ne...)
 			}
@@ -385,6 +543,109 @@ func extractConstructorDecl(node *sitter.Node, opts types.ExtractOptions, pkgPat
 	body := node.ChildByFieldName("body")
 	if body != nil {
 		callEdges := extractCallEdges(body, opts, pkgPath, nodeHash)
+		edges = append(edges, callEdges...)
+	}
+
+	return nodes, edges
+}
+
+// extractMethodDeclWithImports extracts a method declaration with import-aware
+// call edge resolution.
+func extractMethodDeclWithImports(node *sitter.Node, opts types.ExtractOptions, pkgPath, className, classRoutePrefix string, javaImports map[string]string) ([]types.Node, []types.Edge) {
+	var nodes []types.Node
+	var edges []types.Edge
+
+	nameNode := node.ChildByFieldName("name")
+	if nameNode == nil {
+		return nodes, edges
+	}
+	methodName := nameNode.Content(opts.Content)
+	line := int(nameNode.StartPoint().Row) + 1
+
+	qualifiedName := className + "." + methodName
+	kind := "method"
+
+	nodeHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, qualifiedName, kind)
+	nodes = append(nodes, types.Node{
+		NodeHash:      nodeHash,
+		FileHash:      opts.FileHash,
+		QualifiedName: fmt.Sprintf("%s://%s.%s", opts.RepoURL, pkgPath, qualifiedName),
+		Kind:          kind,
+		Line:          line,
+		Signature:     fmt.Sprintf("%s.%s()", className, methodName),
+	})
+
+	// Emit overrides edge if @Override annotation is present.
+	extractJavaOverrideEdge(node, opts, pkgPath, className, methodName, nodeHash, &edges)
+
+	// Emit decorates edges for annotations on this method.
+	extractJavaAnnotationEdges(node, opts, pkgPath, nodeHash, &edges)
+
+	// Check for Spring route annotations on this method.
+	routeAnnotation, httpMethod := extractSpringAnnotation(node, opts.Content)
+	if routeAnnotation != "" {
+		routePath := classRoutePrefix + routeAnnotation
+		routePattern := httpMethod + " " + routePath
+		routeNodeHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, routePattern, "route_handler")
+		nodes = append(nodes, types.Node{
+			NodeHash:      routeNodeHash,
+			FileHash:      opts.FileHash,
+			QualifiedName: fmt.Sprintf("%s://%s.%s", opts.RepoURL, pkgPath, routePattern),
+			Kind:          "route_handler",
+			Signature:     routePattern,
+		})
+
+		provenance := "ast_inferred"
+		edgeHash := types.ComputeEdgeHash(routeNodeHash, nodeHash, "handles_route", provenance)
+		edges = append(edges, types.Edge{
+			EdgeHash:   edgeHash,
+			SourceHash: routeNodeHash,
+			TargetHash: nodeHash,
+			EdgeType:   "handles_route",
+			Confidence: 0.7,
+			Provenance: provenance,
+		})
+	}
+
+	// Walk the method body for call edges with import resolution.
+	body := node.ChildByFieldName("body")
+	if body != nil {
+		callEdges := extractCallEdgesWithImports(body, opts, pkgPath, nodeHash, javaImports)
+		edges = append(edges, callEdges...)
+	}
+
+	return nodes, edges
+}
+
+// extractConstructorDeclWithImports extracts a constructor declaration with
+// import-aware call edge resolution.
+func extractConstructorDeclWithImports(node *sitter.Node, opts types.ExtractOptions, pkgPath, className string, javaImports map[string]string) ([]types.Node, []types.Edge) {
+	var nodes []types.Node
+	var edges []types.Edge
+
+	nameNode := node.ChildByFieldName("name")
+	if nameNode == nil {
+		return nodes, edges
+	}
+	line := int(nameNode.StartPoint().Row) + 1
+
+	qualifiedName := className + ".<init>"
+	kind := "method"
+
+	nodeHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, qualifiedName, kind)
+	nodes = append(nodes, types.Node{
+		NodeHash:      nodeHash,
+		FileHash:      opts.FileHash,
+		QualifiedName: fmt.Sprintf("%s://%s.%s", opts.RepoURL, pkgPath, qualifiedName),
+		Kind:          kind,
+		Line:          line,
+		Signature:     fmt.Sprintf("%s()", className),
+	})
+
+	// Walk the constructor body for call edges with import resolution.
+	body := node.ChildByFieldName("body")
+	if body != nil {
+		callEdges := extractCallEdgesWithImports(body, opts, pkgPath, nodeHash, javaImports)
 		edges = append(edges, callEdges...)
 	}
 
