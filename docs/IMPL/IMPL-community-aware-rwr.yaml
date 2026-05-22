@@ -461,5 +461,5 @@ pre_mortem:
             to seeds still receive probability. The 0.02 threshold in ForTask already
             gates what enters the scoring pipeline. If results are too few, the engine
             falls through to other retrieval paths (BM25, feedback).
-state: SCOUT_PENDING
+state: "REVIEWED"
 injection_method: hook
