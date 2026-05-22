@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -275,5 +276,156 @@ func TestNotes_IsolationBetweenObjects(t *testing.T) {
 	n2after, _ := s.GetNote(ctx, obj2, "shared_key")
 	if n2after == nil {
 		t.Error("obj2 note deleted when obj1 notes were purged")
+	}
+}
+
+func TestCommunitiesForNodes_Empty(t *testing.T) {
+	s := tempDB(t)
+	ctx := context.Background()
+
+	result, err := s.CommunitiesForNodes(ctx, nil)
+	if err != nil {
+		t.Fatalf("CommunitiesForNodes(nil): %v", err)
+	}
+	if result != nil {
+		t.Errorf("expected nil map for empty input, got %v", result)
+	}
+
+	result, err = s.CommunitiesForNodes(ctx, []types.Hash{})
+	if err != nil {
+		t.Fatalf("CommunitiesForNodes([]): %v", err)
+	}
+	if result != nil {
+		t.Errorf("expected nil map for empty slice, got %v", result)
+	}
+}
+
+func TestCommunitiesForNodes_Found(t *testing.T) {
+	s := tempDB(t)
+	ctx := context.Background()
+
+	// Insert 3 community_id notes.
+	hashes := make([]types.Hash, 3)
+	for i := range hashes {
+		hashes[i] = types.NewHash([]byte(fmt.Sprintf("comm-node-%d", i)))
+		if err := s.PutNote(ctx, types.Note{
+			ObjectHash: hashes[i],
+			Key:        "community_id",
+			Value:      fmt.Sprintf("%d", (i+1)*10),
+			UpdatedAt:  time.Now().Unix(),
+		}); err != nil {
+			t.Fatalf("PutNote(%d): %v", i, err)
+		}
+	}
+
+	// Query with those 3 plus an unknown hash.
+	unknown := types.NewHash([]byte("unknown-node"))
+	query := append(hashes, unknown)
+
+	result, err := s.CommunitiesForNodes(ctx, query)
+	if err != nil {
+		t.Fatalf("CommunitiesForNodes: %v", err)
+	}
+
+	if len(result) != 3 {
+		t.Fatalf("expected 3 entries, got %d: %v", len(result), result)
+	}
+
+	for i, h := range hashes {
+		want := (i + 1) * 10
+		got, ok := result[h]
+		if !ok {
+			t.Errorf("hash %d not found in result", i)
+			continue
+		}
+		if got != want {
+			t.Errorf("hash %d: community = %d, want %d", i, got, want)
+		}
+	}
+
+	if _, ok := result[unknown]; ok {
+		t.Error("unknown hash should not be in result")
+	}
+}
+
+func TestCommunitiesForNodes_LargeBatch(t *testing.T) {
+	s := tempDB(t)
+	ctx := context.Background()
+
+	const count = 150
+	hashes := make([]types.Hash, count)
+	for i := range hashes {
+		hashes[i] = types.NewHash([]byte(fmt.Sprintf("large-batch-node-%d", i)))
+		if err := s.PutNote(ctx, types.Note{
+			ObjectHash: hashes[i],
+			Key:        "community_id",
+			Value:      fmt.Sprintf("%d", i),
+			UpdatedAt:  time.Now().Unix(),
+		}); err != nil {
+			t.Fatalf("PutNote(%d): %v", i, err)
+		}
+	}
+
+	result, err := s.CommunitiesForNodes(ctx, hashes)
+	if err != nil {
+		t.Fatalf("CommunitiesForNodes: %v", err)
+	}
+
+	if len(result) != count {
+		t.Fatalf("expected %d entries, got %d", count, len(result))
+	}
+
+	for i, h := range hashes {
+		got, ok := result[h]
+		if !ok {
+			t.Errorf("hash %d not found in result", i)
+			continue
+		}
+		if got != i {
+			t.Errorf("hash %d: community = %d, want %d", i, got, i)
+		}
+	}
+}
+
+func TestCommunitiesForNodes_CorruptValue(t *testing.T) {
+	s := tempDB(t)
+	ctx := context.Background()
+
+	goodHash := types.NewHash([]byte("good-node"))
+	badHash := types.NewHash([]byte("corrupt-node"))
+
+	// Insert a valid community_id note.
+	if err := s.PutNote(ctx, types.Note{
+		ObjectHash: goodHash,
+		Key:        "community_id",
+		Value:      "42",
+		UpdatedAt:  time.Now().Unix(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Insert a corrupt (non-integer) community_id note.
+	if err := s.PutNote(ctx, types.Note{
+		ObjectHash: badHash,
+		Key:        "community_id",
+		Value:      "notanumber",
+		UpdatedAt:  time.Now().Unix(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := s.CommunitiesForNodes(ctx, []types.Hash{goodHash, badHash})
+	if err != nil {
+		t.Fatalf("CommunitiesForNodes: %v", err)
+	}
+
+	// Good hash should be present with correct value.
+	if got, ok := result[goodHash]; !ok || got != 42 {
+		t.Errorf("goodHash: got (%d, %v), want (42, true)", got, ok)
+	}
+
+	// Bad hash should be absent (skipped due to corrupt value).
+	if _, ok := result[badHash]; ok {
+		t.Error("corrupt value hash should not be in result")
 	}
 }

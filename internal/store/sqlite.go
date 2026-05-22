@@ -15,6 +15,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1547,6 +1548,68 @@ func (s *SQLiteStore) DeleteNotesByObject(ctx context.Context, objectHash types.
 		objectHash[:],
 	)
 	return err
+}
+
+// CommunitiesForNodes batch-retrieves community_id notes for the given hashes.
+// Returns a map from hash to community ID. Hashes without a community_id note
+// are omitted from the result.
+func (s *SQLiteStore) CommunitiesForNodes(ctx context.Context, hashes []types.Hash) (map[types.Hash]int, error) {
+	if len(hashes) == 0 {
+		return nil, nil
+	}
+
+	result := make(map[types.Hash]int, len(hashes))
+
+	// Chunk at 99 for consistency with BatchPutNodes pattern (SQLite variable
+	// limit is 999; each placeholder uses 1 variable, plus 1 for the key param).
+	const chunkSize = 99
+	for i := 0; i < len(hashes); i += chunkSize {
+		end := i + chunkSize
+		if end > len(hashes) {
+			end = len(hashes)
+		}
+		chunk := hashes[i:end]
+
+		// Build placeholder string: (?, ?, ...)
+		placeholders := make([]string, len(chunk))
+		args := make([]interface{}, 0, len(chunk)+1)
+		args = append(args, "community_id")
+		for j, h := range chunk {
+			placeholders[j] = "?"
+			args = append(args, h[:])
+		}
+
+		query := `SELECT object_hash, value FROM graph_notes WHERE key = ? AND object_hash IN (` +
+			strings.Join(placeholders, ",") + `)`
+
+		rows, err := s.db.QueryContext(ctx, query, args...)
+		if err != nil {
+			return nil, fmt.Errorf("CommunitiesForNodes chunk %d: %w", i/chunkSize, err)
+		}
+
+		for rows.Next() {
+			var hashBytes []byte
+			var value string
+			if err := rows.Scan(&hashBytes, &value); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("CommunitiesForNodes scan: %w", err)
+			}
+			commID, err := strconv.Atoi(value)
+			if err != nil {
+				// Skip non-integer values (corrupt data).
+				continue
+			}
+			var h types.Hash
+			copy(h[:], hashBytes)
+			result[h] = commID
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("CommunitiesForNodes rows: %w", err)
+		}
+	}
+
+	return result, nil
 }
 
 // scanNotes is a shared helper for scanning note rows.
