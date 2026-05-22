@@ -14,11 +14,15 @@ import (
 
 // Knowing implements benchtype.Adapter for knowing's context engine.
 type Knowing struct {
-	stores map[string]*store.SQLiteStore
+	stores  map[string]*store.SQLiteStore
+	memories map[string]*knowingctx.TaskMemory // per-repo task memory for compounding tests
 }
 
 func NewKnowing() *Knowing {
-	return &Knowing{stores: make(map[string]*store.SQLiteStore)}
+	return &Knowing{
+		stores:   make(map[string]*store.SQLiteStore),
+		memories: make(map[string]*knowingctx.TaskMemory),
+	}
 }
 
 func (a *Knowing) Name() string { return "knowing" }
@@ -31,6 +35,8 @@ func (a *Knowing) Index(repoPath string) (int64, error) {
 		return 0, err
 	}
 	a.stores[repoPath] = s
+	// Initialize task memory for this repo (enables compounding across queries).
+	a.memories[repoPath] = knowingctx.NewTaskMemory(s.DB())
 	return time.Since(start).Milliseconds(), nil
 }
 
@@ -44,6 +50,12 @@ func (a *Knowing) Retrieve(repoPath string, task benchtype.Task, tokenBudget int
 	start := time.Now()
 
 	engine := knowingctx.NewContextEngine(s)
+
+	// Attach task memory if available (enables compounding across queries).
+	if tm, ok := a.memories[repoPath]; ok && tm != nil {
+		engine.SetTaskMemory(tm)
+	}
+
 	result, err := engine.ForTask(ctx, knowingctx.TaskOptions{
 		TaskDescription: task.Description,
 		TokenBudget:     tokenBudget,
@@ -54,6 +66,20 @@ func (a *Knowing) Retrieve(repoPath string, task benchtype.Task, tokenBudget int
 	}
 
 	latency := time.Since(start).Milliseconds()
+
+	// Record top-5 returned symbols in task memory for future compounding.
+	if tm, ok := a.memories[repoPath]; ok && tm != nil && len(result.Symbols) > 0 {
+		normalizedKws := knowingctx.NormalizeKeywords(task.Description)
+		topN := 5
+		if len(result.Symbols) < topN {
+			topN = len(result.Symbols)
+		}
+		symbolHashes := make([]types.Hash, topN)
+		for i := 0; i < topN; i++ {
+			symbolHashes[i] = result.Symbols[i].Node.NodeHash
+		}
+		_ = tm.RecordBatch(ctx, normalizedKws, symbolHashes, 0.6)
+	}
 
 	symbols := make([]benchtype.RetrievedSymbol, len(result.Symbols))
 	for i, sym := range result.Symbols {

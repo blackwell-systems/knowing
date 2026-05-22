@@ -631,13 +631,19 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	}
 
 	// Apply task memory boosts: symbols useful for similar past tasks get priority.
+	// Memory recall returns scores on [0,1] scale (0.6 = returned before, 1.0 = explicit feedback).
+	// FeedbackBoost uses [0,1] where >0.5 = positive, <0.5 = negative.
+	// Set to 0.5 + (recall_score * 0.4) so memory always produces a positive boost
+	// (range [0.5, 0.9]) without overwhelming explicit feedback (which can reach 1.0).
 	if e.memory != nil && len(inputs) > 0 {
 		memoryBoosts, err := e.memory.Recall(ctx, keywords)
 		if err == nil && len(memoryBoosts) > 0 {
 			for i := range inputs {
 				if boost, ok := memoryBoosts[inputs[i].Node.NodeHash]; ok {
-					// Memory boosts add to feedback (same scoring channel, compounding).
-					inputs[i].FeedbackBoost += boost * 0.3 // scale down to avoid dominating
+					memoryScore := 0.5 + (boost * 0.4) // [0.5, 0.9] range (always positive)
+					if inputs[i].FeedbackBoost < memoryScore {
+						inputs[i].FeedbackBoost = memoryScore
+					}
 				}
 			}
 		}

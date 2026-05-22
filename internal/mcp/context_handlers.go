@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	knowingctx "github.com/blackwell-systems/knowing/internal/context"
+	"github.com/blackwell-systems/knowing/internal/types"
 	"github.com/blackwell-systems/knowing/internal/wire"
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -57,6 +58,23 @@ func (s *Server) handleContextForTask(ctx context.Context, req mcp.CallToolReque
 	// Track session metrics for the knowing://session resource.
 	s.contextCalls.Add(1)
 	s.symbolsServed.Add(int64(len(block.Symbols)))
+
+	// Passive task memory: record which symbols were returned for this task
+	// so future similar tasks get boosted. Uses top-5 symbols (most relevant)
+	// with a moderate score (0.6) since being returned is a weaker signal than
+	// explicit feedback (which uses 1.0 for useful, 0.0 for not useful).
+	if s.taskMemory != nil && len(block.Symbols) > 0 {
+		normalizedKws := knowingctx.NormalizeKeywords(taskDesc)
+		topN := 5
+		if len(block.Symbols) < topN {
+			topN = len(block.Symbols)
+		}
+		symbolHashes := make([]types.Hash, topN)
+		for i := 0; i < topN; i++ {
+			symbolHashes[i] = block.Symbols[i].Node.NodeHash
+		}
+		_ = s.taskMemory.RecordBatch(ctx, normalizedKws, symbolHashes, 0.6)
+	}
 
 	output, err := formatBlock(ctx, block, format, "context_for_task", s)
 	if err != nil {
