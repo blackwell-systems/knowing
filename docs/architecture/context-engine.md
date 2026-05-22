@@ -1,23 +1,24 @@
 # Context Engine
 
-The context packing subsystem (`internal/context/`) produces token-budgeted, graph-ranked context blocks for agent consumption. It answers: "given a task or a set of changed files, which symbols from the knowledge graph should an agent see?" Two entry points exist: task-based (keyword search from a description) and file-based (blast-radius expansion from changed files).
+The context packing subsystem (`internal/context/`) produces token-budgeted, graph-ranked context blocks for agent consumption. It answers: "given a task or a set of changed files, which symbols from the knowledge graph should an agent see?" Three entry points exist: task-based (`ForTask`, keyword search from a description), file-based (`ForFiles`, blast-radius expansion from changed files), and PR-based (`ForPR`, RWR from all symbols in changed files). A fourth entry point, `ExplainSymbol`, runs the full retrieval pipeline and returns a detailed scoring breakdown for a specific symbol.
 
 ## Architecture
 
 ```
 internal/context/
-├── context.go          ContextEngine: ForTask, ForFiles entry points, 4-channel RRF fusion, knapsack packing
+├── context.go          ContextEngine: ForTask, ForFiles, ForPR entry points, 4-channel RRF fusion, knapsack packing
+├── explain.go          ExplainSymbol: full pipeline + detailed scoring breakdown; tieredSearchSet (unified method)
 ├── equivalence.go      Equivalence class seed retrieval: 115 equivalence classes (63 universal + 21 knowing-specific + 31 language-specific) -> target symbols
 ├── universal_seeds.go  63 universal software concepts (weight 0.8), cross-repo retrieval
 ├── language_seeds.go   31 language-specific equivalence classes (Python, TS, Rust, Java, K8s)
 ├── graph_aliases.go    Auto-generated equivalence classes from caller/callee names (weight 0.7)
 ├── task_memory.go      Passive task memory: records top-5 symbols per call, 7-day decay recall
 ├── ranking.go          RankSymbols: weighted scoring formula with HITS authority + session boost
-├── hits.go             ComputeHITS: hub/authority scores for subgraph reranking
+├── hits.go             ComputeHITS: hub/authority scores for subgraph reranking (top 200 nodes, 10 iterations)
 ├── session.go          SessionTracker: exponential-decay recency boost for symbols accessed in-session
-├── walk.go             Random Walk with Restart (RWR) for graph proximity scoring (4-hop BFS depth limit)
-├── tokens.go           EstimateNodeTokens: per-symbol token cost estimation
-└── format.go           FormatContextBlock: XML, Markdown, JSON output
+├── walk.go             RandomWalkWithRestart (alpha=0.2, 20 iterations, 4-hop BFS adjacency preload)
+├── tokens.go           EstimateNodeTokens: per-symbol token cost estimation with format-aware scaling
+└── format.go           FormatContextBlock: XML, Markdown, JSON output (GCF/GCB/TOON via internal/wire/)
 ```
 
 ## Scoring Formula
@@ -62,12 +63,12 @@ Seed selection uses Reciprocal Rank Fusion (`rrfFuseMulti`) across four channels
 
 | Channel | Weight | Source |
 |---------|--------|--------|
-| 1. Tiered keyword matching | 2.0 | 5-tier exact/prefix/substring/path/interface matching |
+| 1. Tiered keyword matching | 2.0 | 4-tier compound-first: exact > prefix > substring > path (interface seeding is a separate post-RRF step) |
 | 2. BM25 FTS5 | 2.0 | SQLite FTS5 over symbol_name, concepts, qualified_name, signature, file_path |
 | 3. Vector/embedding search | 0.0 | BGE-small-en-v1.5 via HNSW (disabled pending code-tuned model) |
 | 4. Equivalence class matching | 2.0 | 115 equivalence classes (63 universal + 21 knowing-specific + 31 language-specific) mapped to target symbols |
 
-This replaces the previous approach of tiered matching with conditional BM25 fallback. The `rrfFuseMulti` function handles N channels with per-channel weights, producing a single ranked seed set.
+This replaces the previous approach of tiered matching with conditional BM25 fallback. The `rrfFuseMulti` function handles N channels with per-channel weights, producing a single ranked seed set. After RRF fusion, interface-aware seeding adds all implementors of any interface/type in the candidate set as additional seeds.
 
 ## Equivalence Class Seed Retrieval
 
@@ -85,7 +86,7 @@ The graph alias system (`internal/context/graph_aliases.go`) auto-generates equi
 
 ## Passive Task Memory
 
-Migration 008 creates the `task_memory` table (columns: keywords, symbol_hash, score, timestamp). The task memory system (`internal/context/task_memory.go`) records the top-5 symbols from each `context_for_task` call with a boost score of `0.5 + score * 0.4`. On subsequent calls, it matches keywords against stored entries with a 7-day linear decay. Matched symbols receive a boost added to the `FeedbackBoost` channel at 0.3x scale. Task memory persists across process restarts (stored in SQLite), so quality compounds with usage over time. This provides passive learning from agent behavior without requiring explicit feedback.
+Migration 008 creates the `task_memory` table (columns: keywords, symbol_hash, score, timestamp). The task memory system (`internal/context/task_memory.go`) records the top-5 symbols from each `context_for_task` call with a raw score of 1.0. On subsequent calls, it matches keywords against stored entries with a 7-day linear decay. At recall time, matched symbols are boosted via the formula `0.5 + recall_score * 0.4` (range [0.5, 0.9], always positive), applied as a max against existing `FeedbackBoost` so memory never overrides stronger explicit feedback signals. Task memory persists across process restarts (stored in SQLite), so quality compounds with usage over time. This provides passive learning from agent behavior without requiring explicit feedback.
 
 ## Merkleized Feedback Validity (v0.5.0)
 
@@ -112,37 +113,70 @@ Migration 007 adds a `doc` column to the nodes table. The Go tree-sitter extract
 ## Noise Filtering
 
 Before scoring, `filterNoisySymbols` removes low-signal candidates:
-- Symbols with mock, fake, or stub in the qualified name (case-insensitive).
-- Symbols whose file path contains `/build/` or `.bundle.` segments.
+- Phantom external nodes (kind "external" or qualified_name starting with "external://") created during LSP enrichment with no source code.
+- Symbols whose file path contains `/dist/`, `/build/`, `/vendor/`, `/node_modules/`, `.min.`, or `.bundle.` segments.
+- Test fixtures and helpers: `conftest.py`, `fixtures.py`, `/testutil`, `/testhelper`, `test_helper`.
+- Symbols whose type name (not terminal symbol name) contains mock, fake, or stub (case-insensitive), matching patterns like `mockStore.PutEdge`.
+- Symbols with very short terminal names (<=2 chars) that look minified, excluding known legitimate short names (`ID`, `OK`, `Go`, `Do`, `DB`, `IP`, `IO`).
 
 ## Test File Deprioritization
 
 After scoring, symbols from test files receive a 0.3x penalty via `isTestFilePath` in `internal/context/context.go`. Detection is path-based: `/tests/`, `_test.go`, `.test.ts`, `.spec.ts`, `/__tests__/`, and similar conventions. The penalty is conditional: it is removed when the task description mentions testing (e.g., "add a test for", "fix the failing test"). This avoids penalizing test symbols when the user is actively working on tests. Failure analysis showed 36% of top-10 misses were test symbols.
 
+## KeywordSet and extractKeywordSet
+
+`extractKeywordSet` processes a task description into a structured `KeywordSet` with three tiers:
+
+| Field | Source | Purpose |
+|-------|--------|---------|
+| `Exact` | Backtick-quoted identifiers (e.g., `` `before_request` ``) | Explicit symbol references; highest specificity |
+| `Compounds` | Multi-part identifiers detected by structure (snake_case, CamelCase, dotted), verb-pattern targets, and bigram joins from adjacent words | Preserve compound semantics; prevent component drowning |
+| `Components` | Individual words from identifier splitting, abbreviation expansions, priority terms | Fallback when compounds yield insufficient results |
+
+The `Primary()` method returns `Exact + Compounds`; `All()` returns all three tiers in priority order. `tieredSearchSet` queries primary keywords first through exact/prefix tiers, only falling back to components when fewer than 5 results are found from compounds.
+
+Bigram generation joins adjacent non-stop-words into both CamelCase and snake_case forms (e.g., "context engine" produces `ContextEngine` and `context_engine`), catching compound identifiers that the user wrote as separate words.
+
 ## ForTask Flow
 
-1. Extract keywords from the task description (stop-word filtered, CamelCase split, deduplicated).
-2. Recall task memory: match keywords against stored entries (7-day linear decay), add matched symbols to FeedbackBoost at 0.3x scale.
+1. Extract structured keywords via `extractKeywordSet` (backtick detection, stop-word filtering, CamelCase split, compound preservation, bigram generation).
+2. Check caches: first the in-memory SubgraphCache, then the persistent `notes` table (migration 012) keyed by task hash; return immediately if snapshot hash matches (staleness detection).
 3. Run 4-channel RRF seed fusion:
-   - Channel 1 (weight 2.0): 5-tier keyword matching (exact > prefix > substring > path > interface)
-   - Channel 2 (weight 2.0): BM25 FTS5 search
+   - Channel 1 (weight 2.0): 4-tier compound-first keyword matching (exact > prefix > substring > path)
+   - Channel 2 (weight 2.0): BM25 FTS5 search (compound identifiers targeted at symbol_name column)
    - Channel 3 (weight 0.0): Vector/embedding search (disabled)
    - Channel 4 (weight 2.0): Equivalence class matching (115 equivalence classes: 63 universal + 21 knowing-specific + 31 language-specific, plus graph-derived aliases at weight 0.7)
-4. `rrfFuseMulti` merges all channels into a single ranked seed set.
-5. Filter noisy symbols (mocks, stubs, fakes, build artifacts).
-6. For each candidate node, retrieve callers and callees (distance-0 and distance-1 neighborhood).
-7. Score all candidates via `RankSymbols` (including session boost).
-8. Run HITS on the top-200 candidates to compute authority/hub scores and boost rankings.
-9. Pack into token budget via density-ranked knapsack (score/cost ratio ordering).
-10. Record top-5 symbols to task memory for future recall.
-11. Format output as XML, Markdown, JSON, GCF, or GCB.
+4. `rrfFuseMulti` merges all channels into a single ranked seed set (k=60, limit=40).
+5. Interface-aware seeding: if any candidate is an interface/type, add all implementors as seeds.
+6. Filter noisy symbols (externals, mocks, fixtures, build artifacts, minified names).
+7. Run Random Walk with Restart (alpha=0.2, 20 iterations) from seed nodes; 4-hop BFS adjacency preload.
+8. Build scoring inputs from all nodes with RWR score >= 0.02 (phantom external nodes excluded).
+9. Apply feedback boosts (from FeedbackProvider with merkleized validity).
+10. Apply session boosts (from SessionTracker, 3-minute half-life, cap 2.0).
+11. Apply task memory boosts: recall matching keywords (7-day linear decay), boost formula `0.5 + recall_score * 0.4` (range [0.5, 0.9]), applied as max against existing FeedbackBoost.
+12. If task is about testing (detected by keyword), disable test file penalty.
+13. Run HITS on the top-200 candidates (10 iterations) to compute authority/hub scores.
+14. Score all candidates via `RankSymbols` (blast_radius, confidence, recency, distance, feedback, session, HITS adjustments).
+15. Pack into token budget via density-ranked knapsack (score/cost ratio ordering).
+16. Record returned symbols in session tracker; record top-5 symbols to task memory for future recall.
+17. Compute content-addressed PackRoot; persist to both in-memory SubgraphCache and persistent notes table (with snapshot hash for staleness detection).
+18. Format output as GCF, GCB, TOON, JSON, XML, or Markdown.
 
 ## ForFiles Flow
 
-1. Resolve each file path to a `File` record via `FileByPath`.
-2. Find all nodes in each file (by `FileHash` match).
-3. Expand the blast radius by one hop (all callers of each node).
-4. Score, HITS-rerank, and density-pack identically to ForTask.
+1. Resolve each file path to nodes via `NodesByFilePath` (using repo hash + relative path).
+2. For each node, retrieve all `calls` edges pointing to it (callers).
+3. Add callers as distance-1 candidates (one-hop blast radius expansion).
+4. Run HITS on top-200 candidates (10 iterations) for authority/hub differentiation.
+5. Score via `RankSymbols` and density-pack into token budget.
+
+## ForPR Flow
+
+1. Resolve all changed file paths to symbols via `NodesByFilePath` (these are the PR's direct changes, distance-0 seeds).
+2. Run Random Walk with Restart (alpha=0.2, 20 iterations) from all changed symbols to find the impact neighborhood.
+3. Build scoring inputs from all nodes with RWR score >= 0.05 (higher threshold than ForTask since PR context is broader).
+4. Run HITS on top-200 for authority/hub scoring.
+5. Score via `RankSymbols` and density-pack into token budget (default 8000 tokens).
 
 ## Content-Addressed Context Packs (Phase 2, Shipped)
 
@@ -211,4 +245,21 @@ Edge-type filtering: callers can scope the RWR walk by filtering edges before tr
 
 `EstimateNodeTokens` computes a rough token cost per symbol based on the length of the qualified name, signature, and kind. This is an approximation sufficient for budget enforcement without requiring a tokenizer dependency.
 
-`EstimateNodeTokensForFormat` (`internal/context/tokens.go`) extends this with format-aware scaling. GCF encoding costs approximately 16% of the equivalent JSON token count; GCB (binary) costs approximately 26%. The format parameter selects the scaling factor so that knapsack packing uses accurate budgets for the chosen output format.
+`EstimateNodeTokensForFormat` (`internal/context/tokens.go`) extends this with format-aware scaling:
+
+| Format | Token Cost (% of JSON) | Notes |
+|--------|----------------------|-------|
+| GCF | 16% | Local IDs and positional encoding; ~84% savings |
+| GCB | 26% | Binary wire format; LLM never sees it directly |
+| TOON | 40% | Token-Oriented Object Notation; tabular arrays (header + rows) |
+| JSON/XML/Markdown | 100% | Full text representation |
+
+The format parameter selects the scaling factor so that knapsack packing uses accurate budgets for the chosen output format.
+
+## Wire Format Routing
+
+Format rendering is split between two layers:
+- `internal/context/format.go`: handles XML, Markdown, JSON via `FormatContextBlock`.
+- `internal/wire/`: handles GCF, GCB, TOON, JSON (structured) via the codec registry. Routed through `formatBlock` in `internal/mcp/context_handlers.go`.
+
+GCF output uses `wire.EncodeWithSession` for cross-call deduplication (the MCP server's session state tracks previously sent symbols). GCB and JSON (structured) use `wire.EncodeWith`. TOON uses the `toon-format/toon-go` library for spec-conformant encoding (`internal/wire/toon.go`).
