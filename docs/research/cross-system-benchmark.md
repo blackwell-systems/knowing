@@ -4,6 +4,69 @@
 **Study overview:** [bench/CONTEXT-PACKING-STUDY.md](../../bench/CONTEXT-PACKING-STUDY.md)
 **Implementation:** [bench/cross-system/](../../bench/cross-system/)
 
+## Current Status (2026-05-21)
+
+### Implementation Progress
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| Benchmark harness | Done | `harness_test.go`, metrics, normalization, statistical tests |
+| Evaluation corpus (5 repos) | Done | kubernetes, VS Code, flask, cargo, django (replaced TypeScript compiler with VS Code) |
+| Task fixtures (107 total) | Done | 97 manual + 10 SWE-bench derived |
+| Ground truth validation | Done | 95% match rate, validate-fixtures tool |
+| knowing adapter | Done | P@10=0.230, d=0.92 (very large) |
+| grep adapter | Done | P@10=0.020 (baseline) |
+| Aider adapter | Not built | Highest priority: direct competitor, pip install |
+| GitNexus adapter | Not built | npm install, MCP tool interface |
+| CGC adapter | Not built | pip install, MCP tool interface |
+| SCIP adapter | Not built | Requires per-language SCIP index generation |
+| Statistical analysis | Done | Wilcoxon, Cohen's d, bootstrap CI, 18 runs |
+| SWE-bench integration | Done | 10 fixtures; finding: fault localization != context retrieval |
+| Round-2 compounding test | Done | No improvement (graph density prerequisite) |
+| Failure analysis | Done | 56% noise, 36% test symbols; RWR reach is bottleneck |
+
+### Key Results (18 runs)
+
+| System | P@10 | R@10 | NDCG@10 | MRR | vs grep |
+|--------|------|------|---------|-----|---------|
+| knowing | 0.230 | 0.284 | 0.336 | 0.383 | 11.5x |
+| grep | 0.020 | 0.035 | 0.037 | 0.072 | baseline |
+
+Statistical significance: p<0.0001, d=0.92 (very large effect on recall).
+
+### Per-Repo Performance
+
+| Repo | P@10 | Architecture | Inheritance edges |
+|------|------|-------------|-------------------|
+| Django | 0.330 | Deep class hierarchies | 14,539 |
+| Flask | 0.321 | Small, well-connected | 83 |
+| VS Code | ~0.25 | Classes, services, DI | 337 |
+| Kubernetes | 0.184 | Flat Go (no classes) | 0 |
+| Cargo | 0.123 | Rust modules | 0 |
+
+### Key Findings
+
+1. **RWR (graph traversal) is the primary differentiator**, not FTS/BM25
+2. **Inheritance propagation was the breakthrough** (+29% in one change)
+3. **Quality scales with graph density**: dense hierarchies (Django) >> flat codebases (Cargo)
+4. **FTS contributes minimally** because tiered search finds the same symbols
+5. **Feedback compounding requires graph connectivity** as a prerequisite
+6. **SWE-bench measures fault localization**, not context retrieval (different capability)
+7. **The TypeScript compiler was an outlier** (factory-function pattern); VS Code is representative
+
+### Remaining Work
+
+| Item | Priority | Effort | Impact |
+|------|----------|--------|--------|
+| Aider adapter | High | 1 day | Proves knowing > real competitor |
+| GitNexus adapter | Medium | 4 hours | Second competitor comparison |
+| CGC adapter | Medium | 4 hours | Third competitor comparison |
+| Blog post | High | 1 day | Public credibility |
+| SCIP adapter | Low | 2 days | Precision ceiling reference |
+| Java corpus | Low | 1 day | Validate Java extractor |
+
+---
+
 ## 1. Motivation
 
 AI coding agents spend 30-60% of their context window on orientation: finding
