@@ -19,6 +19,7 @@ func AllAdapters() []AvailableAdapter {
 		{Adapter: NewKnowing(), available: true}, // always available (it's us)
 		{Adapter: NewGrep(), available: hasCommand("rg")},
 		{Adapter: NewGitNexus(), available: hasCommand("gitnexus")},
+		{Adapter: NewGortex(), available: gortexAvailable()},
 		{Adapter: NewAider(), available: aiderAvailable()},
 		{Adapter: NewCGC(), available: hasCommand("cgc")},
 	}
@@ -48,6 +49,11 @@ func UnavailableNames() []string {
 
 func hasCommand(name string) bool {
 	_, err := exec.LookPath(name)
+	return err == nil
+}
+
+func gortexAvailable() bool {
+	_, err := exec.LookPath("/tmp/gortex/gortex")
 	return err == nil
 }
 

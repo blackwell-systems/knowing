@@ -18,7 +18,7 @@ This paper presents both contributions together: the original argument (content-
 
 ---
 
-## 1. Problem: Agents Need Trustworthy Software Relationship Graphs
+## 1. Agents Need Trustworthy Software Relationship Graphs
 
 AI agents are the most demanding consumer of software relationship intelligence. They operate under token-budgeted context windows, make multiple queries per task, and need confidence signals to prioritize information. They fail in predictable ways when the graph they consult is untrustworthy.
 
@@ -607,7 +607,7 @@ The properties described in this paper hold under specific conditions. This sect
 
 **Generated code, vendored dependencies, and monorepos need policy decisions.** The system must decide how to handle code that is not written by project authors. Including vendored dependencies inflates the graph and can produce spurious cross-repo identity conflicts. Excluding them requires explicit filtering. Monorepo layouts may not align cleanly with package boundaries, requiring canonicalization policy specific to the repository structure.
 
-**The benchmark comes from three live codebases plus synthetic tests.** The primary evaluation uses the knowing codebase (~84K LOC Go, ~24.9K edges, 62 packages). A scale validation uses Grafana (~500K LOC Go+TypeScript, 714K edges, 338K nodes, 15,921 files): context retrieval and hierarchical diff remain operational at 29x the primary codebase's scale. A portability validation uses Spring PetClinic (Java/Spring Boot, 47 source files, 5,522 nodes, 3,048 edges, 21 HTTP routes detected via Spring annotation extraction), confirming the hierarchical structure works across language ecosystems with different package granularity. Speedup ratios scale with edge count: 249x at 10K, 516x at 50K, 565x at 100K (synthetic, controlled parameters). Grafana's 714K edges confirms the system remains operational at production scale; per-operation benchmarks at that size are future work.
+**Benchmarks span multiple codebases and a competitive evaluation.** The Merkle diff benchmarks use the knowing codebase (~24.9K edges, 62 packages) and synthetic tests at 10K/50K/100K edges. A scale validation uses Grafana (~500K LOC, 714K edges, 338K nodes): diff and retrieval remain operational at 29x primary scale. A portability validation uses Spring PetClinic (Java/Spring Boot, 47 files, 5,522 nodes, 3,048 edges, 21 HTTP routes). The cross-system retrieval benchmark evaluates on five codebases (kubernetes 268K edges, VS Code 93K edges, Django 185K edges, Cargo 79K edges, Flask 9K edges) with 107 task fixtures and statistical testing against two competitors (GitNexus, CodeGraphContext) and a grep baseline. Competitive results: 2.75x more precise than GitNexus (p=0.0003), 193x faster indexing, and GitNexus cannot complete indexing on enterprise repos (>60 min on kubernetes).
 
 **The subgraph cache hit rate depends on agent query patterns.** Realistic sessions observed in development show approximately 20% subgraph cache hit rate; for exact repeated queries the rate reaches 60%. These numbers depend heavily on how agents are prompted and what tasks they perform. Different agent architectures or query strategies will produce different hit rates.
 
