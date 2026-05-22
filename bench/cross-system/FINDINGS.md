@@ -500,7 +500,15 @@ Installed Gortex (zzet/gortex v0.32.0), a Go-based code graph engine claiming 25
 
 Gortex extracts 23x more edges than knowing (6.3M vs 268K for kubernetes) because it indexes ALL files (16K vs 4.8K), includes clone detection, test edges, contract edges, and precomputed reachability indices.
 
-**Retrieval (manual flask test):** Comparable quality on small repos. Found `Scaffold.before_request` correctly but also returned test symbols (knowing deprioritizes these). Full benchmark could not complete because Gortex re-indexes on every `context` call (14 min per kubernetes task, no caching).
+**Retrieval quality (flask, 14 tasks):**
+
+| System | Flask P@10 |
+|--------|-----------|
+| knowing | **0.321** |
+| Gortex | 0.229 |
+| **knowing advantage** | **1.4x more precise** |
+
+Gortex returns relevant symbols (found `Scaffold.before_request` as #1) but mixes in test symbols heavily (9/10 results from test files on several tasks). knowing's test deprioritization gives it the edge. Gortex also re-indexes on every `context` call (no caching), making it impractical for the full 107-task benchmark.
 
 **Architecture comparison:**
 - Both: Go, parallel, tree-sitter, graph-based
