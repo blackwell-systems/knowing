@@ -1,0 +1,16 @@
+id: django-swe-007
+repo: django
+tier: medium
+description: 'Optimization: Multiple URLResolvers may be unintentionally be constructed
+  by calls to `django.urls.resolvers.get_resolver`'
+source: swe-bench
+source_ref: django__django-11333
+ground_truth:
+- __repr__
+- reverse
+- _get_cached_resolver
+tags:
+- swe-bench
+- verified
+- real-issue
+notes: 'From SWE-bench Verified. Modified files: django/urls/base.py, django/urls/resolvers.py'

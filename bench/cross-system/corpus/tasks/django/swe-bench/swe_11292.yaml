@@ -1,0 +1,16 @@
+id: django-swe-006
+repo: django
+tier: medium
+description: Add --skip-checks option to management commands.
+source: swe-bench
+source_ref: django__django-11292
+ground_truth:
+- create_parser
+- BaseCommand
+- DjangoHelpFormatter
+- execute
+tags:
+- swe-bench
+- verified
+- real-issue
+notes: 'From SWE-bench Verified. Modified files: django/core/management/base.py'

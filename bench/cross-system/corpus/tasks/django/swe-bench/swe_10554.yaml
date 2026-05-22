@@ -1,0 +1,16 @@
+id: django-swe-001
+repo: django
+tier: medium
+description: Union queryset with ordering breaks on ordering with derived querysets
+source: swe-bench
+source_ref: django__django-10554
+ground_truth:
+- add_select_col
+- get_order_by
+- clear_select_fields
+tags:
+- swe-bench
+- verified
+- real-issue
+notes: 'From SWE-bench Verified. Modified files: django/db/models/sql/compiler.py,
+  django/db/models/sql/query.py'

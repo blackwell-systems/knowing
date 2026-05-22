@@ -1,0 +1,17 @@
+id: django-swe-010
+repo: django
+tier: medium
+description: OuterRef in exclude() or ~Q() uses wrong model.
+source: swe-bench
+source_ref: django__django-11734
+ground_truth:
+- get_prep_value
+- get_db_prep_value
+- split_exclude
+- as_sql
+tags:
+- swe-bench
+- verified
+- real-issue
+notes: 'From SWE-bench Verified. Modified files: django/db/models/fields/__init__.py,
+  django/db/models/fields/related_lookups.py'

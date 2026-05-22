@@ -1,0 +1,16 @@
+id: django-swe-003
+repo: django
+tier: medium
+description: add ModelAdmin.get_inlines() hook to allow set inlines based on the request
+  or model instance.
+source: swe-bench
+source_ref: django__django-11095
+ground_truth:
+- __str__
+- get_inlines
+- get_fieldsets
+tags:
+- swe-bench
+- verified
+- real-issue
+notes: 'From SWE-bench Verified. Modified files: django/contrib/admin/options.py'

@@ -1,0 +1,16 @@
+id: django-swe-002
+repo: django
+tier: medium
+description: Optimize .delete() to use only required fields.
+source: swe-bench
+source_ref: django__django-11087
+ground_truth:
+- can_fast_delete
+- add_field_update
+- collect
+- _has_signal_listeners
+tags:
+- swe-bench
+- verified
+- real-issue
+notes: 'From SWE-bench Verified. Modified files: django/db/models/deletion.py'

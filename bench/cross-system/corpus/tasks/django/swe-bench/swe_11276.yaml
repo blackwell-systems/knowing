@@ -1,0 +1,17 @@
+id: django-swe-005
+repo: django
+tier: medium
+description: Use Python stdlib html.escape() to in django.utils.html.escape()
+source: swe-bench
+source_ref: django__django-11276
+ground_truth:
+- trim_punctuation
+- unescape
+- trim_url
+- is_email_simple
+- escape
+tags:
+- swe-bench
+- verified
+- real-issue
+notes: 'From SWE-bench Verified. Modified files: django/utils/html.py'

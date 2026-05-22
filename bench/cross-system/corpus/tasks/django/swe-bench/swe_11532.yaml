@@ -1,0 +1,19 @@
+id: django-swe-009
+repo: django
+tier: medium
+description: Email messages crash on non-ASCII domain when email encoding is non-unicode.
+source: swe-bench
+source_ref: django__django-11532
+ground_truth:
+- escape_uri_path
+- __call__
+- sanitize_address
+- unquote_quote
+- __str__
+- is_email_simple
+- punycode
+tags:
+- swe-bench
+- verified
+- real-issue
+notes: 'From SWE-bench Verified. Modified files: django/core/mail/message.py, django/core/mail/utils.py'
