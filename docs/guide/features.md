@@ -1,6 +1,6 @@
 # FEATURES.md -- Comprehensive Feature Dump for AI Reference
 
-Generated: 2026-05-15 (updated: 2026-05-21, features 77-110 added: hash domain prefixes, fsck, GC, lockfile, LRU cache, modular community detection, DiffOptions, indexed_at, verify, React viz, MCP resources, graph notes, Phase 3 complete, Merkle proofs, stats CLI, named refs, generation numbers, auto-GC, merkle-forest extraction; P2 edge types, parallel indexer, cross-system benchmark, language equivalence classes, cross-file import resolution, inheritance propagation, deeper call chains, test deprioritization; FTS concepts column, task memory persistence)
+Generated: 2026-05-15 (updated: 2026-05-22, features 77-112 added: hash domain prefixes, fsck, GC, lockfile, LRU cache, modular community detection, DiffOptions, indexed_at, verify, React viz, MCP resources, graph notes, Phase 3 complete, Merkle proofs, stats CLI, named refs, generation numbers, auto-GC, merkle-forest extraction; P2 edge types, parallel indexer, cross-system benchmark, language equivalence classes, cross-file import resolution, inheritance propagation, deeper call chains, test deprioritization; FTS concepts column, task memory persistence; compound-first keyword extraction, Java/C# import resolution)
 Source: code inspection of all Go files across internal/, cmd/, and config
 Repo: github.com/blackwell-systems/knowing
 
@@ -1168,6 +1168,20 @@ Repo: github.com/blackwell-systems/knowing
 - **Entry point:** `isTestFilePath(qualifiedName string) bool`
 - **What it does:** Applies a 0.3x score penalty to symbols from test files during ranking. Detection is path-based: `/tests/`, `_test.go`, `.test.ts`, `.spec.ts`, `/__tests__/`, and similar conventions. The penalty is removed when the task description mentions testing (conditional, not absolute). Avoids false positives on production code with "test" in legitimate names.
 - **Why it matters:** Failure analysis (Run 12) showed 36% of top-10 misses were test symbols crowding out production code. Deprioritization keeps test symbols available but ranks them below equally-scored production symbols.
+
+### 111. Compound-First Keyword Extraction
+
+- **Package(s):** `internal/context/`
+- **Entry point:** `KeywordSet` struct and `tieredSearchSet` method in `internal/context/context.go`
+- **What it does:** Replaces flat keyword lists with a structured `KeywordSet` containing three tiers: Exact (backtick-quoted identifiers from task descriptions, highest priority), Compounds (snake_case, CamelCase, dotted identifiers preserved whole), and Components (split words, lowest priority). The `tieredSearchSet` method queries compounds first and only falls back to components when fewer than 5 results are found. Backtick-quoted identifiers (e.g., `` `buildPythonImportMap` ``) bypass normal extraction and become Exact keywords, ensuring precise symbol targeting. This unified implementation replaces both the ForTask inline search and the ExplainSymbol method's separate logic, and fixes bm25Search to use `buildFTSQuery` everywhere.
+- **Results:** Flask P@10: 0.321 to 0.329.
+- **Why it matters:** Reduces noise from over-split identifiers. Previously, `route_handler` would match any symbol containing "route" or "handler"; now it first tries the compound `route_handler` and only splits if needed. Backtick quoting gives agents a way to request exact symbol lookups without ambiguity.
+
+### 112. Cross-File Import Resolution (Java, C#)
+
+- **Package(s):** `internal/indexer/javaextractor`, `internal/indexer/csharpextractor`
+- **What it does:** Extends cross-file import resolution to the remaining OOP languages. `buildJavaImportMap` handles `import com.pkg.Class` and `import static` declarations. `buildCSharpImportMap` handles `using Namespace` and `using static` declarations. Both resolve call targets through the import map with provenance `ast_resolved` / confidence 0.85. Completes import resolution for all 5 OOP languages (Python, TypeScript, Rust, Java, C#).
+- **Why it matters:** The cross-system benchmark corpus now includes Java (Spark) and C# (Ocelot) repos. Import resolution is required for RWR to traverse cross-file call edges in these languages. Without it, call targets are dangling hashes that never connect to definition nodes.
 
 ### GraphStore (`internal/types/interfaces.go`)
 

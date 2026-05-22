@@ -76,6 +76,27 @@ searchable terms. The pipeline:
    ensures that `HandleLogin` is matched before `Handle`, reducing noise from overly broad
    short terms.
 
+### KeywordSet: Three-Tier Priority System
+
+The extraction pipeline produces a `KeywordSet` struct rather than a flat list. The struct
+separates keywords into three priority tiers:
+
+| Tier | Contents | Example |
+|------|----------|---------|
+| **Exact** | Backtick-quoted identifiers from the task description | `` `buildPythonImportMap` `` |
+| **Compounds** | snake_case, CamelCase, and dotted identifiers preserved whole | `route_handler`, `HandleLogin`, `flask.app` |
+| **Components** | Split words from compound decomposition | `route`, `handler`, `handle`, `login` |
+
+Backtick-quoted identifiers bypass normal extraction entirely: they are not split, filtered,
+or expanded. They become Exact keywords with the highest search priority, giving agents a
+way to request specific symbol lookups without ambiguity.
+
+The `tieredSearchSet` method (which unified the ForTask inline search and the ExplainSymbol
+method's separate implementation) queries compounds first. It only falls back to components
+when the compound search produces fewer than 5 results. This prevents over-split identifiers
+from flooding the seed set with false matches. The BM25 path also benefits: `bm25Search` now
+uses `buildFTSQuery` everywhere (previously the ExplainSymbol path had its own query builder).
+
 ### Example
 
 Task: "add a new MCP tool for snapshot diffing"
@@ -84,6 +105,18 @@ After extraction: `["snapshot", "diffing", "tool", "mcp"]`
 
 Removed: "add" (action verb stop word), "a" (English stop word), "new" (programming stop
 word), "for" (English stop word).
+
+### Example (compound-first)
+
+Task: "fix the `buildPythonImportMap` to handle relative imports"
+
+KeywordSet produced:
+- Exact: `["buildPythonImportMap"]`
+- Compounds: `[]` (no unquoted compounds)
+- Components: `["relative", "imports", "handle"]`
+
+Search order: Exact first (direct symbol lookup), then compounds (none here), then
+components only if fewer than 5 results found.
 
 ## Random Walk with Restart
 

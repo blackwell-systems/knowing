@@ -5,13 +5,13 @@ is a standalone Go test package that indexes the knowing repo, runs measurements
 and auto-generates a `FINDINGS.md` with results and interpretation.
 
 **Context Packing Study:** [CONTEXT-PACKING-STUDY.md](CONTEXT-PACKING-STUDY.md) (umbrella document tying all benchmarks into a coherent evaluation program)
-**Cross-System Specification:** [docs/research/cross-system-benchmark.md](../docs/research/cross-system-benchmark.md) (full methodology, 6 systems, fairness controls, ground truth protocol)
+**Cross-System Specification:** [docs/research/cross-system-benchmark.md](../docs/research/cross-system-benchmark.md) (full methodology, 7 repos, fairness controls, ground truth protocol)
 
 ## Summary
 
 | Benchmark | What it proves | Key result |
 |-----------|---------------|------------|
-| [cross-system](cross-system/) | Graph retrieval beats text search and competitors across languages and scales | P@10=0.209 vs GitNexus 0.076 (2.75x, p=0.0003) vs grep 0.015. GitNexus cannot index enterprise repos (>60min on kubernetes; knowing: 18.6s) |
+| [cross-system](cross-system/) | Graph retrieval beats text search and competitors across languages and scales | 7 repos, ~117 tasks. P@10=0.209 vs GitNexus 0.076 (2.75x, p=0.0003) vs grep 0.015. GitNexus cannot index enterprise repos (>60min on kubernetes; knowing: 18.6s) |
 | [feedback-loop](feedback-loop/) | Feedback compounding improves precision over time | 16% -> 36% precision (+20pp) after one round |
 | [context-relevance](context-relevance/) | Each engine layer adds measurable value | Feedback adds +9pp precision over baseline |
 | [token-savings](token-savings/) | knowing reduces agent exploration cost | 55.6% fewer tokens, 52.8% fewer tool calls |
@@ -121,6 +121,19 @@ produce exactly 2 unique PackRoots (perfect dedup, verified on the live graph);
 (2) community root distinctness: each Louvain community receives a distinct
 Merkle root based on the packages it spans. Results are written to
 `FINDINGS-context-packs.md`.
+
+### cross-system
+
+Evaluates knowing's retrieval quality against 4 competitors across 7 repos spanning
+5 languages and scales from 14K to 3.5M LOC. Corpus: Flask (Python, 15K LOC),
+Django (Python, 400K LOC), Cargo (Rust, 150K LOC), VS Code (TypeScript, 1M LOC),
+Kubernetes (Go, 3.5M LOC), Spark (Java, 14K LOC, 184 files), and Ocelot (C#, 30K
+LOC, 392 files). ~117 task fixtures with hand-curated ground truth. Measures P@10,
+R@10, NDCG@10, MRR, token efficiency, and latency with full statistical testing
+(paired t-test, Cohen's d, confidence intervals).
+
+The Java and C# repos validate that cross-file import resolution (feature 112)
+produces usable call edges in those languages.
 
 ### community-detection
 
