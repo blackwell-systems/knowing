@@ -146,6 +146,7 @@ with the others.
 | 5 | 2026-05-21 | Full run, all repos indexed | 0.149 | +46% from Run 1, d=0.53 |
 | 6 | 2026-05-21 | FTS symbol_name column (migration 016) | ~0.166 | +11% from Run 5, d=0.62 |
 | 7 | 2026-05-21 | Corrected ground truth (95% achievable) | 0.141 | Honest baseline, d=0.51 |
+| 8 | 2026-05-21 | FTS fixed (was empty!) + tokenchars '_' | 0.147 | R@10 d=0.67, FTS now contributing |
 
 ## Next Steps (priority order)
 

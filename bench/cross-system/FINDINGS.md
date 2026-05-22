@@ -126,10 +126,28 @@ Revised all 100 fixtures: validated every ground truth symbol against actual DB 
 
 **Interpretation:** knowing is 7.8x better than grep with verified ground truth. 14.1% absolute precision means 86% of returned symbols don't match ground truth. This is the real number. Every improvement from here is genuine, not measurement artifact.
 
+### Run 8: FTS tokenchars '_' + synchronous FTS rebuild (2026-05-21)
+
+Two fixes: (1) FTS was never populated in CLI mode (background goroutine killed on process exit); (2) FTS5 tokenizer now treats underscore as a token character, so `before_request` is one token.
+
+| System | P@10 | R@10 | NDCG@10 | MRR | Token Eff | Latency |
+|--------|------|------|---------|-----|-----------|---------|
+| knowing | 0.147 | 0.198 | 0.213 | 0.239 | 0.0029 | 1603ms |
+| grep | 0.016 | 0.024 | 0.030 | 0.058 | 0.0012 | 453ms |
+
+**Pairwise (knowing vs grep):**
+- P@10: +0.131 (p<0.0001*, d=0.51, CI=[0.084, 0.182])
+- R@10: +0.174 (p<0.0001*, d=0.67, CI=[0.125, 0.226])
+- NDCG@10: +0.183 (p<0.0001*, d=0.47, CI=[0.114, 0.264])
+
+**Delta from Run 7:** P@10 +0.006 (0.141->0.147). R@10 effect size jumped to d=0.67 (was d=0.57). This is the first run where FTS actually contributed (was previously empty/broken). The latency increase (0ms -> 1603ms) confirms FTS queries now execute against populated indexes.
+
+**Critical bug found:** FTS was NEVER populated for CLI-indexed repos in ALL previous runs. Runs 1-7 measured retrieval quality WITHOUT any BM25 contribution. The engine ran on graph traversal (RWR + seeds) alone. P@10=0.14 was achieved without FTS.
+
 **Next steps:**
-1. Language-aware keyword extraction (detect snake_case/CamelCase in task descriptions, keep as single search terms)
-2. Cross-file import resolution for Python/TS (more call edges = better recall)
-3. Session memory persistence (feedback compounding)
+1. Cross-file import resolution for Python/TS (more call edges = better recall)
+2. Session memory persistence (feedback compounding)
+3. Investigate why FTS contributes so little despite being populated (P@10 +0.006 only)
 
 ---
 
