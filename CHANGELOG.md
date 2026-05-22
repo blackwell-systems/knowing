@@ -8,6 +8,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+#### Passive Task Memory Persistence (Session Compounding)
+- MCP server records top-5 returned symbols in `task_memory` table after each `context_for_task` call
+- Future queries with similar keywords recall stored symbols and boost them (0.5 + score * 0.4)
+- Persists across process restarts via SQLite (migration 008 `task_memory` table)
+- Fixed memory boost scoring: was producing negative boosts (score < 0.5 treated as penalty)
+- Real-user impact: quality compounds over time as the system learns which symbols matter for which tasks
+- Independent proof: `bench/feedback-loop/` shows +20pp precision after one feedback round
+
+#### FTS Concepts Column (File-Name Derived Vocabulary Bridging)
+- New `concepts` column in FTS index stores CamelCase-split tokens from file names and directories
+- "src/compiler/commandLineParser.ts" -> concepts "compiler command Line Parser commandLineParser"
+- BM25 weights: symbol_name=10x, concepts=5x, qualified_name=3x, signature=1x, file_path=1x
+- Migration 017 adds concepts column and recreates FTS virtual table
+- Bridges vocabulary gap where developers say "parser" but symbol is "parseOptionValue"
+
 #### Deeper Call Chain Extraction (Python)
 - Walk into call arguments to extract nested calls, callbacks, and lambda references
 - Previously: `map(process, items)` only extracted the `map` call, missing `process` as a target
