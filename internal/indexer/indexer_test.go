@@ -232,28 +232,46 @@ func (s *mockStore) DeleteNote(_ context.Context, _ types.Hash, _ string) error 
 func (s *mockStore) DeleteNotesByObject(_ context.Context, _ types.Hash) error  { return nil }
 
 // mockSnapshotComputer is a test double for SnapshotComputer.
+// It simulates real behavior: first call returns zero ParentHash (initial index),
+// subsequent calls return a non-zero ParentHash (re-index with parent chain).
 type mockSnapshotComputer struct {
-	snap *types.Snapshot
+	snap      *types.Snapshot
+	callCount int
+	lastHash  types.Hash
 }
 
 func (m *mockSnapshotComputer) ComputeSnapshot(_ context.Context, repoHash types.Hash, commitHash string) (*types.Snapshot, error) {
 	if m.snap != nil {
 		return m.snap, nil
 	}
-	return &types.Snapshot{
-		RepoHash:   repoHash,
-		CommitHash: commitHash,
-	}, nil
+	m.callCount++
+	s := &types.Snapshot{
+		RepoHash:     repoHash,
+		CommitHash:   commitHash,
+		SnapshotHash: types.NewHash([]byte(fmt.Sprintf("snap-%d", m.callCount))),
+	}
+	if m.callCount > 1 {
+		s.ParentHash = m.lastHash
+	}
+	m.lastHash = s.SnapshotHash
+	return s, nil
 }
 
 func (m *mockSnapshotComputer) ComputeSnapshotFromEdges(_ context.Context, repoHash types.Hash, commitHash string, _ []snapshot.EdgeInput, _ int) (*types.Snapshot, error) {
 	if m.snap != nil {
 		return m.snap, nil
 	}
-	return &types.Snapshot{
-		RepoHash:   repoHash,
-		CommitHash: commitHash,
-	}, nil
+	m.callCount++
+	s := &types.Snapshot{
+		RepoHash:     repoHash,
+		CommitHash:   commitHash,
+		SnapshotHash: types.NewHash([]byte(fmt.Sprintf("snap-%d", m.callCount))),
+	}
+	if m.callCount > 1 {
+		s.ParentHash = m.lastHash
+	}
+	m.lastHash = s.SnapshotHash
+	return s, nil
 }
 
 func TestExtractorRegistry_Register_FindsExtractor(t *testing.T) {

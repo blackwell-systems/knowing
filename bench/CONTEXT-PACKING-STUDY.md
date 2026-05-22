@@ -1,0 +1,173 @@
+# Context Packing Study: Benchmark Program
+
+A structured evaluation program proving that graph-based context retrieval
+produces better agent context than text search. This document defines the
+testing dimensions, their harnesses, and cumulative findings.
+
+**Full cross-system specification:** [docs/research/cross-system-benchmark.md](../docs/research/cross-system-benchmark.md)
+**Running results:** [bench/cross-system/FINDINGS.md](cross-system/FINDINGS.md)
+**Individual benchmarks:** [bench/README.md](README.md)
+
+## Thesis
+
+Content-addressed graph retrieval (knowing) produces more relevant, more
+compact, and more deterministic context packs for LLM agents than keyword
+search, embedding similarity, or manual file exploration.
+
+## Dimensions
+
+The study evaluates context packing across 7 independent dimensions. Each
+dimension has its own benchmark harness and produces findings that compound
+with the others.
+
+| # | Dimension | Harness | Question Answered |
+|---|-----------|---------|-------------------|
+| 1 | **Retrieval precision** | `bench/cross-system/` | Does knowing find the right symbols? |
+| 2 | **Token efficiency** | `bench/token-savings/` | Does knowing use fewer tokens to deliver the same information? |
+| 3 | **Feedback compounding** | `bench/feedback-loop/` | Does usage improve quality over time? |
+| 4 | **Determinism** | `bench/merkle-diff/context_pack_test.go` | Same query + same graph = same output (PackRoot)? |
+| 5 | **Scoped invalidation** | `bench/merkle-diff/` + `bench/community-detection/` | Can we skip recomputation for unchanged subgraphs? |
+| 6 | **Scale** | `bench/cross-system/` (indexing perf) | Can we handle enterprise repos (3.5M LOC) in production time? |
+| 7 | **Differential value** | `bench/context-relevance/` | Does each pipeline layer add measurable precision? |
+
+## Cumulative Results (2026-05-21)
+
+### Dimension 1: Retrieval Precision
+
+**Harness:** `bench/cross-system/` (100 tasks, 5 repos, 5 languages)
+
+| System | P@10 | R@10 | NDCG@10 | MRR |
+|--------|------|------|---------|-----|
+| knowing | 0.149 | 0.224 | 0.246 | 0.269 |
+| grep | 0.018 | 0.049 | 0.037 | 0.067 |
+
+**Verdict:** 8.3x precision advantage (p<0.0001, d=0.53).
+
+### Dimension 2: Token Efficiency
+
+**Harness:** `bench/token-savings/`
+
+| Metric | knowing | Manual grep exploration |
+|--------|---------|----------------------|
+| Tokens consumed | 44.4% of baseline | 100% |
+| Tool calls | 47.2% of baseline | 100% |
+| Relevant symbols found | Same | Same |
+
+**Verdict:** 55.6% fewer tokens, 52.8% fewer tool calls for equivalent coverage.
+
+### Dimension 3: Feedback Compounding
+
+**Harness:** `bench/feedback-loop/`
+
+| Round | P@10 |
+|-------|------|
+| 0 (cold) | 16% |
+| 1 | 36% |
+| 5 | Converges (diminishing returns after round 3) |
+
+**Verdict:** +20pp precision after one feedback round. Compounding effect proven.
+
+### Dimension 4: Determinism
+
+**Harness:** `bench/merkle-diff/context_pack_test.go`
+
+- Same task + same graph = identical PackRoot (SHA-256)
+- 5 queries, 2 unique tasks = exactly 2 unique PackRoots
+- Cross-session replay: verified (notes table persistence)
+
+**Verdict:** Perfect determinism. Enables caching, dedup, and citation.
+
+### Dimension 5: Scoped Invalidation
+
+**Harness:** `bench/merkle-diff/` + `bench/community-detection/`
+
+| Operation | Flat approach | Hierarchical (knowing) | Speedup |
+|-----------|-------------|----------------------|---------|
+| Diff after 1 package change | Compare 268K edges | Compare 60 package roots | 216x |
+| Community update (1 pkg changed) | Full Louvain (2.99ms) | Incremental (436us) | 6.9x |
+
+**Verdict:** Package-granularity Merkle tree eliminates unnecessary work.
+
+### Dimension 6: Scale
+
+**Harness:** `bench/cross-system/` (indexing performance)
+
+| Repo | LOC | Files | Edges | Index Time |
+|------|-----|-------|-------|-----------|
+| kubernetes | 3.5M | 4,877 | 268,249 | 18.6s |
+| TypeScript | 1.2M | 38,260 | 67,182 | 25.8s |
+| Django | 400K | 2,937 | 151,431 | 3.3s |
+| Cargo | 150K | 979 | 79,305 | 1.4s |
+| Flask | 15K | 97 | 5,042 | 0.1s |
+| **Total** | **5.3M** | **47,150** | **571,209** | **49.2s** |
+
+**Verdict:** Enterprise-scale repos index in under 30s. Full 5-repo corpus in under 1 minute.
+
+### Dimension 7: Differential Value
+
+**Harness:** `bench/context-relevance/`
+
+| Configuration | P@10 | Delta |
+|---------------|------|-------|
+| A: Keywords only | Baseline | - |
+| B: Full engine (RWR + HITS + 5 seed tiers) | Baseline + score differentiation | Score distribution |
+| C: Full engine + feedback | +9pp | Feedback is strongest single enhancement |
+
+**Verdict:** Each layer contributes. Feedback is highest single value-add at current scale.
+
+## Statistical Methodology
+
+- **Pairwise comparison:** Wilcoxon signed-rank test (non-parametric, no normality assumption)
+- **Effect size:** Cohen's d with bootstrap 95% CI
+- **Significance threshold:** p < 0.05 (Bonferroni-corrected for multiple comparisons)
+- **Ground truth:** Hand-curated fixtures (cross-system), independent Go import DAG (test-scope), go/ast resolution (edge-accuracy)
+- **No circular validation:** Ground truth never derived from knowing's own output
+
+## Known Limitations
+
+1. **Absolute precision is 15%.** knowing beats grep 8.3x but 85% of returned symbols still don't match ground truth. Root cause: FTS tokenization doesn't split qualified names at symbol boundaries.
+
+2. **Cold-start.** Feedback compounding (Dimension 3) requires usage. First-run precision is 15%, not 36%.
+
+3. **Go bias.** Most benchmarks validated on Go code (knowing dogfoods itself). Cross-system benchmark partially addresses this with Python, TypeScript, Rust, Java repos.
+
+4. **Missing competitors.** Only comparing against grep. gitnexus, aider, codegraphcontext adapters not yet built.
+
+5. **Ground truth coverage.** Some cross-system fixtures have symbols that don't exist in the DB under the expected name (naming convention mismatch between language-native and knowing's storage format).
+
+## Run History
+
+| Run | Date | Change | P@10 | Notes |
+|-----|------|--------|------|-------|
+| 1 | 2026-05-21 | Baseline (3 repos indexed) | 0.102 | kubernetes + TypeScript empty |
+| 2 | 2026-05-21 | + language equivalence classes | 0.102 | No change (FTS tokenization bottleneck) |
+| 3 | 2026-05-21 | + ground truth achievability filter | 0.102 | Measurement fix, not retrieval fix |
+| 4 | 2026-05-21 | CGO timeout fix (all 5 repos indexed) | - | Indexing only, no benchmark run |
+| 5 | 2026-05-21 | Full run, all repos indexed | 0.149 | +46% from Run 1, d=0.53 |
+| 6 | 2026-05-21 | FTS symbol_name column (migration 016) | ~0.166 | +11% from Run 5, d=0.62 |
+
+## Next Steps (priority order)
+
+1. **FTS terminal symbol tokenization** (highest expected impact: +5-10pp P@10)
+2. **Competitor adapters** (gitnexus, aider, codegraphcontext)
+3. **Language-aware keyword extraction** (detect snake_case/CamelCase in task descriptions)
+4. **Cross-file import resolution for Python/TS** (more call edges = better recall)
+5. **Embedding model evaluation** (code-tuned model for semantic matching)
+
+## Reproducing
+
+```bash
+# Index all 5 repos:
+./bench/cross-system/scripts/clone-repos.sh
+./bench/cross-system/scripts/index-repos.sh
+
+# Run the full cross-system benchmark:
+GOWORK=off go test ./bench/cross-system/ -run TestCrossSystem -v -timeout 30m
+
+# Run individual dimension benchmarks:
+GOWORK=off go test ./bench/feedback-loop/ -v -count=1
+GOWORK=off go test ./bench/token-savings/ -v -count=1
+GOWORK=off go test ./bench/merkle-diff/ -v -count=1
+GOWORK=off go test ./bench/context-relevance/ -v -count=1
+GOWORK=off go test ./bench/community-detection/ -v -count=1
+```

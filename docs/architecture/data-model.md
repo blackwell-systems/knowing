@@ -97,7 +97,7 @@ CREATE TABLE edges (
 );
 ```
 
-Edge types: `calls`, `imports`, `implements`, `references`, `handles_route`, `depends_on`, `deploys`, `exposes`, `configures`, `publishes`, `subscribes`, `connects_to`, `throws`, `extends`, `overrides`, `decorates`, `owned_by`, `runtime_calls`, `runtime_rpc`, `runtime_produces`, `runtime_consumes`.
+Edge types (30 total): `calls`, `imports`, `implements`, `references`, `handles_route`, `depends_on`, `deploys`, `exposes`, `configures`, `publishes`, `subscribes`, `connects_to`, `throws`, `extends`, `overrides`, `decorates`, `owned_by`, `tests`, `authored_by`, `documents`, `consumes_endpoint`, `implements_rpc`, `consumes_rpc`, `gated_by_flag`, `deployed_by`, `tested_by`, `runtime_calls`, `runtime_rpc`, `runtime_produces`, `runtime_consumes`.
 
 Provenance tiers: `ast_inferred` (0.7), `lsp_resolved` (0.9), `scip_resolved` (0.95), `ast_resolved` (1.0), `otel_trace` (0.2-0.95 based on observation count).
 
@@ -188,16 +188,18 @@ CREATE TABLE task_memory (
 
 ### nodes_fts
 
-FTS5 full-text index for BM25 search over symbol names and signatures.
+FTS5 full-text index for BM25 search over symbol names and signatures. BM25 weights: symbol_name=10x, qualified_name=3x, signature=1x, file_path=1x.
 
 ```sql
 CREATE VIRTUAL TABLE nodes_fts USING fts5(
-    node_hash, qualified_name, signature, file_path,
-    content=nodes_fts_content
+    symbol_name, qualified_name, signature, file_path,
+    content='nodes_fts_content',
+    content_rowid='rowid',
+    tokenize='unicode61 remove_diacritics 2'
 );
 ```
 
-`RebuildFTSForPackages` scopes rebuild to changed packages (2.9x faster than full rebuild).
+The `symbol_name` column (migration 016) stores the terminal identifier extracted by `extractSymbolName`, which strips repo URL, package path, and file extension prefix. `RebuildFTSForPackages` scopes rebuild to changed packages (2.9x faster than full rebuild).
 
 ## Merkle Tree (Computed, Not Stored)
 
@@ -238,8 +240,9 @@ When the tree needs to be larger than memory (lazy materialization), the roots a
 | 013 | add_edge_event_data.sql | source_hash, target_hash, edge_type, confidence, provenance on edge_events (removed-edge diffs) |
 | 014 | add_neighborhood_root.sql | neighborhood_root on feedback (merkleized expiration) |
 | 015 | snapshot_generation.sql | generation column on snapshots (O(1) ancestry checks) |
+| 016 | fts_symbol_name.sql | Adds symbol_name column to FTS content table; recreates FTS5 virtual table with 4 columns (symbol_name, qualified_name, signature, file_path) |
 
-Migrations run automatically on `NewSQLiteStore`. Each runs in its own transaction. Schema version is tracked in `schema_version` table (current version: 15). No rollback/down migrations.
+Migrations run automatically on `NewSQLiteStore`. Each runs in its own transaction. Schema version is tracked in `schema_version` table (current version: 16). No rollback/down migrations.
 
 ## Per-Repo Isolation
 
@@ -315,3 +318,16 @@ Non-interface methods on `SQLiteStore` (accessed via type assertion):
 - PRAGMA integrity_check: filesystem-level corruption detection built in.
 - Pure Go driver (modernc.org/sqlite): no CGo, cross-compiles to all platforms.
 - Fast enough: 98ms fsck on 7,224 nodes + 24,936 edges. 72us proof generation. 42ns cache lookup.
+
+### Performance Pragmas
+
+On connection open, `NewSQLiteStore` sets:
+
+| Pragma | Value | Rationale |
+|--------|-------|-----------|
+| `journal_mode` | WAL | Concurrent readers, no blocking on writes |
+| `synchronous` | NORMAL | Safe with WAL (fsync on checkpoint, not every commit) |
+| `mmap_size` | 256 MB | Memory-mapped I/O for read-heavy workloads |
+| `cache_size` | 64 MB (negative KB) | Large page cache for hot-path traversals |
+| `busy_timeout` | 5000 ms | Retry on lock contention instead of immediate SQLITE_BUSY |
+| `temp_store` | MEMORY | Temp tables and indexes kept in memory |

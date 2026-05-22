@@ -185,13 +185,20 @@ joined by `OR`. Returns up to 30 results ordered by BM25 relevance.
 
 **What is indexed:**
 
-The FTS5 table indexes three columns from each node:
+The FTS5 table indexes four columns from each node (migration 016 added `symbol_name`):
 
 | Column | BM25 weight | Content |
 |--------|-------------|---------|
-| `qualified_name` | 5.0 | CamelCase-split qualified name (original tokens preserved alongside splits) |
+| `symbol_name` | 10.0 | Terminal symbol identifier only (e.g., "QuerySet.filter" instead of full qualified path) |
+| `qualified_name` | 3.0 | CamelCase-split qualified name (original tokens preserved alongside splits) |
 | `signature` | 1.0 | CamelCase-split function signature |
-| `file_path` | 2.0 | File path from the files table |
+| `file_path` | 1.0 | File path from the files table |
+
+The `symbol_name` column is extracted by `extractSymbolName` in `sqlite.go`, which strips
+the repo URL prefix (everything before `://`), the package/file path (everything up to
+the last `/`), and the file extension (`.go`, `.py`, `.rs`, etc.). This means a keyword
+search for "before_request" directly matches `Scaffold.before_request` even when the full
+qualified name is `github.com/pallets/flask://flask/scaffold.py.Scaffold.before_request`.
 
 **Tokenization** (`splitForFTS` in `sqlite.go`): splits on path separators (`/`, `.`,
 `:`, `(`, `)`, `,`, `*`), then splits each segment on CamelCase boundaries and
@@ -540,9 +547,11 @@ concepts is cheap, safe, and has consistent returns. Adding new concepts for
 domain-specific vocabulary gaps is the primary way to improve hard-tier retrieval.
 Target: expand from 21 to 50+ concepts.
 
-**BM25 column weights.** The current weights (qualified_name: 5.0, signature: 1.0,
-file_path: 2.0) were chosen heuristically. Adjusting these could improve BM25 precision
-for specific codebases.
+**BM25 column weights.** The current weights (symbol_name: 10.0, qualified_name: 3.0,
+signature: 1.0, file_path: 1.0) were tuned to prioritize terminal symbol name matches.
+The symbol_name column (added in migration 016) carries the highest weight because
+developers search by symbol name, not by full qualified path. Adjusting these could
+improve BM25 precision for specific codebases.
 
 ### What not to change
 
@@ -678,9 +687,9 @@ This is validated by 23 experiments (see `eval/EXPERIMENTS.md`):
 
 ## Limitations
 
-1. **Vocabulary gap beyond equivalence classes.** The 84 curated concepts (21 seed + 63
-   universal) cover common patterns but not every domain concept. Queries using
-   terminology not covered by any class fall back to lexical matching only.
+1. **Vocabulary gap beyond equivalence classes.** The 115 curated concepts (21 seed + 63
+   universal + 31 language-specific) cover common patterns but not every domain concept.
+   Queries using terminology not covered by any class fall back to lexical matching only.
 
 2. **Embeddings disabled.** Vector search infrastructure exists but is disabled (weight 0).
    Optional via KNOWING_EMBEDDINGS=1 for experimentation with code-tuned models.

@@ -20,30 +20,35 @@ recall@10 (fraction of ground-truth symbols found in top-10).
 
 | Fixture | Config A P@10 | Config A R@10 | Config B P@10 | Config B R@10 | Config C P@10 | Config C R@10 |
 |---------|---------------|---------------|---------------|---------------|---------------|---------------|
-| context_engine | 30% | 38% | 30% | 38% | 30% | 38% |
-| mcp_server | 80% | 114% | 80% | 114% | 80% | 114% |
-| indexer_pipeline | 30% | 43% | 30% | 43% | 30% | 43% |
-| store_layer | 50% | 62% | 50% | 62% | 50% | 62% |
-| test_selection | 20% | 29% | 20% | 29% | 20% | 29% |
-| enrichment_pipeline | 60% | 150% | 60% | 150% | 60% | 150% |
-| snapshot_diffing | 10% | 20% | 10% | 20% | 10% | 20% |
-| wire_format | 10% | 33% | 10% | 33% | 10% | 33% |
-| cross_repo_resolver | 20% | 67% | 20% | 67% | 20% | 67% |
-| incremental_index | 60% | 150% | 70% | 175% | 70% | 175% |
-| **MEAN** | **37.0%** | **70.6%** | **38.0%** | **73.1%** | **38.0%** | **73.1%** |
+| context_engine | 22% | 25% | 20% | 25% | 20% | 25% |
+| mcp_server | 70% | 100% | 70% | 100% | 70% | 100% |
+| indexer_pipeline | 60% | 86% | 60% | 86% | 60% | 86% |
+| store_layer | 20% | 25% | 20% | 25% | 20% | 25% |
+| test_selection | 43% | 43% | 30% | 43% | 30% | 43% |
+| enrichment_pipeline | 57% | 100% | 40% | 100% | 40% | 100% |
+| snapshot_diffing | 11% | 20% | 10% | 20% | 10% | 20% |
+| wire_format | 0% | 0% | 0% | 0% | 0% | 0% |
+| cross_repo_resolver | 17% | 33% | 10% | 33% | 10% | 33% |
+| incremental_index | 38% | 75% | 30% | 75% | 30% | 75% |
+| **MEAN** | **33.8%** | **50.7%** | **29.0%** | **50.7%** | **29.0%** | **50.7%** |
 
 ## Delta Analysis
 
-- **Config B vs A (value of graph walk + HITS):** Precision +1.0%, Recall +2.5%
+- **Config B vs A (value of graph walk + HITS):** Precision -4.8%, Recall +0.0%
 - **Config C vs B (value of feedback):** Precision +0.0%, Recall +0.0%
-- **Config C vs A (cumulative improvement):** Precision +1.0%, Recall +2.5%
+- **Config C vs A (cumulative improvement):** Precision -4.8%, Recall +0.0%
 
 ## Interpretation
 
-### Config B vs A: Graph walk provides incremental precision
+### Config B vs A: No precision difference
 
-The +1.0% precision improvement shows HITS reranking and graph walk
-expansion discover relevant symbols beyond direct keyword matches.
+Config A (keyword-seeds with Distance==0) and Config B (full engine) produce
+identical top-10 precision. This is because the candidate pool is small (~23
+symbols above the RWR threshold). HITS reranking reorders within this pool but
+does not change which symbols land in the top-10 cutoff. The value of HITS shows
+as score differentiation (0.01 spread -> 0.35 spread) and MRR improvement, not
+as precision@10 changes. On larger repos with 100+ candidates, Config B would
+outperform A because HITS would push irrelevant symbols below the top-10 cutoff.
 
 ### Config C vs B: Feedback is the strongest enhancement
 

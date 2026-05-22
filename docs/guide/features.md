@@ -1,6 +1,6 @@
 # FEATURES.md -- Comprehensive Feature Dump for AI Reference
 
-Generated: 2026-05-15 (updated: 2026-05-19, features 77-106 added: hash domain prefixes, fsck, GC, lockfile, LRU cache, modular community detection, DiffOptions, indexed_at, verify, React viz, MCP resources, graph notes, Phase 3 complete, Merkle proofs, stats CLI, named refs, generation numbers, auto-GC, merkle-forest extraction)
+Generated: 2026-05-15 (updated: 2026-05-21, features 77-106 added: hash domain prefixes, fsck, GC, lockfile, LRU cache, modular community detection, DiffOptions, indexed_at, verify, React viz, MCP resources, graph notes, Phase 3 complete, Merkle proofs, stats CLI, named refs, generation numbers, auto-GC, merkle-forest extraction; P2 edge types, parallel indexer, cross-system benchmark, language equivalence classes)
 Source: code inspection of all Go files across internal/, cmd/, and config
 Repo: github.com/blackwell-systems/knowing
 
@@ -37,7 +37,7 @@ Repo: github.com/blackwell-systems/knowing
 
 - **Package(s):** `internal/store`
 - **Entry point:** `SQLiteStore.BatchPutNodes`, `BatchPutEdges`, `BatchPutFiles`
-- **What it does:** Inserts multiple records in a single transaction using prepared statements. Significantly faster than individual inserts for large index runs.
+- **What it does:** Inserts multiple records in a single transaction using multi-row INSERT statements. Each statement packs multiple rows to reduce per-row overhead: edges use 100 rows/statement (900 params), nodes use 99 rows/statement (990 params), files use 249 rows/statement (996 params). Chunk sizes are chosen to stay under SQLite's 999 variable limit.
 - **Inputs:** Slices of typed structs.
 - **Outputs:** Error on failure; transaction is rolled back.
 - **Limitations/known gaps:** Not part of the `GraphStore` interface; accessed via type assertion to `batchStore` interface in the indexer.
@@ -108,11 +108,11 @@ Repo: github.com/blackwell-systems/knowing
 ### 9. Worker Pool (Parallel Extraction)
 
 - **Package(s):** `internal/indexer`
-- **Entry point:** `parallelExtract(ctx, work []extractWork, numWorkers int) []extractResult`
-- **What it does:** Fan-out/fan-in worker pool. Distributes file extraction across `runtime.GOMAXPROCS` goroutines. Results stored in pre-sized array indexed by submission order (deterministic, no locks).
+- **Entry point:** `parallelExtract` in `internal/indexer/indexer.go`
+- **What it does:** Fan-out/fan-in worker pool. Distributes file extraction across `runtime.GOMAXPROCS` goroutines (default 8 workers via `--workers` flag). Results collected via a channel and stored in submission order. Each worker uses a CGO watchdog timeout: extraction runs in a fire-and-forget goroutine with a 10-second timer select. If a file's tree-sitter parse exceeds 10s (stuck in CGO, which is not interruptible by Go context cancellation), the watchdog fires, the worker moves on, and the stuck goroutine's result is discarded.
 - **Inputs:** Slice of `extractWork` items, number of workers.
 - **Outputs:** Slice of `extractResult` in submission order.
-- **Limitations/known gaps:** Only parallelizes AST extraction, not type-checking. Currently not used in the default `IndexRepo` path (sequential extraction is used).
+- **Limitations/known gaps:** Only parallelizes AST extraction, not type-checking. Stuck CGO goroutines are not reclaimed (they complete in the background and their results are discarded).
 - **Dependencies:** None.
 
 ### 10. Repository Indexer
@@ -737,10 +737,10 @@ Repo: github.com/blackwell-systems/knowing
 ### 56. BM25 Full-Text Search (FTS5 Index)
 
 - **Package(s):** `internal/store`
-- **Migration:** `006_add_fts5_index.sql`
-- **Entry point:** `RebuildFTS` in `internal/store/sqlite.go`
-- **What it does:** Creates an SQLite FTS5 virtual table (`nodes_fts`) over `qualified_name`, `signature`, and `file_path`. Uses CamelCase-aware tokenization (`splitForFTS`, `splitCamelCase`) so compound identifiers are searchable by individual terms. When the 5-tier keyword seeding produces fewer than 8 candidates, the context engine falls back to a BM25-ranked FTS query to broaden coverage. `RebuildFTS` is called after batch indexing to rebuild the FTS content.
-- **Why it matters:** Improves recall for vague or partial task descriptions where substring matching alone misses relevant symbols.
+- **Migrations:** `006_add_fts5_index.sql`, `016_fts_symbol_name.sql`
+- **Entry point:** `RebuildFTS`, `SearchBM25Nodes`, `extractSymbolName` in `internal/store/sqlite.go`
+- **What it does:** Creates an SQLite FTS5 virtual table (`nodes_fts`) over four columns: `symbol_name`, `qualified_name`, `signature`, and `file_path`. BM25 weights are: symbol_name=10x, qualified_name=3x, signature=1x, file_path=1x. The `symbol_name` column (migration 016) stores just the terminal identifier (e.g., "QuerySet.filter") extracted by `extractSymbolName`, which strips repo URL, package path, and file extension prefix. Uses CamelCase-aware tokenization (`splitForFTS`, `splitCamelCase`) so compound identifiers are searchable by individual terms. `RebuildFTS` is called after batch indexing to rebuild the FTS content.
+- **Why it matters:** Improves recall for vague or partial task descriptions where substring matching alone misses relevant symbols. The high-weight `symbol_name` column ensures keyword searches match by actual symbol name rather than incidental path tokens, which is critical for non-Go repos where qualified names embed file paths.
 
 ### 57. Session-Aware Retrieval Boosts
 
@@ -816,7 +816,7 @@ Repo: github.com/blackwell-systems/knowing
 
 - **Package(s):** `internal/context/`
 - **Entry point:** `universal_seeds.go` in `internal/context/`
-- **What it does:** Defines 63 universal software concepts (authentication, caching, config, database, HTTP, testing, concurrency, etc.) as equivalence classes with weight 0.8 (between seed weight 1.0 and graph-derived weight 0.7). These are domain-agnostic patterns that apply across any codebase, complementing the 21 hand-curated knowing-specific equivalence classes in `equivalence.go` (84 total).
+- **What it does:** Defines 63 universal software concepts (authentication, caching, config, database, HTTP, testing, concurrency, etc.) as equivalence classes with weight 0.8 (between seed weight 1.0 and graph-derived weight 0.7). These are domain-agnostic patterns that apply across any codebase, complementing the 21 hand-curated knowing-specific equivalence classes in `equivalence.go` and 31 language-specific classes in `language_seeds.go` (115 total).
 - **Why it matters:** Improves cross-repo retrieval accuracy. Cross-repo eval showed +6.7pp on the gortex benchmark (40% to 46.7%).
 
 ### 68. Graph-Derived Aliases
@@ -1345,7 +1345,7 @@ Parameters per tool:
 
 ### `knowing index`
 
-- **Flags:** `--db` (default: `~/.knowing/knowing.db`), `--url` (default: repo path), `--commit` (default: HEAD), `--full` (use go/packages instead of tree-sitter), `--workers` (default: 8, number of parallel extraction goroutines), `--skip-blame` (skip git blame authorship pass for faster structural-only index)
+- **Flags:** `--db` (default: `~/.knowing/knowing.db`), `--url` (default: repo path), `--commit` (default: HEAD), `--full` (use go/packages instead of tree-sitter), `--workers` (default: 8, number of parallel extraction goroutines), `--skip-blame` (skip git blame authorship pass for faster structural-only index), `--no-enrich` (skip LSP enrichment for structural-only indexing)
 - **Positional args:** repo-path (required)
 - **What it does:** Opens store, creates indexer, registers extractor (tree-sitter by default, go/packages if `--full`), indexes repo with parallel extraction (8-worker goroutine pool, progress output to stderr every 2s), prints stats, runs LSP enrichment synchronously (if not `--full`). Phase separation: walk -> parallel extract -> batch store -> authorship -> snapshot. On the knowing codebase (84K LOC, 429 files), completes in 1.8 seconds at 1,451 files/sec throughput.
 
@@ -1517,8 +1517,9 @@ Primary key: `(service_name, route_pattern, mapping_type)`.
 | 002 | 002_add_dangling_edge_support.sql | No-op (idx_edges_target from 001 already covers dangling queries) |
 | 003 | 003_add_callsite_columns.sql | Adds callsite_line, callsite_col, callsite_file to edges table |
 | 004 | 004_add_runtime_columns.sql | Adds observation_count and last_observed columns to edges table. Creates route_symbols table with composite PK (service_name, route_pattern, mapping_type). Adds idx_route_symbols_node, idx_edges_provenance, idx_edges_last_observed indexes. |
-| 006 | 006_add_fts5_index.sql | Creates FTS5 virtual table `nodes_fts` over qualified_name, signature, file_path for BM25 full-text search. |
+| 006 | 006_add_fts5_index.sql | Creates FTS5 virtual table `nodes_fts` over qualified_name, signature, file_path for BM25 full-text search (extended by migration 016). |
 | 007 | 007_add_doc_column.sql | Adds `doc` column to nodes table for storing extracted doc comments. |
+| 016 | 016_fts_symbol_name.sql | Adds `symbol_name` column to FTS content table. Stores terminal symbol identifier (stripped of repo URL, package path, file extension). Recreates FTS5 table with 4 columns: symbol_name, qualified_name, signature, file_path. |
 
 ---
 
@@ -1554,19 +1555,20 @@ Primary key: `(service_name, route_pattern, mapping_type)`.
 
 | Edge Type | Category | Status |
 |-----------|----------|--------|
-| `rpc_calls` | Protocol | NOT IMPLEMENTED |
-| `produces_event` | Protocol | NOT IMPLEMENTED |
-| `consumes_event` | Protocol | NOT IMPLEMENTED |
+| `rpc_calls` | Protocol | NOT IMPLEMENTED (see `implements_rpc`/`consumes_rpc` for gRPC) |
+| `produces_event` | Protocol | NOT IMPLEMENTED (see `publishes` for messaging) |
+| `consumes_event` | Protocol | NOT IMPLEMENTED (see `subscribes` for messaging) |
 | `reads_field` | Schema | NOT IMPLEMENTED |
 | `writes_field` | Schema | NOT IMPLEMENTED |
-| `declares_route` | Schema | NOT IMPLEMENTED |
-| `consumes_route` | Schema | NOT IMPLEMENTED |
-| `deploys` | Infrastructure | NOT IMPLEMENTED |
-| `connects_to` | Infrastructure | NOT IMPLEMENTED |
+| `declares_route` | Schema | NOT IMPLEMENTED (see `handles_route` for route handlers) |
+| `consumes_route` | Schema | NOT IMPLEMENTED (see `consumes_endpoint` for HTTP client calls) |
 | `depends_on_service` | Infrastructure | NOT IMPLEMENTED |
-| `owned_by_team` | Ownership | NOT IMPLEMENTED |
-| `owned_by_user` | Ownership | NOT IMPLEMENTED |
 | `runtime_queries` | Runtime | NOT IMPLEMENTED |
+
+**Previously listed here, now implemented:**
+- `deploys`: K8s YAML extractor (Service -> Deployment selector match)
+- `connects_to`: Cloud extractor (Docker Compose `depends_on` and shared networks)
+- `owned_by`: CODEOWNERS extractor (replaces planned `owned_by_team`/`owned_by_user`)
 
 ---
 

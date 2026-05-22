@@ -59,9 +59,9 @@ Each field serves a distinct purpose:
   stronger boost in the RRF fusion.
 - **Source**: Tracks provenance for debugging and potential future decay.
 
-## Three layers
+## Four layers
 
-The equivalence class system operates in three layers, each with different
+The equivalence class system operates in four layers, each with different
 confidence levels and generation methods.
 
 ### Layer 1: Seed classes (repo-specific, weight 1.0)
@@ -107,7 +107,24 @@ The cross-repo eval on gortex (an external Go codebase with no knowing-specific
 seeds) achieved 46.7% R@10 overall, with 60% on exact-match queries and 60% on
 multi-hop queries, demonstrating the value of universal classes.
 
-### Layer 3: Graph-derived aliases (auto-generated, weight 0.7)
+### Layer 3: Language-specific classes (multi-language, weight 0.8)
+
+Defined in `languageEquivalenceClasses()` in `internal/context/language_seeds.go`.
+These are 31 equivalence classes that bridge language-specific vocabulary:
+
+| Language | Example concepts |
+|----------|-----------------|
+| Python | `__init__`/constructor, `self`/`this`, `def`/`function`, Django/Flask patterns |
+| TypeScript | React hooks, Express/Fastify/Hono patterns, `interface`/`type` |
+| Rust | trait/impl, `Result`/`Option`, `unwrap`/`expect` |
+| Java | Spring annotations, `@Override`/`implements` |
+| Kubernetes | resource type aliases, `spec`/`template`/`containers` |
+
+Language-specific classes carry weight 0.8 (same as universal) because they are
+curated per-language mappings. They improve retrieval on non-Go repos by mapping
+language idioms to the qualified name patterns stored in the graph.
+
+### Layer 4: Graph-derived aliases (auto-generated, weight 0.7)
 
 Defined in `graphDerivedAliases()` in `internal/context/graph_aliases.go`.
 These are generated automatically from the graph structure at query time. For

@@ -2,6 +2,9 @@
 
 Tracking iterative improvements to retrieval quality.
 
+**Full specification:** [docs/research/cross-system-benchmark.md](../../docs/research/cross-system-benchmark.md)
+**Study overview:** [bench/CONTEXT-PACKING-STUDY.md](../CONTEXT-PACKING-STUDY.md)
+
 ## Run History
 
 ### Run 1: Baseline (2026-05-21, commit 9cc6f8d)
@@ -52,12 +55,62 @@ Added `conftest.py`, `test_helper`, `testutil` to the noisy symbol filter. Added
 - Multiple tasks score P@10 = 0.90 or 1.00 (cargo-hard-002, django-easy-003, django-medium-002)
 - Flask/Django tasks consistently score 0.10-0.40 P@10
 
-**Why kubernetes + typescript are empty:** The indexing processes were killed before the batch commit (knowing writes all data in a single transaction at the end). These need re-indexing with the new parallel binary.
+**Why kubernetes + typescript were empty:** The indexing processes hung because CGO-bound tree-sitter calls blocked the pipeline (context cancellation can't interrupt CGO). Fixed with watchdog goroutine pattern.
+
+### Run 4: All 5 repos indexed (2026-05-21, watchdog timeout fix)
+
+Re-indexed all repos after fixing the CGO timeout hang. All 5 repos now have populated indexes.
+
+**Indexing performance (--skip-blame --no-enrich --workers 8):**
+
+| Repo | Files | Nodes | Edges | Time | Timeouts |
+|------|-------|-------|-------|------|----------|
+| kubernetes | 4,877 | 117,401 | 268,249 | 18.6s | 4 (YAML templates) |
+| TypeScript | 38,260 | 88,393 | 67,182 | 25.8s | 1 (reallyLargeFile.ts) |
+| Django | 2,937 | 42,947 | 151,431 | 3.3s | 0 |
+| Cargo | 979 | 8,075 | 79,305 | 1.4s | 0 |
+| Flask | 97 | 1,658 | 5,042 | 0.1s | 0 |
+| **Total** | **47,150** | **258,474** | **571,209** | **49.2s** | 5 |
+
+**Fix:** Replaced `context.WithTimeout` (ineffective against CGO) with watchdog goroutine + timer select. Stuck extractions fire-and-forget in background; pipeline never blocks.
+
+### Run 5: Full benchmark with all 5 repos indexed (2026-05-21, post-optimization)
+
+All repos now indexed with parallel pipeline + watchdog timeout + multi-row INSERT + SQLite pragmas.
+
+| System | P@10 | R@10 | NDCG@10 | MRR | Token Eff | Latency |
+|--------|------|------|---------|-----|-----------|---------|
+| knowing | 0.149 | 0.224 | 0.246 | 0.269 | 0.0044 | 1ms |
+| grep | 0.018 | 0.049 | 0.037 | 0.067 | 0.0015 | 480ms |
+
+**Pairwise (knowing vs grep):**
+- P@10: +0.131 (p<0.0001*, d=0.53, CI=[0.085, 0.182])
+- R@10: +0.175 (p<0.0001*, d=0.58, CI=[0.117, 0.236])
+- NDCG@10: +0.209 (p<0.0001*, d=0.52, CI=[0.135, 0.291])
+- Token efficiency: +0.003 (p<0.0001*, d=0.33, CI=[0.001, 0.005])
+
+**Delta from Run 3:** P@10 +46% (0.102 -> 0.149), R@10 +95% (0.115 -> 0.224). Caused entirely by kubernetes and TypeScript repos now being indexed (were empty before, 44% of tasks scored zero).
+
+**Interpretation:** knowing is 8.3x better than grep on precision across all 100 tasks, 5 repos, 5 languages. Medium effect size (d=0.53). Absolute P@10 of 15% means room for improvement: FTS tokenization and terminal symbol matching remain the highest-leverage changes.
+
+### Run 6: FTS symbol_name column (2026-05-21, migration 016)
+
+Added dedicated `symbol_name` column to FTS index storing just the terminal identifier (e.g., "QuerySet.filter" instead of full qualified path). BM25 weights: symbol_name=10x, qualified_name=3x, signature=1x, file_path=1x.
+
+**Pairwise (knowing vs grep):**
+- P@10: +0.148 (p<0.0001*, d=0.62, CI=[0.103, 0.196])
+- R@10: +0.215 (p<0.0001*, d=0.66, CI=[0.152, 0.280])
+- NDCG@10: +0.248 (p<0.0001*, d=0.61, CI=[0.172, 0.333])
+- Token efficiency: +0.002 (p<0.0001*, d=0.27, CI=[0.000, 0.003])
+
+**Delta from Run 5:** Effect sizes improved across the board (d=0.53->0.62, 0.58->0.66, 0.52->0.61). All now in medium-large range. Absolute P@10 improved ~1.7pp (0.149 -> ~0.166).
+
+**Interpretation:** The symbol_name column helps BM25 rank terminal identifiers higher by eliminating path token dilution. Improvement is modest (+1.7pp) because the remaining bottleneck is ground truth naming: fixtures use language-native module paths (e.g., "flask.app.Flask.before_request") that don't exactly match knowing's storage format even after `extractSymbolName` stripping.
 
 **Next steps:**
-1. Re-index kubernetes and typescript with the new parallel binary
-2. Once all 5 repos are indexed, re-run for accurate aggregate numbers
-3. The actual per-task numbers on working repos are much stronger than 10% aggregate suggests
+1. Ground truth fixture revision (align names to what knowing actually stores)
+2. Language-aware keyword extraction (detect snake_case/CamelCase in task descriptions)
+3. Add competitor adapters (gitnexus, aider) for broader comparison
 
 ---
 

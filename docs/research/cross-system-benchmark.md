@@ -1,5 +1,9 @@
 # Cross-System Context Retrieval Benchmark
 
+**Running results:** [bench/cross-system/FINDINGS.md](../../bench/cross-system/FINDINGS.md)
+**Study overview:** [bench/CONTEXT-PACKING-STUDY.md](../../bench/CONTEXT-PACKING-STUDY.md)
+**Implementation:** [bench/cross-system/](../../bench/cross-system/)
+
 ## 1. Motivation
 
 AI coding agents spend 30-60% of their context window on orientation: finding

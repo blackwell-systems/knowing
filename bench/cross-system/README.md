@@ -2,6 +2,10 @@
 
 Rigorous comparison of context retrieval systems on identical tasks across 5 public repositories.
 
+**Full specification:** [docs/research/cross-system-benchmark.md](../../docs/research/cross-system-benchmark.md)
+**Running results:** [FINDINGS.md](FINDINGS.md)
+**Study overview:** [bench/CONTEXT-PACKING-STUDY.md](../CONTEXT-PACKING-STUDY.md)
+
 ## Quick Start
 
 ```bash

@@ -414,13 +414,33 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 					ModuleToRepoURL: moduleToRepo,
 				}
 
-				fileCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-				result, file, err := idx.extractFile(fileCtx, opts)
-				cancel()
-				if fileCtx.Err() == context.DeadlineExceeded {
+				// Run extraction with a hard timeout using a watchdog goroutine.
+				// CGO calls (tree-sitter parsing) are NOT interruptible by Go
+				// context cancellation. If a file takes >10s, the watchdog fires
+				// first and the worker moves on. The CGO call completes in the
+				// background (fire-and-forget) without blocking the pipeline.
+				type extractResult struct {
+					result *types.ExtractResult
+					file   *types.File
+					err    error
+				}
+				done := make(chan extractResult, 1)
+				go func(o types.ExtractOptions, relPath string) {
+					r, f, err := idx.extractFile(ctx, o)
+					done <- extractResult{result: r, file: f, err: err}
+				}(opts, fw.relPath)
+
+				timer := time.NewTimer(10 * time.Second)
+				select {
+				case er := <-done:
+					timer.Stop()
+					resultCh <- fileResult{result: er.result, file: er.file, err: er.err, relPath: fw.relPath}
+				case <-timer.C:
+					// Extraction stuck in CGO. Send empty result and move on.
+					// The background goroutine will complete eventually and its
+					// result will be discarded (nobody reads from done).
+					fmt.Fprintf(os.Stderr, "\n  ⚠ timeout: %s (skipped)\n", fw.relPath)
 					resultCh <- fileResult{result: &types.ExtractResult{}, relPath: fw.relPath}
-				} else {
-					resultCh <- fileResult{result: result, file: file, err: err, relPath: fw.relPath}
 				}
 			}
 		}()
@@ -519,6 +539,7 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 		return nil, storeErr
 	}
 
+	fmt.Fprintf(os.Stderr, "  CODEOWNERS...\n")
 	// Extract CODEOWNERS ownership edges if a CODEOWNERS file exists.
 	if coPath := ownership.FindCodeowners(repoPath); coPath != "" {
 		rules, err := ownership.ParseCodeowners(coPath)
@@ -625,39 +646,38 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 	}
 
 	// Build edge inputs from in-memory edges (skip DB re-read).
-	edgeInputs := make([]snapshot.EdgeInput, 0, len(allEdges))
-	for _, e := range allEdges {
-		// Need package path for each edge. Extract from source node's qualified name
-		// if available, or use a lookup.
-		pkgPath := ""
-		edgeInputs = append(edgeInputs, snapshot.EdgeInput{
-			EdgeHash:    e.EdgeHash,
-			PackagePath: pkgPath, // filled below
-			EdgeType:    e.EdgeType,
-		})
-	}
+	fmt.Fprintf(os.Stderr, "  Building edge inputs (%d edges, %d nodes)...\n", len(allEdges), len(allNodes))
+	buildStart := time.Now()
 
-	// Fill package paths from allNodes (group by file → package).
-	// Build a source-hash-to-package map from stored nodes.
+	// Build a source-hash-to-package map from allNodes.
 	sourcePackage := make(map[types.Hash]string, len(allNodes))
 	for _, n := range allNodes {
-		// Extract package from qualified name: "repoURL://pkg/path.Symbol" → "pkg/path"
 		if qn := n.QualifiedName; qn != "" {
 			pkgPath, _ := snapshot.ExtractPackagePath(qn)
 			sourcePackage[n.NodeHash] = pkgPath
 		}
 	}
-	for i := range edgeInputs {
-		if pkg, ok := sourcePackage[allEdges[i].SourceHash]; ok && pkg != "" {
-			edgeInputs[i].PackagePath = pkg
-		} else {
-			edgeInputs[i].PackagePath = "_unknown"
+	fmt.Fprintf(os.Stderr, "  Package map built in %s (%d entries)\n", time.Since(buildStart).Truncate(time.Millisecond), len(sourcePackage))
+
+	edgeInputs := make([]snapshot.EdgeInput, len(allEdges))
+	for i, e := range allEdges {
+		pkg := sourcePackage[e.SourceHash]
+		if pkg == "" {
+			pkg = "_unknown"
+		}
+		edgeInputs[i] = snapshot.EdgeInput{
+			EdgeHash:    e.EdgeHash,
+			PackagePath: pkg,
+			EdgeType:    e.EdgeType,
 		}
 	}
+	fmt.Fprintf(os.Stderr, "  Edge inputs ready in %s\n", time.Since(buildStart).Truncate(time.Millisecond))
 
 	// Compute snapshot from in-memory edges (no DB re-read).
+	snapStart := time.Now()
 	snap, snapErr := idx.snapshot.ComputeSnapshotFromEdges(ctx, repoHash, commitHash, edgeInputs, len(allNodes))
-	fmt.Fprintf(os.Stderr, "  Snapshot computed in %s\n", time.Since(finalStart).Truncate(time.Millisecond))
+	fmt.Fprintf(os.Stderr, "  Merkle tree + snapshot in %s\n", time.Since(snapStart).Truncate(time.Millisecond))
+	fmt.Fprintf(os.Stderr, "  Total finalization in %s\n", time.Since(finalStart).Truncate(time.Millisecond))
 
 	if snapErr != nil {
 		return nil, fmt.Errorf("compute snapshot: %w", snapErr)

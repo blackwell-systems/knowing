@@ -4,6 +4,9 @@ Fourteen benchmark harnesses that prove knowing's value with hard data. Each ben
 is a standalone Go test package that indexes the knowing repo, runs measurements,
 and auto-generates a `FINDINGS.md` with results and interpretation.
 
+**Context Packing Study:** [CONTEXT-PACKING-STUDY.md](CONTEXT-PACKING-STUDY.md) (umbrella document tying all benchmarks into a coherent evaluation program)
+**Cross-System Specification:** [docs/research/cross-system-benchmark.md](../docs/research/cross-system-benchmark.md) (full methodology, 6 systems, fairness controls, ground truth protocol)
+
 ## Summary
 
 | Benchmark | What it proves | Key result |

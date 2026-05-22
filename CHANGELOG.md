@@ -8,6 +8,105 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+#### P2 Edge Type Expansion (24 -> 30 edge types)
+- `documents`: comment/docstring association with documented symbols
+- `gated_by_flag`: feature flag references (LaunchDarkly, OpenFeature, custom `isEnabled` patterns)
+- `consumes_endpoint`: HTTP client call sites in Go (`http.Get/Post/Do`) and TypeScript (`fetch/axios`)
+- `implements_rpc`: gRPC service method implementations linked to proto definitions
+- `consumes_rpc`: gRPC client call sites linked to proto service methods
+- `deployed_by`: GitHub Actions workflow deploys linked to deployed services
+- `tested_by`: GitHub Actions workflow test jobs linked to tested packages
+- All 7 new types have RWR weights in `internal/edgetype` constants package
+- Total: 30 edge types, 27 MCP tools
+
+#### Indexer Performance Overhaul
+- **Parallel extraction**: GOMAXPROCS workers with producer-consumer pipeline
+- **Streaming commits**: batch of 500 files committed to SQLite immediately (kill-safe)
+- **Single-pass body walk**: one recursive AST traversal dispatches calls/throws/routes/flags/endpoints (was 5 separate traversals)
+- **Shared tree parsing**: tree-sitter parses once per file, all extractors share the result
+- **Thread-safe extractors**: per-call parser creation (11 extractors fixed for parallel use)
+- **In-memory snapshot**: `ComputeSnapshotFromEdges` builds Merkle tree from pipeline data (no DB re-read)
+- **Deferred FTS**: full-text search rebuilds in background after index returns
+- **Skip edge events on first index**: no parent = no diff to record (saves 268K INSERT ops)
+- **Skip generated files**: checks first 512 bytes for `Code generated`/`DO NOT EDIT` markers
+- **Skip non-source dirs**: `.git`, `vendor`, `node_modules`, `staging`, `third_party`, etc.
+- **Per-file timeout**: 10s watchdog with fire-and-forget for stuck CGO calls
+- **Progress output**: real-time `[N/total] X files/s, Y edges, ETA Zs` on stderr
+- **`--skip-blame` flag**: skip git blame authorship extraction (expensive on large repos)
+- **`--no-enrich` flag**: skip LSP enrichment for structural-only indexing
+- **`--workers N` flag**: control extraction parallelism
+
+#### Cross-System Benchmark Framework
+- 100 tasks across 5 repos (kubernetes, TypeScript, Django, Cargo, Flask)
+- 5 difficulty levels: easy, medium, hard, cross-file, architectural
+- Metrics: P@K, R@K, NDCG@10, MRR, token efficiency, latency
+- Statistical rigor: Wilcoxon signed-rank, Cohen's d, bootstrap CI
+- Adapter interface for pluggable retrieval systems (knowing, grep, future: gitnexus, aider)
+- Symbol normalization for cross-system comparison
+- Ground truth achievability filter (only count symbols present in DB)
+
+#### Language Equivalence Classes
+- 31 language-specific equivalence classes for improved keyword matching
+- Python: `__init__`/constructor, `self`/`this`, `def`/`function`, Django/Flask patterns
+- TypeScript: React hooks, Express/Fastify/Hono patterns, `interface`/`type`
+- Rust: trait/impl, `Result`/`Option`, `unwrap`/`expect`
+- Java: Spring annotations, `@Override`/`implements`
+- Kubernetes: resource type aliases, `spec`/`template`/`containers`
+
+#### FTS terminal symbol name column (retrieval quality)
+- New `symbol_name` column in FTS index stores just the terminal identifier (e.g., `QuerySet.filter` instead of the full `github.com/django/django://django/db/models/query.py.QuerySet.filter`)
+- BM25 weights: symbol_name=10x, qualified_name=3x, signature=1x, file_path=1x
+- `extractSymbolName` strips repo URL, package path, and file extension prefix
+- Eliminates path token dilution that buried relevant symbols in BM25 ranking
+- Migration 016: adds `symbol_name` column, recreates FTS5 virtual table
+- Expected impact: +5-10pp P@10 on non-Go repos where qualified names include file paths
+
+#### Cross-system benchmark: all 5 repos indexed
+- kubernetes: 4,877 files, 117,401 nodes, 268,249 edges (18.6s)
+- TypeScript: 38,260 files, 88,393 nodes, 67,182 edges (25.8s)
+- Django: 2,937 files, 42,947 nodes, 151,431 edges (3.3s)
+- Cargo: 979 files, 8,075 nodes, 79,305 edges (1.4s)
+- Flask: 97 files, 1,658 nodes, 5,042 edges (0.1s)
+- Total: 47,150 files, 258,474 nodes, 571,209 edges in 49.2s
+
+### Fixed
+
+#### Indexer: CGO timeout hang on large repos
+- Tree-sitter CGO calls are not interruptible by Go context cancellation
+- `context.WithTimeout` was ineffective: stuck CGO call blocks worker goroutine forever
+- Pipeline deadlock: `extractWg.Wait()` never returns -> `close(resultCh)` never fires -> consumer loop hangs indefinitely
+- Fix: watchdog goroutine pattern with timer select. Extraction runs in a fire-and-forget goroutine; 10s timer races against it. If timer wins, worker sends empty result and moves on.
+- Result: kubernetes (4877 files, 268K edges) indexes in 18.6s. Was hanging indefinitely.
+
+#### FTS + snapshot WAL contention
+- Running FTS rebuild concurrently with snapshot computation caused both to stall
+- Fix: sequential ordering (snapshot first, then FTS in background)
+
+#### Test: mockSnapshotComputer parent chain behavior
+- `TestIndexRepo_CleanupOnChange` was failing because mock always returned zero `ParentHash`
+- Edge event recording condition (`snap.ParentHash != zero`) was never true in tests
+- Fix: mock now tracks call count and returns proper parent chain on subsequent invocations
+
+#### SQLite performance pragmas
+- `synchronous=NORMAL`: safe with WAL, skips fsync per-commit (only on checkpoint)
+- `mmap_size=256MB`: memory-mapped reads skip userspace buffer copy
+- `cache_size=64MB`: larger page cache reduces disk I/O on warm workloads
+- `busy_timeout=5000`: graceful retry on lock contention
+- `temp_store=MEMORY`: temp indexes in RAM
+
+#### Multi-row batch INSERT
+- Edges: 100 rows per INSERT statement (was 1 row per exec)
+- Nodes: 99 rows per INSERT statement
+- Files: 249 rows per INSERT statement
+- Reduces per-row SQL parsing overhead and CGO crossing count
+
+### Changed
+- Indexer architecture: sequential file loop replaced with producer-consumer pipeline
+- Snapshot computation: from DB re-read to in-memory construction (9ms for knowing, 95ms for kubernetes)
+- SQLite batch writes: single-row prepared statement loop replaced with multi-row VALUES
+- Edge types: 24 -> 30 (7 new P2 types)
+- MCP tools: 24 -> 27 (ownership_query + prove + prove_absent + fsck)
+
 ## 2026-05-19
 
 #### MCP audit tools (27 tools total with ownership_query)

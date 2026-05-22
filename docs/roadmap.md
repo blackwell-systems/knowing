@@ -13,7 +13,7 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 
 ## Storage Backend (P0 Performance)
 
-Current: SQLite (single-writer, FTS5 deferred to background). Extraction is parallel (GOMAXPROCS workers, producer-consumer pipeline), but all DB writes funnel through one goroutine.
+Current: SQLite (single-writer, FTS5 deferred to background). Extraction is parallel (GOMAXPROCS workers, producer-consumer pipeline), but all DB writes funnel through one goroutine. Performance pragmas: `synchronous=NORMAL`, `mmap_size=256MB`, `cache_size=64MB`, `busy_timeout=5000`, `temp_store=MEMORY`. Multi-row batch INSERTs (edges: 100/statement, nodes: 99/statement, files: 249/statement) reduce per-row overhead.
 
 ### Options under evaluation
 
@@ -41,7 +41,7 @@ Packages are already the unit of Merkle computation, cache invalidation, diffing
 | knowing (84K LOC) | 448 | 25K | 0.4s | 1.7s |
 | flask (15K LOC) | 97 | 5K | 0.04s | 0.3s |
 | cargo (150K LOC) | 979 | 79K | 0.2s | 5.5s |
-| kubernetes (3.5M LOC) | 4,877 | 229K | ~10s | ~15s (data queryable immediately) |
+| kubernetes (3.5M LOC) | 4,877 | 268K | 18.6s | ~22s (data queryable immediately) |
 
 ## Operational
 
@@ -61,28 +61,28 @@ Packages are already the unit of Merkle computation, cache invalidation, diffing
 
 ## Retrieval Pipeline
 
-### Cross-System Benchmark Results (v0.6.0)
+### Cross-System Benchmark Results (v0.6.1, Run 6)
 
-First run: 100 tasks, 5 repos (kubernetes, TypeScript, flask, cargo, django), knowing vs grep baseline.
+100 tasks, 5 repos (kubernetes, TypeScript, flask, cargo, django), all indexed. knowing vs grep baseline. Run 6 adds the FTS `symbol_name` column (migration 016).
 
 | System | P@10 | R@10 | NDCG@10 | MRR |
 |--------|------|------|---------|-----|
-| knowing | 0.102 | 0.111 | 0.157 | 0.159 |
-| grep | 0.018 | 0.050 | 0.032 | 0.059 |
+| knowing | ~0.166 | 0.224 | 0.246 | 0.269 |
+| grep | 0.018 | 0.049 | 0.037 | 0.067 |
 
-knowing is 5.7x better than grep (p<0.001). But 10% absolute precision means 9/10 returned symbols aren't ground-truth relevant. The following items address this directly.
+knowing is 9.2x better than grep (p<0.0001, d=0.62, CI=[0.103, 0.196]). 17% absolute precision means room for improvement; ground truth fixture accuracy and language-aware keyword extraction are the highest-leverage remaining changes.
 
 ### Retrieval Improvements (ordered by expected impact)
 
 | # | Item | Why (from benchmark data) | Expected Impact | Status |
 |---|------|--------------------------|-----------------|--------|
 | 1 | **Ground truth fixture accuracy** | Many fixtures use language-native module paths (e.g., `flask.app.Flask.before_request`) that don't exist in knowing's index (stored as `scaffold.py.Scaffold.before_request`). ~30% of ground truth symbols have no match in the DB at all. Fixing this doesn't improve retrieval but makes the measurement accurate. | Benchmark accuracy, not retrieval | P0 |
-| 2 | **FTS/BM25 for non-Go qualified names** | knowing's FTS index was designed for Go qualified names (`pkg.Symbol`). Python stores as `filepath.py.Class.method`, Rust as `filepath.rs.function`. Keyword search from task descriptions ("add before_request hook") doesn't match "scaffold.py.Scaffold.before_request" because "before_request" is buried after a file path prefix. | +5-10pp P@10 on Python/Rust/TS repos | P1 |
+| 2 | **FTS/BM25 for non-Go qualified names** | knowing's FTS index was designed for Go qualified names (`pkg.Symbol`). Python stores as `filepath.py.Class.method`, Rust as `filepath.rs.function`. Keyword search from task descriptions ("add before_request hook") doesn't match "scaffold.py.Scaffold.before_request" because "before_request" is buried after a file path prefix. | +5-10pp P@10 on Python/Rust/TS repos | **Partially shipped.** Migration 016 adds `symbol_name` column (BM25 weight 10x) with `extractSymbolName` stripping repo URL, package path, and file extension. Remaining: validate improvement on cross-system benchmark. |
 | 3 | **Language-aware keyword extraction** | Task descriptions say "add a before_request hook" but the keyword extractor doesn't know "before_request" is a symbol name (it looks like two words). Need to detect CamelCase, snake_case, and dotted identifiers in task descriptions and boost them. | +3-5pp P@10 across all repos | P1 |
-| 4 | **Equivalence classes for non-Go** | The 84 equivalence concepts were hand-tuned for Go patterns (Handler, Store, Service). Python (view, model, serializer), Rust (impl, trait, mod), TypeScript (component, hook, provider) have different vocabulary. Need per-language equivalence sets. | +2-4pp P@10 on non-Go repos | P2 |
+| 4 | ~~**Equivalence classes for non-Go**~~ | ~~The 84 equivalence concepts were hand-tuned for Go patterns.~~ **Shipped (31 language-specific classes).** Python, TypeScript, Rust, Java, Kubernetes vocabulary. Total: 115 equivalence classes. | +2-4pp P@10 on non-Go repos | ~~P2~~ |
 | 5 | **Cross-file symbol resolution in Python/TS** | Python's `from flask import Flask` means `Flask` in file X refers to `flask/app.py.Flask`. knowing doesn't resolve these import aliases for non-Go languages, so callers don't connect to definitions. Missing call edges = missing context. | +3-5pp R@10 on Python/TS repos | P2 |
 | 6 | **Session memory persistence** | The benchmark runs cold (no prior feedback). In real usage, feedback compounds. Session memory persistence would carry learning across invocations, improving retrieval for repeated patterns. | +5-10pp P@10 after 5 rounds (demonstrated in feedback-loop bench) | P2 |
-| 7 | **More equivalence concepts (84 -> 150+)** | Graph-derived aliases help but are limited to the repo's own vocabulary. Need broader coverage of common patterns across ecosystems. | +1-2pp P@10 | Ongoing |
+| 7 | **More equivalence concepts (115 -> 150+)** | Graph-derived aliases help but are limited to the repo's own vocabulary. Need broader coverage of common patterns across ecosystems. | +1-2pp P@10 | Ongoing |
 | 8 | **Code-tuned embedding model** | BGE-small-en-v1.5 tested net-negative. A code-tuned model (CodeBERT, UniXcoder) might improve semantic matching between task descriptions and symbol names. | Unknown (needs evaluation) | Planned (optional) |
 | 9 | **Community-aware retrieval** | Constrain RWR walk to seed communities. Reduces noise from unrelated packages. | +1-3pp P@10 on large repos | Planned |
 

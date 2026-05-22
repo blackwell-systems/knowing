@@ -68,9 +68,20 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
 
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("enable WAL: %w", err)
+	// Performance pragmas for bulk indexing workloads.
+	pragmas := []string{
+		"PRAGMA journal_mode=WAL",
+		"PRAGMA synchronous=NORMAL",  // WAL mode is safe with NORMAL (fsync on checkpoint, not every commit)
+		"PRAGMA mmap_size=268435456", // 256MB memory-mapped I/O for read-heavy workloads
+		"PRAGMA cache_size=-64000",   // 64MB page cache (negative = KB)
+		"PRAGMA busy_timeout=5000",   // 5s retry on lock contention instead of immediate SQLITE_BUSY
+		"PRAGMA temp_store=MEMORY",   // temp tables/indexes in memory
+	}
+	for _, p := range pragmas {
+		if _, err := db.Exec(p); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("pragma %s: %w", p, err)
+		}
 	}
 
 	if err := Migrate(db); err != nil {
@@ -201,71 +212,118 @@ func (s *SQLiteStore) RecordEdgeEvent(ctx context.Context, ev types.EdgeEvent) e
 
 // BatchPutNodes inserts multiple nodes in a single transaction.
 func (s *SQLiteStore) BatchPutNodes(ctx context.Context, nodes []types.Node) error {
+	if len(nodes) == 0 {
+		return nil
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback() //nolint:errcheck
 
-	stmt, err := tx.PrepareContext(ctx,
-		`INSERT OR REPLACE INTO nodes (node_hash, file_hash, qualified_name, kind, line, signature, doc, last_author, last_commit_at, coverage_pct)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-	if err != nil {
-		return fmt.Errorf("prepare: %w", err)
-	}
-	defer stmt.Close()
+	// Multi-row INSERT: 10 params per node, SQLite limit is 999 variables.
+	// Use chunks of 99 nodes (990 params) per statement.
+	const chunkSize = 99
+	for i := 0; i < len(nodes); i += chunkSize {
+		end := i + chunkSize
+		if end > len(nodes) {
+			end = len(nodes)
+		}
+		chunk := nodes[i:end]
 
-	for _, n := range nodes {
-		if _, err := stmt.ExecContext(ctx, n.NodeHash[:], n.FileHash[:], n.QualifiedName, n.Kind, n.Line, n.Signature, n.Doc, n.LastAuthor, n.LastCommitAt, n.CoveragePct); err != nil {
-			return fmt.Errorf("exec node %s: %w", n.QualifiedName, err)
+		var b strings.Builder
+		b.WriteString(`INSERT OR REPLACE INTO nodes (node_hash, file_hash, qualified_name, kind, line, signature, doc, last_author, last_commit_at, coverage_pct) VALUES `)
+		args := make([]interface{}, 0, len(chunk)*10)
+		for j, n := range chunk {
+			if j > 0 {
+				b.WriteByte(',')
+			}
+			b.WriteString("(?,?,?,?,?,?,?,?,?,?)")
+			args = append(args, n.NodeHash[:], n.FileHash[:], n.QualifiedName, n.Kind, n.Line, n.Signature, n.Doc, n.LastAuthor, n.LastCommitAt, n.CoveragePct)
+		}
+
+		if _, err := tx.ExecContext(ctx, b.String(), args...); err != nil {
+			return fmt.Errorf("batch insert nodes chunk %d: %w", i/chunkSize, err)
 		}
 	}
 	return tx.Commit()
 }
 
-// BatchPutEdges inserts multiple edges in a single transaction.
+// BatchPutEdges inserts multiple edges in a single transaction using multi-row
+// INSERT statements for reduced per-row overhead.
 func (s *SQLiteStore) BatchPutEdges(ctx context.Context, edges []types.Edge) error {
+	if len(edges) == 0 {
+		return nil
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback() //nolint:errcheck
 
-	stmt, err := tx.PrepareContext(ctx,
-		`INSERT OR REPLACE INTO edges (edge_hash, source_hash, target_hash, edge_type, confidence, provenance, callsite_line, callsite_col, callsite_file)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-	if err != nil {
-		return fmt.Errorf("prepare: %w", err)
-	}
-	defer stmt.Close()
+	// Multi-row INSERT: 9 params per edge, SQLite limit is 999 variables.
+	// Use chunks of 100 edges (900 params) per statement.
+	const chunkSize = 100
+	for i := 0; i < len(edges); i += chunkSize {
+		end := i + chunkSize
+		if end > len(edges) {
+			end = len(edges)
+		}
+		chunk := edges[i:end]
 
-	for _, e := range edges {
-		if _, err := stmt.ExecContext(ctx, e.EdgeHash[:], e.SourceHash[:], e.TargetHash[:], e.EdgeType, e.Confidence, e.Provenance, e.CallSiteLine, e.CallSiteCol, e.CallSiteFile); err != nil {
-			return fmt.Errorf("exec edge %s: %w", e.EdgeHash, err)
+		var b strings.Builder
+		b.WriteString(`INSERT OR REPLACE INTO edges (edge_hash, source_hash, target_hash, edge_type, confidence, provenance, callsite_line, callsite_col, callsite_file) VALUES `)
+		args := make([]interface{}, 0, len(chunk)*9)
+		for j, e := range chunk {
+			if j > 0 {
+				b.WriteByte(',')
+			}
+			b.WriteString("(?,?,?,?,?,?,?,?,?)")
+			args = append(args, e.EdgeHash[:], e.SourceHash[:], e.TargetHash[:], e.EdgeType, e.Confidence, e.Provenance, e.CallSiteLine, e.CallSiteCol, e.CallSiteFile)
+		}
+
+		if _, err := tx.ExecContext(ctx, b.String(), args...); err != nil {
+			return fmt.Errorf("batch insert edges chunk %d: %w", i/chunkSize, err)
 		}
 	}
 	return tx.Commit()
 }
 
-// BatchPutFiles inserts multiple files in a single transaction.
+// BatchPutFiles inserts multiple files in a single transaction using multi-row
+// INSERT statements.
 func (s *SQLiteStore) BatchPutFiles(ctx context.Context, files []types.File) error {
+	if len(files) == 0 {
+		return nil
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback() //nolint:errcheck
 
-	stmt, err := tx.PrepareContext(ctx,
-		`INSERT OR REPLACE INTO files (file_hash, repo_hash, path, content_hash)
-		 VALUES (?, ?, ?, ?)`)
-	if err != nil {
-		return fmt.Errorf("prepare: %w", err)
-	}
-	defer stmt.Close()
+	// Multi-row INSERT: 4 params per file, SQLite limit is 999 variables.
+	// Use chunks of 249 files (996 params) per statement.
+	const chunkSize = 249
+	for i := 0; i < len(files); i += chunkSize {
+		end := i + chunkSize
+		if end > len(files) {
+			end = len(files)
+		}
+		chunk := files[i:end]
 
-	for _, f := range files {
-		if _, err := stmt.ExecContext(ctx, f.FileHash[:], f.RepoHash[:], f.Path, f.ContentHash[:]); err != nil {
-			return fmt.Errorf("exec file %s: %w", f.Path, err)
+		var b strings.Builder
+		b.WriteString(`INSERT OR REPLACE INTO files (file_hash, repo_hash, path, content_hash) VALUES `)
+		args := make([]interface{}, 0, len(chunk)*4)
+		for j, f := range chunk {
+			if j > 0 {
+				b.WriteByte(',')
+			}
+			b.WriteString("(?,?,?,?)")
+			args = append(args, f.FileHash[:], f.RepoHash[:], f.Path, f.ContentHash[:])
+		}
+
+		if _, err := tx.ExecContext(ctx, b.String(), args...); err != nil {
+			return fmt.Errorf("batch insert files chunk %d: %w", i/chunkSize, err)
 		}
 	}
 	return tx.Commit()
@@ -1034,7 +1092,7 @@ func (s *SQLiteStore) SearchBM25Nodes(ctx context.Context, query string, limit i
 		 JOIN nodes_fts_content c ON c.rowid = nodes_fts.rowid
 		 JOIN nodes n ON n.node_hash = c.node_hash
 		 WHERE nodes_fts MATCH ?
-		 ORDER BY bm25(nodes_fts, 5.0, 1.0, 2.0)
+		 ORDER BY bm25(nodes_fts, 10.0, 3.0, 1.0, 1.0)
 		 LIMIT ?`,
 		query, limit,
 	)
@@ -1054,9 +1112,34 @@ func (s *SQLiteStore) upsertFTS(ctx context.Context, nodeHash []byte, qualifiedN
 		`DELETE FROM nodes_fts_content WHERE node_hash = ?`, nodeHash)
 	// Insert new entry.
 	s.db.ExecContext(ctx, //nolint:errcheck
-		`INSERT INTO nodes_fts_content(node_hash, qualified_name, signature, file_path)
-		 VALUES (?, ?, ?, ?)`,
-		nodeHash, qualifiedName, signature, filePath)
+		`INSERT INTO nodes_fts_content(node_hash, symbol_name, qualified_name, signature, file_path)
+		 VALUES (?, ?, ?, ?, ?)`,
+		nodeHash, extractSymbolName(qualifiedName), qualifiedName, signature, filePath)
+}
+
+// extractSymbolName returns the terminal symbol identifier from a qualified name.
+// For "github.com/django/django://django/db/models/query.py.QuerySet.filter"
+// it returns "QuerySet.filter". For "repo://pkg/sub.TypeName.Method" it returns
+// "TypeName.Method". This is the part of the name a developer would search for.
+func extractSymbolName(qualifiedName string) string {
+	// Strip everything before "://" (repo URL prefix).
+	if idx := strings.LastIndex(qualifiedName, "://"); idx >= 0 {
+		qualifiedName = qualifiedName[idx+3:]
+	}
+	// Find the last slash (end of package/file path).
+	lastSlash := strings.LastIndex(qualifiedName, "/")
+	if lastSlash >= 0 {
+		qualifiedName = qualifiedName[lastSlash+1:]
+	}
+	// Strip file extension prefix (e.g., "query.py.QuerySet" -> strip "query.py.")
+	// Look for common file extensions followed by a dot.
+	for _, ext := range []string{".go.", ".py.", ".ts.", ".js.", ".rs.", ".java.", ".cs.", ".rb.", ".sql.", ".proto."} {
+		if idx := strings.Index(qualifiedName, ext); idx >= 0 {
+			qualifiedName = qualifiedName[idx+len(ext):]
+			break
+		}
+	}
+	return qualifiedName
 }
 
 // RebuildFTS rebuilds the entire FTS index from the nodes and files tables.
@@ -1103,7 +1186,7 @@ func (s *SQLiteStore) RebuildFTS(ctx context.Context) error {
 	// Phase 2: parallel splitForFTS computation.
 	type ftsPrepped struct {
 		nodeHash []byte
-		splitQN, splitSig, fp string
+		symbolName, splitQN, splitSig, fp string
 	}
 	prepped := make([]ftsPrepped, len(allRows))
 
@@ -1125,10 +1208,11 @@ func (s *SQLiteStore) RebuildFTS(ctx context.Context) error {
 			for i := s; i < e; i++ {
 				r := allRows[i]
 				prepped[i] = ftsPrepped{
-					nodeHash: r.nodeHash,
-					splitQN:  splitForFTS(r.qn),
-					splitSig: splitForFTS(r.sig),
-					fp:       r.fp,
+					nodeHash:   r.nodeHash,
+					symbolName: splitForFTS(extractSymbolName(r.qn)),
+					splitQN:    splitForFTS(r.qn),
+					splitSig:   splitForFTS(r.sig),
+					fp:         r.fp,
 				}
 			}
 		}(start, end)
@@ -1143,14 +1227,14 @@ func (s *SQLiteStore) RebuildFTS(ctx context.Context) error {
 	defer tx.Rollback() //nolint:errcheck
 
 	stmt, err := tx.PrepareContext(ctx,
-		`INSERT INTO nodes_fts_content(node_hash, qualified_name, signature, file_path) VALUES (?, ?, ?, ?)`)
+		`INSERT INTO nodes_fts_content(node_hash, symbol_name, qualified_name, signature, file_path) VALUES (?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("prepare fts insert: %w", err)
 	}
 	defer stmt.Close()
 
 	for _, p := range prepped {
-		if _, err := stmt.ExecContext(ctx, p.nodeHash, p.splitQN, p.splitSig, p.fp); err != nil {
+		if _, err := stmt.ExecContext(ctx, p.nodeHash, p.symbolName, p.splitQN, p.splitSig, p.fp); err != nil {
 			return fmt.Errorf("insert fts content: %w", err)
 		}
 	}
@@ -1196,7 +1280,7 @@ func (s *SQLiteStore) RebuildFTSForPackages(ctx context.Context, packages []stri
 
 	// Re-insert FTS rows for nodes in the changed packages.
 	insStmt, err := tx.PrepareContext(ctx,
-		`INSERT INTO nodes_fts_content(node_hash, qualified_name, signature, file_path) VALUES (?, ?, ?, ?)`)
+		`INSERT INTO nodes_fts_content(node_hash, symbol_name, qualified_name, signature, file_path) VALUES (?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("prepare fts insert: %w", err)
 	}
@@ -1217,7 +1301,7 @@ func (s *SQLiteStore) RebuildFTSForPackages(ctx context.Context, packages []stri
 				rows.Close()
 				return fmt.Errorf("scan node for fts: %w", err)
 			}
-			if _, err := insStmt.ExecContext(ctx, nodeHash, splitForFTS(qn), splitForFTS(sig), fp); err != nil {
+			if _, err := insStmt.ExecContext(ctx, nodeHash, splitForFTS(extractSymbolName(qn)), splitForFTS(qn), splitForFTS(sig), fp); err != nil {
 				rows.Close()
 				return fmt.Errorf("insert fts for %s: %w", qn, err)
 			}

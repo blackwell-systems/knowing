@@ -223,17 +223,21 @@ merges ranked lists from all channels into a single seed set:
 | Channel | Weight | Source |
 |---------|--------|--------|
 | 1. Tiered keyword matching | 3.0 | 5-tier exact/prefix/substring/path/interface matching |
-| 2. BM25 FTS5 | 1.0 | SQLite FTS5 over qualified_name, signature, file_path (CamelCase-aware tokenization) |
+| 2. BM25 FTS5 | 1.0 | SQLite FTS5 over symbol_name, qualified_name, signature, file_path (CamelCase-aware tokenization) |
 | 3. Vector/embedding search | 0.0 | BGE-small-en-v1.5 via HNSW (disabled pending code-tuned model) |
-| 4. Equivalence class matching | 2.0 | 84 equivalence classes (63 universal + 21 knowing-specific) with 1000+ phrases mapped to target symbols |
+| 4. Equivalence class matching | 2.0 | 115 equivalence classes (63 universal + 21 knowing-specific + 31 language-specific) with 1000+ phrases mapped to target symbols |
 
 ### BM25 Full-Text Search (Channel 2)
 
-Migration 006 creates an `nodes_fts` virtual table over `qualified_name`, `signature`, and
-`file_path`. Tokenization uses CamelCase-aware splitting (`splitForFTS`, `splitCamelCase`)
-so that compound identifiers (e.g., "SQLiteStore") are indexed as individual terms
-("SQLite", "Store"). `RebuildFTS` is called after batch indexing to keep the FTS content
-synchronized with the nodes table.
+Migration 006 creates the `nodes_fts` virtual table. Migration 016 adds a `symbol_name`
+column that stores just the terminal symbol identifier (e.g., "QuerySet.filter" instead of
+the full qualified path). The table now indexes four columns with BM25 weights:
+`symbol_name` (10x), `qualified_name` (3x), `signature` (1x), `file_path` (1x). The high
+weight on `symbol_name` ensures keyword searches match by actual symbol name rather than
+by incidental path token frequency. Tokenization uses CamelCase-aware splitting
+(`splitForFTS`, `splitCamelCase`) so that compound identifiers (e.g., "SQLiteStore") are
+indexed as individual terms ("SQLite", "Store"). `RebuildFTS` is called after batch
+indexing to keep the FTS content synchronized with the nodes table.
 
 ### Embedding Search (Channel 3)
 
@@ -245,7 +249,7 @@ future code-tuned models. Enable with `KNOWING_EMBEDDINGS=1`.
 
 ### Equivalence Class Matching (Channel 4)
 
-The equivalence class system (`internal/context/equivalence.go` + `universal_seeds.go`) bridges the vocabulary gap between natural-language task descriptions and code symbol names. It contains 84 equivalence classes: 21 knowing-specific (TRANSITIVE_IMPACT, SYMBOL_LOOKUP, DATAFLOW_TRACE, TEST_SELECTION, etc.) and 63 universal software concepts (covering security, monitoring, scheduling, rate limiting, search, websockets, retry/circuit-breaker, health checks, feature flags, and more). Each class has 5-10 phrases mapped to common symbol name targets across Go/TS/Python/Java/Rust. Cross-product expansion with action verbs generates additional phrase variants.
+The equivalence class system (`internal/context/equivalence.go` + `universal_seeds.go` + `language_seeds.go`) bridges the vocabulary gap between natural-language task descriptions and code symbol names. It contains 115 equivalence classes: 21 knowing-specific (TRANSITIVE_IMPACT, SYMBOL_LOOKUP, DATAFLOW_TRACE, TEST_SELECTION, etc.), 63 universal software concepts (covering security, monitoring, scheduling, rate limiting, search, websockets, retry/circuit-breaker, health checks, feature flags, and more), and 31 language-specific classes (Python, TypeScript, Rust, Java, Kubernetes patterns). Each class has 5-10 phrases mapped to common symbol name targets across Go/TS/Python/Java/Rust. Cross-product expansion with action verbs generates additional phrase variants.
 
 Example: the phrase "blast radius" maps to concept TRANSITIVE_IMPACT, which targets symbols
 like `TransitiveCallers`, `handleBlastRadius`, and `BlastRadius`.
@@ -461,7 +465,7 @@ The `pack_root` parameter on `context_for_task` enables agent-side deduplication
 ## Limitations
 
 1. **Limited semantic understanding of task descriptions.** The system uses substring matching,
-   BM25, and equivalence classes for seed selection. The 84 equivalence classes bridge common
+   BM25, and equivalence classes for seed selection. The 115 equivalence classes bridge common
    vocabulary gaps (e.g., "blast radius" to `TransitiveCallers`), but concepts not covered
    by the curated classes still rely on lexical matching. The system cannot understand
    that "optimize database queries" relates to functions that issue SQL, unless those

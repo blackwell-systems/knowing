@@ -2,16 +2,16 @@
 
 ## Problem
 
-SQLite's single-writer model and FTS5 rebuild cost make indexing large repos (kubernetes: 3.5M LOC, 229K edges, 59K nodes) take minutes in the finalization phase even after extraction is fast. The pipeline writes edges in seconds, but FTS rebuild takes 5+ minutes.
+SQLite's single-writer model and FTS5 rebuild cost make indexing large repos (kubernetes: 3.5M LOC, 268K edges, 117K nodes) take minutes in the finalization phase even after extraction is fast. The pipeline writes edges in seconds, but FTS rebuild takes 5+ minutes.
 
 ## Current Bottlenecks (measured on kubernetes)
 
 | Phase | Time | Bottleneck |
 |-------|------|-----------|
 | File walk + filtering | < 1s | N/A |
-| Parallel extraction (4877 files) | ~10s wall | CPU-bound (tree-sitter) |
-| Streaming batch INSERT (229K edges) | ~5s | SQLite WAL writes |
-| FTS5 rebuild (59K nodes) | 5-10 min | `INSERT INTO nodes_fts(nodes_fts) VALUES('rebuild')` |
+| Parallel extraction (4877 files) | ~14s wall | CPU-bound (tree-sitter) |
+| Streaming batch INSERT (268K edges) | ~4s | SQLite WAL writes |
+| FTS5 rebuild (117K nodes) | 5-10 min | `INSERT INTO nodes_fts(nodes_fts) VALUES('rebuild')` |
 | Snapshot computation (Merkle tree) | ~2s | CPU-bound (sort + hash) |
 
 FTS5 rebuild is 80%+ of total time. It's a SQLite-internal operation that re-tokenizes all content and rebuilds the inverted index. Can't be parallelized, can't be streamed.

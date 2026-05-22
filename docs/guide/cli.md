@@ -13,7 +13,7 @@ See [distribution.md](distribution.md) for installation instructions.
 knowing <subcommand> [flags]
 ```
 
-Subcommands: `serve`, `index`, `query`, `export`, `diff`, `context`, `why`, `mcp`, `watch`, `reindex`, `init`, `add`, `remove`, `list`, `stats`, `test-scope`, `ingest-scip`, `enrich`, `fsck`, `prove`, `verify`, `prove-absent`, `audit`, `audit-diff`, `version`.
+Subcommands: `serve`, `index`, `query`, `export`, `diff`, `context`, `why`, `mcp`, `watch`, `reindex`, `init`, `add`, `remove`, `list`, `stats`, `reset`, `vacuum`, `test-scope`, `ingest-scip`, `enrich`, `fsck`, `prove`, `verify`, `prove-absent`, `audit`, `audit-diff`, `version`.
 
 ## Environment
 
@@ -102,9 +102,8 @@ knowing serve -trace -trace-endpoint collector.local:4317 ./my-repo
 **Notes:**
 
 - The daemon blocks until it receives SIGINT or SIGTERM.
-- Registers all 13 language extractors (Go, Python, TypeScript/JS, Rust, Java,
-  C#, Terraform, SQL, Kubernetes YAML, Cloud YAML [CloudFormation/SAM, Docker
-  Compose, GitHub Actions, Serverless Framework], CSS, Protocol Buffers).
+- Registers all 26 extractor packages (12 languages + 13 infrastructure/cloud
+  + CODEOWNERS).
 - The MCP server exposes an `index_repo` tool that triggers indexing through
   the same pipeline as file-watch events.
 
@@ -131,6 +130,9 @@ rust-analyzer, jdtls, OmniSharp) unless `-full` is specified.
 | `-url` | string | *(repo-path)* | Repository URL (e.g. `github.com/org/repo`). Defaults to the repo path if omitted. |
 | `-commit` | string | `HEAD` | Commit hash to record. Resolves to the actual git HEAD if set to `HEAD`. |
 | `-full` | bool | `false` | Use full type resolution via `go/packages` instead of fast tree-sitter extraction |
+| `-workers` | int | `8` | Number of parallel extraction goroutines |
+| `-skip-blame` | bool | `false` | Skip git blame authorship extraction (faster structural-only index, no `authored_by` edges) |
+| `-no-enrich` | bool | `false` | Skip LSP enrichment after extraction (structural-only indexing) |
 
 The first positional argument is required and specifies the local path to the
 repository.
@@ -150,13 +152,20 @@ knowing index -db /tmp/test.db -commit abc123def456 ./repo
 
 # Minimal invocation (URL defaults to repo path, commit defaults to HEAD)
 knowing index ./repo
+
+# Fast structural-only index (no blame, no LSP enrichment)
+knowing index --skip-blame --no-enrich ./repo
+
+# Control parallelism (useful on resource-constrained machines)
+knowing index --workers 4 ./repo
 ```
 
 **Notes:**
 
-- Registers all 13 language extractors (Go, Python, TypeScript/JS, Rust, Java,
-  C#, Terraform, SQL, Kubernetes YAML, Cloud YAML [CloudFormation/SAM, Docker
-  Compose, GitHub Actions, Serverless Framework], CSS, Protocol Buffers).
+- Uses a producer-consumer pipeline with parallel extraction (default 8 workers).
+  Progress output to stderr shows files processed and extraction rate.
+- Registers all 26 extractor packages (12 languages + 13 infrastructure/cloud +
+  CODEOWNERS). Includes a 10-second per-file watchdog timeout for stuck CGO calls.
 - When `-full` is used, the Go packages extractor provides full type
   resolution; LSP enrichment is skipped because the extractor already produces
   high-confidence edges.
@@ -164,6 +173,9 @@ knowing index ./repo
   edge count.
 - If `-commit` is `HEAD` (the default), the tool resolves it to the actual git
   HEAD commit hash of the repository.
+- With `--skip-blame`, the authorship phase (git blame) is skipped entirely.
+  This is significantly faster on large repos (kubernetes: 18.6s with
+  `--skip-blame --no-enrich`, vs minutes with full blame).
 
 ---
 

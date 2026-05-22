@@ -6,281 +6,295 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-### Performance
-
-- **Single-pass body walk.** The Go extractor now visits each AST node in a function body exactly once, dispatching to all pattern detectors (calls, throws, routes, feature flags, endpoints) at each node. Previously 5 separate recursive walks per function body (5N node visits → N). This is the biggest extraction speedup: eliminates 80% of AST node visits.
-- **Tree sharing across extractors.** When multiple extractors handle the same file (e.g., GoTreeSitterExtractor + EventExtractor for .go files), the file is parsed ONCE and the tree root is shared. Eliminates redundant tree-sitter parsing.
-- **Parallel extraction.** File extraction runs across GOMAXPROCS worker goroutines (configurable via `--workers`). Thread-safe extractors create per-call parser instances.
-- **Streaming commits.** Results are committed in batches of 500 files instead of one transaction at the end. Partial data survives a kill (resumable indexing).
-- **Generated file detection.** Files with "Code generated", "DO NOT EDIT", or "AUTO-GENERATED" in the first 512 bytes are skipped.
-- **Smart directory filtering.** Skips staging/, third_party/, _output/, hack/, generated protobuf, vendor, node_modules, dot-dirs (except .github), build output dirs.
-- **Parallel FTS string splitting.** The expensive `splitForFTS` computation runs across 8 workers before the sequential SQLite INSERT phase.
-- **Parallel git blame.** Authorship extraction (git blame per file) runs in parallel. `--skip-blame` flag skips it entirely for fast structural-only index.
-- **Per-file timeout (10s).** Files that take too long to extract (usually huge generated test files) are skipped rather than blocking the pipeline.
-- **Progress output.** Live progress to stderr: `[N/M] files/s, edges, ETA` during extraction, `Stored N/M files, nodes, edges` during storage. Total elapsed time on completion.
-
-### Benchmarking
-
-- **Cross-system context retrieval benchmark.** `bench/cross-system/`: rigorous comparison of context retrieval quality across 5 systems (knowing, GitNexus, Aider repo-map, CGC, raw grep) on identical tasks. 100 ground truth fixtures across 5 repos (kubernetes, TypeScript, flask, cargo, django), 3 difficulty tiers. Metrics: P@K, R@K, NDCG@10, MRR, F1, token efficiency. Statistical significance via Wilcoxon signed-rank test + Cohen's d + bootstrap CI. Spec: `docs/research/cross-system-benchmark.md`.
-- **Benchmark adapters.** 5 system adapters with auto-detection of installed dependencies. Adapter registry reports available vs unavailable systems at runtime.
-- **Symbol normalization.** Cross-system symbol matching handles knowing/GitNexus/Aider/SCIP/grep output format differences. 14 test cases covering all formats.
-
-### Documentation
-
-- **Product split proposal.** `docs/proposals/product-split.md`: staged approach to restricted product surfaces (knowing-scope for CI, knowing-audit for compliance). Monorepo binaries first, face repos only with proven demand. Edge-type filtering as product differentiator.
-- **Comprehensive docs update.** All tool counts (27), edge type counts (30), and feature references updated across README, design-principles, system-overview, context-engine, roadmap, and CHANGELOG.
-
-### Edge Type Expansion (P1)
-
-- **`tests` edges.** Go tree-sitter extractor detects Test*/Benchmark* functions in `_test.go` files and creates `tests` edges to each production function they call. Makes test coverage a graph-queryable relationship. Provenance: ast_inferred, confidence 0.7, RWR weight 0.6.
-- **`authored_by` edges.** New `internal/indexer/authorship` package runs git blame per file and creates `authored_by` edges from each symbol to its primary author (most lines). Synthetic author nodes (kind="author"). Provenance: git_blame, confidence 1.0, RWR weight 0.0.
-- **`ownership_query` MCP tool.** Queries `owned_by` and `authored_by` graph edges to answer "who owns this code?" Accepts file_path or symbol name, returns CODEOWNERS teams and git blame authors. Tool #27.
-- **`internal/edgetype` constants package.** Single source of truth for all edge type string constants. `RWRWeight()` function returns canonical weights for each type.
-- **RWR zero-weight fix.** Changed `if w == 0 { w = 0.3 }` to `w, ok := map[...]; if !ok { w = 0.3 }` in walk.go so explicit 0.0 weights (owned_by, authored_by) are respected. Ownership edges are genuinely excluded from the random walk.
-- **Ownership extractor tests.** 14 tests covering ParseCodeowners, FindCodeowners, matchPattern, and ExtractOwnership.
-
-### Edge Type Expansion (P2)
-
-- **`documents` edges.** Go tree-sitter extractor creates synthetic doc_comment nodes and `documents` edges from them to the documented function, method, or type. Makes documentation a graph-queryable relationship. Provenance: ast_inferred, confidence 0.9, RWR weight 0.2.
-- **`consumes_endpoint` edges.** Go and TypeScript extractors detect HTTP client calls (`http.Get(...)`, `fetch("/api/...")`, `axios.get(...)`) and create `consumes_endpoint` edges from the calling function to a synthetic endpoint node. Bridges frontend-to-backend and service-to-service API contracts. Provenance: ast_inferred, confidence 0.6, RWR weight 0.5.
-- **`implements_rpc` edges.** Go tree-sitter extractor detects structs embedding `pb.Unimplemented*Server` patterns and creates `implements_rpc` edges to the corresponding proto service. Makes gRPC service implementations graph-queryable. Provenance: ast_inferred, confidence 0.9, RWR weight 0.8.
-- **`consumes_rpc` edges.** Go tree-sitter extractor detects `pb.New*Client(conn)` patterns and creates `consumes_rpc` edges from the calling function to the proto service. Maps gRPC client dependencies. Provenance: ast_inferred, confidence 0.8, RWR weight 0.6.
-- **`gated_by_flag` edges.** Go tree-sitter extractor detects feature flag SDK calls (`client.BoolVariation("flag")`, `unleash.IsEnabled("flag")`) and creates `gated_by_flag` edges from the function to a synthetic flag node. Enables "what code is behind this flag?" queries. Provenance: ast_inferred, confidence 0.8, RWR weight 0.3.
-- **`deployed_by` edges.** GitHub Actions extractor detects deployment steps (docker push, kubectl apply, cloud deploy actions) and creates `deployed_by` edges from deployment targets to workflow nodes. Maps CI/CD deployment topology. Provenance: ast_inferred, confidence 0.9, RWR weight 0.4.
-- **`tested_by` edges.** GitHub Actions extractor detects test commands (go test, npm test, pytest, cargo test) in workflow run steps and creates `tested_by` edges from package/module nodes to the testing workflow job. Makes CI test coverage graph-queryable. Provenance: ast_inferred, confidence 0.8, RWR weight 0.5.
-- **Edge type count now 30.** All edge types registered in `internal/edgetype/constants.go` with canonical `RWRWeight()` function.
-- **All 18 edge weights in walk.go.** The `edgeWeight` map in `internal/context/walk.go` now covers all static edge types with explicit weights; zero-weight fix ensures ownership/authorship edges are genuinely excluded.
-
-### Phase 4: Proofs and Audit (Continued)
-
-- **Proof of absence.** `GenerateAbsenceProof`/`VerifyAbsenceProof` prove an edge does NOT exist by showing adjacent sorted leaves that bracket the missing hash. No tree restructuring needed: the sorted binary tree already has the ordering invariant. `knowing prove-absent` CLI command.
-- **`knowing audit` CLI.** Generates a structured compliance report: integrity check (fsck), graph summary, all cross-package edges with provenance and confidence, optional Merkle proofs for every cross-package relationship. One command for a complete audit artifact.
-- **`knowing audit-diff` CLI.** Compares two audit point snapshots: added/removed edge counts, change classification (behavioral/structural/runtime_drift/metadata_only).
-- **Hash JSON marshaling.** `types.Hash` now implements `MarshalJSON`/`UnmarshalJSON` as hex strings. Proofs serialize as 3KB (was 11KB with byte arrays). `types.ParseHash` for hex decoding.
-
-### Graph Correctness
-
-- **Removed-edge diffs fixed (P0).** Migration 013 adds `source_hash`, `target_hash`, `edge_type`, `confidence`, `provenance` to `edge_events`. `RecordEdgeEvent` stores full edge data. `SnapshotDiff` reads from events directly via COALESCE, no longer joins to deleted edges. `knowing diff` now correctly shows removed edges.
-- **Synthetic file nodes stored (P0).** Go tree-sitter extractor creates file nodes (kind="file") when import edges exist. Import edge sources are no longer dangling.
-- **Phantom external nodes.** Extractor creates `kind="external"` nodes for stdlib/external targets at extraction time. LSP enricher runs a post-enrichment sweep for any remaining dangling targets. Result: zero dangling edges on a correctly indexed repo. `knowing fsck` reports 0 errors.
-- **`knowing fsck` roster awareness.** Dangling edges classified as `cross_repo` (target in another roster DB), `stdlib`, or `truly_dangling`. Only truly_dangling counts as an error. Roster stores opened once per verify call.
-- **Cross-repo method call resolution.** Extractor uses kind="method" for selector expression calls on non-import operands. LSP enricher resolves definitions across repos via roster lookup.
-- **`ExtractPackagePath` method name fix.** Splits at first dot after last slash (not last dot overall). Fixes false hash mismatches on method nodes like `pkg.Type.Method`.
-
-### Cross-Repo
-
-- **Roster moved to `internal/roster` shared package.** Both CLI and indexer use the same roster code. Eliminates duplicate logic.
-- **Roster-based module mapping.** Indexer's `buildModuleToRepoMap` merges the global roster's module map. Cross-repo edge targets now use the correct repo URL.
-- **Synthetic cross-repo test fixture.** 3 Go modules (module-a shared library, module-b imports A, module-c imports A+B) with real cross-repo edges. setup.sh initializes independent git repos.
-- **Cross-repo findings documented.** 5 architectural proofs, full dangling edge classification, P0 verification results.
-- **6 duplicate `extractPackage` functions consolidated** to canonical `snapshot.ExtractPackagePath`.
-- **`CollectEdgeInputs` exported** as canonical edge source for tree construction and proof generation.
-
-### Positioning
-
-- **Dual identity (agents + audit/compliance)** established across README, tagline, GitHub description, GitHub topics, competitive analysis.
-- **Audit & compliance guide** (`docs/guide/audit-compliance.md`): 6 provable claims, 6 workflows, comparison table.
-- **Merkle proofs architecture doc** (`docs/architecture/merkle-proofs.md`): proof format, verification algorithm, batch proofs, absence proofs.
-- **Data model architecture doc** (`docs/architecture/data-model.md`): full schema, 13 migrations, cross-repo identity, phantom nodes.
-- **GitHub topics** added: `audit`, `compliance`, `merkle-proof`, `software-supply-chain`, `static-analysis`.
-
-### Documentation
-
-- CLI guide: `prove`, `verify`, `prove-absent`, `audit`, `audit-diff` (24 subcommands).
-- Architecture docs swept: 11 files fixed for flat tree references, equivalence class counts, Phase 4 status.
-- Roadmap: Production Scale vision, Grafana ecosystem validation, cross-repo awareness for non-Go extractors.
-- All benchmark FINDINGS refreshed.
-
-## [v0.4.0] - 2026-05-19
-
-### Phase 3: Incremental Recompute (Complete)
-
-All 11 items shipped. The system now skips work the Merkle tree proves unchanged.
-
-- **F1: Graph notes table.** `graph_notes` (migration 012): general-purpose metadata layer. 6 GraphStore methods, `BatchPutNotes` for 21x faster bulk writes.
-- **F2: Incremental Algorithm interface.** `DetectIncremental` on Louvain (6.9x) and LabelPropagation (38.4x). Freezes unchanged nodes; only changed nodes move.
-- **F3: Scoped FTS rebuild.** `RebuildFTSForPackages` scopes BM25 index to changed packages (2.9x faster).
-- **P1: Community assignment persistence.** Save/Load via notes table. Communities survive daemon restart.
-- **P2: Context pack persistence.** Three-layer cache: SubgraphCache (42ns) -> notes table (1.2ms) -> cold retrieval. Cross-session replay verified.
-- **P3: Incremental Louvain e2e.** Daemon wired: diff -> ChangedPackages -> load previous -> DetectIncremental -> delta-save. Full cycle: 2.5ms.
-- **P4: Incremental HITS/BM25.** Daemon calls scoped FTS rebuild with changed packages from Merkle diff.
-- **P5: Context pack deduplication.** `pack_root` parameter on `context_for_task`. Returns "unchanged" (165 bytes) instead of full payload (2-30KB). 93-99% byte savings. PackRoot exposed in GCF header and JSON output.
-- **P6: Context pack comparison.** `CompareContextPacks` returns added/removed/common symbols between two packs.
-- **P7: Semantic change classification.** `ClassifyChanges` returns Behavioral/Structural/RuntimeDrift/MetadataOnly based on which edge-type roots changed.
-- **P8: Delta-save community assignments.** Writes only changed assignments. 5.0x e2e speedup (12.6ms -> 2.5ms).
-
-### Phase 4: Proofs (Started)
-
-- **Merkle proofs.** `GenerateProof`/`VerifyProof` in `internal/snapshot/proof.go`. Three-level proof path: edge -> edge-type root -> package root -> repo root. Generation: 72us. Verification: 1.2us. Proof size: 16 steps, 656 bytes on the live graph (12,604 edges).
-
-### Code Quality
-
-- **Benchmark robustness.** Performance contracts added to context-relevance, test-scope-accuracy, edge-accuracy, merkle-diff, community-detection e2e. Every quality metric now has a regression floor.
-- **Canonical package path extraction.** 6 duplicate `extractPackage` functions consolidated to `snapshot.ExtractPackagePath`. `CollectEdgeInputs` exported as canonical edge source. Prevents divergence between tree construction and proof generation.
-- **14 benchmark harnesses** with self-documenting FINDINGS.md and performance contracts.
-
-### Documentation
-
-- Features.md updated to 101 features (91-101 for Phase 3 + Phase 4).
-- Architecture docs swept: 11 files fixed (flat tree references, equivalence class counts, Phase 4 status).
-- MCP tools docs: `pack_root` parameter documented.
-- Wire format docs: PackRoot in GCF header and JSON output.
-- Context packing docs: three-layer cache, P5 dedup, P6 comparison.
-- npm and PyPI READMEs rewritten.
-- README: 14 benchmarks, three-layer cache section, updated diagram.
-
-## [v0.3.0] - 2026-05-19
-
-### Breaking
-
-- **Hash domain prefixes (requires re-index):** All hash computations now include git-style type separation prefixes: `node\0`, `edge\0`, `snapshot\0`, `merkle\0`. Eliminates cross-type hash collisions. Databases built before this release must be re-indexed (`knowing index <path>`). Run `knowing fsck` after re-indexing to verify integrity.
-
-### Architecture
-
-- **Hierarchical Merkle tree (Phase 1+2, complete):** `HierarchicalTree` struct with `BuildHierarchicalTree`, `DiffHierarchicalTrees`, `SubgraphRoot`, `EdgeTypeRoot`, and `ContextPackRoot`. Wired into `SnapshotManager.ComputeSnapshot`. The hierarchical root is the canonical snapshot hash; no flat tree is maintained. Benchmarked at 114x faster diff (11K edges, 111 packages), 517x at 100K synthetic edges. Subgraph root lookups at 59ns.
-- **Subgraph cache:** Content-addressed cache keyed by Merkle package roots. 93x faster repeat queries (160ms -> 1.7ms). Daemon invalidation via `DiffHierarchicalTrees` scoped to changed packages (~6us overhead per re-index). 42ns raw cache lookups.
-- **Content-addressed context packs:** `PackRoot` field on `ContextBlock`, computed as `hash(task_normalized + sorted(selected_node_hashes))`. Same task + same graph = same PackRoot. Perfect deduplication verified.
-- **Community Merkle roots:** Each Louvain community carries a Merkle root over the packages it spans. Roots verified distinct per community on live graph.
-- **`DiffOptions` with `PackageFilter` and `MaxChanges` cap:** Callers can scope diffs to specific packages and cap result size. Matches git tree-diff's pathspec filtering.
-- **Modular community detection:** `Algorithm` interface and registry in `internal/community/`. Louvain (two presets), label propagation. `knowing export --algorithm` and `communities` MCP tool accept algorithm parameter.
-- **Graph notes table (Phase 3 Foundation F1):** `graph_notes` table (migration 012) for metadata that never affects Merkle computation. Composite key `(object_hash, key)` with upsert semantics. 6 new `GraphStore` methods. Foundation for community assignment persistence and context pack persistence.
-- **`knowing fsck` integrity checker:** Edge referential integrity, hash recomputation, snapshot chain continuity. Classifies issues as ERROR or WARN. 98ms median on live graph.
-- **GC reachability sweep:** `GarbageCollectFull` prunes orphaned nodes and edges after snapshot deletion. 70ms with 500 injected orphans, 53ms steady state.
-- **Daemon lockfile:** Prevents multiple daemon instances on the same database. PID tracking with stale lock cleanup.
-- **`PRAGMA integrity_check` on startup:** Catches SQLite-level corruption before the application layer sees inconsistent data.
-- **In-process LRU cache:** 50K-entry cap on `GetNode`/`GetEdge`. Eliminates redundant SQL round-trips on hot-path traversals.
-- **`VerifyNodeHash` / `VerifyEdgeHash`:** Recomputation functions for integrity verification.
-- **`indexed_at` epoch column:** Migration 011. Used by GC to identify stale objects.
-- **`extractPackagePath` error handling:** Returns error on malformed qualified names instead of silently grouping under `_root`.
-
 ### Added
 
-- **8 MCP resources:** `knowing://report`, `knowing://schema`, `knowing://stats`, `knowing://repos`, `knowing://session`, `knowing://index-health`, `knowing://communities`, `knowing://community/{id}`. Read-only orientation for agents at zero tool-call cost.
-- **`knowing mcp` subcommand:** Stdio MCP server mode for AI agent integration via `.mcp.json`.
-- **`knowing watch` subcommand:** Lightweight file watcher with debounce and optional LSP enrichment.
-- **`knowing mcp --watch` flag:** Combined MCP server + file watching in a single process.
-- **Per-repo database isolation:** Each repo gets its own database at `~/.knowing/repos/<safe-name>.db`. Community detection, RWR, HITS, BM25 operate on isolated data.
-- **Repo roster:** `knowing add`, `knowing remove`, `knowing list` for multi-repo management.
-- **`knowing enrich blame`:** Git blame metadata (last_author, last_commit_at) on symbols.
-- **`knowing enrich coverage`:** Coverage percentages from Go cover profiles on symbols.
-- **84 equivalence classes:** Expanded from 41 with 43 universal software concepts.
-- **TOON wire format support:** Token estimation and format-aware packing.
-- **14 benchmark harnesses:** Merkle diff (core + context packs + Phase 2 persistence + P5 dedup + proof + FTS scoped), community detection, subgraph cache, fsck, GC, context relevance, edge accuracy, test scope, token savings, feedback loop. All self-documenting with FINDINGS.md.
+#### P2 Edge Type Expansion (24 -> 30 edge types)
+- `documents`: comment/docstring association with documented symbols
+- `gated_by_flag`: feature flag references (LaunchDarkly, OpenFeature, custom `isEnabled` patterns)
+- `consumes_endpoint`: HTTP client call sites in Go (`http.Get/Post/Do`) and TypeScript (`fetch/axios`)
+- `implements_rpc`: gRPC service method implementations linked to proto definitions
+- `consumes_rpc`: gRPC client call sites linked to proto service methods
+- `deployed_by`: GitHub Actions workflow deploys linked to deployed services
+- `tested_by`: GitHub Actions workflow test jobs linked to tested packages
+- All 7 new types have RWR weights in `internal/edgetype` constants package
+- Total: 30 edge types, 27 MCP tools
 
-### Correctness
+#### Indexer Performance Overhaul
+- **Parallel extraction**: GOMAXPROCS workers with producer-consumer pipeline
+- **Streaming commits**: batch of 500 files committed to SQLite immediately (kill-safe)
+- **Single-pass body walk**: one recursive AST traversal dispatches calls/throws/routes/flags/endpoints (was 5 separate traversals)
+- **Shared tree parsing**: tree-sitter parses once per file, all extractors share the result
+- **Thread-safe extractors**: per-call parser creation (11 extractors fixed for parallel use)
+- **In-memory snapshot**: `ComputeSnapshotFromEdges` builds Merkle tree from pipeline data (no DB re-read)
+- **Deferred FTS**: full-text search rebuilds in background after index returns
+- **Skip edge events on first index**: no parent = no diff to record (saves 268K INSERT ops)
+- **Skip generated files**: checks first 512 bytes for `Code generated`/`DO NOT EDIT` markers
+- **Skip non-source dirs**: `.git`, `vendor`, `node_modules`, `staging`, `third_party`, etc.
+- **Per-file timeout**: 10s watchdog with fire-and-forget for stuck CGO calls
+- **Progress output**: real-time `[N/total] X files/s, Y edges, ETA Zs` on stderr
+- **`--skip-blame` flag**: skip git blame authorship extraction (expensive on large repos)
+- **`--no-enrich` flag**: skip LSP enrichment for structural-only indexing
+- **`--workers N` flag**: control extraction parallelism
 
-- Multiple daemon instances on the same database now produce a clear startup error.
-- GC prunes orphaned nodes and edges (not just old snapshots), preventing unbounded table growth.
-- `extractPackagePath` no longer silently groups malformed names under `_root`.
-- `DiffHierarchicalTrees` nil-tree guard added (previously would panic).
-- `DeleteNodesNotIn` / `DeleteEdgesNotIn` added to `GraphStore` for GC.
+#### Cross-System Benchmark Framework
+- 100 tasks across 5 repos (kubernetes, TypeScript, Django, Cargo, Flask)
+- 5 difficulty levels: easy, medium, hard, cross-file, architectural
+- Metrics: P@K, R@K, NDCG@10, MRR, token efficiency, latency
+- Statistical rigor: Wilcoxon signed-rank, Cohen's d, bootstrap CI
+- Adapter interface for pluggable retrieval systems (knowing, grep, future: gitnexus, aider)
+- Symbol normalization for cross-system comparison
+- Ground truth achievability filter (only count symbols present in DB)
 
-### Visualization (knowing-viz)
+#### Language Equivalence Classes
+- 31 language-specific equivalence classes for improved keyword matching
+- Python: `__init__`/constructor, `self`/`this`, `def`/`function`, Django/Flask patterns
+- TypeScript: React hooks, Express/Fastify/Hono patterns, `interface`/`type`
+- Rust: trait/impl, `Result`/`Option`, `unwrap`/`expect`
+- Java: Spring annotations, `@Override`/`implements`
+- Kubernetes: resource type aliases, `spec`/`template`/`containers`
 
-- **Full React migration:** React + Zustand + `@react-sigma/core` + `react-force-graph-3d` + Framer Motion.
-- **6 modular grouping strategies:** Package, community, edge type, file, author, none.
-- **Provenance and edge type filtering:** Composable filters with live counts.
-- **Timeline snapshot picker:** View graph at any point in the snapshot chain.
-- **Blame author click-to-filter:** Click author name to filter to their symbols.
-- **Configurable max groups slider:** Range 1-100 (previously hardcoded at 20).
+#### FTS terminal symbol name column (retrieval quality)
+- New `symbol_name` column in FTS index stores just the terminal identifier (e.g., `QuerySet.filter` instead of the full `github.com/django/django://django/db/models/query.py.QuerySet.filter`)
+- BM25 weights: symbol_name=10x, qualified_name=3x, signature=1x, file_path=1x
+- `extractSymbolName` strips repo URL, package path, and file extension prefix
+- Eliminates path token dilution that buried relevant symbols in BM25 ranking
+- Migration 016: adds `symbol_name` column, recreates FTS5 virtual table
+- Expected impact: +5-10pp P@10 on non-Go repos where qualified names include file paths
 
-### Documentation
-
-- Docs reorg: flat `docs/` migrated to `guide/`, `architecture/`, `research/`, `operations/`, `internal/`.
-- ADR for hierarchical Merkle tree (`docs/architecture/adr-hierarchical-merkle.md`).
-- Git design audit (`docs/architecture/git-design-audit.md`): 10-area comparison, 23 recommendations, all CRITICAL/HIGH/MEDIUM fixed.
-- Whitepaper revised: "The Hierarchical Identity Architecture" with editorial review applied.
-- Features.md updated to 90 features with 33 GraphStore methods.
-- Roadmap updated with Phase 3 foundation and feature specifications.
-
-### Changed
-
-- Positioning reframed as "intelligence versioning system."
-- Flat Merkle tree dropped; hierarchical root is canonical snapshot hash.
-- npm and PyPI READMEs rewritten for current capabilities.
-
-## [v0.2.0] - 2026-05-18
-
-### Added
-
-- `knowing why` subcommand: explains why a symbol ranked where it did in retrieval results. Shows seed channel/tier, RWR score, HITS authority/hub, blast radius, confidence, recency, distance, feedback weight, session boost, and equivalence class matches. Usage: `knowing why -task "refactor auth" -symbol "SessionHandler"`.
-- `explain_symbol` MCP tool (tool #23): MCP equivalent of `knowing why`. Parameters: `task_description` (required), `symbol` (required). Returns markdown-formatted scoring breakdown. Registered in the context packing tools group.
-- `knowing ingest-scip` subcommand: imports SCIP protobuf index files for external dependency symbols (provenance `scip_resolved`, confidence 0.95)
-- SCIP ingestor (`internal/indexer/scipingest/`): reads `.scip` files, creates nodes and `references` edges for all symbols and references
-- Cloud extractor (`internal/indexer/cloudextractor/`): single extractor handling 4 cloud YAML formats (CloudFormation/SAM, Docker Compose, GitHub Actions, Serverless Framework)
-- New edge types from cloud extractor: `publishes`, `subscribes`, `connects_to`
-- Event extractor package (`internal/indexer/eventextractor/`): detects Kafka/NATS/SQS/AMQP producer/consumer patterns across Go, TypeScript, Python, Java (package exists, not yet registered in CLI)
-- Schema extractor package (`internal/indexer/schemaextractor/`): OpenAPI/JSON Schema references (package exists, not yet registered in CLI)
-- `KNOWING_DB` environment variable for global database path (used by all CLI subcommands)
-- `knowing mcp` subcommand for stdio MCP server mode (used by AI agents via .mcp.json)
-- 5 new MCP tools (total now 23): `feedback`, `test_scope`, `flow_between`, `plan_turn`, `communities`
-- `feedback` MCP tool: record/query symbol usefulness for agent learning loop (FeedbackProvider interface wired into ContextEngine)
-- `test_scope` MCP tool: backward BFS from changed symbols to find affected test functions
-- `flow_between` MCP tool: BFS path finding between two symbols (up to 10 paths)
-- `plan_turn` MCP tool: keyword-based task-to-tool recommender with pre-filled argument suggestions
-- `communities` MCP tool: Louvain modularity clustering with `list` and `for_symbol` actions
-- `knowing export -format dot`: Graphviz DOT export with Louvain community subgraphs and cross-community edge highlighting
-- Community-annotated JSON export: nodes include `community` ID, edges include `cross_community` flag, top-level `communities` array with labels and sizes
-- `NodesByFilePath` store method (joins nodes to files via SQL) for test-scope and context engine
-- Feedback benchmark (`bench/feedback-loop/`) proving compounding thesis
-- HITS (Hyperlink-Induced Topic Search) reranking on RWR subgraph: boosts task-relevant authorities, penalizes generic infrastructure hubs. Score differentiation improved from 0.01 spread to 0.35 spread across results.
-- Density-ranked knapsack packing: score/cost ratio optimization maximizes total relevance within token budgets. Small high-value symbols (types, interfaces) now beat large medium-value symbols when budget is tight.
-- Protobuf/gRPC extractor: extracts service, message, enum, and RPC declarations from .proto files with references edges for field types and RPC request/response types
-- All 25 extractors now registered in CLI: Go, Python, TypeScript/JS, Rust, Java, C#, Terraform, SQL, K8s YAML, Cloud YAML (CloudFormation/SAM, Docker Compose, GitHub Actions, Serverless), CSS, Protocol Buffers, Dockerfile, Makefile, Helm Charts, GitLab CI, package.json/npm, GraphQL, Ansible
-- Dockerfile extractor (`internal/indexer/dockerfileextractor/`): extracts FROM base image dependencies, COPY --from multi-stage build references, EXPOSE port declarations
-- Makefile extractor (`internal/indexer/makefileextractor/`): extracts target dependencies, include directives, variable references
-- Helm chart extractor (`internal/indexer/helmextractor/`): extracts chart dependencies from Chart.yaml, template references, values injection
-- GitLab CI extractor (`internal/indexer/gitlabciextractor/`): extracts job needs, extends templates, include files, artifact dependencies
-- package.json extractor (`internal/indexer/npmextractor/`): extracts npm dependencies, devDependencies, peerDependencies, scripts
-- GraphQL extractor (`internal/indexer/graphqlextractor/`): extracts type definitions, field type references, interface implementations, operation-to-field calls
-- Ansible extractor (`internal/indexer/ansibleextractor/`): extracts playbook roles, task dependencies, variable references, handler notifications
-- Random Walk with Restart (RWR) algorithm for graph-based relevance scoring in context engine
-- Improved keyword extraction with stop word filtering, CamelCase splitting, and abbreviation expansion
-- Relative normalization in ranking and base recency score for static-only edges
-- BM25 full-text search via FTS5 index (migration 006): `nodes_fts` virtual table over qualified_name, signature, file_path with CamelCase-aware tokenization. Supplements 5-tier keyword seeding when fewer than 8 candidates found.
-- Session-aware retrieval boosts (`internal/context/session.go`): `SessionTracker` applies exponential-decay recency boost (3-minute half-life, capped at 2.0x, 0.20 weight) to symbols returned by recent context queries. One tracker per MCP server lifetime.
-- Noise filtering (`filterNoisySymbols`): excludes mock/stub/fake symbols and `/build/`/`.bundle.` file paths from context candidates.
-- Equivalence class seed retrieval (`internal/context/equivalence.go`): 20 hand-curated concept classes (TRANSITIVE_IMPACT, SYMBOL_LOOKUP, DATAFLOW_TRACE, TEST_SELECTION, etc.) with 200+ phrases mapped to target symbols. Cross-product expansion with action verbs. Fused as RRF Channel 4 (weight 2.0). Biggest single-feature improvement: hard tier P@10 10% to 18%.
-- 4-channel RRF fusion (`rrfFuseMulti` in `internal/context/context.go`): replaces single-channel tiered matching with N-channel Reciprocal Rank Fusion. Channel 1: tiered keywords (weight 3.0), Channel 2: BM25 FTS5 (weight 1.0), Channel 3: vector/embedding (weight 0.0, disabled), Channel 4: equivalence classes (weight 2.0).
-- Doc comment extraction (Node.Doc field): migration 007 adds `doc` column to nodes table. Go tree-sitter extractor extracts doc comments for functions, methods, and types via language-agnostic `extractDocComment` function (uses tree-sitter PrevSibling). Included in embedding text.
-- BGE-small-en-v1.5 embedding model: replaces MiniLM-L6-v2 (same 384 dims, retrieval-tuned). Currently disabled (weight 0.0) as off-the-shelf models tested net-negative. Infrastructure preserved: hugot ONNX runtime, coder/hnsw, RRF channel.
-- BFS depth limit on RWR walk (`buildAdjacencyMap` in `internal/context/walk.go`): limited to 4 hops from seeds for performance improvement.
-- Eval expanded to 55 fixtures (20 easy, 20 medium, 15 hard). Current baseline: Easy 38.5%, Medium 32.0%, Hard 18.0%, Overall 30.5% P@10, 0.53 MRR.
-- MCP `notifications/message` notification when vector index is ready after indexing.
-
-- Bigram compound keyword extraction: joins adjacent non-stop-words into CamelCase and snake_case variants ("blast radius" -> BlastRadius, blast_radius) for multi-word symbol matching.
-- Universal equivalence classes (`internal/context/universal_seeds.go`): 20 any-repo software concepts (authentication, caching, configuration, database, HTTP, testing, concurrency, etc.) at weight 0.8. Cross-repo eval +6.7pp on gortex.
-- Graph-derived aliases (`internal/context/graph_aliases.go`): auto-generates equivalence classes from caller/callee symbol names. Top-10 tiered candidates, weight 0.7.
-- Passive task memory (`internal/context/task_memory.go`): migration 008 adds `task_memory` table. Records top-5 returned symbols per `context_for_task` call. Recall matches keywords with 7-day linear decay, boosts via FeedbackBoost channel at 0.3x scale.
-- Multi-language LSP enrichment (`internal/enrichment/config.go`): auto-detects language servers (gopls, typescript-language-server, pylsp/pyright, rust-analyzer, jdtls, OmniSharp) by checking project markers and PATH. `LSPServerConfig` struct, `DetectLSPServers`, `SetLSPConfig`, `LoadLSPConfig` for knowing-lsp.json override.
-- Multi-language enrichment pipeline (`internal/enrichment/enricher.go`): removed hardcoded .go file checks in `discoverNewEdges`, now uses language filter from `runForServer` for all 6 detected language servers. Added `resolveNamePosition()` to fix pyright's SelectionRange pointing at keywords (class/def) instead of symbol names. Removed dead `openAllFiles`/`closeAllFiles` Go-only legacy methods.
-- Python call-site positions: `CallSiteLine`, `CallSiteCol`, `CallSiteFile` on call edges. Provenance changed from `ast_resolved/1.0` to `ast_inferred/0.7`. Enclosing function node hash threaded through `walkNode` so call edges use real function nodes as sources (enables enricher to find them via `NodesByName`).
-- Workspace readiness wait in enricher: calls `WaitForWorkspaceReadyTimeout(120s)` after opening files, before querying. Servers that index asynchronously (jdtls, tsserver) now wait for `$/progress` tokens to complete. Synchronous servers (gopls) return immediately.
-- Java (jdtls) enrichment validated: 870/1,046 edges upgraded (83.2%), 155 new edges discovered on Spring Petclinic.
-- TypeScript enrichment validated: 90/91 edges upgraded (98.9%), 36 new edges discovered on anthropic-docs-mcp-ts.
-- Python enrichment validated: 6,906/8,310 edges upgraded (83.1%), 15,211 new edges discovered on FastAPI.
-- TOON wire format encoder (`internal/wire/toon.go`): uses official `toon-format/toon-go` library. TOON v3.0 open standard (~60% token savings). Registered as `format: "toon"`.
-- Format-aware token estimation (`EstimateNodeTokensForFormat`): GCF packs 5-7x more symbols per token budget. At 1K tokens: 28 (JSON) vs 197 (GCF) symbols.
-- Cross-repo eval (`eval/crossrepo_test.go`): 30 gortex fixtures (10 exact, 10 concept, 10 multi_hop). Tests pipeline on external codebase with zero config. Result: 46.7% R@10.
-- Information density benchmark: grep output is 0-8% relevant, knowing output is 20-80% relevant. 3-14x more useful information per token.
-- `knowing init` full setup command: indexes repo, auto-detects and runs LSP enrichment, generates CLAUDE.md, configures Claude Code MCP server in ~/.claude.json. One command to go from zero to operational.
-- Whitepapers moved to `docs/whitepapers/` with descriptive names: `content-addressed-graph-intelligence.md`, `gcf-wire-format.md`, `shared-intelligence-layer.md`.
-- 4 breakout documentation guides: `docs/retrieval-pipeline.md`, `docs/equivalence-classes.md`, `docs/hooks-integration.md`, `docs/eval-framework.md`.
-- 23 experiments documented in `eval/EXPERIMENTS.md` with 12 key insights.
-- Roadmap expanded with `knowing why`, session memory persistence, negative feedback, `knowing stats`, `knowing watch`, staleness reporting, and underexploited capabilities sections.
+#### Cross-system benchmark: all 5 repos indexed
+- kubernetes: 4,877 files, 117,401 nodes, 268,249 edges (18.6s)
+- TypeScript: 38,260 files, 88,393 nodes, 67,182 edges (25.8s)
+- Django: 2,937 files, 42,947 nodes, 151,431 edges (3.3s)
+- Cargo: 979 files, 8,075 nodes, 79,305 edges (1.4s)
+- Flask: 97 files, 1,658 nodes, 5,042 edges (0.1s)
+- Total: 47,150 files, 258,474 nodes, 571,209 edges in 49.2s
 
 ### Fixed
 
-- Eval framework `isRelevant` matching now handles `package.Type.Method` qualified names correctly
-- `filterNoisySymbols` added to remove mock/stub/fake symbols that polluted context results
-- `test-scope` command: fixed `symbolsInFiles` returning empty results due to stale FileHash mismatch after re-indexing
-- `test-scope` command: fixed package path extraction producing invalid `go test` paths (was not stripping module prefix)
-- Context engine `ForFiles` and `ForPR` now use `NodesByFilePath` join (was broken with stale FileHash matching)
-- HITS node selection now operates on top-N by RWR score (was random map iteration order)
-- Context engine uses substring search for keyword matching (was requiring exact match)
-- mkdocs.yml and index.md added for docs workflow
+#### Indexer: CGO timeout hang on large repos
+- Tree-sitter CGO calls are not interruptible by Go context cancellation
+- `context.WithTimeout` was ineffective: stuck CGO call blocks worker goroutine forever
+- Pipeline deadlock: `extractWg.Wait()` never returns -> `close(resultCh)` never fires -> consumer loop hangs indefinitely
+- Fix: watchdog goroutine pattern with timer select. Extraction runs in a fire-and-forget goroutine; 10s timer races against it. If timer wins, worker sends empty result and moves on.
+- Result: kubernetes (4877 files, 268K edges) indexes in 18.6s. Was hanging indefinitely.
+
+#### FTS + snapshot WAL contention
+- Running FTS rebuild concurrently with snapshot computation caused both to stall
+- Fix: sequential ordering (snapshot first, then FTS in background)
+
+#### Test: mockSnapshotComputer parent chain behavior
+- `TestIndexRepo_CleanupOnChange` was failing because mock always returned zero `ParentHash`
+- Edge event recording condition (`snap.ParentHash != zero`) was never true in tests
+- Fix: mock now tracks call count and returns proper parent chain on subsequent invocations
+
+#### SQLite performance pragmas
+- `synchronous=NORMAL`: safe with WAL, skips fsync per-commit (only on checkpoint)
+- `mmap_size=256MB`: memory-mapped reads skip userspace buffer copy
+- `cache_size=64MB`: larger page cache reduces disk I/O on warm workloads
+- `busy_timeout=5000`: graceful retry on lock contention
+- `temp_store=MEMORY`: temp indexes in RAM
+
+#### Multi-row batch INSERT
+- Edges: 100 rows per INSERT statement (was 1 row per exec)
+- Nodes: 99 rows per INSERT statement
+- Files: 249 rows per INSERT statement
+- Reduces per-row SQL parsing overhead and CGO crossing count
+
+### Changed
+- Indexer architecture: sequential file loop replaced with producer-consumer pipeline
+- Snapshot computation: from DB re-read to in-memory construction (9ms for knowing, 95ms for kubernetes)
+- SQLite batch writes: single-row prepared statement loop replaced with multi-row VALUES
+- Edge types: 24 -> 30 (7 new P2 types)
+- MCP tools: 24 -> 27 (ownership_query + prove + prove_absent + fsck)
+
+## 2026-05-19
+
+#### MCP audit tools (27 tools total with ownership_query)
+- `prove` MCP tool: generate inclusion proofs from agent conversations
+- `prove_absent` MCP tool: generate absence proofs from agent conversations
+- `fsck` MCP tool: verify graph integrity from agent conversations
+- Enables agent-native compliance workflows without CLI
+
+#### Database management
+- `knowing reset`: delete all graph data (nodes, edges, snapshots) without removing DB file
+- `knowing vacuum`: compact database after deletions (reports before/after size)
+- `knowing remove --purge`: remove from roster AND delete the DB file
+- `snapMgr` now initialized in plain MCP stdio mode (prove tools work without --watch)
+
+#### Human-readable proof output
+- `knowing prove -human` and `knowing prove-absent -human` for terminal-friendly output
+- Clean format for screenshots and demos (default remains JSON)
+
+#### Java extractor: proper package paths
+- Qualified names now use Java package declaration (e.g., `org.springframework.samples.petclinic.owner.OwnerController`)
+- Previously embedded absolute file paths; now extracts from `package_declaration` AST node
+- Validated on Spring PetClinic (47 files, 5522 nodes, 3048 edges, 21 Spring routes)
+
+#### Grafana scale validation
+- Indexed Grafana (~500K LOC Go+TypeScript): 338K nodes, 714K edges, 15,921 files
+- Hierarchical tree build: 88ms for 249K edges (3,552 packages)
+- Context retrieval operational at 50x primary codebase scale
+
+#### Named snapshot refs
+- `knowing diff @latest @prev` (diff last two snapshots)
+- `knowing diff @0 @3` (offset from most recent)
+- `knowing audit-diff @prev @latest`
+- Supports: `@latest`, `@first`, `@prev`, `@N` (offset), or raw hex hash
+- Inspired by git's ref system (HEAD, HEAD~1)
+
+### Changed
+
+#### Merkle tree implementation extracted to `merkle-forest` library
+- Internal `computeMerkleRoot` replaced by `github.com/blackwell-systems/merkle-forest` v0.1.1
+- `BuildMerkleTree` delegates to `forest.Build` with `WithPrefix([]byte("merkle\x00"))` for hash parity
+- `BuildHierarchicalTree` delegates to `forest.BuildMultiLevel`
+- All exported API preserved unchanged (zero-breaking-change refactor)
+- `combineHashes` retained for proof.go compatibility
+- Net: -44 lines from knowing, delegated to standalone library
+- Library: https://github.com/blackwell-systems/merkle-forest
+
+### Added
+
+#### `knowing stats` CLI
+- Cumulative graph statistics: repos, nodes, edges, files, snapshots, communities, graph notes
+- Feedback metrics: total, useful, not useful, unique symbols, merkleized count, usefulness rate
+- Supports `-json` flag for structured output
+- Supports `-db` flag for custom database path
+
+#### Generation numbers on snapshots
+- Schema migration 015: `generation INTEGER NOT NULL DEFAULT 0` on snapshots table
+- `Snapshot.Generation` field: `parent.Generation + 1` on each new snapshot
+- Enables O(1) ancestry checks without walking the chain
+- Inspired by git's commit-graph `generation_number`
+
+#### Auto-GC threshold
+- After indexing, if `edge_events` table exceeds 5,000 rows, automatically prunes old snapshots (keeps 10)
+- Inspired by git's `gc.auto` threshold (6,700 loose objects triggers gc)
+- Prevents unbounded edge_events growth without manual intervention
+
+#### Merkleized Feedback Validity (v0.5.0)
+- Feedback records now store `neighborhood_root` (SubgraphRoot of symbol's package)
+- Feedback automatically expires when code changes (neighborhood changes)
+- 11% overhead (255µs baseline -> 284µs per 100 symbols)
+- Schema migration 014: `neighborhood_root` column + index on feedback table
+- `computeNeighborhoodRoot` helper in MCP server computes package root for a symbol
+- `FeedbackBoosts` method accepts optional `neighborhoodRoots` map for merkleized expiration
+
+#### Merkle Proofs and Audit Primitives
+- `knowing prove`: generates cryptographic Merkle proofs (72µs, ~3KB)
+- `knowing verify`: offline verification without database access (1.2µs)
+- `knowing prove-absent`: absence proofs using adjacent sorted leaves
+- `knowing audit`: compliance report with integrity check, edge inventory, and Merkle proofs
+- Auto-substring matching in prove/prove-absent (no `%` prefix needed)
+- Human-readable prove/verify output
+
+#### Cross-Repo Resolution
+- Phantom external nodes for stdlib/external edge targets
+- Enricher creates phantom nodes for all dangling edges post-enrichment
+- `ExtractPackagePath` handles method qualified names correctly
+- Fsck roster awareness + cross-repo method resolution
+
+### Changed
+
+- Cross-repo edges now fully resolved via roster-based module mapping
+- Tree depth locked at 3 levels (repo -> package -> edge-type)
+
+### Added
+
+#### Extractors (6 -> 17 languages)
+- Protobuf/gRPC extractor: service, message, enum, RPC declarations with type reference edges
+- Event/MQ extractor: Kafka, NATS, SQS, RabbitMQ patterns across Go/TS/Python/Java
+- Schema extractor: OpenAPI 3.x, Swagger 2.x, JSON Schema document parsing
+- Cloud extractor package: CloudFormation/SAM, Docker Compose, GitHub Actions, Serverless Framework
+- Terraform HCL extractor: resources, data sources, modules, variables with dependency edges
+- SQL extractor: tables, views, functions, procedures with FK/reference edges
+- K8s YAML extractor: deployments, services, configmaps with label-selector edges
+- CSS extractor: class/ID selectors, custom properties, var() dependency edges
+- Python: Flask, FastAPI, Django route detection
+- TypeScript: Fastify, Hono, NestJS, Next.js route detection
+- FindAllExtractors multi-dispatch: all matching extractors run per file (not just first)
+- All 25 extractors registered in CLI (includes 7 new infrastructure extractors: Dockerfile, Makefile, Helm, GitLab CI, package.json/npm, GraphQL, Ansible)
+
+#### SCIP Ingest
+- `internal/indexer/scipingest/` package: parses SCIP protobuf index files
+- `knowing ingest-scip` CLI command for external dependency resolution
+- Provenance `scip_resolved` at confidence 0.95
+
+#### Context Engine
+- HITS (Hyperlink-Induced Topic Search) reranking on RWR subgraph
+- Density-ranked knapsack packing: score/cost ratio optimization for token budgets
+- 5-tier seeding: exact, prefix, substring, file-path matching, interface-aware
+- FeedbackProvider interface wired into ContextEngine with centered scoring
+- Community-scoped RWR preparation (interface defined, activates when store implements)
+- Random Walk with Restart (RWR) algorithm for graph-based relevance scoring
+- Improved keyword extraction with stop word filtering, CamelCase splitting, abbreviation expansion
+- Relative normalization in ranking and base recency score for static-only edges
+
+#### MCP Server (16 -> 22 tools)
+- `knowing mcp` subcommand for stdio MCP server mode
+- `feedback` tool: record/query symbol usefulness for agent learning loop
+- `test_scope` tool: backward BFS from changed symbols to affected test functions
+- `flow_between` tool: BFS path finding between two symbols (up to 10 paths)
+- `plan_turn` tool: keyword-based task-to-tool recommender with pre-filled arguments
+- `communities` tool: Louvain modularity clustering with `list` and `for_symbol` actions
+- `context_for_pr` tool (17th tool, added earlier in session)
+- 3 MCP prompts: `refactor_safely`, `review_pr`, `investigate_dead_code`
+
+#### Wire Format
+- Graph Compact Format (GCF): line-oriented LLM-optimized encoding (84% token savings vs JSON)
+- Graph Compact Binary (GCB): varint-encoded transport format (74% byte savings vs JSON)
+- Session statefulness: cross-call deduplication (47% dedup on repeated symbols)
+- Round-trip integrity: encode -> decode -> re-encode for all codecs
+
+#### Benchmarks (6 harnesses with auto-generated FINDINGS.md)
+- `bench/feedback-loop/`: precision 16% -> 36% (+20pp) with feedback compounding
+- `bench/context-relevance/`: 3 configs x 10 fixtures, feedback adds +9pp precision
+- `bench/token-savings/`: 52.8% fewer tool calls, 55.6% fewer tokens vs manual grep
+- `bench/edge-accuracy/`: tree-sitter vs go/ast comparison (26.7% confirmation, 53.6% imports)
+- `bench/test-scope-accuracy/`: predictions vs Go import DAG ground truth (98.9% precision)
+- `bench/wire-format/`: GCF 84% token savings, GCB 74% byte savings across 6 fixtures
+
+#### CLI
+- `knowing test-scope`: find affected tests from changed files via call graph BFS
+- `knowing init`: auto-generated CLAUDE.md with progressive disclosure
+- `knowing export -format dot`: Graphviz DOT with Louvain community subgraphs
+- `knowing reindex`: rebuild graph without full re-extraction
+- Community-annotated JSON export: nodes include `community` ID, edges include `cross_community` flag
+
+#### Infrastructure
+- `KNOWING_DB` env var for global database path (all subcommands)
+- Global MCP config support in ~/.claude.json (knowing available in every Claude session)
+- Claude Code hooks with A/B measurement harness (proven net-positive after benchmarking)
+- Docker image publishing in goreleaser config
+- PyPI and npm distribution packages
+- mcp-assert CI action for MCP server correctness testing
+- `NodesByFilePath` store method (joins nodes to files via SQL)
+- Migration 005: feedback table for persistent symbol usefulness tracking
+- `DeleteSnapshot` for real garbage collection
+
+### Fixed
+
+- `test-scope` command: `symbolsInFiles` returning empty results (stale FileHash mismatch)
+- `test-scope` command: package path extraction producing invalid `go test` paths
+- Context engine `ForFiles`/`ForPR` broken with stale FileHash matching (now uses NodesByFilePath)
+- HITS node selection on random map iteration order (now sorted by RWR score first)
+- Context engine exact match requirement (now uses substring search)
+- K8s extractor not matching `kubernetes-manifests/` directory names (was exact `/kubernetes/`)
+- All subcommands now use KNOWING_DB env var (mcp.go was still hardcoded)
+- 9 extractors were dead code (registered but never called due to first-match dispatch)
+- Duplicate `extractPackage` helper in testscope.go and communities.go
+- Community label deduplication (Louvain producing 3 "mcp" communities)
+- Indexer cleans up nodes/edges from deleted files
+- Duplicate nodes from mismatched repo URL vs go.mod module path
 - Architecture doc updated to reflect actual codebase structure
-- Enrichment queries returning empty results on async language servers (jdtls, tsserver) due to querying before workspace indexing completed
+- All 6 benchmark harnesses audited: stale FINDINGS data corrected, circular ground truth replaced with independent Go import DAG, missing FINDINGS.md generated, misleading interpretations rewritten
+
+### Changed
+
+- Extractors: 6 -> 17 languages (Go, Python, TS/JS, Rust, Java, C#, Terraform, SQL, K8s, CSS, Proto, Event/MQ, Schema, CloudFormation, Docker Compose, GitHub Actions, Serverless)
+- MCP server: 16 -> 22 tools
+- Wire format renamed from KWF/KWB to GCF/GCB (Graph Compact Format/Binary)
+- Default hooks now recommended (proven net-positive with benchmarks)
 
 ## 2026-05-15
 

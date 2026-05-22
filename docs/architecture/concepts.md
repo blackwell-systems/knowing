@@ -155,12 +155,13 @@ The bright-line rule: intelligence features never write edges, nodes, or snapsho
 
 Equivalence classes bridge the vocabulary gap between how developers describe tasks in natural language and the symbol names that live in the graph. An equivalence class maps a canonical concept (like `TRANSITIVE_IMPACT`) to a set of natural-language phrases ("blast radius," "downstream callers," "what breaks") and a set of code symbol targets that should be boosted when those phrases appear in a query.
 
-knowing ships **84 seed equivalence classes** organized into two tiers:
+knowing ships **115 seed equivalence classes** organized into three tiers:
 
 - **63 universal classes** (in `internal/context/universal_seeds.go`): software engineering concepts that appear in any codebase (entry points, error handling, caching, authentication, testing, concurrency, etc.). These are language-agnostic and shared across all projects.
 - **21 knowing-specific classes** (in `internal/context/equivalence.go`): concepts specific to knowing's own domain (transitive impact, snapshot management, wire format, community detection, feedback loop, etc.). These bootstrap the context engine for queries about knowing itself.
+- **31 language-specific classes** (in `internal/context/language_seeds.go`): vocabulary bridges for Python (`__init__`/constructor, Django/Flask patterns), TypeScript (React hooks, Express/Fastify), Rust (trait/impl, Result/Option), Java (Spring annotations), and Kubernetes (resource type aliases).
 
-At runtime, matching a phrase from an equivalence class boosts the seed weight of the associated symbols before the retrieval walk begins. After the walk, graph-derived aliases (from `internal/context/graph_aliases.go`) and session feedback further adjust weights. The 84 seed classes provide the floor; graph learning builds on top.
+At runtime, matching a phrase from an equivalence class boosts the seed weight of the associated symbols before the retrieval walk begins. After the walk, graph-derived aliases (from `internal/context/graph_aliases.go`) and session feedback further adjust weights. The 115 seed classes provide the floor; graph learning builds on top.
 
 ## Content-Addressed Context Packs
 

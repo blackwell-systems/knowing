@@ -7,8 +7,9 @@ The context packing subsystem (`internal/context/`) produces token-budgeted, gra
 ```
 internal/context/
 ├── context.go          ContextEngine: ForTask, ForFiles entry points, 4-channel RRF fusion, knapsack packing
-├── equivalence.go      Equivalence class seed retrieval: 84 equivalence classes (63 universal + 21 knowing-specific) -> target symbols
+├── equivalence.go      Equivalence class seed retrieval: 115 equivalence classes (63 universal + 21 knowing-specific + 31 language-specific) -> target symbols
 ├── universal_seeds.go  63 universal software concepts (weight 0.8), cross-repo retrieval
+├── language_seeds.go   31 language-specific equivalence classes (Python, TS, Rust, Java, K8s)
 ├── graph_aliases.go    Auto-generated equivalence classes from caller/callee names (weight 0.7)
 ├── task_memory.go      Passive task memory: records top-5 symbols per call, 7-day decay recall
 ├── ranking.go          RankSymbols: weighted scoring formula with HITS authority + session boost
@@ -62,15 +63,15 @@ Seed selection uses Reciprocal Rank Fusion (`rrfFuseMulti`) across four channels
 | Channel | Weight | Source |
 |---------|--------|--------|
 | 1. Tiered keyword matching | 3.0 | 5-tier exact/prefix/substring/path/interface matching |
-| 2. BM25 FTS5 | 1.0 | SQLite FTS5 over qualified_name, signature, file_path |
+| 2. BM25 FTS5 | 1.0 | SQLite FTS5 over symbol_name, qualified_name, signature, file_path |
 | 3. Vector/embedding search | 0.0 | BGE-small-en-v1.5 via HNSW (disabled pending code-tuned model) |
-| 4. Equivalence class matching | 2.0 | 84 equivalence classes (63 universal + 21 knowing-specific) mapped to target symbols |
+| 4. Equivalence class matching | 2.0 | 115 equivalence classes (63 universal + 21 knowing-specific + 31 language-specific) mapped to target symbols |
 
 This replaces the previous approach of tiered matching with conditional BM25 fallback. The `rrfFuseMulti` function handles N channels with per-channel weights, producing a single ranked seed set.
 
 ## Equivalence Class Seed Retrieval
 
-The equivalence class system (`internal/context/equivalence.go`) bridges the vocabulary gap between natural-language task descriptions and code symbol names. It contains 84 equivalence classes (63 universal + 21 knowing-specific), each mapping concept names and phrases to target symbols. Cross-product expansion with action verbs generates additional phrase variants.
+The equivalence class system (`internal/context/equivalence.go` + `language_seeds.go`) bridges the vocabulary gap between natural-language task descriptions and code symbol names. It contains 115 equivalence classes (63 universal + 21 knowing-specific + 31 language-specific), each mapping concept names and phrases to target symbols. Cross-product expansion with action verbs generates additional phrase variants.
 
 This was the biggest single-feature improvement: hard tier P@10 rose from 10% to 18% (+8pp). It is fused as RRF Channel 4 with weight 2.0.
 
@@ -92,7 +93,11 @@ Migration 014 adds `neighborhood_root BLOB` to the feedback table. When recordin
 
 ## BM25 Full-Text Search (FTS5 Index)
 
-Migration 006 adds an SQLite FTS5 virtual table (`nodes_fts`) over `qualified_name`, `signature`, and `file_path`. Tokenization uses CamelCase-aware splitting (`splitForFTS`, `splitCamelCase`) so that a query for "Store" matches "SQLiteStore" or "NewSQLiteStore". `RebuildFTS` is called after batch indexing to keep the index current. BM25 is fused as RRF Channel 2 with weight 1.0.
+Migration 006 creates the SQLite FTS5 virtual table (`nodes_fts`). Migration 016 adds a `symbol_name` column that stores just the terminal symbol identifier (e.g., "QuerySet.filter" instead of the full qualified path). The `extractSymbolName` function strips the repo URL, package path, and file extension prefix to produce this short form.
+
+The FTS5 table now indexes four columns with BM25 weights: `symbol_name` (10x), `qualified_name` (3x), `signature` (1x), `file_path` (1x). The high weight on `symbol_name` ensures that keyword searches like "before_request" rank symbols by their actual name rather than by incidental path token frequency.
+
+Tokenization uses CamelCase-aware splitting (`splitForFTS`, `splitCamelCase`) so that a query for "Store" matches "SQLiteStore" or "NewSQLiteStore". `RebuildFTS` is called after batch indexing to keep the index current. BM25 is fused as RRF Channel 2 with weight 1.0.
 
 ## Embedding Search (Infrastructure Shipped, Disabled)
 
@@ -116,7 +121,7 @@ Before scoring, `filterNoisySymbols` removes low-signal candidates:
    - Channel 1 (weight 3.0): 5-tier keyword matching (exact > prefix > substring > path > interface)
    - Channel 2 (weight 1.0): BM25 FTS5 search
    - Channel 3 (weight 0.0): Vector/embedding search (disabled)
-   - Channel 4 (weight 2.0): Equivalence class matching (84 equivalence classes: 63 universal + 21 knowing-specific, plus graph-derived aliases at weight 0.7)
+   - Channel 4 (weight 2.0): Equivalence class matching (115 equivalence classes: 63 universal + 21 knowing-specific + 31 language-specific, plus graph-derived aliases at weight 0.7)
 4. `rrfFuseMulti` merges all channels into a single ranked seed set.
 5. Filter noisy symbols (mocks, stubs, fakes, build artifacts).
 6. For each candidate node, retrieve callers and callees (distance-0 and distance-1 neighborhood).
