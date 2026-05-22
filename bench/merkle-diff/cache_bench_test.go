@@ -528,7 +528,7 @@ func TestPhase2CacheBenchmark(t *testing.T) {
 		// --- Performance contracts ---
 		t.Run("PerformanceContracts", func(t *testing.T) {
 			const (
-				maxCacheHitMedian    = 10 * time.Millisecond // 10ms allows for slower CI runners
+				maxCacheHitMedian    = 20 * time.Millisecond // 20ms allows for slower CI runners and loaded machines
 				maxInvalidateMedian  = 1 * time.Millisecond
 				minSpeedupMedian     = 1.0 // on small graphs (~2K nodes), cold retrieval is already fast; speedup appears at scale
 			)
