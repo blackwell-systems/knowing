@@ -1280,31 +1280,54 @@ func deriveNextJSRoutePath(filePath string) string {
 	return "/" + strings.Join(routeParts, "/")
 }
 
-// extractExtendsClause checks a class_declaration for an extends_clause child
-// and emits an "extends" edge from the class to the superclass.
+// extractExtendsClause checks a class_declaration for an extends_clause
+// (possibly nested inside class_heritage) and emits an "extends" edge.
 func extractExtendsClause(classNode *sitter.Node, opts types.ExtractOptions, qnamePrefix string, classHash types.Hash, edges *[]types.Edge) {
+	// Tree-sitter TypeScript nests extends_clause inside class_heritage:
+	// class_declaration -> class_heritage -> extends_clause -> identifier
+	// Search both direct children and one level deeper (inside class_heritage).
+	var extendsClause *sitter.Node
 	for i := 0; i < int(classNode.ChildCount()); i++ {
 		child := classNode.Child(i)
 		if child.Type() == "extends_clause" {
-			// The extends clause contains type references as children.
+			extendsClause = child
+			break
+		}
+		if child.Type() == "class_heritage" {
 			for j := 0; j < int(child.ChildCount()); j++ {
-				typeRef := child.Child(j)
-				if typeRef.Type() == "identifier" || typeRef.Type() == "type_identifier" || typeRef.Type() == "member_expression" {
-					superName := typeRef.Content(opts.Content)
-					targetHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, superName, "type")
-					prov := "ast_inferred"
-					edgeHash := types.ComputeEdgeHash(classHash, targetHash, "extends", prov)
-					*edges = append(*edges, types.Edge{
-						EdgeHash:   edgeHash,
-						SourceHash: classHash,
-						TargetHash: targetHash,
-						EdgeType:   "extends",
-						Confidence: 0.7,
-						Provenance: prov,
-					})
-					break // Only one superclass in TS/JS
+				heritage := child.Child(j)
+				if heritage.Type() == "extends_clause" {
+					extendsClause = heritage
+					break
 				}
 			}
+			if extendsClause != nil {
+				break
+			}
+		}
+	}
+
+	if extendsClause == nil {
+		return
+	}
+
+	// The extends clause contains the superclass as an identifier or type_identifier.
+	for j := 0; j < int(extendsClause.ChildCount()); j++ {
+		typeRef := extendsClause.Child(j)
+		if typeRef.Type() == "identifier" || typeRef.Type() == "type_identifier" || typeRef.Type() == "member_expression" {
+			superName := typeRef.Content(opts.Content)
+			targetHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, superName, "type")
+			prov := "ast_inferred"
+			edgeHash := types.ComputeEdgeHash(classHash, targetHash, "extends", prov)
+			*edges = append(*edges, types.Edge{
+				EdgeHash:   edgeHash,
+				SourceHash: classHash,
+				TargetHash: targetHash,
+				EdgeType:   "extends",
+				Confidence: 0.7,
+				Provenance: prov,
+			})
+			break
 		}
 	}
 }
