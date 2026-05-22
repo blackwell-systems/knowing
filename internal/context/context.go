@@ -459,6 +459,12 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 			continue
 		}
 
+		// Skip phantom external nodes reached by RWR walk.
+		// These are unresolved targets from LSP enrichment with no source code.
+		if node.Kind == "external" || strings.HasPrefix(node.QualifiedName, "external://") {
+			continue
+		}
+
 		// Determine distance: 0 if seed (direct keyword match), 1 otherwise.
 		distance := 1
 		if seedSet[nodeHash] {
@@ -1278,10 +1284,16 @@ func packIntoBudget(ranked []RankedSymbol, budget int, format string) *ContextBl
 }
 
 // filterNoisySymbols removes symbols from minified bundles, dist/,
-// vendor/, and node_modules/ paths that pollute retrieval results.
+// vendor/, node_modules/, and phantom external nodes that pollute retrieval results.
 func filterNoisySymbols(nodes []types.Node) []types.Node {
 	var filtered []types.Node
 	for _, n := range nodes {
+		// Skip phantom external nodes created during LSP enrichment.
+		// These are unresolved targets with no source code (kind "external"
+		// or qualified_name starting with "external://").
+		if n.Kind == "external" || strings.HasPrefix(n.QualifiedName, "external://") {
+			continue
+		}
 		qn := strings.ToLower(n.QualifiedName)
 		// Skip minified JS bundles and build artifacts.
 		if strings.Contains(qn, "/dist/") || strings.Contains(qn, "/build/") ||

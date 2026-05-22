@@ -106,6 +106,10 @@ func (e *ContextEngine) ExplainSymbol(ctx stdctx.Context, task string, symbolQue
 		if err != nil || node == nil {
 			continue
 		}
+		// Skip phantom external nodes reached by RWR walk.
+		if node.Kind == "external" || strings.HasPrefix(node.QualifiedName, "external://") {
+			continue
+		}
 		distance := 1
 		if seedSet[nodeHash] {
 			distance = 0
