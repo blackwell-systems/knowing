@@ -1,7 +1,7 @@
 # ADR: Hierarchical Merkle Tree
 
 **Date:** 2026-05-18 (updated 2026-05-19)
-**Status:** Shipped (Phases 1-3, Phase 4 partially shipped). Implementation extracted to `merkle-forest` library (v0.1.2).
+**Status:** Shipped (Phases 1-3, Phase 4 partially shipped). Implementation extracted to `merkle-strata` library (v0.1.2).
 **Impact:** Foundational. Changes the role of the Merkle tree from integrity mechanism to performance architecture.
 
 ## Context
@@ -60,7 +60,7 @@ No competitor uses hierarchical Merkle trees over code relationship graphs. Most
 
 ## Implementation
 
-- `internal/snapshot/hierarchical.go`: `HierarchicalTree`, `BuildHierarchicalTree` (delegates to `github.com/blackwell-systems/merkle-forest` v0.1.2 via `forest.BuildMultiLevel` with `WithPrefix([]byte("merkle\x00"))`), `DiffHierarchicalTrees`, `DiffHierarchicalTreesWithOptions` (with `DiffOptions`: `PackageFilter`, `MaxChanges`), `SubgraphRoot`, `EdgeTypeRoot`, `ContextPackRoot`
+- `internal/snapshot/hierarchical.go`: `HierarchicalTree`, `BuildHierarchicalTree` (delegates to `github.com/blackwell-systems/merkle-strata` v0.1.2 via `forest.BuildMultiLevel` with `WithPrefix([]byte("merkle\x00"))`), `DiffHierarchicalTrees`, `DiffHierarchicalTreesWithOptions` (with `DiffOptions`: `PackageFilter`, `MaxChanges`), `SubgraphRoot`, `EdgeTypeRoot`, `ContextPackRoot`
 - `internal/snapshot/merkle.go`: `BuildMerkleTree` delegates to `forest.Build`; `combineHashes` retained for proof.go compatibility
 - `internal/snapshot/manager.go`: `ComputeSnapshot` builds the hierarchical tree (flat tree was dropped); `extractPackagePath` now returns an error on malformed names; sets `Snapshot.Generation` for O(1) ancestry
 - `internal/snapshot/gc.go`: `GarbageCollectFull` with reachability sweep and `GCStats` return type

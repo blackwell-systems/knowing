@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	forest "github.com/blackwell-systems/merkle-forest"
+	strata "github.com/blackwell-systems/merkle-strata"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
@@ -40,8 +40,8 @@ type HierarchicalTree struct {
 	// TotalEdges is the total number of edges across all packages.
 	TotalEdges int
 
-	// ml is the underlying forest.MultiLevel for SubgraphRoot delegation.
-	ml *forest.MultiLevel
+	// ml is the underlying strata.MultiLevel for SubgraphRoot delegation.
+	ml *strata.MultiLevel
 }
 
 // EdgeInput is the input for building a hierarchical tree: an edge hash with
@@ -70,24 +70,24 @@ func BuildHierarchicalTree(edges []EdgeInput) *HierarchicalTree {
 		}
 	}
 
-	// Convert EdgeInputs to forest.MultiLevelInput.
-	inputs := make([]forest.MultiLevelInput, len(edges))
+	// Convert EdgeInputs to strata.MultiLevelInput.
+	inputs := make([]strata.MultiLevelInput, len(edges))
 	pkgEdgeCounts := make(map[string]int)
 	for i, e := range edges {
 		group := e.PackagePath
 		if group == "" {
 			group = "_root"
 		}
-		inputs[i] = forest.MultiLevelInput{
-			Leaf:     forest.Hash(e.EdgeHash),
+		inputs[i] = strata.MultiLevelInput{
+			Leaf:     strata.Hash(e.EdgeHash),
 			Group:    group,
 			Subgroup: e.EdgeType,
 		}
 		pkgEdgeCounts[group]++
 	}
 
-	// Build via merkle-forest with knowing's domain prefix.
-	ml := forest.BuildMultiLevel(inputs, forest.WithPrefix(forestPrefix))
+	// Build via merkle-strata with knowing's domain prefix.
+	ml := strata.BuildMultiLevel(inputs, strata.WithPrefix(strataPrefix))
 
 	// Convert results back to knowing types.
 	packageRoots := make(map[string]types.Hash, len(ml.GroupRoots))

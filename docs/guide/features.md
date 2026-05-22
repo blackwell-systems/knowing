@@ -1,6 +1,6 @@
 # FEATURES.md -- Comprehensive Feature Dump for AI Reference
 
-Generated: 2026-05-15 (updated: 2026-05-22, features 77-112 added: hash domain prefixes, fsck, GC, lockfile, LRU cache, modular community detection, DiffOptions, indexed_at, verify, React viz, MCP resources, graph notes, Phase 3 complete, Merkle proofs, stats CLI, named refs, generation numbers, auto-GC, merkle-forest extraction; P2 edge types, parallel indexer, cross-system benchmark, language equivalence classes, cross-file import resolution, inheritance propagation, deeper call chains, test deprioritization; FTS concepts column, task memory persistence; compound-first keyword extraction, Java/C# import resolution)
+Generated: 2026-05-15 (updated: 2026-05-22, features 77-112 added: hash domain prefixes, fsck, GC, lockfile, LRU cache, modular community detection, DiffOptions, indexed_at, verify, React viz, MCP resources, graph notes, Phase 3 complete, Merkle proofs, stats CLI, named refs, generation numbers, auto-GC, merkle-strata extraction; P2 edge types, parallel indexer, cross-system benchmark, language equivalence classes, cross-file import resolution, inheritance propagation, deeper call chains, test deprioritization; FTS concepts column, task memory persistence; compound-first keyword extraction, Java/C# import resolution)
 Source: code inspection of all Go files across internal/, cmd/, and config
 Repo: github.com/blackwell-systems/knowing
 
@@ -1133,10 +1133,10 @@ Repo: github.com/blackwell-systems/knowing
 
 ### 106. Merkle-Forest Library Extraction
 
-- **Dependency:** `github.com/blackwell-systems/merkle-forest` v0.1.1
+- **Dependency:** `github.com/blackwell-systems/merkle-strata` v0.1.1
 - **What it does:** Core Merkle tree construction (`computeMerkleRoot`, binary tree building, multi-level tree building) extracted to a standalone reusable library. `BuildMerkleTree` delegates to `forest.Build` with `WithPrefix([]byte("merkle\x00"))`. `BuildHierarchicalTree` delegates to `forest.BuildMultiLevel`. All exported APIs preserved unchanged.
 - **Net impact:** -44 lines from knowing; construction logic reusable by other projects.
-- **Library source:** https://github.com/blackwell-systems/merkle-forest
+- **Library source:** https://github.com/blackwell-systems/merkle-strata
 
 ### 107. Cross-File Import Resolution (Python, TypeScript, Rust)
 

@@ -3,7 +3,7 @@ package snapshot
 import (
 	"testing"
 
-	forest "github.com/blackwell-systems/merkle-forest"
+	strata "github.com/blackwell-systems/merkle-strata"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
@@ -24,50 +24,50 @@ func TestForestParity(t *testing.T) {
 
 	knowingTree := BuildHierarchicalTree(edges)
 
-	// Build the same tree using merkle-forest.
-	var inputs []forest.MultiLevelInput
+	// Build the same tree using merkle-strata.
+	var inputs []strata.MultiLevelInput
 	for _, e := range edges {
-		inputs = append(inputs, forest.MultiLevelInput{
-			Leaf:     forest.Hash(e.EdgeHash),
+		inputs = append(inputs, strata.MultiLevelInput{
+			Leaf:     strata.Hash(e.EdgeHash),
 			Group:    e.PackagePath,
 			Subgroup: e.EdgeType,
 		})
 	}
 
-	forestTree := forest.BuildMultiLevel(inputs, forest.WithPrefix([]byte("merkle\x00")))
+	strataTree := strata.BuildMultiLevel(inputs, strata.WithPrefix([]byte("merkle\x00")))
 
 	// Compare roots.
-	if types.Hash(forestTree.Root) != knowingTree.Root {
-		t.Fatalf("ROOT MISMATCH:\n  knowing:       %x\n  merkle-forest: %x", knowingTree.Root, forestTree.Root)
+	if types.Hash(strataTree.Root) != knowingTree.Root {
+		t.Fatalf("ROOT MISMATCH:\n  knowing:       %x\n  merkle-strata: %x", knowingTree.Root, strataTree.Root)
 	}
 
 	// Compare package roots.
 	for pkg, knowingRoot := range knowingTree.PackageRoots {
-		forestRoot, ok := forestTree.GroupRoots[pkg]
+		forestRoot, ok := strataTree.GroupRoots[pkg]
 		if !ok {
 			t.Fatalf("merkle-forest missing group %q", pkg)
 		}
 		if types.Hash(forestRoot) != knowingRoot {
-			t.Fatalf("GROUP ROOT MISMATCH for %q:\n  knowing:       %x\n  merkle-forest: %x", pkg, knowingRoot, forestRoot)
+			t.Fatalf("GROUP ROOT MISMATCH for %q:\n  knowing:       %x\n  merkle-strata: %x", pkg, knowingRoot, forestRoot)
 		}
 	}
 
 	// Compare edge-type roots.
 	for key, knowingRoot := range knowingTree.EdgeTypeRoots {
-		forestRoot, ok := forestTree.SubgroupRoots[key]
+		forestRoot, ok := strataTree.SubgroupRoots[key]
 		if !ok {
 			t.Fatalf("merkle-forest missing subgroup %q", key)
 		}
 		if types.Hash(forestRoot) != knowingRoot {
-			t.Fatalf("SUBGROUP ROOT MISMATCH for %q:\n  knowing:       %x\n  merkle-forest: %x", key, knowingRoot, forestRoot)
+			t.Fatalf("SUBGROUP ROOT MISMATCH for %q:\n  knowing:       %x\n  merkle-strata: %x", key, knowingRoot, forestRoot)
 		}
 	}
 
 	// Compare SubgraphRoot.
 	knowingSub := knowingTree.SubgraphRoot([]string{"pkg/auth"})
-	forestSub := forestTree.SubgraphRoot([]string{"pkg/auth"})
+	forestSub := strataTree.SubgraphRoot([]string{"pkg/auth"})
 	if types.Hash(forestSub) != knowingSub {
-		t.Fatalf("SUBGRAPH ROOT MISMATCH:\n  knowing:       %x\n  merkle-forest: %x", knowingSub, forestSub)
+		t.Fatalf("SUBGRAPH ROOT MISMATCH:\n  knowing:       %x\n  merkle-strata: %x", knowingSub, forestSub)
 	}
 
 	t.Logf("PARITY VERIFIED: merkle-forest produces identical output at all levels")

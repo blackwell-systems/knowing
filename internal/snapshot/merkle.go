@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"sort"
 
-	forest "github.com/blackwell-systems/merkle-forest"
+	strata "github.com/blackwell-systems/merkle-strata"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
-// forestPrefix matches knowing's historical "merkle\x00" domain prefix.
-var forestPrefix = []byte("merkle\x00")
+// strataPrefix matches knowing's historical "merkle\x00" domain prefix.
+var strataPrefix = []byte("merkle\x00")
 
 // MerkleTree represents a binary Merkle tree built from sorted hashes.
 // The tree is constructed bottom-up: leaves are sorted edge hashes, and
@@ -35,12 +35,12 @@ func BuildMerkleTree(hashes []types.Hash) *MerkleTree {
 		return bytes.Compare(sorted[i][:], sorted[j][:]) < 0
 	})
 
-	// Delegate to merkle-forest: build a single-group forest.
-	forestHashes := make([]forest.Hash, len(sorted))
+	// Delegate to merkle-strata: build a single-group tree.
+	strataHashes := make([]strata.Hash, len(sorted))
 	for i, h := range sorted {
-		forestHashes[i] = forest.Hash(h)
+		strataHashes[i] = strata.Hash(h)
 	}
-	f := forest.Build(map[string][]forest.Hash{"_": forestHashes}, forest.WithPrefix(forestPrefix))
+	f := strata.Build(map[string][]strata.Hash{"_": strataHashes}, strata.WithPrefix(strataPrefix))
 
 	return &MerkleTree{Root: types.Hash(f.Root), Leaves: sorted}
 }

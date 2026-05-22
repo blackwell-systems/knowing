@@ -24,7 +24,7 @@ knowing works the same way. A snapshot hash is the root of a hierarchical Merkle
 
 **How it works in knowing:**
 
-knowing builds a hierarchical Merkle tree with three levels (implemented in `internal/snapshot/hierarchical.go`, delegating to the [`merkle-forest`](https://github.com/blackwell-systems/merkle-forest) library):
+knowing builds a hierarchical Merkle tree with three levels (implemented in `internal/snapshot/hierarchical.go`, delegating to the [`merkle-strata`](https://github.com/blackwell-systems/merkle-strata) library):
 
 ```
 repo_root
