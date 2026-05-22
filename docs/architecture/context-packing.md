@@ -17,13 +17,13 @@ Task Description
 [1. Cache Check]           -- compute cache key from normalized task; return cached result on hit
     |
     v
-[2. Keyword Extraction]    -- split CamelCase, expand abbreviations, filter stop words
+[2. Keyword Extraction]    -- produce KeywordSet (Exact/Compounds/Components); backtick-quoted identifiers get highest priority
     |
     v
 [3. Seed Selection]        -- 4-channel RRF fusion (tiered keywords, BM25, vector, equivalence classes)
     |
     v
-[4. Noise Filtering]       -- exclude mock/stub/fake symbols and build artifacts
+[4. Noise Filtering]       -- exclude external nodes, mock/stub/fake symbols, test fixtures, build artifacts
     |
     v
 [5. Random Walk with Restart]  -- propagate relevance through graph structure (BFS depth limit: 4 hops)
@@ -55,26 +55,34 @@ Three entry points exist:
 
 ## The Keyword Extraction Pipeline
 
-The `extractKeywords` function (`context.go`) converts a free-text task description into
-searchable terms. The pipeline:
+The `extractKeywordSet` function (`context.go`) converts a free-text task description into
+a structured `KeywordSet`. The pipeline has three phases:
+
+**Phase 1: Backtick-quoted identifiers (Exact tier)**
+
+Scan the description for backtick-quoted spans (e.g., `` `buildPythonImportMap` ``). These
+are extracted verbatim as Exact keywords without splitting, filtering, or expansion. They
+receive the highest search priority. A lowercase variant is also added when different from
+the original.
+
+**Phase 2: Standard word extraction (Compounds and Components tiers)**
 
 1. **Tokenize:** Split on whitespace with `strings.Fields`.
 2. **Strip punctuation:** Remove leading/trailing `.,;:!?"'` and brackets from each word.
-3. **Split identifiers:** Decompose CamelCase (`HandleLogin` becomes `Handle`, `Login`) and
-   snake_case (`route_handler` becomes `route`, `handler`) into component words.
-4. **Filter stop words:** Remove English stop words (`the`, `a`, `in`, `to`), common
-   programming terms (`func`, `type`, `var`, `err`), and action verbs that describe intent
-   but do not identify code (`refactor`, `fix`, `update`, `create`, `implement`).
-5. **Length filter:** Discard anything shorter than 2 characters.
-6. **Expand abbreviations:** Map known short forms to their full versions. `ctx` adds
-   `context`, `cfg` adds `config`, `svc` adds `service`, etc. Both the abbreviation and
-   expansion are included as search terms.
-7. **Preserve compound terms:** If the original word was multi-part (contained `_` or split
-   into multiple CamelCase components), keep the full lowercase form as an additional term
-   for exact matching.
-8. **Sort by length descending:** Longer (more specific) terms are searched first. This
-   ensures that `HandleLogin` is matched before `Handle`, reducing noise from overly broad
-   short terms.
+3. **Verb-pattern detection:** If the first word is an action verb (`add`, `fix`, `refactor`,
+   etc.), the first noun after it becomes a priority target. Compound identifiers go directly
+   to Compounds; simple words go to Components with a capitalized variant.
+4. **Compound detection:** Words containing `_`, `.`, or splitting into multiple CamelCase
+   parts are added to Compounds (both lowercase and original-case forms).
+5. **Component splitting:** Decompose CamelCase and snake_case into individual words. Filter
+   stop words, action verbs, and terms shorter than 2 characters. Expand abbreviations
+   (`ctx` adds `context`, `cfg` adds `config`, etc.).
+
+**Phase 3: Bigram compound generation**
+
+Adjacent non-stop-words of sufficient length (4+ chars, not action verbs) are joined into
+synthetic compounds: both CamelCase (`SnapshotDiffing`) and snake_case (`snapshot_diffing`)
+forms. These augment the Compounds tier for multi-word concept matching.
 
 ### KeywordSet: Three-Tier Priority System
 
@@ -92,30 +100,34 @@ or expanded. They become Exact keywords with the highest search priority, giving
 way to request specific symbol lookups without ambiguity.
 
 The `tieredSearchSet` method (which unified the ForTask inline search and the ExplainSymbol
-method's separate implementation) queries compounds first. It only falls back to components
-when the compound search produces fewer than 5 results. This prevents over-split identifiers
-from flooding the seed set with false matches. The BM25 path also benefits: `bm25Search` now
-uses `buildFTSQuery` everywhere (previously the ExplainSymbol path had its own query builder).
+method's separate implementation) queries primary keywords (Exact + Compounds via `Primary()`)
+through exact and prefix tiers first. It only falls back to Components when the primary search
+produces fewer than 5 results. This prevents over-split identifiers from flooding the seed set
+with false matches. The BM25 path also benefits: `bm25Search` now uses `buildFTSQuery`
+everywhere (previously the ExplainSymbol path had its own query builder).
 
 ### Example
 
 Task: "add a new MCP tool for snapshot diffing"
 
-After extraction: `["snapshot", "diffing", "tool", "mcp"]`
+KeywordSet produced:
+- Exact: `[]` (no backtick-quoted identifiers)
+- Compounds: `["SnapshotDiffing", "snapshot_diffing"]` (bigram generation from adjacent words)
+- Components: `["mcp", "Mcp", "snapshot", "diffing", "tool"]` (priority term + split words)
 
-Removed: "add" (action verb stop word), "a" (English stop word), "new" (programming stop
-word), "for" (English stop word).
+Removed: "add" (action verb stop word), "a" (English stop word), "new" (filler word),
+"for" (English stop word).
 
 ### Example (compound-first)
 
 Task: "fix the `buildPythonImportMap` to handle relative imports"
 
 KeywordSet produced:
-- Exact: `["buildPythonImportMap"]`
-- Compounds: `[]` (no unquoted compounds)
-- Components: `["relative", "imports", "handle"]`
+- Exact: `["buildPythonImportMap", "buildpythonimportmap"]` (backtick-quoted + lowercase variant)
+- Compounds: `["RelativeImports", "relative_imports"]` (bigram generation)
+- Components: `["handle", "relative", "imports"]`
 
-Search order: Exact first (direct symbol lookup), then compounds (none here), then
+Search order: Exact first (direct symbol lookup), then compounds, then
 components only if fewer than 5 results found.
 
 ## Random Walk with Restart
@@ -255,8 +267,8 @@ merges ranked lists from all channels into a single seed set:
 
 | Channel | Weight | Source |
 |---------|--------|--------|
-| 1. Tiered keyword matching | 3.0 | 5-tier exact/prefix/substring/path/interface matching |
-| 2. BM25 FTS5 | 1.0 | SQLite FTS5 over symbol_name, qualified_name, signature, file_path (CamelCase-aware tokenization) |
+| 1. Tiered keyword matching | 2.0 | 4-tier exact/prefix/substring/path matching (compound-first) |
+| 2. BM25 FTS5 | 2.0 | SQLite FTS5 over symbol_name, qualified_name, signature, file_path (CamelCase-aware tokenization via `buildFTSQuery`) |
 | 3. Vector/embedding search | 0.0 | BGE-small-en-v1.5 via HNSW (disabled pending code-tuned model) |
 | 4. Equivalence class matching | 2.0 | 115 equivalence classes (63 universal + 21 knowing-specific + 31 language-specific) with 1000+ phrases mapped to target symbols |
 
@@ -295,11 +307,22 @@ This was the biggest single-feature improvement: hard tier 10% to 18% P@10 (+8pp
 
 ## Noise Filtering
 
-Before scoring, `filterNoisySymbols` removes low-signal candidates:
-- Symbols with mock, fake, or stub in the qualified name (case-insensitive).
-- Symbols whose file path contains `/build/` or `.bundle.` segments.
+Two filtering stages remove low-signal candidates:
 
-This prevents test infrastructure and build artifacts from consuming token budget.
+**Stage 1: `filterNoisySymbols` (before RWR)**
+
+Applied to the fused seed candidates before the random walk begins:
+- Phantom external nodes: `kind == "external"` or qualified name starting with `"external://"`. These are unresolved targets from LSP enrichment with no source code.
+- Build artifacts: paths containing `/dist/`, `/build/`, `/vendor/`, `/node_modules/`, `.min.`, or `.bundle.` segments.
+- Test fixtures: paths matching `conftest.py.`, `fixtures.py.`, `/testutil`, `/testhelper`, or `test_helper`.
+- Mock type names: symbols whose parent type name contains "mock", "fake", or "stub" (e.g., `mockStore.PutEdge`).
+- Minified names: terminal symbol names of 2 characters or fewer (excluding common short names like `ID`, `OK`, `DB`).
+
+**Stage 2: RWR result loop (before scoring)**
+
+After the random walk produces relevance scores, the result loop independently filters external nodes again (kind "external" or "external://" prefix). This catches external nodes reached transitively by the walk that were not in the original seed set.
+
+Together these stages prevent test infrastructure, build artifacts, and phantom references from consuming token budget.
 
 ## Token Budget Packing
 
@@ -486,10 +509,10 @@ Flat scores across the result set indicate one of:
 | Layer | Speed | Lifetime | Invalidation |
 |---|---|---|---|
 | SubgraphCache (in-memory) | 42ns | Process | Package roots change |
-| Notes table (SQLite) | ~1.2ms | Persistent | Snapshot hash mismatch |
+| Notes table (`graph_notes`, SQLite) | ~1.2ms | Persistent | Snapshot hash mismatch |
 | Cold retrieval | ~160ms | N/A | Always fresh |
 
-Context packs are persisted to the notes table by PackRoot. On process restart, the notes table provides cached results validated against the current snapshot hash. If the snapshot has changed since the pack was stored, the cache entry is skipped and cold retrieval runs.
+Context packs are persisted to the `graph_notes` table keyed by task hash (`types.NewHash([]byte("context_pack\x00" + normalized_task))`). On process restart, the notes table provides cached results validated against the current snapshot hash. If the snapshot has changed since the pack was stored, the cache entry is stale and cold retrieval runs.
 
 ### Deduplication via `pack_root` (P5)
 
@@ -498,6 +521,36 @@ The `pack_root` parameter on `context_for_task` enables agent-side deduplication
 ### Context Pack Comparison (P6)
 
 `CompareContextPacks` accepts two PackRoots and returns the added, removed, and common symbols between them. Useful for detecting what changed between two context retrievals on the same task across different snapshots.
+
+## Task Memory Persistence
+
+The `TaskMemory` system (`internal/context/task_memory.go`) persists which symbols were
+useful for which tasks, enabling the retrieval pipeline to learn from past agent
+interactions. Over time, the system develops per-repo vocabulary: when a developer asks
+about topic X, these symbols tend to be what they actually need.
+
+### Recording
+
+After packing completes, `ForTask` records the top-5 symbols (by final score) in the
+`task_memory` table along with the normalized keywords from the task description. This is
+passive: no explicit user action required.
+
+### Recall and Boost Formula
+
+On subsequent queries, `TaskMemory.Recall` finds symbols that were useful for tasks with
+overlapping keywords. Each keyword match against stored tasks adds to the recall score,
+with linear decay after 7 days (`decay = 7.0 / age_in_days`).
+
+The recalled score is converted to a boost via:
+
+```
+memoryScore = 0.5 + (recall_score * 0.4)    // range [0.5, 0.9]
+```
+
+This formula ensures memory always produces a positive boost (never penalizes) without
+overwhelming explicit feedback signals (which can reach 1.0). The boost is applied through
+the FeedbackBoost channel: if the memory-derived score exceeds any existing feedback boost
+for that symbol, it replaces it.
 
 ## Limitations
 
