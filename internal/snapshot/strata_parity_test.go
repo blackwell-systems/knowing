@@ -7,12 +7,12 @@ import (
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
-// TestForestParity verifies that merkle-forest produces identical roots to
+// TestStrataParity verifies that merkle-strata produces identical roots to
 // knowing's internal BuildHierarchicalTree when using WithPrefix("merkle\x00").
 //
 // If this test passes, knowing can safely replace its internal Merkle
 // implementation with merkle-forest as a dependency.
-func TestForestParity(t *testing.T) {
+func TestStrataParity(t *testing.T) {
 	// Build a hierarchical tree using knowing's internal implementation.
 	edges := []EdgeInput{
 		{EdgeHash: types.NewHash([]byte("e1")), PackagePath: "pkg/auth", EdgeType: "calls"},
@@ -70,7 +70,7 @@ func TestForestParity(t *testing.T) {
 		t.Fatalf("SUBGRAPH ROOT MISMATCH:\n  knowing:       %x\n  merkle-strata: %x", knowingSub, forestSub)
 	}
 
-	t.Logf("PARITY VERIFIED: merkle-forest produces identical output at all levels")
+	t.Logf("PARITY VERIFIED: merkle-strata produces identical output at all levels")
 	t.Logf("  Root:            %x", knowingTree.Root)
 	t.Logf("  pkg/auth root:   %x", knowingTree.PackageRoots["pkg/auth"])
 	t.Logf("  pkg/store root:  %x", knowingTree.PackageRoots["pkg/store"])
