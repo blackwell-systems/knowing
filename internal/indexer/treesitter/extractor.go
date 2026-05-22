@@ -121,12 +121,39 @@ func (e *TreeSitterExtractor) walkNodeWithImports(node *sitter.Node, opts types.
 	switch node.Type() {
 	case "function_definition":
 		e.extractFunction(node, opts, classContext, result)
+		// Also walk the body with imports for nested calls inside nested functions.
+		body := node.ChildByFieldName("body")
+		if body != nil {
+			nameNode := node.ChildByFieldName("name")
+			nestedFuncHash := funcHash
+			if nameNode != nil {
+				nestedName := e.qualifiedName(opts, classContext, nameNode.Content(opts.Content))
+				nestedFuncHash = types.ComputeNodeHash(opts.RepoURL, opts.ModuleRoot, opts.FileHash, nestedName, "function")
+			}
+			for i := 0; i < int(body.ChildCount()); i++ {
+				e.walkNodeWithImports(body.Child(i), opts, classContext, nestedFuncHash, pyImports, result)
+			}
+		}
 	case "class_definition":
 		e.extractClassWithImports(node, opts, pyImports, result)
 	case "import_statement", "import_from_statement":
 		e.extractImport(node, opts, classContext, result)
 	case "call":
 		e.extractCallWithImports(node, opts, classContext, funcHash, pyImports, result)
+		// Continue walking call arguments to extract nested calls, callbacks,
+		// and lambda references. e.g., map(process, items) or app.route()(handler)
+		args := node.ChildByFieldName("arguments")
+		if args != nil {
+			for i := 0; i < int(args.ChildCount()); i++ {
+				e.walkNodeWithImports(args.Child(i), opts, classContext, funcHash, pyImports, result)
+			}
+		}
+	case "lambda":
+		// Walk lambda body for calls.
+		body := node.ChildByFieldName("body")
+		if body != nil {
+			e.walkNodeWithImports(body, opts, classContext, funcHash, pyImports, result)
+		}
 	case "raise_statement":
 		e.extractRaise(node, opts, classContext, result)
 	default:

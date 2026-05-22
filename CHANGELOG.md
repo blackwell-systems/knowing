@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+#### Deeper Call Chain Extraction (Python)
+- Walk into call arguments to extract nested calls, callbacks, and lambda references
+- Previously: `map(process, items)` only extracted the `map` call, missing `process` as a target
+- Now: all identifier and call references inside arguments produce call edges
+- Lambda bodies (`lambda: get_users()`) are walked for calls
+- Nested function bodies walked with import resolution context (pyImports preserved)
+- Flask: 5,022 -> 9,237 edges (+84%). Django: 151,431 -> 185,393 edges (+22%).
+
 #### Cross-File Import Resolution (Python, TypeScript, Rust)
 - **Python**: `buildPythonImportMap` extracts `import`/`from...import` statements, `resolveCallTarget` resolves call edges through the import map. 63 resolved cross-file edges on Flask.
 - **TypeScript**: `buildTSImportMap` extracts `import`/`require` declarations, `resolveCallEdgeWithImports` resolves call targets through the map. 5,684 resolved cross-file edges on TypeScript compiler.
