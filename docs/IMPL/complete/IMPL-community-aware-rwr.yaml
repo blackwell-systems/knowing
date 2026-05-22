@@ -1,3 +1,4 @@
+completion_date: "2026-05-22"
 title: Community-Aware Random Walk with Restart
 feature_slug: community-aware-rwr
 verdict: SUITABLE
@@ -39,35 +40,11 @@ suitability_assessment: |
 test_command: GOWORK=off go test -short ./... -timeout 5m
 lint_command: GOWORK=off go vet ./...
 file_ownership:
-    - file: internal/store/sqlite.go
-      agent: A
-      wave: 1
-      action: modify
-    - file: internal/store/notes_test.go
-      agent: A
-      wave: 1
-      action: modify
-    - file: internal/context/walk.go
-      agent: B
-      wave: 1
-      action: modify
-    - file: internal/context/walk_test.go
-      agent: B
-      wave: 1
-      action: modify
     - file: internal/context/context.go
       agent: C
       wave: 2
       action: modify
-      depends_on:
-        - A
-        - B
-    - file: internal/context/context_test.go
-      agent: C
-      wave: 2
-      action: modify
-      depends_on:
-        - B
+      depends_on: []
 interface_contracts:
     - name: CommunitiesForNodes
       description: |
@@ -314,6 +291,7 @@ waves:
           files:
             - internal/context/walk.go
             - internal/context/walk_test.go
+      base_commit: b2c6f51e9db0a0d979f93a430032b79a6134609e
     - number: 2
       agents:
         - id: C
@@ -408,10 +386,10 @@ waves:
             - Do NOT modify files outside your ownership list.
           files:
             - internal/context/context.go
-            - internal/context/context_test.go
           dependencies:
             - A
             - B
+          context_source: prepared-brief
 quality_gates:
     level: standard
     gates:
@@ -424,6 +402,34 @@ quality_gates:
         - type: test
           command: GOWORK=off go test -short ./... -timeout 5m
           required: true
+completion_reports:
+    A:
+        status: complete
+        branch: polywave/community-aware-rwr/wave1-agent-A
+        commit: 3d31024
+        files_changed:
+            - internal/store/sqlite.go
+            - internal/store/notes_test.go
+        tests_added:
+            - TestCommunitiesForNodes_Empty
+            - TestCommunitiesForNodes_Found
+            - TestCommunitiesForNodes_LargeBatch
+            - TestCommunitiesForNodes_CorruptValue
+        verification: PASS
+        notes: CommunitiesForNodes method added to SQLiteStore with chunked IN-clause queries. All 4 tests passing. Satisfies communityProvider interface in context.go.
+    B:
+        status: complete
+        branch: polywave/community-aware-rwr/wave1-agent-B
+        commit: 438457b
+        files_changed:
+            - internal/context/walk.go
+            - internal/context/walk_test.go
+        tests_added:
+            - TestCommunityFilteredRWR_NilFilter
+            - TestCommunityFilteredRWR_FilterExcludesNodes
+            - TestCommunityFilteredRWR_SeedsAlwaysIncluded
+        verification: PASS
+        notes: CommunityFilteredRWR and buildAdjacencyMapFiltered implemented with community-aware BFS expansion. All 10 RWR tests pass. Full build/vet/test suite clean.
 pre_mortem:
     overall_risk: low
     rows:
@@ -461,5 +467,5 @@ pre_mortem:
             to seeds still receive probability. The 0.02 threshold in ForTask already
             gates what enters the scoring pipeline. If results are too few, the engine
             falls through to other retrieval paths (BM25, feedback).
-state: "REVIEWED"
+state: COMPLETE
 injection_method: hook
