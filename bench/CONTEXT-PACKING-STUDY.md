@@ -149,11 +149,15 @@ with the others.
 | 8 | 2026-05-21 | FTS fixed (was empty!) + tokenchars '_' | 0.147 | R@10 d=0.67, FTS now contributing |
 | 9 | 2026-05-21 | + Python cross-file imports (63 edges) | 0.152 | Import resolution helps RWR walk |
 | 10 | 2026-05-21 | + TS cross-file imports (5,684 edges) | 0.154 | 9.6x vs grep, RWR is primary differentiator |
+| 11 | 2026-05-21 | + Rust cross-file imports (9,795 edges) | 0.155 | MRR +3.9% |
+| 12 | 2026-05-21 | Test deprioritization + failure analysis | 0.155 | Diagnosed: RWR reach is the bottleneck |
+| 13 | 2026-05-21 | **Inheritance propagation** | **0.200** | **+29%, d=0.81 (large), 12.5x vs grep** |
 
 ## Next Steps (priority order)
 
-1. **Competitor adapters** (gitnexus, aider, codegraphcontext)
-2. **Language-aware keyword extraction** (detect snake_case/CamelCase in task descriptions)
+1. **Deeper call chain extraction** (nested functions, closures, callbacks)
+2. **Session memory persistence** (feedback compounding)
+3. **Competitor adapters** (gitnexus, aider, codegraphcontext)
 3. **Rust cross-file imports in benchmark** (9,795 edges resolved; Run 10 only includes Python + TS)
 4. **Embedding model evaluation** (code-tuned model for semantic matching)
 5. **RRF weight tuning per-repo** (adaptive weights based on channel overlap)

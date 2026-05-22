@@ -201,10 +201,30 @@ Added 0.3x score penalty for symbols from test files (path-based detection, cond
 
 **Root cause diagnosis:** The bottleneck is NOT ranking (reordering the top-10). It is RWR REACH: the graph walk doesn't visit ground truth symbols because there aren't enough edges connecting them to the seed keywords. Only 155/1000 top-10 slots contain GT symbols regardless of ranking strategy. Ranking changes (test penalty, BM25 weights, FTS tokenizer) have diminishing returns. The next significant gain requires more graph connectivity.
 
+### Run 13: Inheritance propagation (2026-05-21)
+
+Language-agnostic post-processing: for each `extends` edge, creates `inherits` edges from child class to all parent class methods. Fixed extends edge hash mismatch (resolveBaseClassQName uses import map for correct qualified name). 83 edges Flask, 14,539 edges Django.
+
+| System | P@10 | R@10 | NDCG@10 | MRR | Token Eff | Latency |
+|--------|------|------|---------|-----|-----------|---------|
+| knowing | 0.200 | 0.246 | 0.296 | 0.343 | 0.0030 | 1611ms |
+| grep | 0.016 | 0.030 | 0.029 | 0.056 | 0.0012 | 454ms |
+
+**Pairwise (knowing vs grep):**
+- P@10: +0.184 (p<0.0001*, d=0.65, CI=[0.131, 0.243])
+- R@10: +0.215 (p<0.0001*, d=0.81, CI=[0.164, 0.269])
+- NDCG@10: +0.267 (p<0.0001*, d=0.63, CI=[0.189, 0.352])
+
+**Delta from Run 12:** P@10 +29% (0.155 -> 0.200). R@10 effect size crossed into large territory (d=0.81). This is the biggest single improvement of any change: inheritance edges directly address the RWR reach bottleneck identified in Run 12's failure analysis.
+
+**Cumulative from honest baseline (Run 7):** P@10 0.141 -> 0.200 (+42%). 12.5x vs grep.
+
+**Why it worked:** Django has deep class hierarchies (Model, View, Form subclasses). 14,539 inheritance edges mean RWR can now reach any parent method from any child class. Previously, searching for "QuerySet.filter" only found the file defining QuerySet; now it also reaches every Model subclass that inherits filter.
+
 **Next steps:**
-1. Type hierarchy edges (extends/implements) to inherit method reachability from parent classes
-2. Deeper call chain extraction (nested functions, closures, callbacks currently missed)
-3. Session memory persistence (feedback compounding in real usage)
+1. Deeper call chain extraction (nested functions, closures, callbacks)
+2. Session memory persistence (feedback compounding)
+3. Consider v0.6.2 release with these improvements
 
 ---
 
