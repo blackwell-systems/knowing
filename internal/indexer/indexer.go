@@ -611,30 +611,22 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 		fmt.Fprintf(os.Stderr, "  Authorship: %d edges in %s\n", len(authorEdges), time.Since(blameStart).Truncate(time.Millisecond))
 	}
 
-	// Rebuild FTS and compute snapshot concurrently (independent operations).
-	fmt.Fprintf(os.Stderr, "  Finalizing (FTS + snapshot)...\n")
+	// Finalize: compute snapshot first, THEN start background FTS.
+	// FTS competes with snapshot for SQLite access (WAL reader/writer contention).
+	// Running them concurrently causes both to be slow. Sequential: snapshot first
+	// (fast, read-only query + small write), then FTS in background (slow, heavy writes).
+	fmt.Fprintf(os.Stderr, "  Computing snapshot...\n")
 	finalStart := time.Now()
 
 	type ftsRebuilder interface {
 		RebuildFTS(ctx context.Context) error
 	}
 
-	var ftsErr error
 	var snap *types.Snapshot
 	var snapErr error
 	var finalWg sync.WaitGroup
 
-	// FTS rebuild: run in background goroutine that outlives IndexRepo.
-	// The graph is immediately queryable without FTS (RWR, HITS, blast radius all work).
-	// Only BM25 text search is degraded until FTS completes.
-	// This avoids blocking index completion on the expensive FTS5 rebuild command.
-	if fr, ok := idx.store.(ftsRebuilder); ok {
-		go func() {
-			_ = fr.RebuildFTS(context.Background())
-		}()
-	}
-
-	// Snapshot computation (hierarchical Merkle tree).
+	// Snapshot computation (hierarchical Merkle tree). Runs first.
 	finalWg.Add(1)
 	go func() {
 		defer finalWg.Done()
@@ -642,13 +634,18 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 	}()
 
 	finalWg.Wait()
-	fmt.Fprintf(os.Stderr, "  Finalized in %s\n", time.Since(finalStart).Truncate(time.Millisecond))
+	fmt.Fprintf(os.Stderr, "  Snapshot computed in %s\n", time.Since(finalStart).Truncate(time.Millisecond))
 
-	if ftsErr != nil {
-		return nil, fmt.Errorf("rebuild fts: %w", ftsErr)
-	}
 	if snapErr != nil {
 		return nil, fmt.Errorf("compute snapshot: %w", snapErr)
+	}
+
+	// Start FTS rebuild AFTER snapshot (avoids SQLite contention).
+	// Runs in background: index returns immediately, FTS builds asynchronously.
+	if fr, ok := idx.store.(ftsRebuilder); ok {
+		go func() {
+			_ = fr.RebuildFTS(context.Background())
+		}()
 	}
 
 	// Record edge events for the diff between old and new edges. These
