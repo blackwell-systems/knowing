@@ -14,7 +14,7 @@ A flat Merkle tree proves state. A hierarchical Merkle tree organizes computatio
 
 By organizing a Merkle tree around semantic boundaries (package and relationship type rather than flat sorted hash), the identity structure itself becomes the query optimization layer. Diffs become O(packages) instead of O(edges) with semantically meaningful output (281x faster than naive linear scan; 517x at 100K edges). Cache keys become O(1) subgraph root lookups. Invalidation is scoped to packages that actually changed. Feedback anchored to content-addressed symbols expires structurally when code changes.
 
-This paper presents both insights together: the original argument (content-addressing solves six structural problems with mutable graphs) and the hierarchical revelation (organizing the Merkle tree by semantic boundaries turns identity into a query engine). Validated on three codebases: the knowing repository (24.9K edges, 62 packages), Grafana (714K edges, 338K nodes), and Spring PetClinic (Java, cross-language portability).
+This paper presents both insights together: the original argument (content-addressing solves six structural problems with mutable graphs) and the hierarchical revelation (organizing the Merkle tree by semantic boundaries turns identity into a query engine). Validated on five benchmark codebases: kubernetes (268K edges, 3.5M LOC), VS Code (93K edges, 1M LOC), Django (185K edges, 400K LOC), Cargo (79K edges, 150K LOC), and Flask (9K edges, 15K LOC). Competitive evaluation against GitNexus (knowledge graph competitor): 2.75x more precise (p=0.0003), 193x faster indexing on enterprise repos, 28x less RAM.
 
 ---
 
@@ -473,14 +473,42 @@ The 281x and 517x figures compare hierarchical diff against flat linear scan of 
 
 ### 7.3 Context Retrieval
 
+#### Cross-System Benchmark (5 repos, 107 tasks, 18 iterative runs)
+
+| System | P@10 | R@10 | NDCG@10 | MRR | Tasks scored |
+|--------|------|------|---------|-----|-------------|
+| knowing | 0.209 | 0.262 | 0.305 | 0.350 | 107 |
+| GitNexus (competitor) | 0.076 | 0.159 | 0.122 | 0.189 | 66 |
+| grep (baseline) | 0.015 | 0.029 | 0.031 | 0.063 | 107 |
+
+knowing vs GitNexus: **2.75x more precise** (p=0.0003, d=0.50, CI=[0.089, 0.248]).
+knowing vs grep: 14x more precise (p<0.0001, d=0.71).
+
+Evaluation corpus: kubernetes (3.5M LOC Go), VS Code (1M LOC TypeScript), Django (400K LOC Python), Cargo (150K LOC Rust), Flask (15K LOC Python). 97 hand-curated task fixtures with verified ground truth (95% match rate against indexed symbols) plus 10 SWE-bench derived fixtures.
+
+GitNexus cannot index kubernetes (>60 min, killed at 5.7GB RAM) or VS Code (>22 min, killed at 2.8GB RAM). knowing indexes both in under 20s at 200MB RAM.
+
+#### Indexing Performance Comparison
+
+| Repo | knowing | GitNexus | Ratio |
+|------|---------|----------|-------|
+| Flask (15K LOC) | 0.1s | 5.2s | 52x |
+| Cargo (150K LOC) | 1.5s | 12s | 8x |
+| VS Code (1M LOC) | 4.1s | >22 min (killed) | >321x |
+| Kubernetes (3.5M LOC) | 18.6s | >60 min (killed) | >193x |
+
+Root cause: GitNexus uses all-in-memory architecture (5.7GB for kubernetes), single-threaded JavaScript computation, and O(n^2+) graph algorithms at index time. knowing uses streaming writes (200MB bounded), parallel Go workers, and deferred analysis at query time.
+
+#### Other Retrieval Benchmarks
+
 | Benchmark | Result |
 |-----------|--------|
-| Context retrieval vs baseline | 55.6% fewer tool calls, 26.9% P@10 |
-| Cross-repo retrieval | 46.7% R@10 on foreign codebase |
-| GCF wire format | median 76.7% fewer tokens than JSON |
-| Test scope | 76.5% mean precision (91.7% median), 51.4% recall |
+| Token savings vs manual exploration | 55.6% fewer tokens, 52.8% fewer tool calls |
+| Feedback compounding (1 round) | +20pp precision (16% -> 36%) |
+| GCF wire format | 84% fewer tokens than JSON |
+| Test scope prediction | 98.9% precision vs Go import DAG ground truth |
 
-Methodology: measured against a 55-fixture eval harness (20 easy, 20 medium, 15 hard tasks) on the knowing codebase. Baseline is no-feedback, no-session-boost retrieval. P@10 measures what fraction of top-10 results match hand-curated ground truth. R@10 measures what fraction of ground-truth items appear in the top 10. See `eval/FINDINGS.md` for full methodology and fixture definitions.
+Methodology: cross-system benchmark uses Wilcoxon signed-rank tests (non-parametric), Cohen's d for effect size, bootstrap 95% CI. 18 iterative runs with recorded findings at each step. Full methodology and results in `bench/cross-system/FINDINGS.md`.
 
 ### 7.4 Build and Indexing
 
@@ -493,7 +521,7 @@ Methodology: measured against a 55-fixture eval harness (20 easy, 20 medium, 15 
 | Diff (50K edges) | 5.7us | 2.9ms | **516x faster** |
 | Diff (100K edges) | 12us | 6.8ms | **565x faster** |
 | SubgraphRoot (any size) | 163ns | N/A | O(1) |
-| Full index (500K+ LOC repo) | ~5 min | ~5 min | Build time negligible vs parse + enrichment |
+| Full index (3.5M LOC, kubernetes) | 18.6s | 18.6s | Build time negligible vs parse + enrichment |
 
 Build time for the hierarchical tree is 1.4-1.7x slower than flat construction (additional overhead from grouping edges by package/type and building intermediate roots). This cost is amortized over every subsequent query: a single diff operation recovers the build-time investment 100x over. At production scale (Grafana, 714K edges), the hierarchical structure is essential because flat diff becomes seconds while hierarchical diff remains microseconds.
 

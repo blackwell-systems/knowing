@@ -11,7 +11,7 @@ and auto-generates a `FINDINGS.md` with results and interpretation.
 
 | Benchmark | What it proves | Key result |
 |-----------|---------------|------------|
-| [cross-system](cross-system/) | Graph retrieval beats text search across languages and scales | P@10=0.230 vs grep 0.020 (11.5x, p<0.0001, d=0.92 on recall). GitNexus: >60min on kubernetes (knowing: 18.6s, 193x faster) |
+| [cross-system](cross-system/) | Graph retrieval beats text search and competitors across languages and scales | P@10=0.209 vs GitNexus 0.076 (2.75x, p=0.0003) vs grep 0.015. GitNexus cannot index enterprise repos (>60min on kubernetes; knowing: 18.6s) |
 | [feedback-loop](feedback-loop/) | Feedback compounding improves precision over time | 16% -> 36% precision (+20pp) after one round |
 | [context-relevance](context-relevance/) | Each engine layer adds measurable value | Feedback adds +9pp precision over baseline |
 | [token-savings](token-savings/) | knowing reduces agent exploration cost | 55.6% fewer tokens, 52.8% fewer tool calls |

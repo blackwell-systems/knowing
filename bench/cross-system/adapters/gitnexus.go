@@ -3,7 +3,9 @@ package adapters
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -28,39 +30,40 @@ func (a *GitNexus) Index(repoPath string) (int64, error) {
 		return 0, nil
 	}
 
-	start := time.Now()
-	cmd := exec.Command("gitnexus", "index", repoPath)
-	cmd.Dir = repoPath
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return 0, fmt.Errorf("gitnexus index failed: %w\n%s", err, output)
+	absPath, err := filepath.Abs(repoPath)
+	if err != nil {
+		return 0, err
 	}
-	a.indexed[repoPath] = true
-	return time.Since(start).Milliseconds(), nil
+
+	// Check if already indexed (has .gitnexus directory).
+	if _, err := os.Stat(filepath.Join(absPath, ".gitnexus")); err == nil {
+		a.indexed[repoPath] = true
+		return 0, nil
+	}
+
+	// Not indexed and we won't attempt re-indexing during benchmark
+	// (GitNexus takes >22 min on VS Code, >60 min on kubernetes).
+	return 0, fmt.Errorf("gitnexus: repo not pre-indexed (no .gitnexus/ dir at %s)", absPath)
 }
 
 func (a *GitNexus) Retrieve(repoPath string, task benchtype.Task, tokenBudget int) (benchtype.RetrievalResult, error) {
-	start := time.Now()
+	absPath, _ := filepath.Abs(repoPath)
+	repoName := filepath.Base(absPath)
 
-	// GitNexus exposes search via its MCP server or CLI.
-	// We use the CLI search command which returns JSON.
-	cmd := exec.Command("gitnexus", "search",
-		"--format", "json",
-		"--limit", "20",
-		"--query", task.Description,
-	)
-	cmd.Dir = repoPath
-	output, err := cmd.Output()
+	start := time.Now()
+	cmd := exec.Command("gitnexus", "query", task.Description, "--limit", "10", "-r", repoName)
+	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return benchtype.RetrievalResult{
 			System: "gitnexus",
 			TaskID: task.ID,
-			Error:  fmt.Sprintf("gitnexus search failed: %v", err),
+			Error:  fmt.Sprintf("gitnexus query failed: %s", strings.TrimSpace(string(output))),
 		}, nil
 	}
 
 	latency := time.Since(start).Milliseconds()
 
-	// Parse GitNexus JSON output
+	// Parse GitNexus JSON output (processes + definitions).
 	symbols, tokensUsed := parseGitNexusOutput(output)
 
 	return benchtype.RetrievalResult{
@@ -69,7 +72,6 @@ func (a *GitNexus) Retrieve(repoPath string, task benchtype.Task, tokenBudget in
 		Symbols:    symbols,
 		TokensUsed: tokensUsed,
 		LatencyMs:  latency,
-		RawOutput:  string(output),
 	}, nil
 }
 
@@ -82,69 +84,67 @@ func (a *GitNexus) Reset(repoPath string) error {
 	return nil
 }
 
-// parseGitNexusOutput extracts symbols from GitNexus JSON response.
-// The exact format depends on GitNexus version; this handles the common structure.
+// parseGitNexusOutput extracts symbols from GitNexus query JSON response.
+// Format: { "processes": [...], "process_symbols": [...], "definitions": [...] }
 func parseGitNexusOutput(output []byte) ([]benchtype.RetrievedSymbol, int) {
-	// GitNexus search returns an array of results with name, file, type fields.
-	var results []struct {
-		Name     string  `json:"name"`
-		FilePath string  `json:"file_path"`
-		Kind     string  `json:"type"`
-		Score    float64 `json:"score"`
+	var resp struct {
+		ProcessSymbols []struct {
+			Name     string `json:"name"`
+			FilePath string `json:"filePath"`
+		} `json:"process_symbols"`
+		Definitions []struct {
+			Name     string `json:"name"`
+			FilePath string `json:"filePath"`
+		} `json:"definitions"`
 	}
 
-	if err := json.Unmarshal(output, &results); err != nil {
-		// Try alternate format (object with "results" key)
-		var wrapper struct {
-			Results []struct {
-				Name     string  `json:"name"`
-				FilePath string  `json:"file_path"`
-				Kind     string  `json:"type"`
-				Score    float64 `json:"score"`
-			} `json:"results"`
-		}
-		if err2 := json.Unmarshal(output, &wrapper); err2 != nil {
-			return nil, 0
-		}
-		for _, r := range wrapper.Results {
-			results = append(results, struct {
-				Name     string  `json:"name"`
-				FilePath string  `json:"file_path"`
-				Kind     string  `json:"type"`
-				Score    float64 `json:"score"`
-			}(r))
-		}
+	if err := json.Unmarshal(output, &resp); err != nil {
+		return nil, 0
 	}
 
-	symbols := make([]benchtype.RetrievedSymbol, 0, len(results))
-	for i, r := range results {
-		if r.Name == "" {
+	var symbols []benchtype.RetrievedSymbol
+	seen := make(map[string]bool)
+	rank := 1
+
+	// Process symbols first (higher relevance from flow analysis).
+	for _, ps := range resp.ProcessSymbols {
+		if ps.Name == "" || seen[ps.Name] {
 			continue
 		}
+		seen[ps.Name] = true
+		qn := ps.FilePath + "." + ps.Name
 		symbols = append(symbols, benchtype.RetrievedSymbol{
-			QualifiedName: r.Name,
-			Normalized:    normalize.Symbol(r.Name),
-			Score:         r.Score,
-			Rank:          i + 1,
-			FilePath:      r.FilePath,
-			Kind:          r.Kind,
+			QualifiedName: qn,
+			Normalized:    normalize.Symbol(qn),
+			Score:         1.0 / float64(rank),
+			Rank:          rank,
+			Kind:          "function",
 		})
+		rank++
 	}
 
-	// Estimate tokens from raw output length (~4 chars per token)
+	// Then definitions.
+	for _, d := range resp.Definitions {
+		if d.Name == "" || seen[d.Name] {
+			continue
+		}
+		seen[d.Name] = true
+		qn := d.FilePath + "." + d.Name
+		symbols = append(symbols, benchtype.RetrievedSymbol{
+			QualifiedName: qn,
+			Normalized:    normalize.Symbol(qn),
+			Score:         1.0 / float64(rank),
+			Rank:          rank,
+			Kind:          "function",
+		})
+		rank++
+	}
+
+	if len(symbols) > 20 {
+		symbols = symbols[:20]
+	}
+
 	tokensUsed := len(output) / 4
-	if tokensUsed == 0 && len(symbols) > 0 {
-		tokensUsed = len(symbols) * 20
-	}
-
-	// If output contains token_count field, prefer that
-	var meta struct {
-		TokenCount int `json:"token_count"`
-	}
-	if json.Unmarshal(output, &meta) == nil && meta.TokenCount > 0 {
-		tokensUsed = meta.TokenCount
-	}
-
 	return symbols, tokensUsed
 }
 
