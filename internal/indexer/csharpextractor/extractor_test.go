@@ -495,3 +495,156 @@ func TestCSharpExtractor_EmptyFile(t *testing.T) {
 		t.Errorf("expected 0 edges for empty file, got %d", len(result.Edges))
 	}
 }
+
+func TestCSharpExtractor_ImportResolution(t *testing.T) {
+	ext := NewCSharpExtractor()
+	src := `using Microsoft.Extensions.Logging;
+using System.Collections.Generic;
+
+public class App
+{
+    public void Run()
+    {
+        Logging.CreateLogger();
+        Generic.Create();
+        LocalMethod();
+    }
+}
+`
+	opts := makeOpts(src)
+	result, err := ext.Extract(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Extract() error: %v", err)
+	}
+
+	var callEdges []types.Edge
+	for _, e := range result.Edges {
+		if e.EdgeType == "calls" {
+			callEdges = append(callEdges, e)
+		}
+	}
+
+	if len(callEdges) < 3 {
+		t.Fatalf("expected at least 3 call edges, got %d", len(callEdges))
+	}
+
+	// Find edges by provenance.
+	var resolved, inferred []types.Edge
+	for _, e := range callEdges {
+		switch e.Provenance {
+		case "ast_resolved":
+			resolved = append(resolved, e)
+		case "ast_inferred":
+			inferred = append(inferred, e)
+		}
+	}
+
+	// Logging.CreateLogger() and Generic.Create() should be ast_resolved.
+	if len(resolved) < 2 {
+		t.Errorf("expected at least 2 ast_resolved edges, got %d", len(resolved))
+	}
+	for _, e := range resolved {
+		if e.Confidence != 0.85 {
+			t.Errorf("ast_resolved edge confidence = %f, want 0.85", e.Confidence)
+		}
+	}
+
+	// LocalMethod() should be ast_inferred (no member access, no import match).
+	if len(inferred) < 1 {
+		t.Errorf("expected at least 1 ast_inferred edge, got %d", len(inferred))
+	}
+	for _, e := range inferred {
+		if e.Confidence != 0.7 {
+			t.Errorf("ast_inferred edge confidence = %f, want 0.7", e.Confidence)
+		}
+	}
+}
+
+func TestCSharpExtractor_ImportResolution_Static(t *testing.T) {
+	ext := NewCSharpExtractor()
+	src := `using static System.Console;
+using static MyApp.Helpers.StringHelper;
+
+public class App
+{
+    public void Run()
+    {
+        Console.WriteLine("hello");
+        StringHelper.Format("test");
+    }
+}
+`
+	opts := makeOpts(src)
+	result, err := ext.Extract(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Extract() error: %v", err)
+	}
+
+	var callEdges []types.Edge
+	for _, e := range result.Edges {
+		if e.EdgeType == "calls" {
+			callEdges = append(callEdges, e)
+		}
+	}
+
+	if len(callEdges) < 2 {
+		t.Fatalf("expected at least 2 call edges, got %d", len(callEdges))
+	}
+
+	// Both Console.WriteLine and StringHelper.Format should resolve through
+	// the static import map since "Console" and "StringHelper" are mapped.
+	var resolved []types.Edge
+	for _, e := range callEdges {
+		if e.Provenance == "ast_resolved" {
+			resolved = append(resolved, e)
+		}
+	}
+
+	if len(resolved) < 2 {
+		t.Errorf("expected at least 2 ast_resolved edges for static imports, got %d", len(resolved))
+	}
+	for _, e := range resolved {
+		if e.Confidence != 0.85 {
+			t.Errorf("ast_resolved edge confidence = %f, want 0.85", e.Confidence)
+		}
+	}
+}
+
+func TestCSharpExtractor_ImportResolution_NoMatch(t *testing.T) {
+	ext := NewCSharpExtractor()
+	src := `public class App
+{
+    public void Run()
+    {
+        unknownService.DoWork();
+    }
+}
+`
+	opts := makeOpts(src)
+	result, err := ext.Extract(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Extract() error: %v", err)
+	}
+
+	var callEdges []types.Edge
+	for _, e := range result.Edges {
+		if e.EdgeType == "calls" {
+			callEdges = append(callEdges, e)
+		}
+	}
+
+	if len(callEdges) < 1 {
+		t.Fatalf("expected at least 1 call edge, got %d", len(callEdges))
+	}
+
+	// "unknownService" starts with lowercase, so it should NOT be resolved
+	// through imports. It should stay at ast_inferred / 0.7.
+	for _, e := range callEdges {
+		if e.Provenance != "ast_inferred" {
+			t.Errorf("edge provenance = %q, want %q for unresolved call", e.Provenance, "ast_inferred")
+		}
+		if e.Confidence != 0.7 {
+			t.Errorf("edge confidence = %f, want 0.7 for unresolved call", e.Confidence)
+		}
+	}
+}
