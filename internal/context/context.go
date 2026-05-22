@@ -1120,6 +1120,10 @@ func extractKeywordSet(desc string) KeywordSet {
 	}
 
 	// Phase 3: Bigram compound generation from adjacent non-stop-words.
+	// These are SPECULATIVE (may not correspond to real symbols), so they go
+	// to Components as fallback, not Compounds (which are only for identifiers
+	// actually found in the task text). This prevents junk bigrams like
+	// "TrackingThrough" from filling the tiered search cap before real terms.
 	cleanWords := make([]string, 0, len(words))
 	for _, w := range words {
 		clean := strings.ToLower(strings.Trim(w, ".,;:!?\"'`()[]{}#"))
@@ -1128,6 +1132,7 @@ func extractKeywordSet(desc string) KeywordSet {
 			cleanWords = append(cleanWords, clean)
 		}
 	}
+	var bigrams []string
 	for i := 0; i < len(cleanWords)-1; i++ {
 		a, b := cleanWords[i], cleanWords[i+1]
 		if actionVerbs[a] || actionVerbs[b] {
@@ -1139,18 +1144,20 @@ func extractKeywordSet(desc string) KeywordSet {
 		camel := strings.ToUpper(a[:1]) + a[1:] + strings.ToUpper(b[:1]) + b[1:]
 		if !seen[camel] {
 			seen[camel] = true
-			ks.Compounds = append(ks.Compounds, camel)
+			bigrams = append(bigrams, camel)
 		}
 		snake := a + "_" + b
 		if !seen[snake] {
 			seen[snake] = true
-			ks.Compounds = append(ks.Compounds, snake)
+			bigrams = append(bigrams, snake)
 		}
 	}
 
-	// Assemble Components: priority terms first, then remaining by length descending.
-	ks.Components = make([]string, 0, len(priorityTerms)+len(components))
+	// Assemble Components: priority terms first, then bigrams (speculative compounds),
+	// then individual words by length descending.
+	ks.Components = make([]string, 0, len(priorityTerms)+len(bigrams)+len(components))
 	ks.Components = append(ks.Components, priorityTerms...)
+	ks.Components = append(ks.Components, bigrams...)
 	sort.Slice(components, func(i, j int) bool {
 		return len(components[i]) > len(components[j])
 	})

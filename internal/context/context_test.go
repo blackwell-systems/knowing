@@ -577,9 +577,10 @@ func TestExtractKeywordSet_PrimaryOrder(t *testing.T) {
 func TestExtractKeywordSet_BigramCompounds(t *testing.T) {
 	ks := extractKeywordSet("compute blast radius for this module")
 
-	// "blast radius" should generate "BlastRadius" and "blast_radius" as bigrams.
+	// Bigrams are speculative, so they go to Components (not Compounds).
+	// "blast radius" should generate "BlastRadius" and "blast_radius".
 	hasCamel, hasSnake := false, false
-	for _, c := range ks.Compounds {
+	for _, c := range ks.Components {
 		if c == "BlastRadius" {
 			hasCamel = true
 		}
@@ -588,10 +589,10 @@ func TestExtractKeywordSet_BigramCompounds(t *testing.T) {
 		}
 	}
 	if !hasCamel {
-		t.Errorf("expected 'BlastRadius' in Compounds, got %v", ks.Compounds)
+		t.Errorf("expected 'BlastRadius' in Components, got %v", ks.Components)
 	}
 	if !hasSnake {
-		t.Errorf("expected 'blast_radius' in Compounds, got %v", ks.Compounds)
+		t.Errorf("expected 'blast_radius' in Components, got %v", ks.Components)
 	}
 }
 
