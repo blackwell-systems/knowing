@@ -308,7 +308,7 @@ GCF uses `|`-separated fields and local IDs (`$1 -> $3`) instead of repeated qua
 | [Wire Formats](docs/architecture/wire-formats.md) | GCF, GCB, JSON formats and benchmarks |
 | [Roadmap](docs/roadmap.md) | Completed workstreams and next priorities |
 | [Benchmarks](bench/README.md) | Reproducible value benchmarks with performance contracts |
-| [Whitepaper](docs/research/whitepaper.md) | Hierarchical Identity Architecture thesis |
+| [Whitepaper](docs/research/content-addressing-as-computation-primitive.md) | Hierarchical Identity Architecture thesis ([DOI: 10.5281/zenodo.20342255](https://zenodo.org/records/20342255)) |
 | [Hooks](hooks/README.md) | Claude Code hook integration |
 
 ## License
