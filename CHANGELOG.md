@@ -15,7 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Resolved edges get provenance `ast_resolved` with confidence 0.85 (up from `ast_inferred` / 0.7)
 - Follows the established Rust pattern (`buildRustImportMap` / `resolveCallEdgeWithImports`)
 - Wildcard imports (`import com.pkg.*`) correctly skipped (cannot resolve individual names)
-- Completes cross-file import resolution for all 4 OOP languages: Python, TypeScript, Rust, Java, C#
+- Completes cross-file import resolution for all 5 OOP languages: Python, TypeScript, Rust, Java, C#
 
 ### Fixed
 

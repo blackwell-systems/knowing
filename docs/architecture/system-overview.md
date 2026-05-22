@@ -130,13 +130,13 @@ Graph is fully enriched (all edges lsp_resolved or ast_resolved)
 
 **Parallel Indexer (Tier 1):**
 
-The indexer uses an 8-worker goroutine pool (configurable via `--workers` flag) with phase separation for deterministic, high-throughput extraction:
+The indexer uses a producer-consumer pipeline (configurable via `--workers` flag, default GOMAXPROCS) with phase separation for deterministic, high-throughput extraction:
 
 1. **Walk phase:** enumerate source files, skip unchanged (content hash comparison)
-2. **Parallel extract phase:** fan-out files to workers; each worker creates a per-call tree-sitter parser (thread-safe, no shared state). Results written to a pre-sized array indexed by submission order (no locks, deterministic output)
-3. **Batch store phase:** single transaction for all nodes, edges, and file records
+2. **Parallel extract phase:** producer fans out files to consumer workers; each worker creates a per-call tree-sitter parser (thread-safe, no shared state). Results written to a pre-sized array indexed by submission order (no locks, deterministic output). A per-file CGO watchdog (10s timeout) prevents stuck tree-sitter calls from blocking the pipeline; if the timer fires, the worker sends an empty result and moves on (fire-and-forget).
+3. **Batch store phase:** single transaction for all nodes, edges, and file records (multi-row INSERT, 100-500 rows per statement)
 4. **Authorship phase:** `git blame` stamps (skippable via `--skip-blame` for faster structural-only index)
-5. **Snapshot phase:** hierarchical Merkle tree computation
+5. **Snapshot phase:** hierarchical Merkle tree computation (in-memory from pipeline data, no DB re-read)
 
 Progress output to stderr every 2 seconds shows files processed and extraction rate. On the knowing codebase (84K LOC, 429 source files, 62 packages), the parallel indexer produces 7,224 nodes and ~24.9K edges in 1.8 seconds (1,451 files/sec throughput).
 
@@ -190,6 +190,18 @@ These limitations exist only between Tier 1 and Tier 2 completion. After enrichm
 | Event/Message Queue | `eventextractor` (cross-language producer/consumer detection) | n/a | n/a |
 | .env files | `envextractor` (line parser) | n/a | n/a |
 | CODEOWNERS | `ownership` (CODEOWNERS parser, emits `owned_by` edges with confidence 1.0) | n/a | n/a |
+
+**Cross-file import resolution (5 OOP languages):**
+
+Python, TypeScript, Rust, Java, and C# extractors build per-file import maps during Tier 1 extraction. When a call target matches an imported name, the edge is resolved to its qualified source with provenance `ast_resolved` and confidence 0.85 (up from `ast_inferred` / 0.7). This creates cross-file call edges without requiring LSP enrichment, improving graph connectivity for RWR walks.
+
+| Language | Import map builder | Resolution strategy |
+|----------|-------------------|-------------------|
+| Python | `buildPythonImportMap` | `import`/`from...import` statements |
+| TypeScript | `buildTSImportMap` | `import`/`require` declarations |
+| Rust | `buildRustImportMap` | `use` declarations, `crate::`/`super::`/`self::` paths |
+| Java | `buildJavaImportMap` | `import com.pkg.Class`, `import static` |
+| C# | `buildCSharpImportMap` | `using Namespace`, `using static` |
 
 The Go tree-sitter extractor (`gotsextractor`) is the default. The go/packages extractor (`goextractor`) is available via `knowing index --full` as a deliberate escape hatch for cases requiring guaranteed single-pass type resolution at the cost of 16+ minutes. This is a design choice: two-tier is the architecture, `--full` exists for validation and edge cases where LSP enrichment is unavailable (air-gapped environments, missing gopls).
 
@@ -416,3 +428,61 @@ The graph connects symbols with typed, provenance-annotated edges:
 | Runtime | `runtime_calls`, `runtime_rpc`, `runtime_produces`, `runtime_consumes` |
 
 30 edge types total across static, infrastructure, runtime, ownership, and operational categories. See [Edge Types Reference](edge-types.md) for full details.
+
+## Wire Formats
+
+The system supports three serialization formats for graph output:
+
+| Format | Purpose | Savings vs JSON |
+|--------|---------|-----------------|
+| **GCF** (Graph Compact Format) | LLM consumption: line-oriented, positional fields, `|`-separated with local IDs (`$1 -> $3`) | 84% fewer tokens |
+| **GCB** (Graph Compact Binary) | Service transport and caching: varint-encoded, length-prefixed | 74% fewer bytes |
+| **JSON** | Human debugging, generic consumers | Baseline |
+
+GCF is the default output format for MCP context tools. Session-stateful deduplication reduces repeated symbols by 47% across consecutive calls. See [Wire Formats](wire-formats.md) for encoding details and benchmarks.
+
+## Retrieval Pipeline
+
+The context engine (`internal/context/`) transforms a task description into a token-budgeted, relevance-ranked block of symbols. This is the primary intelligence output of the system.
+
+**Pipeline stages:**
+
+```
+Task Description
+    |
+    v
+[1. Keyword Extraction]        compound-first: KeywordSet with Exact/Compounds/Components tiers
+    |
+    v
+[2. Seed Retrieval]            4-channel RRF fusion (tiered graph search, BM25, equivalence classes, vector)
+    |
+    v
+[3. Interface-Aware Seeding]   add implementors of matched interface types
+    |
+    v
+[4. Noise Filtering]           exclude mocks, stubs, fakes, phantom external nodes, dist/, vendor/
+    |
+    v
+[5. Random Walk with Restart]  propagate relevance through graph (alpha=0.2, 20 iterations)
+    |
+    v
+[6. HITS Reranking]            authority/hub scores on top-200 RWR nodes
+    |
+    v
+[7. Scoring]                   6-component formula with feedback boosts + session memory
+    |
+    v
+[8. Budget Packing]            density-ranked greedy knapsack (score/cost ratio)
+    |
+    v
+[9. Task Memory Record]        persist top-5 returned symbols for future session boosts
+```
+
+**Key design choices:**
+
+- **Compound-first keyword extraction:** The `KeywordSet` struct separates Exact (backtick-quoted identifiers), Compounds (snake_case, CamelCase, dotted names), and Components (split words). Compounds are queried before components; components only used as fallback when compounds yield fewer than 5 results.
+- **Phantom external node filtering:** External nodes (kind="external", from unresolved LSP targets) are filtered at seed retrieval and RWR result collection. Without this, repos with many unresolved imports have phantom nodes dominating all top positions.
+- **Feedback compounding via task memory:** The MCP server records top-5 returned symbols in a `task_memory` table after each `context_for_task` call. Future queries with similar keywords recall stored symbols and boost them. Quality compounds across sessions; the system learns which symbols matter for which tasks.
+- **Merkleized feedback expiration:** Feedback records store the package Merkle root. When code changes, the root changes, and stale feedback becomes invisible automatically.
+
+**Benchmark:** Cross-system benchmark (7 repos, ~117 tasks): P@10=0.230 vs grep P@10=0.020 (11.5x improvement, p<0.0001, Cohen's d=0.92). See [Retrieval Pipeline](retrieval-pipeline.md) for the full architecture reference.
