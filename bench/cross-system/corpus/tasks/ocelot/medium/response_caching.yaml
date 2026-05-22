@@ -1,0 +1,14 @@
+id: ocelot-medium-002
+repo: ocelot
+tier: medium
+description: "Implement response caching for downstream API calls using the output cache"
+source: manual
+ground_truth:
+  - Ocelot.Cache.OutputCacheMiddleware.Invoke
+  - Ocelot.Cache.OutputCacheMiddleware.<init>
+  - Ocelot.Configuration.CacheOptions.TtlSeconds
+  - Ocelot.Configuration.Creator.CacheOptionsCreator.Create
+  - Ocelot.Cache.IOcelotCache.Get
+  - Ocelot.Cache.IOcelotCache.Add
+tags: [caching, middleware, cross-namespace]
+notes: "Cache flow: CacheOptionsCreator builds config, OutputCacheMiddleware checks IOcelotCache.Get before forwarding, stores with IOcelotCache.Add."

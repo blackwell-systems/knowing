@@ -1,0 +1,17 @@
+id: ocelot-hard-001
+repo: ocelot
+tier: hard
+description: "Trace the full request pipeline from incoming HTTP request through all middleware to the downstream response"
+source: manual
+ground_truth:
+  - Ocelot.Middleware.OcelotPipelineExtensions.BuildOcelotPipeline
+  - Ocelot.Middleware.OcelotMiddlewareExtensions.UseOcelot
+  - Ocelot.DownstreamRouteFinder.DownstreamRouteFinderMiddleware.Invoke
+  - Ocelot.Authentication.AuthenticationMiddleware.Invoke
+  - Ocelot.Authorization.AuthorizationMiddleware.Invoke
+  - Ocelot.RateLimiting.RateLimitingMiddleware.Invoke
+  - Ocelot.Cache.OutputCacheMiddleware.Invoke
+  - Ocelot.LoadBalancer.LoadBalancerMiddleware.Invoke
+  - Ocelot.Request.Middleware.DownstreamRequestInitialiserMiddleware.Invoke
+tags: [pipeline, architectural, cross-namespace]
+notes: "Full pipeline: UseOcelot -> BuildOcelotPipeline registers middleware in order. Each middleware calls Invoke. Requires understanding the registration and execution order."

@@ -1,0 +1,13 @@
+id: ocelot-easy-001
+repo: ocelot
+tier: easy
+description: "Add authentication middleware that validates JWT tokens on incoming requests"
+source: manual
+ground_truth:
+  - Ocelot.Authentication.AuthenticationMiddleware.Invoke
+  - Ocelot.Authentication.AuthenticationMiddleware.<init>
+  - Ocelot.Middleware.OcelotPipelineExtensions.UseAuthenticationMiddleware
+  - Ocelot.Configuration.AuthenticationOptions.AuthenticationProviderKey
+  - Ocelot.Errors.UnauthenticatedError.<init>
+tags: [auth, middleware, single-namespace]
+notes: "Developer wants to understand how authentication works. Needs AuthenticationMiddleware, its pipeline registration, and the config options."

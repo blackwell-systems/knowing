@@ -1,0 +1,13 @@
+id: spark-java-easy-001
+repo: spark-java
+tier: easy
+description: "Add a before filter that checks authentication headers on every request"
+source: manual
+ground_truth:
+  - spark.Routable.before
+  - spark.Filter.handle
+  - spark.http.matching.BeforeFilters.execute
+  - spark.FilterImpl.<init>
+  - spark.Service.before
+tags: [middleware, filters, single-package]
+notes: "Analogous to Flask's before_request. Developer needs to find the before() method, understand Filter interface, and see how BeforeFilters executes them."
