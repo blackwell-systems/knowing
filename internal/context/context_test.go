@@ -462,3 +462,232 @@ func TestForFiles_EmptyDB(t *testing.T) {
 		t.Errorf("expected budget 10000, got %d", block.TokenBudget)
 	}
 }
+
+func TestExtractKeywordSet_BacktickQuoted(t *testing.T) {
+	ks := extractKeywordSet("add a `before_request` hook")
+
+	// Backtick-quoted identifier should be in Exact.
+	found := false
+	for _, e := range ks.Exact {
+		if e == "before_request" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected 'before_request' in Exact, got %v", ks.Exact)
+	}
+
+	// Components should NOT contain the compound (it's already in Exact).
+	for _, c := range ks.Components {
+		if c == "before_request" {
+			t.Errorf("compound 'before_request' should not be in Components")
+		}
+	}
+}
+
+func TestExtractKeywordSet_SnakeCaseCompound(t *testing.T) {
+	ks := extractKeywordSet("fix the get_queryset method")
+
+	// "get_queryset" contains underscore, so it should be in Compounds.
+	found := false
+	for _, c := range ks.Compounds {
+		if c == "get_queryset" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected 'get_queryset' in Compounds, got %v", ks.Compounds)
+	}
+
+	// "queryset" component should be in Components as fallback.
+	// ("get" is a stop word so it won't appear.)
+	hasQueryset := false
+	for _, c := range ks.Components {
+		if c == "queryset" {
+			hasQueryset = true
+		}
+	}
+	if !hasQueryset {
+		t.Errorf("expected 'queryset' in Components, got %v", ks.Components)
+	}
+}
+
+func TestExtractKeywordSet_CamelCaseCompound(t *testing.T) {
+	ks := extractKeywordSet("refactor SessionHandler middleware")
+
+	// "SessionHandler" is CamelCase, should be in Compounds.
+	found := false
+	for _, c := range ks.Compounds {
+		if c == "sessionhandler" || c == "SessionHandler" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected 'SessionHandler' or 'sessionhandler' in Compounds, got %v", ks.Compounds)
+	}
+}
+
+func TestExtractKeywordSet_PrimaryOrder(t *testing.T) {
+	ks := extractKeywordSet("add a before_request hook for auth")
+
+	// Primary() should include exact + compounds but not components.
+	primary := ks.Primary()
+	all := ks.All()
+
+	if len(primary) >= len(all) {
+		t.Errorf("expected Primary() (%d) < All() (%d)", len(primary), len(all))
+	}
+
+	// Exact should come before compounds in All().
+	if len(ks.Exact) > 0 && len(ks.Compounds) > 0 {
+		allStr := ""
+		for _, a := range all {
+			allStr += a + " "
+		}
+		// First exact should appear before first compound in the all list.
+		firstExactIdx := -1
+		firstCompoundIdx := -1
+		for i, a := range all {
+			if firstExactIdx == -1 {
+				for _, e := range ks.Exact {
+					if a == e {
+						firstExactIdx = i
+						break
+					}
+				}
+			}
+			if firstCompoundIdx == -1 {
+				for _, c := range ks.Compounds {
+					if a == c {
+						firstCompoundIdx = i
+						break
+					}
+				}
+			}
+		}
+		if firstExactIdx >= 0 && firstCompoundIdx >= 0 && firstExactIdx > firstCompoundIdx {
+			t.Errorf("expected Exact keywords before Compounds in All()")
+		}
+	}
+}
+
+func TestExtractKeywordSet_BigramCompounds(t *testing.T) {
+	ks := extractKeywordSet("compute blast radius for this module")
+
+	// "blast radius" should generate "BlastRadius" and "blast_radius" as bigrams.
+	hasCamel, hasSnake := false, false
+	for _, c := range ks.Compounds {
+		if c == "BlastRadius" {
+			hasCamel = true
+		}
+		if c == "blast_radius" {
+			hasSnake = true
+		}
+	}
+	if !hasCamel {
+		t.Errorf("expected 'BlastRadius' in Compounds, got %v", ks.Compounds)
+	}
+	if !hasSnake {
+		t.Errorf("expected 'blast_radius' in Compounds, got %v", ks.Compounds)
+	}
+}
+
+func TestExtractKeywordSet_Empty(t *testing.T) {
+	ks := extractKeywordSet("")
+	if !ks.IsEmpty() {
+		t.Errorf("expected empty KeywordSet for empty input")
+	}
+}
+
+func TestExtractKeywordSet_MultipleBackticks(t *testing.T) {
+	ks := extractKeywordSet("connect `AuthService` to `SessionStore`")
+
+	if len(ks.Exact) < 2 {
+		t.Fatalf("expected at least 2 exact keywords, got %v", ks.Exact)
+	}
+	hasAuth, hasSession := false, false
+	for _, e := range ks.Exact {
+		if e == "AuthService" {
+			hasAuth = true
+		}
+		if e == "SessionStore" {
+			hasSession = true
+		}
+	}
+	if !hasAuth {
+		t.Errorf("expected 'AuthService' in Exact, got %v", ks.Exact)
+	}
+	if !hasSession {
+		t.Errorf("expected 'SessionStore' in Exact, got %v", ks.Exact)
+	}
+}
+
+func TestExtractKeywordSet_FlaskBeforeRequest(t *testing.T) {
+	// The flagship benchmark case: "Add a new before_request hook..."
+	// Before the fix, tiered search queried "before" and "request" separately
+	// and found thousands of irrelevant matches. After the fix, "before_request"
+	// is a Compound that gets queried first.
+	ks := extractKeywordSet("Add a new before_request hook that validates API keys from the Authorization header before each request")
+
+	// "before_request" must be in Compounds (it has underscore).
+	found := false
+	for _, c := range ks.Compounds {
+		if c == "before_request" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected 'before_request' in Compounds, got %v", ks.Compounds)
+	}
+
+	// Primary() should contain "before_request" for first-pass querying.
+	primary := ks.Primary()
+	primaryHas := false
+	for _, p := range primary {
+		if p == "before_request" {
+			primaryHas = true
+			break
+		}
+	}
+	if !primaryHas {
+		t.Errorf("expected 'before_request' in Primary(), got %v", primary)
+	}
+
+	// "before" and "request" should only be in Components (fallback).
+	for _, c := range ks.Compounds {
+		if c == "before" || c == "request" {
+			t.Errorf("individual word %q should not be in Compounds", c)
+		}
+	}
+	for _, e := range ks.Exact {
+		if e == "before" || e == "request" {
+			t.Errorf("individual word %q should not be in Exact", e)
+		}
+	}
+}
+
+func TestExtractKeywords_BackwardCompat(t *testing.T) {
+	// extractKeywords should still return a flat list in priority order.
+	kws := extractKeywords("add a `before_request` hook")
+	if len(kws) == 0 {
+		t.Fatal("expected non-empty keywords")
+	}
+	// "before_request" should appear early (it's Exact, which comes first).
+	found := false
+	for i, kw := range kws {
+		if kw == "before_request" {
+			if i > 3 {
+				t.Errorf("expected 'before_request' in first few keywords, found at index %d", i)
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected 'before_request' in keywords, got %v", kws)
+	}
+}

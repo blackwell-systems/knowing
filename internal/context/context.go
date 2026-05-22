@@ -215,14 +215,15 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 		budget = 50000
 	}
 
-	// Extract keywords from the task description.
-	keywords := extractKeywords(opts.TaskDescription)
-	if len(keywords) == 0 {
+	// Extract structured keywords from the task description.
+	ks := extractKeywordSet(opts.TaskDescription)
+	if ks.IsEmpty() {
 		return &ContextBlock{
 			Format:      opts.Format,
 			TokenBudget: budget,
 		}, nil
 	}
+	keywords := ks.All()
 
 	// Cache lookup: if a SubgraphCache is attached, check for a cached result
 	// keyed by the normalized task description. On a hit, deserialize and return
@@ -273,120 +274,14 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 		}
 	}
 
-	// Seed retrieval uses two independent channels fused with Reciprocal Rank Fusion:
-	//   Channel 1: Tiered keyword matching (exact > prefix > substring > path)
-	//   Channel 2: BM25 full-text search (CamelCase-split qualified names + signatures)
+	// Seed retrieval uses independent channels fused with Reciprocal Rank Fusion:
+	//   Channel 1: Tiered keyword matching (compound-first: exact > prefix > substring > path)
+	//   Channel 2: BM25 full-text search (compound-targeted symbol_name column)
 	// RRF merges their ranked lists: score = 1/(k+rank_tier) + 1/(k+rank_bm25)
 	// Symbols appearing in both lists are promoted; single-channel hits get less weight.
-	// This avoids the dilution problem of naive concatenation while letting BM25 always run.
 
-	// Channel 1: Tiered keyword matching.
-	var tieredResults []types.Node
-	tieredSeen := make(map[types.Hash]bool)
-
-	// Tier 1: exact matches (keyword matches the symbol name exactly).
-	for _, kw := range keywords {
-		nodes, err := e.store.NodesByName(ctx, "%"+kw)
-		if err != nil {
-			return nil, err
-		}
-		for _, n := range nodes {
-			lastDot := strings.LastIndex(n.QualifiedName, ".")
-			symbolName := n.QualifiedName
-			if lastDot >= 0 {
-				symbolName = n.QualifiedName[lastDot+1:]
-			}
-			if strings.EqualFold(symbolName, kw) && !tieredSeen[n.NodeHash] {
-				tieredSeen[n.NodeHash] = true
-				tieredResults = append(tieredResults, n)
-			}
-		}
-	}
-
-	// Tier 2: prefix matches (symbol name starts with keyword).
-	if len(tieredResults) < 15 {
-		for _, kw := range keywords {
-			nodes, err := e.store.NodesByName(ctx, "%"+kw)
-			if err != nil {
-				return nil, err
-			}
-			for _, n := range nodes {
-				if tieredSeen[n.NodeHash] {
-					continue
-				}
-				lastDot := strings.LastIndex(n.QualifiedName, ".")
-				symbolName := n.QualifiedName
-				if lastDot >= 0 {
-					symbolName = n.QualifiedName[lastDot+1:]
-				}
-				if strings.HasPrefix(strings.ToLower(symbolName), strings.ToLower(kw)) {
-					tieredSeen[n.NodeHash] = true
-					tieredResults = append(tieredResults, n)
-				}
-				if len(tieredResults) >= 30 {
-					break
-				}
-			}
-			if len(tieredResults) >= 30 {
-				break
-			}
-		}
-	}
-
-	// Tier 3: substring fallback (only if we still have very few candidates).
-	if len(tieredResults) < 5 {
-		for _, kw := range keywords {
-			if len(kw) < 4 {
-				continue
-			}
-			nodes, err := e.store.NodesByName(ctx, "%"+kw)
-			if err != nil {
-				return nil, err
-			}
-			for _, n := range nodes {
-				if !tieredSeen[n.NodeHash] {
-					tieredSeen[n.NodeHash] = true
-					tieredResults = append(tieredResults, n)
-				}
-				if len(tieredResults) >= 20 {
-					break
-				}
-			}
-			if len(tieredResults) >= 20 {
-				break
-			}
-		}
-	}
-
-	// Tier 4: file-path keyword matching.
-	if len(tieredResults) < 30 {
-		for _, kw := range keywords {
-			if len(kw) < 3 {
-				continue
-			}
-			nodes, err := e.store.NodesByName(ctx, "%"+kw+"%")
-			if err != nil {
-				continue
-			}
-			for _, n := range nodes {
-				if tieredSeen[n.NodeHash] {
-					continue
-				}
-				qLower := strings.ToLower(n.QualifiedName)
-				kwLower := strings.ToLower(kw)
-				if strings.Contains(qLower, "/"+kwLower) || strings.Contains(qLower, kwLower+"/") {
-					tieredSeen[n.NodeHash] = true
-					tieredResults = append(tieredResults, n)
-					if len(tieredResults) >= 40 {
-						break
-					}
-				}
-			}
-			if len(tieredResults) >= 40 {
-				break
-			}
-		}
-	}
+	// Channel 1: Compound-first tiered keyword matching.
+	tieredResults, _, _ := e.tieredSearchSet(ctx, ks)
 
 	// Channel 2: BM25 full-text search (always runs when available).
 	var bm25Results []types.Node
@@ -1019,19 +914,96 @@ func (e *ContextEngine) ForPR(ctx stdctx.Context, opts PROptions) (*ContextBlock
 	return packIntoBudget(ranked, budget, opts.Format), nil
 }
 
-// extractKeywords splits a task description into deduplicated, lowercase keywords
-// with stop words removed.
-// extractKeywords processes a task description into searchable terms.
-// It splits CamelCase/snake_case identifiers, expands abbreviations,
-// filters stop words, and returns terms ordered by specificity (longer first).
-func extractKeywords(desc string) []string {
-	words := strings.Fields(desc)
-	seen := make(map[string]bool)
-	var result []string
-	var priorityTerms []string // nouns following action verbs get boosted
+// KeywordSet separates extracted keywords by specificity tier.
+// Tiered search queries these in priority order: Exact first, then Compounds,
+// then Components only as fallback. This prevents split components like "before"
+// and "request" from drowning out the actual compound "before_request".
+type KeywordSet struct {
+	// Exact: backtick-quoted identifiers from the task description.
+	// These are explicit symbol references (e.g., `before_request`).
+	Exact []string
+	// Compounds: multi-part identifiers detected by structure (snake_case,
+	// CamelCase, dotted) or generated from bigram joining.
+	Compounds []string
+	// Components: individual words split from identifiers, abbreviation
+	// expansions, and priority terms. Used as fallback when compounds
+	// yield insufficient results.
+	Components []string
+}
 
-	// Verb-pattern detection: "Add a new X", "Implement X", "Build X"
-	// The object noun after a filtered verb is the most important keyword.
+// All returns all keywords in priority order (exact, compounds, components).
+// Used by callers that don't need structured access.
+func (ks KeywordSet) All() []string {
+	result := make([]string, 0, len(ks.Exact)+len(ks.Compounds)+len(ks.Components))
+	result = append(result, ks.Exact...)
+	result = append(result, ks.Compounds...)
+	result = append(result, ks.Components...)
+	return result
+}
+
+// Primary returns the highest-priority keywords (exact + compounds).
+// These should be queried first by tiered search.
+func (ks KeywordSet) Primary() []string {
+	result := make([]string, 0, len(ks.Exact)+len(ks.Compounds))
+	result = append(result, ks.Exact...)
+	result = append(result, ks.Compounds...)
+	return result
+}
+
+// IsEmpty returns true if no keywords were extracted.
+func (ks KeywordSet) IsEmpty() bool {
+	return len(ks.Exact) == 0 && len(ks.Compounds) == 0 && len(ks.Components) == 0
+}
+
+// extractKeywords is a backward-compatible wrapper that returns all keywords
+// as a flat list in priority order. Use extractKeywordSet for structured access.
+func extractKeywords(desc string) []string {
+	return extractKeywordSet(desc).All()
+}
+
+// extractKeywordSet processes a task description into a structured keyword set.
+// It detects backtick-quoted identifiers as exact symbols, preserves compound
+// identifiers (snake_case, CamelCase, dotted), splits identifiers into components
+// for fallback, and generates bigram compounds from adjacent words.
+func extractKeywordSet(desc string) KeywordSet {
+	var ks KeywordSet
+	seen := make(map[string]bool)
+
+	// Phase 1: Extract backtick-quoted identifiers as exact symbols.
+	// These are explicit references to symbol names (e.g., `before_request`).
+	remaining := desc
+	for {
+		start := strings.Index(remaining, "`")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(remaining[start+1:], "`")
+		if end == -1 {
+			break
+		}
+		quoted := remaining[start+1 : start+1+end]
+		remaining = remaining[start+1+end+1:]
+		// Only accept identifiers (no spaces, reasonable length).
+		quoted = strings.TrimSpace(quoted)
+		if quoted != "" && len(quoted) <= 100 && !strings.Contains(quoted, " ") {
+			if !seen[quoted] {
+				seen[quoted] = true
+				ks.Exact = append(ks.Exact, quoted)
+			}
+			// Also add lowercase variant if different.
+			lower := strings.ToLower(quoted)
+			if lower != quoted && !seen[lower] {
+				seen[lower] = true
+				ks.Exact = append(ks.Exact, lower)
+			}
+		}
+	}
+
+	// Phase 2: Standard word extraction.
+	words := strings.Fields(desc)
+	var priorityTerms []string
+	var components []string
+
 	actionVerbs := map[string]bool{
 		"add": true, "implement": true, "create": true, "build": true,
 		"fix": true, "refactor": true, "update": true, "change": true,
@@ -1044,78 +1016,91 @@ func extractKeywords(desc string) []string {
 		"all": true, "some": true, "each": true, "that": true, "which": true,
 	}
 
-	// Find the first non-filler noun after the opening verb.
+	// Verb-pattern detection: the first noun after an action verb is the primary target.
+	// If the target word is a compound identifier, it goes directly to Compounds
+	// (highest specificity); otherwise to priorityTerms (Components).
 	if len(words) > 0 {
 		firstWord := strings.ToLower(strings.Trim(words[0], ".,;:!?\"'`()[]{}#"))
 		if actionVerbs[firstWord] {
 			for _, w := range words[1:] {
-				clean := strings.ToLower(strings.Trim(w, ".,;:!?\"'`()[]{}#"))
-				if clean == "" || fillerWords[clean] {
+				clean := strings.Trim(w, ".,;:!?\"'`()[]{}#")
+				cleanLower := strings.ToLower(clean)
+				if cleanLower == "" || fillerWords[cleanLower] {
 					continue
 				}
-				// This is the primary object noun. Boost it.
-				priorityTerms = append(priorityTerms, clean)
-				// Also try CamelCase version as a symbol name.
-				if len(clean) > 2 {
-					capitalized := strings.ToUpper(clean[:1]) + clean[1:]
-					priorityTerms = append(priorityTerms, capitalized)
+				// Route compound identifiers to Compounds directly.
+				isCompound := strings.Contains(cleanLower, "_") || strings.Contains(cleanLower, ".") || hasMixedCase(clean)
+				if isCompound {
+					if !seen[cleanLower] {
+						seen[cleanLower] = true
+						ks.Compounds = append(ks.Compounds, cleanLower)
+					}
+					if hasMixedCase(clean) && !seen[clean] {
+						seen[clean] = true
+						ks.Compounds = append(ks.Compounds, clean)
+					}
+				} else {
+					if !seen[cleanLower] {
+						seen[cleanLower] = true
+						priorityTerms = append(priorityTerms, cleanLower)
+					}
+					if len(cleanLower) > 2 {
+						capitalized := strings.ToUpper(cleanLower[:1]) + cleanLower[1:]
+						if !seen[capitalized] {
+							seen[capitalized] = true
+							priorityTerms = append(priorityTerms, capitalized)
+						}
+					}
 				}
 				break
 			}
 		}
 	}
 
+	// Process each word: split identifiers, collect compounds and components.
 	for _, w := range words {
-		// Strip punctuation from edges.
 		w = strings.Trim(w, ".,;:!?\"'`()[]{}#")
 		if w == "" {
 			continue
 		}
 
-		// Split CamelCase and snake_case into components.
 		parts := splitIdentifier(w)
-		for _, p := range parts {
-			lower := strings.ToLower(p)
-			if len(lower) < 2 {
-				continue
-			}
-			if stopWords[lower] {
-				continue
-			}
-			if seen[lower] {
-				continue
-			}
-			seen[lower] = true
-			result = append(result, lower)
 
-			// Also add abbreviation expansion if available.
-			if expanded, ok := abbreviations[lower]; ok && !seen[expanded] {
-				seen[expanded] = true
-				result = append(result, expanded)
+		// If the word is a compound identifier (contains _ or splits into multiple parts),
+		// add it to Compounds.
+		lower := strings.ToLower(w)
+		if strings.Contains(lower, "_") || strings.Contains(lower, ".") || len(parts) > 1 {
+			if !seen[lower] && !stopWords[lower] {
+				seen[lower] = true
+				ks.Compounds = append(ks.Compounds, lower)
+			}
+			// Also preserve the original case if it has mixed case (CamelCase symbol).
+			if hasMixedCase(w) && !seen[w] {
+				seen[w] = true
+				ks.Compounds = append(ks.Compounds, w)
 			}
 		}
 
-		// Keep the original compound term too (if multi-part) for exact matching.
-		lower := strings.ToLower(w)
-		if strings.Contains(lower, "_") || len(parts) > 1 {
-			if !seen[lower] && !stopWords[lower] {
-				seen[lower] = true
-				result = append(result, lower)
+		// Split into components for fallback.
+		for _, p := range parts {
+			pl := strings.ToLower(p)
+			if len(pl) < 2 || stopWords[pl] || seen[pl] {
+				continue
+			}
+			seen[pl] = true
+			components = append(components, pl)
+
+			if expanded, ok := abbreviations[pl]; ok && !seen[expanded] {
+				seen[expanded] = true
+				components = append(components, expanded)
 			}
 		}
 	}
 
-	// Bigram compound detection: adjacent non-stop-words are joined into
-	// compound terms (CamelCase and snake_case variants). This catches
-	// multi-word concepts that map to single symbol names:
-	//   "blast radius" -> "BlastRadius", "blast_radius"
-	//   "transitive callers" -> "TransitiveCallers", "transitive_callers"
-	//   "edge events" -> "EdgeEvents", "edge_events"
-	var compounds []string
+	// Phase 3: Bigram compound generation from adjacent non-stop-words.
 	cleanWords := make([]string, 0, len(words))
 	for _, w := range words {
 		clean := strings.ToLower(strings.Trim(w, ".,;:!?\"'`()[]{}#"))
-		// Only include clean alpha words (no hyphens, no numbers) that are meaningful.
 		if clean != "" && !stopWords[clean] && !fillerWords[clean] &&
 			len(clean) >= 3 && !strings.ContainsAny(clean, "-/0123456789") {
 			cleanWords = append(cleanWords, clean)
@@ -1123,52 +1108,33 @@ func extractKeywords(desc string) []string {
 	}
 	for i := 0; i < len(cleanWords)-1; i++ {
 		a, b := cleanWords[i], cleanWords[i+1]
-		// Skip if either word is an action verb (these describe intent, not symbols).
 		if actionVerbs[a] || actionVerbs[b] {
 			continue
 		}
-		// Skip if both words are very short (too likely to be noise).
 		if len(a) < 4 && len(b) < 4 {
 			continue
 		}
-		// CamelCase compound: "BlastRadius"
 		camel := strings.ToUpper(a[:1]) + a[1:] + strings.ToUpper(b[:1]) + b[1:]
 		if !seen[camel] {
 			seen[camel] = true
-			compounds = append(compounds, camel)
+			ks.Compounds = append(ks.Compounds, camel)
 		}
-		// snake_case compound: "blast_radius"
 		snake := a + "_" + b
 		if !seen[snake] {
 			seen[snake] = true
-			compounds = append(compounds, snake)
+			ks.Compounds = append(ks.Compounds, snake)
 		}
 	}
 
-	// Prepend priority terms (object nouns from verb patterns) so they seed first.
-	var final []string
-	for _, pt := range priorityTerms {
-		if !seen[pt] {
-			seen[pt] = true
-			final = append(final, pt)
-		}
-	}
-	// Compounds next (most specific, multi-word matches).
-	final = append(final, compounds...)
-	// Then individual keywords.
-	final = append(final, result...)
+	// Assemble Components: priority terms first, then remaining by length descending.
+	ks.Components = make([]string, 0, len(priorityTerms)+len(components))
+	ks.Components = append(ks.Components, priorityTerms...)
+	sort.Slice(components, func(i, j int) bool {
+		return len(components[i]) > len(components[j])
+	})
+	ks.Components = append(ks.Components, components...)
 
-	// Sort by length descending: longer (more specific) terms first.
-	// But keep priority terms at the front.
-	priorityLen := len(priorityTerms)
-	if len(final) > priorityLen {
-		tail := final[priorityLen:]
-		sort.Slice(tail, func(i, j int) bool {
-			return len(tail[i]) > len(tail[j])
-		})
-	}
-
-	return final
+	return ks
 }
 
 // buildFTSQuery constructs an FTS5 query from extracted keywords.

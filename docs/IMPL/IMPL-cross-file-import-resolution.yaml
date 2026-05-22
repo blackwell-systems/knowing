@@ -1,0 +1,524 @@
+title: Cross-File Import Resolution for Java and C# Extractors
+feature_slug: cross-file-import-resolution
+verdict: SUITABLE
+suitability_assessment: |
+    Suitability gate analysis:
+
+    1. File decomposition: YES. Two independent extractor packages (javaextractor, csharpextractor)
+       each need their own buildImportMap and resolveCallEdgeWithImports functions. Each package
+       has its own extractor.go and extractor_test.go. The packages share no code between them;
+       only the established Rust pattern is referenced as a template.
+
+    2. Investigation-first items: NONE. The Rust implementation is fully shipped and serves as
+       the reference. The pattern is clear: (1) build import map from top-level declarations,
+       (2) pass map into call edge extraction, (3) resolve first segment of call target through
+       the import map.
+
+    3. Interface discoverability: YES. The interface contract is defined by the Rust reference:
+       buildXImportMap returns map[string]string, resolveCallEdgeWithImports accepts that map
+       and uses provenance "ast_resolved" with confidence 0.85 for resolved edges. Both agents
+       can implement independently without coordination.
+
+    4. Pre-implementation status check: Both extractors currently have NO import resolution.
+       All call edges use provenance "ast_inferred" at confidence 0.7. This is greenfield
+       addition to existing extractors.
+
+    5. Parallelization value: HIGH. Two fully independent agents in a single wave. The build/test
+       cycle is >30s (go test ./... with tree-sitter). Each agent modifies 2 files (extractor.go
+       + extractor_test.go) in separate packages. Zero inter-agent dependencies.
+
+    Estimated times:
+    - Scout phase: ~5 min (dependency mapping, interface contracts, IMPL doc)
+    - Agent execution: ~8 min (2 agents x 8 min avg, fully parallel = 8 min wall)
+    - Merge and verification: ~3 min
+    Total Polywave time: ~16 min
+
+    Sequential baseline: ~18 min (2 agents x 8 min + 2 min overhead)
+    Time savings: ~2 min (11% faster)
+
+    Recommendation: Clear coordination value. Agents are fully independent (single wave),
+    and the IMPL doc serves as a spec ensuring both follow the established Rust pattern
+    consistently. The primary value is parallel execution plus consistent specification.
+test_command: GOWORK=off go test -short ./... -timeout 5m
+lint_command: GOWORK=off go vet ./...
+file_ownership:
+    - file: internal/indexer/javaextractor/extractor.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/javaextractor/extractor_test.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/csharpextractor/extractor.go
+      agent: B
+      wave: 1
+      action: modify
+    - file: internal/indexer/csharpextractor/extractor_test.go
+      agent: B
+      wave: 1
+      action: modify
+interface_contracts:
+    - name: buildJavaImportMap
+      description: |
+        Extracts all import declarations from a Java AST root and builds a map
+        from simple class/type names to their fully-qualified package path.
+        Handles: import com.pkg.Class (maps "Class" -> "com.pkg"),
+        import static com.pkg.Class.method (maps "Class" -> "com.pkg").
+        Wildcard imports (import com.pkg.*) are skipped (cannot resolve individual names).
+      definition: |
+        func buildJavaImportMap(root *sitter.Node, opts types.ExtractOptions) map[string]string
+      location: internal/indexer/javaextractor/extractor.go
+    - name: resolveMethodInvocationWithImports (Java)
+      description: |
+        Enhanced version of extractMethodInvocation that accepts the import map.
+        When a method_invocation has an object node whose name matches an imported
+        class (capitalized first letter = class reference heuristic), resolves the
+        target hash against the import's qualified path instead of the local pkgPath.
+        Uses provenance "ast_resolved" and confidence 0.85 for import-resolved edges;
+        falls back to "ast_inferred" / 0.7 for unresolved edges.
+      definition: |
+        func extractMethodInvocationWithImports(node *sitter.Node, opts types.ExtractOptions, pkgPath string, sourceHash types.Hash, javaImports map[string]string) *types.Edge
+      location: internal/indexer/javaextractor/extractor.go
+    - name: buildCSharpImportMap
+      description: |
+        Extracts all using directives from a C# AST and builds a map from the
+        last segment of each namespace to the full namespace path.
+        Handles: using Namespace.Sub (maps "Sub" -> "Namespace.Sub"),
+        using static Namespace.Class (maps "Class" -> "Namespace.Class").
+        For standard using directives, maps the last dot-separated segment.
+      definition: |
+        func buildCSharpImportMap(root *sitter.Node, opts types.ExtractOptions) map[string]string
+      location: internal/indexer/csharpextractor/extractor.go
+    - name: resolveInvocationWithImports (C#)
+      description: |
+        Enhanced version of extractInvocationEdge that accepts the import map.
+        When an invocation_expression has a member_access_expression whose object
+        name matches an imported class/namespace (capitalized first letter heuristic),
+        resolves the target hash against the import's qualified path.
+        Uses provenance "ast_resolved" and confidence 0.85 for import-resolved edges;
+        falls back to "ast_inferred" / 0.7 for unresolved edges.
+      definition: |
+        func (e *CSharpExtractor) extractInvocationEdgeWithImports(node *sitter.Node, opts types.ExtractOptions, parentContext string, sourceHash types.Hash, csharpImports map[string]string) *types.Edge
+      location: internal/indexer/csharpextractor/extractor.go
+waves:
+    - number: 1
+      agents:
+        - id: A
+          task: |
+            ## Goal
+            Add cross-file import resolution to the Java extractor following the established
+            Rust pattern in internal/indexer/rustextractor/extractor.go.
+
+            ## Reference Implementation
+            Read internal/indexer/rustextractor/extractor.go for the full pattern:
+            - buildRustImportMap (line 752): extracts use declarations, returns map[string]string
+            - resolveCallEdgeWithImports (line 535): resolves call targets through import map
+            - resolveRustModulePath (line 828): converts module path to file-system path
+
+            ## Implementation Steps
+
+            ### 1. Add buildJavaImportMap function
+
+            Add a new function that walks the AST root's top-level children looking for
+            "import_declaration" nodes and builds a map[string]string from simple class name
+            to qualified package path.
+
+            Rules:
+            - `import com.example.service.UserService;` -> map["UserService"] = "com.example.service"
+            - `import static com.example.util.StringHelper.format;` -> map["StringHelper"] = "com.example.util"
+            - `import com.example.model.*;` -> SKIP (wildcard, cannot resolve individual names)
+            - The key is the last segment before the final `.` for regular imports
+            - For static imports, the key is the class name (second-to-last segment after removing method)
+
+            Algorithm:
+            ```
+            for each child of root:
+              if child.Type() == "import_declaration":
+                text = child text content
+                trim "import ", "static ", and ";"
+                if ends with ".*": skip
+                lastDot = last index of "."
+                if lastDot < 0: skip
+                simpleName = text[lastDot+1:]
+                packagePath = text[:lastDot]
+                // For static imports, the simpleName is the method; we want the class
+                if isStaticImport:
+                  secondLastDot = lastIndex of "." in packagePath
+                  className = packagePath[secondLastDot+1:]
+                  classPackage = packagePath[:secondLastDot]
+                  map[className] = classPackage
+                else:
+                  map[simpleName] = packagePath
+            ```
+
+            ### 2. Add extractMethodInvocationWithImports function
+
+            Create a new function that enhances the existing extractMethodInvocation.
+            When the method_invocation has an "object" field node:
+            - Get the object name
+            - Check if the first character is uppercase (class reference heuristic)
+            - If yes, look up objectName in javaImports map
+            - If found, use the import path as targetBasePath (replacing pkgPath for the target hash)
+            - Set provenance to "ast_resolved" and confidence to 0.85
+
+            The function signature:
+            ```go
+            func extractMethodInvocationWithImports(node *sitter.Node, opts types.ExtractOptions, pkgPath string, sourceHash types.Hash, javaImports map[string]string) *types.Edge
+            ```
+
+            ### 3. Add walkForCallsWithImports and extractCallEdgesWithImports
+
+            Following the Rust pattern, create import-aware variants:
+            ```go
+            func extractCallEdgesWithImports(node *sitter.Node, opts types.ExtractOptions, pkgPath string, sourceHash types.Hash, javaImports map[string]string) []types.Edge
+
+            func walkForCallsWithImports(node *sitter.Node, opts types.ExtractOptions, pkgPath string, sourceHash types.Hash, javaImports map[string]string, edges *[]types.Edge)
+            ```
+
+            walkForCallsWithImports should:
+            - For "method_invocation": call extractMethodInvocationWithImports
+            - For "object_creation_expression": call extractObjectCreation (unchanged; new() is always local)
+            - Recurse into children
+
+            ### 4. Wire import map into Extract function
+
+            In the Extract function, after extracting the Java package:
+            ```go
+            // Build Java import map for cross-file call resolution.
+            javaImports := buildJavaImportMap(root, opts)
+            ```
+
+            Then modify extractClassDecl (and through it extractMethodDecl and extractConstructorDecl)
+            to pass javaImports through to the call edge extraction.
+
+            The cleanest approach: add javaImports parameter to extractClassDecl, extractMethodDecl,
+            and extractConstructorDecl. In the method body walking, replace:
+            ```go
+            callEdges := extractCallEdges(body, opts, pkgPath, nodeHash)
+            ```
+            with:
+            ```go
+            callEdges := extractCallEdgesWithImports(body, opts, pkgPath, nodeHash, javaImports)
+            ```
+
+            ### 5. Add tests
+
+            Add these test functions to extractor_test.go:
+
+            **TestJavaExtractor_ImportResolution**: Test that method calls on imported classes
+            get provenance "ast_resolved" and confidence 0.85:
+            ```java
+            import com.example.service.UserService;
+            import com.example.util.StringHelper;
+
+            public class App {
+                public void run() {
+                    UserService.findAll();
+                    StringHelper.format("test");
+                    localMethod();
+                }
+            }
+            ```
+            Assert: call edges for UserService.findAll and StringHelper.format have
+            provenance "ast_resolved" and confidence 0.85. Call edge for localMethod
+            has provenance "ast_inferred" and confidence 0.7.
+
+            **TestJavaExtractor_ImportResolution_Static**: Test static import resolution:
+            ```java
+            import static com.example.util.MathHelper.calculate;
+
+            public class App {
+                public void run() {
+                    MathHelper.doWork();
+                }
+            }
+            ```
+            Assert: MathHelper resolves through the static import map.
+
+            **TestJavaExtractor_ImportResolution_Wildcard**: Test that wildcard imports
+            do NOT resolve (stay at ast_inferred):
+            ```java
+            import com.example.model.*;
+
+            public class App {
+                public void run() {
+                    User.create();
+                }
+            }
+            ```
+            Assert: call edge for User.create has provenance "ast_inferred" (not resolved).
+
+            ## Constraints
+            - Do NOT modify files outside your ownership list (javaextractor/ only)
+            - Do NOT change the behavior of existing edges that do not match import resolution
+              (all non-import-resolved edges must retain provenance "ast_inferred" and confidence 0.7)
+            - Do NOT add stub definitions or types from the csharpextractor package
+            - Preserve all existing test behavior; new tests are additive
+
+            ## Verification
+            ```bash
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go build ./internal/indexer/javaextractor/...
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go vet ./internal/indexer/javaextractor/...
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go test ./internal/indexer/javaextractor/ -v -timeout 60s
+            ```
+
+            Postconditions:
+            ```bash
+            # buildJavaImportMap function exists
+            grep -c "func buildJavaImportMap" /Users/dayna.blackwell/code/knowing/internal/indexer/javaextractor/extractor.go
+            # Expected: 1
+
+            # ast_resolved provenance is used
+            grep -c "ast_resolved" /Users/dayna.blackwell/code/knowing/internal/indexer/javaextractor/extractor.go
+            # Expected: >= 1
+
+            # 0.85 confidence is used
+            grep -c "0.85" /Users/dayna.blackwell/code/knowing/internal/indexer/javaextractor/extractor.go
+            # Expected: >= 1
+
+            # Import resolution test exists
+            grep -c "TestJavaExtractor_ImportResolution" /Users/dayna.blackwell/code/knowing/internal/indexer/javaextractor/extractor_test.go
+            # Expected: >= 1
+            ```
+          files:
+            - internal/indexer/javaextractor/extractor.go
+            - internal/indexer/javaextractor/extractor_test.go
+        - id: B
+          task: |
+            ## Goal
+            Add cross-file import resolution to the C# extractor following the established
+            Rust pattern in internal/indexer/rustextractor/extractor.go.
+
+            ## Reference Implementation
+            Read internal/indexer/rustextractor/extractor.go for the full pattern:
+            - buildRustImportMap (line 752): extracts use declarations, returns map[string]string
+            - resolveCallEdgeWithImports (line 535): resolves call targets through import map
+            - resolveRustModulePath (line 828): converts module path to file-system path
+
+            ## Implementation Steps
+
+            ### 1. Add buildCSharpImportMap function
+
+            Add a new method on CSharpExtractor (or a standalone function) that walks the AST
+            looking for "using_directive" nodes and builds a map[string]string from the last
+            segment of the namespace to the full namespace path.
+
+            Rules:
+            - `using Microsoft.AspNetCore.Mvc;` -> map["Mvc"] = "Microsoft.AspNetCore.Mvc"
+            - `using static System.Math;` -> map["Math"] = "System.Math"
+            - `using System.Collections.Generic;` -> map["Generic"] = "System.Collections.Generic"
+            - For the resolution heuristic, ALSO map the second-to-last segment for class resolution:
+              `using Microsoft.AspNetCore.Mvc;` -> additionally map potential class names
+            - The key is the last dot-separated segment of the namespace
+
+            However, for C# the more useful mapping for call resolution is to map the
+            class name to its namespace. Since using directives import entire namespaces
+            (not individual types like Java), the approach is slightly different:
+            - `using Namespace.Sub;` means any type from that namespace can be used unqualified
+            - For `using static Namespace.Class;` map "Class" -> "Namespace.Class"
+            - For regular using directives, we cannot resolve individual types without type info,
+              BUT we can still map the last segment as a potential class name for the heuristic
+
+            Recommended algorithm (matching the Rust pattern closely):
+            ```
+            for each using_directive node in the AST:
+              extract the namespace text (e.g., "Microsoft.AspNetCore.Mvc")
+              if it is a "using static" directive:
+                lastDot = last index of "."
+                className = text[lastDot+1:]
+                map[className] = text
+              else:
+                // Map the last segment as a potential namespace/class reference
+                lastDot = last index of "."
+                if lastDot >= 0:
+                  lastSegment = text[lastDot+1:]
+                  map[lastSegment] = text
+                else:
+                  map[text] = text
+            ```
+
+            ### 2. Add extractInvocationEdgeWithImports method
+
+            Create a new method on CSharpExtractor that enhances extractInvocationEdge:
+            ```go
+            func (e *CSharpExtractor) extractInvocationEdgeWithImports(node *sitter.Node, opts types.ExtractOptions, parentContext string, sourceHash types.Hash, csharpImports map[string]string) *types.Edge
+            ```
+
+            When the invocation_expression has a member_access_expression:
+            - Get the expression (object) part of the member access
+            - If it is an identifier whose first character is uppercase, look it up in csharpImports
+            - If found, use the import path as the target base path for the target hash
+            - Set provenance to "ast_resolved" and confidence to 0.85
+            - If not found, fall back to existing behavior (provenance "ast_inferred", confidence 0.7)
+
+            For member_access_expression nodes, the relevant tree-sitter fields are:
+            - "expression" field: the object being accessed (e.g., "Console" in Console.WriteLine)
+            - "name" field: the method name (e.g., "WriteLine")
+
+            ### 3. Add walkForCallsWithImports method
+
+            Create an import-aware variant of walkForCalls:
+            ```go
+            func (e *CSharpExtractor) walkForCallsWithImports(node *sitter.Node, opts types.ExtractOptions, parentContext string, sourceHash types.Hash, csharpImports map[string]string, edges *[]types.Edge)
+            ```
+
+            This should:
+            - For "invocation_expression": call extractInvocationEdgeWithImports
+            - For "object_creation_expression": call extractObjectCreationEdge (unchanged)
+            - Recurse into children
+
+            ### 4. Wire import map into Extract function
+
+            In the Extract method, after creating the parser and getting the root node:
+            ```go
+            // Build C# import map for cross-file call resolution.
+            csharpImports := e.buildCSharpImportMap(root, opts)
+            ```
+
+            Then modify walkNode to pass csharpImports through. The cleanest approach:
+            - Add csharpImports as a parameter to walkNode, walkChildren, extractClassDecl,
+              extractMethodDecl, and extractConstructorDecl
+            - OR store it on the extractor instance during Extract (since Extract creates a fresh
+              CSharpExtractor context per call anyway)
+            - OR pass it through a context struct
+
+            The recommended approach (matching Rust pattern): pass it as a parameter. Add
+            csharpImports map[string]string parameter to walkNode and walkChildren. Then in
+            method/constructor body walking, call walkForCallsWithImports instead of walkForCalls.
+
+            ### 5. Add tests
+
+            Add these test functions to extractor_test.go:
+
+            **TestCSharpExtractor_ImportResolution**: Test that method calls on imported classes
+            get provenance "ast_resolved" and confidence 0.85:
+            ```csharp
+            using Microsoft.Extensions.Logging;
+            using System.Collections.Generic;
+
+            public class App
+            {
+                public void Run()
+                {
+                    Logging.CreateLogger();
+                    Generic.Create();
+                    LocalMethod();
+                }
+            }
+            ```
+            Assert: call edges where the object name matches an import key have
+            provenance "ast_resolved" and confidence 0.85. Call edge for LocalMethod
+            has provenance "ast_inferred" and confidence 0.7.
+
+            **TestCSharpExtractor_ImportResolution_Static**: Test static using resolution:
+            ```csharp
+            using static System.Console;
+            using static MyApp.Helpers.StringHelper;
+
+            public class App
+            {
+                public void Run()
+                {
+                    Console.WriteLine("hello");
+                    StringHelper.Format("test");
+                }
+            }
+            ```
+            Assert: Console and StringHelper resolve through the static import map.
+
+            **TestCSharpExtractor_ImportResolution_NoMatch**: Test that calls on
+            unresolved objects stay at ast_inferred:
+            ```csharp
+            public class App
+            {
+                public void Run()
+                {
+                    unknownService.DoWork();
+                }
+            }
+            ```
+            Assert: call edge has provenance "ast_inferred" and confidence 0.7.
+
+            ## Constraints
+            - Do NOT modify files outside your ownership list (csharpextractor/ only)
+            - Do NOT change the behavior of existing edges that do not match import resolution
+              (all non-import-resolved edges must retain provenance "ast_inferred" and confidence 0.7)
+            - Do NOT add stub definitions or types from the javaextractor package
+            - Preserve all existing test behavior; new tests are additive
+
+            ## Verification
+            ```bash
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go build ./internal/indexer/csharpextractor/...
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go vet ./internal/indexer/csharpextractor/...
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go test ./internal/indexer/csharpextractor/ -v -timeout 60s
+            ```
+
+            Postconditions:
+            ```bash
+            # buildCSharpImportMap function/method exists
+            grep -c "buildCSharpImportMap" /Users/dayna.blackwell/code/knowing/internal/indexer/csharpextractor/extractor.go
+            # Expected: >= 1
+
+            # ast_resolved provenance is used
+            grep -c "ast_resolved" /Users/dayna.blackwell/code/knowing/internal/indexer/csharpextractor/extractor.go
+            # Expected: >= 1
+
+            # 0.85 confidence is used
+            grep -c "0.85" /Users/dayna.blackwell/code/knowing/internal/indexer/csharpextractor/extractor.go
+            # Expected: >= 1
+
+            # Import resolution test exists
+            grep -c "TestCSharpExtractor_ImportResolution" /Users/dayna.blackwell/code/knowing/internal/indexer/csharpextractor/extractor_test.go
+            # Expected: >= 1
+            ```
+          files:
+            - internal/indexer/csharpextractor/extractor.go
+            - internal/indexer/csharpextractor/extractor_test.go
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: GOWORK=off go build ./...
+          required: true
+        - type: lint
+          command: GOWORK=off go vet ./...
+          required: true
+        - type: test
+          command: GOWORK=off go test -short ./... -timeout 5m
+          required: true
+pre_mortem:
+    overall_risk: low
+    rows:
+        - scenario: |
+            Agent A or B introduces a compilation error by incorrectly passing the import
+            map through the existing function chain, breaking existing function signatures.
+          likelihood: low
+          impact: medium
+          mitigation: |
+            The pattern is well-established in the Rust extractor. Agents create new
+            *WithImports variants rather than modifying existing function signatures.
+            Existing functions remain unchanged; new code paths are additive. Build gate
+            catches signature mismatches immediately.
+        - scenario: |
+            Agent changes the existing edge provenance/confidence for all edges instead of
+            only for import-resolved edges, breaking the TestJavaExtractor_EdgeProvenanceAndConfidence
+            or TestCSharpExtractor_EdgeProvenanceAndConfidence tests.
+          likelihood: low
+          impact: high
+          mitigation: |
+            Agent constraints explicitly state: "Do NOT change the behavior of existing edges
+            that do not match import resolution." The existing test suites verify all edges
+            have ast_inferred/0.7 and will fail if this invariant is broken. The import-resolved
+            path must be a conditional branch, not a blanket change.
+        - scenario: |
+            Tree-sitter node types for Java import_declaration or C# using_directive have
+            unexpected child structure, causing buildImportMap to silently produce an empty map.
+          likelihood: medium
+          impact: low
+          mitigation: |
+            Both extractors already successfully parse these node types (extractImportEdge
+            in Java, extractUsingDirective in C#). The same parsing logic can be reused.
+            Tests with known Java/C# source will catch empty-map issues immediately.
+state: SCOUT_PENDING
+injection_method: hook

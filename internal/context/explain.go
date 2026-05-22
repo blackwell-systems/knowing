@@ -35,13 +35,14 @@ type ExplainResult struct {
 // in the results, it still returns whatever information is available (e.g.,
 // "not found in seed set, not reached by RWR").
 func (e *ContextEngine) ExplainSymbol(ctx stdctx.Context, task string, symbolQuery string) (*ExplainResult, error) {
-	keywords := extractKeywords(task)
-	if len(keywords) == 0 {
+	ks := extractKeywordSet(task)
+	if ks.IsEmpty() {
 		return nil, fmt.Errorf("no keywords extracted from task description")
 	}
+	keywords := ks.All()
 
 	// Run the same seed retrieval as ForTask.
-	tieredResults, tieredSeen, tierMap := e.tieredSearch(ctx, keywords)
+	tieredResults, tieredSeen, tierMap := e.tieredSearchSet(ctx, ks)
 	bm25Results := e.bm25Search(ctx, keywords)
 	vectorResults := e.vectorSearch(ctx, task)
 	equivResults, equivMatchNames := e.equivSearch(ctx, task, tieredResults)
@@ -320,25 +321,37 @@ func (e *ContextEngine) ExplainSymbol(ctx stdctx.Context, task string, symbolQue
 	}, nil
 }
 
-// tieredSearch runs the 4-tier keyword matching and returns results plus
-// a map of which tier each node was found in.
-func (e *ContextEngine) tieredSearch(ctx stdctx.Context, keywords []string) ([]types.Node, map[types.Hash]bool, map[types.Hash]string) {
+// tieredSearchSet runs compound-first tiered keyword matching and returns results plus
+// a map of which tier each node was found in. Keywords are queried in priority order:
+// exact/compound identifiers first (highest specificity), then individual components
+// only as fallback when compound matches are insufficient. This prevents split
+// components like "before" and "request" from drowning out "before_request".
+func (e *ContextEngine) tieredSearchSet(ctx stdctx.Context, ks KeywordSet) ([]types.Node, map[types.Hash]bool, map[types.Hash]string) {
 	var results []types.Node
 	seen := make(map[types.Hash]bool)
-	tierMap := make(map[types.Hash]string) // hash -> "exact", "prefix", "substring", "path"
+	tierMap := make(map[types.Hash]string)
 
-	// Tier 1: exact matches.
-	for _, kw := range keywords {
+	// Helper: extract terminal symbol name from qualified name.
+	terminalName := func(qn string) string {
+		lastDot := strings.LastIndex(qn, ".")
+		if lastDot >= 0 {
+			return qn[lastDot+1:]
+		}
+		return qn
+	}
+
+	// Phase 1: Query primary keywords (exact + compounds) through all tiers.
+	// These are the most specific terms and should dominate results.
+	primary := ks.Primary()
+
+	// Tier 1: exact matches on primary keywords.
+	for _, kw := range primary {
 		nodes, err := e.store.NodesByName(ctx, "%"+kw)
 		if err != nil {
 			continue
 		}
 		for _, n := range nodes {
-			lastDot := strings.LastIndex(n.QualifiedName, ".")
-			symbolName := n.QualifiedName
-			if lastDot >= 0 {
-				symbolName = n.QualifiedName[lastDot+1:]
-			}
+			symbolName := terminalName(n.QualifiedName)
 			if strings.EqualFold(symbolName, kw) && !seen[n.NodeHash] {
 				seen[n.NodeHash] = true
 				results = append(results, n)
@@ -347,9 +360,9 @@ func (e *ContextEngine) tieredSearch(ctx stdctx.Context, keywords []string) ([]t
 		}
 	}
 
-	// Tier 2: prefix matches.
+	// Tier 2: prefix matches on primary keywords.
 	if len(results) < 15 {
-		for _, kw := range keywords {
+		for _, kw := range primary {
 			nodes, err := e.store.NodesByName(ctx, "%"+kw)
 			if err != nil {
 				continue
@@ -358,11 +371,7 @@ func (e *ContextEngine) tieredSearch(ctx stdctx.Context, keywords []string) ([]t
 				if seen[n.NodeHash] {
 					continue
 				}
-				lastDot := strings.LastIndex(n.QualifiedName, ".")
-				symbolName := n.QualifiedName
-				if lastDot >= 0 {
-					symbolName = n.QualifiedName[lastDot+1:]
-				}
+				symbolName := terminalName(n.QualifiedName)
 				if strings.HasPrefix(strings.ToLower(symbolName), strings.ToLower(kw)) {
 					seen[n.NodeHash] = true
 					results = append(results, n)
@@ -378,9 +387,56 @@ func (e *ContextEngine) tieredSearch(ctx stdctx.Context, keywords []string) ([]t
 		}
 	}
 
-	// Tier 3: substring fallback.
+	// Phase 2: If primary keywords yielded insufficient results, fall back to components.
+	// Only use components when compounds found fewer than 5 results.
+	if len(results) < 5 && len(ks.Components) > 0 {
+		for _, kw := range ks.Components {
+			nodes, err := e.store.NodesByName(ctx, "%"+kw)
+			if err != nil {
+				continue
+			}
+			for _, n := range nodes {
+				symbolName := terminalName(n.QualifiedName)
+				if strings.EqualFold(symbolName, kw) && !seen[n.NodeHash] {
+					seen[n.NodeHash] = true
+					results = append(results, n)
+					tierMap[n.NodeHash] = "exact"
+				}
+			}
+		}
+
+		// Component prefix matches.
+		if len(results) < 15 {
+			for _, kw := range ks.Components {
+				nodes, err := e.store.NodesByName(ctx, "%"+kw)
+				if err != nil {
+					continue
+				}
+				for _, n := range nodes {
+					if seen[n.NodeHash] {
+						continue
+					}
+					symbolName := terminalName(n.QualifiedName)
+					if strings.HasPrefix(strings.ToLower(symbolName), strings.ToLower(kw)) {
+						seen[n.NodeHash] = true
+						results = append(results, n)
+						tierMap[n.NodeHash] = "prefix"
+					}
+					if len(results) >= 30 {
+						break
+					}
+				}
+				if len(results) >= 30 {
+					break
+				}
+			}
+		}
+	}
+
+	// Tier 3: substring fallback (all keywords, primary first).
 	if len(results) < 5 {
-		for _, kw := range keywords {
+		allKw := ks.All()
+		for _, kw := range allKw {
 			if len(kw) < 4 {
 				continue
 			}
@@ -406,7 +462,8 @@ func (e *ContextEngine) tieredSearch(ctx stdctx.Context, keywords []string) ([]t
 
 	// Tier 4: file-path keyword matching.
 	if len(results) < 30 {
-		for _, kw := range keywords {
+		allKw := ks.All()
+		for _, kw := range allKw {
 			if len(kw) < 3 {
 				continue
 			}
@@ -438,12 +495,15 @@ func (e *ContextEngine) tieredSearch(ctx stdctx.Context, keywords []string) ([]t
 	return results, seen, tierMap
 }
 
-// bm25Search runs BM25 full-text search.
+// bm25Search runs BM25 full-text search with compound-aware query construction.
 func (e *ContextEngine) bm25Search(ctx stdctx.Context, keywords []string) []types.Node {
 	if e.bm25 == nil {
 		return nil
 	}
-	ftsQuery := strings.Join(keywords, " OR ")
+	ftsQuery := buildFTSQuery(keywords)
+	if ftsQuery == "" {
+		return nil
+	}
 	nodes, err := e.bm25.SearchBM25Nodes(ctx, ftsQuery, 30)
 	if err != nil {
 		return nil

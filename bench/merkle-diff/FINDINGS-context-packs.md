@@ -26,5 +26,5 @@ Community roots enable:
 
 ## Graph Size
 
-- Nodes: 7250
-- Edges: 25028
+- Nodes: 7436
+- Edges: 25444

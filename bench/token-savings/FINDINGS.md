@@ -21,13 +21,13 @@ knowing repository. Token estimates use 4 tokens/line (conservative average).
 
 | Scenario | Calls (w/o) | Calls (w/) | Tokens (w/o) | Tokens (w/) | Call Reduction | Token Reduction |
 |----------|-------------|------------|--------------|-------------|----------------|-----------------|
-| indexer_error_handling | 8 | 4 | 18448 | 8000 | 50.0% | 56.6% |
-| context_ranking_bug | 8 | 3 | 10012 | 7999 | 62.5% | 20.1% |
-| new_mcp_tool | 7 | 3 | 92068 | 8000 | 57.1% | 91.3% |
-| sqlite_optimization | 6 | 5 | 29700 | 7998 | 16.7% | 73.1% |
-| snapshot_comparison | 7 | 3 | 44920 | 7990 | 57.1% | 82.2% |
+| indexer_error_handling | 8 | 4 | 18516 | 8000 | 50.0% | 56.8% |
+| context_ranking_bug | 8 | 3 | 10036 | 7999 | 62.5% | 20.3% |
+| new_mcp_tool | 7 | 3 | 92068 | 7991 | 57.1% | 91.3% |
+| sqlite_optimization | 6 | 5 | 29740 | 7992 | 16.7% | 73.1% |
+| snapshot_comparison | 7 | 5 | 45016 | 8000 | 28.6% | 82.2% |
 
-**Aggregate:** tool call reduction = 50.0%, token reduction = 79.5%
+**Aggregate:** tool call reduction = 44.4%, token reduction = 79.5%
 
 ## Interpretation
 

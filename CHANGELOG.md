@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+#### Compound-First Keyword Extraction (Language-Aware Tiered Search)
+- Tiered search now queries compound identifiers (snake_case, CamelCase, dotted) before their split components
+- New `KeywordSet` struct separates Exact (backtick-quoted), Compounds, and Components by specificity tier
+- Backtick-quoted identifiers in task descriptions (e.g., `` `before_request` ``) are treated as highest-priority exact symbol names
+- Components ("before", "request") only used as fallback when compounds yield < 5 results
+- Eliminated code duplication: `ForTask` and `ExplainSymbol` now share a single `tieredSearchSet` method
+- Fixed `bm25Search` in ExplainSymbol to use `buildFTSQuery` (compound-targeted) instead of naive OR join
+- Flask P@10: 0.321 -> 0.329 (+0.8pp). Overall P@10: 0.230 (neutral, no regression)
+
 ### Added
 
 #### Passive Task Memory Persistence (Session Compounding)
