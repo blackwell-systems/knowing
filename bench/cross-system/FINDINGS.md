@@ -490,6 +490,23 @@ Gortex extracts 23x more edges than knowing (6.3M vs 268K for kubernetes) becaus
 | CGC | N/A | impossible | 216s | 1.9GB | No (name search only) |
 | grep | 0.015 | instant | instant | - | No |
 
+### Repomix Comparison (2026-05-22)
+
+Repomix (25K stars) packs entire repos into one file for LLM consumption. No ranking, no graph, no intelligence. The "brute force" baseline that most developers currently use.
+
+**Flask comparison (task: "Add a before_request hook"):**
+
+| Metric | knowing | Repomix |
+|--------|---------|---------|
+| Tokens consumed | ~4,000 | ~300,000 |
+| Ground truth found | 3.2/10 (ranked) | 5/5 (buried in 300K tokens) |
+| Token efficiency | 0.000803 | 0.000017 |
+| **Efficiency ratio** | **48x better** | baseline |
+| Fits in 8K context? | Yes | No |
+| Fits in 128K context? | Yes | Barely |
+
+**What this means:** Repomix achieves 100% recall by including everything, but at 75x the token cost. Most models can't fit the output. knowing gives ranked, relevant symbols in tokens that fit any model. The 48x efficiency advantage means an agent using knowing can make 48 queries for the same token budget as one Repomix dump.
+
 **Next steps:**
 1. Blog post / publication (competitive data complete)
 2. Gortex retrieval benchmark on flask/django/cargo only (skip k8s/vscode to avoid re-indexing)
