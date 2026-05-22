@@ -4,6 +4,7 @@ import (
 	stdctx "context"
 	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -390,7 +391,7 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	// Channel 2: BM25 full-text search (always runs when available).
 	var bm25Results []types.Node
 	if e.bm25 != nil {
-		ftsQuery := strings.Join(keywords, " OR ")
+		ftsQuery := buildFTSQuery(keywords)
 		if nodes, err := e.bm25.SearchBM25Nodes(ctx, ftsQuery, 30); err == nil {
 			bm25Results = nodes
 		}
@@ -1148,6 +1149,53 @@ func extractKeywords(desc string) []string {
 	}
 
 	return final
+}
+
+// buildFTSQuery constructs an FTS5 query from extracted keywords.
+// Compound identifiers (snake_case, CamelCase, dotted) are quoted as phrases
+// and targeted at the symbol_name column for maximum BM25 relevance.
+// Simple words are joined with OR for broad matching.
+func buildFTSQuery(keywords []string) string {
+	if len(keywords) == 0 {
+		return ""
+	}
+
+	var parts []string
+	for _, kw := range keywords {
+		// Detect compound identifiers: contains underscore, dot, or mixed case.
+		isCompound := strings.Contains(kw, "_") || strings.Contains(kw, ".") || hasMixedCase(kw)
+		if isCompound {
+			// Target the symbol_name column with a quoted phrase.
+			// FTS5 syntax: {column_name} : "phrase"
+			// The symbol_name column (index 0 in the virtual table) gets 10x weight,
+			// so matches there dominate the ranking.
+			escaped := strings.ReplaceAll(kw, "\"", "")
+			parts = append(parts, fmt.Sprintf("symbol_name:\"%s\"", escaped))
+			// Also add unquoted for partial matches in other columns.
+			parts = append(parts, escaped)
+		} else {
+			parts = append(parts, kw)
+		}
+	}
+	return strings.Join(parts, " OR ")
+}
+
+// hasMixedCase returns true if the string has both uppercase and lowercase letters
+// (indicating a CamelCase identifier like "SessionInterface" or "QuerySet").
+func hasMixedCase(s string) bool {
+	hasUpper, hasLower := false, false
+	for _, r := range s {
+		if r >= 'A' && r <= 'Z' {
+			hasUpper = true
+		}
+		if r >= 'a' && r <= 'z' {
+			hasLower = true
+		}
+		if hasUpper && hasLower {
+			return true
+		}
+	}
+	return false
 }
 
 // splitIdentifier splits a CamelCase or snake_case identifier into component words.

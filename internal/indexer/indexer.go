@@ -683,12 +683,15 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 		return nil, fmt.Errorf("compute snapshot: %w", snapErr)
 	}
 
-	// Start FTS rebuild AFTER snapshot (avoids SQLite contention).
-	// Runs in background: index returns immediately, FTS builds asynchronously.
+	// Rebuild FTS AFTER snapshot (avoids SQLite contention).
+	// Runs synchronously to ensure FTS is populated before the process exits.
+	// Previously ran in a background goroutine, but CLI processes exit immediately
+	// after IndexRepo returns, killing the goroutine before FTS completes.
 	if fr, ok := idx.store.(ftsRebuilder); ok {
-		go func() {
-			_ = fr.RebuildFTS(context.Background())
-		}()
+		fmt.Fprintf(os.Stderr, "  Rebuilding FTS index...\n")
+		ftsStart := time.Now()
+		_ = fr.RebuildFTS(context.Background())
+		fmt.Fprintf(os.Stderr, "  FTS rebuilt in %s\n", time.Since(ftsStart).Truncate(time.Millisecond))
 	}
 
 	// Record edge events for the diff between old and new edges. These
