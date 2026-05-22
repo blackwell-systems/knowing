@@ -371,9 +371,26 @@ Fixed bug: `extends_clause` is nested inside `class_heritage` in tree-sitter Typ
 
 **Full session summary (Runs 7-18):** P@10 0.141 -> 0.230 (+63%). 11.5x vs grep. d=0.92 (very large effect on recall). MRR 0.250 -> 0.383 (+53%).
 
+### SWE-bench Integration (2026-05-21)
+
+Added 10 fixtures derived from SWE-bench Verified (Princeton dataset). Ground truth is objectively the symbols modified in actual merged PRs. Issue descriptions used as task queries.
+
+**Result:** SWE-bench tasks score P@10=0.01 (9/10 at zero).
+
+**Why:** SWE-bench measures **fault localization** (which function has the bug?) not **context retrieval** (what does the developer need to understand?). These are different capabilities:
+
+| Capability | What it answers | knowing's score |
+|------------|----------------|-----------------|
+| Context retrieval (manual fixtures) | "What symbols help understand this task?" | P@10=0.230 |
+| Fault localization (SWE-bench) | "Which function was patched?" | P@10=0.01 |
+
+A developer fixing a bug needs to understand the architecture first (knowing's strength), then locate the specific bug (SWE-bench's measure). knowing provides the context; it doesn't pinpoint the fault.
+
+**Implication for publication:** Report both scores honestly. knowing is not a fault localizer. It's a context packing system. The manual fixtures (P@10=0.230) measure what knowing actually does. SWE-bench (P@10=0.01) measures something it wasn't designed for.
+
 **Next steps:**
-1. SWE-bench derived fixtures (publication-grade ground truth)
-2. Blog post / publication (18 runs, rigorous methodology, publishable data)
+1. Blog post / publication (18 runs, rigorous methodology, honest findings)
+2. Java corpus addition (validate Java extractor, deferred to future session)
 
 ---
 
