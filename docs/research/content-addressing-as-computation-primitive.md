@@ -14,7 +14,7 @@ A flat Merkle tree proves state. A hierarchical Merkle tree organizes computatio
 
 By organizing a Merkle tree around semantic boundaries (package and relationship type rather than flat sorted hash), the identity structure itself becomes the query optimization layer. Diffs become O(packages) instead of O(edges) with semantically meaningful output (281x faster than naive linear scan; 517x at 100K edges). Cache keys become O(1) subgraph root lookups. Invalidation is scoped to packages that actually changed. Feedback anchored to content-addressed symbols expires structurally when code changes.
 
-This paper presents both insights together: the original argument (content-addressing solves six structural problems with mutable graphs) and the hierarchical revelation (organizing the Merkle tree by semantic boundaries turns identity into a query engine). Validated on five benchmark codebases: kubernetes (268K edges, 3.5M LOC), VS Code (93K edges, 1M LOC), Django (185K edges, 400K LOC), Cargo (79K edges, 150K LOC), and Flask (9K edges, 15K LOC). Competitive evaluation against GitNexus (knowledge graph competitor): 2.75x more precise (p=0.0003), 193x faster indexing on enterprise repos, 28x less RAM.
+This paper presents both contributions together: the original argument (content-addressing solves six structural problems with mutable graphs) and the hierarchical structure (organizing the Merkle tree by semantic boundaries turns identity into a query engine). Validated on five benchmark codebases: kubernetes (268K edges, 3.5M LOC), VS Code (93K edges, 1M LOC), Django (185K edges, 400K LOC), Cargo (79K edges, 150K LOC), and Flask (9K edges, 15K LOC). Competitive evaluation against GitNexus (knowledge graph competitor): 2.75x more precise (p=0.0003), 193x faster indexing on enterprise repos, 28x less RAM.
 
 ---
 
@@ -120,7 +120,7 @@ Every step is a deterministic computation from content. An auditor can verify an
 
 ## 3. Content-Addressed Relationship Identity
 
-### 3.1 The Insight
+### 3.1 The Core Principle
 
 Git is a content-addressed graph of source code. This single design decision gives Git every property that made it the dominant version control system:
 
@@ -623,11 +623,11 @@ Prior systems use content-addressing for files, artifacts, or build outputs; mut
 
 **Code intelligence indexes** (Sourcegraph/SCIP, LSIF, Kythe, CodeQL) build queryable databases of code relationships. These use mutable or append-only stores optimized for IDE-style queries: go-to-definition, find-references, hover documentation. They do not content-address the relationship graph itself, so they lack structural staleness detection, snapshot diffing, and cache-key derivation from identity.
 
-**Build graph systems** (Bazel, Buck2, Pants) content-address build artifacts and action outputs, enabling hermetic builds and remote caching. Their Merkle trees organize build actions, not code relationships. The insight that a Merkle tree over semantic code boundaries enables scoped invalidation of analysis results is orthogonal to build-graph content-addressing.
+**Build graph systems** (Bazel, Buck2, Pants) content-address build artifacts and action outputs, enabling hermetic builds and remote caching. Their Merkle trees organize build actions, not code relationships. A Merkle tree over semantic code boundaries enables scoped invalidation of analysis results; this is orthogonal to build-graph content-addressing.
 
 **Graph databases** (Neo4j, Dgraph, Amazon Neptune) store and query graph-structured data with mutable state. They provide query languages (Cypher, GraphQL) but not content-addressed identity, snapshot chains, or Merkle-based diffing. Adding these properties requires application-layer machinery.
 
-**Content-addressed storage** (Git, IPFS, Nix store) content-addresses files, blocks, or derivations. Git's object model is the closest precedent: it uses hierarchical Merkle trees (commit -> tree -> blob) organized by filesystem structure. The insight in this work is that the same approach applies to derived analysis artifacts, with the tree organized by semantic boundaries (packages, edge types) rather than directory hierarchy.
+**Content-addressed storage** (Git, IPFS, Nix store) content-addresses files, blocks, or derivations. Git's object model is the closest precedent: it uses hierarchical Merkle trees (commit -> tree -> blob) organized by filesystem structure. This work applies the same approach to derived analysis artifacts, with the tree organized by semantic boundaries (packages, edge types) rather than directory hierarchy.
 
 **LSP servers** maintain in-memory indexes of the currently open workspace. They are per-session, mutable, and do not persist or version the relationship state they compute.
 
@@ -635,7 +635,7 @@ Most code intelligence tools evolved from IDE plugins (mutable in-memory state),
 
 ### 11.2 The Git Barrier
 
-Git's success made content-addressing synonymous with "version control for files." The insight that the same primitive applies to derived artifacts (relationships, analyses, metrics) is non-obvious because Git is so strongly associated with file management. The further insight that the Merkle tree's structure should reflect the semantic structure of the content, rather than just the hash values, requires seeing the tree as a computation architecture rather than an integrity mechanism.
+Git's success made content-addressing synonymous with "version control for files." That the same primitive applies to derived artifacts (relationships, analyses, metrics) is non-obvious because Git is so strongly associated with file management. That the Merkle tree's structure should reflect the semantic structure of the content, rather than just the hash values, requires seeing the tree as a computation architecture rather than an integrity mechanism.
 
 ### 11.3 The Performance Concern
 
@@ -643,7 +643,7 @@ Git's success made content-addressing synonymous with "version control for files
 
 The empirical evidence is clear: git content-addresses every file, directory, and commit in the largest codebases on earth. Nobody has ever rejected git because "hashing everything is too slow." The bottleneck is always I/O and parsing, never hashing. The same applies here: knowing's hashing overhead (less than 0.1% of indexing time) is invisible next to tree-sitter parsing and SQLite writes.
 
-### 11.4 The Hierarchy Insight Requires a Different Framing
+### 11.4 The Hierarchy Requires a Different Framing
 
 The reason prior systems do not use hierarchical Merkle trees over code relationships is not technical difficulty. It is conceptual: if you think of content-addressing as "hashing things for integrity," you see no reason to organize the Merkle tree by semantic boundaries. The flat tree gives you integrity. Why add structure?
 
@@ -659,7 +659,7 @@ In the pessimistic case, storing 10K unique edge records per snapshot is small b
 
 Every mutable-graph approach to software relationship intelligence is fighting a fundamental architectural mismatch. Relationships change over time. Consumers need history. Correctness requires integrity verification. Scale requires concurrent access. Distribution requires identity agreement. Auditors require provable derivation. Agents need cache-backed retrieval.
 
-The original content-addressing insight (hash everything, use the hash as identity) solves the first six requirements. The hierarchical Merkle revelation solves the last: by organizing the tree to match the semantic structure of the codebase, the identity structure becomes the query optimization layer. Diffs are O(packages). Cache keys are O(1). Invalidation is scoped. The tree proves state and organizes computation simultaneously.
+The original content-addressing principle (hash everything, use the hash as identity) solves the first six requirements. The hierarchical Merkle structure solves the last: by organizing the tree to match the semantic structure of the codebase, the identity structure becomes the query optimization layer. Diffs are O(packages). Cache keys are O(1). Invalidation is scoped. The tree proves state and organizes computation simultaneously.
 
 Build time for the hierarchical tree is 1.4-1.7x slower than flat (additional intermediate root computation), amortized over every subsequent diff and cache lookup. The speedups are significant: O(packages) diff with semantically meaningful output (changed package names, edge types), enabling scoped invalidation and cache-key derivation (249x at 10K edges, 516x at 50K, 565x at 100K vs flat linear scan); up to 93x on the warm path, approximately 19x expected at realistic hit rates. Validated on Grafana (714K edges, 338K nodes): context retrieval and diff operations complete in seconds on a graph 50x larger than the primary evaluation codebase.
 
@@ -667,7 +667,7 @@ These properties hold under the assumptions stated in Section 5.2. The limitatio
 
 While content-addressing of code elements exists (Unison for definitions, Git for files), we found no existing system that applies hierarchical content-addressed identity over relationship edges as a query-optimization substrate. A survey of code intelligence tools (Sourcegraph, Kythe, CodeQL, LSIF), build systems (Bazel, Buck2), graph databases (Neo4j, Dgraph), content-addressed storage systems (IPFS, Nix), and the emerging "code knowledge graph for AI agents" space found no system combining these properties. The reason is likely conceptual: you only see the algorithmic opportunity when you stop thinking about content-addressing as an integrity mechanism and start thinking about it as a computation architecture.
 
-Git proved this for source code. The same insight applies, with equal force and deeper consequences, to everything derived from source code.
+Git proved this for source code. The same principle applies, with equal force and deeper consequences, to everything derived from source code.
 
 ---
 
