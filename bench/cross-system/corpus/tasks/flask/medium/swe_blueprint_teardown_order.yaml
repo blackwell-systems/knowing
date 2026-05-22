@@ -5,8 +5,9 @@ description: "Blueprint teardown_appcontext functions execute in registration or
 source: swe-bench
 ground_truth:
   - flask.app.Flask.do_teardown_appcontext
-  - flask.blueprints.Blueprint.teardown_app_request
+  - flask.sansio.blueprints.Blueprint.teardown_app_request
   - flask.ctx.AppContext.pop
-  - flask.app.Flask.teardown_appcontext_funcs
+  - flask.sansio.app.App.teardown_appcontext
+  - flask.sansio.scaffold.Scaffold.teardown_request
 tags: [blueprints, lifecycle, teardown, swe-bench, bug-fix]
 notes: "Based on Flask issue #4291. Teardown functions should execute in LIFO order to maintain proper resource cleanup ordering, similar to how context managers work."

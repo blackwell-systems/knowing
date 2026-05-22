@@ -4,8 +4,9 @@ tier: easy
 description: "Scheduler preemption violates PodDisruptionBudget when multiple pods are candidates for preemption on the same node and the PDB minAvailable is exactly at threshold"
 source: swe-bench
 ground_truth:
-  - k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultpreemption.SelectVictimsOnNode
+  - k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultpreemption.DefaultPreemption.SelectVictimsOnNode
   - k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultpreemption.filterPodsWithPDBViolation
-  - k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultpreemption.getPreemptionCandidates
+  - k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultpreemption.DefaultPreemption.PostFilter
+  - k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultpreemption.DefaultPreemption.GetOffsetAndNumCandidates
 tags: [scheduler, preemption, pdb, swe-bench, bug-fix]
 notes: "Based on kubernetes/kubernetes#103324. The victim selection doesn't properly account for PDB budget when selecting multiple victims from the same ReplicaSet."

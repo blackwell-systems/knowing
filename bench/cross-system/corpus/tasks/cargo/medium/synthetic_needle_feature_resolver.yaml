@@ -4,7 +4,8 @@ tier: medium
 description: "Find the exact function that resolves feature unification conflicts when the same dependency appears with different feature sets in dev-dependencies vs normal dependencies"
 source: synthetic
 ground_truth:
-  - cargo.core.resolver.features.FeatureResolver.resolve_features
-  - cargo.core.resolver.features.FeatureResolver.activate_features
+  - src/cargo/core/resolver.FeatureResolver.do_resolve
+  - src/cargo/core/resolver.FeatureResolver.activate_dep_feature
+  - src/cargo/core/resolver.FeatureResolver.activate_fv
 tags: [needle-in-haystack, resolver, features, single-symbol]
 notes: "Tests pinpointing a specific resolution decision in Cargo's resolver. Feature unification is mentioned in many places but the actual conflict resolution happens in one specific function."

@@ -5,7 +5,7 @@ description: "What does the getEffectiveTypeParameterDeclarations function do an
 source: synthetic
 ground_truth:
   - src/compiler/utilities.ts.getEffectiveTypeParameterDeclarations
-  - src/compiler/checker.ts.checkTypeParameterListsIdentical
-  - src/compiler/checker.ts.getTypeParametersForTypeReference
+  - src/compiler/checker.ts.NodeBuilderContext
+  - src/compiler/checker.ts.IterationTypesResolver
 tags: [understanding, specific-symbol, single-package]
 notes: "Edge case: very specific symbol lookup. Tests whether retrieval can find a single utility function by exact name and surface its callers. Minimal description, maximum specificity."

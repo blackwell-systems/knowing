@@ -4,13 +4,10 @@ tier: hard
 description: "Build a language service plugin that adds virtual file support: resolving imports from .graphql files by generating virtual .ts declarations on the fly"
 source: manual
 ground_truth:
-  - src/services/types.ts.LanguageServiceHost
-  - src/services/types.ts.LanguageServiceHost.resolveModuleNames
-  - src/services/services.ts.createLanguageService
-  - src/server/project.ts.Project
-  - src/server/project.ts.Project.getLanguageService
-  - src/compiler/moduleNameResolver.ts.resolveModuleName
-  - src/services/types.ts.LanguageService
-  - src/compiler/types.ts.ResolvedModule
+  - src/services/services.ts.createNode
+  - src/services/services.ts.getServicesObjectAllocator
+  - src/server/editorServices.ts.findProjectByName
+  - src/server/project.ts.extractUnresolvedImportsFromSourceFile
+  - src/compiler/moduleNameResolver.ts.nodeModuleNameResolverWorker
 tags: [language-service, plugins, module-resolution, cross-package, cross-cutting, feature-addition]
 notes: "A language service plugin with virtual files requires the LanguageServiceHost interface (especially resolveModuleNames), the service creation entry point, the server project that hosts service instances, module resolution internals, and the ResolvedModule type for returning resolution results."

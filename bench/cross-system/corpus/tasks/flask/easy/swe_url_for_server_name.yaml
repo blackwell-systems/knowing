@@ -5,7 +5,8 @@ description: "url_for() with _external=True generates wrong host when SERVER_NAM
 source: swe-bench
 ground_truth:
   - flask.helpers.url_for
-  - flask.wrappers.Request.host
-  - flask.app.Flask.config
+  - flask.app.Flask.url_for
+  - flask.app.Flask.create_url_adapter
+  - flask.config.Config
 tags: [routing, url-generation, swe-bench, bug-fix]
 notes: "Based on Flask issue #3628. The url_for function prefers SERVER_NAME over the actual request host header, which breaks when behind a reverse proxy that sets X-Forwarded-Host."

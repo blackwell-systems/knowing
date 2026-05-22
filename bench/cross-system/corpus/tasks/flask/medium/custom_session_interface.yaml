@@ -9,7 +9,6 @@ ground_truth:
   - flask.sessions.SessionInterface.save_session
   - flask.sessions.SecureCookieSessionInterface
   - flask.sessions.SecureCookieSession
-  - flask.sansio.app.App.session_interface
-  - flask.app.Flask.save_session
+  - flask.sessions.SessionInterface.is_null_session
 tags: [sessions, storage, cross-package, feature-addition]
 notes: "Replacing the session backend requires understanding the SessionInterface abstract class (open_session/save_session), the default implementation (SecureCookieSessionInterface) as a pattern, the session data model (SecureCookieSession), and how the app dispatches to the interface."

@@ -5,12 +5,11 @@ description: "Explain the full pod scheduling pipeline from when a pod enters th
 source: synthetic
 ground_truth:
   - k8s.io/kubernetes/pkg/scheduler.Scheduler.Run
-  - k8s.io/kubernetes/pkg/scheduler.Scheduler.scheduleOne
-  - k8s.io/kubernetes/pkg/scheduler/internal/queue.PriorityQueue.Pop
-  - k8s.io/kubernetes/pkg/scheduler/framework.Framework.RunFilterPlugins
-  - k8s.io/kubernetes/pkg/scheduler/framework.Framework.RunScorePlugins
-  - k8s.io/kubernetes/pkg/scheduler/framework.Framework.RunReservePlugins
-  - k8s.io/kubernetes/pkg/scheduler/framework.Framework.RunBindPlugins
+  - k8s.io/kubernetes/pkg/scheduler.Scheduler.ScheduleOne
+  - k8s.io/kubernetes/pkg/scheduler.Scheduler.schedulingCycle
+  - k8s.io/kubernetes/pkg/scheduler.Scheduler.bindingCycle
   - k8s.io/kubernetes/pkg/scheduler.Scheduler.assume
+  - k8s.io/kubernetes/pkg/scheduler/internal/queue.PriorityQueue
+  - k8s.io/kubernetes/pkg/scheduler.Scheduler.findNodesThatFitPod
 tags: [broad-scope, architecture, scheduler-pipeline, cross-package]
 notes: "Tests architectural understanding retrieval. The scheduling pipeline spans queue management, framework extension points, and binding logic across multiple packages."

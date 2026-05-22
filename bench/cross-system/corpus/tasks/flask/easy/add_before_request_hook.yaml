@@ -5,10 +5,10 @@ tier: easy
 description: "Add a new before_request hook that validates API keys from the Authorization header before each request"
 source: manual
 ground_truth:
-  - flask.app.Flask.before_request
-  - flask.app.Flask.try_trigger_before_request_functions
-  - flask.wrappers.Request.headers
+  - flask.sansio.scaffold.Scaffold.before_request
+  - flask.app.Flask.preprocess_request
+  - flask.app.Flask.full_dispatch_request
   - flask.app.Flask.ensure_sync
-  - flask.blueprints.Blueprint.before_request
+  - flask.sansio.blueprints.Blueprint.before_app_request
 tags: [hooks, middleware, single-package]
 notes: "A developer wants to add auth middleware. They need to find the before_request decorator, understand how it's invoked (try_trigger_before_request_functions), and access request headers."

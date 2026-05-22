@@ -6,5 +6,6 @@ source: synthetic
 ground_truth:
   - django.db.models.sql.compiler.SQLCompiler.get_distinct
   - django.db.models.aggregates.Count.as_sql
+  - django.db.models.sql.compiler.SQLCompiler.as_sql
 tags: [needle-in-haystack, orm, compiler, single-symbol]
 notes: "Tests ability to find a very specific decision point in the SQL compilation pipeline. The codebase has hundreds of compiler methods; only one handles the DISTINCT-in-COUNT logic."

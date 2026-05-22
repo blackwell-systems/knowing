@@ -4,12 +4,10 @@ tier: hard
 description: "Understand how a source file goes from parsed AST through transformation, emit, and source map generation, including how original positions are tracked across transforms"
 source: synthetic
 ground_truth:
-  - typescript.emitter.emitFiles
-  - typescript.emitter.emitSourceFileOrBundle
-  - typescript.transformer.transformNodes
-  - typescript.sourcemap.createSourceMapGenerator
-  - typescript.sourcemap.SourceMapGenerator.addMapping
-  - typescript.factory.setOriginalNode
-  - typescript.emitter.pipelineEmitWithSourceMaps
+  - src/compiler/emitter.ts.getSourceMapFilePath
+  - src/compiler/emitter.ts.getOutputJSFileName
+  - src/compiler/emitter.ts.getOwnOutputFileNames
+  - src/compiler/transformer.ts.getScriptTransformers
+  - src/compiler/builder.ts.getTextHandlingSourceMapForSignature
 tags: [cross-package, emit, sourcemap, transform, multi-system]
 notes: "Tests cross-package flow. Emit involves the transformer pipeline, the emitter itself, source map generator, and the factory's original node tracking working in concert."

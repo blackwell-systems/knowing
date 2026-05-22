@@ -4,10 +4,10 @@ tier: medium
 description: "Declaration emit produces invalid .d.ts when a mapped type uses 'as' clause with a template literal key and the source type has optional properties"
 source: swe-bench
 ground_truth:
-  - typescript.declarationEmitter.emitMappedType
-  - typescript.checker.resolveMappedTypeMembers
-  - typescript.checker.getNameTypeFromMappedType
-  - typescript.declarationEmitter.ensureType
-  - typescript.checker.getTypeFromMappedTypeNode
+  - src/compiler/transformers/declarations.ts.canHaveLiteralInitializer
+  - src/compiler/transformers/declarations.ts.getTypeAnnotationFromAccessor
+  - src/compiler/transformers/declarations.ts.isAlwaysType
+  - src/compiler/checker.ts.NodeBuilderContext
+  - src/compiler/checker.ts.SymbolTrackerImpl.trackSymbol
 tags: [declaration-emit, mapped-types, swe-bench, bug-fix]
 notes: "Based on TypeScript issue #48070. The declaration emitter doesn't properly serialize the 'as' clause when it involves template literal types combined with optional modifiers from the source type."

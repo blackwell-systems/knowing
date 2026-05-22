@@ -4,10 +4,9 @@ tier: easy
 description: "Add support for a new @throws JSDoc tag that documents which exceptions a function can throw"
 source: manual
 ground_truth:
-  - src/compiler/parser.ts.parseJSDocTag
-  - src/compiler/types.ts.JSDocTag
-  - src/compiler/scanner.ts.tokenToString
-  - src/services/jsDoc.ts.getJSDocTagNameCompletions
-  - src/compiler/utilitiesPublic.ts.getJSDocTags
+  - src/compiler/parser.ts.forEachChildInJSDocTag
+  - src/compiler/parser.ts.forEachChildInJSDocTypeLikeTag
+  - src/compiler/utilitiesPublic.ts.getJSDocTagsWorker
+  - src/services/services.ts.getJsDocTagsOfDeclarations
 tags: [jsdoc, parser, completions, single-package, feature-addition]
 notes: "Adding a JSDoc tag requires the parser's tag handling (parseJSDocTag), the JSDocTag type definition, scanner utilities for token mapping, the completions provider for IDE support (getJSDocTagNameCompletions), and the utility to retrieve tags from nodes."

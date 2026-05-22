@@ -4,7 +4,8 @@ tier: easy
 description: "Fix the visitNode function used during emit transformation that handles converting async arrow functions to generator-based implementations"
 source: synthetic
 ground_truth:
-  - typescript.transformers.es2017.transformES2017Module
-  - typescript.transformers.es2017.visitArrowFunction
+  - src/compiler/transformer.ts.getScriptTransformers
+  - src/compiler/transformer.ts.getDeclarationTransformers
+  - src/compiler/transformers/classFields.ts.ClassLexicalEnvironment
 tags: [naming-collision, disambiguation, visitor, emit]
 notes: "Tests disambiguation. 'visitNode' is the most common pattern in the TypeScript compiler, appearing in the checker, binder, parser, emitter, and every transformer. The description narrows to es2017 async transform."

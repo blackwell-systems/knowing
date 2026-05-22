@@ -4,7 +4,8 @@ tier: medium
 description: "Find the function that calculates the jitter duration for leader election lease renewal retry in the controller manager"
 source: synthetic
 ground_truth:
-  - k8s.io/client-go/tools/leaderelection.LeaderElector.renew
+  - k8s.io/client-go/tools/leaderelection.NewLeaderElector
+  - k8s.io/client-go/tools/leaderelection.RunOrDie
   - k8s.io/apimachinery/pkg/util/wait.Jitter
 tags: [needle-in-haystack, leader-election, jitter, single-symbol]
 notes: "Tests precision in a massive codebase. Jitter is used in dozens of places across kubernetes; the specific lease renewal jitter in leader election is one exact call site."

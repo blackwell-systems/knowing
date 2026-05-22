@@ -145,6 +145,7 @@ with the others.
 | 4 | 2026-05-21 | CGO timeout fix (all 5 repos indexed) | - | Indexing only, no benchmark run |
 | 5 | 2026-05-21 | Full run, all repos indexed | 0.149 | +46% from Run 1, d=0.53 |
 | 6 | 2026-05-21 | FTS symbol_name column (migration 016) | ~0.166 | +11% from Run 5, d=0.62 |
+| 7 | 2026-05-21 | Corrected ground truth (95% achievable) | 0.141 | Honest baseline, d=0.51 |
 
 ## Next Steps (priority order)
 

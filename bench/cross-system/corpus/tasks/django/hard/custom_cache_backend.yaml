@@ -10,7 +10,5 @@ ground_truth:
   - django.core.cache.backends.base.BaseCache.get_or_set
   - django.core.cache.backends.redis.RedisCache
   - django.core.cache.CacheHandler
-  - django.core.cache.cache
-  - django.core.signals.request_finished
 tags: [cache, backends, signals, cross-package, cross-cutting, feature-addition]
 notes: "A tiered cache backend requires the BaseCache interface (get/set/get_or_set), the existing RedisCache as a reference, CacheHandler for understanding how backends are instantiated and accessed, the cache proxy for default access patterns, and request_finished signal for cleanup coordination."

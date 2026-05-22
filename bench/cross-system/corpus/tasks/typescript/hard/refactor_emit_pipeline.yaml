@@ -4,13 +4,10 @@ tier: hard
 description: "Add a new emit transformer that rewrites async generator functions to use a custom runtime helper, integrating into the existing transform pipeline"
 source: manual
 ground_truth:
-  - src/compiler/transformer.ts.getTransformers
-  - src/compiler/transformer.ts.transformNodes
-  - src/compiler/transformers/generators.ts.transformGeneratorFunction
-  - src/compiler/transformers/es2018.ts.transformES2018
-  - src/compiler/factory/emitHelpers.ts.createEmitHelperFactory
-  - src/compiler/types.ts.TransformationContext
-  - src/compiler/emitter.ts.emitFiles
-  - src/compiler/types.ts.CustomTransformers
+  - src/compiler/transformer.ts.getScriptTransformers
+  - src/compiler/transformer.ts.getDeclarationTransformers
+  - src/compiler/emitter.ts.getOutputJSFileName
+  - src/compiler/emitter.ts.getOwnOutputFileNames
+  - src/compiler/transformers/classFields.ts.ClassLexicalEnvironment
 tags: [emit, transformers, cross-package, cross-cutting, feature-addition]
 notes: "Adding an emit transformer requires understanding the transform pipeline orchestration (getTransformers, transformNodes), existing generator/async transforms as patterns, the helper factory for runtime code, the TransformationContext interface, and how emitFiles invokes the pipeline."

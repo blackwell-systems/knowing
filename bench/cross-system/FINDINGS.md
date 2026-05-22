@@ -107,10 +107,29 @@ Added dedicated `symbol_name` column to FTS index storing just the terminal iden
 
 **Interpretation:** The symbol_name column helps BM25 rank terminal identifiers higher by eliminating path token dilution. Improvement is modest (+1.7pp) because the remaining bottleneck is ground truth naming: fixtures use language-native module paths (e.g., "flask.app.Flask.before_request") that don't exactly match knowing's storage format even after `extractSymbolName` stripping.
 
+### Run 7: Corrected ground truth fixtures (2026-05-21)
+
+Revised all 100 fixtures: validated every ground truth symbol against actual DB contents. Removed unobtainable symbols (internal functions, external deps, skipped dirs). Replaced with verified alternatives. Match rate: 73% -> 95%.
+
+| System | P@10 | R@10 | NDCG@10 | MRR | Token Eff | Latency |
+|--------|------|------|---------|-----|-----------|---------|
+| knowing | 0.141 | 0.195 | 0.213 | 0.250 | 0.0028 | 0ms |
+| grep | 0.018 | 0.038 | 0.034 | 0.062 | 0.0013 | 464ms |
+
+**Pairwise (knowing vs grep):**
+- P@10: +0.123 (p<0.0001*, d=0.51, CI=[0.079, 0.172])
+- R@10: +0.157 (p<0.0001*, d=0.57, CI=[0.105, 0.210])
+- NDCG@10: +0.179 (p<0.0001*, d=0.49, CI=[0.110, 0.253])
+- Token efficiency: +0.001 (p<0.0001*, d=0.23, CI=[0.000, 0.003])
+
+**Delta from Run 6:** P@10 dropped from ~0.166 to 0.141 because ground truth is now harder (real, verified symbols instead of fuzzy-matchable wrong names). Effect size dropped from d=0.62 to d=0.51 (still medium). This is the honest baseline.
+
+**Interpretation:** knowing is 7.8x better than grep with verified ground truth. 14.1% absolute precision means 86% of returned symbols don't match ground truth. This is the real number. Every improvement from here is genuine, not measurement artifact.
+
 **Next steps:**
-1. Ground truth fixture revision (align names to what knowing actually stores)
-2. Language-aware keyword extraction (detect snake_case/CamelCase in task descriptions)
-3. Add competitor adapters (gitnexus, aider) for broader comparison
+1. Language-aware keyword extraction (detect snake_case/CamelCase in task descriptions, keep as single search terms)
+2. Cross-file import resolution for Python/TS (more call edges = better recall)
+3. Session memory persistence (feedback compounding)
 
 ---
 

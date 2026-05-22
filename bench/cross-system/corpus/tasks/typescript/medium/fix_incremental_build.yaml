@@ -6,9 +6,8 @@ source: manual
 ground_truth:
   - src/compiler/builder.ts.getNextAffectedFile
   - src/compiler/builder.ts.createBuilderProgramState
-  - src/compiler/builderState.ts.BuilderState
-  - src/compiler/builderState.ts.BuilderState.getFilesAffectedByUpdatedShape
-  - src/compiler/program.ts.createProgram
-  - src/compiler/watchUtilities.ts.createWatchFilePath
+  - src/compiler/builder.ts.getNextAffectedFilePendingEmit
+  - src/compiler/builder.ts.handleDtsMayChangeOfAffectedFile
+  - src/compiler/program.ts.createCreateProgramOptions
 tags: [incremental, builder, cross-package, bug-fix]
 notes: "Incremental build bugs require understanding how affected files are determined (getNextAffectedFile, getFilesAffectedByUpdatedShape), the builder state that tracks file versions and signatures, program creation for understanding file identity, and watch utilities for file path tracking."

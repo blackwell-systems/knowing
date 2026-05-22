@@ -9,7 +9,7 @@ ground_truth:
   - django.db.backends.base.base.BaseDatabaseWrapper.cursor
   - django.db.utils.ConnectionHandler
   - django.db.utils.ConnectionRouter
-  - django.db.utils.ConnectionRouter.db_for_read
+  - django.db.utils.ConnectionRouter._route_db
   - django.db.backends.base.creation.BaseDatabaseCreation
   - django.db.backends.base.operations.BaseDatabaseOperations
 tags: [database, backend, cross-package, cross-cutting, understanding]

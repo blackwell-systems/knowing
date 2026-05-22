@@ -5,11 +5,10 @@ description: "Trace the full application factory pattern: from create_app throug
 source: synthetic
 ground_truth:
   - flask.app.Flask.__init__
-  - flask.app.Flask.register_blueprint
-  - flask.blueprints.Blueprint.register
+  - flask.sansio.app.App.register_blueprint
+  - flask.sansio.blueprints.Blueprint.register
   - flask.config.Config.from_object
-  - flask.app.Flask.extensions
-  - flask.sansio.app.App.ensure_sync
+  - flask.app.Flask.ensure_sync
   - flask.app.Flask.run
 tags: [broad-scope, architecture, app-factory, initialization]
 notes: "Tests understanding of Flask's initialization sequence. Requires linking the app constructor, configuration system, blueprint registration machinery, and the WSGI server startup path."

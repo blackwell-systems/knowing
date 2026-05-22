@@ -6,5 +6,6 @@ source: synthetic
 ground_truth:
   - k8s.io/kubernetes/pkg/controller/endpointslice.Controller.syncService
   - k8s.io/kubernetes/pkg/controller/endpointslice.Controller.reconcile
+  - k8s.io/kubernetes/pkg/controller/endpointslice.Controller.Run
 tags: [naming-collision, disambiguation, controller, sync]
 notes: "Tests disambiguation. Nearly every controller in kubernetes has a 'sync' or 'syncFoo' function. The description specifies endpoint slice + service selector change to disambiguate from dozens of other sync functions."

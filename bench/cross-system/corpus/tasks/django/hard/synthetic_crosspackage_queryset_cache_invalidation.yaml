@@ -7,9 +7,8 @@ ground_truth:
   - django.db.models.base.Model.save
   - django.db.models.base.Model.save_base
   - django.db.models.sql.compiler.SQLInsertCompiler.execute_sql
-  - django.db.models.query.QuerySet._result_cache
-  - django.db.models.base.Model._state
+  - django.db.models.query.QuerySet._clone
   - django.dispatch.dispatcher.Signal.send
-  - django.db.models.signals.post_save
+  - django.db.models.signals.ModelSignal
 tags: [cross-package, orm, signals, model-save, multi-system]
 notes: "Tests cross-package understanding. The save path touches django.db.models.base, django.db.models.sql, django.db.models.query (cache), django.db.models.base (state), and django.dispatch (signals)."

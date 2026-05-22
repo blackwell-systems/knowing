@@ -4,10 +4,9 @@ tier: easy
 description: "Register a custom URL converter that matches UUIDs in route paths so I can use <uuid:user_id> in my route definitions"
 source: manual
 ground_truth:
-  - flask.sansio.app.App.url_map
-  - flask.sansio.app.App.url_rule_class
-  - werkzeug.routing.converters.UUIDConverter
-  - werkzeug.routing.map.Map.converters
-  - werkzeug.routing.converters.BaseConverter
+  - flask.sansio.app.App.add_url_rule
+  - flask.app.Flask.create_url_adapter
+  - flask.sansio.scaffold.Scaffold.route
+  - flask.sansio.app.App.handle_url_build_error
 tags: [routing, url-converters, single-package, feature-addition]
 notes: "Adding a URL converter requires understanding Flask's url_map (a Werkzeug Map), the existing UUIDConverter as a pattern, the BaseConverter interface to implement, and how converters are registered on the Map."

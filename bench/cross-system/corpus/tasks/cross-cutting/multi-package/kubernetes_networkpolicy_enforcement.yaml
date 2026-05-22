@@ -4,12 +4,9 @@ tier: hard
 description: "Trace how a NetworkPolicy object flows from API server admission through the network plugin interface to iptables rules on a node, spanning apiserver, controller, and kubelet packages"
 source: synthetic
 ground_truth:
-  - staging/src/k8s.io/api/networking/v1/types.NetworkPolicy
-  - pkg/controller/networkpolicy/network_policy_controller.NetworkPolicyController
-  - pkg/controller/networkpolicy/network_policy_controller.NetworkPolicyController.syncNetworkPolicy
-  - pkg/proxy/iptables/proxier.Proxier
-  - pkg/proxy/iptables/proxier.Proxier.syncProxyRules
-  - staging/src/k8s.io/apiserver/pkg/registry/rest/rest.Storage
-  - pkg/kubelet/network/cni/cni.go.cniNetworkPlugin
+  - k8s.io/kubernetes/pkg/proxy/iptables.NewProxier
+  - k8s.io/kubernetes/pkg/proxy/iptables.CleanupLeftovers
+  - k8s.io/kubernetes/pkg/proxy/iptables.NewDualStackProxier
+  - k8s.io/api/admissionregistration/v1.AddToScheme
 tags: [networking, policy, cross-package, cross-cutting, understanding]
 notes: "NetworkPolicy enforcement spans the entire stack: API types, the network policy controller (syncNetworkPolicy), the kube-proxy iptables implementation (Proxier.syncProxyRules), API server storage, and the CNI plugin interface on the kubelet. Tests whole-system tracing."
