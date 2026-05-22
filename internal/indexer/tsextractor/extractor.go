@@ -88,6 +88,11 @@ func (e *TypeScriptExtractor) Extract(ctx context.Context, opts types.ExtractOpt
 		importSources["hono"] || importSources["@hono/hono"] ||
 		importSources["@nestjs/common"] || importSources["next"]
 
+	// Build TypeScript import map: maps imported names to their source module path.
+	// e.g., "import { Flask } from './app'" -> tsImports["Flask"] = "./app"
+	// e.g., "import * as ts from 'typescript'" -> tsImports["ts"] = "typescript"
+	tsImports := buildTSImportMap(root, opts.Content)
+
 	var nodes []types.Node
 	var edges []types.Edge
 
@@ -97,7 +102,7 @@ func (e *TypeScriptExtractor) Extract(ctx context.Context, opts types.ExtractOpt
 	// Walk top-level children.
 	for i := 0; i < int(root.ChildCount()); i++ {
 		child := root.Child(i)
-		e.extractNode(child, opts, qnamePrefix, "", fileNodeHash, hasExpress, &nodes, &edges)
+		e.extractNodeWithImports(child, opts, qnamePrefix, "", fileNodeHash, hasExpress, tsImports, &nodes, &edges)
 	}
 
 	// NestJS: detect @Controller('prefix') + @Get/@Post decorators on methods.
@@ -171,6 +176,94 @@ func collectImportSources(root *sitter.Node, content []byte) map[string]bool {
 		}
 	}
 	return sources
+}
+
+// extractNodeWithImports is extractNode with import resolution for call edges.
+func (e *TypeScriptExtractor) extractNodeWithImports(
+	node *sitter.Node,
+	opts types.ExtractOptions,
+	qnamePrefix string,
+	className string,
+	fileNodeHash types.Hash,
+	hasExpress bool,
+	tsImports map[string]string,
+	nodes *[]types.Node,
+	edges *[]types.Edge,
+) {
+	if node == nil {
+		return
+	}
+
+	switch node.Type() {
+	case "function_declaration":
+		n := extractFuncDecl(node, opts, qnamePrefix, className)
+		*nodes = append(*nodes, n)
+		body := node.ChildByFieldName("body")
+		extractCallEdgesFromBodyWithImports(body, opts, qnamePrefix, n.NodeHash, hasExpress, tsImports, nodes, edges)
+		epNodes, epEdges := ExtractEndpointEdges(body, opts, qnamePrefix, n.NodeHash)
+		*nodes = append(*nodes, epNodes...)
+		*edges = append(*edges, epEdges...)
+
+	case "class_declaration":
+		n := extractClassDecl(node, opts, qnamePrefix)
+		*nodes = append(*nodes, n)
+		extractExtendsClause(node, opts, qnamePrefix, n.NodeHash, edges)
+		extractImplementsClause(node, opts, qnamePrefix, n.NodeHash, edges)
+		extractTSDecoratorEdges(node, opts, qnamePrefix, n.NodeHash, edges)
+		body := node.ChildByFieldName("body")
+		nameNode := node.ChildByFieldName("name")
+		clsName := ""
+		if nameNode != nil {
+			clsName = nameNode.Content(opts.Content)
+		}
+		if body != nil {
+			for i := 0; i < int(body.ChildCount()); i++ {
+				child := body.Child(i)
+				if child.Type() == "method_definition" {
+					m := extractMethodDef(child, opts, qnamePrefix, clsName)
+					*nodes = append(*nodes, m)
+					extractOverrideEdge(child, opts, qnamePrefix, clsName, m.NodeHash, edges)
+					extractTSDecoratorEdges(child, opts, qnamePrefix, m.NodeHash, edges)
+					mBody := child.ChildByFieldName("body")
+					extractCallEdgesFromBodyWithImports(mBody, opts, qnamePrefix, m.NodeHash, hasExpress, tsImports, nodes, edges)
+					mEpNodes, mEpEdges := ExtractEndpointEdges(mBody, opts, qnamePrefix, m.NodeHash)
+					*nodes = append(*nodes, mEpNodes...)
+					*edges = append(*edges, mEpEdges...)
+				}
+			}
+		}
+
+	case "interface_declaration":
+		n := extractInterfaceDecl(node, opts, qnamePrefix)
+		*nodes = append(*nodes, n)
+
+	case "import_statement":
+		importEdges := extractImportEdges(node, opts, qnamePrefix, fileNodeHash)
+		*edges = append(*edges, importEdges...)
+
+	case "lexical_declaration", "variable_declaration":
+		for i := 0; i < int(node.ChildCount()); i++ {
+			child := node.Child(i)
+			if child.Type() == "variable_declarator" {
+				e.extractVariableDeclarator(child, opts, qnamePrefix, className, fileNodeHash, hasExpress, nodes, edges)
+			}
+		}
+
+	case "expression_statement":
+		expr := node.ChildByFieldName("expression")
+		if expr == nil {
+			for i := 0; i < int(node.ChildCount()); i++ {
+				ch := node.Child(i)
+				if ch.Type() == "call_expression" {
+					expr = ch
+					break
+				}
+			}
+		}
+		if expr != nil && expr.Type() == "call_expression" {
+			handleTopLevelCallExpression(expr, opts, qnamePrefix, fileNodeHash, hasExpress, nodes, edges)
+		}
+	}
 }
 
 // extractNode dispatches extraction based on tree-sitter node type.
@@ -464,10 +557,25 @@ func extractCallEdgesFromBody(
 	nodes *[]types.Node,
 	edges *[]types.Edge,
 ) {
+	extractCallEdgesFromBodyWithImports(body, opts, qnamePrefix, sourceHash, hasExpress, nil, nodes, edges)
+}
+
+// extractCallEdgesFromBodyWithImports is like extractCallEdgesFromBody but
+// resolves call targets through the import map when available.
+func extractCallEdgesFromBodyWithImports(
+	body *sitter.Node,
+	opts types.ExtractOptions,
+	qnamePrefix string,
+	sourceHash types.Hash,
+	hasExpress bool,
+	tsImports map[string]string,
+	nodes *[]types.Node,
+	edges *[]types.Edge,
+) {
 	if body == nil {
 		return
 	}
-	walkForCalls(body, opts, qnamePrefix, sourceHash, hasExpress, nodes, edges)
+	walkForCallsWithImports(body, opts, qnamePrefix, sourceHash, hasExpress, tsImports, nodes, edges)
 }
 
 // walkForCalls recursively walks nodes looking for call_expression nodes.
@@ -477,6 +585,21 @@ func walkForCalls(
 	qnamePrefix string,
 	sourceHash types.Hash,
 	hasExpress bool,
+	nodes *[]types.Node,
+	edges *[]types.Edge,
+) {
+	walkForCallsWithImports(node, opts, qnamePrefix, sourceHash, hasExpress, nil, nodes, edges)
+}
+
+// walkForCallsWithImports recursively walks nodes looking for call_expression nodes,
+// resolving targets through the import map when available.
+func walkForCallsWithImports(
+	node *sitter.Node,
+	opts types.ExtractOptions,
+	qnamePrefix string,
+	sourceHash types.Hash,
+	hasExpress bool,
+	tsImports map[string]string,
 	nodes *[]types.Node,
 	edges *[]types.Edge,
 ) {
@@ -495,10 +618,10 @@ func walkForCalls(
 			}
 		}
 
-		// Extract call edge.
+		// Extract call edge with import resolution.
 		funcNode := node.ChildByFieldName("function")
 		if funcNode != nil {
-			edge := resolveCallEdge(funcNode, node, opts, qnamePrefix, sourceHash)
+			edge := resolveCallEdgeWithImports(funcNode, node, opts, qnamePrefix, sourceHash, tsImports)
 			if edge != nil {
 				*edges = append(*edges, *edge)
 			}
@@ -511,7 +634,7 @@ func walkForCalls(
 		}
 	}
 	for i := 0; i < int(node.ChildCount()); i++ {
-		walkForCalls(node.Child(i), opts, qnamePrefix, sourceHash, hasExpress, nodes, edges)
+		walkForCallsWithImports(node.Child(i), opts, qnamePrefix, sourceHash, hasExpress, tsImports, nodes, edges)
 	}
 }
 
@@ -597,18 +720,26 @@ func extractTSThrowEdge(node *sitter.Node, opts types.ExtractOptions, qnamePrefi
 
 // resolveCallEdge creates an edge for a call expression.
 func resolveCallEdge(funcNode, callNode *sitter.Node, opts types.ExtractOptions, qnamePrefix string, sourceHash types.Hash) *types.Edge {
+	return resolveCallEdgeWithImports(funcNode, callNode, opts, qnamePrefix, sourceHash, nil)
+}
+
+// resolveCallEdgeWithImports resolves a call expression to a call edge, using
+// the import map to resolve cross-file targets when available.
+func resolveCallEdgeWithImports(funcNode, callNode *sitter.Node, opts types.ExtractOptions, qnamePrefix string, sourceHash types.Hash, tsImports map[string]string) *types.Edge {
 	content := opts.Content
 	var targetName string
+	var objectName string
 
 	switch funcNode.Type() {
 	case "identifier":
 		targetName = funcNode.Content(content)
+		objectName = targetName
 	case "member_expression":
-		// object.method -> use "object.method" as target name.
 		obj := funcNode.ChildByFieldName("object")
 		prop := funcNode.ChildByFieldName("property")
 		if obj != nil && prop != nil {
-			targetName = obj.Content(content) + "." + prop.Content(content)
+			objectName = obj.Content(content)
+			targetName = objectName + "." + prop.Content(content)
 		}
 	default:
 		return nil
@@ -618,8 +749,29 @@ func resolveCallEdge(funcNode, callNode *sitter.Node, opts types.ExtractOptions,
 		return nil
 	}
 
-	targetHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, targetName, "function")
+	// Resolve through import map: if the object (or function name for bare calls)
+	// was imported from another module, compute the target hash against the
+	// source module's file path instead of the current file.
 	provenance := "ast_inferred"
+	confidence := 0.7
+	targetQNamePrefix := qnamePrefix
+
+	if tsImports != nil && objectName != "" {
+		if srcModule, ok := tsImports[objectName]; ok {
+			// Resolve the import source to a file-relative path.
+			// "./checker" -> same directory as current file
+			// "../utils" -> relative path
+			// "typescript" -> external (keep as-is)
+			resolved := resolveTSModulePath(srcModule, opts.FilePath)
+			if resolved != "" {
+				targetQNamePrefix = resolved
+				provenance = "ast_resolved"
+				confidence = 0.85
+			}
+		}
+	}
+
+	targetHash := types.ComputeNodeHash(opts.RepoURL, targetQNamePrefix, types.EmptyHash, targetName, "function")
 	edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "calls", provenance)
 
 	return &types.Edge{
@@ -627,12 +779,115 @@ func resolveCallEdge(funcNode, callNode *sitter.Node, opts types.ExtractOptions,
 		SourceHash:   sourceHash,
 		TargetHash:   targetHash,
 		EdgeType:     "calls",
-		Confidence:   0.7,
+		Confidence:   confidence,
 		Provenance:   provenance,
 		CallSiteLine: int(callNode.StartPoint().Row) + 1,
 		CallSiteCol:  int(callNode.StartPoint().Column),
 		CallSiteFile: opts.FilePath,
 	}
+}
+
+// resolveTSModulePath resolves a TypeScript import source to a qualified name prefix.
+// "./checker" relative to "src/compiler/program.ts" -> "src/compiler/checker"
+// "../utils" relative to "src/compiler/program.ts" -> "src/utils"
+// "typescript" (bare module) -> "" (can't resolve, use local)
+func resolveTSModulePath(importSource, currentFile string) string {
+	// Only resolve relative imports (start with . or ..)
+	if !strings.HasPrefix(importSource, ".") {
+		return ""
+	}
+
+	// Get directory of current file.
+	dir := filepath.Dir(currentFile)
+
+	// Join relative path with current directory.
+	resolved := filepath.Join(dir, importSource)
+
+	// Normalize to forward slashes and strip extension if present.
+	resolved = filepath.ToSlash(resolved)
+	resolved = strings.TrimSuffix(resolved, ".ts")
+	resolved = strings.TrimSuffix(resolved, ".tsx")
+	resolved = strings.TrimSuffix(resolved, ".js")
+	resolved = strings.TrimSuffix(resolved, ".jsx")
+
+	return resolved
+}
+
+// buildTSImportMap extracts all import statements from a TypeScript AST and
+// builds a map from imported names to their source module paths.
+// Handles: import { X } from './module', import X from './module',
+// import * as X from './module', import { X as Y } from './module'
+func buildTSImportMap(root *sitter.Node, content []byte) map[string]string {
+	imports := make(map[string]string)
+
+	for i := 0; i < int(root.ChildCount()); i++ {
+		node := root.Child(i)
+		if node == nil || node.Type() != "import_statement" {
+			continue
+		}
+
+		// Get the source module path.
+		src := node.ChildByFieldName("source")
+		if src == nil {
+			continue
+		}
+		modPath := strings.Trim(src.Content(content), `"'`)
+		if modPath == "" {
+			continue
+		}
+
+		// Find the import clause (named imports, default import, or namespace import).
+		for j := 0; j < int(node.ChildCount()); j++ {
+			child := node.Child(j)
+			if child == nil {
+				continue
+			}
+
+			switch child.Type() {
+			case "import_clause":
+				// Walk the import clause for identifiers and named imports.
+				for k := 0; k < int(child.ChildCount()); k++ {
+					clause := child.Child(k)
+					if clause == nil {
+						continue
+					}
+					switch clause.Type() {
+					case "identifier":
+						// Default import: import X from './module'
+						imports[clause.Content(content)] = modPath
+					case "named_imports":
+						// Named imports: import { X, Y as Z } from './module'
+						for m := 0; m < int(clause.ChildCount()); m++ {
+							spec := clause.Child(m)
+							if spec == nil {
+								continue
+							}
+							if spec.Type() == "import_specifier" {
+								alias := spec.ChildByFieldName("alias")
+								name := spec.ChildByFieldName("name")
+								if alias != nil {
+									imports[alias.Content(content)] = modPath
+								} else if name != nil {
+									imports[name.Content(content)] = modPath
+								}
+							}
+						}
+					case "namespace_import":
+						// Namespace import: import * as X from './module'
+						for m := 0; m < int(clause.ChildCount()); m++ {
+							id := clause.Child(m)
+							if id != nil && id.Type() == "identifier" {
+								imports[id.Content(content)] = modPath
+								break
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return imports
 }
 
 // routeRegistrationMethods is the set of HTTP method names used by Express.js,
