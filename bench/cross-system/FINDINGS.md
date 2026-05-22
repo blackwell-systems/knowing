@@ -432,10 +432,34 @@ Installed GitNexus (npm install -g gitnexus) and benchmarked indexing performanc
 
 knowing wins EVERY dimension: precision (2.75x), recall (1.65x), ranking quality (2.5x), latency (instant vs 1s), indexing speed (52-321x), RAM (28x less), and enterprise scale (handles repos GitNexus cannot).
 
+### CodeGraphContext (CGC) Competitor (2026-05-22)
+
+Installed CGC (codegraphcontext) with KuzuDB backend via Python 3.12 (uv venv).
+
+**Indexing:**
+- Flask (15K LOC): **215.9 seconds** (knowing: 0.1s, **2,159x faster**)
+- 1.9GB RAM during indexing (knowing: negligible)
+- Django/Cargo/VS Code/kubernetes: not attempted (would take hours based on scaling)
+
+**Retrieval:**
+- `cgc find content "before_request hook validates API keys"`: **zero results**
+- CGC has no task-oriented retrieval (no natural language query -> symbols)
+- Only supports exact name search (`find name`) and pattern matching (`find pattern`)
+- It is a navigation tool, not a context retrieval system
+
+**Competitive summary:**
+
+| Dimension | knowing | GitNexus | CGC |
+|-----------|---------|----------|-----|
+| Task-oriented retrieval | P@10=0.209 | P@10=0.076 | Not supported |
+| Flask index time | 0.1s | 5.2s | 215.9s |
+| Enterprise repos | 18.6s (k8s) | >60 min | Impossible |
+| Natural language queries | Yes | Yes | No (exact name only) |
+| RAM (Flask) | ~50MB | ~200MB | 1.9GB |
+
 **Next steps:**
-1. Blog post / publication (18 runs, competitive data, rigorous methodology)
-2. Flask-only retrieval comparison (GitNexus vs knowing on the one repo both can handle quickly)
-3. Java corpus addition (validate Java extractor, deferred to future session)
+1. Blog post / publication (competitive data complete: knowing > GitNexus > CGC > grep)
+2. Java corpus addition (validate Java extractor, deferred to future session)
 
 ---
 
