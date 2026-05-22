@@ -468,13 +468,16 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	}
 
 	// Fuse all channels with weighted Reciprocal Rank Fusion.
-	// Weights: tiered 3x (highest precision), equivalence 2x (concept-level, high confidence),
-	// BM25 1x (lexical recall), vector 0x (disabled, infrastructure preserved).
+	// Weights: tiered 2x (exact/prefix, most precise), BM25 2x (relevance-ranked,
+	// complementary to tiered via signature and multi-term matching),
+	// equivalence 2x (concept-level), vector 0x (disabled, infrastructure preserved).
+	// Equal weights for tiered+BM25: both find symbols by name but BM25 adds
+	// signature matching and relevance ranking that tiered lacks.
 	// k=60 is the standard RRF constant.
 	candidates := rrfFuseMulti([]rankedChannel{
-		{nodes: tieredResults, weight: 3.0},
+		{nodes: tieredResults, weight: 2.0},
+		{nodes: bm25Results, weight: 2.0},
 		{nodes: equivResults, weight: 2.0},
-		{nodes: bm25Results, weight: 1.0},
 		{nodes: vectorResults, weight: 0.0},
 	}, 60, 40)
 	seen := make(map[types.Hash]bool, len(candidates))
