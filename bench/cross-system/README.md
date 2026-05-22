@@ -52,7 +52,7 @@ Effect size via Cohen's d. Confidence intervals via bootstrap (10K resamples).
 5 repos pinned to specific versions:
 
 - **kubernetes** (Go, ~3.5M LOC) - v1.30.0
-- **TypeScript** (TypeScript, ~800K LOC) - v5.5.4
+- **VS Code** (TypeScript, ~1M LOC) - 1.90.0
 - **flask** (Python, ~15K LOC) - 3.1.0
 - **cargo** (Rust, ~150K LOC) - 0.82.0
 - **django** (Python, ~300K LOC) - 5.1

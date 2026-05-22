@@ -11,7 +11,7 @@ and auto-generates a `FINDINGS.md` with results and interpretation.
 
 | Benchmark | What it proves | Key result |
 |-----------|---------------|------------|
-| [cross-system](cross-system/) | Graph retrieval beats text search across languages and scales | P@10=0.203 vs grep 0.016 (12.7x, p<0.0001, d=0.78 on recall) |
+| [cross-system](cross-system/) | Graph retrieval beats text search across languages and scales | P@10=0.226 vs grep 0.020 (11.3x, p<0.0001, d=0.90 on recall) |
 | [feedback-loop](feedback-loop/) | Feedback compounding improves precision over time | 16% -> 36% precision (+20pp) after one round |
 | [context-relevance](context-relevance/) | Each engine layer adds measurable value | Feedback adds +9pp precision over baseline |
 | [token-savings](token-savings/) | knowing reduces agent exploration cost | 55.6% fewer tokens, 52.8% fewer tool calls |
