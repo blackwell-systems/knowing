@@ -599,6 +599,29 @@ Added two new repos to validate Java and C# import resolution:
 
 **Aggregate impact:** Adding 10 tasks (5 at 0.14, 5 at 0.00) to the 107-task corpus slightly dilutes the overall P@10 (from 0.230 to ~0.222). The Java phantom node issue is a known class of problem (similar to TypeScript's barrel re-export issue in Run 12).
 
+### Run 20: Phantom External Node Fix (2026-05-22)
+
+Fixed the root cause from Run 19. Phantom external nodes (`kind="external"`, `external://` prefix) from failed LSP enrichment entered results via RWR walk. On Spark Java (2282 phantom nodes, 63% of all nodes), they occupied all top-10 positions.
+
+Fix: filter external nodes at two points: `filterNoisySymbols` (seed candidates) and the RWR result loop (before scoring). Neither location previously checked node kind.
+
+| Repo | Before (Run 19) | After (Run 20) | Delta |
+|------|-----------------|----------------|-------|
+| Spark (Java) | 0.00 | **0.10** | fixed |
+| Ocelot (C#) | 0.14 | 0.14 | unchanged |
+
+**Per-task Spark Java results:**
+
+| Task | P@10 | R@10 | MRR | Notes |
+|------|------|------|-----|-------|
+| spark-java-easy-001 (before filter) | 0.30 | 1.00 | 0.50 | All 5 ground truth found |
+| spark-java-easy-002 (route handler) | 0.10 | 0.20 | 0.20 | 1/5 found |
+| spark-java-medium-001 (exception handler) | 0.10 | 0.33 | 0.11 | 1/3 found |
+| spark-java-medium-002 (static files) | 0.00 | 0.00 | 0.02 | |
+| spark-java-hard-001 (request lifecycle) | 0.00 | 0.00 | 0.09 | |
+
+**Key observation:** The fix also protects all repos where LSP enrichment partially fails. The phantom node class of bug was latent in any repo with unresolved import targets.
+
 ---
 
 ## Identified Bottlenecks (from analysis)
