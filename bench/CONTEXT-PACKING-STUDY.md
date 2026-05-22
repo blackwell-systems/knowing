@@ -135,9 +135,9 @@ Per-repo breakdown: Django 0.330, Flask 0.321, VS Code ~0.25, Kubernetes 0.184, 
 
 3. **Go bias.** Most benchmarks validated on Go code (knowing dogfoods itself). Cross-system benchmark partially addresses this with Python, TypeScript, Rust, Java repos.
 
-4. **Missing competitors.** Only comparing against grep. gitnexus, aider, codegraphcontext adapters not yet built.
+4. **Competitor coverage.** Benchmarked against GitNexus (2.75x less precise, can't index enterprise repos), Gortex (comparable quality, 46x slower on k8s), CGC (no task retrieval), Repomix (48x less token-efficient), and grep (baseline). Aider blocked by scipy/Fortran dependency.
 
-5. **Ground truth coverage.** Some cross-system fixtures have symbols that don't exist in the DB under the expected name (naming convention mismatch between language-native and knowing's storage format).
+5. **Ground truth coverage.** 95% of ground truth symbols verified against DB (validate-fixtures tool). Remaining 5% are edge cases (external deps, inherited methods with name mismatches).
 
 ## Run History
 
@@ -162,19 +162,33 @@ Per-repo breakdown: Django 0.330, Flask 0.321, VS Code ~0.25, Kubernetes 0.184, 
 | 17 | 2026-05-21 | VS Code replaces TypeScript compiler | 0.226 | +60% cumulative, 11.3x vs grep, d=0.90 |
 | 18 | 2026-05-21 | TS extractor extends_clause fix | **0.230** | **+63% cumulative, 11.5x vs grep, d=0.92** |
 
+## Competitive Comparison Summary
+
+| System | P@10 | Index k8s | Query latency | Token efficiency | RAM (k8s) |
+|--------|------|-----------|--------------|-----------------|-----------|
+| **knowing** | **0.209** | **18.6s** | **60ms** | **48x vs Repomix** | **200MB** |
+| Gortex | ~comparable | 14.2 min | ~6s | - | 14GB |
+| GitNexus | 0.076 | >60 min (killed) | 612ms | - | 5.7GB |
+| Repomix | N/A (no ranking) | N/A | N/A | baseline | N/A |
+| CGC | N/A (no task retrieval) | impossible | - | - | 1.9GB |
+| grep | 0.020 | instant | instant | - | - |
+
 ## Next Steps (priority order)
 
-1. ~~**Session memory persistence**~~ (feedback compounding) **Shipped.** Task memory persists top-5 symbols per call; boost `0.5 + score * 0.4`.
-2. **Competitor adapters** (gitnexus, aider, codegraphcontext)
-3. **Rust cross-file imports in benchmark** (9,795 edges resolved; Run 10 only includes Python + TS)
+1. **Blog post / publication** (all competitive data collected, whitepaper updated)
+2. **Aider adapter** (blocked by scipy/Fortran; needs Docker or older Python)
+3. **Java corpus** (validate Java extractor, deferred)
 4. **Embedding model evaluation** (code-tuned model for semantic matching)
-5. **RRF weight tuning per-repo** (adaptive weights based on channel overlap)
-6. **TypeScript keyword seeding** (root cause: barrel re-exports prevent file-level hash resolution; 79% dangling call edges)
 
-### Completed (previously in Next Steps)
-- ~~FTS terminal symbol tokenization~~ (migration 016, Run 6)
-- ~~Cross-file import resolution for Python/TS~~ (Runs 9-10, +0.007 P@10)
-- ~~Deeper call chain extraction~~ (Run 14, +0.001 P@10; Flask +84% edges, Django +22% edges)
+### Completed
+- ~~Session memory persistence~~ (task memory persists, boost `0.5 + score * 0.4`)
+- ~~Competitor adapters~~ (GitNexus, Gortex, CGC, Repomix all tested)
+- ~~FTS terminal symbol tokenization~~ (migration 016)
+- ~~Cross-file import resolution (Python/TS/Rust)~~ (Runs 9-11)
+- ~~Deeper call chain extraction~~ (Run 14)
+- ~~Inheritance propagation~~ (Run 13, +29%)
+- ~~VS Code replaces TypeScript compiler~~ (Run 17)
+- ~~TS extends_clause fix~~ (Run 18)
 
 ## Reproducing
 
