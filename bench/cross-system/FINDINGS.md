@@ -518,7 +518,13 @@ Repomix (25K stars) packs entire repos into one file for LLM consumption. No ran
 - Query 1 (cold): 103ms
 - Queries 2-10 (warm): 38-69ms
 - **Total session: 605ms (avg 60ms/query)**
-- Compare: Gortex ~6s/query (100x slower), GitNexus ~1s/query (17x slower)
+- GitNexus: 6,123ms total (avg 612ms/query, **10x slower**)
+- Gortex: ~6s per query including re-index (**100x slower**)
+
+**Incremental re-index comparison (1 file changed, flask):**
+- knowing: **64ms** (only processes changed file)
+- GitNexus: **7,000ms** (re-indexes entire repo, **109x slower**)
+- Gortex: ~500ms (re-indexes, no incremental detection)
 
 **Complete performance summary:**
 
