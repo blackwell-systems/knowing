@@ -231,13 +231,17 @@ merges ranked lists from all channels into a single seed set:
 
 Migration 006 creates the `nodes_fts` virtual table. Migration 016 adds a `symbol_name`
 column that stores just the terminal symbol identifier (e.g., "QuerySet.filter" instead of
-the full qualified path). The table now indexes four columns with BM25 weights:
-`symbol_name` (10x), `qualified_name` (3x), `signature` (1x), `file_path` (1x). The high
-weight on `symbol_name` ensures keyword searches match by actual symbol name rather than
-by incidental path token frequency. Tokenization uses CamelCase-aware splitting
-(`splitForFTS`, `splitCamelCase`) so that compound identifiers (e.g., "SQLiteStore") are
-indexed as individual terms ("SQLite", "Store"). `RebuildFTS` is called after batch
-indexing to keep the FTS content synchronized with the nodes table.
+the full qualified path). Migration 017 adds a `concepts` column that stores CamelCase-split
+tokens from file names and parent directories (e.g., "commandLineParser.ts" becomes
+"command Line Parser commandLineParser"). The table now indexes five columns with BM25
+weights: `symbol_name` (10x), `concepts` (5x), `qualified_name` (3x), `signature` (1x),
+`file_path` (1x). The high weight on `symbol_name` ensures keyword searches match by actual
+symbol name rather than by incidental path token frequency. The `concepts` column bridges
+the vocabulary gap where developers search for "parser" but the symbol lives in a
+differently-named file. Tokenization uses CamelCase-aware splitting (`splitForFTS`,
+`splitCamelCase`) so that compound identifiers (e.g., "SQLiteStore") are indexed as
+individual terms ("SQLite", "Store"). `RebuildFTS` is called after batch indexing to keep
+the FTS content synchronized with the nodes table.
 
 ### Embedding Search (Channel 3)
 

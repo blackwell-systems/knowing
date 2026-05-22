@@ -174,7 +174,7 @@ CREATE INDEX idx_feedback_neighborhood ON feedback(neighborhood_root);
 
 ### task_memory
 
-Passive retrieval learning. Records which symbols were returned for which keywords.
+Passive retrieval learning. Records which symbols were returned for which keywords. Persists across process restarts, enabling quality to compound with usage. The MCP server records the top-5 symbols after each `context_for_task` call with boost score `0.5 + score * 0.4`. Future queries with matching keywords recall these symbols and boost them via the feedback channel at 0.3x scale with 7-day linear decay.
 
 ```sql
 CREATE TABLE task_memory (
@@ -188,18 +188,18 @@ CREATE TABLE task_memory (
 
 ### nodes_fts
 
-FTS5 full-text index for BM25 search over symbol names and signatures. BM25 weights: symbol_name=10x, qualified_name=3x, signature=1x, file_path=1x.
+FTS5 full-text index for BM25 search over symbol names and signatures. BM25 weights: symbol_name=10x, concepts=5x, qualified_name=3x, signature=1x, file_path=1x.
 
 ```sql
 CREATE VIRTUAL TABLE nodes_fts USING fts5(
-    symbol_name, qualified_name, signature, file_path,
+    symbol_name, concepts, qualified_name, signature, file_path,
     content='nodes_fts_content',
     content_rowid='rowid',
-    tokenize='unicode61 remove_diacritics 2'
+    tokenize="unicode61 tokenchars '_' remove_diacritics 2"
 );
 ```
 
-The `symbol_name` column (migration 016) stores the terminal identifier extracted by `extractSymbolName`, which strips repo URL, package path, and file extension prefix. `RebuildFTSForPackages` scopes rebuild to changed packages (2.9x faster than full rebuild).
+The `symbol_name` column (migration 016) stores the terminal identifier extracted by `extractSymbolName`, which strips repo URL, package path, and file extension prefix. The `concepts` column (migration 017) stores CamelCase-split tokens from file names and parent directories (e.g., "commandLineParser.ts" becomes "command Line Parser commandLineParser"), bridging the vocabulary gap between developer terminology and symbol names. `RebuildFTSForPackages` scopes rebuild to changed packages (2.9x faster than full rebuild).
 
 ## Merkle Tree (Computed, Not Stored)
 
@@ -241,8 +241,9 @@ When the tree needs to be larger than memory (lazy materialization), the roots a
 | 014 | add_neighborhood_root.sql | neighborhood_root on feedback (merkleized expiration) |
 | 015 | snapshot_generation.sql | generation column on snapshots (O(1) ancestry checks) |
 | 016 | fts_symbol_name.sql | Adds symbol_name column to FTS content table; recreates FTS5 virtual table with 4 columns (symbol_name, qualified_name, signature, file_path) |
+| 017 | fts_concepts_column.sql | Adds concepts column to FTS content table; stores CamelCase-split file/module names as searchable concepts; recreates FTS5 virtual table with 5 columns (symbol_name, concepts, qualified_name, signature, file_path) |
 
-Migrations run automatically on `NewSQLiteStore`. Each runs in its own transaction. Schema version is tracked in `schema_version` table (current version: 16). No rollback/down migrations.
+Migrations run automatically on `NewSQLiteStore`. Each runs in its own transaction. Schema version is tracked in `schema_version` table (current version: 17). No rollback/down migrations.
 
 ## Per-Repo Isolation
 

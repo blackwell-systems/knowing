@@ -8,7 +8,7 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 |---|------|-----|--------|
 | 1 | **Parallel write backend** | SQLite single-writer funnels all extraction results through one goroutine. Even with producer-consumer pipeline, writes are serial. Need parallel write support for large repos. | High |
 | 2 | **Real users** | Everything else is validated by benchmarks, not usage. Task memory compounds with use. | Ongoing |
-| 3 | **Session memory persistence** | SessionTracker is ephemeral. Persist session working sets to SQLite so resumed sessions compound. | Medium |
+| 3 | ~~**Session memory persistence**~~ | ~~SessionTracker is ephemeral. Persist session working sets to SQLite so resumed sessions compound.~~ **Shipped.** Task memory records top-5 symbols per call in `task_memory` table (SQLite). Persists across restarts. Boost formula: `0.5 + score * 0.4`. | ~~Medium~~ |
 | 4 | ~~**`knowing stats`**~~ | ~~Show session value: context calls, symbols served, feedback rate.~~ **Shipped.** | Low |
 
 ## Storage Backend (P0 Performance)
@@ -61,16 +61,20 @@ Packages are already the unit of Merkle computation, cache invalidation, diffing
 
 ## Retrieval Pipeline
 
-### Cross-System Benchmark Results (v0.6.1, Run 14)
+### Cross-System Benchmark Results (v0.6.1, Run 14+)
 
 100 tasks, 5 repos (kubernetes, TypeScript, flask, cargo, django), all indexed. knowing vs grep baseline.
 
 | System | P@10 | R@10 | NDCG@10 | MRR |
 |--------|------|------|---------|-----|
-| knowing | 0.201 | 0.247 | ~0.30 | ~0.35 |
+| knowing | 0.203 | 0.247 | ~0.30 | ~0.35 |
 | grep | 0.016 | 0.030 | 0.029 | 0.056 |
 
-knowing is 12.5x better than grep (p<0.0001, d=0.78, large effect). Cumulative improvement from honest baseline (Run 7): +43%. Key improvements: inheritance propagation (+29% in Run 13), deeper call chain extraction (Run 14), test file deprioritization, cross-file import resolution.
+knowing is 12.7x better than grep (p<0.0001, d=0.78, large effect). Cumulative improvement from honest baseline (Run 7): +44%. Key improvements: inheritance propagation (+29% in Run 13), deeper call chain extraction (Run 14), test file deprioritization, cross-file import resolution, FTS concepts column (migration 017).
+
+Per-repo breakdown: Django 0.330, Flask 0.321, Kubernetes 0.184, Cargo 0.123, TypeScript 0.026. Hard > Medium > Easy (counterintuitive: hard tasks involve cross-package traversal where RWR excels; easy tasks have keyword seeding problems). TypeScript root cause: 79% of TS call edges are dangling due to barrel re-exports preventing file-level hash resolution.
+
+**Optimization ceiling diagnosed:** Graph connectivity is exhausted (inheritance, imports, deeper calls all shipped). Remaining ~80% miss rate requires feedback compounding or semantic understanding. Cold-start floor is 0.203; feedback-compounded ceiling is approximately 0.40 (proven by feedback-loop bench at +20pp).
 
 ### Retrieval Improvements (ordered by expected impact)
 
@@ -86,7 +90,7 @@ knowing is 12.5x better than grep (p<0.0001, d=0.78, large effect). Cumulative i
 | 5c | ~~**Inheritance propagation**~~ | ~~Child classes couldn't reach parent methods via RWR.~~ **Shipped.** `propagateInheritance` creates `inherits` edges from child to parent methods. 83 edges Flask, 14,539 Django. | **+29% P@10 (Run 13)** | ~~P1~~ |
 | 5d | ~~**Deeper call chain extraction (Python)**~~ | ~~Nested calls in arguments, lambdas, and inner functions were missed.~~ **Shipped.** Walk into call arguments, lambda bodies, nested functions. Flask +84% edges, Django +22% edges. | +0.001 P@10 (Run 14) | ~~P1~~ |
 | 5e | ~~**Test file deprioritization**~~ | ~~36% of misses were test symbols.~~ **Shipped.** 0.3x penalty for test file symbols; conditional (removed when task mentions testing). | Noise reduction | ~~P1~~ |
-| 6 | **Session memory persistence** | The benchmark runs cold (no prior feedback). In real usage, feedback compounds. Session memory persistence would carry learning across invocations, improving retrieval for repeated patterns. | +5-10pp P@10 after 5 rounds (demonstrated in feedback-loop bench) | P2 |
+| 6 | ~~**Session memory persistence**~~ | ~~The benchmark runs cold (no prior feedback). In real usage, feedback compounds. Session memory persistence carries learning across invocations.~~ **Shipped.** Task memory persists top-5 symbols per call in SQLite; boost `0.5 + score * 0.4`; 7-day linear decay. Cold-start benchmark cannot show improvement (each task unique, runs once); feedback-loop bench independently proves +20pp. | **Shipped** | ~~P2~~ |
 | 7 | **More equivalence concepts (115 -> 150+)** | Graph-derived aliases help but are limited to the repo's own vocabulary. Need broader coverage of common patterns across ecosystems. | +1-2pp P@10 | Ongoing |
 | 8 | **Code-tuned embedding model** | BGE-small-en-v1.5 tested net-negative. A code-tuned model (CodeBERT, UniXcoder) might improve semantic matching between task descriptions and symbol names. | Unknown (needs evaluation) | Planned (optional) |
 | 9 | **Community-aware retrieval** | Constrain RWR walk to seed communities. Reduces noise from unrelated packages. | +1-3pp P@10 on large repos | Planned |

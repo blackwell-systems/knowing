@@ -8,7 +8,7 @@ relevant code symbols that fit within a context window.
 This document is the authoritative reference for how the context engine finds and ranks
 symbols. It supersedes `context-packing.md`.
 
-**Current eval baseline:** 55 fixtures (20 easy, 20 medium, 15 hard), 31.6% P@10, 0.58 MRR (internal eval). Cross-system benchmark (100 tasks, 5 repos): P@10=0.201, 12.5x vs grep, d=0.78 recall (large effect).
+**Current eval baseline:** 55 fixtures (20 easy, 20 medium, 15 hard), 31.6% P@10, 0.58 MRR (internal eval). Cross-system benchmark (100 tasks, 5 repos): P@10=0.203, 12.7x vs grep, d=0.78 recall (large effect).
 
 ## Pipeline Overview
 
@@ -189,11 +189,12 @@ joined by `OR`. Returns up to 30 results ordered by BM25 relevance.
 
 **What is indexed:**
 
-The FTS5 table indexes four columns from each node (migration 016 added `symbol_name`):
+The FTS5 table indexes five columns from each node (migration 016 added `symbol_name`, migration 017 added `concepts`):
 
 | Column | BM25 weight | Content |
 |--------|-------------|---------|
 | `symbol_name` | 10.0 | Terminal symbol identifier only (e.g., "QuerySet.filter" instead of full qualified path) |
+| `concepts` | 5.0 | CamelCase-split tokens from file name and parent directory (e.g., "commandLineParser.ts" becomes "command Line Parser commandLineParser") |
 | `qualified_name` | 3.0 | CamelCase-split qualified name (original tokens preserved alongside splits) |
 | `signature` | 1.0 | CamelCase-split function signature |
 | `file_path` | 1.0 | File path from the files table |
@@ -518,14 +519,16 @@ creating a useful recency bias within a working session.
 `TaskMemory` (`task_memory.go`) persists which symbols were useful for which tasks,
 enabling the pipeline to learn from past interactions. Over time, the system develops
 per-repo vocabulary: "when a developer asks about X, these symbols tend to be what they
-actually need."
+actually need." Task memory persists across process restarts via the SQLite `task_memory`
+table, so quality compounds with usage even across MCP server restarts.
 
 ### Recording
 
 After packing, the top 5 symbols (by score) are stored alongside normalized keywords
 from the task description. Keywords are the 10 longest terms from `extractKeywords`,
 joined with spaces. The association is stored in the `task_memory` SQLite table with a
-timestamp and score of 1.0.
+timestamp and a boost score computed as `0.5 + score * 0.4` (range [0.5, 0.9]). The
+formula was corrected from a version that produced negative boosts when score < 0.5.
 
 ### Recall
 
@@ -597,11 +600,13 @@ concepts is cheap, safe, and has consistent returns. Adding new concepts for
 domain-specific vocabulary gaps is the primary way to improve hard-tier retrieval.
 Target: expand from 21 to 50+ concepts.
 
-**BM25 column weights.** The current weights (symbol_name: 10.0, qualified_name: 3.0,
-signature: 1.0, file_path: 1.0) were tuned to prioritize terminal symbol name matches.
-The symbol_name column (added in migration 016) carries the highest weight because
-developers search by symbol name, not by full qualified path. Adjusting these could
-improve BM25 precision for specific codebases.
+**BM25 column weights.** The current weights (symbol_name: 10.0, concepts: 5.0,
+qualified_name: 3.0, signature: 1.0, file_path: 1.0) were tuned to prioritize terminal
+symbol name matches. The symbol_name column (added in migration 016) carries the highest
+weight because developers search by symbol name, not by full qualified path. The concepts
+column (migration 017) stores CamelCase-split file/module names, bridging the gap when
+developers say "parser" but the symbol is inside `commandLineParser.ts`. Adjusting these
+could improve BM25 precision for specific codebases.
 
 ### What not to change
 

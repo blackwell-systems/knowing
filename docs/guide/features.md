@@ -1,6 +1,6 @@
 # FEATURES.md -- Comprehensive Feature Dump for AI Reference
 
-Generated: 2026-05-15 (updated: 2026-05-21, features 77-110 added: hash domain prefixes, fsck, GC, lockfile, LRU cache, modular community detection, DiffOptions, indexed_at, verify, React viz, MCP resources, graph notes, Phase 3 complete, Merkle proofs, stats CLI, named refs, generation numbers, auto-GC, merkle-forest extraction; P2 edge types, parallel indexer, cross-system benchmark, language equivalence classes, cross-file import resolution, inheritance propagation, deeper call chains, test deprioritization)
+Generated: 2026-05-15 (updated: 2026-05-21, features 77-110 added: hash domain prefixes, fsck, GC, lockfile, LRU cache, modular community detection, DiffOptions, indexed_at, verify, React viz, MCP resources, graph notes, Phase 3 complete, Merkle proofs, stats CLI, named refs, generation numbers, auto-GC, merkle-forest extraction; P2 edge types, parallel indexer, cross-system benchmark, language equivalence classes, cross-file import resolution, inheritance propagation, deeper call chains, test deprioritization; FTS concepts column, task memory persistence)
 Source: code inspection of all Go files across internal/, cmd/, and config
 Repo: github.com/blackwell-systems/knowing
 
@@ -737,10 +737,10 @@ Repo: github.com/blackwell-systems/knowing
 ### 56. BM25 Full-Text Search (FTS5 Index)
 
 - **Package(s):** `internal/store`
-- **Migrations:** `006_add_fts5_index.sql`, `016_fts_symbol_name.sql`
+- **Migrations:** `006_add_fts5_index.sql`, `016_fts_symbol_name.sql`, `017_fts_concepts_column.sql`
 - **Entry point:** `RebuildFTS`, `SearchBM25Nodes`, `extractSymbolName` in `internal/store/sqlite.go`
-- **What it does:** Creates an SQLite FTS5 virtual table (`nodes_fts`) over four columns: `symbol_name`, `qualified_name`, `signature`, and `file_path`. BM25 weights are: symbol_name=10x, qualified_name=3x, signature=1x, file_path=1x. The `symbol_name` column (migration 016) stores just the terminal identifier (e.g., "QuerySet.filter") extracted by `extractSymbolName`, which strips repo URL, package path, and file extension prefix. FTS5 tokenizer uses `tokenchars '_'` so snake_case identifiers (e.g., `before_request`) match as single tokens. Uses CamelCase-aware tokenization (`splitForFTS`, `splitCamelCase`) so compound identifiers are searchable by individual terms. `RebuildFTS` runs synchronously after snapshot computation (was previously a background goroutine that was killed on CLI process exit, leaving FTS empty in `knowing index` mode). Adds ~500ms to index time.
-- **Why it matters:** Improves recall for vague or partial task descriptions where substring matching alone misses relevant symbols. The high-weight `symbol_name` column ensures keyword searches match by actual symbol name rather than incidental path tokens, which is critical for non-Go repos where qualified names embed file paths.
+- **What it does:** Creates an SQLite FTS5 virtual table (`nodes_fts`) over five columns: `symbol_name`, `concepts`, `qualified_name`, `signature`, and `file_path`. BM25 weights are: symbol_name=10x, concepts=5x, qualified_name=3x, signature=1x, file_path=1x. The `symbol_name` column (migration 016) stores just the terminal identifier (e.g., "QuerySet.filter") extracted by `extractSymbolName`, which strips repo URL, package path, and file extension prefix. The `concepts` column (migration 017) stores CamelCase-split tokens from file names and parent directories (e.g., "commandLineParser.ts" becomes "command Line Parser commandLineParser"), bridging the gap when developers say "parser" but the symbol is inside a differently-named file. FTS5 tokenizer uses `tokenchars '_'` so snake_case identifiers (e.g., `before_request`) match as single tokens. Uses CamelCase-aware tokenization (`splitForFTS`, `splitCamelCase`) so compound identifiers are searchable by individual terms. `RebuildFTS` runs synchronously after snapshot computation (was previously a background goroutine that was killed on CLI process exit, leaving FTS empty in `knowing index` mode). Adds ~500ms to index time.
+- **Why it matters:** Improves recall for vague or partial task descriptions where substring matching alone misses relevant symbols. The high-weight `symbol_name` column ensures keyword searches match by actual symbol name rather than incidental path tokens. The `concepts` column provides vocabulary bridging from file/module names to symbols they contain, which is critical for non-Go repos where qualified names embed file paths.
 
 ### 57. Session-Aware Retrieval Boosts
 
@@ -804,13 +804,13 @@ Repo: github.com/blackwell-systems/knowing
 - **What it does:** Auto-detects language servers by checking project markers (`go.mod`, `tsconfig.json`, `pyproject.toml`, `Cargo.toml`, `pom.xml`, `*.csproj`) and PATH binaries. Supported servers: gopls, typescript-language-server, pylsp/pyright, rust-analyzer, jdtls, OmniSharp. Uses `LSPServerConfig` struct (`{command, extensions, language_id}`). Provides `SetLSPConfig` for explicit override and `LoadLSPConfig` for loading from `knowing-lsp.json`. Includes language-agnostic `openFilesForLanguage` and `isTestFile` (multi-language test detection). The enricher iterates all detected servers sequentially.
 - **Why it matters:** Extends LSP enrichment beyond Go to all supported languages without manual configuration. Projects with multiple languages get enrichment across all of them in a single index run.
 
-### 66. Passive Task Memory
+### 66. Passive Task Memory (Persistent)
 
 - **Package(s):** `internal/context/`
 - **Entry point:** `task_memory.go` in `internal/context/`
 - **Migration:** `008_task_memory.sql` (creates `task_memory` table with columns: keywords, symbol_hash, score, timestamp)
-- **What it does:** Records the top-5 symbols from each `context_for_task` call. On subsequent calls, recall matches keywords against stored entries with a 7-day linear decay. Matched symbols receive a boost added to the `FeedbackBoost` channel at 0.3x scale.
-- **Why it matters:** Provides passive learning from agent behavior. Symbols that were relevant to similar tasks in the past surface higher in future queries, without requiring explicit agent feedback.
+- **What it does:** Records the top-5 symbols from each `context_for_task` call with boost score `0.5 + score * 0.4`. On subsequent calls, recall matches keywords against stored entries with a 7-day linear decay. Matched symbols receive a boost added to the `FeedbackBoost` channel at 0.3x scale. Persists across MCP server restarts via SQLite, so quality compounds with usage over time.
+- **Why it matters:** Provides passive learning from agent behavior. Symbols that were relevant to similar tasks in the past surface higher in future queries, without requiring explicit agent feedback. Because it persists in SQLite, the system gets smarter across sessions, not just within a single process lifetime.
 
 ### 67. Universal Equivalence Classes
 
@@ -1551,6 +1551,7 @@ Primary key: `(service_name, route_pattern, mapping_type)`.
 | 006 | 006_add_fts5_index.sql | Creates FTS5 virtual table `nodes_fts` over qualified_name, signature, file_path for BM25 full-text search (extended by migration 016). |
 | 007 | 007_add_doc_column.sql | Adds `doc` column to nodes table for storing extracted doc comments. |
 | 016 | 016_fts_symbol_name.sql | Adds `symbol_name` column to FTS content table. Stores terminal symbol identifier (stripped of repo URL, package path, file extension). Recreates FTS5 table with 4 columns: symbol_name, qualified_name, signature, file_path. |
+| 017 | 017_fts_concepts_column.sql | Adds `concepts` column to FTS content table. Stores CamelCase-split file/module names as searchable concepts. Recreates FTS5 table with 5 columns: symbol_name, concepts, qualified_name, signature, file_path. |
 
 ---
 

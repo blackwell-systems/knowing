@@ -63,7 +63,7 @@ Seed selection uses Reciprocal Rank Fusion (`rrfFuseMulti`) across four channels
 | Channel | Weight | Source |
 |---------|--------|--------|
 | 1. Tiered keyword matching | 2.0 | 5-tier exact/prefix/substring/path/interface matching |
-| 2. BM25 FTS5 | 2.0 | SQLite FTS5 over symbol_name, qualified_name, signature, file_path |
+| 2. BM25 FTS5 | 2.0 | SQLite FTS5 over symbol_name, concepts, qualified_name, signature, file_path |
 | 3. Vector/embedding search | 0.0 | BGE-small-en-v1.5 via HNSW (disabled pending code-tuned model) |
 | 4. Equivalence class matching | 2.0 | 115 equivalence classes (63 universal + 21 knowing-specific + 31 language-specific) mapped to target symbols |
 
@@ -85,7 +85,7 @@ The graph alias system (`internal/context/graph_aliases.go`) auto-generates equi
 
 ## Passive Task Memory
 
-Migration 008 creates the `task_memory` table (columns: keywords, symbol_hash, score, timestamp). The task memory system (`internal/context/task_memory.go`) records the top-5 symbols from each `context_for_task` call. On subsequent calls, it matches keywords against stored entries with a 7-day linear decay. Matched symbols receive a boost added to the `FeedbackBoost` channel at 0.3x scale. This provides passive learning from agent behavior without requiring explicit feedback.
+Migration 008 creates the `task_memory` table (columns: keywords, symbol_hash, score, timestamp). The task memory system (`internal/context/task_memory.go`) records the top-5 symbols from each `context_for_task` call with a boost score of `0.5 + score * 0.4`. On subsequent calls, it matches keywords against stored entries with a 7-day linear decay. Matched symbols receive a boost added to the `FeedbackBoost` channel at 0.3x scale. Task memory persists across process restarts (stored in SQLite), so quality compounds with usage over time. This provides passive learning from agent behavior without requiring explicit feedback.
 
 ## Merkleized Feedback Validity (v0.5.0)
 
@@ -93,9 +93,9 @@ Migration 014 adds `neighborhood_root BLOB` to the feedback table. When recordin
 
 ## BM25 Full-Text Search (FTS5 Index)
 
-Migration 006 creates the SQLite FTS5 virtual table (`nodes_fts`). Migration 016 adds a `symbol_name` column that stores just the terminal symbol identifier (e.g., "QuerySet.filter" instead of the full qualified path). The `extractSymbolName` function strips the repo URL, package path, and file extension prefix to produce this short form.
+Migration 006 creates the SQLite FTS5 virtual table (`nodes_fts`). Migration 016 adds a `symbol_name` column that stores just the terminal symbol identifier (e.g., "QuerySet.filter" instead of the full qualified path). Migration 017 adds a `concepts` column that stores CamelCase-split tokens from file names and parent directories (e.g., "commandLineParser.ts" becomes "command Line Parser commandLineParser"). The `extractSymbolName` function strips the repo URL, package path, and file extension prefix to produce the short form.
 
-The FTS5 table now indexes four columns with BM25 weights: `symbol_name` (10x), `qualified_name` (3x), `signature` (1x), `file_path` (1x). The high weight on `symbol_name` ensures that keyword searches like "before_request" rank symbols by their actual name rather than by incidental path token frequency.
+The FTS5 table now indexes five columns with BM25 weights: `symbol_name` (10x), `concepts` (5x), `qualified_name` (3x), `signature` (1x), `file_path` (1x). The high weight on `symbol_name` ensures that keyword searches like "before_request" rank symbols by their actual name rather than by incidental path token frequency. The `concepts` column bridges the vocabulary gap where developers say "parser" but the symbol lives in `commandLineParser.ts`.
 
 The FTS5 tokenizer uses `tokenchars '_'` so that snake_case identifiers (e.g., `before_request`) are indexed as single tokens rather than being split at the underscore.
 
