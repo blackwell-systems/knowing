@@ -16,11 +16,10 @@
 Code intelligence graph. MCP server with 27 tools. Static analysis, call graphs, runtime traces, cryptographic proofs. Gets smarter with use.
 </p>
 
-<p align="center">
-<strong>Research paper:</strong> <a href="https://zenodo.org/records/20342255">Content-Addressing as a Computation Primitive for Software Relationship Intelligence</a> (DOI: 10.5281/zenodo.20342255)
-</p>
-
 ---
+
+> [!NOTE]
+> **Research paper:** [Content-Addressing as a Computation Primitive for Software Relationship Intelligence](https://zenodo.org/records/20342255) (DOI: 10.5281/zenodo.20342255)
 
 Your architecture diagram says service A calls service B. Can you prove it?
 
