@@ -1,9 +1,36 @@
 # Cross-System Benchmark: Running Results
 
-Tracking iterative improvements to retrieval quality.
-
 **Full specification:** [docs/research/cross-system-benchmark.md](../../docs/research/cross-system-benchmark.md)
 **Study overview:** [bench/CONTEXT-PACKING-STUDY.md](../CONTEXT-PACKING-STUDY.md)
+
+## Executive Summary
+
+knowing is a content-addressed graph retrieval engine evaluated against 4 competitors across 5 codebases (3.5M LOC down to 15K LOC), 107 task fixtures, and 18 iterative benchmark runs with full statistical rigor.
+
+### Final Results (Run 18)
+
+| System | P@10 | R@10 | Index k8s | Query latency | RAM (k8s) |
+|--------|------|------|-----------|--------------|-----------|
+| **knowing** | **0.230** | **0.284** | **18.6s** | **60ms** | **200MB** |
+| Gortex | ~comparable | - | 14.2 min | ~6s | 14GB |
+| GitNexus | 0.076 | 0.159 | >60 min (killed) | 612ms | 5.7GB |
+| Repomix | N/A (no ranking) | 100% (dumps all) | N/A | N/A | N/A |
+| CGC | N/A (no task retrieval) | - | impossible | - | 1.9GB |
+| grep | 0.020 | 0.035 | instant | instant | - |
+
+### Competitive Advantages (all statistically significant)
+
+- **vs grep:** 11.5x more precise (p<0.0001, d=0.92 very large effect)
+- **vs GitNexus:** 2.75x more precise (p=0.0003, d=0.50), 193x faster indexing, 109x faster incremental, 10x faster queries
+- **vs Repomix:** 48x more token-efficient (4K tokens vs 300K for same task)
+- **vs CGC:** Has task retrieval (CGC doesn't), 2,159x faster indexing
+- **vs Gortex:** 46x faster on enterprise repos, 70x less RAM, comparable quality on small repos
+
+### Key Architectural Finding
+
+Quality scales with graph density. Dense class hierarchies (Django P@10=0.330, Flask 0.321) produce the best results. Inheritance propagation was the single biggest improvement (+29% in one run). The bottleneck is RWR graph connectivity, not FTS/BM25 ranking.
+
+---
 
 ## Run History
 
