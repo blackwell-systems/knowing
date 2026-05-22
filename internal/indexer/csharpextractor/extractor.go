@@ -70,11 +70,14 @@ func (e *CSharpExtractor) Extract(ctx context.Context, opts types.ExtractOptions
 
 	root := tree.RootNode()
 
+	// Build C# import map for cross-file call resolution.
+	csharpImports := e.buildCSharpImportMap(root, opts)
+
 	var nodes []types.Node
 	var edges []types.Edge
 
 	// Walk the AST recursively.
-	e.walkNode(root, opts, "", &nodes, &edges)
+	e.walkNode(root, opts, "", csharpImports, &nodes, &edges)
 
 	// Sort nodes by QualifiedName then Kind.
 	sort.Slice(nodes, func(i, j int) bool {
@@ -107,7 +110,8 @@ func (e *CSharpExtractor) Extract(ctx context.Context, opts types.ExtractOptions
 
 // walkNode recursively walks the tree-sitter AST, extracting nodes and edges.
 // parentContext is the qualified name prefix from enclosing class/struct/interface.
-func (e *CSharpExtractor) walkNode(node *sitter.Node, opts types.ExtractOptions, parentContext string, nodes *[]types.Node, edges *[]types.Edge) {
+// csharpImports maps imported class/namespace last-segments to their full paths.
+func (e *CSharpExtractor) walkNode(node *sitter.Node, opts types.ExtractOptions, parentContext string, csharpImports map[string]string, nodes *[]types.Node, edges *[]types.Edge) {
 	if node == nil {
 		return
 	}
@@ -121,7 +125,7 @@ func (e *CSharpExtractor) walkNode(node *sitter.Node, opts types.ExtractOptions,
 		return
 
 	case "class_declaration":
-		n, classRoutes := e.extractClassDecl(node, opts, parentContext, nodes, edges)
+		n, classRoutes := e.extractClassDecl(node, opts, parentContext, csharpImports, nodes, edges)
 		if n != nil {
 			*nodes = append(*nodes, *n)
 			// Process route handlers from class-level route attributes.
@@ -140,7 +144,7 @@ func (e *CSharpExtractor) walkNode(node *sitter.Node, opts types.ExtractOptions,
 		for i := 0; i < int(node.ChildCount()); i++ {
 			child := node.Child(i)
 			if child.Type() == "declaration_list" {
-				e.walkChildren(child, opts, e.qualifiedContext(parentContext, n), nodes, edges)
+				e.walkChildren(child, opts, e.qualifiedContext(parentContext, n), csharpImports, nodes, edges)
 			}
 		}
 		return
@@ -154,7 +158,7 @@ func (e *CSharpExtractor) walkNode(node *sitter.Node, opts types.ExtractOptions,
 		for i := 0; i < int(node.ChildCount()); i++ {
 			child := node.Child(i)
 			if child.Type() == "declaration_list" {
-				e.walkChildren(child, opts, e.qualifiedContext(parentContext, n), nodes, edges)
+				e.walkChildren(child, opts, e.qualifiedContext(parentContext, n), csharpImports, nodes, edges)
 			}
 		}
 		return
@@ -173,10 +177,10 @@ func (e *CSharpExtractor) walkNode(node *sitter.Node, opts types.ExtractOptions,
 			*nodes = append(*nodes, routeNodes...)
 			*edges = append(*edges, routeEdges...)
 		}
-		// Walk body for call edges.
+		// Walk body for call edges with import resolution.
 		body := node.ChildByFieldName("body")
 		if body != nil && n != nil {
-			e.walkForCalls(body, opts, parentContext, n.NodeHash, edges)
+			e.walkForCallsWithImports(body, opts, parentContext, n.NodeHash, csharpImports, edges)
 		}
 		return
 
@@ -185,32 +189,32 @@ func (e *CSharpExtractor) walkNode(node *sitter.Node, opts types.ExtractOptions,
 		if n != nil {
 			*nodes = append(*nodes, *n)
 		}
-		// Walk body for call edges.
+		// Walk body for call edges with import resolution.
 		body := node.ChildByFieldName("body")
 		if body != nil && n != nil {
-			e.walkForCalls(body, opts, parentContext, n.NodeHash, edges)
+			e.walkForCallsWithImports(body, opts, parentContext, n.NodeHash, csharpImports, edges)
 		}
 		return
 
 	case "invocation_expression":
-		// Handled inside walkForCalls from method/constructor bodies.
+		// Handled inside walkForCallsWithImports from method/constructor bodies.
 		return
 
 	case "object_creation_expression":
-		// Handled inside walkForCalls from method/constructor bodies.
+		// Handled inside walkForCallsWithImports from method/constructor bodies.
 		return
 	}
 
 	// Default: recurse into children.
 	for i := 0; i < int(node.ChildCount()); i++ {
-		e.walkNode(node.Child(i), opts, parentContext, nodes, edges)
+		e.walkNode(node.Child(i), opts, parentContext, csharpImports, nodes, edges)
 	}
 }
 
 // walkChildren walks all children of a node.
-func (e *CSharpExtractor) walkChildren(node *sitter.Node, opts types.ExtractOptions, parentContext string, nodes *[]types.Node, edges *[]types.Edge) {
+func (e *CSharpExtractor) walkChildren(node *sitter.Node, opts types.ExtractOptions, parentContext string, csharpImports map[string]string, nodes *[]types.Node, edges *[]types.Edge) {
 	for i := 0; i < int(node.ChildCount()); i++ {
-		e.walkNode(node.Child(i), opts, parentContext, nodes, edges)
+		e.walkNode(node.Child(i), opts, parentContext, csharpImports, nodes, edges)
 	}
 }
 
@@ -287,7 +291,7 @@ func (e *CSharpExtractor) extractUsingName(node *sitter.Node, content []byte) st
 
 // extractClassDecl extracts a class declaration node and walks its body.
 // Returns the class node and any route_handler nodes from class-level attributes.
-func (e *CSharpExtractor) extractClassDecl(node *sitter.Node, opts types.ExtractOptions, parentContext string, nodes *[]types.Node, edges *[]types.Edge) (*types.Node, []types.Node) {
+func (e *CSharpExtractor) extractClassDecl(node *sitter.Node, opts types.ExtractOptions, parentContext string, csharpImports map[string]string, nodes *[]types.Node, edges *[]types.Edge) (*types.Node, []types.Node) {
 	nameNode := node.ChildByFieldName("name")
 	if nameNode == nil {
 		return nil, nil
@@ -331,7 +335,7 @@ func (e *CSharpExtractor) extractClassDecl(node *sitter.Node, opts types.Extract
 	for i := 0; i < int(node.ChildCount()); i++ {
 		child := node.Child(i)
 		if child.Type() == "declaration_list" {
-			e.walkChildren(child, opts, ctx, nodes, edges)
+			e.walkChildren(child, opts, ctx, csharpImports, nodes, edges)
 		}
 	}
 
@@ -488,6 +492,175 @@ func (e *CSharpExtractor) walkForCalls(node *sitter.Node, opts types.ExtractOpti
 
 	for i := 0; i < int(node.ChildCount()); i++ {
 		e.walkForCalls(node.Child(i), opts, parentContext, sourceHash, edges)
+	}
+}
+
+// buildCSharpImportMap extracts all using directives from the C# AST and builds
+// a map from the last segment of each namespace to the full namespace path.
+// Handles: using Namespace.Sub (maps "Sub" -> "Namespace.Sub"),
+// using static Namespace.Class (maps "Class" -> "Namespace.Class").
+func (e *CSharpExtractor) buildCSharpImportMap(root *sitter.Node, opts types.ExtractOptions) map[string]string {
+	imports := make(map[string]string)
+
+	for i := 0; i < int(root.ChildCount()); i++ {
+		node := root.Child(i)
+		if node == nil || node.Type() != "using_directive" {
+			continue
+		}
+
+		// Check if this is a "using static" directive.
+		isStatic := false
+		for j := 0; j < int(node.ChildCount()); j++ {
+			child := node.Child(j)
+			if child.Type() == "modifier" && child.Content(opts.Content) == "static" {
+				isStatic = true
+				break
+			}
+			// Also check for the "static" keyword directly.
+			if child.Content(opts.Content) == "static" {
+				isStatic = true
+				break
+			}
+		}
+
+		nameContent := e.extractUsingName(node, opts.Content)
+		if nameContent == "" {
+			continue
+		}
+
+		if isStatic {
+			// "using static Namespace.Class" -> map "Class" -> "Namespace.Class"
+			lastDot := strings.LastIndex(nameContent, ".")
+			if lastDot >= 0 {
+				className := nameContent[lastDot+1:]
+				imports[className] = nameContent
+			} else {
+				imports[nameContent] = nameContent
+			}
+		} else {
+			// "using Namespace.Sub" -> map "Sub" -> "Namespace.Sub"
+			lastDot := strings.LastIndex(nameContent, ".")
+			if lastDot >= 0 {
+				lastSegment := nameContent[lastDot+1:]
+				imports[lastSegment] = nameContent
+			} else {
+				imports[nameContent] = nameContent
+			}
+		}
+	}
+
+	return imports
+}
+
+// walkForCallsWithImports recursively walks a subtree looking for invocation
+// and object creation expressions, creating call edges with import resolution.
+func (e *CSharpExtractor) walkForCallsWithImports(node *sitter.Node, opts types.ExtractOptions, parentContext string, sourceHash types.Hash, csharpImports map[string]string, edges *[]types.Edge) {
+	if node == nil {
+		return
+	}
+
+	switch node.Type() {
+	case "invocation_expression":
+		edge := e.extractInvocationEdgeWithImports(node, opts, parentContext, sourceHash, csharpImports)
+		if edge != nil {
+			*edges = append(*edges, *edge)
+		}
+
+	case "object_creation_expression":
+		edge := e.extractObjectCreationEdge(node, opts, parentContext, sourceHash)
+		if edge != nil {
+			*edges = append(*edges, *edge)
+		}
+
+	case "throw_statement", "throw_expression":
+		// TODO: extract throws edge to exception type
+	}
+
+	for i := 0; i < int(node.ChildCount()); i++ {
+		e.walkForCallsWithImports(node.Child(i), opts, parentContext, sourceHash, csharpImports, edges)
+	}
+}
+
+// extractInvocationEdgeWithImports creates a call edge for an invocation_expression,
+// resolving through the import map when the object name matches an imported class.
+// Uses provenance "ast_resolved" and confidence 0.85 for import-resolved edges;
+// falls back to "ast_inferred" / 0.7 for unresolved edges.
+func (e *CSharpExtractor) extractInvocationEdgeWithImports(node *sitter.Node, opts types.ExtractOptions, parentContext string, sourceHash types.Hash, csharpImports map[string]string) *types.Edge {
+	// The function child is the first child of invocation_expression.
+	funcNode := node.ChildByFieldName("function")
+	if funcNode == nil {
+		// Fallback: first child might be the function expression.
+		if node.ChildCount() > 0 {
+			funcNode = node.Child(0)
+		}
+		if funcNode == nil {
+			return nil
+		}
+	}
+
+	var targetName string
+	var objectName string
+
+	switch funcNode.Type() {
+	case "member_access_expression":
+		// object.Method() - extract the method name and the object.
+		nameNode := funcNode.ChildByFieldName("name")
+		if nameNode != nil {
+			targetName = nameNode.Content(opts.Content)
+		}
+		// Get the expression (object) part for import resolution.
+		exprNode := funcNode.ChildByFieldName("expression")
+		if exprNode != nil {
+			objectName = exprNode.Content(opts.Content)
+		}
+	case "identifier_name", "identifier":
+		targetName = funcNode.Content(opts.Content)
+	case "member_binding_expression":
+		// ?.Method() - conditional access.
+		nameNode := funcNode.ChildByFieldName("name")
+		if nameNode != nil {
+			targetName = nameNode.Content(opts.Content)
+		}
+	default:
+		// Try to extract text as-is for simple cases.
+		targetName = funcNode.Content(opts.Content)
+		// Limit to reasonable identifier-like strings.
+		if strings.ContainsAny(targetName, " \t\n(){}[]") {
+			return nil
+		}
+	}
+
+	if targetName == "" {
+		return nil
+	}
+
+	// Determine provenance and confidence based on import resolution.
+	edgeProvenance := "ast_inferred"
+	edgeConfidence := 0.7
+	targetFilePath := opts.FilePath
+
+	// If we have a member access with an uppercase object name, try import resolution.
+	if objectName != "" && len(objectName) > 0 && objectName[0] >= 'A' && objectName[0] <= 'Z' {
+		if importPath, ok := csharpImports[objectName]; ok {
+			edgeProvenance = "ast_resolved"
+			edgeConfidence = 0.85
+			targetFilePath = importPath
+		}
+	}
+
+	targetHash := types.ComputeNodeHash(opts.RepoURL, targetFilePath, types.EmptyHash, targetName, "method")
+	edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "calls", edgeProvenance)
+
+	return &types.Edge{
+		EdgeHash:     edgeHash,
+		SourceHash:   sourceHash,
+		TargetHash:   targetHash,
+		EdgeType:     "calls",
+		Confidence:   edgeConfidence,
+		Provenance:   edgeProvenance,
+		CallSiteLine: int(node.StartPoint().Row) + 1,
+		CallSiteCol:  int(node.StartPoint().Column),
+		CallSiteFile: opts.FilePath,
 	}
 }
 
