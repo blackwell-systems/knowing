@@ -15,6 +15,7 @@ package treesitter
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -67,10 +68,16 @@ func (e *TreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractOpt
 	root := tree.RootNode()
 	result := &types.ExtractResult{}
 
+	// Build Python import map: maps imported names to their source module.
+	// e.g., "from flask import Flask" -> pyImports["Flask"] = "flask"
+	// e.g., "from flask.app import Flask" -> pyImports["Flask"] = "flask.app"
+	// e.g., "import os" -> pyImports["os"] = "os"
+	pyImports := buildPythonImportMap(root, opts.Content)
+
 	// Walk the AST and extract symbols. The empty funcHash means top-level
 	// calls use a synthetic module-level source; calls inside functions use
 	// the function's node hash.
-	e.walkNode(root, opts, "", types.EmptyHash, result)
+	e.walkNodeWithImports(root, opts, "", types.EmptyHash, pyImports, result)
 
 	// Detect Python web framework routes (Flask, FastAPI, Django).
 	e.extractPythonRoutes(root, opts, result)
@@ -103,6 +110,10 @@ func (e *TreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractOpt
 // funcHash is the node hash of the enclosing function/method; calls inside a
 // function use this as their edge source so the enricher can find and upgrade them.
 func (e *TreeSitterExtractor) walkNode(node *sitter.Node, opts types.ExtractOptions, classContext string, funcHash types.Hash, result *types.ExtractResult) {
+	e.walkNodeWithImports(node, opts, classContext, funcHash, nil, result)
+}
+
+func (e *TreeSitterExtractor) walkNodeWithImports(node *sitter.Node, opts types.ExtractOptions, classContext string, funcHash types.Hash, pyImports map[string]string, result *types.ExtractResult) {
 	if node == nil {
 		return
 	}
@@ -115,13 +126,13 @@ func (e *TreeSitterExtractor) walkNode(node *sitter.Node, opts types.ExtractOpti
 	case "import_statement", "import_from_statement":
 		e.extractImport(node, opts, classContext, result)
 	case "call":
-		e.extractCall(node, opts, classContext, funcHash, result)
+		e.extractCallWithImports(node, opts, classContext, funcHash, pyImports, result)
 	case "raise_statement":
 		e.extractRaise(node, opts, classContext, result)
 	default:
 		for i := 0; i < int(node.ChildCount()); i++ {
 			child := node.Child(i)
-			e.walkNode(child, opts, classContext, funcHash, result)
+			e.walkNodeWithImports(child, opts, classContext, funcHash, pyImports, result)
 		}
 	}
 }
@@ -240,11 +251,15 @@ func (e *TreeSitterExtractor) extractImport(node *sitter.Node, opts types.Extrac
 }
 
 // extractCall extracts function call expressions and creates call edges.
-// Call-site position (file, line, col) is stored on the edge so the LSP
-// enrichment pass can query GetDefinition to upgrade the edge to lsp_resolved.
-// funcHash is the enclosing function/method's node hash; when non-empty, it is
-// used as the edge source so the enricher can find these edges via NodesByName.
 func (e *TreeSitterExtractor) extractCall(node *sitter.Node, opts types.ExtractOptions, classContext string, funcHash types.Hash, result *types.ExtractResult) {
+	e.extractCallWithImports(node, opts, classContext, funcHash, nil, result)
+}
+
+// extractCallWithImports extracts function call expressions and creates call edges.
+// When pyImports is provided, it resolves call targets through the import map so
+// that cross-file calls (e.g., Flask.before_request -> flask.app.Flask.before_request)
+// produce edges pointing to the correct target node.
+func (e *TreeSitterExtractor) extractCallWithImports(node *sitter.Node, opts types.ExtractOptions, classContext string, funcHash types.Hash, pyImports map[string]string, result *types.ExtractResult) {
 	funcNode := node.ChildByFieldName("function")
 	if funcNode == nil {
 		return
@@ -265,24 +280,165 @@ func (e *TreeSitterExtractor) extractCall(node *sitter.Node, opts types.ExtractO
 		sourceHash = types.ComputeNodeHash(opts.RepoURL, opts.ModuleRoot, opts.FileHash, sourceQName, "module")
 	}
 
-	// Target is the called function (may be unresolved).
-	targetQName := e.qualifiedName(opts, classContext, calledName)
+	// Resolve target through import map when available.
+	// For "Flask.before_request()", calledName is "Flask.before_request".
+	// If "Flask" is in pyImports as coming from "flask.app", we resolve
+	// the target to the definition file rather than the current file.
+	targetQName := e.resolveCallTarget(opts, classContext, calledName, pyImports)
 	targetHash := types.ComputeNodeHash(opts.RepoURL, opts.ModuleRoot, types.EmptyHash, targetQName, "function")
 
 	provenance := "ast_inferred"
+	confidence := 0.7
+	// Higher confidence when resolved through imports (we know the source module).
+	if pyImports != nil {
+		firstName := strings.Split(calledName, ".")[0]
+		if _, ok := pyImports[firstName]; ok {
+			provenance = "ast_resolved"
+			confidence = 0.85
+		}
+	}
+
 	edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "calls", provenance)
 	edge := types.Edge{
 		EdgeHash:     edgeHash,
 		SourceHash:   sourceHash,
 		TargetHash:   targetHash,
 		EdgeType:     "calls",
-		Confidence:   0.7,
+		Confidence:   confidence,
 		Provenance:   provenance,
 		CallSiteLine: int(funcNode.StartPoint().Row) + 1,
 		CallSiteCol:  int(funcNode.StartPoint().Column),
 		CallSiteFile: opts.FilePath,
 	}
 	result.Edges = append(result.Edges, edge)
+}
+
+// resolveCallTarget resolves a called name to its qualified target using the
+// import map. For "Flask.before_request", if "Flask" was imported from "flask.app",
+// the target becomes "repoURL://moduleRoot/src/flask/app.py.Flask.before_request".
+func (e *TreeSitterExtractor) resolveCallTarget(opts types.ExtractOptions, classContext, calledName string, pyImports map[string]string) string {
+	if pyImports == nil || calledName == "" {
+		return e.qualifiedName(opts, classContext, calledName)
+	}
+
+	// Split "Flask.before_request" into ["Flask", "before_request"]
+	parts := strings.Split(calledName, ".")
+	firstName := parts[0]
+
+	srcModule, ok := pyImports[firstName]
+	if !ok {
+		// Not an imported name; use local resolution.
+		return e.qualifiedName(opts, classContext, calledName)
+	}
+
+	// Resolve the module path to a file path within this repo.
+	// "flask.app" -> "src/flask/app.py" (convention: replace dots with /, append .py)
+	// "flask" -> "src/flask/__init__.py" (package import)
+	modulePath := resolveModuleToPath(srcModule, opts.ModuleRoot)
+	if modulePath == "" {
+		return e.qualifiedName(opts, classContext, calledName)
+	}
+
+	// Build the target qualified name using the resolved file path.
+	// "Flask.before_request" with module "flask.app" -> "repoURL://moduleRoot/src/flask/app.py.Flask.before_request"
+	symbolPart := strings.Join(parts, ".")
+	return fmt.Sprintf("%s://%s/%s.%s", opts.RepoURL, opts.ModuleRoot, modulePath, symbolPart)
+}
+
+// resolveModuleToPath converts a Python module path to a file path.
+// "flask.app" -> "src/flask/app.py" (tries common source layouts)
+// "flask" -> "src/flask/__init__.py"
+// Returns empty string if resolution fails.
+func resolveModuleToPath(modulePath, moduleRoot string) string {
+	// Convert dots to path separators.
+	relPath := strings.ReplaceAll(modulePath, ".", "/")
+
+	// Try common Python source layouts.
+	candidates := []string{
+		"src/" + relPath + ".py",
+		relPath + ".py",
+		"src/" + relPath + "/__init__.py",
+		relPath + "/__init__.py",
+	}
+
+	for _, candidate := range candidates {
+		fullPath := filepath.Join(moduleRoot, candidate)
+		if _, err := os.Stat(fullPath); err == nil {
+			return candidate
+		}
+	}
+
+	// If no file found, still return the best guess (the .py variant).
+	// The target hash may not match an actual node, but it creates an edge
+	// that could be resolved later by the cross-repo resolver.
+	return "src/" + relPath + ".py"
+}
+
+// buildPythonImportMap extracts all import statements from a Python AST and
+// builds a map from imported names to their source modules.
+func buildPythonImportMap(root *sitter.Node, content []byte) map[string]string {
+	imports := make(map[string]string)
+
+	for i := 0; i < int(root.ChildCount()); i++ {
+		node := root.Child(i)
+		if node == nil {
+			continue
+		}
+
+		switch node.Type() {
+		case "import_from_statement":
+			// "from flask.app import Flask, request_ctx"
+			// module_name is "flask.app", imported names are "Flask", "request_ctx"
+			moduleNode := node.ChildByFieldName("module_name")
+			if moduleNode == nil {
+				continue
+			}
+			moduleName := moduleNode.Content(content)
+
+			// Collect all imported names.
+			for j := 0; j < int(node.ChildCount()); j++ {
+				child := node.Child(j)
+				if child == nil {
+					continue
+				}
+				if child.Type() == "dotted_name" && child != moduleNode {
+					imports[child.Content(content)] = moduleName
+				} else if child.Type() == "aliased_import" {
+					// "from X import Y as Z" -> map Z to module X
+					alias := child.ChildByFieldName("alias")
+					name := child.ChildByFieldName("name")
+					if alias != nil {
+						imports[alias.Content(content)] = moduleName
+					} else if name != nil {
+						imports[name.Content(content)] = moduleName
+					}
+				}
+			}
+
+		case "import_statement":
+			// "import flask" or "import flask as f"
+			for j := 0; j < int(node.ChildCount()); j++ {
+				child := node.Child(j)
+				if child == nil {
+					continue
+				}
+				if child.Type() == "dotted_name" {
+					name := child.Content(content)
+					imports[name] = name
+				} else if child.Type() == "aliased_import" {
+					alias := child.ChildByFieldName("alias")
+					name := child.ChildByFieldName("name")
+					if alias != nil && name != nil {
+						imports[alias.Content(content)] = name.Content(content)
+					} else if name != nil {
+						imports[name.Content(content)] = name.Content(content)
+					}
+				}
+			}
+		}
+	}
+
+	return imports
 }
 
 // extractRaise extracts a throws edge from a raise_statement node.
