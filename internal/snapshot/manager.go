@@ -94,6 +94,45 @@ func (sm *SnapshotManager) ComputeSnapshot(ctx context.Context, repoHash types.H
 	return &snap, nil
 }
 
+// ComputeSnapshotFromEdges builds a snapshot from pre-collected edge inputs,
+// skipping the expensive DB read. Use this when the caller already has all
+// edges in memory (e.g., the indexer's producer-consumer pipeline).
+func (sm *SnapshotManager) ComputeSnapshotFromEdges(ctx context.Context, repoHash types.Hash, commitHash string, edgeInputs []EdgeInput, nodeCount int) (*types.Snapshot, error) {
+	edgeCount := len(edgeInputs)
+
+	htree := BuildHierarchicalTree(edgeInputs)
+	snapshotHash := types.ComputeSnapshotHash(htree.Root)
+	sm.lastHierarchicalTree = htree
+
+	var parentHash types.Hash
+	var generation int
+	latest, err := sm.store.LatestSnapshot(ctx, repoHash)
+	if err != nil {
+		return nil, fmt.Errorf("getting latest snapshot: %w", err)
+	}
+	if latest != nil {
+		parentHash = latest.SnapshotHash
+		generation = latest.Generation + 1
+	}
+
+	snap := types.Snapshot{
+		SnapshotHash: snapshotHash,
+		ParentHash:   parentHash,
+		RepoHash:     repoHash,
+		CommitHash:   commitHash,
+		Timestamp:    time.Now().Unix(),
+		NodeCount:    nodeCount,
+		EdgeCount:    edgeCount,
+		Generation:   generation,
+	}
+
+	if err := sm.store.CreateSnapshot(ctx, snap); err != nil {
+		return nil, fmt.Errorf("creating snapshot: %w", err)
+	}
+
+	return &snap, nil
+}
+
 // Diff returns the structural difference between two snapshots.
 // It delegates to the GraphStore's SnapshotDiff implementation.
 func (sm *SnapshotManager) Diff(ctx context.Context, oldHash, newHash types.Hash) (*types.DiffResult, error) {

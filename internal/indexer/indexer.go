@@ -17,6 +17,7 @@ import (
 	"github.com/blackwell-systems/knowing/internal/indexer/authorship"
 	"github.com/blackwell-systems/knowing/internal/indexer/gotsextractor"
 	"github.com/blackwell-systems/knowing/internal/indexer/ownership"
+	"github.com/blackwell-systems/knowing/internal/snapshot"
 	"github.com/blackwell-systems/knowing/internal/resolver"
 	"github.com/blackwell-systems/knowing/internal/roster"
 	"github.com/blackwell-systems/knowing/internal/types"
@@ -36,6 +37,7 @@ import (
 // Defined locally to avoid importing internal/snapshot.
 type SnapshotComputer interface {
 	ComputeSnapshot(ctx context.Context, repoHash types.Hash, commitHash string) (*types.Snapshot, error)
+	ComputeSnapshotFromEdges(ctx context.Context, repoHash types.Hash, commitHash string, edgeInputs []snapshot.EdgeInput, nodeCount int) (*types.Snapshot, error)
 }
 
 // batchStore is an optional interface for stores that support batch inserts.
@@ -622,18 +624,39 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 		RebuildFTS(ctx context.Context) error
 	}
 
-	var snap *types.Snapshot
-	var snapErr error
-	var finalWg sync.WaitGroup
+	// Build edge inputs from in-memory edges (skip DB re-read).
+	edgeInputs := make([]snapshot.EdgeInput, 0, len(allEdges))
+	for _, e := range allEdges {
+		// Need package path for each edge. Extract from source node's qualified name
+		// if available, or use a lookup.
+		pkgPath := ""
+		edgeInputs = append(edgeInputs, snapshot.EdgeInput{
+			EdgeHash:    e.EdgeHash,
+			PackagePath: pkgPath, // filled below
+			EdgeType:    e.EdgeType,
+		})
+	}
 
-	// Snapshot computation (hierarchical Merkle tree). Runs first.
-	finalWg.Add(1)
-	go func() {
-		defer finalWg.Done()
-		snap, snapErr = idx.snapshot.ComputeSnapshot(ctx, repoHash, commitHash)
-	}()
+	// Fill package paths from allNodes (group by file → package).
+	// Build a source-hash-to-package map from stored nodes.
+	sourcePackage := make(map[types.Hash]string, len(allNodes))
+	for _, n := range allNodes {
+		// Extract package from qualified name: "repoURL://pkg/path.Symbol" → "pkg/path"
+		if qn := n.QualifiedName; qn != "" {
+			pkgPath, _ := snapshot.ExtractPackagePath(qn)
+			sourcePackage[n.NodeHash] = pkgPath
+		}
+	}
+	for i := range edgeInputs {
+		if pkg, ok := sourcePackage[allEdges[i].SourceHash]; ok && pkg != "" {
+			edgeInputs[i].PackagePath = pkg
+		} else {
+			edgeInputs[i].PackagePath = "_unknown"
+		}
+	}
 
-	finalWg.Wait()
+	// Compute snapshot from in-memory edges (no DB re-read).
+	snap, snapErr := idx.snapshot.ComputeSnapshotFromEdges(ctx, repoHash, commitHash, edgeInputs, len(allNodes))
 	fmt.Fprintf(os.Stderr, "  Snapshot computed in %s\n", time.Since(finalStart).Truncate(time.Millisecond))
 
 	if snapErr != nil {
@@ -651,7 +674,10 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 	// Record edge events for the diff between old and new edges. These
 	// events power SnapshotDiff: "removed" events for edges that disappeared
 	// and "added" events for edges that are new in this snapshot.
-	if hasCleanup && snap != nil {
+	// Skip on first index (no previous snapshot = no diff to record, and recording
+	// 229K "added" events for every edge is wasteful on initial index).
+	if hasCleanup && snap != nil && snap.ParentHash != (types.Hash{}) {
+		fmt.Fprintf(os.Stderr, "  Recording edge events...\n")
 		// Build set of removed edge hashes for O(1) lookup.
 		removedSet := make(map[types.Hash]bool, len(removedEdges))
 		for _, e := range removedEdges {

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/blackwell-systems/knowing/internal/indexer/goextractor"
+	"github.com/blackwell-systems/knowing/internal/snapshot"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
@@ -236,6 +237,16 @@ type mockSnapshotComputer struct {
 }
 
 func (m *mockSnapshotComputer) ComputeSnapshot(_ context.Context, repoHash types.Hash, commitHash string) (*types.Snapshot, error) {
+	if m.snap != nil {
+		return m.snap, nil
+	}
+	return &types.Snapshot{
+		RepoHash:   repoHash,
+		CommitHash: commitHash,
+	}, nil
+}
+
+func (m *mockSnapshotComputer) ComputeSnapshotFromEdges(_ context.Context, repoHash types.Hash, commitHash string, _ []snapshot.EdgeInput, _ int) (*types.Snapshot, error) {
 	if m.snap != nil {
 		return m.snap, nil
 	}
