@@ -520,5 +520,5 @@ pre_mortem:
             Both extractors already successfully parse these node types (extractImportEdge
             in Java, extractUsingDirective in C#). The same parsing logic can be reused.
             Tests with known Java/C# source will catch empty-map issues immediately.
-state: SCOUT_PENDING
+state: "REVIEWED"
 injection_method: hook
