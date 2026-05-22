@@ -112,7 +112,9 @@ func GenerateProof(tree *HierarchicalTree, edgeHash types.Hash, packagePath, edg
 	})
 
 	// Level 3: prove package root is in the repo's package root set.
-	pkgProof, err := binaryProof(pkgRoots, pkgRoot)
+	// Uses binaryProofTree because BuildMultiLevel uses computeTreeRoot for
+	// the top-level root (domain separation for single-group trees).
+	pkgProof, err := binaryProofTree(pkgRoots, pkgRoot)
 	if err != nil {
 		return nil, fmt.Errorf("package proof: %w", err)
 	}
@@ -306,6 +308,22 @@ func VerifyAbsenceProof(proof *AbsenceProof) bool {
 	// At least one neighbor must exist (otherwise the tree is empty and
 	// the trivial proof with no neighbors is valid).
 	return true
+}
+
+// binaryProofTree generates proof steps matching computeTreeRoot semantics.
+// For single-element inputs, emits a self-paired step (domain separation between
+// a subgroup root and the tree root). For multiple elements, delegates to binaryProof.
+func binaryProofTree(leaves []types.Hash, target types.Hash) ([]ProofStep, error) {
+	if len(leaves) == 0 {
+		return nil, fmt.Errorf("empty leaf set")
+	}
+	if len(leaves) == 1 {
+		if leaves[0] != target {
+			return nil, fmt.Errorf("target not found in single-leaf set")
+		}
+		return []ProofStep{{Sibling: target, IsLeft: false}}, nil
+	}
+	return binaryProof(leaves, target)
 }
 
 // binaryProof generates proof steps for a target hash within a sorted list
