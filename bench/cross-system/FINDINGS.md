@@ -358,10 +358,22 @@ Replaced the TypeScript compiler (unusual factory-function pattern, 79% dangling
 
 **Session summary (Runs 7-17):** P@10 0.141 -> 0.226 (+60%). 11.3x vs grep. d=0.90 (very large effect on recall). MRR 0.250 -> 0.399 (+60%).
 
+### Run 18: TS extractor extends_clause fix (2026-05-21)
+
+Fixed bug: `extends_clause` is nested inside `class_heritage` in tree-sitter TypeScript AST, but extractor only checked direct children of `class_declaration`. VS Code now produces 901 extends edges + 337 inheritance edges (was 0).
+
+| System | P@10 | R@10 | NDCG@10 | MRR |
+|--------|------|------|---------|-----|
+| knowing | 0.230 | 0.284 | 0.336 | 0.383 |
+| grep | 0.020 | 0.035 | 0.037 | 0.072 |
+
+**Delta from Run 17:** P@10 +1.8% (0.226 -> 0.230). R@10 d=0.92 (very large).
+
+**Full session summary (Runs 7-18):** P@10 0.141 -> 0.230 (+63%). 11.5x vs grep. d=0.92 (very large effect on recall). MRR 0.250 -> 0.383 (+53%).
+
 **Next steps:**
 1. SWE-bench derived fixtures (publication-grade ground truth)
-2. Blog post / publication (17 runs, rigorous methodology, publishable data)
-3. Fix TS extractor `extends` edge extraction (currently not producing extends edges for VS Code classes)
+2. Blog post / publication (18 runs, rigorous methodology, publishable data)
 
 ---
 

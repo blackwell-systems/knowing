@@ -23,6 +23,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Migration 017 adds concepts column and recreates FTS virtual table
 - Bridges vocabulary gap where developers say "parser" but symbol is "parseOptionValue"
 
+#### TypeScript extends_clause Fix
+- Tree-sitter TypeScript nests `extends_clause` inside `class_heritage` (not direct child of class_declaration)
+- Extractor now searches one level deeper for the heritage wrapper
+- VS Code: 901 extends edges + 337 inheritance edges (was 0)
+- P@10 0.226 -> 0.230 with VS Code inheritance propagation active
+
 #### Deeper Call Chain Extraction (Python)
 - Walk into call arguments to extract nested calls, callbacks, and lambda references
 - Previously: `map(process, items)` only extracted the `map` call, missing `process` as a target
