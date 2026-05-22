@@ -437,12 +437,15 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 		seedSet[c.NodeHash] = true
 	}
 
-	// Community-aware RWR: if seeds cluster in 1-3 communities, constrain the
-	// walk to those communities. This prevents drifting into unrelated packages.
-	// If seeds span 4+ communities (diverse query), run unconstrained.
+	// Community-aware RWR: if ALL seeds cluster in exactly 1 community,
+	// constrain the walk to that community. This prevents drifting into
+	// unrelated packages for highly focused queries.
+	// Threshold 1 (not 3): benchmark showed that constraining at 2-3 communities
+	// cuts off cross-package dependencies that are essential for recall (Run 21:
+	// P@10 0.230 -> 0.185 with threshold 3). Only single-community queries benefit.
 	var rwrScores map[types.Hash]float64
 	var err error
-	if len(commCounts) > 0 && len(commCounts) <= 3 {
+	if len(commCounts) == 1 {
 		communityIDs := make(map[int]bool, len(commCounts))
 		for cid := range commCounts {
 			communityIDs[cid] = true
