@@ -266,8 +266,36 @@ The `bench/feedback-loop/` benchmark independently proves that feedback compound
 
 **RWR hub penalization:** Tested, no improvement. Noise symbols aren't reaching top-10 via high-degree hubs; they're legitimate graph neighbors that happen not to be in ground truth.
 
+### TypeScript Deep Dive: Root Cause Diagnosed (2026-05-21)
+
+Investigated why TypeScript scores P@10=0.026 (16/19 tasks at zero).
+
+**Attempted fixes (no improvement):**
+- Member expression fix (use property name not `object.method` for hash): +454 resolved edges, no P@10 change
+- Directory-level hashing (all src/compiler/ shares prefix): reverted, causes name collisions
+- Co-location edges (chain within same directory): reverted, adds noise without fixing seeds
+- RWR hub penalization: no change (noise isn't from hubs)
+
+**Root cause:** NOT a graph connectivity problem. It's a **keyword seeding problem.**
+
+Example: Task "Add a compiler option --strictEnumChecks" produces keywords `["compiler", "option", "strict", "enum", "checks"]`. These match `compilerOptionsAffectEmit`, `compilerOptionsChanged`, `compilerOptionsAffectDeclarationPath` (dozens of wrong symbols). The ground truth symbols (`commandLineParser.getOptionDeclarationFromName`, `commandLineParser.parseOptionValue`) don't contain "compiler" or "option" in their names.
+
+**79% of TS call edges are dangling** (target hash doesn't match any node) because:
+1. The TS compiler uses barrel re-exports (`import { ... } from "./_namespaces/ts.js"`)
+2. File-level hashing means a call from `checker.ts` to a function defined in `utilities.ts` produces a different target hash than the actual node
+
+**Per-repo bottleneck diagnosis:**
+
+| Repo | Bottleneck | Fix needed |
+|------|-----------|-----------|
+| Django | Solved (inheritance) | P@10=0.330 |
+| Flask | Solved (inheritance + imports) | P@10=0.321 |
+| Kubernetes | Graph flat (Go, no classes) | Deeper Go call chains |
+| Cargo | Moderate | More Rust-specific edges |
+| TypeScript | Keyword seeding | Concept-to-symbol mapping (equivalence classes for TS compiler) |
+
 **Next steps:**
-1. TypeScript extraction improvement (extract more internal functions from large files)
+1. Language-aware keyword seeding (concept -> symbol name mapping for TS-style codebases)
 2. Session memory persistence (ship feedback compounding for real users)
 3. SWE-bench derived fixtures (publication-grade ground truth)
 
