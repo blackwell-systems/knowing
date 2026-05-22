@@ -437,7 +437,20 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 		seedSet[c.NodeHash] = true
 	}
 
-	rwrScores, err := RandomWalkWithRestart(ctx, e.store, seedHashes, 0.2, 20)
+	// Community-aware RWR: if seeds cluster in 1-3 communities, constrain the
+	// walk to those communities. This prevents drifting into unrelated packages.
+	// If seeds span 4+ communities (diverse query), run unconstrained.
+	var rwrScores map[types.Hash]float64
+	var err error
+	if len(commCounts) > 0 && len(commCounts) <= 3 {
+		communityIDs := make(map[int]bool, len(commCounts))
+		for cid := range commCounts {
+			communityIDs[cid] = true
+		}
+		rwrScores, err = CommunityFilteredRWR(ctx, e.store, seedHashes, 0.2, 20, communityIDs)
+	} else {
+		rwrScores, err = RandomWalkWithRestart(ctx, e.store, seedHashes, 0.2, 20)
+	}
 	if err != nil {
 		return nil, err
 	}
