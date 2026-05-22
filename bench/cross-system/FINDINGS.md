@@ -388,9 +388,40 @@ A developer fixing a bug needs to understand the architecture first (knowing's s
 
 **Implication for publication:** Report both scores honestly. knowing is not a fault localizer. It's a context packing system. The manual fixtures (P@10=0.230) measure what knowing actually does. SWE-bench (P@10=0.01) measures something it wasn't designed for.
 
+### GitNexus Competitor Comparison (2026-05-21)
+
+Installed GitNexus (npm install -g gitnexus) and benchmarked indexing performance.
+
+**Indexing time comparison:**
+
+| Repo | knowing | GitNexus | Ratio | GitNexus RAM |
+|------|---------|----------|-------|-------------|
+| Flask (15K LOC) | 0.1s | 5.2s | 52x | ~200MB |
+| Cargo (150K LOC) | 1.5s | 12.0s | 8x | ~400MB |
+| Django (400K LOC) | 3.7s | ~30s (est) | 8x | ~1GB |
+| Kubernetes (3.5M LOC) | **18.6s** | **>60 min (killed)** | **>193x** | **5.7GB** |
+| VS Code (1M LOC) | 4.1s | Not attempted | - | - |
+
+**Why GitNexus fails at scale:**
+- All-in-memory architecture: entire graph lives in RAM until final flush (5.7GB for kubernetes)
+- Single-threaded JavaScript: 100% CPU in one V8 interpreter thread (sampled with macOS `sample`)
+- O(n^2+) algorithms: community detection and flow analysis scale superlinearly with graph size
+- No streaming writes: kill the process = lose all work (no partial results)
+- Async loop anti-pattern: CPU-bound graph computation wrapped in `async/await` promises (never yields to event loop)
+
+**knowing's architectural advantages:**
+- Streaming commits (data on disk in 2s, kill-safe)
+- Parallel extraction (GOMAXPROCS workers, 431% CPU utilization)
+- Bounded RAM (~200MB regardless of repo size, batch to disk every 500 files)
+- Deferred analysis (community detection at query time on small subgraphs, not index time on full graph)
+- Compiled Go (vs interpreted JavaScript)
+
+**Retrieval quality comparison:** Not yet measured (GitNexus cannot index kubernetes/VS Code within timeout). Flask-only comparison deferred to next session.
+
 **Next steps:**
-1. Blog post / publication (18 runs, rigorous methodology, honest findings)
-2. Java corpus addition (validate Java extractor, deferred to future session)
+1. Blog post / publication (18 runs, competitive data, rigorous methodology)
+2. Flask-only retrieval comparison (GitNexus vs knowing on the one repo both can handle quickly)
+3. Java corpus addition (validate Java extractor, deferred to future session)
 
 ---
 

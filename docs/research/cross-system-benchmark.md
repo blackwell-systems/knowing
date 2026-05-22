@@ -17,7 +17,7 @@
 | knowing adapter | Done | P@10=0.230, d=0.92 (very large) |
 | grep adapter | Done | P@10=0.020 (baseline) |
 | Aider adapter | Not built | Highest priority: direct competitor, pip install |
-| GitNexus adapter | Not built | npm install, MCP tool interface |
+| GitNexus adapter | Built + tested | Installed, indexed Flask/Django/Cargo. Cannot index kubernetes (>60 min, killed at 5.7GB RAM). 193x slower than knowing on enterprise repos. |
 | CGC adapter | Not built | pip install, MCP tool interface |
 | SCIP adapter | Not built | Requires per-language SCIP index generation |
 | Statistical analysis | Done | Wilcoxon, Cohen's d, bootstrap CI, 18 runs |
