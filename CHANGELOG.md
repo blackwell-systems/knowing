@@ -17,6 +17,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Wildcard imports (`import com.pkg.*`) correctly skipped (cannot resolve individual names)
 - Completes cross-file import resolution for all 4 OOP languages: Python, TypeScript, Rust, Java, C#
 
+### Fixed
+
+#### Phantom External Nodes Dominating Retrieval Results
+- External nodes (kind="external", `external://` prefix) from failed LSP enrichment entered results via RWR walk
+- On repos with many phantom nodes (e.g., Spark Java: 2282 externals), they occupied all top-10 positions
+- Fix: filter at two points: `filterNoisySymbols` (seed candidates) and RWR result loop (before scoring)
+- Spark Java: P@10 0.00 -> 0.10 (was returning only phantom nodes, now finds real symbols)
+
 ### Changed
 
 #### Compound-First Keyword Extraction (Language-Aware Tiered Search)
