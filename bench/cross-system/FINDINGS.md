@@ -294,10 +294,27 @@ Example: Task "Add a compiler option --strictEnumChecks" produces keywords `["co
 | Cargo | Moderate | More Rust-specific edges |
 | TypeScript | Keyword seeding | Concept-to-symbol mapping (equivalence classes for TS compiler) |
 
+### Run 15: FTS concepts column (2026-05-21)
+
+Added `concepts` column to FTS index containing CamelCase-split tokens from file names and parent directories. "src/compiler/commandLineParser.ts" produces concepts "compiler command Line Parser commandLineParser". BM25 weights: symbol_name=10x, concepts=5x, qualified_name=3x, signature=1x, file_path=1x.
+
+| System | P@10 | R@10 | NDCG@10 | MRR |
+|--------|------|------|---------|-----|
+| knowing | 0.203 | 0.245 | 0.296 | 0.323 |
+| grep | 0.016 | 0.032 | 0.031 | 0.062 |
+
+**Delta from Run 14:** P@10 +0.002 (0.201 -> 0.203). Small gain. Helps tasks where file names contain relevant vocabulary (Flask scaffold, Cargo resolver).
+
+**TypeScript remains unsolved.** The TS compiler problem is a fundamental vocabulary gap: task says "compiler option" but implementation is in "commandLineParser". The symbol `compilerOptionsChanged` is a STRONGER BM25 match than `parseOptionValue` because it literally contains both query keywords. No amount of indexing or concept bridging fixes this at cold-start. The fix requires feedback compounding (proven at +20pp) or domain-specific equivalence classes.
+
+**Cumulative session results (Runs 7-15):** P@10 0.141 -> 0.203 (+44%). 12.7x vs grep. d=0.78 (large effect).
+
+**Optimization ceiling reached:** Graph connectivity (inheritance +29%), import resolution (+10%), and FTS improvements (concepts, tokenchars, symbol_name) have been exhausted. Remaining 80% miss rate requires either feedback compounding or semantic understanding beyond keyword matching.
+
 **Next steps:**
-1. Language-aware keyword seeding (concept -> symbol name mapping for TS-style codebases)
-2. Session memory persistence (ship feedback compounding for real users)
-3. SWE-bench derived fixtures (publication-grade ground truth)
+1. Session memory persistence (ship feedback compounding, proven +20pp mechanism)
+2. SWE-bench derived fixtures (publication-grade ground truth for Django/Flask)
+3. Blog post / publication (14 runs, rigorous methodology, publishable data)
 
 ---
 
