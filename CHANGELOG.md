@@ -8,6 +8,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+#### Cross-File Import Resolution (Python, TypeScript, Rust)
+- **Python**: `buildPythonImportMap` extracts `import`/`from...import` statements, `resolveCallTarget` resolves call edges through the import map. 63 resolved cross-file edges on Flask.
+- **TypeScript**: `buildTSImportMap` extracts `import`/`require` declarations, `resolveCallEdgeWithImports` resolves call targets through the map. 5,684 resolved cross-file edges on TypeScript compiler.
+- **Rust**: `buildRustImportMap` extracts `use` declarations, `resolveCallEdgeWithImports` resolves `crate::`, `super::`, `self::` paths. 9,795 resolved cross-file edges on Cargo.
+- Import resolution creates more edges for RWR to walk, improving recall on cross-file tasks.
+
+### Fixed
+
+#### FTS was never populated in CLI mode (critical)
+- Background goroutine running `RebuildFTS` was killed on process exit before completing
+- FTS index was always empty in `knowing index` (CLI) mode; only daemon kept it populated
+- Fix: `RebuildFTS` now runs synchronously after snapshot computation
+- FTS adds ~500ms to index time (acceptable for correct results)
+
+#### FTS tokenizer: underscore now a token character
+- `before_request` was tokenized as two tokens (`before`, `request`), preventing exact match
+- Migration 016 updated: `tokenchars '_'` added to FTS5 tokenizer configuration
+- Multi-word identifiers using snake_case now match as single tokens
+
+### Changed
+
+#### RRF channel weights equalized (tiered=2, BM25=2, equivalence=2)
+- Was: tiered=3, BM25=1, equivalence=2
+- Investigation showed BM25 and tiered find the same symbols in practice
+- Equalizing weights removes artificial suppression of BM25 channel
+- Cross-system benchmark: P@10 improved from 0.141 to 0.154 across Runs 7-10
+
 #### P2 Edge Type Expansion (24 -> 30 edge types)
 - `documents`: comment/docstring association with documented symbols
 - `gated_by_flag`: feature flag references (LaunchDarkly, OpenFeature, custom `isEnabled` patterns)
@@ -26,7 +53,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Shared tree parsing**: tree-sitter parses once per file, all extractors share the result
 - **Thread-safe extractors**: per-call parser creation (11 extractors fixed for parallel use)
 - **In-memory snapshot**: `ComputeSnapshotFromEdges` builds Merkle tree from pipeline data (no DB re-read)
-- **Deferred FTS**: full-text search rebuilds in background after index returns
+- **Synchronous FTS**: full-text search rebuilds synchronously after snapshot (~500ms)
 - **Skip edge events on first index**: no parent = no diff to record (saves 268K INSERT ops)
 - **Skip generated files**: checks first 512 bytes for `Code generated`/`DO NOT EDIT` markers
 - **Skip non-source dirs**: `.git`, `vendor`, `node_modules`, `staging`, `third_party`, etc.

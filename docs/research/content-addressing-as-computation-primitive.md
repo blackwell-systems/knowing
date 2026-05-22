@@ -8,13 +8,13 @@ May 2026, v1.0
 
 ## Abstract
 
-Content-addressing is usually treated as an integrity mechanism: a way to verify that data has not changed. In software relationship intelligence, we show that the structure of content-addressed identity can also become the query execution substrate. By organizing a Merkle tree around semantic boundaries such as package and relationship type, the system turns staleness checks, scoped cache keys, invalidation, diffing, and auditability into structural properties of the identity model itself.
+Content-addressing is usually treated as an integrity mechanism: a way to verify that data has not changed. In software relationship intelligence, we show that the structure of content-addressed identity can also become the query execution substrate.
 
 A flat Merkle tree proves state. A hierarchical Merkle tree organizes computation.
 
-When the tree is organized by package and edge type rather than by flat sorted hash, the identity structure itself becomes the query optimization layer. Diffs become O(packages) instead of O(edges) with semantically meaningful output: changed package names and edge types, not arbitrary tree positions (281x faster than naive linear scan on the knowing repo). Cache keys become O(1) subgraph root lookups. Invalidation is scoped to the packages that actually changed. This is what makes scoped invalidation possible. The tree does not merely prove state; it organizes computation.
+By organizing a Merkle tree around semantic boundaries (package and relationship type rather than flat sorted hash), the identity structure itself becomes the query optimization layer. Diffs become O(packages) instead of O(edges) with semantically meaningful output (281x faster than naive linear scan; 517x at 100K edges). Cache keys become O(1) subgraph root lookups. Invalidation is scoped to packages that actually changed. Feedback anchored to content-addressed symbols expires structurally when code changes.
 
-This paper presents both insights together: the original argument (content-addressing solves six structural problems with mutable graphs) and the hierarchical revelation (organizing the Merkle tree by semantic boundaries turns identity into a query engine). Each capability in the system is a structural consequence of the hierarchical identity model, not a feature bolted onto it.
+This paper presents both insights together: the original argument (content-addressing solves six structural problems with mutable graphs) and the hierarchical revelation (organizing the Merkle tree by semantic boundaries turns identity into a query engine). Validated on three codebases: the knowing repository (24.9K edges, 62 packages), Grafana (714K edges, 338K nodes), and Spring PetClinic (Java, cross-language portability).
 
 ---
 
@@ -637,7 +637,7 @@ Build time for the hierarchical tree is 1.4-1.7x slower than flat (additional in
 
 These properties hold under the assumptions stated in Section 5.2. The limitations in Section 10 are real and must be addressed as core infrastructure, not afterthoughts. Canonicalization is not a detail; it is a precondition. Deterministic extractors are not optional; they are required for Property 1 to hold.
 
-While content-addressing of code elements exists (Unison for definitions, Git for files), we are not aware of an existing system that applies hierarchical content-addressed identity over relationship edges as a query-optimization substrate. The reason is likely conceptual: you only see the algorithmic opportunity when you stop thinking about content-addressing as an integrity mechanism and start thinking about it as a computation architecture.
+While content-addressing of code elements exists (Unison for definitions, Git for files), we found no existing system that applies hierarchical content-addressed identity over relationship edges as a query-optimization substrate. A survey of code intelligence tools (Sourcegraph, Kythe, CodeQL, LSIF), build systems (Bazel, Buck2), graph databases (Neo4j, Dgraph), content-addressed storage systems (IPFS, Nix), and the emerging "code knowledge graph for AI agents" space found no system combining these properties. The reason is likely conceptual: you only see the algorithmic opportunity when you stop thinking about content-addressing as an integrity mechanism and start thinking about it as a computation architecture.
 
 Git proved this for source code. The same insight applies, with equal force and deeper consequences, to everything derived from source code.
 
@@ -676,6 +676,14 @@ Implementation: `internal/snapshot/hierarchical.go`.
 4. Laurie, B. et al. (2013). "Certificate Transparency." RFC 6962. Merkle trees for absence proofs (proving a certificate was NOT issued). Knowing adapts this technique for proving code relationships do not exist.
 
 5. Page, L. et al. (1999). "The PageRank Citation Ranking: Bringing Order to the Web." Random Walk with Restart (a variant of PageRank) is the primary graph traversal algorithm in knowing's context engine.
+
+6. Shapiro, M. et al. (2011). "Conflict-Free Replicated Data Types." *SSS 2011*, pp. 386-400. Operation commutativity as a structural regime for coordination-free convergence. Knowing's content-addressing provides a different path: convergence through deterministic identity rather than algebraic commutativity.
+
+7. Bailis, P. et al. (2014). "Coordination Avoidance in Database Systems." *Proceedings of the VLDB Endowment*, 8(3). Invariant confluence as a condition for coordination-free execution. Knowing's snapshot isolation achieves coordination-free reads through a different mechanism: pinning to an immutable hash rather than proving invariant preservation.
+
+8. Blackwell, D. (2026). "Normalization Confluence for Registry-Governed Stream Processing." DOI: [10.5281/zenodo.18677400](https://doi.org/10.5281/zenodo.18677400). A third coordination-free convergence regime (compensation commutativity) by the same author. The through-line: structural guarantees that eliminate coordination. In that work, coordination-free convergence of event streams. In this work, coordination-free identity agreement across independent indexers.
+
+9. Blackwell, D. (2026). "Normalization Confluence in Federated Registry Networks." DOI: [10.5281/zenodo.18677400](https://doi.org/10.5281/zenodo.18677400). Extension to federated environments with registry morphisms. The cross-repo identity problem in knowing (independent indexers must agree on hashes without coordination) is structurally analogous to the federated convergence problem (independent registries must agree on valid states without coordination).
 
 ---
 

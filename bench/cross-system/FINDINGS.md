@@ -145,17 +145,43 @@ Two fixes: (1) FTS was never populated in CLI mode (background goroutine killed 
 **Critical bug found:** FTS was NEVER populated for CLI-indexed repos in ALL previous runs. Runs 1-7 measured retrieval quality WITHOUT any BM25 contribution. The engine ran on graph traversal (RWR + seeds) alone. P@10=0.14 was achieved without FTS.
 
 **Next steps:**
-1. Cross-file import resolution for Python/TS (more call edges = better recall)
+1. ~~Cross-file import resolution for Python/TS (more call edges = better recall)~~ Done in Run 9-10
 2. Session memory persistence (feedback compounding)
 3. Investigate why FTS contributes so little despite being populated (P@10 +0.006 only)
+
+### Run 9: Python cross-file import resolution (2026-05-21)
+
+`buildPythonImportMap` extracts `import`/`from...import` statements. `resolveCallTarget` resolves call edges through the import map. 63 resolved cross-file edges on Flask.
+
+| System | P@10 | R@10 | NDCG@10 | MRR |
+|--------|------|------|---------|-----|
+| knowing | 0.152 | 0.205 | 0.221 | 0.248 |
+| grep | 0.016 | 0.024 | 0.030 | 0.058 |
+
+**Delta from Run 8:** P@10 +0.005 (0.147->0.152). Small improvement from 63 new edges on Flask. Import resolution creates more paths for RWR to walk.
+
+### Run 10: TypeScript cross-file import resolution (2026-05-21)
+
+`buildTSImportMap` extracts `import`/`require` declarations. `resolveCallEdgeWithImports` resolves call targets. 5,684 resolved cross-file edges on TypeScript compiler.
+
+| System | P@10 | R@10 | NDCG@10 | MRR |
+|--------|------|------|---------|-----|
+| knowing | 0.154 | 0.208 | 0.225 | 0.252 |
+| grep | 0.016 | 0.024 | 0.030 | 0.058 |
+
+**Delta from Run 9:** P@10 +0.002 (0.152->0.154). 5,684 new edges but modest P@10 gain. The edges improve recall (more symbols reachable via RWR) but precision gains diminish because tiered/BM25 already surface the same high-value symbols.
+
+**Cumulative Runs 7-10:** P@10 0.141->0.154 (+9.2%). 9.6x vs grep. RRF weights equalized (tiered=2, BM25=2, equiv=2) during this period.
+
+**Critical finding:** RWR (graph traversal) is the primary differentiator. FTS adds minimally because tiered search already finds the same symbols by keyword. Import resolution helps because it creates more edges for RWR to walk, not because it surfaces new seed symbols.
 
 ---
 
 ## Identified Bottlenecks (from analysis)
 
-1. **FTS tokenization** (blocks all keyword-based improvements): qualified names include file paths. BM25 search for "QuerySet" doesn't match "github.com/django/django://django/db/models/query.py.QuerySet" because the tokenizer treats the whole thing as one token or splits on `/` but not on `.` after file extensions.
+1. ~~**FTS tokenization**~~ **Fixed** (Runs 6, 8): `symbol_name` column (migration 016) + `tokenchars '_'` resolved the qualified name tokenization issue. BM25 now matches by terminal symbol name.
 
-2. **Ground truth naming** (inflates false negatives): fixtures use Python module paths (`flask.app.Flask.before_request`) but knowing stores symbols with file paths and possibly different class names (base class vs subclass).
+2. **Ground truth naming** (inflates false negatives): fixtures use Python module paths (`flask.app.Flask.before_request`) but knowing stores symbols with file paths and possibly different class names (base class vs subclass). Partially addressed by fixture revision in Run 7 (73%->95% match rate).
 
 3. **Missing competitor tools**: only comparing knowing vs grep. Need gitnexus, aider, cgc installed to produce the full comparison.
 

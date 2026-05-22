@@ -62,8 +62,8 @@ Seed selection uses Reciprocal Rank Fusion (`rrfFuseMulti`) across four channels
 
 | Channel | Weight | Source |
 |---------|--------|--------|
-| 1. Tiered keyword matching | 3.0 | 5-tier exact/prefix/substring/path/interface matching |
-| 2. BM25 FTS5 | 1.0 | SQLite FTS5 over symbol_name, qualified_name, signature, file_path |
+| 1. Tiered keyword matching | 2.0 | 5-tier exact/prefix/substring/path/interface matching |
+| 2. BM25 FTS5 | 2.0 | SQLite FTS5 over symbol_name, qualified_name, signature, file_path |
 | 3. Vector/embedding search | 0.0 | BGE-small-en-v1.5 via HNSW (disabled pending code-tuned model) |
 | 4. Equivalence class matching | 2.0 | 115 equivalence classes (63 universal + 21 knowing-specific + 31 language-specific) mapped to target symbols |
 
@@ -97,7 +97,9 @@ Migration 006 creates the SQLite FTS5 virtual table (`nodes_fts`). Migration 016
 
 The FTS5 table now indexes four columns with BM25 weights: `symbol_name` (10x), `qualified_name` (3x), `signature` (1x), `file_path` (1x). The high weight on `symbol_name` ensures that keyword searches like "before_request" rank symbols by their actual name rather than by incidental path token frequency.
 
-Tokenization uses CamelCase-aware splitting (`splitForFTS`, `splitCamelCase`) so that a query for "Store" matches "SQLiteStore" or "NewSQLiteStore". `RebuildFTS` is called after batch indexing to keep the index current. BM25 is fused as RRF Channel 2 with weight 1.0.
+The FTS5 tokenizer uses `tokenchars '_'` so that snake_case identifiers (e.g., `before_request`) are indexed as single tokens rather than being split at the underscore.
+
+Tokenization uses CamelCase-aware splitting (`splitForFTS`, `splitCamelCase`) so that a query for "Store" matches "SQLiteStore" or "NewSQLiteStore". `RebuildFTS` runs synchronously after snapshot computation (previously deferred to a background goroutine that was killed on CLI process exit, leaving FTS empty). Adds ~500ms to index time. BM25 is fused as RRF Channel 2 with weight 2.0.
 
 ## Embedding Search (Infrastructure Shipped, Disabled)
 
@@ -118,8 +120,8 @@ Before scoring, `filterNoisySymbols` removes low-signal candidates:
 1. Extract keywords from the task description (stop-word filtered, CamelCase split, deduplicated).
 2. Recall task memory: match keywords against stored entries (7-day linear decay), add matched symbols to FeedbackBoost at 0.3x scale.
 3. Run 4-channel RRF seed fusion:
-   - Channel 1 (weight 3.0): 5-tier keyword matching (exact > prefix > substring > path > interface)
-   - Channel 2 (weight 1.0): BM25 FTS5 search
+   - Channel 1 (weight 2.0): 5-tier keyword matching (exact > prefix > substring > path > interface)
+   - Channel 2 (weight 2.0): BM25 FTS5 search
    - Channel 3 (weight 0.0): Vector/embedding search (disabled)
    - Channel 4 (weight 2.0): Equivalence class matching (115 equivalence classes: 63 universal + 21 knowing-specific + 31 language-specific, plus graph-derived aliases at weight 0.7)
 4. `rrfFuseMulti` merges all channels into a single ranked seed set.

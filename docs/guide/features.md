@@ -1,6 +1,6 @@
 # FEATURES.md -- Comprehensive Feature Dump for AI Reference
 
-Generated: 2026-05-15 (updated: 2026-05-21, features 77-106 added: hash domain prefixes, fsck, GC, lockfile, LRU cache, modular community detection, DiffOptions, indexed_at, verify, React viz, MCP resources, graph notes, Phase 3 complete, Merkle proofs, stats CLI, named refs, generation numbers, auto-GC, merkle-forest extraction; P2 edge types, parallel indexer, cross-system benchmark, language equivalence classes)
+Generated: 2026-05-15 (updated: 2026-05-21, features 77-107 added: hash domain prefixes, fsck, GC, lockfile, LRU cache, modular community detection, DiffOptions, indexed_at, verify, React viz, MCP resources, graph notes, Phase 3 complete, Merkle proofs, stats CLI, named refs, generation numbers, auto-GC, merkle-forest extraction; P2 edge types, parallel indexer, cross-system benchmark, language equivalence classes, cross-file import resolution)
 Source: code inspection of all Go files across internal/, cmd/, and config
 Repo: github.com/blackwell-systems/knowing
 
@@ -90,7 +90,7 @@ Repo: github.com/blackwell-systems/knowing
 - **Outputs:** `ExtractResult`.
 - **Limitations/known gaps:**
   - Only Python is supported (other languages return error).
-  - Import resolution is text-based (no Python module resolution).
+  - Cross-file import resolution via `buildPythonImportMap` resolves calls through import map (63 edges on Flask). See feature 107.
   - Class context tracking is basic (single-level nesting only).
   - ~~No call-site positions stored on edges.~~ (Fixed: call-site positions are now stored on Python call edges.)
 - **Dependencies:** `github.com/smacker/go-tree-sitter`, `go-tree-sitter/python`.
@@ -692,7 +692,7 @@ Repo: github.com/blackwell-systems/knowing
   3. **Substring match:** Node qualified name contains a task keyword as a substring.
   4. **File-path matching:** Nodes whose file path matches task-referenced files.
   5. **Interface-aware seeding:** If a seed is an interface, its implementations are also seeded.
-- **Why it matters:** Ensures the context engine finds relevant starting points even for vague task descriptions, while prioritizing precise matches higher in the ranking. Now fused as RRF Channel 1 (weight 3.0) alongside BM25, vector, and equivalence class channels.
+- **Why it matters:** Ensures the context engine finds relevant starting points even for vague task descriptions, while prioritizing precise matches higher in the ranking. Now fused as RRF Channel 1 (weight 2.0) alongside BM25, vector, and equivalence class channels.
 
 ### 52. Density-Ranked Knapsack Packing
 
@@ -739,7 +739,7 @@ Repo: github.com/blackwell-systems/knowing
 - **Package(s):** `internal/store`
 - **Migrations:** `006_add_fts5_index.sql`, `016_fts_symbol_name.sql`
 - **Entry point:** `RebuildFTS`, `SearchBM25Nodes`, `extractSymbolName` in `internal/store/sqlite.go`
-- **What it does:** Creates an SQLite FTS5 virtual table (`nodes_fts`) over four columns: `symbol_name`, `qualified_name`, `signature`, and `file_path`. BM25 weights are: symbol_name=10x, qualified_name=3x, signature=1x, file_path=1x. The `symbol_name` column (migration 016) stores just the terminal identifier (e.g., "QuerySet.filter") extracted by `extractSymbolName`, which strips repo URL, package path, and file extension prefix. Uses CamelCase-aware tokenization (`splitForFTS`, `splitCamelCase`) so compound identifiers are searchable by individual terms. `RebuildFTS` is called after batch indexing to rebuild the FTS content.
+- **What it does:** Creates an SQLite FTS5 virtual table (`nodes_fts`) over four columns: `symbol_name`, `qualified_name`, `signature`, and `file_path`. BM25 weights are: symbol_name=10x, qualified_name=3x, signature=1x, file_path=1x. The `symbol_name` column (migration 016) stores just the terminal identifier (e.g., "QuerySet.filter") extracted by `extractSymbolName`, which strips repo URL, package path, and file extension prefix. FTS5 tokenizer uses `tokenchars '_'` so snake_case identifiers (e.g., `before_request`) match as single tokens. Uses CamelCase-aware tokenization (`splitForFTS`, `splitCamelCase`) so compound identifiers are searchable by individual terms. `RebuildFTS` runs synchronously after snapshot computation (was previously a background goroutine that was killed on CLI process exit, leaving FTS empty in `knowing index` mode). Adds ~500ms to index time.
 - **Why it matters:** Improves recall for vague or partial task descriptions where substring matching alone misses relevant symbols. The high-weight `symbol_name` column ensures keyword searches match by actual symbol name rather than incidental path tokens, which is critical for non-Go repos where qualified names embed file paths.
 
 ### 57. Session-Aware Retrieval Boosts
@@ -767,7 +767,7 @@ Repo: github.com/blackwell-systems/knowing
 
 - **Package(s):** `internal/context/`
 - **Entry point:** `rrfFuseMulti` in `internal/context/context.go`
-- **What it does:** Replaces the previous single-channel tiered matching (with BM25 fallback) with a proper N-channel Reciprocal Rank Fusion system. Four channels: tiered keywords (weight 3.0), BM25 FTS5 (weight 1.0), vector/embedding search (weight 0.0, disabled), and equivalence class matching (weight 2.0). Each channel produces an independent ranked list; `rrfFuseMulti` merges them with per-channel weights.
+- **What it does:** Replaces the previous single-channel tiered matching (with BM25 fallback) with a proper N-channel Reciprocal Rank Fusion system. Four channels: tiered keywords (weight 2.0), BM25 FTS5 (weight 2.0), vector/embedding search (weight 0.0, disabled), and equivalence class matching (weight 2.0). Each channel produces an independent ranked list; `rrfFuseMulti` merges them with per-channel weights. Weights were equalized (was 3:1:0:2) after cross-system benchmark showed BM25 and tiered find the same symbols.
 - **Why it matters:** Enables systematic combination of heterogeneous retrieval signals. Symbols appearing in multiple channels get promoted. New retrieval methods can be added as channels without disrupting existing ones.
 
 ### 61. Doc Comment Extraction (Node.Doc Field)
@@ -1138,6 +1138,15 @@ Repo: github.com/blackwell-systems/knowing
 - **Net impact:** -44 lines from knowing; construction logic reusable by other projects.
 - **Library source:** https://github.com/blackwell-systems/merkle-forest
 
+### 107. Cross-File Import Resolution (Python, TypeScript, Rust)
+
+- **Package(s):** `internal/indexer/treesitter`, `internal/indexer/tsextractor`, `internal/indexer/rustextractor`
+- **What it does:** Resolves call edges through import maps so that cross-file function calls produce proper `calls` edges to the definition rather than dangling references. Each language extractor builds an import map from `import`/`use` declarations, then resolves unresolved call targets through that map.
+  - **Python:** `buildPythonImportMap` extracts `import X` and `from X import Y` statements. `resolveCallTarget` resolves call edges through the map. 63 resolved edges on Flask.
+  - **TypeScript:** `buildTSImportMap` extracts `import`/`require` declarations. `resolveCallEdgeWithImports` resolves call targets. 5,684 resolved edges on TypeScript compiler.
+  - **Rust:** `buildRustImportMap` extracts `use` declarations. `resolveCallEdgeWithImports` resolves `crate::`, `super::`, `self::` path prefixes. 9,795 resolved edges on Cargo.
+- **Why it matters:** More resolved edges means the RWR walk has more paths to traverse, improving recall on cross-file tasks. Cross-system benchmark P@10 improved from 0.147 (Run 8) to 0.154 (Run 10) with Python + TS import resolution enabled. The critical finding: RWR (graph traversal) is the primary differentiator; import resolution helps because it creates more edges for RWR to walk.
+
 ### GraphStore (`internal/types/interfaces.go`)
 
 All 33 methods:
@@ -1347,7 +1356,7 @@ Parameters per tool:
 
 - **Flags:** `--db` (default: `~/.knowing/knowing.db`), `--url` (default: repo path), `--commit` (default: HEAD), `--full` (use go/packages instead of tree-sitter), `--workers` (default: 8, number of parallel extraction goroutines), `--skip-blame` (skip git blame authorship pass for faster structural-only index), `--no-enrich` (skip LSP enrichment for structural-only indexing)
 - **Positional args:** repo-path (required)
-- **What it does:** Opens store, creates indexer, registers extractor (tree-sitter by default, go/packages if `--full`), indexes repo with parallel extraction (8-worker goroutine pool, progress output to stderr every 2s), prints stats, runs LSP enrichment synchronously (if not `--full`). Phase separation: walk -> parallel extract -> batch store -> authorship -> snapshot. On the knowing codebase (84K LOC, 429 files), completes in 1.8 seconds at 1,451 files/sec throughput.
+- **What it does:** Opens store, creates indexer, registers extractor (tree-sitter by default, go/packages if `--full`), indexes repo with parallel extraction (8-worker goroutine pool, progress output to stderr every 2s), prints stats, rebuilds FTS synchronously (~500ms), runs LSP enrichment synchronously (if not `--full`). Phase separation: walk -> parallel extract -> batch store -> authorship -> snapshot -> FTS rebuild. On the knowing codebase (84K LOC, 429 files), completes in ~2.3 seconds.
 
 ### `knowing query`
 

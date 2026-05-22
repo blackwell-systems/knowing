@@ -8,7 +8,7 @@ relevant code symbols that fit within a context window.
 This document is the authoritative reference for how the context engine finds and ranks
 symbols. It supersedes `context-packing.md`.
 
-**Current eval baseline:** 55 fixtures (20 easy, 20 medium, 15 hard), 31.6% P@10, 0.58 MRR.
+**Current eval baseline:** 55 fixtures (20 easy, 20 medium, 15 hard), 31.6% P@10, 0.58 MRR (internal eval). Cross-system benchmark (100 tasks, 5 repos): P@10=0.154, 9.6x vs grep.
 
 ## Pipeline Overview
 
@@ -111,12 +111,16 @@ accumulate scores from all of them, promoting multi-channel hits.
 
 | Channel | Weight | What it does |
 |---------|--------|-------------|
-| Tiered keyword matching | 3.0 | Highest precision; exact > prefix > substring > path matching |
+| Tiered keyword matching | 2.0 | Exact > prefix > substring > path matching |
+| BM25 FTS5 | 2.0 | Lexical recall over CamelCase-split symbol names |
 | Equivalence classes | 2.0 | Concept-level vocabulary bridging |
-| BM25 FTS5 | 1.0 | Lexical recall over CamelCase-split names |
 | Vector/embedding search | 0.0 | Disabled; infrastructure preserved for future code-tuned models |
 
-### Channel 1: Tiered keyword matching (weight 3.0)
+Weights were equalized (was tiered=3, BM25=1, equiv=2) after cross-system benchmark
+investigation showed BM25 and tiered find the same symbols in practice. Equalizing
+removes artificial suppression of BM25 recall without degrading precision.
+
+### Channel 1: Tiered keyword matching (weight 2.0)
 
 Five tiers, evaluated in order with progressive relaxation:
 
@@ -178,7 +182,7 @@ CamelCase-split symbol names. CamelCase splitting already makes symbol names sea
 via BM25; auto-concepts only add value when they generate conceptual aliases that differ
 from the name, which requires domain understanding.
 
-### Channel 3: BM25 FTS5 (weight 1.0)
+### Channel 3: BM25 FTS5 (weight 2.0)
 
 Always runs when available. Queries the `nodes_fts` FTS5 virtual table with keywords
 joined by `OR`. Returns up to 30 results ordered by BM25 relevance.
@@ -204,11 +208,17 @@ qualified name is `github.com/pallets/flask://flask/scaffold.py.Scaffold.before_
 `:`, `(`, `)`, `,`, `*`), then splits each segment on CamelCase boundaries and
 underscores. Both the original compound token and its parts are indexed.
 
+The FTS5 tokenizer uses `tokenchars '_'` (migration 016) so that snake_case identifiers
+like `before_request` are indexed as single tokens. Without this, `before_request` would
+be split into `before` and `request`, preventing exact-phrase matching.
+
 Example: `github.com/foo/store.SQLiteStore.SearchBM25Nodes` becomes:
 `github com foo store SQLiteStore SQLite Store SearchBM25Nodes Search BM25 Nodes`
 
-`RebuildFTS` is called after batch indexing operations to rebuild the entire index from
-the nodes and files tables.
+`RebuildFTS` runs synchronously after snapshot computation during indexing. It was
+previously deferred to a background goroutine, but CLI processes (`knowing index`) exit
+immediately after `IndexRepo` returns, killing the goroutine before FTS completes. This
+left the FTS index empty in CLI mode. The synchronous rebuild adds ~500ms to index time.
 
 ### Channel 4: Vector search (weight 0.0, disabled)
 
@@ -284,6 +294,14 @@ effectively acting as an implicit restart.
 After convergence, scores are normalized to [0, 1] relative to the maximum. The RWR
 score is scaled to an integer 0-100 range to serve as the `CallerCount` proxy in the
 scoring formula.
+
+### Critical finding: RWR is the primary differentiator
+
+Cross-system benchmark Runs 7-10 demonstrated that RWR (graph traversal) is the
+primary source of knowing's retrieval advantage over text search. FTS adds minimally
+because tiered search already finds the same symbols by keyword. Import resolution
+(Python: 63 edges, TypeScript: 5,684 edges, Rust: 9,795 edges) helps because it
+creates more edges for RWR to walk, improving recall on cross-file tasks.
 
 ### What was tried and rejected
 
@@ -559,9 +577,11 @@ improve BM25 precision for specific codebases.
 0.25) and adaptive schemes. Every change that helped hard tier destroyed easy tier. The
 problem is seed quality, not walk depth. Leave alpha at 0.2.
 
-**RRF channel weights.** Unweighted (1:1) fusion was catastrophic (-28pp easy tier,
-experiment 7). The 3:1:0:2 ratio (tiered:BM25:vector:equivalence) reflects measured
-precision. Do not equalize weights.
+**RRF channel weights.** Unweighted (1:1) fusion was catastrophic in early eval
+(experiment 7, -28pp easy tier). The current 2:2:0:2 ratio (tiered:BM25:vector:equivalence)
+was validated on the cross-system benchmark (Runs 7-10): equalizing tiered and BM25
+improved P@10 because both channels find the same symbols, so suppressing BM25 was
+wasting recall without improving precision.
 
 **RWR convergence threshold.** 0.001 provides good balance. Tighter convergence has
 negligible impact on ranking; looser convergence risks instability.
@@ -579,8 +599,9 @@ models (MiniLM, BGE-small) tested net-negative at every weight level (experiment
    are wrong. Improving seed selection (equivalence classes, bigram compounds) produced
    all meaningful gains.
 
-3. **RRF fusion works but needs asymmetric weights.** Tiered >> equivalence >> BM25 >>
-   vector. Equal weights let noise overwhelm precision.
+3. **RRF fusion weights depend on channel overlap.** Initially tiered >> BM25 was correct
+   (experiment 7). Cross-system benchmark Runs 7-10 revealed tiered and BM25 find the
+   same symbols, so equalizing them (2:2:2) improved recall without precision loss.
 
 4. **Off-the-shelf embeddings do not help code retrieval.** MiniLM and BGE-small lack
    code-domain vocabulary understanding. "Blast radius" and `TransitiveCallers` are

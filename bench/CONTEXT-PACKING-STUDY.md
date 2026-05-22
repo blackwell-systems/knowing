@@ -38,10 +38,10 @@ with the others.
 
 | System | P@10 | R@10 | NDCG@10 | MRR |
 |--------|------|------|---------|-----|
-| knowing | 0.149 | 0.224 | 0.246 | 0.269 |
-| grep | 0.018 | 0.049 | 0.037 | 0.067 |
+| knowing | 0.154 | 0.224 | 0.246 | 0.269 |
+| grep | 0.016 | 0.049 | 0.037 | 0.067 |
 
-**Verdict:** 8.3x precision advantage (p<0.0001, d=0.53).
+**Verdict:** 9.6x precision advantage (p<0.0001, d=0.67).
 
 ### Dimension 2: Token Efficiency
 
@@ -125,7 +125,7 @@ with the others.
 
 ## Known Limitations
 
-1. **Absolute precision is 15%.** knowing beats grep 8.3x but 85% of returned symbols still don't match ground truth. Root cause: FTS tokenization doesn't split qualified names at symbol boundaries.
+1. **Absolute precision is 15.4%.** knowing beats grep 9.6x but ~85% of returned symbols still don't match ground truth. Root cause: vocabulary gap between task descriptions and symbol names beyond what equivalence classes cover.
 
 2. **Cold-start.** Feedback compounding (Dimension 3) requires usage. First-run precision is 15%, not 36%.
 
@@ -147,14 +147,20 @@ with the others.
 | 6 | 2026-05-21 | FTS symbol_name column (migration 016) | ~0.166 | +11% from Run 5, d=0.62 |
 | 7 | 2026-05-21 | Corrected ground truth (95% achievable) | 0.141 | Honest baseline, d=0.51 |
 | 8 | 2026-05-21 | FTS fixed (was empty!) + tokenchars '_' | 0.147 | R@10 d=0.67, FTS now contributing |
+| 9 | 2026-05-21 | + Python cross-file imports (63 edges) | 0.152 | Import resolution helps RWR walk |
+| 10 | 2026-05-21 | + TS cross-file imports (5,684 edges) | 0.154 | 9.6x vs grep, RWR is primary differentiator |
 
 ## Next Steps (priority order)
 
-1. **FTS terminal symbol tokenization** (highest expected impact: +5-10pp P@10)
-2. **Competitor adapters** (gitnexus, aider, codegraphcontext)
-3. **Language-aware keyword extraction** (detect snake_case/CamelCase in task descriptions)
-4. **Cross-file import resolution for Python/TS** (more call edges = better recall)
-5. **Embedding model evaluation** (code-tuned model for semantic matching)
+1. **Competitor adapters** (gitnexus, aider, codegraphcontext)
+2. **Language-aware keyword extraction** (detect snake_case/CamelCase in task descriptions)
+3. **Rust cross-file imports in benchmark** (9,795 edges resolved; Run 10 only includes Python + TS)
+4. **Embedding model evaluation** (code-tuned model for semantic matching)
+5. **RRF weight tuning per-repo** (adaptive weights based on channel overlap)
+
+### Completed (previously in Next Steps)
+- ~~FTS terminal symbol tokenization~~ (migration 016, Run 6)
+- ~~Cross-file import resolution for Python/TS~~ (Runs 9-10, +0.007 P@10)
 
 ## Reproducing
 
