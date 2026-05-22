@@ -77,13 +77,17 @@ func (e *RustExtractor) Extract(ctx context.Context, opts types.ExtractOptions) 
 	// Compute a base path for qualified names.
 	basePath := computeBasePath(opts)
 
+	// Build Rust import map: maps imported type/function names to their source module path.
+	// e.g., "use crate::core::resolver::FeatureResolver" -> rustImports["FeatureResolver"] = "src/cargo/core/resolver"
+	rustImports := buildRustImportMap(root, opts)
+
 	var nodes []types.Node
 	var edges []types.Edge
 
 	// Walk top-level children of the root node.
 	for i := 0; i < int(root.ChildCount()); i++ {
 		child := root.Child(i)
-		n, ed := extractTopLevel(child, opts, basePath)
+		n, ed := extractTopLevelWithImports(child, opts, basePath, rustImports)
 		nodes = append(nodes, n...)
 		edges = append(edges, ed...)
 	}
@@ -132,6 +136,56 @@ func computeBasePath(opts types.ExtractOptions) string {
 		return moduleName
 	}
 	return moduleName + "/" + filepath.ToSlash(dir)
+}
+
+// extractTopLevelWithImports is extractTopLevel with import resolution for call edges.
+func extractTopLevelWithImports(node *sitter.Node, opts types.ExtractOptions, basePath string, rustImports map[string]string) ([]types.Node, []types.Edge) {
+	var nodes []types.Node
+	var edges []types.Edge
+
+	switch node.Type() {
+	case "function_item":
+		n, ed := extractFunctionItemWithImports(node, opts, basePath, "", rustImports)
+		nodes = append(nodes, n...)
+		edges = append(edges, ed...)
+
+	case "impl_item":
+		n, ed := extractImplItemWithImports(node, opts, basePath, rustImports)
+		nodes = append(nodes, n...)
+		edges = append(edges, ed...)
+
+	case "struct_item":
+		n := extractStructItem(node, opts, basePath)
+		if n != nil {
+			nodes = append(nodes, *n)
+			deriveEdges := extractDeriveAttributes(node, opts, basePath, n.NodeHash)
+			edges = append(edges, deriveEdges...)
+		}
+
+	case "enum_item":
+		n := extractEnumItem(node, opts, basePath)
+		if n != nil {
+			nodes = append(nodes, *n)
+			deriveEdges := extractDeriveAttributes(node, opts, basePath, n.NodeHash)
+			edges = append(edges, deriveEdges...)
+		}
+
+	case "trait_item":
+		n := extractTraitItem(node, opts, basePath)
+		if n != nil {
+			nodes = append(nodes, *n)
+		}
+
+	case "use_declaration":
+		ed := extractUseDeclaration(node, opts, basePath)
+		edges = append(edges, ed...)
+
+	case "macro_invocation":
+		ed := extractMacroInvocation(node, opts, basePath)
+		edges = append(edges, ed...)
+	}
+
+	return nodes, edges
 }
 
 // extractTopLevel dispatches a top-level node to the appropriate handler.
@@ -473,16 +527,35 @@ func walkForCalls(node *sitter.Node, opts types.ExtractOptions, basePath string,
 
 // resolveCallEdge creates an edge for a call expression's function node.
 func resolveCallEdge(funcNode *sitter.Node, opts types.ExtractOptions, basePath string, sourceHash types.Hash) *types.Edge {
+	return resolveCallEdgeWithImports(funcNode, opts, basePath, sourceHash, nil)
+}
+
+// resolveCallEdgeWithImports resolves a call expression to a call edge, using
+// the import map to resolve cross-module targets when available.
+func resolveCallEdgeWithImports(funcNode *sitter.Node, opts types.ExtractOptions, basePath string, sourceHash types.Hash, rustImports map[string]string) *types.Edge {
 	content := opts.Content
 	var targetName string
+	var firstName string
 
 	switch funcNode.Type() {
 	case "identifier":
 		targetName = funcNode.Content(content)
-	case "scoped_identifier", "field_expression":
-		// For scoped identifiers like module::function() or field expressions
-		// like obj.method(), use the full text as the target name.
+		firstName = targetName
+	case "scoped_identifier":
+		// e.g., "FeatureResolver::new" -> firstName = "FeatureResolver"
 		targetName = funcNode.Content(content)
+		if idx := strings.Index(targetName, "::"); idx >= 0 {
+			firstName = targetName[:idx]
+		} else {
+			firstName = targetName
+		}
+	case "field_expression":
+		targetName = funcNode.Content(content)
+		if idx := strings.Index(targetName, "."); idx >= 0 {
+			firstName = targetName[:idx]
+		} else {
+			firstName = targetName
+		}
 	default:
 		return nil
 	}
@@ -491,16 +564,309 @@ func resolveCallEdge(funcNode *sitter.Node, opts types.ExtractOptions, basePath 
 		return nil
 	}
 
-	targetHash := types.ComputeNodeHash(opts.RepoURL, basePath, types.EmptyHash, targetName, "function")
-	edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "calls", provenance)
+	// Resolve through import map: if the first segment was imported from another
+	// module, compute the target hash against that module's path.
+	targetBasePath := basePath
+	edgeProvenance := provenance
+	edgeConfidence := confidence
+	if rustImports != nil && firstName != "" {
+		if srcPath, ok := rustImports[firstName]; ok {
+			targetBasePath = srcPath
+			edgeProvenance = "ast_resolved"
+			edgeConfidence = 0.85
+		}
+	}
+
+	targetHash := types.ComputeNodeHash(opts.RepoURL, targetBasePath, types.EmptyHash, targetName, "function")
+	edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "calls", edgeProvenance)
 
 	return &types.Edge{
 		EdgeHash:   edgeHash,
 		SourceHash: sourceHash,
 		TargetHash: targetHash,
 		EdgeType:   "calls",
-		Confidence: confidence,
-		Provenance: provenance,
+		Confidence: edgeConfidence,
+		Provenance: edgeProvenance,
+	}
+}
+
+// extractFunctionItemWithImports is extractFunctionItem with import-resolved call edges.
+func extractFunctionItemWithImports(node *sitter.Node, opts types.ExtractOptions, basePath, implType string, rustImports map[string]string) ([]types.Node, []types.Edge) {
+	nameNode := node.ChildByFieldName("name")
+	if nameNode == nil {
+		return nil, nil
+	}
+	name := nameNode.Content(opts.Content)
+	line := int(nameNode.StartPoint().Row) + 1
+
+	kind := "function"
+	var qname string
+	if implType != "" {
+		kind = "method"
+		qname = fmt.Sprintf("%s://%s/%s.%s.%s", opts.RepoURL, opts.ModuleRoot, basePath, implType, name)
+	} else {
+		qname = fmt.Sprintf("%s://%s/%s.%s", opts.RepoURL, opts.ModuleRoot, basePath, name)
+	}
+
+	nodeHash := types.ComputeNodeHash(opts.RepoURL, basePath, types.EmptyHash, name, kind)
+	n := types.Node{
+		NodeHash:      nodeHash,
+		FileHash:      opts.FileHash,
+		QualifiedName: qname,
+		Kind:          kind,
+		Line:          line,
+		Signature:     fmt.Sprintf("fn %s()", name),
+	}
+
+	var nodes []types.Node
+	nodes = append(nodes, n)
+
+	routeNodes, routeEdges := extractRouteAttributes(node, opts, basePath, nodeHash)
+	nodes = append(nodes, routeNodes...)
+
+	body := node.ChildByFieldName("body")
+	var edges []types.Edge
+	edges = append(edges, routeEdges...)
+	callEdges := extractCallEdgesFromBodyWithImports(body, opts, basePath, nodeHash, rustImports)
+	edges = append(edges, callEdges...)
+
+	return nodes, edges
+}
+
+// extractImplItemWithImports is extractImplItem with import-resolved call edges.
+func extractImplItemWithImports(node *sitter.Node, opts types.ExtractOptions, basePath string, rustImports map[string]string) ([]types.Node, []types.Edge) {
+	typeNode := node.ChildByFieldName("type")
+	if typeNode == nil {
+		return nil, nil
+	}
+	implType := typeNode.Content(opts.Content)
+
+	var nodes []types.Node
+	var edges []types.Edge
+
+	traitNode := node.ChildByFieldName("trait")
+	if traitNode != nil {
+		traitName := traitNode.Content(opts.Content)
+		if traitName != "" {
+			typeHash := types.ComputeNodeHash(opts.RepoURL, basePath, types.EmptyHash, implType, "type")
+			traitHash := types.ComputeNodeHash(opts.RepoURL, basePath, types.EmptyHash, traitName, "interface")
+			edgeHash := types.ComputeEdgeHash(typeHash, traitHash, "implements", provenance)
+			edges = append(edges, types.Edge{
+				EdgeHash:   edgeHash,
+				SourceHash: typeHash,
+				TargetHash: traitHash,
+				EdgeType:   "implements",
+				Confidence: confidence,
+				Provenance: provenance,
+			})
+		}
+	}
+
+	body := node.ChildByFieldName("body")
+	if body == nil {
+		return nodes, edges
+	}
+
+	for i := 0; i < int(body.ChildCount()); i++ {
+		child := body.Child(i)
+		if child.Type() == "function_item" {
+			n, ed := extractFunctionItemWithImports(child, opts, basePath, implType, rustImports)
+			nodes = append(nodes, n...)
+			edges = append(edges, ed...)
+		}
+	}
+
+	return nodes, edges
+}
+
+// extractCallEdgesFromBodyWithImports walks a function body for call edges with import resolution.
+func extractCallEdgesFromBodyWithImports(body *sitter.Node, opts types.ExtractOptions, basePath string, sourceHash types.Hash, rustImports map[string]string) []types.Edge {
+	if body == nil {
+		return nil
+	}
+	var edges []types.Edge
+	walkForCallsWithImports(body, opts, basePath, sourceHash, rustImports, &edges)
+	return edges
+}
+
+// walkForCallsWithImports recursively walks nodes looking for call_expression nodes
+// with import resolution.
+func walkForCallsWithImports(node *sitter.Node, opts types.ExtractOptions, basePath string, sourceHash types.Hash, rustImports map[string]string, edges *[]types.Edge) {
+	if node == nil {
+		return
+	}
+
+	switch node.Type() {
+	case "call_expression":
+		funcNode := node.ChildByFieldName("function")
+		if funcNode != nil {
+			edge := resolveCallEdgeWithImports(funcNode, opts, basePath, sourceHash, rustImports)
+			if edge != nil {
+				edge.CallSiteLine = int(node.StartPoint().Row) + 1
+				edge.CallSiteCol = int(node.StartPoint().Column)
+				edge.CallSiteFile = opts.FilePath
+				*edges = append(*edges, *edge)
+			}
+		}
+	case "macro_invocation":
+		macroNode := node.ChildByFieldName("macro")
+		if macroNode != nil {
+			macroName := macroNode.Content(opts.Content)
+			targetHash := types.ComputeNodeHash(opts.RepoURL, basePath, types.EmptyHash, macroName, "function")
+			edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "calls", provenance)
+			*edges = append(*edges, types.Edge{
+				EdgeHash:     edgeHash,
+				SourceHash:   sourceHash,
+				TargetHash:   targetHash,
+				EdgeType:     "calls",
+				Confidence:   confidence,
+				Provenance:   provenance,
+				CallSiteLine: int(node.StartPoint().Row) + 1,
+				CallSiteCol:  int(node.StartPoint().Column),
+				CallSiteFile: opts.FilePath,
+			})
+			if macroName == "panic" || macroName == "bail" {
+				errorName := macroName + "!"
+				errTargetHash := types.ComputeNodeHash(opts.RepoURL, basePath, types.EmptyHash, errorName, "error")
+				errEdgeHash := types.ComputeEdgeHash(sourceHash, errTargetHash, "throws", provenance)
+				*edges = append(*edges, types.Edge{
+					EdgeHash:   errEdgeHash,
+					SourceHash: sourceHash,
+					TargetHash: errTargetHash,
+					EdgeType:   "throws",
+					Confidence: confidence,
+					Provenance: provenance,
+				})
+			}
+		}
+	}
+	for i := 0; i < int(node.ChildCount()); i++ {
+		walkForCallsWithImports(node.Child(i), opts, basePath, sourceHash, rustImports, edges)
+	}
+}
+
+// buildRustImportMap extracts all use declarations from a Rust AST and builds
+// a map from imported type/function names to their source module path.
+// Handles: use crate::module::Type, use crate::module::{Type1, Type2},
+// use super::module::func_name, use module::Type as Alias
+func buildRustImportMap(root *sitter.Node, opts types.ExtractOptions) map[string]string {
+	imports := make(map[string]string)
+
+	for i := 0; i < int(root.ChildCount()); i++ {
+		node := root.Child(i)
+		if node == nil || node.Type() != "use_declaration" {
+			continue
+		}
+
+		argNode := node.ChildByFieldName("argument")
+		if argNode == nil {
+			continue
+		}
+
+		usePath := argNode.Content(opts.Content)
+		parseRustUsePath(usePath, opts, imports)
+	}
+
+	return imports
+}
+
+// parseRustUsePath parses a Rust use path and populates the import map.
+// "crate::core::resolver::FeatureResolver" -> imports["FeatureResolver"] = "src/cargo/core/resolver"
+// "crate::core::{Config, Workspace}" -> imports["Config"] = "src/cargo/core", imports["Workspace"] = "src/cargo/core"
+// "super::helpers::resolve" -> imports["resolve"] = resolved parent module path
+func parseRustUsePath(usePath string, opts types.ExtractOptions, imports map[string]string) {
+	// Handle glob imports: "use crate::module::*" (skip, can't resolve individual names)
+	if strings.HasSuffix(usePath, "::*") {
+		return
+	}
+
+	// Handle group imports: "use crate::module::{A, B, C}"
+	if idx := strings.Index(usePath, "::{"); idx >= 0 {
+		prefix := usePath[:idx]
+		modulePath := resolveRustModulePath(prefix, opts)
+		// Extract names from the braces.
+		braceContent := usePath[idx+3:]
+		braceContent = strings.TrimSuffix(braceContent, "}")
+		for _, name := range strings.Split(braceContent, ",") {
+			name = strings.TrimSpace(name)
+			// Handle "Type as Alias"
+			if asIdx := strings.Index(name, " as "); asIdx >= 0 {
+				alias := strings.TrimSpace(name[asIdx+4:])
+				imports[alias] = modulePath
+			} else if name != "" {
+				// Handle nested path: "self::SubModule" (skip)
+				if strings.Contains(name, "::") {
+					continue
+				}
+				imports[name] = modulePath
+			}
+		}
+		return
+	}
+
+	// Simple path: "crate::module::Type"
+	lastSep := strings.LastIndex(usePath, "::")
+	if lastSep < 0 {
+		return
+	}
+	prefix := usePath[:lastSep]
+	name := usePath[lastSep+2:]
+
+	// Handle "Type as Alias"
+	if asIdx := strings.Index(name, " as "); asIdx >= 0 {
+		alias := strings.TrimSpace(name[asIdx+4:])
+		imports[alias] = resolveRustModulePath(prefix, opts)
+	} else {
+		imports[name] = resolveRustModulePath(prefix, opts)
+	}
+}
+
+// resolveRustModulePath converts a Rust module path prefix to a file-system relative path.
+// "crate::core::resolver" -> "src/cargo/core/resolver" (relative to ModuleRoot)
+// "super::helpers" -> parent directory + "helpers"
+// "std::collections" -> "" (external, can't resolve)
+func resolveRustModulePath(prefix string, opts types.ExtractOptions) string {
+	parts := strings.Split(prefix, "::")
+
+	if len(parts) == 0 {
+		return ""
+	}
+
+	switch parts[0] {
+	case "crate":
+		// crate:: refers to the current crate root (typically src/).
+		// "crate::core::resolver" -> "src/core/resolver" or "src/cargo/core/resolver"
+		moduleParts := parts[1:]
+		if len(moduleParts) == 0 {
+			return ""
+		}
+		// Try with "src/" prefix (standard Rust layout).
+		candidate := "src/" + strings.Join(moduleParts, "/")
+		return filepath.ToSlash(candidate)
+
+	case "super":
+		// super:: refers to parent module.
+		dir := filepath.Dir(opts.FilePath)
+		for _, p := range parts[1:] {
+			if p == "super" {
+				dir = filepath.Dir(dir)
+			} else {
+				dir = filepath.Join(dir, p)
+			}
+		}
+		return filepath.ToSlash(dir)
+
+	case "self":
+		// self:: refers to current module.
+		dir := filepath.Dir(opts.FilePath)
+		for _, p := range parts[1:] {
+			dir = filepath.Join(dir, p)
+		}
+		return filepath.ToSlash(dir)
+
+	default:
+		// External crate (std, tokio, etc.) - can't resolve.
+		return ""
 	}
 }
 
