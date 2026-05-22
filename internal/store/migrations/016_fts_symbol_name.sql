@@ -17,7 +17,7 @@ CREATE VIRTUAL TABLE nodes_fts USING fts5(
     file_path,
     content='nodes_fts_content',
     content_rowid='rowid',
-    tokenize='unicode61 remove_diacritics 2'
+    tokenize="unicode61 tokenchars '_' remove_diacritics 2"
 );
 
 -- Rebuild FTS index from content table.
