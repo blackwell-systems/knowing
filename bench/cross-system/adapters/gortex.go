@@ -1,6 +1,7 @@
 package adapters
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -51,7 +52,9 @@ func (a *Gortex) Retrieve(repoPath string, task benchtype.Task, tokenBudget int)
 	}
 
 	start := time.Now()
-	cmd := exec.Command(a.binary, "context",
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, a.binary, "context",
 		"--task", task.Description,
 		"--index", absPath,
 		"--format", "json",

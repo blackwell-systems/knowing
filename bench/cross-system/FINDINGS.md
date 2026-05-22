@@ -457,9 +457,43 @@ Installed CGC (codegraphcontext) with KuzuDB backend via Python 3.12 (uv venv).
 | Natural language queries | Yes | Yes | No (exact name only) |
 | RAM (Flask) | ~50MB | ~200MB | 1.9GB |
 
+### Gortex Competitor (2026-05-22)
+
+Installed Gortex (zzet/gortex v0.32.0), a Go-based code graph engine claiming 256 language support and 50x token reduction. The most architecturally similar competitor (same stack: Go, tree-sitter, parallel).
+
+**Indexing comparison:**
+
+| Repo | knowing | Gortex | Ratio | Gortex RAM |
+|------|---------|--------|-------|-----------|
+| Flask (15K LOC) | 0.1s | 0.5s | 5x | ~200MB |
+| Cargo (150K LOC) | 1.5s | 2.4s | 1.6x | ~400MB |
+| Django (400K LOC) | 3.7s | 4.6s | 1.2x | ~1GB |
+| VS Code (1M LOC) | 4.1s | 10s | 2.4x | ~3GB |
+| Kubernetes (3.5M LOC) | **18.6s** | **14.2 min** | **46x** | **14GB** |
+
+Gortex extracts 23x more edges than knowing (6.3M vs 268K for kubernetes) because it indexes ALL files (16K vs 4.8K), includes clone detection, test edges, contract edges, and precomputed reachability indices.
+
+**Retrieval (manual flask test):** Comparable quality on small repos. Found `Scaffold.before_request` correctly but also returned test symbols (knowing deprioritizes these). Full benchmark could not complete because Gortex re-indexes on every `context` call (14 min per kubernetes task, no caching).
+
+**Architecture comparison:**
+- Both: Go, parallel, tree-sitter, graph-based
+- Gortex advantage: more edge types (clones, contracts, reachability), 256 languages
+- knowing advantage: 46x faster on enterprise repos, 70x less RAM, streaming writes (kill-safe), content-addressed Merkle proofs, test deprioritization, feedback compounding
+
+**Full competitive ranking:**
+
+| System | P@10 | Index k8s | Index Flask | RAM (k8s) | Task retrieval |
+|--------|------|-----------|-------------|-----------|----------------|
+| **knowing** | **0.209** | **18.6s** | **0.1s** | **200MB** | Yes |
+| Gortex | ~comparable | 14.2 min | 0.5s | 14GB | Yes (re-indexes per query) |
+| GitNexus | 0.076 | >60 min (killed) | 5.2s | 5.7GB | Yes |
+| CGC | N/A | impossible | 216s | 1.9GB | No (name search only) |
+| grep | 0.015 | instant | instant | - | No |
+
 **Next steps:**
-1. Blog post / publication (competitive data complete: knowing > GitNexus > CGC > grep)
-2. Java corpus addition (validate Java extractor, deferred to future session)
+1. Blog post / publication (competitive data complete)
+2. Gortex retrieval benchmark on flask/django/cargo only (skip k8s/vscode to avoid re-indexing)
+3. Java corpus addition (deferred to future session)
 
 ---
 

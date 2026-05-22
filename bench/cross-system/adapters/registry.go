@@ -53,8 +53,8 @@ func hasCommand(name string) bool {
 }
 
 func gortexAvailable() bool {
-	_, err := exec.LookPath("/tmp/gortex/gortex")
-	return err == nil
+	cmd := exec.Command("/tmp/gortex/gortex", "version")
+	return cmd.Run() == nil
 }
 
 func aiderAvailable() bool {
