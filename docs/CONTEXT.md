@@ -7,3 +7,5 @@
   - IMPL doc: docs/IMPL/complete/IMPL-edge-type-expansion.yaml
 - **edge-type-expansion-p2**: completed 2026-05-20, 2 waves, 7 agents
   - IMPL doc: docs/IMPL/complete/IMPL-edge-type-expansion-p2.yaml
+- **cross-file-import-resolution**: completed 2026-05-22, 1 waves, 2 agents
+  - IMPL doc: docs/IMPL/complete/IMPL-cross-file-import-resolution.yaml

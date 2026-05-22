@@ -1,3 +1,4 @@
+completion_date: "2026-05-22"
 title: Cross-File Import Resolution for Java and C# Extractors
 feature_slug: cross-file-import-resolution
 verdict: SUITABLE
@@ -475,6 +476,7 @@ waves:
           files:
             - internal/indexer/csharpextractor/extractor.go
             - internal/indexer/csharpextractor/extractor_test.go
+      base_commit: 6dd93d18931ecbe91f0f27a4ed73a79bf67f159e
 quality_gates:
     level: standard
     gates:
@@ -487,6 +489,33 @@ quality_gates:
         - type: test
           command: GOWORK=off go test -short ./... -timeout 5m
           required: true
+completion_reports:
+    A:
+        status: complete
+        branch: polywave/cross-file-import-resolution/wave1-agent-A
+        commit: 6f8bcba
+        files_changed:
+            - internal/indexer/javaextractor/extractor.go
+            - internal/indexer/javaextractor/extractor_test.go
+        tests_added:
+            - TestJavaExtractor_ImportResolution
+            - TestJavaExtractor_ImportResolution_Static
+            - TestJavaExtractor_ImportResolution_Wildcard
+        verification: PASS
+        notes: Cross-file import resolution added to Java extractor following Rust pattern. buildJavaImportMap handles regular, static, and wildcard imports. Import-resolved edges use provenance ast_resolved with confidence 0.85. All 16 tests passing (13 existing + 3 new).
+    B:
+        status: complete
+        branch: polywave/cross-file-import-resolution/wave1-agent-B
+        commit: c6640e1
+        files_changed:
+            - internal/indexer/csharpextractor/extractor.go
+            - internal/indexer/csharpextractor/extractor_test.go
+        tests_added:
+            - TestCSharpExtractor_ImportResolution
+            - TestCSharpExtractor_ImportResolution_Static
+            - TestCSharpExtractor_ImportResolution_NoMatch
+        verification: PASS
+        notes: Cross-file import resolution complete. buildCSharpImportMap extracts using directives into a map; extractInvocationEdgeWithImports resolves call targets through imports with ast_resolved/0.85 provenance. All 17 tests pass including 3 new.
 pre_mortem:
     overall_risk: low
     rows:
@@ -520,5 +549,5 @@ pre_mortem:
             Both extractors already successfully parse these node types (extractImportEdge
             in Java, extractUsingDirective in C#). The same parsing logic can be reused.
             Tests with known Java/C# source will catch empty-map issues immediately.
-state: "REVIEWED"
+state: COMPLETE
 injection_method: hook
