@@ -111,7 +111,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`--workers N` flag**: control extraction parallelism
 
 #### Cross-System Benchmark Framework
-- 100 tasks across 5 repos (kubernetes, TypeScript, Django, Cargo, Flask)
+- 100 tasks across 5 repos (kubernetes, VS Code, Django, Cargo, Flask)
 - 5 difficulty levels: easy, medium, hard, cross-file, architectural
 - Metrics: P@K, R@K, NDCG@10, MRR, token efficiency, latency
 - Statistical rigor: Wilcoxon signed-rank, Cohen's d, bootstrap CI
@@ -137,11 +137,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 #### Cross-system benchmark: all 5 repos indexed
 - kubernetes: 4,877 files, 117,401 nodes, 268,249 edges (18.6s)
-- TypeScript: 38,260 files, 88,393 nodes, 67,182 edges (25.8s)
-- Django: 2,937 files, 42,947 nodes, 151,431 edges (3.3s)
+- VS Code: 38,260 files, 43,379 nodes, 93,382 edges (4.1s)
+- Django: 2,937 files, 42,947 nodes, 185,393 edges (3.3s)
 - Cargo: 979 files, 8,075 nodes, 79,305 edges (1.4s)
-- Flask: 97 files, 1,658 nodes, 5,042 edges (0.1s)
-- Total: 47,150 files, 258,474 nodes, 571,209 edges in 49.2s
+- Flask: 97 files, 1,658 nodes, 9,237 edges (0.1s)
+- Total: 47,150 files in ~52s
 
 ### Fixed
 

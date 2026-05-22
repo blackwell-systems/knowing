@@ -8,7 +8,7 @@ relevant code symbols that fit within a context window.
 This document is the authoritative reference for how the context engine finds and ranks
 symbols. It supersedes `context-packing.md`.
 
-**Current eval baseline:** 55 fixtures (20 easy, 20 medium, 15 hard), 31.6% P@10, 0.58 MRR (internal eval). Cross-system benchmark (100 tasks, 5 repos): P@10=0.203, 12.7x vs grep, d=0.78 recall (large effect).
+**Current eval baseline:** 55 fixtures (20 easy, 20 medium, 15 hard), 31.6% P@10, 0.58 MRR (internal eval). Cross-system benchmark (97 manual fixtures, 5 repos): P@10=0.230, 11.5x vs grep, d=0.92 recall (very large effect).
 
 ## Pipeline Overview
 

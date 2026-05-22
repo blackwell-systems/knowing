@@ -63,18 +63,18 @@ Packages are already the unit of Merkle computation, cache invalidation, diffing
 
 ### Cross-System Benchmark Results (v0.6.1, Run 14+)
 
-100 tasks, 5 repos (kubernetes, TypeScript, flask, cargo, django), all indexed. knowing vs grep baseline.
+97 manual fixtures across 5 repos (kubernetes, VS Code, flask, cargo, django), all indexed. knowing vs grep baseline. With SWE-bench fixtures included (107 total): P@10=0.209.
 
 | System | P@10 | R@10 | NDCG@10 | MRR |
 |--------|------|------|---------|-----|
-| knowing | 0.203 | 0.247 | ~0.30 | ~0.35 |
-| grep | 0.016 | 0.030 | 0.029 | 0.056 |
+| knowing | 0.230 | 0.284 | 0.336 | 0.383 |
+| grep | 0.020 | 0.035 | 0.037 | 0.072 |
 
-knowing is 12.7x better than grep (p<0.0001, d=0.78, large effect). Cumulative improvement from honest baseline (Run 7): +44%. Key improvements: inheritance propagation (+29% in Run 13), deeper call chain extraction (Run 14), test file deprioritization, cross-file import resolution, FTS concepts column (migration 017).
+knowing is 11.5x better than grep (p<0.0001, d=0.92, very large effect). Cumulative improvement from honest baseline (Run 7): +63%. Key improvements: inheritance propagation (+29% in Run 13), VS Code replacing TypeScript compiler (Run 17), TS extends_clause fix (Run 18), deeper call chain extraction, test file deprioritization, cross-file import resolution, FTS concepts column (migration 017).
 
-Per-repo breakdown: Django 0.330, Flask 0.321, Kubernetes 0.184, Cargo 0.123, TypeScript 0.026. Hard > Medium > Easy (counterintuitive: hard tasks involve cross-package traversal where RWR excels; easy tasks have keyword seeding problems). TypeScript root cause: 79% of TS call edges are dangling due to barrel re-exports preventing file-level hash resolution.
+Per-repo breakdown: Django 0.330, Flask 0.321, VS Code ~0.25, Kubernetes 0.184, Cargo 0.123. Hard > Medium > Easy (counterintuitive: hard tasks involve cross-package traversal where RWR excels; easy tasks have keyword seeding problems).
 
-**Optimization ceiling diagnosed:** Graph connectivity is exhausted (inheritance, imports, deeper calls all shipped). Remaining ~80% miss rate requires feedback compounding or semantic understanding. Cold-start floor is 0.203; feedback-compounded ceiling is approximately 0.40 (proven by feedback-loop bench at +20pp).
+**Optimization ceiling diagnosed:** Graph connectivity is exhausted (inheritance, imports, deeper calls all shipped). Remaining ~77% miss rate requires feedback compounding or semantic understanding. Cold-start floor is 0.230; feedback-compounded ceiling is approximately 0.40 (proven by feedback-loop bench at +20pp).
 
 ### Retrieval Improvements (ordered by expected impact)
 

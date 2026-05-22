@@ -270,7 +270,7 @@ The corpus uses **5 repositories** chosen for diversity along these axes:
 | Repo | Language | Size (LOC) | Why |
 |------|----------|------------|-----|
 | [kubernetes/kubernetes](https://github.com/kubernetes/kubernetes) | Go | ~3.5M | Large, well-structured, deep call chains |
-| [microsoft/TypeScript](https://github.com/microsoft/TypeScript) | TypeScript | ~1.2M | Single-language, complex type relationships |
+| [microsoft/vscode](https://github.com/microsoft/vscode) | TypeScript | ~1M | Large, classes/services/DI/inheritance (replaced TypeScript compiler) |
 | [pallets/flask](https://github.com/pallets/flask) | Python | ~30K | Small, clear package boundaries, well-documented |
 | [rust-lang/cargo](https://github.com/rust-lang/cargo) | Rust | ~200K | Medium, strong type system, module hierarchy |
 | [django/django](https://github.com/django/django) | Python | ~350K | Large framework, cross-package dependencies |
@@ -288,8 +288,8 @@ repos:
     commit: <sha>
     language: go
     module: k8s.io/kubernetes
-  - name: typescript
-    url: https://github.com/microsoft/TypeScript
+  - name: vscode
+    url: https://github.com/microsoft/vscode
     commit: <sha>
     language: typescript
   - name: flask
@@ -333,7 +333,7 @@ objectively correct ground truth (the symbols the fix actually used).
 
 #### Source B: Manual expert labeling (40 tasks)
 
-For repos not in SWE-bench (kubernetes, TypeScript, cargo), create tasks
+For repos not in SWE-bench (kubernetes, VS Code, cargo), create tasks
 manually by:
 1. Pick a recent merged PR (last 6 months)
 2. Write a task description from the PR title/description (before seeing the diff)
@@ -873,7 +873,7 @@ When another system outperforms knowing on a category:
 | Task | Effort | Output |
 |------|--------|--------|
 | Select 40 SWE-bench instances for django/flask | 8h | 40 fixture YAMLs |
-| Label 40 manual tasks for kubernetes/TypeScript/cargo | 16h | 40 fixture YAMLs |
+| Label 40 manual tasks for kubernetes/VS Code/cargo | 16h | 40 fixture YAMLs |
 | Create 20 synthetic cross-cutting tasks | 8h | 20 fixture YAMLs |
 | Second-reviewer verification pass | 12h | Verified labels with kappa scores |
 | Resolve disagreements, document | 4h | Final ground truth |
