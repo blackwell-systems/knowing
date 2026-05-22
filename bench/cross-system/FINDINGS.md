@@ -507,9 +507,38 @@ Repomix (25K stars) packs entire repos into one file for LLM consumption. No ran
 
 **What this means:** Repomix achieves 100% recall by including everything, but at 75x the token cost. Most models can't fit the output. knowing gives ranked, relevant symbols in tokens that fit any model. The 48x efficiency advantage means an agent using knowing can make 48 queries for the same token budget as one Repomix dump.
 
+### Operational Performance Benchmarks (2026-05-22)
+
+**Incremental re-index (1 file changed):**
+- Full index (flask): 218ms
+- Incremental (1 file touched): **64ms** (3.4x faster, only processes changed file)
+- Extraction: 12ms for the single file
+
+**10-query session latency (flask):**
+- Query 1 (cold): 103ms
+- Queries 2-10 (warm): 38-69ms
+- **Total session: 605ms (avg 60ms/query)**
+- Compare: Gortex ~6s/query (100x slower), GitNexus ~1s/query (17x slower)
+
+**Complete performance summary:**
+
+| Metric | Value |
+|--------|-------|
+| Retrieval precision (P@10) | 0.230 (11.5x vs grep, 2.75x vs GitNexus) |
+| Token efficiency vs Repomix | 48x |
+| Index: kubernetes (3.5M LOC) | 18.6s, 200MB RAM |
+| Incremental re-index (1 file) | 64ms |
+| Query latency (avg) | 60ms |
+| Snapshot computation (268K edges) | 95ms |
+| Merkle proof generation | 59us |
+| Merkle proof verification | 1us |
+| Hierarchical diff | 6us (216x vs flat) |
+| Feedback compounding | +20pp per round |
+| Wire format (GCF vs JSON) | 84% fewer tokens |
+
 **Next steps:**
-1. Blog post / publication (competitive data complete)
-2. Gortex retrieval benchmark on flask/django/cargo only (skip k8s/vscode to avoid re-indexing)
+1. Blog post / publication (all data collected)
+2. Gortex retrieval benchmark on flask/django/cargo (skip k8s to avoid re-indexing)
 3. Java corpus addition (deferred to future session)
 
 ---
