@@ -27,6 +27,16 @@ func NewKnowing() *Knowing {
 
 func (a *Knowing) Name() string { return "knowing" }
 
+// StoreFor returns the SQLiteStore for a repo path (for test access).
+func (a *Knowing) StoreFor(repoPath string) *store.SQLiteStore {
+	return a.stores[repoPath]
+}
+
+// MemoryFor returns the TaskMemory for a repo path (for test access).
+func (a *Knowing) MemoryFor(repoPath string) *knowingctx.TaskMemory {
+	return a.memories[repoPath]
+}
+
 func (a *Knowing) Index(repoPath string) (int64, error) {
 	start := time.Now()
 	dbPath := repoPath + "/.knowing/graph.db"
