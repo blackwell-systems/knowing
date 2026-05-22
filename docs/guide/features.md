@@ -1,6 +1,6 @@
 # FEATURES.md -- Comprehensive Feature Dump for AI Reference
 
-Generated: 2026-05-15 (updated: 2026-05-21, features 77-107 added: hash domain prefixes, fsck, GC, lockfile, LRU cache, modular community detection, DiffOptions, indexed_at, verify, React viz, MCP resources, graph notes, Phase 3 complete, Merkle proofs, stats CLI, named refs, generation numbers, auto-GC, merkle-forest extraction; P2 edge types, parallel indexer, cross-system benchmark, language equivalence classes, cross-file import resolution)
+Generated: 2026-05-15 (updated: 2026-05-21, features 77-110 added: hash domain prefixes, fsck, GC, lockfile, LRU cache, modular community detection, DiffOptions, indexed_at, verify, React viz, MCP resources, graph notes, Phase 3 complete, Merkle proofs, stats CLI, named refs, generation numbers, auto-GC, merkle-forest extraction; P2 edge types, parallel indexer, cross-system benchmark, language equivalence classes, cross-file import resolution, inheritance propagation, deeper call chains, test deprioritization)
 Source: code inspection of all Go files across internal/, cmd/, and config
 Repo: github.com/blackwell-systems/knowing
 
@@ -1146,6 +1146,28 @@ Repo: github.com/blackwell-systems/knowing
   - **TypeScript:** `buildTSImportMap` extracts `import`/`require` declarations. `resolveCallEdgeWithImports` resolves call targets. 5,684 resolved edges on TypeScript compiler.
   - **Rust:** `buildRustImportMap` extracts `use` declarations. `resolveCallEdgeWithImports` resolves `crate::`, `super::`, `self::` path prefixes. 9,795 resolved edges on Cargo.
 - **Why it matters:** More resolved edges means the RWR walk has more paths to traverse, improving recall on cross-file tasks. Cross-system benchmark P@10 improved from 0.147 (Run 8) to 0.154 (Run 10) with Python + TS import resolution enabled. The critical finding: RWR (graph traversal) is the primary differentiator; import resolution helps because it creates more edges for RWR to walk.
+
+### 108. Inheritance Propagation (Language-Agnostic)
+
+- **Package(s):** `internal/indexer/indexer.go` (post-processing pass)
+- **Entry point:** `propagateInheritance` called after extraction completes
+- **What it does:** Finds all `extends` edges and creates `inherits` edges from child classes to parent class methods. Uses import-resolved qualified names to match extends edge targets to actual class node hashes. Works on any language whose extractor produces `extends` edges and `method` nodes (Python, TypeScript, Java, C#, Rust).
+- **Results:** 83 edges in Flask, 14,539 edges in Django (deep class hierarchies). P@10 jumped from 0.155 to 0.200 (+29%), the largest single improvement in the cross-system benchmark (Run 13, d=0.81).
+- **Why it matters:** Enables RWR to walk from child classes to parent class methods via inheritance chains. Previously, searching for "QuerySet.filter" only found the file defining QuerySet; now it also reaches every Model subclass that inherits filter.
+
+### 109. Deeper Call Chain Extraction (Python)
+
+- **Package(s):** `internal/indexer/treesitter`
+- **What it does:** Walks into call arguments to extract nested calls, callbacks, and lambda references. Lambda bodies (`lambda: get_users()`) are walked for calls. Nested function bodies are walked with import resolution context (pyImports preserved). Previously `map(process, items)` only extracted the `map` call, missing `process` as a target.
+- **Results:** Flask: 5,022 to 9,237 edges (+84%). Django: 151,431 to 185,393 edges (+22%).
+- **Why it matters:** More call edges means more RWR connectivity, improving recall on cross-file tasks that involve higher-order patterns (callbacks, decorators, factory functions).
+
+### 110. Test File Deprioritization
+
+- **Package(s):** `internal/context/context.go`
+- **Entry point:** `isTestFilePath(qualifiedName string) bool`
+- **What it does:** Applies a 0.3x score penalty to symbols from test files during ranking. Detection is path-based: `/tests/`, `_test.go`, `.test.ts`, `.spec.ts`, `/__tests__/`, and similar conventions. The penalty is removed when the task description mentions testing (conditional, not absolute). Avoids false positives on production code with "test" in legitimate names.
+- **Why it matters:** Failure analysis (Run 12) showed 36% of top-10 misses were test symbols crowding out production code. Deprioritization keeps test symbols available but ranks them below equally-scored production symbols.
 
 ### GraphStore (`internal/types/interfaces.go`)
 

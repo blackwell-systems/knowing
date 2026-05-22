@@ -39,7 +39,7 @@ Packages are already the unit of Merkle computation, cache invalidation, diffing
 | Repo | Files | Edges | Extraction | Total (with deferred FTS) |
 |------|-------|-------|-----------|--------------------------|
 | knowing (84K LOC) | 448 | 25K | 0.4s | 1.7s |
-| flask (15K LOC) | 97 | 5K | 0.04s | 0.3s |
+| flask (15K LOC) | 97 | 9K | 0.04s | 0.3s |
 | cargo (150K LOC) | 979 | 79K | 0.2s | 5.5s |
 | kubernetes (3.5M LOC) | 4,877 | 268K | 18.6s | ~22s (data queryable immediately) |
 
@@ -61,16 +61,16 @@ Packages are already the unit of Merkle computation, cache invalidation, diffing
 
 ## Retrieval Pipeline
 
-### Cross-System Benchmark Results (v0.6.1, Run 6)
+### Cross-System Benchmark Results (v0.6.1, Run 14)
 
-100 tasks, 5 repos (kubernetes, TypeScript, flask, cargo, django), all indexed. knowing vs grep baseline. Run 6 adds the FTS `symbol_name` column (migration 016).
+100 tasks, 5 repos (kubernetes, TypeScript, flask, cargo, django), all indexed. knowing vs grep baseline.
 
 | System | P@10 | R@10 | NDCG@10 | MRR |
 |--------|------|------|---------|-----|
-| knowing | ~0.166 | 0.224 | 0.246 | 0.269 |
-| grep | 0.018 | 0.049 | 0.037 | 0.067 |
+| knowing | 0.201 | 0.247 | ~0.30 | ~0.35 |
+| grep | 0.016 | 0.030 | 0.029 | 0.056 |
 
-knowing is 9.2x better than grep (p<0.0001, d=0.62, CI=[0.103, 0.196]). 17% absolute precision means room for improvement; ground truth fixture accuracy and language-aware keyword extraction are the highest-leverage remaining changes.
+knowing is 12.5x better than grep (p<0.0001, d=0.78, large effect). Cumulative improvement from honest baseline (Run 7): +43%. Key improvements: inheritance propagation (+29% in Run 13), deeper call chain extraction (Run 14), test file deprioritization, cross-file import resolution.
 
 ### Retrieval Improvements (ordered by expected impact)
 
@@ -83,6 +83,9 @@ knowing is 9.2x better than grep (p<0.0001, d=0.62, CI=[0.103, 0.196]). 17% abso
 | 5 | ~~**Cross-file symbol resolution in Python/TS**~~ | ~~Python/TS calls didn't resolve through imports.~~ **Shipped.** Python buildPythonImportMap + resolveCallTarget (63 edges in flask). TypeScript buildTSImportMap + resolveCallEdgeWithImports (5,684 edges in TypeScript). | +0.013 P@10 | ~~P2~~ |
 | 5a | **Cross-file import resolution for Rust/Java/C#** | Same pattern needed for `use crate::module`, `import com.package.Class`, `using Namespace`. Rust is highest priority (16 benchmark tasks in Cargo). | +1-2pp P@10 | P2 |
 | 5b | **Terraform/infrastructure cross-file resolution** | `module.vpc.subnet_id` referencing another .tf file's output. Not in benchmark corpus but needed for real users. | User quality | P3 |
+| 5c | ~~**Inheritance propagation**~~ | ~~Child classes couldn't reach parent methods via RWR.~~ **Shipped.** `propagateInheritance` creates `inherits` edges from child to parent methods. 83 edges Flask, 14,539 Django. | **+29% P@10 (Run 13)** | ~~P1~~ |
+| 5d | ~~**Deeper call chain extraction (Python)**~~ | ~~Nested calls in arguments, lambdas, and inner functions were missed.~~ **Shipped.** Walk into call arguments, lambda bodies, nested functions. Flask +84% edges, Django +22% edges. | +0.001 P@10 (Run 14) | ~~P1~~ |
+| 5e | ~~**Test file deprioritization**~~ | ~~36% of misses were test symbols.~~ **Shipped.** 0.3x penalty for test file symbols; conditional (removed when task mentions testing). | Noise reduction | ~~P1~~ |
 | 6 | **Session memory persistence** | The benchmark runs cold (no prior feedback). In real usage, feedback compounds. Session memory persistence would carry learning across invocations, improving retrieval for repeated patterns. | +5-10pp P@10 after 5 rounds (demonstrated in feedback-loop bench) | P2 |
 | 7 | **More equivalence concepts (115 -> 150+)** | Graph-derived aliases help but are limited to the repo's own vocabulary. Need broader coverage of common patterns across ecosystems. | +1-2pp P@10 | Ongoing |
 | 8 | **Code-tuned embedding model** | BGE-small-en-v1.5 tested net-negative. A code-tuned model (CodeBERT, UniXcoder) might improve semantic matching between task descriptions and symbol names. | Unknown (needs evaluation) | Planned (optional) |

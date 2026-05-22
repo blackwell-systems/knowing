@@ -115,6 +115,10 @@ Before scoring, `filterNoisySymbols` removes low-signal candidates:
 - Symbols with mock, fake, or stub in the qualified name (case-insensitive).
 - Symbols whose file path contains `/build/` or `.bundle.` segments.
 
+## Test File Deprioritization
+
+After scoring, symbols from test files receive a 0.3x penalty via `isTestFilePath` in `internal/context/context.go`. Detection is path-based: `/tests/`, `_test.go`, `.test.ts`, `.spec.ts`, `/__tests__/`, and similar conventions. The penalty is conditional: it is removed when the task description mentions testing (e.g., "add a test for", "fix the failing test"). This avoids penalizing test symbols when the user is actively working on tests. Failure analysis showed 36% of top-10 misses were test symbols.
+
 ## ForTask Flow
 
 1. Extract keywords from the task description (stop-word filtered, CamelCase split, deduplicated).
@@ -194,6 +198,7 @@ The Random Walk with Restart algorithm (`internal/context/walk.go`) uses edge-ty
 | `deployed_by` | 0.4 | Deployment relationship |
 | `gated_by_flag` | 0.3 | Feature flag gating (cross-cutting) |
 | `decorates` | 0.3 | Decorator/annotation (cross-cutting) |
+| `inherits` | 0.3 (default) | Child-to-parent-method via inheritance propagation; not explicitly in the weight map |
 | `documents` | 0.2 | Doc comment (informational only) |
 | `owned_by` | 0.0 | Organizational; excluded from walk |
 | `authored_by` | 0.0 | Organizational; excluded from walk |

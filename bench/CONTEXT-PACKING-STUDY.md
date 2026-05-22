@@ -38,10 +38,10 @@ with the others.
 
 | System | P@10 | R@10 | NDCG@10 | MRR |
 |--------|------|------|---------|-----|
-| knowing | 0.154 | 0.224 | 0.246 | 0.269 |
-| grep | 0.016 | 0.049 | 0.037 | 0.067 |
+| knowing | 0.201 | 0.247 | ~0.30 | ~0.35 |
+| grep | 0.016 | 0.030 | 0.029 | 0.056 |
 
-**Verdict:** 9.6x precision advantage (p<0.0001, d=0.67).
+**Verdict:** 12.5x precision advantage (p<0.0001, d=0.78, large effect). +43% cumulative from honest baseline.
 
 ### Dimension 2: Token Efficiency
 
@@ -96,10 +96,10 @@ with the others.
 |------|-----|-------|-------|-----------|
 | kubernetes | 3.5M | 4,877 | 268,249 | 18.6s |
 | TypeScript | 1.2M | 38,260 | 67,182 | 25.8s |
-| Django | 400K | 2,937 | 151,431 | 3.3s |
+| Django | 400K | 2,937 | 185,393 | 3.3s |
 | Cargo | 150K | 979 | 79,305 | 1.4s |
-| Flask | 15K | 97 | 5,042 | 0.1s |
-| **Total** | **5.3M** | **47,150** | **571,209** | **49.2s** |
+| Flask | 15K | 97 | 9,237 | 0.1s |
+| **Total** | **5.3M** | **47,150** | **609,366** | **49.2s** |
 
 **Verdict:** Enterprise-scale repos index in under 30s. Full 5-repo corpus in under 1 minute.
 
@@ -125,9 +125,9 @@ with the others.
 
 ## Known Limitations
 
-1. **Absolute precision is 15.4%.** knowing beats grep 9.6x but ~85% of returned symbols still don't match ground truth. Root cause: vocabulary gap between task descriptions and symbol names beyond what equivalence classes cover.
+1. **Absolute precision is 20.1%.** knowing beats grep 12.5x but ~80% of returned symbols still don't match ground truth. Root cause: RWR reach (graph connectivity) is the bottleneck, not ranking. Inheritance propagation addressed this partially (+29%); further gains require more edge types or deeper extraction.
 
-2. **Cold-start.** Feedback compounding (Dimension 3) requires usage. First-run precision is 15%, not 36%.
+2. **Cold-start.** Feedback compounding (Dimension 3) requires usage. First-run precision is 20%, not 36%.
 
 3. **Go bias.** Most benchmarks validated on Go code (knowing dogfoods itself). Cross-system benchmark partially addresses this with Python, TypeScript, Rust, Java repos.
 
@@ -152,12 +152,12 @@ with the others.
 | 11 | 2026-05-21 | + Rust cross-file imports (9,795 edges) | 0.155 | MRR +3.9% |
 | 12 | 2026-05-21 | Test deprioritization + failure analysis | 0.155 | Diagnosed: RWR reach is the bottleneck |
 | 13 | 2026-05-21 | **Inheritance propagation** | **0.200** | **+29%, d=0.81 (large), 12.5x vs grep** |
+| 14 | 2026-05-21 | + Deeper call chains (Python) | **0.201** | +43% cumulative from baseline, d=0.78 |
 
 ## Next Steps (priority order)
 
-1. **Deeper call chain extraction** (nested functions, closures, callbacks)
-2. **Session memory persistence** (feedback compounding)
-3. **Competitor adapters** (gitnexus, aider, codegraphcontext)
+1. **Session memory persistence** (feedback compounding)
+2. **Competitor adapters** (gitnexus, aider, codegraphcontext)
 3. **Rust cross-file imports in benchmark** (9,795 edges resolved; Run 10 only includes Python + TS)
 4. **Embedding model evaluation** (code-tuned model for semantic matching)
 5. **RRF weight tuning per-repo** (adaptive weights based on channel overlap)
@@ -165,6 +165,7 @@ with the others.
 ### Completed (previously in Next Steps)
 - ~~FTS terminal symbol tokenization~~ (migration 016, Run 6)
 - ~~Cross-file import resolution for Python/TS~~ (Runs 9-10, +0.007 P@10)
+- ~~Deeper call chain extraction~~ (Run 14, +0.001 P@10; Flask +84% edges, Django +22% edges)
 
 ## Reproducing
 

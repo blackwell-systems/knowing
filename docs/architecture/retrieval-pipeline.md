@@ -8,7 +8,7 @@ relevant code symbols that fit within a context window.
 This document is the authoritative reference for how the context engine finds and ranks
 symbols. It supersedes `context-packing.md`.
 
-**Current eval baseline:** 55 fixtures (20 easy, 20 medium, 15 hard), 31.6% P@10, 0.58 MRR (internal eval). Cross-system benchmark (100 tasks, 5 repos): P@10=0.154, 9.6x vs grep.
+**Current eval baseline:** 55 fixtures (20 easy, 20 medium, 15 hard), 31.6% P@10, 0.58 MRR (internal eval). Cross-system benchmark (100 tasks, 5 repos): P@10=0.201, 12.5x vs grep, d=0.78 recall (large effect).
 
 ## Pipeline Overview
 
@@ -276,6 +276,7 @@ structurally close to the seeds and sit at the intersection of many paths.
 | `handles_route` | 0.7 | Route bindings; HTTP surface to handlers |
 | `imports` | 0.5 | Package-level dependency; weaker than function-level |
 | `references` | 0.4 | Type/constant usage; weakest static signal |
+| `inherits` | 0.3 (default) | Child-to-parent-method via inheritance propagation; uses default weight |
 | unknown | 0.3 | Default for any edge type not in the weight map |
 
 When a node has multiple outgoing edges, probability is distributed proportionally to
@@ -302,6 +303,24 @@ primary source of knowing's retrieval advantage over text search. FTS adds minim
 because tiered search already finds the same symbols by keyword. Import resolution
 (Python: 63 edges, TypeScript: 5,684 edges, Rust: 9,795 edges) helps because it
 creates more edges for RWR to walk, improving recall on cross-file tasks.
+
+### Graph connectivity improvements that feed RWR
+
+Two index-time enrichments significantly expand RWR's reachable subgraph:
+
+**Inheritance propagation** (`propagateInheritance` in the indexer post-processing pass):
+For each `extends` edge, creates `inherits` edges from child classes to all parent class
+methods. This is language-agnostic (works on any extractor producing `extends` edges and
+`method` nodes). Flask: 83 edges. Django: 14,539 edges. Cross-system P@10 jumped from
+0.155 to 0.200 (+29%), the single largest improvement of any change (Run 13). The
+mechanism: RWR can now walk from `Flask` to `Scaffold.before_request` via the inheritance
+chain, whereas previously it could not reach parent methods from child class seeds.
+
+**Deeper call chain extraction** (Python extractor):
+Walks into call arguments, lambda bodies, and nested function definitions to extract
+nested calls and callbacks. Previously `map(process, items)` only extracted the `map`
+call, missing `process` as a target. Flask: 5,022 to 9,237 edges (+84%). Django: 151K to
+185K edges (+22%). More edges means more RWR connectivity.
 
 ### What was tried and rejected
 
@@ -434,6 +453,19 @@ Task memory boosts (see section 8) compound into this channel at 0.3x scale.
 
 From `SessionTracker`. Raw boost range [0, 2.0], normalized to [0, 1] before weighting.
 Maximum contribution is +0.20 for a symbol accessed multiple times very recently.
+
+### Test file deprioritization
+
+Symbols from test files receive a 0.3x score penalty after the composite score is
+computed. Detection uses `isTestFilePath` (path-based, not name-based): patterns include
+`/tests/`, `_test.go`, `.test.ts`, `.spec.ts`, `/__tests__/`, and similar conventions.
+
+The penalty is conditional: when the task description mentions testing (e.g., "add a test
+for", "fix the test that"), the penalty is removed so test symbols rank normally.
+
+This was added in Run 12 of the cross-system benchmark. On its own the impact was
+marginal (P@10 held at 0.155), but it reduces noise from test symbols appearing in the
+top-10 results (36% of misses were test symbols per failure analysis).
 
 ---
 
