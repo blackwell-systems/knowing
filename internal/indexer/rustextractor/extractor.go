@@ -398,6 +398,28 @@ func extractTraitItem(node *sitter.Node, opts types.ExtractOptions, basePath str
 	}
 }
 
+// inferExternalRepoURL determines if a Rust use path refers to an external crate.
+// Returns "external://{crateName}" for external crates, "stdlib" for std/core/alloc,
+// and "" for crate-local paths (crate::, super::, self::) or empty input.
+func inferExternalRepoURL(usePath string) string {
+	if usePath == "" {
+		return ""
+	}
+	parts := strings.SplitN(usePath, "::", 2)
+	if len(parts) == 0 {
+		return ""
+	}
+	first := parts[0]
+	switch first {
+	case "crate", "super", "self":
+		return ""
+	case "std", "core", "alloc":
+		return "stdlib"
+	default:
+		return "external://" + first
+	}
+}
+
 // extractUseDeclaration extracts a use_declaration node, creating import edges.
 func extractUseDeclaration(node *sitter.Node, opts types.ExtractOptions, basePath string) []types.Edge {
 	argNode := node.ChildByFieldName("argument")
@@ -413,7 +435,11 @@ func extractUseDeclaration(node *sitter.Node, opts types.ExtractOptions, basePat
 	}
 
 	fileNodeHash := types.ComputeNodeHash(opts.RepoURL, basePath, types.EmptyHash, filepath.Base(opts.FilePath), "file")
-	targetHash := types.ComputeNodeHash(opts.RepoURL, crateName, types.EmptyHash, crateName, "package")
+	targetRepoURL := opts.RepoURL
+	if extURL := inferExternalRepoURL(usePath); extURL != "" {
+		targetRepoURL = extURL
+	}
+	targetHash := types.ComputeNodeHash(targetRepoURL, crateName, types.EmptyHash, crateName, "package")
 
 	edgeHash := types.ComputeEdgeHash(fileNodeHash, targetHash, "imports", provenance)
 	return []types.Edge{
@@ -567,17 +593,34 @@ func resolveCallEdgeWithImports(funcNode *sitter.Node, opts types.ExtractOptions
 	// Resolve through import map: if the first segment was imported from another
 	// module, compute the target hash against that module's path.
 	targetBasePath := basePath
+	targetRepoURL := opts.RepoURL
 	edgeProvenance := provenance
 	edgeConfidence := confidence
 	if rustImports != nil && firstName != "" {
 		if srcPath, ok := rustImports[firstName]; ok {
-			targetBasePath = srcPath
-			edgeProvenance = "ast_resolved"
-			edgeConfidence = 0.85
+			if strings.HasPrefix(srcPath, "external://") {
+				// External crate: use external URL as the target's repo context.
+				crateName := strings.TrimPrefix(srcPath, "external://")
+				targetBasePath = crateName
+				targetRepoURL = srcPath
+				edgeProvenance = "ast_resolved"
+				edgeConfidence = 0.85
+			} else if srcPath == "stdlib" {
+				// Standard library: use "stdlib" as repo URL.
+				targetBasePath = firstName
+				targetRepoURL = "stdlib"
+				edgeProvenance = "ast_resolved"
+				edgeConfidence = 0.85
+			} else if srcPath != "" {
+				// Local module path resolved successfully.
+				targetBasePath = srcPath
+				edgeProvenance = "ast_resolved"
+				edgeConfidence = 0.85
+			}
 		}
 	}
 
-	targetHash := types.ComputeNodeHash(opts.RepoURL, targetBasePath, types.EmptyHash, targetName, "function")
+	targetHash := types.ComputeNodeHash(targetRepoURL, targetBasePath, types.EmptyHash, targetName, "function")
 	edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "calls", edgeProvenance)
 
 	return &types.Edge{
@@ -774,6 +817,11 @@ func buildRustImportMap(root *sitter.Node, opts types.ExtractOptions) map[string
 // "crate::core::resolver::FeatureResolver" -> imports["FeatureResolver"] = "src/cargo/core/resolver"
 // "crate::core::{Config, Workspace}" -> imports["Config"] = "src/cargo/core", imports["Workspace"] = "src/cargo/core"
 // "super::helpers::resolve" -> imports["resolve"] = resolved parent module path
+// "tokio::runtime::Runtime" -> imports["Runtime"] = "external://tokio" (external crate)
+//
+// For external crates (where resolveRustModulePath returns ""), the crate name is
+// stored with an "external://" prefix so that resolveCallEdgeWithImports can detect
+// external targets and compute the correct target hash.
 func parseRustUsePath(usePath string, opts types.ExtractOptions, imports map[string]string) {
 	// Handle glob imports: "use crate::module::*" (skip, can't resolve individual names)
 	if strings.HasSuffix(usePath, "::*") {
@@ -784,6 +832,10 @@ func parseRustUsePath(usePath string, opts types.ExtractOptions, imports map[str
 	if idx := strings.Index(usePath, "::{"); idx >= 0 {
 		prefix := usePath[:idx]
 		modulePath := resolveRustModulePath(prefix, opts)
+		if modulePath == "" {
+			// External crate: store with external:// prefix using first path segment.
+			modulePath = inferExternalRepoURL(prefix)
+		}
 		// Extract names from the braces.
 		braceContent := usePath[idx+3:]
 		braceContent = strings.TrimSuffix(braceContent, "}")
@@ -812,12 +864,18 @@ func parseRustUsePath(usePath string, opts types.ExtractOptions, imports map[str
 	prefix := usePath[:lastSep]
 	name := usePath[lastSep+2:]
 
+	modulePath := resolveRustModulePath(prefix, opts)
+	if modulePath == "" {
+		// External crate: store with external:// prefix using first path segment.
+		modulePath = inferExternalRepoURL(prefix)
+	}
+
 	// Handle "Type as Alias"
 	if asIdx := strings.Index(name, " as "); asIdx >= 0 {
 		alias := strings.TrimSpace(name[asIdx+4:])
-		imports[alias] = resolveRustModulePath(prefix, opts)
+		imports[alias] = modulePath
 	} else {
-		imports[name] = resolveRustModulePath(prefix, opts)
+		imports[name] = modulePath
 	}
 }
 
@@ -865,7 +923,7 @@ func resolveRustModulePath(prefix string, opts types.ExtractOptions) string {
 		return filepath.ToSlash(dir)
 
 	default:
-		// External crate (std, tokio, etc.) - can't resolve.
+		// External crate (std, tokio, etc.) - can't resolve to a local path.
 		return ""
 	}
 }
