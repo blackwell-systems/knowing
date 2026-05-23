@@ -244,6 +244,31 @@ func (e *CSharpExtractor) qualifiedName(opts types.ExtractOptions, parentContext
 	return base + "." + name
 }
 
+// inferExternalRepoURL determines if a C# namespace refers to an external package.
+// Returns "stdlib" for System.*/Microsoft.* namespaces, "external://{rootNamespace}"
+// for known external packages, and "" when it cannot determine externality.
+func inferExternalRepoURL(namespace string) string {
+	if namespace == "" {
+		return ""
+	}
+	parts := strings.Split(namespace, ".")
+	if len(parts) == 0 {
+		return ""
+	}
+	// .NET BCL and runtime: System.*, Microsoft.*
+	switch parts[0] {
+	case "System":
+		return "stdlib"
+	case "Microsoft":
+		return "stdlib"
+	}
+	// External NuGet packages: use first two segments as identifier
+	if len(parts) >= 2 {
+		return "external://" + parts[0] + "." + parts[1]
+	}
+	return "external://" + parts[0]
+}
+
 // extractUsingDirective extracts a using directive as an import edge.
 func (e *CSharpExtractor) extractUsingDirective(node *sitter.Node, opts types.ExtractOptions) *types.Edge {
 	// The using directive has a child that is the namespace name (qualified_name or identifier).
@@ -253,7 +278,11 @@ func (e *CSharpExtractor) extractUsingDirective(node *sitter.Node, opts types.Ex
 	}
 
 	fileNodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, filepath.Base(opts.FilePath), "file")
-	targetHash := types.ComputeNodeHash(opts.RepoURL, nameContent, types.EmptyHash, nameContent, "package")
+	targetRepoURL := opts.RepoURL
+	if extURL := inferExternalRepoURL(nameContent); extURL != "" {
+		targetRepoURL = extURL
+	}
+	targetHash := types.ComputeNodeHash(targetRepoURL, nameContent, types.EmptyHash, nameContent, "package")
 
 	provenance := "ast_inferred"
 	edgeHash := types.ComputeEdgeHash(fileNodeHash, targetHash, "imports", provenance)
@@ -638,6 +667,7 @@ func (e *CSharpExtractor) extractInvocationEdgeWithImports(node *sitter.Node, op
 	edgeProvenance := "ast_inferred"
 	edgeConfidence := 0.7
 	targetFilePath := opts.FilePath
+	targetRepoURL := opts.RepoURL
 
 	// If we have a member access with an uppercase object name, try import resolution.
 	if objectName != "" && len(objectName) > 0 && objectName[0] >= 'A' && objectName[0] <= 'Z' {
@@ -645,10 +675,13 @@ func (e *CSharpExtractor) extractInvocationEdgeWithImports(node *sitter.Node, op
 			edgeProvenance = "ast_resolved"
 			edgeConfidence = 0.85
 			targetFilePath = importPath
+			if extURL := inferExternalRepoURL(importPath); extURL != "" {
+				targetRepoURL = extURL
+			}
 		}
 	}
 
-	targetHash := types.ComputeNodeHash(opts.RepoURL, targetFilePath, types.EmptyHash, targetName, "method")
+	targetHash := types.ComputeNodeHash(targetRepoURL, targetFilePath, types.EmptyHash, targetName, "method")
 	edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "calls", edgeProvenance)
 
 	return &types.Edge{
