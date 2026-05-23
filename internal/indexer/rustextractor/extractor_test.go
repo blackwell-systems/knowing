@@ -577,31 +577,6 @@ mod tests {
 	}
 }
 
-func TestInferExternalRepoURL(t *testing.T) {
-	tests := []struct {
-		usePath string
-		want    string
-	}{
-		{"tokio::runtime", "external://tokio"},
-		{"crate::config", ""},
-		{"std::collections", "stdlib"},
-		{"serde::Deserialize", "external://serde"},
-		{"core::fmt", "stdlib"},
-		{"alloc::vec", "stdlib"},
-		{"super::helpers", ""},
-		{"self::module", ""},
-		{"hyper::client::Client", "external://hyper"},
-		{"", ""},
-	}
-
-	for _, tt := range tests {
-		got := inferExternalRepoURL(tt.usePath)
-		if got != tt.want {
-			t.Errorf("inferExternalRepoURL(%q) = %q, want %q", tt.usePath, got, tt.want)
-		}
-	}
-}
-
 func TestRustExtractor_ExternalCrateImportEdgeUsesExternalRepoURL(t *testing.T) {
 	ext := NewRustExtractor()
 	source := `use tokio::runtime::Runtime;

@@ -23,6 +23,7 @@ import (
 	"github.com/smacker/go-tree-sitter/rust"
 
 	"github.com/blackwell-systems/knowing/internal/edgetype"
+	"github.com/blackwell-systems/knowing/internal/resolve"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
@@ -399,28 +400,6 @@ func extractTraitItem(node *sitter.Node, opts types.ExtractOptions, basePath str
 	}
 }
 
-// inferExternalRepoURL determines if a Rust use path refers to an external crate.
-// Returns "external://{crateName}" for external crates, "stdlib" for std/core/alloc,
-// and "" for crate-local paths (crate::, super::, self::) or empty input.
-func inferExternalRepoURL(usePath string) string {
-	if usePath == "" {
-		return ""
-	}
-	parts := strings.SplitN(usePath, "::", 2)
-	if len(parts) == 0 {
-		return ""
-	}
-	first := parts[0]
-	switch first {
-	case "crate", "super", "self":
-		return ""
-	case "std", "core", "alloc":
-		return "stdlib"
-	default:
-		return "external://" + first
-	}
-}
-
 // extractUseDeclaration extracts a use_declaration node, creating import edges.
 func extractUseDeclaration(node *sitter.Node, opts types.ExtractOptions, basePath string) []types.Edge {
 	argNode := node.ChildByFieldName("argument")
@@ -437,7 +416,7 @@ func extractUseDeclaration(node *sitter.Node, opts types.ExtractOptions, basePat
 
 	fileNodeHash := types.ComputeNodeHash(opts.RepoURL, basePath, types.EmptyHash, filepath.Base(opts.FilePath), types.KindFile)
 	targetRepoURL := opts.RepoURL
-	if extURL := inferExternalRepoURL(usePath); extURL != "" {
+	if extURL := resolve.InferExternalRepoURL(usePath, "", resolve.RustConfig); extURL != "" {
 		targetRepoURL = extURL
 	}
 	targetHash := types.ComputeNodeHash(targetRepoURL, crateName, types.EmptyHash, crateName, types.KindPackage)
@@ -835,7 +814,7 @@ func parseRustUsePath(usePath string, opts types.ExtractOptions, imports map[str
 		modulePath := resolveRustModulePath(prefix, opts)
 		if modulePath == "" {
 			// External crate: store with external:// prefix using first path segment.
-			modulePath = inferExternalRepoURL(prefix)
+			modulePath = resolve.InferExternalRepoURL(prefix, "", resolve.RustConfig)
 		}
 		// Extract names from the braces.
 		braceContent := usePath[idx+3:]
@@ -868,7 +847,7 @@ func parseRustUsePath(usePath string, opts types.ExtractOptions, imports map[str
 	modulePath := resolveRustModulePath(prefix, opts)
 	if modulePath == "" {
 		// External crate: store with external:// prefix using first path segment.
-		modulePath = inferExternalRepoURL(prefix)
+		modulePath = resolve.InferExternalRepoURL(prefix, "", resolve.RustConfig)
 	}
 
 	// Handle "Type as Alias"
