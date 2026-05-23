@@ -1025,6 +1025,7 @@ waves:
             - internal/store/batch.go
             - internal/store/batch_test.go
             - internal/store/sqlite.go
+      base_commit: fc2244eda0e96802ed6a1c4c48baf8db21d332e2
     - number: 2
       agents:
         - id: F
@@ -1171,7 +1172,10 @@ quality_gates:
           command: GOWORK=off go test -short ./... -timeout 5m
           required: true
 post_merge_checklist:
-    groups: []
+    groups:
+        - title: Background Service Initialization
+          items:
+            - description: Verify if batch_test.go needs initialization in Server constructor
 scaffolds:
     - file_path: internal/types/kinds.go
       contents: |
@@ -1249,6 +1253,107 @@ scaffolds:
         func ChunkedExec[T any](ctx context.Context, tx *sql.Tx, items []T, paramsPerItem int, buildSQL func(chunk []T) (string, []interface{})) error
       import_path: github.com/blackwell-systems/knowing/internal/store
       status: committed (410448e)
+completion_reports:
+    A:
+        status: complete
+        branch: polywave/code-quality-cleanup/wave1-agent-A
+        commit: e4bb096
+        files_changed:
+            - internal/indexer/goextractor/extractor.go
+            - internal/indexer/gotsextractor/extractor.go
+            - internal/indexer/gotsextractor/walk_body_helpers.go
+            - internal/indexer/gotsextractor/tests_edges.go
+            - internal/indexer/gotsextractor/documents_edges.go
+            - internal/indexer/gotsextractor/featureflag_edges.go
+            - internal/indexer/gotsextractor/endpoint_edges.go
+            - internal/indexer/tsextractor/extractor.go
+            - internal/indexer/tsextractor/endpoint_edges.go
+            - internal/indexer/treesitter/extractor.go
+            - internal/indexer/rustextractor/extractor.go
+            - internal/indexer/javaextractor/extractor.go
+            - internal/indexer/csharpextractor/extractor.go
+            - internal/indexer/rubyextractor/extractor.go
+            - internal/indexer/graphqlextractor/extractor.go
+            - internal/indexer/cssextractor/extractor.go
+            - internal/indexer/protoextractor/extractor.go
+            - internal/indexer/protoextractor/rpc_edges.go
+            - internal/indexer/terraformextractor/extractor.go
+            - internal/indexer/eventextractor/extractor.go
+            - internal/indexer/envextractor/extractor.go
+            - internal/indexer/helmextractor/extractor.go
+            - internal/indexer/k8sextractor/extractor.go
+            - internal/indexer/makefileextractor/extractor.go
+            - internal/indexer/packagejsonextractor/extractor.go
+            - internal/indexer/schemaextractor/extractor.go
+            - internal/indexer/dockerfileextractor/extractor.go
+            - internal/indexer/gitlabciextractor/extractor.go
+            - internal/indexer/sqlextractor/extractor.go
+            - internal/indexer/cloudextractor/actions_deploy.go
+            - internal/indexer/scipingest/ingest.go
+        verification: PASS
+        notes: All 31 extractor files migrated to use types.Kind* and edgetype.* constants. kinds.go already existed with correct values. All 27 indexer test packages pass. Domain-specific kinds (feature_flag, endpoint, table, etc.) correctly left as raw strings since they have no constant defined.
+    B:
+        status: complete
+        branch: polywave/code-quality-cleanup/wave1-agent-B
+        commit: 7a28eba
+        files_changed:
+            - internal/types/interfaces.go
+            - internal/types/results.go
+        verification: PASS
+        notes: Removed ComputationCache interface, DerivedResult struct, and TraversalOptions struct. provenance.go already existed with correct content. All types tests pass. bench/merkle-diff timeout is pre-existing and unrelated.
+    C:
+        status: complete
+        branch: polywave/code-quality-cleanup/wave1-agent-C
+        commit: 3e52837
+        files_changed:
+            - internal/testutil/mockstore.go
+            - internal/mcp/handlers_test.go
+            - internal/context/context_test.go
+            - internal/resolver/resolver_test.go
+            - internal/enrichment/enricher_test.go
+            - internal/snapshot/manager_test.go
+            - internal/indexer/indexer_test.go
+            - internal/snapshot/verify_test.go
+            - internal/snapshot/gc_test.go
+        files_created:
+            - internal/testutil/mockstore.go
+        verification: PASS
+        notes: All 6 test files refactored to embed testutil.MockGraphStore. Collateral updates to verify_test.go and gc_test.go (same snapshot package, shared mock type). handlers_test.go keeps type mockGraphStore with embed plus local fields for backward compat with communities_test.go, dataflow_test.go, ownership_test.go (not in scope). Total boilerplate reduced by ~300 lines.
+    D:
+        status: complete
+        branch: polywave/code-quality-cleanup/wave1-agent-D
+        commit: "2740412"
+        files_changed:
+            - internal/resolve/external.go
+            - internal/resolve/external_test.go
+        files_created:
+            - internal/resolve/external_test.go
+        tests_added:
+            - TestInferExternalRepoURL_TypeScript
+            - TestInferExternalRepoURL_Python
+            - TestInferExternalRepoURL_Rust
+            - TestInferExternalRepoURL_Java
+            - TestInferExternalRepoURL_CSharp
+            - TestPythonStdlibSet
+        verification: PASS
+        notes: Shared resolve package complete. All 6 tests passing. external.go existed as scaffold; fully implemented with all 5 language configs. Agent F will wire into extractors in Wave 2.
+    E:
+        status: complete
+        branch: polywave/code-quality-cleanup/wave1-agent-E
+        commit: 0c95caf
+        files_changed:
+            - internal/store/sqlite.go
+            - internal/store/batch_test.go
+        files_created:
+            - internal/store/batch_test.go
+        tests_added:
+            - TestMaxChunkSize
+            - TestChunkedExec_EmptySlice
+            - TestChunkedExec_Chunking
+            - TestChunkedExec_ExactBoundary
+            - TestChunkedExec_ErrorPropagation
+        verification: PASS
+        notes: Refactored BatchPutNodes (10 params), BatchPutEdges (9 params), BatchPutFiles (4 params) to use ChunkedExec. All existing tests pass. batch.go scaffold was already present and correct.
 pre_mortem:
     overall_risk: medium
     rows:
@@ -1308,5 +1413,5 @@ critic_report:
     summary: 'All briefs verified against the codebase. File existence checks pass for all 57 files across 6 agents: new files do not exist, modify files exist. Symbol accuracy verified for all referenced functions (ComputeNodeHash, ComputeEdgeHash, inferExternalRepoURL in 5 extractors, BatchPutNodes/Edges/Files, ComputationCache, DerivedResult, TraversalOptions, all edgetype constants). Pattern accuracy confirmed: the chunked batch pattern in sqlite.go matches Agent E''s description, the dead types match Agent B''s exact text, and inferExternalRepoURL signatures match Agent F''s descriptions. Interface contracts are syntactically valid with all referenced types existing. Import chains verified for all new files (only stdlib and existing local packages needed). No disjoint ownership violations. Advisory warnings: Agent A owns 32 files (56% of total, exceeds 8-file and 40% thresholds) and Agent F owns 10 files (exceeds 8-file threshold), but these are appropriate given the mechanical nature of the replacements.'
     reviewed_at: "2026-05-23T02:16:20Z"
     issue_count: 3
-state: "REVIEWED"
+state: REVIEWED
 injection_method: hook
