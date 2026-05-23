@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/blackwell-systems/knowing/internal/edgetype"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
@@ -82,7 +83,7 @@ func extractDeployedByEdges(opts types.ExtractOptions, workflowHash types.Hash, 
 			}
 			nodes = append(nodes, targetNode)
 
-			edge := makeEdge(targetHash, workflowHash, "deployed_by")
+			edge := makeEdge(targetHash, workflowHash, edgetype.DeployedBy)
 			edge.Confidence = 0.9
 			edges = append(edges, edge)
 		}
@@ -115,7 +116,7 @@ func extractTestedByEdges(opts types.ExtractOptions, jobDefs map[string]jobDef) 
 				}
 				nodes = append(nodes, testTargetNode)
 
-				edge := makeEdge(testTargetHash, job.Hash, "tested_by")
+				edge := makeEdge(testTargetHash, job.Hash, edgetype.TestedBy)
 				edge.Confidence = 0.8
 				edges = append(edges, edge)
 			}

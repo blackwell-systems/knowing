@@ -5,6 +5,7 @@ import (
 
 	sitter "github.com/smacker/go-tree-sitter"
 
+	"github.com/blackwell-systems/knowing/internal/edgetype"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
@@ -46,7 +47,7 @@ func ExtractTestsEdges(root *sitter.Node, opts types.ExtractOptions, pkgPath str
 		}
 
 		// Compute the test function's node hash (same as extractFuncDecl).
-		testNodeHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, funcName, "function")
+		testNodeHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, funcName, types.KindFunction)
 
 		// Walk the function body for call expressions.
 		body := child.ChildByFieldName("body")
@@ -76,7 +77,7 @@ func walkForTestTargets(node *sitter.Node, opts types.ExtractOptions, pkgPath st
 				targetHash := types.ComputeNodeHash(targetRepoURL, targetPkg, types.EmptyHash, targetName, targetKind)
 
 				provenance := "ast_inferred"
-				edgeHash := types.ComputeEdgeHash(testNodeHash, targetHash, "tests", provenance)
+				edgeHash := types.ComputeEdgeHash(testNodeHash, targetHash, edgetype.Tests, provenance)
 
 				// Deduplicate by EdgeHash.
 				if _, exists := seen[edgeHash]; !exists {
@@ -85,7 +86,7 @@ func walkForTestTargets(node *sitter.Node, opts types.ExtractOptions, pkgPath st
 						EdgeHash:   edgeHash,
 						SourceHash: testNodeHash,
 						TargetHash: targetHash,
-						EdgeType:   "tests",
+						EdgeType:   edgetype.Tests,
 						Confidence: 0.7,
 						Provenance: provenance,
 					})
@@ -108,7 +109,7 @@ func resolveTestCallTarget(funcNode *sitter.Node, opts types.ExtractOptions, pkg
 	switch funcNode.Type() {
 	case "identifier":
 		// Local function call.
-		return funcNode.Content(content), pkgPath, "function"
+		return funcNode.Content(content), pkgPath, types.KindFunction
 
 	case "selector_expression":
 		// Qualified call: pkg.Func or receiver.Method
@@ -124,14 +125,14 @@ func resolveTestCallTarget(funcNode *sitter.Node, opts types.ExtractOptions, pkg
 			operandName := operandNode.Content(content)
 			if importPath, ok := imports[operandName]; ok {
 				// Package-qualified call (cross-package).
-				return targetName, importPath, "function"
+				return targetName, importPath, types.KindFunction
 			}
 			// Method call on a local variable.
-			return targetName, pkgPath, "method"
+			return targetName, pkgPath, types.KindMethod
 
 		case "selector_expression":
 			// Chained selector: obj.field.Method()
-			return targetName, pkgPath, "method"
+			return targetName, pkgPath, types.KindMethod
 
 		default:
 			return "", "", ""

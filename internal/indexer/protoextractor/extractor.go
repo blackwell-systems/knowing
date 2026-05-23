@@ -15,6 +15,7 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/protobuf"
 
+	"github.com/blackwell-systems/knowing/internal/edgetype"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
@@ -92,7 +93,7 @@ func (e *ProtoExtractor) Extract(ctx context.Context, opts types.ExtractOptions)
 				NodeHash:      nodeHash,
 				FileHash:      opts.FileHash,
 				QualifiedName: qname,
-				Kind:          "type",
+				Kind:          types.KindType,
 				Line:          line,
 				Signature:     "message " + name,
 			})
@@ -114,7 +115,7 @@ func (e *ProtoExtractor) Extract(ctx context.Context, opts types.ExtractOptions)
 				NodeHash:      nodeHash,
 				FileHash:      opts.FileHash,
 				QualifiedName: qname,
-				Kind:          "type",
+				Kind:          types.KindType,
 				Line:          line,
 				Signature:     "enum " + name,
 			})
@@ -132,7 +133,7 @@ func (e *ProtoExtractor) Extract(ctx context.Context, opts types.ExtractOptions)
 				NodeHash:      serviceHash,
 				FileHash:      opts.FileHash,
 				QualifiedName: qname,
-				Kind:          "service",
+				Kind:          types.KindService,
 				Line:          line,
 				Signature:     "service " + name,
 			})
@@ -152,7 +153,7 @@ func (e *ProtoExtractor) Extract(ctx context.Context, opts types.ExtractOptions)
 					EdgeHash:   edgeHash,
 					SourceHash: sourceHash,
 					TargetHash: targetHash,
-					EdgeType:   "imports",
+					EdgeType:   edgetype.Imports,
 					Confidence: confidence,
 					Provenance: provenance,
 				})
@@ -250,7 +251,7 @@ func extractRPCs(serviceNode *sitter.Node, src []byte, opts types.ExtractOptions
 			NodeHash:      rpcHash,
 			FileHash:      opts.FileHash,
 			QualifiedName: qname,
-			Kind:          "function",
+			Kind:          types.KindFunction,
 			Line:          line,
 			Signature:     sig,
 		})
@@ -261,7 +262,7 @@ func extractRPCs(serviceNode *sitter.Node, src []byte, opts types.ExtractOptions
 			EdgeHash:   callEdgeHash,
 			SourceHash: serviceHash,
 			TargetHash: rpcHash,
-			EdgeType:   "calls",
+			EdgeType:   edgetype.Calls,
 			Confidence: confidence,
 			Provenance: provenance,
 		})
@@ -274,7 +275,7 @@ func extractRPCs(serviceNode *sitter.Node, src []byte, opts types.ExtractOptions
 				EdgeHash:   edgeHash,
 				SourceHash: rpcHash,
 				TargetHash: targetHash,
-				EdgeType:   "references",
+				EdgeType:   edgetype.References,
 				Confidence: confidence,
 				Provenance: provenance,
 			})
@@ -288,7 +289,7 @@ func extractRPCs(serviceNode *sitter.Node, src []byte, opts types.ExtractOptions
 				EdgeHash:   edgeHash,
 				SourceHash: rpcHash,
 				TargetHash: targetHash,
-				EdgeType:   "references",
+				EdgeType:   edgetype.References,
 				Confidence: confidence,
 				Provenance: provenance,
 			})
@@ -336,7 +337,7 @@ func extractFieldReferences(msgNode *sitter.Node, src []byte, opts types.Extract
 			EdgeHash:   edgeHash,
 			SourceHash: msgHash,
 			TargetHash: targetHash,
-			EdgeType:   "references",
+			EdgeType:   edgetype.References,
 			Confidence: confidence,
 			Provenance: provenance,
 		})

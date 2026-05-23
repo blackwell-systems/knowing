@@ -83,12 +83,12 @@ func (e *EnvExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (
 			continue
 		}
 
-		nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, key, "var")
+		nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, key, types.KindVar)
 		result.Nodes = append(result.Nodes, types.Node{
 			NodeHash:      nodeHash,
 			FileHash:      opts.FileHash,
 			QualifiedName: fmt.Sprintf("%s://%s.var.%s", opts.RepoURL, opts.FilePath, key),
-			Kind:          "var",
+			Kind:          types.KindVar,
 			Line:          lineNum,
 		})
 	}

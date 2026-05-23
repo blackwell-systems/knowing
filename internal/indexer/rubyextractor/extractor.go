@@ -31,6 +31,7 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/ruby"
 
+	"github.com/blackwell-systems/knowing/internal/edgetype"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
@@ -138,7 +139,7 @@ func (e *RubyExtractor) Extract(ctx context.Context, opts types.ExtractOptions) 
 	var edges []types.Edge
 
 	// File-level node hash for import edges.
-	fileNodeHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, filepath.Base(opts.FilePath), "file")
+	fileNodeHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, filepath.Base(opts.FilePath), types.KindFile)
 
 	// Detect if this is a routes file.
 	isRoutesFile := strings.HasSuffix(opts.FilePath, "config/routes.rb") ||
@@ -247,13 +248,13 @@ func extractClassNode(
 	line := int(nameNode.StartPoint().Row) + 1
 
 	qualifiedClass := buildQualifiedName(moduleName, parentClass, name)
-	nodeHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, qualifiedClass, "type")
+	nodeHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, qualifiedClass, types.KindType)
 
 	*nodes = append(*nodes, types.Node{
 		NodeHash:      nodeHash,
 		FileHash:      opts.FileHash,
 		QualifiedName: fmt.Sprintf("%s://%s.%s", opts.RepoURL, qnamePrefix, qualifiedClass),
-		Kind:          "type",
+		Kind:          types.KindType,
 		Line:          line,
 		Signature:     fmt.Sprintf("class %s", name),
 	})
@@ -264,13 +265,13 @@ func extractClassNode(
 	if superNode != nil {
 		superName := extractConstantFromSuperclass(superNode, opts.Content)
 		if superName != "" {
-			targetHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, superName, "type")
-			edgeHash := types.ComputeEdgeHash(nodeHash, targetHash, "extends", provenance)
+			targetHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, superName, types.KindType)
+			edgeHash := types.ComputeEdgeHash(nodeHash, targetHash, edgetype.Extends, provenance)
 			*edges = append(*edges, types.Edge{
 				EdgeHash:   edgeHash,
 				SourceHash: nodeHash,
 				TargetHash: targetHash,
-				EdgeType:   "extends",
+				EdgeType:   edgetype.Extends,
 				Confidence: confidence,
 				Provenance: provenance,
 			})
@@ -304,13 +305,13 @@ func extractModuleNode(
 	line := int(nameNode.StartPoint().Row) + 1
 
 	qualifiedModule := buildQualifiedName(moduleName, "", name)
-	nodeHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, qualifiedModule, "type")
+	nodeHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, qualifiedModule, types.KindType)
 
 	*nodes = append(*nodes, types.Node{
 		NodeHash:      nodeHash,
 		FileHash:      opts.FileHash,
 		QualifiedName: fmt.Sprintf("%s://%s.%s", opts.RepoURL, qnamePrefix, qualifiedModule),
-		Kind:          "type",
+		Kind:          types.KindType,
 		Line:          line,
 		Signature:     fmt.Sprintf("module %s", name),
 	})
@@ -342,13 +343,13 @@ func extractMethodNode(
 	line := int(nameNode.StartPoint().Row) + 1
 
 	// Determine kind based on whether we are inside a class/module.
-	kind := "function"
+	kind := types.KindFunction
 	container := className
 	if container == "" {
 		container = moduleName
 	}
 	if container != "" {
-		kind = "method"
+		kind = types.KindMethod
 	}
 
 	var qname string
@@ -422,13 +423,13 @@ func extractSingletonMethodNode(
 		hashName = container + "." + name
 	}
 
-	nodeHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, hashName, "method")
+	nodeHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, hashName, types.KindMethod)
 
 	*nodes = append(*nodes, types.Node{
 		NodeHash:      nodeHash,
 		FileHash:      opts.FileHash,
 		QualifiedName: qname,
-		Kind:          "method",
+		Kind:          types.KindMethod,
 		Line:          line,
 		Signature:     fmt.Sprintf("def self.%s", name),
 	})
@@ -470,7 +471,7 @@ func handleCallNode(
 	}
 	var containerHash types.Hash
 	if container != "" {
-		containerHash = types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, container, "type")
+		containerHash = types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, container, types.KindType)
 	}
 
 	switch methodName {
@@ -575,12 +576,12 @@ func extractRequireEdge(
 	}
 
 	targetHash := types.ComputeNodeHash(opts.RepoURL, arg, types.EmptyHash, arg, "module")
-	edgeHash := types.ComputeEdgeHash(fileNodeHash, targetHash, "imports", provenance)
+	edgeHash := types.ComputeEdgeHash(fileNodeHash, targetHash, edgetype.Imports, provenance)
 	*edges = append(*edges, types.Edge{
 		EdgeHash:   edgeHash,
 		SourceHash: fileNodeHash,
 		TargetHash: targetHash,
-		EdgeType:   "imports",
+		EdgeType:   edgetype.Imports,
 		Confidence: confidence,
 		Provenance: provenance,
 	})
@@ -607,13 +608,13 @@ func extractIncludeExtendEdge(
 			if modName == "" {
 				continue
 			}
-			targetHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, modName, "type")
-			edgeHash := types.ComputeEdgeHash(classHash, targetHash, "implements", provenance)
+			targetHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, modName, types.KindType)
+			edgeHash := types.ComputeEdgeHash(classHash, targetHash, edgetype.Implements, provenance)
 			*edges = append(*edges, types.Edge{
 				EdgeHash:   edgeHash,
 				SourceHash: classHash,
 				TargetHash: targetHash,
-				EdgeType:   "implements",
+				EdgeType:   edgetype.Implements,
 				Confidence: confidence,
 				Provenance: provenance,
 			})
@@ -630,13 +631,13 @@ func extractDecoratorEdge(
 	classHash types.Hash,
 	edges *[]types.Edge,
 ) {
-	targetHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, decoratorName, "function")
-	edgeHash := types.ComputeEdgeHash(targetHash, classHash, "decorates", provenance)
+	targetHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, decoratorName, types.KindFunction)
+	edgeHash := types.ComputeEdgeHash(targetHash, classHash, edgetype.Decorates, provenance)
 	*edges = append(*edges, types.Edge{
 		EdgeHash:   edgeHash,
 		SourceHash: targetHash,
 		TargetHash: classHash,
-		EdgeType:   "decorates",
+		EdgeType:   edgetype.Decorates,
 		Confidence: confidence,
 		Provenance: provenance,
 	})
@@ -662,23 +663,23 @@ func extractRouteEdge(
 	}
 
 	routeSig := httpMethod + " " + arg
-	routeNodeHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, routeSig, "route_handler")
+	routeNodeHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, routeSig, types.KindRoute)
 
 	*nodes = append(*nodes, types.Node{
 		NodeHash:      routeNodeHash,
 		FileHash:      opts.FileHash,
 		QualifiedName: fmt.Sprintf("%s://%s.%s", opts.RepoURL, qnamePrefix, routeSig),
-		Kind:          "route_handler",
+		Kind:          types.KindRoute,
 		Signature:     routeSig,
 	})
 
 	// Create handles_route edge from route to file.
-	edgeHash := types.ComputeEdgeHash(routeNodeHash, fileNodeHash, "handles_route", provenance)
+	edgeHash := types.ComputeEdgeHash(routeNodeHash, fileNodeHash, edgetype.HandlesRoute, provenance)
 	*edges = append(*edges, types.Edge{
 		EdgeHash:   edgeHash,
 		SourceHash: routeNodeHash,
 		TargetHash: fileNodeHash,
-		EdgeType:   "handles_route",
+		EdgeType:   edgetype.HandlesRoute,
 		Confidence: confidence,
 		Provenance: provenance,
 	})
@@ -709,13 +710,13 @@ func walkForCalls(
 		// Emit a call edge for them. Skip Ruby keywords and common locals.
 		name := node.Content(opts.Content)
 		if name != "" && !rubyKeyword(name) {
-			targetHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, name, "function")
-			edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "calls", provenance)
+			targetHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, name, types.KindFunction)
+			edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, edgetype.Calls, provenance)
 			*edges = append(*edges, types.Edge{
 				EdgeHash:     edgeHash,
 				SourceHash:   sourceHash,
 				TargetHash:   targetHash,
-				EdgeType:     "calls",
+				EdgeType:     edgetype.Calls,
 				Confidence:   confidence,
 				Provenance:   provenance,
 				CallSiteLine: int(node.StartPoint().Row) + 1,
@@ -770,14 +771,14 @@ func extractSingleCallEdge(
 		}
 	}
 
-	targetHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, targetName, "function")
-	edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "calls", provenance)
+	targetHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, targetName, types.KindFunction)
+	edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, edgetype.Calls, provenance)
 
 	*edges = append(*edges, types.Edge{
 		EdgeHash:     edgeHash,
 		SourceHash:   sourceHash,
 		TargetHash:   targetHash,
-		EdgeType:     "calls",
+		EdgeType:     edgetype.Calls,
 		Confidence:   confidence,
 		Provenance:   provenance,
 		CallSiteLine: int(node.StartPoint().Row) + 1,

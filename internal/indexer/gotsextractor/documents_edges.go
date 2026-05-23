@@ -5,6 +5,7 @@ import (
 
 	sitter "github.com/smacker/go-tree-sitter"
 
+	"github.com/blackwell-systems/knowing/internal/edgetype"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
@@ -43,12 +44,12 @@ func ExtractDocumentsEdges(_ *sitter.Node, opts types.ExtractOptions, pkgPath st
 
 		// Create a 'documents' edge from comment to declaration.
 		provenance := "ast_inferred"
-		edgeHash := types.ComputeEdgeHash(commentHash, node.NodeHash, "documents", provenance)
+		edgeHash := types.ComputeEdgeHash(commentHash, node.NodeHash, edgetype.Documents, provenance)
 		edge := types.Edge{
 			EdgeHash:   edgeHash,
 			SourceHash: commentHash,
 			TargetHash: node.NodeHash,
-			EdgeType:   "documents",
+			EdgeType:   edgetype.Documents,
 			Confidence: 0.9,
 			Provenance: provenance,
 		}

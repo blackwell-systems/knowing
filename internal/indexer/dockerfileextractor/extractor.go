@@ -51,12 +51,12 @@ func (e *DockerfileExtractor) Extract(ctx context.Context, opts types.ExtractOpt
 	result := &types.ExtractResult{}
 
 	// File-level node representing the Dockerfile itself.
-	fileNodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, opts.FilePath, "type")
+	fileNodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, opts.FilePath, types.KindType)
 	fileNode := types.Node{
 		NodeHash:      fileNodeHash,
 		FileHash:      opts.FileHash,
 		QualifiedName: buildQN(opts.RepoURL, opts.FilePath, "type", filepath.Base(opts.FilePath)),
-		Kind:          "type",
+		Kind:          types.KindType,
 		Line:          1,
 	}
 	result.Nodes = append(result.Nodes, fileNode)
@@ -111,13 +111,13 @@ func (e *DockerfileExtractor) Extract(ctx context.Context, opts types.ExtractOpt
 			stageIndex++
 
 			// Create stage node.
-			stageHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, stageName, "type")
+			stageHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, stageName, types.KindType)
 			currentStageHash = stageHash
 			result.Nodes = append(result.Nodes, types.Node{
 				NodeHash:      stageHash,
 				FileHash:      opts.FileHash,
 				QualifiedName: buildQN(opts.RepoURL, opts.FilePath, "type", stageName),
-				Kind:          "type",
+				Kind:          types.KindType,
 				Line:          lineNum,
 			})
 
@@ -158,7 +158,7 @@ func (e *DockerfileExtractor) Extract(ctx context.Context, opts types.ExtractOpt
 			for _, p := range parts[1:] {
 				if strings.HasPrefix(p, "--from=") {
 					fromStage := strings.TrimPrefix(p, "--from=")
-					fromStageHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, fromStage, "type")
+					fromStageHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, fromStage, types.KindType)
 					if !currentStageHash.IsZero() {
 						result.Edges = append(result.Edges, makeEdge(currentStageHash, fromStageHash, "depends_on"))
 					}
@@ -174,12 +174,12 @@ func (e *DockerfileExtractor) Extract(ctx context.Context, opts types.ExtractOpt
 			if idx := strings.Index(key, "="); idx > 0 {
 				key = key[:idx]
 			}
-			varHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, key, "var")
+			varHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, key, types.KindVar)
 			result.Nodes = append(result.Nodes, types.Node{
 				NodeHash:      varHash,
 				FileHash:      opts.FileHash,
 				QualifiedName: buildQN(opts.RepoURL, opts.FilePath, "var", key),
-				Kind:          "var",
+				Kind:          types.KindVar,
 				Line:          lineNum,
 			})
 
@@ -191,12 +191,12 @@ func (e *DockerfileExtractor) Extract(ctx context.Context, opts types.ExtractOpt
 			if idx := strings.Index(argName, "="); idx > 0 {
 				argName = argName[:idx]
 			}
-			argHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, argName, "var")
+			argHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, argName, types.KindVar)
 			result.Nodes = append(result.Nodes, types.Node{
 				NodeHash:      argHash,
 				FileHash:      opts.FileHash,
 				QualifiedName: buildQN(opts.RepoURL, opts.FilePath, "var", argName),
-				Kind:          "var",
+				Kind:          types.KindVar,
 				Line:          lineNum,
 			})
 		}

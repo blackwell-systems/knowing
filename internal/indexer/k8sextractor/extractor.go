@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/blackwell-systems/knowing/internal/edgetype"
 	"github.com/blackwell-systems/knowing/internal/types"
 	"gopkg.in/yaml.v3"
 )
@@ -107,7 +108,7 @@ func (e *K8sExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (
 					if isWorkload(targetKind) && labelsMatchSelector(target.Labels, res.Selector) {
 						targetKey := fmt.Sprintf("%s/%s/%s", targetKind, target.Namespace, target.Name)
 						if targetHash, ok := nodeMap[targetKey]; ok {
-							edge := makeEdge(resHash, targetHash, "deploys")
+							edge := makeEdge(resHash, targetHash, edgetype.Deploys)
 							result.Edges = append(result.Edges, edge)
 						}
 					}
@@ -119,7 +120,7 @@ func (e *K8sExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (
 			for _, svcName := range res.BackendServices {
 				svcKey := fmt.Sprintf("service/%s/%s", res.Namespace, svcName)
 				if svcHash, ok := nodeMap[svcKey]; ok {
-					edge := makeEdge(resHash, svcHash, "exposes")
+					edge := makeEdge(resHash, svcHash, edgetype.Exposes)
 					result.Edges = append(result.Edges, edge)
 				}
 			}
@@ -129,7 +130,7 @@ func (e *K8sExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (
 			for _, cmName := range res.ConfigMapRefs {
 				cmKey := fmt.Sprintf("configmap/%s/%s", res.Namespace, cmName)
 				if cmHash, ok := nodeMap[cmKey]; ok {
-					edge := makeEdge(cmHash, resHash, "configures")
+					edge := makeEdge(cmHash, resHash, edgetype.Configures)
 					result.Edges = append(result.Edges, edge)
 				}
 			}

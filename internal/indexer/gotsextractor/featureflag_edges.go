@@ -6,6 +6,7 @@ import (
 
 	sitter "github.com/smacker/go-tree-sitter"
 
+	"github.com/blackwell-systems/knowing/internal/edgetype"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
@@ -140,7 +141,7 @@ func addFlagEdge(flagName string, opts types.ExtractOptions, funcNodeHash types.
 	flagHash := types.ComputeNodeHash(opts.RepoURL, "flags", types.EmptyHash, flagName, "feature_flag")
 
 	provenance := "ast_inferred"
-	edgeHash := types.ComputeEdgeHash(funcNodeHash, flagHash, "gated_by_flag", provenance)
+	edgeHash := types.ComputeEdgeHash(funcNodeHash, flagHash, edgetype.GatedByFlag, provenance)
 
 	// Deduplicate by edge hash (same function + same flag = one edge).
 	if _, exists := seen[edgeHash]; exists {
@@ -163,7 +164,7 @@ func addFlagEdge(flagName string, opts types.ExtractOptions, funcNodeHash types.
 		EdgeHash:   edgeHash,
 		SourceHash: funcNodeHash,
 		TargetHash: flagHash,
-		EdgeType:   "gated_by_flag",
+		EdgeType:   edgetype.GatedByFlag,
 		Confidence: 0.8,
 		Provenance: provenance,
 	}

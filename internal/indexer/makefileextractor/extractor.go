@@ -97,12 +97,12 @@ func (e *MakefileExtractor) Extract(ctx context.Context, opts types.ExtractOptio
 			files := strings.Fields(strings.TrimPrefix(trimmed, prefix))
 			fileNodeHash := ensureTargetNode(opts, targetNodes, result, opts.FilePath, lineNum)
 			for _, f := range files {
-				includeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, f, "type")
+				includeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, f, types.KindType)
 				result.Nodes = append(result.Nodes, types.Node{
 					NodeHash:      includeHash,
 					FileHash:      opts.FileHash,
 					QualifiedName: buildQN(opts.RepoURL, opts.FilePath, "type", f),
-					Kind:          "type",
+					Kind:          types.KindType,
 					Line:          lineNum,
 				})
 				result.Edges = append(result.Edges, makeEdge(fileNodeHash, includeHash, "imports"))

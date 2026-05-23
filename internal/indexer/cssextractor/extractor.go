@@ -27,6 +27,7 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/css"
 
+	"github.com/blackwell-systems/knowing/internal/edgetype"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
@@ -82,7 +83,7 @@ func (e *CSSExtractor) Extract(ctx context.Context, opts types.ExtractOptions) (
 	var edges []types.Edge
 
 	// File-level node hash for import edges.
-	fileNodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, filepath.Base(opts.FilePath), "file")
+	fileNodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, filepath.Base(opts.FilePath), types.KindFile)
 
 	// Track custom property definitions for var() resolution.
 	customProps := make(map[string]types.Hash)
@@ -279,13 +280,13 @@ func extractImportEdge(node *sitter.Node, opts types.ExtractOptions, fileNodeHas
 
 	targetHash := types.ComputeNodeHash(opts.RepoURL, importPath, types.EmptyHash, importPath, "module")
 	provenance := "ast_inferred"
-	edgeHash := types.ComputeEdgeHash(fileNodeHash, targetHash, "imports", provenance)
+	edgeHash := types.ComputeEdgeHash(fileNodeHash, targetHash, edgetype.Imports, provenance)
 
 	return &types.Edge{
 		EdgeHash:   edgeHash,
 		SourceHash: fileNodeHash,
 		TargetHash: targetHash,
-		EdgeType:   "imports",
+		EdgeType:   edgetype.Imports,
 		Confidence: 0.7,
 		Provenance: provenance,
 	}
@@ -395,12 +396,12 @@ func walkBlockForVarRefs(node *sitter.Node, opts types.ExtractOptions, selectorH
 		if funcName == "var" && strings.HasPrefix(argValue, "--") {
 			if targetHash, ok := customProps[argValue]; ok {
 				provenance := "ast_inferred"
-				edgeHash := types.ComputeEdgeHash(selectorHash, targetHash, "depends_on", provenance)
+				edgeHash := types.ComputeEdgeHash(selectorHash, targetHash, edgetype.DependsOn, provenance)
 				*edges = append(*edges, types.Edge{
 					EdgeHash:   edgeHash,
 					SourceHash: selectorHash,
 					TargetHash: targetHash,
-					EdgeType:   "depends_on",
+					EdgeType:   edgetype.DependsOn,
 					Confidence: 0.7,
 					Provenance: provenance,
 				})

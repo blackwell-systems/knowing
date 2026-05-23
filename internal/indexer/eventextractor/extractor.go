@@ -460,14 +460,14 @@ func (e *EventExtractor) addTopicEdge(opts types.ExtractOptions, result *types.E
 	result.Nodes = append(result.Nodes, topicNode)
 
 	// Create function node for the enclosing context
-	funcHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, enclosingFunc, "function")
+	funcHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, enclosingFunc, types.KindFunction)
 	funcQN := fmt.Sprintf("%s://%s.function.%s", opts.RepoURL, opts.FilePath, enclosingFunc)
 
 	funcNode := types.Node{
 		NodeHash:      funcHash,
 		FileHash:      opts.FileHash,
 		QualifiedName: funcQN,
-		Kind:          "function",
+		Kind:          types.KindFunction,
 		Line:          line,
 	}
 	result.Nodes = append(result.Nodes, funcNode)

@@ -23,6 +23,7 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/python"
 
+	"github.com/blackwell-systems/knowing/internal/edgetype"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
@@ -128,7 +129,7 @@ func (e *TreeSitterExtractor) walkNodeWithImports(node *sitter.Node, opts types.
 			nestedFuncHash := funcHash
 			if nameNode != nil {
 				nestedName := e.qualifiedName(opts, classContext, nameNode.Content(opts.Content))
-				nestedFuncHash = types.ComputeNodeHash(opts.RepoURL, opts.ModuleRoot, opts.FileHash, nestedName, "function")
+				nestedFuncHash = types.ComputeNodeHash(opts.RepoURL, opts.ModuleRoot, opts.FileHash, nestedName, types.KindFunction)
 			}
 			for i := 0; i < int(body.ChildCount()); i++ {
 				e.walkNodeWithImports(body.Child(i), opts, classContext, nestedFuncHash, pyImports, result)
@@ -194,9 +195,9 @@ func (e *TreeSitterExtractor) extractFunction(node *sitter.Node, opts types.Extr
 	name := nameNode.Content(opts.Content)
 	line := int(nameNode.StartPoint().Row) + 1 // 1-indexed
 
-	kind := "function"
+	kind := types.KindFunction
 	if classContext != "" {
-		kind = "method"
+		kind = types.KindMethod
 	}
 
 	qname := e.qualifiedName(opts, classContext, name)
@@ -309,12 +310,12 @@ func (e *TreeSitterExtractor) extractImport(node *sitter.Node, opts types.Extrac
 	sourceHash := types.ComputeNodeHash(opts.RepoURL, opts.ModuleRoot, opts.FileHash, sourceQName, "module")
 
 	provenance := "ast_resolved"
-	edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "imports", provenance)
+	edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, edgetype.Imports, provenance)
 	edge := types.Edge{
 		EdgeHash:   edgeHash,
 		SourceHash: sourceHash,
 		TargetHash: targetHash,
-		EdgeType:   "imports",
+		EdgeType:   edgetype.Imports,
 		Confidence: 1.0,
 		Provenance: provenance,
 	}
@@ -366,7 +367,7 @@ func (e *TreeSitterExtractor) extractCallWithImports(node *sitter.Node, opts typ
 			}
 		}
 	}
-	targetHash := types.ComputeNodeHash(targetRepoURL, opts.ModuleRoot, types.EmptyHash, targetQName, "function")
+	targetHash := types.ComputeNodeHash(targetRepoURL, opts.ModuleRoot, types.EmptyHash, targetQName, types.KindFunction)
 
 	provenance := "ast_inferred"
 	confidence := 0.7
@@ -379,12 +380,12 @@ func (e *TreeSitterExtractor) extractCallWithImports(node *sitter.Node, opts typ
 		}
 	}
 
-	edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "calls", provenance)
+	edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, edgetype.Calls, provenance)
 	edge := types.Edge{
 		EdgeHash:     edgeHash,
 		SourceHash:   sourceHash,
 		TargetHash:   targetHash,
-		EdgeType:     "calls",
+		EdgeType:     edgetype.Calls,
 		Confidence:   confidence,
 		Provenance:   provenance,
 		CallSiteLine: int(funcNode.StartPoint().Row) + 1,
@@ -553,12 +554,12 @@ func (e *TreeSitterExtractor) extractRaise(node *sitter.Node, opts types.Extract
 		if errorType != "" {
 			targetHash := types.ComputeNodeHash(opts.RepoURL, opts.ModuleRoot, types.EmptyHash, errorType, "error")
 			provenance := "ast_inferred"
-			edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "throws", provenance)
+			edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, edgetype.Throws, provenance)
 			result.Edges = append(result.Edges, types.Edge{
 				EdgeHash:   edgeHash,
 				SourceHash: sourceHash,
 				TargetHash: targetHash,
-				EdgeType:   "throws",
+				EdgeType:   edgetype.Throws,
 				Confidence: 0.7,
 				Provenance: provenance,
 			})
@@ -713,25 +714,25 @@ func (e *TreeSitterExtractor) tryExtractPythonDecoratedRoute(node *sitter.Node, 
 	qnamePrefix := fmt.Sprintf("%s/%s", opts.ModuleRoot, opts.FilePath)
 
 	// Create route_handler node.
-	nodeHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, routeSig, "route_handler")
+	nodeHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, routeSig, types.KindRoute)
 	routeNode := types.Node{
 		NodeHash:      nodeHash,
 		FileHash:      opts.FileHash,
 		QualifiedName: fmt.Sprintf("%s://%s.%s", opts.RepoURL, qnamePrefix, routeSig),
-		Kind:          "route_handler",
+		Kind:          types.KindRoute,
 		Signature:     routeSig,
 	}
 	result.Nodes = append(result.Nodes, routeNode)
 
 	// Create handles_route edge to the handler function.
 	handlerQName := e.qualifiedName(opts, classContext, funcName)
-	handlerHash := types.ComputeNodeHash(opts.RepoURL, opts.ModuleRoot, types.EmptyHash, handlerQName, "function")
-	edgeHash := types.ComputeEdgeHash(nodeHash, handlerHash, "handles_route", "ast_inferred")
+	handlerHash := types.ComputeNodeHash(opts.RepoURL, opts.ModuleRoot, types.EmptyHash, handlerQName, types.KindFunction)
+	edgeHash := types.ComputeEdgeHash(nodeHash, handlerHash, edgetype.HandlesRoute, "ast_inferred")
 	result.Edges = append(result.Edges, types.Edge{
 		EdgeHash:   edgeHash,
 		SourceHash: nodeHash,
 		TargetHash: handlerHash,
-		EdgeType:   "handles_route",
+		EdgeType:   edgetype.HandlesRoute,
 		Confidence: 0.7,
 		Provenance: "ast_inferred",
 	})
@@ -840,25 +841,25 @@ func (e *TreeSitterExtractor) tryExtractDjangoPath(callNode *sitter.Node, opts t
 	routeSig := "ANY " + urlPattern
 	qnamePrefix := fmt.Sprintf("%s/%s", opts.ModuleRoot, opts.FilePath)
 
-	nodeHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, routeSig, "route_handler")
+	nodeHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, routeSig, types.KindRoute)
 	routeNode := types.Node{
 		NodeHash:      nodeHash,
 		FileHash:      opts.FileHash,
 		QualifiedName: fmt.Sprintf("%s://%s.%s", opts.RepoURL, qnamePrefix, routeSig),
-		Kind:          "route_handler",
+		Kind:          types.KindRoute,
 		Signature:     routeSig,
 	}
 	result.Nodes = append(result.Nodes, routeNode)
 
 	// Edge to the view function.
 	handlerQName := e.qualifiedName(opts, "", viewName)
-	handlerHash := types.ComputeNodeHash(opts.RepoURL, opts.ModuleRoot, types.EmptyHash, handlerQName, "function")
-	edgeHash := types.ComputeEdgeHash(nodeHash, handlerHash, "handles_route", "ast_inferred")
+	handlerHash := types.ComputeNodeHash(opts.RepoURL, opts.ModuleRoot, types.EmptyHash, handlerQName, types.KindFunction)
+	edgeHash := types.ComputeEdgeHash(nodeHash, handlerHash, edgetype.HandlesRoute, "ast_inferred")
 	result.Edges = append(result.Edges, types.Edge{
 		EdgeHash:   edgeHash,
 		SourceHash: nodeHash,
 		TargetHash: handlerHash,
-		EdgeType:   "handles_route",
+		EdgeType:   edgetype.HandlesRoute,
 		Confidence: 0.7,
 		Provenance: "ast_inferred",
 	})
@@ -895,7 +896,7 @@ func (e *TreeSitterExtractor) extractPythonBaseClasses(classNode *sitter.Node, o
 		// makeNode uses: ComputeNodeHash(repoURL, moduleRoot, _, qualifiedName, kind)
 		// where qualifiedName is "repoURL://moduleRoot/filepath.ClassName"
 		targetQName := resolveBaseClassQName(baseName, opts, pyImports)
-		targetHash := types.ComputeNodeHash(opts.RepoURL, opts.ModuleRoot, types.EmptyHash, targetQName, "type")
+		targetHash := types.ComputeNodeHash(opts.RepoURL, opts.ModuleRoot, types.EmptyHash, targetQName, types.KindType)
 
 		provenance := "ast_inferred"
 		confidence := 0.7
@@ -906,12 +907,12 @@ func (e *TreeSitterExtractor) extractPythonBaseClasses(classNode *sitter.Node, o
 			}
 		}
 
-		edgeHash := types.ComputeEdgeHash(classHash, targetHash, "extends", provenance)
+		edgeHash := types.ComputeEdgeHash(classHash, targetHash, edgetype.Extends, provenance)
 		result.Edges = append(result.Edges, types.Edge{
 			EdgeHash:   edgeHash,
 			SourceHash: classHash,
 			TargetHash: targetHash,
-			EdgeType:   "extends",
+			EdgeType:   edgetype.Extends,
 			Confidence: confidence,
 			Provenance: provenance,
 		})
@@ -957,14 +958,14 @@ func (e *TreeSitterExtractor) extractPythonDecoratorEdges(declNode *sitter.Node,
 			if decoratorName == "" {
 				continue
 			}
-			targetHash := types.ComputeNodeHash(opts.RepoURL, opts.ModuleRoot, types.EmptyHash, decoratorName, "function")
+			targetHash := types.ComputeNodeHash(opts.RepoURL, opts.ModuleRoot, types.EmptyHash, decoratorName, types.KindFunction)
 			provenance := "ast_inferred"
-			edgeHash := types.ComputeEdgeHash(targetHash, declHash, "decorates", provenance)
+			edgeHash := types.ComputeEdgeHash(targetHash, declHash, edgetype.Decorates, provenance)
 			result.Edges = append(result.Edges, types.Edge{
 				EdgeHash:   edgeHash,
 				SourceHash: targetHash,
 				TargetHash: declHash,
-				EdgeType:   "decorates",
+				EdgeType:   edgetype.Decorates,
 				Confidence: 0.7,
 				Provenance: provenance,
 			})
