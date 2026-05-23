@@ -25,9 +25,12 @@ Hooks are backed by automated benchmarks (not vibes). We measured whether automa
 
 Re-run the benchmark yourself:
 ```bash
-knowing index -db knowing.db .
-KNOWING_DB=knowing.db go test -tags hookbench ./hooks/benchmark/ -v
+KNOWING_DB=/Users/you/code/repo/knowing.db go test -tags hookbench ./hooks/benchmark/ -v
 ```
+
+Note: The MCP server auto-indexes your repo on first launch (zero-config), so a
+`knowing.db` likely already exists at `~/.knowing/repos/<repo>.db`. Use the
+absolute path to that file, or set `KNOWING_DB` to it.
 
 See `hooks/FINDINGS.md` for the full experimental history, including earlier iterations where hooks were net-negative and what changed.
 

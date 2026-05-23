@@ -16,12 +16,17 @@ knowing exposes its MCP server over two transports:
   "mcpServers": {
     "knowing": {
       "command": "knowing",
-      "args": ["mcp", "--watch", "-db", "/path/to/knowing.db"],
+      "args": ["mcp", "--watch"],
       "transport": "stdio"
     }
   }
 }
 ```
+
+**Zero-config:** No `-db` flag or `knowing index` step is needed. On first
+launch, if the database doesn't exist, the MCP server auto-detects the git
+repository, indexes it, and registers it in the roster. Subsequent sessions
+resolve the database automatically via the roster.
 
 The `--watch` flag enables integrated file watching. The MCP server monitors the
 repository for changes and re-indexes automatically on save, so agents always
@@ -44,7 +49,11 @@ For HTTP transport, configure a client that connects to the Streamable HTTP endp
 
 ### Data Requirements
 
-Most tools operate on the static knowledge graph (nodes, edges, snapshots) built by `index_repo`. Three tools in the Runtime category require OTLP trace data ingested by the daemon's trace pipeline; they return an error if the underlying store is not a SQLiteStore with runtime tables.
+Most tools operate on the static knowledge graph (nodes, edges, snapshots). The
+graph is built automatically on first MCP server launch (zero-config) or
+manually via `knowing index`. Three tools in the Runtime category require OTLP
+trace data ingested by the daemon's trace pipeline; they return an error if the
+underlying store is not a SQLiteStore with runtime tables.
 
 | Category | Requires runtime trace data |
 |----------|----------------------------|

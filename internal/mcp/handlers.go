@@ -158,6 +158,10 @@ func (s *Server) handleGraphQuery(ctx context.Context, req mcp.CallToolRequest) 
 		return errResult, nil
 	}
 
+	// Implicit feedback: querying a symbol by name is a signal the agent is
+	// actively investigating it (likely received from context_for_task).
+	s.ObserveToolUse(ctx, prefix)
+
 	nodes, err := s.store.NodesByName(ctx, prefix)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("NodesByName failed: %v", err)), nil

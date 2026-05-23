@@ -118,7 +118,13 @@ func TestAnalyzeTranscripts(t *testing.T) {
 		t.Logf("parsed %s: tokens=%d tools=%d correctness=%.2f",
 			e.Name(), metrics.TotalTokens, metrics.ToolCalls, metrics.AnswerCorrectness)
 
+		// Validate control mode compliance: no knowing MCP tools should appear.
 		if mode == "control" {
+			for toolName := range metrics.ToolCallsByType {
+				if strings.HasPrefix(toolName, "mcp__knowing__") {
+					t.Logf("WARNING: control session %s used knowing tool %s (invalid, should re-run)", e.Name(), toolName)
+				}
+			}
 			controls[taskID] = metrics
 		} else {
 			treatments[taskID] = metrics

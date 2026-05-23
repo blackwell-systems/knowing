@@ -80,6 +80,7 @@ type Server struct {
 	ctxSession  *knowingctx.SessionTracker // session-aware retrieval boosts
 	vecSearch   *embedding.Searcher        // semantic vector search (nil if model unavailable)
 	taskMemory  *knowingctx.TaskMemory     // passive task-symbol learning (nil if no SQLite)
+	implicit    *knowingctx.ImplicitFeedback // implicit feedback detection from tool usage
 	snapMgr     *snapshot.SnapshotManager  // nil if no snapshot manager is wired in
 	resultCache *cache.SubgraphCache       // nil if caching is disabled
 	startTime   time.Time                  // server creation time for uptime tracking
@@ -96,6 +97,7 @@ func NewServer(store types.GraphStore) *Server {
 		store:      store,
 		session:    wire.NewSession(),
 		ctxSession: knowingctx.NewSessionTracker(),
+		implicit:   knowingctx.NewImplicitFeedback(),
 		startTime:  time.Now(),
 	}
 	// Initialize embedding-based vector search (best-effort).
@@ -217,6 +219,35 @@ func (s *Server) ToolNames() []string {
 		"fsck",
 		"untrack_repo",
 	}
+}
+
+// ObserveToolUse checks whether content from a tool call (e.g., Edit old_string,
+// file path, Agent prompt) references symbols that were recently returned by
+// context_for_task. If matches are found, positive feedback is auto-recorded.
+//
+// This implements implicit feedback: the agent doesn't need to call the feedback
+// tool explicitly. Using a symbol after receiving it in context is sufficient
+// signal that it was useful.
+//
+// Returns the number of symbols attributed.
+func (s *Server) ObserveToolUse(ctx context.Context, content string) int {
+	if s.implicit == nil || content == "" {
+		return 0
+	}
+
+	used := s.implicit.DetectUsed(content)
+	if len(used) == 0 {
+		return 0
+	}
+
+	// Record positive feedback for each implicitly used symbol.
+	if s.sqlStore != nil {
+		for _, h := range used {
+			_ = s.sqlStore.RecordFeedback(ctx, h, "implicit", true, types.EmptyHash)
+		}
+	}
+
+	return len(used)
 }
 
 // ServeStdio runs the MCP server over stdin/stdout until ctx is cancelled.

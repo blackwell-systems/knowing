@@ -59,6 +59,24 @@ func (s *Server) handleContextForTask(ctx context.Context, req mcp.CallToolReque
 	s.contextCalls.Add(1)
 	s.symbolsServed.Add(int64(len(block.Symbols)))
 
+	// Implicit feedback: flush previous pending symbols (record negative feedback
+	// for those never used), then register new returned symbols for attribution.
+	if s.implicit != nil {
+		// A new context_for_task call means the agent's focus has shifted.
+		// Symbols from the previous call that were never referenced are
+		// implicitly "not useful" for that task.
+		if s.sqlStore != nil {
+			unused := s.implicit.FlushUnused()
+			for _, h := range unused {
+				_ = s.sqlStore.RecordFeedback(ctx, h, "implicit", false, types.EmptyHash)
+			}
+		}
+
+		if len(block.Symbols) > 0 {
+			s.implicit.RegisterReturned(block.Symbols)
+		}
+	}
+
 	// Passive task memory: record which symbols were returned for this task
 	// so future similar tasks get boosted. Uses top-5 symbols (most relevant)
 	// with a moderate score (0.6) since being returned is a weaker signal than
@@ -203,6 +221,10 @@ func (s *Server) handleExplainSymbol(ctx context.Context, req mcp.CallToolReques
 	if errResult != nil {
 		return errResult, nil
 	}
+
+	// Implicit feedback: asking "why did this symbol rank here?" strongly implies
+	// the agent is actively using it.
+	s.ObserveToolUse(ctx, symbol)
 
 	engine := knowingctx.NewContextEngine(s.store)
 	engine.SetSession(s.ctxSession)

@@ -33,7 +33,7 @@ fi
 
 # Configuration.
 DB="${KNOWING_HOOKS_DB:-knowing.db}"
-BUDGET="${KNOWING_HOOKS_BUDGET:-800}"
+BUDGET="${KNOWING_HOOKS_BUDGET:-400}"
 FORMAT="${KNOWING_HOOKS_FORMAT:-gcf}"
 LOG="${KNOWING_HOOKS_LOG:-.knowing-hooks.jsonl}"
 VERBOSE="${KNOWING_HOOKS_VERBOSE:-0}"
@@ -48,7 +48,7 @@ PARSED=$(echo "$INPUT" | python3 -c "
 import json, sys, re
 try:
     data = json.load(sys.stdin)
-    inp = data.get('input', {})
+    inp = data.get('tool_input', data.get('input', {}))
     file_path = inp.get('file_path', inp.get('path', ''))
     old_string = inp.get('old_string', '')
 
@@ -138,6 +138,25 @@ if [ -z "$CONTEXT" ] || echo "$CONTEXT" | grep -qE "symbols=0|error:"; then
   exit 0
 fi
 
+# Trim output for hook injection: keep header + top 20 symbols, drop edges.
+# Full context is expensive in model tokens; the hook only needs the most relevant.
+CONTEXT=$(echo "$CONTEXT" | python3 -c "
+import sys
+lines = sys.stdin.read().splitlines()
+out = []
+symbol_count = 0
+max_symbols = 20
+for line in lines:
+    if line.startswith('## edges'):
+        break
+    if line.startswith('@'):
+        symbol_count += 1
+        if symbol_count > max_symbols:
+            continue
+    out.append(line)
+print('\n'.join(out))
+")
+
 # Count approximate tokens (words + punctuation).
 TOKEN_COUNT=$(echo "$CONTEXT" | wc -w | tr -d ' ')
 
@@ -149,12 +168,15 @@ if [ "$VERBOSE" = "1" ]; then
   echo "[knowing-hook] Injecting $TOKEN_COUNT tokens for $FILE_PATH (${LATENCY_MS}ms)" >&2
 fi
 
-# Output the context as a system message for Claude Code to prepend.
-# The output format is a JSON object with "message" field.
+# Output as hookSpecificOutput with additionalContext (PreToolUse schema).
 python3 -c "
 import json, sys
 context = sys.stdin.read()
 print(json.dumps({
-    'message': f'[knowing context for {\"$FILE_PATH\"}] Graph-ranked symbols related to this file:\\n{context}'
+    'hookSpecificOutput': {
+        'hookEventName': 'PreToolUse',
+        'permissionDecision': 'allow',
+        'additionalContext': f'[knowing context for {\"$FILE_PATH\"}] Graph-ranked symbols related to this file:\n{context}'
+    }
 }))
 " <<< "$CONTEXT"

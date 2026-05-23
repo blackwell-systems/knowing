@@ -29,16 +29,13 @@ It gets better every time you use it. When code changes, stale knowledge expires
 
 ```bash
 brew install blackwell-systems/tap/knowing
-knowing add .
-knowing context -task "refactor auth middleware" -format gcf  # ranked context in one call
-knowing remove ./old-repo                                     # evict all data for a repo
 ```
 
 ```json
 { "mcpServers": { "knowing": { "command": "knowing", "args": ["mcp", "--watch"] } } }
 ```
 
-Your agent now has ranked context (one call replaces grep-read loops), blast radius, test scope, and memory that compounds.
+That's it. The MCP server auto-indexes your repo on first launch. Your agent now has ranked context (one call replaces grep-read loops), blast radius, test scope, and memory that compounds.
 
 ---
 
@@ -107,7 +104,10 @@ brew install blackwell-systems/tap/knowing
 # Or: npm install -g @blackwell-systems/knowing
 # Or: pip install knowing
 
-# Index your repo
+# That's it. Add the MCP config and start a session.
+# The server auto-indexes your repo on first launch.
+
+# Or index manually for CLI usage:
 knowing add .
 
 # Remove a repo (evicts all data: nodes, edges, snapshots, feedback)
@@ -149,7 +149,7 @@ knowing stale
 }
 ```
 
-The `--watch` flag re-indexes on file changes. Your agent always queries fresh data. The database auto-resolves from the repo roster; no path configuration needed.
+The `--watch` flag re-indexes on file changes. Your agent always queries fresh data. No manual `knowing index` or database path needed: the MCP server auto-indexes the git repository on first launch and registers it in the roster for future sessions.
 
 For HTTP transport (multi-agent, daemon mode):
 

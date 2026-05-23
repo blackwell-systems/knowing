@@ -8,6 +8,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+#### Zero-Config MCP Onboarding
+- MCP server (`knowing mcp`) now auto-indexes the git repository on first launch if no database exists
+- Detects git root from current working directory, resolves repo URL from git remote
+- Creates database, runs full index (tree-sitter extraction across all 24 language extractors), registers in roster
+- Subsequent sessions resolve the database automatically via the roster (no path configuration needed)
+- Removes the previous requirement to run `knowing index` or `knowing add` before using MCP tools
+- Error path preserved: if not inside a git repository, reports actionable error with fallback instructions
+
+### Changed
+
+#### Code Quality Cleanup (7 Audit Findings)
+- **Node kind constants** (`internal/types/kinds.go`): 11 `types.Kind*` constants replace raw string literals across all 24 extractors
+- **Edge type constants**: all extractors now use `edgetype.*` constants instead of raw strings for edge types
+- **Provenance constants** (`internal/types/provenance.go`): 5 provenance tier strings + 4 confidence float64 values as named constants
+- **Dead type removal**: deleted `ComputationCache` interface, `DerivedResult` struct, and `TraversalOptions` struct (unreferenced since initial design)
+- **Shared mock store** (`internal/testutil/mockstore.go`): single `MockGraphStore` implementation replaces 6 independent per-package mocks (~300 lines of boilerplate removed)
+- **Shared external URL inference** (`internal/resolve/external.go`): `InferExternalRepoURL` with `LangConfig` for TypeScript, Python, Rust, Java, C# replaces 5 duplicated per-extractor functions (~280 lines removed)
+- **Chunked batch helper** (`internal/store/batch.go`): generic `ChunkedExec[T]` replaces 3 manually-duplicated chunk loops in `BatchPutNodes`/`BatchPutEdges`/`BatchPutFiles`
+
+### Added
+
 #### Staleness Reporting (`knowing stale`)
 - `knowing stale` CLI command detects files changed since last snapshot (via git diff) and reports stale node counts
 - Uses `StaleNodesByFiles` store method to look up nodes affected by changed files
@@ -58,11 +79,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-#### Pre-Edit Hook Silent Failure (kwf format removed)
-- `hooks/knowing-pre-edit` was using `kwf` as the default format, which no longer exists (removed during GCF migration)
-- Every edit invocation silently failed and logged "miss" (0 tokens injected)
-- Fix: changed default format to `gcf`; also improved empty-result detection to catch error messages
-- Hook now fires correctly: 226 tokens injected in 251ms, surfacing graph-ranked symbols related to the edited file
+#### Claude Code Hooks Fully Operational (three fixes)
+- **Wrong input field**: hooks read `data.get('input', {})` but Claude Code sends `tool_input`. All edits silently produced empty file paths. Fix: `data.get('tool_input', data.get('input', {}))`
+- **Wrong output format**: hooks output `{"message": "..."}` which is not recognized by Claude Code. Context was produced but never delivered to the model. Fix: output `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow", "additionalContext": "..."}}` 
+- **Dead format string**: `kwf` format removed during GCF migration; every query errored silently. Fix: default to `gcf`
+- All three fixes combined: pre-edit hook now fires on every Edit/Write, injects graph-ranked context (top 20 symbols, 250ms), and delivers it as a system reminder the model reads
+- Trimmed hook output: strips edges section, caps at 20 most relevant symbols (~2-3KB inline vs 22KB before)
+- Lowered default budget from 800 to 400 tokens (engine only needs to score enough candidates to fill top-20)
 - Re-ran hook benchmarks: precision 33.2%, recall 60.8%, 100% coverage (hook fully replaces manual context calls)
 
 #### Phantom External Nodes Dominating Retrieval Results

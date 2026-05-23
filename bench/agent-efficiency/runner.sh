@@ -29,6 +29,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TRANSCRIPTS_DIR="${SCRIPT_DIR}/transcripts"
 TASKS_JSON="${SCRIPT_DIR}/tasks.json"
 
+# Model to use for benchmark sessions. Override with BENCH_MODEL env var.
+# Bedrock model IDs use the full ARN format. Sonnet is fast and cheap for benchmarking.
+# Examples:
+#   BENCH_MODEL=claude-sonnet-4-6          (Anthropic API)
+#   BENCH_MODEL=sonnet                     (Claude Code shorthand)
+#   BENCH_MODEL=us.anthropic.claude-sonnet-4-6-v1  (Bedrock)
+MODEL="${BENCH_MODEL:-sonnet}"
+
 # Ensure tasks.json exists.
 if [[ ! -f "${TASKS_JSON}" ]]; then
   echo "ERROR: tasks.json not found at ${TASKS_JSON}"
@@ -85,16 +93,21 @@ TRANSCRIPT_FILE="${TRANSCRIPTS_DIR}/${TASK_ID}-${MODE}.jsonl"
 
 # Build the system prompt addendum depending on mode.
 if [[ "${MODE}" == "control" ]]; then
-  SYSTEM_NOTE="Answer without using any knowing MCP tools. Use only standard file-reading tools."
+  SYSTEM_NOTE="Answer without using any knowing MCP tools (mcp__knowing__*). Use only standard tools (Grep, Read, Glob, Bash). Be concise and efficient."
 else
-  SYSTEM_NOTE="You have access to knowing MCP tools (context_for_task, blast_radius, stale_edges, etc.). Use them to answer efficiently."
+  SYSTEM_NOTE="You have a code knowledge graph available. Use these tools directly (no need to search for them):
+- mcp__knowing__context_for_task: pass a task description, get ranked relevant symbols in one call
+- mcp__knowing__blast_radius: pass a target_hash, get all callers/dependents
+- mcp__knowing__graph_query: pass a symbol name prefix, find where it's defined
+- mcp__knowing__test_scope: pass changed files, get affected tests
+Call context_for_task FIRST with the task description, then use Read only for files it identifies. Do NOT use Grep to explore; the graph already knows the structure. Be concise and efficient."
 fi
 
 FULL_PROMPT="${DESCRIPTION}
 
-Note: ${SYSTEM_NOTE}
+${SYSTEM_NOTE}
 
-Codebase root: /Users/dayna.blackwell/code/knowing"
+Answer concisely. Do not over-explore. Stop as soon as you have enough information to answer."
 
 # Check that the claude CLI is available.
 if ! command -v claude &>/dev/null; then
@@ -118,12 +131,26 @@ echo ""
 # Launch Claude Code in non-interactive (print) mode.
 # --output-format stream-json writes JSONL to stdout.
 # We redirect stdout to the transcript file.
+#
+# Both modes use the same invocation. Control mode relies on the system prompt
+# instruction to avoid knowing tools. The analyzer validates compliance by
+# checking that no mcp__knowing__* tool calls appear in control transcripts.
+# If any do, the session is flagged as invalid and should be re-run.
+#
+# claude --print may exit non-zero even on success (stream-json mode quirk).
+# We check for transcript content rather than exit code.
 claude \
   --print \
   --output-format stream-json \
-  --no-auto-compact \
+  --model "${MODEL}" \
   -p "${FULL_PROMPT}" \
-  > "${TRANSCRIPT_FILE}"
+  > "${TRANSCRIPT_FILE}" || true
+
+# Validate that we got output.
+if [[ ! -s "${TRANSCRIPT_FILE}" ]]; then
+  echo "ERROR: transcript is empty (claude may have failed to start)"
+  exit 1
+fi
 
 echo ""
 echo "Done. Transcript saved to: ${TRANSCRIPT_FILE}"

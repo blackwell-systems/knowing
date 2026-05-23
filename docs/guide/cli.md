@@ -38,7 +38,14 @@ GOWORK=off go build ./cmd/knowing
 
 ## Quick Start
 
-Index a repository, query it, and export the graph:
+**For MCP/agent use (zero-config):** Add the MCP server config and start a
+session. The server auto-indexes the git repository on first launch:
+
+```json
+{ "mcpServers": { "knowing": { "command": "knowing", "args": ["mcp", "--watch"] } } }
+```
+
+**For CLI use:** Index a repository, query it, and export the graph:
 
 ```bash
 # 1. Index a local repo (uses tree-sitter fast path, then runs LSP enrichment)
@@ -572,7 +579,9 @@ roster for the current directory and returns the per-repo DB path automatically.
 
 **Notes:**
 
-- Requires a pre-built database. Run `knowing index` first.
+- **Zero-config:** If no database exists, the MCP server auto-detects the git
+  repository, indexes it, and registers it in the roster. No manual `knowing
+  index` or `knowing add` step is required.
 - The server blocks until stdin is closed or a signal is received.
 - This subcommand replaces direct use of `knowing serve` for agent integrations
   that only need stdio MCP access without the HTTP server or file watcher.

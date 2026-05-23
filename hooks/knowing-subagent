@@ -42,7 +42,7 @@ TASK=$(echo "$INPUT" | python3 -c "
 import json, sys
 try:
     data = json.load(sys.stdin)
-    inp = data.get('input', {})
+    inp = data.get('tool_input', data.get('input', {}))
     # Agent tool has 'prompt' or 'description'
     task = inp.get('prompt', inp.get('description', inp.get('task', '')))
     # Truncate to first 200 chars for keyword extraction
@@ -71,11 +71,15 @@ fi
 TOKENS=$(echo "$CONTEXT" | wc -w | tr -d ' ')
 echo "{\"ts\":$(date +%s),\"event\":\"subagent_inject\",\"latency_ms\":$LATENCY_MS,\"tokens\":$TOKENS}" >> "$LOG"
 
-# Inject context for the subagent.
+# Inject context for the subagent via hookSpecificOutput (PreToolUse schema).
 python3 -c "
 import json, sys
 context = sys.stdin.read()
 print(json.dumps({
-    'message': f'[knowing context for subagent task]\n{context}'
+    'hookSpecificOutput': {
+        'hookEventName': 'PreToolUse',
+        'permissionDecision': 'allow',
+        'additionalContext': f'[knowing context for subagent task]\n{context}'
+    }
 }))
 " <<< "$CONTEXT"

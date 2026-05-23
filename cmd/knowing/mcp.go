@@ -16,6 +16,7 @@ import (
 	"github.com/blackwell-systems/knowing/internal/enrichment"
 	"github.com/blackwell-systems/knowing/internal/indexer"
 	knowingmcp "github.com/blackwell-systems/knowing/internal/mcp"
+	"github.com/blackwell-systems/knowing/internal/roster"
 	"github.com/blackwell-systems/knowing/internal/snapshot"
 	"github.com/blackwell-systems/knowing/internal/store"
 	"github.com/blackwell-systems/knowing/internal/types"
@@ -39,8 +40,12 @@ func cmdMCP(args []string) error {
 		return err
 	}
 
+	// Zero-config: if database doesn't exist, auto-detect the repo and index it.
 	if _, err := os.Stat(*dbPath); os.IsNotExist(err) {
-		return fmt.Errorf("database not found: %s (run 'knowing index' first)", *dbPath)
+		log.Printf("[knowing] Database not found at %s, auto-indexing...", *dbPath)
+		if err := autoIndex(dbPath); err != nil {
+			return fmt.Errorf("auto-index failed: %w (run 'knowing index' manually)", err)
+		}
 	}
 
 	st, err := store.NewSQLiteStore(*dbPath)
@@ -144,4 +149,64 @@ func cmdMCP(args []string) error {
 	}
 
 	return mcpServer.ServeStdio(ctx)
+}
+
+// autoIndex detects the current git repository and indexes it, creating the
+// database at *dbPath. This enables zero-config onboarding: a user can add
+// the MCP server config and the first session auto-indexes without manual
+// 'knowing index' or 'knowing add' steps.
+func autoIndex(dbPath *string) error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("resolve cwd: %w", err)
+	}
+
+	// Detect git root (required: we need a repo boundary).
+	gitRoot := detectGitRoot(cwd)
+	if gitRoot == "" {
+		return fmt.Errorf("not inside a git repository (cwd: %s)", cwd)
+	}
+
+	// Detect repo URL from git remote or fall back to path.
+	repoURL := detectRepoURL(gitRoot)
+	if repoURL == "" {
+		repoURL = gitRoot
+	}
+
+	// Ensure the database directory exists.
+	dbDir := filepath.Dir(*dbPath)
+	if err := os.MkdirAll(dbDir, 0755); err != nil {
+		return fmt.Errorf("create db directory %s: %w", dbDir, err)
+	}
+
+	// Register in roster so future sessions find this DB.
+	if rosterDB, err := roster.Add(gitRoot, repoURL); err == nil {
+		// Use the roster-assigned DB path (per-repo isolation).
+		*dbPath = rosterDB
+	}
+
+	// Create store (auto-creates DB + runs migrations).
+	st, err := store.NewSQLiteStore(*dbPath)
+	if err != nil {
+		return fmt.Errorf("create store: %w", err)
+	}
+	defer st.Close()
+
+	snapMgr := snapshot.NewSnapshotManager(st)
+	idx := indexer.NewIndexer(st, snapMgr)
+	registerAllExtractors(idx, false)
+
+	// Resolve HEAD commit.
+	commit, _ := daemon.GitHeadCommit(gitRoot)
+
+	log.Printf("[knowing] Indexing %s (%s)...", gitRoot, repoURL)
+	ctx := context.Background()
+	snap, err := idx.IndexRepo(ctx, repoURL, gitRoot, commit)
+	if err != nil {
+		return fmt.Errorf("index %s: %w", gitRoot, err)
+	}
+
+	log.Printf("[knowing] Auto-indexed: %d nodes, %d edges (db: %s)",
+		snap.NodeCount, snap.EdgeCount, *dbPath)
+	return nil
 }

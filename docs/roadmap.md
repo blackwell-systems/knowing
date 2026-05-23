@@ -43,6 +43,95 @@ Packages are already the unit of Merkle computation, cache invalidation, diffing
 | cargo (150K LOC) | 979 | 79K | 0.2s | 5.5s |
 | kubernetes (3.5M LOC) | 4,877 | 268K | 18.6s | ~22s (data queryable immediately) |
 
+## Cross-Repo Query Architecture
+
+The context engine (ForTask, ExplainSymbol, RWR, HITS, BM25) has no repo-scoping anywhere in its query path. If multiple repos exist in the same database, cross-repo queries work with zero code changes. The challenge is the storage model: the roster currently assigns each repo its own SQLite file.
+
+Two approaches are under evaluation:
+
+### Option A: Unified Database (shared graph)
+
+All repos index into a single `~/.knowing/knowing.db`. The roster tracks metadata (paths, URLs) but not separate DB files.
+
+**Pros:**
+- Zero engine changes. ForTask, BM25, RWR, FTS5 all work unchanged on the merged graph.
+- Cross-repo edges resolve naturally (source and target in same DB).
+- One FTS5 index covers all vocabulary. BM25 ranks across all repos in a single query.
+- Simplest implementation (~30 LOC change: roster defaults to shared DB).
+- Single snapshot chain covers all repos (Merkle diff shows cross-repo changes).
+- `knowing remove` already deletes by repo_hash within a shared DB.
+
+**Cons:**
+- No isolation between projects. A personal side-project and work monorepo share one graph.
+- Larger single file (5 repos x 30K edges = 150K edges, still trivial for SQLite, but conceptually messy).
+- Can't delete a repo by deleting a file (must use `knowing remove` which does SQL DELETE).
+- If the shared DB corrupts, all repos are affected.
+- Users may not want their repos' symbols showing up when querying from a different project.
+
+**Mitigation:** Add `--isolated` flag to `knowing add` for repos that should stay separate. Default to shared for most workflows.
+
+### Option B: Federated Store (query-time merge)
+
+A `FederatedStore` wrapper implements `GraphStore` over N underlying SQLiteStores. The primary store (current repo) receives writes; all roster stores are opened read-only for queries.
+
+```go
+type FederatedStore struct {
+    primary *SQLiteStore      // writes go here
+    others  []*SQLiteStore    // read-only roster DBs
+}
+```
+
+Query federation strategy per method:
+- `NodesByName`: query all stores, concat results, dedup by hash
+- `SearchBM25Nodes`: query all stores, merge by score, take top-N
+- `EdgesFrom`/`EdgesTo`: query all stores, concat (cross-repo edges live in source DB)
+- `GetNode`: try primary first, then others (hash-based lookup)
+- `FeedbackBoosts`: query all stores, merge maps
+- Write methods (`PutNode`, `PutEdge`, `RecordFeedback`): primary only
+
+**Pros:**
+- Per-repo isolation by default. Each repo is a separate file with independent lifecycle.
+- `knowing remove` is just closing and deleting a file.
+- No corruption propagation between repos.
+- Each repo can be backed up, synced, or deleted independently.
+- No storage model change; existing per-repo DBs work as-is.
+- Users opt-in to cross-repo by having multiple repos in their roster. No surprise data mixing.
+
+**Cons:**
+- N queries per method call (latency scales linearly with roster size). 3-5 repos: negligible (<5ms). 20+ repos: needs parallel goroutines.
+- FTS5 indexes are per-DB; BM25 merge is approximate (scores from different corpus sizes aren't directly comparable without normalization).
+- RWR adjacency map must load edges from all stores, making the first query slower.
+- Cross-repo edges are split: source DB has the edge, target DB has the target node. `GetNode` must check multiple stores to resolve targets.
+- Medium implementation effort (~200 LOC new type + method-by-method federation logic).
+- Feedback recorded in the primary DB may reference nodes in other DBs (works, but feedback is stored asymmetrically).
+- Community detection runs per-DB (Louvain on isolated subgraphs); cross-repo communities won't form.
+
+### Comparison
+
+| Dimension | Unified DB | Federated Store |
+|-----------|-----------|-----------------|
+| Implementation effort | ~30 LOC | ~200 LOC |
+| Engine changes required | None | None (same interface) |
+| Query latency | 1 query | N queries, merged |
+| FTS5 quality | Unified corpus, accurate IDF | Per-corpus IDF, approximate merge |
+| Cross-repo edges | Free (same table) | Resolved via multi-store lookup |
+| Community detection | Cross-repo communities form naturally | Per-repo communities only |
+| RWR walk | Seamless cross-repo | Cross-repo via edge concat |
+| Isolation | None by default (opt-in via `--isolated`) | Full by default |
+| Corruption blast radius | All repos | Single repo |
+| Storage management | One file to manage | N files, cleaner lifecycle |
+| `knowing remove` | SQL DELETE (fast) | Close + delete file (instant) |
+| Feedback compounding | Cross-repo (symbol used in repo B helps repo A) | Asymmetric (feedback in primary only) |
+
+### Decision
+
+Not yet decided. The choice depends on real usage patterns:
+- If most users work across 2-3 related repos (monorepo splits, frontend+backend): **unified DB** wins on simplicity and quality.
+- If users have many unrelated projects and want clean separation: **federated store** wins on isolation.
+- Both can coexist: unified by default with federated as the advanced mode, or vice versa.
+
+Current status: per-repo isolation (no cross-repo queries). First real user who hits the limitation decides the approach.
+
 ## Operational
 
 | Item | Description | Priority |
@@ -52,9 +141,9 @@ Packages are already the unit of Merkle computation, cache invalidation, diffing
 | ~~Staleness reporting~~ | ~~`knowing stale` reports stale edges from changed files since last snapshot.~~ **Shipped.** `knowing stale` detects changed files via git diff, looks up stale nodes via `StaleNodesByFiles`, exits 1 when stale (CI-friendly). | ~~P2~~ |
 | ~~Daemon lifecycle~~ | ~~`knowing daemon start --detach`, `status`, `stop`, `restart`.~~ **Shipped.** PID file at `~/.knowing/daemon.pid`, signal-based stop, process liveness check. | ~~P2~~ |
 | ~~`untrack_repo` MCP tool + CLI~~ | ~~Evict a repo's nodes, edges, files, and snapshots.~~ **Shipped.** `knowing remove` + 28th MCP tool. Atomic deletion across all tables with per-table counts. | ~~P2~~ |
-| **Zero-config onboarding** | Auto-detect repos in workspace, index on first MCP query, no manual `knowing add` step. The daemon should "just work" when the MCP config is added. | P1 |
-| **Implicit feedback from agent behavior** | Detect when agents use symbols from context results (from subsequent tool calls) and auto-record positive feedback without agent cooperation. Closes the feedback loop without requiring explicit `feedback` calls. | P1 |
-| **Cross-repo context_for_task** | Search across ALL indexed repos simultaneously, not just one. Real projects span multiple repos (monorepo patterns, microservices). Merge results from all repos into one ranked list. | P2 |
+| ~~**Zero-config onboarding**~~ | ~~Auto-detect repos in workspace, index on first MCP query, no manual `knowing add` step.~~ **Shipped.** MCP server auto-indexes the git repository on first launch if no database exists. Detects git root, resolves repo URL, creates DB, indexes, and registers in roster. No manual `knowing index` or `knowing add` step needed. | ~~P1~~ |
+| ~~**Implicit feedback from agent behavior**~~ | ~~Detect when agents use symbols from context results and auto-record positive feedback without agent cooperation.~~ **Shipped.** `ImplicitFeedback` tracker in context engine: registers returned symbols, detects usage via identifier matching (75% precision, 86% recall), records positive feedback for used symbols and negative for unused when the next context call flushes the batch. Wired into MCP server (`ObserveToolUse`), triggered by `graph_query` and `explain_symbol` handlers. P@10 lift pending feedback weight tuning (currently 0.15, both explicit and implicit are weight-limited at this graph scale). | ~~P1~~ |
+| **Cross-repo context_for_task** | Search across ALL indexed repos simultaneously, not just one. Real projects span multiple repos (monorepo patterns, microservices). Merge results from all repos into one ranked list. See "Cross-Repo Query Architecture" section below. | P2 |
 | **Incremental context ("next page")** | After an agent gets initial context, allow requesting the NEXT N symbols not yet seen. Avoids re-querying with bigger budget and getting duplicates. Session-stateful cursor. | P2 |
 | **Staleness annotations on MCP responses** | When returning context, annotate symbols whose source files changed since last index. Agents know which results might be outdated without calling `knowing stale` separately. | P2 |
 | **`explain_symbol` in context responses** | Inline "why ranked #3?" explanation in context results so agents can debug ranking without a separate tool call. Makes the system transparent. | P3 |
@@ -64,6 +153,49 @@ Packages are already the unit of Merkle computation, cache invalidation, diffing
 | `neighborhood` MCP tool | N symbols most densely connected to X within radius R. | P3 |
 | GraphML/Cypher export | `knowing export -format graphml|cypher` for Neo4j, Gephi. | P3 |
 | Active project scoping | `set_active_project` / `get_active_project` MCP tools. | P3 |
+
+## Benchmarking Roadmap
+
+14 benchmark harnesses exist today (see `bench/README.md`). The following gaps remain for a complete competitive evaluation story.
+
+### P1: Would convince someone to adopt knowing
+
+| Benchmark | What it proves | Status | Effort |
+|-----------|---------------|--------|--------|
+| **SWE-bench integration** | knowing + Claude solves N% more SWE-bench tasks than Claude alone. The definitive "does graph context help real agent work?" | Not started | High (full eval harness, 300 tasks, automated agent loop) |
+| **Agent efficiency (real transcripts)** | Claude Code with knowing tools uses fewer tokens, fewer tool calls, higher correctness. | Infrastructure built (`bench/agent-efficiency/`): 8 tasks, transcript parser, comparison engine, runner script. **Zero transcripts collected.** Needs actual sessions run. | Medium (run 16 sessions: 8 tasks x 2 modes) |
+| **Real-session replay** | Replay 10+ real claudewatch session transcripts. Measure: context calls saved, symbols used that came from knowing, tasks where knowing provided the critical symbol. | Not started (implicit feedback tracker now exists for attribution) | High (transcript parser, attribution detection, manual annotation) |
+| **Cold start benchmark** | Time from `brew install` to first useful `context_for_task` result. Proves the zero-config onboarding story. | Zero-config implemented but not timed end-to-end | Low (time the auto-index path) |
+
+### P2: Proves production readiness
+
+| Benchmark | What it proves | Status | Effort |
+|-----------|---------------|--------|--------|
+| **Query latency p50/p95/p99** | Instrument all 28 MCP tool handlers. Report latency distribution per tool across 1000 calls. | Single number (60ms avg) in cross-system FINDINGS; need distribution | Medium |
+| **Indexing throughput (formalized)** | Dedicated harness: index 7 corpus repos, measure wall time, edges/sec, memory peak with variance reporting. | Numbers exist informally (Flask 0.1s, k8s 18.6s, competitive ratios in cross-system FINDINGS); needs reproducible go test harness | Low |
+| **Incremental re-index cost** | Change 1 file in a 50K-edge repo, measure time to re-index just that file vs full. Isolates `--watch` per-edit cost. | Not benchmarked | Medium |
+| **Staleness detection speed** | Benchmark `DiffHierarchicalTrees` on progressively larger graphs (10K, 50K, 100K, 500K edges). Show O(packages) not O(edges). | Have 517x number and Grafana scale test (714K edges); need the full scaling curve | Low |
+| **Memory/disk footprint** | Measure RSS and DB file size after indexing each corpus repo. Compare to competitors. | Competitive numbers in cross-system FINDINGS (200MB vs 14GB/5.7GB); needs dedicated measurement harness | Low |
+
+### P3: Completeness and rigor
+
+| Benchmark | What it proves | Status | Effort |
+|-----------|---------------|--------|--------|
+| **Multi-language extraction coverage** | For each of the 24 extractors: number of node types extracted, edge types produced, lines of test coverage. Comparison vs Sourcegraph SCIP, GitNexus, tree-sitter-graph. | Not started | Low (automated count + table) |
+| **Grafana scale validation** | Full retrieval quality measurement on 714K-edge production graph (not just latency). P@10 with Grafana-specific task fixtures. | Latency test exists (`grafana_scale_test.go`); no retrieval quality measurement | Medium |
+| **Graph integrity under load** | Spawn 10 concurrent indexers on overlapping repos. Run `knowing fsck` after. Proves content-addressing prevents corruption under concurrency. | Not started (fsck bench exists for single-indexer correctness) | Medium |
+| **Concurrent query performance** | 100 parallel `context_for_task` calls on a 100K-edge graph. Measure throughput (queries/sec), latency degradation, and WAL checkpoint behavior. | Not started | Medium |
+| **Cross-repo retrieval quality** | P@10 for tasks that span repo boundaries (e.g., "which frontend components call this backend endpoint?"). | Needs cross-repo implementation first | Medium |
+| **Feedback weight sensitivity** | Sweep feedback weight from 0.05 to 0.50 in 0.05 increments. Plot P@10 vs weight. Find the optimal operating point. Currently 0.15 shows no lift in cold-start; this identifies the right value. | Not started (feedback-loop infrastructure exists) | Low |
+| **LSP enrichment ROI** | Run cross-system benchmark with and without LSP enrichment. Measure the P@10 delta that enrichment adds over tree-sitter alone. Quantifies whether the enrichment latency (seconds) pays for itself. | Not started | Medium |
+
+### Not yet benchmarked (tracked for completeness)
+
+- **Proof verification throughput**: N proofs/sec verified (currently 1.2µs each = ~800K/sec theoretical)
+- **Snapshot chain walk cost**: O(chain_length) for history queries
+- **FTS5 rebuild cost vs graph size**: scaling curve for the deferred FTS rebuild
+- **LSP enrichment ROI**: how much P@10 does LSP enrichment add over tree-sitter alone?
+- **Language-specific P@10 breakdown**: already have per-repo numbers; need per-language aggregate
 
 ## Retrieval Pipeline
 
