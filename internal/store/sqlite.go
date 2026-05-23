@@ -222,16 +222,7 @@ func (s *SQLiteStore) BatchPutNodes(ctx context.Context, nodes []types.Node) err
 	}
 	defer tx.Rollback() //nolint:errcheck
 
-	// Multi-row INSERT: 10 params per node, SQLite limit is 999 variables.
-	// Use chunks of 99 nodes (990 params) per statement.
-	const chunkSize = 99
-	for i := 0; i < len(nodes); i += chunkSize {
-		end := i + chunkSize
-		if end > len(nodes) {
-			end = len(nodes)
-		}
-		chunk := nodes[i:end]
-
+	err = ChunkedExec(ctx, tx, nodes, 10, func(chunk []types.Node) (string, []interface{}) {
 		var b strings.Builder
 		b.WriteString(`INSERT OR REPLACE INTO nodes (node_hash, file_hash, qualified_name, kind, line, signature, doc, last_author, last_commit_at, coverage_pct) VALUES `)
 		args := make([]interface{}, 0, len(chunk)*10)
@@ -242,10 +233,10 @@ func (s *SQLiteStore) BatchPutNodes(ctx context.Context, nodes []types.Node) err
 			b.WriteString("(?,?,?,?,?,?,?,?,?,?)")
 			args = append(args, n.NodeHash[:], n.FileHash[:], n.QualifiedName, n.Kind, n.Line, n.Signature, n.Doc, n.LastAuthor, n.LastCommitAt, n.CoveragePct)
 		}
-
-		if _, err := tx.ExecContext(ctx, b.String(), args...); err != nil {
-			return fmt.Errorf("batch insert nodes chunk %d: %w", i/chunkSize, err)
-		}
+		return b.String(), args
+	})
+	if err != nil {
+		return fmt.Errorf("batch insert nodes: %w", err)
 	}
 	return tx.Commit()
 }
@@ -262,16 +253,7 @@ func (s *SQLiteStore) BatchPutEdges(ctx context.Context, edges []types.Edge) err
 	}
 	defer tx.Rollback() //nolint:errcheck
 
-	// Multi-row INSERT: 9 params per edge, SQLite limit is 999 variables.
-	// Use chunks of 100 edges (900 params) per statement.
-	const chunkSize = 100
-	for i := 0; i < len(edges); i += chunkSize {
-		end := i + chunkSize
-		if end > len(edges) {
-			end = len(edges)
-		}
-		chunk := edges[i:end]
-
+	err = ChunkedExec(ctx, tx, edges, 9, func(chunk []types.Edge) (string, []interface{}) {
 		var b strings.Builder
 		b.WriteString(`INSERT OR REPLACE INTO edges (edge_hash, source_hash, target_hash, edge_type, confidence, provenance, callsite_line, callsite_col, callsite_file) VALUES `)
 		args := make([]interface{}, 0, len(chunk)*9)
@@ -282,10 +264,10 @@ func (s *SQLiteStore) BatchPutEdges(ctx context.Context, edges []types.Edge) err
 			b.WriteString("(?,?,?,?,?,?,?,?,?)")
 			args = append(args, e.EdgeHash[:], e.SourceHash[:], e.TargetHash[:], e.EdgeType, e.Confidence, e.Provenance, e.CallSiteLine, e.CallSiteCol, e.CallSiteFile)
 		}
-
-		if _, err := tx.ExecContext(ctx, b.String(), args...); err != nil {
-			return fmt.Errorf("batch insert edges chunk %d: %w", i/chunkSize, err)
-		}
+		return b.String(), args
+	})
+	if err != nil {
+		return fmt.Errorf("batch insert edges: %w", err)
 	}
 	return tx.Commit()
 }
@@ -302,16 +284,7 @@ func (s *SQLiteStore) BatchPutFiles(ctx context.Context, files []types.File) err
 	}
 	defer tx.Rollback() //nolint:errcheck
 
-	// Multi-row INSERT: 4 params per file, SQLite limit is 999 variables.
-	// Use chunks of 249 files (996 params) per statement.
-	const chunkSize = 249
-	for i := 0; i < len(files); i += chunkSize {
-		end := i + chunkSize
-		if end > len(files) {
-			end = len(files)
-		}
-		chunk := files[i:end]
-
+	err = ChunkedExec(ctx, tx, files, 4, func(chunk []types.File) (string, []interface{}) {
 		var b strings.Builder
 		b.WriteString(`INSERT OR REPLACE INTO files (file_hash, repo_hash, path, content_hash) VALUES `)
 		args := make([]interface{}, 0, len(chunk)*4)
@@ -322,10 +295,10 @@ func (s *SQLiteStore) BatchPutFiles(ctx context.Context, files []types.File) err
 			b.WriteString("(?,?,?,?)")
 			args = append(args, f.FileHash[:], f.RepoHash[:], f.Path, f.ContentHash[:])
 		}
-
-		if _, err := tx.ExecContext(ctx, b.String(), args...); err != nil {
-			return fmt.Errorf("batch insert files chunk %d: %w", i/chunkSize, err)
-		}
+		return b.String(), args
+	})
+	if err != nil {
+		return fmt.Errorf("batch insert files: %w", err)
 	}
 	return tx.Commit()
 }
