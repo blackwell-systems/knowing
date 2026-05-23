@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://github.com/blackwell-systems"><img src="https://raw.githubusercontent.com/blackwell-systems/blackwell-docs-theme/main/badge-trademark.svg" alt="Blackwell Systems"></a>
   <a href="https://zenodo.org/records/20342255"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.20342255.svg" alt="DOI"></a>
-  <a href="#mcp-tools"><img src="https://img.shields.io/badge/MCP_tools-27%20tools%20%2B%208%20resources-brightgreen.svg" alt="MCP Tools"></a>
+  <a href="#mcp-tools"><img src="https://img.shields.io/badge/MCP_tools-28%20tools%20%2B%208%20resources-brightgreen.svg" alt="MCP Tools"></a>
   <a href="#languages-and-formats"><img src="https://img.shields.io/badge/languages_and_formats-26-blue.svg" alt="Languages and Formats"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
 </p>
@@ -13,7 +13,7 @@
 ---
 
 <p align="center">
-Code intelligence graph. MCP server with 27 tools. Static analysis, call graphs, runtime traces, cryptographic proofs. Gets smarter with use.
+Code intelligence graph. MCP server with 28 tools. Static analysis, call graphs, runtime traces, cryptographic proofs. Gets smarter with use.
 </p>
 
 ---
@@ -31,6 +31,7 @@ It gets better every time you use it. When code changes, stale knowledge expires
 brew install blackwell-systems/tap/knowing
 knowing add .
 knowing context -task "refactor auth middleware" -format gcf  # ranked context in one call
+knowing remove ./old-repo                                     # evict all data for a repo
 ```
 
 ```json
@@ -108,6 +109,9 @@ brew install blackwell-systems/tap/knowing
 
 # Index your repo
 knowing add .
+
+# Remove a repo (evicts all data: nodes, edges, snapshots, feedback)
+knowing remove ./path/to/repo
 
 # Get context for a task
 knowing context -task "refactor auth middleware" -format gcf
@@ -195,7 +199,7 @@ The entire system is built on one idea: content-addressed identity. Every symbol
 +----------------+------------------------+--------------------------+
 |   Indexer      |     Graph Store        |      MCP Server          |
 |                |                        |                          |
-| 26 extractors  | Content-addressed      | 27 tools + 8 resources   |
+| 26 extractors  | Content-addressed      | 28 tools + 8 resources   |
 | tree-sitter    | SQLite + Merkle tree   | stdio / HTTP (1.8s index)|
 | LSP + SCIP     | Hierarchical snapshots | GCF / GCB / JSON         |
 | OTel traces    | Subgraph cache (93x)   | PackRoot dedup (99%)     |
@@ -256,6 +260,7 @@ All extractors fire per file via multi-dispatch; results are merged. Tree-sitter
 | `context_for_task`, `context_for_files`, `context_for_pr`, `explain_symbol` | Ranked context for agents |
 | `ownership`, `ownership_query`, `test_scope`, `communities`, `plan_turn`, `feedback` | Route work, query code owners/authors, select tests, improve ranking |
 | `prove`, `prove_absent`, `fsck` | Cryptographic proofs, absence proofs, integrity verification |
+| `untrack_repo` | Evict all data for a repository (nodes, edges, files, snapshots, feedback, task memory, graph notes) |
 
 MCP prompts: `refactor_safely`, `review_pr`, `investigate_dead_code`.
 

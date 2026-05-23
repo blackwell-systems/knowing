@@ -13,7 +13,7 @@ See [distribution.md](distribution.md) for installation instructions.
 knowing <subcommand> [flags]
 ```
 
-Subcommands: `serve`, `index`, `query`, `export`, `diff`, `context`, `why`, `mcp`, `watch`, `reindex`, `init`, `add`, `remove`, `list`, `stats`, `reset`, `vacuum`, `test-scope`, `ingest-scip`, `enrich`, `fsck`, `prove`, `verify`, `prove-absent`, `audit`, `audit-diff`, `version`.
+Subcommands: `serve`, `daemon`, `index`, `query`, `export`, `diff`, `context`, `why`, `mcp`, `watch`, `reindex`, `init`, `add`, `remove`, `list`, `stats`, `reset`, `vacuum`, `test-scope`, `ingest-scip`, `enrich`, `fsck`, `prove`, `verify`, `prove-absent`, `audit`, `audit-diff`, `version`.
 
 ## Environment
 
@@ -106,6 +106,64 @@ knowing serve -trace -trace-endpoint collector.local:4317 ./my-repo
   + CODEOWNERS).
 - The MCP server exposes an `index_repo` tool that triggers indexing through
   the same pipeline as file-watch events.
+
+---
+
+### daemon
+
+Manage the knowing daemon lifecycle.
+
+```
+knowing daemon start [--detach]
+knowing daemon stop
+knowing daemon status
+knowing daemon restart
+```
+
+Controls the background daemon process. The daemon provides continuous indexing,
+file watching, and MCP serving. The PID file is stored at `~/.knowing/daemon.pid`.
+
+**Subcommands:**
+
+| Subcommand | Description |
+|------------|-------------|
+| `start` | Start the daemon. With `--detach`, runs in the background. |
+| `stop` | Stop a running daemon (sends SIGTERM to the PID in `~/.knowing/daemon.pid`). |
+| `status` | Check whether the daemon is running. Prints PID and uptime if active. |
+| `restart` | Stop and restart the daemon (equivalent to `stop` followed by `start`). |
+
+**Flags (start):**
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--detach` | bool | `false` | Run the daemon in the background (daemonize) |
+| `-db` | string | *(per-repo, from roster)* | Path to the SQLite database |
+| `-addr` | string | `:8080` | HTTP address for the MCP server |
+
+**Examples:**
+
+```bash
+# Start the daemon in the foreground
+knowing daemon start
+
+# Start in the background (detached)
+knowing daemon start --detach
+
+# Check if the daemon is running
+knowing daemon status
+
+# Stop the daemon
+knowing daemon stop
+
+# Restart (stop + start)
+knowing daemon restart
+```
+
+**Notes:**
+
+- The PID file at `~/.knowing/daemon.pid` is created on start and removed on stop.
+- `knowing daemon status` exits with code 0 if running, 1 if not.
+- Implementation: `cmd/knowing/daemon.go`, `internal/daemon/pidfile.go`.
 
 ---
 
@@ -464,7 +522,7 @@ knowing mcp [flags]
 
 This is the mode used by AI agents via `.mcp.json` configuration. Opens the
 database and serves MCP tool calls over stdin/stdout until the input stream
-closes or SIGINT/SIGTERM is received. All 27 MCP tools are available.
+closes or SIGINT/SIGTERM is received. All 28 MCP tools are available.
 
 When `--watch` is enabled, the MCP server also watches the repository for file
 changes and re-indexes automatically on save. This combines the MCP server with
@@ -661,32 +719,43 @@ knowing add -db /var/lib/knowing/data.db ./my-repo
 
 ### remove
 
-Remove a repository from the roster.
+Remove a repository from the roster and evict all its data.
 
 ```
-knowing remove [flags] <repo-path>
+knowing remove [flags] <repo-path-or-url>
 ```
 
-Removes the repository at the given path (or matching URL) from the roster. Does
-not delete the per-repo database file; remove it manually if desired.
+Removes the repository at the given path (or matching URL) from the roster and
+evicts all associated data: nodes, edges, files, snapshots, feedback,
+task_memory, and graph_notes. This is the CLI equivalent of the `untrack_repo`
+MCP tool.
 
 **Flags:**
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `-db` | string | *(per-repo, from roster)* | Path to the SQLite database |
+| `-purge` | bool | `false` | Also delete the per-repo database file |
 
 **Examples:**
 
 ```bash
-# Remove a repo from the roster
+# Remove a repo and evict all its graph data
 knowing remove ./my-repo
+
+# Remove by URL
+knowing remove github.com/org/old-service
+
+# Remove and delete the database file
+knowing remove --purge ./my-repo
 ```
 
 **Notes:**
 
-- Graph data (nodes, edges, snapshots) is retained. Use `knowing reindex` to
-  clear graph data if needed.
+- Evicts all data for the repo (nodes, edges, files, snapshots, feedback,
+  task_memory, graph_notes).
+- With `--purge`, also deletes the per-repo `.db` file from disk.
+- Implementation: `internal/store/evict.go`.
 
 ---
 

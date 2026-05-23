@@ -1,6 +1,6 @@
 # FEATURES.md -- Comprehensive Feature Dump for AI Reference
 
-Generated: 2026-05-15 (updated: 2026-05-22, features 77-112 added: hash domain prefixes, fsck, GC, lockfile, LRU cache, modular community detection, DiffOptions, indexed_at, verify, React viz, MCP resources, graph notes, Phase 3 complete, Merkle proofs, stats CLI, named refs, generation numbers, auto-GC, merkle-strata extraction; P2 edge types, parallel indexer, cross-system benchmark, language equivalence classes, cross-file import resolution, inheritance propagation, deeper call chains, test deprioritization; FTS concepts column, task memory persistence; compound-first keyword extraction, Java/C# import resolution)
+Generated: 2026-05-15 (updated: 2026-05-22, features 77-114 added: hash domain prefixes, fsck, GC, lockfile, LRU cache, modular community detection, DiffOptions, indexed_at, verify, React viz, MCP resources, graph notes, Phase 3 complete, Merkle proofs, stats CLI, named refs, generation numbers, auto-GC, merkle-strata extraction; P2 edge types, parallel indexer, cross-system benchmark, language equivalence classes, cross-file import resolution, inheritance propagation, deeper call chains, test deprioritization; FTS concepts column, task memory persistence; compound-first keyword extraction, Java/C# import resolution; daemon lifecycle, untrack_repo)
 Source: code inspection of all Go files across internal/, cmd/, and config
 Repo: github.com/blackwell-systems/knowing
 
@@ -253,7 +253,7 @@ Repo: github.com/blackwell-systems/knowing
 
 - **Package(s):** `internal/mcp`
 - **Entry point:** `mcp.NewServer(store GraphStore) *Server`
-- **What it does:** Wraps `mcp-go` server library. Registers 27 tools across six planes (execution, intelligence, runtime, context, feedback, discovery) and 3 prompts (refactor_safely, review_pr, investigate_dead_code). Supports stdio and HTTP transports. Tool definitions include parameter schemas with descriptions and required flags. The Server holds a `sqlStore *SQLiteStore` (populated via type assertion from GraphStore) for runtime query tools.
+- **What it does:** Wraps `mcp-go` server library. Registers 28 tools across seven planes (execution, intelligence, runtime, context, feedback, discovery, management) and 3 prompts (refactor_safely, review_pr, investigate_dead_code). Supports stdio and HTTP transports. Tool definitions include parameter schemas with descriptions and required flags. The Server holds a `sqlStore *SQLiteStore` (populated via type assertion from GraphStore) for runtime query tools.
 - **Inputs:** GraphStore (runtime tools additionally require `*SQLiteStore`).
 - **Outputs:** Serves MCP protocol over stdio or HTTP.
 - **Limitations/known gaps:**
@@ -505,7 +505,7 @@ Repo: github.com/blackwell-systems/knowing
 
 - **Package(s):** `cmd/knowing`
 - **Entry point:** `knowing mcp [flags]`
-- **What it does:** Launches the MCP server in stdio transport mode. Reads JSON-RPC messages from stdin, writes responses to stdout. Designed for use as a subprocess MCP server (e.g., configured in `.mcp.json` or Claude Desktop). Provides all 27 MCP tools and 3 prompts over stdio without requiring HTTP.
+- **What it does:** Launches the MCP server in stdio transport mode. Reads JSON-RPC messages from stdin, writes responses to stdout. Designed for use as a subprocess MCP server (e.g., configured in `.mcp.json` or Claude Desktop). Provides all 28 MCP tools and 3 prompts over stdio without requiring HTTP.
 - **Flags:** `--db` (default: `~/.knowing/knowing.db`): SQLite database path.
 - **Dependencies:** `internal/mcp`, `internal/store`.
 
@@ -1183,6 +1183,22 @@ Repo: github.com/blackwell-systems/knowing
 - **What it does:** Extends cross-file import resolution to the remaining OOP languages. `buildJavaImportMap` handles `import com.pkg.Class` and `import static` declarations. `buildCSharpImportMap` handles `using Namespace` and `using static` declarations. Both resolve call targets through the import map with provenance `ast_resolved` / confidence 0.85. Completes import resolution for all 5 OOP languages (Python, TypeScript, Rust, Java, C#).
 - **Why it matters:** The cross-system benchmark corpus now includes Java (Spark) and C# (Ocelot) repos. Import resolution is required for RWR to traverse cross-file call edges in these languages. Without it, call targets are dangling hashes that never connect to definition nodes.
 
+### 113. Daemon Lifecycle Commands
+
+- **Package(s):** `cmd/knowing`, `internal/daemon`
+- **Entry point:** `knowing daemon start|stop|status|restart`
+- **What it does:** Provides explicit lifecycle management for the knowing daemon process. `start` launches the daemon (with optional `--detach` for background mode), `stop` sends SIGTERM via PID, `status` reports whether the daemon is running, and `restart` cycles stop/start. PID file stored at `~/.knowing/daemon.pid`.
+- **Implementation:** `cmd/knowing/daemon.go` (CLI subcommand dispatch), `internal/daemon/pidfile.go` (PID file read/write/lock).
+- **Limitations/known gaps:** None known.
+
+### 114. `untrack_repo` (MCP Tool + CLI)
+
+- **Package(s):** `internal/store`, `internal/mcp`
+- **Entry point:** `knowing remove <path-or-url>` (CLI), `untrack_repo` MCP tool
+- **What it does:** Evicts all data for a repository from the knowledge graph: nodes, edges, files, snapshots, feedback, task_memory, and graph_notes. The CLI command also removes the repo from the roster. Available as the 28th MCP tool (`untrack_repo`) with parameter `repo_url` (required).
+- **Implementation:** `internal/store/evict.go` (data eviction logic), `internal/mcp/untrack.go` (MCP tool handler).
+- **Limitations/known gaps:** Does not delete the per-repo database file unless `--purge` is passed (CLI only).
+
 ### GraphStore (`internal/types/interfaces.go`)
 
 All 33 methods:
@@ -1383,7 +1399,7 @@ Parameters per tool:
 
 - **Flags:** `--db` (default: `~/.knowing/knowing.db`), `--addr` (default: `:8080`), `--trace` (enable trace ingestion), `--trace-endpoint` (default: `localhost:4317`), `--trace-batch-size` (default: 1000)
 - **Positional args:** repo paths to watch (0 or more)
-- **What it does:** Opens SQLite store, creates snapshot manager and indexer, registers all 26 extractor packages (Go, Python, Ruby, TypeScript/JS, Rust, Java, C#, Terraform, SQL, K8s YAML, Cloud YAML [CFN/SAM, Compose, Actions, Serverless], CSS, Protocol Buffers, Dockerfile, Makefile, Helm, GitLab CI, package.json/npm, GraphQL, Ansible), creates MCP server (27 tools across six planes, 3 prompts), creates daemon with GitWatcher, optionally starts trace ingestion pipeline (OTLPReceiver + Ingestor + periodic flush/decay), watches listed repos, blocks until SIGINT/SIGTERM.
+- **What it does:** Opens SQLite store, creates snapshot manager and indexer, registers all 26 extractor packages (Go, Python, Ruby, TypeScript/JS, Rust, Java, C#, Terraform, SQL, K8s YAML, Cloud YAML [CFN/SAM, Compose, Actions, Serverless], CSS, Protocol Buffers, Dockerfile, Makefile, Helm, GitLab CI, package.json/npm, GraphQL, Ansible), creates MCP server (28 tools across seven planes, 3 prompts), creates daemon with GitWatcher, optionally starts trace ingestion pipeline (OTLPReceiver + Ingestor + periodic flush/decay), watches listed repos, blocks until SIGINT/SIGTERM.
 - **Extractors registered:** `gotsextractor` (Go), `treesitter` (Python), `tsextractor` (TypeScript/JS), `rustextractor` (Rust), `javaextractor` (Java), `csharpextractor` (C#), `terraformextractor` (Terraform HCL), `sqlextractor` (SQL), `k8sextractor` (Kubernetes YAML), `cssextractor` (CSS), `protoextractor` (Protocol Buffers). Route detection covers 18 frameworks across 6 languages (Go: 5, Python: 3, TypeScript: 5).
 - **Enrichment:** Background EnrichFunc wired with scoped or full enrichment.
 - **Trace ingestion:** When `--trace` is set, launches a fourth daemon goroutine that opens a dedicated DB connection, creates SymbolResolver + Ingestor + OTLPReceiver, flushes batches every 10s, and decays confidence every 1h.
@@ -1410,7 +1426,7 @@ Parameters per tool:
 
 - **Flags:** `--db` (default: `~/.knowing/knowing.db`)
 - **No positional args.**
-- **What it does:** Launches the MCP server in stdio transport mode. Reads JSON-RPC messages from stdin and writes responses to stdout. Provides all 27 tools and 3 prompts. Designed for subprocess MCP usage (configured in `.mcp.json` or Claude Desktop).
+- **What it does:** Launches the MCP server in stdio transport mode. Reads JSON-RPC messages from stdin and writes responses to stdout. Provides all 28 tools and 3 prompts. Designed for subprocess MCP usage (configured in `.mcp.json` or Claude Desktop).
 
 ### `knowing reindex`
 

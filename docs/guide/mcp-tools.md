@@ -1,6 +1,6 @@
 # knowing MCP Tools Reference
 
-Complete reference for the 27 MCP tools exposed by knowing's MCP server.
+Complete reference for the 28 MCP tools exposed by knowing's MCP server.
 
 ## Connecting to the Server
 
@@ -1111,6 +1111,45 @@ Verify graph integrity.
 - Referential integrity (edges with missing source/target nodes)
 - Snapshot chain continuity (broken parent references)
 - Node and edge counts
+
+---
+
+## Management
+
+### `untrack_repo`
+
+Evict all data for a repository from the knowledge graph. Removes nodes, edges, files, snapshots, feedback, task_memory, and graph_notes associated with the specified repository. Use when a repo is no longer needed and its data should be purged.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `repo_url` | string | yes | Repository URL to evict (e.g. `github.com/org/repo`) |
+
+**Return format:**
+
+```json
+{
+  "status": "evicted",
+  "repo_url": "github.com/org/repo",
+  "nodes_deleted": 1234,
+  "edges_deleted": 5678,
+  "files_deleted": 89
+}
+```
+
+Returns a summary of evicted data counts. On error (e.g., repo not found), returns an MCP error result with a message.
+
+**Example:**
+
+```json
+{
+  "tool": "untrack_repo",
+  "arguments": {
+    "repo_url": "github.com/org/old-service"
+  }
+}
+```
 
 ---
 

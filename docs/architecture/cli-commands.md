@@ -15,12 +15,14 @@ If `<repo-path>` is omitted, defaults to the current directory.
 
 ### `knowing remove`
 
-Removes a repository from the roster.
+Removes a repository from the roster and evicts all associated data (nodes, edges, files, snapshots, feedback, task_memory, graph_notes). Also available as the `untrack_repo` MCP tool.
 
-**Usage:** `knowing remove [-purge] [<repo-path>]`
+**Usage:** `knowing remove [-purge] <repo-path-or-url>`
 
 **Flags:**
-- `--purge`: Also delete the database file
+- `--purge`: Also delete the per-repo database file
+
+**Implementation:** `internal/store/evict.go`, `internal/mcp/untrack.go`
 
 ### `knowing list`
 
@@ -312,6 +314,31 @@ Compares two audit point snapshots and produces a structured change report with 
 **Snapshot refs:** same as `knowing diff` (`@latest`, `@prev`, `@N`, hex hash).
 
 ## Server
+
+### `knowing daemon`
+
+Manages the daemon lifecycle: start, stop, status, and restart.
+
+**Usage:**
+- `knowing daemon start [--detach]`
+- `knowing daemon stop`
+- `knowing daemon status`
+- `knowing daemon restart`
+
+**Subcommands:**
+- `start`: Launch the daemon. With `--detach`, forks to background.
+- `stop`: Send SIGTERM to the running daemon (reads PID from `~/.knowing/daemon.pid`).
+- `status`: Print whether the daemon is running, its PID, and uptime.
+- `restart`: Stop then start the daemon.
+
+**Flags (start):**
+- `--detach`: Run in background (daemonize)
+- `--db`: database path
+- `--addr` (default: `:8080`): HTTP address for MCP server
+
+**PID file:** `~/.knowing/daemon.pid`
+
+**Implementation:** `cmd/knowing/daemon.go`, `internal/daemon/pidfile.go`
 
 ### `knowing mcp`
 

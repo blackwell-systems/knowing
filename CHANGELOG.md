@@ -8,6 +8,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+#### Daemon Lifecycle Commands
+- `knowing daemon start [--detach]`: start the daemon, optionally in background mode
+- `knowing daemon stop`: stop a running daemon by PID
+- `knowing daemon status`: check whether the daemon is running
+- `knowing daemon restart`: stop and restart the daemon
+- PID file stored at `~/.knowing/daemon.pid`
+- Implementation: `cmd/knowing/daemon.go`, `internal/daemon/pidfile.go`
+
+#### `untrack_repo` (28th MCP tool)
+- `knowing remove <path-or-url>` CLI command now evicts all data for a repository: nodes, edges, files, snapshots, feedback, task_memory, and graph_notes
+- Also available as the `untrack_repo` MCP tool (28th tool) for agent-driven repo management
+- Parameters: `repo_url` (required)
+- Implementation: `internal/store/evict.go`, `internal/mcp/untrack.go`
+
 #### Community-Aware Random Walk with Restart
 - RWR walk now constrained to seed communities when candidates cluster in 1-3 communities
 - `CommunityFilteredRWR`: BFS expansion skips nodes outside the allowed community set
@@ -130,7 +144,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `deployed_by`: GitHub Actions workflow deploys linked to deployed services
 - `tested_by`: GitHub Actions workflow test jobs linked to tested packages
 - All 7 new types have RWR weights in `internal/edgetype` constants package
-- Total: 30 edge types, 27 MCP tools
+- Total: 30 edge types, 28 MCP tools
 
 #### Indexer Performance Overhaul
 - **Parallel extraction**: GOMAXPROCS workers with producer-consumer pipeline
