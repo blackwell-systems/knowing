@@ -5,13 +5,16 @@ import (
 	"testing"
 
 	lsptypes "github.com/blackwell-systems/agent-lsp/pkg/types"
+	"github.com/blackwell-systems/knowing/internal/testutil"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
-// mockStore implements types.GraphStore for testing the enricher's
-// edge filtering and upgrade logic without requiring a real database
-// or LSP server.
+// mockStore embeds *testutil.MockGraphStore for no-op defaults and overrides
+// methods that the enricher tests need with map-iteration logic and mutation tracking.
 type mockStore struct {
+	*testutil.MockGraphStore
+
+	// Local value-type maps for tests that store by value (not pointer).
 	nodes     map[types.Hash]types.Node
 	edges     map[types.Hash]types.Edge
 	files     map[types.Hash]types.File
@@ -24,11 +27,12 @@ type mockStore struct {
 
 func newMockStore() *mockStore {
 	return &mockStore{
-		nodes:     make(map[types.Hash]types.Node),
-		edges:     make(map[types.Hash]types.Edge),
-		files:     make(map[types.Hash]types.File),
-		repos:     make(map[types.Hash]types.Repo),
-		snapshots: make(map[types.Hash]types.Snapshot),
+		MockGraphStore: testutil.NewMockGraphStore(),
+		nodes:          make(map[types.Hash]types.Node),
+		edges:          make(map[types.Hash]types.Edge),
+		files:          make(map[types.Hash]types.File),
+		repos:          make(map[types.Hash]types.Repo),
+		snapshots:      make(map[types.Hash]types.Snapshot),
 	}
 }
 
@@ -50,10 +54,6 @@ func (m *mockStore) PutFile(_ context.Context, f types.File) error {
 
 func (m *mockStore) PutRepo(_ context.Context, r types.Repo) error {
 	m.repos[r.RepoHash] = r
-	return nil
-}
-
-func (m *mockStore) RecordEdgeEvent(_ context.Context, _ types.EdgeEvent) error {
 	return nil
 }
 
@@ -128,10 +128,6 @@ func (m *mockStore) EdgesTo(_ context.Context, targetHash types.Hash, edgeType s
 	return result, nil
 }
 
-func (m *mockStore) DanglingEdges(_ context.Context) ([]types.Edge, error) {
-	return nil, nil
-}
-
 func (m *mockStore) AllRepos(_ context.Context) ([]types.Repo, error) {
 	var result []types.Repo
 	for _, r := range m.repos {
@@ -154,26 +150,6 @@ func (m *mockStore) DeleteEdge(_ context.Context, hash types.Hash) error {
 	m.deletedEdges = append(m.deletedEdges, hash)
 	delete(m.edges, hash)
 	return nil
-}
-
-func (m *mockStore) TransitiveCallers(_ context.Context, _ types.Hash, _ int, _ types.Hash) ([]types.CallerResult, error) {
-	return nil, nil
-}
-
-func (m *mockStore) TransitiveCallees(_ context.Context, _ types.Hash, _ int, _ types.Hash) ([]types.CalleeResult, error) {
-	return nil, nil
-}
-
-func (m *mockStore) BlastRadius(_ context.Context, _ types.Hash, _ types.Hash) (*types.BlastRadiusResult, error) {
-	return nil, nil
-}
-
-func (m *mockStore) SnapshotDiff(_ context.Context, _, _ types.Hash) (*types.DiffResult, error) {
-	return nil, nil
-}
-
-func (m *mockStore) StaleEdges(_ context.Context, _ types.Hash) ([]types.Edge, error) {
-	return nil, nil
 }
 
 func (m *mockStore) LatestSnapshot(_ context.Context, repoHash types.Hash) (*types.Snapshot, error) {
@@ -203,42 +179,6 @@ func (m *mockStore) FileByPath(_ context.Context, repoHash types.Hash, path stri
 	}
 	return nil, nil
 }
-func (m *mockStore) NodesByFilePath(_ context.Context, _ types.Hash, _ string) ([]types.Node, error) {
-	return nil, nil
-}
-func (m *mockStore) StaleNodesByFiles(_ context.Context, _ types.Hash, _ []string) ([]types.Node, error) {
-	return nil, nil
-}
-
-func (m *mockStore) DeleteNodesByFile(_ context.Context, _ types.Hash) (int, error) {
-	return 0, nil
-}
-
-func (m *mockStore) DeleteEdgesBySourceFile(_ context.Context, _ types.Hash) ([]types.Edge, error) {
-	return nil, nil
-}
-func (m *mockStore) DeleteSnapshot(_ context.Context, _ types.Hash) error { return nil }
-
-func (m *mockStore) EdgesBySourceFile(_ context.Context, _ types.Hash) ([]types.Edge, error) {
-	return nil, nil
-}
-
-func (m *mockStore) Close() error { return nil }
-func (m *mockStore) DeleteNodesNotIn(_ context.Context, _ map[types.Hash]struct{}) (int64, error) { return 0, nil }
-func (m *mockStore) DeleteEdgesNotIn(_ context.Context, _ map[types.Hash]struct{}) (int64, error) { return 0, nil }
-
-func (m *mockStore) PutNote(_ context.Context, _ types.Note) error { return nil }
-func (m *mockStore) GetNote(_ context.Context, _ types.Hash, _ string) (*types.Note, error) {
-	return nil, nil
-}
-func (m *mockStore) GetNotes(_ context.Context, _ types.Hash) ([]types.Note, error) {
-	return nil, nil
-}
-func (m *mockStore) GetNotesByKey(_ context.Context, _ string) ([]types.Note, error) {
-	return nil, nil
-}
-func (m *mockStore) DeleteNote(_ context.Context, _ types.Hash, _ string) error { return nil }
-func (m *mockStore) DeleteNotesByObject(_ context.Context, _ types.Hash) error  { return nil }
 
 // ---------- Tests ----------
 
