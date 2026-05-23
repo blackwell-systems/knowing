@@ -1,3 +1,4 @@
+completion_date: "2026-05-22"
 title: Daemon Lifecycle Commands and Untrack Repo Functionality
 feature_slug: daemon-lifecycle-untrack
 verdict: SUITABLE
@@ -659,6 +660,7 @@ waves:
             - internal/mcp/untrack.go
             - internal/mcp/untrack_test.go
             - internal/mcp/server.go
+      base_commit: bd41ff515a5ed90f2b949a151d47466ac9c5e8d2
 quality_gates:
     level: standard
     gates:
@@ -685,6 +687,67 @@ post_merge_checklist:
               command: go build -o knowing ./cmd/knowing && echo '{"jsonrpc":"2.0","method":"tools/list","id":1}' | ./knowing mcp 2>/dev/null | grep -c untrack_repo; rm -f knowing
             - description: Eval regression gate
               command: GOWORK=off go test ./eval/ -run TestEval -timeout 5m -count=1
+        - title: Background Service Initialization
+          items:
+            - description: Verify if evict_test.go needs initialization in Server constructor
+            - description: Verify if untrack_test.go needs initialization in Server constructor
+completion_reports:
+    A:
+        status: complete
+        branch: polywave/daemon-lifecycle-untrack/wave1-agent-A
+        commit: e2c2c7f
+        files_changed:
+            - internal/store/evict.go
+            - internal/store/evict_test.go
+            - internal/daemon/pidfile.go
+            - internal/daemon/pidfile_test.go
+        files_created:
+            - internal/store/evict.go
+            - internal/store/evict_test.go
+            - internal/daemon/pidfile.go
+            - internal/daemon/pidfile_test.go
+        tests_added:
+            - TestDeleteRepoData_RemovesAllAssociatedData
+            - TestDeleteRepoData_EmptyRepo
+            - TestDeleteRepoData_NonexistentRepo
+            - TestPIDFile_WriteThenRead
+            - TestPIDFile_WritePIDFile
+            - TestPIDFile_IsDaemonRunning_CurrentProcess
+            - TestPIDFile_IsDaemonRunning_AfterRemove
+            - TestPIDFile_ReadPIDFile_NoFile
+            - TestPIDFile_IsDaemonRunning_DeadProcess
+            - TestPIDFile_PIDFilePath
+        verification: PASS
+        notes: All 10 tests passing. DeleteRepoData uses temp tables for efficient bulk deletion. PID file uses signal 0 for process detection with EPERM handling.
+    B:
+        status: complete
+        branch: polywave/daemon-lifecycle-untrack/wave1-agent-B
+        commit: 1f4b53f
+        files_changed:
+            - cmd/knowing/daemon.go
+            - cmd/knowing/main.go
+        files_created:
+            - cmd/knowing/daemon.go
+        verification: PASS
+        notes: 'All 4 daemon subcommands implemented. Build errors are expected: daemon.PIDFilePath/IsDaemonRunning/ReadPIDFile/RemovePIDFile undefined until Agent A''s pidfile.go merges. All postcondition greps pass. No non-pidfile build errors.'
+    C:
+        status: complete
+        branch: polywave/daemon-lifecycle-untrack/wave1-agent-C
+        commit: 2f6190b
+        files_changed:
+            - internal/mcp/untrack.go
+            - internal/mcp/untrack_test.go
+            - internal/mcp/server.go
+        files_created:
+            - internal/mcp/untrack.go
+            - internal/mcp/untrack_test.go
+        tests_added:
+            - TestHandleUntrackRepo_MissingArg
+            - TestHandleUntrackRepo_RepoNotFound
+            - TestHandleUntrackRepo_NoSQLiteStore
+            - TestHandleUntrackRepo_WithSQLiteStore
+        verification: PASS
+        notes: 'All three files implemented. Build/vet pass (only expected DeleteRepoData dependency errors from Agent A). Out-of-scope: handlers_test.go TestNewServer_RegistersAllTools needs untrack_repo added to expected list (28 tools).'
 pre_mortem:
     overall_risk: low
     rows:
@@ -742,5 +805,5 @@ critic_report:
     summary: 'All three agent briefs verified against the codebase. File existence checks pass: all action:new files do not exist, all action:modify files exist. Symbol accuracy verified: requireStringArg, GetRepo, NewServer, cmdServe, defaultDB, proveTool/proveAbsentTool/fsckTool, ToolNames all exist with correct signatures. Pattern accuracy confirmed: switch statement in main.go has the exact case "remove" pattern referenced; server.go has exact "Audit plane" comment and tool registration pattern; "27 tools organized into seven planes" doc comment exists as described; "fsck" entry in ToolNames exists. Interface contracts reference valid types (types.Hash, context.Context, SQLiteStore). Import chains verified: go.mod contains mcp-go and modernc.org/sqlite. One advisory warning: Agent A owns 44% of files (4 of 9), slightly above 40% threshold. No errors found.'
     reviewed_at: "2026-05-23T00:00:53Z"
     issue_count: 1
-state: REVIEWED
+state: COMPLETE
 injection_method: hook
