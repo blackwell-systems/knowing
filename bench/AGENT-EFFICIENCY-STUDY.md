@@ -371,6 +371,70 @@ benchmark has been testing the wrong query type.
 
 ---
 
+## Experiment 5: Cross-System Benchmark with Aider (Retrieval Quality)
+
+**Date:** 2026-05-23
+**Systems:** knowing, grep, Aider
+**Tasks:** 117 hand-curated, 7 repos (Flask, Django, Cargo, Kubernetes, VS Code, Spark, Ocelot)
+**Methodology:** Same ground truth, same tasks, same metrics (P@10, R@10, NDCG, MRR)
+
+### Run A: With LSP enrichment (knowing indexed with gopls/pyright)
+
+| System | P@10 | R@10 | MRR | Failures |
+|--------|------|------|-----|----------|
+| **knowing** | **0.185** | **0.271** | **0.317** | 45 |
+| aider | 0.050 | 0.115 | 0.160 | 79 |
+| grep | 0.015 | 0.030 | 0.068 | 105 |
+
+**knowing vs Aider: 3.7x more precise.**
+
+### Run B: Without enrichment (tree-sitter only, no LSP resolution)
+
+| System | P@10 | R@10 | MRR | Failures |
+|--------|------|------|-----|----------|
+| **knowing** | **0.069** | **0.153** | **0.166** | 79 |
+| aider | 0.049 | 0.120 | 0.161 | 78 |
+| grep | 0.015 | 0.026 | 0.054 | 107 |
+
+**knowing vs Aider: 1.4x more precise (marginal).**
+
+### What This Reveals About the Architecture
+
+The 3.7x → 1.4x drop when removing enrichment decomposes knowing's advantage:
+
+| Component | Contribution | Evidence |
+|-----------|-------------|----------|
+| Tree-sitter extraction (same as Aider) | Baseline | Both systems use tree-sitter for edges |
+| Graph topology (RWR + HITS + community) | +1.4x over Aider's PageRank | Run B: 0.069 vs 0.049 without enrichment |
+| LSP enrichment (edge resolution + confidence) | +2.7x multiplier | Run A vs Run B: 0.185/0.069 = 2.7x |
+
+**The graph algorithm (RWR/HITS/community) provides a 40% advantage over Aider's PageRank.**
+**LSP enrichment provides a 170% multiplier on top of that.**
+
+Both matter. The graph topology finds the right STRUCTURE. Enrichment provides the right
+PRECISION (resolving which `Handler` is which, disambiguating common names). Together they
+compound to 3.7x.
+
+### Implications
+
+1. **Enrichment is not optional for competitive advantage.** Without it, knowing is only
+   marginally better than Aider. The `-no-enrich` path is fast but sacrifices the
+   precision that justifies knowing's existence.
+
+2. **The 18.6s indexing time for kubernetes included enrichment.** That's the real product:
+   fast tree-sitter extraction + LSP resolution in one pass. Not just tree-sitter alone.
+
+3. **Aider's repo-map is tree-sitter + PageRank.** knowing without enrichment is tree-sitter
+   + RWR/HITS. The graph algorithm alone only gives 1.4x. The LSP-resolved edges are what
+   make the graph traversal PRECISE (following real type-checked connections, not heuristic
+   ones).
+
+4. **For the competitive story:** Always benchmark with enrichment enabled. The
+   `-no-enrich` path is for speed-critical re-indexing where approximate results are
+   acceptable. The full product includes enrichment.
+
+---
+
 ## Meta-Observations
 
 ### On honest benchmarking
