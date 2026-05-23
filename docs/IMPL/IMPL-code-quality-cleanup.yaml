@@ -1,0 +1,1312 @@
+title: Code Quality Cleanup (Audit Findings)
+feature_slug: code-quality-cleanup
+verdict: SUITABLE
+suitability_assessment: |
+    All five suitability questions resolve cleanly:
+
+    1. File decomposition: The 7 audit items decompose into 5+ agents with disjoint file ownership.
+       New constant packages (kinds, provenance) are independent files. Dead code removal touches
+       types/interfaces.go and types/results.go (one agent). Mock store extraction creates a new
+       testutil package. Edge type migration touches extractors (partitionable across agents).
+       Batch helper is a new file in internal/store/.
+
+    2. Investigation-first items: None. All items are well-defined refactoring tasks with clear
+       scope identified in the audit.
+
+    3. Interface discoverability: All cross-agent interfaces are fully definable now. The new
+       constant packages export simple string/float64 constants. The mock store implements the
+       existing types.GraphStore interface. The inferExternalRepoURL shared utility has 5
+       concrete implementations to reference.
+
+    4. Pre-implementation status: All 7 items are TODO (confirmed by code audit). No prior
+       partial implementations exist.
+
+    5. Parallelization value: High. Build+test cycle is >30s (go test ./... with SQLite, 5m
+       timeout in CI). 5 agents in wave 1 with 3-8 files each. Tasks involve non-trivial logic
+       (interface extraction, cross-package migration). Clear speedup over sequential.
+
+    Estimated times:
+    - Scout phase: ~8 min (dependency mapping, interface contracts, IMPL doc)
+    - Agent execution: ~12 min (5 agents x 8 min avg, single wave parallelism)
+    - Merge and verification: ~4 min
+    Total Polywave time: ~24 min
+
+    Sequential baseline: ~40 min (5 agents x 8 min sequential)
+    Time savings: ~16 min (40% faster)
+
+    Recommendation: Clear speedup. Proceed.
+test_command: GOWORK=off go test -short ./... -timeout 5m
+lint_command: GOWORK=off go vet ./...
+file_ownership:
+    - file: internal/types/kinds.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/indexer/goextractor/extractor.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/gotsextractor/extractor.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/gotsextractor/walk_body_helpers.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/gotsextractor/tests_edges.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/gotsextractor/documents_edges.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/gotsextractor/featureflag_edges.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/gotsextractor/endpoint_edges.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/tsextractor/extractor.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/tsextractor/endpoint_edges.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/treesitter/extractor.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/rustextractor/extractor.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/javaextractor/extractor.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/csharpextractor/extractor.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/rubyextractor/extractor.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/graphqlextractor/extractor.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/cssextractor/extractor.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/protoextractor/extractor.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/protoextractor/rpc_edges.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/terraformextractor/extractor.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/eventextractor/extractor.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/envextractor/extractor.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/helmextractor/extractor.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/k8sextractor/extractor.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/makefileextractor/extractor.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/packagejsonextractor/extractor.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/schemaextractor/extractor.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/dockerfileextractor/extractor.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/gitlabciextractor/extractor.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/sqlextractor/extractor.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/cloudextractor/extractor.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/cloudextractor/actions_deploy.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/scipingest/ingest.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/types/provenance.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/types/interfaces.go
+      agent: B
+      wave: 1
+      action: modify
+    - file: internal/types/results.go
+      agent: B
+      wave: 1
+      action: modify
+    - file: internal/testutil/mockstore.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/mcp/handlers_test.go
+      agent: C
+      wave: 1
+      action: modify
+    - file: internal/context/context_test.go
+      agent: C
+      wave: 1
+      action: modify
+    - file: internal/resolver/resolver_test.go
+      agent: C
+      wave: 1
+      action: modify
+    - file: internal/enrichment/enricher_test.go
+      agent: C
+      wave: 1
+      action: modify
+    - file: internal/snapshot/manager_test.go
+      agent: C
+      wave: 1
+      action: modify
+    - file: internal/indexer/indexer_test.go
+      agent: C
+      wave: 1
+      action: modify
+    - file: internal/resolve/external.go
+      agent: D
+      wave: 1
+      action: new
+    - file: internal/resolve/external_test.go
+      agent: D
+      wave: 1
+      action: new
+    - file: internal/store/batch.go
+      agent: E
+      wave: 1
+      action: new
+    - file: internal/store/batch_test.go
+      agent: E
+      wave: 1
+      action: new
+    - file: internal/store/sqlite.go
+      agent: E
+      wave: 1
+      action: modify
+    - file: internal/indexer/tsextractor/extractor.go
+      agent: F
+      wave: 2
+      action: modify
+    - file: internal/indexer/tsextractor/extractor_test.go
+      agent: F
+      wave: 2
+      action: modify
+    - file: internal/indexer/treesitter/extractor.go
+      agent: F
+      wave: 2
+      action: modify
+    - file: internal/indexer/treesitter/extractor_test.go
+      agent: F
+      wave: 2
+      action: modify
+    - file: internal/indexer/rustextractor/extractor.go
+      agent: F
+      wave: 2
+      action: modify
+    - file: internal/indexer/rustextractor/extractor_test.go
+      agent: F
+      wave: 2
+      action: modify
+    - file: internal/indexer/javaextractor/extractor.go
+      agent: F
+      wave: 2
+      action: modify
+    - file: internal/indexer/javaextractor/extractor_test.go
+      agent: F
+      wave: 2
+      action: modify
+    - file: internal/indexer/csharpextractor/extractor.go
+      agent: F
+      wave: 2
+      action: modify
+    - file: internal/indexer/csharpextractor/extractor_test.go
+      agent: F
+      wave: 2
+      action: modify
+interface_contracts:
+    - name: types.Kind* constants
+      description: Node kind string constants for all extractors
+      definition: |
+        // Package types, file: internal/types/kinds.go
+        package types
+
+        const (
+            KindFunction  = "function"
+            KindMethod    = "method"
+            KindType      = "type"
+            KindInterface = "interface"
+            KindConst     = "const"
+            KindVar       = "var"
+            KindService   = "service"
+            KindRoute     = "route_handler"
+            KindExternal  = "external"
+            KindFile      = "file"
+            KindPackage   = "package"
+        )
+      location: internal/types/kinds.go
+    - name: types.Provenance* and Confidence* constants
+      description: Provenance tier strings and confidence float64 constants
+      definition: |
+        // Package types, file: internal/types/provenance.go
+        package types
+
+        const (
+            ProvenanceASTInferred     = "ast_inferred"
+            ProvenanceASTResolved     = "ast_resolved"
+            ProvenanceLSPResolved     = "lsp_resolved"
+            ProvenanceSCIPResolved    = "scip_resolved"
+            ProvenanceRuntimeObserved = "runtime_observed"
+        )
+
+        const (
+            ConfidenceASTInferred  = 0.7
+            ConfidenceASTResolved  = 0.85
+            ConfidenceLSPResolved  = 0.9
+            ConfidenceSCIPResolved = 1.0
+        )
+      location: internal/types/provenance.go
+    - name: testutil.MockGraphStore
+      description: Shared mock implementing types.GraphStore with embeddable no-op defaults
+      definition: |
+        // Package testutil, file: internal/testutil/mockstore.go
+        package testutil
+
+        import (
+            "context"
+            "github.com/blackwell-systems/knowing/internal/types"
+        )
+
+        // MockGraphStore provides a default no-op implementation of types.GraphStore.
+        // Test packages embed this struct and override only the methods they need.
+        type MockGraphStore struct {
+            Nodes     map[types.Hash]*types.Node
+            Edges     map[types.Hash]*types.Edge
+            Snapshots map[types.Hash]*types.Snapshot
+            Repos     map[types.Hash]*types.Repo
+            Files     map[types.Hash]*types.File
+        }
+
+        func NewMockGraphStore() *MockGraphStore
+        func (m *MockGraphStore) PutNode(ctx context.Context, n types.Node) error
+        func (m *MockGraphStore) PutEdge(ctx context.Context, e types.Edge) error
+        func (m *MockGraphStore) PutFile(ctx context.Context, f types.File) error
+        func (m *MockGraphStore) PutRepo(ctx context.Context, r types.Repo) error
+        func (m *MockGraphStore) RecordEdgeEvent(ctx context.Context, ev types.EdgeEvent) error
+        func (m *MockGraphStore) CreateSnapshot(ctx context.Context, s types.Snapshot) error
+        func (m *MockGraphStore) GetNode(ctx context.Context, hash types.Hash) (*types.Node, error)
+        func (m *MockGraphStore) GetEdge(ctx context.Context, hash types.Hash) (*types.Edge, error)
+        func (m *MockGraphStore) GetSnapshot(ctx context.Context, hash types.Hash) (*types.Snapshot, error)
+        func (m *MockGraphStore) GetRepo(ctx context.Context, hash types.Hash) (*types.Repo, error)
+        // ... all other GraphStore methods with no-op defaults
+        func (m *MockGraphStore) Close() error
+      location: internal/testutil/mockstore.go
+    - name: resolve.InferExternalRepoURL
+      description: Shared utility to determine if an import path is external/stdlib
+      definition: |
+        // Package resolve, file: internal/resolve/external.go
+        package resolve
+
+        // LangConfig provides language-specific configuration for external URL inference.
+        type LangConfig struct {
+            // StdlibCheck returns true if the top-level segment indicates stdlib.
+            StdlibCheck func(topLevel string) bool
+            // IsRelative returns true if the path is a relative/local import.
+            IsRelative func(path string) bool
+            // IsLocal returns true if the path is local to the project.
+            // May be nil if not applicable. Used by Java for same-package detection.
+            IsLocal func(path, localContext string) bool
+            // ExtractPkgName extracts the package identifier from the full import path.
+            // Returns the portion to use after "external://".
+            ExtractPkgName func(path string) string
+            // Separator is the path component separator ("/" for TS, "." for Java/C#, "::" for Rust).
+            Separator string
+        }
+
+        // InferExternalRepoURL returns "external://{pkgName}" for external packages,
+        // "stdlib" for standard library imports, or "" for relative/local imports.
+        // The localContext parameter is optional (used by Java for same-package detection).
+        func InferExternalRepoURL(path string, localContext string, cfg LangConfig) string
+
+        // Pre-built configs for each language.
+        var (
+            TypeScriptConfig LangConfig
+            PythonConfig     LangConfig
+            RustConfig       LangConfig
+            JavaConfig       LangConfig
+            CSharpConfig     LangConfig
+        )
+      location: internal/resolve/external.go
+    - name: store.ChunkedExec
+      description: Generic chunked batch execution helper for SQLite variable limit
+      definition: |
+        // Package store, file: internal/store/batch.go
+        package store
+
+        import (
+            "context"
+            "database/sql"
+            "fmt"
+        )
+
+        // ChunkedExec executes a batch SQL operation in chunks to stay within
+        // SQLite's 999-variable limit. Each chunk is executed within the provided
+        // transaction. The caller is responsible for Begin/Commit/Rollback.
+        //
+        // paramsPerItem: number of SQL placeholders per item (e.g., 10 for nodes)
+        // buildSQL: given a chunk, returns the SQL statement and flattened args
+        func ChunkedExec[T any](
+            ctx context.Context,
+            tx *sql.Tx,
+            items []T,
+            paramsPerItem int,
+            buildSQL func(chunk []T) (string, []interface{}),
+        ) error
+
+        // MaxChunkSize returns the maximum chunk size for the given params-per-item
+        // to stay within SQLite's 999-variable limit.
+        func MaxChunkSize(paramsPerItem int) int
+      location: internal/store/batch.go
+waves:
+    - number: 1
+      agents:
+        - id: A
+          task: |
+            ## Task: Add node kind constants and migrate all extractors to use edgetype + kind constants
+
+            Create `internal/types/kinds.go` with node kind string constants, then migrate ALL
+            extractors in `internal/indexer/` to use:
+            1. `types.Kind*` constants instead of raw string literals for node kinds
+            2. `edgetype.*` constants (from `internal/edgetype/constants.go`) instead of raw
+               string literals for edge types
+
+            ### What to implement
+
+            **Step 1: Create `internal/types/kinds.go`**
+            ```go
+            package types
+
+            const (
+                KindFunction  = "function"
+                KindMethod    = "method"
+                KindType      = "type"
+                KindInterface = "interface"
+                KindConst     = "const"
+                KindVar       = "var"
+                KindService   = "service"
+                KindRoute     = "route_handler"
+                KindExternal  = "external"
+                KindFile      = "file"
+                KindPackage   = "package"
+            )
+            ```
+
+            **Step 2: Migrate all extractors to use `types.Kind*` constants**
+
+            In every extractor file (goextractor, gotsextractor, tsextractor, treesitter,
+            rustextractor, javaextractor, csharpextractor, rubyextractor, graphqlextractor,
+            cssextractor, protoextractor, terraformextractor, eventextractor, envextractor,
+            helmextractor, k8sextractor, makefileextractor, packagejsonextractor,
+            schemaextractor, dockerfileextractor, gitlabciextractor, sqlextractor,
+            cloudextractor, scipingest):
+
+            Replace all raw string literals for node kinds:
+            - `"function"` -> `types.KindFunction`
+            - `"method"` -> `types.KindMethod`
+            - `"type"` -> `types.KindType`
+            - `"interface"` -> `types.KindInterface`
+            - `"const"` -> `types.KindConst`
+            - `"var"` -> `types.KindVar`
+            - `"service"` -> `types.KindService`
+            - `"route_handler"` -> `types.KindRoute`
+            - `"file"` -> `types.KindFile`
+            - `"package"` -> `types.KindPackage`
+
+            Only replace kind literals used as the `kind` parameter in `types.ComputeNodeHash()`
+            calls or assigned to `Node.Kind` fields. Do NOT replace string literals used in
+            other contexts (e.g., tree-sitter node type names like `"function_declaration"`).
+
+            **Step 3: Migrate all extractors to use `edgetype.*` constants**
+
+            Add `"github.com/blackwell-systems/knowing/internal/edgetype"` import to each
+            extractor file and replace:
+            - `"calls"` -> `edgetype.Calls`
+            - `"imports"` -> `edgetype.Imports`
+            - `"implements"` -> `edgetype.Implements`
+            - `"references"` -> `edgetype.References`
+            - `"handles_route"` -> `edgetype.HandlesRoute`
+            - `"depends_on"` -> `edgetype.DependsOn`
+            - `"extends"` -> `edgetype.Extends`
+            - `"overrides"` -> `edgetype.Overrides`
+            - `"decorates"` -> `edgetype.Decorates`
+            - `"throws"` -> `edgetype.Throws`
+            - `"tests"` -> `edgetype.Tests`
+            - `"documents"` -> `edgetype.Documents`
+            - `"consumes_endpoint"` -> `edgetype.ConsumesEndpoint`
+            - `"implements_rpc"` -> `edgetype.ImplementsRPC`
+            - `"consumes_rpc"` -> `edgetype.ConsumesRPC`
+            - `"gated_by_flag"` -> `edgetype.GatedByFlag`
+            - `"deployed_by"` -> `edgetype.DeployedBy`
+            - `"tested_by"` -> `edgetype.TestedBy`
+            - `"publishes"` -> `edgetype.Publishes`
+            - `"subscribes"` -> `edgetype.Subscribes`
+            - `"deploys"` -> `edgetype.Deploys`
+            - `"configures"` -> `edgetype.Configures`
+            - `"connects_to"` -> `edgetype.ConnectsTo`
+            - `"exposes"` -> `edgetype.Exposes`
+            - `"runtime_calls"` -> `edgetype.RuntimeCalls`
+
+            Only replace edge type string literals used in `EdgeType` field assignments or
+            `ComputeEdgeHash()` calls. Do NOT replace string literals in test assertions
+            (those are in _test.go files not owned by this agent).
+
+            ### Constraints
+            - Do NOT modify test files (_test.go). Test files still use raw strings (they
+              will continue to work since constants equal the same strings).
+            - Do NOT modify `internal/types/interfaces.go` or `internal/types/results.go`
+              (owned by Agent B).
+            - Do NOT touch `internal/testutil/` (owned by Agent C).
+            - Do NOT replace tree-sitter grammar node type strings (e.g., "function_declaration",
+              "class_declaration"). Only replace strings used as knowing graph node kinds or
+              edge types.
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./...
+            GOWORK=off go vet ./...
+            GOWORK=off go test -short ./internal/indexer/... -timeout 3m
+            ```
+
+            Postconditions:
+            - `grep -c 'KindFunction' internal/types/kinds.go` should output 1
+            - `grep -rn '"function"' internal/indexer/goextractor/extractor.go | wc -l` should output 0
+            - `grep -c 'edgetype\.' internal/indexer/goextractor/extractor.go` should be >= 4
+          files:
+            - internal/types/kinds.go
+            - internal/indexer/goextractor/extractor.go
+            - internal/indexer/gotsextractor/extractor.go
+            - internal/indexer/gotsextractor/walk_body_helpers.go
+            - internal/indexer/gotsextractor/tests_edges.go
+            - internal/indexer/gotsextractor/documents_edges.go
+            - internal/indexer/gotsextractor/featureflag_edges.go
+            - internal/indexer/gotsextractor/endpoint_edges.go
+            - internal/indexer/tsextractor/extractor.go
+            - internal/indexer/tsextractor/endpoint_edges.go
+            - internal/indexer/treesitter/extractor.go
+            - internal/indexer/rustextractor/extractor.go
+            - internal/indexer/javaextractor/extractor.go
+            - internal/indexer/csharpextractor/extractor.go
+            - internal/indexer/rubyextractor/extractor.go
+            - internal/indexer/graphqlextractor/extractor.go
+            - internal/indexer/cssextractor/extractor.go
+            - internal/indexer/protoextractor/extractor.go
+            - internal/indexer/protoextractor/rpc_edges.go
+            - internal/indexer/terraformextractor/extractor.go
+            - internal/indexer/eventextractor/extractor.go
+            - internal/indexer/envextractor/extractor.go
+            - internal/indexer/helmextractor/extractor.go
+            - internal/indexer/k8sextractor/extractor.go
+            - internal/indexer/makefileextractor/extractor.go
+            - internal/indexer/packagejsonextractor/extractor.go
+            - internal/indexer/schemaextractor/extractor.go
+            - internal/indexer/dockerfileextractor/extractor.go
+            - internal/indexer/gitlabciextractor/extractor.go
+            - internal/indexer/sqlextractor/extractor.go
+            - internal/indexer/cloudextractor/extractor.go
+            - internal/indexer/cloudextractor/actions_deploy.go
+            - internal/indexer/scipingest/ingest.go
+        - id: B
+          task: |
+            ## Task: Add provenance/confidence constants and remove dead types
+
+            Two sub-tasks:
+            1. Create `internal/types/provenance.go` with provenance tier and confidence constants
+            2. Remove 3 dead types from `internal/types/`: ComputationCache, DerivedResult, TraversalOptions
+
+            ### What to implement
+
+            **Step 1: Create `internal/types/provenance.go`**
+            ```go
+            package types
+
+            // Provenance tier constants identify how an edge was discovered.
+            const (
+                ProvenanceASTInferred     = "ast_inferred"
+                ProvenanceASTResolved     = "ast_resolved"
+                ProvenanceLSPResolved     = "lsp_resolved"
+                ProvenanceSCIPResolved    = "scip_resolved"
+                ProvenanceRuntimeObserved = "runtime_observed"
+            )
+
+            // Confidence constants represent the reliability of each provenance tier.
+            const (
+                ConfidenceASTInferred  = 0.7
+                ConfidenceASTResolved  = 0.85
+                ConfidenceLSPResolved  = 0.9
+                ConfidenceSCIPResolved = 1.0
+            )
+            ```
+
+            **Step 2: Remove dead types from `internal/types/interfaces.go`**
+
+            Delete the `ComputationCache` interface. Find this exact text and remove it entirely:
+            ```go
+            // ComputationCache manages content-addressed derived computation results
+            // (e.g., cached blast radius queries). Results are keyed by a combination
+            // of query type, parameters, and snapshot root, and are automatically
+            // invalidated when the snapshot changes.
+            //
+            // Interface defined now; implementation is deferred.
+            type ComputationCache interface {
+            	// Get retrieves a cached result by its content-addressed hash.
+            	Get(ctx context.Context, resultHash Hash) (*DerivedResult, error)
+            	// GetByQuery retrieves a cached result by query type, parameter hash, and snapshot root.
+            	GetByQuery(ctx context.Context, queryType string, params Hash, snapshot Hash) (*DerivedResult, error)
+            	// Put stores a computed result.
+            	Put(ctx context.Context, result DerivedResult) error
+            	// Invalidate evicts cached results that depend on edges changed between
+            	// oldSnapshot and newSnapshot. Returns the number of evicted entries.
+            	Invalidate(ctx context.Context, oldSnapshot, newSnapshot Hash, diff DiffResult) (evicted int, err error)
+            }
+            ```
+
+            **Step 3: Remove dead types from `internal/types/results.go`**
+
+            Delete `DerivedResult` struct. Find this exact text and remove it:
+            ```go
+            // DerivedResult is a content-addressed cached computation result.
+            // Used by ComputationCache to store and retrieve expensive query results
+            // (e.g., blast radius, transitive callers) keyed by query parameters
+            // and snapshot root.
+            type DerivedResult struct {
+            	ResultHash   Hash   // content-addressed hash of this result
+            	QueryType    string // type of query (e.g., "blast_radius", "transitive_callers")
+            	QueryParams  Hash   // hash of the query parameters
+            	SnapshotRoot Hash   // snapshot root at the time of computation
+            	Data         []byte // serialized result data
+            	ComputedAt   int64  // unix timestamp when computed
+            	ComputedBy   string // identifier of the computing agent/indexer
+            }
+            ```
+
+            Delete `TraversalOptions` struct. Find this exact text and remove it:
+            ```go
+            // TraversalOptions controls bounded graph traversal with early termination.
+            // Used to prevent unbounded recursion in transitive caller/callee queries.
+            type TraversalOptions struct {
+            	MaxDepth      int     // maximum hop count from the starting node
+            	MaxResults    int     // maximum number of results to return
+            	MinConfidence float64 // minimum edge confidence to follow (0.0 to 1.0)
+            }
+            ```
+
+            ### Constraints
+            - Do NOT modify `internal/types/kinds.go` (owned by Agent A).
+            - Do NOT remove `EdgeProvenance` struct or `CallerWithProvenance.Provenance` field
+              (that is a separate backlog item requiring design decisions).
+            - Do NOT modify any extractor files.
+            - Verify no other file references `ComputationCache`, `DerivedResult`, or
+              `TraversalOptions` before deleting (they should be unreferenced).
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./...
+            GOWORK=off go vet ./...
+            GOWORK=off go test -short ./internal/types/... -timeout 1m
+            ```
+
+            Postconditions:
+            - `grep -c 'ProvenanceASTInferred' internal/types/provenance.go` should output 1
+            - `grep -c 'ComputationCache' internal/types/interfaces.go` should output 0
+            - `grep -c 'DerivedResult' internal/types/results.go` should output 0
+            - `grep -c 'TraversalOptions' internal/types/results.go` should output 0
+          files:
+            - internal/types/provenance.go
+            - internal/types/interfaces.go
+            - internal/types/results.go
+        - id: C
+          task: |
+            ## Task: Extract shared mock store to internal/testutil/mockstore.go
+
+            Create a shared `MockGraphStore` in `internal/testutil/mockstore.go` that implements
+            `types.GraphStore` with sensible no-op defaults. Then refactor the 6 test files
+            that define their own mock stores to embed and use the shared one.
+
+            ### What to implement
+
+            **Step 1: Create `internal/testutil/mockstore.go`**
+
+            The shared mock must:
+            - Implement ALL methods of `types.GraphStore` (see `internal/types/interfaces.go`)
+            - Store data in exported map fields so tests can pre-populate and inspect
+            - Return `nil, nil` for Get* methods when not found
+            - Return `nil` error for all write methods (store in maps)
+            - Return empty slices for query methods by default
+
+            Key design: tests embed `*testutil.MockGraphStore` and override only the
+            methods they need. The struct fields are exported so tests can inject data.
+
+            ```go
+            package testutil
+
+            import (
+                "context"
+                "github.com/blackwell-systems/knowing/internal/types"
+            )
+
+            type MockGraphStore struct {
+                Nodes       map[types.Hash]*types.Node
+                Edges       map[types.Hash]*types.Edge
+                Snapshots   map[types.Hash]*types.Snapshot
+                Repos       map[types.Hash]*types.Repo
+                Files       map[types.Hash]*types.File
+                FilesByRepo map[types.Hash][]types.File
+                Notes       map[string]*types.Note  // keyed by "objectHash:key"
+
+                // Query result overrides (set these to control what queries return).
+                NodesByNameResult        []types.Node
+                EdgesFromResult          map[types.Hash][]types.Edge
+                EdgesToResult            map[types.Hash][]types.Edge
+                TransitiveCallersResult  []types.CallerResult
+                TransitiveCalleesResult  []types.CalleeResult
+                BlastRadiusResult        *types.BlastRadiusResult
+                SnapshotDiffResult       *types.DiffResult
+                StaleEdgesResult         []types.Edge
+                LatestSnapshotResult     *types.Snapshot
+
+                // Mutation tracking.
+                PutEdges     []types.Edge
+                DeletedEdges []types.Hash
+            }
+
+            func NewMockGraphStore() *MockGraphStore { ... }
+            // All GraphStore methods implemented...
+            ```
+
+            **Step 2: Refactor each test file**
+
+            For each of the 6 test files, replace the local mock with an embedded
+            `testutil.MockGraphStore`. Each test file has unique override behavior:
+
+            1. `internal/mcp/handlers_test.go` - uses `nodesByName` map and traversal results
+            2. `internal/context/context_test.go` - uses slice-based node/edge storage
+            3. `internal/resolver/resolver_test.go` - uses `DanglingEdges`, `AllRepos`, `DeleteEdge`
+            4. `internal/enrichment/enricher_test.go` - tracks `putEdges` and `deletedEdges`
+            5. `internal/snapshot/manager_test.go` - uses `edgesFromResult` and `createdSnapshots`
+            6. `internal/indexer/indexer_test.go` - tracks edge events, files by path
+
+            For test files that need behavior beyond no-op defaults, create a local struct
+            that embeds `*testutil.MockGraphStore` and overrides specific methods. Example:
+
+            ```go
+            type enrichmentMock struct {
+                *testutil.MockGraphStore
+                putEdges     []types.Edge
+                deletedEdges []types.Hash
+            }
+
+            func (m *enrichmentMock) PutEdge(_ context.Context, e types.Edge) error {
+                m.MockGraphStore.PutEdge(context.Background(), e)
+                m.putEdges = append(m.putEdges, e)
+                return nil
+            }
+            ```
+
+            The resolver test uses a narrower interface (only DanglingEdges, AllRepos,
+            GetNode, NodesByName, DeleteEdge, PutEdge). Keep its mock minimal: embed
+            `*testutil.MockGraphStore` and the interface will be satisfied.
+
+            ### Constraints
+            - Do NOT modify `internal/types/interfaces.go` (owned by Agent B).
+            - Do NOT change test logic or assertions, only the mock infrastructure.
+            - The `internal/testutil/` directory does not exist yet; create it.
+            - Each test file must continue to compile and pass independently.
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./...
+            GOWORK=off go test -short ./internal/mcp/... ./internal/context/... ./internal/resolver/... ./internal/enrichment/... ./internal/snapshot/... ./internal/indexer/... -timeout 3m
+            ```
+
+            Postconditions:
+            - `grep -c 'testutil.MockGraphStore' internal/testutil/mockstore.go` should output >= 1
+            - `grep -c 'testutil' internal/mcp/handlers_test.go` should output >= 1
+            - `grep -rn 'type mockGraphStore struct' internal/mcp/handlers_test.go | wc -l` should output 0
+          files:
+            - internal/testutil/mockstore.go
+            - internal/mcp/handlers_test.go
+            - internal/context/context_test.go
+            - internal/resolver/resolver_test.go
+            - internal/enrichment/enricher_test.go
+            - internal/snapshot/manager_test.go
+            - internal/indexer/indexer_test.go
+        - id: D
+          task: |
+            ## Task: Extract shared inferExternalRepoURL to internal/resolve/external.go
+
+            Create a shared `resolve` package that provides a single `InferExternalRepoURL`
+            function with language-specific configuration, replacing the 5 independent
+            implementations across extractors.
+
+            ### What to implement
+
+            **Step 1: Create `internal/resolve/external.go`**
+
+            The shared function must support all 5 language patterns:
+            - TypeScript: bare specifiers are external (not starting with "." or "/"), scoped
+              packages (@scope/name)
+            - Python: stdlib set-based detection, "." prefix is relative
+            - Rust: "crate::/super::/self::" are local, "std/core/alloc" are stdlib
+            - Java: "java.*/javax.*" are stdlib, same-prefix-2-segments are local
+            - C#: "System.*/Microsoft.*" are stdlib
+
+            ```go
+            package resolve
+
+            // LangConfig provides language-specific rules for external URL inference.
+            type LangConfig struct {
+                // StdlibCheck returns true if the top-level segment indicates stdlib.
+                StdlibCheck func(topLevel string) bool
+                // IsRelative returns true if the path is a relative/local import.
+                IsRelative func(path string) bool
+                // IsLocal returns true if the path is local to the project (e.g., same Java package prefix).
+                // May be nil if not applicable.
+                IsLocal func(path, localContext string) bool
+                // ExtractPkgName extracts the package identifier from the full import path.
+                // Returns the portion to use after "external://".
+                ExtractPkgName func(path string) string
+                // Separator is the path component separator ("/" for TS, "." for Java/C#, "::" for Rust).
+                Separator string
+            }
+
+            // InferExternalRepoURL returns "external://{pkgName}" for external packages,
+            // "stdlib" for standard library imports, or "" for relative/local imports.
+            // The localContext parameter is optional (used by Java for same-package detection).
+            func InferExternalRepoURL(path string, localContext string, cfg LangConfig) string
+
+            // Pre-built language configs.
+            var (
+                TypeScriptConfig LangConfig
+                PythonConfig     LangConfig  // Note: PythonConfig.StdlibCheck uses the stdlib set
+                RustConfig       LangConfig
+                JavaConfig       LangConfig
+                CSharpConfig     LangConfig
+            )
+
+            // PythonStdlibSet is the set of known Python stdlib top-level modules.
+            var PythonStdlibSet map[string]bool
+            ```
+
+            The implementation must produce EXACTLY the same results as the existing
+            per-extractor functions. Test against the existing test cases in each extractor.
+
+            **Step 2: Create `internal/resolve/external_test.go`**
+
+            Port all test cases from:
+            - `internal/indexer/tsextractor/extractor_test.go` (TestInferExternalRepoURL section)
+            - `internal/indexer/treesitter/extractor_test.go` (TestInferExternalRepoURL section)
+            - `internal/indexer/rustextractor/extractor_test.go` (TestInferExternalRepoURL section)
+            - `internal/indexer/javaextractor/extractor_test.go` (TestInferExternalRepoURL section)
+            - `internal/indexer/csharpextractor/extractor_test.go` (TestInferExternalRepoURL section)
+
+            Each test case must pass through `InferExternalRepoURL` with the appropriate config
+            and produce the same output as the original function.
+
+            ### Constraints
+            - Do NOT modify any extractor files in this wave (Agent F will wire the shared
+              function into extractors in Wave 2).
+            - Do NOT modify `internal/types/` files (owned by Agents A and B).
+            - The `internal/resolve/` directory does not exist yet; create it.
+            - Python config MUST include the full stdlib set (all ~55 modules from the existing
+              `isPythonStdlib` function in treesitter/extractor.go).
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/resolve/...
+            GOWORK=off go vet ./internal/resolve/...
+            GOWORK=off go test ./internal/resolve/... -timeout 1m -v
+            ```
+
+            Postconditions:
+            - `grep -c 'InferExternalRepoURL' internal/resolve/external.go` should output >= 2
+            - `grep -c 'TypeScriptConfig' internal/resolve/external.go` should output >= 1
+            - `go test ./internal/resolve/... -count=1` should pass with 0 failures
+          files:
+            - internal/resolve/external.go
+            - internal/resolve/external_test.go
+        - id: E
+          task: |
+            ## Task: Extract chunked batch helper to internal/store/batch.go
+
+            Create a generic helper that encapsulates the chunked batch pattern used by
+            BatchPutNodes, BatchPutEdges, and BatchPutFiles, then refactor those methods
+            to use it.
+
+            ### What to implement
+
+            **Step 1: Create `internal/store/batch.go`**
+
+            ```go
+            package store
+
+            import (
+                "context"
+                "database/sql"
+                "fmt"
+            )
+
+            // MaxChunkSize returns the maximum number of items per SQL batch
+            // to stay within SQLite's 999-variable limit.
+            func MaxChunkSize(paramsPerItem int) int {
+                return 999 / paramsPerItem
+            }
+
+            // ChunkedExec executes a batch SQL operation in chunks within the provided
+            // transaction. Each chunk is passed to buildSQL which returns the SQL string
+            // and the flattened argument slice.
+            //
+            // Example usage:
+            //   err := ChunkedExec(ctx, tx, nodes, 10, func(chunk []types.Node) (string, []interface{}) {
+            //       // build multi-row INSERT
+            //   })
+            func ChunkedExec[T any](
+                ctx context.Context,
+                tx *sql.Tx,
+                items []T,
+                paramsPerItem int,
+                buildSQL func(chunk []T) (string, []interface{}),
+            ) error {
+                if len(items) == 0 {
+                    return nil
+                }
+                chunkSize := MaxChunkSize(paramsPerItem)
+                for i := 0; i < len(items); i += chunkSize {
+                    end := i + chunkSize
+                    if end > len(items) {
+                        end = len(items)
+                    }
+                    query, args := buildSQL(items[i:end])
+                    if _, err := tx.ExecContext(ctx, query, args...); err != nil {
+                        return fmt.Errorf("batch chunk %d: %w", i/chunkSize, err)
+                    }
+                }
+                return nil
+            }
+            ```
+
+            **Step 2: Refactor `BatchPutNodes` in `internal/store/sqlite.go`**
+
+            Replace the manual chunk loop with a call to `ChunkedExec`. The current code at
+            approximately lines 214-251 has this pattern:
+            ```go
+            func (s *SQLiteStore) BatchPutNodes(ctx context.Context, nodes []types.Node) error {
+                if len(nodes) == 0 {
+                    return nil
+                }
+                tx, err := s.db.BeginTx(ctx, nil)
+                ...
+                const chunkSize = 99
+                for i := 0; i < len(nodes); i += chunkSize {
+                    ...
+                }
+                return tx.Commit()
+            }
+            ```
+
+            Refactor to:
+            ```go
+            func (s *SQLiteStore) BatchPutNodes(ctx context.Context, nodes []types.Node) error {
+                if len(nodes) == 0 {
+                    return nil
+                }
+                tx, err := s.db.BeginTx(ctx, nil)
+                if err != nil {
+                    return fmt.Errorf("begin tx: %w", err)
+                }
+                defer tx.Rollback() //nolint:errcheck
+
+                err = ChunkedExec(ctx, tx, nodes, 10, func(chunk []types.Node) (string, []interface{}) {
+                    var b strings.Builder
+                    b.WriteString(`INSERT OR REPLACE INTO nodes (node_hash, file_hash, qualified_name, kind, line, signature, doc, last_author, last_commit_at, coverage_pct) VALUES `)
+                    args := make([]interface{}, 0, len(chunk)*10)
+                    for j, n := range chunk {
+                        if j > 0 {
+                            b.WriteByte(',')
+                        }
+                        b.WriteString("(?,?,?,?,?,?,?,?,?,?)")
+                        args = append(args, n.NodeHash[:], n.FileHash[:], n.QualifiedName, n.Kind, n.Line, n.Signature, n.Doc, n.LastAuthor, n.LastCommitAt, n.CoveragePct)
+                    }
+                    return b.String(), args
+                })
+                if err != nil {
+                    return fmt.Errorf("batch insert nodes: %w", err)
+                }
+                return tx.Commit()
+            }
+            ```
+
+            Apply the same pattern to `BatchPutEdges` (9 params) and `BatchPutFiles` (4 params).
+
+            **Step 3: Create `internal/store/batch_test.go`**
+
+            Test `ChunkedExec` and `MaxChunkSize` directly:
+            - Test MaxChunkSize(10) == 99, MaxChunkSize(9) == 111, MaxChunkSize(4) == 249
+            - Test ChunkedExec with empty slice (no-op)
+            - Test ChunkedExec with items exceeding one chunk (verifies chunking)
+            - Test ChunkedExec with exact chunk boundary
+
+            ### Constraints
+            - Do NOT modify `internal/store/gc.go` (the GC batch pattern uses temp tables,
+              which is a different pattern not suitable for this helper).
+            - Do NOT modify `internal/store/sqlite.go` beyond the BatchPut* functions.
+            - Preserve the existing error message format so test assertions still pass
+              (e.g., "batch insert nodes chunk %d: %w").
+            - The `BatchPutNotes` function uses prepared statements (different pattern);
+              do NOT refactor it.
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/store/...
+            GOWORK=off go vet ./internal/store/...
+            GOWORK=off go test ./internal/store/... -timeout 2m
+            ```
+
+            Postconditions:
+            - `grep -c 'ChunkedExec' internal/store/batch.go` should output >= 2
+            - `grep -c 'ChunkedExec' internal/store/sqlite.go` should output >= 3
+            - `grep -c 'MaxChunkSize' internal/store/batch.go` should output >= 2
+          files:
+            - internal/store/batch.go
+            - internal/store/batch_test.go
+            - internal/store/sqlite.go
+    - number: 2
+      agents:
+        - id: F
+          task: |
+            ## Task: Wire shared inferExternalRepoURL into all 5 extractors
+
+            Replace the per-extractor `inferExternalRepoURL` functions with calls to the
+            shared `resolve.InferExternalRepoURL` from `internal/resolve/external.go`
+            (created by Agent D in Wave 1).
+
+            ### What to implement
+
+            For each of the 5 extractors, perform these changes:
+
+            **1. TypeScript (`internal/indexer/tsextractor/extractor.go`)**
+            - Add import: `"github.com/blackwell-systems/knowing/internal/resolve"`
+            - Delete the local `inferExternalRepoURL` function (find this exact text):
+              ```go
+              // inferExternalRepoURL determines if a module path refers to an external npm package.
+              // Bare specifiers (not starting with "." or "/") are external.
+              // Returns "external://{packageName}" for external packages, "" for relative imports.
+              func inferExternalRepoURL(modPath string) string {
+              ```
+              Delete this entire function through its closing brace.
+            - Replace all calls `inferExternalRepoURL(modPath)` with
+              `resolve.InferExternalRepoURL(modPath, "", resolve.TypeScriptConfig)`
+            - In `internal/indexer/tsextractor/extractor_test.go`: delete the
+              `TestInferExternalRepoURL` function entirely (it tests a function that no
+              longer exists in this package; coverage is now in `internal/resolve/`).
+
+            **2. Python (`internal/indexer/treesitter/extractor.go`)**
+            - Add import: `"github.com/blackwell-systems/knowing/internal/resolve"`
+            - Delete the local `inferExternalRepoURL` function (find this exact text):
+              ```go
+              // inferExternalRepoURL determines if a Python module name refers to an external package.
+              // Returns "external://{topLevelPackage}" for third-party packages, "stdlib" for
+              // known stdlib modules, and "" for relative imports or likely-local modules.
+              func inferExternalRepoURL(moduleName string, opts types.ExtractOptions) string {
+              ```
+              Delete this function and also the `isPythonStdlib` function that follows it.
+            - Replace all calls `inferExternalRepoURL(moduleName, opts)` with
+              `resolve.InferExternalRepoURL(moduleName, "", resolve.PythonConfig)`
+            - In `internal/indexer/treesitter/extractor_test.go`: delete the
+              `TestInferExternalRepoURL` function entirely.
+
+            **3. Rust (`internal/indexer/rustextractor/extractor.go`)**
+            - Add import: `"github.com/blackwell-systems/knowing/internal/resolve"`
+            - Delete the local `inferExternalRepoURL` function (find this exact text):
+              ```go
+              // inferExternalRepoURL determines if a Rust use path refers to an external crate.
+              // Returns "external://{crateName}" for external crates, "stdlib" for std/core/alloc,
+              // and "" for crate-local paths (crate::, super::, self::) or empty input.
+              func inferExternalRepoURL(usePath string) string {
+              ```
+              Delete this entire function through its closing brace.
+            - Replace all calls `inferExternalRepoURL(usePath)` with
+              `resolve.InferExternalRepoURL(usePath, "", resolve.RustConfig)`
+            - In `internal/indexer/rustextractor/extractor_test.go`: delete the
+              `TestInferExternalRepoURL` function entirely.
+
+            **4. Java (`internal/indexer/javaextractor/extractor.go`)**
+            - Add import: `"github.com/blackwell-systems/knowing/internal/resolve"`
+            - Delete the local `inferExternalRepoURL` function (find this exact text):
+              ```go
+              // inferExternalRepoURL determines if a Java import refers to an external package.
+              // Returns "stdlib" for java.*/javax.* imports, "external://{topTwoSegments}" for
+              // third-party packages, and "" for imports sharing the same base package as localPkg.
+              func inferExternalRepoURL(importPath string, localPkg string) string {
+              ```
+              Delete this entire function through its closing brace.
+            - Replace all calls `inferExternalRepoURL(importPath, localPkg)` with
+              `resolve.InferExternalRepoURL(importPath, localPkg, resolve.JavaConfig)`
+            - In `internal/indexer/javaextractor/extractor_test.go`: delete the
+              `TestInferExternalRepoURL` function entirely.
+
+            **5. C# (`internal/indexer/csharpextractor/extractor.go`)**
+            - Add import: `"github.com/blackwell-systems/knowing/internal/resolve"`
+            - Delete the local `inferExternalRepoURL` function (find this exact text):
+              ```go
+              // inferExternalRepoURL determines if a C# namespace refers to an external package.
+              // Returns "stdlib" for System.*/Microsoft.* namespaces, "external://{rootNamespace}"
+              // for known external packages, and "" when it cannot determine externality.
+              func inferExternalRepoURL(namespace string) string {
+              ```
+              Delete this entire function through its closing brace.
+            - Replace all calls `inferExternalRepoURL(namespace)` with
+              `resolve.InferExternalRepoURL(namespace, "", resolve.CSharpConfig)`
+            - In `internal/indexer/csharpextractor/extractor_test.go`: delete the
+              `TestInferExternalRepoURL` function entirely.
+
+            ### Important notes on Python extractor
+
+            The Python `inferExternalRepoURL` takes `opts types.ExtractOptions` as second arg
+            but the function body only checks `moduleName` prefix and stdlib set. It does NOT
+            use opts.ModuleToRepoURL for the external URL decision. Verify this by reading the
+            function body before removing. If opts ARE used elsewhere in the logic, adapt
+            accordingly.
+
+            ### Constraints
+            - Do NOT modify any files outside the 5 extractor packages listed above.
+            - Do NOT modify the extractor.go files beyond: adding the resolve import, deleting
+              the local inferExternalRepoURL function, and replacing call sites.
+            - Ensure the `resolve` import path is correct:
+              `"github.com/blackwell-systems/knowing/internal/resolve"`
+            - After deleting TestInferExternalRepoURL from test files, check if any
+              helper functions in the test file are now unused and remove those too.
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./...
+            GOWORK=off go vet ./...
+            GOWORK=off go test -short ./internal/indexer/tsextractor/... ./internal/indexer/treesitter/... ./internal/indexer/rustextractor/... ./internal/indexer/javaextractor/... ./internal/indexer/csharpextractor/... -timeout 3m
+            ```
+
+            Postconditions:
+            - `grep -c 'resolve.InferExternalRepoURL' internal/indexer/tsextractor/extractor.go` should be >= 2
+            - `grep -c 'func inferExternalRepoURL' internal/indexer/tsextractor/extractor.go` should output 0
+            - `grep -c 'resolve.InferExternalRepoURL' internal/indexer/rustextractor/extractor.go` should be >= 2
+            - `grep -c 'func inferExternalRepoURL' internal/indexer/csharpextractor/extractor.go` should output 0
+            - `grep -c 'TestInferExternalRepoURL' internal/indexer/tsextractor/extractor_test.go` should output 0
+          files:
+            - internal/indexer/tsextractor/extractor.go
+            - internal/indexer/tsextractor/extractor_test.go
+            - internal/indexer/treesitter/extractor.go
+            - internal/indexer/treesitter/extractor_test.go
+            - internal/indexer/rustextractor/extractor.go
+            - internal/indexer/rustextractor/extractor_test.go
+            - internal/indexer/javaextractor/extractor.go
+            - internal/indexer/javaextractor/extractor_test.go
+            - internal/indexer/csharpextractor/extractor.go
+            - internal/indexer/csharpextractor/extractor_test.go
+          dependencies:
+            - D
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: GOWORK=off go build ./...
+          required: true
+        - type: lint
+          command: GOWORK=off go vet ./...
+          required: true
+        - type: test
+          command: GOWORK=off go test -short ./... -timeout 5m
+          required: true
+post_merge_checklist:
+    groups: []
+scaffolds:
+    - file_path: internal/types/kinds.go
+      contents: |
+        package types
+
+        // Node kind constants. Use these instead of raw string literals.
+        const (
+            KindFunction     = "function"
+            KindMethod       = "method"
+            KindType         = "type"
+            KindInterface    = "interface"
+            KindConst        = "const"
+            KindVar          = "var"
+            KindService      = "service"
+            KindRoute        = "route_handler"
+            KindExternal     = "external"
+            KindFile         = "file"
+            KindPackage      = "package"
+        )
+      import_path: github.com/blackwell-systems/knowing/internal/types
+      status: pending
+    - file_path: internal/types/provenance.go
+      contents: |
+        package types
+
+        // Provenance tier constants.
+        const (
+            ProvenanceASTInferred     = "ast_inferred"
+            ProvenanceASTResolved     = "ast_resolved"
+            ProvenanceLSPResolved     = "lsp_resolved"
+            ProvenanceSCIPResolved    = "scip_resolved"
+            ProvenanceRuntimeObserved = "runtime_observed"
+        )
+
+        // Confidence constants by provenance tier.
+        const (
+            ConfidenceASTInferred  = 0.7
+            ConfidenceASTResolved  = 0.85
+            ConfidenceLSPResolved  = 0.9
+            ConfidenceSCIPResolved = 1.0
+        )
+      import_path: github.com/blackwell-systems/knowing/internal/types
+      status: pending
+    - file_path: internal/testutil/mockstore.go
+      contents: |
+        package testutil
+
+        // MockGraphStore is a shared test double for types.GraphStore.
+        // All methods are no-ops returning nil/zero values by default.
+        // Embed this in test-specific mocks and override only needed methods.
+        type MockGraphStore struct {
+            Nodes     map[types.Hash]*types.Node
+            Edges     map[types.Hash]*types.Edge
+            // ... all GraphStore fields
+        }
+      import_path: github.com/blackwell-systems/knowing/internal/testutil
+      status: pending
+    - file_path: internal/resolve/external.go
+      contents: |
+        package resolve
+
+        // InferExternalRepoURL determines if a module/package import path refers to
+        // an external dependency. Returns "external://{name}", "stdlib", or "".
+        // Language-specific behavior is driven by the LangConfig parameter.
+        type LangConfig struct { ... }
+        func InferExternalRepoURL(path string, localContext string, cfg LangConfig) string
+      import_path: github.com/blackwell-systems/knowing/internal/resolve
+      status: pending
+    - file_path: internal/store/batch.go
+      contents: |
+        package store
+
+        // ChunkedExec executes a SQL batch operation in chunks to stay within
+        // SQLite's 999-variable limit. Wraps the operation in a transaction.
+        func ChunkedExec[T any](ctx context.Context, tx *sql.Tx, items []T, paramsPerItem int, buildSQL func(chunk []T) (string, []interface{})) error
+      import_path: github.com/blackwell-systems/knowing/internal/store
+      status: pending
+pre_mortem:
+    overall_risk: medium
+    rows:
+        - scenario: Agent A's mass replacement introduces false positives (replaces tree-sitter node type strings that happen to match kind names)
+          likelihood: medium
+          impact: medium
+          mitigation: Agent A instructions explicitly warn to only replace strings in ComputeNodeHash calls and Node.Kind assignments. Verification runs full test suite.
+        - scenario: Agent C's mock store refactoring breaks test assertions that depend on specific mock behavior
+          likelihood: medium
+          impact: medium
+          mitigation: Agent C preserves all test logic unchanged; only mock infrastructure changes. Each test file runs independently in verification.
+        - scenario: Agent F's wiring of resolve.InferExternalRepoURL changes behavior for edge cases not covered by tests
+          likelihood: low
+          impact: high
+          mitigation: Agent D ports ALL existing test cases. Agent F runs extractor tests. Behavioral equivalence is enforced by existing test suites.
+        - scenario: Agent A and Agent F both modify the same extractor files (tsextractor, treesitter, rustextractor, javaextractor, csharpextractor)
+          likelihood: low
+          impact: high
+          mitigation: These files are in different waves. Agent A modifies in Wave 1, Agent F modifies in Wave 2. No conflict possible.
+        - scenario: Agent E's generic ChunkedExec changes error message format, breaking store tests
+          likelihood: low
+          impact: low
+          mitigation: Agent E preserves error message format. Store tests are run in verification gate.
+        - scenario: Agent B removes DerivedResult but some file still references it
+          likelihood: low
+          impact: medium
+          mitigation: Only ComputationCache references DerivedResult, and both are dead. go build ./... will catch any missed references.
+critic_report:
+    verdict: PASS
+    agent_reviews:
+        A:
+            agent_id: A
+            verdict: PASS
+            issues:
+                - check: complexity_balance
+                  severity: warning
+                  description: Agent A owns 32 of 57 total files (56%) and exceeds the 8-file threshold. Acceptable given the mechanical find-and-replace nature of the task across extractors.
+        B:
+            agent_id: B
+            verdict: PASS
+        C:
+            agent_id: C
+            verdict: PASS
+        D:
+            agent_id: D
+            verdict: PASS
+        E:
+            agent_id: E
+            verdict: PASS
+        F:
+            agent_id: F
+            verdict: PASS
+            issues:
+                - check: complexity_balance
+                  severity: warning
+                  description: Agent F owns 10 files, exceeding the 8-file threshold. Acceptable given the uniform nature of the replacements across 5 extractors plus their test files.
+    summary: 'All briefs verified against the codebase. File existence checks pass for all 57 files across 6 agents: new files do not exist, modify files exist. Symbol accuracy verified for all referenced functions (ComputeNodeHash, ComputeEdgeHash, inferExternalRepoURL in 5 extractors, BatchPutNodes/Edges/Files, ComputationCache, DerivedResult, TraversalOptions, all edgetype constants). Pattern accuracy confirmed: the chunked batch pattern in sqlite.go matches Agent E''s description, the dead types match Agent B''s exact text, and inferExternalRepoURL signatures match Agent F''s descriptions. Interface contracts are syntactically valid with all referenced types existing. Import chains verified for all new files (only stdlib and existing local packages needed). No disjoint ownership violations. Advisory warnings: Agent A owns 32 files (56% of total, exceeds 8-file and 40% thresholds) and Agent F owns 10 files (exceeds 8-file threshold), but these are appropriate given the mechanical nature of the replacements.'
+    reviewed_at: "2026-05-23T02:16:20Z"
+    issue_count: 3
+state: SCOUT_PENDING
+injection_method: hook
