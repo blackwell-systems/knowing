@@ -9,6 +9,7 @@ import (
 
 	"github.com/blackwell-systems/knowing/internal/indexer/goextractor"
 	"github.com/blackwell-systems/knowing/internal/snapshot"
+	"github.com/blackwell-systems/knowing/internal/testutil"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
@@ -33,8 +34,11 @@ func (m *mockExtractor) Extract(ctx context.Context, opts types.ExtractOptions) 
 	return &types.ExtractResult{}, nil
 }
 
-// mockStore is a minimal test double for types.GraphStore.
+// mockStore embeds *testutil.MockGraphStore for no-op defaults and overrides
+// methods with indexer-specific logic (file-keyed maps, edge event tracking,
+// file-based cleanup operations).
 type mockStore struct {
+	*testutil.MockGraphStore
 	nodes      map[types.Hash]types.Node
 	edges      map[types.Hash]types.Edge
 	files      map[string]types.File
@@ -44,10 +48,11 @@ type mockStore struct {
 
 func newMockStore() *mockStore {
 	return &mockStore{
-		nodes: make(map[types.Hash]types.Node),
-		edges: make(map[types.Hash]types.Edge),
-		files: make(map[string]types.File),
-		repos: make(map[types.Hash]types.Repo),
+		MockGraphStore: testutil.NewMockGraphStore(),
+		nodes:          make(map[types.Hash]types.Node),
+		edges:          make(map[types.Hash]types.Edge),
+		files:          make(map[string]types.File),
+		repos:          make(map[types.Hash]types.Repo),
 	}
 }
 
@@ -71,7 +76,6 @@ func (s *mockStore) RecordEdgeEvent(_ context.Context, ev types.EdgeEvent) error
 	s.edgeEvents = append(s.edgeEvents, ev)
 	return nil
 }
-func (s *mockStore) CreateSnapshot(_ context.Context, _ types.Snapshot) error   { return nil }
 func (s *mockStore) GetNode(_ context.Context, h types.Hash) (*types.Node, error) {
 	n, ok := s.nodes[h]
 	if !ok {
@@ -85,9 +89,6 @@ func (s *mockStore) GetEdge(_ context.Context, h types.Hash) (*types.Edge, error
 		return nil, nil
 	}
 	return &e, nil
-}
-func (s *mockStore) GetSnapshot(_ context.Context, _ types.Hash) (*types.Snapshot, error) {
-	return nil, nil
 }
 func (s *mockStore) GetRepo(_ context.Context, h types.Hash) (*types.Repo, error) {
 	r, ok := s.repos[h]
@@ -105,30 +106,6 @@ func (s *mockStore) NodesByName(_ context.Context, prefix string) ([]types.Node,
 	}
 	return result, nil
 }
-func (s *mockStore) EdgesFrom(_ context.Context, _ types.Hash, _ string) ([]types.Edge, error) {
-	return nil, nil
-}
-func (s *mockStore) EdgesTo(_ context.Context, _ types.Hash, _ string) ([]types.Edge, error) {
-	return nil, nil
-}
-func (s *mockStore) TransitiveCallers(_ context.Context, _ types.Hash, _ int, _ types.Hash) ([]types.CallerResult, error) {
-	return nil, nil
-}
-func (s *mockStore) TransitiveCallees(_ context.Context, _ types.Hash, _ int, _ types.Hash) ([]types.CalleeResult, error) {
-	return nil, nil
-}
-func (s *mockStore) BlastRadius(_ context.Context, _ types.Hash, _ types.Hash) (*types.BlastRadiusResult, error) {
-	return nil, nil
-}
-func (s *mockStore) SnapshotDiff(_ context.Context, _, _ types.Hash) (*types.DiffResult, error) {
-	return nil, nil
-}
-func (s *mockStore) StaleEdges(_ context.Context, _ types.Hash) ([]types.Edge, error) {
-	return nil, nil
-}
-func (s *mockStore) LatestSnapshot(_ context.Context, _ types.Hash) (*types.Snapshot, error) {
-	return nil, nil
-}
 func (s *mockStore) FilesByRepo(_ context.Context, _ types.Hash) ([]types.File, error) {
 	var result []types.File
 	for _, f := range s.files {
@@ -143,14 +120,7 @@ func (s *mockStore) FileByPath(_ context.Context, _ types.Hash, path string) (*t
 	}
 	return &f, nil
 }
-func (s *mockStore) NodesByFilePath(_ context.Context, _ types.Hash, _ string) ([]types.Node, error) {
-	return nil, nil
-}
-func (s *mockStore) StaleNodesByFiles(_ context.Context, _ types.Hash, _ []string) ([]types.Node, error) {
-	return nil, nil
-}
 func (s *mockStore) DanglingEdges(_ context.Context) ([]types.Edge, error) {
-	// Return edges whose target hash does not match any node.
 	var dangling []types.Edge
 	for _, e := range s.edges {
 		if _, exists := s.nodes[e.TargetHash]; !exists {
@@ -179,9 +149,7 @@ func (s *mockStore) DeleteEdge(_ context.Context, h types.Hash) error {
 	delete(s.edges, h)
 	return nil
 }
-func (s *mockStore) Close() error { return nil }
 
-// cleanupStore interface methods for file-level cleanup.
 func (s *mockStore) DeleteNodesByFile(_ context.Context, fileHash types.Hash) (int, error) {
 	count := 0
 	for h, n := range s.nodes {
@@ -192,8 +160,6 @@ func (s *mockStore) DeleteNodesByFile(_ context.Context, fileHash types.Hash) (i
 	}
 	return count, nil
 }
-
-func (s *mockStore) DeleteSnapshot(_ context.Context, _ types.Hash) error { return nil }
 
 func (s *mockStore) DeleteEdgesBySourceFile(_ context.Context, fileHash types.Hash) ([]types.Edge, error) {
 	var removed []types.Edge
@@ -217,22 +183,6 @@ func (s *mockStore) EdgesBySourceFile(_ context.Context, fileHash types.Hash) ([
 	}
 	return result, nil
 }
-
-func (s *mockStore) DeleteNodesNotIn(_ context.Context, _ map[types.Hash]struct{}) (int64, error) { return 0, nil }
-func (s *mockStore) DeleteEdgesNotIn(_ context.Context, _ map[types.Hash]struct{}) (int64, error) { return 0, nil }
-
-func (s *mockStore) PutNote(_ context.Context, _ types.Note) error { return nil }
-func (s *mockStore) GetNote(_ context.Context, _ types.Hash, _ string) (*types.Note, error) {
-	return nil, nil
-}
-func (s *mockStore) GetNotes(_ context.Context, _ types.Hash) ([]types.Note, error) {
-	return nil, nil
-}
-func (s *mockStore) GetNotesByKey(_ context.Context, _ string) ([]types.Note, error) {
-	return nil, nil
-}
-func (s *mockStore) DeleteNote(_ context.Context, _ types.Hash, _ string) error { return nil }
-func (s *mockStore) DeleteNotesByObject(_ context.Context, _ types.Hash) error  { return nil }
 
 // mockSnapshotComputer is a test double for SnapshotComputer.
 // It simulates real behavior: first call returns zero ParentHash (initial index),
