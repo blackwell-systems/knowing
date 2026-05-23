@@ -476,60 +476,6 @@ class DataProcessor:
 	}
 }
 
-func TestInferExternalRepoURL(t *testing.T) {
-	opts := makeOpts("")
-
-	tests := []struct {
-		moduleName string
-		want       string
-	}{
-		{"flask", "external://flask"},
-		{"os", "stdlib"},
-		{"numpy.linalg", "external://numpy"},
-		{".local_module", ""},
-		{"sys", "stdlib"},
-		{"requests", "external://requests"},
-		{"..parent_module", ""},
-		{"django.db.models", "external://django"},
-		{"pathlib", "stdlib"},
-		{"json", "stdlib"},
-		{"typing", "stdlib"},
-		{"pandas", "external://pandas"},
-	}
-
-	for _, tt := range tests {
-		got := inferExternalRepoURL(tt.moduleName, opts)
-		if got != tt.want {
-			t.Errorf("inferExternalRepoURL(%q) = %q, want %q", tt.moduleName, got, tt.want)
-		}
-	}
-}
-
-func TestIsPythonStdlib(t *testing.T) {
-	// Positive cases: known stdlib modules.
-	stdlibNames := []string{
-		"os", "sys", "re", "io", "json", "math", "time", "datetime",
-		"collections", "itertools", "functools", "pathlib", "typing",
-		"abc", "ast", "asyncio", "logging", "subprocess", "threading",
-	}
-	for _, name := range stdlibNames {
-		if !isPythonStdlib(name) {
-			t.Errorf("isPythonStdlib(%q) = false, want true", name)
-		}
-	}
-
-	// Negative cases: third-party packages.
-	thirdParty := []string{
-		"flask", "django", "numpy", "pandas", "requests", "pytest",
-		"sqlalchemy", "celery", "boto3", "tensorflow",
-	}
-	for _, name := range thirdParty {
-		if isPythonStdlib(name) {
-			t.Errorf("isPythonStdlib(%q) = true, want false", name)
-		}
-	}
-}
-
 func TestTreeSitterExtractor_ExternalImportEdge(t *testing.T) {
 	ext := mustExtractor(t)
 	src := "from flask import Flask\nimport numpy\nimport os\n"

@@ -588,41 +588,6 @@ public class App {
 	}
 }
 
-func TestInferExternalRepoURL(t *testing.T) {
-	tests := []struct {
-		importPath string
-		localPkg   string
-		want       string
-	}{
-		// Java stdlib imports return "stdlib".
-		{"java.util.List", "com.myapp.service", "stdlib"},
-		{"java.util.Map", "", "stdlib"},
-		{"javax.servlet.http.HttpServletRequest", "com.myapp.web", "stdlib"},
-
-		// Third-party external packages return "external://{group}".
-		{"org.springframework.web.bind.annotation.GetMapping", "com.myapp.service", "external://org.springframework"},
-		{"org.apache.commons.lang3.StringUtils", "com.myapp.util", "external://org.apache"},
-		{"io.netty.channel.Channel", "com.myapp.net", "external://io.netty"},
-
-		// Same-project imports (first 2 segments match) return "".
-		{"com.myapp.model.User", "com.myapp.service", ""},
-		{"com.myapp.util.Helper", "com.myapp.controller", ""},
-
-		// Edge cases.
-		{"", "", ""},
-		{"singleword", "", "external://singleword"},
-		{"com.other.Service", "com.myapp.service", "external://com.other"},
-	}
-
-	for _, tt := range tests {
-		got := inferExternalRepoURL(tt.importPath, tt.localPkg)
-		if got != tt.want {
-			t.Errorf("inferExternalRepoURL(%q, %q) = %q, want %q",
-				tt.importPath, tt.localPkg, got, tt.want)
-		}
-	}
-}
-
 func TestJavaExtractor_ExternalImportEdge(t *testing.T) {
 	ext := NewJavaExtractor()
 	source := `package com.myapp.service;

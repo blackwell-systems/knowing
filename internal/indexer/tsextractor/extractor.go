@@ -29,6 +29,7 @@ import (
 	"github.com/smacker/go-tree-sitter/typescript/typescript"
 
 	"github.com/blackwell-systems/knowing/internal/edgetype"
+	"github.com/blackwell-systems/knowing/internal/resolve"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
@@ -532,37 +533,10 @@ func extractImportEdges(node *sitter.Node, opts types.ExtractOptions, qnamePrefi
 	return []types.Edge{edge}
 }
 
-// inferExternalRepoURL determines if a module path refers to an external npm package.
-// Bare specifiers (not starting with "." or "/") are external.
-// Returns "external://{packageName}" for external packages, "" for relative imports.
-func inferExternalRepoURL(modPath string) string {
-	// Relative imports start with "." or "/"
-	if strings.HasPrefix(modPath, ".") || strings.HasPrefix(modPath, "/") {
-		return ""
-	}
-	// Scoped packages: @scope/name -> "external://@scope/name"
-	// Regular packages: "react" -> "external://react"
-	// Handle subpath imports: "lodash/debounce" -> "external://lodash"
-	pkgName := modPath
-	if strings.HasPrefix(modPath, "@") {
-		// Scoped: @scope/name/subpath -> @scope/name
-		parts := strings.SplitN(modPath, "/", 3)
-		if len(parts) >= 2 {
-			pkgName = parts[0] + "/" + parts[1]
-		}
-	} else {
-		// Unscoped: name/subpath -> name
-		if idx := strings.Index(modPath, "/"); idx > 0 {
-			pkgName = modPath[:idx]
-		}
-	}
-	return "external://" + pkgName
-}
-
 // makeImportEdge creates a single import edge.
 func makeImportEdge(opts types.ExtractOptions, qnamePrefix string, fileNodeHash types.Hash, modPath string) types.Edge {
 	targetRepoURL := opts.RepoURL
-	if extURL := inferExternalRepoURL(modPath); extURL != "" {
+	if extURL := resolve.InferExternalRepoURL(modPath, "", resolve.TypeScriptConfig); extURL != "" {
 		targetRepoURL = extURL
 	}
 	targetHash := types.ComputeNodeHash(targetRepoURL, modPath, types.EmptyHash, modPath, "module")
@@ -800,7 +774,7 @@ func resolveCallEdgeWithImports(funcNode, callNode *sitter.Node, opts types.Extr
 				targetQNamePrefix = resolved
 				provenance = "ast_resolved"
 				confidence = 0.85
-			} else if extURL := inferExternalRepoURL(srcModule); extURL != "" {
+			} else if extURL := resolve.InferExternalRepoURL(srcModule, "", resolve.TypeScriptConfig); extURL != "" {
 				// External package: use external repo URL for target hash
 				targetRepoURL = extURL
 				targetQNamePrefix = srcModule

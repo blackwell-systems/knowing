@@ -610,31 +610,6 @@ public class App
 	}
 }
 
-func TestInferExternalRepoURL(t *testing.T) {
-	tests := []struct {
-		namespace string
-		want      string
-	}{
-		{"System.Collections.Generic", "stdlib"},
-		{"System", "stdlib"},
-		{"System.IO", "stdlib"},
-		{"Microsoft.Extensions.DependencyInjection", "stdlib"},
-		{"Microsoft.AspNetCore.Mvc", "stdlib"},
-		{"Newtonsoft.Json", "external://Newtonsoft.Json"},
-		{"AutoMapper.Extensions", "external://AutoMapper.Extensions"},
-		{"Serilog.Sinks.Console", "external://Serilog.Sinks"},
-		{"FluentValidation", "external://FluentValidation"},
-		{"", ""},
-	}
-
-	for _, tt := range tests {
-		got := inferExternalRepoURL(tt.namespace)
-		if got != tt.want {
-			t.Errorf("inferExternalRepoURL(%q) = %q, want %q", tt.namespace, got, tt.want)
-		}
-	}
-}
-
 func TestCSharpExtractor_ExternalRepoURL_UsingDirective(t *testing.T) {
 	ext := NewCSharpExtractor()
 	src := `using Newtonsoft.Json;
