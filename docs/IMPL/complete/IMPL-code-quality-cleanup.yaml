@@ -1,3 +1,4 @@
+completion_date: "2026-05-22"
 title: Code Quality Cleanup (Audit Findings)
 feature_slug: code-quality-cleanup
 verdict: SUITABLE
@@ -1159,6 +1160,7 @@ waves:
             - internal/indexer/csharpextractor/extractor_test.go
           dependencies:
             - D
+      base_commit: ba26c4c4a90016324d03f6373778e070ee8f372e
 quality_gates:
     level: standard
     gates:
@@ -1354,6 +1356,23 @@ completion_reports:
             - TestChunkedExec_ErrorPropagation
         verification: PASS
         notes: Refactored BatchPutNodes (10 params), BatchPutEdges (9 params), BatchPutFiles (4 params) to use ChunkedExec. All existing tests pass. batch.go scaffold was already present and correct.
+    F:
+        status: complete
+        branch: polywave/code-quality-cleanup/wave2-agent-F
+        commit: 06eb5c4
+        files_changed:
+            - internal/indexer/tsextractor/extractor.go
+            - internal/indexer/tsextractor/extractor_test.go
+            - internal/indexer/treesitter/extractor.go
+            - internal/indexer/treesitter/extractor_test.go
+            - internal/indexer/rustextractor/extractor.go
+            - internal/indexer/rustextractor/extractor_test.go
+            - internal/indexer/javaextractor/extractor.go
+            - internal/indexer/javaextractor/extractor_test.go
+            - internal/indexer/csharpextractor/extractor.go
+            - internal/indexer/csharpextractor/extractor_test.go
+        verification: PASS
+        notes: All 5 extractors wired to resolve.InferExternalRepoURL. All tests pass. Net deletion of ~280 lines of duplicated logic.
 pre_mortem:
     overall_risk: medium
     rows:
@@ -1413,5 +1432,5 @@ critic_report:
     summary: 'All briefs verified against the codebase. File existence checks pass for all 57 files across 6 agents: new files do not exist, modify files exist. Symbol accuracy verified for all referenced functions (ComputeNodeHash, ComputeEdgeHash, inferExternalRepoURL in 5 extractors, BatchPutNodes/Edges/Files, ComputationCache, DerivedResult, TraversalOptions, all edgetype constants). Pattern accuracy confirmed: the chunked batch pattern in sqlite.go matches Agent E''s description, the dead types match Agent B''s exact text, and inferExternalRepoURL signatures match Agent F''s descriptions. Interface contracts are syntactically valid with all referenced types existing. Import chains verified for all new files (only stdlib and existing local packages needed). No disjoint ownership violations. Advisory warnings: Agent A owns 32 files (56% of total, exceeds 8-file and 40% thresholds) and Agent F owns 10 files (exceeds 8-file threshold), but these are appropriate given the mechanical nature of the replacements.'
     reviewed_at: "2026-05-23T02:16:20Z"
     issue_count: 3
-state: REVIEWED
+state: COMPLETE
 injection_method: hook
