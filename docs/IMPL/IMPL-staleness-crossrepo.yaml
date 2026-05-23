@@ -1,0 +1,1001 @@
+title: Staleness Reporting CLI + Cross-Repo Awareness for Non-Go Extractors
+feature_slug: staleness-crossrepo
+verdict: SUITABLE
+suitability_assessment: |
+    Suitability Gate Assessment:
+
+    1. File decomposition: YES. Feature 1 (staleness) touches cmd/knowing/stale.go (new),
+       cmd/knowing/main.go (register), internal/store/sqlite.go (new method),
+       internal/types/interfaces.go (interface add), plus 5 mock files for interface stubs.
+       Feature 2 (cross-repo) touches 5 extractor packages independently.
+       Total: 19 files across 7 agents with clean disjoint ownership.
+
+    2. Investigation-first items: NONE. Both features have clear specs with reference
+       implementations (StaleEdges for staleness, goextractor.inferRepoURL for cross-repo).
+
+    3. Interface discoverability: YES. The store interface method signature and the
+       inferRepoURL pattern are well-defined from existing code.
+
+    4. Pre-implementation status check:
+       - StaleEdges method exists but operates on snapshot hash; new StaleNodesByFiles
+         operates on file paths directly (TODO).
+       - stale_edges MCP tool exists and works; CLI wrapper is TODO.
+       - Cross-repo inferRepoURL exists only in goextractor and gotsextractor; all
+         other extractors use opts.RepoURL for all targets (TODO).
+
+    5. Parallelization value: HIGH. 7 independent agents, build+test cycle is ~30s,
+       each agent touches 1-3 files with non-trivial logic (AST pattern matching,
+       SQL queries). Single wave for most work.
+
+    Estimated times:
+    - Scout phase: ~8 min
+    - Agent execution: ~12 min (7 agents x 4 min avg, 1 wave parallel + 1 integration)
+    - Merge and verification: ~3 min
+    Total Polywave time: ~23 min
+
+    Sequential baseline: ~28 min (7 agents x 4 min avg)
+    Time savings: ~5 min (18% faster)
+    Recommendation: Clear speedup with high coordination value (interface contract
+    ensures all extractors use consistent external:// prefix scheme).
+test_command: GOWORK=off go test -short ./... -timeout 5m
+lint_command: GOWORK=off go vet ./...
+file_ownership:
+    - file: cmd/knowing/stale.go
+      agent: A
+      wave: 1
+      action: new
+    - file: cmd/knowing/main.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/store/sqlite.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/types/interfaces.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/mcp/handlers_test.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/enrichment/enricher_test.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/indexer_test.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/snapshot/manager_test.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/context/context_test.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/tsextractor/extractor.go
+      agent: B
+      wave: 1
+      action: modify
+    - file: internal/indexer/tsextractor/extractor_test.go
+      agent: B
+      wave: 1
+      action: modify
+    - file: internal/indexer/treesitter/extractor.go
+      agent: C
+      wave: 1
+      action: modify
+    - file: internal/indexer/treesitter/extractor_test.go
+      agent: C
+      wave: 1
+      action: modify
+    - file: internal/indexer/rustextractor/extractor.go
+      agent: D
+      wave: 1
+      action: modify
+    - file: internal/indexer/rustextractor/extractor_test.go
+      agent: D
+      wave: 1
+      action: modify
+    - file: internal/indexer/javaextractor/extractor.go
+      agent: E
+      wave: 1
+      action: modify
+    - file: internal/indexer/javaextractor/extractor_test.go
+      agent: E
+      wave: 1
+      action: modify
+    - file: internal/indexer/csharpextractor/extractor.go
+      agent: F
+      wave: 1
+      action: modify
+    - file: internal/indexer/csharpextractor/extractor_test.go
+      agent: F
+      wave: 1
+      action: modify
+    - file: internal/mcp/handlers_test.go
+      agent: G
+      wave: 2
+      action: modify
+interface_contracts:
+    - name: StaleNodesByFiles
+      description: |
+        New store method that returns nodes from files whose paths are in the
+        given list. Used by the CLI 'stale' command to find nodes that belong
+        to changed files without requiring a snapshot hash.
+      definition: |
+        func (s *SQLiteStore) StaleNodesByFiles(ctx context.Context, repoHash types.Hash, paths []string) ([]types.Node, error)
+      location: internal/store/sqlite.go
+    - name: GraphStore.StaleNodesByFiles
+      description: |
+        Interface method addition to types.GraphStore for the new store method.
+      definition: |
+        StaleNodesByFiles(ctx context.Context, repoHash Hash, paths []string) ([]Node, error)
+      location: internal/types/interfaces.go
+    - name: inferExternalRepoURL (TypeScript)
+      description: |
+        Determines if an import target is external (in node_modules/) and returns
+        an "external://{packageName}" URL prefix. For relative imports, returns "".
+      definition: |
+        func inferExternalRepoURL(modPath string) string
+        // Returns "external://react" for "react", "external://@nestjs/common" for "@nestjs/common"
+        // Returns "" for "./foo", "../bar", or any relative import starting with "."
+      location: internal/indexer/tsextractor/extractor.go
+    - name: inferExternalRepoURL (Python)
+      description: |
+        Determines if a Python import target is an external package (not a relative
+        import and not a local module). Returns "external://{packageName}" for
+        third-party packages.
+      definition: |
+        func inferExternalRepoURL(moduleName string, opts types.ExtractOptions) string
+        // Returns "external://flask" for "flask", "external://numpy" for "numpy"
+        // Returns "" for relative imports (starting with ".") or same-repo modules
+      location: internal/indexer/treesitter/extractor.go
+    - name: inferExternalRepoURL (Rust)
+      description: |
+        Determines if a Rust use path refers to an external crate (not crate::,
+        super::, or self::). Returns "external://{crateName}" for external crates.
+      definition: |
+        func inferExternalRepoURL(usePath string) string
+        // Returns "external://tokio" for "tokio::...", "external://serde" for "serde::..."
+        // Returns "" for "crate::...", "super::...", "self::..."
+      location: internal/indexer/rustextractor/extractor.go
+    - name: inferExternalRepoURL (Java)
+      description: |
+        Determines if a Java import is from an external package by checking if it
+        does NOT share the same base package as the current file. Returns
+        "external://{groupId}" for external packages.
+      definition: |
+        func inferExternalRepoURL(importPath string, localPkg string) string
+        // Returns "external://org.springframework" for "org.springframework.web.bind..."
+        // Returns "" for imports sharing the same top-2 package segments as localPkg
+      location: internal/indexer/javaextractor/extractor.go
+    - name: inferExternalRepoURL (C#)
+      description: |
+        Determines if a C# using directive refers to an external namespace.
+        Returns "external://{rootNamespace}" for known external namespaces
+        (System.*, Microsoft.*, etc.) or non-project namespaces.
+      definition: |
+        func inferExternalRepoURL(namespace string) string
+        // Returns "external://System" for "System.Collections.Generic"
+        // Returns "external://Newtonsoft.Json" for "Newtonsoft.Json"
+        // Returns "" for project-local namespaces (heuristic: not matching known externals)
+      location: internal/indexer/csharpextractor/extractor.go
+waves:
+    - number: 1
+      agents:
+        - id: A
+          task: |
+            ## Staleness Reporting CLI Command and Store Method
+
+            ### What to implement
+
+            1. **New file: `cmd/knowing/stale.go`**
+               Add a `cmdStale` function implementing the `knowing stale` CLI subcommand.
+
+               Behavior:
+               - Accept flags: `-db` (database path, default `knowing.db`), `-repo` (repo path, default `.`)
+               - Resolve the repo path to an absolute path, compute repoHash via `types.ComputeRepoHash(repoURL)`
+               - Get the latest snapshot for the repo via `store.LatestSnapshot(ctx, repoHash)`
+               - Run `git diff --name-only <snapshot.CommitHash> HEAD` to get changed file paths
+               - If no snapshot exists, fall back to checking file mtimes against DB records
+               - Call `store.StaleNodesByFiles(ctx, repoHash, changedPaths)` to get affected nodes
+               - For each file in changedPaths, also call `store.EdgesBySourceFile` via the file_hash
+                 to count stale edges per file
+               - Output a summary table: file path, stale node count, stale edge count
+               - Exit code 0 if no stale files, exit code 1 if stale files found (useful for CI)
+
+               Use the same pattern as `cmdTestScope` in `cmd/knowing/testscope.go` for flag parsing
+               and store initialization.
+
+            2. **Edit: `cmd/knowing/main.go`**
+               Register the new command in the `run()` switch statement and `printUsage()`.
+
+               Insert after this exact text in the switch:
+               ```go
+               case "vacuum":
+               	return cmdVacuum(args[1:])
+               ```
+
+               Add:
+               ```go
+               case "stale":
+               	return cmdStale(args[1:])
+               ```
+
+               In `printUsage()`, add under "Querying:" section, after the "diff" line:
+               ```go
+               fmt.Fprintln(os.Stderr, "  stale       Report stale nodes/edges from changed files")
+               ```
+
+            3. **Edit: `internal/types/interfaces.go`**
+               Add to the GraphStore interface, in the "File queries" group (after NodesByFilePath):
+               ```go
+               StaleNodesByFiles(ctx context.Context, repoHash Hash, paths []string) ([]Node, error)
+               ```
+
+            4. **Edit: `internal/store/sqlite.go`**
+               Add a new method `StaleNodesByFiles` that queries nodes belonging to the given
+               file paths for a specific repo:
+               ```go
+               func (s *SQLiteStore) StaleNodesByFiles(ctx context.Context, repoHash types.Hash, paths []string) ([]types.Node, error)
+               ```
+
+               Implementation: build a query with placeholder expansion for the paths slice,
+               joining nodes -> files where files.repo_hash = repoHash AND files.path IN (?...).
+               Use the same scanNodes pattern as NodesByFilePath. Handle empty paths slice
+               by returning nil early.
+
+            5. **Edit mock implementations** to satisfy the interface:
+               Add a no-op stub to each mock that implements GraphStore:
+
+               ```go
+               func (m *mockStore) StaleNodesByFiles(_ context.Context, _ types.Hash, _ []string) ([]types.Node, error) {
+               	return nil, nil
+               }
+               ```
+
+               Files to update (use the correct receiver name from each file):
+               - `internal/mcp/handlers_test.go` (receiver: `*mockGraphStore`)
+               - `internal/enrichment/enricher_test.go` (receiver: `*mockStore`)
+               - `internal/indexer/indexer_test.go` (receiver: `*mockStore`)
+               - `internal/snapshot/manager_test.go` (receiver: `*mockGraphStore`)
+               - `internal/context/context_test.go` (receiver: `*mockStore`)
+
+            ### Interfaces
+
+            - `StaleNodesByFiles(ctx context.Context, repoHash Hash, paths []string) ([]Node, error)`
+              on types.GraphStore interface
+
+            ### Tests
+
+            The `stale` command will be tested via the existing integration test pattern in
+            `cmd/knowing/main_test.go`. For the store method, rely on existing test infrastructure
+            in `internal/store/sqlite_test.go`.
+
+            ### Verification gate
+
+            ```bash
+            GOWORK=off go build ./... && GOWORK=off go vet ./... && GOWORK=off go test -short ./cmd/knowing/... -timeout 2m && GOWORK=off go test -short ./internal/store/... -timeout 2m
+            ```
+
+            Postconditions:
+            - `grep -c 'func cmdStale' cmd/knowing/stale.go` should output `1`
+            - `grep -c 'StaleNodesByFiles' internal/types/interfaces.go` should output `1`
+            - `grep -c 'func.*SQLiteStore.*StaleNodesByFiles' internal/store/sqlite.go` should output `1`
+
+            ### Constraints
+
+            - Do NOT modify `internal/mcp/handlers.go` or `internal/mcp/server.go`
+            - Do NOT modify any extractor files
+            - Only add stubs (single-line no-op methods) to mock files; do NOT change existing mock behavior
+          files:
+            - cmd/knowing/stale.go
+            - cmd/knowing/main.go
+            - internal/store/sqlite.go
+            - internal/types/interfaces.go
+            - internal/mcp/handlers_test.go
+            - internal/enrichment/enricher_test.go
+            - internal/indexer/indexer_test.go
+            - internal/snapshot/manager_test.go
+            - internal/context/context_test.go
+        - id: B
+          task: |
+            ## Cross-Repo Awareness for TypeScript Extractor
+
+            ### What to implement
+
+            Add `inferExternalRepoURL` logic to the TypeScript extractor so that import edges
+            targeting external npm packages (bare specifiers like "react", "@nestjs/common",
+            "typescript") produce target node hashes computed against an "external://{packageName}"
+            repo URL instead of the local repo URL.
+
+            **Reference pattern:** See `internal/indexer/goextractor/extractor.go` function
+            `inferRepoURL` which returns "stdlib" for Go stdlib imports.
+
+            1. **Add function `inferExternalRepoURL`** in `internal/indexer/tsextractor/extractor.go`:
+
+               ```go
+               // inferExternalRepoURL determines if a module path refers to an external npm package.
+               // Bare specifiers (not starting with "." or "/") are external.
+               // Returns "external://{packageName}" for external packages, "" for relative imports.
+               func inferExternalRepoURL(modPath string) string {
+                   // Relative imports start with "." or "/"
+                   if strings.HasPrefix(modPath, ".") || strings.HasPrefix(modPath, "/") {
+                       return ""
+                   }
+                   // Scoped packages: @scope/name -> "external://@scope/name"
+                   // Regular packages: "react" -> "external://react"
+                   // Handle subpath imports: "lodash/debounce" -> "external://lodash"
+                   pkgName := modPath
+                   if strings.HasPrefix(modPath, "@") {
+                       // Scoped: @scope/name/subpath -> @scope/name
+                       parts := strings.SplitN(modPath, "/", 3)
+                       if len(parts) >= 2 {
+                           pkgName = parts[0] + "/" + parts[1]
+                       }
+                   } else {
+                       // Unscoped: name/subpath -> name
+                       if idx := strings.Index(modPath, "/"); idx > 0 {
+                           pkgName = modPath[:idx]
+                       }
+                   }
+                   return "external://" + pkgName
+               }
+               ```
+
+            2. **Modify `makeImportEdge`** to use the external repo URL for target hash computation
+               when the import is external:
+
+               Current code (line 535-547):
+               ```go
+               func makeImportEdge(opts types.ExtractOptions, qnamePrefix string, fileNodeHash types.Hash, modPath string) types.Edge {
+                   targetHash := types.ComputeNodeHash(opts.RepoURL, modPath, types.EmptyHash, modPath, "module")
+                   provenance := "ast_inferred"
+                   edgeHash := types.ComputeEdgeHash(fileNodeHash, targetHash, "imports", provenance)
+                   return types.Edge{...}
+               }
+               ```
+
+               Change to:
+               ```go
+               func makeImportEdge(opts types.ExtractOptions, qnamePrefix string, fileNodeHash types.Hash, modPath string) types.Edge {
+                   targetRepoURL := opts.RepoURL
+                   if extURL := inferExternalRepoURL(modPath); extURL != "" {
+                       targetRepoURL = extURL
+                   }
+                   targetHash := types.ComputeNodeHash(targetRepoURL, modPath, types.EmptyHash, modPath, "module")
+                   provenance := "ast_inferred"
+                   edgeHash := types.ComputeEdgeHash(fileNodeHash, targetHash, "imports", provenance)
+                   return types.Edge{
+                       EdgeHash:   edgeHash,
+                       SourceHash: fileNodeHash,
+                       TargetHash: targetHash,
+                       EdgeType:   "imports",
+                       Confidence: 0.7,
+                       Provenance: provenance,
+                   }
+               }
+               ```
+
+            3. **Modify `resolveCallEdgeWithImports`** so that when a call target is resolved
+               through the import map to a non-relative module, the target hash uses the
+               external repo URL. Specifically, in the section where `tsImports` is consulted
+               (around line 759-770), if `srcModule` does NOT start with "." (i.e.,
+               `resolveTSModulePath` returns ""), use `inferExternalRepoURL(srcModule)` as
+               the repo URL for the target hash.
+
+            4. **Add tests** in `internal/indexer/tsextractor/extractor_test.go`:
+               - Test `inferExternalRepoURL` with cases: "react" -> "external://react",
+                 "@nestjs/common" -> "external://@nestjs/common", "./local" -> "",
+                 "../relative" -> "", "lodash/debounce" -> "external://lodash",
+                 "@scope/pkg/sub" -> "external://@scope/pkg"
+               - Test that extracting a file with `import { useState } from 'react'` produces
+                 an import edge whose target hash uses "external://react" as the repo URL
+
+            ### Interfaces
+
+            - `inferExternalRepoURL(modPath string) string` (package-internal function)
+
+            ### Verification gate
+
+            ```bash
+            GOWORK=off go build ./... && GOWORK=off go vet ./... && GOWORK=off go test -short ./internal/indexer/tsextractor/... -timeout 2m
+            ```
+
+            Postconditions:
+            - `grep -c 'inferExternalRepoURL' internal/indexer/tsextractor/extractor.go` should output >= 3
+            - `grep -c 'external://' internal/indexer/tsextractor/extractor_test.go` should output >= 2
+
+            ### Constraints
+
+            - Do NOT modify any other extractor package
+            - Do NOT change the function signatures of exported functions
+            - Keep the existing behavior for relative imports ("./" and "../") unchanged
+          files:
+            - internal/indexer/tsextractor/extractor.go
+            - internal/indexer/tsextractor/extractor_test.go
+        - id: C
+          task: |
+            ## Cross-Repo Awareness for Python Extractor
+
+            ### What to implement
+
+            Add `inferExternalRepoURL` logic to the Python (tree-sitter) extractor so that
+            import edges targeting external packages produce target node hashes computed
+            against an "external://{packageName}" repo URL.
+
+            **Reference pattern:** See `internal/indexer/goextractor/extractor.go` function
+            `inferRepoURL` which returns "stdlib" for Go stdlib imports.
+
+            1. **Add function `inferExternalRepoURL`** in `internal/indexer/treesitter/extractor.go`:
+
+               ```go
+               // inferExternalRepoURL determines if a Python module name refers to an external package.
+               // Returns "external://{topLevelPackage}" for third-party packages, "stdlib" for
+               // known stdlib modules, and "" for relative imports or likely-local modules.
+               func inferExternalRepoURL(moduleName string, opts types.ExtractOptions) string {
+                   if strings.HasPrefix(moduleName, ".") {
+                       return ""
+                   }
+                   topLevel := moduleName
+                   if idx := strings.Index(moduleName, "."); idx > 0 {
+                       topLevel = moduleName[:idx]
+                   }
+                   if isPythonStdlib(topLevel) {
+                       return "stdlib"
+                   }
+                   return "external://" + topLevel
+               }
+
+               // isPythonStdlib returns true for known Python standard library top-level module names.
+               func isPythonStdlib(name string) bool {
+                   stdlibModules := map[string]bool{
+                       "os": true, "sys": true, "re": true, "io": true, "json": true,
+                       "math": true, "time": true, "datetime": true, "collections": true,
+                       "itertools": true, "functools": true, "pathlib": true, "typing": true,
+                       "abc": true, "ast": true, "asyncio": true, "base64": true,
+                       "contextlib": true, "copy": true, "csv": true, "dataclasses": true,
+                       "enum": true, "errno": true, "glob": true, "hashlib": true,
+                       "http": true, "importlib": true, "inspect": true, "logging": true,
+                       "multiprocessing": true, "operator": true, "pickle": true,
+                       "platform": true, "pprint": true, "queue": true, "random": true,
+                       "shutil": true, "signal": true, "socket": true, "sqlite3": true,
+                       "string": true, "struct": true, "subprocess": true, "tempfile": true,
+                       "textwrap": true, "threading": true, "traceback": true, "unittest": true,
+                       "urllib": true, "uuid": true, "warnings": true, "weakref": true,
+                       "xml": true, "zipfile": true, "argparse": true, "configparser": true,
+                       "email": true, "html": true, "ssl": true, "secrets": true,
+                       "statistics": true, "types": true,
+                   }
+                   return stdlibModules[name]
+               }
+               ```
+
+            2. **Modify `extractImport`** to use the external repo URL for the target hash:
+
+               Current code (line 296-297):
+               ```go
+               targetQName := moduleName
+               targetHash := types.ComputeNodeHash(opts.RepoURL, opts.ModuleRoot, types.EmptyHash, targetQName, "module")
+               ```
+
+               Change to compute target hash with external repo URL when applicable:
+               ```go
+               targetQName := moduleName
+               targetRepoURL := opts.RepoURL
+               if extURL := inferExternalRepoURL(moduleName, opts); extURL != "" {
+                   targetRepoURL = extURL
+               }
+               targetHash := types.ComputeNodeHash(targetRepoURL, opts.ModuleRoot, types.EmptyHash, targetQName, "module")
+               ```
+
+            3. **Modify `extractCallWithImports`** in the section where resolved imports produce
+               target hashes (around line 354): when pyImports resolves a call to an external
+               module, use `inferExternalRepoURL` for the target hash's repo URL.
+
+            4. **Add tests** in `internal/indexer/treesitter/extractor_test.go`:
+               - Test `inferExternalRepoURL` with: "flask" -> "external://flask",
+                 "os" -> "stdlib", "numpy.linalg" -> "external://numpy",
+                 ".local_module" -> ""
+               - Test that extracting `from flask import Flask` produces an import edge whose
+                 target uses "external://flask" repo URL
+
+            ### Interfaces
+
+            - `inferExternalRepoURL(moduleName string, opts types.ExtractOptions) string`
+            - `isPythonStdlib(name string) bool`
+
+            ### Verification gate
+
+            ```bash
+            GOWORK=off go build ./... && GOWORK=off go vet ./... && GOWORK=off go test -short ./internal/indexer/treesitter/... -timeout 2m
+            ```
+
+            Postconditions:
+            - `grep -c 'inferExternalRepoURL' internal/indexer/treesitter/extractor.go` should output >= 3
+            - `grep -c 'isPythonStdlib' internal/indexer/treesitter/extractor.go` should output >= 2
+
+            ### Constraints
+
+            - Do NOT modify any other extractor package
+            - Do NOT change the Name(), CanHandle(), or Extract() signatures
+            - The stdlib list does not need to be exhaustive; cover the ~50 most common modules
+          files:
+            - internal/indexer/treesitter/extractor.go
+            - internal/indexer/treesitter/extractor_test.go
+        - id: D
+          task: |
+            ## Cross-Repo Awareness for Rust Extractor
+
+            ### What to implement
+
+            Add `inferExternalRepoURL` logic to the Rust extractor so that use declarations
+            and call edges targeting external crates produce target node hashes computed
+            against an "external://{crateName}" repo URL.
+
+            **Reference pattern:** See `internal/indexer/goextractor/extractor.go` function
+            `inferRepoURL` which returns "stdlib" for Go stdlib imports.
+
+            1. **Add function `inferExternalRepoURL`** in `internal/indexer/rustextractor/extractor.go`:
+
+               ```go
+               // inferExternalRepoURL determines if a Rust use path refers to an external crate.
+               // Returns "external://{crateName}" for external crates, "stdlib" for std/core/alloc,
+               // and "" for crate-local paths (crate::, super::, self::).
+               func inferExternalRepoURL(usePath string) string {
+                   parts := strings.SplitN(usePath, "::", 2)
+                   if len(parts) == 0 {
+                       return ""
+                   }
+                   first := parts[0]
+                   switch first {
+                   case "crate", "super", "self":
+                       return ""
+                   case "std", "core", "alloc":
+                       return "stdlib"
+                   default:
+                       return "external://" + first
+                   }
+               }
+               ```
+
+            2. **Modify `extractUseDeclaration`** to use the external repo URL for the target hash:
+
+               Current code (line 412-429) computes targetHash with `opts.RepoURL`:
+               ```go
+               fileNodeHash := types.ComputeNodeHash(opts.RepoURL, basePath, types.EmptyHash, filepath.Base(opts.FilePath), "file")
+               targetHash := types.ComputeNodeHash(opts.RepoURL, crateName, types.EmptyHash, crateName, "package")
+               ```
+
+               Change to:
+               ```go
+               fileNodeHash := types.ComputeNodeHash(opts.RepoURL, basePath, types.EmptyHash, filepath.Base(opts.FilePath), "file")
+               targetRepoURL := opts.RepoURL
+               if extURL := inferExternalRepoURL(usePath); extURL != "" {
+                   targetRepoURL = extURL
+               }
+               targetHash := types.ComputeNodeHash(targetRepoURL, crateName, types.EmptyHash, crateName, "package")
+               ```
+
+               Note: the `usePath` variable is the full path from `argNode.Content(opts.Content)`.
+
+            3. **Modify `resolveCallEdgeWithImports`** so that when a call target's first segment
+               is resolved through rustImports and the source path is "" (meaning it was an external
+               crate that `resolveRustModulePath` could not resolve), use `inferExternalRepoURL`
+               on the original use path for that import.
+
+               In `resolveCallEdgeWithImports` (around line 568-580), when `srcPath` is "" AND
+               the `firstName` was found in `rustImports`, it means the crate is external.
+               Change the existing logic so that when `srcPath == ""`:
+               ```go
+               if rustImports != nil && firstName != "" {
+                   if srcPath, ok := rustImports[firstName]; ok {
+                       if srcPath != "" {
+                           targetBasePath = srcPath
+                           edgeProvenance = "ast_resolved"
+                           edgeConfidence = 0.85
+                       } else {
+                           // External crate: resolveRustModulePath returned ""
+                           extURL := inferExternalRepoURL(firstName)
+                           if extURL != "" {
+                               // Use external URL as the target's repo context
+                               targetBasePath = firstName
+                               edgeProvenance = "ast_resolved"
+                               edgeConfidence = 0.85
+                           }
+                       }
+                   }
+               }
+               ```
+               Then use `extURL` (or the inferred external prefix) when computing `targetHash`.
+
+            4. **Add tests** in `internal/indexer/rustextractor/extractor_test.go`:
+               - Test `inferExternalRepoURL`: "tokio::runtime" -> "external://tokio",
+                 "crate::config" -> "", "std::collections" -> "stdlib", "serde::Deserialize" -> "external://serde"
+               - Test that extracting `use tokio::runtime::Runtime;` produces an import edge
+                 whose target hash uses "external://tokio" as the repo URL
+
+            ### Interfaces
+
+            - `inferExternalRepoURL(usePath string) string` (package-internal function)
+
+            ### Verification gate
+
+            ```bash
+            GOWORK=off go build ./... && GOWORK=off go vet ./... && GOWORK=off go test -short ./internal/indexer/rustextractor/... -timeout 2m
+            ```
+
+            Postconditions:
+            - `grep -c 'inferExternalRepoURL' internal/indexer/rustextractor/extractor.go` should output >= 3
+            - `grep -c 'external://' internal/indexer/rustextractor/extractor_test.go` should output >= 2
+
+            ### Constraints
+
+            - Do NOT modify any other extractor package
+            - Do NOT change exported function signatures
+            - Keep existing behavior for crate::, super::, self:: paths unchanged
+          files:
+            - internal/indexer/rustextractor/extractor.go
+            - internal/indexer/rustextractor/extractor_test.go
+        - id: E
+          task: |
+            ## Cross-Repo Awareness for Java Extractor
+
+            ### What to implement
+
+            Add `inferExternalRepoURL` logic to the Java extractor so that import edges
+            targeting external packages produce target node hashes computed against an
+            "external://{groupId}" repo URL.
+
+            **Reference pattern:** See `internal/indexer/goextractor/extractor.go` function
+            `inferRepoURL` which returns "stdlib" for Go stdlib imports.
+
+            1. **Add function `inferExternalRepoURL`** in `internal/indexer/javaextractor/extractor.go`:
+
+               ```go
+               // inferExternalRepoURL determines if a Java import refers to an external package.
+               // Returns "stdlib" for java.*/javax.* imports, "external://{topTwoSegments}" for
+               // third-party packages, and "" for imports sharing the same base package as localPkg.
+               func inferExternalRepoURL(importPath string, localPkg string) string {
+                   parts := strings.Split(importPath, ".")
+                   if len(parts) == 0 {
+                       return ""
+                   }
+                   // Java stdlib: java.*, javax.*
+                   if parts[0] == "java" || parts[0] == "javax" {
+                       return "stdlib"
+                   }
+                   // Same project heuristic: if the import shares the first 2 segments
+                   // with the local package, treat as local.
+                   if localPkg != "" {
+                       localParts := strings.Split(localPkg, ".")
+                       if len(localParts) >= 2 && len(parts) >= 2 &&
+                           localParts[0] == parts[0] && localParts[1] == parts[1] {
+                           return ""
+                       }
+                   }
+                   // External: use first 2 segments as group identifier
+                   if len(parts) >= 2 {
+                       return "external://" + parts[0] + "." + parts[1]
+                   }
+                   return "external://" + parts[0]
+               }
+               ```
+
+            2. **Modify `extractImportEdge`** to use the external repo URL for import target hash:
+
+               Current code (line 668-672):
+               ```go
+               fileNodeHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, filepath.Base(opts.FilePath), "file")
+               importHash := types.ComputeNodeHash(opts.RepoURL, importText, types.EmptyHash, importText, "package")
+               ```
+
+               Change to:
+               ```go
+               fileNodeHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, filepath.Base(opts.FilePath), "file")
+               targetRepoURL := opts.RepoURL
+               if extURL := inferExternalRepoURL(importText, pkgPath); extURL != "" {
+                   targetRepoURL = extURL
+               }
+               importHash := types.ComputeNodeHash(targetRepoURL, importText, types.EmptyHash, importText, "package")
+               ```
+
+            3. **Modify `extractMethodInvocationWithImports`** so that when an object name
+               resolves through javaImports and the import path indicates an external package,
+               use `inferExternalRepoURL` for the target hash.
+
+               In the section where `importPath` is looked up (around line 253-258):
+               ```go
+               if len(objectName) > 0 && unicode.IsUpper(rune(objectName[0])) {
+                   if importPath, ok := javaImports[objectName]; ok {
+                       targetBasePath = importPath
+                       edgeProvenance = "ast_resolved"
+                       edgeConfidence = 0.85
+                   }
+               }
+               ```
+
+               After the import lookup succeeds, also check if importPath is external.
+               If `inferExternalRepoURL(importPath, pkgPath) != ""`, the target is from
+               an external package. This does not change the edge behavior (still resolved
+               with confidence 0.85) but ensures the targetHash uses the correct repo URL
+               when ComputeNodeHash is called below.
+
+            4. **Add tests** in `internal/indexer/javaextractor/extractor_test.go`:
+               - Test `inferExternalRepoURL`: "java.util.List" with any localPkg -> "stdlib",
+                 "org.springframework.web.bind" with localPkg "com.myapp.service" -> "external://org.springframework",
+                 "com.myapp.model.User" with localPkg "com.myapp.service" -> ""
+               - Test that extracting `import org.springframework.web.bind.annotation.GetMapping;`
+                 produces an import edge whose target uses "external://org.springframework"
+
+            ### Interfaces
+
+            - `inferExternalRepoURL(importPath string, localPkg string) string` (package-internal)
+
+            ### Verification gate
+
+            ```bash
+            GOWORK=off go build ./... && GOWORK=off go vet ./... && GOWORK=off go test -short ./internal/indexer/javaextractor/... -timeout 2m
+            ```
+
+            Postconditions:
+            - `grep -c 'inferExternalRepoURL' internal/indexer/javaextractor/extractor.go` should output >= 3
+            - `grep -c 'external://' internal/indexer/javaextractor/extractor_test.go` should output >= 2
+
+            ### Constraints
+
+            - Do NOT modify any other extractor package
+            - Do NOT change exported function signatures
+            - Keep existing Spring route annotation detection unchanged
+          files:
+            - internal/indexer/javaextractor/extractor.go
+            - internal/indexer/javaextractor/extractor_test.go
+        - id: F
+          task: |
+            ## Cross-Repo Awareness for C# Extractor
+
+            ### What to implement
+
+            Add `inferExternalRepoURL` logic to the C# extractor so that using directive
+            edges targeting external namespaces produce target node hashes computed against
+            an "external://{rootNamespace}" repo URL.
+
+            **Reference pattern:** See `internal/indexer/goextractor/extractor.go` function
+            `inferRepoURL` which returns "stdlib" for Go stdlib imports.
+
+            1. **Add function `inferExternalRepoURL`** in `internal/indexer/csharpextractor/extractor.go`:
+
+               ```go
+               // inferExternalRepoURL determines if a C# namespace refers to an external package.
+               // Returns "stdlib" for System.*/Microsoft.* namespaces, "external://{rootNamespace}"
+               // for known external packages, and "" when it cannot determine externality.
+               func inferExternalRepoURL(namespace string) string {
+                   parts := strings.Split(namespace, ".")
+                   if len(parts) == 0 {
+                       return ""
+                   }
+                   // .NET BCL and runtime: System.*, Microsoft.*
+                   switch parts[0] {
+                   case "System":
+                       return "stdlib"
+                   case "Microsoft":
+                       return "stdlib"
+                   }
+                   // External NuGet packages: use first two segments as identifier
+                   if len(parts) >= 2 {
+                       return "external://" + parts[0] + "." + parts[1]
+                   }
+                   return "external://" + parts[0]
+               }
+               ```
+
+            2. **Modify `extractUsingDirective`** to use the external repo URL:
+
+               Current code (line 253-260):
+               ```go
+               fileNodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, filepath.Base(opts.FilePath), "file")
+               targetHash := types.ComputeNodeHash(opts.RepoURL, nameContent, types.EmptyHash, nameContent, "package")
+               ```
+
+               Change to:
+               ```go
+               fileNodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, filepath.Base(opts.FilePath), "file")
+               targetRepoURL := opts.RepoURL
+               if extURL := inferExternalRepoURL(nameContent); extURL != "" {
+                   targetRepoURL = extURL
+               }
+               targetHash := types.ComputeNodeHash(targetRepoURL, nameContent, types.EmptyHash, nameContent, "package")
+               ```
+
+            3. **Modify `extractInvocationEdgeWithImports`** so that when an object name
+               resolves through csharpImports and the resolved namespace indicates an external
+               package, compute the target hash with the external repo URL.
+
+               In the section (around line 643-649):
+               ```go
+               if objectName != "" && len(objectName) > 0 && objectName[0] >= 'A' && objectName[0] <= 'Z' {
+                   if importPath, ok := csharpImports[objectName]; ok {
+                       edgeProvenance = "ast_resolved"
+                       edgeConfidence = 0.85
+                       targetFilePath = importPath
+                   }
+               }
+               ```
+
+               After the import lookup succeeds, also determine targetRepoURL using
+               `inferExternalRepoURL(importPath)`. Then use `targetRepoURL` instead of
+               `opts.RepoURL` in the ComputeNodeHash call for targetHash (line 651).
+
+            4. **Add tests** in `internal/indexer/csharpextractor/extractor_test.go`:
+               - Test `inferExternalRepoURL`: "System.Collections.Generic" -> "stdlib",
+                 "Microsoft.Extensions.DependencyInjection" -> "stdlib",
+                 "Newtonsoft.Json" -> "external://Newtonsoft.Json",
+                 "AutoMapper.Extensions" -> "external://AutoMapper.Extensions"
+               - Test that extracting `using Newtonsoft.Json;` produces an import edge
+                 whose target uses "external://Newtonsoft.Json"
+
+            ### Interfaces
+
+            - `inferExternalRepoURL(namespace string) string` (package-internal function)
+
+            ### Verification gate
+
+            ```bash
+            GOWORK=off go build ./... && GOWORK=off go vet ./... && GOWORK=off go test -short ./internal/indexer/csharpextractor/... -timeout 2m
+            ```
+
+            Postconditions:
+            - `grep -c 'inferExternalRepoURL' internal/indexer/csharpextractor/extractor.go` should output >= 3
+            - `grep -c 'external://' internal/indexer/csharpextractor/extractor_test.go` should output >= 2
+
+            ### Constraints
+
+            - Do NOT modify any other extractor package
+            - Do NOT change exported function signatures
+            - Keep existing ASP.NET route detection unchanged
+          files:
+            - internal/indexer/csharpextractor/extractor.go
+            - internal/indexer/csharpextractor/extractor_test.go
+    - number: 2
+      agents:
+        - id: G
+          task: |
+            ## Verify stale_edges MCP Tool End-to-End with New Store Method
+
+            ### What to implement
+
+            After Wave 1 merges, verify that the existing `stale_edges` MCP tool works
+            correctly end-to-end. The MCP handler at `internal/mcp/handlers.go:319`
+            already calls `s.store.StaleEdges(ctx, snapshotHash)`. This agent verifies
+            the integration is correct and adds a test that exercises the new
+            `StaleNodesByFiles` method through a realistic scenario.
+
+            1. **Add integration test** in `internal/mcp/handlers_test.go`:
+               - Add a test `TestHandleStaleEdges_WithChangedFiles` that verifies the
+                 stale detection logic works when files change. Set up the mock to return
+                 edges that simulate stale state.
+               - Verify the JSON output format includes edge_type, source_hash, target_hash
+
+            2. **Verify no regressions** in existing stale_edges tests:
+               - `TestHandleStaleEdges_FindsStale` should still pass
+               - `TestHandleStaleEdges_MissingSnapshotHash` should still pass
+               - `TestHandleStaleEdges_EmptyResult` should still pass
+
+            ### Verification gate
+
+            ```bash
+            GOWORK=off go build ./... && GOWORK=off go test -short ./internal/mcp/... -timeout 2m -run TestHandleStaleEdges
+            ```
+
+            Postconditions:
+            - `grep -c 'TestHandleStaleEdges' internal/mcp/handlers_test.go` should output >= 4
+
+            ### Constraints
+
+            - Do NOT modify `internal/mcp/handlers.go` or `internal/mcp/server.go`
+            - Only add tests, do not change production code
+            - The mock already has `StaleNodesByFiles` stub from Agent A
+          files:
+            - internal/mcp/handlers_test.go
+          dependencies:
+            - A
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: GOWORK=off go build ./...
+          required: true
+        - type: lint
+          command: GOWORK=off go vet ./...
+          required: true
+        - type: test
+          command: GOWORK=off go test -short ./... -timeout 5m
+          required: true
+pre_mortem:
+    overall_risk: low
+    rows:
+        - scenario: |
+            Agent A adds StaleNodesByFiles to the GraphStore interface but misses one of
+            the 5 mock implementations, causing build failure in another package's tests.
+          likelihood: medium
+          impact: high
+          mitigation: |
+            Agent A's task explicitly lists all 5 mock files that need stubs. The
+            verification gate runs full build (go build ./...) which catches all.
+        - scenario: |
+            Extractor agents (B-F) use inconsistent "external://" prefix formats, making
+            cross-repo identity non-portable between languages.
+          likelihood: low
+          impact: medium
+          mitigation: |
+            Interface contracts specify exact format: "external://{packageName}" for all.
+            Each agent's task includes the exact string format with examples.
+        - scenario: |
+            Python stdlib list in Agent C is incomplete, causing some stdlib imports to
+            be classified as external.
+          likelihood: medium
+          impact: low
+          mitigation: |
+            The list covers the ~50 most common stdlib modules. False positives (stdlib
+            classified as external) produce functional but suboptimal edges; they do not
+            break anything. The list can be expanded incrementally.
+        - scenario: |
+            The `knowing stale` CLI command fails when no git history is available
+            (fresh clone with depth 1, or no commits since last snapshot).
+          likelihood: medium
+          impact: low
+          mitigation: |
+            Agent A's task specifies fallback to file mtime comparison when git diff
+            fails or returns empty. The command should handle the no-snapshot case
+            gracefully (report all files as stale or suggest running `knowing index`).
+        - scenario: |
+            Agent A and Agent G both edit internal/mcp/handlers_test.go causing merge
+            conflict between waves.
+          likelihood: low
+          impact: low
+          mitigation: |
+            Agent A only adds a one-line stub method (append-only). Agent G adds new
+            test functions (append-only). They are in sequential waves (1 then 2), so
+            Agent G works on the already-merged result from Agent A. No conflict.
+critic_report:
+    verdict: PASS
+    agent_reviews:
+        A:
+            agent_id: A
+            verdict: PASS
+            issues:
+                - check: symbol_accuracy
+                  severity: warning
+                  description: Brief references types.ComputeRepoHash(repoURL) which does not exist. The correct function is types.NewHash([]byte(repoURL)) as used in cmd/knowing/main.go:352. Agent will see the correct pattern in files it modifies (main.go, testscope.go).
+                  file: cmd/knowing/stale.go
+                  symbol: ComputeRepoHash
+                - check: complexity_balance
+                  severity: warning
+                  description: Agent A owns 9 of 19 total files (47%) and exceeds the 8-file threshold. However, 5 of the 9 files are one-line mock stub additions, so effective complexity is moderate.
+        B:
+            agent_id: B
+            verdict: PASS
+        C:
+            agent_id: C
+            verdict: PASS
+        D:
+            agent_id: D
+            verdict: PASS
+        E:
+            agent_id: E
+            verdict: PASS
+        F:
+            agent_id: F
+            verdict: PASS
+        G:
+            agent_id: G
+            verdict: PASS
+    summary: 'All 7 agent briefs verified against the codebase. File existence checks pass: stale.go does not exist (action:new), all modify targets exist. Symbol accuracy is correct for all function names, method signatures, and interface methods across all agents. The only symbol inaccuracy is Agent A referencing types.ComputeRepoHash which does not exist (correct pattern is types.NewHash), but this is in descriptive text and the agent will see the correct pattern in the files it modifies. Pattern accuracy verified: switch statement registration, mock stub patterns, import-map resolution patterns in all 5 extractors, and extractUseDeclaration/extractImportEdge/extractUsingDirective patterns all match actual code. Interface contracts are syntactically valid and consistent. No i1 disjoint ownership violations. Agent A exceeds the 8-file threshold (9 files, 47% of total) but 5 of those are one-line mock stubs.'
+    reviewed_at: "2026-05-23T00:37:47Z"
+    issue_count: 2
+state: SCOUT_PENDING
+injection_method: hook
