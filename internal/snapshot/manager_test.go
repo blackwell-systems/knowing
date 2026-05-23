@@ -6,21 +6,22 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/blackwell-systems/knowing/internal/testutil"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
-// mockGraphStore is a test double for types.GraphStore.
+// mockGraphStore embeds *testutil.MockGraphStore for no-op defaults and
+// overrides methods the snapshot tests need with custom tracking behavior.
 type mockGraphStore struct {
-	nodes     map[types.Hash]*types.Node
-	edges     map[types.Hash]*types.Edge
-	repos     map[types.Hash]*types.Repo
-	snapshots map[types.Hash]*types.Snapshot
-	files     map[types.Hash][]types.File
+	*testutil.MockGraphStore
 
-	// nodesByName stores nodes keyed by qualified name prefix.
+	// files stores files by repo hash (for test setup reference only).
+	files map[types.Hash][]types.File
+
+	// nodesByNameResult controls what NodesByName returns.
 	nodesByNameResult []types.Node
 
-	// edgesFromResult stores edges keyed by source hash.
+	// edgesFromResult controls what EdgesFrom returns per source hash.
 	edgesFromResult map[types.Hash][]types.Edge
 
 	// latestSnapshotResult is the latest snapshot for any repo.
@@ -35,54 +36,32 @@ type mockGraphStore struct {
 
 func newMockGraphStore() *mockGraphStore {
 	return &mockGraphStore{
-		nodes:           make(map[types.Hash]*types.Node),
-		edges:           make(map[types.Hash]*types.Edge),
-		repos:           make(map[types.Hash]*types.Repo),
-		snapshots:       make(map[types.Hash]*types.Snapshot),
+		MockGraphStore:  testutil.NewMockGraphStore(),
 		files:           make(map[types.Hash][]types.File),
 		edgesFromResult: make(map[types.Hash][]types.Edge),
 	}
 }
 
 func (m *mockGraphStore) PutNode(_ context.Context, n types.Node) error {
-	m.nodes[n.NodeHash] = &n
+	m.Nodes[n.NodeHash] = &n
 	return nil
 }
 
 func (m *mockGraphStore) PutEdge(_ context.Context, e types.Edge) error {
-	m.edges[e.EdgeHash] = &e
+	m.Edges[e.EdgeHash] = &e
 	return nil
 }
 
-func (m *mockGraphStore) PutFile(_ context.Context, f types.File) error { return nil }
 func (m *mockGraphStore) PutRepo(_ context.Context, r types.Repo) error {
-	m.repos[r.RepoHash] = &r
+	m.Repos[r.RepoHash] = &r
 	return nil
 }
-
-func (m *mockGraphStore) RecordEdgeEvent(_ context.Context, _ types.EdgeEvent) error { return nil }
 
 func (m *mockGraphStore) CreateSnapshot(_ context.Context, s types.Snapshot) error {
 	m.createdSnapshots = append(m.createdSnapshots, s)
-	m.snapshots[s.SnapshotHash] = &s
+	m.Snapshots[s.SnapshotHash] = &s
 	m.latestSnapshotResult = &s
 	return nil
-}
-
-func (m *mockGraphStore) GetNode(_ context.Context, hash types.Hash) (*types.Node, error) {
-	return m.nodes[hash], nil
-}
-
-func (m *mockGraphStore) GetEdge(_ context.Context, hash types.Hash) (*types.Edge, error) {
-	return m.edges[hash], nil
-}
-
-func (m *mockGraphStore) GetSnapshot(_ context.Context, hash types.Hash) (*types.Snapshot, error) {
-	return m.snapshots[hash], nil
-}
-
-func (m *mockGraphStore) GetRepo(_ context.Context, hash types.Hash) (*types.Repo, error) {
-	return m.repos[hash], nil
 }
 
 func (m *mockGraphStore) NodesByName(_ context.Context, _ string) ([]types.Node, error) {
@@ -93,72 +72,13 @@ func (m *mockGraphStore) EdgesFrom(_ context.Context, sourceHash types.Hash, _ s
 	return m.edgesFromResult[sourceHash], nil
 }
 
-func (m *mockGraphStore) EdgesTo(_ context.Context, _ types.Hash, _ string) ([]types.Edge, error) {
-	return nil, nil
-}
-
-func (m *mockGraphStore) TransitiveCallers(_ context.Context, _ types.Hash, _ int, _ types.Hash) ([]types.CallerResult, error) {
-	return nil, nil
-}
-
-func (m *mockGraphStore) TransitiveCallees(_ context.Context, _ types.Hash, _ int, _ types.Hash) ([]types.CalleeResult, error) {
-	return nil, nil
-}
-
-func (m *mockGraphStore) BlastRadius(_ context.Context, _ types.Hash, _ types.Hash) (*types.BlastRadiusResult, error) {
-	return nil, nil
-}
-
 func (m *mockGraphStore) SnapshotDiff(_ context.Context, _, _ types.Hash) (*types.DiffResult, error) {
 	return m.snapshotDiffResult, nil
-}
-
-func (m *mockGraphStore) StaleEdges(_ context.Context, _ types.Hash) ([]types.Edge, error) {
-	return nil, nil
 }
 
 func (m *mockGraphStore) LatestSnapshot(_ context.Context, _ types.Hash) (*types.Snapshot, error) {
 	return m.latestSnapshotResult, nil
 }
-
-func (m *mockGraphStore) FilesByRepo(_ context.Context, _ types.Hash) ([]types.File, error) {
-	return nil, nil
-}
-
-func (m *mockGraphStore) FileByPath(_ context.Context, _ types.Hash, _ string) (*types.File, error) {
-	return nil, nil
-}
-func (m *mockGraphStore) NodesByFilePath(_ context.Context, _ types.Hash, _ string) ([]types.Node, error) {
-	return nil, nil
-}
-func (m *mockGraphStore) StaleNodesByFiles(_ context.Context, _ types.Hash, _ []string) ([]types.Node, error) {
-	return nil, nil
-}
-
-func (m *mockGraphStore) DanglingEdges(_ context.Context) ([]types.Edge, error)              { return nil, nil }
-func (m *mockGraphStore) AllRepos(_ context.Context) ([]types.Repo, error)                    { return nil, nil }
-func (m *mockGraphStore) NodesByQualifiedName(_ context.Context, _ string) ([]types.Node, error) { return nil, nil }
-func (m *mockGraphStore) DeleteEdge(_ context.Context, _ types.Hash) error                    { return nil }
-func (m *mockGraphStore) DeleteNodesByFile(_ context.Context, _ types.Hash) (int, error)        { return 0, nil }
-func (m *mockGraphStore) DeleteEdgesBySourceFile(_ context.Context, _ types.Hash) ([]types.Edge, error) { return nil, nil }
-func (m *mockGraphStore) EdgesBySourceFile(_ context.Context, _ types.Hash) ([]types.Edge, error) { return nil, nil }
-func (m *mockGraphStore) DeleteSnapshot(_ context.Context, _ types.Hash) error                 { return nil }
-func (m *mockGraphStore) Close() error                                                        { return nil }
-func (m *mockGraphStore) DeleteNodesNotIn(_ context.Context, _ map[types.Hash]struct{}) (int64, error) { return 0, nil }
-func (m *mockGraphStore) DeleteEdgesNotIn(_ context.Context, _ map[types.Hash]struct{}) (int64, error) { return 0, nil }
-
-func (m *mockGraphStore) PutNote(_ context.Context, _ types.Note) error { return nil }
-func (m *mockGraphStore) GetNote(_ context.Context, _ types.Hash, _ string) (*types.Note, error) {
-	return nil, nil
-}
-func (m *mockGraphStore) GetNotes(_ context.Context, _ types.Hash) ([]types.Note, error) {
-	return nil, nil
-}
-func (m *mockGraphStore) GetNotesByKey(_ context.Context, _ string) ([]types.Note, error) {
-	return nil, nil
-}
-func (m *mockGraphStore) DeleteNote(_ context.Context, _ types.Hash, _ string) error { return nil }
-func (m *mockGraphStore) DeleteNotesByObject(_ context.Context, _ types.Hash) error  { return nil }
 
 // --- Merkle tests ---
 
@@ -229,7 +149,7 @@ func setupMockStore() (*mockGraphStore, types.Hash) {
 	store := newMockGraphStore()
 
 	repoHash := types.NewHash([]byte("https://github.com/example/repo"))
-	store.repos[repoHash] = &types.Repo{
+	store.Repos[repoHash] = &types.Repo{
 		RepoHash: repoHash,
 		RepoURL:  "https://github.com/example/repo",
 	}
@@ -246,8 +166,8 @@ func setupMockStore() (*mockGraphStore, types.Hash) {
 		Kind:          "function",
 	}
 
-	store.nodes[node1.NodeHash] = &node1
-	store.nodes[node2.NodeHash] = &node2
+	store.Nodes[node1.NodeHash] = &node1
+	store.Nodes[node2.NodeHash] = &node2
 	store.nodesByNameResult = []types.Node{node1, node2}
 
 	edge1 := types.Edge{
@@ -263,8 +183,8 @@ func setupMockStore() (*mockGraphStore, types.Hash) {
 		EdgeType:   "calls",
 	}
 
-	store.edges[edge1.EdgeHash] = &edge1
-	store.edges[edge2.EdgeHash] = &edge2
+	store.Edges[edge1.EdgeHash] = &edge1
+	store.Edges[edge2.EdgeHash] = &edge2
 	store.edgesFromResult[node1.NodeHash] = []types.Edge{edge1}
 	store.edgesFromResult[node2.NodeHash] = []types.Edge{edge2}
 
@@ -354,7 +274,7 @@ func buildSnapshotChain(store *mockGraphStore, repoHash types.Hash, count int) {
 			CommitHash:   fmt.Sprintf("commit-%d", i),
 			NodeCount:    i + 1,
 		}
-		store.snapshots[h] = &snap
+		store.Snapshots[h] = &snap
 		store.latestSnapshotResult = &snap
 		prev = h
 	}
@@ -385,7 +305,7 @@ func TestComputeSnapshot_WithRealData(t *testing.T) {
 
 	// Set up repo.
 	repoHash := types.NewHash([]byte("https://github.com/example/repo"))
-	store.repos[repoHash] = &types.Repo{
+	store.Repos[repoHash] = &types.Repo{
 		RepoHash: repoHash,
 		RepoURL:  "https://github.com/example/repo",
 	}
@@ -425,9 +345,9 @@ func TestComputeSnapshot_WithRealData(t *testing.T) {
 		Kind:          "function",
 	}
 
-	store.nodes[node1.NodeHash] = &node1
-	store.nodes[node2.NodeHash] = &node2
-	store.nodes[node3.NodeHash] = &node3
+	store.Nodes[node1.NodeHash] = &node1
+	store.Nodes[node2.NodeHash] = &node2
+	store.Nodes[node3.NodeHash] = &node3
 	store.nodesByNameResult = []types.Node{node1, node2, node3}
 
 	// Create edges between the nodes.
@@ -450,9 +370,9 @@ func TestComputeSnapshot_WithRealData(t *testing.T) {
 		EdgeType:   "calls",
 	}
 
-	store.edges[edge1.EdgeHash] = &edge1
-	store.edges[edge2.EdgeHash] = &edge2
-	store.edges[edge3.EdgeHash] = &edge3
+	store.Edges[edge1.EdgeHash] = &edge1
+	store.Edges[edge2.EdgeHash] = &edge2
+	store.Edges[edge3.EdgeHash] = &edge3
 
 	store.edgesFromResult[node1.NodeHash] = []types.Edge{edge1, edge2}
 	store.edgesFromResult[node2.NodeHash] = []types.Edge{edge3}
@@ -485,9 +405,9 @@ func TestComputeSnapshot_WithRealData(t *testing.T) {
 
 	// Verify determinism: compute again with fresh store, same data.
 	store2 := newMockGraphStore()
-	store2.repos[repoHash] = store.repos[repoHash]
-	store2.nodes = store.nodes
-	store2.edges = store.edges
+	store2.Repos[repoHash] = store.Repos[repoHash]
+	store2.Nodes = store.Nodes
+	store2.Edges = store.Edges
 	store2.nodesByNameResult = store.nodesByNameResult
 	store2.edgesFromResult = store.edgesFromResult
 
@@ -540,7 +460,7 @@ func TestComputeSnapshot_SkipsMalformedNodes(t *testing.T) {
 	ctx := context.Background()
 
 	repoHash := types.NewHash([]byte("https://github.com/example/repo"))
-	store.repos[repoHash] = &types.Repo{
+	store.Repos[repoHash] = &types.Repo{
 		RepoHash: repoHash,
 		RepoURL:  "https://github.com/example/repo",
 	}
@@ -558,8 +478,8 @@ func TestComputeSnapshot_SkipsMalformedNodes(t *testing.T) {
 		Kind:          "function",
 	}
 
-	store.nodes[goodNode.NodeHash] = &goodNode
-	store.nodes[badNode.NodeHash] = &badNode
+	store.Nodes[goodNode.NodeHash] = &goodNode
+	store.Nodes[badNode.NodeHash] = &badNode
 	store.nodesByNameResult = []types.Node{goodNode, badNode}
 
 	goodEdge := types.Edge{
@@ -575,8 +495,8 @@ func TestComputeSnapshot_SkipsMalformedNodes(t *testing.T) {
 		EdgeType:   "calls",
 	}
 
-	store.edges[goodEdge.EdgeHash] = &goodEdge
-	store.edges[badEdge.EdgeHash] = &badEdge
+	store.Edges[goodEdge.EdgeHash] = &goodEdge
+	store.Edges[badEdge.EdgeHash] = &badEdge
 	store.edgesFromResult[goodNode.NodeHash] = []types.Edge{goodEdge}
 	store.edgesFromResult[badNode.NodeHash] = []types.Edge{badEdge}
 

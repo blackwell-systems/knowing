@@ -12,7 +12,7 @@ func TestVerify_CleanRepo(t *testing.T) {
 	ctx := context.Background()
 
 	repoHash := types.NewHash([]byte("https://github.com/example/repo"))
-	store.repos[repoHash] = &types.Repo{
+	store.Repos[repoHash] = &types.Repo{
 		RepoHash: repoHash,
 		RepoURL:  "https://github.com/example/repo",
 	}
@@ -33,8 +33,8 @@ func TestVerify_CleanRepo(t *testing.T) {
 		Kind:          "function",
 	}
 
-	store.nodes[node1.NodeHash] = &node1
-	store.nodes[node2.NodeHash] = &node2
+	store.Nodes[node1.NodeHash] = &node1
+	store.Nodes[node2.NodeHash] = &node2
 	store.nodesByNameResult = []types.Node{node1, node2}
 
 	// Create an edge with the correct hash.
@@ -45,7 +45,7 @@ func TestVerify_CleanRepo(t *testing.T) {
 		EdgeType:   "calls",
 		Provenance: "",
 	}
-	store.edges[edge1.EdgeHash] = &edge1
+	store.Edges[edge1.EdgeHash] = &edge1
 	store.edgesFromResult[node1.NodeHash] = []types.Edge{edge1}
 
 	// Create one snapshot with no parent.
@@ -56,7 +56,7 @@ func TestVerify_CleanRepo(t *testing.T) {
 		RepoHash:     repoHash,
 		CommitHash:   "abc123",
 	}
-	store.snapshots[snapHash] = &snap
+	store.Snapshots[snapHash] = &snap
 	store.latestSnapshotResult = &snap
 
 	sm := NewSnapshotManager(store)
@@ -78,7 +78,7 @@ func TestVerify_DanglingEdge(t *testing.T) {
 	ctx := context.Background()
 
 	repoHash := types.NewHash([]byte("https://github.com/example/repo"))
-	store.repos[repoHash] = &types.Repo{
+	store.Repos[repoHash] = &types.Repo{
 		RepoHash: repoHash,
 		RepoURL:  "https://github.com/example/repo",
 	}
@@ -88,7 +88,7 @@ func TestVerify_DanglingEdge(t *testing.T) {
 		QualifiedName: "https://github.com/example/repo://pkg.Func1",
 		Kind:          "function",
 	}
-	store.nodes[node1.NodeHash] = &node1
+	store.Nodes[node1.NodeHash] = &node1
 	store.nodesByNameResult = []types.Node{node1}
 
 	// Edge targets a non-existent node.
@@ -99,7 +99,7 @@ func TestVerify_DanglingEdge(t *testing.T) {
 		TargetHash: nonExistentHash,
 		EdgeType:   "calls",
 	}
-	store.edges[edge1.EdgeHash] = &edge1
+	store.Edges[edge1.EdgeHash] = &edge1
 	store.edgesFromResult[node1.NodeHash] = []types.Edge{edge1}
 
 	sm := NewSnapshotManager(store)
@@ -126,7 +126,7 @@ func TestVerify_BrokenChain(t *testing.T) {
 	ctx := context.Background()
 
 	repoHash := types.NewHash([]byte("https://github.com/example/repo"))
-	store.repos[repoHash] = &types.Repo{
+	store.Repos[repoHash] = &types.Repo{
 		RepoHash: repoHash,
 		RepoURL:  "https://github.com/example/repo",
 	}
@@ -143,7 +143,7 @@ func TestVerify_BrokenChain(t *testing.T) {
 		RepoHash:     repoHash,
 		CommitHash:   "def456",
 	}
-	store.snapshots[latestSnapHash] = &latestSnap
+	store.Snapshots[latestSnapHash] = &latestSnap
 	store.latestSnapshotResult = &latestSnap
 	// Note: missingParentHash is NOT in store.snapshots
 
