@@ -12,6 +12,34 @@ The guiding principle: add concurrency only where a measurable bottleneck exists
 
 The indexer (`internal/indexer/indexer.go`) uses a producer-consumer pipeline to overlap CPU-bound extraction with IO-bound storage.
 
+**Pipeline architecture:**
+
+```mermaid
+flowchart LR
+    subgraph Feeder
+        F[File Feeder]
+    end
+    subgraph Workers["Extraction Workers (GOMAXPROCS)"]
+        W1[Worker 1]
+        W2[Worker 2]
+        W3[Worker N]
+    end
+    subgraph Writer
+        WR[Batch Writer]
+    end
+    
+    F -->|workCh| W1
+    F -->|workCh| W2
+    F -->|workCh| W3
+    W1 -->|resultCh| WR
+    W2 -->|resultCh| WR
+    W3 -->|resultCh| WR
+    WR -->|batch INSERT| DB[(SQLite WAL)]
+    
+    extractWg[extractWg.Wait] -.->|tracks| Workers
+    writeWg[writeWg.Wait] -.->|tracks| Writer
+```
+
 **Architecture:**
 
 ```
@@ -87,6 +115,30 @@ The writer goroutine is the main goroutine of `IndexRepo` (the `for fr := range 
 **Problem:** tree-sitter is a C library called via CGO. Go's `context.WithTimeout` cancels goroutines by closing a channel, but CGO calls cannot be interrupted by Go. A file with pathological nesting (e.g., deeply nested JSON) can block a tree-sitter parse for minutes.
 
 **Solution:** fire-and-forget goroutine with a timer select.
+
+**Watchdog timeout flow:**
+
+```mermaid
+sequenceDiagram
+    participant Main as Main Goroutine
+    participant Timer as 10s Timer
+    participant CGO as CGO Goroutine
+    participant TS as tree-sitter (C)
+    
+    Main->>CGO: go func() { extract(file) }
+    Main->>Timer: time.After(10s)
+    
+    alt Extraction completes first
+        CGO->>TS: Parse file
+        TS-->>CGO: AST result
+        CGO-->>Main: result via channel
+        Main->>Main: Process result
+    else Timer fires first
+        Timer-->>Main: timeout!
+        Main->>Main: Skip file, log warning
+        Note over CGO: Goroutine leaks (safe:<br/>stateless, no locks held)
+    end
+```
 
 ```go
 done := make(chan extractResult, 1)
@@ -282,6 +334,38 @@ The context engine (`internal/context/walk.go`) and all retrieval paths (`ForTas
 
 The MCP server (`internal/mcp/server.go`) handles multiple client requests concurrently:
 
+**Concurrent readers with serialized writes:**
+
+```mermaid
+flowchart LR
+    subgraph Clients["Agent Requests"]
+        C1[Request 1]
+        C2[Request 2]
+        C3[Request 3]
+    end
+    
+    subgraph Server["MCP Server"]
+        H1[Handler goroutine]
+        H2[Handler goroutine]
+        H3[Handler goroutine]
+    end
+    
+    subgraph Store["SQLiteStore"]
+        R[WAL Readers<br/>concurrent OK]
+        W[Single Writer<br/>serialized]
+    end
+    
+    C1 --> H1
+    C2 --> H2
+    C3 --> H3
+    H1 -->|"context_for_task<br/>RLock"| R
+    H2 -->|"graph_query<br/>RLock"| R
+    H3 -->|"feedback<br/>Lock"| W
+    
+    R --> DB[(SQLite WAL)]
+    W --> DB
+```
+
 - **Stdio mode:** the mcp-go library multiplexes JSON-RPC requests over stdin/stdout, dispatching each to its own goroutine.
 - **HTTP mode:** standard `net/http` server spawns a goroutine per connection.
 
@@ -309,6 +393,29 @@ All request handlers share a single `SQLiteStore` instance. This is safe because
 ## Daemon File Watcher
 
 The daemon (`internal/daemon/daemon.go`) runs four concurrent goroutines coordinated by a `sync.RWMutex`:
+
+**Daemon goroutine architecture:**
+
+```mermaid
+flowchart TB
+    subgraph Main["Main Goroutine"]
+        START[Start] --> MCP[MCP Server<br/>handles requests]
+    end
+    
+    subgraph Background["Background Goroutines"]
+        WL[watchLoop<br/>fsnotify events]
+        IW[indexWorker<br/>re-index on signal]
+        TI[traceIngestLoop<br/>OTel traces]
+    end
+    
+    WL -->|"indexQueue<br/>(buffered chan)"| IW
+    IW -->|"mu.Lock()<br/>exclusive write"| DB[(SQLite)]
+    MCP -->|"mu.RLock()<br/>concurrent read"| DB
+    TI -->|"mu.Lock()<br/>exclusive write"| DB
+    
+    FS[File System] -->|fsnotify| WL
+    WL -->|"debounce<br/>time.AfterFunc"| WL
+```
 
 1. **watchLoop:** reads `CommitEvent` values from `GitWatcher` and enqueues index requests into a buffered channel.
 2. **indexWorker:** drains the index queue sequentially, holding the daemon's write lock during each index run.
