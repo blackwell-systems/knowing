@@ -47,24 +47,3 @@ type DiffResult struct {
 	NodesRemoved []Node // nodes present in OldSnapshot but not NewSnapshot
 }
 
-// DerivedResult is a content-addressed cached computation result.
-// Used by ComputationCache to store and retrieve expensive query results
-// (e.g., blast radius, transitive callers) keyed by query parameters
-// and snapshot root.
-type DerivedResult struct {
-	ResultHash   Hash   // content-addressed hash of this result
-	QueryType    string // type of query (e.g., "blast_radius", "transitive_callers")
-	QueryParams  Hash   // hash of the query parameters
-	SnapshotRoot Hash   // snapshot root at the time of computation
-	Data         []byte // serialized result data
-	ComputedAt   int64  // unix timestamp when computed
-	ComputedBy   string // identifier of the computing agent/indexer
-}
-
-// TraversalOptions controls bounded graph traversal with early termination.
-// Used to prevent unbounded recursion in transitive caller/callee queries.
-type TraversalOptions struct {
-	MaxDepth      int     // maximum hop count from the starting node
-	MaxResults    int     // maximum number of results to return
-	MinConfidence float64 // minimum edge confidence to follow (0.0 to 1.0)
-}
