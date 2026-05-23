@@ -9,6 +9,7 @@ import (
 	scip "github.com/scip-code/scip/bindings/go/scip"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/blackwell-systems/knowing/internal/edgetype"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
@@ -178,12 +179,12 @@ func (s *SCIPIngester) processDocument(ctx context.Context, opts SCIPIngestOptio
 		}
 
 		// Create a "references" edge
-		edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "references", "scip_resolved")
+		edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, edgetype.References, "scip_resolved")
 		edge := types.Edge{
 			EdgeHash:   edgeHash,
 			SourceHash: sourceHash,
 			TargetHash: targetHash,
-			EdgeType:   "references",
+			EdgeType:   edgetype.References,
 			Confidence: 0.95,
 			Provenance: "scip_resolved",
 		}

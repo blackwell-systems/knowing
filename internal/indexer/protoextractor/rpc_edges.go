@@ -7,6 +7,7 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/golang"
 
+	"github.com/blackwell-systems/knowing/internal/edgetype"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
@@ -102,17 +103,17 @@ func extractImplementsRPC(root *sitter.Node, src []byte, opts types.ExtractOptio
 				}
 
 				// Create the implements_rpc edge
-				structHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, structName, "type")
+				structHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, structName, types.KindType)
 				protoServiceHash := types.NewHash([]byte(protoPkgPath + "://" + serviceName + "/service"))
 
 				edgeProvenance := "ast_inferred"
-				edgeHash := types.ComputeEdgeHash(structHash, protoServiceHash, "implements_rpc", edgeProvenance)
+				edgeHash := types.ComputeEdgeHash(structHash, protoServiceHash, edgetype.ImplementsRPC, edgeProvenance)
 
 				edges = append(edges, types.Edge{
 					EdgeHash:   edgeHash,
 					SourceHash: structHash,
 					TargetHash: protoServiceHash,
-					EdgeType:   "implements_rpc",
+					EdgeType:   edgetype.ImplementsRPC,
 					Confidence: 0.9,
 					Provenance: edgeProvenance,
 				})
@@ -122,7 +123,7 @@ func extractImplementsRPC(root *sitter.Node, src []byte, opts types.ExtractOptio
 					NodeHash:      structHash,
 					FileHash:      opts.FileHash,
 					QualifiedName: opts.RepoURL + "://" + pkgPath + "." + structName,
-					Kind:          "type",
+					Kind:          types.KindType,
 					Line:          int(typeSpec.StartPoint().Row) + 1,
 					Signature:     "type " + structName + " struct",
 				})
@@ -141,7 +142,7 @@ func extractConsumesRPC(root *sitter.Node, src []byte, opts types.ExtractOptions
 
 	// Walk all function/method declarations
 	walkFunctions(root, src, func(funcName string, funcNode *sitter.Node, body *sitter.Node) {
-		funcHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, funcName, "function")
+		funcHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, funcName, types.KindFunction)
 
 		// Walk the body looking for call expressions
 		walkCallExpressions(body, src, func(callNode *sitter.Node) {
@@ -159,13 +160,13 @@ func extractConsumesRPC(root *sitter.Node, src []byte, opts types.ExtractOptions
 			protoServiceHash := types.NewHash([]byte(protoPkgPath + "://" + serviceName + "/service"))
 
 			edgeProvenance := "ast_inferred"
-			edgeHash := types.ComputeEdgeHash(funcHash, protoServiceHash, "consumes_rpc", edgeProvenance)
+			edgeHash := types.ComputeEdgeHash(funcHash, protoServiceHash, edgetype.ConsumesRPC, edgeProvenance)
 
 			edges = append(edges, types.Edge{
 				EdgeHash:   edgeHash,
 				SourceHash: funcHash,
 				TargetHash: protoServiceHash,
-				EdgeType:   "consumes_rpc",
+				EdgeType:   edgetype.ConsumesRPC,
 				Confidence: 0.8,
 				Provenance: edgeProvenance,
 			})

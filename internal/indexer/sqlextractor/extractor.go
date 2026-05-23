@@ -15,6 +15,7 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/sql"
 
+	"github.com/blackwell-systems/knowing/internal/edgetype"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
@@ -219,12 +220,12 @@ func extractCreateView(node *sitter.Node, opts types.ExtractOptions) (*types.Nod
 			continue // skip self-references
 		}
 		targetHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, ref, "table")
-		edgeHash := types.ComputeEdgeHash(nodeHash, targetHash, "depends_on", provenance)
+		edgeHash := types.ComputeEdgeHash(nodeHash, targetHash, edgetype.DependsOn, provenance)
 		edges = append(edges, types.Edge{
 			EdgeHash:   edgeHash,
 			SourceHash: nodeHash,
 			TargetHash: targetHash,
-			EdgeType:   "depends_on",
+			EdgeType:   edgetype.DependsOn,
 			Confidence: confidence,
 			Provenance: provenance,
 		})
@@ -242,13 +243,13 @@ func extractCreateFunctionFromError(errorNode *sitter.Node, bodyNode *sitter.Nod
 	}
 	line := int(errorNode.StartPoint().Row) + 1
 	qn := fmt.Sprintf("%s://%s.function.%s", opts.RepoURL, opts.FilePath, name)
-	nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, name, "function")
+	nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, name, types.KindFunction)
 
 	fnNode := &types.Node{
 		NodeHash:      nodeHash,
 		FileHash:      opts.FileHash,
 		QualifiedName: qn,
-		Kind:          "function",
+		Kind:          types.KindFunction,
 		Line:          line,
 		Signature:     fmt.Sprintf("CREATE FUNCTION %s", name),
 	}
@@ -265,12 +266,12 @@ func extractCreateFunctionFromError(errorNode *sitter.Node, bodyNode *sitter.Nod
 
 	for _, ref := range tableRefs {
 		targetHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, ref, "table")
-		edgeHash := types.ComputeEdgeHash(nodeHash, targetHash, "references", provenance)
+		edgeHash := types.ComputeEdgeHash(nodeHash, targetHash, edgetype.References, provenance)
 		edges = append(edges, types.Edge{
 			EdgeHash:   edgeHash,
 			SourceHash: nodeHash,
 			TargetHash: targetHash,
-			EdgeType:   "references",
+			EdgeType:   edgetype.References,
 			Confidence: confidence,
 			Provenance: provenance,
 		})
@@ -288,13 +289,13 @@ func extractCreateFunctionFromError(errorNode *sitter.Node, bodyNode *sitter.Nod
 		if strings.EqualFold(call, name) {
 			continue
 		}
-		targetHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, call, "function")
-		edgeHash := types.ComputeEdgeHash(nodeHash, targetHash, "calls", provenance)
+		targetHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, call, types.KindFunction)
+		edgeHash := types.ComputeEdgeHash(nodeHash, targetHash, edgetype.Calls, provenance)
 		edges = append(edges, types.Edge{
 			EdgeHash:   edgeHash,
 			SourceHash: nodeHash,
 			TargetHash: targetHash,
-			EdgeType:   "calls",
+			EdgeType:   edgetype.Calls,
 			Confidence: confidence,
 			Provenance: provenance,
 		})
@@ -335,12 +336,12 @@ func extractCreateProcedureFromError(errorNode *sitter.Node, bodyNode *sitter.No
 
 	for _, ref := range tableRefs {
 		targetHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, ref, "table")
-		edgeHash := types.ComputeEdgeHash(nodeHash, targetHash, "references", provenance)
+		edgeHash := types.ComputeEdgeHash(nodeHash, targetHash, edgetype.References, provenance)
 		edges = append(edges, types.Edge{
 			EdgeHash:   edgeHash,
 			SourceHash: nodeHash,
 			TargetHash: targetHash,
-			EdgeType:   "references",
+			EdgeType:   edgetype.References,
 			Confidence: confidence,
 			Provenance: provenance,
 		})
@@ -358,13 +359,13 @@ func extractCreateProcedureFromError(errorNode *sitter.Node, bodyNode *sitter.No
 		if strings.EqualFold(call, name) {
 			continue
 		}
-		targetHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, call, "function")
-		edgeHash := types.ComputeEdgeHash(nodeHash, targetHash, "calls", provenance)
+		targetHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, call, types.KindFunction)
+		edgeHash := types.ComputeEdgeHash(nodeHash, targetHash, edgetype.Calls, provenance)
 		edges = append(edges, types.Edge{
 			EdgeHash:   edgeHash,
 			SourceHash: nodeHash,
 			TargetHash: targetHash,
-			EdgeType:   "calls",
+			EdgeType:   edgetype.Calls,
 			Confidence: confidence,
 			Provenance: provenance,
 		})
@@ -382,13 +383,13 @@ func extractCreateFunction(node *sitter.Node, opts types.ExtractOptions) (*types
 	}
 	line := int(node.StartPoint().Row) + 1
 	qn := fmt.Sprintf("%s://%s.function.%s", opts.RepoURL, opts.FilePath, name)
-	nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, name, "function")
+	nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, name, types.KindFunction)
 
 	fnNode := &types.Node{
 		NodeHash:      nodeHash,
 		FileHash:      opts.FileHash,
 		QualifiedName: qn,
-		Kind:          "function",
+		Kind:          types.KindFunction,
 		Line:          line,
 		Signature:     fmt.Sprintf("CREATE FUNCTION %s", name),
 	}
@@ -399,12 +400,12 @@ func extractCreateFunction(node *sitter.Node, opts types.ExtractOptions) (*types
 	tableRefs := findTableReferences(node, opts.Content)
 	for _, ref := range tableRefs {
 		targetHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, ref, "table")
-		edgeHash := types.ComputeEdgeHash(nodeHash, targetHash, "references", provenance)
+		edgeHash := types.ComputeEdgeHash(nodeHash, targetHash, edgetype.References, provenance)
 		edges = append(edges, types.Edge{
 			EdgeHash:   edgeHash,
 			SourceHash: nodeHash,
 			TargetHash: targetHash,
-			EdgeType:   "references",
+			EdgeType:   edgetype.References,
 			Confidence: confidence,
 			Provenance: provenance,
 		})
@@ -416,13 +417,13 @@ func extractCreateFunction(node *sitter.Node, opts types.ExtractOptions) (*types
 		if strings.EqualFold(call, name) {
 			continue // skip self-calls
 		}
-		targetHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, call, "function")
-		edgeHash := types.ComputeEdgeHash(nodeHash, targetHash, "calls", provenance)
+		targetHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, call, types.KindFunction)
+		edgeHash := types.ComputeEdgeHash(nodeHash, targetHash, edgetype.Calls, provenance)
 		edges = append(edges, types.Edge{
 			EdgeHash:   edgeHash,
 			SourceHash: nodeHash,
 			TargetHash: targetHash,
-			EdgeType:   "calls",
+			EdgeType:   edgetype.Calls,
 			Confidence: confidence,
 			Provenance: provenance,
 		})
@@ -457,12 +458,12 @@ func extractCreateProcedure(node *sitter.Node, opts types.ExtractOptions) (*type
 	tableRefs := findTableReferences(node, opts.Content)
 	for _, ref := range tableRefs {
 		targetHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, ref, "table")
-		edgeHash := types.ComputeEdgeHash(nodeHash, targetHash, "references", provenance)
+		edgeHash := types.ComputeEdgeHash(nodeHash, targetHash, edgetype.References, provenance)
 		edges = append(edges, types.Edge{
 			EdgeHash:   edgeHash,
 			SourceHash: nodeHash,
 			TargetHash: targetHash,
-			EdgeType:   "references",
+			EdgeType:   edgetype.References,
 			Confidence: confidence,
 			Provenance: provenance,
 		})
@@ -474,13 +475,13 @@ func extractCreateProcedure(node *sitter.Node, opts types.ExtractOptions) (*type
 		if strings.EqualFold(call, name) {
 			continue // skip self-calls
 		}
-		targetHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, call, "function")
-		edgeHash := types.ComputeEdgeHash(nodeHash, targetHash, "calls", provenance)
+		targetHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, call, types.KindFunction)
+		edgeHash := types.ComputeEdgeHash(nodeHash, targetHash, edgetype.Calls, provenance)
 		edges = append(edges, types.Edge{
 			EdgeHash:   edgeHash,
 			SourceHash: nodeHash,
 			TargetHash: targetHash,
-			EdgeType:   "calls",
+			EdgeType:   edgetype.Calls,
 			Confidence: confidence,
 			Provenance: provenance,
 		})

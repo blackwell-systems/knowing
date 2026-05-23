@@ -155,13 +155,13 @@ func extractJSONSchema(data map[string]interface{}, opts types.ExtractOptions, r
 	}
 
 	qn := buildQualifiedName(opts.RepoURL, opts.FilePath, "schema", title)
-	nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, title, "type")
+	nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, title, types.KindType)
 
 	result.Nodes = append(result.Nodes, types.Node{
 		NodeHash:      nodeHash,
 		FileHash:      opts.FileHash,
 		QualifiedName: qn,
-		Kind:          "type",
+		Kind:          types.KindType,
 		Line:          1,
 	})
 	nodeMap[title] = nodeHash
@@ -170,13 +170,13 @@ func extractJSONSchema(data map[string]interface{}, opts types.ExtractOptions, r
 	if definitions, ok := data["definitions"].(map[string]interface{}); ok {
 		for name, def := range definitions {
 			defQN := buildQualifiedName(opts.RepoURL, opts.FilePath, "schema", name)
-			defHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, name, "type")
+			defHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, name, types.KindType)
 
 			result.Nodes = append(result.Nodes, types.Node{
 				NodeHash:      defHash,
 				FileHash:      opts.FileHash,
 				QualifiedName: defQN,
-				Kind:          "type",
+				Kind:          types.KindType,
 				Line:          1,
 			})
 			nodeMap[name] = defHash
@@ -196,13 +196,13 @@ func extractJSONSchema(data map[string]interface{}, opts types.ExtractOptions, r
 func extractSchemas(schemas map[string]interface{}, opts types.ExtractOptions, result *types.ExtractResult, nodeMap map[string]types.Hash) {
 	for name, schema := range schemas {
 		qn := buildQualifiedName(opts.RepoURL, opts.FilePath, "schema", name)
-		nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, name, "type")
+		nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, name, types.KindType)
 
 		result.Nodes = append(result.Nodes, types.Node{
 			NodeHash:      nodeHash,
 			FileHash:      opts.FileHash,
 			QualifiedName: qn,
-			Kind:          "type",
+			Kind:          types.KindType,
 			Line:          1,
 		})
 		nodeMap[name] = nodeHash

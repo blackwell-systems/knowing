@@ -53,12 +53,12 @@ func (e *PackageJSONExtractor) Extract(ctx context.Context, opts types.ExtractOp
 	// Package name node.
 	var pkgHash types.Hash
 	if pkg.Name != "" {
-		pkgHash = types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, pkg.Name, "type")
+		pkgHash = types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, pkg.Name, types.KindType)
 		result.Nodes = append(result.Nodes, types.Node{
 			NodeHash:      pkgHash,
 			FileHash:      opts.FileHash,
 			QualifiedName: buildQN(opts.RepoURL, opts.FilePath, "type", pkg.Name),
-			Kind:          "type",
+			Kind:          types.KindType,
 			Line:          1,
 		})
 	}
@@ -79,24 +79,24 @@ func (e *PackageJSONExtractor) Extract(ctx context.Context, opts types.ExtractOp
 	sourceHash := pkgHash
 	if sourceHash.IsZero() {
 		// If no package name, use a file-level node as source.
-		sourceHash = types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, opts.FilePath, "type")
+		sourceHash = types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, opts.FilePath, types.KindType)
 		result.Nodes = append(result.Nodes, types.Node{
 			NodeHash:      sourceHash,
 			FileHash:      opts.FileHash,
 			QualifiedName: buildQN(opts.RepoURL, opts.FilePath, "type", opts.FilePath),
-			Kind:          "type",
+			Kind:          types.KindType,
 			Line:          1,
 		})
 	}
 
 	addDeps := func(deps map[string]string) {
 		for depName := range deps {
-			depHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, depName, "type")
+			depHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, depName, types.KindType)
 			result.Nodes = append(result.Nodes, types.Node{
 				NodeHash:      depHash,
 				FileHash:      opts.FileHash,
 				QualifiedName: buildQN(opts.RepoURL, opts.FilePath, "type", depName),
-				Kind:          "type",
+				Kind:          types.KindType,
 				Line:          1,
 			})
 			result.Edges = append(result.Edges, makeEdge(sourceHash, depHash, "depends_on"))

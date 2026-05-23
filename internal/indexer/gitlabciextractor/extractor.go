@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/blackwell-systems/knowing/internal/edgetype"
 	"github.com/blackwell-systems/knowing/internal/types"
 	"gopkg.in/yaml.v3"
 )
@@ -111,7 +112,7 @@ func (e *GitLabCIExtractor) Extract(ctx context.Context, opts types.ExtractOptio
 			needs := parseStringList(needsRaw)
 			for _, need := range needs {
 				needHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, need, "job")
-				result.Edges = append(result.Edges, makeEdge(jobHash, needHash, "depends_on"))
+				result.Edges = append(result.Edges, makeEdge(jobHash, needHash, edgetype.DependsOn))
 			}
 		}
 
@@ -120,7 +121,7 @@ func (e *GitLabCIExtractor) Extract(ctx context.Context, opts types.ExtractOptio
 			extends := parseStringList(extendsRaw)
 			for _, ext := range extends {
 				extHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, ext, "job")
-				result.Edges = append(result.Edges, makeEdge(jobHash, extHash, "extends"))
+				result.Edges = append(result.Edges, makeEdge(jobHash, extHash, edgetype.Extends))
 			}
 		}
 
@@ -138,7 +139,7 @@ func (e *GitLabCIExtractor) Extract(ctx context.Context, opts types.ExtractOptio
 					Line:          1,
 				})
 			}
-			result.Edges = append(result.Edges, makeEdge(jobHash, stageHash, "depends_on"))
+			result.Edges = append(result.Edges, makeEdge(jobHash, stageHash, edgetype.DependsOn))
 		}
 
 		// Parse "image" dependency.
@@ -161,7 +162,7 @@ func (e *GitLabCIExtractor) Extract(ctx context.Context, opts types.ExtractOptio
 					Kind:          "image",
 					Line:          1,
 				})
-				result.Edges = append(result.Edges, makeEdge(jobHash, imageHash, "depends_on"))
+				result.Edges = append(result.Edges, makeEdge(jobHash, imageHash, edgetype.DependsOn))
 			}
 		}
 	}

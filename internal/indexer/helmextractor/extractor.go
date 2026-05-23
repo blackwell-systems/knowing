@@ -102,12 +102,12 @@ func (e *HelmExtractor) extractChart(opts types.ExtractOptions) (*types.ExtractR
 	}
 
 	// Chart node.
-	chartHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, chart.Name, "type")
+	chartHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, chart.Name, types.KindType)
 	result.Nodes = append(result.Nodes, types.Node{
 		NodeHash:      chartHash,
 		FileHash:      opts.FileHash,
 		QualifiedName: buildQN(opts.RepoURL, opts.FilePath, "type", chart.Name),
-		Kind:          "type",
+		Kind:          types.KindType,
 		Line:          1,
 	})
 
@@ -116,12 +116,12 @@ func (e *HelmExtractor) extractChart(opts types.ExtractOptions) (*types.ExtractR
 		if dep.Name == "" {
 			continue
 		}
-		depHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, dep.Name, "type")
+		depHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, dep.Name, types.KindType)
 		result.Nodes = append(result.Nodes, types.Node{
 			NodeHash:      depHash,
 			FileHash:      opts.FileHash,
 			QualifiedName: buildQN(opts.RepoURL, opts.FilePath, "type", dep.Name),
-			Kind:          "type",
+			Kind:          types.KindType,
 			Line:          1,
 		})
 		result.Edges = append(result.Edges, makeEdge(chartHash, depHash, "depends_on"))
@@ -141,12 +141,12 @@ func (e *HelmExtractor) extractValues(opts types.ExtractOptions) (*types.Extract
 
 	line := 1
 	for key := range values {
-		nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, key, "var")
+		nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, key, types.KindVar)
 		result.Nodes = append(result.Nodes, types.Node{
 			NodeHash:      nodeHash,
 			FileHash:      opts.FileHash,
 			QualifiedName: buildQN(opts.RepoURL, opts.FilePath, "var", key),
-			Kind:          "var",
+			Kind:          types.KindVar,
 			Line:          line,
 		})
 		line++

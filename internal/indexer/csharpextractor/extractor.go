@@ -19,6 +19,7 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/csharp"
 
+	"github.com/blackwell-systems/knowing/internal/edgetype"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
@@ -277,21 +278,21 @@ func (e *CSharpExtractor) extractUsingDirective(node *sitter.Node, opts types.Ex
 		return nil
 	}
 
-	fileNodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, filepath.Base(opts.FilePath), "file")
+	fileNodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, filepath.Base(opts.FilePath), types.KindFile)
 	targetRepoURL := opts.RepoURL
 	if extURL := inferExternalRepoURL(nameContent); extURL != "" {
 		targetRepoURL = extURL
 	}
-	targetHash := types.ComputeNodeHash(targetRepoURL, nameContent, types.EmptyHash, nameContent, "package")
+	targetHash := types.ComputeNodeHash(targetRepoURL, nameContent, types.EmptyHash, nameContent, types.KindPackage)
 
 	provenance := "ast_inferred"
-	edgeHash := types.ComputeEdgeHash(fileNodeHash, targetHash, "imports", provenance)
+	edgeHash := types.ComputeEdgeHash(fileNodeHash, targetHash, edgetype.Imports, provenance)
 
 	return &types.Edge{
 		EdgeHash:   edgeHash,
 		SourceHash: fileNodeHash,
 		TargetHash: targetHash,
-		EdgeType:   "imports",
+		EdgeType:   edgetype.Imports,
 		Confidence: 0.7,
 		Provenance: provenance,
 	}
@@ -329,13 +330,13 @@ func (e *CSharpExtractor) extractClassDecl(node *sitter.Node, opts types.Extract
 	line := int(nameNode.StartPoint().Row) + 1
 
 	qname := e.qualifiedName(opts, parentContext, name)
-	nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, name, "type")
+	nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, name, types.KindType)
 
 	classNode := &types.Node{
 		NodeHash:      nodeHash,
 		FileHash:      opts.FileHash,
 		QualifiedName: qname,
-		Kind:          "type",
+		Kind:          types.KindType,
 		Line:          line,
 		Signature:     fmt.Sprintf("class %s", name),
 	}
@@ -381,13 +382,13 @@ func (e *CSharpExtractor) extractInterfaceDecl(node *sitter.Node, opts types.Ext
 	line := int(nameNode.StartPoint().Row) + 1
 
 	qname := e.qualifiedName(opts, parentContext, name)
-	nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, name, "interface")
+	nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, name, types.KindInterface)
 
 	return &types.Node{
 		NodeHash:      nodeHash,
 		FileHash:      opts.FileHash,
 		QualifiedName: qname,
-		Kind:          "interface",
+		Kind:          types.KindInterface,
 		Line:          line,
 		Signature:     fmt.Sprintf("interface %s", name),
 	}
@@ -403,13 +404,13 @@ func (e *CSharpExtractor) extractStructDecl(node *sitter.Node, opts types.Extrac
 	line := int(nameNode.StartPoint().Row) + 1
 
 	qname := e.qualifiedName(opts, parentContext, name)
-	nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, name, "type")
+	nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, name, types.KindType)
 
 	return &types.Node{
 		NodeHash:      nodeHash,
 		FileHash:      opts.FileHash,
 		QualifiedName: qname,
-		Kind:          "type",
+		Kind:          types.KindType,
 		Line:          line,
 		Signature:     fmt.Sprintf("struct %s", name),
 	}
@@ -425,13 +426,13 @@ func (e *CSharpExtractor) extractEnumDecl(node *sitter.Node, opts types.ExtractO
 	line := int(nameNode.StartPoint().Row) + 1
 
 	qname := e.qualifiedName(opts, parentContext, name)
-	nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, name, "type")
+	nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, name, types.KindType)
 
 	return &types.Node{
 		NodeHash:      nodeHash,
 		FileHash:      opts.FileHash,
 		QualifiedName: qname,
-		Kind:          "type",
+		Kind:          types.KindType,
 		Line:          line,
 		Signature:     fmt.Sprintf("enum %s", name),
 	}
@@ -447,13 +448,13 @@ func (e *CSharpExtractor) extractMethodDecl(node *sitter.Node, opts types.Extrac
 	line := int(nameNode.StartPoint().Row) + 1
 
 	qname := e.qualifiedName(opts, parentContext, name)
-	nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, name, "method")
+	nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, name, types.KindMethod)
 
 	methodNode := &types.Node{
 		NodeHash:      nodeHash,
 		FileHash:      opts.FileHash,
 		QualifiedName: qname,
-		Kind:          "method",
+		Kind:          types.KindMethod,
 		Line:          line,
 		Signature:     fmt.Sprintf("method %s", name),
 	}
@@ -483,13 +484,13 @@ func (e *CSharpExtractor) extractConstructorDecl(node *sitter.Node, opts types.E
 	line := int(nameNode.StartPoint().Row) + 1
 
 	qname := e.qualifiedName(opts, parentContext, name)
-	nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, name, "method")
+	nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, name, types.KindMethod)
 
 	return &types.Node{
 		NodeHash:      nodeHash,
 		FileHash:      opts.FileHash,
 		QualifiedName: qname,
-		Kind:          "method",
+		Kind:          types.KindMethod,
 		Line:          line,
 		Signature:     fmt.Sprintf("constructor %s", name),
 	}
@@ -681,14 +682,14 @@ func (e *CSharpExtractor) extractInvocationEdgeWithImports(node *sitter.Node, op
 		}
 	}
 
-	targetHash := types.ComputeNodeHash(targetRepoURL, targetFilePath, types.EmptyHash, targetName, "method")
-	edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "calls", edgeProvenance)
+	targetHash := types.ComputeNodeHash(targetRepoURL, targetFilePath, types.EmptyHash, targetName, types.KindMethod)
+	edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, edgetype.Calls, edgeProvenance)
 
 	return &types.Edge{
 		EdgeHash:     edgeHash,
 		SourceHash:   sourceHash,
 		TargetHash:   targetHash,
-		EdgeType:     "calls",
+		EdgeType:     edgetype.Calls,
 		Confidence:   edgeConfidence,
 		Provenance:   edgeProvenance,
 		CallSiteLine: int(node.StartPoint().Row) + 1,
@@ -741,15 +742,15 @@ func (e *CSharpExtractor) extractInvocationEdge(node *sitter.Node, opts types.Ex
 		return nil
 	}
 
-	targetHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, targetName, "method")
+	targetHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, targetName, types.KindMethod)
 	provenance := "ast_inferred"
-	edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "calls", provenance)
+	edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, edgetype.Calls, provenance)
 
 	return &types.Edge{
 		EdgeHash:     edgeHash,
 		SourceHash:   sourceHash,
 		TargetHash:   targetHash,
-		EdgeType:     "calls",
+		EdgeType:     edgetype.Calls,
 		Confidence:   0.7,
 		Provenance:   provenance,
 		CallSiteLine: int(node.StartPoint().Row) + 1,
@@ -771,15 +772,15 @@ func (e *CSharpExtractor) extractObjectCreationEdge(node *sitter.Node, opts type
 	}
 
 	// Object creation calls the constructor.
-	targetHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, typeName, "method")
+	targetHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, typeName, types.KindMethod)
 	provenance := "ast_inferred"
-	edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "calls", provenance)
+	edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, edgetype.Calls, provenance)
 
 	return &types.Edge{
 		EdgeHash:     edgeHash,
 		SourceHash:   sourceHash,
 		TargetHash:   targetHash,
-		EdgeType:     "calls",
+		EdgeType:     edgetype.Calls,
 		Confidence:   0.7,
 		Provenance:   provenance,
 		CallSiteLine: int(node.StartPoint().Row) + 1,
@@ -802,12 +803,12 @@ func (e *CSharpExtractor) extractThrowEdge(node *sitter.Node, opts types.Extract
 				if exceptionType != "" {
 					targetHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, exceptionType, "error")
 					provenance := "ast_inferred"
-					edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "throws", provenance)
+					edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, edgetype.Throws, provenance)
 					return &types.Edge{
 						EdgeHash:   edgeHash,
 						SourceHash: sourceHash,
 						TargetHash: targetHash,
-						EdgeType:   "throws",
+						EdgeType:   edgetype.Throws,
 						Confidence: 0.7,
 						Provenance: provenance,
 					}
@@ -820,12 +821,12 @@ func (e *CSharpExtractor) extractThrowEdge(node *sitter.Node, opts types.Extract
 			if name != "" && name != "throw" {
 				targetHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, name, "error")
 				provenance := "ast_inferred"
-				edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "throws", provenance)
+				edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, edgetype.Throws, provenance)
 				return &types.Edge{
 					EdgeHash:   edgeHash,
 					SourceHash: sourceHash,
 					TargetHash: targetHash,
-					EdgeType:   "throws",
+					EdgeType:   edgetype.Throws,
 					Confidence: 0.7,
 					Provenance: provenance,
 				}
@@ -868,23 +869,23 @@ func (e *CSharpExtractor) extractMethodRouteAttributes(methodNode *sitter.Node, 
 		routeStr := httpMethod + " " + routePattern
 
 		qname := e.qualifiedName(opts, parentContext, routeStr)
-		routeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, routeStr, "route_handler")
+		routeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, routeStr, types.KindRoute)
 
 		routeNodes = append(routeNodes, types.Node{
 			NodeHash:      routeHash,
 			FileHash:      opts.FileHash,
 			QualifiedName: qname,
-			Kind:          "route_handler",
+			Kind:          types.KindRoute,
 			Signature:     routeStr,
 		})
 
 		provenance := "ast_inferred"
-		edgeHash := types.ComputeEdgeHash(routeHash, methodHash, "handles_route", provenance)
+		edgeHash := types.ComputeEdgeHash(routeHash, methodHash, edgetype.HandlesRoute, provenance)
 		routeEdges = append(routeEdges, types.Edge{
 			EdgeHash:   edgeHash,
 			SourceHash: routeHash,
 			TargetHash: methodHash,
-			EdgeType:   "handles_route",
+			EdgeType:   edgetype.HandlesRoute,
 			Confidence: 0.7,
 			Provenance: provenance,
 		})
@@ -901,13 +902,13 @@ func (e *CSharpExtractor) extractClassRouteAttribute(classNode *sitter.Node, opt
 		if attr.name == "Route" && attr.argument != "" {
 			routeStr := "ROUTE " + attr.argument
 			qname := e.qualifiedName(opts, parentContext, routeStr)
-			routeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, routeStr, "route_handler")
+			routeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, routeStr, types.KindRoute)
 
 			return &types.Node{
 				NodeHash:      routeHash,
 				FileHash:      opts.FileHash,
 				QualifiedName: qname,
-				Kind:          "route_handler",
+				Kind:          types.KindRoute,
 				Signature:     routeStr,
 			}
 		}
@@ -1032,14 +1033,14 @@ func (e *CSharpExtractor) extractCSharpBaseList(classNode *sitter.Node, opts typ
 
 			if first && !isInterface {
 				// First non-interface entry is the superclass.
-				targetHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, baseName, "type")
+				targetHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, baseName, types.KindType)
 				prov := "ast_inferred"
-				edgeHash := types.ComputeEdgeHash(classHash, targetHash, "extends", prov)
+				edgeHash := types.ComputeEdgeHash(classHash, targetHash, edgetype.Extends, prov)
 				*edges = append(*edges, types.Edge{
 					EdgeHash:   edgeHash,
 					SourceHash: classHash,
 					TargetHash: targetHash,
-					EdgeType:   "extends",
+					EdgeType:   edgetype.Extends,
 					Confidence: 0.7,
 					Provenance: prov,
 				})
@@ -1047,14 +1048,14 @@ func (e *CSharpExtractor) extractCSharpBaseList(classNode *sitter.Node, opts typ
 				continue
 			}
 
-			targetHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, baseName, "interface")
+			targetHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, baseName, types.KindInterface)
 			prov := "ast_inferred"
-			edgeHash := types.ComputeEdgeHash(classHash, targetHash, "implements", prov)
+			edgeHash := types.ComputeEdgeHash(classHash, targetHash, edgetype.Implements, prov)
 			*edges = append(*edges, types.Edge{
 				EdgeHash:   edgeHash,
 				SourceHash: classHash,
 				TargetHash: targetHash,
-				EdgeType:   "implements",
+				EdgeType:   edgetype.Implements,
 				Confidence: 0.7,
 				Provenance: prov,
 			})
@@ -1079,14 +1080,14 @@ func (e *CSharpExtractor) extractCSharpOverrideEdge(methodNode *sitter.Node, opt
 	}
 
 	targetName := "base." + methodName
-	targetHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, targetName, "method")
+	targetHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, targetName, types.KindMethod)
 	prov := "ast_inferred"
-	edgeHash := types.ComputeEdgeHash(methodHash, targetHash, "overrides", prov)
+	edgeHash := types.ComputeEdgeHash(methodHash, targetHash, edgetype.Overrides, prov)
 	*edges = append(*edges, types.Edge{
 		EdgeHash:   edgeHash,
 		SourceHash: methodHash,
 		TargetHash: targetHash,
-		EdgeType:   "overrides",
+		EdgeType:   edgetype.Overrides,
 		Confidence: 0.7,
 		Provenance: prov,
 	})
@@ -1108,14 +1109,14 @@ func (e *CSharpExtractor) extractCSharpAttributeEdges(node *sitter.Node, opts ty
 		if attrName == "Route" || attrName == "ApiController" {
 			continue
 		}
-		targetHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, attrName, "function")
+		targetHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, attrName, types.KindFunction)
 		prov := "ast_inferred"
-		edgeHash := types.ComputeEdgeHash(targetHash, declHash, "decorates", prov)
+		edgeHash := types.ComputeEdgeHash(targetHash, declHash, edgetype.Decorates, prov)
 		*edges = append(*edges, types.Edge{
 			EdgeHash:   edgeHash,
 			SourceHash: targetHash,
 			TargetHash: declHash,
-			EdgeType:   "decorates",
+			EdgeType:   edgetype.Decorates,
 			Confidence: 0.7,
 			Provenance: prov,
 		})

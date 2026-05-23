@@ -108,7 +108,7 @@ func (e *GraphQLExtractor) Extract(ctx context.Context, opts types.ExtractOption
 		// Check for type definitions.
 		if m := typeDefRE.FindStringSubmatch(trimmed); m != nil {
 			name := m[1]
-			kind := "type"
+			kind := types.KindType
 			if operationTypes[name] {
 				isOperationType = true
 			} else {
@@ -135,7 +135,7 @@ func (e *GraphQLExtractor) Extract(ctx context.Context, opts types.ExtractOption
 					if iface == "" {
 						continue
 					}
-					ifaceHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, iface, "interface")
+					ifaceHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, iface, types.KindInterface)
 					result.Edges = append(result.Edges, makeEdge(nodeHash, ifaceHash, "implements"))
 				}
 			}
@@ -144,12 +144,12 @@ func (e *GraphQLExtractor) Extract(ctx context.Context, opts types.ExtractOption
 
 		if m := inputDefRE.FindStringSubmatch(trimmed); m != nil {
 			name := m[1]
-			nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, name, "type")
+			nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, name, types.KindType)
 			result.Nodes = append(result.Nodes, types.Node{
 				NodeHash:      nodeHash,
 				FileHash:      opts.FileHash,
 				QualifiedName: buildQN(opts.RepoURL, opts.FilePath, "type", name),
-				Kind:          "type",
+				Kind:          types.KindType,
 				Line:          lineNum,
 			})
 			definedTypes[name] = nodeHash
@@ -162,12 +162,12 @@ func (e *GraphQLExtractor) Extract(ctx context.Context, opts types.ExtractOption
 
 		if m := enumDefRE.FindStringSubmatch(trimmed); m != nil {
 			name := m[1]
-			nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, name, "type")
+			nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, name, types.KindType)
 			result.Nodes = append(result.Nodes, types.Node{
 				NodeHash:      nodeHash,
 				FileHash:      opts.FileHash,
 				QualifiedName: buildQN(opts.RepoURL, opts.FilePath, "type", name),
-				Kind:          "type",
+				Kind:          types.KindType,
 				Line:          lineNum,
 			})
 			definedTypes[name] = nodeHash
@@ -180,12 +180,12 @@ func (e *GraphQLExtractor) Extract(ctx context.Context, opts types.ExtractOption
 
 		if m := interfaceDefRE.FindStringSubmatch(trimmed); m != nil {
 			name := m[1]
-			nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, name, "interface")
+			nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, name, types.KindInterface)
 			result.Nodes = append(result.Nodes, types.Node{
 				NodeHash:      nodeHash,
 				FileHash:      opts.FileHash,
 				QualifiedName: buildQN(opts.RepoURL, opts.FilePath, "interface", name),
-				Kind:          "interface",
+				Kind:          types.KindInterface,
 				Line:          lineNum,
 			})
 			definedTypes[name] = nodeHash
@@ -198,12 +198,12 @@ func (e *GraphQLExtractor) Extract(ctx context.Context, opts types.ExtractOption
 
 		if m := scalarDefRE.FindStringSubmatch(trimmed); m != nil {
 			name := m[1]
-			nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, name, "type")
+			nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, name, types.KindType)
 			result.Nodes = append(result.Nodes, types.Node{
 				NodeHash:      nodeHash,
 				FileHash:      opts.FileHash,
 				QualifiedName: buildQN(opts.RepoURL, opts.FilePath, "type", name),
-				Kind:          "type",
+				Kind:          types.KindType,
 				Line:          lineNum,
 			})
 			definedTypes[name] = nodeHash
@@ -212,12 +212,12 @@ func (e *GraphQLExtractor) Extract(ctx context.Context, opts types.ExtractOption
 
 		if m := unionDefRE.FindStringSubmatch(trimmed); m != nil {
 			name := m[1]
-			nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, name, "type")
+			nodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, name, types.KindType)
 			result.Nodes = append(result.Nodes, types.Node{
 				NodeHash:      nodeHash,
 				FileHash:      opts.FileHash,
 				QualifiedName: buildQN(opts.RepoURL, opts.FilePath, "type", name),
-				Kind:          "type",
+				Kind:          types.KindType,
 				Line:          lineNum,
 			})
 			definedTypes[name] = nodeHash
@@ -233,12 +233,12 @@ func (e *GraphQLExtractor) Extract(ctx context.Context, opts types.ExtractOption
 				// If we are in an operation type (Query, Mutation, Subscription),
 				// each field is an operation (function node).
 				if isOperationType {
-					opHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, fieldName, "function")
+					opHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, fieldName, types.KindFunction)
 					result.Nodes = append(result.Nodes, types.Node{
 						NodeHash:      opHash,
 						FileHash:      opts.FileHash,
 						QualifiedName: buildQN(opts.RepoURL, opts.FilePath, "function", fieldName),
-						Kind:          "function",
+						Kind:          types.KindFunction,
 						Line:          lineNum,
 					})
 					// Reference from operation to return type.
@@ -266,7 +266,7 @@ func (e *GraphQLExtractor) Extract(ctx context.Context, opts types.ExtractOption
 		targetHash, ok := definedTypes[ref.targetName]
 		if !ok {
 			// Create a placeholder node for the referenced type.
-			targetHash = types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, ref.targetName, "type")
+			targetHash = types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, ref.targetName, types.KindType)
 		}
 		result.Edges = append(result.Edges, makeEdge(ref.sourceHash, targetHash, "references"))
 	}

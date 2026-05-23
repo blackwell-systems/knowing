@@ -17,6 +17,7 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/hcl"
 
+	"github.com/blackwell-systems/knowing/internal/edgetype"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
@@ -264,12 +265,12 @@ func (e *TerraformExtractor) extractModule(opts types.ExtractOptions, labels []s
 	source := e.extractSourceAttribute(bodyNode, opts.Content)
 	if source != "" {
 		targetHash := types.ComputeNodeHash(opts.RepoURL, source, types.EmptyHash, source, "module")
-		edgeHash := types.ComputeEdgeHash(nodeHash, targetHash, "calls", provenance)
+		edgeHash := types.ComputeEdgeHash(nodeHash, targetHash, edgetype.Calls, provenance)
 		edges = append(edges, types.Edge{
 			EdgeHash:   edgeHash,
 			SourceHash: nodeHash,
 			TargetHash: targetHash,
-			EdgeType:   "calls",
+			EdgeType:   edgetype.Calls,
 			Confidence: confidence,
 			Provenance: provenance,
 		})
@@ -409,12 +410,12 @@ func (e *TerraformExtractor) extractInterpolationEdges(opts types.ExtractOptions
 			}
 			// Check if this resource's body contains the reference.
 			// Simple heuristic: use line-based containment.
-			edgeHash := types.ComputeEdgeHash(n.NodeHash, targetHash, "depends_on", provenance)
+			edgeHash := types.ComputeEdgeHash(n.NodeHash, targetHash, edgetype.DependsOn, provenance)
 			edges = append(edges, types.Edge{
 				EdgeHash:   edgeHash,
 				SourceHash: n.NodeHash,
 				TargetHash: targetHash,
-				EdgeType:   "depends_on",
+				EdgeType:   edgetype.DependsOn,
 				Confidence: confidence,
 				Provenance: provenance,
 			})
