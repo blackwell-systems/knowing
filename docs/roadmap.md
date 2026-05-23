@@ -229,45 +229,10 @@ Why Aider matters:
 
 ### Standalone Publication: Code Retrieval Evaluation Toolkit (CRET)
 
-The benchmarking infrastructure in `bench/` has standalone value as a publishable
-evaluation framework for the code intelligence space. No equivalent exists publicly.
+Extract knowing's benchmarking infrastructure as the SWE-bench equivalent for code
+context retrieval. Full proposal: [docs/proposals/code-retrieval-eval-toolkit.md](../proposals/code-retrieval-eval-toolkit.md).
 
-**What it would contain:**
-- `bench/cross-system/`: 7 repos (14K-3.5M LOC, 5 languages), 117 hand-curated task
-  fixtures with ground truth, 5 competitor adapters (knowing, grep, GitNexus, Gortex,
-  Aider), statistical testing (paired t-test, Cohen's d, CI), ground truth validation
-  tooling (`validate-fixtures`), per-run FINDINGS with narrative interpretation
-- `bench/agent-efficiency/`: Multi-repo task runner, control/treatment/competitor modes,
-  isolated worktrees, build verification, transcript parsing, three-way comparison
-  (Claude+grep vs Claude+knowing vs Aider)
-- `bench/feedback-loop/`: Multi-round compounding proof, community scoping, natural
-  expiration, merkleized validity
-- Honest negative results: documented failures with root cause analysis (knowing doesn't
-  help on small repos with unique names; grep is optimal for "find X by name")
-
-**Why this matters:**
-- SWE-bench is the standard for agent coding evaluation. No equivalent exists for code
-  context retrieval (the step BEFORE the agent writes code).
-- Every code intelligence tool claims "better context" but none publish reproducible
-  evaluations against competitors on shared ground truth.
-- The framework is system-agnostic: add an adapter (implement `Index` + `Retrieve`) and
-  any tool can be compared fairly.
-- Publishing this sets the evaluation standard for the space. Competitors must then beat
-  knowing on knowing's benchmark, or build their own (which validates the need).
-
-**Publication venues:**
-- GitHub as standalone repo (`code-retrieval-eval` or `cret`)
-- Zenodo DOI for citability
-- Blog post: "We built the SWE-bench for code context retrieval"
-- Optional: workshop paper at ICSE/ASE/MSR (mining software repositories)
-
-**Effort:** Medium. Extract `bench/cross-system/` and `bench/agent-efficiency/` into a
-standalone repo with its own README, remove knowing-specific code from adapters, make
-the adapter interface the public API. The ground truth fixtures and statistical tooling
-are already generic.
-
-**Status:** Not started. Prerequisite: complete the Aider comparison (in progress) so the
-framework ships with 6 adapters and a proven head-to-head result.
+**Status:** Not started. Prerequisite: complete the Aider comparison (in progress).
 
 ### Not yet benchmarked (tracked for completeness)
 
