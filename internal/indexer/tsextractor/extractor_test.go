@@ -497,11 +497,28 @@ function doWork() {
 	}
 
 	for _, e := range result.Edges {
-		if e.Confidence != 0.7 {
-			t.Errorf("edge %s confidence = %v, want 0.7", e.EdgeType, e.Confidence)
-		}
-		if e.Provenance != "ast_inferred" {
-			t.Errorf("edge %s provenance = %q, want %q", e.EdgeType, e.Provenance, "ast_inferred")
+		switch e.EdgeType {
+		case "imports":
+			// Import edges remain ast_inferred with confidence 0.7.
+			if e.Confidence != 0.7 {
+				t.Errorf("edge %s confidence = %v, want 0.7", e.EdgeType, e.Confidence)
+			}
+			if e.Provenance != "ast_inferred" {
+				t.Errorf("edge %s provenance = %q, want %q", e.EdgeType, e.Provenance, "ast_inferred")
+			}
+		case "calls":
+			// Call edges resolved through the import map to an external package
+			// get ast_resolved provenance with confidence 0.85.
+			if e.Confidence != 0.85 {
+				t.Errorf("edge %s confidence = %v, want 0.85", e.EdgeType, e.Confidence)
+			}
+			if e.Provenance != "ast_resolved" {
+				t.Errorf("edge %s provenance = %q, want %q", e.EdgeType, e.Provenance, "ast_resolved")
+			}
+		default:
+			if e.Confidence != 0.7 {
+				t.Errorf("edge %s confidence = %v, want 0.7", e.EdgeType, e.Confidence)
+			}
 		}
 	}
 }
@@ -658,6 +675,124 @@ func TestTypeScriptExtractor_EmptyFile(t *testing.T) {
 	}
 	if len(result.Edges) != 0 {
 		t.Errorf("expected 0 edges, got %d: %+v", len(result.Edges), result.Edges)
+	}
+}
+
+func TestInferExternalRepoURL(t *testing.T) {
+	tests := []struct {
+		modPath string
+		want    string
+	}{
+		// External packages
+		{"react", "external://react"},
+		{"@nestjs/common", "external://@nestjs/common"},
+		{"lodash/debounce", "external://lodash"},
+		{"@scope/pkg/sub", "external://@scope/pkg"},
+		{"express", "external://express"},
+		{"@types/node", "external://@types/node"},
+		{"vue/dist/vue.esm", "external://vue"},
+
+		// Relative imports (not external)
+		{"./local", ""},
+		{"../relative", ""},
+		{"./components/Button", ""},
+		{"../utils/format", ""},
+		{"/absolute/path", ""},
+	}
+
+	for _, tt := range tests {
+		got := inferExternalRepoURL(tt.modPath)
+		if got != tt.want {
+			t.Errorf("inferExternalRepoURL(%q) = %q, want %q", tt.modPath, got, tt.want)
+		}
+	}
+}
+
+func TestTypeScriptExtractor_ExternalImportEdgeUsesExternalRepoURL(t *testing.T) {
+	ext := NewTypeScriptExtractor()
+	source := `import { useState } from 'react';
+import { helper } from './utils';
+`
+	opts := makeOpts(t, "component.tsx", source)
+
+	result, err := ext.Extract(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Extract() error: %v", err)
+	}
+
+	var importEdges []types.Edge
+	for _, e := range result.Edges {
+		if e.EdgeType == "imports" {
+			importEdges = append(importEdges, e)
+		}
+	}
+
+	if len(importEdges) != 2 {
+		t.Fatalf("expected 2 import edges, got %d", len(importEdges))
+	}
+
+	// The external import ("react") should produce a different target hash
+	// than a local import would. Compute what the external target hash should be.
+	externalTargetHash := types.ComputeNodeHash("external://react", "react", types.EmptyHash, "react", "module")
+
+	// The local import ("./utils") should use the local repo URL.
+	localTargetHash := types.ComputeNodeHash("test://repo", "./utils", types.EmptyHash, "./utils", "module")
+
+	foundExternal := false
+	foundLocal := false
+	for _, e := range importEdges {
+		if e.TargetHash == externalTargetHash {
+			foundExternal = true
+		}
+		if e.TargetHash == localTargetHash {
+			foundLocal = true
+		}
+	}
+
+	if !foundExternal {
+		t.Error("external import (react) did not produce target hash with external://react repo URL")
+		for _, e := range importEdges {
+			t.Logf("  edge target hash: %v", e.TargetHash)
+		}
+		t.Logf("  expected target hash: %v", externalTargetHash)
+	}
+	if !foundLocal {
+		t.Error("local import (./utils) did not produce target hash with local repo URL")
+		for _, e := range importEdges {
+			t.Logf("  edge target hash: %v", e.TargetHash)
+		}
+		t.Logf("  expected target hash: %v", localTargetHash)
+	}
+}
+
+func TestTypeScriptExtractor_ScopedExternalImportEdge(t *testing.T) {
+	ext := NewTypeScriptExtractor()
+	source := `import { Controller } from '@nestjs/common';
+`
+	opts := makeOpts(t, "app.controller.ts", source)
+
+	result, err := ext.Extract(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Extract() error: %v", err)
+	}
+
+	var importEdges []types.Edge
+	for _, e := range result.Edges {
+		if e.EdgeType == "imports" {
+			importEdges = append(importEdges, e)
+		}
+	}
+
+	if len(importEdges) != 1 {
+		t.Fatalf("expected 1 import edge, got %d", len(importEdges))
+	}
+
+	// Scoped package should use "external://@nestjs/common" as repo URL.
+	expectedTargetHash := types.ComputeNodeHash("external://@nestjs/common", "@nestjs/common", types.EmptyHash, "@nestjs/common", "module")
+	if importEdges[0].TargetHash != expectedTargetHash {
+		t.Errorf("scoped external import did not use external://@nestjs/common repo URL")
+		t.Logf("  got target hash: %v", importEdges[0].TargetHash)
+		t.Logf("  expected: %v", expectedTargetHash)
 	}
 }
 
