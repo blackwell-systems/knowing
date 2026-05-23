@@ -2,6 +2,7 @@ package agent_efficiency
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -159,6 +160,145 @@ func TestAnalyzeTranscripts(t *testing.T) {
 		t.Fatalf("write FINDINGS.md: %v", err)
 	}
 	t.Logf("wrote %s (%d task pairs)", dest, len(results))
+	t.Log("\n" + report)
+}
+
+// TestAnalyzeMultiTurn is the analyzer for multi-turn benchmark sessions.
+// It reads transcripts from transcripts/multi-turn/ and produces a comparison
+// report focused on time-to-first-edit, exploration calls, and build success.
+func TestAnalyzeMultiTurn(t *testing.T) {
+	dir := filepath.Join(testDir(t), "transcripts", "multi-turn")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			t.Skip("transcripts/multi-turn/ not found; run multi-turn-runner.sh first")
+		}
+		t.Fatalf("read dir: %v", err)
+	}
+
+	type mtMetrics struct {
+		SessionMetrics
+		TimeToFirstEditMs int64
+		ExplorationCalls  int // Grep+Read+Glob before first Edit
+		KnowingCalls      int // mcp__knowing__* calls
+		BuildSuccess      bool
+	}
+
+	controls := make(map[string]mtMetrics)
+	treatments := make(map[string]mtMetrics)
+
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
+			continue
+		}
+
+		path := filepath.Join(dir, e.Name())
+		name := strings.TrimSuffix(e.Name(), ".jsonl")
+
+		mode := ""
+		for _, m := range []string{"control", "treatment"} {
+			if strings.HasSuffix(name, "-"+m) {
+				mode = m
+				break
+			}
+		}
+		if mode == "" {
+			continue
+		}
+
+		taskID := strings.TrimSuffix(name, "-"+mode)
+
+		sm, err := ParseTranscript(path)
+		if err != nil {
+			t.Logf("warn: parse %s: %v", e.Name(), err)
+			continue
+		}
+		sm.TaskID = taskID
+
+		mt := mtMetrics{SessionMetrics: sm}
+
+		// Count knowing calls and exploration calls.
+		for tool, count := range sm.ToolCallsByType {
+			if strings.HasPrefix(tool, "mcp__knowing__") {
+				mt.KnowingCalls += count
+			}
+		}
+		mt.ExplorationCalls = sm.ToolCallsByType["Grep"] + sm.ToolCallsByType["Read"] + sm.ToolCallsByType["Glob"]
+
+		// Check verification result.
+		verifyPath := filepath.Join(dir, taskID+"-"+mode+"-verify.json")
+		if data, err := os.ReadFile(verifyPath); err == nil {
+			var vr struct {
+				BuildSuccess bool `json:"build_success"`
+			}
+			if json.Unmarshal(data, &vr) == nil {
+				mt.BuildSuccess = vr.BuildSuccess
+			}
+		}
+
+		t.Logf("parsed %s: tokens=%d tools=%d knowing=%d explore=%d build=%v",
+			e.Name(), mt.TotalTokens, mt.ToolCalls, mt.KnowingCalls, mt.ExplorationCalls, mt.BuildSuccess)
+
+		if mode == "control" {
+			controls[taskID] = mt
+		} else {
+			treatments[taskID] = mt
+		}
+	}
+
+	if len(controls) == 0 && len(treatments) == 0 {
+		t.Skip("no multi-turn transcripts found")
+	}
+
+	// Generate report.
+	var sb strings.Builder
+	sb.WriteString("# Multi-Turn Agent Efficiency Results\n\n")
+	sb.WriteString("| Task | Mode | Tokens | Tools | Explore | Knowing | Build | Wall (s) |\n")
+	sb.WriteString("|------|------|--------|-------|---------|---------|-------|----------|\n")
+
+	allTasks := make(map[string]bool)
+	for k := range controls {
+		allTasks[k] = true
+	}
+	for k := range treatments {
+		allTasks[k] = true
+	}
+
+	for taskID := range allTasks {
+		if ctrl, ok := controls[taskID]; ok {
+			sb.WriteString(fmt.Sprintf("| %s | control | %d | %d | %d | %d | %v | %.1f |\n",
+				taskID, ctrl.TotalTokens, ctrl.ToolCalls, ctrl.ExplorationCalls, ctrl.KnowingCalls, ctrl.BuildSuccess, float64(ctrl.WallClockMs)/1000))
+		}
+		if treat, ok := treatments[taskID]; ok {
+			sb.WriteString(fmt.Sprintf("| %s | treatment | %d | %d | %d | %d | %v | %.1f |\n",
+				taskID, treat.TotalTokens, treat.ToolCalls, treat.ExplorationCalls, treat.KnowingCalls, treat.BuildSuccess, float64(treat.WallClockMs)/1000))
+		}
+	}
+
+	// Comparison summary for paired results.
+	sb.WriteString("\n## Paired Comparison\n\n")
+	sb.WriteString("| Task | Token Δ | Tool Δ | Explore Δ | Build Ctrl | Build Treat |\n")
+	sb.WriteString("|------|---------|--------|-----------|------------|-------------|\n")
+
+	for taskID := range allTasks {
+		ctrl, cOk := controls[taskID]
+		treat, tOk := treatments[taskID]
+		if !cOk || !tOk {
+			continue
+		}
+		tokenDelta := treat.TotalTokens - ctrl.TotalTokens
+		toolDelta := treat.ToolCalls - ctrl.ToolCalls
+		exploreDelta := treat.ExplorationCalls - ctrl.ExplorationCalls
+		sb.WriteString(fmt.Sprintf("| %s | %+d | %+d | %+d | %v | %v |\n",
+			taskID, tokenDelta, toolDelta, exploreDelta, ctrl.BuildSuccess, treat.BuildSuccess))
+	}
+
+	report := sb.String()
+	dest := filepath.Join(testDir(t), "FINDINGS-multi-turn.md")
+	if err := os.WriteFile(dest, []byte(report), 0o644); err != nil {
+		t.Fatalf("write findings: %v", err)
+	}
+	t.Logf("wrote %s", dest)
 	t.Log("\n" + report)
 }
 

@@ -1,0 +1,1 @@
+{"task":"refactor-return-type","mode":"treatment","build_success":true,"verify_command":"GOWORK=off go build ./... && GOWORK=off go test ./internal/resolve/ -timeout 1m"}

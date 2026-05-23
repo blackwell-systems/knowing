@@ -189,6 +189,44 @@ Current status: per-repo isolation (no cross-repo queries). First real user who 
 | **Feedback weight sensitivity** | Sweep feedback weight from 0.05 to 0.50 in 0.05 increments. Plot P@10 vs weight. Find the optimal operating point. Currently 0.15 shows no lift in cold-start; this identifies the right value. | Not started (feedback-loop infrastructure exists) | Low |
 | **LSP enrichment ROI** | Run cross-system benchmark with and without LSP enrichment. Measure the P@10 delta that enrichment adds over tree-sitter alone. Quantifies whether the enrichment latency (seconds) pays for itself. | Not started | Medium |
 
+### P1: Competitive demolition demo
+
+A head-to-head harness that runs identical queries against all systems and produces a side-by-side comparison. Non-technical audience (investors, potential users) can understand the result in 30 seconds.
+
+**Format:** 5 tasks, 5 systems, table showing: response time, results returned, callers found, callers missed, RAM used, whether it even runs.
+
+**Tasks designed to expose competitor failures:**
+- "Find all callers of X" (GitNexus: can't index; grep: false positives; knowing: precise graph traversal)
+- "What breaks if I remove this interface?" (Gortex: misses interface implementors; Repomix: dumps 300K tokens)
+- "Affected tests for this file change" (no competitor has call-graph test prediction)
+- "Index kubernetes and query it" (GitNexus: killed at 60min; CGC: impossible; knowing: 18.6s + 60ms query)
+- "Give me 5K tokens of context for this task" (Repomix: 300K tokens, no ranking; knowing: ranked, budgeted)
+
+**Output:** Markdown table + optional terminal recording (asciinema). Publishable on README, blog, Zenodo.
+
+**Aider comparison (previously blocked, now unblocked):** Was blocked by scipy/Fortran
+dependency. Fix: `uv python install 3.11 && uv venv --python 3.11 && uv pip install aider-chat`
+pulls pre-built wheels, no compiler needed.
+
+Why Aider matters:
+- **Most credible competitor.** Real users, real GitHub stars, real agent loop. If knowing
+  beats Aider on the same tasks, that's the strongest possible evidence.
+- **Cross-system benchmark gap.** The context packing study (bench/CONTEXT-PACKING-STUDY.md)
+  lists Aider as the #2 priority next step. It's the only real coding agent in the competitor
+  set (GitNexus/Gortex/CGC are retrieval tools, not agents).
+- **Apples-to-apples comparison.** Aider uses its own repo-map (tree-sitter based) for
+  context. knowing uses graph-ranked context. Same input (task description + repo), different
+  context strategy. Measures whether graph intelligence beats Aider's simpler approach.
+- **SWE-bench bridge.** Aider publishes SWE-bench scores. If we run the same SWE-bench
+  subset with knowing providing context to Claude, we get a direct comparison against
+  Aider's published numbers without needing their full eval harness.
+- **Multi-turn agent efficiency.** The multi-turn benchmark tasks (refactor-return-type,
+  add-symbol-info-tool) are exactly what Aider does: edit multiple files to complete a
+  coding task. Running Aider on the same tasks gives a direct "knowing+Claude vs Aider"
+  comparison on tool calls, tokens, and correctness.
+
+**Status:** Data exists in cross-system FINDINGS. Needs packaging into a reproducible harness with live competitor invocations and a polished output format.
+
 ### Not yet benchmarked (tracked for completeness)
 
 - **Proof verification throughput**: N proofs/sec verified (currently 1.2µs each = ~800K/sec theoretical)

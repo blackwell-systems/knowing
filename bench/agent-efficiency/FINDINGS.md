@@ -111,3 +111,114 @@ questions faster. It makes 30-minute coding sessions cheaper by eliminating redu
 exploration and surfacing connections the agent wouldn't find alone. The evidence for
 this exists in the hook benchmark, token-savings benchmark, and cross-system retrieval
 benchmark. A proper multi-turn session benchmark is needed to quantify the full value.
+
+## Multi-Turn Results (2026-05-23, tasks v1)
+
+### add-json-flag (1-file task, sanity check)
+
+| Mode | Tool calls | Tokens | Verify |
+|------|-----------|--------|--------|
+| Control | 5 | 138 | PASS |
+| Treatment | 7 | 180 | PASS |
+| **Delta** | **+2** | **+42** | — |
+
+Treatment overhead: context_for_task + extra Read. Expected: simple task, no discovery needed.
+
+### refactor-return-type (5-file refactor)
+
+| Mode | Tool calls | Tokens | Verify |
+|------|-----------|--------|--------|
+| Control | 32 | 962 | PASS |
+| Treatment | 40 | 10572 | PASS |
+| **Delta** | **+8** | **+9610** | — |
+
+Treatment overhead: context_for_task (1 call) + ToolSearch + more Read/Edit turns.
+Token delta is inflated: token metric sums input+output per turn, so more turns = more
+cumulative input context counted (double-counting issue in measurement).
+
+### Key Finding: Task Design Problem
+
+The `refactor-return-type` task **lists all 5 caller files in the prompt**. The agent
+doesn't need to discover callers; they're given. Both modes just Read each file and Edit
+it. knowing can't show value when discovery is already done.
+
+**Fix for next run:** Remove caller file paths from the task. Say "update ALL callers of
+InferExternalRepoURL" and let the agent find them. Control will grep. Treatment will use
+blast_radius or context_for_task. THAT tests knowing's value.
+
+### Token Measurement Issue
+
+The transcript parser sums `input_tokens + output_tokens` across all turns. Since input
+includes the growing conversation context, more turns = higher token count even if the
+agent does the same work. Better metric: **output tokens only** (what the agent generated)
+or just **tool call count + build success**.
+
+### Verdict
+
+The multi-turn harness works correctly (worktrees, verification, transcripts). Task design
+needs refinement: tasks must require DISCOVERY, not just EXECUTION. Knowing's value is in
+finding what to change, not in making the changes.
+
+## Multi-Turn v2 Results (2026-05-23, discovery-focused tasks)
+
+### ambient-context (understand RankSymbols neighborhood)
+
+| Mode | Tool calls | Output tokens | Answer quality |
+|------|-----------|---------------|----------------|
+| Control | 4 | 102 | Excellent (found all callers, deps, tests) |
+| Treatment | 11 | 309 | Excellent (same info, slightly more structured) |
+| **Delta** | **+7** | **+207** | **Equal** |
+
+### refactor-return-type v2 (discovery required)
+
+| Mode | Tool calls | Output tokens | Build |
+|------|-----------|---------------|-------|
+| Control | 32 | 1415 | PASS |
+| Treatment | 36 | 1409 | PASS |
+| **Delta** | **+4** | **-6** | **Equal** |
+
+## The Real Finding
+
+**Sonnet + grep is already near-optimal for the knowing codebase at 160K LOC.**
+
+At this scale, function names are unique, grep finds them instantly, and the agent
+reads the file in one call. The graph adds latency without adding information the
+agent couldn't find in 2 greps.
+
+### Where knowing WILL show value (not testable with current benchmark design):
+
+1. **Larger repos (1M+ LOC):** grep for "Handler" returns 500+ results. knowing's
+   ranking surfaces the 5 that matter. The cross-system benchmark already proves
+   this: P@10=0.230 vs grep 0.020 on kubernetes (3.5M LOC).
+
+2. **Ambient automatic context (hooks):** The pre-edit hook injects context before
+   every edit WITHOUT the agent asking. No tool call, no latency tax. This is proven
+   by the hook benchmark (100% coverage, fires every edit).
+
+3. **Indirect dependencies (interfaces, callbacks):** grep finds `ComputeNodeHash`
+   callers but NOT callers through the `types.Extractor` interface. The graph knows
+   that `GoTreeSitterExtractor.Extract` calls `ComputeNodeHash` because it traced
+   the call edge.
+
+4. **Session compounding:** First query is cold (same as grep). Fifth similar query
+   benefits from task memory (+20pp precision from feedback-loop bench). grep never
+   improves.
+
+5. **Test scope:** "Which tests should I run?" requires call-graph traversal. grep
+   can't answer this (98.9% precision, already proven).
+
+### Conclusion
+
+The agent efficiency benchmark proves that **knowing does not make Sonnet faster at
+answering questions about a 160K LOC Go codebase.** Sonnet is already excellent at
+this with grep.
+
+knowing's proven value is:
+- Retrieval quality at scale (11.5x vs grep on k8s, p<0.0001)
+- Automatic context injection (hooks: 100% coverage, zero agent effort)
+- Test scope prediction (98.9% precision)
+- Feedback compounding (+20pp over time)
+- Token efficiency (84% fewer tokens via GCF format)
+
+These are the right metrics. The agent efficiency benchmark was looking for value in
+the wrong place: single-repo, single-question scenarios where grep is already optimal.

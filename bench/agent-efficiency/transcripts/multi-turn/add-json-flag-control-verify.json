@@ -1,0 +1,1 @@
+{"task":"add-json-flag","mode":"control","build_success":true,"verify_command":"GOWORK=off go build ./cmd/knowing/"}
