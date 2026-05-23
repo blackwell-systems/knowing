@@ -35,6 +35,15 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+import "flag"
+
+var (
+	skipAdapters = flag.String("bench.skip-adapters", "", "Comma-separated adapter names to exclude (e.g., gortex,gitnexus)")
+	skipRepos    = flag.String("bench.skip-repos", "", "Comma-separated repo names to exclude (e.g., kubernetes,vscode)")
+	onlyAdapters = flag.String("bench.adapters", "", "Comma-separated adapter names to include (exclusive; overrides skip)")
+	onlyRepos    = flag.String("bench.repos", "", "Comma-separated repo names to include (exclusive; overrides skip)")
+)
+
 const defaultTokenBudget = 5000
 
 // TestCrossSystem is the main benchmark entry point.
@@ -68,34 +77,12 @@ func TestCrossSystem(t *testing.T) {
 		t.Logf("Unavailable adapters (not installed): %v", missing)
 	}
 
-	// BENCH_ADAPTERS env var filters which adapters to run (comma-separated).
-	// Example: BENCH_ADAPTERS=knowing,grep,aider (excludes gortex, gitnexus)
-	if filter := os.Getenv("BENCH_ADAPTERS"); filter != "" {
-		allowed := make(map[string]bool)
-		for _, name := range strings.Split(filter, ",") {
-			allowed[strings.TrimSpace(name)] = true
-		}
-		var filtered []benchtype.Adapter
-		for _, a := range available {
-			if allowed[a.Name()] {
-				filtered = append(filtered, a)
-			}
-		}
-		available = filtered
-	}
-
+	// Filter adapters via flags (preferred) or env vars (fallback).
+	available = filterAdapters(t, available)
 	t.Logf("Running with %d adapters: %v", len(available), adapterNames(available))
 
-	// BENCH_REPOS env var filters which repos to run tasks for (comma-separated).
-	// Example: BENCH_REPOS=flask,django (excludes kubernetes, vscode, cargo)
-	var repoFilter map[string]bool
-	if filter := os.Getenv("BENCH_REPOS"); filter != "" {
-		repoFilter = make(map[string]bool)
-		for _, name := range strings.Split(filter, ",") {
-			repoFilter[strings.TrimSpace(name)] = true
-		}
-		t.Logf("Repo filter: %v", repoFilter)
-	}
+	// Filter repos via flags (preferred) or env vars (fallback).
+	repoFilter := buildRepoFilter(t)
 
 	var allResults []benchtype.MetricResult
 
@@ -103,8 +90,7 @@ func TestCrossSystem(t *testing.T) {
 		t.Logf("\n--- System: %s ---", adapter.Name())
 
 		for _, task := range tasks {
-			// Skip repos not in filter.
-			if repoFilter != nil && !repoFilter[task.Repo] {
+			if !repoAllowed(task.Repo, repoFilter) {
 				continue
 			}
 
@@ -345,4 +331,109 @@ func lastDotComponent(s string) string {
 		return s[idx+1:]
 	}
 	return s
+}
+
+// filterAdapters applies --bench.adapters (include) or --bench.skip-adapters (exclude)
+// flags, falling back to BENCH_ADAPTERS env var.
+func filterAdapters(t *testing.T, available []benchtype.Adapter) []benchtype.Adapter {
+	t.Helper()
+
+	// Priority: flag > env var.
+	includeStr := *onlyAdapters
+	if includeStr == "" {
+		includeStr = os.Getenv("BENCH_ADAPTERS")
+	}
+	excludeStr := *skipAdapters
+
+	// Include list (exclusive): only run these.
+	if includeStr != "" {
+		allowed := parseCSV(includeStr)
+		var filtered []benchtype.Adapter
+		for _, a := range available {
+			if allowed[a.Name()] {
+				filtered = append(filtered, a)
+			}
+		}
+		if len(filtered) == 0 {
+			t.Fatalf("no adapters matched include filter %q", includeStr)
+		}
+		return filtered
+	}
+
+	// Exclude list (subtractive): skip these.
+	if excludeStr != "" {
+		blocked := parseCSV(excludeStr)
+		var filtered []benchtype.Adapter
+		for _, a := range available {
+			if !blocked[a.Name()] {
+				filtered = append(filtered, a)
+			}
+		}
+		if len(blocked) > 0 {
+			t.Logf("Skipping adapters: %v", excludeStr)
+		}
+		return filtered
+	}
+
+	return available
+}
+
+// buildRepoFilter applies --bench.repos (include) or --bench.skip-repos (exclude)
+// flags, falling back to BENCH_REPOS env var. Returns nil if no filter (run all).
+func buildRepoFilter(t *testing.T) map[string]bool {
+	t.Helper()
+
+	includeStr := *onlyRepos
+	if includeStr == "" {
+		includeStr = os.Getenv("BENCH_REPOS")
+	}
+	excludeStr := *skipRepos
+
+	if includeStr != "" {
+		filter := parseCSV(includeStr)
+		t.Logf("Repo include filter: %v", includeStr)
+		return filter
+	}
+
+	if excludeStr != "" {
+		// For exclude, we return a special sentinel and check differently.
+		// Actually, easier: return nil and check exclusion in the loop.
+		// But to keep the interface clean, we'll handle exclude in the caller.
+		// For now, convert exclude to include by inverting against known repos.
+		blocked := parseCSV(excludeStr)
+		t.Logf("Repo exclude filter: %v", excludeStr)
+		// Return blocked set with a marker to indicate it's an exclude filter.
+		result := make(map[string]bool)
+		result["__exclude__"] = true
+		for k := range blocked {
+			result[k] = true
+		}
+		return result
+	}
+
+	return nil
+}
+
+// repoAllowed checks if a repo passes the filter.
+func repoAllowed(repo string, filter map[string]bool) bool {
+	if filter == nil {
+		return true
+	}
+	if filter["__exclude__"] {
+		// Exclude mode: repo is allowed if NOT in the set.
+		return !filter[repo]
+	}
+	// Include mode: repo must be in the set.
+	return filter[repo]
+}
+
+func parseCSV(s string) map[string]bool {
+	m := make(map[string]bool)
+	for _, part := range strings.Split(s, ",") {
+		name := strings.TrimSpace(part)
+		if name != "" {
+			m[name] = true
+		}
+	}
+	return m
 }
