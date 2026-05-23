@@ -130,6 +130,9 @@ knowing verify proof.json
 
 # Check graph integrity
 knowing fsck
+
+# Check if the graph is stale (CI gate: exits 1 if stale)
+knowing stale
 ```
 
 ### MCP Integration

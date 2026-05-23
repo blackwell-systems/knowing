@@ -48,8 +48,8 @@ Packages are already the unit of Merkle computation, cache invalidation, diffing
 | Item | Description | Priority |
 |------|-------------|----------|
 | ~~`knowing stats`~~ | ~~Cumulative session value: context calls, symbols served, feedback rate, token savings.~~ **Shipped.** | ~~P2~~ |
-| Cross-repo awareness for non-Go extractors | TypeScript, Python, Rust, Java, and C# extractors use the local repo URL for all targets. Only the Go extractor has `inferRepoURL` with stdlib detection. | P2 |
-| Staleness reporting | `knowing stale` reports stale edges from changed files since last snapshot. | P2 |
+| ~~Cross-repo awareness for non-Go extractors~~ | ~~TypeScript, Python, Rust, Java, and C# extractors use the local repo URL for all targets. Only the Go extractor has `inferRepoURL` with stdlib detection.~~ **Shipped.** All 5 OOP extractors now have `inferExternalRepoURL` with `"external://{packageName}"` or `"stdlib"` prefix. Python (site-packages + ~50 stdlib modules), TypeScript (bare specifiers), Rust (std::/core::/alloc::), Java (java.*/javax.*), C# (System.*/Microsoft.*). | ~~P2~~ |
+| ~~Staleness reporting~~ | ~~`knowing stale` reports stale edges from changed files since last snapshot.~~ **Shipped.** `knowing stale` detects changed files via git diff, looks up stale nodes via `StaleNodesByFiles`, exits 1 when stale (CI-friendly). | ~~P2~~ |
 | Daemon lifecycle | `knowing daemon start --detach`, `status`, `stop`, `restart`. | P2 |
 | `untrack_repo` MCP tool + CLI | Evict a repo's nodes, edges, files, and snapshots. | P2 |
 | `knowing daemon install-service` | Generate launchd plist (macOS) or systemd user unit (Linux). | P3 |

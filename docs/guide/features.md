@@ -1,6 +1,6 @@
 # FEATURES.md -- Comprehensive Feature Dump for AI Reference
 
-Generated: 2026-05-15 (updated: 2026-05-22, features 77-114 added: hash domain prefixes, fsck, GC, lockfile, LRU cache, modular community detection, DiffOptions, indexed_at, verify, React viz, MCP resources, graph notes, Phase 3 complete, Merkle proofs, stats CLI, named refs, generation numbers, auto-GC, merkle-strata extraction; P2 edge types, parallel indexer, cross-system benchmark, language equivalence classes, cross-file import resolution, inheritance propagation, deeper call chains, test deprioritization; FTS concepts column, task memory persistence; compound-first keyword extraction, Java/C# import resolution; daemon lifecycle, untrack_repo)
+Generated: 2026-05-15 (updated: 2026-05-22, features 77-116 added: hash domain prefixes, fsck, GC, lockfile, LRU cache, modular community detection, DiffOptions, indexed_at, verify, React viz, MCP resources, graph notes, Phase 3 complete, Merkle proofs, stats CLI, named refs, generation numbers, auto-GC, merkle-strata extraction; P2 edge types, parallel indexer, cross-system benchmark, language equivalence classes, cross-file import resolution, inheritance propagation, deeper call chains, test deprioritization; FTS concepts column, task memory persistence; compound-first keyword extraction, Java/C# import resolution; daemon lifecycle, untrack_repo; staleness reporting, cross-repo awareness for non-Go extractors)
 Source: code inspection of all Go files across internal/, cmd/, and config
 Repo: github.com/blackwell-systems/knowing
 
@@ -1198,6 +1198,27 @@ Repo: github.com/blackwell-systems/knowing
 - **What it does:** Evicts all data for a repository from the knowledge graph: nodes, edges, files, snapshots, feedback, task_memory, and graph_notes. The CLI command also removes the repo from the roster. Available as the 28th MCP tool (`untrack_repo`) with parameter `repo_url` (required).
 - **Implementation:** `internal/store/evict.go` (data eviction logic), `internal/mcp/untrack.go` (MCP tool handler).
 - **Limitations/known gaps:** Does not delete the per-repo database file unless `--purge` is passed (CLI only).
+
+### 115. Staleness Reporting (`knowing stale`)
+
+- **Package(s):** `cmd/knowing`, `internal/store`
+- **Entry point:** `knowing stale` CLI command
+- **What it does:** Detects files changed since the last snapshot (via git diff against the snapshot's commit), looks up stale nodes via `StaleNodesByFiles` store method, and reports counts. Exits with code 1 when stale files are found (CI-friendly gate). Exits with code 0 when the graph is fresh.
+- **Implementation:** `cmd/knowing/stale.go`, `internal/store/sqlite.go` (`StaleNodesByFiles` method).
+- **Limitations/known gaps:** Only detects staleness relative to the latest snapshot's commit; does not detect uncommitted working tree changes.
+
+### 116. Cross-Repo Awareness for Non-Go Extractors
+
+- **Package(s):** `internal/indexer/treesitter`
+- **Entry point:** `inferExternalRepoURL` functions in each OOP extractor
+- **What it does:** All 5 OOP extractors (Python, TypeScript, Rust, Java, C#) detect external packages and compute target hashes with `"external://{packageName}"` or `"stdlib"` prefix instead of the local repo URL. This gives cross-repo identity for import edges without full registry lookups.
+- **Language-specific detection:**
+  - Python: `site-packages/` path detection + ~50 known stdlib modules
+  - TypeScript: bare specifiers (non-relative imports) = npm packages
+  - Rust: `std::`/`core::`/`alloc::` = stdlib, other non-crate paths = external
+  - Java: `java.*`/`javax.*` = stdlib, third-party identified by package prefix
+  - C#: `System.*`/`Microsoft.*` = stdlib, third-party identified by namespace
+- **Limitations/known gaps:** No version resolution; package names are used as-is without registry lookup for the actual repo URL.
 
 ### GraphStore (`internal/types/interfaces.go`)
 

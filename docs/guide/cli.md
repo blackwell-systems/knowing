@@ -13,7 +13,7 @@ See [distribution.md](distribution.md) for installation instructions.
 knowing <subcommand> [flags]
 ```
 
-Subcommands: `serve`, `daemon`, `index`, `query`, `export`, `diff`, `context`, `why`, `mcp`, `watch`, `reindex`, `init`, `add`, `remove`, `list`, `stats`, `reset`, `vacuum`, `test-scope`, `ingest-scip`, `enrich`, `fsck`, `prove`, `verify`, `prove-absent`, `audit`, `audit-diff`, `version`.
+Subcommands: `serve`, `daemon`, `index`, `query`, `export`, `diff`, `context`, `why`, `mcp`, `watch`, `reindex`, `init`, `add`, `remove`, `list`, `stats`, `stale`, `reset`, `vacuum`, `test-scope`, `ingest-scip`, `enrich`, `fsck`, `prove`, `verify`, `prove-absent`, `audit`, `audit-diff`, `version`.
 
 ## Environment
 
@@ -823,6 +823,47 @@ knowing stats -db ~/.knowing/repos/my-repo.db
 - Requires a pre-built database. Run `knowing index` first.
 - Feedback metrics include merkleized count (feedback records with a
   `neighborhood_root` stored, enabling automatic expiration).
+
+---
+
+### stale
+
+Detect files changed since the last snapshot and report stale nodes.
+
+```
+knowing stale [flags]
+```
+
+Runs `git diff` against the commit recorded in the latest snapshot, passes changed
+file paths to the `StaleNodesByFiles` store method, and reports counts of stale
+nodes per file. Designed as a CI gate: exits with code 1 when stale files are
+found, code 0 when the graph is fresh.
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `-db` | string | *(per-repo, from roster)* | Path to the SQLite database |
+| `-repo` | string | *(cwd)* | Repository path (defaults to current directory) |
+
+**Examples:**
+
+```bash
+# Check if the graph is stale relative to HEAD
+knowing stale
+
+# Check a specific repo
+knowing stale --repo ./my-service
+
+# Use in CI (fails the step if stale)
+knowing stale || knowing index .
+```
+
+**Notes:**
+
+- Requires a pre-built database with at least one snapshot. Run `knowing index` first.
+- Only detects staleness relative to the latest snapshot's recorded commit.
+- Implementation: `cmd/knowing/stale.go`, `internal/store/sqlite.go` (`StaleNodesByFiles`).
 
 ---
 

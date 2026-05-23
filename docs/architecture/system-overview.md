@@ -203,6 +203,18 @@ Python, TypeScript, Rust, Java, and C# extractors build per-file import maps dur
 | Java | `buildJavaImportMap` | `import com.pkg.Class`, `import static` |
 | C# | `buildCSharpImportMap` | `using Namespace`, `using static` |
 
+**Cross-repo awareness (all 5 OOP extractors):**
+
+Each OOP extractor has an `inferExternalRepoURL` function that detects when an import target is external (third-party or stdlib) and computes a target hash using `"external://{packageName}"` or `"stdlib"` as the repo URL prefix instead of the local repo URL. This gives cross-repo identity to import edges without requiring full registry lookups.
+
+| Language | Stdlib detection | External detection |
+|----------|-----------------|-------------------|
+| Python | ~50 known stdlib modules | `site-packages/` in path |
+| TypeScript | n/a | Bare specifiers (non-relative imports) |
+| Rust | `std::`/`core::`/`alloc::` | Other non-crate paths |
+| Java | `java.*`/`javax.*` | Third-party by package prefix |
+| C# | `System.*`/`Microsoft.*` | Third-party by namespace |
+
 The Go tree-sitter extractor (`gotsextractor`) is the default. The go/packages extractor (`goextractor`) is available via `knowing index --full` as a deliberate escape hatch for cases requiring guaranteed single-pass type resolution at the cost of 16+ minutes. This is a design choice: two-tier is the architecture, `--full` exists for validation and edge cases where LSP enrichment is unavailable (air-gapped environments, missing gopls).
 
 **LSP client:**

@@ -235,6 +235,37 @@ Shows cumulative graph statistics and feedback metrics: repos, nodes, edges, fil
 - `--db`: database path
 - `--json`: output as JSON (single-line)
 
+### `knowing stale`
+
+Detects files changed since the last snapshot and reports stale nodes. Intended as a CI gate: exits with code 1 when stale files are found, code 0 when the graph is fresh.
+
+**Usage:** `knowing stale [flags]`
+
+**Flags:**
+- `--db` (default: roster lookup or `~/.knowing/knowing.db`): database path
+- `--repo`: repository path (default: current directory)
+
+**How it works:**
+1. Runs `git diff` against the commit recorded in the latest snapshot
+2. Passes changed file paths to the `StaleNodesByFiles` store method
+3. Reports counts of stale nodes per file
+4. Exits with code 1 if any stale files are found, code 0 otherwise
+
+**Implementation:** `cmd/knowing/stale.go`, `internal/store/sqlite.go` (`StaleNodesByFiles` method).
+
+**Examples:**
+
+```bash
+# Check if the graph is stale relative to HEAD
+knowing stale
+
+# Check a specific repo
+knowing stale --repo ./my-service
+
+# Use in CI (fails the step if stale)
+knowing stale || knowing index .
+```
+
 ## Integrity and Proofs
 
 ### `knowing fsck`

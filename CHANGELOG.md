@@ -8,6 +8,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+#### Staleness Reporting (`knowing stale`)
+- `knowing stale` CLI command detects files changed since last snapshot (via git diff) and reports stale node counts
+- Uses `StaleNodesByFiles` store method to look up nodes affected by changed files
+- Exits with code 1 when stale files are found (CI-friendly gate)
+- Implementation: `cmd/knowing/stale.go`, `internal/store/sqlite.go` (`StaleNodesByFiles` method)
+
+#### Cross-Repo Awareness for Non-Go Extractors
+- All 5 OOP extractors (Python, TypeScript, Rust, Java, C#) now have `inferExternalRepoURL` functions
+- Detects external packages and computes target hashes with `"external://{packageName}"` or `"stdlib"` prefix instead of the local repo URL
+- Gives cross-repo identity for import edges without full registry lookups
+- Python: `site-packages/` detection + ~50 stdlib modules
+- TypeScript: bare specifiers (non-relative imports) treated as npm packages
+- Rust: `std::`/`core::`/`alloc::` = stdlib, other non-crate paths = external
+- Java: `java.*`/`javax.*` = stdlib, third-party by package prefix
+- C#: `System.*`/`Microsoft.*` = stdlib, third-party by namespace
+
 #### Daemon Lifecycle Commands
 - `knowing daemon start [--detach]`: start the daemon, optionally in background mode
 - `knowing daemon stop`: stop a running daemon by PID
