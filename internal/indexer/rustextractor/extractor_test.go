@@ -577,6 +577,131 @@ mod tests {
 	}
 }
 
+func TestInferExternalRepoURL(t *testing.T) {
+	tests := []struct {
+		usePath string
+		want    string
+	}{
+		{"tokio::runtime", "external://tokio"},
+		{"crate::config", ""},
+		{"std::collections", "stdlib"},
+		{"serde::Deserialize", "external://serde"},
+		{"core::fmt", "stdlib"},
+		{"alloc::vec", "stdlib"},
+		{"super::helpers", ""},
+		{"self::module", ""},
+		{"hyper::client::Client", "external://hyper"},
+		{"", ""},
+	}
+
+	for _, tt := range tests {
+		got := inferExternalRepoURL(tt.usePath)
+		if got != tt.want {
+			t.Errorf("inferExternalRepoURL(%q) = %q, want %q", tt.usePath, got, tt.want)
+		}
+	}
+}
+
+func TestRustExtractor_ExternalCrateImportEdgeUsesExternalRepoURL(t *testing.T) {
+	ext := NewRustExtractor()
+	source := `use tokio::runtime::Runtime;
+use crate::config::Settings;
+use std::collections::HashMap;
+`
+	opts := makeOpts(source)
+	result, err := ext.Extract(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Extract() error: %v", err)
+	}
+
+	importEdges := filterEdges(result.Edges, "imports")
+	if len(importEdges) < 3 {
+		t.Fatalf("expected at least 3 import edges, got %d", len(importEdges))
+	}
+
+	// Verify that the tokio import edge target hash uses "external://tokio" as the repo URL.
+	// We can verify by computing the expected target hash with the external URL.
+	tokioExpectedHash := types.ComputeNodeHash("external://tokio", "tokio", types.EmptyHash, "tokio", "package")
+	stdExpectedHash := types.ComputeNodeHash("stdlib", "std", types.EmptyHash, "std", "package")
+	// crate:: should use the local repo URL
+	crateExpectedHash := types.ComputeNodeHash("test://repo", "crate", types.EmptyHash, "crate", "package")
+
+	foundTokio := false
+	foundStd := false
+	foundCrate := false
+	for _, e := range importEdges {
+		if e.TargetHash == tokioExpectedHash {
+			foundTokio = true
+		}
+		if e.TargetHash == stdExpectedHash {
+			foundStd = true
+		}
+		if e.TargetHash == crateExpectedHash {
+			foundCrate = true
+		}
+	}
+
+	if !foundTokio {
+		t.Error("expected import edge for tokio with target hash computed using 'external://tokio' repo URL")
+	}
+	if !foundStd {
+		t.Error("expected import edge for std with target hash computed using 'stdlib' repo URL")
+	}
+	if !foundCrate {
+		t.Error("expected import edge for crate:: with target hash computed using local repo URL")
+	}
+}
+
+func TestRustExtractor_ExternalCrateCallEdgeUsesExternalRepoURL(t *testing.T) {
+	ext := NewRustExtractor()
+	// When resolving call edges through imports, external crates should use
+	// the external repo URL for the target hash.
+	source := `use tokio::runtime::Runtime;
+
+fn main() {
+    let rt = Runtime::new();
+}
+`
+	opts := makeOpts(source)
+	result, err := ext.Extract(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Extract() error: %v", err)
+	}
+
+	callEdges := filterEdges(result.Edges, "calls")
+	if len(callEdges) < 1 {
+		t.Fatalf("expected at least 1 call edge, got %d", len(callEdges))
+	}
+
+	// The call to Runtime::new should resolve through the import map.
+	// Since "Runtime" maps to "" (external, resolveRustModulePath returns ""),
+	// inferExternalRepoURL("tokio") should produce "external://tokio".
+	// The target hash should be computed with "external://tokio" as repo URL.
+	expectedTargetHash := types.ComputeNodeHash("external://tokio", "tokio", types.EmptyHash, "Runtime::new", "function")
+
+	found := false
+	for _, e := range callEdges {
+		if e.TargetHash == expectedTargetHash {
+			found = true
+			if e.Provenance != "ast_resolved" {
+				t.Errorf("expected provenance 'ast_resolved', got %q", e.Provenance)
+			}
+			if e.Confidence != 0.85 {
+				t.Errorf("expected confidence 0.85, got %f", e.Confidence)
+			}
+			break
+		}
+	}
+
+	if !found {
+		t.Error("expected call edge for Runtime::new with target hash computed using 'external://tokio' repo URL")
+		t.Logf("Call edges found:")
+		for _, e := range callEdges {
+			t.Logf("  target hash: %s, provenance: %s", e.TargetHash, e.Provenance)
+		}
+	}
+}
+
 // --- helpers ---
 
 func filterNodes(nodes []types.Node, kind string) []types.Node {
