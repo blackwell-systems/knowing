@@ -588,6 +588,153 @@ public class App {
 	}
 }
 
+func TestInferExternalRepoURL(t *testing.T) {
+	tests := []struct {
+		importPath string
+		localPkg   string
+		want       string
+	}{
+		// Java stdlib imports return "stdlib".
+		{"java.util.List", "com.myapp.service", "stdlib"},
+		{"java.util.Map", "", "stdlib"},
+		{"javax.servlet.http.HttpServletRequest", "com.myapp.web", "stdlib"},
+
+		// Third-party external packages return "external://{group}".
+		{"org.springframework.web.bind.annotation.GetMapping", "com.myapp.service", "external://org.springframework"},
+		{"org.apache.commons.lang3.StringUtils", "com.myapp.util", "external://org.apache"},
+		{"io.netty.channel.Channel", "com.myapp.net", "external://io.netty"},
+
+		// Same-project imports (first 2 segments match) return "".
+		{"com.myapp.model.User", "com.myapp.service", ""},
+		{"com.myapp.util.Helper", "com.myapp.controller", ""},
+
+		// Edge cases.
+		{"", "", ""},
+		{"singleword", "", "external://singleword"},
+		{"com.other.Service", "com.myapp.service", "external://com.other"},
+	}
+
+	for _, tt := range tests {
+		got := inferExternalRepoURL(tt.importPath, tt.localPkg)
+		if got != tt.want {
+			t.Errorf("inferExternalRepoURL(%q, %q) = %q, want %q",
+				tt.importPath, tt.localPkg, got, tt.want)
+		}
+	}
+}
+
+func TestJavaExtractor_ExternalImportEdge(t *testing.T) {
+	ext := NewJavaExtractor()
+	source := `package com.myapp.service;
+
+import org.springframework.web.bind.annotation.GetMapping;
+import com.myapp.model.User;
+
+public class UserController {
+    public void getUser() {
+    }
+}
+`
+	opts := makeOpts("src/com/myapp/service/UserController.java", source)
+
+	result, err := ext.Extract(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Extract() error: %v", err)
+	}
+
+	importEdges := filterEdgesByType(result.Edges, "imports")
+	if len(importEdges) < 2 {
+		t.Fatalf("expected at least 2 import edges, got %d", len(importEdges))
+	}
+
+	// The Spring import should use "external://org.springframework" as repo URL
+	// in its target hash. Verify by recomputing what the hash should be.
+	springImport := "org.springframework.web.bind.annotation.GetMapping"
+	externalRepoURL := "external://org.springframework"
+	expectedHash := types.ComputeNodeHash(externalRepoURL, springImport, types.EmptyHash, springImport, "package")
+
+	foundExternalImport := false
+	for _, e := range importEdges {
+		if e.TargetHash == expectedHash {
+			foundExternalImport = true
+			break
+		}
+	}
+	if !foundExternalImport {
+		t.Error("import edge for org.springframework should use external://org.springframework as repo URL in target hash")
+		for _, e := range importEdges {
+			t.Logf("  import edge target hash: %s", e.TargetHash)
+		}
+	}
+
+	// The local import (com.myapp.model.User) should use the original repo URL
+	// because it shares the same base package "com.myapp".
+	localImport := "com.myapp.model.User"
+	localExpectedHash := types.ComputeNodeHash(opts.RepoURL, localImport, types.EmptyHash, localImport, "package")
+
+	foundLocalImport := false
+	for _, e := range importEdges {
+		if e.TargetHash == localExpectedHash {
+			foundLocalImport = true
+			break
+		}
+	}
+	if !foundLocalImport {
+		t.Error("import edge for com.myapp.model.User should use original repo URL in target hash")
+	}
+}
+
+func TestJavaExtractor_ExternalMethodInvocationHash(t *testing.T) {
+	ext := NewJavaExtractor()
+	source := `package com.myapp.service;
+
+import org.springframework.web.bind.annotation.RestController;
+
+public class MyService {
+    public void doWork() {
+        RestController.validate();
+    }
+}
+`
+	opts := makeOpts("src/com/myapp/service/MyService.java", source)
+
+	result, err := ext.Extract(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Extract() error: %v", err)
+	}
+
+	callEdges := filterEdgesByType(result.Edges, "calls")
+	if len(callEdges) < 1 {
+		t.Fatalf("expected at least 1 call edge, got %d", len(callEdges))
+	}
+
+	// The method invocation on RestController should use external://org.springframework
+	// as the repo URL because the import resolves to an external package.
+	externalRepoURL := "external://org.springframework"
+	importBasePath := "org.springframework.web.bind.annotation"
+	expectedTargetHash := types.ComputeNodeHash(externalRepoURL, importBasePath, types.EmptyHash, "RestController.validate", "method")
+
+	foundExternalCall := false
+	for _, e := range callEdges {
+		if e.TargetHash == expectedTargetHash {
+			foundExternalCall = true
+			if e.Provenance != "ast_resolved" {
+				t.Errorf("external call edge provenance = %q, want %q", e.Provenance, "ast_resolved")
+			}
+			if e.Confidence != 0.85 {
+				t.Errorf("external call edge confidence = %v, want 0.85", e.Confidence)
+			}
+			break
+		}
+	}
+	if !foundExternalCall {
+		t.Error("call edge for RestController.validate should use external://org.springframework in target hash")
+		for _, e := range callEdges {
+			t.Logf("  call edge target hash: %s, provenance: %s", e.TargetHash, e.Provenance)
+		}
+	}
+}
+
 // --- Helpers ---
 
 func filterNodesByKind(nodes []types.Node, kind string) []types.Node {
