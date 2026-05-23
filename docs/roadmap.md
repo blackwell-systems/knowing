@@ -50,8 +50,14 @@ Packages are already the unit of Merkle computation, cache invalidation, diffing
 | ~~`knowing stats`~~ | ~~Cumulative session value: context calls, symbols served, feedback rate, token savings.~~ **Shipped.** | ~~P2~~ |
 | ~~Cross-repo awareness for non-Go extractors~~ | ~~TypeScript, Python, Rust, Java, and C# extractors use the local repo URL for all targets. Only the Go extractor has `inferRepoURL` with stdlib detection.~~ **Shipped.** All 5 OOP extractors now have `inferExternalRepoURL` with `"external://{packageName}"` or `"stdlib"` prefix. Python (site-packages + ~50 stdlib modules), TypeScript (bare specifiers), Rust (std::/core::/alloc::), Java (java.*/javax.*), C# (System.*/Microsoft.*). | ~~P2~~ |
 | ~~Staleness reporting~~ | ~~`knowing stale` reports stale edges from changed files since last snapshot.~~ **Shipped.** `knowing stale` detects changed files via git diff, looks up stale nodes via `StaleNodesByFiles`, exits 1 when stale (CI-friendly). | ~~P2~~ |
-| Daemon lifecycle | `knowing daemon start --detach`, `status`, `stop`, `restart`. | P2 |
-| `untrack_repo` MCP tool + CLI | Evict a repo's nodes, edges, files, and snapshots. | P2 |
+| ~~Daemon lifecycle~~ | ~~`knowing daemon start --detach`, `status`, `stop`, `restart`.~~ **Shipped.** PID file at `~/.knowing/daemon.pid`, signal-based stop, process liveness check. | ~~P2~~ |
+| ~~`untrack_repo` MCP tool + CLI~~ | ~~Evict a repo's nodes, edges, files, and snapshots.~~ **Shipped.** `knowing remove` + 28th MCP tool. Atomic deletion across all tables with per-table counts. | ~~P2~~ |
+| **Zero-config onboarding** | Auto-detect repos in workspace, index on first MCP query, no manual `knowing add` step. The daemon should "just work" when the MCP config is added. | P1 |
+| **Implicit feedback from agent behavior** | Detect when agents use symbols from context results (from subsequent tool calls) and auto-record positive feedback without agent cooperation. Closes the feedback loop without requiring explicit `feedback` calls. | P1 |
+| **Cross-repo context_for_task** | Search across ALL indexed repos simultaneously, not just one. Real projects span multiple repos (monorepo patterns, microservices). Merge results from all repos into one ranked list. | P2 |
+| **Incremental context ("next page")** | After an agent gets initial context, allow requesting the NEXT N symbols not yet seen. Avoids re-querying with bigger budget and getting duplicates. Session-stateful cursor. | P2 |
+| **Staleness annotations on MCP responses** | When returning context, annotate symbols whose source files changed since last index. Agents know which results might be outdated without calling `knowing stale` separately. | P2 |
+| **`explain_symbol` in context responses** | Inline "why ranked #3?" explanation in context results so agents can debug ranking without a separate tool call. Makes the system transparent. | P3 |
 | `knowing daemon install-service` | Generate launchd plist (macOS) or systemd user unit (Linux). | P3 |
 | Per-repo config (`.knowing.yaml`) | Excludes, local overrides, workspace membership. | P3 |
 | `class_hierarchy` MCP tool | Walk `extends` + `implements` + `overrides` edges. | P3 |
