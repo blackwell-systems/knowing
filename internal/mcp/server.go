@@ -1,7 +1,7 @@
 // Package mcp exposes the knowing knowledge graph as MCP (Model Context
 // Protocol) tools over stdio and HTTP transports.
 //
-// The server registers 27 tools organized into seven planes:
+// The server registers 28 tools organized into eight planes:
 //
 // Execution plane (write operations):
 //   - index_repo: trigger indexing of a repository
@@ -43,6 +43,9 @@
 //   - prove: generate a Merkle proof that a relationship exists
 //   - prove_absent: prove a relationship does NOT exist (absence proof)
 //   - fsck: verify graph integrity (hashes, references, snapshot chain)
+//
+// Management plane (data lifecycle):
+//   - untrack_repo: remove all graph data for a repository
 package mcp
 
 import (
@@ -135,7 +138,7 @@ func (s *Server) SetResultCache(c *cache.SubgraphCache) {
 	s.resultCache = c
 }
 
-// registerTools registers all 27 MCP tools on the server.
+// registerTools registers all 28 MCP tools on the server.
 func (s *Server) registerTools() {
 	// Execution plane tools
 	s.mcpServer.AddTool(indexRepoTool(), s.handleIndexRepo)
@@ -177,6 +180,9 @@ func (s *Server) registerTools() {
 	s.mcpServer.AddTool(proveTool(), s.handleProve)
 	s.mcpServer.AddTool(proveAbsentTool(), s.handleProveAbsent)
 	s.mcpServer.AddTool(fsckTool(), s.handleFsck)
+
+	// Management plane
+	s.mcpServer.AddTool(untrackRepoTool(), s.handleUntrackRepo)
 }
 
 // ToolNames returns the names of all registered tools, useful for testing.
@@ -209,6 +215,7 @@ func (s *Server) ToolNames() []string {
 		"prove",
 		"prove_absent",
 		"fsck",
+		"untrack_repo",
 	}
 }
 
