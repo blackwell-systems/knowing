@@ -10,12 +10,19 @@ import (
 	"time"
 
 	"github.com/blackwell-systems/knowing/internal/store"
+	"github.com/blackwell-systems/knowing/internal/testutil"
 	"github.com/blackwell-systems/knowing/internal/types"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-// mockGraphStore implements types.GraphStore for testing.
+// mockGraphStore embeds *testutil.MockGraphStore for no-op defaults on methods
+// that tests don't override. Local fields provide the data maps that tests
+// populate directly. Methods that read from local fields override the embedded
+// implementations.
 type mockGraphStore struct {
+	*testutil.MockGraphStore
+
+	// Data maps (same as before, for backward compat with other test files in this package).
 	nodes     map[types.Hash]*types.Node
 	edges     map[types.Hash]*types.Edge
 	snapshots map[types.Hash]*types.Snapshot
@@ -29,25 +36,26 @@ type mockGraphStore struct {
 	filesByRepo map[types.Hash][]types.File
 
 	// Results for traversal methods.
-	transitiveCallers []types.CallerResult
-	transitiveCallees []types.CalleeResult
-	blastRadiusResult *types.BlastRadiusResult
+	transitiveCallers  []types.CallerResult
+	transitiveCallees  []types.CalleeResult
+	blastRadiusResult  *types.BlastRadiusResult
 	snapshotDiffResult *types.DiffResult
-	staleEdgesResult  []types.Edge
-	latestSnapshot    *types.Snapshot
+	staleEdgesResult   []types.Edge
+	latestSnapshot     *types.Snapshot
 }
 
 func newMockGraphStore() *mockGraphStore {
 	return &mockGraphStore{
-		nodes:       make(map[types.Hash]*types.Node),
-		edges:       make(map[types.Hash]*types.Edge),
-		snapshots:   make(map[types.Hash]*types.Snapshot),
-		repos:       make(map[types.Hash]*types.Repo),
-		files:       make(map[types.Hash]*types.File),
-		nodesByName: make(map[string][]types.Node),
-		edgesFrom:   make(map[types.Hash][]types.Edge),
-		edgesTo:     make(map[types.Hash][]types.Edge),
-		filesByRepo: make(map[types.Hash][]types.File),
+		MockGraphStore: testutil.NewMockGraphStore(),
+		nodes:          make(map[types.Hash]*types.Node),
+		edges:          make(map[types.Hash]*types.Edge),
+		snapshots:      make(map[types.Hash]*types.Snapshot),
+		repos:          make(map[types.Hash]*types.Repo),
+		files:          make(map[types.Hash]*types.File),
+		nodesByName:    make(map[string][]types.Node),
+		edgesFrom:      make(map[types.Hash][]types.Edge),
+		edgesTo:        make(map[types.Hash][]types.Edge),
+		filesByRepo:    make(map[types.Hash][]types.File),
 	}
 }
 
@@ -68,10 +76,6 @@ func (m *mockGraphStore) PutFile(_ context.Context, f types.File) error {
 
 func (m *mockGraphStore) PutRepo(_ context.Context, r types.Repo) error {
 	m.repos[r.RepoHash] = &r
-	return nil
-}
-
-func (m *mockGraphStore) RecordEdgeEvent(_ context.Context, _ types.EdgeEvent) error {
 	return nil
 }
 
@@ -147,52 +151,6 @@ func (m *mockGraphStore) FileByPath(_ context.Context, repoHash types.Hash, path
 	}
 	return nil, nil
 }
-func (m *mockGraphStore) NodesByFilePath(_ context.Context, _ types.Hash, _ string) ([]types.Node, error) {
-	return nil, nil
-}
-func (m *mockGraphStore) StaleNodesByFiles(_ context.Context, _ types.Hash, _ []string) ([]types.Node, error) {
-	return nil, nil
-}
-
-func (m *mockGraphStore) DanglingEdges(_ context.Context) ([]types.Edge, error) { return nil, nil }
-func (m *mockGraphStore) AllRepos(_ context.Context) ([]types.Repo, error)      { return nil, nil }
-func (m *mockGraphStore) NodesByQualifiedName(_ context.Context, _ string) ([]types.Node, error) {
-	return nil, nil
-}
-func (m *mockGraphStore) DeleteEdge(_ context.Context, _ types.Hash) error { return nil }
-
-func (m *mockGraphStore) DeleteNodesByFile(_ context.Context, _ types.Hash) (int, error) {
-	return 0, nil
-}
-
-func (m *mockGraphStore) DeleteEdgesBySourceFile(_ context.Context, _ types.Hash) ([]types.Edge, error) {
-	return nil, nil
-}
-
-func (m *mockGraphStore) DeleteSnapshot(_ context.Context, _ types.Hash) error { return nil }
-
-func (m *mockGraphStore) EdgesBySourceFile(_ context.Context, _ types.Hash) ([]types.Edge, error) {
-	return nil, nil
-}
-
-func (m *mockGraphStore) Close() error {
-	return nil
-}
-func (m *mockGraphStore) DeleteNodesNotIn(_ context.Context, _ map[types.Hash]struct{}) (int64, error) { return 0, nil }
-func (m *mockGraphStore) DeleteEdgesNotIn(_ context.Context, _ map[types.Hash]struct{}) (int64, error) { return 0, nil }
-
-func (m *mockGraphStore) PutNote(_ context.Context, _ types.Note) error { return nil }
-func (m *mockGraphStore) GetNote(_ context.Context, _ types.Hash, _ string) (*types.Note, error) {
-	return nil, nil
-}
-func (m *mockGraphStore) GetNotes(_ context.Context, _ types.Hash) ([]types.Note, error) {
-	return nil, nil
-}
-func (m *mockGraphStore) GetNotesByKey(_ context.Context, _ string) ([]types.Note, error) {
-	return nil, nil
-}
-func (m *mockGraphStore) DeleteNote(_ context.Context, _ types.Hash, _ string) error { return nil }
-func (m *mockGraphStore) DeleteNotesByObject(_ context.Context, _ types.Hash) error  { return nil }
 
 // testHash creates a deterministic hash from a string for testing.
 func testHash(s string) types.Hash {
@@ -585,7 +543,7 @@ func TestHandleOwnership_WithData(t *testing.T) {
 
 func TestHandleStaleEdges_FindsStale(t *testing.T) {
 	store := newMockGraphStore()
-	store.staleEdgesResult = []types.Edge{
+	store.staleEdgesResult =[]types.Edge{
 		{
 			EdgeHash:   testHash("stale1"),
 			SourceHash: testHash("src1"),
