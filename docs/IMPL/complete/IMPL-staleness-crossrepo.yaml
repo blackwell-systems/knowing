@@ -1,3 +1,4 @@
+completion_date: "2026-05-22"
 title: Staleness Reporting CLI + Cross-Repo Awareness for Non-Go Extractors
 feature_slug: staleness-crossrepo
 verdict: SUITABLE
@@ -860,6 +861,7 @@ waves:
           files:
             - internal/indexer/csharpextractor/extractor.go
             - internal/indexer/csharpextractor/extractor_test.go
+      base_commit: bb1d309b345bc60e5ad0da2d69771e1a7dd0ac1d
     - number: 2
       agents:
         - id: G
@@ -915,6 +917,95 @@ quality_gates:
         - type: test
           command: GOWORK=off go test -short ./... -timeout 5m
           required: true
+post_merge_checklist:
+    groups:
+        - title: Background Service Initialization
+          items:
+            - description: Verify if stale.go needs initialization in Server constructor
+completion_reports:
+    A:
+        status: complete
+        branch: polywave/staleness-crossrepo/wave1-agent-A
+        commit: c38619e
+        files_changed:
+            - cmd/knowing/stale.go
+            - cmd/knowing/main.go
+            - internal/store/sqlite.go
+            - internal/types/interfaces.go
+            - internal/mcp/handlers_test.go
+            - internal/enrichment/enricher_test.go
+            - internal/indexer/indexer_test.go
+            - internal/snapshot/manager_test.go
+            - internal/context/context_test.go
+        files_created:
+            - cmd/knowing/stale.go
+        verification: PASS
+    B:
+        status: complete
+        branch: polywave/staleness-crossrepo/wave1-agent-B
+        commit: dc2956c
+        files_changed:
+            - internal/indexer/tsextractor/extractor.go
+            - internal/indexer/tsextractor/extractor_test.go
+        tests_added:
+            - TestInferExternalRepoURL
+            - TestTypeScriptExtractor_ExternalImportEdgeUsesExternalRepoURL
+            - TestTypeScriptExtractor_ScopedExternalImportEdge
+        verification: PASS
+        notes: inferExternalRepoURL added and integrated into both makeImportEdge and resolveCallEdgeWithImports. All existing tests pass with updated expectations for external call resolution (ast_resolved, 0.85 confidence).
+    C:
+        status: complete
+        branch: polywave/staleness-crossrepo/wave1-agent-C
+        commit: 07fe722
+        files_changed:
+            - internal/indexer/treesitter/extractor.go
+            - internal/indexer/treesitter/extractor_test.go
+        tests_added:
+            - TestInferExternalRepoURL
+            - TestIsPythonStdlib
+            - TestTreeSitterExtractor_ExternalImportEdge
+            - TestTreeSitterExtractor_ExternalCallEdge
+        verification: PASS
+        notes: inferExternalRepoURL and isPythonStdlib implemented. Import edges use external://pkg for third-party, stdlib for stdlib, and local repo URL for relative imports. Call edges resolved through import map also use external repo URLs.
+    D:
+        status: complete
+        branch: polywave/staleness-crossrepo/wave1-agent-D
+        commit: ba8b0e4
+        files_changed:
+            - internal/indexer/rustextractor/extractor.go
+            - internal/indexer/rustextractor/extractor_test.go
+        tests_added:
+            - TestInferExternalRepoURL
+            - TestRustExtractor_ExternalCrateImportEdgeUsesExternalRepoURL
+            - TestRustExtractor_ExternalCrateCallEdgeUsesExternalRepoURL
+        verification: PASS
+        notes: Added inferExternalRepoURL function and integrated it into extractUseDeclaration, parseRustUsePath, and resolveCallEdgeWithImports. External crates get target hashes with external:// repo URL. stdlib (std/core/alloc) gets stdlib repo URL. All 21 tests passing.
+    E:
+        status: complete
+        branch: polywave/staleness-crossrepo/wave1-agent-E
+        commit: 062419b
+        files_changed:
+            - internal/indexer/javaextractor/extractor.go
+            - internal/indexer/javaextractor/extractor_test.go
+        tests_added:
+            - TestInferExternalRepoURL
+            - TestJavaExtractor_ExternalImportEdge
+            - TestJavaExtractor_ExternalMethodInvocationHash
+        verification: PASS
+        notes: inferExternalRepoURL added with cross-repo hash logic for imports and method invocations. All 19 tests passing. Existing Spring route annotation detection unchanged.
+    F:
+        status: complete
+        branch: polywave/staleness-crossrepo/wave1-agent-F
+        commit: b090527
+        files_changed:
+            - internal/indexer/csharpextractor/extractor.go
+            - internal/indexer/csharpextractor/extractor_test.go
+        tests_added:
+            - TestInferExternalRepoURL
+            - TestCSharpExtractor_ExternalRepoURL_UsingDirective
+            - TestCSharpExtractor_ExternalRepoURL_InvocationResolution
+        verification: PASS
+        notes: Added inferExternalRepoURL function and integrated with extractUsingDirective and extractInvocationEdgeWithImports. System/Microsoft namespaces map to stdlib, third-party packages to external://{root}.
 pre_mortem:
     overall_risk: low
     rows:
@@ -997,5 +1088,5 @@ critic_report:
     summary: 'All 7 agent briefs verified against the codebase. File existence checks pass: stale.go does not exist (action:new), all modify targets exist. Symbol accuracy is correct for all function names, method signatures, and interface methods across all agents. The only symbol inaccuracy is Agent A referencing types.ComputeRepoHash which does not exist (correct pattern is types.NewHash), but this is in descriptive text and the agent will see the correct pattern in the files it modifies. Pattern accuracy verified: switch statement registration, mock stub patterns, import-map resolution patterns in all 5 extractors, and extractUseDeclaration/extractImportEdge/extractUsingDirective patterns all match actual code. Interface contracts are syntactically valid and consistent. No i1 disjoint ownership violations. Agent A exceeds the 8-file threshold (9 files, 47% of total) but 5 of those are one-line mock stubs.'
     reviewed_at: "2026-05-23T00:37:47Z"
     issue_count: 2
-state: "REVIEWED"
+state: COMPLETE
 injection_method: hook
