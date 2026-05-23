@@ -5,6 +5,7 @@ import (
 
 	sitter "github.com/smacker/go-tree-sitter"
 
+	"github.com/blackwell-systems/knowing/internal/edgetype"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
@@ -18,12 +19,12 @@ func makeThrowEdge(opts types.ExtractOptions, pkgPath string, sourceHash types.H
 	}
 	targetHash := types.ComputeNodeHash(opts.RepoURL, targetPkg, types.EmptyHash, errorName, "error")
 	provenance := "ast_inferred"
-	edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "throws", provenance)
+	edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, edgetype.Throws, provenance)
 	return &types.Edge{
 		EdgeHash:   edgeHash,
 		SourceHash: sourceHash,
 		TargetHash: targetHash,
-		EdgeType:   "throws",
+		EdgeType:   edgetype.Throws,
 		Confidence: 0.7,
 		Provenance: provenance,
 	}
@@ -119,12 +120,12 @@ func tryExtractFeatureFlag(callNode, funcNode *sitter.Node, fnText string, opts 
 	}
 
 	provenance := "ast_inferred"
-	edgeHash := types.ComputeEdgeHash(funcNodeHash, flagHash, "gated_by_flag", provenance)
+	edgeHash := types.ComputeEdgeHash(funcNodeHash, flagHash, edgetype.GatedByFlag, provenance)
 	edge := types.Edge{
 		EdgeHash:   edgeHash,
 		SourceHash: funcNodeHash,
 		TargetHash: flagHash,
-		EdgeType:   "gated_by_flag",
+		EdgeType:   edgetype.GatedByFlag,
 		Confidence: 0.8,
 		Provenance: provenance,
 	}
@@ -185,12 +186,12 @@ func tryExtractGoEndpoint(callNode, funcNode *sitter.Node, fnText string, opts t
 	}
 
 	provenance := "ast_inferred"
-	edgeHash := types.ComputeEdgeHash(funcNodeHash, epHash, "consumes_endpoint", provenance)
+	edgeHash := types.ComputeEdgeHash(funcNodeHash, epHash, edgetype.ConsumesEndpoint, provenance)
 	edge := types.Edge{
 		EdgeHash:   edgeHash,
 		SourceHash: funcNodeHash,
 		TargetHash: epHash,
-		EdgeType:   "consumes_endpoint",
+		EdgeType:   edgetype.ConsumesEndpoint,
 		Confidence: 0.6,
 		Provenance: provenance,
 	}

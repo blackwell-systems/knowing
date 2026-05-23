@@ -7,6 +7,7 @@ import (
 
 	sitter "github.com/smacker/go-tree-sitter"
 
+	"github.com/blackwell-systems/knowing/internal/edgetype"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
@@ -55,7 +56,7 @@ func walkForGoEndpointCalls(node *sitter.Node, opts types.ExtractOptions, pkgPat
 			endpointHash := types.ComputeNodeHash(opts.RepoURL, "endpoints", types.EmptyHash, endpointSig, "endpoint")
 
 			provenance := "ast_inferred"
-			edgeHash := types.ComputeEdgeHash(funcNodeHash, endpointHash, "consumes_endpoint", provenance)
+			edgeHash := types.ComputeEdgeHash(funcNodeHash, endpointHash, edgetype.ConsumesEndpoint, provenance)
 
 			// Deduplicate by edge hash.
 			if _, exists := seen[edgeHash]; !exists {
@@ -74,7 +75,7 @@ func walkForGoEndpointCalls(node *sitter.Node, opts types.ExtractOptions, pkgPat
 					EdgeHash:   edgeHash,
 					SourceHash: funcNodeHash,
 					TargetHash: endpointHash,
-					EdgeType:   "consumes_endpoint",
+					EdgeType:   edgetype.ConsumesEndpoint,
 					Confidence: 0.6,
 					Provenance: provenance,
 				}
