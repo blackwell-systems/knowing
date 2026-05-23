@@ -2,9 +2,43 @@ package context
 
 import (
 	stdctx "context"
+	"strings"
 
 	"github.com/blackwell-systems/knowing/internal/types"
 )
+
+// externalHashLoader is a local interface for stores that support querying nodes by name.
+type externalHashLoader interface {
+	NodesByName(ctx stdctx.Context, pattern string) ([]types.Node, error)
+}
+
+// loadExternalHashes queries the store for all phantom external nodes and returns
+// their hashes as a set. These nodes are dead-end targets from LSP enrichment
+// (kind="external" or qualified_name starting with "external://") that should be
+// excluded from RWR walk expansion to prevent probability diffusion.
+func loadExternalHashes(ctx stdctx.Context, store types.GraphStore) map[types.Hash]bool {
+	result := make(map[types.Hash]bool)
+
+	loader, ok := store.(externalHashLoader)
+	if !ok {
+		return result
+	}
+
+	// Query for nodes with "external" in their qualified name.
+	// This catches both kind="external" nodes and "external://" prefixed names.
+	nodes, err := loader.NodesByName(ctx, "%external%")
+	if err != nil {
+		return result
+	}
+
+	for _, n := range nodes {
+		if n.Kind == "external" || strings.HasPrefix(n.QualifiedName, "external://") {
+			result[n.NodeHash] = true
+		}
+	}
+
+	return result
+}
 
 // RandomWalkWithRestart computes relevance scores for all nodes reachable from
 // the seed set by simulating random walks that restart at seed nodes with
@@ -313,6 +347,11 @@ func buildAdjacencyMap(ctx stdctx.Context, store types.GraphStore, seeds []types
 
 	const maxDepth = 4 // 4 hops from seeds covers relevant context without loading entire graph
 
+	// Build set of phantom external node hashes to exclude from BFS expansion.
+	// External nodes are dead-end targets from LSP enrichment with no source code.
+	// Including them in the walk diffuses probability mass to irrelevant neighborhoods.
+	externals := loadExternalHashes(ctx, store)
+
 	// BFS from seeds with depth limit.
 	visited := make(map[types.Hash]bool, len(seeds)*4)
 	frontier := make([]types.Hash, len(seeds))
@@ -332,7 +371,7 @@ func buildAdjacencyMap(ctx stdctx.Context, store types.GraphStore, seeds []types
 				}
 				adjFrom[node] = from
 				for _, e := range from {
-					if !visited[e.TargetHash] {
+					if !visited[e.TargetHash] && !externals[e.TargetHash] {
 						visited[e.TargetHash] = true
 						nextFrontier = append(nextFrontier, e.TargetHash)
 					}
@@ -347,7 +386,7 @@ func buildAdjacencyMap(ctx stdctx.Context, store types.GraphStore, seeds []types
 				}
 				adjTo[node] = to
 				for _, e := range to {
-					if !visited[e.SourceHash] {
+					if !visited[e.SourceHash] && !externals[e.SourceHash] {
 						visited[e.SourceHash] = true
 						nextFrontier = append(nextFrontier, e.SourceHash)
 					}
@@ -387,6 +426,9 @@ func buildAdjacencyMapFiltered(ctx stdctx.Context, store types.GraphStore, seeds
 
 	const maxDepth = 4
 
+	// Exclude phantom external nodes from BFS expansion.
+	externals := loadExternalHashes(ctx, store)
+
 	// BFS from seeds with depth limit and community filtering.
 	visited := make(map[types.Hash]bool, len(seeds)*4)
 	seedSet := make(map[types.Hash]bool, len(seeds))
@@ -408,7 +450,7 @@ func buildAdjacencyMapFiltered(ctx stdctx.Context, store types.GraphStore, seeds
 				}
 				adjFrom[node] = from
 				for _, e := range from {
-					if !visited[e.TargetHash] {
+					if !visited[e.TargetHash] && !externals[e.TargetHash] {
 						candidates = append(candidates, e.TargetHash)
 					}
 				}
@@ -422,7 +464,7 @@ func buildAdjacencyMapFiltered(ctx stdctx.Context, store types.GraphStore, seeds
 				}
 				adjTo[node] = to
 				for _, e := range to {
-					if !visited[e.SourceHash] {
+					if !visited[e.SourceHash] && !externals[e.SourceHash] {
 						candidates = append(candidates, e.SourceHash)
 					}
 				}
