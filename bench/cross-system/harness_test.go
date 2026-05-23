@@ -5,6 +5,14 @@
 //
 //	go test ./bench/cross-system/ -run TestCrossSystem -v -timeout 30m
 //
+// Filter adapters (exclude slow/broken ones):
+//
+//	BENCH_ADAPTERS=knowing,grep,aider go test ./bench/cross-system/ -run TestCrossSystem -v -timeout 30m
+//
+// Filter repos:
+//
+//	BENCH_REPOS=flask,django go test ./bench/cross-system/ -run TestCrossSystem -v -timeout 30m
+//
 // Quick validation (normalize + matching only):
 //
 //	go test ./bench/cross-system/normalize/ -v
@@ -59,7 +67,35 @@ func TestCrossSystem(t *testing.T) {
 	if missing := adapters.UnavailableNames(); len(missing) > 0 {
 		t.Logf("Unavailable adapters (not installed): %v", missing)
 	}
+
+	// BENCH_ADAPTERS env var filters which adapters to run (comma-separated).
+	// Example: BENCH_ADAPTERS=knowing,grep,aider (excludes gortex, gitnexus)
+	if filter := os.Getenv("BENCH_ADAPTERS"); filter != "" {
+		allowed := make(map[string]bool)
+		for _, name := range strings.Split(filter, ",") {
+			allowed[strings.TrimSpace(name)] = true
+		}
+		var filtered []benchtype.Adapter
+		for _, a := range available {
+			if allowed[a.Name()] {
+				filtered = append(filtered, a)
+			}
+		}
+		available = filtered
+	}
+
 	t.Logf("Running with %d adapters: %v", len(available), adapterNames(available))
+
+	// BENCH_REPOS env var filters which repos to run tasks for (comma-separated).
+	// Example: BENCH_REPOS=flask,django (excludes kubernetes, vscode, cargo)
+	var repoFilter map[string]bool
+	if filter := os.Getenv("BENCH_REPOS"); filter != "" {
+		repoFilter = make(map[string]bool)
+		for _, name := range strings.Split(filter, ",") {
+			repoFilter[strings.TrimSpace(name)] = true
+		}
+		t.Logf("Repo filter: %v", repoFilter)
+	}
 
 	var allResults []benchtype.MetricResult
 
@@ -67,6 +103,11 @@ func TestCrossSystem(t *testing.T) {
 		t.Logf("\n--- System: %s ---", adapter.Name())
 
 		for _, task := range tasks {
+			// Skip repos not in filter.
+			if repoFilter != nil && !repoFilter[task.Repo] {
+				continue
+			}
+
 			repoPath := filepath.Join("corpus", "repos", task.Repo)
 
 			// Index (idempotent, only meaningful for knowing)
