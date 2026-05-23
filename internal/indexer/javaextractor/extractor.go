@@ -259,7 +259,12 @@ func extractMethodInvocationWithImports(node *sitter.Node, opts types.ExtractOpt
 		}
 	}
 
-	targetHash := types.ComputeNodeHash(opts.RepoURL, targetBasePath, types.EmptyHash, targetName, "method")
+	// Determine target repo URL for cross-repo awareness.
+	targetRepoURL := opts.RepoURL
+	if extURL := inferExternalRepoURL(targetBasePath, pkgPath); extURL != "" {
+		targetRepoURL = extURL
+	}
+	targetHash := types.ComputeNodeHash(targetRepoURL, targetBasePath, types.EmptyHash, targetName, "method")
 	edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "calls", edgeProvenance)
 
 	return &types.Edge{
@@ -652,6 +657,37 @@ func extractConstructorDeclWithImports(node *sitter.Node, opts types.ExtractOpti
 	return nodes, edges
 }
 
+// inferExternalRepoURL determines if a Java import refers to an external package.
+// Returns "stdlib" for java.*/javax.* imports, "external://{topTwoSegments}" for
+// third-party packages, and "" for imports sharing the same base package as localPkg.
+func inferExternalRepoURL(importPath string, localPkg string) string {
+	if importPath == "" {
+		return ""
+	}
+	parts := strings.Split(importPath, ".")
+	if len(parts) == 0 {
+		return ""
+	}
+	// Java stdlib: java.*, javax.*
+	if parts[0] == "java" || parts[0] == "javax" {
+		return "stdlib"
+	}
+	// Same project heuristic: if the import shares the first 2 segments
+	// with the local package, treat as local.
+	if localPkg != "" {
+		localParts := strings.Split(localPkg, ".")
+		if len(localParts) >= 2 && len(parts) >= 2 &&
+			localParts[0] == parts[0] && localParts[1] == parts[1] {
+			return ""
+		}
+	}
+	// External: use first 2 segments as group identifier.
+	if len(parts) >= 2 {
+		return "external://" + parts[0] + "." + parts[1]
+	}
+	return "external://" + parts[0]
+}
+
 // extractImportEdge extracts an import declaration and produces an import edge.
 func extractImportEdge(node *sitter.Node, opts types.ExtractOptions, pkgPath string) *types.Edge {
 	// In Java tree-sitter grammar, import_declaration contains the full
@@ -668,8 +704,13 @@ func extractImportEdge(node *sitter.Node, opts types.ExtractOptions, pkgPath str
 
 	fileNodeHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, filepath.Base(opts.FilePath), "file")
 
-	// The import target is hashed as a package node.
-	importHash := types.ComputeNodeHash(opts.RepoURL, importText, types.EmptyHash, importText, "package")
+	// Determine the target repo URL for cross-repo awareness.
+	targetRepoURL := opts.RepoURL
+	if extURL := inferExternalRepoURL(importText, pkgPath); extURL != "" {
+		targetRepoURL = extURL
+	}
+	// The import target is hashed as a package node using the appropriate repo URL.
+	importHash := types.ComputeNodeHash(targetRepoURL, importText, types.EmptyHash, importText, "package")
 
 	provenance := "ast_inferred"
 	edgeHash := types.ComputeEdgeHash(fileNodeHash, importHash, "imports", provenance)
