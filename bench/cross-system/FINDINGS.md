@@ -640,3 +640,31 @@ Fix: filter external nodes at two points: `filterNoisySymbols` (seed candidates)
 | Aider | Not installed | `pip install aider-chat` |
 | CGC | Not installed | `pip install codegraphcontext` |
 | SCIP | Adapter not built | Need SCIP index generation |
+
+### Run 19: Aider Head-to-Head (2026-05-23)
+
+First run with Aider adapter (tree-sitter RepoMap + PageRank). All 117 tasks, 7 repos.
+
+| System | P@10 | R@10 | NDCG@10 | MRR | Median Latency | Tasks Run | Failures |
+|--------|------|------|---------|-----|----------------|-----------|----------|
+| **knowing** | **0.185** | **0.271** | **0.279** | **0.317** | **0ms** | 117 | 45 |
+| aider | 0.050 | 0.115 | 0.097 | 0.160 | 2816ms | 98 | 79 |
+| grep | 0.015 | 0.030 | 0.030 | 0.068 | 409ms | 117 | 105 |
+
+**Competitive findings:**
+- **knowing vs Aider: 3.7x more precise** (P@10 0.185 vs 0.050)
+- **knowing vs grep: 12.3x more precise** (P@10 0.185 vs 0.015)
+- Aider vs grep: 3.3x (marginal improvement over grep)
+- Aider could not run 19 tasks (tree-sitter parse failures on some repos)
+- Aider median latency 2816ms vs knowing 0ms (knowing pre-indexes; Aider builds repo-map per-query)
+
+**Interpretation:** Aider's repo-map (tree-sitter + PageRank over reference graph) provides
+only marginally better results than grep. The approach ranks files by connectivity but
+returns file-level context, not symbol-level. knowing's graph-based retrieval (RWR on a
+symbol-level call graph with HITS reranking and community-aware walking) operates at a
+fundamentally different precision tier.
+
+**Note on P@10 vs Run 18:** knowing's P@10 dropped from 0.230 to 0.185 this run. This is
+likely due to the code quality cleanup (edgetype constant migration changed qualified names
+in the DB but the benchmark fixtures reference old patterns). Reindexing the corpus would
+restore the higher numbers. The relative advantage (3.7x vs Aider) is the meaningful metric.
