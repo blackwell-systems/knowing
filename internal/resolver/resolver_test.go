@@ -4,27 +4,27 @@ import (
 	"context"
 	"testing"
 
+	"github.com/blackwell-systems/knowing/internal/testutil"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
-// mockStore implements the Store interface for testing.
+// mockStore embeds *testutil.MockGraphStore and overrides the methods
+// required by the resolver.Store interface with custom test logic.
 type mockStore struct {
-	nodes map[types.Hash]*types.Node
-	edges map[types.Hash]*types.Edge
+	*testutil.MockGraphStore
 	repos []types.Repo
 }
 
 func newMockStore() *mockStore {
 	return &mockStore{
-		nodes: make(map[types.Hash]*types.Node),
-		edges: make(map[types.Hash]*types.Edge),
+		MockGraphStore: testutil.NewMockGraphStore(),
 	}
 }
 
 func (m *mockStore) DanglingEdges(_ context.Context) ([]types.Edge, error) {
 	var dangling []types.Edge
-	for _, e := range m.edges {
-		if _, ok := m.nodes[e.TargetHash]; !ok {
+	for _, e := range m.Edges {
+		if _, ok := m.Nodes[e.TargetHash]; !ok {
 			dangling = append(dangling, *e)
 		}
 	}
@@ -35,38 +35,31 @@ func (m *mockStore) AllRepos(_ context.Context) ([]types.Repo, error) {
 	return m.repos, nil
 }
 
-func (m *mockStore) GetNode(_ context.Context, hash types.Hash) (*types.Node, error) {
-	if n, ok := m.nodes[hash]; ok {
-		return n, nil
-	}
-	return nil, nil
-}
-
 func (m *mockStore) NodesByName(_ context.Context, _ string) ([]types.Node, error) {
 	var nodes []types.Node
-	for _, n := range m.nodes {
+	for _, n := range m.Nodes {
 		nodes = append(nodes, *n)
 	}
 	return nodes, nil
 }
 
 func (m *mockStore) DeleteEdge(_ context.Context, hash types.Hash) error {
-	delete(m.edges, hash)
+	delete(m.Edges, hash)
 	return nil
 }
 
 func (m *mockStore) PutEdge(_ context.Context, e types.Edge) error {
 	eCopy := e
-	m.edges[e.EdgeHash] = &eCopy
+	m.Edges[e.EdgeHash] = &eCopy
 	return nil
 }
 
 func (m *mockStore) addNode(n types.Node) {
-	m.nodes[n.NodeHash] = &n
+	m.Nodes[n.NodeHash] = &n
 }
 
 func (m *mockStore) addEdge(e types.Edge) {
-	m.edges[e.EdgeHash] = &e
+	m.Edges[e.EdgeHash] = &e
 }
 
 func (m *mockStore) addRepo(r types.Repo) {
@@ -142,13 +135,13 @@ func TestResolve_CrossRepo(t *testing.T) {
 	}
 
 	// Verify the old edge was deleted and a new one was created.
-	if _, exists := ms.edges[danglingEdge.EdgeHash]; exists {
+	if _, exists := ms.Edges[danglingEdge.EdgeHash]; exists {
 		t.Error("old dangling edge should have been deleted")
 	}
 
 	// Find the new edge.
 	var foundNewEdge bool
-	for _, e := range ms.edges {
+	for _, e := range ms.Edges {
 		if e.TargetHash == targetNodeHash && e.SourceHash == sourceNodeHash {
 			foundNewEdge = true
 			if e.EdgeType != "calls" {
@@ -547,16 +540,16 @@ func TestResolve_MultipleReposCrossEdges(t *testing.T) {
 	}
 
 	// Old edges should be deleted, new edges should target correct nodes.
-	if _, exists := ms.edges[types.ComputeEdgeHash(sourceA, wrongTargetB, "calls", "ast_resolved")]; exists {
+	if _, exists := ms.Edges[types.ComputeEdgeHash(sourceA, wrongTargetB, "calls", "ast_resolved")]; exists {
 		t.Error("old dangling edge for HelperB should have been deleted")
 	}
-	if _, exists := ms.edges[types.ComputeEdgeHash(sourceA, wrongTargetC, "calls", "ast_resolved")]; exists {
+	if _, exists := ms.Edges[types.ComputeEdgeHash(sourceA, wrongTargetC, "calls", "ast_resolved")]; exists {
 		t.Error("old dangling edge for UtilC should have been deleted")
 	}
 
 	// Verify new edges exist with correct targets.
 	foundB, foundC := false, false
-	for _, e := range ms.edges {
+	for _, e := range ms.Edges {
 		if e.SourceHash == sourceA && e.TargetHash == targetB {
 			foundB = true
 		}
@@ -793,7 +786,7 @@ func TestResolve_DifferentEdgeTypes(t *testing.T) {
 
 	// Verify that both edge types are preserved in the new edges.
 	edgeTypes := make(map[string]bool)
-	for _, e := range ms.edges {
+	for _, e := range ms.Edges {
 		if e.TargetHash == targetHash {
 			edgeTypes[e.EdgeType] = true
 		}
@@ -885,16 +878,16 @@ func TestResolve_ValidEdgesNotModified(t *testing.T) {
 	}
 
 	// Verify the valid edges are still intact and unchanged.
-	if _, ok := ms.edges[validEdgeHash]; !ok {
+	if _, ok := ms.Edges[validEdgeHash]; !ok {
 		t.Error("valid intra-repo edge was unexpectedly deleted")
 	}
-	if _, ok := ms.edges[crossEdgeHash]; !ok {
+	if _, ok := ms.Edges[crossEdgeHash]; !ok {
 		t.Error("valid cross-repo edge was unexpectedly deleted")
 	}
 
 	// Verify edge count hasn't changed (no spurious edges created).
-	if len(ms.edges) != 2 {
-		t.Errorf("edge count = %d, want 2", len(ms.edges))
+	if len(ms.Edges) != 2 {
+		t.Errorf("edge count = %d, want 2", len(ms.Edges))
 	}
 }
 
