@@ -53,11 +53,11 @@ knowing is a knowledge graph because code relationships are inherently graph-sha
 
 | Primitive | What it is | Hash computation |
 |-----------|-----------|-----------------|
-| **Node** | A symbol in source code (function, type, method, interface, constant, variable). Identified by qualified name. | `sha256("node\0" \|\| repo \|\| package_path \|\| symbol_name \|\| symbol_kind)` |
-| **Edge** | A relationship between two nodes (calls, imports, implements, references). Carries a type, confidence score, and provenance. | `sha256("edge\0" \|\| source_hash \|\| target_hash \|\| edge_type \|\| provenance)` |
+| **Node** | A symbol in source code. Kinds: function, method, type, interface, const, var, service, route, external, file, package. Identified by qualified name. | `sha256("node\0" \|\| repo \|\| package_path \|\| symbol_name \|\| symbol_kind)` |
+| **Edge** | A relationship between two nodes. 30 edge types (calls, imports, implements, extends, tests, handles_route, publishes, subscribes, documents, gated_by_flag, etc.). Carries a type, confidence score, and provenance. See [Edge Types](edge-types.md). | `sha256("edge\0" \|\| source_hash \|\| target_hash \|\| edge_type \|\| provenance)` |
 | **Hash** | A 32-byte SHA-256 digest used as the content-addressed identifier for every entity. All hash inputs carry a domain-type prefix (`node\0`, `edge\0`, `snapshot\0`, `merkle\0`) so hashes from different entity types are structurally distinguishable -- the same approach git uses with its `"blob <size>\0"` header. | n/a |
 | **Snapshot** | A point-in-time graph state. The root of a hierarchical Merkle tree (repo root -> package roots -> edge-type roots -> edge leaves). Also stores intermediate package roots and edge-type roots for scoped invalidation. Links to a parent snapshot (forming a chain like git commits), records the git commit that produced it, and carries a generation number (parent.Generation + 1) for O(1) ancestry checks. | `sha256("snapshot\0" \|\| hierarchical_merkle_root(edges grouped by package and edge type))` |
-| **Provenance** | Metadata on an edge describing how it was derived, by which indexer version, at what confidence, from which commit. Provenance is what lets agents distinguish "confirmed by type checker" from "guessed from string matching." | Included in edge hash input. |
+| **Provenance** | Metadata on an edge describing how it was derived, by which indexer version, at what confidence, from which commit. Tiers: `ast_inferred` (0.7, tree-sitter), `ast_resolved` (0.85, import-map resolved), `lsp_resolved` (0.9, LSP confirmed), `scip_resolved` (1.0, SCIP), `runtime_observed` (0.8, OTel trace). Provenance is what lets agents distinguish "confirmed by type checker" from "guessed from string matching." | Included in edge hash input. |
 
 ## Event Sourcing
 
@@ -74,7 +74,7 @@ This means:
 
 **Heuristic staleness:** An edge has not been re-confirmed by the indexer for N days, or a runtime edge has not been observed in production for N days. This requires time-based reasoning on top of the structural property.
 
-Both forms of staleness are exposed through the `StaleEdges` API. Structural staleness is authoritative. Heuristic staleness is advisory.
+Both forms of staleness are exposed through the `StaleEdges` API and the `knowing stale` CLI command (which uses `StaleNodesByFiles` to report stale nodes from files changed since the last snapshot). Structural staleness is authoritative. Heuristic staleness is advisory.
 
 **SubgraphCache:** The daemon maintains a `SubgraphCache` (in `internal/cache/subgraph.go`) that stores query results keyed by Merkle subgraph roots rather than by snapshot hash. When the hierarchical tree confirms that a package's root has not changed between two index runs, all cached results for queries scoped to that package remain valid. After each index run the cache invalidates only the entries whose package roots changed, using `InvalidatePackages` to compare the old and new hierarchical trees. This makes query caching precise: an unrelated package changing elsewhere in the graph does not evict results for the unchanged package.
 
