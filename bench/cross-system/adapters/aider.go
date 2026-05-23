@@ -29,15 +29,27 @@ func (a *Aider) Retrieve(repoPath string, task benchtype.Task, tokenBudget int) 
 
 	// Python bridge script that invokes Aider's RepoMap
 	script := fmt.Sprintf(`
-import json, sys, os
-sys.path.insert(0, os.path.expanduser("~/.local/lib/python3.12/site-packages"))
+import json, sys, os, io as _io
+
+# Suppress aider's stdout noise (progress bars, warnings) by redirecting
+# stdout to a buffer during RepoMap operations, then restoring it for our JSON.
+_real_stdout = sys.stdout
+_real_stderr = sys.stderr
+sys.stderr = _io.StringIO()  # suppress warnings
+
 try:
     from aider.repomap import RepoMap
     from aider.io import InputOutput
     from aider.models import Model
 
-    io = InputOutput(yes=True)
+    # Suppress aider's InputOutput stdout writes.
+    io = InputOutput(yes=True, pretty=False)
+    io.tool_output = lambda *a, **k: None
+    io.tool_warning = lambda *a, **k: None
     model = Model("gpt-4o")  # needed for token counting only
+
+    # Capture and discard progress output during repo scan.
+    sys.stdout = _io.StringIO()
 
     rm = RepoMap(
         root=%q,
@@ -60,34 +72,26 @@ try:
         mentioned_idents=words,
     )
 
+    # Restore stdout for our JSON output.
+    sys.stdout = _real_stdout
+
     # Parse the tree-context output to extract symbols
     symbols = []
     for line in (repo_map or "").split("\n"):
         line = line.strip()
-        if not line or line.startswith("│") or line.startswith("├") or line.startswith("└"):
-            # tree-sitter tree-context format: extract symbol names
-            parts = line.lstrip("│├└─ ").strip()
-            if parts and not parts.endswith("/") and "." in parts:
-                symbols.append(parts)
-        elif "def " in line or "class " in line or "func " in line:
-            # Fallback: declaration lines
+        if "def " in line or "class " in line or "func " in line:
             for kw in ["def ", "class ", "func "]:
                 if kw in line:
-                    name = line.split(kw, 1)[1].split("(")[0].strip()
-                    if name:
+                    name = line.split(kw, 1)[1].split("(")[0].strip().rstrip(":")
+                    if name and len(name) < 80:
                         symbols.append(name)
 
-    # Token count of the full repo map
-    import tiktoken
-    try:
-        enc = tiktoken.encoding_for_model("gpt-4o")
-        token_count = len(enc.encode(repo_map or ""))
-    except:
-        token_count = len((repo_map or "")) // 4
+    token_count = len((repo_map or "")) // 4  # approximate
 
     print(json.dumps({"symbols": symbols[:20], "tokens": token_count, "raw_length": len(repo_map or "")}))
 
 except Exception as e:
+    sys.stdout = _real_stdout
     print(json.dumps({"error": str(e), "symbols": [], "tokens": 0}))
 `, repoPath, repoPath, task.Description)
 
