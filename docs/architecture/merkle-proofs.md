@@ -100,9 +100,11 @@ assert computed == edge_type_root
 
 If all three levels match, the edge existed in the snapshot.
 
+**Domain separation for single-group levels:** When a tree level has exactly one element (e.g., a package with only one edge type, or a repo with only one package), the proof includes a self-paired step where the sibling equals the target itself. This ensures the tree root is always distinct from its single child root, preventing structural collisions across tree levels. The verification logic handles this transparently (the self-paired step is just another combine operation).
+
 ## Performance
 
-Measured on the knowing live graph (12,604 edges, 115 packages):
+Measured on the knowing live graph (~30,242 edges, 68 packages):
 
 | Metric | Value |
 |--------|-------|
