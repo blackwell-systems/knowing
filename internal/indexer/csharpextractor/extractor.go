@@ -20,6 +20,7 @@ import (
 	"github.com/smacker/go-tree-sitter/csharp"
 
 	"github.com/blackwell-systems/knowing/internal/edgetype"
+	"github.com/blackwell-systems/knowing/internal/resolve"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
@@ -245,31 +246,6 @@ func (e *CSharpExtractor) qualifiedName(opts types.ExtractOptions, parentContext
 	return base + "." + name
 }
 
-// inferExternalRepoURL determines if a C# namespace refers to an external package.
-// Returns "stdlib" for System.*/Microsoft.* namespaces, "external://{rootNamespace}"
-// for known external packages, and "" when it cannot determine externality.
-func inferExternalRepoURL(namespace string) string {
-	if namespace == "" {
-		return ""
-	}
-	parts := strings.Split(namespace, ".")
-	if len(parts) == 0 {
-		return ""
-	}
-	// .NET BCL and runtime: System.*, Microsoft.*
-	switch parts[0] {
-	case "System":
-		return "stdlib"
-	case "Microsoft":
-		return "stdlib"
-	}
-	// External NuGet packages: use first two segments as identifier
-	if len(parts) >= 2 {
-		return "external://" + parts[0] + "." + parts[1]
-	}
-	return "external://" + parts[0]
-}
-
 // extractUsingDirective extracts a using directive as an import edge.
 func (e *CSharpExtractor) extractUsingDirective(node *sitter.Node, opts types.ExtractOptions) *types.Edge {
 	// The using directive has a child that is the namespace name (qualified_name or identifier).
@@ -280,7 +256,7 @@ func (e *CSharpExtractor) extractUsingDirective(node *sitter.Node, opts types.Ex
 
 	fileNodeHash := types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, filepath.Base(opts.FilePath), types.KindFile)
 	targetRepoURL := opts.RepoURL
-	if extURL := inferExternalRepoURL(nameContent); extURL != "" {
+	if extURL := resolve.InferExternalRepoURL(nameContent, "", resolve.CSharpConfig); extURL != "" {
 		targetRepoURL = extURL
 	}
 	targetHash := types.ComputeNodeHash(targetRepoURL, nameContent, types.EmptyHash, nameContent, types.KindPackage)
@@ -676,7 +652,7 @@ func (e *CSharpExtractor) extractInvocationEdgeWithImports(node *sitter.Node, op
 			edgeProvenance = "ast_resolved"
 			edgeConfidence = 0.85
 			targetFilePath = importPath
-			if extURL := inferExternalRepoURL(importPath); extURL != "" {
+			if extURL := resolve.InferExternalRepoURL(importPath, "", resolve.CSharpConfig); extURL != "" {
 				targetRepoURL = extURL
 			}
 		}
