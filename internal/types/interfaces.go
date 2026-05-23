@@ -141,20 +141,3 @@ type ExtractResult struct {
 	ParsedTree ParsedTree `json:"-"`
 }
 
-// ComputationCache manages content-addressed derived computation results
-// (e.g., cached blast radius queries). Results are keyed by a combination
-// of query type, parameters, and snapshot root, and are automatically
-// invalidated when the snapshot changes.
-//
-// Interface defined now; implementation is deferred.
-type ComputationCache interface {
-	// Get retrieves a cached result by its content-addressed hash.
-	Get(ctx context.Context, resultHash Hash) (*DerivedResult, error)
-	// GetByQuery retrieves a cached result by query type, parameter hash, and snapshot root.
-	GetByQuery(ctx context.Context, queryType string, params Hash, snapshot Hash) (*DerivedResult, error)
-	// Put stores a computed result.
-	Put(ctx context.Context, result DerivedResult) error
-	// Invalidate evicts cached results that depend on edges changed between
-	// oldSnapshot and newSnapshot. Returns the number of evicted entries.
-	Invalidate(ctx context.Context, oldSnapshot, newSnapshot Hash, diff DiffResult) (evicted int, err error)
-}
