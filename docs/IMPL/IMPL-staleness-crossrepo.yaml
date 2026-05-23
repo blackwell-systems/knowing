@@ -997,5 +997,5 @@ critic_report:
     summary: 'All 7 agent briefs verified against the codebase. File existence checks pass: stale.go does not exist (action:new), all modify targets exist. Symbol accuracy is correct for all function names, method signatures, and interface methods across all agents. The only symbol inaccuracy is Agent A referencing types.ComputeRepoHash which does not exist (correct pattern is types.NewHash), but this is in descriptive text and the agent will see the correct pattern in the files it modifies. Pattern accuracy verified: switch statement registration, mock stub patterns, import-map resolution patterns in all 5 extractors, and extractUseDeclaration/extractImportEdge/extractUsingDirective patterns all match actual code. Interface contracts are syntactically valid and consistent. No i1 disjoint ownership violations. Agent A exceeds the 8-file threshold (9 files, 47% of total) but 5 of those are one-line mock stubs.'
     reviewed_at: "2026-05-23T00:37:47Z"
     issue_count: 2
-state: SCOUT_PENDING
+state: "REVIEWED"
 injection_method: hook
