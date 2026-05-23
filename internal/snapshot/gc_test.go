@@ -28,7 +28,7 @@ func TestGarbageCollectFull_StatsPopulated(t *testing.T) {
 
 	// Register a repo so GarbageCollectFull can find it.
 	repoHash := types.NewHash([]byte("https://github.com/example/repo"))
-	base.repos[repoHash] = &types.Repo{
+	base.Repos[repoHash] = &types.Repo{
 		RepoHash: repoHash,
 		RepoURL:  "https://github.com/example/repo",
 	}
@@ -68,7 +68,7 @@ func TestGarbageCollectFull_ZeroStats_WhenNothingPruned(t *testing.T) {
 	base := newMockGraphStore()
 
 	repoHash := types.NewHash([]byte("https://github.com/example/repo2"))
-	base.repos[repoHash] = &types.Repo{
+	base.Repos[repoHash] = &types.Repo{
 		RepoHash: repoHash,
 		RepoURL:  "https://github.com/example/repo2",
 	}
