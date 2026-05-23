@@ -52,7 +52,25 @@ func loadExternalHashes(ctx stdctx.Context, store types.GraphStore) map[types.Ha
 //   - store: graph store for edge lookups
 //
 // Returns a map from node hash to relevance score (0.0 to 1.0, normalized).
+// RandomWalkWithRestart runs RWR with uniform seed weights.
+// For weighted seeds (prioritizing specific keywords), use RandomWalkWithRestartWeighted.
 func RandomWalkWithRestart(ctx stdctx.Context, store types.GraphStore, seeds []types.Hash, alpha float64, maxIter int) (map[types.Hash]float64, error) {
+	// Uniform weights: all seeds contribute equally to restart probability.
+	weights := make(map[types.Hash]float64, len(seeds))
+	w := 1.0 / float64(len(seeds))
+	for _, s := range seeds {
+		weights[s] = w
+	}
+	return RandomWalkWithRestartWeighted(ctx, store, seeds, weights, alpha, maxIter)
+}
+
+// RandomWalkWithRestartWeighted runs RWR with per-seed restart weights.
+// Seeds with higher weights receive more probability mass on restart, causing
+// the walk to spend more time in their neighborhood. This differentiates
+// specific seeds (high weight) from generic ones (low weight).
+//
+// Weights are normalized to sum to 1.0 internally.
+func RandomWalkWithRestartWeighted(ctx stdctx.Context, store types.GraphStore, seeds []types.Hash, seedWeights map[types.Hash]float64, alpha float64, maxIter int) (map[types.Hash]float64, error) {
 	if len(seeds) == 0 {
 		return nil, nil
 	}
@@ -71,11 +89,21 @@ func RandomWalkWithRestart(ctx stdctx.Context, store types.GraphStore, seeds []t
 		return nil, err
 	}
 
-	// Initialize: uniform probability across seeds.
-	seedWeight := 1.0 / float64(len(seeds))
+	// Normalize seed weights to sum to 1.0.
+	var totalWeight float64
+	for _, s := range seeds {
+		totalWeight += seedWeights[s]
+	}
+	if totalWeight <= 0 {
+		totalWeight = float64(len(seeds))
+	}
 	seedVec := make(map[types.Hash]float64, len(seeds))
 	for _, s := range seeds {
-		seedVec[s] = seedWeight
+		w := seedWeights[s]
+		if w <= 0 {
+			w = 1.0
+		}
+		seedVec[s] = w / totalWeight
 	}
 
 	// Current probability distribution starts at seeds.

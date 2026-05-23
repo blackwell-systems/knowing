@@ -216,6 +216,8 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	}
 
 	// Extract structured keywords from the task description.
+	// Compound-first: query "before_request" as a unit before splitting into
+	// "before" and "request" (which match too broadly on small graphs).
 	ks := extractKeywordSet(opts.TaskDescription)
 	if ks.IsEmpty() {
 		return &ContextBlock{
@@ -223,7 +225,10 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 			TokenBudget: budget,
 		}, nil
 	}
-	keywords := ks.All()
+	// Use Primary (compounds + exact) for tiered search. Fall back to All
+	// only if Primary yields too few results (<5 seeds after tiered matching).
+	keywords := ks.Primary()
+	fallbackKeywords := ks.All()
 
 	// Cache lookup: if a SubgraphCache is attached, check for a cached result
 	// keyed by the normalized task description. On a hit, deserialize and return
@@ -283,10 +288,13 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	// Channel 1: Compound-first tiered keyword matching.
 	tieredResults, _, _ := e.tieredSearchSet(ctx, ks)
 
-	// Channel 2: BM25 full-text search (always runs when available).
+	// Channel 2: BM25 full-text search (compound-targeted, always runs when available).
 	var bm25Results []types.Node
 	if e.bm25 != nil {
 		ftsQuery := buildFTSQuery(keywords)
+		if ftsQuery == "" && len(fallbackKeywords) > 0 {
+			ftsQuery = buildFTSQuery(fallbackKeywords)
+		}
 		if nodes, err := e.bm25.SearchBM25Nodes(ctx, ftsQuery, 30); err == nil {
 			bm25Results = nodes
 		}
@@ -430,11 +438,26 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	// Run Random Walk with Restart from seed nodes to compute relevance
 	// scores across the entire reachable subgraph. This replaces manual
 	// neighbor expansion with a principled graph-based relevance signal.
-	seedHashes := make([]types.Hash, 0, len(candidates))
+	//
+	// Seed weights: candidates earlier in the list (higher RRF rank) get
+	// higher restart probability. This prevents generic seeds (low specificity)
+	// from diluting the walk on small, densely-connected graphs.
+	// Cap seeds at top-15 by RRF rank. On small graphs (< 3000 nodes), too many
+	// seeds cause RWR to converge to near-uniform (everything is 2 hops from
+	// everything). Limiting seeds keeps the walk focused on the best candidates.
+	maxSeeds := 15
+	if len(candidates) < maxSeeds {
+		maxSeeds = len(candidates)
+	}
+	seedHashes := make([]types.Hash, 0, maxSeeds)
+	seedWeights := make(map[types.Hash]float64, maxSeeds)
 	seedSet := make(map[types.Hash]bool)
-	for _, c := range candidates {
+	for i := 0; i < maxSeeds; i++ {
+		c := candidates[i]
 		seedHashes = append(seedHashes, c.NodeHash)
 		seedSet[c.NodeHash] = true
+		// Weight decays by rank: rank 1 = 1.0, rank 10 = 0.55, rank 15 = 0.40
+		seedWeights[c.NodeHash] = 1.0 / (1.0 + float64(i)*0.1)
 	}
 
 	// Community-aware RWR: if ALL seeds cluster in exactly 1 community,
@@ -452,7 +475,7 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 		}
 		rwrScores, err = CommunityFilteredRWR(ctx, e.store, seedHashes, 0.2, 20, communityIDs)
 	} else {
-		rwrScores, err = RandomWalkWithRestart(ctx, e.store, seedHashes, 0.2, 20)
+		rwrScores, err = RandomWalkWithRestartWeighted(ctx, e.store, seedHashes, seedWeights, 0.2, 20)
 	}
 	if err != nil {
 		return nil, err
@@ -505,7 +528,14 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 
 		// Use RWR score as the caller count proxy. Scale to an integer
 		// range that the ranking algorithm can normalize (0-100).
+		// For seeds: boost by RRF rank position to break ties when RWR is flat.
+		// Seed #1 gets +50, seed #15 gets +3. Non-seeds get pure RWR score.
 		callerProxy := int(rwrScore * 100)
+		if w, ok := seedWeights[nodeHash]; ok && w > 0 {
+			// seedWeights decay from 1.0 (rank 1) to 0.4 (rank 15).
+			// Scale to 0-50 bonus range.
+			callerProxy += int(w * 50)
+		}
 
 		inputs = append(inputs, ScoringInput{
 			Node:               *node,

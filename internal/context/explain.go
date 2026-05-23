@@ -391,9 +391,10 @@ func (e *ContextEngine) tieredSearchSet(ctx stdctx.Context, ks KeywordSet) ([]ty
 		}
 	}
 
-	// Phase 2: If primary keywords yielded insufficient results, fall back to components.
-	// Only use components when compounds found fewer than 5 results.
-	if len(results) < 5 && len(ks.Components) > 0 {
+	// Phase 2: If primary keywords yielded NO results, fall back to components.
+	// Even 1 compound match is better than diluting with generic component matches
+	// (which produce flat RWR scores on small graphs).
+	if len(results) == 0 && len(ks.Components) > 0 {
 		for _, kw := range ks.Components {
 			nodes, err := e.store.NodesByName(ctx, "%"+kw)
 			if err != nil {
