@@ -276,6 +276,101 @@ everything that calls it, including through the interface."
 
 ---
 
+## Experiment 4: Django (473K LOC Python, Ambiguous Names)
+
+**Date:** 2026-05-23
+**Model:** Sonnet (Bedrock)
+**Repo:** Django (473K LOC, 2788 Python files, 164K indexed nodes)
+**Hypothesis:** At 5x the scale with ambiguous names (View, Manager, Field everywhere),
+knowing should outperform grep because grep returns noise while the graph ranks by
+relevance.
+
+### Task: django-queryset-callers ("find all callers of QuerySet.filter()")
+
+| Mode | Tool calls | Output tokens | Turns | Lines |
+|------|-----------|---------------|-------|-------|
+| Control | 3 | 67 | 9 | 19 |
+| Treatment | 106 | 2633 | 138 | 254 |
+| Delta | +103 | +2566 | +129 | +235 |
+
+**Control approach:** 2 greps + 1 bash. Grepped for `.filter(`, parsed results, done.
+Produced a comprehensive table of every call site with file:line and context.
+
+**Treatment approach:** Called `graph_query` twice, then read 96 files individually to
+verify each caller. Produced an equally comprehensive table.
+
+**Answer quality:** Both answers were nearly identical. Same callers found, same file
+paths, same line numbers. The treatment answer was slightly more structured.
+
+### What This Reveals
+
+**"Find all callers of X" is STILL a grep task, even at 473K LOC.**
+
+`grep -rn "\.filter("` returns every call site in the codebase. The function name
+plus the dot-method syntax is specific enough that grep doesn't produce noise. The
+graph added 103 tool calls of overhead to reach the same answer.
+
+### When Grep Fails (And knowing Would Win)
+
+The tasks that grep CANNOT solve efficiently:
+
+1. **Transitive impact:** "If I change QuerySet.filter's signature, which tests
+   break?" Grep finds direct callers but not callers-of-callers, and doesn't
+   know which test functions exercise those call paths. This is test_scope (98.9%
+   precision, already proven).
+
+2. **Inheritance chains:** "What classes inherit from CharField across 3+ levels?"
+   Grep for "CharField" finds declarations, not the inheritance graph. knowing
+   has `extends` edges that trace the full chain.
+
+3. **Framework path tracing:** "What middleware processes a request to /admin/?"
+   This is a runtime path through Django's framework wiring. Grep for "middleware"
+   returns 500+ results. knowing traces the `calls` and `handles_route` edges
+   from URL patterns through middleware classes to view functions.
+
+4. **Semantic disambiguation:** "Which 'Manager' is the one that handles user
+   authentication?" Django has ~40 classes with "Manager" in the name. Grep
+   returns them all. knowing ranks by graph proximity to auth-related symbols.
+
+### The Pattern Across All Experiments
+
+| Experiment | Repo | LOC | Result | Why |
+|-----------|------|-----|--------|-----|
+| 1-2 (single-turn) | knowing | 93K | grep wins | Unique names, instant results |
+| 3 (multi-turn) | knowing | 93K | grep ties | Same: unique names |
+| 4 (Django) | django | 473K | grep ties | `.filter(` is specific enough for grep |
+
+**The common thread:** All tasks reduce to "find symbol X by name." As long as the
+name (or method call pattern) is greppable, grep wins on speed. The graph adds value
+only when the question CANNOT be answered by text matching:
+
+- Transitive dependencies (multi-hop)
+- Inheritance hierarchies
+- "What tests cover this?"
+- "What's related to this area?" (vague, structural)
+- Disambiguation among many similar names
+
+### Revised Understanding of knowing's Value
+
+knowing is NOT a replacement for grep. It's a complement that handles the cases grep
+cannot:
+
+| Need | Right tool | Why |
+|------|-----------|-----|
+| "Find function X" | grep | Text match, instant |
+| "Find all callers of X" | grep | `.X(` is a pattern |
+| "What breaks if I change X?" | **knowing** | Transitive callers + test paths |
+| "Which tests should I run?" | **knowing** | Call-graph traversal (98.9%) |
+| "Give me context for this task" | **knowing** | Ranked structural neighborhood |
+| "What inherits from X?" | **knowing** | Edge traversal across levels |
+| "Is this route used?" | **knowing** | Static + runtime edge comparison |
+
+The cross-system benchmark's 11.5x advantage comes from the "ranked structural
+neighborhood" case (context_for_task), not from "find callers." The agent efficiency
+benchmark has been testing the wrong query type.
+
+---
+
 ## Meta-Observations
 
 ### On honest benchmarking

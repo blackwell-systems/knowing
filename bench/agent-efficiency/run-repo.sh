@@ -55,9 +55,9 @@ case "$REPO" in
     ALL_TASKS="$KNOWING_TASKS"
     ;;
   django)
-    REPO_PATH="${REPO_ROOT}/bench/cross-system/corpus/repos/django"
+    REPO_PATH="$(cd "${REPO_ROOT}/bench/cross-system/corpus/repos/django" && pwd)"
     # Django needs its own indexed DB. Check if it exists.
-    DB_PATH="${REPO_ROOT}/bench/cross-system/corpus/repos/django/.knowing/graph.db"
+    DB_PATH="${REPO_PATH}/.knowing/graph.db"
     if [ ! -f "$DB_PATH" ]; then
       echo "Django not indexed. Indexing now..."
       knowing index -db "$DB_PATH" -url "github.com/django/django" "$REPO_PATH"

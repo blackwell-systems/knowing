@@ -7,10 +7,8 @@
 # - Interface-like patterns (class-based views with mixin chains)
 # - Discovery across deep package hierarchy
 
-# Django repo path (from corpus)
-REPO_PATH="bench/cross-system/corpus/repos/django"
+# Django repo path set by run-repo.sh (absolute). These are just defaults if sourced standalone.
 REPO_NAME="django"
-VERIFY_CMD="cd \$WORKTREE && python -m py_compile django/db/models/query.py 2>/dev/null; true"
 
 get_prompt_django() {
   case "$1" in
