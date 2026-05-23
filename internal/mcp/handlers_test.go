@@ -243,6 +243,7 @@ func TestNewServer_RegistersAllTools(t *testing.T) {
 		"prove",
 		"prove_absent",
 		"fsck",
+		"untrack_repo",
 	}
 
 	names := srv.ToolNames()
