@@ -610,6 +610,129 @@ public class App
 	}
 }
 
+func TestInferExternalRepoURL(t *testing.T) {
+	tests := []struct {
+		namespace string
+		want      string
+	}{
+		{"System.Collections.Generic", "stdlib"},
+		{"System", "stdlib"},
+		{"System.IO", "stdlib"},
+		{"Microsoft.Extensions.DependencyInjection", "stdlib"},
+		{"Microsoft.AspNetCore.Mvc", "stdlib"},
+		{"Newtonsoft.Json", "external://Newtonsoft.Json"},
+		{"AutoMapper.Extensions", "external://AutoMapper.Extensions"},
+		{"Serilog.Sinks.Console", "external://Serilog.Sinks"},
+		{"FluentValidation", "external://FluentValidation"},
+		{"", ""},
+	}
+
+	for _, tt := range tests {
+		got := inferExternalRepoURL(tt.namespace)
+		if got != tt.want {
+			t.Errorf("inferExternalRepoURL(%q) = %q, want %q", tt.namespace, got, tt.want)
+		}
+	}
+}
+
+func TestCSharpExtractor_ExternalRepoURL_UsingDirective(t *testing.T) {
+	ext := NewCSharpExtractor()
+	src := `using Newtonsoft.Json;
+using System.Collections.Generic;
+`
+	opts := makeOpts(src)
+	result, err := ext.Extract(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Extract() error: %v", err)
+	}
+
+	var importEdges []types.Edge
+	for _, e := range result.Edges {
+		if e.EdgeType == "imports" {
+			importEdges = append(importEdges, e)
+		}
+	}
+
+	if len(importEdges) != 2 {
+		t.Fatalf("expected 2 import edges, got %d", len(importEdges))
+	}
+
+	// Verify that external namespaces produce target hashes using external repo URLs.
+	// The target hash for "Newtonsoft.Json" should use "external://Newtonsoft.Json" as repoURL.
+	expectedNewtonsoftTarget := types.ComputeNodeHash("external://Newtonsoft.Json", "Newtonsoft.Json", types.EmptyHash, "Newtonsoft.Json", "package")
+	// The target hash for "System.Collections.Generic" should use "stdlib" as repoURL.
+	expectedStdlibTarget := types.ComputeNodeHash("stdlib", "System.Collections.Generic", types.EmptyHash, "System.Collections.Generic", "package")
+
+	foundNewtonsoft := false
+	foundStdlib := false
+	for _, e := range importEdges {
+		if e.TargetHash == expectedNewtonsoftTarget {
+			foundNewtonsoft = true
+		}
+		if e.TargetHash == expectedStdlibTarget {
+			foundStdlib = true
+		}
+	}
+
+	if !foundNewtonsoft {
+		t.Error("expected import edge for Newtonsoft.Json to use external://Newtonsoft.Json repo URL")
+	}
+	if !foundStdlib {
+		t.Error("expected import edge for System.Collections.Generic to use stdlib repo URL")
+	}
+}
+
+func TestCSharpExtractor_ExternalRepoURL_InvocationResolution(t *testing.T) {
+	ext := NewCSharpExtractor()
+	src := `using Newtonsoft.Json;
+
+public class App
+{
+    public void Run()
+    {
+        Json.SerializeObject("test");
+    }
+}
+`
+	opts := makeOpts(src)
+	result, err := ext.Extract(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Extract() error: %v", err)
+	}
+
+	var callEdges []types.Edge
+	for _, e := range result.Edges {
+		if e.EdgeType == "calls" {
+			callEdges = append(callEdges, e)
+		}
+	}
+
+	if len(callEdges) < 1 {
+		t.Fatalf("expected at least 1 call edge, got %d", len(callEdges))
+	}
+
+	// The call to Json.SerializeObject should resolve through imports and use
+	// the external repo URL "external://Newtonsoft.Json" for the target hash.
+	expectedTarget := types.ComputeNodeHash("external://Newtonsoft.Json", "Newtonsoft.Json", types.EmptyHash, "SerializeObject", "method")
+
+	found := false
+	for _, e := range callEdges {
+		if e.TargetHash == expectedTarget {
+			found = true
+			if e.Provenance != "ast_resolved" {
+				t.Errorf("expected provenance ast_resolved, got %q", e.Provenance)
+			}
+			if e.Confidence != 0.85 {
+				t.Errorf("expected confidence 0.85, got %f", e.Confidence)
+			}
+		}
+	}
+
+	if !found {
+		t.Error("expected call edge to use external://Newtonsoft.Json repo URL for resolved import")
+	}
+}
+
 func TestCSharpExtractor_ImportResolution_NoMatch(t *testing.T) {
 	ext := NewCSharpExtractor()
 	src := `public class App
