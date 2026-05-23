@@ -27,6 +27,7 @@ import (
 
 	"golang.org/x/tools/go/packages"
 
+	"github.com/blackwell-systems/knowing/internal/edgetype"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
@@ -158,16 +159,16 @@ func (g *GoExtractor) extractFromPackage(
 	for _, imp := range targetFile.Imports {
 		impPath := strings.Trim(imp.Path.Value, `"`)
 		impRepoURL := resolveTargetRepoURL(opts, impPath, pkg)
-		impHash := types.ComputeNodeHash(impRepoURL, impPath, types.EmptyHash, impPath, "package")
+		impHash := types.ComputeNodeHash(impRepoURL, impPath, types.EmptyHash, impPath, types.KindPackage)
 
-		fileNodeHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, filepath.Base(opts.FilePath), "file")
+		fileNodeHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, filepath.Base(opts.FilePath), types.KindFile)
 		provenance := "ast_resolved"
-		edgeHash := types.ComputeEdgeHash(fileNodeHash, impHash, "imports", provenance)
+		edgeHash := types.ComputeEdgeHash(fileNodeHash, impHash, edgetype.Imports, provenance)
 		edges = append(edges, types.Edge{
 			EdgeHash:   edgeHash,
 			SourceHash: fileNodeHash,
 			TargetHash: impHash,
-			EdgeType:   "imports",
+			EdgeType:   edgetype.Imports,
 			Confidence: 1.0,
 			Provenance: provenance,
 		})
@@ -212,12 +213,12 @@ func (g *GoExtractor) extractFromPackage(
 
 // funcDeclNode creates a Node for a function or method declaration.
 func (g *GoExtractor) funcDeclNode(opts types.ExtractOptions, pkgPath string, fset *token.FileSet, decl *ast.FuncDecl) types.Node {
-	kind := "function"
+	kind := types.KindFunction
 	name := decl.Name.Name
 	qualifiedName := fmt.Sprintf("%s://%s.%s", opts.RepoURL, pkgPath, name)
 
 	if decl.Recv != nil && len(decl.Recv.List) > 0 {
-		kind = "method"
+		kind = types.KindMethod
 		recvType := receiverTypeName(decl.Recv.List[0].Type)
 		qualifiedName = fmt.Sprintf("%s://%s.%s.%s", opts.RepoURL, pkgPath, recvType, name)
 	}
@@ -244,9 +245,9 @@ func (g *GoExtractor) genDeclNodes(opts types.ExtractOptions, pkgPath string, fs
 	for _, spec := range decl.Specs {
 		switch s := spec.(type) {
 		case *ast.TypeSpec:
-			kind := "type"
+			kind := types.KindType
 			if _, ok := s.Type.(*ast.InterfaceType); ok {
-				kind = "interface"
+				kind = types.KindInterface
 			}
 			name := s.Name.Name
 			qualifiedName := fmt.Sprintf("%s://%s.%s", opts.RepoURL, pkgPath, name)
@@ -262,9 +263,9 @@ func (g *GoExtractor) genDeclNodes(opts types.ExtractOptions, pkgPath string, fs
 			})
 
 		case *ast.ValueSpec:
-			kind := "var"
+			kind := types.KindVar
 			if decl.Tok == token.CONST {
-				kind = "const"
+				kind = types.KindConst
 			}
 			for _, ident := range s.Names {
 				if ident.Name == "_" {
@@ -306,13 +307,13 @@ func (g *GoExtractor) extractCallEdges(opts types.ExtractOptions, pkgPath string
 		case *ast.Ident:
 			// Local or builtin function call.
 			targetName = fn.Name
-			targetKind = "function"
+			targetKind = types.KindFunction
 			targetPkg = pkgPath
 
 		case *ast.SelectorExpr:
 			// Qualified call: either pkg.Func or receiver.Method.
 			targetName = fn.Sel.Name
-			targetKind = "function"
+			targetKind = types.KindFunction
 			if ident, ok := fn.X.(*ast.Ident); ok {
 				// Use TypesInfo to distinguish package qualifiers from method
 				// receivers. If the identifier resolves to a PkgName, this is
@@ -323,7 +324,7 @@ func (g *GoExtractor) extractCallEdges(opts types.ExtractOptions, pkgPath string
 						if pkgName, isPkg := obj.(*gotypes.PkgName); isPkg {
 							targetPkg = pkgName.Imported().Path()
 						} else {
-							targetKind = "method"
+							targetKind = types.KindMethod
 							targetPkg = pkgPath
 						}
 					} else {
@@ -344,13 +345,13 @@ func (g *GoExtractor) extractCallEdges(opts types.ExtractOptions, pkgPath string
 		targetRepoURL := resolveTargetRepoURL(opts, targetPkg, pkg)
 		targetHash := types.ComputeNodeHash(targetRepoURL, targetPkg, types.EmptyHash, targetName, targetKind)
 		provenance := "ast_resolved"
-		edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "calls", provenance)
+		edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, edgetype.Calls, provenance)
 
 		edges = append(edges, types.Edge{
 			EdgeHash:   edgeHash,
 			SourceHash: sourceHash,
 			TargetHash: targetHash,
-			EdgeType:   "calls",
+			EdgeType:   edgetype.Calls,
 			Confidence: 1.0,
 			Provenance: "ast_resolved",
 		})
@@ -395,15 +396,15 @@ func (g *GoExtractor) extractImplementsEdges(opts types.ExtractOptions, pkgPath 
 			// Check both T and *T because pointer receivers satisfy interfaces
 			// that value receivers do not.
 			if gotypes.Implements(concrete, ifaceType) || gotypes.Implements(gotypes.NewPointer(concrete), ifaceType) {
-				concreteHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, concrete.Obj().Name(), "type")
-				ifaceHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, iface.Obj().Name(), "interface")
+				concreteHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, concrete.Obj().Name(), types.KindType)
+				ifaceHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, iface.Obj().Name(), types.KindInterface)
 				provenance := "ast_resolved"
-				edgeHash := types.ComputeEdgeHash(concreteHash, ifaceHash, "implements", provenance)
+				edgeHash := types.ComputeEdgeHash(concreteHash, ifaceHash, edgetype.Implements, provenance)
 				edges = append(edges, types.Edge{
 					EdgeHash:   edgeHash,
 					SourceHash: concreteHash,
 					TargetHash: ifaceHash,
-					EdgeType:   "implements",
+					EdgeType:   edgetype.Implements,
 					Confidence: 1.0,
 					Provenance: provenance,
 				})
@@ -454,14 +455,14 @@ func (g *GoExtractor) extractReferenceEdges(opts types.ExtractOptions, pkgPath s
 		}
 
 		targetName := obj.Name()
-		targetKind := "var"
+		targetKind := types.KindVar
 		switch obj.(type) {
 		case *gotypes.Func:
-			targetKind = "function"
+			targetKind = types.KindFunction
 		case *gotypes.TypeName:
-			targetKind = "type"
+			targetKind = types.KindType
 		case *gotypes.Const:
-			targetKind = "const"
+			targetKind = types.KindConst
 		}
 
 		targetPkg := pkgPath
@@ -470,11 +471,11 @@ func (g *GoExtractor) extractReferenceEdges(opts types.ExtractOptions, pkgPath s
 		}
 
 		// Use a synthetic file-level source for reference edges.
-		fileNodeHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, filepath.Base(opts.FilePath), "file")
+		fileNodeHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, filepath.Base(opts.FilePath), types.KindFile)
 		targetRepoURL := resolveTargetRepoURL(opts, targetPkg, pkg)
 		targetHash := types.ComputeNodeHash(targetRepoURL, targetPkg, types.EmptyHash, targetName, targetKind)
 		provenance := "ast_resolved"
-		edgeHash := types.ComputeEdgeHash(fileNodeHash, targetHash, "references", provenance)
+		edgeHash := types.ComputeEdgeHash(fileNodeHash, targetHash, edgetype.References, provenance)
 
 		if _, exists := seen[edgeHash]; exists {
 			continue
@@ -485,7 +486,7 @@ func (g *GoExtractor) extractReferenceEdges(opts types.ExtractOptions, pkgPath s
 			EdgeHash:   edgeHash,
 			SourceHash: fileNodeHash,
 			TargetHash: targetHash,
-			EdgeType:   "references",
+			EdgeType:   edgetype.References,
 			Confidence: 1.0,
 			Provenance: provenance,
 		})
