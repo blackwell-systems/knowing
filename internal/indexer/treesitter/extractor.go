@@ -293,8 +293,13 @@ func (e *TreeSitterExtractor) extractImport(node *sitter.Node, opts types.Extrac
 	}
 
 	// Create a node for the import target (the module being imported).
+	// Use external repo URL when the import targets an external package.
 	targetQName := moduleName
-	targetHash := types.ComputeNodeHash(opts.RepoURL, opts.ModuleRoot, types.EmptyHash, targetQName, "module")
+	targetRepoURL := opts.RepoURL
+	if extURL := inferExternalRepoURL(moduleName, opts); extURL != "" {
+		targetRepoURL = extURL
+	}
+	targetHash := types.ComputeNodeHash(targetRepoURL, opts.ModuleRoot, types.EmptyHash, targetQName, "module")
 
 	// Create an edge from the file-level context to the imported module.
 	sourceQName := fmt.Sprintf("%s://%s/%s", opts.RepoURL, opts.ModuleRoot, opts.FilePath)
@@ -351,7 +356,17 @@ func (e *TreeSitterExtractor) extractCallWithImports(node *sitter.Node, opts typ
 	// If "Flask" is in pyImports as coming from "flask.app", we resolve
 	// the target to the definition file rather than the current file.
 	targetQName := e.resolveCallTarget(opts, classContext, calledName, pyImports)
-	targetHash := types.ComputeNodeHash(opts.RepoURL, opts.ModuleRoot, types.EmptyHash, targetQName, "function")
+	targetRepoURL := opts.RepoURL
+	// Use external repo URL when the call resolves to an external package.
+	if pyImports != nil {
+		firstName := strings.Split(calledName, ".")[0]
+		if srcModule, ok := pyImports[firstName]; ok {
+			if extURL := inferExternalRepoURL(srcModule, opts); extURL != "" {
+				targetRepoURL = extURL
+			}
+		}
+	}
+	targetHash := types.ComputeNodeHash(targetRepoURL, opts.ModuleRoot, types.EmptyHash, targetQName, "function")
 
 	provenance := "ast_inferred"
 	confidence := 0.7
@@ -550,6 +565,46 @@ func (e *TreeSitterExtractor) extractRaise(node *sitter.Node, opts types.Extract
 			return
 		}
 	}
+}
+
+// inferExternalRepoURL determines if a Python module name refers to an external package.
+// Returns "external://{topLevelPackage}" for third-party packages, "stdlib" for
+// known stdlib modules, and "" for relative imports or likely-local modules.
+func inferExternalRepoURL(moduleName string, opts types.ExtractOptions) string {
+	if strings.HasPrefix(moduleName, ".") {
+		return ""
+	}
+	topLevel := moduleName
+	if idx := strings.Index(moduleName, "."); idx > 0 {
+		topLevel = moduleName[:idx]
+	}
+	if isPythonStdlib(topLevel) {
+		return "stdlib"
+	}
+	return "external://" + topLevel
+}
+
+// isPythonStdlib returns true for known Python standard library top-level module names.
+func isPythonStdlib(name string) bool {
+	stdlibModules := map[string]bool{
+		"os": true, "sys": true, "re": true, "io": true, "json": true,
+		"math": true, "time": true, "datetime": true, "collections": true,
+		"itertools": true, "functools": true, "pathlib": true, "typing": true,
+		"abc": true, "ast": true, "asyncio": true, "base64": true,
+		"contextlib": true, "copy": true, "csv": true, "dataclasses": true,
+		"enum": true, "errno": true, "glob": true, "hashlib": true,
+		"http": true, "importlib": true, "inspect": true, "logging": true,
+		"multiprocessing": true, "operator": true, "pickle": true,
+		"platform": true, "pprint": true, "queue": true, "random": true,
+		"shutil": true, "signal": true, "socket": true, "sqlite3": true,
+		"string": true, "struct": true, "subprocess": true, "tempfile": true,
+		"textwrap": true, "threading": true, "traceback": true, "unittest": true,
+		"urllib": true, "uuid": true, "warnings": true, "weakref": true,
+		"xml": true, "zipfile": true, "argparse": true, "configparser": true,
+		"email": true, "html": true, "ssl": true, "secrets": true,
+		"statistics": true, "types": true,
+	}
+	return stdlibModules[name]
 }
 
 // parseImportModule extracts the module name from an import statement string.
