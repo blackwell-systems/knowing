@@ -821,6 +821,38 @@ func (s *SQLiteStore) NodesByFilePath(ctx context.Context, repoHash types.Hash, 
 	return scanNodes(rows)
 }
 
+// StaleNodesByFiles returns all nodes belonging to the given file paths for a specific repo.
+// This is used by the CLI 'stale' command to find nodes that belong to changed files.
+func (s *SQLiteStore) StaleNodesByFiles(ctx context.Context, repoHash types.Hash, paths []string) ([]types.Node, error) {
+	if len(paths) == 0 {
+		return nil, nil
+	}
+
+	// Build placeholder expansion for IN clause.
+	placeholders := make([]string, len(paths))
+	args := make([]interface{}, 0, len(paths)+1)
+	args = append(args, repoHash[:])
+	for i, p := range paths {
+		placeholders[i] = "?"
+		args = append(args, p)
+	}
+
+	query := fmt.Sprintf(
+		`SELECT n.node_hash, n.file_hash, n.qualified_name, n.kind, n.line, n.signature, n.doc, n.last_author, n.last_commit_at, n.coverage_pct
+		 FROM nodes n
+		 INNER JOIN files f ON n.file_hash = f.file_hash
+		 WHERE f.repo_hash = ? AND f.path IN (%s)`,
+		strings.Join(placeholders, ","),
+	)
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanNodes(rows)
+}
+
 // ----- Resolver query methods -----
 
 // DanglingEdges returns all edges whose target_hash does not match any
