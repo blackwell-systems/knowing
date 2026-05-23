@@ -433,6 +433,47 @@ compound to 3.7x.
    `-no-enrich` path is for speed-critical re-indexing where approximate results are
    acceptable. The full product includes enrichment.
 
+### Run C: All 5 systems on level ground (Flask + Cargo only)
+
+Restricted to repos all systems can handle. No kubernetes (gortex OOMs), no vscode
+(gitnexus can't index). Flask has enrichment; Cargo does not (no Rust LSP).
+
+| System | P@10 | R@10 | NDCG@10 | MRR | Failures |
+|--------|------|------|---------|-----|----------|
+| **knowing** | **0.133** | 0.244 | 0.219 | 0.380 | **13** |
+| aider | 0.107 | **0.295** | 0.213 | **0.412** | 16 |
+| gortex | 0.100 | 0.119 | 0.179 | 0.216 | 20 |
+| gitnexus | 0.067 | 0.103 | 0.093 | 0.137 | 20 |
+| grep | 0.033 | 0.051 | 0.069 | 0.131 | 25 |
+
+**On level ground:**
+- knowing wins P@10 (1.24x vs Aider, 1.33x vs Gortex, 2x vs GitNexus, 4x vs grep)
+- Aider wins R@10 and MRR (returns more symbols, higher first-hit rank)
+- knowing has fewest failures (13/30 tasks with zero relevant results)
+- Gortex and GitNexus trail significantly despite being graph-based tools
+- grep is last on all metrics
+
+### Synthesis Across All Runs
+
+| Condition | knowing P@10 | Aider P@10 | Ratio | What it shows |
+|-----------|-------------|------------|-------|---------------|
+| Full corpus, with enrichment (Run A) | 0.185 | 0.050 | **3.7x** | Enrichment + scale = dominant |
+| Full corpus, no enrichment (Run B) | 0.069 | 0.049 | **1.4x** | Graph topology alone: modest edge |
+| Flask+Cargo only, all 5 systems (Run C) | 0.133 | 0.107 | **1.24x** | Level ground: competitive |
+
+**The story:**
+- On small, well-structured repos: all systems are competitive (1.24x gap)
+- On large, ambiguous repos with enrichment: knowing dominates (3.7x gap)
+- The advantage scales with repo complexity and enrichment quality
+- knowing's moat is: enrichment + graph topology + scale handling (k8s in 18.6s)
+
+**What competitors cannot do (regardless of retrieval quality):**
+- Index kubernetes (3.5M LOC) at all (Gortex OOMs, GitNexus >60min)
+- Predict affected tests (98.9% precision, unique to knowing)
+- Generate cryptographic proofs of relationships
+- Compound learning across sessions (feedback + task memory)
+- Inject context automatically before every edit (hooks)
+
 ---
 
 ## Meta-Observations

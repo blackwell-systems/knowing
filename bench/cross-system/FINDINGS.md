@@ -668,3 +668,25 @@ fundamentally different precision tier.
 likely due to the code quality cleanup (edgetype constant migration changed qualified names
 in the DB but the benchmark fixtures reference old patterns). Reindexing the corpus would
 restore the higher numbers. The relative advantage (3.7x vs Aider) is the meaningful metric.
+
+### Run 20: All 5 Systems on Level Ground (2026-05-23)
+
+Restricted to Flask + Cargo (repos all systems can handle). No kubernetes/vscode blockers.
+Flask indexed with enrichment; Cargo without (no Rust LSP).
+
+| System | P@10 | R@10 | NDCG@10 | MRR | Median Latency | Failures |
+|--------|------|------|---------|-----|----------------|----------|
+| **knowing** | **0.133** | 0.244 | 0.219 | 0.380 | 2198ms | **13** |
+| aider | 0.107 | **0.295** | 0.213 | **0.412** | 2325ms | 16 |
+| gortex | 0.100 | 0.119 | 0.179 | 0.216 | 2447ms | 20 |
+| gitnexus | 0.067 | 0.103 | 0.093 | 0.137 | 766ms | 20 |
+| grep | 0.033 | 0.051 | 0.069 | 0.131 | 394ms | 25 |
+
+**Interpretation:** On small, well-structured repos where all systems can compete, the
+gaps narrow. knowing leads on precision (P@10), Aider leads on recall (R@10) and first-hit
+accuracy (MRR). Gortex and GitNexus trail. grep is last on every metric.
+
+The competitive advantage widens with repo complexity and enrichment:
+- Flask+Cargo (30 tasks): knowing 1.24x vs Aider
+- Full corpus with enrichment (117 tasks): knowing 3.7x vs Aider
+- The delta is enrichment quality + scale handling

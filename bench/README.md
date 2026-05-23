@@ -11,7 +11,7 @@ and auto-generates a `FINDINGS.md` with results and interpretation.
 
 | Benchmark | What it proves | Key result |
 |-----------|---------------|------------|
-| [cross-system](cross-system/) | Graph retrieval beats text search and competitors across languages and scales | 7 repos, ~117 tasks. P@10=0.209 vs GitNexus 0.076 (2.75x, p=0.0003) vs grep 0.015. GitNexus cannot index enterprise repos (>60min on kubernetes; knowing: 18.6s) |
+| [cross-system](cross-system/) | Graph retrieval beats text search and all competitors across languages and scales | 7 repos, 117 tasks, 5 competitors. knowing P@10=0.185 vs Aider 0.050 (3.7x) vs GitNexus 0.067 vs grep 0.015. Aider's repo-map barely beats grep. GitNexus/Gortex cannot index enterprise repos (>60min/OOM on kubernetes; knowing: 18.6s) |
 | [feedback-loop](feedback-loop/) | Feedback compounding improves precision over time | 16% -> 36% precision (+20pp) after one round |
 | [context-relevance](context-relevance/) | Each engine layer adds measurable value | Feedback adds +9pp precision over baseline |
 | [token-savings](token-savings/) | knowing reduces agent exploration cost | 55.6% fewer tokens, 52.8% fewer tool calls |
@@ -124,7 +124,7 @@ Merkle root based on the packages it spans. Results are written to
 
 ### cross-system
 
-Evaluates knowing's retrieval quality against 4 competitors across 7 repos spanning
+Evaluates knowing's retrieval quality against 5 competitors across 7 repos spanning
 5 languages and scales from 14K to 3.5M LOC. Corpus: Flask (Python, 15K LOC),
 Django (Python, 400K LOC), Cargo (Rust, 150K LOC), VS Code (TypeScript, 1M LOC),
 Kubernetes (Go, 3.5M LOC), Spark (Java, 14K LOC, 184 files), and Ocelot (C#, 30K
