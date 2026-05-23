@@ -50,6 +50,8 @@ Git commit hash (stored on snapshot)
 
 Every step is a deterministic computation from content. The data is the audit trail.
 
+Single-group trees include an extra domain-separation step at the top level (the tree root is always distinct from the group root, even with one group). This prevents structural collisions and is handled automatically by the proof generation and verification code.
+
 ## Workflows
 
 ### 1. Point-in-Time Proof
@@ -81,7 +83,7 @@ knowing verify auth-calls-user.proof.json
 
 For a full compliance artifact covering all cross-package edges, use `knowing audit -proofs` (see Workflow 6).
 
-The proof is 3KB of JSON. The auditor needs only the `knowing` binary (or any SHA-256 implementation that understands the `"merkle\0"` domain prefix).
+The proof is 3KB of JSON. The auditor needs only the `knowing` binary (or any SHA-256 implementation that understands the `"merkle\0"` domain prefix). (The underlying library is now `merkle-strata`, renamed from `merkle-forest`; the knowing-specific prefix remains `"merkle\x00"`.)
 
 ### 2. Full Integrity Verification
 
@@ -95,10 +97,12 @@ knowing fsck
 #   3. Snapshot chain continuity (every parent pointer is valid)
 #   4. SQLite page integrity (PRAGMA integrity_check)
 #
-# Time: 98ms on a graph with 7,224 nodes and 24,936 edges
+# Time: 98ms on a graph with 4,627 nodes and 30,242 edges
 ```
 
 Exit code 0 = clean. Exit code 1 = corruption detected.
+
+To ensure the graph reflects the latest source before generating proofs, run `knowing stale` to check for files modified since the last index. This surfaces any staleness before you commit to a proof or audit artifact.
 
 ### 3. Change Attribution
 
@@ -209,7 +213,7 @@ The result: `knowing fsck` on a correctly indexed repo reports 0 errors. This is
 |-----------|---------|-----------------|
 | Proof generation | 72us | One specific edge exists in a snapshot |
 | Proof verification | 1.2us | The proof is cryptographically valid |
-| `knowing fsck` | 98ms | Entire graph integrity (7,224 nodes, 24,936 edges) |
+| `knowing fsck` | 98ms | Entire graph integrity (4,627 nodes, 30,242 edges) |
 | Snapshot diff | 6us | Which packages changed between two snapshots |
 | Snapshot chain walk | O(N) snapshots, O(packages) per diff | When a relationship first appeared |
 
