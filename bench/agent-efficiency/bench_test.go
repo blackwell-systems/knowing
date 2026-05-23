@@ -167,13 +167,30 @@ func TestAnalyzeTranscripts(t *testing.T) {
 // It reads transcripts from transcripts/multi-turn/ and produces a comparison
 // report focused on time-to-first-edit, exploration calls, and build success.
 func TestAnalyzeMultiTurn(t *testing.T) {
-	dir := filepath.Join(testDir(t), "transcripts", "multi-turn")
+	// Scan all repo subdirectories under transcripts/.
+	transcriptsRoot := filepath.Join(testDir(t), "transcripts")
+	repoDirs, err := os.ReadDir(transcriptsRoot)
+	if err != nil {
+		t.Skip("transcripts/ not found; run run-repo.sh first")
+	}
+
+	// Process each repo's transcripts.
+	for _, repoEntry := range repoDirs {
+		if !repoEntry.IsDir() {
+			continue
+		}
+		repoName := repoEntry.Name()
+		t.Run(repoName, func(t *testing.T) {
+			analyzeRepoTranscripts(t, filepath.Join(transcriptsRoot, repoName), repoName)
+		})
+	}
+}
+
+func analyzeRepoTranscripts(t *testing.T, dir string, repoName string) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		if os.IsNotExist(err) {
-			t.Skip("transcripts/multi-turn/ not found; run multi-turn-runner.sh first")
-		}
-		t.Fatalf("read dir: %v", err)
+		t.Skipf("%s: no transcripts", repoName)
+		return
 	}
 
 	type mtMetrics struct {
