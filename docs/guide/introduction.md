@@ -393,20 +393,18 @@ knowing context -task "refactor auth middleware" -format gcf
 **What happens inside that call:**
 
 **Step 1: Keyword extraction.**
-Parse the task description. Extract meaningful terms: "refactor", "auth", "middleware". Expand abbreviations ("auth" -> "authentication", "authorize"). Split camelCase. Filter stop words. This produces a set of search terms.
+Parse the task description into a `KeywordSet` with three tiers: Exact (backtick-quoted identifiers like `before_request`), Compounds (snake_case, CamelCase, dotted identifiers found in the text), and Components (individual split words, used as fallback). Expand abbreviations ("auth" -> "authentication", "authorize"). Filter stop words. Generate bigram compounds from adjacent words (e.g., "auth" + "middleware" -> "auth_middleware"). The structured set ensures compound identifiers are queried first, preventing split fragments from drowning out the actual symbol names.
 
-**Step 2: Seed selection (5 tiers).**
-Find symbols in the graph that match the keywords. Five strategies, in priority order:
-1. Exact qualified name match
-2. Prefix match (symbol name starts with keyword)
-3. Substring match (keyword appears anywhere in name)
-4. File-path match (keyword in the file path)
-5. Interface-aware match (keyword matches an interface that symbols implement)
+**Step 2: Seed selection (compound-first tiered search).**
+Find symbols in the graph using a tiered search strategy that respects the KeywordSet structure:
+1. Tier 1: Exact match on Exact + Compound keywords (full identifier match)
+2. Tier 2: Prefix match on Exact + Compound keywords (symbol name starts with compound)
+3. Fallback to Components only when Tiers 1-2 yield fewer than 5 results
 
-Each matched symbol becomes a "seed" for the graph walk, weighted by which tier matched it.
+This prevents "before" and "request" from filling results before "before_request" is found. Each matched symbol becomes a "seed" for the graph walk, weighted by which tier matched it.
 
 **Step 3: Random Walk with Restart (RWR).**
-Starting from the seeds, simulate a random walk on the graph. At each step, either follow an edge to a neighbor (probability 0.85) or "restart" by jumping back to a seed (probability 0.15). Repeat for many steps. The probability of landing on each node after convergence is its "relevance score."
+Starting from the seeds, simulate a random walk on the graph. At each step, either follow an edge to a neighbor (probability 0.8) or "restart" by jumping back to a seed (probability 0.2, i.e., alpha=0.2). Repeat for many steps. The probability of landing on each node after convergence is its "relevance score." Community-aware filtering: when all seeds cluster in a single community, the walk is constrained to that community, producing more focused results.
 
 Intuition: symbols that are close to many seeds (reachable by short paths) get high scores. Symbols that are far away or only reachable through long chains get low scores. The restart probability prevents the walk from drifting too far from the task.
 
@@ -414,7 +412,7 @@ Intuition: symbols that are close to many seeds (reachable by short paths) get h
 On the top-K results from RWR, run the HITS algorithm (Hyperlink-Induced Topic Search). This separates "hubs" (symbols that call many things) from "authorities" (symbols that are called by many things). For a refactoring task, authorities matter more (the things being called). For a wiring task, hubs matter more (the connectors).
 
 **Step 5: Feedback boost.**
-If the user previously marked symbols as "useful" for similar tasks, those symbols get a 0.15 additive boost. If marked "not useful," they get a 0.15 penalty. This is how the system learns over time.
+Feedback boost is computed as `0.5 + recall_score * 0.4`, where recall_score comes from task memory (top-5 symbols stored per query). Feedback automatically expires when the package's SubgraphRoot changes (code was modified). This is how the system learns over time without accumulating stale signals.
 
 **Step 6: Token budget packing.**
 The ranked symbols are packed into the token budget (default 5,000 tokens) using a knapsack algorithm: maximize total relevance score within the budget constraint. Larger symbols (more edges, longer signatures) cost more tokens. The packer selects the combination that maximizes information density.
@@ -474,7 +472,7 @@ After 1,000 sessions of agent feedback, the system has thousands of signal recor
 Source code (files)
     |
     v
-Extractors (25 languages: tree-sitter, LSP, SCIP, YAML parsers)
+Extractors (26 languages: tree-sitter, LSP, SCIP, YAML parsers)
     |
     v
 Code Graph (nodes + edges + provenance + confidence)
@@ -485,7 +483,7 @@ Hierarchical Merkle Tree (repo -> packages -> edge-types -> leaves)
     v
 Snapshot (one hash = entire graph state, tied to git commit)
     |
-    +--> Context Engine (ranked retrieval for agents)
+    +--> Context Engine (ranked retrieval for agents, cross-repo identity)
     +--> Proof System (inclusion + absence proofs, offline verifiable)
     +--> Diff Engine (O(packages), semantic output)
     +--> Feedback Loop (merkleized, self-expiring)
@@ -493,6 +491,8 @@ Snapshot (one hash = entire graph state, tied to git commit)
 ```
 
 The Merkle tree is not just an integrity mechanism. It's the query optimization substrate. The same structure that proves "this edge exists" also invalidates stale caches, scopes diffs to changed packages, and expires old feedback. One data structure, five use cases.
+
+Since the initial architecture, knowing has added cross-repo awareness (external packages get canonical identity hashes like `external://flask` or `stdlib`), community-aware graph walks (constrain RWR to seed communities for focused queries), and 28 MCP tools for agent integration.
 
 ## The Landscape
 

@@ -64,9 +64,15 @@ Edges that target stdlib symbols (like `fmt`, `strings`, `error`) or external pa
 
 Phantom nodes make the graph complete. `knowing fsck` distinguishes phantom-node edges (benign) from truly dangling edges (potential corruption) using roster data.
 
+**Retrieval filtering:** Phantom external nodes are filtered from context retrieval results at two points: `filterNoisySymbols` (seed candidates) and the RWR result loop (before scoring). Without this filtering, repos with many unresolved LSP imports (e.g., Java projects without JDT) would have phantom nodes dominate the top-10 results via high RWR scores from inbound edge density.
+
 ## Limitations
 
-**Language support:** Only the Go extractor implements `inferRepoURL` and uses the roster's `ModuleMap()` for cross-repo target resolution. Extractors for other languages use the local repo URL for all edge targets, so cross-repo edges for those languages will not resolve correctly until their extractors are updated.
+**Language support:** All 6 language extractors now implement cross-repo identity:
+- **Go**: `inferRepoURL` uses the roster's `ModuleMap()` for full module path resolution to canonical repo URLs.
+- **Python, TypeScript, Rust, Java, C#**: `inferExternalRepoURL` detects external packages and computes target hashes with `"external://{packageName}"` prefix (e.g., `external://flask`, `external://express`) or `"stdlib"` for language standard libraries.
+
+The Go extractor provides the strongest resolution (full module paths via roster). The other 5 provide package-level identity without registry lookups: all imports of `flask` across any repo produce the same `external://flask` prefix, enabling cross-repo caller discovery for third-party dependencies.
 
 **Cross-repo proofs:** Generating a Merkle proof that spans two repos requires querying two databases: prove the edge exists in the source repo's database, then prove the target node exists in the target repo's database. `knowing prove` currently operates on a single database. Multi-database proof generation is planned.
 
