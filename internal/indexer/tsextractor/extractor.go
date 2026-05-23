@@ -531,9 +531,40 @@ func extractImportEdges(node *sitter.Node, opts types.ExtractOptions, qnamePrefi
 	return []types.Edge{edge}
 }
 
+// inferExternalRepoURL determines if a module path refers to an external npm package.
+// Bare specifiers (not starting with "." or "/") are external.
+// Returns "external://{packageName}" for external packages, "" for relative imports.
+func inferExternalRepoURL(modPath string) string {
+	// Relative imports start with "." or "/"
+	if strings.HasPrefix(modPath, ".") || strings.HasPrefix(modPath, "/") {
+		return ""
+	}
+	// Scoped packages: @scope/name -> "external://@scope/name"
+	// Regular packages: "react" -> "external://react"
+	// Handle subpath imports: "lodash/debounce" -> "external://lodash"
+	pkgName := modPath
+	if strings.HasPrefix(modPath, "@") {
+		// Scoped: @scope/name/subpath -> @scope/name
+		parts := strings.SplitN(modPath, "/", 3)
+		if len(parts) >= 2 {
+			pkgName = parts[0] + "/" + parts[1]
+		}
+	} else {
+		// Unscoped: name/subpath -> name
+		if idx := strings.Index(modPath, "/"); idx > 0 {
+			pkgName = modPath[:idx]
+		}
+	}
+	return "external://" + pkgName
+}
+
 // makeImportEdge creates a single import edge.
 func makeImportEdge(opts types.ExtractOptions, qnamePrefix string, fileNodeHash types.Hash, modPath string) types.Edge {
-	targetHash := types.ComputeNodeHash(opts.RepoURL, modPath, types.EmptyHash, modPath, "module")
+	targetRepoURL := opts.RepoURL
+	if extURL := inferExternalRepoURL(modPath); extURL != "" {
+		targetRepoURL = extURL
+	}
+	targetHash := types.ComputeNodeHash(targetRepoURL, modPath, types.EmptyHash, modPath, "module")
 	provenance := "ast_inferred"
 	edgeHash := types.ComputeEdgeHash(fileNodeHash, targetHash, "imports", provenance)
 	return types.Edge{
@@ -756,22 +787,29 @@ func resolveCallEdgeWithImports(funcNode, callNode *sitter.Node, opts types.Extr
 	confidence := 0.7
 	targetQNamePrefix := qnamePrefix
 
+	targetRepoURL := opts.RepoURL
 	if tsImports != nil && objectName != "" {
 		if srcModule, ok := tsImports[objectName]; ok {
 			// Resolve the import source to a file-relative path.
 			// "./checker" -> same directory as current file
 			// "../utils" -> relative path
-			// "typescript" -> external (keep as-is)
+			// "typescript" -> external (use external repo URL)
 			resolved := resolveTSModulePath(srcModule, opts.FilePath)
 			if resolved != "" {
 				targetQNamePrefix = resolved
+				provenance = "ast_resolved"
+				confidence = 0.85
+			} else if extURL := inferExternalRepoURL(srcModule); extURL != "" {
+				// External package: use external repo URL for target hash
+				targetRepoURL = extURL
+				targetQNamePrefix = srcModule
 				provenance = "ast_resolved"
 				confidence = 0.85
 			}
 		}
 	}
 
-	targetHash := types.ComputeNodeHash(opts.RepoURL, targetQNamePrefix, types.EmptyHash, targetName, "function")
+	targetHash := types.ComputeNodeHash(targetRepoURL, targetQNamePrefix, types.EmptyHash, targetName, "function")
 	edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, "calls", provenance)
 
 	return &types.Edge{
