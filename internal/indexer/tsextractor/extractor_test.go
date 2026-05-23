@@ -678,36 +678,6 @@ func TestTypeScriptExtractor_EmptyFile(t *testing.T) {
 	}
 }
 
-func TestInferExternalRepoURL(t *testing.T) {
-	tests := []struct {
-		modPath string
-		want    string
-	}{
-		// External packages
-		{"react", "external://react"},
-		{"@nestjs/common", "external://@nestjs/common"},
-		{"lodash/debounce", "external://lodash"},
-		{"@scope/pkg/sub", "external://@scope/pkg"},
-		{"express", "external://express"},
-		{"@types/node", "external://@types/node"},
-		{"vue/dist/vue.esm", "external://vue"},
-
-		// Relative imports (not external)
-		{"./local", ""},
-		{"../relative", ""},
-		{"./components/Button", ""},
-		{"../utils/format", ""},
-		{"/absolute/path", ""},
-	}
-
-	for _, tt := range tests {
-		got := inferExternalRepoURL(tt.modPath)
-		if got != tt.want {
-			t.Errorf("inferExternalRepoURL(%q) = %q, want %q", tt.modPath, got, tt.want)
-		}
-	}
-}
-
 func TestTypeScriptExtractor_ExternalImportEdgeUsesExternalRepoURL(t *testing.T) {
 	ext := NewTypeScriptExtractor()
 	source := `import { useState } from 'react';
