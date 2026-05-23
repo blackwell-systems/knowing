@@ -55,7 +55,7 @@ try:
 
     repo_map = rm.get_repo_map(
         chat_files=[],
-        other_fnames=all_files[:2000],  # cap for performance
+        other_files=all_files[:2000],  # cap for performance
         mentioned_fnames=set(),
         mentioned_idents=words,
     )
@@ -91,7 +91,12 @@ except Exception as e:
     print(json.dumps({"error": str(e), "symbols": [], "tokens": 0}))
 `, repoPath, repoPath, task.Description)
 
-	cmd := exec.Command("python3", "-c", script)
+	// Use the aider-bench venv if available, fallback to system python3.
+	pythonPath := "python3"
+	if _, err := exec.LookPath("/tmp/aider-bench/bin/python3"); err == nil {
+		pythonPath = "/tmp/aider-bench/bin/python3"
+	}
+	cmd := exec.Command(pythonPath, "-c", script)
 	output, err := cmd.Output()
 	if err != nil {
 		return benchtype.RetrievalResult{
@@ -149,8 +154,14 @@ func (a *Aider) Reset(_ string) error { return nil }
 
 // IsAvailable checks if aider is installed.
 func (a *Aider) IsAvailable() bool {
-	cmd := exec.Command("python3", "-c", "import aider.repomap")
-	return cmd.Run() == nil
+	// Check venv first, then system python.
+	for _, py := range []string{"/tmp/aider-bench/bin/python3", "python3"} {
+		cmd := exec.Command(py, "-c", "import aider.repomap")
+		if cmd.Run() == nil {
+			return true
+		}
+	}
+	return false
 }
 
 // aiderVersion returns the installed version or empty string.

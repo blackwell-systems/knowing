@@ -58,6 +58,11 @@ func gortexAvailable() bool {
 }
 
 func aiderAvailable() bool {
-	cmd := exec.Command("python3", "-c", "import aider.repomap")
-	return cmd.Run() == nil
+	for _, py := range []string{"/tmp/aider-bench/bin/python3", "python3"} {
+		cmd := exec.Command(py, "-c", "import aider.repomap")
+		if cmd.Run() == nil {
+			return true
+		}
+	}
+	return false
 }

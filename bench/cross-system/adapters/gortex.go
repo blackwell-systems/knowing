@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/blackwell-systems/knowing/bench/cross-system/benchtype"
@@ -68,23 +69,28 @@ func (a *Gortex) Retrieve(repoPath string, task benchtype.Task, tokenBudget int)
 
 	latency := time.Since(start).Milliseconds()
 
-	// Parse gortex JSON response.
+	// Parse gortex JSON response. Gortex emits structured log lines (zap JSON)
+	// before the actual response. Find the last line that starts with '{' and
+	// contains "relevant_symbols" (the actual response object).
 	var resp gortexContextResponse
 	if err := json.Unmarshal(output, &resp); err != nil {
-		// Try to find JSON in mixed output (gortex logs to stderr but may mix).
-		jsonStart := 0
-		for i, b := range output {
-			if b == '{' {
-				jsonStart = i
-				break
+		// Split on newlines and find the response line (last JSON with relevant_symbols).
+		lines := strings.Split(string(output), "\n")
+		found := false
+		for i := len(lines) - 1; i >= 0; i-- {
+			line := strings.TrimSpace(lines[i])
+			if len(line) == 0 || line[0] != '{' {
+				continue
+			}
+			if strings.Contains(line, "relevant_symbols") || strings.Contains(line, "files_to_edit") {
+				if err2 := json.Unmarshal([]byte(line), &resp); err2 == nil {
+					found = true
+					break
+				}
 			}
 		}
-		if jsonStart > 0 {
-			if err2 := json.Unmarshal(output[jsonStart:], &resp); err2 != nil {
-				return benchtype.RetrievalResult{System: "gortex", TaskID: task.ID, Error: "json parse: " + err2.Error()}, nil
-			}
-		} else {
-			return benchtype.RetrievalResult{System: "gortex", TaskID: task.ID, Error: "json parse: " + err.Error()}, nil
+		if !found {
+			return benchtype.RetrievalResult{System: "gortex", TaskID: task.ID, Error: "json parse: no response object in output"}, nil
 		}
 	}
 
