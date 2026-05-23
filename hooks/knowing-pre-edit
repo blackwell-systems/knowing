@@ -34,7 +34,7 @@ fi
 # Configuration.
 DB="${KNOWING_HOOKS_DB:-knowing.db}"
 BUDGET="${KNOWING_HOOKS_BUDGET:-800}"
-FORMAT="${KNOWING_HOOKS_FORMAT:-kwf}"
+FORMAT="${KNOWING_HOOKS_FORMAT:-gcf}"
 LOG="${KNOWING_HOOKS_LOG:-.knowing-hooks.jsonl}"
 VERBOSE="${KNOWING_HOOKS_VERBOSE:-0}"
 
@@ -130,8 +130,8 @@ CONTEXT=$($KNOWING context -task "$QUERY" -budget "$BUDGET" -format "$FORMAT" -d
 END_MS=$(python3 -c "import time; print(int(time.time()*1000))")
 LATENCY_MS=$((END_MS - START_MS))
 
-# Measure what we got. Check for empty results (header-only with symbols=0).
-if [ -z "$CONTEXT" ] || echo "$CONTEXT" | grep -q "symbols=0"; then
+# Measure what we got. Check for empty results.
+if [ -z "$CONTEXT" ] || echo "$CONTEXT" | grep -qE "symbols=0|error:"; then
   # No context returned (empty graph, no matches).
   # Log as a miss and exit without injecting.
   echo "{\"ts\":$(date +%s),\"file\":\"$FILE_PATH\",\"event\":\"miss\",\"latency_ms\":$LATENCY_MS,\"tokens\":0}" >> "$LOG"

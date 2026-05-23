@@ -58,6 +58,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+#### Pre-Edit Hook Silent Failure (kwf format removed)
+- `hooks/knowing-pre-edit` was using `kwf` as the default format, which no longer exists (removed during GCF migration)
+- Every edit invocation silently failed and logged "miss" (0 tokens injected)
+- Fix: changed default format to `gcf`; also improved empty-result detection to catch error messages
+- Hook now fires correctly: 226 tokens injected in 251ms, surfacing graph-ranked symbols related to the edited file
+- Re-ran hook benchmarks: precision 33.2%, recall 60.8%, 100% coverage (hook fully replaces manual context calls)
+
 #### Phantom External Nodes Dominating Retrieval Results
 - External nodes (kind="external", `external://` prefix) from failed LSP enrichment entered results via RWR walk
 - On repos with many phantom nodes (e.g., Spark Java: 2282 externals), they occupied all top-10 positions

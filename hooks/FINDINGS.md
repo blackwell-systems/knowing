@@ -22,6 +22,46 @@ The fix: three-tier seed matching in `internal/context/context.go`:
 
 This produces 5-30 high-quality seeds instead of 100 broad ones, giving RWR a focused subgraph to score.
 
+## Re-run (2026-05-22)
+
+Context engine improvements since last run: community-aware RWR (threshold=1), HITS hub/authority scoring, compound-first keyword extraction, phantom node filtering, 30 edge types. Re-ran both benchmarks.
+
+### Precision & Recall (800 token budget, 10 tasks)
+
+| Task | Syms | Precision | Recall | Tokens |
+|------|------|-----------|--------|--------|
+| add new MCP tool handler | 23 | 13.0% | 40.0% | 797 |
+| modify context engine scoring | 23 | 13.0% | 33.3% | 790 |
+| fix snapshot diff logic | 23 | 34.8% | 75.0% | 794 |
+| update SQLite store method | 23 | 60.9% | 80.0% | 799 |
+| modify wire format encoder | 25 | 44.0% | 80.0% | 785 |
+| edit Go extractor | 21 | 42.9% | 50.0% | 791 |
+| change daemon behavior | 24 | 29.2% | 50.0% | 777 |
+| modify TypeScript extractor routes | 21 | 47.6% | 50.0% | 774 |
+| fix indexer incremental logic | 23 | 30.4% | 75.0% | 800 |
+| update trace ingestion | 24 | 16.7% | 75.0% | 799 |
+
+**Mean precision: 33.2% | Mean recall: 60.8% | Verdict: PASS**
+
+### Cost Comparison
+
+All 10 tasks showed 100% coverage (hook at 800 tokens provides the same symbols as a 4000-token manual call). The graph produces 21-25 relevant symbols per query regardless of budget, meaning the 800-token hook fully replaces the manual call. Net impact: hook eliminates the explicit `context_for_task` round-trip entirely.
+
+### Comparison Across Runs
+
+| Metric | Original (May 16) | Tiered seeds (May 16) | **Current (May 22)** |
+|--------|-------------------|-----------------------|----------------------|
+| Mean precision | 32.1% | ~32% | **33.2%** |
+| Mean recall | 69.3% | ~69% | **60.8%** |
+| Coverage (hook replaces manual) | 20% | 90% | **100%** |
+| Verdict | FAIL | PASS | **PASS** |
+
+Precision held steady (+1.1pp). Recall dropped 8.5pp, likely because compound keyword extraction is stricter (fewer but more relevant seeds). Coverage jumped to 100% because the engine's improved ranking surfaces the right symbols within the smaller budget.
+
+### Interpretation
+
+The hook is viable for production. At 800 tokens it delivers a third of symbols that are task-relevant and covers all symbols a manual call would provide. The remaining precision gap (67% of injected symbols are "related but not critical") is acceptable for automatic injection: the agent receives useful structural context that informs edits without needing an explicit call.
+
 ---
 
 ## Original Experiment (preserved for context)

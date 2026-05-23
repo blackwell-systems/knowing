@@ -15,8 +15,8 @@ Compares flat vs hierarchical Merkle tree operations on the live knowing graph.
 
 | Tree type | Build time | Overhead |
 |-----------|-----------|----------|
-| Flat | 8.840291ms | baseline |
-| Hierarchical | 14.512042ms | +64.2% |
+| Flat | 8.263083ms | baseline |
+| Hierarchical | 14.569833ms | +76.3% |
 
 The hierarchical tree costs roughly the same to build. It produces 68 package roots
 and 355 edge-type roots as intermediate nodes.
@@ -27,16 +27,16 @@ Scenario: one package changed, all others unchanged.
 
 | Operation | Avg latency | Memory |
 |-----------|------------|--------|
-| Flat diff (compare all 31210 edges) | 2.148659ms | O(edges) |
-| Hierarchical diff (compare 68 package roots) | 9.399µs | O(packages) |
-| **Speedup** | **229x** | |
+| Flat diff (compare all 31210 edges) | 2.121183ms | O(edges) |
+| Hierarchical diff (compare 68 package roots) | 9.302µs | O(packages) |
+| **Speedup** | **228x** | |
 
 ## Lookup Performance
 
 | Operation | Avg latency | What it answers |
 |-----------|------------|-----------------|
-| SubgraphRoot (1 package) | 205ns | Cache key for queries scoped to one package |
-| EdgeTypeRoot ("calls") | 25.12µs | "Did any call edges change?" |
+| SubgraphRoot (1 package) | 172ns | Cache key for queries scoped to one package |
+| EdgeTypeRoot ("calls") | 25.225µs | "Did any call edges change?" |
 
 ## Correctness
 
@@ -51,7 +51,7 @@ The hierarchical tree structures the Merkle tree by semantic boundaries (package
 edge type) instead of treating all edges as an undifferentiated set. This means:
 
 1. **Diff is O(packages) not O(edges).** Comparing 68 package roots instead of
-   31210 edge leaves produces a 229x speedup.
+   31210 edge leaves produces a 228x speedup.
 
 2. **Subgraph cache keys are O(1).** A query scoped to packages A and B can check
    if its cached result is still valid by comparing two package roots, regardless
@@ -67,7 +67,7 @@ edge type) instead of treating all edges as an undifferentiated set. This means:
 The speedup grows with graph size because the ratio of packages to edges increases.
 A 100K-edge graph with 100 packages gets 517x speedup (benchmarked). A 10K-edge
 graph with 20 packages gets 283x. The knowing repo (31210 edges, 68 packages) gets
-229x.
+228x.
 
 ## Reproducing
 

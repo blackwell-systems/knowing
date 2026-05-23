@@ -1192,7 +1192,7 @@ scaffolds:
             KindPackage      = "package"
         )
       import_path: github.com/blackwell-systems/knowing/internal/types
-      status: pending
+      status: committed (410448e)
     - file_path: internal/types/provenance.go
       contents: |
         package types
@@ -1214,7 +1214,7 @@ scaffolds:
             ConfidenceSCIPResolved = 1.0
         )
       import_path: github.com/blackwell-systems/knowing/internal/types
-      status: pending
+      status: committed (410448e)
     - file_path: internal/testutil/mockstore.go
       contents: |
         package testutil
@@ -1228,7 +1228,7 @@ scaffolds:
             // ... all GraphStore fields
         }
       import_path: github.com/blackwell-systems/knowing/internal/testutil
-      status: pending
+      status: committed (410448e)
     - file_path: internal/resolve/external.go
       contents: |
         package resolve
@@ -1239,7 +1239,7 @@ scaffolds:
         type LangConfig struct { ... }
         func InferExternalRepoURL(path string, localContext string, cfg LangConfig) string
       import_path: github.com/blackwell-systems/knowing/internal/resolve
-      status: pending
+      status: committed (410448e)
     - file_path: internal/store/batch.go
       contents: |
         package store
@@ -1248,7 +1248,7 @@ scaffolds:
         // SQLite's 999-variable limit. Wraps the operation in a transaction.
         func ChunkedExec[T any](ctx context.Context, tx *sql.Tx, items []T, paramsPerItem int, buildSQL func(chunk []T) (string, []interface{})) error
       import_path: github.com/blackwell-systems/knowing/internal/store
-      status: pending
+      status: committed (410448e)
 pre_mortem:
     overall_risk: medium
     rows:
