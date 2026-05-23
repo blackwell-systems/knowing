@@ -185,6 +185,9 @@ func (m *mockStore) GetNotesByKey(_ stdctx.Context, _ string) ([]types.Note, err
 }
 func (m *mockStore) DeleteNote(_ stdctx.Context, _ types.Hash, _ string) error { return nil }
 func (m *mockStore) DeleteNotesByObject(_ stdctx.Context, _ types.Hash) error  { return nil }
+func (m *mockStore) StaleNodesByFiles(_ stdctx.Context, _ types.Hash, _ []string) ([]types.Node, error) {
+	return nil, nil
+}
 
 // --- Tests ---
 

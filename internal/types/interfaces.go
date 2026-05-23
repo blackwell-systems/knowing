@@ -62,6 +62,7 @@ type GraphStore interface {
 	FilesByRepo(ctx context.Context, repoHash Hash) ([]File, error)
 	FileByPath(ctx context.Context, repoHash Hash, path string) (*File, error)
 	NodesByFilePath(ctx context.Context, repoHash Hash, path string) ([]Node, error)
+	StaleNodesByFiles(ctx context.Context, repoHash Hash, paths []string) ([]Node, error)
 
 	// Notes: metadata that never affects Merkle computation (git notes pattern).
 	// PutNote upserts a note (object_hash + key is the composite key).

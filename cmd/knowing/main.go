@@ -134,6 +134,8 @@ func run(args []string) error {
 		return cmdReset(args[1:])
 	case "vacuum":
 		return cmdVacuum(args[1:])
+	case "stale":
+		return cmdStale(args[1:])
 	default:
 		printUsage()
 		return fmt.Errorf("unknown subcommand: %s", args[0])
@@ -164,6 +166,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  test-scope  Compute affected tests from changed files")
 	fmt.Fprintln(os.Stderr, "  why         Explain why a symbol ranked where it did")
 	fmt.Fprintln(os.Stderr, "  diff        Compute semantic diff between two snapshots (@latest, @prev, @N)")
+	fmt.Fprintln(os.Stderr, "  stale       Report stale nodes/edges from changed files")
 	fmt.Fprintln(os.Stderr, "  export      Export the graph as JSON")
 	fmt.Fprintln(os.Stderr, "  stats       Show cumulative graph statistics and feedback")
 	fmt.Fprintln(os.Stderr, "")
