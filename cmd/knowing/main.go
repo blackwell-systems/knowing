@@ -124,6 +124,8 @@ func run(args []string) error {
 		return cmdAdd(args[1:])
 	case "remove":
 		return cmdRemove(args[1:])
+	case "daemon":
+		return cmdDaemon(args[1:])
 	case "list":
 		return cmdList(args[1:])
 	case "stats":
@@ -176,6 +178,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "Server:")
 	fmt.Fprintln(os.Stderr, "  mcp         Run MCP server over stdio")
 	fmt.Fprintln(os.Stderr, "  serve       Start daemon with MCP server and file watching")
+	fmt.Fprintln(os.Stderr, "  daemon      Manage daemon lifecycle (start/stop/status/restart)")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "  version     Print version information")
 }
