@@ -5,18 +5,18 @@ Compares flat vs hierarchical Merkle tree operations on the live knowing graph.
 ## Setup
 
 - **Repository:** knowing (live codebase)
-- **Nodes:** 4642
-- **Edges:** 30405 unique
+- **Nodes:** 4645
+- **Edges:** 30425 unique
 - **Packages:** 68
-- **Edge types:** 6 (authored_by:4641, calls:15091, documents:1343, imports:1613, tests:7570, throws:147)
+- **Edge types:** 6 (authored_by:4643, calls:15106, documents:1344, imports:1614, tests:7570, throws:148)
 - **Mutation target:** github.com/blackwell-systems/knowing/internal/mcp (3894 edges mutated, 12.8% of total)
 
 ## Build Cost
 
 | Tree type | Build time | Overhead |
 |-----------|-----------|----------|
-| Flat | 6.275292ms | baseline |
-| Hierarchical | 10.65475ms | +69.8% |
+| Flat | 8.037458ms | baseline |
+| Hierarchical | 13.480292ms | +67.7% |
 
 The hierarchical tree costs roughly the same to build. It produces 68 package roots
 and 355 edge-type roots as intermediate nodes.
@@ -27,16 +27,16 @@ Scenario: one package changed, all others unchanged.
 
 | Operation | Avg latency | Memory |
 |-----------|------------|--------|
-| Flat diff (compare all 30405 edges) | 2.319842ms | O(edges) |
-| Hierarchical diff (compare 68 package roots) | 11.298µs | O(packages) |
-| **Speedup** | **205x** | |
+| Flat diff (compare all 30425 edges) | 2.083731ms | O(edges) |
+| Hierarchical diff (compare 68 package roots) | 8.949µs | O(packages) |
+| **Speedup** | **233x** | |
 
 ## Lookup Performance
 
 | Operation | Avg latency | What it answers |
 |-----------|------------|-----------------|
-| SubgraphRoot (1 package) | 44ns | Cache key for queries scoped to one package |
-| EdgeTypeRoot ("calls") | 20.955µs | "Did any call edges change?" |
+| SubgraphRoot (1 package) | 198ns | Cache key for queries scoped to one package |
+| EdgeTypeRoot ("calls") | 21.735µs | "Did any call edges change?" |
 
 ## Correctness
 
@@ -51,7 +51,7 @@ The hierarchical tree structures the Merkle tree by semantic boundaries (package
 edge type) instead of treating all edges as an undifferentiated set. This means:
 
 1. **Diff is O(packages) not O(edges).** Comparing 68 package roots instead of
-   30405 edge leaves produces a 205x speedup.
+   30425 edge leaves produces a 233x speedup.
 
 2. **Subgraph cache keys are O(1).** A query scoped to packages A and B can check
    if its cached result is still valid by comparing two package roots, regardless
@@ -66,8 +66,8 @@ edge type) instead of treating all edges as an undifferentiated set. This means:
 
 The speedup grows with graph size because the ratio of packages to edges increases.
 A 100K-edge graph with 100 packages gets 517x speedup (benchmarked). A 10K-edge
-graph with 20 packages gets 283x. The knowing repo (30405 edges, 68 packages) gets
-205x.
+graph with 20 packages gets 283x. The knowing repo (30425 edges, 68 packages) gets
+233x.
 
 ## Reproducing
 

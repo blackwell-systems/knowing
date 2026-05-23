@@ -7,8 +7,8 @@ runs discarded; stats report min, median, p95, mean, and stddev.
 ## Setup
 
 - Repository: knowing (live codebase)
-- Nodes: 7436
-- Edges: 25444
+- Nodes: 7506
+- Edges: 25884
 
 ## Benchmarks
 
