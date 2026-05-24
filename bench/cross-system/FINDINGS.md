@@ -498,6 +498,24 @@ don't cover every possible paraphrase.
 
 Benchmark: `bench/cross-system/TestQueryRobustness`
 
+### Semantic Similarity Edges: Positive Result (2026-05-24)
+
+Added lightweight `similar_to` edges (Jaccard similarity on tokenized symbol names,
+threshold 0.5, weight 0.15, cap 5 per node). Tested on Flask+Cargo (30 tasks).
+
+| Metric | Before | After (similarity) | Delta |
+|--------|--------|-------------------|-------|
+| P@10 | 0.207 | **0.213** | +2.9% |
+| R@10 | 0.297 | **0.320** | +7.7% |
+| NDCG | 0.314 | **0.327** | +4.1% |
+| MRR | 0.416 | **0.497** | **+19.5%** |
+
+All metrics improved. MRR gain is significant: the first relevant result now ranks
+higher because similarity edges connect related functions that RWR couldn't previously
+reach. Flask generated 2,884 similarity edges. Cargo generated 15,389.
+
+The experiment succeeded. Feature kept.
+
 ---
 
 ## Conclusions
