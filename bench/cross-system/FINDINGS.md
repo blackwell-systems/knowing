@@ -45,7 +45,7 @@ knowing is a content-addressed graph retrieval engine evaluated against 6 compet
 - **vs grep:** 11.3x more precise (p<0.0001, d=0.92 very large effect)
 - **vs GitNexus:** 2.75x more precise (p=0.0003, d=0.50), 193x faster indexing, 109x faster incremental, 10x faster queries
 - **vs Repomix:** 48x more token-efficient (4K tokens vs 300K for same task)
-- **vs codebase-memory (2.6K stars):** 1.51x more precise (P@10 0.207 vs 0.137 on Flask+Cargo, 30 tasks), 2x better recall, instant vs 2.9s latency
+- **vs codebase-memory (2.6K stars):** 1.51x more precise (P@10 0.207 vs 0.137 on Flask+Cargo), 2x better recall, instant vs 2.9s latency, can't handle Django/k8s (hangs at 100% CPU)
 - **vs Gortex:** 46x faster on enterprise repos, 70x less RAM, comparable quality on small repos
 
 ### Key Architectural Findings
@@ -235,6 +235,39 @@ relative to the query, putting the most structurally relevant symbols first.
 | Aider | 0.050 | 4.5x worse | ~20K |
 | GitNexus | 0.076 | 2.9x worse | ~500 |
 | grep | 0.020 | 10.9x worse | -- |
+
+### codebase-memory-mcp Comparison (2026-05-24)
+
+Direct comparison against codebase-memory-mcp (2,600 stars, v0.6.1). Uses tree-sitter
+(155 grammars) + BM25 + label boost + semantic edges. No graph walk, no RWR.
+
+**Flask+Cargo results (30 tasks, the repos codebase-memory can handle):**
+
+| System | P@10 | R@10 | NDCG@10 | MRR | Latency | Tasks |
+|--------|------|------|---------|-----|---------|-------|
+| **knowing** | **0.207** | **0.297** | **0.314** | 0.416 | 0ms | 30 |
+| codegraph | 0.153 | 0.382 | 0.278 | 0.487 | 357ms | 30 |
+| codebase-memory | 0.137 | 0.145 | 0.174 | 0.213 | 2,900ms | 30 |
+| grep | 0.033 | 0.051 | 0.069 | 0.131 | 400ms | 30 |
+
+**knowing vs codebase-memory: 1.51x more precise, 2x better recall, instant vs 2.9s.**
+
+**Scale limitations (critical):**
+
+| Repo | LOC | Nodes | codebase-memory | knowing |
+|------|-----|-------|-----------------|---------|
+| Flask | 15K | 1.9K | 285ms/query | 0ms |
+| Cargo | 150K | 22K | ~3s/query | 0ms |
+| Django | 300K | 46K | **hangs (100% CPU, >10s/query)** | 0ms |
+| k8s | 3.5M | 230K | **hangs (killed after 5min)** | 2ms |
+
+codebase-memory's BM25 engine spins at 100% CPU on repos with >40K nodes. It cannot
+serve as a production context tool for anything larger than a small/medium project.
+knowing handles all sizes in constant time (2ms with adjacency cache, regardless of
+graph size up to 782K edges).
+
+**Determinism:** DETERMINISTIC (same output 10/10 runs, same as knowing).
+**Robustness:** 0.10 Jaccard (VOLATILE, similar to knowing's 0.07).
 
 ### Incremental Reindex Speed Comparison (2026-05-23)
 
