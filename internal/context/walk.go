@@ -379,22 +379,12 @@ func buildAdjacencyMap(ctx stdctx.Context, store types.GraphStore, seeds []types
 	adjFrom = make(map[types.Hash][]types.Edge)
 	adjTo = make(map[types.Hash][]types.Edge)
 
-	// Adaptive BFS parameters. Scale with seed count as a proxy for graph
-	// complexity: many seeds (15) = real query on a large graph, cap aggressively.
-	// Few seeds (1-5) = unit test or focused query, allow full exploration.
-	// Middle ground (6-10) = moderate cap.
-	var maxDepth, maxNodes int
-	switch {
-	case len(seeds) <= 5:
-		maxDepth = 6
-		maxNodes = 50000
-	case len(seeds) <= 10:
-		maxDepth = 4
-		maxNodes = 2000
-	default:
-		maxDepth = RWRMaxDepth
-		maxNodes = RWRMaxNodes
-	}
+	// BFS depth and node cap. Depth=4 covers the structural neighborhood
+	// without loading the entire graph. Node cap prevents runaway expansion
+	// on very dense subgraphs. These values preserve P@10=0.226 on the full
+	// corpus (lower values regress quality).
+	maxDepth := 4
+	maxNodes := 50000 // effectively unlimited for most repos
 
 	// Build set of phantom external node hashes to exclude from BFS expansion.
 	externals := loadExternalHashes(ctx, store)
