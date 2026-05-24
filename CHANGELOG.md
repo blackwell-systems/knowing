@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-05-23
+
 ### Fixed
 
 #### Equivalence Channel Noise (P@10 regression fix)
@@ -15,6 +17,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `buildFTSQuery`: removed redundant unquoted compound that searched all FTS columns
 - Cleaned universal seed phrases: removed single-word triggers ("request", "fetch") and generic targets from HTTP_CLIENT class
 - Flask P@10: 0.20 -> 0.336 (+68%). Full corpus: 0.101 -> 0.226 (+124%)
+
+#### Other Fixes
+- Exclude phantom external nodes from RWR walk BFS expansion (prevents enrichment-created externals from diffusing scores)
+- Restore `extractKeywordSet` (accidentally reverted during debug)
+- Aider adapter: suppress stdout progress bars polluting JSON output
+- Gortex adapter: handle log lines before JSON response
 
 ### Added
 
