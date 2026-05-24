@@ -6,8 +6,12 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 
 | # | Item | Why | Effort |
 |---|------|-----|--------|
-| 1 | **Parallel write backend** | SQLite single-writer funnels all extraction results through one goroutine. Even with producer-consumer pipeline, writes are serial. Need parallel write support for large repos. | High |
+| 1 | **Keyword extraction improvements** | P@10 bottleneck is seed selection, not the walk. Proved by: enrichment neutral, confidence weighting neutral, staging dilution. Seeds come from `extractKeywordSet`. Three sub-items below. | Medium |
+| 1a | TF-IDF symbol rarity weighting | Common terms ("handler", "get", "error") match 100+ symbols; rare terms ("scheduler", "rate_limiter") match 3. Weight seeds by inverse document frequency so rare terms dominate. | Low |
+| 1b | Path-context boosting | If the task mentions a directory/package name ("scheduler", "api/v1"), boost seeds from matching file paths. Currently all seeds are ranked equally regardless of path relevance. | Low |
+| 1c | Stronger compound preservation | "rate_limiting" should never split into "rate" + "limiting" unless zero compound matches. Currently splits eagerly as fallback, which floods generic terms into seed pool. | Low |
 | 2 | **Real users** | Everything else is validated by benchmarks, not usage. Task memory compounds with use. | Ongoing |
+| 3 | **Parallel write backend** | SQLite single-writer funnels all extraction results through one goroutine. Even with producer-consumer pipeline, writes are serial. Need parallel write support for large repos. | High |
 
 ## Storage Backend (P0 Performance)
 
@@ -137,7 +141,7 @@ Current status: per-repo isolation (no cross-repo queries). First real user who 
 | **Cross-repo context_for_task** | Search across ALL indexed repos simultaneously, not just one. Real projects span multiple repos (monorepo patterns, microservices). Merge results from all repos into one ranked list. See "Cross-Repo Query Architecture" section below. | P2 |
 | **Incremental context ("next page")** | After an agent gets initial context, allow requesting the NEXT N symbols not yet seen. Avoids re-querying with bigger budget and getting duplicates. Session-stateful cursor. | P2 |
 | **Staleness annotations on MCP responses** | When returning context, annotate symbols whose source files changed since last index. Agents know which results might be outdated without calling `knowing stale` separately. | P2 |
-| **Multi-module enrichment (k8s fix)** | k8s go.work (30+ modules) crashes gopls. Fix: parse go.work, spawn one gopls per module, enrich per-module. Each gopls indexes ~2K files (vs 30K). Cross-module edges stay at ast_inferred (acceptable). | P2 |
+| ~~**Multi-module enrichment (k8s fix)**~~ | **SHIPPED.** Parse go.work, one gopls per module, parallel sub-modules (4 concurrent), progress persistence, per-symbol timeout. k8s: 57K lsp_resolved edges. P@10 neutral (enrichment is correctness, not a ranking lever). | Done |
 | **CLI `--format gcf` output** | `knowing context` only supports json/xml/markdown. Adding gcf/gcb for direct agent consumption without MCP. | P3 |
 | `knowing daemon install-service` | Generate launchd plist (macOS) or systemd user unit (Linux). | P3 |
 | Per-repo config (`.knowing.yaml`) | Excludes, local overrides, workspace membership. | P3 |
