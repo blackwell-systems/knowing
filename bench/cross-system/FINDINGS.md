@@ -807,3 +807,28 @@ relative to the query, putting the most structurally relevant symbols first.
 | Aider | 0.050 | 4.5x worse | ~20K |
 | GitNexus | 0.076 | 2.9x worse | ~500 |
 | grep | 0.020 | 10.9x worse | -- |
+
+### Post-Run-23: Codegraph-Inspired Improvements (All Rejected)
+
+Attempted to close the MRR gap (codegraph 0.459 vs knowing 0.411) by adopting three
+heuristics from codegraph's ranking approach. All three regressed P@10 on
+Flask+Django+Cargo (66 tasks). Baseline: P@10=0.256, MRR=0.400.
+
+| Item | Hypothesis | P@10 | MRR | Verdict |
+|------|-----------|------|-----|---------|
+| Co-location boost | Symbols sharing a file reinforce each other | 0.212 (-17%) | -- | REJECTED |
+| Per-file diversity cap | Max 3 per file prevents domination | 0.221 (-14%) | -- | REJECTED |
+| Exact-match anchor | Pin literal name match to position 1 | 0.214 (-16%) | 0.418 (+4.5%) | REJECTED |
+
+**Why all three failed:** knowing's RWR already captures the structural signals these
+heuristics approximate. Co-location is implicit in graph connectivity (symbols in the
+same file call each other). Diversity caps discard correct results (ground truth often
+has 4-5 relevant symbols per file). Exact-match anchoring displaces structurally
+important symbols that rank higher by graph centrality.
+
+**Conclusion:** The 1.63x precision advantage over codegraph is structural (RWR vs
+heuristics), not tunable. Codegraph's heuristics compensate for lacking graph
+intelligence; applying them on top of graph intelligence is redundant and harmful.
+The current pipeline is at a local optimum for cold-start retrieval. Further
+improvement requires new signal sources (enrichment, feedback compounding), not
+ranking formula changes.
