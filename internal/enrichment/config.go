@@ -53,7 +53,9 @@ func LoadLSPConfig(path string) (*LSPConfig, error) {
 func DetectLSPServers(workspaceRoot string) *LSPConfig {
 	var servers []LSPServerConfig
 
-	// Go: check for go.mod + gopls on PATH
+	// Go: check for go.mod + gopls on PATH.
+	// Multi-module repos (go.work) are handled at the enricher level via
+	// DiscoverModules, not here. Detection just needs a go.mod somewhere.
 	if _, err := os.Stat(filepath.Join(workspaceRoot, "go.mod")); err == nil {
 		if _, err := lookPath("gopls"); err == nil {
 			servers = append(servers, LSPServerConfig{

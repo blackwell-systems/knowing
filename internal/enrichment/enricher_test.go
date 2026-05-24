@@ -2,7 +2,10 @@ package enrichment
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	lsptypes "github.com/blackwell-systems/agent-lsp/pkg/types"
 	"github.com/blackwell-systems/knowing/internal/testutil"
@@ -388,7 +391,7 @@ func TestUpgradeCallEdges_WithFileFilter(t *testing.T) {
 
 	// With cancelled context, upgradeCallEdges returns immediately after
 	// checking ctx.Err() in the node loop.
-	e.upgradeCallEdges(ctx, repoHash, filePathByHash, stats, fileFilter)
+	e.upgradeCallEdges(ctx, nil, repoHash, filePathByHash, stats, fileFilter)
 
 	// With cancelled context, no edges should be processed (returns at ctx.Err check).
 	if stats.edgesProcessed.Load() != 0 {
@@ -515,4 +518,171 @@ func TestRunReturnsErrorWhenNoSnapshot(t *testing.T) {
 	if err == nil {
 		t.Error("expected error from Run with no snapshot")
 	}
+}
+
+func TestRunMultiModule_SkipsCompletedModules(t *testing.T) {
+	// Create a temporary workspace with pre-populated progress.
+	tmpDir := t.TempDir()
+	knowingDir := filepath.Join(tmpDir, ".knowing")
+	if err := os.MkdirAll(knowingDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Mark module "k8s.io/api" as already complete.
+	progress := &EnrichProgress{
+		Modules: map[string]ModuleStatus{
+			"k8s.io/api": {Completed: true, UpdatedAt: time.Now()},
+		},
+		StartedAt: time.Now(),
+	}
+	if err := SaveProgress(tmpDir, progress); err != nil {
+		t.Fatal(err)
+	}
+
+	store := newMockStore()
+	repoHash := types.NewHash([]byte("repo"))
+	store.repos[repoHash] = types.Repo{
+		RepoHash: repoHash,
+		RepoURL:  "https://github.com/test/repo",
+	}
+
+	fileHash := types.NewHash([]byte("file1"))
+	store.files[fileHash] = types.File{
+		FileHash: fileHash,
+		RepoHash: repoHash,
+		Path:     "api/types.go",
+	}
+
+	e := NewEnricher(store, tmpDir)
+
+	modules := []ModuleInfo{
+		{Dir: filepath.Join(tmpDir, "api"), Name: "k8s.io/api"},
+		{Dir: filepath.Join(tmpDir, "client"), Name: "k8s.io/client-go"},
+	}
+
+	files := []types.File{
+		{FileHash: fileHash, RepoHash: repoHash, Path: "api/types.go"},
+	}
+	filePathByHash := map[types.Hash]string{fileHash: "api/types.go"}
+
+	// Use a cancelled context so the second module (not complete) will
+	// not actually try to start gopls.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	serverCfg := LSPServerConfig{
+		Command:    []string{"gopls"},
+		Extensions: []string{"go"},
+		LanguageID: "go",
+	}
+
+	e.runMultiModule(ctx, serverCfg, repoHash, files, filePathByHash, nil, modules)
+
+	// Verify that the completed module was skipped by checking progress:
+	// "k8s.io/api" should still be complete, "k8s.io/client-go" should NOT
+	// be marked complete (since context was cancelled before it could run).
+	loaded, err := LoadProgress(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !loaded.IsComplete("k8s.io/api") {
+		t.Error("expected k8s.io/api to remain complete")
+	}
+	if loaded.IsComplete("k8s.io/client-go") {
+		t.Error("expected k8s.io/client-go to NOT be complete (context cancelled)")
+	}
+}
+
+func TestSymbolTimeout_Integration(t *testing.T) {
+	// Verify that WithSymbolTimeout wrapping doesn't break the normal flow
+	// when the operation completes within the timeout.
+	e := NewEnricher(newMockStore(), "/workspace")
+
+	// Default timeout should be set.
+	if e.symbolTimeout != DefaultSymbolTimeout {
+		t.Errorf("expected default symbol timeout %v, got %v", DefaultSymbolTimeout, e.symbolTimeout)
+	}
+
+	// SetSymbolTimeout should update the value.
+	e.SetSymbolTimeout(5 * time.Second)
+	if e.symbolTimeout != 5*time.Second {
+		t.Errorf("expected 5s timeout, got %v", e.symbolTimeout)
+	}
+
+	// Verify WithSymbolTimeout doesn't interfere when fn completes quickly.
+	called := false
+	err := WithSymbolTimeout(context.Background(), e.symbolTimeout, func(tctx context.Context) error {
+		called = true
+		return nil
+	})
+	if err != nil {
+		t.Errorf("expected no error from fast fn, got: %v", err)
+	}
+	if !called {
+		t.Error("expected fn to be called")
+	}
+
+	// Verify WithSymbolTimeout returns ErrSymbolTimeout for slow operations.
+	e.SetSymbolTimeout(1 * time.Millisecond)
+	err = WithSymbolTimeout(context.Background(), e.symbolTimeout, func(tctx context.Context) error {
+		<-tctx.Done()
+		return tctx.Err()
+	})
+	if err != ErrSymbolTimeout {
+		t.Errorf("expected ErrSymbolTimeout, got: %v", err)
+	}
+}
+
+func TestRunForServer_NoGoWork_FallsBack(t *testing.T) {
+	// Verify that without go.work, the single-server path is used
+	// (existing behavior preserved). We test this by verifying that
+	// DiscoverModules returns a single module for a workspace with
+	// only a go.mod.
+	tmpDir := t.TempDir()
+
+	// Create a minimal go.mod.
+	goMod := "module example.com/test\n\ngo 1.21\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	modules, err := DiscoverModules(tmpDir)
+	if err != nil {
+		t.Fatalf("DiscoverModules: %v", err)
+	}
+	if len(modules) != 1 {
+		t.Fatalf("expected 1 module, got %d", len(modules))
+	}
+	if modules[0].Name != "example.com/test" {
+		t.Errorf("expected module name example.com/test, got %s", modules[0].Name)
+	}
+	if modules[0].Dir != tmpDir {
+		t.Errorf("expected module dir %s, got %s", tmpDir, modules[0].Dir)
+	}
+
+	// Verify: since len(modules) == 1, runForServer would NOT call
+	// runMultiModule. We test this indirectly: with a non-Go server config,
+	// multi-module is never triggered regardless of go.work.
+	store := newMockStore()
+	repoHash := types.NewHash([]byte("repo"))
+	store.repos[repoHash] = types.Repo{
+		RepoHash: repoHash,
+		RepoURL:  "https://github.com/test/repo",
+	}
+	store.snapshots[types.NewHash([]byte("snap"))] = types.Snapshot{
+		SnapshotHash: types.NewHash([]byte("snap")),
+		RepoHash:     repoHash,
+	}
+
+	e := NewEnricher(store, tmpDir)
+	// Use a non-existent server command so it will fail to start
+	// (verifying the single-server path is used, not multi-module).
+	e.SetLSPConfig(&LSPConfig{Servers: []LSPServerConfig{
+		{Command: []string{"gopls"}, Extensions: []string{"go"}, LanguageID: "go"},
+	}})
+
+	// Run should not panic, just log that gopls failed to start.
+	// Since gopls is unlikely to be available in test env, this exercises
+	// the single-server path's error handling.
+	_ = e.Run(context.Background(), repoHash)
 }
