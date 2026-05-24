@@ -490,6 +490,21 @@ func (s *SQLiteStore) EdgesTo(ctx context.Context, targetHash types.Hash, edgeTy
 	return scanEdges(rows)
 }
 
+// AllEdges loads every edge in the database in a single query. Used by
+// buildAdjacencyMap to construct the in-memory graph representation with one
+// round-trip instead of per-node queries. On k8s (268K edges), this replaces
+// thousands of individual EdgesFrom/EdgesTo calls with one bulk SELECT.
+func (s *SQLiteStore) AllEdges(ctx context.Context) ([]types.Edge, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT edge_hash, source_hash, target_hash, edge_type, confidence, provenance, callsite_line, callsite_col, callsite_file
+		 FROM edges`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanEdges(rows)
+}
+
 // TransitiveCallers finds all nodes that transitively call the target node,
 // up to maxDepth hops. The snapshot parameter is accepted for API compatibility
 // but is not currently used for filtering.
