@@ -85,7 +85,45 @@ None of them version the relationships. None of them can prove a relationship ex
 
 ### The emerging landscape
 
-The AI coding agent era has produced several categories of tools trying to solve the context problem:
+The AI coding agent era has produced several categories of tools trying to solve the context problem. To understand why knowing exists, it helps to understand exactly how each existing approach works and where it breaks down.
+
+#### Text search (grep/ripgrep)
+
+The baseline. Agents grep for symbol names and read the matching files. Fast on small codebases. The problem: text search has no semantic understanding. Search for "Handle" in a Go codebase and you get 10,000+ matches spanning HTTP handlers, file handles, error handling, and variables named `handle`. There is no way to distinguish "functions that call this handler" from "comments mentioning the word handle." The agent burns its context window on noise, misses relationships that don't share string literals, and can't answer structural questions ("what implements this interface?") at all.
+
+#### codegraph (19K stars)
+
+Builds a code graph with AST parsing, providing structural queries like "who calls X" and "what does X import." The approach is sound, but the implementation has operational limitations. Indexing is single-threaded, producing 805ms time-to-consistency (vs. knowing's 167ms). There is no incremental update path: changing one file requires re-indexing the entire graph. The graph is mutable state with no versioning, so you cannot diff two points in time, prove what the graph looked like at a past commit, or detect when cached results are stale.
+
+#### codebase-memory-mcp (2.6K stars)
+
+Combines BM25 text search with semantic edges (similar_to, calls) for MCP-based context retrieval. Works adequately on small-to-medium repositories. Breaks on enterprise-scale codebases: hangs indefinitely on repos exceeding 22K nodes (tested on Django and Kubernetes). No graph walk algorithm beyond single-hop neighbor lookup, so it cannot surface transitive relationships (A calls B calls C, where C is what you actually need). No incremental indexing.
+
+#### Aider
+
+LLM-based file selection. Given a task description, Aider sends the repo map to a language model and asks it to select relevant files. This introduces two problems. First, non-determinism: the same query produces 3 unique outputs across runs (tested on identical inputs), making results unreproducible and debugging impossible. Second, latency: 3,150ms time-to-consistency because every query requires an LLM round-trip. The approach also inherits the LLM's context window limit as an index size ceiling.
+
+#### GitNexus
+
+Similar LLM-based approach to Aider. Wildly non-deterministic: 7-9 unique outputs for the same query across 10 runs (tested). No graph structure underneath; each query is a fresh LLM call with no accumulated knowledge. Unreliable as a building block for agent workflows that require reproducible context.
+
+#### Gortex/CGC
+
+Basic keyword extraction pipelines that match task descriptions against file names and symbol names. No graph structure, no relationship traversal, no ranking beyond keyword frequency. Equivalent to grep with a preprocessing step.
+
+#### The shared failure modes
+
+Across all of these tools, the same gaps recur:
+
+1. **No determinism guarantee.** LLM-based tools produce different results each run. Text search produces too many results to be useful without filtering.
+2. **No graph walk.** Single-hop queries ("who calls X?") miss the transitive structure agents actually need ("what's the full call chain from the HTTP handler to the database?").
+3. **No versioning.** Mutable state means no temporal queries, no proofs, no cache validity beyond TTLs.
+4. **No feedback loop.** None of them learn which results were actually useful to the agent.
+5. **No scale path.** Either they hang on large repos (codebase-memory) or they require an LLM call per query (Aider, GitNexus), making cost linear with query volume.
+
+#### Where knowing sits
+
+knowing's differentiator is graph-native retrieval: RWR (Random Walk with Restart) + HITS authority scoring + BM25 fusion, producing a single deterministic ranking per query. The same input always yields the same output. The pipeline scales to 253K nodes (Kubernetes) without hanging. It runs locally with no LLM dependency, completing in 2ms on cached graphs via the adjacency cache. And because the graph is content-addressed and Merkle-versioned, every result is reproducible, cacheable, and provable.
 
 **Context packers** (Aider, Repo Map, etc) analyze your repo and produce a condensed map for the agent's context window. They run at query time, produce text, and are stateless: they don't remember what was useful last time. They don't version their output or prove anything about it.
 
@@ -95,7 +133,6 @@ The AI coding agent era has produced several categories of tools trying to solve
 
 **Runtime observability** (OpenTelemetry, Datadog, Honeycomb) tracks what actually happens in production. Rich temporal data but disconnected from source code. Knows "service A called service B 10,000 times today" but not "the code that enables this call lives in file X at line 42."
 
-**Where knowing sits:**
 knowing combines elements of all four categories into one system:
 - Builds a code graph (like Sourcegraph) but content-addressed and versioned
 - Packs context for agents (like Aider) but graph-ranked and cached
@@ -104,6 +141,63 @@ knowing combines elements of all four categories into one system:
 - Does something none of them do: cryptographic proofs of existence and absence
 
 The categories overlap, but no existing tool occupies knowing's exact position: a versioned, provable, learning code graph that serves both agents and auditors from the same foundation.
+
+### How Context Packing Works
+
+The retrieval-to-output pipeline transforms a natural language task description into a ranked, budget-constrained context block. Here is the complete path from input to output.
+
+**Input:** A natural language task description. For example: "add rate limiting to the API handler."
+
+**Step 1: Keyword extraction.**
+The task string is parsed into structured keywords. CamelCase and snake_case identifiers are split into components ("rateLimit" becomes ["rate", "limit", "rateLimit"]). Verb synonyms are expanded ("add" includes "create", "insert"). Stop words are removed. The result is a `KeywordSet` with three tiers: Exact (backtick-quoted identifiers), Compounds (multi-word identifiers preserved whole), and Components (individual words, used only as fallback). This tiered structure ensures that "rateLimit" is searched as a whole identifier before "rate" and "limit" are searched independently.
+
+**Step 2: Tiered search.**
+The keywords are matched against the graph's node index using a priority cascade:
+
+1. Exact qualified name match (highest priority): the full identifier matches a node's `qualified_name` field directly.
+2. BM25 full-text search: compound keywords are run through the FTS5 index, scoring by term frequency and document length normalization.
+3. Equivalence class expansion (lowest priority): if a matched symbol has `similar_to` edges (embedding-based similarity), those neighbors are included as additional candidates.
+
+Each tier runs only if the previous tier produced fewer than the minimum seed count. This prevents low-specificity component words from flooding results when high-specificity compound matches exist.
+
+**Step 3: Seed selection.**
+The top-K candidates from tiered search (typically 5-15 symbols) become the "seeds" for the graph walk. Seeds are weighted by which tier matched them: exact matches get weight 1.0, BM25 matches get weight proportional to their FTS score, equivalence expansions get weight 0.5. These weights become the restart distribution for the random walk.
+
+**Step 4: Random Walk with Restart (RWR).**
+Starting from the weighted seed set, simulate a random walk across the graph. At each step:
+- With probability (1 - alpha), follow a random outgoing edge to a neighbor. Edge types are weighted: `calls` edges have higher transition probability than `similar_to` edges.
+- With probability alpha (default 0.2), restart by jumping back to a seed (chosen proportional to seed weights).
+
+The walk converges to a stationary distribution where each node's probability reflects its structural relevance to the seeds. Nodes reachable by short paths from many seeds accumulate high probability. Nodes far from seeds or reachable only through long chains get negligible probability. Community-aware constraint: when all seeds cluster in a single detected community, the walk is restricted to that community's subgraph, preventing drift into unrelated code.
+
+**Step 5: HITS authority/hub scoring.**
+On the top-K nodes from RWR (typically top 50-100), run the HITS algorithm. This separates nodes into two roles:
+- Authorities: nodes pointed to by many other nodes (heavily-called functions, core types). High authority score means "this symbol is important to the task."
+- Hubs: nodes that point to many other nodes (orchestrators, routers, main functions). High hub score means "this symbol connects task-relevant code."
+
+The authority score is used for ranking in most retrieval scenarios (agents typically need the called code, not the callers).
+
+**Step 6: RRF fusion (Reciprocal Rank Fusion).**
+Three ranked lists now exist: (1) tiered search ranking, (2) RWR stationary distribution ranking, (3) HITS authority ranking. RRF merges them into one final ranking using the formula:
+
+```
+score(symbol) = sum over all lists L of: 1 / (k + rank_in_L(symbol))
+```
+
+where k=60 (standard RRF constant). This fusion is robust to outliers in any single ranker: a symbol must rank well in multiple signals to reach the top. The result is a single ordered list of symbols sorted by combined relevance.
+
+**Step 7: Budget-constrained packing.**
+The final ranked list is packed into a token budget (default 50,000 tokens) using a knapsack algorithm. For each symbol, the cost is estimated by its source snippet length (lines of code at definition site). The packer walks the ranked list top-to-bottom, including each symbol if it fits within the remaining budget, skipping symbols that would exceed the ceiling. The result is the maximum-relevance subset that fits within the agent's context window.
+
+**Output:** A context block in GCF (Graph Context Format) wire format containing:
+- Ranked symbols with their qualified names, file paths, line numbers, and relevance scores
+- Source code snippets for each included symbol
+- Edge metadata showing relationships between included symbols
+- Total token count and budget utilization percentage
+
+This block is ready for direct injection into an agent's context window.
+
+**Key performance characteristic:** On a warm graph with the adjacency cache populated, the entire pipeline (steps 1-7) completes in 2ms. The adjacency cache precomputes neighbor lookups for all nodes, eliminating random I/O during the graph walk. This makes it practical to run the pipeline on every agent turn without adding perceptible latency.
 
 ## What a Code Graph Is
 
