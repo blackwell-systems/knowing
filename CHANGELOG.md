@@ -92,11 +92,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-#### LSP enrichment ROI measured (negative result)
-- Neutral on retrieval quality: Flask and Django both produce identical P@10 with and without LSP enrichment
-- +53% latency overhead from phantom external nodes created during enrichment
-- Conclusion: tree-sitter pipeline is self-sufficient for retrieval; LSP enrichment adds cost without benefit
-- Informs `--no-enrich` as the recommended default for retrieval-only use cases
+#### LSP enrichment ROI measured (neutral result, confirmed at enterprise scale)
+- Flask/Django: identical P@10 with and without enrichment (previously measured)
+- k8s at scale: P@10 0.179 with enrichment (7,618 lsp_resolved edges) vs 0.181 without. Flat.
+- Upgrading 1.2% of edges from confidence 0.7 to 0.9 does not change RWR ranking order
+- Conclusion: enrichment is infrastructure (correctness, audit trail, cross-repo resolution) not a retrieval quality lever
+- The retrieval quality bottleneck is elsewhere: keyword extraction, community detection coverage, authorship edges
 
 ### Fixed
 
