@@ -7,6 +7,12 @@ import (
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
+// RWRMaxDepth controls BFS expansion depth from seeds when building the adjacency map.
+// RWRMaxNodes caps total nodes explored during BFS. Together these prevent the walk
+// from loading the entire graph on large repos. Tunable via sweep test.
+var RWRMaxDepth = 3
+var RWRMaxNodes = 1000
+
 // externalHashLoader is a local interface for stores that support querying nodes by name.
 type externalHashLoader interface {
 	NodesByName(ctx stdctx.Context, pattern string) ([]types.Node, error)
@@ -373,14 +379,21 @@ func buildAdjacencyMap(ctx stdctx.Context, store types.GraphStore, seeds []types
 	adjFrom = make(map[types.Hash][]types.Edge)
 	adjTo = make(map[types.Hash][]types.Edge)
 
-	const maxDepth = 4 // 4 hops from seeds covers relevant context without loading entire graph
+	// Adaptive depth and node cap: on large graphs, reduce BFS expansion to
+	// avoid loading tens of thousands of nodes. The walk still finds relevant
+	// symbols because seeds are already the best candidates from RRF fusion.
+	// On small graphs (few seeds), use full depth to ensure reachability.
+	maxDepth := RWRMaxDepth
+	maxNodes := RWRMaxNodes
+	if len(seeds) <= 5 {
+		maxDepth = 6 // small seed set: ensure full reachability
+		maxNodes = 50000
+	}
 
 	// Build set of phantom external node hashes to exclude from BFS expansion.
-	// External nodes are dead-end targets from LSP enrichment with no source code.
-	// Including them in the walk diffuses probability mass to irrelevant neighborhoods.
 	externals := loadExternalHashes(ctx, store)
 
-	// BFS from seeds with depth limit.
+	// BFS from seeds with depth limit and node cap.
 	visited := make(map[types.Hash]bool, len(seeds)*4)
 	frontier := make([]types.Hash, len(seeds))
 	copy(frontier, seeds)
@@ -391,6 +404,10 @@ func buildAdjacencyMap(ctx stdctx.Context, store types.GraphStore, seeds []types
 	for depth := 0; depth < maxDepth && len(frontier) > 0; depth++ {
 		var nextFrontier []types.Hash
 		for _, node := range frontier {
+			if len(visited) >= maxNodes {
+				break
+			}
+
 			// Load outgoing edges for this node (once).
 			if _, loaded := adjFrom[node]; !loaded {
 				from, qErr := store.EdgesFrom(ctx, node, "")
@@ -420,6 +437,9 @@ func buildAdjacencyMap(ctx stdctx.Context, store types.GraphStore, seeds []types
 					}
 				}
 			}
+		}
+		if len(visited) >= maxNodes {
+			break
 		}
 		frontier = nextFrontier
 	}

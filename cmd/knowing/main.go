@@ -289,6 +289,7 @@ func cmdIndex(args []string) error {
 	dbPath := fs.String("db", defaultDB(), "Path to the SQLite database (env: KNOWING_DB)")
 	repoURL := fs.String("url", "", "Repository URL (e.g. github.com/org/repo)")
 	commitHash := fs.String("commit", "HEAD", "Commit hash to record")
+	filesFlag := fs.String("files", "", "Comma-separated list of changed files (relative paths) for incremental index")
 	full := fs.Bool("full", false, "Use full type resolution (go/packages) instead of fast tree-sitter extraction")
 	skipBlame := fs.Bool("skip-blame", false, "Skip git blame authorship extraction (faster, no authored_by edges)")
 	noEnrich := fs.Bool("no-enrich", false, "Skip LSP enrichment (faster, edges stay at 0.7 confidence)")
@@ -348,6 +349,25 @@ func cmdIndex(args []string) error {
 	registerAllExtractors(idx, *full)
 
 	ctx := context.Background()
+	repoHash := types.NewHash([]byte(*repoURL))
+
+	// Incremental mode: only reindex specified files.
+	if *filesFlag != "" {
+		files := strings.Split(*filesFlag, ",")
+		fmt.Fprintf(os.Stderr, "Incremental index: %d files in %s\n", len(files), repoPath)
+		indexStart := time.Now()
+		if err := idx.IndexFilesIncremental(ctx, *repoURL, repoPath, *commitHash, files); err != nil {
+			return fmt.Errorf("incremental indexing: %w", err)
+		}
+		fmt.Printf("Indexed %d files in %s\n", len(files), time.Since(indexStart).Truncate(time.Millisecond))
+
+		// Rebuild FTS for affected packages.
+		if err := st.RebuildFTS(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "FTS rebuild warning: %v\n", err)
+		}
+		return nil
+	}
+
 	fmt.Fprintf(os.Stderr, "Indexing %s (%s)...\n", repoPath, *repoURL)
 	indexStart := time.Now()
 	snap, err := idx.IndexRepo(ctx, *repoURL, repoPath, *commitHash)
@@ -355,7 +375,6 @@ func cmdIndex(args []string) error {
 		return fmt.Errorf("indexing: %w", err)
 	}
 
-	repoHash := types.NewHash([]byte(*repoURL))
 	fmt.Printf("Indexed %s in %s\n", repoPath, time.Since(indexStart).Truncate(time.Millisecond))
 	fmt.Printf("Repo:     %x\n", repoHash)
 	fmt.Printf("Snapshot: %x\n", snap.SnapshotHash)
