@@ -246,6 +246,7 @@ codegraph uses `codegraph sync` (scans all files to detect changes, then re-pars
 |--------|------------------------|---------------------------|------------------------|-------------|
 | **knowing** | **24ms** | **26ms** | **~26ms** | Changed file count only |
 | codegraph | 468ms | - | 3.1s | Repo size (scans all files) |
+| codebase-memory | N/A (no incremental) | - | - | Must re-index entire repo |
 | Aider | N/A (full rebuild on query) | - | - | N/A |
 
 **knowing is 19x faster on Flask, ~130x faster on k8s.** knowing's incremental cost is
@@ -333,6 +334,7 @@ Measures how quickly a system's retrieval reflects a code change. Protocol:
 | **knowing** | **16ms** | **151ms** | **167ms** | **true (rank 2)** | **baseline** |
 | codegraph | 484ms | 321ms | 805ms | true | 4.8x slower |
 | Aider | 0ms (no index) | 3150ms | 3150ms | **false** | 19x slower, doesn't find it |
+| codebase-memory | full re-index required | - | seconds+ | untested | no incremental |
 | GitNexus | full re-analyze required | - | minutes | untested | no incremental |
 
 **knowing reflects code changes 4.8x faster than codegraph, 19x faster than Aider.** The gap is structural:
@@ -379,6 +381,7 @@ Cache build cost: 973ms (one-time at index). Binary format: 65 bytes/edge, 782K 
 **Competitive context:** codegraph queries k8s in ~1s (BM25 only, no graph walk).
 knowing without cache: 9s (graph walk dominates). knowing with cache: 2ms (graph walk
 is now free). **knowing is 500x faster than codegraph on k8s with the cache.**
+codebase-memory times out entirely on k8s (>5 min per query, killed).
 
 This is a structural advantage of content-addressed caching: the adjacency map is
 deterministic (same edges produce same cache), so it never needs invalidation except
