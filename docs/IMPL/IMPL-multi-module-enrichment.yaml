@@ -1,0 +1,585 @@
+title: Enterprise Multi-Module LSP Enrichment
+feature_slug: multi-module-enrichment
+verdict: SUITABLE
+suitability_assessment: |
+    1. File decomposition: YES. The work splits cleanly into 4+ files across
+       multiple concerns: go.work parsing, per-module server management,
+       progress persistence, and per-symbol timeout handling. No single-file
+       bottleneck.
+
+    2. Investigation-first items: NONE. The problem is well-understood: gopls
+       crashes on repos with go.work (30+ modules). The fix strategy (one gopls
+       per module) is documented in the roadmap.
+
+    3. Interface discoverability: YES. The interfaces are clear: go.work parser
+       returns module paths, progress tracker has load/save/mark API, the enricher
+       orchestrates per-module with graceful degradation.
+
+    4. Pre-implementation status: The GOWORK=off workaround exists (line 185 of
+       enricher.go) but it's a band-aid that skips cross-module resolution. No
+       multi-module enrichment code exists today.
+
+    5. Parallelization value: HIGH. 4 agents across 2 waves, each touching 2-4
+       files. Build+test cycle is ~30s. Agents are mostly independent (wave 1
+       builds primitives, wave 2 wires them together).
+
+    Estimated times:
+    - Scout phase: ~8 min (dependency mapping, interface contracts, IMPL doc)
+    - Agent execution: ~12 min (3 wave-1 agents x 4 min avg parallel)
+    - Wave 2 execution: ~5 min (1 integration agent)
+    - Merge & verification: ~3 min
+    Total Polywave time: ~28 min
+
+    Sequential baseline: ~40 min (4 agents x 10 min avg)
+    Time savings: ~12 min (30% faster)
+
+    Recommendation: Clear speedup. Proceed.
+test_command: GOWORK=off go test -short ./... -timeout 5m
+lint_command: GOWORK=off go vet ./...
+file_ownership:
+    - file: internal/enrichment/multimodule.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/enrichment/multimodule_test.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/enrichment/progress.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/enrichment/progress_test.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/enrichment/timeout.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/enrichment/timeout_test.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/enrichment/enricher.go
+      agent: D
+      wave: 2
+      action: modify
+      depends_on:
+        - A
+        - B
+        - C
+    - file: internal/enrichment/enricher_test.go
+      agent: D
+      wave: 2
+      action: modify
+      depends_on:
+        - A
+        - B
+        - C
+    - file: internal/enrichment/config.go
+      agent: D
+      wave: 2
+      action: modify
+      depends_on:
+        - A
+interface_contracts:
+    - name: DiscoverModules
+      description: |
+        Parse go.work file and return the list of module directories.
+        Falls back to single-module (workspace root) when go.work is absent.
+      definition: |
+        // ModuleInfo describes a Go module discovered from go.work.
+        type ModuleInfo struct {
+            Dir    string // absolute path to module directory
+            Name   string // module path from go.mod (e.g., "k8s.io/api")
+        }
+
+        // DiscoverModules parses go.work in workspaceRoot and returns all
+        // module directories. If go.work does not exist, returns a single
+        // ModuleInfo for the workspace root itself (using go.mod's module path).
+        // Returns an error only if go.work exists but cannot be parsed.
+        func DiscoverModules(workspaceRoot string) ([]ModuleInfo, error)
+      location: internal/enrichment/multimodule.go
+    - name: FilesForModule
+      description: |
+        Given a list of files and a module info, return only files that
+        belong to that module (by path prefix).
+      definition: |
+        // FilesForModule filters files to those whose paths are within
+        // the module's directory (relative to workspace root).
+        func FilesForModule(files []types.File, module ModuleInfo, workspaceRoot string) []types.File
+      location: internal/enrichment/multimodule.go
+    - name: EnrichProgress
+      description: |
+        Tracks which modules have been enriched so interrupted runs resume.
+        Persisted to .knowing/enrich-progress.json in the workspace root.
+      definition: |
+        // EnrichProgress tracks per-module enrichment completion.
+        type EnrichProgress struct {
+            Modules map[string]ModuleStatus `json:"modules"`
+            StartedAt time.Time             `json:"started_at"`
+        }
+
+        // ModuleStatus tracks the enrichment state of a single module.
+        type ModuleStatus struct {
+            Completed bool      `json:"completed"`
+            Error     string    `json:"error,omitempty"`
+            UpdatedAt time.Time `json:"updated_at"`
+        }
+
+        // LoadProgress reads progress from .knowing/enrich-progress.json.
+        // Returns a fresh EnrichProgress if the file does not exist.
+        func LoadProgress(workspaceRoot string) (*EnrichProgress, error)
+
+        // SaveProgress writes progress to .knowing/enrich-progress.json.
+        // Creates the .knowing directory if it does not exist.
+        func SaveProgress(workspaceRoot string, p *EnrichProgress) error
+
+        // MarkModule records the result of enriching a module.
+        func (p *EnrichProgress) MarkModule(modulePath string, err error)
+
+        // IsComplete returns true if the module has been successfully enriched.
+        func (p *EnrichProgress) IsComplete(modulePath string) bool
+
+        // Reset clears all progress (used when a fresh run is requested).
+        func (p *EnrichProgress) Reset()
+      location: internal/enrichment/progress.go
+    - name: WithSymbolTimeout
+      description: |
+        Wraps an LSP call with a per-symbol timeout (10s default). If the
+        call hangs, the context is cancelled without blocking the pipeline.
+      definition: |
+        // WithSymbolTimeout executes fn with a per-symbol timeout. If fn
+        // does not return within timeout, the context is cancelled and
+        // ErrSymbolTimeout is returned. The parent context is NOT cancelled.
+        func WithSymbolTimeout(ctx context.Context, timeout time.Duration, fn func(ctx context.Context) error) error
+
+        // ErrSymbolTimeout is returned when a per-symbol LSP call exceeds
+        // its timeout.
+        var ErrSymbolTimeout = errors.New("enrichment: symbol timeout exceeded")
+
+        // DefaultSymbolTimeout is the default per-symbol timeout (10 seconds).
+        const DefaultSymbolTimeout = 10 * time.Second
+      location: internal/enrichment/timeout.go
+waves:
+    - number: 1
+      agents:
+        - id: A
+          task: |
+            ## Task: Implement go.work module discovery
+
+            Create `internal/enrichment/multimodule.go` with functions to discover
+            Go modules in a workspace. The primary use case: repos with `go.work`
+            (like kubernetes with 30+ modules) need per-module gopls instances.
+
+            ### What to implement
+
+            1. `ModuleInfo` struct with `Dir` (absolute path) and `Name` (module path from go.mod).
+
+            2. `DiscoverModules(workspaceRoot string) ([]ModuleInfo, error)`:
+               - Check if `go.work` exists at `workspaceRoot/go.work`
+               - If yes: parse it using `golang.org/x/mod/modfile.ParseWork`,
+                 extract each `Use` entry's `Path`, resolve it relative to
+                 workspaceRoot to get `Dir`. Read each module's `go.mod` to get
+                 the module path for `Name`.
+               - If no go.work: read `workspaceRoot/go.mod`, extract module path,
+                 return a single `ModuleInfo{Dir: workspaceRoot, Name: modulePath}`.
+               - Return error only if go.work exists but is malformed or a referenced
+                 module directory does not contain go.mod.
+
+            3. `FilesForModule(files []types.File, module ModuleInfo, workspaceRoot string) []types.File`:
+               - Compute the module's relative prefix from workspaceRoot.
+               - Return only files whose `Path` field has that prefix (or all files
+                 if module.Dir == workspaceRoot).
+
+            ### Imports needed
+            - `golang.org/x/mod/modfile` (already an indirect dep via golang.org/x/tools)
+            - `github.com/blackwell-systems/knowing/internal/types`
+            - `os`, `path/filepath`, `strings`
+
+            ### Tests (multimodule_test.go)
+
+            Use `t.TempDir()` to create test workspaces:
+            - `TestDiscoverModules_NoGoWork`: workspace with only go.mod, returns single module.
+            - `TestDiscoverModules_WithGoWork`: workspace with go.work pointing to 3 subdirs,
+              each with go.mod. Returns 3 ModuleInfo entries.
+            - `TestDiscoverModules_MalformedGoWork`: go.work with syntax errors returns error.
+            - `TestDiscoverModules_MissingModuleDir`: go.work references non-existent dir, returns error.
+            - `TestFilesForModule_FiltersCorrectly`: given 10 files across 3 modules,
+              filters to correct subset.
+
+            ### Verification gate
+            ```bash
+            GOWORK=off go build ./internal/enrichment/... && GOWORK=off go test ./internal/enrichment/ -run TestDiscoverModules -v -count=1 && GOWORK=off go test ./internal/enrichment/ -run TestFilesForModule -v -count=1
+            ```
+
+            Postconditions:
+            - `grep -c "func DiscoverModules" internal/enrichment/multimodule.go` => 1
+            - `grep -c "func FilesForModule" internal/enrichment/multimodule.go` => 1
+            - `grep -c "type ModuleInfo struct" internal/enrichment/multimodule.go` => 1
+
+            ### Constraints
+            - Do NOT modify enricher.go or config.go. Those belong to Agent D (wave 2).
+            - Do NOT add any global state or init() functions.
+            - Package declaration must be `package enrichment`.
+          files:
+            - internal/enrichment/multimodule.go
+            - internal/enrichment/multimodule_test.go
+        - id: B
+          task: |
+            ## Task: Implement enrichment progress persistence
+
+            Create `internal/enrichment/progress.go` with a JSON-based progress
+            tracker so interrupted multi-module enrichment runs can resume from
+            where they left off.
+
+            ### What to implement
+
+            1. `EnrichProgress` struct:
+               ```go
+               type EnrichProgress struct {
+                   Modules   map[string]ModuleStatus `json:"modules"`
+                   StartedAt time.Time               `json:"started_at"`
+               }
+               ```
+
+            2. `ModuleStatus` struct:
+               ```go
+               type ModuleStatus struct {
+                   Completed bool      `json:"completed"`
+                   Error     string    `json:"error,omitempty"`
+                   UpdatedAt time.Time `json:"updated_at"`
+               }
+               ```
+
+            3. Functions:
+               - `LoadProgress(workspaceRoot string) (*EnrichProgress, error)`:
+                 Reads `.knowing/enrich-progress.json`. If file does not exist,
+                 returns a fresh `EnrichProgress` with empty Modules map and
+                 StartedAt = time.Now(). If file exists but is corrupt, returns error.
+               - `SaveProgress(workspaceRoot string, p *EnrichProgress) error`:
+                 Marshals to JSON (indented), writes atomically (write to .tmp, rename).
+                 Creates `.knowing/` directory with 0755 if it doesn't exist.
+               - `(p *EnrichProgress) MarkModule(modulePath string, err error)`:
+                 Sets the module's status: Completed=true if err==nil, Error=err.Error()
+                 otherwise. Always sets UpdatedAt=time.Now().
+               - `(p *EnrichProgress) IsComplete(modulePath string) bool`:
+                 Returns true if module exists in map and Completed==true.
+               - `(p *EnrichProgress) Reset()`:
+                 Clears the Modules map and resets StartedAt.
+
+            4. Progress file path: `{workspaceRoot}/.knowing/enrich-progress.json`
+
+            ### Tests (progress_test.go)
+
+            - `TestLoadProgress_NoFile`: returns fresh progress, no error.
+            - `TestLoadProgress_ExistingFile`: writes a valid JSON, loads it back, verifies fields.
+            - `TestLoadProgress_CorruptFile`: writes garbage, returns error.
+            - `TestSaveProgress_CreatesDirectory`: saves to non-existent .knowing/ dir.
+            - `TestSaveProgress_AtomicWrite`: verifies file content is valid JSON after save.
+            - `TestMarkModule_Success`: marks module, verifies Completed=true, Error="".
+            - `TestMarkModule_Error`: marks with error, verifies Completed=false, Error set.
+            - `TestIsComplete`: verifies true for completed, false for errored/missing.
+            - `TestReset`: marks modules, resets, verifies empty.
+
+            ### Verification gate
+            ```bash
+            GOWORK=off go build ./internal/enrichment/... && GOWORK=off go test ./internal/enrichment/ -run TestLoadProgress -v -count=1 && GOWORK=off go test ./internal/enrichment/ -run TestSaveProgress -v -count=1 && GOWORK=off go test ./internal/enrichment/ -run TestMarkModule -v -count=1
+            ```
+
+            Postconditions:
+            - `grep -c "func LoadProgress" internal/enrichment/progress.go` => 1
+            - `grep -c "func SaveProgress" internal/enrichment/progress.go` => 1
+            - `grep -c "type EnrichProgress struct" internal/enrichment/progress.go` => 1
+            - `grep -c "enrich-progress.json" internal/enrichment/progress.go` => at least 1
+
+            ### Constraints
+            - Do NOT modify enricher.go or config.go. Those belong to Agent D (wave 2).
+            - Do NOT import any external packages beyond the standard library and
+              `encoding/json`, `os`, `path/filepath`, `time`.
+            - Package declaration must be `package enrichment`.
+          files:
+            - internal/enrichment/progress.go
+            - internal/enrichment/progress_test.go
+        - id: C
+          task: |
+            ## Task: Implement per-symbol timeout wrapper
+
+            Create `internal/enrichment/timeout.go` with a generic timeout wrapper
+            for individual LSP calls. When gopls hangs on a single symbol (common
+            in large repos), the 10s timeout fires without blocking the entire pipeline.
+
+            ### What to implement
+
+            1. Sentinel error:
+               ```go
+               var ErrSymbolTimeout = errors.New("enrichment: symbol timeout exceeded")
+               ```
+
+            2. Default constant:
+               ```go
+               const DefaultSymbolTimeout = 10 * time.Second
+               ```
+
+            3. `WithSymbolTimeout(ctx context.Context, timeout time.Duration, fn func(ctx context.Context) error) error`:
+               - Creates a child context with the given timeout (context.WithTimeout).
+               - Calls fn(childCtx).
+               - If fn returns before timeout: return fn's error (nil or otherwise).
+               - If timeout fires first: return ErrSymbolTimeout.
+               - Always call cancel() on the child context (defer).
+               - IMPORTANT: The parent context must NOT be cancelled. Only the child
+                 context is affected.
+               - If parent context is already cancelled, return parent's error immediately.
+
+            ### Tests (timeout_test.go)
+
+            - `TestWithSymbolTimeout_FastCall`: fn returns in 1ms, no timeout.
+            - `TestWithSymbolTimeout_SlowCall`: fn sleeps 5s, timeout is 50ms, returns ErrSymbolTimeout.
+            - `TestWithSymbolTimeout_FnError`: fn returns custom error within timeout, that error propagates.
+            - `TestWithSymbolTimeout_ParentCancelled`: parent already cancelled, returns parent error.
+            - `TestWithSymbolTimeout_ZeroTimeout`: timeout=0 still works (context.WithTimeout handles it).
+            - `TestDefaultSymbolTimeout_Value`: verify DefaultSymbolTimeout == 10*time.Second.
+
+            ### Verification gate
+            ```bash
+            GOWORK=off go build ./internal/enrichment/... && GOWORK=off go test ./internal/enrichment/ -run TestWithSymbolTimeout -v -count=1 && GOWORK=off go test ./internal/enrichment/ -run TestDefaultSymbolTimeout -v -count=1
+            ```
+
+            Postconditions:
+            - `grep -c "func WithSymbolTimeout" internal/enrichment/timeout.go` => 1
+            - `grep -c "ErrSymbolTimeout" internal/enrichment/timeout.go` => at least 1
+            - `grep -c "DefaultSymbolTimeout" internal/enrichment/timeout.go` => 1
+
+            ### Constraints
+            - Do NOT modify enricher.go, config.go, or any other existing file.
+            - Only use standard library imports: `context`, `errors`, `time`.
+            - Package declaration must be `package enrichment`.
+            - The function signature must match the interface contract exactly.
+          files:
+            - internal/enrichment/timeout.go
+            - internal/enrichment/timeout_test.go
+    - number: 2
+      agents:
+        - id: D
+          task: |
+            ## Task: Wire multi-module enrichment into the enricher
+
+            Modify `internal/enrichment/enricher.go` and `config.go` to use the
+            multi-module discovery, progress tracking, and per-symbol timeout from
+            wave 1. The key behavioral change: when go.work exists, spawn one gopls
+            per module instead of one for the whole workspace.
+
+            ### What to implement in enricher.go
+
+            1. **New Enricher field** - Add `symbolTimeout time.Duration` field to the
+               Enricher struct (default: DefaultSymbolTimeout). Add setter:
+               ```go
+               func (e *Enricher) SetSymbolTimeout(d time.Duration) { e.symbolTimeout = d }
+               ```
+
+            2. **Modify `runForServer`** for Go language servers only (serverCfg.LanguageID == "go"):
+               - Call `DiscoverModules(e.workspaceRoot)` to get module list.
+               - If only 1 module returned (no go.work or single module): proceed with
+                 current behavior (single gopls, workspace root).
+               - If >1 module: call new method `runMultiModule(ctx, serverCfg, repoHash, files, filePathByHash, fileFilter, modules)`.
+
+            3. **New method `runMultiModule`**:
+               ```go
+               func (e *Enricher) runMultiModule(ctx context.Context, serverCfg LSPServerConfig,
+                   repoHash types.Hash, files []types.File, filePathByHash map[types.Hash]string,
+                   fileFilter func(string) bool, modules []ModuleInfo) {
+               ```
+               - Load progress: `progress, err := LoadProgress(e.workspaceRoot)`
+               - For each module (sequentially, one gopls at a time to limit memory):
+                 - Skip if `progress.IsComplete(module.Name)` (resume support).
+                 - Filter files to this module: `moduleFiles := FilesForModule(files, module, e.workspaceRoot)`
+                 - Build a module-scoped filePathByHash from moduleFiles.
+                 - Start a new gopls with `module.Dir` as the workspace root.
+                   Do NOT set GOWORK=off for per-module instances (they use their own go.mod).
+                 - Call `e.runForServerWithClient(ctx, client, serverCfg, repoHash, moduleFiles, moduleFilePathByHash, moduleLangFilter)`
+                 - If gopls fails to start or crashes: log warning, mark module with error,
+                   continue to next module (graceful degradation).
+                 - On success: `progress.MarkModule(module.Name, nil)`
+                 - Save progress after each module: `SaveProgress(e.workspaceRoot, progress)`
+               - Log summary of modules enriched vs skipped vs errored.
+
+            4. **Extract `runForServerWithClient`** from the existing `runForServer`:
+               Refactor the body of `runForServer` (after client creation) into a new method
+               that accepts a pre-created `*lsp.LSPClient`:
+               ```go
+               func (e *Enricher) runForServerWithClient(ctx context.Context, client *lsp.LSPClient,
+                   serverCfg LSPServerConfig, repoHash types.Hash, files []types.File,
+                   filePathByHash map[types.Hash]string, fileFilter func(string) bool) {
+               ```
+               The existing `runForServer` should create the client, then call
+               `runForServerWithClient`. This avoids code duplication.
+
+            5. **Apply per-symbol timeout** in `upgradeCallEdges` and `processSymbolsWithSource`:
+               - In `upgradeCallEdges`, wrap the `e.client.GetDefinition(ctx, ...)` call:
+                 ```go
+                 var locs []lsptypes.Location
+                 err := WithSymbolTimeout(ctx, e.symbolTimeout, func(tctx context.Context) error {
+                     var innerErr error
+                     locs, innerErr = client.GetDefinition(tctx, item.uri, item.pos)
+                     return innerErr
+                 })
+                 if errors.Is(err, ErrSymbolTimeout) {
+                     stats.edgeErrors.Add(1)
+                     return
+                 }
+                 ```
+               - Similarly wrap `GetImplementation` and `GetReferences` calls in
+                 `processSymbolsWithSource`.
+               - Note: the `client` variable must be passed through or stored on a
+                 per-run basis. Consider adding a `client *lsp.LSPClient` parameter to
+                 `upgradeCallEdges` and `discoverNewEdgesBatched` instead of using `e.client`.
+
+            6. **Remove GOWORK=off hack** from `runForServer`. The multi-module path handles
+               it properly (one gopls per module). For non-Go servers or single-module Go
+               repos, GOWORK=off is still not needed (no go.work present).
+
+            7. **Update NewEnricher** to initialize `symbolTimeout: DefaultSymbolTimeout`.
+
+            ### What to implement in config.go
+
+            8. **Update `DetectLSPServers`**: In the Go detection block (lines 56-64),
+               do NOT change behavior. The detection still checks for `go.mod` + gopls.
+               The multi-module logic lives in the enricher, not config detection.
+               However, add a comment explaining that multi-module repos are handled
+               at the enricher level via `DiscoverModules`.
+
+            ### Changes to enricher.go context anchors
+
+            The `runForServer` method currently starts at line 175. The GOWORK=off block is:
+            ```go
+            	// Disable go.work so gopls uses only the top-level go.mod. Multi-module
+            	// workspaces (e.g., kubernetes with 30+ modules) cause gopls to choke.
+            	os.Setenv("GOWORK", "off")
+            	defer os.Unsetenv("GOWORK")
+            ```
+            Remove this entire block.
+
+            The client creation in `runForServer` is:
+            ```go
+            	args := []string{}
+            	if len(serverCfg.Command) > 1 {
+            		args = serverCfg.Command[1:]
+            	}
+            	client := lsp.NewLSPClient(serverCfg.Command[0], args)
+            	if err := client.Initialize(ctx, e.workspaceRoot); err != nil {
+            ```
+            Keep this but extract the post-initialization logic into `runForServerWithClient`.
+
+            The `upgradeCallEdges` currently uses `e.client` (line 461):
+            ```go
+            			locs, err := e.client.GetDefinition(ctx, item.uri, item.pos)
+            ```
+            Change to accept client as parameter.
+
+            ### Tests to add in enricher_test.go
+
+            - `TestRunMultiModule_SkipsCompletedModules`: Create mock progress with one
+              module marked complete, verify it's skipped.
+            - `TestSymbolTimeout_Integration`: Verify that WithSymbolTimeout wrapping
+              doesn't break the edge upgrade flow (unit test with mock).
+            - `TestRunForServer_NoGoWork_FallsBack`: Verify that without go.work, the
+              single-server path is still used (existing behavior preserved).
+
+            ### Verification gate
+            ```bash
+            GOWORK=off go build ./internal/enrichment/... && GOWORK=off go vet ./internal/enrichment/... && GOWORK=off go test ./internal/enrichment/... -v -count=1 -timeout 2m
+            ```
+
+            Postconditions:
+            - `grep -c "func.*runMultiModule" internal/enrichment/enricher.go` => 1
+            - `grep -c "func.*runForServerWithClient" internal/enrichment/enricher.go` => 1
+            - `grep -c "DiscoverModules" internal/enrichment/enricher.go` => at least 1
+            - `grep -c "LoadProgress" internal/enrichment/enricher.go` => at least 1
+            - `grep -c "WithSymbolTimeout" internal/enrichment/enricher.go` => at least 2
+            - `grep -c "GOWORK" internal/enrichment/enricher.go` => 0
+              (the old workaround must be removed)
+
+            ### Constraints
+            - Do NOT modify multimodule.go, progress.go, or timeout.go (wave 1 agents own those).
+            - Do NOT change the public API of Run/RunScoped/NewEnricher (callers must not break).
+            - Do NOT add `import "os"` calls for GOWORK manipulation. The old hack is removed.
+            - The `e.client` field on Enricher should be removed or deprecated in favor of
+              passing the client explicitly. If removing breaks Close(), keep the field but
+              document it as legacy.
+            - Preserve all existing test functions. Only ADD new tests.
+          files:
+            - internal/enrichment/enricher.go
+            - internal/enrichment/enricher_test.go
+            - internal/enrichment/config.go
+          dependencies:
+            - A
+            - B
+            - C
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: GOWORK=off go build ./...
+          required: true
+        - type: lint
+          command: GOWORK=off go vet ./...
+          required: true
+        - type: test
+          command: GOWORK=off go test -short ./internal/enrichment/... -timeout 2m
+          required: true
+pre_mortem:
+    overall_risk: medium
+    rows:
+        - scenario: Agent D's refactoring of runForServer introduces a regression in single-module behavior
+          likelihood: medium
+          impact: high
+          mitigation: |
+            Agent D's verification gate runs the full enrichment test suite.
+            The task explicitly requires preserving Run/RunScoped public API.
+            TestRunForServer_NoGoWork_FallsBack covers the fallback path.
+        - scenario: golang.org/x/mod/modfile needs to be promoted from indirect to direct dependency
+          likelihood: high
+          impact: low
+          mitigation: |
+            Agent A should run `go mod tidy` after implementation to ensure
+            go.mod/go.sum are consistent. The package is already in go.sum.
+        - scenario: Per-symbol timeout wrapping changes the error semantics of GetDefinition calls
+          likelihood: medium
+          impact: medium
+          mitigation: |
+            Agent D must check for ErrSymbolTimeout specifically and count it as
+            an edge error (not a skip). Existing error handling paths must remain
+            unchanged for non-timeout errors.
+        - scenario: Progress file corruption between saves causes repeated re-enrichment
+          likelihood: low
+          impact: low
+          mitigation: |
+            Agent B implements atomic writes (write .tmp, rename). Even if the
+            process crashes mid-write, the old progress file remains intact.
+        - scenario: Memory pressure from multiple sequential gopls instances
+          likelihood: low
+          impact: medium
+          mitigation: |
+            The design is sequential (one gopls at a time). Each gopls is shut down
+            before the next starts. Memory is bounded to single-module indexing.
+critic_report:
+    verdict: PASS
+    agent_reviews:
+        A:
+            agent_id: A
+            verdict: PASS
+        B:
+            agent_id: B
+            verdict: PASS
+        C:
+            agent_id: C
+            verdict: PASS
+        D:
+            agent_id: D
+            verdict: PASS
+    summary: 'All agent briefs verified against the actual codebase. File existence checks pass: new files (multimodule.go, progress.go, timeout.go) do not exist yet (correct for action:new), and modify targets (enricher.go, enricher_test.go, config.go) exist. Symbol accuracy confirmed: runForServer at line 175, GOWORK=off block at lines 183-186, e.client.GetDefinition at line 461, GetImplementation/GetReferences in processSymbolsWithSource, LanguageID field on LSPServerConfig, Go detection block at lines 56-64 in config.go. Interface contracts are consistent: golang.org/x/mod/modfile.ParseWork exists with WorkFile.Use[].Path as described, types.File has Path field, lsp.LSPClient and NewLSPClient exist in agent-lsp. Import chains valid: golang.org/x/mod is in go.mod (indirect v0.36.0), all other imports used by agents already exist. No disjoint ownership violations. No complexity imbalance. Context anchors in Agent D brief match source exactly.'
+    reviewed_at: "2026-05-24T19:21:33Z"
+    issue_count: 0
+state: REVIEWED
+injection_method: hook
