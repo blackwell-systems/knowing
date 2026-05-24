@@ -273,7 +273,7 @@ func (e *Enricher) runMultiModule(ctx context.Context, serverCfg LSPServerConfig
 
 	var enriched, skipped, errored int
 
-	for _, module := range modules {
+	for i, module := range modules {
 		if ctx.Err() != nil {
 			break
 		}
@@ -281,9 +281,10 @@ func (e *Enricher) runMultiModule(ctx context.Context, serverCfg LSPServerConfig
 		// Resume support: skip already-completed modules.
 		if progress.IsComplete(module.Name) {
 			skipped++
-			log.Printf("enrichment: skipping completed module %s", module.Name)
 			continue
 		}
+
+		log.Printf("enrichment: module [%d/%d] %s (%d files)", i+1, len(modules), module.Name, len(FilesForModule(files, module, e.workspaceRoot)))
 
 		// Filter files to this module.
 		moduleFiles := FilesForModule(files, module, e.workspaceRoot)
