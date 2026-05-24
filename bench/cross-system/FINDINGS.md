@@ -423,9 +423,9 @@ imprecise (P@10=0.050 vs knowing's 0.217).
 - Deterministic: same input always produces same output (knowing: yes, Aider: no)
 - Robust: different phrasings of same intent produce similar output (Aider: yes, knowing: no)
 
-**Implication:** knowing's equivalence classes partially address this (mapping different
-phrases to the same targets), but only for concepts explicitly covered. A future
-improvement: semantic query normalization that maps paraphrases to canonical form before
-seed selection.
+**The tradeoff:** Keyword-seeded systems are precise but phrasing-sensitive. PageRank
+systems are phrasing-independent but imprecise. knowing chose precision (P@10=0.217 vs
+Aider's 0.050). Equivalence classes partially bridge this (mapping different phrases to
+the same targets) but only for explicitly covered concepts.
 
 Benchmark: `bench/cross-system/TestQueryRobustness`
