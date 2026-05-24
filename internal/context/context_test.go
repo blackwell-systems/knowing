@@ -627,3 +627,84 @@ func TestExtractKeywords_BackwardCompat(t *testing.T) {
 		t.Errorf("expected 'before_request' in keywords, got %v", kws)
 	}
 }
+
+// TestChannelBalance_EquivNeverDominates is a regression test for Run 22.
+// Equivalence results must never exceed 2x(tiered+BM25). When they do, RRF
+// fusion produces flat scores and RWR cannot differentiate relevant from noise.
+func TestChannelBalance_EquivNeverDominates(t *testing.T) {
+	// Create a scenario with many nodes that could match generic equiv targets.
+	// "get" matches dozens of symbols (the Run 22 pattern).
+	var nodes []types.Node
+	var edges []types.Edge
+
+	// 5 nodes that should be found by tiered/BM25 (contain "request" in name).
+	for i := 0; i < 5; i++ {
+		nodes = append(nodes, types.Node{
+			NodeHash:      types.NewHash([]byte("request-" + string(rune('A'+i)))),
+			QualifiedName: "github.com/test://pkg/handler.HandleRequest" + string(rune('A'+i)),
+			Kind:          "function",
+		})
+	}
+
+	// 100 nodes named "GetX" that equivalence could match via generic targets.
+	for i := 0; i < 100; i++ {
+		h := types.NewHash([]byte("get-" + string(rune(i))))
+		nodes = append(nodes, types.Node{
+			NodeHash:      h,
+			QualifiedName: "github.com/test://pkg/store.Get" + string(rune('A'+i%26)) + string(rune('0'+i/26)),
+			Kind:          "function",
+		})
+	}
+
+	// Add edges between request handlers so RWR has something to walk.
+	for i := 0; i < 4; i++ {
+		edges = append(edges, types.Edge{
+			EdgeHash:   types.NewHash([]byte("e-" + string(rune(i)))),
+			SourceHash: nodes[i].NodeHash,
+			TargetHash: nodes[i+1].NodeHash,
+			EdgeType:   "calls",
+		})
+	}
+
+	store := &mockStore{nodes: nodes, edges: edges}
+	engine := NewContextEngine(store)
+
+	ctx := stdctx.Background()
+	result, err := engine.ForTask(ctx, TaskOptions{
+		TaskDescription: "handle HTTP request before each route",
+		TokenBudget:     5000,
+		Format:          "json",
+	})
+	if err != nil {
+		t.Fatalf("ForTask: %v", err)
+	}
+
+	// The key assertion: the result should contain at least one "HandleRequest"
+	// symbol in the top-5. If equiv dominated, all top results would be "GetX" noise.
+	foundRequest := 0
+	foundGet := 0
+	top := 10
+	if len(result.Symbols) < top {
+		top = len(result.Symbols)
+	}
+	for i := 0; i < top; i++ {
+		name := result.Symbols[i].Node.QualifiedName
+		if containsPrefix(name, "HandleRequest") {
+			foundRequest++
+		}
+		if containsPrefix(name, "Get") {
+			foundGet++
+		}
+	}
+
+	// Regression assertion: request handlers must not be drowned by Get* noise.
+	if foundRequest == 0 && foundGet > 5 {
+		t.Errorf("channel balance regression: equiv dominated RRF fusion. "+
+			"Top-10 has %d Get* symbols and 0 HandleRequest symbols. "+
+			"This is the Run 22 pattern (unbounded equiv results flatten RWR scores).",
+			foundGet)
+	}
+
+	t.Logf("top-10 composition: %d HandleRequest, %d Get* (total symbols: %d)",
+		foundRequest, foundGet, len(result.Symbols))
+}
