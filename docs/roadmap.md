@@ -136,7 +136,6 @@ Current status: per-repo isolation (no cross-repo queries). First real user who 
 |------|-------------|----------|
 | **Cross-repo context_for_task** | Search across ALL indexed repos simultaneously, not just one. Real projects span multiple repos (monorepo patterns, microservices). Merge results from all repos into one ranked list. See "Cross-Repo Query Architecture" section below. | P2 |
 | **Incremental context ("next page")** | After an agent gets initial context, allow requesting the NEXT N symbols not yet seen. Avoids re-querying with bigger budget and getting duplicates. Session-stateful cursor. | P2 |
-| **GCF-encoded context pack cache** | Context packs in `graph_notes` are stored as JSON. Storing as GCF would be ~6x smaller and skip re-encoding on MCP response. | P2 |
 | **CLI `--format gcf` output** | `knowing context` only supports json/xml/markdown. Adding gcf/gcb for direct agent consumption without MCP. | P3 |
 | **Staleness annotations on MCP responses** | When returning context, annotate symbols whose source files changed since last index. Agents know which results might be outdated without calling `knowing stale` separately. | P2 |
 | **`explain_symbol` in context responses** | Inline "why ranked #3?" explanation in context results so agents can debug ranking without a separate tool call. Makes the system transparent. | P3 |
