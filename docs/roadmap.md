@@ -220,7 +220,7 @@ Items identified from the Run 22 regression investigation. These prevent future 
 | Benchmark | What it proves | Status | Effort |
 |-----------|---------------|--------|--------|
 | **Channel balance regression test** | Assert that no single RRF channel returns >2x the combined results of other channels. The Run 22 regression was invisible until full benchmark re-run because no unit test caught unbounded equiv results. | **Next.** Should be a `go test` in `internal/context/` that runs a fixed task against a fixture DB. | Low |
-| **LSP enrichment ROI (fresh vs enriched)** | Run cross-system benchmark with and without LSP enrichment on the same repos. Quantifies the P@10 delta that enrichment adds. Enrichment creates phantom externals (65% of Flask nodes); need to measure whether it's net-positive after the external filter. | Not started | Medium |
+| **LSP enrichment ROI (fresh vs enriched)** | Enrichment is neutral on quality (80/80 real symbols in top-10 both ways) but +53% slower (184ms vs 120ms) due to phantom externals (59% of nodes). External filter prevents quality degradation but graph bloat adds latency. May help on deeper type hierarchies (interface resolution). | **Measured.** `bench/time-to-consistency/TestEnrichmentROI` | Done |
 | **Per-repo P@10 tracking (CI gate)** | Track P@10 per repo across runs. Alert when any single repo drops >20% from its historical best. | Deferred (manual runs suffice until CI is regular) | Medium |
 | **RRF channel contribution audit** | Log which channel contributed each top-10 result across 117 tasks. Answers "is equiv still net-positive after the cap?" | Deferred (nice-to-have for publication narrative) | Medium |
 
