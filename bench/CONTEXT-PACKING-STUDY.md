@@ -184,7 +184,7 @@ Per-repo breakdown: Flask 0.336, Django 0.330, VS Code ~0.10, Kubernetes 0.184, 
 2. **Channel balance regression test** (prevent Run 22 class of regression)
 3. **LSP enrichment ROI measurement** (quantify enrichment vs fresh-index delta)
 4. **Embedding model evaluation** (code-tuned model for semantic matching)
-5. **codebase-memory-mcp adapter** (2.6K stars, BM25 + label boost, different category)
+5. ~~**codebase-memory-mcp adapter**~~ Done. P@10=0.137 (knowing 1.51x better). Times out on large repos.
 
 
 ## Reproducing

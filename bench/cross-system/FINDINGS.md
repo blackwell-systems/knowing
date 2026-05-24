@@ -35,7 +35,7 @@ knowing is a content-addressed graph retrieval engine evaluated against 6 compet
 | Aider (~20K stars) | 0.050 | - | N/A (file-level) | ~3s | 3150ms (misses new symbols) | - |
 | GitNexus | 0.076 | 0.159 | >60 min (killed) | 612ms | minutes (full re-analyze) | 5.7GB |
 | Gortex | ~comparable | - | 14.2 min | ~6s | minutes (no incremental) | 14GB |
-| codebase-memory (2.6K stars) | 0.107 | - | N/A | ~300ms | N/A | - |
+| codebase-memory (2.6K stars) | 0.137 | 0.145 | N/A (times out) | 2,900ms | N/A (times out) | - |
 | grep | 0.020 | 0.035 | instant | instant | instant | - |
 
 ### Competitive Advantages (all statistically significant)
