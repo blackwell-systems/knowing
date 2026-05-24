@@ -15,11 +15,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - 30 edge types mapped to uint8 IDs via `adjEdgeTypeToID`/`adjIDToEdgeType`
 - Cache version bumped to v2 (automatically invalidates old v1 caches)
 
+#### RWR early termination
+- Stop iterating when top-10 ranking unchanged for 2 consecutive iterations
+- Saves ~50% iterations on large graphs (fewer matrix multiplications)
+- Zero P@10 regression (ranking converges well before full iteration count)
+
 #### Time-to-consistency benchmark (`bench/time-to-consistency/`)
 - Measures how quickly retrieval reflects a code change (edit -> reindex -> query finds it)
 - Protocol: inject new function into Flask, trigger incremental, query for it
-- knowing: 167ms total (16ms reindex + 151ms query). codegraph: 805ms (4.8x slower)
+- knowing: 167ms total (16ms reindex + 151ms query). codegraph: 805ms (4.8x slower). Aider: 3150ms (and fails to find new symbols)
 - Includes correctness test: function absent before injection, present after reindex
+
+#### Agent efficiency Phase 2 (`bench/agent-efficiency/phase2_test.go`)
+- k8s ambiguity tasks: grep returns 10,840 matches per task, knowing returns 10 ranked results
+- Knowing ground truth hit rate: 72% (vs codegraph 56%, GitNexus 0%)
+- Validates that graph-ranked retrieval resolves ambiguity grep cannot
+
+#### k8s adjacency cache latency validation
+- Measured: 9.04s uncached -> 1.9ms cached (4,717x speedup)
+- 500x faster than codegraph on k8s-scale graphs (268K edges)
+
+#### Stdlib node filter
+- Filter `stdlib://` nodes from retrieval results
+- Fixes k8s results being dominated by fmt.Errorf (5,809 callers pulling stdlib into top-10)
+- Zero cross-system P@10 impact (stdlib nodes were noise, not signal)
+
+#### Channel balance regression test
+- `TestChannelBalance_EquivNeverDominates` prevents Run 22 class of regression
+- Asserts equivalence channel never exceeds 50% of total RRF results
 
 #### Incremental file reindexing (`IndexFilesIncremental`)
 - New method on `Indexer` that only extracts/stores specified changed files (no directory walk)
@@ -27,6 +50,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - 494x faster than full index for 1-file edits (24ms vs 11.8s on 7803-node repo)
 - Scales linearly: 5 files = 59ms, 20 files = 93ms
 - Benchmark: `bench/incremental-reindex/`
+
+### Changed
+
+#### LSP enrichment ROI measured (negative result)
+- Neutral on retrieval quality: Flask and Django both produce identical P@10 with and without LSP enrichment
+- +53% latency overhead from phantom external nodes created during enrichment
+- Conclusion: tree-sitter pipeline is self-sufficient for retrieval; LSP enrichment adds cost without benefit
+- Informs `--no-enrich` as the recommended default for retrieval-only use cases
 
 ### Fixed
 
