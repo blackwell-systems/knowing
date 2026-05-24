@@ -168,35 +168,6 @@ Current status: per-repo isolation (no cross-repo queries). First real user who 
 | **Concurrent query performance** | 100 parallel `context_for_task` calls on a 100K-edge graph. Measure throughput (queries/sec), latency degradation, and WAL checkpoint behavior. | Not started | Medium |
 | **Cross-repo retrieval quality** | P@10 for tasks that span repo boundaries (e.g., "which frontend components call this backend endpoint?"). | Needs cross-repo implementation first | Medium |
 
-### P1: Cross-system competitive dimensions
-
-Head-to-head measurements across all competitors on dimensions beyond P@10.
-
-| Dimension | What it proves | Status | Effort |
-|-----------|---------------|--------|--------|
-| **Query robustness** | Same task rephrased 5 ways: measure P@10 variance per system. RWR should be stable (structural signal); string-matching heuristics should be volatile. A system that gives different answers for "add caching" vs "implement a cache" is unreliable. | Not started | Low (10 tasks x 5 rephrasings, same harness) |
-| **Scale curve** | Plot P@10 vs repo size (15K, 150K, 300K, 1M, 3.5M LOC). Show where each system degrades. Expected: knowing flat, codegraph/Aider degrade at scale. Per-repo data exists, just needs visualization. | Data exists (per-repo breakdown in Run 23). Needs plotting. | Low |
-| **Determinism** | Run same task 10 times, count unique outputs per system. knowing guarantees 1 (PackRoot). Others likely non-deterministic (FTS ranking ties, random BFS order). | Not started | Low |
-| **Time-to-first-result** | End-to-end from `install` to first useful context output. Measures real onboarding friction. knowing: `brew install` + auto-index on first query. codegraph: `npm install -g` + `codegraph init -i`. | Not started | Low |
-| **Failure rate by language** | Per-language pass/fail across all systems. knowing: 5/5 languages pass. codegraph: 3/5 (Java, C# fail). Aider: Python/TS only? | Partial data from Run 23 (codegraph failures on Spark/Ocelot) | Low |
-
-### P1: Competitive demolition demo
-
-A head-to-head harness that runs identical queries against all systems and produces a side-by-side comparison. Non-technical audience (investors, potential users) can understand the result in 30 seconds.
-
-**Format:** 5 tasks, 5 systems, table showing: response time, results returned, callers found, callers missed, RAM used, whether it even runs.
-
-**Tasks designed to expose competitor failures:**
-- "Find all callers of X" (GitNexus: can't index; grep: false positives; knowing: precise graph traversal)
-- "What breaks if I remove this interface?" (Gortex: misses interface implementors; Repomix: dumps 300K tokens)
-- "Affected tests for this file change" (no competitor has call-graph test prediction)
-- "Index kubernetes and query it" (GitNexus: killed at 60min; CGC: impossible; knowing: 18.6s + 60ms query)
-- "Give me 5K tokens of context for this task" (Repomix: 300K tokens, no ranking; knowing: ranked, budgeted)
-
-**Output:** Markdown table + optional terminal recording (asciinema). Publishable on README, blog, Zenodo.
-
-**Status:** All competitive data collected. Needs packaging into polished demo format
-(markdown table + terminal recording) for publication.
 
 
 ### Standalone Publication: Code Retrieval Evaluation Toolkit (CRET)
