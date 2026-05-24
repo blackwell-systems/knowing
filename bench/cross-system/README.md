@@ -2,8 +2,9 @@
 
 Rigorous comparison of context retrieval systems on identical tasks across 7 public repositories.
 
+**Results:** [FINDINGS.md](FINDINGS.md) (competitive comparisons, scale analysis, latency)
+**Run history:** [RUN-HISTORY.md](RUN-HISTORY.md) (23 iterative runs, internal reference)
 **Methodology:** [METHODOLOGY.md](METHODOLOGY.md) (metrics, fixture design, statistical methods, limitations)
-**Running results:** [FINDINGS.md](FINDINGS.md) (22 runs with full narrative)
 **Full specification:** [docs/research/cross-system-benchmark.md](../../docs/research/cross-system-benchmark.md)
 **Study overview:** [bench/CONTEXT-PACKING-STUDY.md](../CONTEXT-PACKING-STUDY.md)
 
@@ -30,6 +31,7 @@ GOWORK=off go test ./bench/cross-system/ -run TestCrossSystem -v -timeout 30m
 | **grep** (baseline) | Raw ripgrep pattern search | `rg` on PATH |
 | **codegraph** (19K stars) | Tree-sitter + FTS5 + heuristic scoring | `npm install -g @colbymchenry/codegraph` |
 | **Aider** (~20K stars) | PageRank repo-map (file-level) | `pip install aider-chat` |
+| **Gortex** | Go graph engine (tree-sitter, parallel) | `go install github.com/zzet/gortex` |
 | **GitNexus** | Knowledge graph MCP | `npm install -g gitnexus` |
 | **CGC** | Graph DB (KuzuDB) MCP | `pip install codegraphcontext` |
 
@@ -51,20 +53,25 @@ Effect size via Cohen's d. Confidence intervals via bootstrap (10K resamples).
 
 ## Evaluation Corpus
 
-5 repos pinned to specific versions:
+7 repos pinned to specific versions:
 
 - **kubernetes** (Go, ~3.5M LOC) - v1.30.0
 - **VS Code** (TypeScript, ~1M LOC) - 1.90.0
-- **flask** (Python, ~15K LOC) - 3.1.0
-- **cargo** (Rust, ~150K LOC) - 0.82.0
 - **django** (Python, ~300K LOC) - 5.1
+- **cargo** (Rust, ~150K LOC) - 0.82.0
+- **flask** (Python, ~15K LOC) - 3.1.0
+- **spark-java** (Java, ~14K LOC) - Spark micro-framework
+- **ocelot** (C#, ~30K LOC) - ThreeMammals/Ocelot
 
-100 tasks across 3 difficulty tiers (easy/medium/hard) with hand-labeled ground truth symbols.
+~117 tasks across 3 difficulty tiers (easy/medium/hard) with hand-labeled ground truth symbols.
 
 ## Directory Structure
 
 ```
 bench/cross-system/
+  FINDINGS.md          # competitive results (executive summary + Runs 19-23)
+  RUN-HISTORY.md       # chronological run log (Runs 1-20, internal reference)
+  METHODOLOGY.md       # metrics, fixture design, statistical methods
   benchtype/           # shared types (leaf package, no internal imports)
   normalize/           # symbol canonicalization + tests
   metrics/             # P@K, R@K, NDCG, MRR, F1, token efficiency, stats
@@ -74,7 +81,7 @@ bench/cross-system/
     tasks/<repo>/<tier>/*.yaml  # ground truth fixtures
     repos/             # cloned repos (gitignored)
   scripts/
-    clone-repos.sh     # shallow clone all 5 repos
+    clone-repos.sh     # shallow clone all 7 repos
     index-repos.sh     # index with knowing
   results/             # benchmark output (gitignored)
   harness_test.go      # main entry point
