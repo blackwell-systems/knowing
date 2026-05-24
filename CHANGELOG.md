@@ -42,7 +42,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 #### Channel balance regression test
 - `TestChannelBalance_EquivNeverDominates` prevents Run 22 class of regression
-- Asserts equivalence channel never exceeds 50% of total RRF results
+- Asserts equivalence channel never exceeds 2x primary channels in RRF
+
+#### P@10 regression gate (`TestP10Regression_Flask`)
+- Runs 4 fixed tasks against Flask, asserts ground truth hits don't drop below baselines
+- Catches silent quality degradation without full 117-task benchmark
+
+#### codebase-memory-mcp adapter
+- New competitor adapter for codebase-memory-mcp (2.6K stars, BM25 + semantic edges)
+- P@10=0.137 on Flask+Cargo (knowing 1.51x better)
+- Documented scale limitation: hangs on Django (300K LOC), killed on k8s (3.5M LOC)
+
+#### Determinism benchmark (`TestDeterminism`)
+- Runs same task 10x per system, counts unique outputs
+- knowing/codegraph/codebase-memory/Gortex: deterministic (1 unique output)
+- GitNexus: 7-9 unique outputs (wildly non-deterministic)
+- Aider: 3 unique outputs (moderately non-deterministic)
+
+#### Query robustness benchmark (`TestQueryRobustness`)
+- Same task rephrased 5 ways, measures Jaccard similarity of outputs
+- Honest negative: all keyword-seeded systems (knowing 0.07, codegraph 0.08) are volatile
+- Aider is stable (0.74) but imprecise (P@10=0.050): stability without precision is useless
+
+#### Zlib-compressed context pack cache
+- Context packs in graph_notes now zlib-compressed (~6x smaller)
+- Backwards-compatible read (tries zlib, falls back to raw JSON)
+- Reduces storage footprint for frequently-queried repos
 
 #### Incremental file reindexing (`IndexFilesIncremental`)
 - New method on `Indexer` that only extracts/stores specified changed files (no directory walk)
