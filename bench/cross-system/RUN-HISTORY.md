@@ -602,20 +602,4 @@ Fix: filter external nodes at two points: `filterNoisySymbols` (seed candidates)
 
 ---
 
-## Identified Bottlenecks (from analysis)
-
-1. ~~**FTS tokenization**~~ **Fixed** (Runs 6, 8): `symbol_name` column (migration 016) + `tokenchars '_'` resolved the qualified name tokenization issue. BM25 now matches by terminal symbol name.
-
-2. **Ground truth naming** (inflates false negatives): fixtures use Python module paths (`flask.app.Flask.before_request`) but knowing stores symbols with file paths and possibly different class names (base class vs subclass). Partially addressed by fixture revision in Run 7 (73%->95% match rate).
-
-3. **Missing competitor tools**: only comparing knowing vs grep. Need gitnexus, aider, cgc installed to produce the full comparison.
-
-## Systems Not Yet Tested
-
-| System | Why not | What's needed |
-|--------|---------|---------------|
-| GitNexus | Not installed | `npm install -g gitnexus` |
-| Aider | Not installed | `pip install aider-chat` |
-| CGC | Not installed | `pip install codegraphcontext` |
-| SCIP | Adapter not built | Need SCIP index generation |
 
