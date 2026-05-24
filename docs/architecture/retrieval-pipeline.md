@@ -419,6 +419,24 @@ nested calls and callbacks. Previously `map(process, items)` only extracted the 
 call, missing `process` as a target. Flask: 5,022 to 9,237 edges (+84%). Django: 151K to
 185K edges (+22%). More edges means more RWR connectivity.
 
+### LSP enrichment: measured net-neutral for retrieval
+
+LSP enrichment (running a language server to resolve references at higher confidence)
+was measured on Flask and Django with identical results: **zero retrieval quality difference**
+with or without enrichment (80/80 and 50/50 real symbols in top-10 respectively).
+
+Why: LSP upgrades existing tree-sitter edges from 0.7 to 0.9 confidence, but RWR weights
+by edge type (calls=1.0, imports=0.5), not confidence. The edges already exist; LSP just
+makes them slightly more certain. LSP also creates phantom external nodes (59-67% of all
+nodes on Flask/Django) that bloat the FTS index and add 53% latency overhead.
+
+LSP enrichment remains useful for non-retrieval purposes (blast radius confidence display,
+dead code detection requiring high-confidence edges) but the retrieval pipeline does not
+benefit from it. The tree-sitter extractor + import resolution + inheritance propagation
+is self-sufficient for RWR-based ranking.
+
+Benchmark: `bench/time-to-consistency/TestEnrichmentROI` and `TestEnrichmentROI_Django`.
+
 ### What was tried and rejected
 
 - **Confidence-weighted transitions** (experiment 13): weighting by edge confidence

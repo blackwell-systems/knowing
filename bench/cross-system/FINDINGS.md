@@ -271,6 +271,20 @@ narrows.
 appears in 200+ files). Keyword heuristics return noise; RWR disambiguates by graph
 centrality relative to the query's structural neighborhood.
 
+### LSP Enrichment ROI: Measured Net-Neutral (2026-05-23)
+
+Tested retrieval quality with and without LSP enrichment on Flask and Django.
+Result: **identical quality** (80/80 and 50/50 real symbols in top-10).
+Enrichment adds 53% latency overhead on Flask (184ms vs 120ms) due to phantom
+external nodes (59-67% of all nodes). The tree-sitter pipeline + import resolution
++ inheritance propagation already captures sufficient graph connectivity for RWR.
+
+LSP enrichment upgrades edge confidence (0.7 -> 0.9) but RWR weights by edge type,
+not confidence. The edges already exist without LSP. Simplifies deployment: no
+language server required for full retrieval quality.
+
+Benchmark: `bench/time-to-consistency/TestEnrichmentROI`, `TestEnrichmentROI_Django`
+
 ### Post-Run-23: Ranking Formula Experiments (All Rejected)
 
 Attempted to close the MRR gap (codegraph 0.459 vs knowing 0.411) by testing three
