@@ -198,14 +198,6 @@ A head-to-head harness that runs identical queries against all systems and produ
 **Status:** All competitive data collected. Needs packaging into polished demo format
 (markdown table + terminal recording) for publication.
 
-### P1: Regression prevention and pipeline health
-
-Items identified from the Run 22 regression investigation. These prevent future silent quality degradation.
-
-| Benchmark | What it proves | Status | Effort |
-|-----------|---------------|--------|--------|
-| **Per-repo P@10 tracking (CI gate)** | Track P@10 per repo across runs. Alert when any single repo drops >20% from its historical best. | Deferred (manual runs suffice until CI is regular) | Medium |
-| **RRF channel contribution audit** | Log which channel contributed each top-10 result across 117 tasks. Answers "is equiv still net-positive after the cap?" | Deferred (nice-to-have for publication narrative) | Medium |
 
 ### Standalone Publication: Code Retrieval Evaluation Toolkit (CRET)
 
