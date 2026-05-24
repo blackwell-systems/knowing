@@ -1,6 +1,6 @@
 # FEATURES.md -- Comprehensive Feature Dump for AI Reference
 
-Generated: 2026-05-15 (updated: 2026-05-22, features 77-116 added: hash domain prefixes, fsck, GC, lockfile, LRU cache, modular community detection, DiffOptions, indexed_at, verify, React viz, MCP resources, graph notes, Phase 3 complete, Merkle proofs, stats CLI, named refs, generation numbers, auto-GC, merkle-strata extraction; P2 edge types, parallel indexer, cross-system benchmark, language equivalence classes, cross-file import resolution, inheritance propagation, deeper call chains, test deprioritization; FTS concepts column, task memory persistence; compound-first keyword extraction, Java/C# import resolution; daemon lifecycle, untrack_repo; staleness reporting, cross-repo awareness for non-Go extractors)
+Generated: 2026-05-15 (updated: 2026-05-23, features 77-121 added: hash domain prefixes, fsck, GC, lockfile, LRU cache, modular community detection, DiffOptions, indexed_at, verify, React viz, MCP resources, graph notes, Phase 3 complete, Merkle proofs, stats CLI, named refs, generation numbers, auto-GC, merkle-strata extraction; P2 edge types, parallel indexer, cross-system benchmark, language equivalence classes, cross-file import resolution, inheritance propagation, deeper call chains, test deprioritization; FTS concepts column, task memory persistence; compound-first keyword extraction, Java/C# import resolution; daemon lifecycle, untrack_repo; staleness reporting, cross-repo awareness for non-Go extractors; implicit feedback, zero-config MCP onboarding, asymmetric feedback weighting, community-aware RWR, cross-system benchmark adapters)
 Source: code inspection of all Go files across internal/, cmd/, and config
 Repo: github.com/blackwell-systems/knowing
 
@@ -399,7 +399,7 @@ Repo: github.com/blackwell-systems/knowing
   1. `runtime_traffic`: Queries runtime-observed edges by service name and optional route pattern (LIKE syntax). Parameters: `service_name` (required), `route_pattern` (optional), `limit` (optional, default 100). Calls `SQLiteStore.RuntimeEdgesByService`.
   2. `dead_routes`: Finds route symbols with no runtime observations in N days. Parameters: `stale_days` (optional, default 30). Calls `SQLiteStore.DeadRoutes`.
   3. `trace_stats`: Returns aggregate statistics about runtime-derived edges (total, active, stale, GC-eligible, by edge type). No parameters. Calls `SQLiteStore.RuntimeEdgeStatsAggregate`.
-  Total MCP tools: 27. Also registers 3 MCP prompts (refactor_safely, review_pr, investigate_dead_code).
+  Total MCP tools: 28. Also registers 3 MCP prompts (refactor_safely, review_pr, investigate_dead_code).
 - **Limitations/known gaps:**
   - Runtime tools return "runtime queries not available: store does not support runtime methods" if the store is not a `*SQLiteStore`.
   - No authentication or rate limiting on runtime queries.
@@ -1220,6 +1220,42 @@ Repo: github.com/blackwell-systems/knowing
   - C#: `System.*`/`Microsoft.*` = stdlib, third-party identified by namespace
 - **Limitations/known gaps:** No version resolution; package names are used as-is without registry lookup for the actual repo URL.
 
+### 117. Implicit Feedback (Behavioral Attribution)
+
+- **Package(s):** `internal/context`
+- **Entry point:** `NewImplicitFeedback()` in `internal/context/implicit.go`
+- **What it does:** Tracks symbols returned by `context_for_task` and detects when the agent subsequently uses them (in Edit/Write tool calls, file references). When a returned symbol is referenced within a 10-minute attribution window, positive feedback is auto-recorded. Symbols that expire without being used receive negative feedback. Uses name-based content matching: extracts identifiers from tool call content and matches against a lowercase name index of pending symbols.
+- **Key methods:** `RegisterReturned` (record returned symbols), `DetectUsed` (scan content for references), `Expire` (negative signal for unused), `FlushUnused` (force cycle boundary).
+- **Why it matters:** Closes the feedback loop without requiring explicit agent cooperation. The agent just uses context naturally, and the system learns which symbols were actually useful. The asymmetric signal (positive for used, negative for expired) is what shifts rankings over time.
+
+### 118. Zero-Config MCP Onboarding
+
+- **Package(s):** `cmd/knowing`
+- **Entry point:** `autoIndex` in `cmd/knowing/mcp.go` (triggered when database does not exist on `knowing mcp` launch)
+- **What it does:** On first `knowing mcp` launch, if no database file exists at the resolved path, auto-detects the git repository from the current working directory, resolves the repo URL from git remote, creates the database, runs a full tree-sitter index across all 24 language extractors, and registers the repo in the roster. Subsequent sessions resolve the database automatically via the roster without any path configuration.
+- **Why it matters:** Removes the requirement to run `knowing index` or `knowing add` before using MCP tools. An agent can be given a `.mcp.json` pointing at `knowing mcp` and it works immediately on first launch.
+
+### 119. Asymmetric Feedback Weighting (Tuned via Automated Sweep)
+
+- **Package(s):** `internal/context`
+- **Entry point:** `FeedbackPosWeight` / `FeedbackNegWeight` package vars in `internal/context/ranking.go`
+- **What it does:** Applies asymmetric weighting to feedback boosts in the ranking formula: positive feedback (score=1.0) gives +0.25 to ranking, negative feedback (score=0.0) gives -0.05. Values tuned via `TestFeedbackWeightSweep` (7x4 grid search across pos/neg weight combinations in `bench/feedback-loop/bench_test.go`). Asymmetric prevents over-penalizing symbols incorrectly marked "not useful."
+- **Why it matters:** Symmetric weighting punishes exploration; asymmetric lets the system learn preferences without being overly conservative. The sweep proved the optimal ratio empirically rather than hand-tuning.
+
+### 120. Community-Aware Random Walk with Restart
+
+- **Package(s):** `internal/context`
+- **Entry point:** `CommunityFilteredRWR` in `internal/context/walk.go`
+- **What it does:** When seed candidates cluster in 1-3 Louvain communities, the RWR walk is constrained to only those communities. `buildAdjacencyMapFiltered` skips BFS expansion into nodes outside the allowed community set. `CommunitiesForNodes` on SQLiteStore performs batch lookup of community_id notes. When seeds span 4+ communities (diverse query), falls back to unconstrained walk for backward compatibility.
+- **Why it matters:** Prevents RWR from drifting into unrelated packages on large repos. On repos with many packages, unconstrained walks diffuse scores across the entire graph; community filtering focuses relevance on the neighborhood the task actually targets.
+
+### 121. Cross-System Benchmark Adapters
+
+- **Package(s):** `bench/cross-system/adapters/`
+- **Entry point:** `adapters/registry.go` (adapter registration), `adapters/adapter.go` (interface definition)
+- **What it does:** Pluggable adapter interface for comparing retrieval systems on the same 100-task corpus. Seven adapters registered: `knowing` (primary system), `grep` (baseline), `aider` (aider-chat retrieval), `gortex` (gortex retrieval), `codegraph` (CodeGraph), `gitnexus` (GitNexus), `cgc` (Codebase Graph Context). Each adapter implements a common interface that accepts a task description and returns ranked symbol results.
+- **Why it matters:** Enables apples-to-apples comparison of retrieval quality (P@K, NDCG, MRR) across competing approaches using identical ground truth and normalization. The adapter pattern means adding a new system for comparison is a single file addition.
+
 ### GraphStore (`internal/types/interfaces.go`)
 
 All 33 methods:
@@ -1278,17 +1314,9 @@ All 33 methods:
 Implementors: `gotsextractor.GoTreeSitterExtractor`, `goextractor.GoExtractor`, `treesitter.TreeSitterExtractor`, `tsextractor.TypeScriptExtractor`, `rustextractor.RustExtractor`, `javaextractor.JavaExtractor`, `csharpextractor.CSharpExtractor`, `terraformextractor.TerraformExtractor`, `sqlextractor.SQLExtractor`, `k8sextractor.K8sExtractor`, `cssextractor.CSSExtractor`, `protoextractor.ProtoExtractor`, `eventextractor.EventExtractor`, `schemaextractor.SchemaExtractor`
 Consumers: `indexer.ExtractorRegistry`, `indexer.Indexer`
 
-### ComputationCache (`internal/types/interfaces.go`)
+### ComputationCache (REMOVED)
 
-| Method | Signature |
-|--------|-----------|
-| Get | `(ctx, Hash) (*DerivedResult, error)` |
-| GetByQuery | `(ctx, string, Hash, Hash) (*DerivedResult, error)` |
-| Put | `(ctx, DerivedResult) error` |
-| Invalidate | `(ctx, Hash, Hash, DiffResult) (int, error)` |
-
-Implementors: **NONE. Interface defined, no implementation exists.**
-Consumers: **NONE.**
+The `ComputationCache` interface, `DerivedResult` struct, and `TraversalOptions` struct were deleted in the v0.7.1 code quality cleanup (dead type removal). No implementation ever existed.
 
 ### SnapshotComputer (`internal/indexer/indexer.go`)
 
@@ -1385,6 +1413,11 @@ Subset interface of GraphStore for resolver decoupling:
 | 21 | `plan_turn` | `handlePlanTurn` | FUNCTIONAL | keyword matching | Suggest which knowing MCP tools to call for a task |
 | 22 | `communities` | `handleCommunities` | FUNCTIONAL | Louvain clustering on graph edges | Detect densely-connected symbol communities |
 | 23 | `explain_symbol` | `handleExplainSymbol` | FUNCTIONAL | Full retrieval pipeline (RWR, HITS, scoring) | Explain why a symbol ranked where it did for a task |
+| 24 | `ownership_query` | `handleOwnershipQuery` | FUNCTIONAL | `NodesByName`, edges by type `owned_by`/`authored_by` | Query code ownership (CODEOWNERS) and authorship (git blame) for a file or symbol |
+| 25 | `prove` | `handleProve` | FUNCTIONAL | `SnapshotManager.GenerateProof` | Generate cryptographic Merkle inclusion proof for an edge |
+| 26 | `prove_absent` | `handleProveAbsent` | FUNCTIONAL | `SnapshotManager.GenerateAbsenceProof` | Generate Merkle absence proof (adjacent sorted leaves) |
+| 27 | `fsck` | `handleFsck` | FUNCTIONAL | `SnapshotManager.Verify`, `IntegrityCheck` | Verify graph integrity (referential, hash, chain, page) |
+| 28 | `untrack_repo` | `handleUntrackRepo` | FUNCTIONAL | `EvictRepo` (nodes, edges, files, snapshots, feedback, task_memory, notes) | Remove all data for a repository from the graph |
 
 Parameters per tool:
 
@@ -1411,6 +1444,11 @@ Parameters per tool:
 - `plan_turn`: task (required)
 - `communities`: action (optional: "list" or "for_symbol"), repo_url (optional), symbol (optional, required for for_symbol)
 - `explain_symbol`: task_description (required), symbol (required)
+- `ownership_query`: repo_hash (required), file_path (optional), symbol (optional; at least one of file_path or symbol required)
+- `prove`: edge_hash (required), snapshot_hash (optional, defaults to latest)
+- `prove_absent`: edge_hash (required), snapshot_hash (optional, defaults to latest)
+- `fsck`: repo_hash (optional, defaults to all repos), quick (optional, bool, PRAGMA-only check)
+- `untrack_repo`: repo_url (required)
 
 ---
 
@@ -1489,6 +1527,54 @@ Parameters per tool:
 - **Flags:** `--db` (default: `~/.knowing/knowing.db`), `--files` (comma-separated changed files; defaults to `git diff HEAD`), `--output` (default: `packages`; also `functions`, `run`), `--depth` (default: 3)
 - **No positional args.**
 - **What it does:** Computes which tests are affected by changed files. Uses `NodesByFilePath` to find symbols in changed files, then BFS backward through `calls` edges up to `--depth` hops to find test functions. Output modes: `packages` (Go package paths), `functions` (qualified test names), `run` (`-run` regex for `go test`).
+
+### `knowing watch`
+
+- **Flags:** `--db` (default: per-repo), `--url` (auto-detected from git remote), `--no-enrich` (skip LSP enrichment), `--debounce` (default: 500ms)
+- **Positional args:** repo-path (required)
+- **What it does:** Lightweight file watcher that re-indexes changed files on save. Unlike `knowing serve`, does not start an MCP server or ingest traces. Keeps the graph up to date by watching for file changes via fsnotify and re-indexing affected files after a debounce interval.
+
+### `knowing prove`
+
+- **Flags:** `--db`, `--repo` (filter), `-human` (human-readable output)
+- **Positional args:** edge-hash or substring (required)
+- **What it does:** Generates a cryptographic Merkle inclusion proof for an edge. The proof contains the three-level path (edge -> edge-type root -> package root -> repo root) with sibling hashes at each level. Output is JSON by default; `-human` gives terminal-friendly formatting.
+
+### `knowing verify`
+
+- **Flags:** `--db`
+- **Positional args:** proof JSON (from stdin or file)
+- **What it does:** Offline verification of a Merkle inclusion proof without database access. Recomputes the root hash from the edge hash and proof steps; returns success if the computed root matches the claimed root. Verification takes ~1.2 microseconds.
+
+### `knowing prove-absent`
+
+- **Flags:** `--db`, `--repo`, `-human`
+- **Positional args:** edge-hash or substring (required)
+- **What it does:** Generates a Merkle absence proof using adjacent sorted leaves. Proves that a given edge does NOT exist in the tree by showing the two neighboring leaves that bracket the absent hash in the sorted leaf order.
+
+### `knowing audit`
+
+- **Flags:** `--db`, `--repo`
+- **No positional args.**
+- **What it does:** Produces a compliance report with integrity check results, edge inventory by type and provenance, Merkle proof samples, and snapshot chain status. Combines `fsck`, `stats`, and `prove` into a single auditor-friendly output.
+
+### `knowing audit-diff`
+
+- **Flags:** `--db`
+- **Positional args:** old-ref new-ref (snapshot refs, supports `@latest`, `@prev`, `@N`)
+- **What it does:** Shows the semantic difference between two snapshots in audit-friendly format: added/removed edges grouped by package and edge type, with change classification (behavioral, structural, runtime drift, metadata-only).
+
+### `knowing reset`
+
+- **Flags:** `--db`
+- **No positional args.**
+- **What it does:** Deletes all graph data (nodes, edges, files, snapshots, edge events, feedback, task memory, notes) from the database without removing the database file. Useful for starting fresh without losing the roster registration.
+
+### `knowing vacuum`
+
+- **Flags:** `--db`
+- **No positional args.**
+- **What it does:** Runs SQLite VACUUM to compact the database after deletions. Reports before/after file size.
 
 ### `knowing version`
 
@@ -1734,9 +1820,9 @@ Hardcoded in `cmd/knowing/main.go` via daemon startup: `500 * time.Millisecond`.
 
 ### Content-Addressed Computation Cache
 - **Architecture decision #12.** L1 in-memory LRU, L2 materialized results in SQLite, L3 bounded traversal.
-- **Interface defined:** `ComputationCache` in `types/interfaces.go`. `DerivedResult`, `TraversalOptions` types exist.
-- **What's needed:** Implementation of `ComputationCache`, `derived_results` table, cache invalidation via Merkle diff, L1 LRU with snapshot-aware eviction.
-- **No code exists.** The `derived_results` table is not in any migration.
+- **Status:** The `ComputationCache` interface, `DerivedResult`, and `TraversalOptions` types were removed in v0.7.1 (dead type cleanup). The in-process LRU cache (feature 84) and context pack persistence (feature 94) partially fulfill this role, but the full L2 materialized computation cache with Merkle-based invalidation remains unimplemented.
+- **What's needed:** `derived_results` table, cache invalidation via Merkle diff, snapshot-aware eviction.
+- **No code exists** for the full design. The `derived_results` table is not in any migration.
 
 ### SCIP Ingest (External Dependency Indexing)
 - **Roadmap: Edge Types workstream. IMPLEMENTED.**
@@ -1780,9 +1866,10 @@ Hardcoded in `cmd/knowing/main.go` via daemon startup: `500 * time.Millisecond`.
 - **Terraform edge types:** `depends_on` (explicit resource dependencies), `calls` (module references).
 
 ### Ownership Edge Extraction (CODEOWNERS)
-- **Roadmap: Edge Types workstream.**
-- **What's needed:** CODEOWNERS parser, service catalog ingestion, `owned_by_team`/`owned_by_user` edges.
-- **No code exists.** The `ownership` MCP tool exists but only lists files/symbols (no team mapping).
+- **Roadmap: Edge Types workstream. IMPLEMENTED.**
+- **Package(s):** `internal/indexer/ownership/`
+- **What it does:** Parses CODEOWNERS files and produces `owned_by` edges from files/directories to team or user nodes. The `ownership_query` MCP tool (tool #24) queries these edges alongside git blame `authored_by` edges to answer "who owns this?" queries.
+- **Remaining gaps:** No service catalog ingestion. No multi-level ownership resolution (nearest owner in directory tree).
 
 ### Runtime Trace Ingestion
 - **Architecture decision #13. Roadmap: Runtime Intelligence workstream.**
@@ -1803,8 +1890,8 @@ Hardcoded in `cmd/knowing/main.go` via daemon startup: `500 * time.Millisecond`.
 
 ### Ownership Routing
 - **Roadmap: Developer Visibility workstream.**
-- **What's needed:** Ownership edges (from CODEOWNERS), "who to notify" computation from graph edges.
-- **No code exists.**
+- **Status: PARTIALLY IMPLEMENTED.** CODEOWNERS parsing and `owned_by` edges exist (`internal/indexer/ownership/`). The `ownership_query` MCP tool resolves owners for files and symbols.
+- **Remaining gaps:** "Who to notify" computation (transitive ownership propagation via graph edges), notification integration, service catalog ingestion.
 
 ### Staleness Dashboard
 - **Roadmap: Developer Visibility workstream.**
@@ -1843,8 +1930,7 @@ Hardcoded in `cmd/knowing/main.go` via daemon startup: `500 * time.Millisecond`.
 
 ### TypeScript/Rust/Java Tree-Sitter Extractors
 - **Architecture lists as planned.**
-- **What's needed:** Tree-sitter grammar binding, extractor implementing Extractor interface.
-- **Status:** TypeScript route/framework detection is implemented (5 frameworks: Express, Fastify, Hono, NestJS, Next.js App Router). Python route detection is implemented (3 frameworks: Flask, FastAPI, Django). Full TypeScript/Rust/Java AST extractors (function/type/call extraction beyond route detection) do not yet exist. Current language support: Go (tree-sitter + go/packages), Python (tree-sitter), Terraform (HCL), SQL, Kubernetes YAML, CSS, plus route detection for 18 frameworks across 6 languages.
+- **Status: IMPLEMENTED.** Full AST extractors exist for TypeScript (`internal/indexer/tsextractor`), Rust (`internal/indexer/rustextractor`), Java (`internal/indexer/javaextractor`), and C# (`internal/indexer/csharpextractor`). Each extracts functions, types, methods, call edges, import edges, extends edges, and framework-specific patterns. Cross-file import resolution implemented for all 5 OOP languages. Current language support: 24 extractors covering Go, Python, TypeScript/JS, Rust, Java, C#, Terraform, SQL, K8s YAML, CSS, Proto, Event/MQ, Schema, Cloud YAML, Dockerfile, Makefile, Helm, GitLab CI, npm, GraphQL, Ansible.
 
 ### CI Integration (GitHub Action)
 - **Architecture decision #14.**
