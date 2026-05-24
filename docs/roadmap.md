@@ -137,9 +137,7 @@ Current status: per-repo isolation (no cross-repo queries). First real user who 
 | **Cross-repo context_for_task** | Search across ALL indexed repos simultaneously, not just one. Real projects span multiple repos (monorepo patterns, microservices). Merge results from all repos into one ranked list. See "Cross-Repo Query Architecture" section below. | P2 |
 | **Incremental context ("next page")** | After an agent gets initial context, allow requesting the NEXT N symbols not yet seen. Avoids re-querying with bigger budget and getting duplicates. Session-stateful cursor. | P2 |
 | **Staleness annotations on MCP responses** | When returning context, annotate symbols whose source files changed since last index. Agents know which results might be outdated without calling `knowing stale` separately. | P2 |
-| **Enrichment speed (batch references)** | Send multiple `textDocument/references` requests concurrently instead of request-wait-request-wait. LSP supports concurrent requests. Would cut k8s enrichment from 60+ min to ~10 min. | P2 |
-| **Enrichment speed (skip resolved)** | Skip edges already at confidence >= 0.85 (from import resolution). Only enrich edges tree-sitter couldn't resolve. Cuts symbol count from 40K to ~10K on k8s. | P2 |
-| **Enrichment speed (file parallelism)** | Open multiple files simultaneously, query references in parallel goroutines. gopls handles concurrent requests from same client. | P3 |
+| **Multi-module enrichment (k8s fix)** | k8s go.work (30+ modules) crashes gopls. Fix: parse go.work, spawn one gopls per module, enrich per-module. Each gopls indexes ~2K files (vs 30K). Cross-module edges stay at ast_inferred (acceptable). | P2 |
 | **CLI `--format gcf` output** | `knowing context` only supports json/xml/markdown. Adding gcf/gcb for direct agent consumption without MCP. | P3 |
 | `knowing daemon install-service` | Generate launchd plist (macOS) or systemd user unit (Linux). | P3 |
 | Per-repo config (`.knowing.yaml`) | Excludes, local overrides, workspace membership. | P3 |

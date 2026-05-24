@@ -76,6 +76,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Scales linearly: 5 files = 59ms, 20 files = 93ms
 - Benchmark: `bench/incremental-reindex/`
 
+#### Parallel LSP enrichment
+- Concurrent LSP resolution with serialized DB writes (producer-consumer pattern)
+- Default 8 parallel requests; configurable via `-enrich-concurrency N` on `index` and `reindex`
+- Skip-resolved optimization: edges already at `lsp_resolved` provenance are not re-processed
+- Batched file discovery: opens 50 files at a time instead of all upfront (prevents OOM on large repos)
+- No longer floods gopls with bulk `didOpen` calls; GetDefinition works from workspace index alone
+- Eliminates SQLite lock contention that previously caused 3x error rates under concurrency
+- Workspace ready timeout increased to 300s for large monorepos
+- Known limitation: k8s (30+ module go.work) still fails; needs per-module gopls strategy (roadmap)
+
 ### Changed
 
 #### LSP enrichment ROI measured (negative result)

@@ -296,6 +296,7 @@ func cmdIndex(args []string) error {
 	full := fs.Bool("full", false, "Use full type resolution (go/packages) instead of fast tree-sitter extraction")
 	skipBlame := fs.Bool("skip-blame", false, "Skip git blame authorship extraction (faster, no authored_by edges)")
 	noEnrich := fs.Bool("no-enrich", false, "Skip LSP enrichment (faster, edges stay at 0.7 confidence)")
+	enrichConcurrency := fs.Int("enrich-concurrency", 8, "Number of parallel LSP requests during enrichment")
 	workers := fs.Int("workers", 0, "Number of parallel extraction workers (default: 8)")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -395,6 +396,7 @@ func cmdIndex(args []string) error {
 	if !*full && !*noEnrich {
 		fmt.Println("Running LSP enrichment...")
 		enricher := enrichment.NewEnricher(st, repoPath)
+		enricher.SetConcurrency(*enrichConcurrency)
 		if err := enricher.Run(ctx, repoHash); err != nil {
 			fmt.Fprintf(os.Stderr, "enrichment warning: %v\n", err)
 		}
@@ -990,6 +992,7 @@ func cmdReindex(args []string) error {
 	repoURL := fs.String("url", "", "Repository URL (e.g. github.com/org/repo)")
 	commitHash := fs.String("commit", "HEAD", "Commit hash to record")
 	full := fs.Bool("full", false, "Use full type resolution (go/packages) instead of fast tree-sitter extraction")
+	reindexEnrichConcurrency := fs.Int("enrich-concurrency", 8, "Number of parallel LSP requests during enrichment")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -1053,6 +1056,7 @@ func cmdReindex(args []string) error {
 	if !*full {
 		fmt.Println("Running LSP enrichment...")
 		enricher := enrichment.NewEnricher(st, repoPath)
+		enricher.SetConcurrency(*reindexEnrichConcurrency)
 		if err := enricher.Run(ctx, types.NewHash([]byte(*repoURL))); err != nil {
 			fmt.Fprintf(os.Stderr, "enrichment warning: %v\n", err)
 		}

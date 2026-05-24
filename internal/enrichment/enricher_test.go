@@ -391,8 +391,8 @@ func TestUpgradeCallEdges_WithFileFilter(t *testing.T) {
 	e.upgradeCallEdges(ctx, repoHash, filePathByHash, stats, fileFilter)
 
 	// With cancelled context, no edges should be processed (returns at ctx.Err check).
-	if stats.edgesProcessed != 0 {
-		t.Errorf("expected 0 edges processed with cancelled context, got %d", stats.edgesProcessed)
+	if stats.edgesProcessed.Load() != 0 {
+		t.Errorf("expected 0 edges processed with cancelled context, got %d", stats.edgesProcessed.Load())
 	}
 
 	// Now test without cancellation but with nil filter: both edges should

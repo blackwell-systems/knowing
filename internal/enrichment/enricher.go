@@ -34,6 +34,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/blackwell-systems/agent-lsp/pkg/lsp"
@@ -51,6 +53,8 @@ type Enricher struct {
 	workspaceRoot string
 	client        *lsp.LSPClient
 	lspConfig     *LSPConfig // multi-language server config (nil = auto-detect)
+	concurrency   int        // max parallel LSP requests (default 8)
+	writeMu       sync.Mutex // serializes DB writes from concurrent discover workers
 }
 
 // NewEnricher creates an Enricher that will use the given store and
@@ -59,7 +63,16 @@ func NewEnricher(store types.GraphStore, workspaceRoot string) *Enricher {
 	return &Enricher{
 		store:         store,
 		workspaceRoot: workspaceRoot,
+		concurrency:   8,
 	}
+}
+
+// SetConcurrency sets the maximum number of parallel LSP requests.
+func (e *Enricher) SetConcurrency(n int) {
+	if n < 1 {
+		n = 1
+	}
+	e.concurrency = n
 }
 
 // SetLSPConfig overrides auto-detection with an explicit server configuration.
@@ -68,14 +81,15 @@ func (e *Enricher) SetLSPConfig(cfg *LSPConfig) {
 }
 
 // enrichStats tracks enrichment progress for summary logging.
+// Fields are accessed atomically from concurrent workers.
 type enrichStats struct {
-	edgesProcessed int
-	edgesUpgraded  int
-	edgesSkipped   int
-	edgeErrors     int
-	newEdges       int
-	filesProcessed int
-	fileErrors     int
+	edgesProcessed atomic.Int64
+	edgesUpgraded  atomic.Int64
+	edgesSkipped   atomic.Int64
+	edgeErrors     atomic.Int64
+	newEdges       atomic.Int64
+	filesProcessed atomic.Int64
+	fileErrors     atomic.Int64
 }
 
 // Run starts gopls, iterates edges with provenance "ast_inferred", queries
@@ -166,6 +180,11 @@ func (e *Enricher) runForServer(ctx context.Context, serverCfg LSPServerConfig, 
 	}
 
 	// Start the language server.
+	// Disable go.work so gopls uses only the top-level go.mod. Multi-module
+	// workspaces (e.g., kubernetes with 30+ modules) cause gopls to choke.
+	os.Setenv("GOWORK", "off")
+	defer os.Unsetenv("GOWORK")
+
 	args := []string{}
 	if len(serverCfg.Command) > 1 {
 		args = serverCfg.Command[1:]
@@ -190,30 +209,24 @@ func (e *Enricher) runForServer(ctx context.Context, serverCfg LSPServerConfig, 
 		return serverCfg.matchesFile(path)
 	}
 
-	// Open files for this language.
-	e.openFilesForLanguage(ctx, files, langFilter, serverCfg.LanguageID)
+	// Wait for the workspace to be indexed. Do NOT open all files upfront:
+	// gopls reads from disk for workspace indexing. Sending 3K files via
+	// didOpen floods stdin and wastes memory (50MB+ for large repos).
+	client.WaitForWorkspaceReadyTimeout(ctx, 300*time.Second)
 
-	// Wait for the workspace to be indexed. Some servers (jdtls) import the
-	// project asynchronously via $/progress and return empty results until
-	// indexing completes. The 120s timeout accommodates large Gradle/Maven
-	// projects. Servers that index synchronously (gopls, pyright, tsserver)
-	// return immediately since they have no active progress tokens.
-	client.WaitForWorkspaceReadyTimeout(ctx, 120*time.Second)
-
-	// Upgrade ast_inferred call edges that have call-site positions.
+	// Phase 1: Upgrade ast_inferred call edges. GetDefinition does not
+	// require didOpen; gopls resolves from its workspace index.
 	e.upgradeCallEdges(ctx, repoHash, filePathByHash, stats, langFilter)
 
-	// Discover new implements and references edges via LSP document symbols.
-	e.discoverNewEdges(ctx, files, filePathByHash, stats, langFilter)
-
-	// Close all opened documents.
-	e.closeFilesForLanguage(ctx, files, langFilter)
+	// Phase 2: Discover new edges. GetDocumentSymbols requires didOpen, so
+	// we open files in batches to limit memory pressure on the LSP server.
+	e.discoverNewEdgesBatched(ctx, files, filePathByHash, stats, langFilter, serverCfg.LanguageID)
 
 	// Log summary.
 	log.Printf("enrichment complete (%s): %d edges processed, %d upgraded, %d skipped, %d errors, %d new edges discovered, %d files scanned, %d file errors",
 		serverCfg.LanguageID,
-		stats.edgesProcessed, stats.edgesUpgraded, stats.edgesSkipped, stats.edgeErrors,
-		stats.newEdges, stats.filesProcessed, stats.fileErrors)
+		stats.edgesProcessed.Load(), stats.edgesUpgraded.Load(), stats.edgesSkipped.Load(), stats.edgeErrors.Load(),
+		stats.newEdges.Load(), stats.filesProcessed.Load(), stats.fileErrors.Load())
 }
 
 // Close shuts down the LSP client if running.
@@ -310,9 +323,25 @@ func upgradeEdge(old types.Edge) types.Edge {
 	}
 }
 
+// edgeWorkItem is a unit of work for concurrent edge upgrade.
+type edgeWorkItem struct {
+	edge types.Edge
+	uri  string
+	pos  lsptypes.Position
+}
+
+// edgeResolveResult is the result of a parallel LSP resolution.
+type edgeResolveResult struct {
+	original   types.Edge
+	targetHash types.Hash // retargeted hash (may equal original)
+}
+
 // upgradeCallEdges finds ast_inferred edges with call-site positions and
 // queries the language server's GetDefinition at those positions to confirm targets.
 // Successfully resolved edges are upgraded to lsp_resolved with confidence 0.9.
+// Edges that already have an lsp_resolved counterpart are skipped.
+// LSP calls are made concurrently (bounded by e.concurrency); DB writes are
+// serialized through a single writer goroutine to avoid SQLite lock contention.
 func (e *Enricher) upgradeCallEdges(
 	ctx context.Context,
 	repoHash types.Hash,
@@ -330,6 +359,8 @@ func (e *Enricher) upgradeCallEdges(
 		return
 	}
 
+	// Collect all edges that need upgrading.
+	var workItems []edgeWorkItem
 	for _, node := range nodes {
 		if ctx.Err() != nil {
 			return
@@ -354,55 +385,102 @@ func (e *Enricher) upgradeCallEdges(
 				continue
 			}
 
-			stats.edgesProcessed++
+			// Skip if an lsp_resolved edge already exists for this source/target/type.
+			resolvedHash := types.ComputeEdgeHash(edge.SourceHash, edge.TargetHash, edge.EdgeType, "lsp_resolved")
+			if existing, err := e.store.GetEdge(ctx, resolvedHash); err == nil && existing != nil {
+				stats.edgesSkipped.Add(1)
+				continue
+			}
 
 			uri := "file://" + filepath.Join(e.workspaceRoot, edge.CallSiteFile)
-			// Convert from knowing's 1-indexed lines to LSP's 0-indexed lines.
-			// Column is already 0-indexed (matching tree-sitter and LSP conventions).
 			pos := lsptypes.Position{
 				Line:      edge.CallSiteLine - 1,
 				Character: edge.CallSiteCol,
 			}
-
-			locs, err := e.client.GetDefinition(ctx, uri, pos)
-			if err != nil {
-				stats.edgeErrors++
-				continue
-			}
-			if len(locs) == 0 {
-				stats.edgesSkipped++
-				continue
-			}
-
-			// gopls confirmed a definition exists at this call site.
-			// Try to retarget the edge to the correct node hash by matching
-			// the definition location to a node in the database. This fixes
-			// cross-repo method call edges where tree-sitter could not
-			// determine the correct target package or kind.
-			retargetedEdge := edge
-			if defNode := e.resolveDefinitionToNode(ctx, locs[0], repoHash); defNode != nil {
-				retargetedEdge.TargetHash = defNode.NodeHash
-			}
-
-			// Delete the old ast_inferred edge and create a new lsp_resolved
-			// edge. We must delete first because the provenance string is part
-			// of the edge hash; changing provenance produces a new hash.
-			if err := e.store.DeleteEdge(ctx, edge.EdgeHash); err != nil {
-				stats.edgeErrors++
-				continue
-			}
-
-			upgraded := upgradeEdge(retargetedEdge)
-			upgraded.CallSiteLine = edge.CallSiteLine
-			upgraded.CallSiteCol = edge.CallSiteCol
-			upgraded.CallSiteFile = edge.CallSiteFile
-			if err := e.store.PutEdge(ctx, upgraded); err != nil {
-				stats.edgeErrors++
-				continue
-			}
-			stats.edgesUpgraded++
+			workItems = append(workItems, edgeWorkItem{edge: edge, uri: uri, pos: pos})
 		}
 	}
+
+	if len(workItems) == 0 {
+		return
+	}
+
+	log.Printf("enrichment: upgrading %d call edges (%d concurrent)", len(workItems), e.concurrency)
+
+	// Channel for resolved results (LSP workers -> DB writer).
+	results := make(chan edgeResolveResult, e.concurrency*2)
+
+	// Single DB writer goroutine: serializes all mutations.
+	var writerWg sync.WaitGroup
+	writerWg.Add(1)
+	go func() {
+		defer writerWg.Done()
+		for res := range results {
+			if err := e.store.DeleteEdge(ctx, res.original.EdgeHash); err != nil {
+				stats.edgeErrors.Add(1)
+				continue
+			}
+
+			retargeted := res.original
+			retargeted.TargetHash = res.targetHash
+
+			upgraded := upgradeEdge(retargeted)
+			upgraded.CallSiteLine = res.original.CallSiteLine
+			upgraded.CallSiteCol = res.original.CallSiteCol
+			upgraded.CallSiteFile = res.original.CallSiteFile
+			if err := e.store.PutEdge(ctx, upgraded); err != nil {
+				stats.edgeErrors.Add(1)
+				continue
+			}
+			stats.edgesUpgraded.Add(1)
+		}
+	}()
+
+	// Parallel LSP resolution workers.
+	sem := make(chan struct{}, e.concurrency)
+	var wg sync.WaitGroup
+
+	for i := range workItems {
+		if ctx.Err() != nil {
+			break
+		}
+
+		wg.Add(1)
+		sem <- struct{}{}
+
+		go func(item edgeWorkItem) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			if ctx.Err() != nil {
+				return
+			}
+
+			stats.edgesProcessed.Add(1)
+
+			locs, err := e.client.GetDefinition(ctx, item.uri, item.pos)
+			if err != nil {
+				stats.edgeErrors.Add(1)
+				return
+			}
+			if len(locs) == 0 {
+				stats.edgesSkipped.Add(1)
+				return
+			}
+
+			// Retarget the edge if LSP resolves to a known node.
+			targetHash := item.edge.TargetHash
+			if defNode := e.resolveDefinitionToNode(ctx, locs[0], repoHash); defNode != nil {
+				targetHash = defNode.NodeHash
+			}
+
+			results <- edgeResolveResult{original: item.edge, targetHash: targetHash}
+		}(workItems[i])
+	}
+
+	wg.Wait()
+	close(results)
+	writerWg.Wait()
 }
 
 // resolveDefinitionToNode tries to match an LSP definition location to a node
@@ -506,39 +584,6 @@ func (e *Enricher) findNodeByFileLine(ctx context.Context, st types.GraphStore, 
 	return nil
 }
 
-// openFilesForLanguage opens files matching the filter via textDocument/didOpen.
-// Language-agnostic: works for any language server.
-func (e *Enricher) openFilesForLanguage(ctx context.Context, files []types.File, filter func(string) bool, languageID string) {
-	for _, f := range files {
-		if ctx.Err() != nil {
-			return
-		}
-		if !filter(f.Path) {
-			continue
-		}
-		// Skip test files for all languages.
-		if isTestFile(f.Path) {
-			continue
-		}
-		absPath := filepath.Join(e.workspaceRoot, f.Path)
-		content, err := os.ReadFile(absPath)
-		if err != nil {
-			continue
-		}
-		uri := "file://" + absPath
-		_ = e.client.OpenDocument(ctx, uri, string(content), languageID)
-	}
-}
-
-// closeFilesForLanguage closes files matching the filter.
-func (e *Enricher) closeFilesForLanguage(ctx context.Context, files []types.File, filter func(string) bool) {
-	for _, f := range files {
-		if filter(f.Path) && !isTestFile(f.Path) {
-			uri := "file://" + filepath.Join(e.workspaceRoot, f.Path)
-			_ = e.client.CloseDocument(ctx, uri)
-		}
-	}
-}
 
 // isTestFile returns true for test files across common languages.
 func isTestFile(path string) bool {
@@ -553,40 +598,103 @@ func isTestFile(path string) bool {
 		strings.Contains(path, "/__tests__/")
 }
 
-// discoverNewEdges uses LSP to find implements and references edges not
-// found by tree-sitter. Assumes files are already opened via openFilesForLanguage.
-// The fileFilter is the combined language+scope filter from runForServer,
-// so it already handles extension matching and test file exclusion.
-func (e *Enricher) discoverNewEdges(
+// discoverNewEdgesBatched opens files in batches, queries document symbols,
+// then closes the batch before opening the next. This limits memory pressure
+// on the LSP server (e.g., gopls on k8s with 3K files and 900MB+ memory).
+// Within each batch, files are processed concurrently.
+func (e *Enricher) discoverNewEdgesBatched(
 	ctx context.Context,
 	files []types.File,
 	filePathByHash map[types.Hash]string,
 	stats *enrichStats,
 	fileFilter func(string) bool,
+	languageID string,
 ) {
+	// Collect files that pass the filter.
+	var eligible []types.File
 	for _, f := range files {
-		if ctx.Err() != nil {
-			return
-		}
 		if fileFilter != nil && !fileFilter(f.Path) {
 			continue
 		}
-		// Skip test files (redundant when called from runForServer since
-		// openFilesForLanguage already skips them, but defensive for direct callers).
 		if isTestFile(f.Path) {
 			continue
 		}
+		eligible = append(eligible, f)
+	}
 
-		stats.filesProcessed++
-		uri := "file://" + filepath.Join(e.workspaceRoot, f.Path)
+	if len(eligible) == 0 {
+		return
+	}
 
-		symbols, err := e.client.GetDocumentSymbols(ctx, uri)
-		if err != nil {
-			stats.fileErrors++
-			continue
+	// Process in batches of 50 files. Each batch: open -> query -> close.
+	const batchSize = 50
+	log.Printf("enrichment: discovering edges in %d files (%d concurrent, batch=%d)", len(eligible), e.concurrency, batchSize)
+
+	for batchStart := 0; batchStart < len(eligible); batchStart += batchSize {
+		if ctx.Err() != nil {
+			break
 		}
 
-		e.processSymbols(ctx, uri, symbols, f, filePathByHash, stats)
+		batchEnd := batchStart + batchSize
+		if batchEnd > len(eligible) {
+			batchEnd = len(eligible)
+		}
+		batch := eligible[batchStart:batchEnd]
+
+		// Open this batch of files.
+		for _, f := range batch {
+			if ctx.Err() != nil {
+				break
+			}
+			absPath := filepath.Join(e.workspaceRoot, f.Path)
+			content, err := os.ReadFile(absPath)
+			if err != nil {
+				continue
+			}
+			uri := "file://" + absPath
+			_ = e.client.OpenDocument(ctx, uri, string(content), languageID)
+		}
+
+		// Query symbols concurrently within the batch.
+		sem := make(chan struct{}, e.concurrency)
+		var wg sync.WaitGroup
+
+		for i := range batch {
+			if ctx.Err() != nil {
+				break
+			}
+
+			wg.Add(1)
+			sem <- struct{}{}
+
+			go func(f types.File) {
+				defer wg.Done()
+				defer func() { <-sem }()
+
+				if ctx.Err() != nil {
+					return
+				}
+
+				stats.filesProcessed.Add(1)
+				uri := "file://" + filepath.Join(e.workspaceRoot, f.Path)
+
+				symbols, err := e.client.GetDocumentSymbols(ctx, uri)
+				if err != nil {
+					stats.fileErrors.Add(1)
+					return
+				}
+
+				e.processSymbols(ctx, uri, symbols, f, filePathByHash, stats)
+			}(batch[i])
+		}
+
+		wg.Wait()
+
+		// Close this batch of files to release LSP server memory.
+		for _, f := range batch {
+			uri := "file://" + filepath.Join(e.workspaceRoot, f.Path)
+			_ = e.client.CloseDocument(ctx, uri)
+		}
 	}
 }
 
@@ -696,6 +804,8 @@ func resolveNamePosition(sym lsptypes.DocumentSymbol, sourceLines []string) lspt
 // results, skipping edges that already exist. Source and target hashes are
 // computed from the LSP URIs and positions (not from qualified names),
 // because we may not have a matching Node record for every location.
+// DB writes are serialized via e.writeMu to avoid SQLite lock contention
+// when called from concurrent discover workers.
 func (e *Enricher) insertEdgesFromLocations(
 	ctx context.Context,
 	sourceURI string,
@@ -723,11 +833,14 @@ func (e *Enricher) insertEdgesFromLocations(
 		provenance := "lsp_resolved"
 		edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, edgeType, provenance)
 
+		e.writeMu.Lock()
 		existing, err := e.store.GetEdge(ctx, edgeHash)
 		if err != nil {
+			e.writeMu.Unlock()
 			continue
 		}
 		if existing != nil {
+			e.writeMu.Unlock()
 			continue
 		}
 
@@ -741,8 +854,10 @@ func (e *Enricher) insertEdgesFromLocations(
 		}
 
 		if err := e.store.PutEdge(ctx, edge); err != nil {
+			e.writeMu.Unlock()
 			continue
 		}
-		stats.newEdges++
+		e.writeMu.Unlock()
+		stats.newEdges.Add(1)
 	}
 }
