@@ -23,6 +23,7 @@ func AllAdapters() []AvailableAdapter {
 		{Adapter: NewGortex(), available: gortexAvailable()},
 		{Adapter: NewAider(), available: aiderAvailable()},
 		{Adapter: NewCGC(), available: hasCommand("cgc")},
+		{Adapter: NewCodebaseMemory(), available: hasCommand("codebase-memory-mcp")},
 	}
 }
 
