@@ -244,6 +244,14 @@ func RandomWalkWithRestartWeighted(ctx stdctx.Context, store types.GraphStore, s
 
 	// Iterate: at each step, walk along edges with (1-alpha) probability,
 	// or restart at seeds with alpha probability.
+	//
+	// Early termination: stop when the top-K ranking is stable for 2 consecutive
+	// iterations. On large graphs, low-ranked nodes keep shifting even after the
+	// top results have converged, wasting iterations.
+	const earlyTopK = 10
+	var prevTopK [earlyTopK]types.Hash
+	stableCount := 0
+
 	for iter := 0; iter < maxIter; iter++ {
 		next := make(map[types.Hash]float64)
 
@@ -310,6 +318,20 @@ func RandomWalkWithRestartWeighted(ctx stdctx.Context, store types.GraphStore, s
 		if delta < 0.001 {
 			break
 		}
+
+		// Top-K stability check: if the top-10 nodes by score haven't changed
+		// ordering for 2 consecutive iterations, the ranking is converged even
+		// if low-ranked nodes are still shifting.
+		curTopK := topKFromProb(prob, earlyTopK)
+		if curTopK == prevTopK {
+			stableCount++
+			if stableCount >= 2 {
+				break
+			}
+		} else {
+			stableCount = 0
+		}
+		prevTopK = curTopK
 	}
 
 	// Normalize to [0, 1] range relative to max.
@@ -385,8 +407,11 @@ func CommunityFilteredRWR(ctx stdctx.Context, store types.GraphStore, seeds []ty
 		"authored_by":       0.0,
 	}
 
-	// Iterate: at each step, walk along edges with (1-alpha) probability,
-	// or restart at seeds with alpha probability.
+	// Iterate with early termination (same as RandomWalkWithRestartWeighted).
+	const cfrTopK = 10
+	var cfrPrevTopK [cfrTopK]types.Hash
+	cfrStableCount := 0
+
 	for iter := 0; iter < maxIter; iter++ {
 		next := make(map[types.Hash]float64)
 
@@ -453,6 +478,18 @@ func CommunityFilteredRWR(ctx stdctx.Context, store types.GraphStore, seeds []ty
 		if delta < 0.001 {
 			break
 		}
+
+		// Top-K stability check.
+		cfrCurTopK := topKFromProb(prob, cfrTopK)
+		if cfrCurTopK == cfrPrevTopK {
+			cfrStableCount++
+			if cfrStableCount >= 2 {
+				break
+			}
+		} else {
+			cfrStableCount = 0
+		}
+		cfrPrevTopK = cfrCurTopK
 	}
 
 	// Normalize to [0, 1] range relative to max.
@@ -758,4 +795,27 @@ func abs(x float64) float64 {
 		return -x
 	}
 	return x
+}
+
+// topKFromProb returns the top-K node hashes by score as a fixed-size array.
+// Used for early termination: if this array is unchanged between iterations,
+// the ranking has converged.
+func topKFromProb(prob map[types.Hash]float64, k int) [10]types.Hash {
+	var result [10]types.Hash
+	var scores [10]float64
+
+	for h, s := range prob {
+		// Find insertion point (simple insertion sort for small k).
+		for i := 0; i < k; i++ {
+			if s > scores[i] {
+				// Shift down.
+				copy(scores[i+1:], scores[i:k-1])
+				copy(result[i+1:], result[i:k-1])
+				scores[i] = s
+				result[i] = h
+				break
+			}
+		}
+	}
+	return result
 }

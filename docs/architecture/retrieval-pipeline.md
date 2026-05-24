@@ -8,7 +8,7 @@ relevant code symbols that fit within a context window.
 This document is the authoritative reference for how the context engine finds and ranks
 symbols. It supersedes `context-packing.md`.
 
-**Current eval baseline:** 55 fixtures (20 easy, 20 medium, 15 hard), 31.6% P@10, 0.58 MRR (internal eval). Cross-system benchmark (~117 manual fixtures, 7 repos): P@10=0.226, 11.3x vs grep, d=0.92 recall (very large effect).
+**Current eval baseline:** 55 fixtures (20 easy, 20 medium, 15 hard), 31.6% P@10, 0.58 MRR (internal eval). Cross-system benchmark (~117 manual fixtures, 7 repos): P@10=0.217, 1.63x vs codegraph (19K stars), 4.5x vs Aider, 11.3x vs grep (d=0.92 very large effect).
 
 ## Pipeline Overview
 
@@ -28,7 +28,7 @@ Task Description
 [4. Noise Filtering]           exclude externals, mocks, stubs, dist/, vendor/, minified
     |
     v
-[5. Random Walk with Restart]  propagate relevance through graph (alpha=0.2, 20 iter)
+[5. Random Walk with Restart]  propagate relevance through graph (alpha=0.2, early termination on top-K stability)
     |
     v
 [6. HITS Reranking]            authority/hub scores on top-200 RWR nodes
@@ -331,8 +331,9 @@ structurally close to the seeds and sit at the intersection of many paths.
 | Parameter | Value | Notes |
 |-----------|-------|-------|
 | `alpha` (restart probability) | 0.2 | 20% chance of returning to a seed each step |
-| `maxIter` | 20 | Convergence typically within 5-10 iterations |
+| `maxIter` | 20 | Hard cap; early termination usually exits by iteration 8-10 |
 | Convergence threshold | 0.001 | L1 norm of difference between consecutive distributions |
+| Top-K stability | 10 nodes, 2 iterations | Break early when top-10 ranking unchanged for 2 consecutive iterations |
 | BFS depth limit | 4 hops | Pre-loaded subgraph for zero-query iteration |
 | RWR score threshold | 0.02 | Nodes below this are discarded before scoring |
 
@@ -369,9 +370,15 @@ its flow along calls and 1/3 along imports.
 
 ### Implementation
 
-`buildAdjacencyMap` pre-loads the reachable subgraph (BFS from seeds, 4-hop depth limit)
-into in-memory adjacency maps before iteration begins. The RWR loop requires zero
-database queries.
+`buildAdjacencyMap` pre-loads the reachable subgraph into in-memory adjacency maps before
+iteration begins. The RWR loop requires zero database queries. Two loading strategies:
+
+1. **Pre-computed adjacency cache** (preferred): a compact binary blob (65 bytes/edge)
+   stored in the `graph_notes` table at index time. Format: `[num_edges:4 LE]` followed by
+   `[source:32][target:32][type_id:1]` per edge. Loads in one SQLite read, then runs BFS
+   in memory. Works for repos up to 500K edges (~32MB base64). Cache version: v2.
+2. **BFS fallback**: per-node `EdgesFrom`/`EdgesTo` queries, 4-hop depth limit from seeds.
+   Used when no cache exists or the cache is stale.
 
 Dead-end nodes (no outgoing edges) redistribute their probability back to the seed set,
 effectively acting as an implicit restart.
@@ -526,11 +533,13 @@ Inverse of graph hops from the target: `1 / (1 + hops) * weight`.
 In `ForTask`, distance is binary: 0 for seeds (direct keyword matches), 1 for all
 RWR-discovered nodes.
 
-**Feedback (0.15 weight)**
+**Feedback (asymmetric: pos=0.25, neg=0.05)**
 
-From `FeedbackProvider`. Score is `useful/(useful+not_useful)`, range [0, 1]. Centered
-around 0 in the formula: score 1.0 contributes +0.15, score 0.5 contributes 0, score 0.0
-contributes -0.15. Net negative feedback actively penalizes symbols.
+From `FeedbackProvider`. Score is `useful/(useful+not_useful)`, range [0, 1]. Asymmetric
+weighting (tuned via 28-point grid sweep): score 1.0 contributes +0.25 (`FeedbackPosWeight`),
+score 0.5 contributes 0, score 0.0 contributes -0.05 (`FeedbackNegWeight`). Strong boost
+for confirmed-useful symbols; gentle penalty for potentially-irrelevant ones prevents
+over-penalizing symbols incorrectly marked "not useful".
 
 As of v0.5.0, feedback records are merkleized: each stores the SubgraphRoot of the symbol's
 package at feedback time. When querying, only records where `neighborhood_root` matches the
@@ -872,8 +881,10 @@ This is validated by 23 experiments (see `eval/EXPERIMENTS.md`):
    edges. Runtime cross-service edges influence recency scoring but not structural
    ranking.
 
-5. **No incremental RWR.** The full reachable subgraph is loaded on every query. The
-   40-candidate cap on seeds limits subgraph size in practice.
+5. **Full subgraph load per query.** The reachable subgraph is loaded on every query
+   (from pre-computed cache or BFS fallback). The 40-candidate seed cap and 4-hop BFS
+   depth limit bound the subgraph size. Early termination (top-K stability) reduces
+   iteration count on large graphs.
 
 6. **Token estimation is approximate.** The 4-characters-per-token heuristic works
    reasonably for code but can over- or under-estimate for symbolic or prose-heavy code.
@@ -891,7 +902,7 @@ This is validated by 23 experiments (see `eval/EXPERIMENTS.md`):
 | `internal/context/language_seeds.go` | `languageEquivalenceClasses` (31 language-specific concepts) |
 | `internal/context/graph_aliases.go` | `graphDerivedAliases`, `extractMeaningfulWords` |
 | `internal/context/ranking.go` | `RankSymbols`, `ScoringInput`, `ScoreComponents`, `recencyFromTimestamp` |
-| `internal/context/walk.go` | `RandomWalkWithRestart`, `buildAdjacencyMap` |
+| `internal/context/walk.go` | `RandomWalkWithRestart`, `buildAdjacencyMap`, `BuildAdjacencyCache`, `topKFromProb`, `adjEdgeTypeToID` |
 | `internal/context/hits.go` | `ComputeHITS`, `HITSScores` |
 | `internal/context/session.go` | `SessionTracker`, `SessionBoosts` |
 | `internal/context/task_memory.go` | `TaskMemory`, `Recall`, `RecordBatch`, `NormalizeKeywords` |
