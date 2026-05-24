@@ -1,12 +1,12 @@
 # Concurrency Primer
 
-This guide explains where knowing uses Go's concurrency primitives and, more importantly, where it does not. Most of the codebase is sequential. Concurrency exists in exactly four subsystems, each for a specific reason. If you are adding code to knowing, read this before reaching for `go`.
+This guide explains where knowing uses Go's concurrency primitives and, more importantly, where it does not. Most of the codebase is sequential. Concurrency exists in six subsystems, each for a specific reason. If you are adding code to knowing, read this before reaching for `go`.
 
 ## Overview
 
-knowing uses goroutines, channels, `sync.WaitGroup`, `sync.Mutex`, and `sync.RWMutex` in specific places. The indexer pipeline is the main concurrent subsystem. The retrieval path (RWR, HITS, ranking, packing) is entirely sequential. The MCP server handles concurrent requests but delegates all coordination to SQLite's WAL mode.
+knowing uses goroutines, channels, `sync.WaitGroup`, `sync.Mutex`, `sync.RWMutex`, `sync/atomic`, and semaphore-patterned buffered channels. The indexer pipeline and the enrichment system are the two largest concurrent subsystems. The retrieval path (RWR, HITS, ranking, packing) is entirely sequential but uses a precomputed adjacency cache to eliminate per-node database queries during the walk. The MCP server handles concurrent requests but delegates all coordination to SQLite's WAL mode.
 
-The guiding principle: add concurrency only where a measurable bottleneck exists. Extraction is CPU-bound (tree-sitter parsing). SQLite writes are IO-bound. Separating them into a pipeline doubles throughput. Retrieval already completes in under 100ms, so parallelizing it would add complexity for no user benefit.
+The guiding principle: add concurrency only where a measurable bottleneck exists. Extraction is CPU-bound (tree-sitter parsing). SQLite writes are IO-bound. Separating them into a pipeline doubles throughput. LSP enrichment is IO-bound (network round-trips to language servers). Parallelizing LSP calls with serialized DB writes gives near-linear speedup. Retrieval already completes in under 100ms, so parallelizing it would add complexity for no user benefit.
 
 ## The Indexer Pipeline
 
@@ -196,6 +196,185 @@ for w := 0; w < blameWorkers; w++ {
 
 **Error handling:** errors from individual `git blame` invocations are silently skipped (`continue`). This is intentional: authorship is best-effort metadata. A file that fails blame (binary file, detached HEAD, shallow clone) should not block the index run.
 
+## The Enrichment System
+
+The enricher (`internal/enrichment/enricher.go`) upgrades `ast_inferred` edges to `lsp_resolved` by querying language servers (gopls, typescript-language-server, pyright, etc.). It introduces several concurrency patterns distinct from the indexer because the bottleneck is LSP round-trip latency rather than CPU.
+
+### Producer-Consumer for Edge Upgrades
+
+`upgradeCallEdges` uses the same producer-consumer pattern as the indexer but inverted: workers are IO-bound (waiting for LSP responses) rather than CPU-bound.
+
+**Architecture:**
+
+```
+[workItems] --> N LSP workers (semaphore-bounded) --> [results channel] --> 1 DB writer
+```
+
+- **N LSP workers** (bounded by `e.concurrency`, default 8) resolve edges via `GetDefinition`. Each worker acquires a slot from a buffered-channel semaphore before issuing the LSP call.
+- **1 writer goroutine** reads from `results` and serializes all `DeleteEdge`/`PutEdge` mutations against SQLite.
+- **`writerWg`** ensures the writer finishes before `upgradeCallEdges` returns.
+
+```go
+// Semaphore: buffered channel limits concurrent LSP calls.
+sem := make(chan struct{}, e.concurrency)
+
+// Results channel: parallel workers -> serial writer.
+results := make(chan edgeResolveResult, e.concurrency*2)
+```
+
+**Why this design:** LSP calls take 5-50ms each. With 8 concurrent workers, 2000 edges resolve in ~15 seconds instead of ~100 seconds sequentially. The single writer avoids SQLite `SQLITE_BUSY` contention entirely.
+
+### Semaphore Pattern (Buffered Channel as Concurrency Limiter)
+
+Both `upgradeCallEdges` and `discoverNewEdgesBatched` use the same semaphore pattern:
+
+```go
+sem := make(chan struct{}, e.concurrency)
+
+for i := range workItems {
+    wg.Add(1)
+    sem <- struct{}{}  // blocks when concurrency slots are full
+
+    go func(item WorkItem) {
+        defer wg.Done()
+        defer func() { <-sem }()  // release slot
+
+        // ... do work ...
+    }(workItems[i])
+}
+
+wg.Wait()
+```
+
+The pattern is a bounded fan-out: the main goroutine spawns workers but blocks on the semaphore send when all slots are occupied. Each worker releases its slot on completion. Unlike a fixed pool of long-lived workers, this pattern spawns one goroutine per work item but never exceeds `e.concurrency` active goroutines at once.
+
+### File-Level Parallelism in Discovery
+
+`discoverNewEdgesBatched` (`internal/enrichment/enricher.go`) processes files in batches of 50. Within each batch, individual files are queried concurrently (bounded by the semaphore). Between batches, files are closed to release LSP server memory (gopls on Kubernetes with 3K open files consumes 900MB+).
+
+```
+Batch 1: open 50 files -> concurrent symbol queries -> close 50 files
+Batch 2: open 50 files -> concurrent symbol queries -> close 50 files
+...
+```
+
+**DB writes from concurrent workers** are serialized by `e.writeMu`:
+
+```go
+type Enricher struct {
+    // ...
+    writeMu sync.Mutex  // serializes DB writes from concurrent discover workers
+}
+
+func (e *Enricher) insertEdgesFromLocations(...) {
+    for _, loc := range locations {
+        e.writeMu.Lock()
+        existing, err := e.store.GetEdge(ctx, edgeHash)
+        if err != nil || existing != nil {
+            e.writeMu.Unlock()
+            continue
+        }
+        _ = e.store.PutEdge(ctx, edge)
+        e.writeMu.Unlock()
+    }
+}
+```
+
+The `writeMu` ensures that the check-then-insert for each edge is atomic. Without it, two workers discovering the same edge could both pass the existence check and attempt duplicate inserts (causing SQLite UNIQUE constraint violations or SQLITE_BUSY).
+
+### Multi-Module Orchestration
+
+`runMultiModule` (`internal/enrichment/enricher.go`) handles Go workspaces with multiple `go.mod` files. Each module needs its own gopls instance because gopls operates per-module.
+
+**Strategy:**
+
+1. **Root module (sequential):** processed first, solo, because it is typically large (1000+ files, 1.2GB gopls memory).
+2. **Sub-modules (4 parallel):** processed concurrently after the root completes. Sub-modules are small (200-500 files each), so 4 simultaneous gopls instances use ~800MB total.
+
+```go
+const moduleParallelism = 4
+
+modSem := make(chan struct{}, moduleParallelism)
+var modWg sync.WaitGroup
+
+for i := range subModules {
+    modWg.Add(1)
+    modSem <- struct{}{}
+
+    go func(mod ModuleInfo, idx int) {
+        defer modWg.Done()
+        defer func() { <-modSem }()
+        e.enrichModule(ctx, serverCfg, ..., mod, ...)
+    }(subModules[i], i)
+}
+
+modWg.Wait()
+```
+
+Each `enrichModule` call starts its own gopls instance, runs the full enrichment pipeline (upgrade + discover), and shuts down the server. Progress is tracked so interrupted runs resume without re-processing completed modules.
+
+### Per-Symbol Timeout with Child Context
+
+`WithSymbolTimeout` (`internal/enrichment/timeout.go`) wraps each LSP call in a timeout without cancelling the parent context:
+
+```go
+func WithSymbolTimeout(ctx context.Context, timeout time.Duration, fn func(ctx context.Context) error) error {
+    childCtx, cancel := context.WithTimeout(ctx, timeout)
+    defer cancel()
+
+    done := make(chan error, 1)
+    go func() {
+        done <- fn(childCtx)
+    }()
+
+    select {
+    case err := <-done:
+        return err
+    case <-childCtx.Done():
+        if ctx.Err() != nil {
+            return ctx.Err()  // parent cancelled
+        }
+        return ErrSymbolTimeout  // only this symbol timed out
+    }
+}
+```
+
+**Key property:** cancelling the child context does NOT cancel the parent. If one symbol's `GetReferences` call hangs (e.g., gopls analyzing a massive package), only that symbol is skipped. The remaining symbols in the file continue processing normally. The default timeout is 10 seconds per symbol.
+
+### Atomic Counters for Statistics
+
+`enrichStats` uses `sync/atomic.Int64` fields for lock-free concurrent updates:
+
+```go
+type enrichStats struct {
+    edgesProcessed atomic.Int64
+    edgesUpgraded  atomic.Int64
+    edgesSkipped   atomic.Int64
+    edgeErrors     atomic.Int64
+    newEdges       atomic.Int64
+    filesProcessed atomic.Int64
+    fileErrors     atomic.Int64
+}
+```
+
+Multiple LSP workers call `stats.edgesProcessed.Add(1)` concurrently without coordination. The final log summary reads all counters after `wg.Wait()` ensures all workers have completed (happens-before).
+
+### Progress Persistence with Atomic File Writes
+
+`EnrichProgress` (`internal/enrichment/progress.go`) tracks per-module completion for crash recovery:
+
+- **Thread safety:** `sync.Mutex` protects the `Modules` map. `MarkModule` and `IsComplete` both acquire the lock.
+- **Crash safety:** `SaveProgress` writes to a `.tmp` file first, then atomically renames it over the target. If the process crashes during the write, the previous progress file remains intact.
+- **Resume semantics:** on startup, `LoadProgress` reads the file. Modules with `Completed: true` are skipped. This prevents re-enriching modules that finished in a previous (interrupted) run.
+
+```go
+func SaveProgress(workspaceRoot string, p *EnrichProgress) error {
+    tmp := target + ".tmp"
+    os.WriteFile(tmp, data, 0644)
+    return os.Rename(tmp, target)  // atomic on POSIX
+}
+```
+
 ## SQLite Single-Writer
 
 SQLite in WAL (Write-Ahead Logging) mode allows any number of concurrent readers but exactly one writer at a time. knowing's architecture respects this constraint at every level.
@@ -320,15 +499,68 @@ The extractor struct itself (e.g., `GoExtractor`, `PythonExtractor`) is stateles
 
 When multiple extractors handle the same file (e.g., Go extractor + proto extractor), the first one that parses sets `opts.ParsedTree`; subsequent extractors reuse the same parsed tree. This reuse happens within a single goroutine (the extraction loop for one file), so there is no concurrency concern.
 
-## No Concurrency in Retrieval
+## No Concurrency in Retrieval (But Two Key Precomputation Patterns)
 
-The context engine (`internal/context/walk.go`) and all retrieval paths (`ForTask`, `ForFiles`, `ForPR`) are fully sequential. Here is why:
+The context engine (`internal/context/walk.go`) and all retrieval paths (`ForTask`, `ForFiles`, `ForPR`) are fully sequential. No goroutines run during the walk. However, two patterns eliminate the performance bottlenecks that would otherwise tempt parallelization:
 
-- **RWR (Random Walk with Restart):** pre-loads the adjacency map via BFS from seeds (depth-limited to 4 hops), then iterates over the in-memory map. No goroutines. The BFS and iteration are pure computation on maps and slices.
+### Adjacency Cache (Precomputed Binary Blob)
+
+`BuildAdjacencyCache` (`internal/context/walk.go`) serializes the entire edge set into a compact binary format and stores it in the `notes` table. During RWR, `buildFromCache` deserializes and runs BFS entirely in memory (zero DB queries during the walk itself).
+
+**Binary format:** `[num_edges: 4 bytes LE]` followed by `num_edges` records of `[source: 32 bytes][target: 32 bytes][type_id: 1 byte]` = 65 bytes per edge.
+
+```go
+func BuildAdjacencyCache(ctx context.Context, store types.GraphStore) error {
+    allEdges, _ := bulk.AllEdges(ctx)
+    buf := bytes.NewBuffer(make([]byte, 0, 4+len(allEdges)*65))
+    binary.LittleEndian.PutUint32(header, uint32(len(allEdges)))
+    buf.Write(header)
+    for _, e := range allEdges {
+        buf.Write(e.SourceHash[:])
+        buf.Write(e.TargetHash[:])
+        buf.WriteByte(adjEdgeTypeToID[e.EdgeType])
+    }
+    // Store base64-encoded in notes table.
+}
+```
+
+**Performance impact:** on a 200K-edge graph, the fallback path (per-node `EdgesFrom`/`EdgesTo` queries during BFS) takes ~80ms. With the adjacency cache, the same walk completes in ~2ms (4717x improvement measured in benchmarks). The cache is rebuilt after each index run while the daemon's write lock is held.
+
+**Why not just keep edges in memory?** The MCP server is a long-running daemon, but `knowing index` (CLI mode) starts fresh each time. The binary cache persists across process restarts without loading all edges on startup. It also avoids the memory cost of holding all edges in Go heap structures (the base64 blob is stored in SQLite and decoded on demand).
+
+### Double-Buffer Map Pattern (Zero-Allocation Iteration)
+
+`rwrIterate` (`internal/context/walk.go`) uses two pre-allocated maps that swap roles each iteration:
+
+```go
+mapA := make(map[types.Hash]float64, len(seedVec)*4)
+mapB := make(map[types.Hash]float64, len(seedVec)*4)
+
+prob := mapA
+for iter := 0; iter < maxIter; iter++ {
+    next := mapB
+    for k := range next {
+        delete(next, k)  // clear without reallocating
+    }
+    // ... compute next distribution into `next` ...
+    prob, next = next, prob
+    mapA, mapB = mapB, mapA
+}
+```
+
+**Why this matters:** Go's garbage collector tracks map allocations. Creating a new map each iteration (20 iterations on a 5000-entry map) generates 20 allocations of ~40KB each, all becoming garbage simultaneously. The double-buffer pattern reuses two maps across all iterations: `mapB` is cleared (keys deleted, backing storage retained) and refilled. GC pressure drops to zero for the iteration loop.
+
+### Early Termination (Top-K Stability)
+
+RWR terminates early when the top-10 ranked nodes are stable for 2 consecutive iterations, even if low-ranked nodes are still shifting. `topKFromProb` extracts the top-10 hashes into a fixed `[10]types.Hash` array that is compared by value between iterations. This typically saves 5-8 iterations on large graphs where the tail never fully converges.
+
+### Summary: Why No Goroutines
+
+- **RWR:** pre-loads the adjacency map via the binary cache (one read, then in-memory BFS), then iterates over the map with double-buffered power iteration. No goroutines.
 - **HITS:** runs on a pre-selected subset of nodes. Pure linear algebra on slices.
 - **Ranking and packing:** sorting and knapsack on scored nodes. Pure computation.
 
-**Why not parallelize?** Retrieval completes in under 100ms for typical queries (tested on graphs with 200K+ edges). The bottleneck is the initial SQLite queries to load the adjacency map, which cannot be parallelized (they share a single DB connection). Adding goroutines would introduce synchronization overhead for no measurable benefit.
+**Why not parallelize?** Retrieval completes in under 100ms for typical queries (tested on graphs with 200K+ edges). The adjacency cache eliminates the DB-query bottleneck. The iteration loop is pure computation on in-memory maps, which parallelizes poorly (each iteration depends on the previous). Adding goroutines would introduce synchronization overhead for no measurable benefit.
 
 ## MCP Server Request Handling
 
@@ -566,6 +798,14 @@ The watchdog pattern (fire-and-forget + timer) ensures no single file blocks the
 
 12. **Don't parallelize multiple SQLite write operations.** WAL mode only helps readers. Writers still serialize. Running two write-heavy operations concurrently causes `busy_timeout` retry overhead that makes both slower than sequential execution.
 
+13. **Don't write to SQLite from enrichment LSP workers directly.** Use the `results` channel (for edge upgrades) or acquire `e.writeMu` (for discovery). The enrichment system uses the same "parallel work, serial persistence" principle as the indexer but with different mechanisms depending on the phase.
+
+14. **Don't cancel the parent context when an LSP call times out.** Use `WithSymbolTimeout` which creates a child context. Cancelling the parent would abort all remaining work for the file or batch. Only the individual symbol that timed out should be skipped.
+
+15. **Don't open all files at once in the enrichment system.** gopls consumes 300-900MB+ when thousands of files are open simultaneously. Use `discoverNewEdgesBatched`'s pattern: open a batch, query symbols, close the batch before opening the next. Memory stays bounded at ~50 files' worth of LSP server state.
+
+16. **Don't skip the writeMu in `insertEdgesFromLocations`.** The check-then-insert for each edge must be atomic. Without the mutex, two concurrent discover workers that find the same edge would both pass the existence check and attempt duplicate writes.
+
 ## Quick Reference Table
 
 | Subsystem | Primitives Used | Concurrency Level |
@@ -573,13 +813,21 @@ The watchdog pattern (fire-and-forget + timer) ensures no single file blocks the
 | Indexer extraction | goroutines, channels, WaitGroup | N workers (GOMAXPROCS) |
 | Indexer storage | single goroutine reading from channel | 1 writer |
 | CGO watchdog | goroutine, select, Timer | 1 per file (fire-and-forget) |
+| Enrichment edge upgrade | semaphore (buffered chan), WaitGroup, results channel | 8 LSP workers, 1 DB writer |
+| Enrichment discovery | semaphore (buffered chan), WaitGroup, Mutex (writeMu) | 8 concurrent per batch |
+| Enrichment multi-module | semaphore (buffered chan), WaitGroup, atomic.Int64 | 1 root sequential, 4 sub-modules parallel |
+| Enrichment per-symbol timeout | context.WithTimeout, goroutine, select | child context per LSP call |
+| Enrichment progress | sync.Mutex, atomic file write (rename) | mutex-protected map, crash-safe persistence |
+| Enrichment stats | sync/atomic.Int64 | lock-free increments from all workers |
 | SQLite store | WAL mode, busy_timeout pragma | N readers, 1 writer |
 | Node/edge cache | sync.Map, atomic.Int64 | lock-free reads |
 | SubgraphCache | sync.RWMutex | N readers, exclusive writes |
 | MCP server | goroutine per request (net/http / stdio) | unbounded readers |
 | Daemon coordination | sync.RWMutex, buffered channel | write lock during index |
 | File watcher | fsnotify, time.AfterFunc, Mutex | 1 event loop goroutine |
-| RWR / HITS / ranking | none | fully sequential |
+| RWR adjacency cache | binary blob precomputation, in-memory BFS | built at index time, read at query time |
+| RWR iteration | double-buffer map swap, top-K stability | fully sequential (zero allocation) |
+| HITS / ranking / packing | none | fully sequential |
 | FTS rebuild | WaitGroup, goroutines (split phase) | 8 workers for string splitting |
 | Git blame extraction | WaitGroup, channel | N workers (GOMAXPROCS) |
 | Community detection | runs inside daemon write lock | sequential (incremental) |
