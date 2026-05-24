@@ -176,8 +176,6 @@ Current status: per-repo isolation (no cross-repo queries). First real user who 
 | **Graph integrity under load** | Spawn 10 concurrent indexers on overlapping repos. Run `knowing fsck` after. Proves content-addressing prevents corruption under concurrency. | Not started (fsck bench exists for single-indexer correctness) | Medium |
 | **Concurrent query performance** | 100 parallel `context_for_task` calls on a 100K-edge graph. Measure throughput (queries/sec), latency degradation, and WAL checkpoint behavior. | Not started | Medium |
 | **Cross-repo retrieval quality** | P@10 for tasks that span repo boundaries (e.g., "which frontend components call this backend endpoint?"). | Needs cross-repo implementation first | Medium |
-| ~~**Feedback weight sensitivity**~~ | Moved to P1 regression prevention section (more urgent after Run 22 findings). | See above | - |
-| ~~**LSP enrichment ROI**~~ | Moved to P1 regression prevention section (need to measure whether enrichment is net-positive after external node filter). | See above | - |
 
 ### P1: Cross-system competitive dimensions
 
@@ -206,12 +204,8 @@ A head-to-head harness that runs identical queries against all systems and produ
 
 **Output:** Markdown table + optional terminal recording (asciinema). Publishable on README, blog, Zenodo.
 
-**Aider comparison: COMPLETE.** Results in cross-system FINDINGS Runs 19-22. knowing 4.5x
-more precise than Aider (P@10 0.226 vs 0.050). Aider's tree-sitter + PageRank approach is
-file-level; it can't rank individual symbols. The gap widens on larger repos.
-
-**Status:** Data complete. Needs packaging into a polished demo format (markdown table +
-asciinema recording) for publication.
+**Status:** All competitive data collected. Needs packaging into polished demo format
+(markdown table + terminal recording) for publication.
 
 ### P1: Regression prevention and pipeline health
 
@@ -219,8 +213,8 @@ Items identified from the Run 22 regression investigation. These prevent future 
 
 | Benchmark | What it proves | Status | Effort |
 |-----------|---------------|--------|--------|
-| **Channel balance regression test** | Assert that no single RRF channel returns >2x the combined results of other channels. The Run 22 regression was invisible until full benchmark re-run because no unit test caught unbounded equiv results. | **Next.** Should be a `go test` in `internal/context/` that runs a fixed task against a fixture DB. | Low |
-| **LSP enrichment ROI (fresh vs enriched)** | Enrichment is neutral on quality (80/80 real symbols in top-10 both ways) but +53% slower (184ms vs 120ms) due to phantom externals (59% of nodes). External filter prevents quality degradation but graph bloat adds latency. May help on deeper type hierarchies (interface resolution). | **Measured.** `bench/time-to-consistency/TestEnrichmentROI` | Done |
+| **Per-repo P@10 tracking (CI gate)** | Track P@10 per repo across runs. Alert when any single repo drops >20% from its historical best. | Deferred (manual runs suffice until CI is regular) | Medium |
+| **RRF channel contribution audit** | Log which channel contributed each top-10 result across 117 tasks. Answers "is equiv still net-positive after the cap?" | Deferred (nice-to-have for publication narrative) | Medium |
 | **Per-repo P@10 tracking (CI gate)** | Track P@10 per repo across runs. Alert when any single repo drops >20% from its historical best. | Deferred (manual runs suffice until CI is regular) | Medium |
 | **RRF channel contribution audit** | Log which channel contributed each top-10 result across 117 tasks. Answers "is equiv still net-positive after the cap?" | Deferred (nice-to-have for publication narrative) | Medium |
 
@@ -236,34 +230,12 @@ context retrieval. Full proposal: [docs/proposals/code-retrieval-eval-toolkit.md
 - **Proof verification throughput**: N proofs/sec verified (currently 1.2µs each = ~800K/sec theoretical)
 - **Snapshot chain walk cost**: O(chain_length) for history queries
 - **FTS5 rebuild cost vs graph size**: scaling curve for the deferred FTS rebuild
-- **LSP enrichment ROI**: how much P@10 does LSP enrichment add over tree-sitter alone?
 - **Language-specific P@10 breakdown**: already have per-repo numbers; need per-language aggregate
 
 ## Retrieval Pipeline
 
-### Cross-System Benchmark Results (v0.6.3, 18 runs, 5 competitors)
-
-97 manual fixtures + 10 SWE-bench across 5 repos (kubernetes, VS Code, flask, cargo, django). Competitive evaluation against 4 systems.
-
-| System | P@10 | R@10 | Index k8s | Query latency | RAM (k8s) |
-|--------|------|------|-----------|--------------|-----------|
-| **knowing** | **0.226** | **0.396** | **18.6s** | **60ms** | **200MB** |
-| Aider | 0.050 | - | N/A (file-level) | ~2.5s | - |
-| Gortex | 0.229 (flask only) | - | 14.2 min | ~600ms | 14GB |
-| GitNexus | 0.076 | 0.159 | >60 min (killed) | 612ms | 5.7GB |
-| Repomix | N/A (no ranking) | 100% (dumps all) | N/A | N/A | N/A |
-| grep | 0.020 | 0.035 | instant | instant | - |
-
-**Statistical significance:**
-- knowing vs grep: 11.3x (p<0.0001, d=0.92 very large)
-- knowing vs Aider: 4.5x more precise (graph-based vs file-level PageRank)
-- knowing vs GitNexus: 2.75x (p=0.0003, d=0.50 medium)
-- knowing vs Repomix: 48x more token-efficient (4K vs 300K tokens)
-- knowing vs Gortex: 1.4x on flask, 46x faster indexing on k8s, 70x less RAM
-
-**Per-repo breakdown:** Django 0.330, Flask 0.336, VS Code ~0.25, Kubernetes 0.184, Cargo 0.123.
-
-**Optimization ceiling diagnosed:** Graph connectivity exhausted. Remaining ~77% miss rate requires feedback compounding (cold-start floor 0.226, compounded ceiling ~0.40).
+Current results: see [bench/cross-system/FINDINGS.md](../bench/cross-system/FINDINGS.md).
+P@10=0.217 (Run 23), 1.63x vs codegraph, 4.5x vs Aider, 11.3x vs grep. Query latency 2ms on k8s (with adjacency cache).
 
 ### Retrieval Improvements (ordered by expected impact)
 
@@ -272,8 +244,8 @@ context retrieval. Full proposal: [docs/proposals/code-retrieval-eval-toolkit.md
 | 5b | **Terraform/infrastructure cross-file resolution** | `module.vpc.subnet_id` referencing another .tf file's output. Not in benchmark corpus but needed for real users. | User quality | P3 (no users asking) |
 | 7 | **More equivalence concepts (115 -> 150+)** | Graph-derived aliases help but are limited to the repo's own vocabulary. Must respect Run 22 constraint: no single-word phrases, no generic targets. Only add when a specific task fixture exposes a gap. | +1-2pp P@10 | Low priority (marginal, risky) |
 | 8 | **Code-tuned embedding model** | BGE-small-en-v1.5 tested net-negative. Adds ONNX dependency for uncertain gain. FTS+RWR already competitive. | Unknown | Deferred (revisit if semantic gap identified) |
-| 10 | **RWR query latency on large graphs** | On k8s (268K edges), RWR takes ~10s with BFS fallback. Adjacency cache (10c) shipped; remaining gap is iteration count and community scoping. | Query latency | P1 |
-| 10a | **RWR early termination** | Stop iterating when top-K ranking stabilizes (not just probability mass). On k8s, likely converges by iteration 8-10 vs fixed 20. Zero architecture change, zero P@10 risk. | -50% latency (est.) | **Next** |
+| 10 | **RWR query latency on large graphs** | Was 9s on k8s. Now 2ms with adjacency cache (10c) + early termination (10a). Remaining: community-scoped relaxation (10d) for marginal further gains. | **Solved (4,717x)** | Done |
+| 10a | **RWR early termination** | Stop when top-10 ranking unchanged for 2 iterations. Zero P@10 regression confirmed. | -50% latency | **Shipped** |
 | 10c | **Pre-computed adjacency cache** | Compact binary format (65 bytes/edge) stored in notes table. Loads full graph in one read for in-memory BFS. Works for repos up to 500K edges (~32MB). | -80% latency (est.) | **Shipped (v2 binary format)** |
 | 10d | **Community-scoped RWR relaxation** | Relax threshold from "all seeds in 1 community" to "60%+ in same community." Shrinks adjacency map on large repos. Risk: cross-community edges excluded. | -40% latency (est.) | Planned (after 10a) |
 | 11 | **Feedback parameter sweep (warm-start)** | Session boost (0.20), task memory formula (0.5+score*0.4), decay (7-day linear), top-N (5) are untuned. Only affects multi-session compounding, not cold-start P@10. Needs dedicated multi-round bench, not cross-system harness. | Warm-start quality | Low priority (cold-start weights optimized) |
@@ -284,12 +256,6 @@ context retrieval. Full proposal: [docs/proposals/code-retrieval-eval-toolkit.md
 
 | Category | Items | Status |
 |----------|-------|--------|
-| **Test coverage** | `tests` (test function to function under test) | **Shipped (P1).** |
-| **Ownership** | `owned_by` (CODEOWNERS), `authored_by` (git blame) | **Shipped (P1).** |
-| **Documentation** | `documents` (doc comment to symbol) | **Shipped (P2).** |
-| **API contracts** | `consumes_endpoint` (HTTP client call), `implements_rpc` / `consumes_rpc` (gRPC) | **Shipped (P2).** |
-| **Feature flags** | `gated_by_flag` (function gated by flag check) | **Shipped (P2).** |
-| **Deployment** | `deployed_by` (service deployed by CI workflow), `tested_by` (package tested by CI) | **Shipped (P2).** |
 | Runtime | `runtime_queries`, `runtime_connects_to` | P2 |
 | Configuration | `configures` (config key to symbol that reads it) | P2 |
 | Agent workflow | `suggested_for_task` / `used_by_agent` | P3 |
@@ -304,9 +270,6 @@ Beyond OTLP traces (shipped), these observability signals map to graph edges. Th
 | HTTP access logs (nginx, ALB, API gateway) | `runtime_serves`, frequency metadata | Dead route detection without full APM | P2 |
 | Message queue metrics (Kafka consumer lag, SQS depth) | `runtime_consumes`, `runtime_produces` | Verify static pub/sub edges against reality | P2 |
 | Error tracking (Sentry, Bugsnag) | `runtime_throws`, error frequency | Prioritize blast radius by error-prone paths | P3 |
-| ~~Feature flags (LaunchDarkly, Unleash)~~ | ~~`gated_by_flag`~~ | ~~"Disable this flag, what code becomes dead?"~~ | ~~P3~~ **Shipped (static extractor).** |
-| ~~CI/CD pipeline (GitHub Actions, Jenkins)~~ | ~~`tested_by`, `deployed_by`~~ | ~~Test coverage as graph edges, deployment topology~~ | ~~P3~~ **Shipped (static extractor).** |
-| ~~Git blame/log~~ | ~~`authored_by`, `recently_changed`~~ | ~~Ownership routing, change frequency for ranking~~ | ~~P3~~ **Shipped (P1, authorship extractor).** |
 | Container orchestration (K8s events) | `runs_on`, `colocated_with` | Infrastructure topology in the graph | P4 |
 | Service mesh (Envoy, Istio, Consul) | `runtime_connects_to` | Compare declared vs actual service topology | P4 |
 | Continuous profiling (pprof) | `hot_path`, duration metadata | Weight blast radius by performance impact | P4 |
@@ -317,7 +280,6 @@ Beyond OTLP traces (shipped), these observability signals map to graph edges. Th
 
 | Item | Next step |
 |------|-----------|
-| Community-aware retrieval | Constrain RWR walk to seed communities |
 | Edge event log | Temporal queries: "when did this dependency appear?" |
 | Leiden algorithm | Add via community registry when a Go implementation exists |
 
@@ -325,12 +287,9 @@ Beyond OTLP traces (shipped), these observability signals map to graph edges. Th
 
 | Feature | Status |
 |---------|--------|
-| Merkleized feedback validity (expires when neighborhood_root changes) | **Shipped (v0.5.0).** Feedback records store the SubgraphRoot of the symbol's package. When querying, only feedback matching the current SubgraphRoot is counted, so feedback automatically expires when code changes. Adds 11% overhead (255µs → 284µs for 100 symbols). Migration 014. |
-| Merkle proofs and audit primitives | **Shipped.** `knowing prove` (72µs), `knowing verify` (1.2µs), `knowing prove-absent`, `knowing audit` for compliance reports. |
 | Federated sync (exchange roots, transfer only differing branches) | Planned |
 | Merkle-based bisection (binary search on snapshot chain) | Planned |
 | Lazy materialization (load only visited subtrees; triggered at ~1M+ edges) | Planned |
-| File-level roots (finer single-file invalidation) | **Deferred.** Package-level granularity is sufficient at current and projected scale (200K+ edges). Scoped FTS rebuild handles the primary use case. Revisit only if a user demonstrates single-file invalidation need. This locks the tree depth at 3 levels and clears the extraction stability gate. |
 
 ## Cross-Repo Validation
 
@@ -382,13 +341,6 @@ The endgame: knowing with continuous OTLP trace ingestion alongside static analy
 ### Git-Inspired Optimizations
 
 Derived from a deep dive into git's C implementation (pack-objects, commit-graph, refs, bitmaps, merge-ort, shallow clones).
-
-**Quick wins (< 1 day each):**
-
-| Capability | Git Pattern | Why |
-|-----------|-------------|-----|
-| ~~Generation numbers on snapshots~~ | ~~commit-graph generation_number~~ | ~~O(1) ancestry checks ("is snapshot A ancestor of B?"), prune chain walks~~ **Shipped.** Migration 015, `Snapshot.Generation` field. |
-| ~~Auto-GC with threshold~~ | ~~gc_auto_threshold=6700~~ | ~~Trigger GC when deleted edges exceed threshold; prevents unbounded edge_events growth~~ **Shipped.** Threshold 5000 edge_events, keeps 10 snapshots. |
 
 **Medium (1-3 days):**
 
