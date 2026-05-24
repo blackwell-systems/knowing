@@ -73,6 +73,7 @@ func RankSymbols(symbols []ScoringInput, hitsScores ...map[types.Hash]HITSScores
 			}
 		}
 
+
 		// Session boost: symbols accessed earlier this session get a boost.
 		// SessionBoost range is [0, 2.0]. Weight 0.20 (strong enough to pull
 		// previously-seen symbols to the top, but won't override a completely
@@ -110,15 +111,13 @@ func RankSymbols(symbols []ScoringInput, hitsScores ...map[types.Hash]HITSScores
 			confidence = s.Confidence * 0.20
 			recency = recencyFromTimestamp(s.LastObserved) * 0.15
 			distance = (1.0 / (1.0 + float64(s.DistanceFromTarget))) * 0.15
-			total = blastRadius + confidence + recency + distance + authorityAdj + feedback + session
-		} else {
+			total = blastRadius + confidence + recency + distance + authorityAdj + feedback + session		} else {
 			// Original ranking (no HITS): blast radius is the primary signal.
 			blastRadius = (float64(s.CallerCount) / float64(maxCallers)) * 0.40
 			confidence = s.Confidence * 0.25
 			recency = recencyFromTimestamp(s.LastObserved) * 0.20
 			distance = (1.0 / (1.0 + float64(s.DistanceFromTarget))) * 0.15
-			total = blastRadius + confidence + recency + distance + feedback + session
-		}
+			total = blastRadius + confidence + recency + distance + feedback + session		}
 
 		// Test file penalty: deprioritize symbols from test files.
 		// Applied as a multiplicative factor so it doesn't completely eliminate
