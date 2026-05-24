@@ -31,7 +31,14 @@ func (s *SQLiteStore) RecordFeedback(ctx context.Context, symbolHash types.Hash,
 		`INSERT INTO feedback (symbol_hash, session_id, useful, timestamp, neighborhood_root) VALUES (?, ?, ?, ?, ?)`,
 		symbolHash[:], sessionID, usefulInt, time.Now().Unix(), rootBytes,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	// Invalidate cached context packs: feedback changes ranking, so any
+	// cached pack is potentially stale. Without this, ForTask returns the
+	// same cached result regardless of accumulated feedback.
+	_, _ = s.db.ExecContext(ctx, `DELETE FROM graph_notes WHERE key = 'context_pack'`)
+	return nil
 }
 
 // QueryFeedback returns aggregate feedback stats for a symbol.

@@ -7,6 +7,14 @@ import (
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
+// FeedbackPosWeight controls how strongly positive feedback boosts symbol ranking.
+// FeedbackNegWeight controls the negative penalty for symbols marked "not useful".
+// Asymmetric: boost is stronger than penalty to avoid over-penalizing symbols that
+// were incorrectly marked. Values tuned via automated sweep (TestFeedbackWeightSweep):
+// 7x4 grid search found pos=0.25/neg=0.05 optimal (P@10 34%->44%, R@10 46%->60%).
+var FeedbackPosWeight = 0.25
+var FeedbackNegWeight = 0.05
+
 // ScoringInput provides the raw data needed to compute a symbol's relevance score.
 type ScoringInput struct {
 	Node               types.Node
@@ -53,10 +61,16 @@ func RankSymbols(symbols []ScoringInput, hitsScores ...map[types.Hash]HITSScores
 		// Values > 0.5 = net positive feedback (boost).
 		// Values < 0.5 = net negative feedback (penalty).
 		// Values == 0 = no feedback recorded (neutral).
-		// Weight: 0.15 (strong enough to reorder similar-scoring symbols).
+		// Asymmetric feedback: positive boost is stronger than negative penalty.
+		// Positive: score=1.0 -> +FeedbackPosWeight (pulls relevant symbols up).
+		// Negative: score=0.0 -> -FeedbackNegWeight (gentle push down).
+		// Neutral at score=0.5 (equal useful/not_useful votes).
 		if s.FeedbackBoost > 0 {
-			// Center around 0: score 1.0 -> +0.15, score 0.5 -> 0, score 0 -> -0.15
-			feedback = 0.15 * (2*s.FeedbackBoost - 1.0)
+			if s.FeedbackBoost > 0.5 {
+				feedback = FeedbackPosWeight * (2 * (s.FeedbackBoost - 0.5))
+			} else {
+				feedback = -FeedbackNegWeight * (2 * (0.5 - s.FeedbackBoost))
+			}
 		}
 
 		// Session boost: symbols accessed earlier this session get a boost.

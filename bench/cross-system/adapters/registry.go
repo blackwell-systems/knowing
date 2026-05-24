@@ -18,6 +18,7 @@ func AllAdapters() []AvailableAdapter {
 	return []AvailableAdapter{
 		{Adapter: NewKnowing(), available: true}, // always available (it's us)
 		{Adapter: NewGrep(), available: hasCommand("rg")},
+		{Adapter: NewCodeGraph(), available: hasCommand("codegraph")},
 		{Adapter: NewGitNexus(), available: hasCommand("gitnexus")},
 		{Adapter: NewGortex(), available: gortexAvailable()},
 		{Adapter: NewAider(), available: aiderAvailable()},

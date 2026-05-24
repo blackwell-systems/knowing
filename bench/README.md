@@ -1,18 +1,21 @@
 # Benchmarks
 
-Fourteen benchmark harnesses that prove knowing's value with hard data. Each benchmark
+Fifteen benchmark harnesses that prove knowing's value with hard data. Each benchmark
 is a standalone Go test package that indexes the knowing repo, runs measurements,
 and auto-generates a `FINDINGS.md` with results and interpretation.
 
 **Context Packing Study:** [CONTEXT-PACKING-STUDY.md](CONTEXT-PACKING-STUDY.md) (umbrella document tying all benchmarks into a coherent evaluation program)
+**Cross-System Methodology:** [cross-system/METHODOLOGY.md](cross-system/METHODOLOGY.md) (metrics, fixture design, statistical methods, regression detection)
 **Cross-System Specification:** [docs/research/cross-system-benchmark.md](../docs/research/cross-system-benchmark.md) (full methodology, 7 repos, fairness controls, ground truth protocol)
+**Agent Efficiency Study:** [AGENT-EFFICIENCY-STUDY.md](AGENT-EFFICIENCY-STUDY.md) (6 experiments, honest findings on when knowing helps vs when grep suffices)
 
 ## Summary
 
 | Benchmark | What it proves | Key result |
 |-----------|---------------|------------|
-| [cross-system](cross-system/) | Graph retrieval beats text search and all competitors across languages and scales | 7 repos, 117 tasks, 5 competitors. knowing P@10=0.185 vs Aider 0.050 (3.7x) vs GitNexus 0.067 vs grep 0.015. Aider's repo-map barely beats grep. GitNexus/Gortex cannot index enterprise repos (>60min/OOM on kubernetes; knowing: 18.6s) |
-| [feedback-loop](feedback-loop/) | Feedback compounding improves precision over time | 16% -> 36% precision (+20pp) after one round |
+| [cross-system](cross-system/) | Graph retrieval beats text search and all competitors across languages and scales | 7 repos, 117 tasks, 22 runs. knowing P@10=0.226 vs Aider 0.050 (4.5x) vs GitNexus 0.076 (3x) vs grep 0.020 (11.3x). Flask 0.336 (new record). Run 22 proved channel balance matters more than algorithm quality on small graphs. |
+| [agent-efficiency](agent-efficiency/) | When knowing helps and when it doesn't | Phase 1: grep wins on known/unique targets. Phase 2 pending: scale, discovery, hooks, ambiguity. |
+| [feedback-loop](feedback-loop/) | Feedback compounding improves precision over time | 34% -> 44% precision (+10pp) after one round (asymmetric weighting). Weight sweep: optimal at pos=0.25/neg=0.10. |
 | [context-relevance](context-relevance/) | Each engine layer adds measurable value | Feedback adds +9pp precision over baseline |
 | [token-savings](token-savings/) | knowing reduces agent exploration cost | 55.6% fewer tokens, 52.8% fewer tool calls |
 | [edge-accuracy](edge-accuracy/) | Two-tier extraction provides meaningful signal | 53.6% import confirmation, 26.7% overall |
@@ -64,9 +67,11 @@ Proves the shared intelligence layer thesis: feedback anchored to content-addres
 symbol hashes compounds over sessions, scopes by community, and expires naturally
 on rename.
 
-- 4 tests: single-round, multi-round (5 rounds), community scoping, natural expiration
+- 5 tests: single-round, multi-round (5 rounds), community scoping, natural expiration, weight sweep
 - 5 task fixtures with hand-curated ground truth (8 symbols each)
-- Centered feedback scoring: `0.15 * (2*score - 1.0)`
+- Asymmetric feedback scoring: pos=0.25 boost, neg=0.10 penalty
+- Weight sweep: 7x4 grid search across pos/neg weight combinations
+- Context pack cache invalidation on feedback (without this, compounding was defeated)
 
 ### context-relevance
 

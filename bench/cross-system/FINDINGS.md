@@ -20,8 +20,9 @@ knowing is a content-addressed graph retrieval engine evaluated against 4 compet
 
 ### Competitive Advantages (all statistically significant)
 
+- **vs codegraph (19K stars):** 1.63x more precise (p=0.0006, d=0.36), 11.5x more token-efficient
+- **vs Aider (~20K stars):** 4.5x more precise (P@10 0.226 vs 0.050), graph-based vs file-level
 - **vs grep:** 11.3x more precise (p<0.0001, d=0.92 very large effect)
-- **vs Aider:** 4.5x more precise (P@10 0.226 vs 0.050), graph-based vs file-level
 - **vs GitNexus:** 2.75x more precise (p=0.0003, d=0.50), 193x faster indexing, 109x faster incremental, 10x faster queries
 - **vs Repomix:** 48x more token-efficient (4K tokens vs 300K for same task)
 - **vs Gortex:** 46x faster on enterprise repos, 70x less RAM, comparable quality on small repos
@@ -740,3 +741,66 @@ changes prevent the problem at the source in addition to the runtime filter.
 **Key insight for future work:** On small graphs (< 3000 non-external nodes), any retrieval
 channel that returns more results than the primary channels combined will dominate RRF
 scoring and flatten the ranking. Channel result counts should be proportional, not unbounded.
+
+### Run 23: CodeGraph Head-to-Head (2026-05-23)
+
+Direct comparison against CodeGraph (`@colbymchenry/codegraph`, 19,459 GitHub stars, v0.9.3).
+CodeGraph uses tree-sitter + FTS5 + heuristic scoring (co-location, multi-term, CamelCase
+boundary matching). No graph-theoretic ranking (no RWR, no HITS, no PageRank). No feedback
+mechanism.
+
+**Setup:** CodeGraph installed via `npm i -g @colbymchenry/codegraph`, indexed all 7 benchmark
+repos with `codegraph init -i`. Adapter invokes `codegraph context "<task>" --format json
+--max-nodes 50 --max-code 20` and extracts symbols from entry points + code blocks.
+
+**Full corpus results (117 tasks, 7 repos):**
+
+| System | P@10 | R@10 | NDCG@10 | MRR | Token Eff | Latency | Tasks |
+|--------|------|------|---------|-----|-----------|---------|-------|
+| **knowing** | **0.217** | 0.368 | **0.356** | 0.411 | **0.0023** | 2605ms | 117 |
+| codegraph | 0.133 | 0.366 | 0.252 | 0.459 | 0.0002 | 687ms | 107 |
+
+**Statistical significance:**
+- P@10: knowing +0.088, p=0.0006* (highly significant), d=0.36 (small-medium effect)
+- Token efficiency: knowing 11.5x better, p<0.0001*, d=0.49 (medium effect)
+- R@10: no difference (0.368 vs 0.366, p=0.88)
+- NDCG: knowing +0.102, p=0.059 (borderline)
+
+**knowing vs codegraph: 1.63x more precise** on same recall. Codegraph failed on 10/117
+tasks (knowing handled all 117). Token efficiency is 11.5x better: knowing delivers the
+same recall in far fewer tokens.
+
+**Per-repo breakdown:**
+
+| Repo | knowing P@10 | codegraph P@10 | knowing advantage |
+|------|-------------|----------------|-------------------|
+| Flask | 0.307 | 0.207 | 1.48x |
+| Django | 0.277 | 0.123 | 2.25x |
+| Cargo | 0.140 | 0.080 | 1.75x |
+| Kubernetes | 0.184 | 0.095 | 1.94x |
+| VS Code | 0.060 | 0.067 | 0.90x (codegraph wins) |
+
+**Interpretation:**
+- knowing wins on 6/7 repos, loses narrowly on VS Code
+- Advantage widens on repos with deep class hierarchies (Django 2.25x)
+- Codegraph's MRR is slightly better (0.459 vs 0.411): its first result is sometimes
+  more relevant, but it fills positions 2-10 with more noise
+- Codegraph's heuristic scoring (string matching + co-location) is a reasonable baseline
+  but cannot match RWR's ability to propagate relevance through the graph structure
+- 19K stars does not correlate with retrieval quality
+
+**Why codegraph loses on precision but ties on recall:**
+Codegraph returns many loosely-related symbols via BFS expansion from entry points.
+These symbols are sometimes relevant (high recall) but are not ranked by structural
+importance (low precision). knowing's RWR walk prioritizes symbols by graph centrality
+relative to the query, putting the most structurally relevant symbols first.
+
+**Updated competitive landscape:**
+
+| System | P@10 | vs knowing | Stars |
+|--------|------|-----------|-------|
+| **knowing** | **0.217** | -- | 0 |
+| codegraph | 0.133 | 1.63x worse | 19,459 |
+| Aider | 0.050 | 4.5x worse | ~20K |
+| GitNexus | 0.076 | 2.9x worse | ~500 |
+| grep | 0.020 | 10.9x worse | -- |

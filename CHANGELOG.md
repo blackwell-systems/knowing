@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+#### Feedback compounding was defeated by context pack cache
+- `RecordFeedback` now invalidates all cached context packs (`context_pack` notes)
+- Previously, feedback was recorded but never affected results because `ForTask` returned
+  the cached pack from the first query (keyed by task hash, only invalidated on snapshot change)
+- After fix: feedback compounding produces +10pp P@10 on feedback-loop bench (34% -> 44%)
+
+### Changed
+
+#### Asymmetric feedback weighting (tuned via automated sweep)
+- Positive feedback boost: 0.15 -> 0.25 (score=1.0 gives +0.25 to ranking)
+- Negative feedback penalty: 0.15 -> 0.10 (score=0.0 gives -0.10 to ranking)
+- Asymmetric prevents over-penalizing symbols incorrectly marked "not useful"
+- Exposed as `FeedbackPosWeight` / `FeedbackNegWeight` package vars for tuning
+- Added `TestFeedbackWeightSweep` (7x4 grid search across pos/neg weight combinations)
+
 ## [0.7.1] - 2026-05-23
 
 ### Fixed

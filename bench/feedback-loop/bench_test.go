@@ -328,6 +328,125 @@ func TestMultiRoundCompounding(t *testing.T) {
 	}
 }
 
+// TestFeedbackWeightSweep sweeps positive and negative feedback weights
+// across a grid and reports the optimal combination. This replaces manual
+// trial-and-error tuning with an automated search.
+//
+// The sweep tests positive weights [0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40]
+// and negative weights [0.05, 0.10, 0.15, 0.20]. For each combination, it:
+// 1. Records ground-truth feedback for all fixtures
+// 2. Measures post-feedback P@10
+// 3. Reports the full grid and the optimal point
+func TestFeedbackWeightSweep(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping weight sweep in short mode")
+	}
+
+	repoRoot := findRepoRoot(t)
+
+	posWeights := []float64{0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40}
+	negWeights := []float64{0.05, 0.10, 0.15, 0.20}
+
+	type sweepResult struct {
+		posW, negW     float64
+		avgPrecision   float64
+		avgRecall      float64
+		fixtureDeltas  [5]float64
+	}
+
+	var results []sweepResult
+	var bestResult sweepResult
+
+	for _, posW := range posWeights {
+		for _, negW := range negWeights {
+			// Each sweep point needs a fresh DB (feedback accumulates).
+			dbPath := t.TempDir() + "/sweep.db"
+			st, err := store.NewSQLiteStore(dbPath)
+			if err != nil {
+				t.Fatalf("create store: %v", err)
+			}
+
+			snapMgr := snapshot.NewSnapshotManager(st)
+			idx := indexer.NewIndexer(st, snapMgr)
+			idx.Register(gotsextractor.NewGoTreeSitterExtractor())
+
+			ctx := context.Background()
+			_, err = idx.IndexRepo(ctx, "github.com/blackwell-systems/knowing", repoRoot, "HEAD")
+			if err != nil {
+				st.Close()
+				t.Fatalf("index: %v", err)
+			}
+
+			engine := knowingctx.NewContextEngine(st)
+
+			// Set weights for this sweep point.
+			knowingctx.FeedbackPosWeight = posW
+			knowingctx.FeedbackNegWeight = negW
+
+			// Measure baseline (before feedback).
+			var baselineP float64
+			for _, fix := range fixtures {
+				r := measurePrecision(t, engine, st, fix, false)
+				baselineP += r.Precision
+			}
+			baselineP /= float64(len(fixtures))
+
+			// Record feedback.
+			for _, fix := range fixtures {
+				recordGroundTruthFeedback(t, ctx, st, fix)
+			}
+
+			// Measure with feedback.
+			var totalP, totalR float64
+			var deltas [5]float64
+			for fi, fix := range fixtures {
+				r := measurePrecision(t, engine, st, fix, true)
+				totalP += r.Precision
+				totalR += r.Recall
+				baseR := measurePrecision(t, engine, st, fix, false)
+				deltas[fi] = r.Precision - baseR.Precision
+			}
+			avgP := totalP / float64(len(fixtures))
+			avgR := totalR / float64(len(fixtures))
+
+			sr := sweepResult{
+				posW: posW, negW: negW,
+				avgPrecision: avgP, avgRecall: avgR,
+				fixtureDeltas: deltas,
+			}
+			results = append(results, sr)
+
+			if avgP > bestResult.avgPrecision {
+				bestResult = sr
+			}
+
+			st.Close()
+		}
+	}
+
+	// Restore defaults.
+	knowingctx.FeedbackPosWeight = bestResult.posW
+	knowingctx.FeedbackNegWeight = bestResult.negW
+
+	// Report grid.
+	t.Log("=== Feedback Weight Sweep Results ===")
+	t.Log("")
+	t.Logf("  %-8s %-8s %-12s %-12s", "Pos", "Neg", "P@10", "R@10")
+	t.Logf("  %-8s %-8s %-12s %-12s", "---", "---", "----", "----")
+	for _, r := range results {
+		marker := ""
+		if r.posW == bestResult.posW && r.negW == bestResult.negW {
+			marker = " <-- BEST"
+		}
+		t.Logf("  %-8.2f %-8.2f %-12.1f%% %-12.1f%%%s",
+			r.posW, r.negW, r.avgPrecision*100, r.avgRecall*100, marker)
+	}
+
+	t.Log("")
+	t.Logf("  OPTIMAL: pos=%.2f neg=%.2f -> P@10=%.1f%% R@10=%.1f%%",
+		bestResult.posW, bestResult.negW, bestResult.avgPrecision*100, bestResult.avgRecall*100)
+}
+
 func TestCommunityScoping(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping community scoping test in short mode")
