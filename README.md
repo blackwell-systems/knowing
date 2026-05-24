@@ -88,7 +88,7 @@ These aren't separate features. They're structural consequences of content-addre
 | Proof generation | 72us generate, 1.2us verify |
 | Feedback expiration | 100% expire on code change, 11% overhead |
 | Cross-repo retrieval | 46.7% R@10 on foreign codebase, zero config |
-| Cross-system retrieval | P@10=0.230 vs grep P@10=0.020 (11.5x, p<0.0001, d=0.92) |
+| Cross-system retrieval | P@10=0.226 vs grep P@10=0.020 (11.3x, p<0.0001, d=0.92) |
 | Indexing throughput | 5 repos (47,150 files) in ~52s |
 
 All benchmarks are reproducible: `GOWORK=off go test ./bench/... -timeout 5m`

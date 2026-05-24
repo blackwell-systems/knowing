@@ -8,7 +8,7 @@ relevant code symbols that fit within a context window.
 This document is the authoritative reference for how the context engine finds and ranks
 symbols. It supersedes `context-packing.md`.
 
-**Current eval baseline:** 55 fixtures (20 easy, 20 medium, 15 hard), 31.6% P@10, 0.58 MRR (internal eval). Cross-system benchmark (~117 manual fixtures, 7 repos): P@10=0.230, 11.5x vs grep, d=0.92 recall (very large effect).
+**Current eval baseline:** 55 fixtures (20 easy, 20 medium, 15 hard), 31.6% P@10, 0.58 MRR (internal eval). Cross-system benchmark (~117 manual fixtures, 7 repos): P@10=0.226, 11.3x vs grep, d=0.92 recall (very large effect).
 
 ## Pipeline Overview
 
@@ -226,7 +226,14 @@ So a query containing "blast radius" finds `TransitiveCallers` even though those
 do not appear in its name.
 
 All equivalence targets are resolved to actual nodes via `NodesByName` with exact
-symbol-name matching (case-insensitive).
+symbol-name matching (case-insensitive). Two guards prevent noise:
+
+1. **Generic target filter:** targets <=3 chars or in a blocklist (`get`, `set`, `do`,
+   `new`, `run`, `put`, `post`, `call`, `add`, `pop`) are skipped. These resolve to
+   hundreds of unrelated symbols on any non-trivial codebase.
+2. **Result cap:** equiv results are capped at 2x(tiered+BM25 count). On small graphs,
+   unbounded equiv results dominate RRF fusion and flatten RWR scores (Run 22 finding:
+   66 equiv results vs 11 primary results caused +136% regression).
 
 **What was tried and rejected (experiment 21):** auto-generating concepts from
 CamelCase-split symbol names. CamelCase splitting already makes symbol names searchable

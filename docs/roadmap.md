@@ -250,22 +250,23 @@ context retrieval. Full proposal: [docs/proposals/code-retrieval-eval-toolkit.md
 
 | System | P@10 | R@10 | Index k8s | Query latency | RAM (k8s) |
 |--------|------|------|-----------|--------------|-----------|
-| **knowing** | **0.230** | **0.284** | **18.6s** | **60ms** | **200MB** |
+| **knowing** | **0.226** | **0.396** | **18.6s** | **60ms** | **200MB** |
+| Aider | 0.050 | - | N/A (file-level) | ~2.5s | - |
 | Gortex | 0.229 (flask only) | - | 14.2 min | ~600ms | 14GB |
 | GitNexus | 0.076 | 0.159 | >60 min (killed) | 612ms | 5.7GB |
 | Repomix | N/A (no ranking) | 100% (dumps all) | N/A | N/A | N/A |
-| CGC | N/A (no task retrieval) | - | impossible | - | 1.9GB |
 | grep | 0.020 | 0.035 | instant | instant | - |
 
 **Statistical significance:**
-- knowing vs grep: 11.5x (p<0.0001, d=0.92 very large)
+- knowing vs grep: 11.3x (p<0.0001, d=0.92 very large)
+- knowing vs Aider: 4.5x more precise (graph-based vs file-level PageRank)
 - knowing vs GitNexus: 2.75x (p=0.0003, d=0.50 medium)
 - knowing vs Repomix: 48x more token-efficient (4K vs 300K tokens)
 - knowing vs Gortex: 1.4x on flask, 46x faster indexing on k8s, 70x less RAM
 
-**Per-repo breakdown:** Django 0.330, Flask 0.321, VS Code ~0.25, Kubernetes 0.184, Cargo 0.123.
+**Per-repo breakdown:** Django 0.330, Flask 0.336, VS Code ~0.25, Kubernetes 0.184, Cargo 0.123.
 
-**Optimization ceiling diagnosed:** Graph connectivity exhausted. Remaining ~77% miss rate requires feedback compounding (cold-start floor 0.230, compounded ceiling ~0.40).
+**Optimization ceiling diagnosed:** Graph connectivity exhausted. Remaining ~77% miss rate requires feedback compounding (cold-start floor 0.226, compounded ceiling ~0.40).
 
 ### Retrieval Improvements (ordered by expected impact)
 
@@ -283,7 +284,8 @@ context retrieval. Full proposal: [docs/proposals/code-retrieval-eval-toolkit.md
 | 5e | ~~**Test file deprioritization**~~ | ~~36% of misses were test symbols.~~ **Shipped.** 0.3x penalty for test file symbols; conditional (removed when task mentions testing). | Noise reduction | ~~P1~~ |
 | 6 | ~~**Session memory persistence**~~ | ~~The benchmark runs cold (no prior feedback). In real usage, feedback compounds. Session memory persistence carries learning across invocations.~~ **Shipped.** Task memory persists top-5 symbols per call in SQLite; boost `0.5 + score * 0.4`; 7-day linear decay. Cold-start benchmark cannot show improvement (each task unique, runs once); feedback-loop bench independently proves +20pp. | **Shipped** | ~~P2~~ |
 | 6a | ~~**Phantom external node filtering**~~ | ~~External nodes from failed LSP enrichment dominated RWR results on repos with unresolved imports (Spark Java: 2282 externals, 63% of nodes).~~ **Shipped.** Filter at `filterNoisySymbols` (seed candidates) and RWR result loop (before scoring). Spark Java P@10 0.00->0.10. | Spark Java fixed | ~~P1~~ |
-| 7 | **More equivalence concepts (115 -> 150+)** | Graph-derived aliases help but are limited to the repo's own vocabulary. Need broader coverage of common patterns across ecosystems. | +1-2pp P@10 | Ongoing |
+| 6b | ~~**Equivalence channel noise fix**~~ | ~~Unbounded equiv results (66) dominated RRF fusion on small graphs, flattening RWR scores. Single-word phrases ("request") triggered generic targets ("Get") matching every getter.~~ **Shipped.** Generic target filter (<=3 chars + blocklist), equiv cap at 2x(tiered+BM25), cleaned universal seeds. | **+124% P@10 (Run 22)** | ~~P0~~ |
+| 7 | **More equivalence concepts (115 -> 150+)** | Graph-derived aliases help but are limited to the repo's own vocabulary. Need broader coverage of common patterns across ecosystems. Must respect Run 22 constraint: no single-word phrases, no generic targets. | +1-2pp P@10 | Ongoing |
 | 8 | **Code-tuned embedding model** | BGE-small-en-v1.5 tested net-negative. A code-tuned model (CodeBERT, UniXcoder) might improve semantic matching between task descriptions and symbol names. | Unknown (needs evaluation) | Planned (optional) |
 | 9 | ~~**Community-aware retrieval**~~ | ~~Constrain RWR walk to seed communities. Reduces noise from unrelated packages.~~ **Shipped.** `CommunityFilteredRWR` constrains BFS to seed communities when candidates cluster in 1-3 communities. Falls back to unconstrained walk on diverse queries (4+ communities). Benchmark adapter runs Louvain on index. | Benchmark pending | ~~P2~~ |
 

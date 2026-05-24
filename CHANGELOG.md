@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+#### Equivalence Channel Noise (P@10 regression fix)
+- Root cause: equivalence class matching returned unbounded results (66 on small repos) that dominated RRF fusion, causing flat RWR scores across all seeds
+- Generic target filter: skip resolving equiv targets <=3 chars or common method names (`get`, `set`, `do`, `new`, `run`, `put`, `post`, `call`, `add`, `pop`)
+- Equiv cap: limit equiv results to 2x(tiered+BM25) count, preventing channel domination
+- `buildFTSQuery`: removed redundant unquoted compound that searched all FTS columns
+- Cleaned universal seed phrases: removed single-word triggers ("request", "fetch") and generic targets from HTTP_CLIENT class
+- Flask P@10: 0.20 -> 0.336 (+68%). Full corpus: 0.101 -> 0.226 (+124%)
+
 ### Added
 
 #### Zero-Config MCP Onboarding

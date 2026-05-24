@@ -251,13 +251,28 @@ The fusion process for equivalence results:
 2. The top 10 tiered results serve as input to `graphDerivedAliases()`, which
    generates additional classes from graph structure
 3. Graph-derived matches are appended to seed/universal/language matches
-4. For each match, all targets are resolved by querying `NodesByName` and
-   filtering for exact symbol name matches (case-insensitive)
-5. The resolved nodes form the `equivResults` list, which enters RRF fusion
+4. For each match, targets are filtered to remove generic symbols (<=3 chars or
+   common method names like "get", "set", "do", "new", "run", "put", "post",
+   "call", "add", "pop") that produce excessive false positives
+5. Surviving targets are resolved by querying `NodesByName` and filtering for
+   exact symbol name matches (case-insensitive)
+6. The resolved nodes form the `equivResults` list, capped at
+   2x(tiered+BM25 count) to prevent channel domination in RRF fusion
+7. The capped list enters RRF fusion
 
 Symbols that appear in both the equivalence channel and another channel
 (tiered or BM25) receive accumulated scores from both, promoting them higher in
 the final ranking.
+
+### Channel balance constraint (Run 22 finding)
+
+On small graphs (< 3000 non-external nodes), unbounded equivalence results
+dominate RRF fusion. When equiv returns 66 results against 8 tiered + 3 BM25,
+the equiv channel controls most of the RRF rank positions. After fusion, RWR
+gives all seeds identical scores (~0.38) because the graph is too small for
+the random walk to differentiate. The fix: cap equiv results at
+2x(tiered+BM25) and filter generic targets. This produced +136% P@10
+improvement (0.101 -> 0.226).
 
 ## Measured impact
 

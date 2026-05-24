@@ -85,8 +85,8 @@ func universalEquivalenceClasses() []EquivalenceClass {
 		},
 		{
 			Concept:    "HTTP_CLIENT",
-			Phrases:    []string{"http client", "api client", "fetch", "request", "make request", "call api", "http call"},
-			Targets:    []string{"Client", "HTTPClient", "Request", "Do", "Get", "Post", "Fetch", "Call"},
+			Phrases:    []string{"http client", "api client", "make request", "call api", "http call"},
+			Targets:    []string{"Client", "HTTPClient", "Request", "Fetch"},
 			TargetType: "symbol",
 			Weight:     0.8,
 			Source:     "universal",

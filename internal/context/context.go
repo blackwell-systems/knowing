@@ -347,8 +347,19 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	eqMatches = append(eqMatches, graphMatches...)
 
 	// Resolve all equivalence targets to actual nodes.
+	// Filter: skip generic targets (<=3 chars or common method names) that produce
+	// too many false positives on small graphs. These targets match hundreds of
+	// unrelated symbols (e.g., "Get" matches every getter in the codebase).
+	genericTargets := map[string]bool{
+		"get": true, "set": true, "do": true, "new": true, "run": true,
+		"put": true, "post": true, "call": true, "add": true, "pop": true,
+	}
 	for _, m := range eqMatches {
 		for _, target := range m.targets {
+			targetLower := strings.ToLower(target)
+			if len(target) <= 3 || genericTargets[targetLower] {
+				continue
+			}
 			nodes, err := e.store.NodesByName(ctx, "%"+target)
 			if err != nil {
 				continue
@@ -368,6 +379,16 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 				}
 			}
 		}
+	}
+	// Cap equiv results: too many low-quality equiv seeds dilute RRF fusion.
+	// On small graphs (< 3000 non-external nodes), equiv results that outnumber
+	// tiered+BM25 by >3x produce flat RWR scores. Cap at 2x the primary channels.
+	maxEquiv := (len(tieredResults) + len(bm25Results)) * 2
+	if maxEquiv < 10 {
+		maxEquiv = 10
+	}
+	if len(equivResults) > maxEquiv {
+		equivResults = equivResults[:maxEquiv]
 	}
 
 	// Fuse all channels with weighted Reciprocal Rank Fusion.
@@ -1214,10 +1235,12 @@ func buildFTSQuery(keywords []string) string {
 			// FTS5 syntax: {column_name} : "phrase"
 			// The symbol_name column (index 0 in the virtual table) gets 10x weight,
 			// so matches there dominate the ranking.
+			// Only search symbol_name: unquoted compounds in all-column search
+			// produce false positives because splitForFTS stores both the compound
+			// and its split components (e.g., "before_request before request"),
+			// so unrelated symbols match on the component tokens.
 			escaped := strings.ReplaceAll(kw, "\"", "")
 			parts = append(parts, fmt.Sprintf("symbol_name:\"%s\"", escaped))
-			// Also add unquoted for partial matches in other columns.
-			parts = append(parts, escaped)
 		} else {
 			parts = append(parts, kw)
 		}
