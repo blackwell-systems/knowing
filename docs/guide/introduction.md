@@ -89,37 +89,41 @@ The AI coding agent era has produced several categories of tools trying to solve
 
 #### Text search (grep/ripgrep)
 
-The baseline. Agents grep for symbol names and read the matching files. Fast on small codebases. The problem: text search has no semantic understanding. Search for "Handle" in a Go codebase and you get 10,000+ matches spanning HTTP handlers, file handles, error handling, and variables named `handle`. There is no way to distinguish "functions that call this handler" from "comments mentioning the word handle." The agent burns its context window on noise, misses relationships that don't share string literals, and can't answer structural questions ("what implements this interface?") at all.
+The baseline. Agents grep for symbol names and read the matching files. ripgrep is extremely fast (sub-second on million-line codebases) and requires no indexing. The limitation is purely semantic: text search cannot distinguish "functions that call this handler" from "comments mentioning the word handle." Searching for "Handle" in a Go codebase returns 10,000+ matches spanning HTTP handlers, file handles, error handling, and variables. The agent burns its context window sorting signal from noise, misses relationships that don't share string literals, and cannot answer structural questions ("what implements this interface?"). Measured: P@10 = 0.020 across 117 tasks.
 
-#### codegraph (19K stars)
+#### codegraph (21.9K stars, colbymchenry/codegraph)
 
-Builds a code graph with AST parsing, providing structural queries like "who calls X" and "what does X import." The approach is sound, but the implementation has operational limitations. Indexing is single-threaded, producing 805ms time-to-consistency (vs. knowing's 167ms). There is no incremental update path: changing one file requires re-indexing the entire graph. The graph is mutable state with no versioning, so you cannot diff two points in time, prove what the graph looked like at a past commit, or detect when cached results are stale.
+Builds a code graph using tree-sitter AST parsing across 19+ languages, stored in SQLite with FTS5 full-text search. Exposes MCP tools for symbol search, call tracing, impact analysis, and context retrieval. Uses heuristic scoring (co-location, multi-term matching, CamelCase boundary awareness) rather than graph-theoretic ranking (no RWR, no HITS, no PageRank). Supports incremental auto-sync via native OS file events with 2-second debounce. Deterministic (same output every run). Measured: P@10 = 0.133 (knowing 1.63x better, p=0.0006), but first-result accuracy (MRR 0.459) slightly exceeds knowing's (0.411). Fills positions 2-10 with loosely related symbols via BFS expansion from entry points, producing high recall but low precision. No versioning, no temporal queries, no feedback mechanism.
 
-#### codebase-memory-mcp (2.6K stars)
+#### codebase-memory-mcp (2.7K stars, DeusData)
 
-Combines BM25 text search with semantic edges (similar_to, calls) for MCP-based context retrieval. Works adequately on small-to-medium repositories. Breaks on enterprise-scale codebases: hangs indefinitely on repos exceeding 22K nodes (tested on Django and Kubernetes). No graph walk algorithm beyond single-hop neighbor lookup, so it cannot surface transitive relationships (A calls B calls C, where C is what you actually need). No incremental indexing.
+Single-binary MCP server using 155 vendored tree-sitter grammars, BM25 via SQLite FTS5 (with camelCase/snake_case-aware tokenization), and semantic similarity edges computed via bundled nomic-embed-code embeddings (768-dim, int8 quantized). Uses an 11-signal combined scoring system (TF-IDF, reciprocal rank, API/type/decorator signatures, AST profiles, data flow). Deterministic. Works well on small repos (Flask: 285ms/query). Breaks at scale: hangs at 100% CPU on repos exceeding ~22K-46K nodes (Django 300K LOC hangs at >10s/query, VS Code and Kubernetes killed after minutes). No graph walk beyond single-hop neighbor lookup, so transitive relationships (A calls B calls C) are invisible. Measured: P@10 = 0.137 on the repos it can handle (knowing 1.51x better).
 
-#### Aider
+#### Aider (~20K stars, paul-gauthier/aider)
 
-LLM-based file selection. Given a task description, Aider sends the repo map to a language model and asks it to select relevant files. This introduces two problems. First, non-determinism: the same query produces 3 unique outputs across runs (tested on identical inputs), making results unreproducible and debugging impossible. Second, latency: 3,150ms time-to-consistency because every query requires an LLM round-trip. The approach also inherits the LLM's context window limit as an index size ceiling.
+Two-phase architecture: a deterministic component builds the "repo map" using tree-sitter to extract symbol definitions and their cross-file references into a dependency graph, then ranks files using a PageRank-like graph algorithm weighted by reference frequency. The map is a concise summary (default 1K tokens) of the most highly-connected symbols. The LLM then uses this map to decide which files to open in full. Non-determinism is moderate (3 unique outputs per 10 runs, likely from PageRank tie-breaking on equi-ranked files). Returns file-level context rather than symbol-level, so even correct selections include irrelevant code within those files. Measured: P@10 = 0.050 (knowing 4.3x better). Cannot find newly added symbols because PageRank requires inbound references; a function with zero callers gets zero weight regardless of name match. Time-to-consistency: 3,150ms (every query rebuilds the map).
 
-#### GitNexus
+#### GitNexus (~40K stars, abhigyanpatwari/GitNexus)
 
-Similar LLM-based approach to Aider. Wildly non-deterministic: 7-9 unique outputs for the same query across 10 runs (tested). No graph structure underneath; each query is a fresh LLM call with no accumulated knowledge. Unreliable as a building block for agent workflows that require reproducible context.
+Client-side knowledge graph that indexes codebases using tree-sitter, then runs community detection (clustering related symbols) and execution flow tracing at index time. Exposes 16 MCP tools including hybrid BM25 + semantic search. Does not use LLM calls for core indexing or queries. Non-determinism (7-9 unique outputs per 10 runs of the same query, measured) likely stems from randomized community detection and flow analysis algorithms whose output order varies between runs. All-in-memory JavaScript architecture (single-threaded V8) with no streaming writes: 5.7GB RAM on Kubernetes, killed after 60+ minutes without producing results. On repos it can handle: P@10 = 0.076 (knowing 2.75x better, p=0.0003).
 
-#### Gortex/CGC
+#### Gortex (zzet/gortex)
 
-Basic keyword extraction pipelines that match task descriptions against file names and symbol names. No graph structure, no relationship traversal, no ranking beyond keyword frequency. Equivalent to grep with a preprocessing step.
+Go-based in-memory code graph supporting 257 languages via three extraction tiers (bespoke tree-sitter parsers, regex extraction, forest-backed signatures). Parallel indexing. Precomputes depth-3 reach indices for impact analysis and uses hybrid search (BM25 + embeddings + reciprocal rank fusion). Architecturally the most similar competitor to knowing (same stack: Go, tree-sitter, parallel, graph-based). Deterministic. Limitations: re-indexes the graph on every context query (no persistent cache), consumes 14GB RAM on Kubernetes-scale repos, and indexes all files indiscriminately (including tests), which pollutes retrieval results. Measured on Flask: P@10 comparable to knowing on small repos, but 46x slower indexing and 70x more RAM at enterprise scale.
+
+#### CGC (CodeGraphContext, codegraphcontext)
+
+Stores code structure in a graph database (KuzuDB default, with Neo4j/FalkorDB alternatives). Parses 20 languages via tree-sitter, optionally uses SCIP indexers for C/C++ and C#. Supports caller/callee queries, class hierarchy navigation, and dead code detection. The critical limitation: no task-oriented retrieval. CGC only supports exact name search (`find name`) and regex pattern matching (`find pattern`); natural language queries like "add rate limiting to the handler" return zero results. It is a code navigation tool, not a context retrieval system. Indexing is extremely slow (Flask 15K LOC: 216 seconds vs knowing's 0.1s). Not benchmarkable on the same tasks because it fundamentally does not solve the same problem.
 
 #### The shared failure modes
 
-Across all of these tools, the same gaps recur:
+Across all of these tools, recurring gaps appear:
 
-1. **No determinism guarantee.** LLM-based tools produce different results each run. Text search produces too many results to be useful without filtering.
-2. **No graph walk.** Single-hop queries ("who calls X?") miss the transitive structure agents actually need ("what's the full call chain from the HTTP handler to the database?").
-3. **No versioning.** Mutable state means no temporal queries, no proofs, no cache validity beyond TTLs.
-4. **No feedback loop.** None of them learn which results were actually useful to the agent.
-5. **No scale path.** Either they hang on large repos (codebase-memory) or they require an LLM call per query (Aider, GitNexus), making cost linear with query volume.
+1. **No multi-hop graph walk.** codegraph, codebase-memory, and CGC support single-hop queries ("who calls X?") but miss transitive structure ("what's the full call chain from the HTTP handler to the database?"). Only Gortex precomputes reachability (depth-3), but re-indexes per query.
+2. **No versioning.** All use mutable state. None can answer "who called X last Tuesday?" or prove what the graph looked like at a past commit. Cache validity depends on TTLs or full rebuilds, not content-derived hashes.
+3. **No feedback loop.** None learn which results were actually useful to the agent. Every query starts from scratch with no accumulated signal.
+4. **Scale ceiling.** codebase-memory hangs above ~150K LOC. GitNexus OOMs above ~1M LOC. Gortex consumes 14GB on Kubernetes. Aider rebuilds the map per query (3s latency). Only codegraph and knowing handle enterprise-scale repos without degradation.
+5. **Determinism varies.** codegraph, codebase-memory, and Gortex are deterministic. Aider is moderately non-deterministic (3 unique outputs per 10 runs). GitNexus is wildly non-deterministic (7-9 unique outputs per 10 runs).
 
 #### Where knowing sits
 
@@ -127,7 +131,7 @@ knowing's differentiator is graph-native retrieval: RWR (Random Walk with Restar
 
 **Context packers** (Aider, Repo Map, etc) analyze your repo and produce a condensed map for the agent's context window. They run at query time, produce text, and are stateless: they don't remember what was useful last time. They don't version their output or prove anything about it.
 
-**Code graphs / indexers** (Sourcegraph, codegraph, GitNexus, Stack Graphs) build a queryable index of code relationships. Most use mutable state (database rows with auto-increment IDs). They can answer "who calls X?" but can't answer "who called X last Tuesday?" or "prove no one calls X." They don't learn from feedback. In head-to-head benchmark (7 repos, 117 tasks): knowing achieves 1.63x the precision of codegraph (19K stars) and 1.51x vs codebase-memory (2.6K stars).
+**Code graphs / indexers** (Sourcegraph, codegraph, GitNexus, Stack Graphs) build a queryable index of code relationships. Most use mutable state (database rows with auto-increment IDs). They can answer "who calls X?" but can't answer "who called X last Tuesday?" or "prove no one calls X." They don't learn from feedback. In head-to-head benchmark (7 repos, 117 tasks): knowing achieves 1.63x the precision of codegraph (21.9K stars) and 1.51x vs codebase-memory (2.7K stars).
 
 **Agent memory systems** (MemGPT, various RAG frameworks) persist information across sessions. They remember conversations but not code structure. They can recall "you asked about auth last time" but can't tell you "auth's blast radius grew by 3 callers since then."
 
