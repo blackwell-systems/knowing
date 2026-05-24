@@ -61,10 +61,15 @@ type Enricher struct {
 
 // NewEnricher creates an Enricher that will use the given store and
 // workspace root for LSP operations. Auto-detects available language servers.
+// The workspace root is resolved to an absolute path (required for LSP URIs).
 func NewEnricher(store types.GraphStore, workspaceRoot string) *Enricher {
+	absRoot, err := filepath.Abs(workspaceRoot)
+	if err != nil {
+		absRoot = workspaceRoot
+	}
 	return &Enricher{
 		store:         store,
-		workspaceRoot: workspaceRoot,
+		workspaceRoot: absRoot,
 		concurrency:   8,
 		symbolTimeout: DefaultSymbolTimeout,
 	}
@@ -576,10 +581,16 @@ func (e *Enricher) upgradeCallEdges(
 				return innerErr
 			})
 			if errors.Is(err, ErrSymbolTimeout) {
+				if stats.edgeErrors.Load() < 3 {
+					log.Printf("enrichment: TIMEOUT on GetDefinition (uri=%s line=%d)", item.uri, item.pos.Line)
+				}
 				stats.edgeErrors.Add(1)
 				return
 			}
 			if err != nil {
+				if stats.edgeErrors.Load() < 3 {
+					log.Printf("enrichment: GetDefinition error [%d]: %v (uri=%s line=%d)", stats.edgeErrors.Load(), err, item.uri, item.pos.Line)
+				}
 				stats.edgeErrors.Add(1)
 				return
 			}

@@ -192,6 +192,30 @@
         "cached_at": "2026-05-17T00:58:26.784993-07:00"
       }
     },
+    "0c0813fcb67097fc8901ea8067b6ead5": {
+      "test": {
+        "gate_type": "test",
+        "command": "GOWORK=off go test -short ./internal/enrichment/... -timeout 2m",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "ok  \tgithub.com/blackwell-systems/knowing/internal/enrichment\t(cached)\n",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-24T12:26:32.34569-07:00"
+      }
+    },
+    "0c46851c7ebd92b4cf7bd66ea66b46f1": {
+      "lint": {
+        "gate_type": "lint",
+        "command": "GOWORK=off go vet ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-24T12:26:32.007344-07:00"
+      }
+    },
     "0cab84cdf6ef708d213d039cc5480bf2": {
       "lint": {
         "gate_type": "lint",
@@ -1042,6 +1066,18 @@
         "stderr": "",
         "from_cache": true,
         "cached_at": "2026-05-15T12:14:12.374201-07:00"
+      }
+    },
+    "3e68f6990cc4f34c8b1254d333b6b0cf": {
+      "test": {
+        "gate_type": "test",
+        "command": "GOWORK=off go test -short ./internal/enrichment/... -timeout 2m",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "ok  \tgithub.com/blackwell-systems/knowing/internal/enrichment\t(cached)\n",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-24T12:33:09.756559-07:00"
       }
     },
     "3e8186d8a7467054a0eda08f0679936a": {
@@ -2580,6 +2616,18 @@
         "cached_at": "2026-05-15T11:03:43.623389-07:00"
       }
     },
+    "be459a02af3def1bb18f0e71cbfb7b9c": {
+      "build": {
+        "gate_type": "build",
+        "command": "GOWORK=off go build ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-24T12:33:07.686953-07:00"
+      }
+    },
     "c01b6f650f32a15b390f08a6e82c3fd8": {
       "test": {
         "gate_type": "test",
@@ -2686,6 +2734,18 @@
         "stderr": "",
         "from_cache": true,
         "cached_at": "2026-05-15T08:46:11.477228-07:00"
+      }
+    },
+    "cb082f96fa9a036abdbf9c54f4c9a855": {
+      "build": {
+        "gate_type": "build",
+        "command": "GOWORK=off go build ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-24T12:26:30.361497-07:00"
       }
     },
     "cb319912ad82d77642788f410d5ee862": {
@@ -3034,6 +3094,18 @@
         "stderr": "",
         "from_cache": true,
         "cached_at": "2026-05-15T10:08:56.362598-07:00"
+      }
+    },
+    "edfa5ddc665cc91471b710457c7b2301": {
+      "lint": {
+        "gate_type": "lint",
+        "command": "GOWORK=off go vet ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-24T12:33:09.379848-07:00"
       }
     },
     "ee1a8120fd6d038756329423ba5538ff": {
