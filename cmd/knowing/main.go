@@ -226,6 +226,9 @@ func cmdServe(args []string) error {
 		Store:  st,
 		DBPath: *dbPath,
 		IndexFunc: func(ctx context.Context, repoURL, repoPath, commitHash string, changedFiles []string) error {
+			if len(changedFiles) > 0 {
+				return idx.IndexFilesIncremental(ctx, repoURL, repoPath, commitHash, changedFiles)
+			}
 			_, err := idx.IndexRepo(ctx, repoURL, repoPath, commitHash)
 			return err
 		},

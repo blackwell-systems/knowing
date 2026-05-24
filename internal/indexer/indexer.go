@@ -805,6 +805,135 @@ const autoGCThreshold = 5000
 // autoGCKeepCount is the number of recent snapshots preserved by auto-GC.
 const autoGCKeepCount = 10
 
+// IndexFilesIncremental indexes only the specified files (by relative path).
+// This avoids the full directory walk of IndexRepo when the daemon already knows
+// which files changed (from git diff or Merkle tree diff). Handles cleanup of
+// old nodes/edges for changed files, extraction, batch storage, and snapshot.
+func (idx *Indexer) IndexFilesIncremental(ctx context.Context, repoURL, repoPath, commitHash string, changedFiles []string) error {
+	if len(changedFiles) == 0 {
+		return nil
+	}
+
+	repoHash := types.NewHash([]byte(repoURL))
+
+	// Update repo record.
+	repo := types.Repo{
+		RepoHash:    repoHash,
+		RepoURL:     repoURL,
+		LastCommit:  commitHash,
+		LastIndexed: time.Now().Unix(),
+	}
+	if err := idx.store.PutRepo(ctx, repo); err != nil {
+		return fmt.Errorf("store repo: %w", err)
+	}
+
+	moduleToRepo := idx.buildModuleToRepoMap(ctx)
+	cs, hasCleanup := idx.store.(cleanupStore)
+
+	var allNodes []types.Node
+	var allEdges []types.Edge
+	var allFiles []types.File
+
+	for _, relPath := range changedFiles {
+		absPath := filepath.Join(repoPath, relPath)
+
+		// Check if file was deleted.
+		content, err := os.ReadFile(absPath)
+		if err != nil {
+			// File deleted: clean up its nodes and edges.
+			if hasCleanup {
+				if oldFile, err := idx.store.FileByPath(ctx, repoHash, relPath); err == nil && oldFile != nil {
+					cs.DeleteEdgesBySourceFile(ctx, oldFile.FileHash) //nolint:errcheck
+					cs.DeleteNodesByFile(ctx, oldFile.FileHash)       //nolint:errcheck
+				}
+			}
+			continue
+		}
+
+		// Skip if no extractor handles this file.
+		if idx.registry.FindExtractor(relPath) == nil {
+			continue
+		}
+
+		// Skip generated files.
+		if isGeneratedContent(content) {
+			continue
+		}
+
+		contentHash := types.NewHash(content)
+		fileHashInput := append(repoHash[:], []byte(relPath)...)
+		fileHashInput = append(fileHashInput, contentHash[:]...)
+		fileHash := types.NewHash(fileHashInput)
+
+		// Clean up old nodes/edges for this file.
+		if hasCleanup {
+			if oldFile, err := idx.store.FileByPath(ctx, repoHash, relPath); err == nil && oldFile != nil {
+				cs.DeleteEdgesBySourceFile(ctx, oldFile.FileHash) //nolint:errcheck
+				cs.DeleteNodesByFile(ctx, oldFile.FileHash)       //nolint:errcheck
+			}
+		}
+
+		// Extract.
+		opts := types.ExtractOptions{
+			RepoURL:         repoURL,
+			RepoHash:        repoHash,
+			CommitHash:      commitHash,
+			FilePath:        relPath,
+			FileHash:        fileHash,
+			Content:         content,
+			ModuleRoot:      repoPath,
+			ModuleToRepoURL: moduleToRepo,
+		}
+		result, file, err := idx.extractFile(ctx, opts)
+		if err != nil || result == nil {
+			continue
+		}
+
+		allNodes = append(allNodes, result.Nodes...)
+		allEdges = append(allEdges, result.Edges...)
+		if file != nil {
+			allFiles = append(allFiles, *file)
+		}
+	}
+
+	// Batch store.
+	bs, hasBatch := idx.store.(batchStore)
+	if !hasBatch {
+		// Fallback to individual puts.
+		for _, f := range allFiles {
+			_ = idx.store.PutFile(ctx, f)
+		}
+		for _, n := range allNodes {
+			_ = idx.store.PutNode(ctx, n)
+		}
+		for _, e := range allEdges {
+			_ = idx.store.PutEdge(ctx, e)
+		}
+	} else {
+		if len(allFiles) > 0 {
+			if err := bs.BatchPutFiles(ctx, allFiles); err != nil {
+				return fmt.Errorf("batch put files: %w", err)
+			}
+		}
+		if len(allNodes) > 0 {
+			if err := bs.BatchPutNodes(ctx, allNodes); err != nil {
+				return fmt.Errorf("batch put nodes: %w", err)
+			}
+		}
+		if len(allEdges) > 0 {
+			if err := bs.BatchPutEdges(ctx, allEdges); err != nil {
+				return fmt.Errorf("batch put edges: %w", err)
+			}
+		}
+	}
+
+	// Record changed files for consumers.
+	idx.lastChangedFiles = make([]string, len(changedFiles))
+	copy(idx.lastChangedFiles, changedFiles)
+
+	return nil
+}
+
 // gcCapable is an optional interface for snapshot managers that support GC.
 type gcCapable interface {
 	GarbageCollect(ctx context.Context, repoHash types.Hash, keepCount int) (int, error)
