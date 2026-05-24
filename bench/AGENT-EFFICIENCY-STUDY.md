@@ -248,24 +248,7 @@ because the hook already provided the information?
 **Blocked by:** Can't run hooks in --print mode. Needs interactive session or
 a way to simulate hook injection in the transcript.
 
-### 3. Multi-session compounding test
-
-Run the same task 5 times. Measure whether later runs are faster/cheaper as
-task memory accumulates. Expected: query 1 is cold-start, query 5 benefits from
-memory boost (+20pp from feedback-loop bench).
-
-**Blocked by:** Requires session persistence between runs (task_memory in SQLite).
-Possible with shared DB across runs.
-
-### 4. Aider head-to-head
-
-Run Aider on the same multi-turn tasks. Compare: total tokens, time, correctness.
-Aider uses tree-sitter repo-map for context; knowing uses graph-ranked context.
-Direct comparison of context strategies.
-
-**Unblocked:** `uv python install 3.11 && uv pip install aider-chat` (no Fortran).
-
-### 5. Interface/indirect caller discovery
+### 3. Interface/indirect caller discovery
 
 Design tasks where the dependency is through an interface (not a direct call).
 Grep for the function name won't find it. The graph traces through the interface
@@ -273,6 +256,7 @@ implementation chain.
 
 Example: "What happens if I change the `Close()` method on GraphStore? Find
 everything that calls it, including through the interface."
+
 
 ---
 

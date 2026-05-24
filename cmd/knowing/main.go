@@ -381,10 +381,10 @@ func cmdIndex(args []string) error {
 	fmt.Printf("Snapshot: %x\n", snap.SnapshotHash)
 	fmt.Printf("Nodes: %d, Edges: %d\n", snap.NodeCount, snap.EdgeCount)
 
-	// Build adjacency cache for fast RWR queries on small/medium repos.
-	// On large repos (>100K edges), the gob+base64 format is too large;
-	// the cache is skipped and BFS falls back to per-node queries.
-	if snap.EdgeCount <= 50000 {
+	// Build adjacency cache for fast RWR queries. Compact binary format:
+	// 65 bytes/edge, so 500K edges = ~32MB base64. Above that, BFS falls
+	// back to per-node indexed queries.
+	if snap.EdgeCount <= 500000 {
 		if err := knowingctx.BuildAdjacencyCache(ctx, st); err != nil {
 			fmt.Fprintf(os.Stderr, "adjacency cache warning: %v\n", err)
 		}

@@ -8,6 +8,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+#### Compact binary adjacency cache for RWR
+- Replaces gob+base64 format with compact binary: 65 bytes/edge (source:32 + target:32 + type_id:1)
+- k8s (268K edges): ~17MB raw vs 252MB with gob (15x smaller)
+- Edge count threshold raised from 50K to 500K (covers all practical repos)
+- 30 edge types mapped to uint8 IDs via `adjEdgeTypeToID`/`adjIDToEdgeType`
+- Cache version bumped to v2 (automatically invalidates old v1 caches)
+
+#### Time-to-consistency benchmark (`bench/time-to-consistency/`)
+- Measures how quickly retrieval reflects a code change (edit -> reindex -> query finds it)
+- Protocol: inject new function into Flask, trigger incremental, query for it
+- knowing: 167ms total (16ms reindex + 151ms query). codegraph: 805ms (4.8x slower)
+- Includes correctness test: function absent before injection, present after reindex
+
 #### Incremental file reindexing (`IndexFilesIncremental`)
 - New method on `Indexer` that only extracts/stores specified changed files (no directory walk)
 - Daemon's `IndexFunc` now uses it when `changedFiles` are available from git watcher

@@ -2,6 +2,8 @@ package context
 
 import (
 	stdctx "context"
+	"encoding/base64"
+	"encoding/binary"
 	"math"
 	"testing"
 
@@ -397,4 +399,150 @@ func TestCommunityFilteredRWR_SeedsAlwaysIncluded(t *testing.T) {
 	if scores[y] <= 0 {
 		t.Errorf("expected Y (community 1) to have positive score, got %f", scores[y])
 	}
+}
+
+// cacheMockStore extends walkMockStore with AllEdges, PutNote, and GetNote.
+type cacheMockStore struct {
+	walkMockStore
+	notes map[string]types.Note // key: objectHash.hex + ":" + key
+}
+
+func (m *cacheMockStore) AllEdges(_ stdctx.Context) ([]types.Edge, error) {
+	return m.edges, nil
+}
+
+func (m *cacheMockStore) PutNote(_ stdctx.Context, note types.Note) error {
+	if m.notes == nil {
+		m.notes = make(map[string]types.Note)
+	}
+	k := string(note.ObjectHash[:]) + ":" + note.Key
+	m.notes[k] = note
+	return nil
+}
+
+func (m *cacheMockStore) GetNote(_ stdctx.Context, objectHash types.Hash, key string) (*types.Note, error) {
+	if m.notes == nil {
+		return nil, nil
+	}
+	k := string(objectHash[:]) + ":" + key
+	if n, ok := m.notes[k]; ok {
+		return &n, nil
+	}
+	return nil, nil
+}
+
+func TestBuildAdjacencyCache_BinaryRoundtrip(t *testing.T) {
+	a := hashFor("A")
+	b := hashFor("B")
+	c := hashFor("C")
+
+	store := &cacheMockStore{
+		walkMockStore: walkMockStore{
+			mockStore: mockStore{
+				edges: []types.Edge{
+					{EdgeHash: hashFor("e1"), SourceHash: a, TargetHash: b, EdgeType: "calls"},
+					{EdgeHash: hashFor("e2"), SourceHash: b, TargetHash: c, EdgeType: "imports"},
+					{EdgeHash: hashFor("e3"), SourceHash: a, TargetHash: c, EdgeType: "implements"},
+				},
+			},
+		},
+	}
+
+	ctx := stdctx.Background()
+
+	// Build the cache.
+	if err := BuildAdjacencyCache(ctx, store); err != nil {
+		t.Fatalf("BuildAdjacencyCache: %v", err)
+	}
+
+	// Verify a note was stored.
+	cacheHash := types.NewHash([]byte("adjacency_cache_v2"))
+	note, err := store.GetNote(ctx, cacheHash, adjacencyCacheKey)
+	if err != nil || note == nil {
+		t.Fatalf("expected cache note to be stored, got err=%v, note=%v", err, note)
+	}
+
+	// Verify binary format: decode base64, check header.
+	raw, err := base64.StdEncoding.DecodeString(note.Value)
+	if err != nil {
+		t.Fatalf("base64 decode: %v", err)
+	}
+	numEdges := int(binary.LittleEndian.Uint32(raw[:4]))
+	if numEdges != 3 {
+		t.Fatalf("expected 3 edges in header, got %d", numEdges)
+	}
+	expectedSize := 4 + 3*65
+	if len(raw) != expectedSize {
+		t.Fatalf("expected %d bytes, got %d", expectedSize, len(raw))
+	}
+
+	// Verify buildFromCache produces correct adjacency maps.
+	from, to, err := buildFromCache(note.Value, []types.Hash{a}, ctx, store)
+	if err != nil {
+		t.Fatalf("buildFromCache: %v", err)
+	}
+
+	// From seed A, BFS should find B (via calls) and C (via implements and imports).
+	if len(from[a]) == 0 {
+		t.Error("expected edges from A")
+	}
+	if len(to[b]) == 0 {
+		t.Error("expected edges to B")
+	}
+	if len(to[c]) == 0 {
+		t.Error("expected edges to C")
+	}
+
+	// Verify edge types survived the roundtrip.
+	foundCalls := false
+	for _, e := range from[a] {
+		if e.EdgeType == "calls" && e.TargetHash == b {
+			foundCalls = true
+		}
+	}
+	if !foundCalls {
+		t.Error("expected to find calls edge from A to B after roundtrip")
+	}
+}
+
+func TestBuildAdjacencyCache_SizeEfficiency(t *testing.T) {
+	// Verify the binary format is compact: 4 + N*65 bytes before base64.
+	edges := make([]types.Edge, 1000)
+	for i := range edges {
+		edges[i] = types.Edge{
+			EdgeHash:   hashFor("e" + string(rune(i))),
+			SourceHash: hashFor("src" + string(rune(i))),
+			TargetHash: hashFor("tgt" + string(rune(i))),
+			EdgeType:   "calls",
+		}
+	}
+
+	store := &cacheMockStore{
+		walkMockStore: walkMockStore{
+			mockStore: mockStore{edges: edges},
+		},
+	}
+
+	ctx := stdctx.Background()
+	if err := BuildAdjacencyCache(ctx, store); err != nil {
+		t.Fatalf("BuildAdjacencyCache: %v", err)
+	}
+
+	cacheHash := types.NewHash([]byte("adjacency_cache_v2"))
+	note, _ := store.GetNote(ctx, cacheHash, adjacencyCacheKey)
+	raw, _ := base64.StdEncoding.DecodeString(note.Value)
+
+	expectedRaw := 4 + 1000*65
+	if len(raw) != expectedRaw {
+		t.Errorf("expected %d raw bytes for 1000 edges, got %d", expectedRaw, len(raw))
+	}
+
+	// base64 overhead is ~33%.
+	base64Size := len(note.Value)
+	maxExpected := expectedRaw * 4 / 3 + 4 // base64 ceiling
+	if base64Size > maxExpected {
+		t.Errorf("base64 size %d exceeds expected ceiling %d", base64Size, maxExpected)
+	}
+	t.Logf("1000 edges: %d raw bytes, %d base64 bytes (%.1f bytes/edge raw)",
+		len(raw), base64Size, float64(len(raw))/1000.0)
 }

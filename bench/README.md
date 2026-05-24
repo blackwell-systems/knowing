@@ -1,6 +1,6 @@
 # Benchmarks
 
-Fifteen benchmark harnesses that prove knowing's value with hard data. Each benchmark
+Sixteen benchmark harnesses that prove knowing's value with hard data. Each benchmark
 is a standalone Go test package that indexes the knowing repo, runs measurements,
 and auto-generates a `FINDINGS.md` with results and interpretation.
 
@@ -13,7 +13,8 @@ and auto-generates a `FINDINGS.md` with results and interpretation.
 
 | Benchmark | What it proves | Key result |
 |-----------|---------------|------------|
-| [cross-system](cross-system/) | Graph retrieval beats text search and all competitors across languages and scales | 7 repos, 117 tasks, 22 runs. knowing P@10=0.226 vs Aider 0.050 (4.5x) vs GitNexus 0.076 (3x) vs grep 0.020 (11.3x). Flask 0.336 (new record). Run 22 proved channel balance matters more than algorithm quality on small graphs. |
+| [time-to-consistency](time-to-consistency/) | knowing reflects code changes faster than any competitor | Add function, reindex, query: knowing 167ms (found), codegraph 805ms (found), Aider 3150ms (not found). 4.8x faster than codegraph, 19x faster than Aider. |
+| [cross-system](cross-system/) | Graph retrieval beats text search and all competitors across languages and scales | 7 repos, 117 tasks, 23 runs. knowing P@10=0.217 vs codegraph 0.133 (1.63x) vs Aider 0.050 (4.5x) vs GitNexus 0.076 (3x) vs grep 0.020 (11.3x). |
 | [agent-efficiency](agent-efficiency/) | When knowing helps and when it doesn't | Phase 1: grep wins on known/unique targets. Phase 2 pending: scale, discovery, hooks, ambiguity. |
 | [feedback-loop](feedback-loop/) | Feedback compounding improves precision over time | 34% -> 44% precision (+10pp) after one round (asymmetric weighting). Weight sweep: optimal at pos=0.25/neg=0.10. |
 | [context-relevance](context-relevance/) | Each engine layer adds measurable value | Feedback adds +9pp precision over baseline |

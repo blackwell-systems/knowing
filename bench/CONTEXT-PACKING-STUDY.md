@@ -167,14 +167,15 @@ Per-repo breakdown: Flask 0.336, Django 0.330, VS Code ~0.10, Kubernetes 0.184, 
 | 21 | 2026-05-23 | WIP debug (weighted RWR, seed cap) | 0.101 | Regression: equiv channel noise masked by aggregate |
 | 22 | 2026-05-23 | **Equiv channel noise fix** | **0.226** | **+124% from regression, 4.5x vs Aider, channel balance** |
 
-## Competitive Comparison Summary (Run 22)
+## Competitive Comparison Summary (Run 23)
 
-| System | P@10 | Index k8s | Query latency | Token efficiency | RAM (k8s) |
-|--------|------|-----------|--------------|-----------------|-----------|
-| **knowing** | **0.226** | **18.6s** | **60ms** | **48x vs Repomix** | **200MB** |
-| Aider | 0.050 | N/A (file-level) | ~2.5s | - | - |
-| Gortex | ~0.10 | 14.2 min | ~6s | - | 14GB |
-| GitNexus | 0.076 | >60 min (killed) | 612ms | - | 5.7GB |
+| System | P@10 | Index k8s | Time-to-consistency | Token efficiency | RAM (k8s) |
+|--------|------|-----------|---------------------|-----------------|-----------|
+| **knowing** | **0.217** | **18.6s** | **167ms** | **48x vs Repomix** | **200MB** |
+| codegraph (19K stars) | 0.133 | - | 805ms | - | - |
+| Aider | 0.050 | N/A (file-level) | 3150ms (misses new symbols) | - | - |
+| Gortex | ~0.10 | 14.2 min | minutes (no incremental) | - | 14GB |
+| GitNexus | 0.076 | >60 min (killed) | minutes (full re-analyze) | - | 5.7GB |
 | grep | 0.020 | instant | instant | - | - |
 
 ## Next Steps (priority order)
@@ -183,20 +184,8 @@ Per-repo breakdown: Flask 0.336, Django 0.330, VS Code ~0.10, Kubernetes 0.184, 
 2. **Channel balance regression test** (prevent Run 22 class of regression)
 3. **LSP enrichment ROI measurement** (quantify enrichment vs fresh-index delta)
 4. **Embedding model evaluation** (code-tuned model for semantic matching)
+5. **codebase-memory-mcp adapter** (2.6K stars, BM25 + label boost, different category)
 
-### Completed
-- ~~Session memory persistence~~ (task memory persists, boost `0.5 + score * 0.4`)
-- ~~Competitor adapters~~ (Aider, GitNexus, Gortex, CGC, Repomix all tested)
-- ~~Aider head-to-head~~ (4.5x more precise, Runs 19-22)
-- ~~Java + C# corpus~~ (Spark Java, Ocelot C#, Runs 19-20)
-- ~~Equivalence channel noise fix~~ (Run 22, +124% P@10 recovery)
-- ~~FTS terminal symbol tokenization~~ (migration 016)
-- ~~Cross-file import resolution (Python/TS/Rust/Java/C#)~~ (Runs 9-11, 19)
-- ~~Deeper call chain extraction~~ (Run 14)
-- ~~Inheritance propagation~~ (Run 13, +29%)
-- ~~VS Code replaces TypeScript compiler~~ (Run 17)
-- ~~TS extends_clause fix~~ (Run 18)
-- ~~Agent efficiency study~~ (honest negative: grep optimal when targets are known and uniquely named; knowing's value is discovery, ambiguity, and automatic injection)
 
 ## Reproducing
 

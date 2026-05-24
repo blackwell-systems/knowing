@@ -4,7 +4,7 @@ import (
 	"bytes"
 	stdctx "context"
 	"encoding/base64"
-	"encoding/gob"
+	"encoding/binary"
 	"fmt"
 	"strings"
 	"time"
@@ -15,22 +15,55 @@ import (
 // adjacencyCacheKey is the note key used to store the pre-computed adjacency map.
 const adjacencyCacheKey = "adjacency_cache"
 
-// adjacencyCache is the serialized format for the pre-computed adjacency map.
-type adjacencyCache struct {
-	From map[types.Hash][]compactEdge
-	To   map[types.Hash][]compactEdge
+// adjEdgeTypeToID maps edge type strings to compact uint8 IDs for binary encoding.
+// ID 0 is reserved for unknown types.
+var adjEdgeTypeToID = map[string]uint8{
+	"calls":             1,
+	"imports":           2,
+	"implements":        3,
+	"references":        4,
+	"handles_route":     5,
+	"depends_on":        6,
+	"extends":           7,
+	"overrides":         8,
+	"decorates":         9,
+	"throws":            10,
+	"owned_by":          11,
+	"authored_by":       12,
+	"tests":             13,
+	"documents":         14,
+	"consumes_endpoint": 15,
+	"implements_rpc":    16,
+	"consumes_rpc":      17,
+	"gated_by_flag":     18,
+	"deployed_by":       19,
+	"tested_by":         20,
+	"deploys":           21,
+	"exposes":           22,
+	"configures":        23,
+	"publishes":         24,
+	"subscribes":        25,
+	"connects_to":       26,
+	"runtime_calls":     27,
+	"runtime_rpc":       28,
+	"runtime_produces":  29,
+	"runtime_consumes":  30,
 }
 
-// compactEdge stores only what RWR needs (source, target, type).
-type compactEdge struct {
-	Source   types.Hash
-	Target   types.Hash
-	EdgeType string
-}
+// adjIDToEdgeType is the reverse mapping from uint8 ID to edge type string.
+var adjIDToEdgeType = func() map[uint8]string {
+	m := make(map[uint8]string, len(adjEdgeTypeToID))
+	for k, v := range adjEdgeTypeToID {
+		m[v] = k
+	}
+	return m
+}()
 
-// BuildAdjacencyCache builds the full adjacency map and stores it as a
-// gob-encoded blob in the notes table. Call after indexing. Subsequent RWR
-// queries load this cache in one read instead of per-node edge queries.
+// BuildAdjacencyCache builds the full adjacency map and stores it as a compact
+// binary blob (base64-encoded) in the notes table. Format: [num_edges:4 LE]
+// followed by num_edges records of [source:32][target:32][type_id:1] = 65 bytes
+// per edge. Call after indexing. Subsequent RWR queries load this cache in one
+// read instead of per-node edge queries.
 func BuildAdjacencyCache(ctx stdctx.Context, store types.GraphStore) error {
 	type edgeLoader interface {
 		AllEdges(ctx stdctx.Context) ([]types.Edge, error)
@@ -56,22 +89,20 @@ func BuildAdjacencyCache(ctx stdctx.Context, store types.GraphStore) error {
 		return fmt.Errorf("AllEdges returned 0 edges")
 	}
 
-	cache := adjacencyCache{
-		From: make(map[types.Hash][]compactEdge, len(allEdges)/4),
-		To:   make(map[types.Hash][]compactEdge, len(allEdges)/4),
-	}
+	// Encode: 4-byte LE edge count + 65 bytes per edge.
+	buf := bytes.NewBuffer(make([]byte, 0, 4+len(allEdges)*65))
+	header := make([]byte, 4)
+	binary.LittleEndian.PutUint32(header, uint32(len(allEdges)))
+	buf.Write(header)
+
 	for _, e := range allEdges {
-		ce := compactEdge{Source: e.SourceHash, Target: e.TargetHash, EdgeType: e.EdgeType}
-		cache.From[e.SourceHash] = append(cache.From[e.SourceHash], ce)
-		cache.To[e.TargetHash] = append(cache.To[e.TargetHash], ce)
+		buf.Write(e.SourceHash[:])
+		buf.Write(e.TargetHash[:])
+		tid := adjEdgeTypeToID[e.EdgeType] // 0 for unknown
+		buf.WriteByte(tid)
 	}
 
-	var buf bytes.Buffer
-	if err := gob.NewEncoder(&buf).Encode(cache); err != nil {
-		return err
-	}
-
-	cacheHash := types.NewHash([]byte("adjacency_cache_v1"))
+	cacheHash := types.NewHash([]byte("adjacency_cache_v2"))
 	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
 	return ns.PutNote(ctx, types.Note{
 		ObjectHash: cacheHash,
@@ -449,7 +480,7 @@ func buildAdjacencyMap(ctx stdctx.Context, store types.GraphStore, seeds []types
 		GetNote(ctx stdctx.Context, objectHash types.Hash, key string) (*types.Note, error)
 	}
 	if ns, ok := store.(noteReader); ok {
-		cacheHash := types.NewHash([]byte("adjacency_cache_v1"))
+		cacheHash := types.NewHash([]byte("adjacency_cache_v2"))
 		if note, nErr := ns.GetNote(ctx, cacheHash, adjacencyCacheKey); nErr == nil && note != nil && len(note.Value) > 100 {
 			if from, to, cErr := buildFromCache(note.Value, seeds, ctx, store); cErr == nil {
 				return from, to, nil
@@ -509,16 +540,48 @@ func buildAdjacencyMap(ctx stdctx.Context, store types.GraphStore, seeds []types
 	return adjFrom, adjTo, nil
 }
 
-// buildFromCache deserializes a base64-encoded gob adjacency cache and runs
-// BFS in memory (zero DB queries for the walk itself).
+// buildFromCache deserializes a base64-encoded compact binary adjacency cache
+// and runs BFS in memory (zero DB queries for the walk itself).
+// Binary format: [num_edges:4 LE][source:32][target:32][type_id:1] * num_edges.
 func buildFromCache(data string, seeds []types.Hash, ctx stdctx.Context, store types.GraphStore) (map[types.Hash][]types.Edge, map[types.Hash][]types.Edge, error) {
 	raw, err := base64.StdEncoding.DecodeString(data)
 	if err != nil {
 		return nil, nil, err
 	}
-	var cache adjacencyCache
-	if err := gob.NewDecoder(bytes.NewReader(raw)).Decode(&cache); err != nil {
-		return nil, nil, err
+	if len(raw) < 4 {
+		return nil, nil, fmt.Errorf("adjacency cache too short: %d bytes", len(raw))
+	}
+
+	numEdges := int(binary.LittleEndian.Uint32(raw[:4]))
+	expected := 4 + numEdges*65
+	if len(raw) < expected {
+		return nil, nil, fmt.Errorf("adjacency cache truncated: have %d bytes, need %d", len(raw), expected)
+	}
+
+	// Decode into from/to adjacency maps keyed by hash.
+	type compactEdge struct {
+		source   types.Hash
+		target   types.Hash
+		edgeType string
+	}
+	fromMap := make(map[types.Hash][]compactEdge, numEdges/4)
+	toMap := make(map[types.Hash][]compactEdge, numEdges/4)
+
+	off := 4
+	for i := 0; i < numEdges; i++ {
+		var src, tgt types.Hash
+		copy(src[:], raw[off:off+32])
+		copy(tgt[:], raw[off+32:off+64])
+		tid := raw[off+64]
+		off += 65
+
+		et := adjIDToEdgeType[tid]
+		if et == "" {
+			et = "references" // fallback for unknown IDs
+		}
+		ce := compactEdge{source: src, target: tgt, edgeType: et}
+		fromMap[src] = append(fromMap[src], ce)
+		toMap[tgt] = append(toMap[tgt], ce)
 	}
 
 	externals := loadExternalHashes(ctx, store)
@@ -535,16 +598,16 @@ func buildFromCache(data string, seeds []types.Hash, ctx stdctx.Context, store t
 	for depth := 0; depth < maxDepth && len(frontier) > 0; depth++ {
 		var nextFrontier []types.Hash
 		for _, node := range frontier {
-			for _, ce := range cache.From[node] {
-				if !visited[ce.Target] && !externals[ce.Target] {
-					visited[ce.Target] = true
-					nextFrontier = append(nextFrontier, ce.Target)
+			for _, ce := range fromMap[node] {
+				if !visited[ce.target] && !externals[ce.target] {
+					visited[ce.target] = true
+					nextFrontier = append(nextFrontier, ce.target)
 				}
 			}
-			for _, ce := range cache.To[node] {
-				if !visited[ce.Source] && !externals[ce.Source] {
-					visited[ce.Source] = true
-					nextFrontier = append(nextFrontier, ce.Source)
+			for _, ce := range toMap[node] {
+				if !visited[ce.source] && !externals[ce.source] {
+					visited[ce.source] = true
+					nextFrontier = append(nextFrontier, ce.source)
 				}
 			}
 		}
@@ -555,18 +618,18 @@ func buildFromCache(data string, seeds []types.Hash, ctx stdctx.Context, store t
 	adjFrom := make(map[types.Hash][]types.Edge, len(visited))
 	adjTo := make(map[types.Hash][]types.Edge, len(visited))
 	for node := range visited {
-		for _, ce := range cache.From[node] {
+		for _, ce := range fromMap[node] {
 			adjFrom[node] = append(adjFrom[node], types.Edge{
-				SourceHash: ce.Source,
-				TargetHash: ce.Target,
-				EdgeType:   ce.EdgeType,
+				SourceHash: ce.source,
+				TargetHash: ce.target,
+				EdgeType:   ce.edgeType,
 			})
 		}
-		for _, ce := range cache.To[node] {
+		for _, ce := range toMap[node] {
 			adjTo[node] = append(adjTo[node], types.Edge{
-				SourceHash: ce.Source,
-				TargetHash: ce.Target,
-				EdgeType:   ce.EdgeType,
+				SourceHash: ce.source,
+				TargetHash: ce.target,
+				EdgeType:   ce.edgeType,
 			})
 		}
 	}
