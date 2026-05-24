@@ -581,16 +581,10 @@ func (e *Enricher) upgradeCallEdges(
 				return innerErr
 			})
 			if errors.Is(err, ErrSymbolTimeout) {
-				if stats.edgeErrors.Load() < 3 {
-					log.Printf("enrichment: TIMEOUT on GetDefinition (uri=%s line=%d)", item.uri, item.pos.Line)
-				}
 				stats.edgeErrors.Add(1)
 				return
 			}
 			if err != nil {
-				if stats.edgeErrors.Load() < 3 {
-					log.Printf("enrichment: GetDefinition error [%d]: %v (uri=%s line=%d)", stats.edgeErrors.Load(), err, item.uri, item.pos.Line)
-				}
 				stats.edgeErrors.Add(1)
 				return
 			}
