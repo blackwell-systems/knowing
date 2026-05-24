@@ -19,6 +19,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/blackwell-systems/knowing/bench/cross-system/adapters"
+	"github.com/blackwell-systems/knowing/bench/cross-system/benchtype"
 	knowingctx "github.com/blackwell-systems/knowing/internal/context"
 	"github.com/blackwell-systems/knowing/internal/store"
 )
@@ -188,7 +190,53 @@ func TestPhase2_AmbiguityAtScale(t *testing.T) {
 		}
 	}
 
-	// Summary: signal-to-noise ratio.
+	// Phase 2b: Run competitors on same tasks.
+	k8sPath := filepath.Join("..", "cross-system", "corpus", "repos", "kubernetes")
+
+	type competitorResult struct {
+		name string
+		hits []int
+	}
+	var competitors []competitorResult
+
+	// Codegraph
+	cg := adapters.NewCodeGraph()
+	if cg.IsAvailable() {
+		t.Log("")
+		t.Log("=== Codegraph comparison ===")
+		_, _ = cg.Index(k8sPath)
+		cr := competitorResult{name: "codegraph"}
+		for _, task := range phase2Tasks {
+			btTask := benchtype.Task{ID: task.ID, Description: task.Description}
+			res, _ := cg.Retrieve(k8sPath, btTask, 5000)
+			hits := countGT(res.Symbols, task.GroundTruth)
+			cr.hits = append(cr.hits, hits)
+			t.Logf("  %s: codegraph=%d/10 (%d returned)", task.ID, hits, len(res.Symbols))
+		}
+		competitors = append(competitors, cr)
+	}
+
+	// Run all available competitor adapters.
+	for _, adapter := range adapters.Available() {
+		name := adapter.Name()
+		if name == "knowing" || name == "grep" || name == "codegraph" {
+			continue // knowing is us, grep is the baseline, codegraph handled above
+		}
+		t.Log("")
+		t.Logf("=== %s comparison ===", name)
+		_, _ = adapter.Index(k8sPath)
+		cr := competitorResult{name: name}
+		for _, task := range phase2Tasks {
+			btTask := benchtype.Task{ID: task.ID, Description: task.Description}
+			res, _ := adapter.Retrieve(k8sPath, btTask, 5000)
+			hits := countGT(res.Symbols, task.GroundTruth)
+			cr.hits = append(cr.hits, hits)
+			t.Logf("  %s: %s=%d/10 (%d returned)", task.ID, name, hits, len(res.Symbols))
+		}
+		competitors = append(competitors, cr)
+	}
+
+	// Summary: signal-to-noise ratio + competitor comparison.
 	// The key insight: grep returns N matches. An agent must read/filter them to find
 	// the right ones. knowing returns 10, pre-ranked. The advantage is the RATIO of
 	// noise that knowing eliminates.
@@ -216,5 +264,57 @@ func TestPhase2_AmbiguityAtScale(t *testing.T) {
 	t.Logf("  Noise reduction: knowing eliminates %.0f%% of grep results",
 		(1.0-50.0/float64(totalGrepNoise))*100)
 
+	// Competitor summary.
+	if len(competitors) > 0 {
+		t.Log("")
+		t.Log("=== Competitor Comparison (GT hits in top-10) ===")
+		header := "  | Task           | knowing |"
+		for _, c := range competitors {
+			header += fmt.Sprintf(" %-9s |", c.name)
+		}
+		t.Log(header)
+		for i, r := range results {
+			line := fmt.Sprintf("  | %-14s | %d/10    |", r.id, r.knowingTop10)
+			for _, c := range competitors {
+				if i < len(c.hits) {
+					line += fmt.Sprintf(" %d/10      |", c.hits[i])
+				} else {
+					line += " -         |"
+				}
+			}
+			t.Log(line)
+		}
+		// Totals.
+		t.Log("")
+		totalLine := fmt.Sprintf("  Total: knowing=%d/%d", totalKnowingGT, len(results)*10)
+		for _, c := range competitors {
+			sum := 0
+			for _, h := range c.hits {
+				sum += h
+			}
+			totalLine += fmt.Sprintf(", %s=%d/%d", c.name, sum, len(results)*10)
+		}
+		t.Log(totalLine)
+	}
+
 	fmt.Println()
+}
+
+// countGT counts how many of the top-10 retrieved symbols match any ground truth term.
+func countGT(symbols []benchtype.RetrievedSymbol, groundTruth []string) int {
+	hits := 0
+	top := 10
+	if len(symbols) < top {
+		top = len(symbols)
+	}
+	for i := 0; i < top; i++ {
+		qn := strings.ToLower(symbols[i].QualifiedName)
+		for _, gt := range groundTruth {
+			if strings.Contains(qn, strings.ToLower(gt)) {
+				hits++
+				break
+			}
+		}
+	}
+	return hits
 }
