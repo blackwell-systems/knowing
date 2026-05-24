@@ -175,7 +175,7 @@ Current status: per-repo isolation (no cross-repo queries). First real user who 
 |-----------|---------------|--------|--------|
 | **Query latency p50/p95/p99** | Instrument all 28 MCP tool handlers. Report latency distribution per tool across 1000 calls. | Single number (60ms avg) in cross-system FINDINGS; need distribution | Medium |
 | **Indexing throughput (formalized)** | Dedicated harness: index 7 corpus repos, measure wall time, edges/sec, memory peak with variance reporting. | Numbers exist informally (Flask 0.1s, k8s 18.6s, competitive ratios in cross-system FINDINGS); needs reproducible go test harness | Low |
-| **Incremental re-index cost** | Change 1 file in a 50K-edge repo, measure time to re-index just that file vs full. Isolates `--watch` per-edit cost. | Not benchmarked | Medium |
+| ~~**Incremental re-index cost**~~ | ~~Change 1 file, measure time vs full.~~ **Done.** `IndexFilesIncremental`: 26ms (1 file), 494x faster than full. Codegraph: 468ms-3.1s (scales with repo). GitNexus/Aider: no incremental at all. | ~~Medium~~ |
 | **Staleness detection speed** | Benchmark `DiffHierarchicalTrees` on progressively larger graphs (10K, 50K, 100K, 500K edges). Show O(packages) not O(edges). | Have 517x number and Grafana scale test (714K edges); need the full scaling curve | Low |
 | **Memory/disk footprint** | Measure RSS and DB file size after indexing each corpus repo. Compare to competitors. | Competitive numbers in cross-system FINDINGS (200MB vs 14GB/5.7GB); needs dedicated measurement harness | Low |
 
@@ -190,6 +190,18 @@ Current status: per-repo isolation (no cross-repo queries). First real user who 
 | **Cross-repo retrieval quality** | P@10 for tasks that span repo boundaries (e.g., "which frontend components call this backend endpoint?"). | Needs cross-repo implementation first | Medium |
 | ~~**Feedback weight sensitivity**~~ | Moved to P1 regression prevention section (more urgent after Run 22 findings). | See above | - |
 | ~~**LSP enrichment ROI**~~ | Moved to P1 regression prevention section (need to measure whether enrichment is net-positive after external node filter). | See above | - |
+
+### P1: Cross-system competitive dimensions
+
+Head-to-head measurements across all competitors on dimensions beyond P@10.
+
+| Dimension | What it proves | Status | Effort |
+|-----------|---------------|--------|--------|
+| **Query robustness** | Same task rephrased 5 ways: measure P@10 variance per system. RWR should be stable (structural signal); string-matching heuristics should be volatile. A system that gives different answers for "add caching" vs "implement a cache" is unreliable. | Not started | Low (10 tasks x 5 rephrasings, same harness) |
+| **Scale curve** | Plot P@10 vs repo size (15K, 150K, 300K, 1M, 3.5M LOC). Show where each system degrades. Expected: knowing flat, codegraph/Aider degrade at scale. Per-repo data exists, just needs visualization. | Data exists (per-repo breakdown in Run 23). Needs plotting. | Low |
+| **Determinism** | Run same task 10 times, count unique outputs per system. knowing guarantees 1 (PackRoot). Others likely non-deterministic (FTS ranking ties, random BFS order). | Not started | Low |
+| **Time-to-first-result** | End-to-end from `install` to first useful context output. Measures real onboarding friction. knowing: `brew install` + auto-index on first query. codegraph: `npm install -g` + `codegraph init -i`. | Not started | Low |
+| **Failure rate by language** | Per-language pass/fail across all systems. knowing: 5/5 languages pass. codegraph: 3/5 (Java, C# fail). Aider: Python/TS only? | Partial data from Run 23 (codegraph failures on Spark/Ocelot) | Low |
 
 ### P1: Competitive demolition demo
 
