@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+#### Incremental file reindexing (`IndexFilesIncremental`)
+- New method on `Indexer` that only extracts/stores specified changed files (no directory walk)
+- Daemon's `IndexFunc` now uses it when `changedFiles` are available from git watcher
+- 494x faster than full index for 1-file edits (24ms vs 11.8s on 7803-node repo)
+- Scales linearly: 5 files = 59ms, 20 files = 93ms
+- Benchmark: `bench/incremental-reindex/`
+
 ### Fixed
 
 #### Feedback compounding was defeated by context pack cache
