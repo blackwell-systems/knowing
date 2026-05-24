@@ -1,10 +1,14 @@
 package context
 
 import (
+	"bytes"
+	"compress/zlib"
 	stdctx "context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 	"time"
@@ -256,7 +260,14 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	packNoteKey := types.NewHash([]byte("context_pack\x00" + normalized))
 	if note, err := e.store.GetNote(ctx, packNoteKey, "context_pack"); err == nil && note != nil {
 		var persisted persistedContextPack
-		if err := json.Unmarshal([]byte(note.Value), &persisted); err == nil {
+		// Try zlib-compressed base64 first (new format), fall back to raw JSON (legacy).
+		noteData := []byte(note.Value)
+		if raw, b64Err := base64.StdEncoding.DecodeString(note.Value); b64Err == nil {
+			if decompressed, zErr := decompressZlib(raw); zErr == nil {
+				noteData = decompressed
+			}
+		}
+		if err := json.Unmarshal(noteData, &persisted); err == nil {
 			// Staleness check: compare stored snapshot hash against current.
 			stale := false
 			if repos, err := e.store.AllRepos(ctx); err == nil && len(repos) > 0 {
@@ -693,6 +704,7 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 		}
 	}
 	// Persistent cache: store in notes table with snapshot hash for staleness.
+	// Uses zlib compression (~6x smaller than raw JSON for typical context packs).
 	if repos, err := e.store.AllRepos(ctx); err == nil && len(repos) > 0 {
 		if snap, err := e.store.LatestSnapshot(ctx, repos[0].RepoHash); err == nil && snap != nil {
 			persisted := persistedContextPack{
@@ -700,10 +712,11 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 				SnapshotHash: snap.SnapshotHash,
 			}
 			if data, err := json.Marshal(persisted); err == nil {
+				compressed := compressZlib(data)
 				_ = e.store.PutNote(ctx, types.Note{
 					ObjectHash: packNoteKey,
 					Key:        "context_pack",
-					Value:      string(data),
+					Value:      base64.StdEncoding.EncodeToString(compressed),
 					UpdatedAt:  time.Now().Unix(),
 				})
 			}
@@ -1513,4 +1526,23 @@ func rrfFuseMulti(channels []rankedChannel, k, limit int) []types.Node {
 		nodes[i] = r.node
 	}
 	return nodes
+}
+
+// compressZlib compresses data using zlib (level 6, good balance of speed/ratio).
+func compressZlib(data []byte) []byte {
+	var buf bytes.Buffer
+	w, _ := zlib.NewWriterLevel(&buf, zlib.DefaultCompression)
+	w.Write(data) //nolint:errcheck
+	w.Close()     //nolint:errcheck
+	return buf.Bytes()
+}
+
+// decompressZlib decompresses zlib-compressed data.
+func decompressZlib(data []byte) ([]byte, error) {
+	r, err := zlib.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+	return io.ReadAll(r)
 }
