@@ -6,10 +6,11 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 
 | # | Item | Why | Effort |
 |---|------|-----|--------|
-| 1 | **Keyword extraction improvements** | P@10 bottleneck is seed selection, not the walk. Proved by: enrichment neutral, confidence weighting neutral, staging dilution. Seeds come from `extractKeywordSet`. Three sub-items below. | Medium |
-| 1a | TF-IDF symbol rarity weighting | Common terms ("handler", "get", "error") match 100+ symbols; rare terms ("scheduler", "rate_limiter") match 3. Weight seeds by inverse document frequency so rare terms dominate. | Low |
-| 1b | Path-context boosting | If the task mentions a directory/package name ("scheduler", "api/v1"), boost seeds from matching file paths. Currently all seeds are ranked equally regardless of path relevance. | Low |
-| 1c | Stronger compound preservation | "rate_limiting" should never split into "rate" + "limiting" unless zero compound matches. Currently splits eagerly as fallback, which floods generic terms into seed pool. | Low |
+| 1 | **Add missing graph paths (reachability gaps)** | P@10 only moves when ground truth symbols become reachable via RWR for the first time. Improving existing paths (confidence, weighting) is neutral. The task: find symbols that are unreachable, determine why, add the missing edge/path. | Medium |
+| 1a | Run failure analysis on current state | Use the failure analysis tool (from session 8b) on current 0.181 baseline. Categorize each P@10=0 task: is ground truth unreachable (no path)? wrong keyword? not in DB? too many hops? | Low |
+| 1b | Fix unreachable-by-missing-edges | For symbols unreachable due to missing edge types (e.g., Go interface embedding, channel send/receive, struct field access), add new extractors. Each new edge type that creates paths = step-function P@10 improvement (inheritance was +29%). | Medium |
+| 1c | Fix unreachable-by-not-in-DB | For symbols in ground truth that reference unindexed modules (k8s.io/client-go, staging), either update fixtures to use indexable symbols or selectively index those modules. | Low |
+| 1d | Path-context boosting | If task mentions a directory/package name ("scheduler", "api/v1"), boost seeds from matching file paths. Helps when keywords match but wrong package's symbols rank higher. | Low |
 | 2 | **Real users** | Everything else is validated by benchmarks, not usage. Task memory compounds with use. | Ongoing |
 | 3 | **Parallel write backend** | SQLite single-writer funnels all extraction results through one goroutine. Even with producer-consumer pipeline, writes are serial. Need parallel write support for large repos. | High |
 
