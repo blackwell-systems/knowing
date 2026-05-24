@@ -359,6 +359,7 @@ waves:
           files:
             - internal/enrichment/timeout.go
             - internal/enrichment/timeout_test.go
+      base_commit: 478cfa7792d338651aa08fdb31a3f4d089f62fbb
     - number: 2
       agents:
         - id: D
@@ -528,6 +529,72 @@ quality_gates:
         - type: test
           command: GOWORK=off go test -short ./internal/enrichment/... -timeout 2m
           required: true
+post_merge_checklist:
+    groups:
+        - title: Background Service Initialization
+          items:
+            - description: Verify if timeout.go needs initialization in Server constructor
+            - description: Verify if timeout_test.go needs initialization in Server constructor
+completion_reports:
+    A:
+        status: complete
+        branch: polywave/multi-module-enrichment/wave1-agent-A
+        commit: fc75b5d
+        files_changed:
+            - internal/enrichment/multimodule.go
+            - internal/enrichment/multimodule_test.go
+        files_created:
+            - internal/enrichment/multimodule.go
+            - internal/enrichment/multimodule_test.go
+        tests_added:
+            - TestDiscoverModules_NoGoWork
+            - TestDiscoverModules_WithGoWork
+            - TestDiscoverModules_MalformedGoWork
+            - TestDiscoverModules_MissingModuleDir
+            - TestFilesForModule_FiltersCorrectly
+        verification: PASS
+        notes: DiscoverModules parses go.work or falls back to single go.mod. FilesForModule filters by path prefix with correct boundary matching. All 5 tests passing. golang.org/x/mod/modfile already available as indirect dep.
+    B:
+        status: complete
+        branch: polywave/multi-module-enrichment/wave1-agent-B
+        commit: 6d5ff3b
+        files_changed:
+            - internal/enrichment/progress.go
+            - internal/enrichment/progress_test.go
+        files_created:
+            - internal/enrichment/progress.go
+            - internal/enrichment/progress_test.go
+        tests_added:
+            - TestLoadProgress_NoFile
+            - TestLoadProgress_ExistingFile
+            - TestLoadProgress_CorruptFile
+            - TestSaveProgress_CreatesDirectory
+            - TestSaveProgress_AtomicWrite
+            - TestMarkModule_Success
+            - TestMarkModule_Error
+            - TestIsComplete
+            - TestReset
+        verification: PASS
+        notes: All 9 tests passing. EnrichProgress, ModuleStatus types and LoadProgress, SaveProgress, MarkModule, IsComplete, Reset functions implemented per contract.
+    C:
+        status: complete
+        branch: polywave/multi-module-enrichment/wave1-agent-C
+        commit: 57b0238
+        files_changed:
+            - internal/enrichment/timeout.go
+            - internal/enrichment/timeout_test.go
+        files_created:
+            - internal/enrichment/timeout.go
+            - internal/enrichment/timeout_test.go
+        tests_added:
+            - TestWithSymbolTimeout_FastCall
+            - TestWithSymbolTimeout_SlowCall
+            - TestWithSymbolTimeout_FnError
+            - TestWithSymbolTimeout_ParentCancelled
+            - TestWithSymbolTimeout_ZeroTimeout
+            - TestDefaultSymbolTimeout_Value
+        verification: PASS
+        notes: Per-symbol timeout wrapper complete. All 6 tests pass. Only stdlib imports used.
 pre_mortem:
     overall_risk: medium
     rows:
