@@ -24,7 +24,7 @@ are reported as such.
 
 ## Executive Summary
 
-knowing is a content-addressed graph retrieval engine evaluated against 5 competitors across 7 codebases (3.5M LOC down to 14K LOC), ~117 task fixtures, and 23 iterative benchmark runs with full statistical rigor.
+knowing is a content-addressed graph retrieval engine evaluated against 6 competitors across 7 codebases (3.5M LOC down to 14K LOC), ~117 task fixtures, and 23 iterative benchmark runs with full statistical rigor.
 
 ### Final Results (Run 23)
 
@@ -35,6 +35,7 @@ knowing is a content-addressed graph retrieval engine evaluated against 5 compet
 | Aider (~20K stars) | 0.050 | - | N/A (file-level) | ~3s | 3150ms (misses new symbols) | - |
 | GitNexus | 0.076 | 0.159 | >60 min (killed) | 612ms | minutes (full re-analyze) | 5.7GB |
 | Gortex | ~comparable | - | 14.2 min | ~6s | minutes (no incremental) | 14GB |
+| codebase-memory (2.6K stars) | 0.107 | - | N/A | ~300ms | N/A | - |
 | grep | 0.020 | 0.035 | instant | instant | instant | - |
 
 ### Competitive Advantages (all statistically significant)
@@ -44,6 +45,7 @@ knowing is a content-addressed graph retrieval engine evaluated against 5 compet
 - **vs grep:** 11.3x more precise (p<0.0001, d=0.92 very large effect)
 - **vs GitNexus:** 2.75x more precise (p=0.0003, d=0.50), 193x faster indexing, 109x faster incremental, 10x faster queries
 - **vs Repomix:** 48x more token-efficient (4K tokens vs 300K for same task)
+- **vs codebase-memory (2.6K stars):** 1.51x more precise (P@10 0.207 vs 0.137 on Flask+Cargo, 30 tasks), 2x better recall, instant vs 2.9s latency
 - **vs Gortex:** 46x faster on enterprise repos, 70x less RAM, comparable quality on small repos
 
 ### Key Architectural Findings
