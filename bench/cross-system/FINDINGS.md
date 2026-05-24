@@ -42,7 +42,7 @@ knowing is a content-addressed graph retrieval engine evaluated against 6 compet
 
 - **vs codegraph (19K stars):** 1.63x more precise (p=0.0006, d=0.36), 11.5x more token-efficient
 - **vs Aider (~20K stars):** 4.3x more precise (P@10 0.217 vs 0.050), graph-based vs file-level
-- **vs grep:** 11.3x more precise (p<0.0001, d=0.92 very large effect)
+- **vs grep:** 11x more precise (p<0.0001, d=0.92 very large effect)
 - **vs GitNexus:** 2.75x more precise (p=0.0003, d=0.50), 193x faster indexing, 109x faster incremental, 10x faster queries
 - **vs Repomix:** 48x more token-efficient (4K tokens vs 300K for same task)
 - **vs codebase-memory (2.6K stars):** 1.51x more precise (P@10 0.207 vs 0.137 on Flask+Cargo), 2x better recall, instant vs 2.9s latency, can't handle Django/k8s (hangs at 100% CPU)
@@ -232,7 +232,7 @@ relative to the query, putting the most structurally relevant symbols first.
 |--------|------|-----------|-------|
 | **knowing** | **0.217** | -- | 0 |
 | codegraph | 0.133 | 1.63x worse | 19,459 |
-| Aider | 0.050 | 4.5x worse | ~20K |
+| Aider | 0.050 | 4.3x worse | ~20K |
 | GitNexus | 0.076 | 2.9x worse | ~500 |
 | grep | 0.020 | 10.9x worse | -- |
 

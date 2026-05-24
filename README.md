@@ -88,7 +88,7 @@ These aren't separate features. They're structural consequences of content-addre
 | Proof generation | 72us generate, 1.2us verify |
 | Feedback expiration | 100% expire on code change, 11% overhead |
 | Cross-repo retrieval | 46.7% R@10 on foreign codebase, zero config |
-| Cross-system retrieval | P@10=0.217, 1.63x vs codegraph (19K stars), 4.5x vs Aider, 11x vs grep |
+| Cross-system retrieval | P@10=0.217, 1.63x vs codegraph (19K stars), 4.3x vs Aider, 11x vs grep |
 | Indexing throughput | 7 repos (47,150 files) in ~52s |
 | Language coverage | 7/7 repos pass (Go, Python, TS, Rust, Java, C#). codegraph: 5/7 |
 

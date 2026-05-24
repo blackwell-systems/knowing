@@ -111,7 +111,7 @@ knowing context-for-task --task "<description>" --budget <tokens> --format json
 - Session state (first query vs repeated query on same repo)
 
 **Configuration:**
-- Token budget: match across all systems (default 5000 tokens)
+- Token budget: match across all systems (benchmark uses 5000 tokens for fair comparison; product default is 50000)
 - Format: JSON (for automated parsing; not GCF, to avoid format advantage)
 - No pre-existing feedback (cold start unless measuring learning curve)
 

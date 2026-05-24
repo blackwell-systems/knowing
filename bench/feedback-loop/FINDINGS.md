@@ -140,23 +140,23 @@ The improvement happens between round 1 and round 2, then plateaus. This is expe
 In production, compounding would continue longer because:
 - Varied queries across sessions produce different candidate pools
 - Symbols that receive positive feedback across MANY sessions accumulate stronger signals
-- The 0.15 weight with centered scoring means repeated negative feedback progressively buries noise
+- The asymmetric weights (pos=0.25, neg=0.05) mean positive feedback accumulates faster while repeated negative feedback still progressively buries noise
 - Community-scoped feedback (future work) would boost entire modules, expanding effective reach
 
 ### Feedback scoring model
 
-The scoring uses centered feedback: `0.15 * (2 * score - 1.0)` where score = useful/(useful+not_useful).
+The scoring uses asymmetric feedback weights: positive feedback (score >= 0.5) applies weight 0.25, negative feedback (score < 0.5) applies weight 0.05. The formula computes `weight * (2 * score - 1.0)` where score = useful/(useful+not_useful).
 
 | Feedback history | Score | Effect |
 |-----------------|-------|--------|
-| All positive (5/5 useful) | 1.0 | +0.15 boost |
-| Mostly positive (4/5) | 0.8 | +0.09 boost |
-| Mixed (3/5) | 0.6 | +0.03 boost |
+| All positive (5/5 useful) | 1.0 | +0.25 boost |
+| Mostly positive (4/5) | 0.8 | +0.15 boost |
+| Mixed (3/5) | 0.6 | +0.05 boost |
 | Neutral (no feedback) | 0.0 | no effect |
-| Mostly negative (1/5) | 0.2 | -0.09 penalty |
-| All negative (0/5) | 0.0 | -0.15 penalty |
+| Mostly negative (1/5) | 0.2 | -0.03 penalty |
+| All negative (0/5) | 0.0 | -0.05 penalty |
 
-This means negative feedback actively penalizes symbols, pushing irrelevant results below relevant ones. The 0.15 weight is large enough to reorder symbols that differ by <0.01 in RWR/HITS score (which is most of them in the current engine).
+This means negative feedback still penalizes symbols, pushing irrelevant results below relevant ones, but positive signal accumulates 5x faster than negative signal erodes. The positive weight of 0.25 is large enough to reorder symbols that differ by <0.01 in RWR/HITS score (which is most of them in the current engine).
 
 ---
 

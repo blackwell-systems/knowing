@@ -42,7 +42,7 @@ with the others.
 | Aider | 0.050 | - | - | - |
 | grep | 0.020 | 0.035 | 0.037 | 0.072 |
 
-**Verdict:** 11.3x precision advantage vs grep (p<0.0001, d=0.92, very large effect). 4.5x vs Aider. +60% cumulative from honest baseline.
+**Verdict:** 11x precision advantage vs grep (p<0.0001, d=0.92, very large effect). 4.3x vs Aider. +60% cumulative from honest baseline.
 
 Per-repo breakdown: Flask 0.336, Django 0.330, VS Code ~0.10, Kubernetes 0.184, Cargo 0.123. Optimization ceiling diagnosed: remaining ~77% miss rate requires feedback compounding (cold-start floor 0.226, compounded ceiling ~0.40).
 
@@ -130,13 +130,13 @@ Per-repo breakdown: Flask 0.336, Django 0.330, VS Code ~0.10, Kubernetes 0.184, 
 
 ## Known Limitations
 
-1. **Absolute precision is 22.6%.** knowing beats grep 11.3x but ~77% of returned symbols still don't match ground truth. Root cause: graph connectivity exhausted on small repos; channel balance matters more than algorithm quality (Run 22). Remaining miss rate requires feedback compounding or semantic understanding. Cold-start floor 0.226, compounded ceiling ~0.40.
+1. **Absolute precision is 21.7%.** knowing beats grep 11x but ~78% of returned symbols still don't match ground truth. Root cause: graph connectivity exhausted on small repos; channel balance matters more than algorithm quality (Run 22). Remaining miss rate requires feedback compounding or semantic understanding. Cold-start floor 0.217, compounded ceiling ~0.40.
 
 2. **Cold-start.** Feedback compounding (Dimension 3) requires usage. First-run precision is 22.6%, not 36%. Task memory now persists across restarts, but compounding requires repeated similar queries over time.
 
 3. **Go bias.** Most benchmarks validated on Go code (knowing dogfoods itself). Cross-system benchmark partially addresses this with Python, TypeScript, Rust, Java, C# repos (7 repos total).
 
-4. **Competitor coverage.** Benchmarked against Aider (4.5x less precise, file-level only), GitNexus (3x less precise, can't index enterprise repos), Gortex (2.3x less precise, 46x slower on k8s), and grep (baseline).
+4. **Competitor coverage.** Benchmarked against codegraph (1.63x less precise, 19K stars), Aider (4.3x less precise, file-level only), GitNexus (3x less precise, can't index enterprise repos), Gortex (2.3x less precise, 46x slower on k8s), codebase-memory (1.5x less precise, hangs on large repos), and grep (baseline).
 
 5. **Ground truth coverage.** 95% of ground truth symbols verified against DB (validate-fixtures tool). Remaining 5% are edge cases (external deps, inherited methods with name mismatches).
 

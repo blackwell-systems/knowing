@@ -216,7 +216,7 @@ context retrieval. Full proposal: [docs/proposals/code-retrieval-eval-toolkit.md
 ## Retrieval Pipeline
 
 Current results: see [bench/cross-system/FINDINGS.md](../bench/cross-system/FINDINGS.md).
-P@10=0.217 (Run 23), 1.63x vs codegraph, 4.5x vs Aider, 11.3x vs grep. Query latency 2ms on k8s (with adjacency cache).
+P@10=0.217 (Run 23), 1.63x vs codegraph, 4.3x vs Aider, 11x vs grep. Query latency 2ms on k8s (with adjacency cache).
 
 ### Retrieval Improvements
 
