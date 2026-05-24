@@ -29,6 +29,7 @@ package enrichment
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -51,10 +52,11 @@ import (
 type Enricher struct {
 	store         types.GraphStore
 	workspaceRoot string
-	client        *lsp.LSPClient
-	lspConfig     *LSPConfig // multi-language server config (nil = auto-detect)
-	concurrency   int        // max parallel LSP requests (default 8)
-	writeMu       sync.Mutex // serializes DB writes from concurrent discover workers
+	client        *lsp.LSPClient // legacy: kept for Close() compatibility; prefer passing client explicitly
+	lspConfig     *LSPConfig     // multi-language server config (nil = auto-detect)
+	concurrency   int            // max parallel LSP requests (default 8)
+	symbolTimeout time.Duration  // per-symbol LSP call timeout (default: DefaultSymbolTimeout)
+	writeMu       sync.Mutex     // serializes DB writes from concurrent discover workers
 }
 
 // NewEnricher creates an Enricher that will use the given store and
@@ -64,7 +66,13 @@ func NewEnricher(store types.GraphStore, workspaceRoot string) *Enricher {
 		store:         store,
 		workspaceRoot: workspaceRoot,
 		concurrency:   8,
+		symbolTimeout: DefaultSymbolTimeout,
 	}
+}
+
+// SetSymbolTimeout sets the per-symbol LSP call timeout.
+func (e *Enricher) SetSymbolTimeout(d time.Duration) {
+	e.symbolTimeout = d
 }
 
 // SetConcurrency sets the maximum number of parallel LSP requests.
@@ -171,7 +179,9 @@ func (e *Enricher) runFiltered(ctx context.Context, repoHash types.Hash, fileFil
 	return nil
 }
 
-// runForServer runs enrichment using a single language server.
+// runForServer runs enrichment using a single language server. For Go servers
+// with multiple modules (go.work), it delegates to runMultiModule which spawns
+// one gopls per module. For all other cases, a single server instance is used.
 func (e *Enricher) runForServer(ctx context.Context, serverCfg LSPServerConfig, repoHash types.Hash,
 	files []types.File, filePathByHash map[types.Hash]string, fileFilter func(string) bool) {
 
@@ -179,12 +189,19 @@ func (e *Enricher) runForServer(ctx context.Context, serverCfg LSPServerConfig, 
 		return
 	}
 
-	// Start the language server.
-	// Disable go.work so gopls uses only the top-level go.mod. Multi-module
-	// workspaces (e.g., kubernetes with 30+ modules) cause gopls to choke.
-	os.Setenv("GOWORK", "off")
-	defer os.Unsetenv("GOWORK")
+	// For Go language servers, check for multi-module workspace.
+	if serverCfg.LanguageID == "go" {
+		modules, err := DiscoverModules(e.workspaceRoot)
+		if err != nil {
+			log.Printf("enrichment: discover modules: %v", err)
+			// Fall through to single-server path on error.
+		} else if len(modules) > 1 {
+			e.runMultiModule(ctx, serverCfg, repoHash, files, filePathByHash, fileFilter, modules)
+			return
+		}
+	}
 
+	// Single-server path: start one LSP instance for the workspace root.
 	args := []string{}
 	if len(serverCfg.Command) > 1 {
 		args = serverCfg.Command[1:]
@@ -198,6 +215,15 @@ func (e *Enricher) runForServer(ctx context.Context, serverCfg LSPServerConfig, 
 	defer func() {
 		_ = e.Close(ctx)
 	}()
+
+	e.runForServerWithClient(ctx, client, serverCfg, repoHash, files, filePathByHash, fileFilter)
+}
+
+// runForServerWithClient runs the enrichment pipeline using a pre-created LSP client.
+// This is the core logic extracted from runForServer to allow reuse in multi-module mode.
+func (e *Enricher) runForServerWithClient(ctx context.Context, client *lsp.LSPClient,
+	serverCfg LSPServerConfig, repoHash types.Hash, files []types.File,
+	filePathByHash map[types.Hash]string, fileFilter func(string) bool) {
 
 	stats := &enrichStats{}
 
@@ -216,17 +242,100 @@ func (e *Enricher) runForServer(ctx context.Context, serverCfg LSPServerConfig, 
 
 	// Phase 1: Upgrade ast_inferred call edges. GetDefinition does not
 	// require didOpen; gopls resolves from its workspace index.
-	e.upgradeCallEdges(ctx, repoHash, filePathByHash, stats, langFilter)
+	e.upgradeCallEdges(ctx, client, repoHash, filePathByHash, stats, langFilter)
 
 	// Phase 2: Discover new edges. GetDocumentSymbols requires didOpen, so
 	// we open files in batches to limit memory pressure on the LSP server.
-	e.discoverNewEdgesBatched(ctx, files, filePathByHash, stats, langFilter, serverCfg.LanguageID)
+	e.discoverNewEdgesBatched(ctx, client, files, filePathByHash, stats, langFilter, serverCfg.LanguageID)
 
 	// Log summary.
 	log.Printf("enrichment complete (%s): %d edges processed, %d upgraded, %d skipped, %d errors, %d new edges discovered, %d files scanned, %d file errors",
 		serverCfg.LanguageID,
 		stats.edgesProcessed.Load(), stats.edgesUpgraded.Load(), stats.edgesSkipped.Load(), stats.edgeErrors.Load(),
 		stats.newEdges.Load(), stats.filesProcessed.Load(), stats.fileErrors.Load())
+}
+
+// runMultiModule spawns one gopls per module for multi-module Go workspaces.
+// Each module is enriched sequentially (one gopls at a time) to limit memory.
+// Progress is tracked so interrupted runs can resume.
+func (e *Enricher) runMultiModule(ctx context.Context, serverCfg LSPServerConfig,
+	repoHash types.Hash, files []types.File, filePathByHash map[types.Hash]string,
+	fileFilter func(string) bool, modules []ModuleInfo) {
+
+	progress, err := LoadProgress(e.workspaceRoot)
+	if err != nil {
+		log.Printf("enrichment: load progress: %v; starting fresh", err)
+		progress = &EnrichProgress{
+			Modules:   make(map[string]ModuleStatus),
+			StartedAt: time.Now(),
+		}
+	}
+
+	var enriched, skipped, errored int
+
+	for _, module := range modules {
+		if ctx.Err() != nil {
+			break
+		}
+
+		// Resume support: skip already-completed modules.
+		if progress.IsComplete(module.Name) {
+			skipped++
+			log.Printf("enrichment: skipping completed module %s", module.Name)
+			continue
+		}
+
+		// Filter files to this module.
+		moduleFiles := FilesForModule(files, module, e.workspaceRoot)
+		if len(moduleFiles) == 0 {
+			progress.MarkModule(module.Name, nil)
+			skipped++
+			continue
+		}
+
+		// Build module-scoped filePathByHash.
+		moduleFilePathByHash := make(map[types.Hash]string, len(moduleFiles))
+		for _, f := range moduleFiles {
+			moduleFilePathByHash[f.FileHash] = f.Path
+		}
+
+		// Start a gopls instance for this module's directory.
+		args := []string{}
+		if len(serverCfg.Command) > 1 {
+			args = serverCfg.Command[1:]
+		}
+		client := lsp.NewLSPClient(serverCfg.Command[0], args)
+		if err := client.Initialize(ctx, module.Dir); err != nil {
+			log.Printf("enrichment: start gopls for module %s: %v", module.Name, err)
+			progress.MarkModule(module.Name, err)
+			errored++
+			_ = SaveProgress(e.workspaceRoot, progress)
+			continue
+		}
+
+		// Build a module-scoped file filter.
+		moduleLangFilter := func(path string) bool {
+			if fileFilter != nil && !fileFilter(path) {
+				return false
+			}
+			return serverCfg.matchesFile(path)
+		}
+
+		e.runForServerWithClient(ctx, client, serverCfg, repoHash, moduleFiles, moduleFilePathByHash, moduleLangFilter)
+
+		// Shut down this module's gopls.
+		client.Shutdown(ctx)
+
+		progress.MarkModule(module.Name, nil)
+		enriched++
+
+		if err := SaveProgress(e.workspaceRoot, progress); err != nil {
+			log.Printf("enrichment: save progress: %v", err)
+		}
+	}
+
+	log.Printf("enrichment: multi-module summary: %d enriched, %d skipped (already complete), %d errored (of %d modules)",
+		enriched, skipped, errored, len(modules))
 }
 
 // Close shuts down the LSP client if running.
@@ -344,6 +453,7 @@ type edgeResolveResult struct {
 // serialized through a single writer goroutine to avoid SQLite lock contention.
 func (e *Enricher) upgradeCallEdges(
 	ctx context.Context,
+	client *lsp.LSPClient,
 	repoHash types.Hash,
 	filePathByHash map[types.Hash]string,
 	stats *enrichStats,
@@ -458,7 +568,16 @@ func (e *Enricher) upgradeCallEdges(
 
 			stats.edgesProcessed.Add(1)
 
-			locs, err := e.client.GetDefinition(ctx, item.uri, item.pos)
+			var locs []lsptypes.Location
+			err := WithSymbolTimeout(ctx, e.symbolTimeout, func(tctx context.Context) error {
+				var innerErr error
+				locs, innerErr = client.GetDefinition(tctx, item.uri, item.pos)
+				return innerErr
+			})
+			if errors.Is(err, ErrSymbolTimeout) {
+				stats.edgeErrors.Add(1)
+				return
+			}
 			if err != nil {
 				stats.edgeErrors.Add(1)
 				return
@@ -604,6 +723,7 @@ func isTestFile(path string) bool {
 // Within each batch, files are processed concurrently.
 func (e *Enricher) discoverNewEdgesBatched(
 	ctx context.Context,
+	client *lsp.LSPClient,
 	files []types.File,
 	filePathByHash map[types.Hash]string,
 	stats *enrichStats,
@@ -652,7 +772,7 @@ func (e *Enricher) discoverNewEdgesBatched(
 				continue
 			}
 			uri := "file://" + absPath
-			_ = e.client.OpenDocument(ctx, uri, string(content), languageID)
+			_ = client.OpenDocument(ctx, uri, string(content), languageID)
 		}
 
 		// Query symbols concurrently within the batch.
@@ -678,13 +798,13 @@ func (e *Enricher) discoverNewEdgesBatched(
 				stats.filesProcessed.Add(1)
 				uri := "file://" + filepath.Join(e.workspaceRoot, f.Path)
 
-				symbols, err := e.client.GetDocumentSymbols(ctx, uri)
+				symbols, err := client.GetDocumentSymbols(ctx, uri)
 				if err != nil {
 					stats.fileErrors.Add(1)
 					return
 				}
 
-				e.processSymbols(ctx, uri, symbols, f, filePathByHash, stats)
+				e.processSymbolsWithClient(ctx, client, uri, symbols, f, filePathByHash, stats)
 			}(batch[i])
 		}
 
@@ -693,7 +813,7 @@ func (e *Enricher) discoverNewEdgesBatched(
 		// Close this batch of files to release LSP server memory.
 		for _, f := range batch {
 			uri := "file://" + filepath.Join(e.workspaceRoot, f.Path)
-			_ = e.client.CloseDocument(ctx, uri)
+			_ = client.CloseDocument(ctx, uri)
 		}
 	}
 }
@@ -717,7 +837,7 @@ func symbolKindName(kind lsptypes.SymbolKind) string {
 }
 
 // processSymbols processes document symbols to discover implements and
-// references edges.
+// references edges. This is a legacy wrapper that uses e.client.
 func (e *Enricher) processSymbols(
 	ctx context.Context,
 	uri string,
@@ -738,8 +858,28 @@ func (e *Enricher) processSymbols(
 	e.processSymbolsWithSource(ctx, uri, symbols, file, filePathByHash, stats, sourceLines)
 }
 
+// processSymbolsWithClient processes document symbols using an explicit client
+// and per-symbol timeout.
+func (e *Enricher) processSymbolsWithClient(
+	ctx context.Context,
+	client *lsp.LSPClient,
+	uri string,
+	symbols []lsptypes.DocumentSymbol,
+	file types.File,
+	filePathByHash map[types.Hash]string,
+	stats *enrichStats,
+) {
+	var sourceLines []string
+	absPath := strings.TrimPrefix(uri, "file://")
+	if data, err := os.ReadFile(absPath); err == nil {
+		sourceLines = strings.Split(string(data), "\n")
+	}
+
+	e.processSymbolsWithSourceAndClient(ctx, client, uri, symbols, file, filePathByHash, stats, sourceLines)
+}
+
 // processSymbolsWithSource is the recursive implementation of processSymbols
-// that carries parsed source lines for position correction.
+// that carries parsed source lines for position correction. Uses e.client (legacy path).
 func (e *Enricher) processSymbolsWithSource(
 	ctx context.Context,
 	uri string,
@@ -773,6 +913,56 @@ func (e *Enricher) processSymbolsWithSource(
 
 		if len(sym.Children) > 0 {
 			e.processSymbolsWithSource(ctx, uri, sym.Children, file, filePathByHash, stats, sourceLines)
+		}
+	}
+}
+
+// processSymbolsWithSourceAndClient is the recursive implementation that uses
+// an explicit client and wraps LSP calls with WithSymbolTimeout.
+func (e *Enricher) processSymbolsWithSourceAndClient(
+	ctx context.Context,
+	client *lsp.LSPClient,
+	uri string,
+	symbols []lsptypes.DocumentSymbol,
+	file types.File,
+	filePathByHash map[types.Hash]string,
+	stats *enrichStats,
+	sourceLines []string,
+) {
+	for _, sym := range symbols {
+		if ctx.Err() != nil {
+			return
+		}
+
+		kind := symbolKindName(sym.Kind)
+		pos := resolveNamePosition(sym, sourceLines)
+
+		if kind == "type" || kind == "interface" {
+			var impls []lsptypes.Location
+			err := WithSymbolTimeout(ctx, e.symbolTimeout, func(tctx context.Context) error {
+				var innerErr error
+				impls, innerErr = client.GetImplementation(tctx, uri, pos)
+				return innerErr
+			})
+			if err == nil {
+				e.insertEdgesFromLocations(ctx, uri, pos, impls, "implements", file, stats)
+			}
+		}
+
+		if kind == "function" || kind == "method" {
+			var refs []lsptypes.Location
+			err := WithSymbolTimeout(ctx, e.symbolTimeout, func(tctx context.Context) error {
+				var innerErr error
+				refs, innerErr = client.GetReferences(tctx, uri, pos, false)
+				return innerErr
+			})
+			if err == nil {
+				e.insertEdgesFromLocations(ctx, uri, pos, refs, "references", file, stats)
+			}
+		}
+
+		if len(sym.Children) > 0 {
+			e.processSymbolsWithSourceAndClient(ctx, client, uri, sym.Children, file, filePathByHash, stats, sourceLines)
 		}
 	}
 }
