@@ -166,6 +166,7 @@ Per-repo breakdown: Flask 0.336, Django 0.330, VS Code ~0.10, Kubernetes 0.184, 
 | 20 | 2026-05-23 | Phantom external node fix | 0.185 | Spark Java 0.00->0.10 |
 | 21 | 2026-05-23 | WIP debug (weighted RWR, seed cap) | 0.101 | Regression: equiv channel noise masked by aggregate |
 | 22 | 2026-05-23 | **Equiv channel noise fix** | **0.226** | **+124% from regression, 4.5x vs Aider, channel balance** |
+| 23 | 2026-05-23 | **CodeGraph head-to-head** | **0.217** | **1.63x vs codegraph (19K stars), p=0.0006** |
 
 ## Competitive Comparison Summary (Run 23)
 
@@ -173,6 +174,7 @@ Per-repo breakdown: Flask 0.336, Django 0.330, VS Code ~0.10, Kubernetes 0.184, 
 |--------|------|-----------|---------------------|-----------------|-----------|
 | **knowing** | **0.217** | **18.6s** | **167ms** | **48x vs Repomix** | **200MB** |
 | codegraph (19K stars) | 0.133 | - | 805ms | - | - |
+| codebase-memory (2.6K stars) | 0.137 | N/A (hangs) | N/A (no incremental) | - | - |
 | Aider | 0.050 | N/A (file-level) | 3150ms (misses new symbols) | - | - |
 | Gortex | ~0.10 | 14.2 min | minutes (no incremental) | - | 14GB |
 | GitNexus | 0.076 | >60 min (killed) | minutes (full re-analyze) | - | 5.7GB |
@@ -180,11 +182,7 @@ Per-repo breakdown: Flask 0.336, Django 0.330, VS Code ~0.10, Kubernetes 0.184, 
 
 ## Next Steps (priority order)
 
-1. **Blog post / publication** (all competitive data collected, whitepaper updated)
-2. **Channel balance regression test** (prevent Run 22 class of regression)
-3. **LSP enrichment ROI measurement** (quantify enrichment vs fresh-index delta)
-4. **Embedding model evaluation** (code-tuned model for semantic matching)
-5. ~~**codebase-memory-mcp adapter**~~ Done. P@10=0.137 (knowing 1.51x better). Times out on large repos.
+1. **Blog post / publication** (all competitive data collected, blog draft written)
 
 
 ## Reproducing

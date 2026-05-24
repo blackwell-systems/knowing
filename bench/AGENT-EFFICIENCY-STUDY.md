@@ -6,7 +6,7 @@ methodology, results, interpretation, and what each result teaches us about the
 product.
 
 **Related benchmarks:**
-- [Cross-system retrieval](cross-system/FINDINGS.md) (P@10=0.226, 11.3x vs grep, 4.5x vs Aider)
+- [Cross-system retrieval](cross-system/FINDINGS.md) (P@10=0.217, 1.63x vs codegraph, 4.3x vs Aider, 11x vs grep)
 - [Context packing study](CONTEXT-PACKING-STUDY.md) (umbrella evaluation program)
 - [Hook benchmark](../hooks/FINDINGS.md) (33% precision, 100% coverage)
 - [Feedback loop](feedback-loop/FINDINGS.md) (+20pp compounding)
@@ -216,8 +216,9 @@ It's:
 
 | Claim | Evidence | Source |
 |-------|----------|--------|
-| 11.5x more precise than grep at scale | P@10=0.230 vs 0.020, p<0.0001, d=0.92 | cross-system/ |
-| 2.75x more precise than GitNexus | P@10=0.230 vs 0.076, p=0.0003, d=0.50 | cross-system/ |
+| 1.63x more precise than codegraph (19K stars) | P@10=0.217 vs 0.133, p=0.0006, d=0.36 | cross-system/ |
+| 11x more precise than grep at scale | P@10=0.217 vs 0.020, p<0.0001, d=0.92 | cross-system/ |
+| 2.9x more precise than GitNexus | P@10=0.217 vs 0.076, p=0.0003, d=0.50 | cross-system/ |
 | 46x faster indexing than Gortex on k8s | 18.6s vs 14.2 min | cross-system/ |
 | 98.9% test scope prediction | Call-graph BFS vs independent Go import DAG | test-scope-accuracy/ |
 | +20pp precision from feedback | Single round of ground-truth feedback | feedback-loop/ |
