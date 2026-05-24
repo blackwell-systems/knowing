@@ -76,7 +76,7 @@ knowing's value is NOT "answer single questions faster." It is:
 
 2. **Surface connections the agent wouldn't find.** grep finds what you ask for.
    knowing finds what you didn't know to ask for (transitive callers, affected tests,
-   cross-package impacts). This is the 11.5x P@10 advantage over grep.
+   cross-package impacts). This is the 11x P@10 advantage over grep.
 
 3. **Compound over time.** First session is cold-start. Second session benefits from
    task memory. Fifth session benefits from accumulated feedback. The single-turn
@@ -214,7 +214,7 @@ answering questions about a 160K LOC Go codebase.** Sonnet is already excellent 
 this with grep.
 
 knowing's proven value is:
-- Retrieval quality at scale (11.5x vs grep on k8s, p<0.0001)
+- Retrieval quality at scale (11x vs grep on k8s, p<0.0001)
 - Automatic context injection (hooks: 100% coverage, zero agent effort)
 - Test scope prediction (98.9% precision)
 - Feedback compounding (+20pp over time)

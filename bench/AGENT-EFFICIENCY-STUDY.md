@@ -299,7 +299,7 @@ Benchmark: `bench/agent-efficiency/phase2_test.go`
 
 Run the same tasks against kubernetes where grep returns noise. Expected: knowing
 surfaces relevant symbols while grep drowns in false positives. This directly
-translates the 11.5x P@10 advantage into agent-measurable tool call savings.
+translates the 11x P@10 advantage into agent-measurable tool call savings.
 
 **Blocked by:** Need kubernetes indexed and task fixtures written for that repo.
 Already have the corpus (`bench/cross-system/corpus/repos/kubernetes/`).
@@ -414,7 +414,7 @@ cannot:
 | "What inherits from X?" | **knowing** | Edge traversal across levels |
 | "Is this route used?" | **knowing** | Static + runtime edge comparison |
 
-The cross-system benchmark's 11.5x advantage comes from the "ranked structural
+The cross-system benchmark's 11x advantage comes from the "ranked structural
 neighborhood" case (context_for_task), not from "find callers." The agent efficiency
 benchmark has been testing the wrong query type.
 
@@ -539,7 +539,7 @@ Publishing negative results builds credibility. No competitor does this.
 ### On product positioning
 
 knowing is not "grep but slower." It's:
-- A retrieval engine for large/ambiguous codebases (proven: 11.5x at scale)
+- A retrieval engine for large/ambiguous codebases (proven: 11x at scale)
 - An automatic context layer (proven: hooks, 100% coverage)
 - A learning system (proven: +20pp compounding)
 - An integrity primitive (proven: Merkle proofs, 72us generate, 1.2us verify)
@@ -547,7 +547,7 @@ knowing is not "grep but slower." It's:
 
 The value prop for a 160K LOC Go repo is the hooks (invisible, automatic) and
 compounding (gets better over time). The value prop for kubernetes-scale repos
-is retrieval quality (11.5x). Both are proven; just by different benchmarks.
+is retrieval quality (11x). Both are proven; just by different benchmarks.
 
 ### On the right benchmark for the right claim
 
