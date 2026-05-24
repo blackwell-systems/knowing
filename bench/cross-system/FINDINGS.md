@@ -772,13 +772,16 @@ same recall in far fewer tokens.
 
 **Per-repo breakdown:**
 
-| Repo | knowing P@10 | codegraph P@10 | knowing advantage |
-|------|-------------|----------------|-------------------|
-| Flask | 0.307 | 0.207 | 1.48x |
-| Django | 0.277 | 0.123 | 2.25x |
-| Cargo | 0.140 | 0.080 | 1.75x |
-| Kubernetes | 0.184 | 0.095 | 1.94x |
-| VS Code | 0.060 | 0.067 | 0.90x (codegraph wins) |
+| Repo | knowing P@10 | codegraph P@10 | knowing advantage | Notes |
+|------|-------------|----------------|-------------------|-------|
+| Cross-cutting | 0.311 | 0.078 | **4.00x** | Multi-package tasks, RWR walks freely |
+| Kubernetes | 0.247 | 0.126 | **1.96x** | 3.5M LOC, ambiguous names |
+| Django | 0.230 | 0.136 | **1.69x** | Deep inheritance chains |
+| Cargo | 0.115 | 0.085 | 1.36x | Rust module system |
+| Flask | 0.271 | 0.207 | 1.31x | Small, well-structured |
+| VS Code | 0.147 | 0.137 | 1.08x | Nearly tied (both use tree-sitter) |
+| Spark | 0.220 | -- | -- | codegraph failed (Java) |
+| Ocelot | 0.120 | -- | -- | codegraph failed (C#) |
 
 **Interpretation:**
 - knowing wins on 6/7 repos, loses narrowly on VS Code
