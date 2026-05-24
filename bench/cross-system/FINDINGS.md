@@ -372,3 +372,30 @@ deterministic (same edges produce same cache), so it never needs invalidation ex
 on re-index. The Merkle snapshot hash gates staleness detection.
 
 Benchmark: `bench/time-to-consistency/TestK8sLatency_CacheComparison`
+
+### Determinism: Output Reproducibility (2026-05-24)
+
+Same task queried 10 times per system on Flask. Counts unique outputs.
+
+| System | Task 1 | Task 2 | Task 3 | Verdict |
+|--------|--------|--------|--------|---------|
+| **knowing** | 1 | 1 | 1 | **DETERMINISTIC** |
+| codegraph | 1 | 1 | 1 | DETERMINISTIC |
+| Gortex | 1 | 1 | 1 | DETERMINISTIC |
+| Aider | 3 | 3 | 3 | NON-DETERMINISTIC |
+| GitNexus | 7 | 9 | 8 | **WILDLY NON-DETERMINISTIC** |
+
+**GitNexus gives a different answer almost every time you ask.** 7-9 unique outputs
+in 10 runs of the same query. Aider varies moderately (3 unique per task, likely
+Python dict ordering or PageRank tie-breaking).
+
+knowing's determinism is structural: content-addressed PackRoot guarantees the same
+input produces the same output. codegraph and Gortex are also deterministic (stateless
+FTS queries return consistent results).
+
+**Why this matters for agents:** A non-deterministic context system means the agent's
+behavior depends on *when* it asks, not *what* it asks. Two identical prompts produce
+different context, leading to different code suggestions. This makes debugging agent
+behavior impossible and regression testing meaningless.
+
+Benchmark: `bench/cross-system/TestDeterminism`
