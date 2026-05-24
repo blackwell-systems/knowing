@@ -28,8 +28,9 @@ GOWORK=off go test ./bench/cross-system/ -run TestCrossSystem -v -timeout 30m
 |--------|------|----------|
 | **knowing** | Content-addressed graph + RWR | Always available (it's us) |
 | **grep** (baseline) | Raw ripgrep pattern search | `rg` on PATH |
+| **codegraph** (19K stars) | Tree-sitter + FTS5 + heuristic scoring | `npm install -g @colbymchenry/codegraph` |
+| **Aider** (~20K stars) | PageRank repo-map (file-level) | `pip install aider-chat` |
 | **GitNexus** | Knowledge graph MCP | `npm install -g gitnexus` |
-| **Aider** | PageRank repo-map | `pip install aider-chat` |
 | **CGC** | Graph DB (KuzuDB) MCP | `pip install codegraphcontext` |
 
 Only installed systems are benchmarked. Missing systems are reported as "unavailable."
