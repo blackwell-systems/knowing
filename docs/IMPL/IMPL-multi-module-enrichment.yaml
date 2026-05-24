@@ -517,7 +517,7 @@ waves:
             - A
             - B
             - C
-      base_commit: 727a3efd23c74cc314f8d5a30ce3bc9d0a242c82
+      base_commit: de2b55a8dea7e0b76c01f0c1fe4e0bc41b46e7f0
 quality_gates:
     level: standard
     gates:
