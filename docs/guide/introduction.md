@@ -268,6 +268,45 @@ MerkleNode   = SHA-256("merkle\0"   + leftChild + rightChild)
 
 The `\0` (null byte) separates the prefix from the data. This is the same pattern git uses: git hashes files as `"blob <size>\0<content>"`. The prefix makes it structurally impossible for a node hash to collide with an edge hash, because their inputs always start with different bytes.
 
+### The four hashed entity types
+
+knowing's content-addressed universe consists of exactly four types. The first three (nodes, edges, snapshots) are **domain objects**: they represent code and its relationships. The fourth (Merkle interior nodes) is **structural**: it exists solely for efficient verification and diffing, not to represent any code entity.
+
+#### 1. Nodes
+
+**Hash formula:** `sha256("node\0" + repoURL + qualifiedName + kind)`
+
+A node represents a code symbol: a function, type, method, variable, route, table, or topic. The hash uniquely identifies this symbol across all repositories. Two developers indexing the same repo at the same commit produce the same node hashes because identity is derived entirely from the symbol's location and kind. Renaming a function or moving it to a different package produces a new hash (it is now a different node).
+
+#### 2. Edges
+
+**Hash formula:** `sha256("edge\0" + sourceHash + targetHash + edgeType + provenance)`
+
+An edge represents a relationship between two nodes: calls, imports, implements, references, similar_to, authored_by, and 24 others. The provenance (discovery method) is part of the hash because the same relationship discovered by different methods (tree-sitter vs LSP vs runtime trace) produces different edges with different confidence levels. This is intentional: a tree-sitter guess at confidence 0.7 and an LSP confirmation at confidence 0.9 are tracked as the same edge (same source, target, type, provenance category), but a runtime-observed call is a distinct edge from a statically-inferred one, because the evidence is fundamentally different.
+
+#### 3. Snapshots
+
+**Hash formula:** Merkle root of all edge hashes in the repository at index time.
+
+A snapshot represents the complete state of a repository's graph at a point in time. It is the top of the Merkle tree: one 32-byte value that summarizes every relationship in the repository. Comparing two snapshot hashes tells you instantly whether anything changed (O(1) equality check). If they match, the entire graph is identical. If they differ, you descend the tree to find what changed. Each snapshot is tied to a git commit SHA, creating an auditable chain of graph states over time.
+
+#### 4. Merkle tree interior nodes
+
+**Hash formula:** `sha256("merkle\0" + leftChildHash + rightChildHash)`
+
+These are NOT code entities. They exist only for integrity verification and efficient diffing. The tree is hierarchical: leaves are edge hashes (Level 1), Level 2 groups edges by package into subgraph roots, and Level 3 is the repository root (the snapshot hash). Interior nodes enable O(log n) diff: to find which packages changed between two snapshots, compare Level 2 hashes; only descend into children that differ. This is how knowing achieves 167ms time-to-consistency: it does not recompute unchanged packages. Interior nodes also provide the sibling hashes needed for Merkle inclusion and absence proofs.
+
+#### Summary
+
+| Type | Hash inputs | Represents | Purpose |
+|---|---|---|---|
+| **Node** | repoURL + qualifiedName + kind | A code symbol | Unique identity for any symbol across all repos |
+| **Edge** | sourceHash + targetHash + edgeType + provenance | A relationship between symbols | Track every connection, with provenance-aware deduplication |
+| **Snapshot** | Merkle root of all edges | Complete graph state at a point in time | O(1) change detection, audit anchoring, cache keys |
+| **Merkle interior node** | leftChildHash + rightChildHash | Nothing in the domain (structural only) | O(log n) diffing, proof generation, scoped cache invalidation |
+
+The key architectural insight: nodes, edges, and snapshots model the problem domain (code and its relationships). Merkle interior nodes model the verification and query optimization structure layered on top. Consumers of the graph interact with the first three; the fourth is invisible infrastructure that makes the system fast and provable.
+
 ### A worked example
 
 Say you have a function `CreateOwner` in package `petclinic/owner` in repo `github.com/spring-projects/spring-petclinic`:
