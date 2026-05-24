@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
@@ -11,7 +12,9 @@ import (
 const progressFileName = "enrich-progress.json"
 
 // EnrichProgress tracks per-module enrichment completion.
+// All methods are safe for concurrent use.
 type EnrichProgress struct {
+	mu        sync.Mutex
 	Modules   map[string]ModuleStatus `json:"modules"`
 	StartedAt time.Time               `json:"started_at"`
 }
@@ -76,6 +79,8 @@ func SaveProgress(workspaceRoot string, p *EnrichProgress) error {
 // MarkModule records the result of enriching a module. If err is nil,
 // the module is marked as completed. Otherwise, the error message is stored.
 func (p *EnrichProgress) MarkModule(modulePath string, err error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	status := ModuleStatus{
 		UpdatedAt: time.Now(),
 	}
@@ -89,12 +94,16 @@ func (p *EnrichProgress) MarkModule(modulePath string, err error) {
 
 // IsComplete returns true if the module has been successfully enriched.
 func (p *EnrichProgress) IsComplete(modulePath string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	s, ok := p.Modules[modulePath]
 	return ok && s.Completed
 }
 
 // Reset clears all progress (used when a fresh run is requested).
 func (p *EnrichProgress) Reset() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.Modules = make(map[string]ModuleStatus)
 	p.StartedAt = time.Now()
 }

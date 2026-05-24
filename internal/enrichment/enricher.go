@@ -260,8 +260,10 @@ func (e *Enricher) runForServerWithClient(ctx context.Context, client *lsp.LSPCl
 		stats.newEdges.Load(), stats.filesProcessed.Load(), stats.fileErrors.Load())
 }
 
-// runMultiModule spawns one gopls per module for multi-module Go workspaces.
-// Each module is enriched sequentially (one gopls at a time) to limit memory.
+// runMultiModule spawns gopls instances for multi-module Go workspaces.
+// The root module (largest) is processed first solo, then remaining sub-modules
+// are processed in parallel (up to 4 concurrent gopls instances) since they're
+// typically small (200-500 files each).
 // Progress is tracked so interrupted runs can resume.
 func (e *Enricher) runMultiModule(ctx context.Context, serverCfg LSPServerConfig,
 	repoHash types.Hash, files []types.File, filePathByHash map[types.Hash]string,
@@ -276,72 +278,124 @@ func (e *Enricher) runMultiModule(ctx context.Context, serverCfg LSPServerConfig
 		}
 	}
 
-	var enriched, skipped, errored int
+	var enriched, skipped, errored atomic.Int64
 
-	for i, module := range modules {
-		if ctx.Err() != nil {
-			break
-		}
-
-		// Resume support: skip already-completed modules.
-		if progress.IsComplete(module.Name) {
-			skipped++
-			continue
-		}
-
-		log.Printf("enrichment: module [%d/%d] %s (%d files)", i+1, len(modules), module.Name, len(FilesForModule(files, module, e.workspaceRoot)))
-
-		// Filter files to this module.
-		moduleFiles := FilesForModule(files, module, e.workspaceRoot)
-		if len(moduleFiles) == 0 {
-			progress.MarkModule(module.Name, nil)
-			skipped++
-			continue
-		}
-
-		// Build module-scoped filePathByHash.
-		moduleFilePathByHash := make(map[types.Hash]string, len(moduleFiles))
-		for _, f := range moduleFiles {
-			moduleFilePathByHash[f.FileHash] = f.Path
-		}
-
-		// Start a gopls instance for this module's directory.
-		args := []string{}
-		if len(serverCfg.Command) > 1 {
-			args = serverCfg.Command[1:]
-		}
-		client := lsp.NewLSPClient(serverCfg.Command[0], args)
-		if err := client.Initialize(ctx, module.Dir); err != nil {
-			log.Printf("enrichment: start gopls for module %s: %v", module.Name, err)
-			progress.MarkModule(module.Name, err)
-			errored++
-			_ = SaveProgress(e.workspaceRoot, progress)
-			continue
-		}
-
-		// Build a module-scoped file filter.
-		moduleLangFilter := func(path string) bool {
-			if fileFilter != nil && !fileFilter(path) {
-				return false
-			}
-			return serverCfg.matchesFile(path)
-		}
-
-		e.runForServerWithClient(ctx, client, serverCfg, repoHash, moduleFiles, moduleFilePathByHash, moduleLangFilter)
-
-		// Shut down this module's gopls.
-		client.Shutdown(ctx)
-
-		progress.MarkModule(module.Name, nil)
-		enriched++
-
-		if err := SaveProgress(e.workspaceRoot, progress); err != nil {
-			log.Printf("enrichment: save progress: %v", err)
+	// Separate root module (workspace root) from sub-modules.
+	// Root is processed solo first (large, memory-intensive).
+	var rootModule *ModuleInfo
+	var subModules []ModuleInfo
+	for i := range modules {
+		if filepath.Clean(modules[i].Dir) == filepath.Clean(e.workspaceRoot) {
+			rootModule = &modules[i]
+		} else {
+			subModules = append(subModules, modules[i])
 		}
 	}
 
+	// Process root module first (solo, to limit peak memory).
+	if rootModule != nil {
+		e.enrichModule(ctx, serverCfg, repoHash, files, fileFilter, *rootModule, progress, &enriched, &skipped, &errored, 1, len(modules))
+	}
+
+	// Process sub-modules in parallel (4 concurrent gopls instances).
+	// Sub-modules are small (~200-500 files), so 4 simultaneous gopls
+	// instances use ~800MB total (vs 1.2GB for the root alone).
+	const moduleParallelism = 4
+	if len(subModules) > 0 {
+		log.Printf("enrichment: processing %d sub-modules (%d parallel)", len(subModules), moduleParallelism)
+
+		modSem := make(chan struct{}, moduleParallelism)
+		var modWg sync.WaitGroup
+
+		for i := range subModules {
+			if ctx.Err() != nil {
+				break
+			}
+
+			modWg.Add(1)
+			modSem <- struct{}{}
+
+			go func(mod ModuleInfo, idx int) {
+				defer modWg.Done()
+				defer func() { <-modSem }()
+
+				if ctx.Err() != nil {
+					return
+				}
+
+				// idx+2 because root is [1/N]
+				e.enrichModule(ctx, serverCfg, repoHash, files, fileFilter, mod, progress, &enriched, &skipped, &errored, idx+2, len(modules))
+			}(subModules[i], i)
+		}
+
+		modWg.Wait()
+	}
+
 	log.Printf("enrichment: multi-module summary: %d enriched, %d skipped (already complete), %d errored (of %d modules)",
-		enriched, skipped, errored, len(modules))
+		enriched.Load(), skipped.Load(), errored.Load(), len(modules))
+}
+
+// enrichModule processes a single module: starts gopls, runs enrichment, shuts down.
+// Thread-safe: can be called from multiple goroutines (progress uses internal sync).
+func (e *Enricher) enrichModule(ctx context.Context, serverCfg LSPServerConfig,
+	repoHash types.Hash, files []types.File, fileFilter func(string) bool,
+	module ModuleInfo, progress *EnrichProgress,
+	enriched, skipped, errored *atomic.Int64, position, total int) {
+
+	// Resume support: skip already-completed modules.
+	if progress.IsComplete(module.Name) {
+		skipped.Add(1)
+		return
+	}
+
+	moduleFiles := FilesForModule(files, module, e.workspaceRoot)
+	if len(moduleFiles) == 0 {
+		progress.MarkModule(module.Name, nil)
+		skipped.Add(1)
+		return
+	}
+
+	log.Printf("enrichment: module [%d/%d] %s (%d files)", position, total, module.Name, len(moduleFiles))
+
+	// Build module-scoped filePathByHash.
+	moduleFilePathByHash := make(map[types.Hash]string, len(moduleFiles))
+	for _, f := range moduleFiles {
+		moduleFilePathByHash[f.FileHash] = f.Path
+	}
+
+	// Start a gopls instance for this module's directory.
+	args := []string{}
+	if len(serverCfg.Command) > 1 {
+		args = serverCfg.Command[1:]
+	}
+	client := lsp.NewLSPClient(serverCfg.Command[0], args)
+	if err := client.Initialize(ctx, module.Dir); err != nil {
+		log.Printf("enrichment: start gopls for module %s: %v", module.Name, err)
+		progress.MarkModule(module.Name, fmt.Errorf("gopls start: %w", err))
+		errored.Add(1)
+		_ = SaveProgress(e.workspaceRoot, progress)
+		return
+	}
+
+	// Build a module-scoped file filter.
+	moduleLangFilter := func(path string) bool {
+		if fileFilter != nil && !fileFilter(path) {
+			return false
+		}
+		return serverCfg.matchesFile(path)
+	}
+
+	e.runForServerWithClient(ctx, client, serverCfg, repoHash, moduleFiles, moduleFilePathByHash, moduleLangFilter)
+
+	// Shut down this module's gopls.
+	client.Shutdown(ctx)
+
+	progress.MarkModule(module.Name, nil)
+	enriched.Add(1)
+
+	if err := SaveProgress(e.workspaceRoot, progress); err != nil {
+		log.Printf("enrichment: save progress: %v", err)
+	}
 }
 
 // Close shuts down the LSP client if running.

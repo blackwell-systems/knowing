@@ -135,10 +135,98 @@ A code graph has two things:
 [OwnerRepository] --implements--> [Repository interface]
 ```
 
-Every edge carries metadata:
-- **Type**: what kind of relationship (calls, imports, implements)
-- **Confidence**: how sure we are (0.7 = tree-sitter inferred, 0.95 = LSP resolved, 1.0 = SCIP confirmed)
-- **Provenance**: who discovered it (which extractor, at which commit)
+Every entity in the graph is content-addressed via SHA-256. The hash formulas (covered in detail in the next section) are:
+
+- **Node hash** = `sha256("node\0" + repoURL + packagePath + qualifiedName + kind)`
+- **Edge hash** = `sha256("edge\0" + sourceHash + targetHash + edgeType + provenance)`
+- **File hash** = `sha256(file content)`
+- **Snapshot hash** = Merkle root of all edge hashes (hierarchical tree over the full graph)
+
+This means identity is derived from content. Same relationship on any machine produces the same hash. Different relationship produces a different hash. No assigned IDs, no coordination, no ambiguity.
+
+### Node metadata
+
+Each node carries:
+
+| Field | Description |
+|---|---|
+| `qualified_name` | Fully qualified symbol name (e.g., `github.com/org/repo/pkg.FuncName`) |
+| `kind` | Symbol type: function, method, type, interface, variable, route, table, topic, config |
+| `file_hash` | SHA-256 of the file content at time of indexing; changes when the file changes |
+| `line` | Line number in the source file where the symbol is defined |
+| `signature` | Type signature or function prototype (language-dependent) |
+| `last_author` | Git blame author of the line where the symbol is defined |
+| `last_commit_ts` | Timestamp of the most recent commit touching the symbol's definition |
+
+The file hash links a node to a specific file state. When a file is re-indexed, its new hash is compared against the stored hash. If they differ, all nodes in that file are re-extracted. If they match, the file is skipped entirely (no re-parsing needed).
+
+### Edge metadata
+
+Each edge carries:
+
+| Field | Description |
+|---|---|
+| `type` | Relationship kind: calls, imports, implements, references, similar_to, etc. (30 types total) |
+| `confidence` | Float 0.0 to 1.0 indicating certainty of the relationship |
+| `provenance` | Discovery method: `ast_inferred`, `lsp_resolved`, `git_blame`, `similarity`, `runtime` |
+| `file` | Source file where the call site exists |
+| `line` | Line number of the call site |
+| `col` | Column number of the call site |
+
+The call site location (file, line, col) lets consumers jump directly to where the relationship is expressed in source code.
+
+### Provenance tiers
+
+Provenance is not just a label; it implies a confidence floor:
+
+| Provenance | Confidence floor | Meaning |
+|---|---|---|
+| `ast_inferred` | 0.7 | Tree-sitter parsed the syntax and inferred a relationship. No type resolution. May be wrong if a local variable shadows a package name. |
+| `lsp_resolved` | 0.9 | A language server (gopls, pyright, rust-analyzer) resolved the call site to a concrete symbol with full type information. Nearly certain. |
+| `runtime` | 1.0 | Observed in production via OpenTelemetry trace or runtime instrumentation. The relationship definitely exists at runtime. |
+| `git_blame` | 0.8 | Derived from git history (authored_by edges, temporal co-change). Reliable but reflects past state. |
+| `similarity` | 0.6 | Embedding-based similarity detected structural resemblance. Useful for discovery, not proof. |
+
+When a higher-tier extractor confirms a relationship already found by a lower-tier extractor, the confidence is upgraded in place. The edge hash remains the same (same source, target, type, provenance), but the mutable confidence field reflects the stronger signal. Consumers can filter by confidence threshold to control precision vs. recall.
+
+### Snapshots and the snapshot chain
+
+Each index run produces a new **snapshot**. A snapshot is a single hash (the Merkle root of all edge hashes in the hierarchical tree) tied to a git commit SHA. It represents the complete state of the graph at that point in time.
+
+The snapshot chain is the sequence of snapshots across index runs:
+
+```
+Snapshot S1 (commit abc123) -> Snapshot S2 (commit def456) -> Snapshot S3 (commit 789ghi)
+```
+
+Diffing two snapshots reveals exactly what changed between them: new edges added, edges removed, confidence upgrades. The diff is O(packages) because only packages with differing Merkle roots need investigation (see the hierarchical tree section below).
+
+This enables:
+- **Incremental processing:** only re-process files whose hashes changed since the last snapshot.
+- **Temporal queries:** "when did this call edge first appear?" Walk the snapshot chain backward.
+- **Audit trails:** "prove the graph state at commit X." The snapshot hash is the proof anchor.
+
+### Edge events
+
+Every edge creation and deletion is recorded as a timestamped **event**:
+
+```
+{ action: "created", edge_hash: "7b3c...", snapshot: "S2", timestamp: "2024-01-15T10:32:00Z" }
+{ action: "deleted", edge_hash: "a27e...", snapshot: "S3", timestamp: "2024-01-16T08:11:00Z" }
+```
+
+Edge events enable temporal analysis: "when did service A stop calling service B?", "how many new call edges appeared in the last week?", "which edges are churn-heavy (created and deleted repeatedly)?" The event log is append-only; events are never modified after creation.
+
+### Why content-addressing matters (summary)
+
+The content-addressed design gives four structural properties that pervade the system:
+
+1. **Deduplication.** The same symbol or relationship, discovered by multiple extractors or across multiple index runs, produces the same hash. Store once, reference everywhere.
+2. **Integrity verification.** Recompute any hash from its inputs. If it matches, the data is uncorrupted. This works recursively up to the snapshot root.
+3. **Incremental diffing.** Compare two snapshot hashes: if equal, nothing changed. If different, walk the tree to find exactly what changed. No full scans.
+4. **Merkle proofs for audit trails.** Any edge's existence (or absence) in a snapshot can be proven with a small proof file (under 1KB) that verifies offline using only SHA-256.
+
+The next section ("Why Content-Addressing") covers the mechanics in depth: domain prefixes, worked examples, cache implications, and what happens when extractors are wrong.
 
 The graph represents what your codebase *understands about itself*: who calls what, who depends on what, what routes exist, what runtime traffic looks like.
 
