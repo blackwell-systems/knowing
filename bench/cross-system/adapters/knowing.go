@@ -55,6 +55,11 @@ func (a *Knowing) Index(repoPath string) (int64, error) {
 	existing, _ := community.LoadAssignments(ctx, s)
 	if len(existing) == 0 {
 		if nodes, err := s.NodesByName(ctx, "%"); err == nil && len(nodes) > 0 {
+			// Cap community detection to 5000 nodes for large repos.
+			// Loading 253K+ node adjacency lists is too slow for benchmarks.
+			if len(nodes) > 5000 {
+				nodes = nodes[:5000]
+			}
 			nodeSet := make(map[types.Hash]bool, len(nodes))
 			nodeHashes := make([]types.Hash, len(nodes))
 			for i, n := range nodes {
@@ -64,9 +69,6 @@ func (a *Knowing) Index(repoPath string) (int64, error) {
 			adj := make(map[types.Hash][]community.WeightedEdge, len(nodes))
 			edgeCount := 0
 			maxNodes := len(nodes)
-			if maxNodes > 5000 {
-				maxNodes = 5000
-			}
 			for i := 0; i < maxNodes; i++ {
 				edges, err := s.EdgesFrom(ctx, nodes[i].NodeHash, "")
 				if err != nil {
