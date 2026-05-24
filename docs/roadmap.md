@@ -134,7 +134,7 @@ Current status: per-repo isolation (no cross-repo queries). First real user who 
 
 | Item | Description | Priority |
 |------|-------------|----------|
-| **Merkle-driven incremental reindex** | Use `DiffHierarchicalTrees` -> `ChangedPackages` to scope reindexing to only changed subtrees. Currently daemon uses git diff -> `IndexFile` per changed file. Merkle path: diff identifies stale packages at O(packages) -> only reindex those files -> `RebuildFTSForPackages` -> incremental community detection. All pieces exist individually, just not wired together. This is a structural retrieval quality advantage: Merkle-scoped reindex keeps the graph fresher with less work than file-level git diff, meaning rankings stay accurate without full reindex. The tree knows package boundaries and semantic staleness, not just file modification time. | P1 |
+| **Merkle-driven incremental reindex** | `DiffHierarchicalTrees` -> `ChangedPackages` -> scoped `RebuildFTSForPackages` + `runIncrementalCommunities` + cache invalidation. All wired in daemon. | **Shipped** |
 | **Cross-repo context_for_task** | Search across ALL indexed repos simultaneously, not just one. Real projects span multiple repos (monorepo patterns, microservices). Merge results from all repos into one ranked list. See "Cross-Repo Query Architecture" section below. | P2 |
 | **Incremental context ("next page")** | After an agent gets initial context, allow requesting the NEXT N symbols not yet seen. Avoids re-querying with bigger budget and getting duplicates. Session-stateful cursor. | P2 |
 | **GCF-encoded context pack cache** | Context packs in `graph_notes` are stored as JSON. Storing as GCF would be ~6x smaller and skip re-encoding on MCP response. | P2 |
