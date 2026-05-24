@@ -86,18 +86,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Default 8 parallel requests per module; configurable via `-enrich-concurrency N` on `index` and `reindex`
 - Skip-resolved: edges already at `lsp_resolved` provenance are not re-processed
 - Batched file discovery (50 files at a time, no bulk didOpen)
-- **k8s result**: 7,618 edges upgraded from ast_inferred (0.7) to lsp_resolved (0.9). Previously: 0 (gopls crashed)
-- **Indexer fix**: `go.work` `use` directives override default skip patterns (indexes k8s staging: 253K nodes, 614K edges)
+- **k8s result**: 57,441 edges upgraded to lsp_resolved (0.9). Previously: 0 (gopls crashed)
 - Workspace root resolved to absolute path (fixes gopls "no views" error on relative paths)
+- Cross-module edge attenuation in RWR (0.3x for transitions between top-level directories)
+- Repo-scoped search filtering via `TaskOptions.RepoURL` (prevents cross-repo noise in multi-module DBs)
 
 ### Changed
 
-#### LSP enrichment ROI measured (neutral result, confirmed at enterprise scale)
+#### LSP enrichment ROI measured (neutral for P@10, confirmed at enterprise scale)
 - Flask/Django: identical P@10 with and without enrichment (previously measured)
-- k8s at scale: P@10 0.179 with enrichment (7,618 lsp_resolved edges) vs 0.181 without. Flat.
-- Upgrading 1.2% of edges from confidence 0.7 to 0.9 does not change RWR ranking order
-- Conclusion: enrichment is infrastructure (correctness, audit trail, cross-repo resolution) not a retrieval quality lever
-- The retrieval quality bottleneck is elsewhere: keyword extraction, community detection coverage, authorship edges
+- k8s: P@10 0.181 with 57K lsp_resolved edges, same as without. Confirmed flat.
+- Confidence-weighted RWR (multiply edge weight by confidence): tested, P@10 0.180 (neutral). Reverted.
+- Staging indexing tested and reverted: indexing go.work sub-modules dilutes P@10 -20% (136K extra nodes absorb probability)
+- Conclusion: P@10 bottleneck is seed selection (keyword extraction stage), not the walk phase or edge confidence
+- Enrichment value is correctness (audit trail, cross-repo resolution), not retrieval ranking
 
 ### Fixed
 
