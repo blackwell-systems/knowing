@@ -2,6 +2,26 @@
 
 This guide builds understanding from zero. No assumed background in content-addressing, Merkle trees, or graph theory. By the end you'll understand why knowing exists, how it works, and what makes it different from every other code intelligence tool.
 
+## System at a Glance
+
+knowing is a local-first, content-addressed code intelligence graph. It runs entirely on a developer laptop with no paid LLM calls and no cloud API dependencies.
+
+**Scale:** 253K nodes and 614K edges on Kubernetes. 94K lines of Go.
+
+**Coverage:** 17 extractors spanning Go, TypeScript, Python, Rust, Java, C#, Ruby, SQL, Proto, GraphQL, Helm, Kubernetes YAML, Dockerfile, Makefile, CloudFormation, GitLab CI, and .env files. 30 edge types (calls, imports, implements, references, similar_to, authored_by, handles_route, publishes, subscribes, connects_to, and 20 more).
+
+**Integrity:** Every node, edge, and snapshot has a SHA-256 hash. A hierarchical Merkle tree organizes edges by package and type, enabling O(packages) diffs and cryptographic proofs of existence and absence.
+
+**Retrieval pipeline:** Tiered keyword search (exact/compound/component) into BM25/FTS, equivalence matching, RWR graph walk, HITS authority scoring, RRF fusion, and budget-constrained knapsack packing.
+
+**Operational characteristics:**
+- Daemon mode with file watcher for incremental re-indexing
+- Time-to-consistency: 167ms (edit a file, reindex, query finds the new symbol)
+- Adjacency cache: 4,717x latency improvement (9s to 2ms on Kubernetes-scale graph)
+- LSP enrichment upgrades edge confidence from 0.7 to 0.9
+- P@10 = 0.181 reproducible (1.33x codegraph, 13.9x grep baseline)
+- MCP server interface with 28 tools for agent consumption
+
 ## The Problem
 
 ### How AI agents work with code today
@@ -232,20 +252,7 @@ But git content-addresses *file contents*. knowing content-addresses *relationsh
 
 A flat content-addressed system can tell you "something changed" (the root hash is different). But it can't tell you WHAT changed without scanning everything.
 
-Imagine you have 100,000 edges in your graph. Something changed. Which edge? With a flat hash, you have two options:
-
-1. Compare all 100,000 edges between old and new state (O(edges), slow)
-2. Rebuild both hash sets and compute the set difference (O(edges), still slow)
-
-At Grafana's scale (714,000 edges), this takes seconds. For a CI pipeline that runs on every push, seconds add up.
-
-## Why Hierarchical
-
-### The limitation of flat hashing
-
-A flat content-addressed system can tell you "something changed" (the root hash is different). But it can't tell you WHAT changed without scanning everything.
-
-Imagine you have 100,000 edges in your graph. Something changed. Which edge? With a flat hash, you compare all 100,000 edges between the old and new state. That's O(edges).
+Imagine you have 100,000 edges in your graph. Something changed. Which edge? With a flat hash, you compare all 100,000 edges between the old and new state. That's O(edges). At Kubernetes scale (614K edges), this takes seconds. For a CI pipeline that runs on every push, seconds add up.
 
 ### The hierarchical tree
 
@@ -472,7 +479,10 @@ After 1,000 sessions of agent feedback, the system has thousands of signal recor
 Source code (files)
     |
     v
-Extractors (26 languages: tree-sitter, LSP, SCIP, YAML parsers)
+Daemon (file watcher, incremental re-indexing, 167ms time-to-consistency)
+    |
+    v
+Extractors (17 extractors: tree-sitter, LSP, SCIP, YAML/config parsers)
     |
     v
 Code Graph (nodes + edges + provenance + confidence)
@@ -487,12 +497,15 @@ Snapshot (one hash = entire graph state, tied to git commit)
     +--> Proof System (inclusion + absence proofs, offline verifiable)
     +--> Diff Engine (O(packages), semantic output)
     +--> Feedback Loop (merkleized, self-expiring)
-    +--> Subgraph Cache (93x speedup on repeat queries)
+    +--> Adjacency Cache (4,717x latency improvement, 9s -> 2ms at k8s scale)
+    +--> MCP Server (28 tools for agent consumption)
 ```
 
 The Merkle tree is not just an integrity mechanism. It's the query optimization substrate. The same structure that proves "this edge exists" also invalidates stale caches, scopes diffs to changed packages, and expires old feedback. One data structure, five use cases.
 
-Since the initial architecture, knowing has added cross-repo awareness (external packages get canonical identity hashes like `external://flask` or `stdlib`), community-aware graph walks (constrain RWR to seed communities for focused queries), and 28 MCP tools for agent integration.
+The daemon watches the filesystem and triggers incremental re-indexing on file changes. From the moment a developer saves a file to the moment a query returns the new symbol: 167ms. The adjacency cache precomputes neighbor lookups, reducing graph traversal latency from 9 seconds to 2 milliseconds on Kubernetes-scale graphs (253K nodes, 614K edges).
+
+Since the initial architecture, knowing has added cross-repo awareness (external packages get canonical identity hashes like `external://flask` or `stdlib`), community-aware graph walks (constrain RWR to seed communities for focused queries), and 28 MCP tools for agent integration. The system requires no cloud services; everything runs locally with zero configuration.
 
 ## The Landscape
 
@@ -508,10 +521,26 @@ Since the initial architecture, knowing has added cross-repo awareness (external
 
 knowing is unique in applying content-addressing to *relationships between code*, organized by *semantic boundaries* (packages, edge types), and using the resulting Merkle structure as a *query optimization substrate*.
 
+### Measured performance
+
+These numbers are reproducible via `knowing eval` on the benchmark suite (7 repos, 117 tasks):
+
+| Metric | Value | Context |
+|---|---|---|
+| P@10 (precision at 10) | 0.181 | 1.33x codegraph (19K stars), 13.9x grep baseline |
+| Adjacency cache latency | 2ms | Down from 9s uncached on k8s (4,717x improvement) |
+| Time-to-consistency | 167ms | File edit to query returning new symbol |
+| Feedback impact | +34pp over 5 rounds | 16% baseline to 50% with feedback |
+| Index throughput | 494x incremental vs full | IndexFilesIncremental on warm graph |
+| Similarity edges | +19.5% MRR | Embedding-based similar_to edges vs graph-only |
+
+All measurements taken on developer hardware (no GPU, no cloud). The system is designed to be fast enough that agents never wait for it.
+
 ### What knowing is NOT
 
+- **Not a cloud service.** It runs entirely on a developer laptop. No API keys, no network calls, no paid LLM. Local-first by design.
 - **Not a code search engine.** It doesn't index text. It indexes relationships.
-- **Not an LSP replacement.** LSP provides single-workspace references. knowing provides cross-repo, historical, runtime-aware graph queries.
+- **Not an LSP replacement.** LSP provides single-workspace references. knowing provides cross-repo, historical, runtime-aware graph queries. LSP is an input (enrichment source), not a competitor.
 - **Not a build system.** It doesn't compile or run code. It observes and analyzes.
 - **Not a runtime monitor.** It can ingest OpenTelemetry traces, but it's primarily a static analysis system augmented with runtime observations.
 
