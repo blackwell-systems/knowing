@@ -33,6 +33,7 @@ GOWORK=off go test ./bench/cross-system/ -run TestCrossSystem -v -timeout 30m
 | **Aider** (~20K stars) | PageRank repo-map (file-level) | `pip install aider-chat` |
 | **Gortex** | Go graph engine (tree-sitter, parallel) | `go install github.com/zzet/gortex` |
 | **GitNexus** | Knowledge graph MCP | `npm install -g gitnexus` |
+| **codebase-memory** (2.6K stars) | BM25 + semantic edges (155 grammars) | `codebase-memory-mcp` on PATH |
 | **CGC** | Graph DB (KuzuDB) MCP | `pip install codegraphcontext` |
 
 Only installed systems are benchmarked. Missing systems are reported as "unavailable."
