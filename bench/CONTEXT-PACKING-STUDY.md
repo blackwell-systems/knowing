@@ -30,20 +30,21 @@ with the others.
 | 6 | **Scale** | `bench/cross-system/` (indexing perf) | Can we handle enterprise repos (3.5M LOC) in production time? |
 | 7 | **Differential value** | `bench/context-relevance/` | Does each pipeline layer add measurable precision? |
 
-## Cumulative Results (2026-05-21)
+## Cumulative Results (2026-05-23, Run 22)
 
 ### Dimension 1: Retrieval Precision
 
-**Harness:** `bench/cross-system/` (97 manual fixtures, 5 repos, 5 languages)
+**Harness:** `bench/cross-system/` (117 manual fixtures, 7 repos, 5 languages)
 
 | System | P@10 | R@10 | NDCG@10 | MRR |
 |--------|------|------|---------|-----|
-| knowing | 0.230 | 0.284 | 0.336 | 0.383 |
+| knowing | 0.226 | 0.396 | 0.369 | 0.423 |
+| Aider | 0.050 | - | - | - |
 | grep | 0.020 | 0.035 | 0.037 | 0.072 |
 
-**Verdict:** 11.5x precision advantage (p<0.0001, d=0.92, very large effect). +63% cumulative from honest baseline.
+**Verdict:** 11.3x precision advantage vs grep (p<0.0001, d=0.92, very large effect). 4.5x vs Aider. +60% cumulative from honest baseline.
 
-Per-repo breakdown: Django 0.330, Flask 0.321, VS Code ~0.25, Kubernetes 0.184, Cargo 0.123. Optimization ceiling diagnosed: remaining ~77% miss rate requires feedback compounding (cold-start floor 0.230, compounded ceiling ~0.40).
+Per-repo breakdown: Flask 0.336, Django 0.330, VS Code ~0.10, Kubernetes 0.184, Cargo 0.123. Optimization ceiling diagnosed: remaining ~77% miss rate requires feedback compounding (cold-start floor 0.226, compounded ceiling ~0.40).
 
 ### Dimension 2: Token Efficiency
 
@@ -129,13 +130,13 @@ Per-repo breakdown: Django 0.330, Flask 0.321, VS Code ~0.25, Kubernetes 0.184, 
 
 ## Known Limitations
 
-1. **Absolute precision is 23%.** knowing beats grep 11.5x but ~77% of returned symbols still don't match ground truth. Root cause: graph connectivity is exhausted (inheritance, imports, deeper calls all shipped). Remaining miss rate requires feedback compounding or semantic understanding. Cold-start floor 0.230, compounded ceiling ~0.40.
+1. **Absolute precision is 22.6%.** knowing beats grep 11.3x but ~77% of returned symbols still don't match ground truth. Root cause: graph connectivity exhausted on small repos; channel balance matters more than algorithm quality (Run 22). Remaining miss rate requires feedback compounding or semantic understanding. Cold-start floor 0.226, compounded ceiling ~0.40.
 
-2. **Cold-start.** Feedback compounding (Dimension 3) requires usage. First-run precision is 23%, not 36%. Task memory now persists across restarts, but compounding requires repeated similar queries over time.
+2. **Cold-start.** Feedback compounding (Dimension 3) requires usage. First-run precision is 22.6%, not 36%. Task memory now persists across restarts, but compounding requires repeated similar queries over time.
 
-3. **Go bias.** Most benchmarks validated on Go code (knowing dogfoods itself). Cross-system benchmark partially addresses this with Python, TypeScript, Rust, Java repos.
+3. **Go bias.** Most benchmarks validated on Go code (knowing dogfoods itself). Cross-system benchmark partially addresses this with Python, TypeScript, Rust, Java, C# repos (7 repos total).
 
-4. **Competitor coverage.** Benchmarked against GitNexus (2.75x less precise, can't index enterprise repos), Gortex (comparable quality, 46x slower on k8s), CGC (no task retrieval), Repomix (48x less token-efficient), and grep (baseline). Aider blocked by scipy/Fortran dependency.
+4. **Competitor coverage.** Benchmarked against Aider (4.5x less precise, file-level only), GitNexus (3x less precise, can't index enterprise repos), Gortex (2.3x less precise, 46x slower on k8s), and grep (baseline).
 
 5. **Ground truth coverage.** 95% of ground truth symbols verified against DB (validate-fixtures tool). Remaining 5% are edge cases (external deps, inherited methods with name mismatches).
 
@@ -161,34 +162,41 @@ Per-repo breakdown: Django 0.330, Flask 0.321, VS Code ~0.25, Kubernetes 0.184, 
 | 16 | 2026-05-21 | Round-2 memory compounding test | 0.203 | No improvement (graph density prerequisite) |
 | 17 | 2026-05-21 | VS Code replaces TypeScript compiler | 0.226 | +60% cumulative, 11.3x vs grep, d=0.90 |
 | 18 | 2026-05-21 | TS extractor extends_clause fix | **0.230** | **+63% cumulative, 11.5x vs grep, d=0.92** |
+| 19 | 2026-05-23 | Java + C# corpus, Aider adapter | 0.185 | Fresh indexes (no enrichment), knowing 3.7x vs Aider |
+| 20 | 2026-05-23 | Phantom external node fix | 0.185 | Spark Java 0.00->0.10 |
+| 21 | 2026-05-23 | WIP debug (weighted RWR, seed cap) | 0.101 | Regression: equiv channel noise masked by aggregate |
+| 22 | 2026-05-23 | **Equiv channel noise fix** | **0.226** | **+124% from regression, 4.5x vs Aider, channel balance** |
 
-## Competitive Comparison Summary
+## Competitive Comparison Summary (Run 22)
 
 | System | P@10 | Index k8s | Query latency | Token efficiency | RAM (k8s) |
 |--------|------|-----------|--------------|-----------------|-----------|
-| **knowing** | **0.209** | **18.6s** | **60ms** | **48x vs Repomix** | **200MB** |
-| Gortex | ~comparable | 14.2 min | ~6s | - | 14GB |
+| **knowing** | **0.226** | **18.6s** | **60ms** | **48x vs Repomix** | **200MB** |
+| Aider | 0.050 | N/A (file-level) | ~2.5s | - | - |
+| Gortex | ~0.10 | 14.2 min | ~6s | - | 14GB |
 | GitNexus | 0.076 | >60 min (killed) | 612ms | - | 5.7GB |
-| Repomix | N/A (no ranking) | N/A | N/A | baseline | N/A |
-| CGC | N/A (no task retrieval) | impossible | - | - | 1.9GB |
 | grep | 0.020 | instant | instant | - | - |
 
 ## Next Steps (priority order)
 
 1. **Blog post / publication** (all competitive data collected, whitepaper updated)
-2. **Aider adapter** (blocked by scipy/Fortran; needs Docker or older Python)
-3. **Java corpus** (validate Java extractor, deferred)
+2. **Channel balance regression test** (prevent Run 22 class of regression)
+3. **LSP enrichment ROI measurement** (quantify enrichment vs fresh-index delta)
 4. **Embedding model evaluation** (code-tuned model for semantic matching)
 
 ### Completed
 - ~~Session memory persistence~~ (task memory persists, boost `0.5 + score * 0.4`)
-- ~~Competitor adapters~~ (GitNexus, Gortex, CGC, Repomix all tested)
+- ~~Competitor adapters~~ (Aider, GitNexus, Gortex, CGC, Repomix all tested)
+- ~~Aider head-to-head~~ (4.5x more precise, Runs 19-22)
+- ~~Java + C# corpus~~ (Spark Java, Ocelot C#, Runs 19-20)
+- ~~Equivalence channel noise fix~~ (Run 22, +124% P@10 recovery)
 - ~~FTS terminal symbol tokenization~~ (migration 016)
-- ~~Cross-file import resolution (Python/TS/Rust)~~ (Runs 9-11)
+- ~~Cross-file import resolution (Python/TS/Rust/Java/C#)~~ (Runs 9-11, 19)
 - ~~Deeper call chain extraction~~ (Run 14)
 - ~~Inheritance propagation~~ (Run 13, +29%)
 - ~~VS Code replaces TypeScript compiler~~ (Run 17)
 - ~~TS extends_clause fix~~ (Run 18)
+- ~~Agent efficiency study~~ (honest negative: grep optimal for small repos)
 
 ## Reproducing
 

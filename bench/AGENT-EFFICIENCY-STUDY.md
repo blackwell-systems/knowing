@@ -6,7 +6,7 @@ methodology, results, interpretation, and what each result teaches us about the
 product.
 
 **Related benchmarks:**
-- [Cross-system retrieval](cross-system/FINDINGS.md) (P@10=0.230, 11.5x vs grep)
+- [Cross-system retrieval](cross-system/FINDINGS.md) (P@10=0.226, 11.3x vs grep, 4.5x vs Aider)
 - [Context packing study](CONTEXT-PACKING-STUDY.md) (umbrella evaluation program)
 - [Hook benchmark](../hooks/FINDINGS.md) (33% precision, 100% coverage)
 - [Feedback loop](feedback-loop/FINDINGS.md) (+20pp compounding)
