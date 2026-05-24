@@ -296,9 +296,10 @@ experimentation.
 `filterNoisySymbols` removes candidates before scoring:
 
 - **Phantom external nodes**: nodes with `kind="external"` or qualified name starting with
-  `external://`. These are unresolved targets from LSP enrichment with no source code. On
-  repos with partial LSP coverage (e.g., Spark Java: 2282 phantom nodes, 63% of all nodes),
-  they act as probability sinks that starve real symbols of RWR score.
+  `external://` or `stdlib://`. These are unresolved targets from LSP enrichment (external
+  dependencies) or standard library symbols with no user source code. On repos with partial
+  LSP coverage (e.g., Spark Java: 2282 phantom nodes, 63% of all nodes), they act as
+  probability sinks that starve real symbols of RWR score.
 - **Build artifacts**: paths containing `/dist/`, `/build/`, `/vendor/`, `/node_modules/`
 - **Minified code**: paths containing `.min.` or `.bundle.`
 - **Test fixtures and helpers**: paths containing `conftest.py.`, `fixtures.py.`,

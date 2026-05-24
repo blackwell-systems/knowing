@@ -22,7 +22,7 @@ npx @blackwell-systems/knowing mcp --watch
 
 knowing indexes code across 12 languages and 26 extractor packages into a content-addressed knowledge graph. Every node, edge, and snapshot is SHA-256 hashed with domain-type prefixes. Snapshots are structured as hierarchical Merkle trees (repo -> package -> edge-type -> leaf), enabling O(packages) diffs instead of O(edges) full scans.
 
-**For AI agents:** 27 MCP tools + 8 MCP resources serve graph-ranked context over stdio or HTTP. The GCF wire format delivers 84% token savings versus JSON. Agents get trustworthy, cacheable, replayable context with provenance and confidence on every edge.
+**For AI agents:** 28 MCP tools + 8 MCP resources serve graph-ranked context over stdio or HTTP. The GCF wire format delivers 84% token savings versus JSON. Agents get trustworthy, cacheable, replayable context with provenance and confidence on every edge.
 
 **Key capabilities:**
 

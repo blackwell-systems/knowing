@@ -1945,6 +1945,18 @@ Hardcoded in `cmd/knowing/main.go` via daemon startup: `500 * time.Millisecond`.
 ### DeleteSnapshot in GraphStore
 - **Status: IMPLEMENTED.** `SQLiteStore.DeleteSnapshot` removes a snapshot and its associated edge events. Used by `GarbageCollect` to perform real garbage collection of old snapshots.
 
+### Stdlib Node Filter
+- **Status: IMPLEMENTED.** RWR result collection filters nodes prefixed with `stdlib://` (in addition to `external://`). Prevents standard library symbols from dominating top-K results in repos with many stdlib references. Implementation in `internal/context/context.go`.
+
+### IndexFilesIncremental
+- **Status: IMPLEMENTED.** File-scoped incremental reindex (26ms constant time, 494x faster than full reindex). Used by the daemon for changed-file notifications and by the CLI `reindex` command for targeted updates. Avoids full-graph recomputation when only a few files change.
+
+### Adjacency Cache (Compact Binary v2)
+- **Status: IMPLEMENTED.** Pre-computed adjacency lists stored as compact binary blobs (65 bytes/edge) in the `graph_notes` table. Eliminates per-query SQL joins for RWR traversal. On k8s (782K edges): query latency drops from 9.04s (uncached) to 1.9ms (4,717x improvement). Format uses fixed-width records with varint-encoded edge metadata.
+
+### RWR Early Termination
+- **Status: IMPLEMENTED.** Top-K stability check during Random Walk with Restart iterations. When the top-K result set stabilizes (no rank changes across consecutive iterations), iteration stops early. Zero P@10 regression in cross-system benchmark (verified Run 23). Reduces average iteration count on large graphs.
+
 ---
 
 ## Metrics
@@ -1953,38 +1965,25 @@ Hardcoded in `cmd/knowing/main.go` via daemon startup: `500 * time.Millisecond`.
 
 | Package | LOC (including tests) |
 |---------|------|
-| internal/types | 250 |
-| internal/store | 1,763 |
-| internal/snapshot | 785 |
-| internal/indexer | 1,510 |
-| internal/indexer/goextractor | 1,449 |
-| internal/indexer/gotsextractor | 1,075 |
-| internal/indexer/treesitter | 567 |
-| internal/enrichment | 892 |
-| internal/daemon | 1,372 |
-| internal/mcp | 1,205 |
-| internal/resolver | 602 |
-| cmd/knowing | 502 |
-| e2e_test.go | (at repo root) |
-| **Total** | **12,203** |
+| internal/types | 732 |
+| internal/store | 5,267 |
+| internal/snapshot | 3,472 |
+| internal/indexer (all extractors) | 33,455 |
+| internal/context | 7,999 |
+| internal/enrichment | 1,421 |
+| internal/daemon | 2,943 |
+| internal/mcp | 9,397 |
+| internal/resolver | 1,188 |
+| internal/trace | 2,811 |
+| internal/community | 969 |
+| cmd/knowing | 5,977 |
+| **Total (internal/ + cmd/)** | **~81,000** |
 
 ### Test Count per Package
 
-| Package | Test file(s) | Test count (total passing: 123) |
-|---------|-----------|----|
-| cmd/knowing | main_test.go | ~5 |
-| internal/store | sqlite_test.go | ~14 |
-| internal/snapshot | manager_test.go | ~7 |
-| internal/indexer | indexer_test.go, worker_test.go | ~6 |
-| internal/indexer/goextractor | extractor_test.go, loader_test.go | ~10 |
-| internal/indexer/gotsextractor | extractor_test.go | ~13 |
-| internal/indexer/treesitter | extractor_test.go | ~9 |
-| internal/enrichment | enricher_test.go | ~6 |
-| internal/daemon | daemon_test.go, gitwatcher_test.go, gitdiff_test.go | ~12 |
-| internal/mcp | handlers_test.go | ~6 |
-| internal/resolver | resolver_test.go | ~8 |
-| internal/snapshot | manager_test.go | ~7 |
-| e2e_test.go | e2e_test.go | ~9 (includes snapshot lifecycle integration test) |
+Total passing test functions: **1,126** across **43 test packages** (as of 2026-05-23).
+
+Coverage spans all packages including extractors, store, context engine, MCP handlers, daemon, trace ingestion, community detection, snapshot management, and cross-repo resolution.
 
 ### Real Indexing Benchmarks
 
@@ -1996,7 +1995,7 @@ Hardcoded in `cmd/knowing/main.go` via daemon startup: `500 * time.Millisecond`.
 | polywave-go | tree-sitter + LSP (final) | 9.1s | 2,564 | 8,604 (all lsp_resolved) + 213 discovered | -- |
 | polywave-go + polywave-web | tree-sitter | -- | 6,340 + 1,569 | 17,232 + 5,939 | 228 |
 
-**Parallel indexer stats (knowing codebase, 84K LOC):** 429 source files, 62 packages, 1,451 files/sec throughput, 8-worker goroutine pool, progress output every 2s. Flags: `--workers` (parallelism), `--skip-blame` (skip authorship for structural-only index).
+**Parallel indexer stats (knowing codebase, ~94K LOC including benchmarks):** 429 source files, 62 packages, 1,451 files/sec throughput, 8-worker goroutine pool, progress output every 2s. Flags: `--workers` (parallelism), `--skip-blame` (skip authorship for structural-only index).
 
 ---
 

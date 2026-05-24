@@ -28,6 +28,7 @@ and auto-generates a `FINDINGS.md` with results and interpretation.
 | [merkle-diff](merkle-diff/) (P5 dedup) | Agents skip retransmitting unchanged context | 95-100% token savings (557-7,661 -> 26 tokens) |
 | [merkle-diff](merkle-diff/) (proof) | Merkle proof generation and verification (Phase 4) | Proves relationship existed in a given snapshot |
 | [merkle-diff](merkle-diff/) (scoped FTS) | Scoped FTS rebuild vs full rebuild (Phase 3 F3/P4) | Package-scoped rebuild avoids full-table reindex |
+| [incremental-reindex](incremental-reindex/) | IndexFilesIncremental is proportional to changed files, not repo size | 26ms constant (3 files) vs 12.8s full reindex (494x faster) |
 
 ## Running
 

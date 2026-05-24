@@ -14,7 +14,7 @@
 | Evaluation corpus (5 repos) | Done | kubernetes, VS Code, flask, cargo, django (replaced TypeScript compiler with VS Code) |
 | Task fixtures (107 total) | Done | 97 manual + 10 SWE-bench derived |
 | Ground truth validation | Done | 95% match rate, validate-fixtures tool |
-| knowing adapter | Done | P@10=0.230, d=0.92 (very large) |
+| knowing adapter | Done | P@10=0.217 (Run 23), d=0.92 (very large) |
 | grep adapter | Done | P@10=0.020 (baseline) |
 | Aider adapter | Not built | Highest priority: direct competitor, pip install |
 | GitNexus adapter | Built + tested | Installed, indexed Flask/Django/Cargo. Cannot index kubernetes (>60 min, killed at 5.7GB RAM). 193x slower than knowing on enterprise repos. |
