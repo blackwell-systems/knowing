@@ -179,3 +179,114 @@ func TestEnrichmentROI(t *testing.T) {
 
 	fmt.Println()
 }
+
+// TestEnrichmentROI_Django tests on a larger repo where LSP should matter more
+// (deep class hierarchies, 42K internal LSP edges vs Flask's 1.4K).
+func TestEnrichmentROI_Django(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping in short mode")
+	}
+
+	djangoPath := filepath.Join("..", "cross-system", "corpus", "repos", "django")
+	if _, err := os.Stat(djangoPath); err != nil {
+		t.Skipf("django repo not found: %v", err)
+	}
+
+	enrichedDB := filepath.Join("..", "cross-system", "corpus", "repos", "django", ".knowing", "graph.db")
+	if _, err := os.Stat(enrichedDB); err != nil {
+		t.Skipf("enriched DB not found: %v", err)
+	}
+
+	tasks := []struct {
+		id   string
+		desc string
+	}{
+		{"django-easy-003", "Write a management command that exports user data to CSV"},
+		{"django-medium-001", "Implement custom model Manager with chainable QuerySet methods"},
+		{"django-medium-003", "Add a middleware that tracks request timing and logs slow queries"},
+		{"django-hard-001", "Implement a custom database backend that adds query caching"},
+		{"django-hard-003", "Add multi-tenancy support using schema-based isolation"},
+	}
+
+	ctx := context.Background()
+
+	// Phase 1: Index Django WITHOUT enrichment.
+	t.Log("=== Indexing Django without enrichment (takes ~4s) ===")
+	noEnrichDB := filepath.Join(t.TempDir(), "django-no-enrich.db")
+	stNoEnrich, err := store.NewSQLiteStore(noEnrichDB)
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	defer stNoEnrich.Close()
+
+	snapMgr := snapshot.NewSnapshotManager(stNoEnrich)
+	idx := indexer.NewIndexer(stNoEnrich, snapMgr)
+	pyExt, err := treesitter.NewTreeSitterExtractor("python")
+	if err != nil {
+		t.Fatalf("python extractor: %v", err)
+	}
+	idx.Register(pyExt)
+
+	snap, err := idx.IndexRepo(ctx, "github.com/django/django", djangoPath, "HEAD")
+	if err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	stNoEnrich.RebuildFTS(ctx) //nolint:errcheck
+	t.Logf("  No-enrich: %d nodes, %d edges", snap.NodeCount, snap.EdgeCount)
+
+	// Phase 2: Open enriched DB.
+	stEnriched, err := store.NewSQLiteStore(enrichedDB)
+	if err != nil {
+		t.Fatalf("enriched store: %v", err)
+	}
+	defer stEnriched.Close()
+
+	// Phase 3: Compare.
+	t.Log("")
+	t.Logf("  %-25s  %s  %s  %s", "Task", "No-Enrich", "Enriched", "Delta")
+
+	totalNE := 0
+	totalE := 0
+	for _, task := range tasks {
+		engineNE := knowingctx.NewContextEngine(stNoEnrich)
+		resNE, _ := engineNE.ForTask(ctx, knowingctx.TaskOptions{
+			TaskDescription: task.desc, TokenBudget: 5000, Format: "json",
+		})
+
+		engineE := knowingctx.NewContextEngine(stEnriched)
+		resE, _ := engineE.ForTask(ctx, knowingctx.TaskOptions{
+			TaskDescription: task.desc, TokenBudget: 5000, Format: "json",
+		})
+
+		countReal := func(symbols []knowingctx.RankedSymbol) int {
+			count := 0
+			top := 10
+			if len(symbols) < top {
+				top = len(symbols)
+			}
+			for i := 0; i < top; i++ {
+				qn := symbols[i].Node.QualifiedName
+				if !strings.Contains(qn, "external://") && symbols[i].Node.Kind != "external" {
+					count++
+				}
+			}
+			return count
+		}
+
+		ne := countReal(resNE.Symbols)
+		e := countReal(resE.Symbols)
+		totalNE += ne
+		totalE += e
+		t.Logf("  %-25s  %d/10       %d/10     %+d", task.id, ne, e, e-ne)
+	}
+
+	t.Log("")
+	t.Logf("  Total: no-enrich=%d, enriched=%d, delta=%+d", totalNE, totalE, totalE-totalNE)
+	if totalE > totalNE {
+		t.Logf("  Enrichment HELPS on Django: +%d symbols (%.1f%%)", totalE-totalNE, float64(totalE-totalNE)/float64(totalNE)*100)
+	} else if totalE < totalNE {
+		t.Logf("  Enrichment HURTS on Django: %d fewer symbols (%.1f%%)", totalNE-totalE, float64(totalNE-totalE)/float64(totalNE)*100)
+	} else {
+		t.Log("  Enrichment NEUTRAL on Django")
+	}
+}
