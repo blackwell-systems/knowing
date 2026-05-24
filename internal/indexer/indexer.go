@@ -580,6 +580,23 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 		fmt.Fprintf(os.Stderr, "  Inheritance: %d edges propagated\n", len(inheritEdges))
 	}
 
+	// Compute semantic similarity edges between functions in the same package.
+	// This bridges disconnected subgraphs where two functions do the same work
+	// but don't call each other.
+	fmt.Fprintf(os.Stderr, "  Similarity edges...\n")
+	similarEdges := ComputeSimilarityEdges(allNodes, 0.5)
+	if len(similarEdges) > 0 {
+		allEdges = append(allEdges, similarEdges...)
+		if bs, ok := idx.store.(batchStore); ok {
+			_ = bs.BatchPutEdges(ctx, similarEdges)
+		} else {
+			for _, e := range similarEdges {
+				_ = idx.store.PutEdge(ctx, e)
+			}
+		}
+		fmt.Fprintf(os.Stderr, "  Similarity: %d edges\n", len(similarEdges))
+	}
+
 	// Extract authored_by edges from git blame (parallel, best-effort).
 	// This is expensive (one git blame subprocess per file) so it runs in parallel
 	// and is skippable via idx.SkipBlame.

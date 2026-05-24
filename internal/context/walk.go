@@ -40,6 +40,7 @@ var edgeWeights = map[string]float64{
 	"gated_by_flag":     0.3,
 	"decorates":         0.3,
 	"documents":         0.2,
+	"similar_to":        0.15,
 	"owned_by":          0.0,
 	"authored_by":       0.0,
 }
@@ -77,6 +78,7 @@ var adjEdgeTypeToID = map[string]uint8{
 	"runtime_rpc":       28,
 	"runtime_produces":  29,
 	"runtime_consumes":  30,
+	"similar_to":        31,
 }
 
 // adjIDToEdgeType is the reverse mapping from uint8 ID to edge type string.
