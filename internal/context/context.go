@@ -52,6 +52,7 @@ type TaskOptions struct {
 	TokenBudget     int    // default 50000
 	Format          string // "xml", "markdown", "json"
 	DBPath          string // path to knowing.db (for CLI usage)
+	RepoURL         string // optional: scope search to this repo (filters out cross-repo noise)
 }
 
 // FileOptions configures a file-based context query.
@@ -309,6 +310,15 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 		if nodes, err := e.bm25.SearchBM25Nodes(ctx, ftsQuery, 30); err == nil {
 			bm25Results = nodes
 		}
+	}
+
+	// Repo-scoped filtering: when RepoURL is set, remove nodes from other repos.
+	// This prevents cross-repo noise in multi-module DBs (e.g., k8s staging modules
+	// diluting results for the root module).
+	if opts.RepoURL != "" {
+		repoPrefix := opts.RepoURL + "://"
+		tieredResults = filterByRepoPrefix(tieredResults, repoPrefix)
+		bm25Results = filterByRepoPrefix(bm25Results, repoPrefix)
 	}
 
 	// Channel 3: Vector (embedding) search (runs when embedder is available).
@@ -1545,4 +1555,16 @@ func decompressZlib(data []byte) ([]byte, error) {
 	}
 	defer r.Close()
 	return io.ReadAll(r)
+}
+
+// filterByRepoPrefix returns only nodes whose QualifiedName starts with prefix.
+// Used to scope search results to a single repo in multi-repo DBs.
+func filterByRepoPrefix(nodes []types.Node, prefix string) []types.Node {
+	var result []types.Node
+	for _, n := range nodes {
+		if strings.HasPrefix(n.QualifiedName, prefix) {
+			result = append(result, n)
+		}
+	}
+	return result
 }

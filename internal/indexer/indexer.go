@@ -14,8 +14,6 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/mod/modfile"
-
 	"github.com/blackwell-systems/knowing/internal/indexer/authorship"
 	"github.com/blackwell-systems/knowing/internal/indexer/gotsextractor"
 	"github.com/blackwell-systems/knowing/internal/indexer/ownership"
@@ -230,11 +228,6 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 		existingByPath[f.Path] = f.ContentHash
 	}
 
-	// Build a set of directories referenced by go.work (if present).
-	// These are first-class modules and must NOT be skipped even if they
-	// match a default exclude pattern (e.g., "staging" in kubernetes).
-	goWorkDirs := loadGoWorkDirs(repoPath)
-
 	// Walk the repository directory, collecting file paths deterministically.
 	var filePaths []string
 	err = filepath.WalkDir(repoPath, func(path string, d fs.DirEntry, err error) error {
@@ -244,6 +237,9 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 		if d.IsDir() {
 			name := d.Name()
 			// Skip hidden dirs, dependency dirs, and common non-source dirs.
+			// Note: go.work `use` directives do NOT override these skips.
+			// Staging/third-party code is dependency code; indexing it dilutes
+			// RWR probability and hurts retrieval quality (-20% P@10 on k8s).
 			switch name {
 			case ".git", ".claude", ".knowing", ".polywave-state",
 				"vendor", "node_modules", "testdata",
@@ -252,14 +248,6 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 				"corpus",
 				// Large monorepo dirs that are mirrors/generated/third-party.
 				"staging", "third_party", "_output", "hack":
-				// Check if this dir (or a parent) is referenced by go.work.
-				// If so, don't skip it; it contains first-class module code.
-				if len(goWorkDirs) > 0 {
-					relDir, _ := filepath.Rel(repoPath, path)
-					if isUnderGoWorkDir(relDir, goWorkDirs) {
-						return nil // don't skip
-					}
-				}
 				return filepath.SkipDir
 			}
 			// Skip hidden directories (dot-prefixed), except .github (contains CI workflows).
@@ -1240,44 +1228,3 @@ func terminalName(qn string) string {
 	return qn
 }
 
-// loadGoWorkDirs parses go.work in repoPath and returns the set of relative
-// directory paths referenced by `use` directives. Returns nil if go.work
-// doesn't exist or can't be parsed (non-fatal: indexer falls back to default skip behavior).
-func loadGoWorkDirs(repoPath string) []string {
-	goWorkPath := filepath.Join(repoPath, "go.work")
-	data, err := os.ReadFile(goWorkPath)
-	if err != nil {
-		return nil
-	}
-	workFile, err := modfile.ParseWork(goWorkPath, data, nil)
-	if err != nil {
-		return nil
-	}
-	var dirs []string
-	for _, use := range workFile.Use {
-		if use.Path == "." || use.Path == "./" {
-			continue
-		}
-		dirs = append(dirs, filepath.Clean(use.Path))
-	}
-	return dirs
-}
-
-// isUnderGoWorkDir returns true if relDir is at or under one of the go.work
-// module directories. For example, if go.work has "staging/src/k8s.io/api",
-// then relDir="staging" or relDir="staging/src" or relDir="staging/src/k8s.io/api/core"
-// all return true.
-func isUnderGoWorkDir(relDir string, goWorkDirs []string) bool {
-	relDir = filepath.Clean(relDir)
-	for _, d := range goWorkDirs {
-		// relDir is a parent of (or equal to) a go.work dir.
-		if strings.HasPrefix(d, relDir+string(filepath.Separator)) || d == relDir {
-			return true
-		}
-		// relDir is a child of a go.work dir.
-		if strings.HasPrefix(relDir, d+string(filepath.Separator)) {
-			return true
-		}
-	}
-	return false
-}

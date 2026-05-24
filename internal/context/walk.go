@@ -19,6 +19,120 @@ const adjacencyCacheKey = "adjacency_cache"
 // defaultEdgeWeight is used for unknown edge types in the weight lookup.
 const defaultEdgeWeight = 0.3
 
+// crossModuleAttenuation is the weight multiplier applied when RWR transitions
+// between nodes in different top-level directories (modules). This prevents
+// library/dependency code from absorbing probability mass that should stay in
+// the module containing the query seeds.
+const crossModuleAttenuation = 0.3
+
+// buildNodeModuleMap constructs a mapping from node hash to its top-level
+// directory (the first path component of the file path). Nodes in the same
+// top-level directory are considered "same module" for attenuation purposes.
+// Returns nil if the store doesn't support the required query or if all nodes
+// share the same top-level directory (no attenuation needed).
+func buildNodeModuleMap(ctx stdctx.Context, store types.GraphStore, nodeHashes []types.Hash) map[types.Hash]string {
+	type nodePathQuerier interface {
+		NodeTopDirs(ctx stdctx.Context, hashes []types.Hash) (map[types.Hash]string, error)
+	}
+
+	// Fast path: use dedicated batch query if available.
+	if q, ok := store.(nodePathQuerier); ok {
+		m, err := q.NodeTopDirs(ctx, nodeHashes)
+		if err != nil || len(m) == 0 {
+			return nil
+		}
+		// Check if there's actually more than one module. If all nodes share
+		// the same top-level dir, attenuation is a no-op (skip the cost).
+		var first string
+		allSame := true
+		for _, dir := range m {
+			if first == "" {
+				first = dir
+			} else if dir != first {
+				allSame = false
+				break
+			}
+		}
+		if allSame {
+			return nil
+		}
+		return m
+	}
+
+	// Fallback: use qualified name parsing. QN format: "repoURL://filePath.Symbol"
+	type qnQuerier interface {
+		GetNode(ctx stdctx.Context, hash types.Hash) (*types.Node, error)
+	}
+	q, ok := store.(qnQuerier)
+	if !ok {
+		return nil
+	}
+
+	// Sample a subset to avoid loading all nodes (cap at 2000 for performance).
+	sampleSize := len(nodeHashes)
+	if sampleSize > 2000 {
+		sampleSize = 2000
+	}
+
+	m := make(map[types.Hash]string, sampleSize)
+	var first string
+	allSame := true
+
+	for i := 0; i < sampleSize; i++ {
+		node, err := q.GetNode(ctx, nodeHashes[i])
+		if err != nil || node == nil {
+			continue
+		}
+		dir := topDirFromQN(node.QualifiedName)
+		if dir != "" {
+			m[nodeHashes[i]] = dir
+			if first == "" {
+				first = dir
+			} else if dir != first {
+				allSame = false
+			}
+		}
+	}
+
+	if allSame || len(m) == 0 {
+		return nil
+	}
+	return m
+}
+
+// topDirFromQN extracts the top-level directory from a qualified name.
+// QN format: "repoURL://path/to/file.go.SymbolName"
+// Returns the first path component (e.g., "pkg", "staging", "cmd", "internal").
+func topDirFromQN(qn string) string {
+	idx := strings.Index(qn, "://")
+	if idx < 0 {
+		return ""
+	}
+	path := qn[idx+3:]
+	// First component of the path.
+	slashIdx := strings.IndexByte(path, '/')
+	if slashIdx < 0 {
+		return ""
+	}
+	return path[:slashIdx]
+}
+
+// collectNodeHashes returns all unique node hashes present in the adjacency maps.
+func collectNodeHashes(adjFrom, adjTo map[types.Hash][]types.Edge) []types.Hash {
+	seen := make(map[types.Hash]struct{}, len(adjFrom)+len(adjTo))
+	for h := range adjFrom {
+		seen[h] = struct{}{}
+	}
+	for h := range adjTo {
+		seen[h] = struct{}{}
+	}
+	result := make([]types.Hash, 0, len(seen))
+	for h := range seen {
+		result = append(result, h)
+	}
+	return result
+}
+
 // edgeWeights maps edge type strings to weight multipliers used during RWR iteration.
 // Higher weights cause more probability to flow along those edge types.
 var edgeWeights = map[string]float64{
@@ -226,6 +340,10 @@ func RandomWalkWithRestartWeighted(ctx stdctx.Context, store types.GraphStore, s
 		return nil, err
 	}
 
+	// Build module map for cross-module attenuation.
+	allNodes := collectNodeHashes(adjFrom, adjTo)
+	modMap := buildNodeModuleMap(ctx, store, allNodes)
+
 	// Normalize seed weights to sum to 1.0.
 	var totalWeight float64
 	for _, s := range seeds {
@@ -243,7 +361,7 @@ func RandomWalkWithRestartWeighted(ctx stdctx.Context, store types.GraphStore, s
 		seedVec[s] = w / totalWeight
 	}
 
-	return rwrIterate(seedVec, alpha, maxIter, adjFrom, adjTo), nil
+	return rwrIterate(seedVec, alpha, maxIter, adjFrom, adjTo, modMap), nil
 }
 
 // CommunityFilteredRWR is like RandomWalkWithRestart but constrains the BFS
@@ -266,6 +384,10 @@ func CommunityFilteredRWR(ctx stdctx.Context, store types.GraphStore, seeds []ty
 		return nil, err
 	}
 
+	// Build module map for cross-module attenuation.
+	allNodes := collectNodeHashes(adjFrom, adjTo)
+	modMap := buildNodeModuleMap(ctx, store, allNodes)
+
 	// Initialize: uniform probability across seeds.
 	seedWeight := 1.0 / float64(len(seeds))
 	seedVec := make(map[types.Hash]float64, len(seeds))
@@ -273,7 +395,7 @@ func CommunityFilteredRWR(ctx stdctx.Context, store types.GraphStore, seeds []ty
 		seedVec[s] = seedWeight
 	}
 
-	return rwrIterate(seedVec, alpha, maxIter, adjFrom, adjTo), nil
+	return rwrIterate(seedVec, alpha, maxIter, adjFrom, adjTo, modMap), nil
 }
 
 // rwrIterate runs the core RWR power-iteration loop. It is shared by both
@@ -281,7 +403,16 @@ func CommunityFilteredRWR(ctx stdctx.Context, store types.GraphStore, seeds []ty
 //
 // It uses a double-buffer pattern to avoid per-iteration map allocation and
 // iterates over adjacency edges without temporary slice allocation.
-func rwrIterate(seedVec map[types.Hash]float64, alpha float64, maxIter int, adjFrom, adjTo map[types.Hash][]types.Edge) map[types.Hash]float64 {
+//
+// nodeModule maps each node hash to its top-level directory (module indicator).
+// When non-nil, transitions between nodes in different modules are attenuated
+// by crossModuleAttenuation. This prevents dependency code from absorbing
+// probability mass that should stay in the query's home module.
+func rwrIterate(seedVec map[types.Hash]float64, alpha float64, maxIter int, adjFrom, adjTo map[types.Hash][]types.Edge, nodeModule ...map[types.Hash]string) map[types.Hash]float64 {
+	var modMap map[types.Hash]string
+	if len(nodeModule) > 0 {
+		modMap = nodeModule[0]
+	}
 	// Double-buffer pattern: reuse two maps across iterations instead of
 	// allocating a new map each iteration.
 	mapA := make(map[types.Hash]float64, len(seedVec)*4)
@@ -347,6 +478,12 @@ func rwrIterate(seedVec map[types.Hash]float64, alpha float64, maxIter int, adjF
 			}
 
 			// Distribute probability along edges proportional to weight.
+			// Cross-module transitions are attenuated to prevent dependency
+			// code from absorbing probability meant for the query's home module.
+			srcMod := ""
+			if modMap != nil {
+				srcMod = modMap[node]
+			}
 			for _, e := range fromEdges {
 				w, ok := edgeWeights[e.EdgeType]
 				if !ok {
@@ -355,6 +492,9 @@ func rwrIterate(seedVec map[types.Hash]float64, alpha float64, maxIter int, adjF
 				target := e.TargetHash
 				if target == node {
 					target = e.SourceHash
+				}
+				if modMap != nil && srcMod != modMap[target] && srcMod != "" && modMap[target] != "" {
+					w *= crossModuleAttenuation
 				}
 				next[target] += (1 - alpha) * nodeProb * (w / totalWeight)
 			}
@@ -366,6 +506,9 @@ func rwrIterate(seedVec map[types.Hash]float64, alpha float64, maxIter int, adjF
 				target := e.TargetHash
 				if target == node {
 					target = e.SourceHash
+				}
+				if modMap != nil && srcMod != modMap[target] && srcMod != "" && modMap[target] != "" {
+					w *= crossModuleAttenuation
 				}
 				next[target] += (1 - alpha) * nodeProb * (w / totalWeight)
 			}

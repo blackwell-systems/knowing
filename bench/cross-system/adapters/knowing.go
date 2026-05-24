@@ -118,10 +118,18 @@ func (a *Knowing) Retrieve(repoPath string, task benchtype.Task, tokenBudget int
 		engine.SetTaskMemory(tm)
 	}
 
+	// Determine primary repo URL for scoping (prevents cross-repo dilution
+	// in multi-module DBs like k8s with staging modules).
+	var repoURL string
+	if repos, err := s.AllRepos(ctx); err == nil && len(repos) > 0 {
+		repoURL = repos[0].RepoURL
+	}
+
 	result, err := engine.ForTask(ctx, knowingctx.TaskOptions{
 		TaskDescription: task.Description,
 		TokenBudget:     tokenBudget,
 		Format:          "json",
+		RepoURL:         repoURL,
 	})
 	if err != nil {
 		return benchtype.RetrievalResult{System: "knowing", TaskID: task.ID, Error: err.Error()}, nil
