@@ -1,6 +1,6 @@
 # FEATURES.md -- Comprehensive Feature Dump for AI Reference
 
-Generated: 2026-05-15 (updated: 2026-05-23, features 77-121 added: hash domain prefixes, fsck, GC, lockfile, LRU cache, modular community detection, DiffOptions, indexed_at, verify, React viz, MCP resources, graph notes, Phase 3 complete, Merkle proofs, stats CLI, named refs, generation numbers, auto-GC, merkle-strata extraction; P2 edge types, parallel indexer, cross-system benchmark, language equivalence classes, cross-file import resolution, inheritance propagation, deeper call chains, test deprioritization; FTS concepts column, task memory persistence; compound-first keyword extraction, Java/C# import resolution; daemon lifecycle, untrack_repo; staleness reporting, cross-repo awareness for non-Go extractors; implicit feedback, zero-config MCP onboarding, asymmetric feedback weighting, community-aware RWR, cross-system benchmark adapters)
+Generated: 2026-05-15 (updated: 2026-05-24, features 77-131 added: hash domain prefixes, fsck, GC, lockfile, LRU cache, modular community detection, DiffOptions, indexed_at, verify, React viz, MCP resources, graph notes, Phase 3 complete, Merkle proofs, stats CLI, named refs, generation numbers, auto-GC, merkle-strata extraction; P2 edge types, parallel indexer, cross-system benchmark, language equivalence classes, cross-file import resolution, inheritance propagation, deeper call chains, test deprioritization; FTS concepts column, task memory persistence; compound-first keyword extraction, Java/C# import resolution; daemon lifecycle, untrack_repo; staleness reporting, cross-repo awareness for non-Go extractors; implicit feedback, zero-config MCP onboarding, asymmetric feedback weighting, community-aware RWR, cross-system benchmark adapters; enterprise-scale multi-module enrichment, cross-module edge attenuation, repo-scoped search filtering, adjacency cache v2, RWR early termination, similarity edges, stdlib node filter, incremental file reindexing)
 Source: code inspection of all Go files across internal/, cmd/, and config
 Repo: github.com/blackwell-systems/knowing
 
@@ -144,7 +144,8 @@ Repo: github.com/blackwell-systems/knowing
   - Discovered edges use synthetic position-based hashes (not aligned with node hashes from extractors).
   - `RunScoped` opens only changed files, which may reduce cross-package resolution accuracy.
   - Errors in individual edge upgrades are counted but not surfaced.
-  - Superseded by multi-language auto-detection (see Feature 65). Legacy single-server path still works for Go-only repos.
+  - Superseded by multi-language auto-detection (see Feature 65) and multi-module enrichment (see Feature 122). Legacy single-server path still works for Go-only repos.
+  - For multi-module Go repos (go.work), see Feature 122: spawns one gopls per module with progress persistence and per-symbol timeouts.
 - **Dependencies:** `github.com/blackwell-systems/agent-lsp/pkg/lsp`, GraphStore.
 
 ### 12. Snapshot Manager (Hierarchical Merkle DAG)
@@ -1256,6 +1257,108 @@ Repo: github.com/blackwell-systems/knowing
 - **What it does:** Pluggable adapter interface for comparing retrieval systems on the same 100-task corpus. Seven adapters registered: `knowing` (primary system), `grep` (baseline), `aider` (aider-chat retrieval), `gortex` (gortex retrieval), `codegraph` (CodeGraph), `gitnexus` (GitNexus), `cgc` (Codebase Graph Context). Each adapter implements a common interface that accepts a task description and returns ranked symbol results.
 - **Why it matters:** Enables apples-to-apples comparison of retrieval quality (P@K, NDCG, MRR) across competing approaches using identical ground truth and normalization. The adapter pattern means adding a new system for comparison is a single file addition.
 
+### 122. Enterprise-Scale Multi-Module LSP Enrichment
+
+- **Package(s):** `internal/enrichment`
+- **Entry points:** `DiscoverModules` in `internal/enrichment/multimodule.go`, `WithSymbolTimeout` in `internal/enrichment/timeout.go`, `LoadProgress`/`SaveProgress` in `internal/enrichment/progress.go`, `SetConcurrency` on `Enricher`
+- **What it does:** Parallel LSP enrichment across multi-module Go workspaces (repositories using `go.work`). Four sub-features:
+  1. **go.work module discovery** (`DiscoverModules`): Parses `go.work` and returns all `use` directive module directories with their `go.mod` module paths. Falls back to a single module from `go.mod` when no `go.work` exists. `FilesForModule` filters file lists to the correct module boundary (root module excludes sub-module files).
+  2. **Per-symbol timeout** (`WithSymbolTimeout`): Wraps individual LSP calls (GetDefinition, GetImplementation, GetReferences) with a configurable timeout (default 10s via `DefaultSymbolTimeout`). Prevents individual hung gopls calls from blocking the entire enrichment pipeline. Returns `ErrSymbolTimeout` on expiry.
+  3. **Progress persistence** (`EnrichProgress`): Tracks per-module completion status in `.knowing/enrich-progress.json`. Interrupted runs resume automatically by skipping already-completed modules. `MarkModule` records success/failure per module; `IsComplete` checks before starting a module.
+  4. **Parallel cross-module enrichment**: Root module processed solo first (1.2GB gopls for k8s root), then sub-modules enriched in parallel (4 concurrent gopls instances, ~200MB each). Concurrent LSP resolution with serialized DB writes (producer-consumer pattern).
+- **CLI flag:** `-enrich-concurrency N` on `index` and `reindex` commands (default 8 parallel LSP requests per module).
+- **Batched file discovery:** Opens files in batches of 50 (no bulk `didOpen`), reducing gopls memory pressure.
+- **k8s result:** 7,618 edges upgraded from `ast_inferred` (0.7) to `lsp_resolved` (0.9). Previously: 0 (gopls crashed on the full workspace).
+- **Scale validated:** kubernetes with 117K nodes, 335K edges, 57K `lsp_resolved` edges after enrichment.
+- **Limitations/known gaps:** Multi-module support is Go-specific (go.work). Other languages use single-server enrichment. Progress file is per-workspace (not per-database).
+- **Dependencies:** `golang.org/x/mod/modfile`, `github.com/blackwell-systems/agent-lsp/pkg/lsp`, GraphStore.
+
+### 123. Cross-Module Edge Attenuation in RWR
+
+- **Package(s):** `internal/context`
+- **Entry point:** `crossModuleAttenuation` constant and `buildNodeModuleMap` function in `internal/context/walk.go`
+- **What it does:** During RWR iteration, probability flow across module boundaries is multiplied by 0.3 (the `crossModuleAttenuation` constant). Modules are defined by the top-level directory of each node's file path. `buildNodeModuleMap` builds a hash-to-module mapping for all nodes in the adjacency graph. When a transition crosses from one module to another, the edge weight is attenuated. If all nodes share the same top-level directory (single-module repo), the map returns nil and no attenuation is applied.
+- **Why it matters:** Prevents dependency/library code from absorbing probability mass that should stay in the module containing the query seeds. On repos like k8s (which has staging/, pkg/, cmd/ as separate modules), unconstrained walks diffuse scores into utility packages. With attenuation, relevance stays local to the query's home module.
+- **Performance:** Uses a dedicated batch query (`NodeTopDirs`) when the store implements the interface; otherwise skipped gracefully.
+- **Dependencies:** `types.GraphStore` (optional `nodePathQuerier` interface).
+
+### 124. Repo-Scoped Search Filtering (TaskOptions.RepoURL)
+
+- **Package(s):** `internal/context`
+- **Entry point:** `TaskOptions.RepoURL` field in `internal/context/context.go`, `filterByRepoPrefix` helper
+- **What it does:** When `TaskOptions.RepoURL` is set, both tiered keyword results and BM25 results are filtered to only include nodes whose `QualifiedName` starts with `{RepoURL}://`. This removes cross-repo noise when a database contains multiple indexed repositories.
+- **Why it matters:** Per-repo database isolation is the primary strategy, but some workflows (e.g., cross-repo resolution) index multiple repos into a shared database. `RepoURL` filtering prevents unrelated repo symbols from consuming token budget in those scenarios.
+- **Implementation:** Applied after RRF channel results are collected, before fusion. The `filterByRepoPrefix` function does a simple string prefix check on each node's qualified name.
+- **Dependencies:** None beyond existing context engine.
+
+### 125. Adjacency Cache (Compact Binary v2)
+
+- **Package(s):** `internal/context`
+- **Entry point:** `buildAdjacencyMap` in `internal/context/walk.go` (cache read path), `buildFromCache` (deserializer), `adjEdgeTypeToID`/`adjIDToEdgeType` (codec maps)
+- **What it does:** Pre-computes the full adjacency graph and stores it as a compact binary blob in the `graph_notes` table under key `"adjacency_cache"` with object hash `adjacency_cache_v2`. On subsequent RWR calls, the cache is loaded and BFS is done in-memory instead of issuing per-node SQL queries.
+- **Binary format:** Fixed-width 65 bytes per edge record: source hash (32 bytes) + target hash (32 bytes) + edge type ID (1 byte, mapped via `adjEdgeTypeToID`). 30 edge types mapped to uint8 IDs.
+- **Cache version:** v2 (automatically invalidates old v1 gob+base64 caches). Edge count threshold raised from 50K to 500K (covers all practical repos including k8s at 268K edges).
+- **Performance:** k8s graph (268K edges): 9.04s uncached to 1.9ms cached (4,717x speedup). Cache size ~17MB raw vs 252MB with old gob format (15x smaller).
+- **Cache invalidation:** Rebuilt when the adjacency graph changes (snapshot computation triggers rebuild). The `buildAdjacencyMap` function falls back to per-node BFS loading if the cache is missing or corrupted.
+- **Limitations/known gaps:** Cache covers outbound+inbound edges for BFS-reachable nodes from seeds only. Extremely large graphs (>500K edges) skip caching.
+- **Dependencies:** `types.GraphStore` (notes table for storage).
+
+### 126. RWR Early Termination (Top-K Stability)
+
+- **Package(s):** `internal/context`
+- **Entry point:** `topKFromProb` helper and stability check loop in `RandomWalkWithRestartWeighted` in `internal/context/walk.go`
+- **What it does:** After each RWR iteration, extracts the top-10 nodes by probability score and compares their ordering to the previous iteration. If the top-10 ranking remains unchanged for 2 consecutive iterations, the walk terminates early (even if low-ranked nodes are still shifting). This is in addition to the existing convergence check (total delta < 0.001).
+- **Why it matters:** Saves approximately 50% of iterations on large graphs where the top-K result converges well before the entire probability distribution stabilizes. Zero P@10 regression verified on the cross-system benchmark (the ranking quality depends only on the top-K, not on the exact scores of tail nodes).
+- **Constants:** `earlyTopK = 10` (number of nodes to track), stability threshold = 2 consecutive unchanged iterations.
+- **Dependencies:** None beyond the RWR implementation.
+
+### 127. Similarity Edges (Jaccard within Packages)
+
+- **Package(s):** `internal/indexer`, `cmd/knowing`
+- **Entry point:** `indexer.ComputeSimilarityEdges` in `internal/indexer/similarity.go`, `knowing enrich-similarity` CLI command in `cmd/knowing/enrich_similarity.go`
+- **What it does:** Computes pairwise Jaccard similarity between function/method bodies within the same package. Functions with Jaccard coefficient above threshold (default 0.5) receive a `similar_to` edge with provenance `"similarity"`. Only compares within the same package to avoid O(n^2) explosion. Each node can emit at most 5 similarity edges (`maxEdgesPerNode`).
+- **Tokenization:** `tokenize` extracts identifiers from qualified names and signatures, splitting CamelCase and filtering short tokens.
+- **RWR weight:** `similar_to` edges have weight 0.15 in the `edgeWeights` map (lowest among traversable edge types, providing a weak signal for structural similarity without overwhelming call/import relationships).
+- **CLI:** `knowing enrich-similarity [-db path] [-threshold 0.5]` loads all nodes and batch-inserts computed similarity edges.
+- **Benchmark result:** +19.5% MRR improvement in cross-system evaluation when similarity edges are present.
+- **Limitations/known gaps:** Signature-based tokenization is coarse; two functions with similar names but different behavior will still get edges. No embedding-based similarity (Jaccard on token sets only).
+- **Dependencies:** `internal/types`.
+
+### 128. Stdlib Node Filter
+
+- **Package(s):** `internal/context`
+- **Entry point:** `filterNoisySymbols` and RWR result loop in `internal/context/context.go`
+- **What it does:** Filters `stdlib://` prefixed nodes from retrieval results at two points: (1) during seed candidate selection (`filterNoisySymbols`), and (2) during RWR result collection (before scoring). Nodes with `QualifiedName` starting with `"stdlib://"` are excluded alongside `"external://"` prefixed nodes and nodes with `Kind == "external"`.
+- **Why it matters:** On repos with many standard library references (e.g., k8s where `fmt.Errorf` has 5,809 callers), stdlib nodes accumulate disproportionate RWR probability mass and dominate top-10 results. Filtering them restores signal from project-specific symbols. Zero cross-system P@10 impact (stdlib nodes were noise, not signal).
+- **Dependencies:** None beyond existing context engine.
+
+### 129. Incremental File Reindexing (`IndexFilesIncremental`)
+
+- **Package(s):** `internal/indexer`
+- **Entry point:** `Indexer.IndexFilesIncremental(ctx, repoURL, repoPath, commitHash string, changedFiles []string) error` in `internal/indexer/indexer.go`
+- **What it does:** Indexes only the specified files (by relative path) without walking the full repository directory. For each file: reads content, computes content hash, cleans up old nodes/edges for that file, re-extracts, batch inserts results. Skips the full directory walk, snapshot recomputation, and FTS rebuild that `IndexRepo` performs.
+- **Usage:** The daemon's `IndexFunc` calls this method when `changedFiles` are available from the git watcher (file-level change detection). Also available for targeted CLI updates.
+- **Performance:** 494x faster than full index for 1-file edits (24ms vs 11.8s on the knowing repo with 7,803 nodes). Scales linearly: 5 files = 59ms, 20 files = 93ms.
+- **Benchmark:** `bench/incremental-reindex/` validates proportional cost.
+- **Limitations/known gaps:** Does not recompute snapshot, FTS, community detection, or adjacency cache (these require a follow-up full snapshot pass if needed). Sequential file extraction (no worker pool), acceptable for typical 1-10 file changesets.
+- **Dependencies:** GraphStore, ExtractorRegistry.
+
+### 130. Batched File Discovery for LSP Enrichment
+
+- **Package(s):** `internal/enrichment`
+- **Entry point:** Edge discovery pass in `Enricher.Run` (line ~809 in `internal/enrichment/enricher.go`)
+- **What it does:** Opens files for LSP processing in batches of 50 (constant `batchSize = 50`). Each batch: open files via `textDocument/didOpen`, query document symbols and references, then close. This replaces the previous approach of opening all files at once (which caused gopls to consume excessive memory on large repos).
+- **Why it matters:** Reduces peak memory for gopls during enrichment. On k8s (4,877 Go files), batching keeps gopls memory under control while still allowing cross-file resolution within each batch.
+- **Dependencies:** `agent-lsp/pkg/lsp`.
+
+### 131. Confidence-Weighted RWR (Tested, Reverted)
+
+- **Package(s):** `internal/context` (experiment only)
+- **What it was:** Multiplying edge weight by edge confidence during RWR transitions, so that `lsp_resolved` edges (0.9) would carry more probability than `ast_inferred` edges (0.7).
+- **Result:** P@10 0.180 (neutral). Reverted. The ranking improvement from confidence weighting was negligible because RWR already weights by edge type, and the difference between 0.7 and 0.9 confidence is too small to shift rankings.
+- **Status:** Not present in current code. Documented here for completeness (experiment 13 in `eval/EXPERIMENTS.md`).
+- **Learning:** LSP enrichment is infrastructure (correctness, audit trail, cross-repo resolution), not a retrieval quality lever. Upgrading 1.2% of edges from 0.7 to 0.9 does not change RWR ranking order.
+
 ### GraphStore (`internal/types/interfaces.go`)
 
 All 33 methods:
@@ -1465,7 +1568,7 @@ Parameters per tool:
 
 ### `knowing index`
 
-- **Flags:** `--db` (default: `~/.knowing/knowing.db`), `--url` (default: repo path), `--commit` (default: HEAD), `--full` (use go/packages instead of tree-sitter), `--workers` (default: 8, number of parallel extraction goroutines), `--skip-blame` (skip git blame authorship pass for faster structural-only index), `--no-enrich` (skip LSP enrichment for structural-only indexing)
+- **Flags:** `--db` (default: `~/.knowing/knowing.db`), `--url` (default: repo path), `--commit` (default: HEAD), `--full` (use go/packages instead of tree-sitter), `--workers` (default: 8, number of parallel extraction goroutines), `--skip-blame` (skip git blame authorship pass for faster structural-only index), `--no-enrich` (skip LSP enrichment for structural-only indexing), `--enrich-concurrency` (default: 8, number of parallel LSP requests per module during enrichment)
 - **Positional args:** repo-path (required)
 - **What it does:** Opens store, creates indexer, registers extractor (tree-sitter by default, go/packages if `--full`), indexes repo with parallel extraction (8-worker goroutine pool, progress output to stderr every 2s), prints stats, rebuilds FTS synchronously (~500ms), runs LSP enrichment synchronously (if not `--full`). Phase separation: walk -> parallel extract -> batch store -> authorship -> snapshot -> FTS rebuild. On the knowing codebase (84K LOC, 429 files), completes in ~2.3 seconds.
 
@@ -1617,7 +1720,7 @@ Parameters per tool:
 | edge_hash | BLOB PK | sha256(source + target + type + provenance) | GetEdge, DanglingEdges | PutEdge, BatchPutEdges, Ingestor |
 | source_hash | BLOB FK | References nodes | EdgesFrom, TransitiveCallers/Callees, DeleteEdgesBySourceFile | PutEdge, Ingestor |
 | target_hash | BLOB FK | References nodes | EdgesTo, DanglingEdges, RuntimeEdgesByService JOIN | PutEdge, Ingestor |
-| edge_type | TEXT NOT NULL | calls, imports, implements, references, runtime_calls, runtime_rpc, runtime_produces, runtime_consumes, handles_route | EdgesFrom/To filter, traversal CTEs, RuntimeEdgeStatsAggregate | PutEdge, Ingestor |
+| edge_type | TEXT NOT NULL | calls, imports, implements, references, similar_to, handles_route, runtime_calls, runtime_rpc, runtime_produces, runtime_consumes, + 20 others (30 total) | EdgesFrom/To filter, traversal CTEs, RuntimeEdgeStatsAggregate | PutEdge, Ingestor |
 | confidence | REAL DEFAULT 1.0 | 0.0-1.0 | Display | PutEdge, Ingestor, DecayRuntimeConfidence |
 | provenance | TEXT DEFAULT 'ast_resolved' | ast_resolved, ast_inferred, lsp_resolved, otel_trace, otel_trace:{json} | Enricher filter, RuntimeEdgesByProvenance LIKE, display | PutEdge, Ingestor |
 | callsite_line | INTEGER DEFAULT 0 | 1-indexed line of call expression | Enricher (GetDefinition position) | PutEdge (tree-sitter extractor) |
@@ -1710,11 +1813,12 @@ Primary key: `(service_name, route_pattern, mapping_type)`.
 | `references` | goextractor | `ast_resolved` | 1.0 | Non-call identifier usages (via TypesInfo.Uses). |
 | `references` | enricher (LSP discovery) | `lsp_resolved` | 0.9 | Discovered via GetReferences on functions/methods. |
 
-### Runtime and Route Edge Types (Implemented)
+### Runtime, Route, and Similarity Edge Types (Implemented)
 
 | Edge Type | Producer(s) | Provenance | Confidence | Notes |
 |-----------|------------|------------|------------|-------|
 | `handles_route` | gotsextractor (route detection) | `ast_inferred` | 0.7 | Route handler node -> handler function node. Created during static extraction. |
+| `similar_to` | `indexer.ComputeSimilarityEdges` | `similarity` | 1.0 | Jaccard similarity within packages. RWR weight 0.15. See Feature 127. |
 | `runtime_calls` | trace.Ingestor (HTTP spans) | `otel_trace` | 0.5-0.95 (from observation count) | HTTP-attributed spans. Default edge type for unknown spans. |
 | `runtime_rpc` | trace.Ingestor (gRPC spans) | `otel_trace` | 0.5-0.95 | gRPC-attributed spans (rpc.service + rpc.method). |
 | `runtime_produces` | trace.Ingestor (messaging spans) | `otel_trace` | 0.5-0.95 | Messaging spans with messaging.destination attribute. |
@@ -1945,18 +2049,6 @@ Hardcoded in `cmd/knowing/main.go` via daemon startup: `500 * time.Millisecond`.
 ### DeleteSnapshot in GraphStore
 - **Status: IMPLEMENTED.** `SQLiteStore.DeleteSnapshot` removes a snapshot and its associated edge events. Used by `GarbageCollect` to perform real garbage collection of old snapshots.
 
-### Stdlib Node Filter
-- **Status: IMPLEMENTED.** RWR result collection filters nodes prefixed with `stdlib://` (in addition to `external://`). Prevents standard library symbols from dominating top-K results in repos with many stdlib references. Implementation in `internal/context/context.go`.
-
-### IndexFilesIncremental
-- **Status: IMPLEMENTED.** File-scoped incremental reindex (26ms constant time, 494x faster than full reindex). Used by the daemon for changed-file notifications and by the CLI `reindex` command for targeted updates. Avoids full-graph recomputation when only a few files change.
-
-### Adjacency Cache (Compact Binary v2)
-- **Status: IMPLEMENTED.** Pre-computed adjacency lists stored as compact binary blobs (65 bytes/edge) in the `graph_notes` table. Eliminates per-query SQL joins for RWR traversal. On k8s (782K edges): query latency drops from 9.04s (uncached) to 1.9ms (4,717x improvement). Format uses fixed-width records with varint-encoded edge metadata.
-
-### RWR Early Termination
-- **Status: IMPLEMENTED.** Top-K stability check during Random Walk with Restart iterations. When the top-K result set stabilizes (no rank changes across consecutive iterations), iteration stops early. Zero P@10 regression in cross-system benchmark (verified Run 23). Reduces average iteration count on large graphs.
-
 ---
 
 ## Metrics
@@ -1970,14 +2062,14 @@ Hardcoded in `cmd/knowing/main.go` via daemon startup: `500 * time.Millisecond`.
 | internal/snapshot | 3,472 |
 | internal/indexer (all extractors) | 33,455 |
 | internal/context | 7,999 |
-| internal/enrichment | 1,421 |
+| internal/enrichment | 2,782 |
 | internal/daemon | 2,943 |
 | internal/mcp | 9,397 |
 | internal/resolver | 1,188 |
 | internal/trace | 2,811 |
 | internal/community | 969 |
 | cmd/knowing | 5,977 |
-| **Total (internal/ + cmd/)** | **~81,000** |
+| **Total (internal/ + cmd/)** | **~83,000** |
 
 ### Test Count per Package
 
@@ -1991,11 +2083,25 @@ Coverage spans all packages including extractors, store, context engine, MCP han
 |------|----------|-----------|-------|-------|-----------------|
 | knowing (self) | parallel extraction (8 workers) | **1.8s** | 7,224 | 24,936 (30 edge types) | -- |
 | knowing (self, earlier) | tree-sitter + LSP | ~9s | 2,564 | 8,604 | -- |
+| kubernetes | parallel extraction (8 workers) | **18.6s** | 117,401 | 335,000+ (57K lsp_resolved) | -- |
+| VS Code | parallel extraction | 4.1s | 43,379 | 93,382 | -- |
+| Django | parallel extraction | 3.3s | 42,947 | 185,393 | -- |
+| Cargo | parallel extraction | 1.4s | 8,075 | 79,305 | -- |
+| Flask | parallel extraction | 0.1s | 1,658 | 9,237 | -- |
 | polywave-go | go/packages (baseline) | 16m 24s | 6,340 | 17,232 | -- |
 | polywave-go | tree-sitter + LSP (final) | 9.1s | 2,564 | 8,604 (all lsp_resolved) + 213 discovered | -- |
 | polywave-go + polywave-web | tree-sitter | -- | 6,340 + 1,569 | 17,232 + 5,939 | 228 |
 
-**Parallel indexer stats (knowing codebase, ~94K LOC including benchmarks):** 429 source files, 62 packages, 1,451 files/sec throughput, 8-worker goroutine pool, progress output every 2s. Flags: `--workers` (parallelism), `--skip-blame` (skip authorship for structural-only index).
+**Parallel indexer stats (knowing codebase, ~94K LOC including benchmarks):** 429 source files, 62 packages, 1,451 files/sec throughput, 8-worker goroutine pool, progress output every 2s. Flags: `--workers` (parallelism), `--skip-blame` (skip authorship for structural-only index), `--enrich-concurrency` (LSP parallelism).
+
+### Latency Benchmarks
+
+| Operation | Cold | Cached | Speedup | Repo |
+|-----------|------|--------|---------|------|
+| RWR adjacency load | 9.04s | 1.9ms | 4,717x | kubernetes (268K edges) |
+| Incremental reindex (1 file) | 11.8s (full) | 24ms | 494x | knowing (7,803 nodes) |
+| Context retrieval | ~160ms | 42ns (L1) / 1.2ms (L2) | -- | knowing |
+| Time-to-consistency | 167ms total | -- | 4.8x vs codegraph | Flask |
 
 ---
 
