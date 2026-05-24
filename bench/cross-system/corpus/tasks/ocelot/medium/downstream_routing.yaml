@@ -4,11 +4,11 @@ tier: medium
 description: "Add a new downstream route that maps an upstream path to a backend service with load balancing"
 source: manual
 ground_truth:
-  - Ocelot.Configuration.DownstreamRoute.<init>
+  - Ocelot.Configuration.DownstreamRoute.DownstreamRoute
   - Ocelot.Configuration.Builder.DownstreamRouteBuilder.Build
-  - Ocelot.Configuration.Creator.RoutesCreator.Create
+  - Ocelot.Configuration.Creator.StaticRoutesCreator.Create
   - Ocelot.DownstreamRouteFinder.DownstreamRouteFinderMiddleware.Invoke
-  - Ocelot.LoadBalancer.LoadBalancerMiddleware.Invoke
-  - Ocelot.Configuration.File.FileRoute.DownstreamHostAndPorts
+  - Ocelot.LoadBalancer.LoadBalancingMiddleware.Invoke
+  - Ocelot.Configuration.File.FileRoute.FileRoute
 tags: [routing, load-balancing, cross-namespace]
 notes: "Route configuration flows from File -> Creator -> Builder -> DownstreamRoute, then used by DownstreamRouteFinder and LoadBalancer middleware."

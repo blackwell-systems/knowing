@@ -7,7 +7,7 @@ ground_truth:
   - spark.Routable.get
   - spark.Route.handle
   - spark.route.Routes.add
-  - spark.route.HttpMethod.get
+  - spark.route.HttpMethod
   - spark.Service.get
 tags: [routing, handlers, single-package]
 notes: "Developer wants to add a new route. Needs Routable.get(), the Route interface, and how routes are stored."

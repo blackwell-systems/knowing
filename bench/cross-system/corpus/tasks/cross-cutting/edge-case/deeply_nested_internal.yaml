@@ -11,6 +11,6 @@ ground_truth:
   - django.db.models.base.Model._do_update
   - django.db.models.sql.compiler.SQLUpdateCompiler.execute_sql
   - django.db.models.base.Model._get_pk_val
-  - django.db.models.options.Options.pk
+  - django.db.models.options.Options.setup_pk
 tags: [orm, save, internals, error-tracing, cross-package, bug-fix]
 notes: "Edge case: error message as query. Tests whether retrieval can trace from a runtime error message to the internal decision tree (save -> save_base -> _save_table -> _do_insert/_do_update), the PK detection logic (_get_pk_val, Options.pk), and the SQL execution path."

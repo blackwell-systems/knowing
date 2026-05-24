@@ -10,7 +10,7 @@ ground_truth:
   - spark.http.matching.Routes.execute
   - spark.http.matching.AfterFilters.execute
   - spark.http.matching.AfterAfterFilters.execute
-  - spark.http.matching.Body.serializeBody
+  - spark.http.matching.Body.serializeTo
   - spark.route.Routes.find
   - spark.routematch.RouteMatch.getMatchUri
 tags: [request-lifecycle, architectural, cross-package]

@@ -6,7 +6,7 @@ source: synthetic
 ground_truth:
   - cargo.ops.cargo_compile.compile
   - cargo.core.compiler.build_context.BuildContext.new
-  - cargo.core.compiler.unit_graph.build_unit_graph
+  - cargo.ops.cargo_compile.rebuild_unit_graph_shared
   - cargo.core.compiler.job_queue.JobQueue.execute
   - cargo.core.compiler.compilation.Compilation.rustc_process
   - cargo.core.resolver.resolve.resolve

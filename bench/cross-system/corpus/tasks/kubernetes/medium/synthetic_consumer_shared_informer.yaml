@@ -4,7 +4,7 @@ tier: medium
 description: "Find all controllers that use SharedInformerFactory to watch Pod resources, to understand the impact of changing the Pod watch cache behavior"
 source: synthetic
 ground_truth:
-  - k8s.io/client-go/informers.SharedInformerFactory.ForResource
+  - k8s.io/client-go/informers.NewSharedInformerFactory
   - k8s.io/kubernetes/pkg/controller/deployment.NewDeploymentController
   - k8s.io/kubernetes/pkg/controller/replicaset.NewReplicaSetController
   - k8s.io/kubernetes/pkg/controller/job.NewController

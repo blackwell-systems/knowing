@@ -5,8 +5,8 @@ description: "Implement response caching for downstream API calls using the outp
 source: manual
 ground_truth:
   - Ocelot.Cache.OutputCacheMiddleware.Invoke
-  - Ocelot.Cache.OutputCacheMiddleware.<init>
-  - Ocelot.Configuration.CacheOptions.TtlSeconds
+  - Ocelot.Cache.OutputCacheMiddleware.OutputCacheMiddleware
+  - Ocelot.Configuration.CacheOptions.CacheOptions
   - Ocelot.Configuration.Creator.CacheOptionsCreator.Create
   - Ocelot.Cache.IOcelotCache.Get
   - Ocelot.Cache.IOcelotCache.Add

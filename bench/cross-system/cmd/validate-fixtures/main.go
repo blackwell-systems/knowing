@@ -48,7 +48,7 @@ func main() {
 
 	// Open all DBs.
 	dbs := map[string]*sql.DB{}
-	repos := []string{"flask", "django", "cargo", "kubernetes", "vscode"}
+	repos := []string{"flask", "django", "cargo", "kubernetes", "vscode", "ocelot", "spark-java"}
 	for _, repo := range repos {
 		dbPath := filepath.Join(corpusDir, "repos", repo, ".knowing", "graph.db")
 		db, err := sql.Open("sqlite", dbPath)
@@ -109,7 +109,7 @@ func main() {
 					newGT = append(newGT, alt)
 					anyChange = true
 				} else {
-					allMisses = append(allMisses, fmt.Sprintf("  [%s] %s -> (no match, normalized=%q)", f.ID, gt, normalized))
+					allMisses = append(allMisses, fmt.Sprintf("  [%s] repo=%s file=%s gt=%s normalized=%q", f.ID, f.Repo, path, gt, normalized))
 					// Keep original but mark it
 					newGT = append(newGT, gt)
 				}
@@ -140,14 +140,9 @@ func main() {
 		fmt.Printf("Fixed (replaced with alternative): %d\n", fixed)
 	}
 
-	if len(allMisses) > 0 && len(allMisses) <= 50 {
-		fmt.Printf("\nUnresolvable misses:\n")
+	if len(allMisses) > 0 {
+		fmt.Printf("\nAll unresolvable misses (%d):\n", len(allMisses))
 		for _, m := range allMisses {
-			fmt.Println(m)
-		}
-	} else if len(allMisses) > 50 {
-		fmt.Printf("\nShowing first 50 of %d unresolvable misses:\n", len(allMisses))
-		for _, m := range allMisses[:50] {
 			fmt.Println(m)
 		}
 	}
@@ -166,9 +161,10 @@ func findBestMatch(db *sql.DB, original, normalized string) string {
 		terminal = normalized
 	}
 
+	// Strategy 1a: try with full original string (before normalization) for precision.
 	rows, err := db.Query(
-		`SELECT qualified_name FROM nodes WHERE qualified_name LIKE ? LIMIT 20`,
-		"%"+terminal+"%")
+		`SELECT qualified_name FROM nodes WHERE qualified_name LIKE ? ESCAPE '\' LIMIT 100`,
+		"%"+escapeLike(original)+"%")
 	if err != nil {
 		return ""
 	}
@@ -178,7 +174,43 @@ func findBestMatch(db *sql.DB, original, normalized string) string {
 		var qn string
 		rows.Scan(&qn)
 		if normalize.MatchesGroundTruth(qn, original) {
-			return original // original is matchable, keep it
+			return original
+		}
+	}
+	rows.Close()
+
+	// Strategy 1b: try with full normalized form.
+	rows2, err := db.Query(
+		`SELECT qualified_name FROM nodes WHERE qualified_name LIKE ? ESCAPE '\' LIMIT 200`,
+		"%"+escapeLike(normalized)+"%")
+	if err != nil {
+		return ""
+	}
+	defer rows2.Close()
+
+	for rows2.Next() {
+		var qn string
+		rows2.Scan(&qn)
+		if normalize.MatchesGroundTruth(qn, original) {
+			return original
+		}
+	}
+	rows2.Close()
+
+	// Strategy 1c: terminal name search with higher limit.
+	rows3, err := db.Query(
+		`SELECT qualified_name FROM nodes WHERE qualified_name LIKE ? ESCAPE '\' LIMIT 500`,
+		"%"+escapeLike(terminal)+"%")
+	if err != nil {
+		return ""
+	}
+	defer rows3.Close()
+
+	for rows3.Next() {
+		var qn string
+		rows3.Scan(&qn)
+		if normalize.MatchesGroundTruth(qn, original) {
+			return original
 		}
 	}
 	return ""
@@ -199,8 +231,8 @@ func findAlternative(db *sql.DB, normalized string) string {
 
 	// Search for symbols containing the terminal name.
 	rows, err := db.Query(
-		`SELECT qualified_name FROM nodes WHERE qualified_name LIKE ? LIMIT 50`,
-		"%"+terminal+"%")
+		`SELECT qualified_name FROM nodes WHERE qualified_name LIKE ? ESCAPE '\' LIMIT 50`,
+		"%"+escapeLike(terminal)+"%")
 	if err != nil {
 		return ""
 	}
@@ -259,5 +291,13 @@ func lastComponent(s string) string {
 	if idx := strings.LastIndex(s, "."); idx >= 0 {
 		return s[idx+1:]
 	}
+	return s
+}
+
+// escapeLike escapes SQL LIKE wildcards (% and _) in a string.
+func escapeLike(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "%", "\\%")
+	s = strings.ReplaceAll(s, "_", "\\_")
 	return s
 }

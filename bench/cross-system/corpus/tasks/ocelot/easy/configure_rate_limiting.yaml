@@ -5,9 +5,9 @@ description: "Configure rate limiting for downstream API routes"
 source: manual
 ground_truth:
   - Ocelot.RateLimiting.RateLimitingMiddleware.Invoke
-  - Ocelot.RateLimiting.RateLimitingMiddleware.<init>
-  - Ocelot.Configuration.RateLimitOptions.EnableRateLimiting
-  - Ocelot.Middleware.OcelotPipelineExtensions.UseRateLimiting
+  - Ocelot.RateLimiting.RateLimitingMiddleware.RateLimitingMiddleware
+  - Ocelot.Configuration.RateLimitOptions.RateLimitOptions
+  - Ocelot.Middleware.OcelotPipelineExtensions.BuildOcelotPipeline
   - Ocelot.Configuration.Creator.RateLimitOptionsCreator.Create
 tags: [rate-limiting, configuration, cross-namespace]
 notes: "Rate limiting configuration flows from config file through Creator to middleware execution."
