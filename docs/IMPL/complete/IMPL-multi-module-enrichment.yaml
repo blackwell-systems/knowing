@@ -1,3 +1,4 @@
+completion_date: "2026-05-24"
 title: Enterprise Multi-Module LSP Enrichment
 feature_slug: multi-module-enrichment
 verdict: SUITABLE
@@ -517,7 +518,7 @@ waves:
             - A
             - B
             - C
-      base_commit: de2b55a8dea7e0b76c01f0c1fe4e0bc41b46e7f0
+      base_commit: 40915632f2ded06c1c0b06b0ad393c3eada53bef
 quality_gates:
     level: standard
     gates:
@@ -596,6 +597,20 @@ completion_reports:
             - TestDefaultSymbolTimeout_Value
         verification: PASS
         notes: Per-symbol timeout wrapper complete. All 6 tests pass. Only stdlib imports used.
+    D:
+        status: complete
+        branch: polywave/multi-module-enrichment/wave2-agent-D
+        commit: 0e887c3
+        files_changed:
+            - internal/enrichment/enricher.go
+            - internal/enrichment/enricher_test.go
+            - internal/enrichment/config.go
+        tests_added:
+            - TestRunMultiModule_SkipsCompletedModules
+            - TestSymbolTimeout_Integration
+            - TestRunForServer_NoGoWork_FallsBack
+        verification: PASS
+        notes: Multi-module enrichment wired into enricher. All 28 tests pass. GOWORK=off hack removed. Per-symbol timeout applied to GetDefinition, GetImplementation, GetReferences.
 pre_mortem:
     overall_risk: medium
     rows:
@@ -649,5 +664,5 @@ critic_report:
     summary: 'All agent briefs verified against the actual codebase. File existence checks pass: new files (multimodule.go, progress.go, timeout.go) do not exist yet (correct for action:new), and modify targets (enricher.go, enricher_test.go, config.go) exist. Symbol accuracy confirmed: runForServer at line 175, GOWORK=off block at lines 183-186, e.client.GetDefinition at line 461, GetImplementation/GetReferences in processSymbolsWithSource, LanguageID field on LSPServerConfig, Go detection block at lines 56-64 in config.go. Interface contracts are consistent: golang.org/x/mod/modfile.ParseWork exists with WorkFile.Use[].Path as described, types.File has Path field, lsp.LSPClient and NewLSPClient exist in agent-lsp. Import chains valid: golang.org/x/mod is in go.mod (indirect v0.36.0), all other imports used by agents already exist. No disjoint ownership violations. No complexity imbalance. Context anchors in Agent D brief match source exactly.'
     reviewed_at: "2026-05-24T19:21:33Z"
     issue_count: 0
-state: REVIEWED
+state: COMPLETE
 injection_method: hook

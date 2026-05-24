@@ -17,3 +17,5 @@
   - IMPL doc: docs/IMPL/complete/IMPL-staleness-crossrepo.yaml
 - **code-quality-cleanup**: completed 2026-05-22, 2 waves, 6 agents
   - IMPL doc: docs/IMPL/complete/IMPL-code-quality-cleanup.yaml
+- **multi-module-enrichment**: completed 2026-05-24, 2 waves, 4 agents
+  - IMPL doc: docs/IMPL/complete/IMPL-multi-module-enrichment.yaml
