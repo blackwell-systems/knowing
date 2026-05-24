@@ -163,9 +163,10 @@ Current status: per-repo isolation (no cross-repo queries). First real user who 
 | Benchmark | What it proves | Status | Effort |
 |-----------|---------------|--------|--------|
 | **SWE-bench integration** | knowing + Claude solves N% more SWE-bench tasks than Claude alone. The definitive "does graph context help real agent work?" | Not started | High (full eval harness, 300 tasks, automated agent loop) |
-| **Agent efficiency (real transcripts)** | Claude Code with knowing tools uses fewer tokens, fewer tool calls, higher correctness. | Infrastructure built (`bench/agent-efficiency/`): 8 tasks, transcript parser, comparison engine, runner script. **Zero transcripts collected.** Needs actual sessions run. | Medium (run 16 sessions: 8 tasks x 2 modes) |
+| ~~**Agent efficiency (real transcripts)**~~ | ~~Claude Code with knowing tools uses fewer tokens, fewer tool calls, higher correctness.~~ | ~~**Done (honest negative result).** Sonnet + grep is near-optimal for small/medium repos with unique names. knowing's value is at scale (11.5x on k8s 3.5M LOC), not on grep-answerable tasks. Full narrative: `bench/AGENT-EFFICIENCY-STUDY.md`.~~ | ~~Medium~~ |
 | **Real-session replay** | Replay 10+ real claudewatch session transcripts. Measure: context calls saved, symbols used that came from knowing, tasks where knowing provided the critical symbol. | Not started (implicit feedback tracker now exists for attribution) | High (transcript parser, attribution detection, manual annotation) |
-| **Cold start benchmark** | Time from `brew install` to first useful `context_for_task` result. Proves the zero-config onboarding story. | Zero-config implemented but not timed end-to-end | Low (time the auto-index path) |
+| ~~**Cold start benchmark**~~ | ~~Time from `brew install` to first useful `context_for_task` result.~~ | ~~Zero-config implemented. Measured: auto-index fires on first MCP launch, indexes repos in <160ms (Flask) to ~18s (k8s), first context result available immediately after.~~ | ~~Low~~ |
+| ~~**Aider head-to-head**~~ | ~~knowing vs Aider (tree-sitter + PageRank) on identical tasks.~~ | ~~**Done.** 5-way comparison (Run 20): knowing 4.5x more precise than Aider (P@10 0.226 vs 0.050). Aider adapter built, runs in cross-system harness. Full results in FINDINGS.md Runs 19-22.~~ | ~~Medium~~ |
 
 ### P2: Proves production readiness
 
@@ -186,8 +187,8 @@ Current status: per-repo isolation (no cross-repo queries). First real user who 
 | **Graph integrity under load** | Spawn 10 concurrent indexers on overlapping repos. Run `knowing fsck` after. Proves content-addressing prevents corruption under concurrency. | Not started (fsck bench exists for single-indexer correctness) | Medium |
 | **Concurrent query performance** | 100 parallel `context_for_task` calls on a 100K-edge graph. Measure throughput (queries/sec), latency degradation, and WAL checkpoint behavior. | Not started | Medium |
 | **Cross-repo retrieval quality** | P@10 for tasks that span repo boundaries (e.g., "which frontend components call this backend endpoint?"). | Needs cross-repo implementation first | Medium |
-| **Feedback weight sensitivity** | Sweep feedback weight from 0.05 to 0.50 in 0.05 increments. Plot P@10 vs weight. Find the optimal operating point. Currently 0.15 shows no lift in cold-start; this identifies the right value. | Not started (feedback-loop infrastructure exists) | Low |
-| **LSP enrichment ROI** | Run cross-system benchmark with and without LSP enrichment. Measure the P@10 delta that enrichment adds over tree-sitter alone. Quantifies whether the enrichment latency (seconds) pays for itself. | Not started | Medium |
+| ~~**Feedback weight sensitivity**~~ | Moved to P1 regression prevention section (more urgent after Run 22 findings). | See above | - |
+| ~~**LSP enrichment ROI**~~ | Moved to P1 regression prevention section (need to measure whether enrichment is net-positive after external node filter). | See above | - |
 
 ### P1: Competitive demolition demo
 
@@ -204,35 +205,32 @@ A head-to-head harness that runs identical queries against all systems and produ
 
 **Output:** Markdown table + optional terminal recording (asciinema). Publishable on README, blog, Zenodo.
 
-**Aider comparison (previously blocked, now unblocked):** Was blocked by scipy/Fortran
-dependency. Fix: `uv python install 3.11 && uv venv --python 3.11 && uv pip install aider-chat`
-pulls pre-built wheels, no compiler needed.
+**Aider comparison: COMPLETE.** Results in cross-system FINDINGS Runs 19-22. knowing 4.5x
+more precise than Aider (P@10 0.226 vs 0.050). Aider's tree-sitter + PageRank approach is
+file-level; it can't rank individual symbols. The gap widens on larger repos.
 
-Why Aider matters:
-- **Most credible competitor.** Real users, real GitHub stars, real agent loop. If knowing
-  beats Aider on the same tasks, that's the strongest possible evidence.
-- **Cross-system benchmark gap.** The context packing study (bench/CONTEXT-PACKING-STUDY.md)
-  lists Aider as the #2 priority next step. It's the only real coding agent in the competitor
-  set (GitNexus/Gortex/CGC are retrieval tools, not agents).
-- **Apples-to-apples comparison.** Aider uses its own repo-map (tree-sitter based) for
-  context. knowing uses graph-ranked context. Same input (task description + repo), different
-  context strategy. Measures whether graph intelligence beats Aider's simpler approach.
-- **SWE-bench bridge.** Aider publishes SWE-bench scores. If we run the same SWE-bench
-  subset with knowing providing context to Claude, we get a direct comparison against
-  Aider's published numbers without needing their full eval harness.
-- **Multi-turn agent efficiency.** The multi-turn benchmark tasks (refactor-return-type,
-  add-symbol-info-tool) are exactly what Aider does: edit multiple files to complete a
-  coding task. Running Aider on the same tasks gives a direct "knowing+Claude vs Aider"
-  comparison on tool calls, tokens, and correctness.
+**Status:** Data complete. Needs packaging into a polished demo format (markdown table +
+asciinema recording) for publication.
 
-**Status:** Data exists in cross-system FINDINGS. Needs packaging into a reproducible harness with live competitor invocations and a polished output format.
+### P1: Regression prevention and pipeline health
+
+Items identified from the Run 22 regression investigation. These prevent future silent quality degradation.
+
+| Benchmark | What it proves | Status | Effort |
+|-----------|---------------|--------|--------|
+| **Channel balance regression test** | Assert that no single RRF channel returns >2x the combined results of other channels. The Run 22 regression was invisible until full benchmark re-run because no unit test caught unbounded equiv results. | Not started. Should be a `go test` in `internal/context/` that runs a fixed task against a fixture DB. | Low |
+| **Per-repo P@10 tracking (CI gate)** | Track P@10 per repo across runs. Alert when any single repo drops >20% from its historical best. The Flask regression (0.321->0.20) went unnoticed because the full-corpus aggregate masked it. | Infrastructure exists (cross-system harness). Need: per-repo baseline file, comparison script, CI integration. | Medium |
+| **Equivalence class expansion safety** | When adding new equiv classes, run the cross-system benchmark before/after and assert no repo drops >5%. Validates that new phrases/targets don't trigger the generic-noise pattern. | Not started. Could be a `pre-commit` check or manual gate on PRs touching `*_seeds.go`. | Low |
+| **RRF channel contribution audit** | For each of the 117 tasks, log which channel contributed each of the top-10 final results. Produces a "channel attribution matrix" showing how often each channel is responsible for correct vs incorrect rankings. | Not started. Would answer: "is equiv still net-positive after the cap?" | Medium |
+| **LSP enrichment ROI (fresh vs enriched)** | Run cross-system benchmark with and without LSP enrichment on the same repos. Quantifies the P@10 delta that enrichment adds. Current suspicion: enrichment helped in Run 18 (peak) but wasn't active in Runs 21-22. | Not started. Enrichment creates phantom externals (65% of Flask nodes); need to measure whether it's net-positive after the external filter. | Medium |
+| **Feedback weight sweep** | Sweep feedback weight from 0.05 to 0.50. Plot P@10 vs weight on the feedback-loop bench (not cross-system, since cross-system is cold-start). Find the operating point where implicit/explicit feedback compounds. Currently 0.15 shows zero lift. | Infrastructure exists (`bench/feedback-loop/`). Need: parameter sweep harness, plot generation. | Low |
 
 ### Standalone Publication: Code Retrieval Evaluation Toolkit (CRET)
 
 Extract knowing's benchmarking infrastructure as the SWE-bench equivalent for code
 context retrieval. Full proposal: [docs/proposals/code-retrieval-eval-toolkit.md](../proposals/code-retrieval-eval-toolkit.md).
 
-**Status:** Not started. Prerequisite: complete the Aider comparison (in progress).
+**Status:** Not started. Prerequisite complete (Aider comparison done, Run 19-22).
 
 ### Not yet benchmarked (tracked for completeness)
 
