@@ -379,15 +379,21 @@ func buildAdjacencyMap(ctx stdctx.Context, store types.GraphStore, seeds []types
 	adjFrom = make(map[types.Hash][]types.Edge)
 	adjTo = make(map[types.Hash][]types.Edge)
 
-	// Adaptive depth and node cap: on large graphs, reduce BFS expansion to
-	// avoid loading tens of thousands of nodes. The walk still finds relevant
-	// symbols because seeds are already the best candidates from RRF fusion.
-	// On small graphs (few seeds), use full depth to ensure reachability.
-	maxDepth := RWRMaxDepth
-	maxNodes := RWRMaxNodes
-	if len(seeds) <= 5 {
-		maxDepth = 6 // small seed set: ensure full reachability
+	// Adaptive BFS parameters. Scale with seed count as a proxy for graph
+	// complexity: many seeds (15) = real query on a large graph, cap aggressively.
+	// Few seeds (1-5) = unit test or focused query, allow full exploration.
+	// Middle ground (6-10) = moderate cap.
+	var maxDepth, maxNodes int
+	switch {
+	case len(seeds) <= 5:
+		maxDepth = 6
 		maxNodes = 50000
+	case len(seeds) <= 10:
+		maxDepth = 4
+		maxNodes = 2000
+	default:
+		maxDepth = RWRMaxDepth
+		maxNodes = RWRMaxNodes
 	}
 
 	// Build set of phantom external node hashes to exclude from BFS expansion.
