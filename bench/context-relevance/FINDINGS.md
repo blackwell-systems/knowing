@@ -53,7 +53,7 @@ outperform A because HITS would push irrelevant symbols below the top-10 cutoff.
 ### Config C vs B: Feedback is the strongest enhancement
 
 Feedback accumulation provides the largest precision improvement in the current
-system. Positive feedback boosts symbol scores by up to +0.15 (centered scoring),
+system. Positive feedback boosts symbol scores by up to +0.25 (asymmetric weighting),
 which is enough to promote symbols from just outside the top-10 into the result
 set. This demonstrates compounding: earlier fixtures' feedback helps later ones.
 

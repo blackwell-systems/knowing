@@ -473,7 +473,7 @@ The 281x and 517x figures compare hierarchical diff against flat linear scan of 
 
 ### 7.3 Context Retrieval
 
-#### Cross-System Benchmark (5 repos, 107 tasks, 18 iterative runs)
+#### Cross-System Benchmark (7 repos, ~117 tasks, 23 iterative runs)
 
 | System | P@10 | R@10 | NDCG@10 | MRR | Tasks scored |
 |--------|------|------|---------|-----|-------------|

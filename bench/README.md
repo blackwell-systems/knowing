@@ -131,7 +131,7 @@ Merkle root based on the packages it spans. Results are written to
 
 ### cross-system
 
-Evaluates knowing's retrieval quality against 5 competitors across 7 repos spanning
+Evaluates knowing's retrieval quality against 6 competitors across 7 repos spanning
 5 languages and scales from 14K to 3.5M LOC. Corpus: Flask (Python, 15K LOC),
 Django (Python, 400K LOC), Cargo (Rust, 150K LOC), VS Code (TypeScript, 1M LOC),
 Kubernetes (Go, 3.5M LOC), Spark (Java, 14K LOC, 184 files), and Ocelot (C#, 30K

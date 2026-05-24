@@ -60,7 +60,7 @@ These aren't separate features. They're structural consequences of content-addre
 
 **For your agent:**
 - "I'm changing this function. What breaks?" (blast radius across callers, tests, routes, repos)
-- "Give me 5,000 tokens of context for this task." (graph-ranked, not grep-searched)
+- "Give me 50,000 tokens of context for this task." (graph-ranked, not grep-searched)
 - "Which tests should run?" (call-graph traversal, 98% precision)
 
 **For your platform team:**

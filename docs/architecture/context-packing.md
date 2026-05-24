@@ -204,7 +204,7 @@ With HITS active (applied to top-200), weights shift to accommodate authority ad
 score = blast_radius * 0.35 + confidence * 0.20 + recency * 0.15 + distance * 0.15 + authorityAdj + feedback + session
 ```
 
-Feedback weight is 0.15 (centered around 0). Session weight is 0.20 (normalized from [0, 2.0] cap).
+Feedback weight is asymmetric: pos=0.25, neg=0.05 (centered around 0). Session weight is 0.20 (normalized from [0, 2.0] cap).
 
 ### Blast Radius (40% base, 35% with HITS)
 
@@ -253,9 +253,9 @@ The half-life is tuned for AI agent sessions where a context query every 30-90 s
 typical. Symbols accessed within the last minute receive near-maximum boost; those from
 5+ minutes ago contribute negligibly.
 
-### Feedback (15%)
+### Feedback (asymmetric: pos=0.25, neg=0.05)
 
-Historical usefulness signals from the `feedback` MCP tool. The usefulness ratio (useful / total) is centered around 0.5: symbols with >50% usefulness receive a positive boost, <50% receive a penalty. Weight is 0.15, contributing between -0.15 and +0.15 to the final score.
+Historical usefulness signals from the `feedback` MCP tool. The usefulness ratio (useful / total) is centered around 0.5: symbols with >50% usefulness receive a positive boost, <50% receive a penalty. Weights are asymmetric: positive feedback contributes up to +0.25, negative feedback penalizes up to -0.05. This asymmetry means positive signal accumulates faster than negative signal erodes, reflecting the insight that explicit positive feedback is higher-confidence than negative.
 
 As of v0.5.0, feedback records are merkleized: each stores the SubgraphRoot of the symbol's package at feedback time. When querying feedback, only records where `neighborhood_root` matches the current SubgraphRoot are counted. This provides automatic expiration: feedback becomes invalid when the symbol's package changes (any edge modification in the package invalidates the neighborhood root). Adds 11% overhead (255µs → 284µs for 100 symbols). Backward compatible: NULL `neighborhood_root` uses the legacy path (no expiration).
 

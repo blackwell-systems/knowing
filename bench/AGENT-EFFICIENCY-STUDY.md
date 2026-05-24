@@ -181,7 +181,7 @@ It's:
 
 1. **Scale.** At 3.5M LOC (kubernetes), grep for "Handler" returns 500+ results.
    knowing ranks them by graph centrality and returns the 10 that matter. The
-   cross-system benchmark proves this: P@10=0.230 vs grep 0.020 (11.5x).
+   cross-system benchmark proves this: P@10=0.217 vs grep 0.020 (11x).
 
 2. **Ambiguity.** At 160K LOC, function names are unique. At 1M+ LOC, names
    collide. "Server" appears in 40 packages. "Handler" in 200 files. The graph

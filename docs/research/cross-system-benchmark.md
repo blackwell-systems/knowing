@@ -11,8 +11,8 @@
 | Component | Status | Notes |
 |-----------|--------|-------|
 | Benchmark harness | Done | `harness_test.go`, metrics, normalization, statistical tests |
-| Evaluation corpus (5 repos) | Done | kubernetes, VS Code, flask, cargo, django (replaced TypeScript compiler with VS Code) |
-| Task fixtures (107 total) | Done | 97 manual + 10 SWE-bench derived |
+| Evaluation corpus (7 repos) | Done | kubernetes, VS Code, flask, cargo, django, spark-java, ocelot (replaced TypeScript compiler with VS Code) |
+| Task fixtures (~117 total) | Done | 97 manual + 10 SWE-bench derived + 10 Java/C# |
 | Ground truth validation | Done | 95% match rate, validate-fixtures tool |
 | knowing adapter | Done | P@10=0.217 (Run 23), d=0.92 (very large) |
 | grep adapter | Done | P@10=0.020 (baseline) |
@@ -265,7 +265,7 @@ cgc search "<keywords>" --limit 20
 
 ### 3.1 Repository Selection
 
-The corpus uses **5 repositories** chosen for diversity along these axes:
+The corpus uses **7 repositories** chosen for diversity along these axes:
 
 | Repo | Language | Size (LOC) | Why |
 |------|----------|------------|-----|
@@ -824,7 +824,7 @@ Ground truth is NEVER updated to make any system look better.
 bench/cross-system/CHANGELOG.md
 
 ## v1.0 (initial)
-- 5 repos, 100 tasks, 6 systems
+- 7 repos, ~117 tasks, 7 systems
 - Pinned commits: [list SHAs]
 
 ## v1.1 (if ground truth corrections needed)
@@ -868,7 +868,7 @@ When another system outperforms knowing on a category:
 
 ### Phase 2: Ground Truth (2 weeks)
 
-**Goal:** 100 labeled tasks across 5 repos with inter-rater verification.
+**Goal:** ~117 labeled tasks across 7 repos with inter-rater verification.
 
 | Task | Effort | Output |
 |------|--------|--------|
@@ -906,7 +906,7 @@ When another system outperforms knowing on a category:
 
 | Task | Effort | Output |
 |------|--------|--------|
-| Clone all 5 repos at pinned commits | 1h | Local corpus |
+| Clone all 7 repos at pinned commits | 1h | Local corpus |
 | Run full benchmark (all systems x all tasks) | 8h | Raw results |
 | Generate analysis (tables, charts, significance) | 4h | FINDINGS.md |
 | Failure analysis per system | 8h | `failure-analysis.md` |

@@ -61,7 +61,7 @@ to knowing adds 5-20 seconds of latency per call.
 |----------|--------|--------|
 | Hook benchmark | `hooks/FINDINGS.md` | 33% precision, 61% recall, 100% coverage. Hook fully replaces manual context calls. |
 | Token savings (simulated) | `bench/token-savings/` | 44% fewer tool calls, 80% fewer tokens for exploration tasks |
-| Cross-system retrieval | `bench/cross-system/` | P@10=0.230 vs grep 0.020 (11.5x, p<0.0001) |
+| Cross-system retrieval | `bench/cross-system/` | P@10=0.217 vs grep 0.020 (11x, p<0.0001) |
 | Feedback compounding | `bench/feedback-loop/` | +20pp precision after one feedback round |
 | Test scope prediction | `bench/test-scope-accuracy/` | 98.9% precision predicting affected tests |
 
@@ -189,7 +189,7 @@ agent couldn't find in 2 greps.
 
 1. **Larger repos (1M+ LOC):** grep for "Handler" returns 500+ results. knowing's
    ranking surfaces the 5 that matter. The cross-system benchmark already proves
-   this: P@10=0.230 vs grep 0.020 on kubernetes (3.5M LOC).
+   this: P@10=0.217 vs grep 0.020 on kubernetes (3.5M LOC).
 
 2. **Ambient automatic context (hooks):** The pre-edit hook injects context before
    every edit WITHOUT the agent asking. No tool call, no latency tax. This is proven

@@ -1133,8 +1133,8 @@ Repo: github.com/blackwell-systems/knowing
 
 ### 106. Merkle-Forest Library Extraction
 
-- **Dependency:** `github.com/blackwell-systems/merkle-strata` v0.1.1
-- **What it does:** Core Merkle tree construction (`computeMerkleRoot`, binary tree building, multi-level tree building) extracted to a standalone reusable library. `BuildMerkleTree` delegates to `forest.Build` with `WithPrefix([]byte("merkle\x00"))`. `BuildHierarchicalTree` delegates to `forest.BuildMultiLevel`. All exported APIs preserved unchanged.
+- **Dependency:** `github.com/blackwell-systems/merkle-strata` v0.4.0
+- **What it does:** Core Merkle tree construction (`computeMerkleRoot`, binary tree building, multi-level tree building) extracted to a standalone reusable library. `BuildMerkleTree` delegates to `strata.Build` with `WithPrefix([]byte("merkle\x00"))`. `BuildHierarchicalTree` delegates to `strata.BuildMultiLevel`. All exported APIs preserved unchanged.
 - **Net impact:** -44 lines from knowing; construction logic reusable by other projects.
 - **Library source:** https://github.com/blackwell-systems/merkle-strata
 

@@ -41,7 +41,7 @@ knowing is a content-addressed graph retrieval engine evaluated against 6 compet
 ### Competitive Advantages (all statistically significant)
 
 - **vs codegraph (19K stars):** 1.63x more precise (p=0.0006, d=0.36), 11.5x more token-efficient
-- **vs Aider (~20K stars):** 4.5x more precise (P@10 0.226 vs 0.050), graph-based vs file-level
+- **vs Aider (~20K stars):** 4.3x more precise (P@10 0.217 vs 0.050), graph-based vs file-level
 - **vs grep:** 11.3x more precise (p<0.0001, d=0.92 very large effect)
 - **vs GitNexus:** 2.75x more precise (p=0.0003, d=0.50), 193x faster indexing, 109x faster incremental, 10x faster queries
 - **vs Repomix:** 48x more token-efficient (4K tokens vs 300K for same task)
@@ -259,12 +259,24 @@ Direct comparison against codebase-memory-mcp (2,600 stars, v0.6.1). Uses tree-s
 | Flask | 15K | 1.9K | 285ms/query | 0ms |
 | Cargo | 150K | 22K | ~3s/query | 0ms |
 | Django | 300K | 46K | **hangs (100% CPU, >10s/query)** | 0ms |
+| VS Code | 1M | 111K | **hangs (>30s, killed)** | 0ms |
 | k8s | 3.5M | 230K | **hangs (killed after 5min)** | 2ms |
 
-codebase-memory's BM25 engine spins at 100% CPU on repos with >40K nodes. It cannot
-serve as a production context tool for anything larger than a small/medium project.
-knowing handles all sizes in constant time (2ms with adjacency cache, regardless of
-graph size up to 782K edges).
+**Scale ceiling: ~22K-46K nodes (~150K LOC).** codebase-memory's BM25 engine spins at
+100% CPU on repos with >40K nodes. Any enterprise codebase (Django, VS Code, k8s) is
+unusable. knowing handles all sizes in constant time (2ms with adjacency cache,
+regardless of graph size up to 782K edges).
+
+**Competitor scale failure summary:**
+
+| System | Max viable LOC | Fails at | Failure mode |
+|--------|---------------|----------|--------------|
+| **knowing** | **unlimited (tested 3.5M)** | N/A | N/A |
+| codegraph | unlimited | N/A (but fails Java/C#) | 10/117 task failures |
+| codebase-memory | ~150K LOC | Django (300K) | 100% CPU hang, no response |
+| GitNexus | ~150K LOC | VS Code (1M) | OOM (5.7GB), killed after 60min |
+| Gortex | unlimited (slow) | N/A | 14min index, 14GB RAM |
+| Aider | unlimited (slow) | N/A | 3s/query, misses new code |
 
 **Determinism:** DETERMINISTIC (same output 10/10 runs, same as knowing).
 **Robustness:** 0.10 Jaccard (VOLATILE, similar to knowing's 0.07).
