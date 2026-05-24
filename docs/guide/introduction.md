@@ -344,15 +344,29 @@ Imagine you have 100,000 edges in your graph. Something changed. Which edge? Wit
 
 ### The hierarchical tree
 
-knowing organizes edges into a three-level Merkle tree:
+knowing organizes edges into a three-level Merkle tree. Each level serves a distinct purpose:
+
+**Level 1: Edge level (leaves).** Individual edge hashes form the leaves of the tree. Each edge hash is computed as `sha256("edge\0" + sourceHash + targetHash + edgeType + provenance)`. These are the atomic units of the graph; every relationship between two symbols is one leaf.
+
+**Level 2: Package/subgraph level (interior).** All edges belonging to a single package are grouped by edge type, then hashed into a **subgraph root** (also called the package root). This root is a single 32-byte hash that summarizes every relationship within that package. If any edge in the package changes (added, removed, or replaced), the subgraph root changes. If nothing in the package changes, the subgraph root is identical. This level is what enables per-package diffing and per-package cache invalidation.
+
+**Level 3: Repository level (root).** All subgraph roots (one per package) are sorted and hashed into a single **repository Merkle root**. This is the snapshot hash. One 32-byte value represents the entire graph state. Comparing two repository roots is O(1); if they match, nothing changed anywhere. If they differ, descend to Level 2 to find which packages changed, then to Level 1 to find which edges changed.
+
+The three levels correspond to three granularities of operation:
+- **Edge granularity:** prove a specific relationship exists or doesn't exist.
+- **Package granularity:** invalidate caches, scope diffs, expire feedback, compute blast radius for one package.
+- **Repository granularity:** verify entire graph integrity, compare snapshots, anchor audit proofs.
 
 ```
+Level 3 (repository root)
 repo root = SHA-256("merkle\0" + left_child + right_child)  [of sorted package roots]
   |
-  +-- package root [internal/auth] = merkle(sorted edge-type roots)
+  +-- Level 2 (package/subgraph roots)
+  |   package root [internal/auth] = merkle(sorted edge-type roots)
   |     |
   |     +-- edge-type root [internal/auth:calls] = merkle(sorted edge hashes)
   |     |     |
+  |     |     +-- Level 1 (edge leaves)
   |     |     +-- edge hash: a27e...  (CreateOwner -> save)
   |     |     +-- edge hash: b91f...  (CreateOwner -> validate)
   |     |     +-- edge hash: c44d...  (ListOwners -> findAll)
@@ -369,11 +383,22 @@ repo root = SHA-256("merkle\0" + left_child + right_child)  [of sorted package r
               +-- edge hash: f77a...  (findAll -> db.Query)
 ```
 
+Within Level 2, edges are further grouped by edge type (calls, imports, implements, etc.) before being Merkle-hashed. This adds a sub-level that allows even finer diffing: "package X changed, specifically its `calls` edges, not its `imports` edges." In practice this means you can determine not just which package was affected but what kind of relationship changed.
+
 **How interior nodes are computed:**
 
 Each interior node is `SHA-256("merkle\0" + left_child_hash + right_child_hash)`. Leaves are the raw edge hashes. If there's an odd number of children, the last one is paired with itself (standard Merkle tree padding).
 
 The leaves at each level are sorted by `bytes.Compare` before tree construction. This makes the root deterministic regardless of insertion order: same edges = same root, always.
+
+**Per-package diffing in practice:**
+
+Because each package has its own subgraph root, diffing two snapshots only requires comparing subgraph roots (one comparison per package). Only packages whose subgraph roots differ need deeper investigation. For a repository with 500 packages where 3 changed, the diff algorithm performs 500 hash comparisons at Level 2, then drills into only those 3 packages at Level 1. The other 497 packages are proven unchanged by a single `==` on their 32-byte root.
+
+This same property enables integrity proofs at any granularity:
+- Prove a single edge exists: inclusion proof from leaf to repository root (~16 hash steps).
+- Prove a package is unchanged: compare its subgraph root against a trusted snapshot (1 comparison).
+- Prove the entire graph is intact: recompute the repository root from all subgraph roots and compare (O(packages)).
 
 ### Worked example: detecting a change
 
