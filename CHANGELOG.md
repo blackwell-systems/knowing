@@ -76,15 +76,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Scales linearly: 5 files = 59ms, 20 files = 93ms
 - Benchmark: `bench/incremental-reindex/`
 
-#### Parallel LSP enrichment
+#### Enterprise-scale multi-module LSP enrichment
+- **Multi-module gopls**: parses `go.work`, spawns one gopls per module instead of one for the whole workspace
+- Root module processed solo first (1.2GB gopls), then sub-modules in parallel (4 concurrent, ~200MB each)
+- **Progress persistence**: `.knowing/enrich-progress.json` tracks per-module completion; interrupted runs resume automatically
+- **Per-symbol timeout**: `WithSymbolTimeout` (10s default) prevents individual hung LSP calls from blocking the pipeline
+- **Graceful degradation**: failed modules are logged and skipped; enrichment continues with remaining modules
 - Concurrent LSP resolution with serialized DB writes (producer-consumer pattern)
-- Default 8 parallel requests; configurable via `-enrich-concurrency N` on `index` and `reindex`
-- Skip-resolved optimization: edges already at `lsp_resolved` provenance are not re-processed
-- Batched file discovery: opens 50 files at a time instead of all upfront (prevents OOM on large repos)
-- No longer floods gopls with bulk `didOpen` calls; GetDefinition works from workspace index alone
-- Eliminates SQLite lock contention that previously caused 3x error rates under concurrency
-- Workspace ready timeout increased to 300s for large monorepos
-- Known limitation: k8s (30+ module go.work) still fails; needs per-module gopls strategy (roadmap)
+- Default 8 parallel requests per module; configurable via `-enrich-concurrency N` on `index` and `reindex`
+- Skip-resolved: edges already at `lsp_resolved` provenance are not re-processed
+- Batched file discovery (50 files at a time, no bulk didOpen)
+- **k8s result**: 7,618 edges upgraded from ast_inferred (0.7) to lsp_resolved (0.9). Previously: 0 (gopls crashed)
+- **Indexer fix**: `go.work` `use` directives override default skip patterns (indexes k8s staging: 253K nodes, 614K edges)
+- Workspace root resolved to absolute path (fixes gopls "no views" error on relative paths)
 
 ### Changed
 
