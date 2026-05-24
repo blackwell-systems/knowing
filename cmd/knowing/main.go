@@ -50,6 +50,7 @@ import (
 	"github.com/blackwell-systems/knowing/internal/indexer/treesitter"
 	"github.com/blackwell-systems/knowing/internal/indexer/tsextractor"
 	"github.com/blackwell-systems/knowing/internal/community"
+	knowingctx "github.com/blackwell-systems/knowing/internal/context"
 	knowingmcp "github.com/blackwell-systems/knowing/internal/mcp"
 	"github.com/blackwell-systems/knowing/internal/snapshot"
 	"github.com/blackwell-systems/knowing/internal/store"
@@ -379,6 +380,15 @@ func cmdIndex(args []string) error {
 	fmt.Printf("Repo:     %x\n", repoHash)
 	fmt.Printf("Snapshot: %x\n", snap.SnapshotHash)
 	fmt.Printf("Nodes: %d, Edges: %d\n", snap.NodeCount, snap.EdgeCount)
+
+	// Build adjacency cache for fast RWR queries on small/medium repos.
+	// On large repos (>100K edges), the gob+base64 format is too large;
+	// the cache is skipped and BFS falls back to per-node queries.
+	if snap.EdgeCount <= 50000 {
+		if err := knowingctx.BuildAdjacencyCache(ctx, st); err != nil {
+			fmt.Fprintf(os.Stderr, "adjacency cache warning: %v\n", err)
+		}
+	}
 
 	if !*full && !*noEnrich {
 		fmt.Println("Running LSP enrichment...")

@@ -1,11 +1,85 @@
 package context
 
 import (
+	"bytes"
 	stdctx "context"
+	"encoding/base64"
+	"encoding/gob"
+	"fmt"
 	"strings"
+	"time"
 
 	"github.com/blackwell-systems/knowing/internal/types"
 )
+
+// adjacencyCacheKey is the note key used to store the pre-computed adjacency map.
+const adjacencyCacheKey = "adjacency_cache"
+
+// adjacencyCache is the serialized format for the pre-computed adjacency map.
+type adjacencyCache struct {
+	From map[types.Hash][]compactEdge
+	To   map[types.Hash][]compactEdge
+}
+
+// compactEdge stores only what RWR needs (source, target, type).
+type compactEdge struct {
+	Source   types.Hash
+	Target   types.Hash
+	EdgeType string
+}
+
+// BuildAdjacencyCache builds the full adjacency map and stores it as a
+// gob-encoded blob in the notes table. Call after indexing. Subsequent RWR
+// queries load this cache in one read instead of per-node edge queries.
+func BuildAdjacencyCache(ctx stdctx.Context, store types.GraphStore) error {
+	type edgeLoader interface {
+		AllEdges(ctx stdctx.Context) ([]types.Edge, error)
+	}
+	type noteWriter interface {
+		PutNote(ctx stdctx.Context, note types.Note) error
+	}
+
+	bulk, ok := store.(edgeLoader)
+	if !ok {
+		return fmt.Errorf("store %T does not implement edgeLoader", store)
+	}
+	ns, ok := store.(noteWriter)
+	if !ok {
+		return nil
+	}
+
+	allEdges, err := bulk.AllEdges(ctx)
+	if err != nil {
+		return fmt.Errorf("AllEdges: %w", err)
+	}
+	if len(allEdges) == 0 {
+		return fmt.Errorf("AllEdges returned 0 edges")
+	}
+
+	cache := adjacencyCache{
+		From: make(map[types.Hash][]compactEdge, len(allEdges)/4),
+		To:   make(map[types.Hash][]compactEdge, len(allEdges)/4),
+	}
+	for _, e := range allEdges {
+		ce := compactEdge{Source: e.SourceHash, Target: e.TargetHash, EdgeType: e.EdgeType}
+		cache.From[e.SourceHash] = append(cache.From[e.SourceHash], ce)
+		cache.To[e.TargetHash] = append(cache.To[e.TargetHash], ce)
+	}
+
+	var buf bytes.Buffer
+	if err := gob.NewEncoder(&buf).Encode(cache); err != nil {
+		return err
+	}
+
+	cacheHash := types.NewHash([]byte("adjacency_cache_v1"))
+	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
+	return ns.PutNote(ctx, types.Note{
+		ObjectHash: cacheHash,
+		Key:        adjacencyCacheKey,
+		Value:      encoded,
+		UpdatedAt:  time.Now().Unix(),
+	})
+}
 
 
 // externalHashLoader is a local interface for stores that support querying nodes by name.
@@ -370,6 +444,20 @@ func CommunityFilteredRWR(ctx stdctx.Context, store types.GraphStore, seeds []ty
 // depth-limited) into in-memory maps so the RWR iteration loop requires zero
 // database queries.
 func buildAdjacencyMap(ctx stdctx.Context, store types.GraphStore, seeds []types.Hash) (adjFrom, adjTo map[types.Hash][]types.Edge, err error) {
+	// Try pre-computed cache first (one read, in-memory BFS).
+	type noteReader interface {
+		GetNote(ctx stdctx.Context, objectHash types.Hash, key string) (*types.Note, error)
+	}
+	if ns, ok := store.(noteReader); ok {
+		cacheHash := types.NewHash([]byte("adjacency_cache_v1"))
+		if note, nErr := ns.GetNote(ctx, cacheHash, adjacencyCacheKey); nErr == nil && note != nil && len(note.Value) > 100 {
+			if from, to, cErr := buildFromCache(note.Value, seeds, ctx, store); cErr == nil {
+				return from, to, nil
+			}
+		}
+	}
+
+	// Fallback: per-node BFS loading.
 	adjFrom = make(map[types.Hash][]types.Edge)
 	adjTo = make(map[types.Hash][]types.Edge)
 
@@ -416,6 +504,71 @@ func buildAdjacencyMap(ctx stdctx.Context, store types.GraphStore, seeds []types
 			}
 		}
 		frontier = nextFrontier
+	}
+
+	return adjFrom, adjTo, nil
+}
+
+// buildFromCache deserializes a base64-encoded gob adjacency cache and runs
+// BFS in memory (zero DB queries for the walk itself).
+func buildFromCache(data string, seeds []types.Hash, ctx stdctx.Context, store types.GraphStore) (map[types.Hash][]types.Edge, map[types.Hash][]types.Edge, error) {
+	raw, err := base64.StdEncoding.DecodeString(data)
+	if err != nil {
+		return nil, nil, err
+	}
+	var cache adjacencyCache
+	if err := gob.NewDecoder(bytes.NewReader(raw)).Decode(&cache); err != nil {
+		return nil, nil, err
+	}
+
+	externals := loadExternalHashes(ctx, store)
+
+	// BFS in memory.
+	visited := make(map[types.Hash]bool, len(seeds)*4)
+	frontier := make([]types.Hash, len(seeds))
+	copy(frontier, seeds)
+	for _, s := range seeds {
+		visited[s] = true
+	}
+
+	maxDepth := 4
+	for depth := 0; depth < maxDepth && len(frontier) > 0; depth++ {
+		var nextFrontier []types.Hash
+		for _, node := range frontier {
+			for _, ce := range cache.From[node] {
+				if !visited[ce.Target] && !externals[ce.Target] {
+					visited[ce.Target] = true
+					nextFrontier = append(nextFrontier, ce.Target)
+				}
+			}
+			for _, ce := range cache.To[node] {
+				if !visited[ce.Source] && !externals[ce.Source] {
+					visited[ce.Source] = true
+					nextFrontier = append(nextFrontier, ce.Source)
+				}
+			}
+		}
+		frontier = nextFrontier
+	}
+
+	// Convert to types.Edge for visited nodes.
+	adjFrom := make(map[types.Hash][]types.Edge, len(visited))
+	adjTo := make(map[types.Hash][]types.Edge, len(visited))
+	for node := range visited {
+		for _, ce := range cache.From[node] {
+			adjFrom[node] = append(adjFrom[node], types.Edge{
+				SourceHash: ce.Source,
+				TargetHash: ce.Target,
+				EdgeType:   ce.EdgeType,
+			})
+		}
+		for _, ce := range cache.To[node] {
+			adjTo[node] = append(adjTo[node], types.Edge{
+				SourceHash: ce.Source,
+				TargetHash: ce.Target,
+				EdgeType:   ce.EdgeType,
+			})
+		}
 	}
 
 	return adjFrom, adjTo, nil
