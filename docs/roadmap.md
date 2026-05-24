@@ -223,6 +223,8 @@ P@10=0.217 (Run 23), 1.63x vs codegraph, 4.5x vs Aider, 11.3x vs grep. Query lat
 | # | Item | Why | Status |
 |---|------|-----|--------|
 | 7 | **More equivalence concepts** | Only add when a specific task fixture exposes a gap. Must respect Run 22 constraint (no single-word phrases, no generic targets). | On-demand |
+| 12 | **Semantic similarity edges (LSH token vectors)** | Lightweight clone/similarity detection: functions with high token overlap get `SIMILAR_TO` edges. Bridges disconnected subgraphs where two functions do the same work but don't call each other. Inspired by codebase-memory's `SEMANTICALLY_RELATED` edges. NOT embedding-based (no model dependency). Compute Jaccard on tokenized function bodies, store edges above threshold. Revert immediately if P@10 regresses. | Experiment (revert if negative) |
+| 13 | **`is_entry_point` / `is_exported` node flags** | Tag functions as entry points (main, handlers, CLI commands) or exported (public API). Enables filtering: entry points get higher RWR restart weight. Inspired by codebase-memory's node properties. Low effort, no regression risk. | Experiment |
 | 11 | **Feedback parameter sweep (warm-start)** | Session boost (0.20), task memory formula (0.5+score*0.4), decay (7-day linear), top-N (5) are untuned. Only affects real-user compounding. | When users exist |
 
 ## Edge Type Expansion
