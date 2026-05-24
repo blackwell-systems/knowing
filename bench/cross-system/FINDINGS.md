@@ -5,17 +5,17 @@
 
 ## Executive Summary
 
-knowing is a content-addressed graph retrieval engine evaluated against 4 competitors across 7 codebases (3.5M LOC down to 14K LOC), ~117 task fixtures, and 22 iterative benchmark runs with full statistical rigor.
+knowing is a content-addressed graph retrieval engine evaluated against 5 competitors across 7 codebases (3.5M LOC down to 14K LOC), ~117 task fixtures, and 23 iterative benchmark runs with full statistical rigor.
 
-### Final Results (Run 22)
+### Final Results (Run 23)
 
 | System | P@10 | R@10 | Index k8s | Query latency | RAM (k8s) |
 |--------|------|------|-----------|--------------|-----------|
-| **knowing** | **0.226** | **0.396** | **18.6s** | **60ms** | **200MB** |
-| Aider | 0.050 | - | N/A (file-level) | ~2.5s | - |
-| Gortex | ~comparable | - | 14.2 min | ~6s | 14GB |
+| **knowing** | **0.217** | **0.368** | **18.6s** | **60ms** | **200MB** |
+| codegraph (19K stars) | 0.133 | 0.366 | - | 687ms | - |
+| Aider (~20K stars) | 0.050 | - | N/A (file-level) | ~2.5s | - |
 | GitNexus | 0.076 | 0.159 | >60 min (killed) | 612ms | 5.7GB |
-| Repomix | N/A (no ranking) | 100% (dumps all) | N/A | N/A | N/A |
+| Gortex | ~comparable | - | 14.2 min | ~6s | 14GB |
 | grep | 0.020 | 0.035 | instant | instant | - |
 
 ### Competitive Advantages (all statistically significant)
