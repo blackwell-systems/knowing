@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -14,6 +15,34 @@ import (
 
 // adjacencyCacheKey is the note key used to store the pre-computed adjacency map.
 const adjacencyCacheKey = "adjacency_cache"
+
+// defaultEdgeWeight is used for unknown edge types in the weight lookup.
+const defaultEdgeWeight = 0.3
+
+// edgeWeights maps edge type strings to weight multipliers used during RWR iteration.
+// Higher weights cause more probability to flow along those edge types.
+var edgeWeights = map[string]float64{
+	"calls":             1.0,
+	"implements":        0.8,
+	"implements_rpc":    0.8,
+	"overrides":         0.8,
+	"handles_route":     0.7,
+	"extends":           0.7,
+	"tests":             0.6,
+	"consumes_rpc":      0.6,
+	"imports":           0.5,
+	"depends_on":        0.5,
+	"consumes_endpoint": 0.5,
+	"tested_by":         0.5,
+	"references":        0.4,
+	"throws":            0.4,
+	"deployed_by":       0.4,
+	"gated_by_flag":     0.3,
+	"decorates":         0.3,
+	"documents":         0.2,
+	"owned_by":          0.0,
+	"authored_by":       0.0,
+}
 
 // adjEdgeTypeToID maps edge type strings to compact uint8 IDs for binary encoding.
 // ID 0 is reserved for unknown types.
@@ -212,39 +241,56 @@ func RandomWalkWithRestartWeighted(ctx stdctx.Context, store types.GraphStore, s
 		seedVec[s] = w / totalWeight
 	}
 
-	// Current probability distribution starts at seeds.
-	prob := make(map[types.Hash]float64)
+	return rwrIterate(seedVec, alpha, maxIter, adjFrom, adjTo), nil
+}
+
+// CommunityFilteredRWR is like RandomWalkWithRestart but constrains the BFS
+// adjacency pre-load to nodes in the specified communities. When communityIDs
+// is nil, the walk is unconstrained (identical to RandomWalkWithRestart).
+func CommunityFilteredRWR(ctx stdctx.Context, store types.GraphStore, seeds []types.Hash, alpha float64, maxIter int, communityIDs map[int]bool) (map[types.Hash]float64, error) {
+	if len(seeds) == 0 {
+		return nil, nil
+	}
+	if alpha <= 0 || alpha >= 1 {
+		alpha = 0.2
+	}
+	if maxIter <= 0 {
+		maxIter = 20
+	}
+
+	// Pre-load edges for the reachable subgraph, filtered by community.
+	adjFrom, adjTo, err := buildAdjacencyMapFiltered(ctx, store, seeds, communityIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	// Initialize: uniform probability across seeds.
+	seedWeight := 1.0 / float64(len(seeds))
+	seedVec := make(map[types.Hash]float64, len(seeds))
+	for _, s := range seeds {
+		seedVec[s] = seedWeight
+	}
+
+	return rwrIterate(seedVec, alpha, maxIter, adjFrom, adjTo), nil
+}
+
+// rwrIterate runs the core RWR power-iteration loop. It is shared by both
+// RandomWalkWithRestartWeighted and CommunityFilteredRWR.
+//
+// It uses a double-buffer pattern to avoid per-iteration map allocation and
+// iterates over adjacency edges without temporary slice allocation.
+func rwrIterate(seedVec map[types.Hash]float64, alpha float64, maxIter int, adjFrom, adjTo map[types.Hash][]types.Edge) map[types.Hash]float64 {
+	// Double-buffer pattern: reuse two maps across iterations instead of
+	// allocating a new map each iteration.
+	mapA := make(map[types.Hash]float64, len(seedVec)*4)
+	mapB := make(map[types.Hash]float64, len(seedVec)*4)
+
+	// Initialize prob (mapA) with seed vector.
 	for k, v := range seedVec {
-		prob[k] = v
+		mapA[k] = v
 	}
+	prob := mapA
 
-	// Edge weight multipliers by type.
-	edgeWeight := map[string]float64{
-		"calls":             1.0,
-		"implements":        0.8,
-		"implements_rpc":    0.8,
-		"overrides":         0.8,
-		"handles_route":     0.7,
-		"extends":           0.7,
-		"tests":             0.6,
-		"consumes_rpc":      0.6,
-		"imports":           0.5,
-		"depends_on":        0.5,
-		"consumes_endpoint": 0.5,
-		"tested_by":         0.5,
-		"references":        0.4,
-		"throws":            0.4,
-		"deployed_by":       0.4,
-		"gated_by_flag":     0.3,
-		"decorates":         0.3,
-		"documents":         0.2,
-		"owned_by":          0.0,
-		"authored_by":       0.0,
-	}
-
-	// Iterate: at each step, walk along edges with (1-alpha) probability,
-	// or restart at seeds with alpha probability.
-	//
 	// Early termination: stop when the top-K ranking is stable for 2 consecutive
 	// iterations. On large graphs, low-ranked nodes keep shifting even after the
 	// top results have converged, wasting iterations.
@@ -253,7 +299,11 @@ func RandomWalkWithRestartWeighted(ctx stdctx.Context, store types.GraphStore, s
 	stableCount := 0
 
 	for iter := 0; iter < maxIter; iter++ {
-		next := make(map[types.Hash]float64)
+		next := mapB
+		// Clear the next buffer.
+		for k := range next {
+			delete(next, k)
+		}
 
 		// Restart component: alpha * seed_vector.
 		for s, w := range seedVec {
@@ -266,10 +316,10 @@ func RandomWalkWithRestartWeighted(ctx stdctx.Context, store types.GraphStore, s
 				continue // skip negligible nodes
 			}
 
-			// Get edges from the pre-loaded adjacency map (no DB queries).
-			edges := append(adjFrom[node], adjTo[node]...)
+			fromEdges := adjFrom[node]
+			toEdges := adjTo[node]
 
-			if len(edges) == 0 {
+			if len(fromEdges) == 0 && len(toEdges) == 0 {
 				// Dead end: redistribute to seeds (effectively a restart).
 				for s, w := range seedVec {
 					next[s] += (1 - alpha) * nodeProb * w
@@ -279,21 +329,38 @@ func RandomWalkWithRestartWeighted(ctx stdctx.Context, store types.GraphStore, s
 
 			// Compute total edge weight for normalization.
 			totalWeight := 0.0
-			for _, e := range edges {
-				w, ok := edgeWeight[e.EdgeType]
+			for _, e := range fromEdges {
+				w, ok := edgeWeights[e.EdgeType]
 				if !ok {
-					w = 0.3 // default for unknown edge types
+					w = defaultEdgeWeight
+				}
+				totalWeight += w
+			}
+			for _, e := range toEdges {
+				w, ok := edgeWeights[e.EdgeType]
+				if !ok {
+					w = defaultEdgeWeight
 				}
 				totalWeight += w
 			}
 
 			// Distribute probability along edges proportional to weight.
-			for _, e := range edges {
-				w, ok := edgeWeight[e.EdgeType]
+			for _, e := range fromEdges {
+				w, ok := edgeWeights[e.EdgeType]
 				if !ok {
-					w = 0.3
+					w = defaultEdgeWeight
 				}
-				// Target is the other end of the edge.
+				target := e.TargetHash
+				if target == node {
+					target = e.SourceHash
+				}
+				next[target] += (1 - alpha) * nodeProb * (w / totalWeight)
+			}
+			for _, e := range toEdges {
+				w, ok := edgeWeights[e.EdgeType]
+				if !ok {
+					w = defaultEdgeWeight
+				}
 				target := e.TargetHash
 				if target == node {
 					target = e.SourceHash
@@ -305,7 +372,7 @@ func RandomWalkWithRestartWeighted(ctx stdctx.Context, store types.GraphStore, s
 		// Check convergence: sum of absolute differences.
 		delta := 0.0
 		for k, v := range next {
-			delta += abs(v - prob[k])
+			delta += math.Abs(v - prob[k])
 		}
 		for k, v := range prob {
 			if _, exists := next[k]; !exists {
@@ -313,7 +380,9 @@ func RandomWalkWithRestartWeighted(ctx stdctx.Context, store types.GraphStore, s
 			}
 		}
 
-		prob = next
+		// Swap buffers.
+		prob, next = next, prob
+		mapA, mapB = mapB, mapA
 
 		if delta < 0.001 {
 			break
@@ -347,165 +416,7 @@ func RandomWalkWithRestartWeighted(ctx stdctx.Context, store types.GraphStore, s
 		}
 	}
 
-	return prob, nil
-}
-
-// CommunityFilteredRWR is like RandomWalkWithRestart but constrains the BFS
-// adjacency pre-load to nodes in the specified communities. When communityIDs
-// is nil, the walk is unconstrained (identical to RandomWalkWithRestart).
-func CommunityFilteredRWR(ctx stdctx.Context, store types.GraphStore, seeds []types.Hash, alpha float64, maxIter int, communityIDs map[int]bool) (map[types.Hash]float64, error) {
-	if len(seeds) == 0 {
-		return nil, nil
-	}
-	if alpha <= 0 || alpha >= 1 {
-		alpha = 0.2
-	}
-	if maxIter <= 0 {
-		maxIter = 20
-	}
-
-	// Pre-load edges for the reachable subgraph, filtered by community.
-	adjFrom, adjTo, err := buildAdjacencyMapFiltered(ctx, store, seeds, communityIDs)
-	if err != nil {
-		return nil, err
-	}
-
-	// Initialize: uniform probability across seeds.
-	seedWeight := 1.0 / float64(len(seeds))
-	seedVec := make(map[types.Hash]float64, len(seeds))
-	for _, s := range seeds {
-		seedVec[s] = seedWeight
-	}
-
-	// Current probability distribution starts at seeds.
-	prob := make(map[types.Hash]float64)
-	for k, v := range seedVec {
-		prob[k] = v
-	}
-
-	// Edge weight multipliers by type.
-	edgeWeight := map[string]float64{
-		"calls":             1.0,
-		"implements":        0.8,
-		"implements_rpc":    0.8,
-		"overrides":         0.8,
-		"handles_route":     0.7,
-		"extends":           0.7,
-		"tests":             0.6,
-		"consumes_rpc":      0.6,
-		"imports":           0.5,
-		"depends_on":        0.5,
-		"consumes_endpoint": 0.5,
-		"tested_by":         0.5,
-		"references":        0.4,
-		"throws":            0.4,
-		"deployed_by":       0.4,
-		"gated_by_flag":     0.3,
-		"decorates":         0.3,
-		"documents":         0.2,
-		"owned_by":          0.0,
-		"authored_by":       0.0,
-	}
-
-	// Iterate with early termination (same as RandomWalkWithRestartWeighted).
-	const cfrTopK = 10
-	var cfrPrevTopK [cfrTopK]types.Hash
-	cfrStableCount := 0
-
-	for iter := 0; iter < maxIter; iter++ {
-		next := make(map[types.Hash]float64)
-
-		// Restart component: alpha * seed_vector.
-		for s, w := range seedVec {
-			next[s] += alpha * w
-		}
-
-		// Walk component: (1-alpha) * transition from current distribution.
-		for node, nodeProb := range prob {
-			if nodeProb < 0.0001 {
-				continue // skip negligible nodes
-			}
-
-			// Get edges from the pre-loaded adjacency map (no DB queries).
-			edges := append(adjFrom[node], adjTo[node]...)
-
-			if len(edges) == 0 {
-				// Dead end: redistribute to seeds (effectively a restart).
-				for s, w := range seedVec {
-					next[s] += (1 - alpha) * nodeProb * w
-				}
-				continue
-			}
-
-			// Compute total edge weight for normalization.
-			totalWeight := 0.0
-			for _, e := range edges {
-				w, ok := edgeWeight[e.EdgeType]
-				if !ok {
-					w = 0.3 // default for unknown edge types
-				}
-				totalWeight += w
-			}
-
-			// Distribute probability along edges proportional to weight.
-			for _, e := range edges {
-				w, ok := edgeWeight[e.EdgeType]
-				if !ok {
-					w = 0.3
-				}
-				// Target is the other end of the edge.
-				target := e.TargetHash
-				if target == node {
-					target = e.SourceHash
-				}
-				next[target] += (1 - alpha) * nodeProb * (w / totalWeight)
-			}
-		}
-
-		// Check convergence: sum of absolute differences.
-		delta := 0.0
-		for k, v := range next {
-			delta += abs(v - prob[k])
-		}
-		for k, v := range prob {
-			if _, exists := next[k]; !exists {
-				delta += v
-			}
-		}
-
-		prob = next
-
-		if delta < 0.001 {
-			break
-		}
-
-		// Top-K stability check.
-		cfrCurTopK := topKFromProb(prob, cfrTopK)
-		if cfrCurTopK == cfrPrevTopK {
-			cfrStableCount++
-			if cfrStableCount >= 2 {
-				break
-			}
-		} else {
-			cfrStableCount = 0
-		}
-		cfrPrevTopK = cfrCurTopK
-	}
-
-	// Normalize to [0, 1] range relative to max.
-	maxScore := 0.0
-	for _, v := range prob {
-		if v > maxScore {
-			maxScore = v
-		}
-	}
-	if maxScore > 0 {
-		for k := range prob {
-			prob[k] /= maxScore
-		}
-	}
-
-	return prob, nil
+	return prob
 }
 
 // buildAdjacencyMap pre-loads edges for the reachable subgraph (BFS from seeds,
@@ -516,10 +427,13 @@ func buildAdjacencyMap(ctx stdctx.Context, store types.GraphStore, seeds []types
 	type noteReader interface {
 		GetNote(ctx stdctx.Context, objectHash types.Hash, key string) (*types.Note, error)
 	}
+
+	externals := loadExternalHashes(ctx, store)
+
 	if ns, ok := store.(noteReader); ok {
 		cacheHash := types.NewHash([]byte("adjacency_cache_v2"))
 		if note, nErr := ns.GetNote(ctx, cacheHash, adjacencyCacheKey); nErr == nil && note != nil && len(note.Value) > 100 {
-			if from, to, cErr := buildFromCache(note.Value, seeds, ctx, store); cErr == nil {
+			if from, to, cErr := buildFromCache(note.Value, seeds, externals); cErr == nil {
 				return from, to, nil
 			}
 		}
@@ -530,8 +444,6 @@ func buildAdjacencyMap(ctx stdctx.Context, store types.GraphStore, seeds []types
 	adjTo = make(map[types.Hash][]types.Edge)
 
 	maxDepth := 4
-
-	externals := loadExternalHashes(ctx, store)
 
 	visited := make(map[types.Hash]bool, len(seeds)*4)
 	frontier := make([]types.Hash, len(seeds))
@@ -580,7 +492,7 @@ func buildAdjacencyMap(ctx stdctx.Context, store types.GraphStore, seeds []types
 // buildFromCache deserializes a base64-encoded compact binary adjacency cache
 // and runs BFS in memory (zero DB queries for the walk itself).
 // Binary format: [num_edges:4 LE][source:32][target:32][type_id:1] * num_edges.
-func buildFromCache(data string, seeds []types.Hash, ctx stdctx.Context, store types.GraphStore) (map[types.Hash][]types.Edge, map[types.Hash][]types.Edge, error) {
+func buildFromCache(data string, seeds []types.Hash, externals map[types.Hash]bool) (map[types.Hash][]types.Edge, map[types.Hash][]types.Edge, error) {
 	raw, err := base64.StdEncoding.DecodeString(data)
 	if err != nil {
 		return nil, nil, err
@@ -620,8 +532,6 @@ func buildFromCache(data string, seeds []types.Hash, ctx stdctx.Context, store t
 		fromMap[src] = append(fromMap[src], ce)
 		toMap[tgt] = append(toMap[tgt], ce)
 	}
-
-	externals := loadExternalHashes(ctx, store)
 
 	// BFS in memory.
 	visited := make(map[types.Hash]bool, len(seeds)*4)
@@ -788,13 +698,6 @@ func buildAdjacencyMapFiltered(ctx stdctx.Context, store types.GraphStore, seeds
 	}
 
 	return adjFrom, adjTo, nil
-}
-
-func abs(x float64) float64 {
-	if x < 0 {
-		return -x
-	}
-	return x
 }
 
 // topKFromProb returns the top-K node hashes by score as a fixed-size array.

@@ -477,7 +477,8 @@ func TestBuildAdjacencyCache_BinaryRoundtrip(t *testing.T) {
 	}
 
 	// Verify buildFromCache produces correct adjacency maps.
-	from, to, err := buildFromCache(note.Value, []types.Hash{a}, ctx, store)
+	externals := map[types.Hash]bool{}
+	from, to, err := buildFromCache(note.Value, []types.Hash{a}, externals)
 	if err != nil {
 		t.Fatalf("buildFromCache: %v", err)
 	}

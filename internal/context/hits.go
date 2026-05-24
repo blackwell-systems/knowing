@@ -2,6 +2,7 @@ package context
 
 import (
 	stdctx "context"
+	"math"
 
 	"github.com/blackwell-systems/knowing/internal/types"
 )
@@ -100,13 +101,13 @@ func ComputeHITS(ctx stdctx.Context, store types.GraphStore, nodes []types.Hash,
 		}
 
 		if authNorm > 0 {
-			authNorm = sqrt(authNorm)
+			authNorm = math.Sqrt(authNorm)
 			for k := range newAuth {
 				newAuth[k] /= authNorm
 			}
 		}
 		if hubNorm > 0 {
-			hubNorm = sqrt(hubNorm)
+			hubNorm = math.Sqrt(hubNorm)
 			for k := range newHub {
 				newHub[k] /= hubNorm
 			}
@@ -126,16 +127,4 @@ func ComputeHITS(ctx stdctx.Context, store types.GraphStore, nodes []types.Hash,
 	}
 
 	return result, nil
-}
-
-func sqrt(x float64) float64 {
-	if x <= 0 {
-		return 0
-	}
-	// Newton's method.
-	z := x
-	for i := 0; i < 20; i++ {
-		z = z - (z*z-x)/(2*z)
-	}
-	return z
 }
