@@ -134,7 +134,6 @@ Current status: per-repo isolation (no cross-repo queries). First real user who 
 
 | Item | Description | Priority |
 |------|-------------|----------|
-| **Merkle-driven incremental reindex** | `DiffHierarchicalTrees` -> `ChangedPackages` -> scoped `RebuildFTSForPackages` + `runIncrementalCommunities` + cache invalidation. All wired in daemon. | **Shipped** |
 | **Cross-repo context_for_task** | Search across ALL indexed repos simultaneously, not just one. Real projects span multiple repos (monorepo patterns, microservices). Merge results from all repos into one ranked list. See "Cross-Repo Query Architecture" section below. | P2 |
 | **Incremental context ("next page")** | After an agent gets initial context, allow requesting the NEXT N symbols not yet seen. Avoids re-querying with bigger budget and getting duplicates. Session-stateful cursor. | P2 |
 | **GCF-encoded context pack cache** | Context packs in `graph_notes` are stored as JSON. Storing as GCF would be ~6x smaller and skip re-encoding on MCP response. | P2 |
@@ -157,7 +156,6 @@ Current status: per-repo isolation (no cross-repo queries). First real user who 
 | Benchmark | What it proves | Status | Effort |
 |-----------|---------------|--------|--------|
 | **SWE-bench integration** | knowing + Claude solves N% more SWE-bench tasks than Claude alone. The definitive "does graph context help real agent work?" | Not started | High (full eval harness, 300 tasks, automated agent loop) |
-| **Agent efficiency (Phase 2)** | Claude Code with knowing tools uses fewer tokens, fewer tool calls, higher correctness on discovery/ambiguity tasks. | Phase 1 complete (grep wins on known targets). **Phase 2 not started:** k8s-scale tasks, hook injection, ambiguous-name discovery, vague task-to-symbol mapping. Infrastructure ready. Full Phase 1 narrative: `bench/AGENT-EFFICIENCY-STUDY.md`. | Medium |
 | **Real-session replay** | Replay 10+ real claudewatch session transcripts. Measure: context calls saved, symbols used that came from knowing, tasks where knowing provided the critical symbol. | Not started (implicit feedback tracker now exists for attribution) | High (transcript parser, attribution detection, manual annotation) |
 
 ### P2: Proves production readiness
@@ -217,8 +215,6 @@ Items identified from the Run 22 regression investigation. These prevent future 
 |-----------|---------------|--------|--------|
 | **Per-repo P@10 tracking (CI gate)** | Track P@10 per repo across runs. Alert when any single repo drops >20% from its historical best. | Deferred (manual runs suffice until CI is regular) | Medium |
 | **RRF channel contribution audit** | Log which channel contributed each top-10 result across 117 tasks. Answers "is equiv still net-positive after the cap?" | Deferred (nice-to-have for publication narrative) | Medium |
-| **Per-repo P@10 tracking (CI gate)** | Track P@10 per repo across runs. Alert when any single repo drops >20% from its historical best. | Deferred (manual runs suffice until CI is regular) | Medium |
-| **RRF channel contribution audit** | Log which channel contributed each top-10 result across 117 tasks. Answers "is equiv still net-positive after the cap?" | Deferred (nice-to-have for publication narrative) | Medium |
 
 ### Standalone Publication: Code Retrieval Evaluation Toolkit (CRET)
 
@@ -246,11 +242,8 @@ P@10=0.217 (Run 23), 1.63x vs codegraph, 4.5x vs Aider, 11.3x vs grep. Query lat
 | 5b | **Terraform/infrastructure cross-file resolution** | `module.vpc.subnet_id` referencing another .tf file's output. Not in benchmark corpus but needed for real users. | User quality | P3 (no users asking) |
 | 7 | **More equivalence concepts (115 -> 150+)** | Graph-derived aliases help but are limited to the repo's own vocabulary. Must respect Run 22 constraint: no single-word phrases, no generic targets. Only add when a specific task fixture exposes a gap. | +1-2pp P@10 | Low priority (marginal, risky) |
 | 8 | **Code-tuned embedding model** | BGE-small-en-v1.5 tested net-negative. Adds ONNX dependency for uncertain gain. FTS+RWR already competitive. | Unknown | Deferred (revisit if semantic gap identified) |
-| 10 | **RWR query latency on large graphs** | Was 9s on k8s. Now 2ms with adjacency cache (10c) + early termination (10a). Remaining: community-scoped relaxation (10d) for marginal further gains. | **Solved (4,717x)** | Done |
-| 10a | **RWR early termination** | Stop when top-10 ranking unchanged for 2 iterations. Zero P@10 regression confirmed. | -50% latency | **Shipped** |
-| 10c | **Pre-computed adjacency cache** | Compact binary format (65 bytes/edge) stored in notes table. Loads full graph in one read for in-memory BFS. Works for repos up to 500K edges (~32MB). | -80% latency (est.) | **Shipped (v2 binary format)** |
-| 10d | **Community-scoped RWR relaxation** | Relax threshold from "all seeds in 1 community" to "60%+ in same community." Shrinks adjacency map on large repos. Risk: cross-community edges excluded. | -40% latency (est.) | Planned (after 10a) |
-| 11 | **Feedback parameter sweep (warm-start)** | Session boost (0.20), task memory formula (0.5+score*0.4), decay (7-day linear), top-N (5) are untuned. Only affects multi-session compounding, not cold-start P@10. Needs dedicated multi-round bench, not cross-system harness. | Warm-start quality | Low priority (cold-start weights optimized) |
+| 10d | **Community-scoped RWR relaxation** | Relax threshold from "all seeds in 1 community" to "60%+ in same community." Shrinks adjacency map on large repos. Risk: cross-community edges excluded. Marginal on top of 4,717x cache win. | -40% latency (est.) | Planned |
+| 11 | **Feedback parameter sweep (warm-start)** | Session boost (0.20), task memory formula (0.5+score*0.4), decay (7-day linear), top-N (5) are untuned. Only affects multi-session compounding, not cold-start P@10. | Warm-start quality | Low priority |
 
 ## Edge Type Expansion
 
