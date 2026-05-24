@@ -196,7 +196,7 @@ Per-repo breakdown: Flask 0.336, Django 0.330, VS Code ~0.10, Kubernetes 0.184, 
 - ~~Inheritance propagation~~ (Run 13, +29%)
 - ~~VS Code replaces TypeScript compiler~~ (Run 17)
 - ~~TS extends_clause fix~~ (Run 18)
-- ~~Agent efficiency study~~ (honest negative: grep optimal for small repos)
+- ~~Agent efficiency study~~ (honest negative: grep optimal when targets are known and uniquely named; knowing's value is discovery, ambiguity, and automatic injection)
 
 ## Reproducing
 
