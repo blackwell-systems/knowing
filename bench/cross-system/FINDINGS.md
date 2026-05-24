@@ -399,3 +399,33 @@ different context, leading to different code suggestions. This makes debugging a
 behavior impossible and regression testing meaningless.
 
 Benchmark: `bench/cross-system/TestDeterminism`
+
+### Query Robustness: Sensitivity to Rephrasing (2026-05-24)
+
+Same task rephrased 5 ways (same intent, different words). Measures Jaccard similarity
+of top-10 results across all pairings. 1.0 = identical output regardless of phrasing.
+
+| System | Mean Jaccard | Verdict |
+|--------|-------------|---------|
+| Aider | 0.74 | **STABLE** (PageRank ignores query wording) |
+| GitNexus | 0.14 | VOLATILE |
+| codegraph | 0.08 | VOLATILE |
+| knowing | 0.07 | VOLATILE |
+| Gortex | 0.02 | VOLATILE |
+
+**Honest finding:** All keyword-seeded systems (knowing, codegraph, Gortex) produce
+different results for different phrasings. "add a before_request hook" and "implement
+request preprocessing" select different FTS/tiered seeds, leading to different RWR walks.
+Aider's PageRank is query-independent (ranks by structure alone) so it's stable but
+imprecise (P@10=0.050 vs knowing's 0.217).
+
+**Determinism vs robustness are different properties:**
+- Deterministic: same input always produces same output (knowing: yes, Aider: no)
+- Robust: different phrasings of same intent produce similar output (Aider: yes, knowing: no)
+
+**Implication:** knowing's equivalence classes partially address this (mapping different
+phrases to the same targets), but only for concepts explicitly covered. A future
+improvement: semantic query normalization that maps paraphrases to canonical form before
+seed selection.
+
+Benchmark: `bench/cross-system/TestQueryRobustness`
