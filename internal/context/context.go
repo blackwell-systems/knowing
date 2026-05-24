@@ -520,9 +520,12 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 			continue
 		}
 
-		// Skip phantom external nodes reached by RWR walk.
-		// These are unresolved targets from LSP enrichment with no source code.
-		if node.Kind == "external" || strings.HasPrefix(node.QualifiedName, "external://") {
+		// Skip phantom external nodes and stdlib nodes reached by RWR walk.
+		// External: unresolved targets from LSP enrichment with no source code.
+		// Stdlib: standard library functions (fmt.Errorf, etc.) that accumulate
+		// disproportionate RWR probability due to high in-degree but are never
+		// useful as context for a coding task.
+		if node.Kind == "external" || strings.HasPrefix(node.QualifiedName, "external://") || strings.HasPrefix(node.QualifiedName, "stdlib://") {
 			continue
 		}
 
@@ -1365,10 +1368,11 @@ func packIntoBudget(ranked []RankedSymbol, budget int, format string) *ContextBl
 func filterNoisySymbols(nodes []types.Node) []types.Node {
 	var filtered []types.Node
 	for _, n := range nodes {
-		// Skip phantom external nodes created during LSP enrichment.
-		// These are unresolved targets with no source code (kind "external"
-		// or qualified_name starting with "external://").
-		if n.Kind == "external" || strings.HasPrefix(n.QualifiedName, "external://") {
+		// Skip phantom external nodes and stdlib nodes.
+		// External: unresolved targets from LSP enrichment with no source code.
+		// Stdlib: standard library functions that have extreme in-degree but are
+		// never useful as context for a coding task.
+		if n.Kind == "external" || strings.HasPrefix(n.QualifiedName, "external://") || strings.HasPrefix(n.QualifiedName, "stdlib://") {
 			continue
 		}
 		qn := strings.ToLower(n.QualifiedName)
