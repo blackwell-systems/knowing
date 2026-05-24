@@ -397,6 +397,7 @@ Same task queried 10 times per system on Flask. Counts unique outputs.
 |--------|--------|--------|--------|---------|
 | **knowing** | 1 | 1 | 1 | **DETERMINISTIC** |
 | codegraph | 1 | 1 | 1 | DETERMINISTIC |
+| codebase-memory | 1 | 1 | 1 | DETERMINISTIC |
 | Gortex | 1 | 1 | 1 | DETERMINISTIC |
 | Aider | 3 | 3 | 3 | NON-DETERMINISTIC |
 | GitNexus | 7 | 9 | 8 | **WILDLY NON-DETERMINISTIC** |
@@ -425,6 +426,7 @@ of top-10 results across all pairings. 1.0 = identical output regardless of phra
 |--------|-------------|---------|
 | Aider | 0.74 | **STABLE** (PageRank ignores query wording) |
 | GitNexus | 0.14 | VOLATILE |
+| codebase-memory | 0.10 | VOLATILE |
 | codegraph | 0.08 | VOLATILE |
 | knowing | 0.07 | VOLATILE |
 | Gortex | 0.02 | VOLATILE |
