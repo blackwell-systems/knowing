@@ -9,14 +9,14 @@ knowing is a content-addressed graph retrieval engine evaluated against 5 compet
 
 ### Final Results (Run 23)
 
-| System | P@10 | R@10 | Index k8s | 1-file sync | Time-to-consistency | RAM (k8s) |
-|--------|------|------|-----------|-------------|---------------------|-----------|
-| **knowing** | **0.217** | **0.368** | **18.6s** | **26ms** | **167ms** | **200MB** |
-| codegraph (19K stars) | 0.133 | 0.366 | - | 3.1s | 805ms | - |
-| Aider (~20K stars) | 0.050 | - | N/A (file-level) | N/A | 3150ms (misses new symbols) | - |
-| GitNexus | 0.076 | 0.159 | >60 min (killed) | - | minutes (full re-analyze) | 5.7GB |
-| Gortex | ~comparable | - | 14.2 min | - | minutes (no incremental) | 14GB |
-| grep | 0.020 | 0.035 | instant | N/A | instant | - |
+| System | P@10 | R@10 | Index k8s | Query k8s | Time-to-consistency | RAM (k8s) |
+|--------|------|------|-----------|-----------|---------------------|-----------|
+| **knowing** | **0.217** | **0.368** | **18.6s** | **2ms** | **167ms** | **200MB** |
+| codegraph (19K stars) | 0.133 | 0.366 | - | ~1s | 805ms | - |
+| Aider (~20K stars) | 0.050 | - | N/A (file-level) | ~3s | 3150ms (misses new symbols) | - |
+| GitNexus | 0.076 | 0.159 | >60 min (killed) | 612ms | minutes (full re-analyze) | 5.7GB |
+| Gortex | ~comparable | - | 14.2 min | ~6s | minutes (no incremental) | 14GB |
+| grep | 0.020 | 0.035 | instant | instant | instant | - |
 
 ### Competitive Advantages (all statistically significant)
 
@@ -925,3 +925,29 @@ change before you finish typing the next prompt. codegraph requires a noticeable
 Aider takes 3+ seconds and may not find new symbols at all.
 
 Benchmark: `bench/time-to-consistency/`
+
+### Adjacency Cache Latency: k8s (782K edges) (2026-05-23)
+
+Pre-computed binary adjacency cache eliminates per-node SQLite queries during RWR.
+Cache is built once at index time (973ms), then every subsequent query runs BFS and
+RWR entirely in memory.
+
+| Task | Uncached | Cached | Speedup |
+|------|----------|--------|---------|
+| "refactor the scheduler to use a priority queue for pod binding" | 9.88s | 1.9ms | 5,207x |
+| "add rate limiting to the API server request handler" | 9.16s | 1.9ms | 4,759x |
+| "fix the kubelet node status reporting when network is flaky" | 8.09s | 1.9ms | 4,193x |
+| **Average** | **9.04s** | **1.9ms** | **4,717x** |
+
+Cache build cost: 973ms (one-time at index). Binary format: 65 bytes/edge, 782K edges
+= ~49MB base64 in notes table. Cache automatically rebuilds on re-index.
+
+**Competitive context:** codegraph queries k8s in ~1s (BM25 only, no graph walk).
+knowing without cache: 9s (graph walk dominates). knowing with cache: 2ms (graph walk
+is now free). **knowing is 500x faster than codegraph on k8s with the cache.**
+
+This is a structural advantage of content-addressed caching: the adjacency map is
+deterministic (same edges produce same cache), so it never needs invalidation except
+on re-index. The Merkle snapshot hash gates staleness detection.
+
+Benchmark: `bench/time-to-consistency/TestK8sLatency_CacheComparison`
