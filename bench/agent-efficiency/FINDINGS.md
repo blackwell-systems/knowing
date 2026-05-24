@@ -222,3 +222,59 @@ knowing's proven value is:
 
 These are the right metrics. The agent efficiency benchmark was looking for value in
 the wrong place: single-repo, single-question scenarios where grep is already optimal.
+
+---
+
+## Phase 2: Ambiguity at Scale (k8s, 3.5M LOC) (2026-05-24)
+
+Phase 2 tests the hypothesis from Phase 1's failure analysis: at enterprise scale
+with ambiguous symbol names, knowing eliminates noise that grep cannot.
+
+### Setup
+
+5 tasks on kubernetes (3.5M LOC, 782K edges, 40K functions) targeting subsystems
+where symbol names are highly ambiguous:
+- "Handler" matches 1,284 symbols
+- "Controller" matches 14,896 symbols
+- "Manager" matches 7,501 symbols
+
+### Results
+
+| Task | Grep Matches | knowing GT/10 | codegraph GT/10 | GitNexus | Gortex |
+|------|--------------|---------------|-----------------|----------|--------|
+| Rate limit handler chain | 2,461 | **10/10** | 2/10 | 0 (scale fail) | timeout |
+| Garbage collector controller | 15,646 | 7/10 | **9/10** | 0 | timeout |
+| Scheduler scoring plugin | 21,670 | 6/10 | **9/10** | 0 | timeout |
+| Admission webhook + quotas | 10,982 | 3/10 | **7/10** | 0 | timeout |
+| Kubelet volume manager | 3,441 | **10/10** | 1/10 | 0 | timeout |
+| **Total** | **10,840 avg** | **36/50 (72%)** | **28/50 (56%)** | **0/50** | **-** |
+
+### Key Findings
+
+1. **knowing wins overall: 36/50 vs codegraph 28/50 (1.3x).** knowing dominates on
+   tasks requiring structural disambiguation (handler chain, volume manager). codegraph
+   wins on tasks where keyword matching suffices (controller, plugin, admission).
+
+2. **GitNexus cannot handle k8s at all** (0 results, scale failure).
+
+3. **Gortex times out** during its 14-minute k8s re-index (per-query re-index makes
+   it impractical for benchmarking multiple tasks).
+
+4. **The noise elimination story is the real advantage.** Grep returns 10,840 matches
+   per task on average. An agent must sift through all of them. knowing delivers 10
+   pre-ranked results with 72% ground truth. That's 99.9% noise elimination.
+
+5. **Required fix: stdlib node filter.** Initial runs returned stdlib functions
+   (fmt.Errorf: 5,809 callers) in top results. Filter `stdlib://` nodes from results
+   (zero P@10 impact on cross-system benchmark).
+
+### What This Proves (vs Phase 1)
+
+| Dimension | Phase 1 (knowing, 160K LOC) | Phase 2 (k8s, 3.5M LOC) |
+|-----------|----------------------------|--------------------------|
+| Symbol name ambiguity | Low (unique names) | High (14,896 "Controller") |
+| Grep viability | Grep works (1-2 calls) | Grep drowns (10,840 matches) |
+| knowing advantage | None (grep is faster) | **72% precision, 99.9% noise elimination** |
+| Competitor advantage | N/A | codegraph 56%, GitNexus 0% |
+
+Benchmark: `bench/agent-efficiency/phase2_test.go`
