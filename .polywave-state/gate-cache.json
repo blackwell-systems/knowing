@@ -276,6 +276,18 @@
         "cached_at": "2026-05-20T09:22:19.913892-07:00"
       }
     },
+    "14e1c29add90f0a82ac27353a8e804a1": {
+      "lint": {
+        "gate_type": "lint",
+        "command": "GOWORK=off go vet ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-24T12:25:35.722187-07:00"
+      }
+    },
     "15899b19afab66a6e2a5248003d7b567": {
       "test": {
         "gate_type": "test",
@@ -1498,6 +1510,18 @@
         "stderr": "",
         "from_cache": true,
         "cached_at": "2026-05-17T11:05:25.271421-07:00"
+      }
+    },
+    "5e1cfca9a142ee21a2c2c8e5dbeaf950": {
+      "test": {
+        "gate_type": "test",
+        "command": "GOWORK=off go test -short ./internal/enrichment/... -timeout 2m",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "ok  \tgithub.com/blackwell-systems/knowing/internal/enrichment\t(cached)\n",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-24T12:25:36.065803-07:00"
       }
     },
     "60a7744b58d35e2fd9b7edb595ff4a9d": {
@@ -3118,6 +3142,18 @@
         "stderr": "",
         "from_cache": true,
         "cached_at": "2026-05-22T17:47:43.456431-07:00"
+      }
+    },
+    "f601d1a782c532e9c41bb36ba84af2b0": {
+      "build": {
+        "gate_type": "build",
+        "command": "GOWORK=off go build ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-24T12:25:34.077486-07:00"
       }
     },
     "f7a76fcf3ee3e814b7086566618e9f11": {
