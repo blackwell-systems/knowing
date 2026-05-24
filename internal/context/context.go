@@ -404,6 +404,7 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 		{nodes: equivResults, weight: 2.0},
 		{nodes: vectorResults, weight: 0.0},
 	}, 60, 40)
+
 	seen := make(map[types.Hash]bool, len(candidates))
 	for _, c := range candidates {
 		seen[c.NodeHash] = true
