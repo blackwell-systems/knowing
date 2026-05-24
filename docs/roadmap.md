@@ -231,15 +231,12 @@ context retrieval. Full proposal: [docs/proposals/code-retrieval-eval-toolkit.md
 Current results: see [bench/cross-system/FINDINGS.md](../bench/cross-system/FINDINGS.md).
 P@10=0.217 (Run 23), 1.63x vs codegraph, 4.5x vs Aider, 11.3x vs grep. Query latency 2ms on k8s (with adjacency cache).
 
-### Retrieval Improvements (ordered by expected impact)
+### Retrieval Improvements
 
-| # | Item | Why (from benchmark data) | Expected Impact | Status |
-|---|------|--------------------------|-----------------|--------|
-| 5b | **Terraform/infrastructure cross-file resolution** | `module.vpc.subnet_id` referencing another .tf file's output. Not in benchmark corpus but needed for real users. | User quality | P3 (no users asking) |
-| 7 | **More equivalence concepts (115 -> 150+)** | Graph-derived aliases help but are limited to the repo's own vocabulary. Must respect Run 22 constraint: no single-word phrases, no generic targets. Only add when a specific task fixture exposes a gap. | +1-2pp P@10 | Low priority (marginal, risky) |
-| 8 | **Code-tuned embedding model** | BGE-small-en-v1.5 tested net-negative. Adds ONNX dependency for uncertain gain. FTS+RWR already competitive. | Unknown | Deferred (revisit if semantic gap identified) |
-| 10d | **Community-scoped RWR relaxation** | Relax threshold from "all seeds in 1 community" to "60%+ in same community." Shrinks adjacency map on large repos. Risk: cross-community edges excluded. Marginal on top of 4,717x cache win. | -40% latency (est.) | Planned |
-| 11 | **Feedback parameter sweep (warm-start)** | Session boost (0.20), task memory formula (0.5+score*0.4), decay (7-day linear), top-N (5) are untuned. Only affects multi-session compounding, not cold-start P@10. | Warm-start quality | Low priority |
+| # | Item | Why | Status |
+|---|------|-----|--------|
+| 7 | **More equivalence concepts** | Only add when a specific task fixture exposes a gap. Must respect Run 22 constraint (no single-word phrases, no generic targets). | On-demand |
+| 11 | **Feedback parameter sweep (warm-start)** | Session boost (0.20), task memory formula (0.5+score*0.4), decay (7-day linear), top-N (5) are untuned. Only affects real-user compounding. | When users exist |
 
 ## Edge Type Expansion
 
