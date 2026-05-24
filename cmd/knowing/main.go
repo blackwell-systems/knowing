@@ -121,6 +121,8 @@ func run(args []string) error {
 		return cmdAuditDiff(args[1:])
 	case "enrich":
 		return cmdEnrich(args[1:])
+	case "enrich-similarity":
+		return cmdEnrichSimilarity(args[1:])
 	case "add":
 		return cmdAdd(args[1:])
 	case "remove":
