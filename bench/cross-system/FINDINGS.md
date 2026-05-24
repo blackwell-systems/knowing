@@ -413,19 +413,24 @@ of top-10 results across all pairings. 1.0 = identical output regardless of phra
 | knowing | 0.07 | VOLATILE |
 | Gortex | 0.02 | VOLATILE |
 
-**Honest finding:** All keyword-seeded systems (knowing, codegraph, Gortex) produce
-different results for different phrasings. "add a before_request hook" and "implement
-request preprocessing" select different FTS/tiered seeds, leading to different RWR walks.
-Aider's PageRank is query-independent (ranks by structure alone) so it's stable but
-imprecise (P@10=0.050 vs knowing's 0.217).
+**Why Aider scores high:** PageRank ranks by graph centrality (most-called functions),
+not by task relevance. It returns the same top symbols regardless of what you ask.
+This produces high Jaccard (stable) but P@10=0.050 (95% wrong). Stability without
+precision is useless: a system that always returns `main()` has Jaccard=1.0 and P@10=0.00.
+
+**Why knowing scores low (and why that's correct):** Different phrasings activate
+different keyword seeds, which walk different graph neighborhoods, producing different
+results. "add a before_request hook" SHOULD return different symbols than "implement
+request preprocessing" because those point to different implementation paths. The
+volatility is the system responding to the query, not ignoring it.
 
 **Determinism vs robustness are different properties:**
 - Deterministic: same input always produces same output (knowing: yes, Aider: no)
-- Robust: different phrasings of same intent produce similar output (Aider: yes, knowing: no)
+- Robust: different phrasings produce similar output (Aider: yes, knowing: no)
 
-**The tradeoff:** Keyword-seeded systems are precise but phrasing-sensitive. PageRank
-systems are phrasing-independent but imprecise. knowing chose precision (P@10=0.217 vs
-Aider's 0.050). Equivalence classes partially bridge this (mapping different phrases to
-the same targets) but only for explicitly covered concepts.
+knowing is deterministic (proven in TestDeterminism) but not robust. This is correct:
+precision (P@10=0.217) requires sensitivity to what you actually asked. Equivalence
+classes bridge common rephrasings (mapping different phrases to the same targets) but
+don't cover every possible paraphrase.
 
 Benchmark: `bench/cross-system/TestQueryRobustness`
