@@ -1,0 +1,292 @@
+# Cross-System Benchmark Methodology
+
+This document describes the experimental methodology used in the cross-system context
+retrieval benchmark. It covers fixture design, ground truth validation, statistical
+methods, regression detection, and known limitations.
+
+## Design Principles
+
+1. **Same input, different systems.** Every system receives identical task descriptions.
+   No system-specific prompt engineering or query adaptation.
+2. **Cold start.** No pre-existing feedback, session history, or learned state. Each
+   task is independent. This measures retrieval quality, not memory.
+3. **Manual ground truth.** Fixtures are hand-labeled by a developer who read the source
+   code. No LLM-generated ground truth (avoids circular evaluation).
+4. **Paired statistical tests.** Systems are compared on the same tasks, eliminating
+   task-difficulty variance. Wilcoxon signed-rank (non-parametric, no normality assumption).
+5. **Effect size over p-values.** Cohen's d reported alongside significance. A
+   statistically significant result with d=0.1 is not meaningful.
+
+## Fixture Design
+
+### Difficulty Tiers
+
+| Tier | Criteria | Example |
+|------|----------|---------|
+| Easy | Single symbol, obvious name in task | "Add a before_request hook" -> `Scaffold.before_request` |
+| Medium | Multiple relevant symbols, some requiring structural knowledge | "Implement request caching" -> `Flask.full_dispatch_request`, `RequestContext`, etc. |
+| Hard | Requires understanding of call chains, inheritance, or cross-file relationships | "Add custom error page for 404" -> `errorhandler`, `_find_error_handler`, `HTTPException` |
+
+### Ground Truth Labeling
+
+Each fixture specifies:
+- `relevant_symbols`: list of qualified names that a developer would need to see
+- `critical_symbols`: subset that are essential (used for MRR scoring)
+- `difficulty`: easy / medium / hard
+- `reasoning`: why these symbols are relevant (prevents stale fixtures)
+
+### Validation
+
+The `validate-fixtures` tool (`scripts/validate-fixtures.go`) verifies:
+1. Every symbol in ground truth exists in the indexed database
+2. Qualified names resolve to exactly one node (no ambiguity)
+3. Match rate >= 95% (Run 7 established this threshold)
+
+Fixtures with unresolvable symbols are flagged and corrected or removed.
+
+## Corpus Selection
+
+### Criteria
+
+- Public, well-known repositories (reproducible by anyone)
+- Multiple languages (Go, Python, TypeScript, Rust)
+- Range of sizes (14K LOC Flask to 3.5M LOC Kubernetes)
+- Pinned to specific versions (deterministic indexing)
+- No knowing's own repository (avoids self-measurement bias)
+
+### Current Corpus (7 repos)
+
+| Repo | Language | LOC | Nodes | Edges | Why |
+|------|----------|-----|-------|-------|-----|
+| Flask | Python | 15K | ~1400 | ~6K | Small, well-structured, dense class hierarchy |
+| Django | Python | 300K | ~5K | ~15K | Large Python, deep inheritance (ORM) |
+| Cargo | Rust | 150K | ~3K | ~10K | Rust, complex module system |
+| Kubernetes | Go | 3.5M | ~30K | ~100K | Massive Go monorepo |
+| VS Code | TypeScript | 1M | ~15K | ~50K | Large TS, extension architecture |
+| Spark | Java | 400K | ~8K | ~20K | Java, heavy framework patterns |
+| Ocelot | C# | 100K | ~2K | ~5K | C#, middleware pipeline |
+
+## Adapter Interface
+
+Each system implements:
+
+```go
+type Adapter interface {
+    Name() string
+    Available() bool
+    RetrieveContext(task benchtype.Task, repoPath string, budget int) ([]benchtype.Result, error)
+}
+```
+
+- `Available()` checks if the system is installed and configured
+- `RetrieveContext()` returns ranked symbols for a task description within a token budget
+- Systems that fail or timeout on a task score 0 for that task (not excluded)
+
+## Metrics
+
+### Primary (reported in all runs)
+
+#### P@10 (Precision at 10)
+
+**Formula:** (number of relevant symbols in top-10 results) / 10
+
+**Interpretation:** "Of the 10 symbols you showed me, how many did I actually need?"
+This is the headline metric because it directly measures whether the context is useful.
+A developer reading 10 symbols wants most of them to be relevant, not noise.
+
+- P@10 = 0.40 means 4 of 10 results are relevant (good for hard tasks)
+- P@10 = 0.80 means 8 of 10 are relevant (excellent)
+- P@10 = 0.00 means the system completely missed (none of the top-10 are useful)
+
+**Why P@10 and not P@5 or P@20:** The context engine returns ~5-30 symbols depending
+on budget. 10 is the sweet spot: enough to measure ranking quality without rewarding
+systems that dump everything.
+
+#### R@10 (Recall at 10)
+
+**Formula:** (number of relevant symbols in top-10 results) / (total relevant symbols for this task)
+
+**Interpretation:** "Of all the symbols I needed, how many did you find in 10 results?"
+High recall means the system doesn't miss important symbols. Low recall means you'd
+need to request more context or search manually.
+
+- R@10 = 1.00 means all ground truth symbols appeared in top-10 (perfect recall)
+- R@10 = 0.50 means half the ground truth was found
+- Hard tasks with 8+ ground truth symbols rarely achieve R@10 > 0.50 in 10 slots
+
+**Tension with precision:** A system can achieve high recall by returning everything
+(Repomix strategy: dump 300K tokens, R=100%, P~0%). The P@10/R@10 pair prevents gaming.
+
+#### NDCG@10 (Normalized Discounted Cumulative Gain)
+
+**Formula:** DCG@10 / idealDCG@10, where DCG = sum(relevance_i / log2(i+1))
+
+**Interpretation:** "Are the most relevant symbols ranked first?" NDCG penalizes
+systems that find relevant symbols but rank them below irrelevant ones. A system
+with P@10=0.40 but all 4 relevant results in positions 1-4 scores higher NDCG than
+one with the same 4 results scattered at positions 2, 5, 7, 9.
+
+- NDCG = 1.0 means perfect ranking (all relevant symbols at the top)
+- NDCG > P@10 indicates good ranking (relevant results clustered at top)
+- NDCG < P@10 indicates poor ranking (relevant results buried below noise)
+
+#### MRR (Mean Reciprocal Rank)
+
+**Formula:** 1 / (rank of first relevant symbol)
+
+**Interpretation:** "How quickly do I get something useful?" For an agent that reads
+results sequentially, MRR measures how many results it must scan before finding
+something relevant.
+
+- MRR = 1.00 means the first result is relevant (ideal for agents)
+- MRR = 0.50 means the first relevant result is at position 2
+- MRR = 0.10 means you have to read 10 results to find anything useful
+
+**Why MRR matters for agents:** Claude Code reads context top-to-bottom. If the first
+symbol is the right one, the agent can start working immediately. Low MRR means the
+agent wastes context window on irrelevant symbols before finding what it needs.
+
+### Secondary
+
+| Metric | Formula | Interpretation |
+|--------|---------|----------------|
+| Token efficiency | relevant_symbols / tokens_consumed | Higher = more signal per token. Penalizes systems that return verbose context. |
+| Latency | wall-clock ms from query to response | End-to-end including graph traversal, RWR, scoring, formatting. |
+| Failure rate | tasks with errors / total tasks | Systems that crash or timeout score 0 (not excluded). High failure rate indicates fragility. |
+
+### How to Read the Results Table
+
+```
+| System  | P@10  | R@10  | NDCG@10 | MRR   | TokenEff | Latency(ms) | Tasks |
+|---------|-------|-------|---------|-------|----------|-------------|-------|
+| knowing | 0.226 | 0.396 | 0.369   | 0.423 | 0.0023   | 2582        | 117   |
+```
+
+Reading this row: knowing returns relevant symbols 22.6% of the time in its top-10
+(P@10). It finds 39.6% of all ground truth symbols within 10 results (R@10). Its
+ranking is decent (NDCG 0.369). On average, the first relevant symbol appears around
+position 2-3 (MRR 0.423). It uses about 0.0023 relevant symbols per token consumed.
+Average latency is 2.6 seconds across all 7 repos (dominated by Kubernetes at ~5s).
+
+### Interpreting Differences Between Systems
+
+- **P@10 difference of 0.05+** is meaningful (5% more results are relevant)
+- **MRR difference of 0.10+** means reaching the first useful result 1 position sooner
+- **Effect size (d) > 0.5** means the difference is reliably detectable across tasks
+- **p < 0.01** means the difference is unlikely to be random noise
+
+A system with lower P@10 but higher MRR might be better for agents (gets the first
+answer fast). A system with higher P@10 but lower MRR is better for comprehensive
+understanding (more relevant results overall, just not ranked first).
+
+## Statistical Methods
+
+### Paired Wilcoxon Signed-Rank Test
+
+Compares two systems on the same tasks. Non-parametric (no normality assumption).
+Null hypothesis: median difference = 0.
+
+- p < 0.05: statistically significant
+- p < 0.001: highly significant (reported as p<0.0001 when below float precision)
+
+### Effect Size (Cohen's d)
+
+| d | Interpretation |
+|---|----------------|
+| 0.2 | Small |
+| 0.5 | Medium |
+| 0.8 | Large |
+| 1.0+ | Very large |
+
+### Confidence Intervals
+
+Bootstrap with 10K resamples. Reports 95% CI for the difference between systems.
+
+## Regression Detection
+
+### How regressions are caught
+
+1. **Per-repo tracking:** Each run records P@10 per repo. A >20% drop in any single
+   repo indicates a regression even if the aggregate is stable.
+2. **Channel contribution logging:** Debug mode logs which retrieval channel (tiered,
+   BM25, equivalence, vector) contributed each seed candidate.
+3. **Run-over-run comparison:** FINDINGS.md records every run with delta from previous.
+
+### Run 22 case study (equivalence channel noise)
+
+The P@10 dropped from 0.230 to 0.101 over several commits. The regression was invisible
+in code review because:
+- No unit test checked channel result counts
+- The aggregate masked per-repo drops (Flask dropped 0.321->0.20 but k8s held steady)
+- Experimental WIP commits accumulated without benchmark re-runs
+
+**Prevention measures identified:**
+- Channel balance assertion (no channel >2x others)
+- Per-repo baseline comparison in CI
+- Equiv expansion safety gate (benchmark before/after adding classes)
+
+## Known Limitations
+
+### Overfitting risk
+
+The same 117 fixtures are used across all 22 runs. Improvements may overfit to
+these specific tasks. Mitigation: fixtures are diverse (7 repos, 3 tiers, multiple
+languages) and the cross-system comparison with competitors uses the same fixtures
+(so overfitting would equally benefit competitors).
+
+### Cold-start only
+
+The benchmark measures cold-start retrieval. Real usage benefits from feedback
+compounding (+20pp after 5 rounds in feedback-loop bench). The benchmark
+understates knowing's value for repeated users.
+
+### Ground truth incompleteness
+
+Not all relevant symbols are labeled. A system that returns an unlabeled-but-useful
+symbol scores 0 for that position. This creates false negatives. Mitigation: periodic
+fixture review and expansion.
+
+### Token budget interaction
+
+All systems receive a 5000-token budget. Systems that return fewer tokens may have
+higher precision but lower recall. The token efficiency metric accounts for this
+but P@10 does not.
+
+### Small-graph vs large-graph behavior
+
+knowing's pipeline behaves differently at different graph scales:
+- Small graphs (<3000 nodes): RWR converges to near-uniform scores. Channel
+  balance is critical (Run 22 finding).
+- Large graphs (>30K nodes): RWR differentiates well. More edges = better recall.
+  The dominant factor is graph connectivity, not channel balance.
+
+Benchmarking only on small repos (Flask) would miss large-graph advantages.
+Benchmarking only on large repos (k8s) would miss small-graph pathologies.
+The corpus covers both.
+
+## Reproducing Results
+
+```bash
+# Full benchmark (all systems, all repos)
+GOWORK=off go test ./bench/cross-system/ -run TestCrossSystem -v -timeout 30m
+
+# Single system, single repo
+GOWORK=off go test ./bench/cross-system/ -run TestCrossSystem -v -timeout 5m \
+  -bench.adapters=knowing -bench.repos=flask
+
+# With Aider
+uv venv /tmp/aider-bench --python 3.11
+source /tmp/aider-bench/bin/activate
+uv pip install aider-chat
+GOWORK=off go test ./bench/cross-system/ -run TestCrossSystem -v -timeout 30m \
+  -bench.adapters=knowing,aider
+```
+
+Results are deterministic for a given index state. Clear context caches before
+re-running if testing pipeline changes:
+
+```bash
+for db in bench/cross-system/corpus/repos/*/.knowing/graph.db; do
+  sqlite3 "$db" "DELETE FROM graph_notes WHERE key = 'context_pack'"
+done
+```

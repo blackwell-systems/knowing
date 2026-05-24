@@ -1,9 +1,10 @@
 # Cross-System Context Retrieval Benchmark
 
-Rigorous comparison of context retrieval systems on identical tasks across 5 public repositories.
+Rigorous comparison of context retrieval systems on identical tasks across 7 public repositories.
 
+**Methodology:** [METHODOLOGY.md](METHODOLOGY.md) (metrics, fixture design, statistical methods, limitations)
+**Running results:** [FINDINGS.md](FINDINGS.md) (22 runs with full narrative)
 **Full specification:** [docs/research/cross-system-benchmark.md](../../docs/research/cross-system-benchmark.md)
-**Running results:** [FINDINGS.md](FINDINGS.md)
 **Study overview:** [bench/CONTEXT-PACKING-STUDY.md](../CONTEXT-PACKING-STUDY.md)
 
 ## Quick Start
