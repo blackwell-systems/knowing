@@ -161,10 +161,7 @@ Current status: per-repo isolation (no cross-repo queries). First real user who 
 
 | Benchmark | What it proves | Status | Effort |
 |-----------|---------------|--------|--------|
-| **Query latency p50/p95/p99** | Instrument all 28 MCP tool handlers. Report latency distribution per tool across 1000 calls. | Single number (60ms avg) in cross-system FINDINGS; need distribution | Medium |
-| **Indexing throughput (formalized)** | Dedicated harness: index 7 corpus repos, measure wall time, edges/sec, memory peak with variance reporting. | Numbers exist informally (Flask 0.1s, k8s 18.6s, competitive ratios in cross-system FINDINGS); needs reproducible go test harness | Low |
-| **Staleness detection speed** | Benchmark `DiffHierarchicalTrees` on progressively larger graphs (10K, 50K, 100K, 500K edges). Show O(packages) not O(edges). | Have 517x number and Grafana scale test (714K edges); need the full scaling curve | Low |
-| **Memory/disk footprint** | Measure RSS and DB file size after indexing each corpus repo. Compare to competitors. | Competitive numbers in cross-system FINDINGS (200MB vs 14GB/5.7GB); needs dedicated measurement harness | Low |
+| **Query latency p50/p95/p99** | Instrument all 28 MCP tool handlers. Report latency distribution per tool across 1000 calls. | Single number (2ms cached) exists; need per-tool distribution | Medium |
 
 ### P3: Completeness and rigor
 
