@@ -674,10 +674,10 @@ if FeedbackBoost < memoryBoost {
 ```
 
 This ensures memory always produces a positive boost (range [0.5, 0.9]) without
-overwhelming explicit feedback (which can reach 1.0). The feedback component is
-weighted at 0.15, so memory's effective maximum contribution is `0.9 * 0.15 = 0.135`
+overwhelming explicit feedback (which can reach 1.0). The positive feedback weight
+is 0.25, so memory's effective maximum contribution is `0.9 * 0.25 = 0.225`
 when centered around the neutral point (where 0.5 maps to zero contribution), giving
-an effective range of 0 to +0.06 (about 6% of total score).
+an effective range of 0 to +0.10 (about 10% of total score).
 
 ---
 

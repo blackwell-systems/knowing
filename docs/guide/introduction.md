@@ -415,7 +415,7 @@ On the top-K results from RWR, run the HITS algorithm (Hyperlink-Induced Topic S
 Feedback boost is computed as `0.5 + recall_score * 0.4`, where recall_score comes from task memory (top-5 symbols stored per query). Feedback automatically expires when the package's SubgraphRoot changes (code was modified). This is how the system learns over time without accumulating stale signals.
 
 **Step 6: Token budget packing.**
-The ranked symbols are packed into the token budget (default 5,000 tokens) using a knapsack algorithm: maximize total relevance score within the budget constraint. Larger symbols (more edges, longer signatures) cost more tokens. The packer selects the combination that maximizes information density.
+The ranked symbols are packed into the token budget (default 50,000 tokens) using a knapsack algorithm: maximize total relevance score within the budget constraint. Larger symbols (more edges, longer signatures) cost more tokens. The packer selects the combination that maximizes information density.
 
 **Result:** 85-200 symbols, ranked by graph relevance, packed into a budget. One call. No grep loops.
 

@@ -497,4 +497,4 @@ Task Description
 - **Feedback compounding via task memory:** The MCP server records top-5 returned symbols in a `task_memory` table after each `context_for_task` call. Future queries with similar keywords recall stored symbols and boost them. Quality compounds across sessions; the system learns which symbols matter for which tasks.
 - **Merkleized feedback expiration:** Feedback records store the package Merkle root. When code changes, the root changes, and stale feedback becomes invisible automatically.
 
-**Benchmark:** Cross-system benchmark (7 repos, ~117 tasks): P@10=0.230 vs grep P@10=0.020 (11.5x improvement, p<0.0001, Cohen's d=0.92). See [Retrieval Pipeline](retrieval-pipeline.md) for the full architecture reference.
+**Benchmark:** Cross-system benchmark (7 repos, ~117 tasks): P@10=0.217, 1.63x vs codegraph (19K stars), 4.3x vs Aider, 11x vs grep (p<0.0001, Cohen's d=0.92). Query latency: 2ms on k8s with adjacency cache. See [Retrieval Pipeline](retrieval-pipeline.md) for the full architecture reference.

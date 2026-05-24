@@ -244,7 +244,7 @@ CREATE TABLE route_symbols (
 
 ## Merkle Tree (Computed, Not Stored)
 
-The hierarchical Merkle tree is computed in memory from the edge table, not stored in SQLite. Tree construction delegates to `github.com/blackwell-systems/merkle-strata` v0.1.1: `BuildMerkleTree` calls `forest.Build` and `BuildHierarchicalTree` calls `forest.BuildMultiLevel`. The `merkle\0` hash domain prefix is passed via `forest.WithPrefix`. `BuildHierarchicalTree` constructs:
+The hierarchical Merkle tree is computed in memory from the edge table, not stored in SQLite. Tree construction delegates to `github.com/blackwell-systems/merkle-strata` v0.4.0: `BuildMerkleTree` calls `strata.Build` and `BuildHierarchicalTree` calls `strata.BuildMultiLevel`. The `merkle\0` hash domain prefix is passed via `strata.WithPrefix`. `BuildHierarchicalTree` constructs:
 
 ```
 repo_root = merkle(sorted(package_roots))
