@@ -395,23 +395,37 @@ sub-second detection time. CI integration adds <20 seconds to enterprise-scale b
 
 ## Implementation Notes (not in paper, for internal reference)
 
-### What needs to be built for the demo:
+### Already shipped:
 
-1. **Dangerous sink registry**: per-language list of network/process/filesystem APIs
-   - Go: `net/http.Client.Do`, `os/exec.Command`, `os.WriteFile`, etc.
-   - JavaScript: `http.request`, `https.request`, `child_process.exec`, `fs.writeFile`
-   - Python: `urllib.request.urlopen`, `subprocess.run`, `open(..., 'w')`
+- `knowing prove` and `knowing verify`: Merkle inclusion proofs (72us generate, 1.2us verify)
+- `knowing prove-absent`: Merkle exclusion proofs using sorted-leaf adjacency
+- `knowing audit -proofs`: batch compliance artifact with integrity check + proofs
+- `knowing fsck`: full graph integrity verification
+- `knowing diff`: O(packages) snapshot diff with edge-level change classification
 
-2. **Capability BFS**: BFS from module nodes following only `calls`+`imports`+`references`
-   edges, stopping at sink nodes. Already mostly implemented via `TransitiveCallees`.
+### What needs to be built for the full supply chain demo:
 
-3. **Merkle exclusion proof format**: extend `internal/snapshot/proof.go` with
-   non-membership proofs (sorted leaf approach or sparse Merkle tree).
+1. **`reads_env` edge type**: function -> env var node (detects credential access)
+   - TS: `process.env.GITHUB_TOKEN`
+   - Go: `os.Getenv("VAR")`
+   - Python: `os.environ["VAR"]`, `os.getenv("VAR")`
 
-4. **event-stream fixture**: clone both versions, index, run prove/prove-absent.
-   JavaScript extractor already handles `require()` and function calls.
+2. **`executes_process` edge type**: function -> process it spawns
+   - TS: `child_process.spawn/exec`
+   - Python: `subprocess.run/Popen`
+   - Go: `os/exec.Command`
 
-5. **CLI commands**: `knowing prove-absent --module X --sinks Y --snapshot Z`
-   (partially exists: `knowing prove` for inclusion).
+3. **Dangerous sink registry**: per-language list of network/process/filesystem APIs
+   categorized by capability type (network, process, filesystem, crypto)
 
-### Estimated effort: 3-4 days of implementation + 2-3 days writing
+4. **Structural isolation score**: computed from inbound/outbound edge ratio + hook execution
+
+5. **`knowing audit-supply-chain` command**: combines diff + isolation analysis + proofs
+
+6. **TanStack case study fixture**: clone clean + compromised versions, deobfuscate,
+   index, run full pipeline. Demonstrates detection of OIDC-based publish attack.
+
+See `docs/proposals/supply-chain-detection-demo.md` for the complete implementation plan
+with exact architecture, CLI interface, and CI workflow template.
+
+### Estimated effort: ~18h implementation + 2-3 days writing

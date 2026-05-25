@@ -9,7 +9,8 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 | 1 | **Real users** | Everything else is validated by benchmarks, not usage. Task memory compounds with use. | Ongoing | - |
 | 2 | **Local embeddings (Channel 6)** | Lightweight local embedding model embeds task descriptions and symbol signatures into shared vector space. Bridges vocabulary gap completely: "custom migration operation" finds `Operation.state_forwards` via semantic similarity. Pure Go inference proposed (`docs/proposals/pure-go-embeddings.md`). | High (3-4 days) | +5-15% P@10 |
 | 3 | **event-stream supply chain demo** | Index clean + compromised versions, show `knowing diff` catches malicious edges, prove absence/presence with Merkle proofs. Paper outlined (`docs/research/whitepapers/supply-chain-proof-of-absence.md`). | Medium | Commercial angle |
-| 4 | **Parallel write backend** | SQLite single-writer funnels all extraction results through one goroutine. Even with producer-consumer pipeline, writes are serial. Need parallel write support for large repos. | High | Performance |
+| 4 | **Coherence-aware context packing** | Current packing is greedy by value density (score/tokens). Treats symbols independently. Alternatives: (1) subgraph coherence bonus (boost symbols that are graph-neighbors of already-packed ones), (2) MMR diversity penalty (penalize redundant symbols from same file/type), (3) coverage packing (track which task aspects are covered, prefer uncovered). Coherence bonus is most promising since it leverages the graph we already have. | Medium | Quality |
+| 5 | **Parallel write backend** | SQLite single-writer funnels all extraction results through one goroutine. Even with producer-consumer pipeline, writes are serial. Need parallel write support for large repos. | High | Performance |
 
 ### Session 15: Shipped
 

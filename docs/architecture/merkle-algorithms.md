@@ -62,10 +62,10 @@ In addition to the structural tree, each node carries per-edge-type roots:
 
 ```
 node_edge_type_roots[node_id] = {
-  "calls":         merkle_root(sorted(edge_hashes where type=calls)),
-  "imports":       merkle_root(sorted(edge_hashes where type=imports)),
-  "runtime_calls": merkle_root(sorted(edge_hashes where type=runtime_calls)),
-  "owns":          merkle_root(sorted(edge_hashes where type=owns)),
+  "calls":          merkle_root(sorted(edge_hashes where type=calls)),
+  "imports":        merkle_root(sorted(edge_hashes where type=imports)),
+  "runtime_calls":  merkle_root(sorted(edge_hashes where type=runtime_calls)),
+  "accesses_field": merkle_root(sorted(edge_hashes where type=accesses_field)),
   ...
 }
 ```

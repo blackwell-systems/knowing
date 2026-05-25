@@ -1,4 +1,9 @@
-# Proposal: Pure Go Transformer Inference for Local Embeddings
+# Proposal: Local Embeddings for Retrieval
+
+## Status: Phase 1 COMPLETE, Phase 2 pending measurement
+
+Phase 1 (hugot integration) is already implemented and wired into the retrieval pipeline.
+Phase 2 (custom inference engine) is contingent on P@10 improvement validation.
 
 ## Motivation
 
@@ -10,123 +15,119 @@ connectivity or keyword matching.
 The distribution constraint: knowing is a single Go binary with zero runtime dependencies.
 Any embedding solution must preserve this property.
 
-## Proposal
+## Current State (Phase 1: Working)
 
-Implement MiniLM-L6-v2 (or nomic-embed-text-v1.5) inference in pure Go. No CGO, no ONNX
-runtime, no Python sidecar. The model weights are loaded from a file on first use
-(downloaded once to `~/.knowing/models/`).
+The embedding system is **already implemented** and gated behind `KNOWING_EMBEDDINGS=1`:
 
-## Model Selection
+- `internal/embedding/embedding.go`: hugot (pure Go ONNX runtime) + BGE-small-en-v1.5
+- `internal/embedding/searcher.go`: HNSW index (coder/hnsw), VectorSearcher interface
+- Integration: MCP server calls `SetVector()`, Channel 3 in retrieval pipeline runs EmbedAndSearch
+- Builds with `CGO_ENABLED=0` (hugot is pure Go, no CGO needed)
+- Model: BAAI/bge-small-en-v1.5, 384 dims, ~30MB, auto-downloaded on first use
 
-| Model | Params | Dims | Size | Expected latency (pure Go) |
-|-------|--------|------|------|---------------------------|
-| all-MiniLM-L6-v2 | 22M | 384 | 88MB | ~5-10ms/embedding |
-| nomic-embed-text-v1.5 | 137M | 768 | 548MB | ~50-100ms/embedding |
-| snowflake-arctic-embed-xs | 22M | 384 | 88MB | ~5-10ms/embedding |
+### Measured Performance (M4 Pro, 2026-05-25)
 
-Recommend: **all-MiniLM-L6-v2** (smallest, fastest, well-benchmarked on code retrieval).
+| Operation | Latency |
+|-----------|---------|
+| Single embedding (cold start) | 200ms |
+| Single embedding (warm) | ~20ms |
+| Batch of 8 | 135ms (16.8ms/embedding) |
+| Batch of 64 | 880ms (13.8ms/embedding) |
+| HNSW search (top-30 from 5K vectors) | <1ms |
 
-## Architecture
+### Existing Libraries
+
+| Library | Stars | Status | Notes |
+|---------|-------|--------|-------|
+| `knights-analytics/hugot` | 606 | Active (last push 2026-05-24) | Pure Go ONNX runtime, used in Phase 1 |
+| `nlpodyssey/cybertron` | 329 | Maintained (last push 2024-06) | Full transformer inference in Go (BERT, BART, etc.) |
+| `nlpodyssey/spago` | 1,850 | Active (last push 2025-04) | ML framework that cybertron builds on |
+| `coder/hnsw` | - | Active | Pure Go HNSW index, used in Phase 1 |
+
+## Decision: Two-Phase Approach
+
+### Phase 1: Validate with hugot (DONE)
+
+Use hugot (pure Go ONNX) to prove the retrieval improvement. Already implemented.
+Gated behind `KNOWING_EMBEDDINGS=1` to keep it opt-in until P@10 delta is validated.
+
+Remaining work:
+- Run full benchmark corpus with embeddings enabled
+- Measure P@10 delta vs baseline (0.207)
+- If improvement confirmed, make embeddings default (remove env gate)
+
+### Phase 2: Custom inference engine (IF Phase 1 succeeds)
+
+Replace hugot with a minimal custom forward pass. Justification:
+
+1. **Performance.** hugot is ~14ms/embedding (pure Go, unoptimized matmul). Custom with
+   SIMD (ARM NEON / x86 AVX) could achieve 3-5ms. With INT8 quantization: 2-3ms.
+2. **Binary size.** hugot brings a full ONNX runtime (~15MB in binary). Custom inference
+   for a single model would be ~5KB compiled + 2MB vocab.
+3. **Concurrency.** hugot serializes all inference behind a mutex. Custom code can run
+   independent embeddings on separate goroutines.
+4. **Dependency risk.** hugot is maintained but external. Custom code is fully owned.
+
+The model is small enough (6 layers, 384 dims, 22M params) that custom implementation
+is ~700 LOC total. The hard part (proving it works in Go) is already validated by hugot,
+cybertron, and spago.
+
+### Phase 2 Architecture
 
 ```
-~/.knowing/models/minilm-l6-v2.bin   (88MB, downloaded on first `knowing index --embed`)
+~/.knowing/models/bge-small-en-v1.5.safetensors  (30MB, downloaded on first use)
                     |
                     v
-internal/embedding/inference.go       (pure Go transformer forward pass)
+internal/embedding/inference.go       (custom transformer forward pass, ~500 LOC)
     - LoadModel(path) -> *Model
     - Model.Embed(text) -> []float32 (384-dim)
     - Model.EmbedBatch(texts) -> [][]float32
                     |
                     v
-internal/embedding/searcher.go        (existing: ANN index over embedded symbols)
-    - Searcher.EmbedAndSearch(query, k) -> []Hash
+internal/embedding/tokenizer.go       (WordPiece, ~150 LOC)
+    - Tokenize(text) -> []int
+                    |
+                    v
+internal/embedding/simd_arm64.s       (optional: NEON matmul for M-series)
+internal/embedding/simd_amd64.s       (optional: AVX2 matmul for x86)
 ```
 
-## Implementation Plan
+### Phase 2 Performance Targets
 
-### Layer 1: Tokenizer (~200 LOC)
-- WordPiece tokenizer with 30K vocab (embedded via `go:embed` or loaded from model file)
-- `Tokenize(text) -> []int` (token IDs)
-- Special tokens: [CLS], [SEP], padding
+| Operation | hugot (current) | Custom (target) |
+|-----------|----------------|-----------------|
+| Single embed | 14ms | 3-5ms |
+| Batch of 64 | 880ms | 200-300ms |
+| Index 5K symbols | 70s | 15-25s |
+| Index 50K symbols | 700s | 150-250s |
+| Query overhead | 15ms | 4-6ms |
 
-### Layer 2: Tensor operations (~300 LOC)
-- `type Tensor struct { Data []float32; Shape []int }`
-- `MatMul(a, b Tensor) Tensor` (naive triple loop, sufficient for 384x384)
-- `LayerNorm(x, gamma, beta Tensor) Tensor`
-- `GELU(x Tensor) Tensor`
-- `Softmax(x Tensor) Tensor`
-- `MeanPool(x Tensor, mask []bool) Tensor`
+## Indexing Strategy
 
-### Layer 3: Transformer forward pass (~200 LOC)
-- `type TransformerLayer struct { QKV, Out, FF1, FF2, LN1, LN2 weights }`
-- `func (l *TransformerLayer) Forward(x Tensor) Tensor`
-- Multi-head attention: split heads, Q*K^T/sqrt(d), softmax, *V, concat, project
-- Feed-forward: Linear(384->1536) -> GELU -> Linear(1536->384)
+### Full index (first time)
+Embed all symbols. For large repos, cap at most-connected symbols (high edge count
+implies importance). Persist vectors to `~/.knowing/embeddings.bin`.
 
-### Layer 4: Model loading (~200 LOC)
-- Parse SafeTensors or custom binary format
-- Map weight names to layer structs
-- Validate shapes on load
+### Incremental index (file change)
+Only embed new/modified symbols. HNSW supports dynamic insertion. Remove old vectors
+for changed symbols, insert new ones. Typical cost: 10-50 symbols x 14ms = 140-700ms.
 
-### Layer 5: Integration
-- `ContextEngine.SetVector(vs VectorSearcher)` already exists
-- `internal/embedding/Searcher` already implements `EmbedAndSearch`
-- Wire: on index, embed all symbol signatures. On query, embed task description.
-- Store embeddings in a separate file (`~/.knowing/embeddings.bin`) or notes table.
-
-## Performance Expectations
-
-- **Embedding one query**: ~5-10ms (6 layers x 384x384 matmul, M-series Mac)
-- **Indexing 10K symbols**: ~50-100s (batch, amortized). Run once at index time.
-- **ANN search (HNSW)**: ~1ms for top-30 from 100K vectors
-- **Total query overhead**: ~6-11ms (embed query + ANN search). Negligible vs current 2ms.
-
-## Binary Size Impact
-
-- Model weights: 88MB (stored externally in `~/.knowing/models/`, not in binary)
-- Inference code: ~5KB compiled Go
-- Tokenizer vocab: ~2MB (embedded via go:embed or in model file)
-- **Net binary size increase: ~2MB** (vocab only; model downloaded separately)
-
-## Distribution
-
-```bash
-# First time: downloads model (~88MB, one-time)
-knowing index --embed /path/to/repo
-
-# Subsequent: uses cached model
-knowing mcp --watch  # embeddings auto-update on file change
-```
-
-Model download from GitHub releases or CDN. Checksum verification via SHA-256.
-No network calls during normal operation (model is local).
-
-## Alternatives Considered
-
-| Approach | Pros | Cons |
-|----------|------|------|
-| **Pure Go (this proposal)** | Single binary, zero deps, novel | 2-3 day effort, no precedent |
-| Sidecar process | Ships faster (1 day) | Two binaries, Python/Rust dep |
-| ONNX via CGO | Fast inference, proven | Breaks cross-compile, +50MB binary |
-| External API (Ollama) | Zero code | Requires running server |
+### Benchmark mode
+Cap at 5,000 symbols per repo for feasibility. 5000 x 14ms = 70s/repo, ~10 min total.
+Sufficient to validate P@10 impact.
 
 ## Success Criteria
 
-- P@10 improvement of +5-15% on full corpus (bridging unreachable symbols)
-- Query latency < 15ms total (embed + search + existing pipeline)
-- Binary size increase < 5MB (model is external)
-- Zero CGO, zero external dependencies
+- P@10 improvement of +3-15% on full corpus (bridging unreachable symbols)
+- Query latency < 20ms total (embed + search + existing pipeline)
+- Binary size increase < 5MB (model is external, downloaded on first use)
+- Zero CGO, zero external dependencies at runtime
 - Works on macOS arm64, Linux amd64, Linux arm64
-
-## Timeline
-
-- Day 1: Tokenizer + tensor ops + basic forward pass (inference works)
-- Day 2: Model loading + integration with ContextEngine + index-time embedding
-- Day 3: ANN index (HNSW in pure Go) + query-time search + benchmark
-- Buffer: 1 day for optimization if >20ms latency
 
 ## References
 
+- BGE paper: Xiao et al., "C-Pack: Packaged Resources To Advance General Chinese Embedding" (2023)
 - MiniLM paper: Wang et al., "MiniLM: Deep Self-Attention Distillation" (2020)
-- Existing infrastructure: `internal/embedding/searcher.go`, `internal/embedding/embedder.go`
+- Existing code: `internal/embedding/embedding.go`, `internal/embedding/searcher.go`
 - Session 14 finding: 45.6% unreachable symbols need non-graph signal
+- Session 15 finding: hugot works in pure Go, 14ms/embedding, no CGO needed

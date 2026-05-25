@@ -1,6 +1,122 @@
-# Proposal: Restricted Product Spin-offs
+# Proposal: Product Split (Open Source Engine + Enterprise Platform)
 
-## Problem
+## Decision (Session 15, 2026-05-25)
+
+Two products. One public open-source engine, one private enterprise platform.
+Supply chain protection is the wedge feature; the platform expands to full code
+structure intelligence for security and compliance teams.
+
+## The Split
+
+```
+blackwell-systems/knowing       (public, MIT/Apache)  — the engine
+blackwell-systems/<platform>    (private, proprietary) — the enterprise product
+```
+
+**knowing** stays the open-source engine for AI agents and developers. All extraction,
+graph primitives, MCP tools, proofs, retrieval. The community builds here.
+
+**The platform** (name TBD, working title: "suppleye" or similar) is a private repo
+that imports knowing as a Go module and adds: continuous monitoring, policy engine,
+managed registries, alerting, multi-repo federation, compliance reporting, customer
+dashboard. This is where revenue comes from.
+
+### Architectural Justification
+
+This split follows the Artifact-Boundary Productization framework
+(see: blog/content/posts/artifact-boundary-productization.md).
+
+**The artifact contract:** knowing produces content-addressed graph snapshots (Merkle
+roots, edge hashes, hierarchical trees). These are durable, self-contained artifacts
+that survive after indexing stops. The enterprise product consumes these artifacts
+to produce intelligence (anomaly detection, compliance reports, policy evaluation).
+
+**The tests pass:**
+- Air-Gap Test: the enterprise product can analyze a snapshot on any machine with
+  only the graph DB file. No runtime connection to knowing needed.
+- Shutdown Test: if knowing never indexes again, the enterprise product still generates
+  reports from existing snapshots.
+- Control Flow Test: the enterprise product never affects indexing decisions or
+  retrieval results. It observes, it never participates.
+- Trust Test: users trust knowing (OSS) regardless of whether the enterprise product
+  exists. The platform produces correct graphs without any commercial dependency.
+
+**The planes:**
+- Data Plane: tree-sitter extractors, file walking, git operations (knowing)
+- Control Plane: retrieval pipeline, MCP server, daemon (knowing)
+- Intelligence Plane: continuous monitoring, policy engine, alerting, compliance (enterprise)
+
+The intelligence plane operates entirely on artifacts (snapshots) produced by the
+control plane. The dependency is one-directional: enterprise imports knowing, never
+the reverse.
+
+### Identity
+
+The platform is: **"continuous code structure intelligence for security and compliance teams."**
+
+Supply chain protection is the first headline feature (timely, differentiated, urgent).
+But the product is the platform, not the feature. Modules expand over time:
+
+```
+<platform>/
+├── cmd/<platform>          # main binary
+├── modules/
+│   ├── supply-chain/       # supply chain monitoring (ships first, the wedge)
+│   ├── architecture/       # architecture enforcement gates (ships second)
+│   ├── compliance/         # temporal compliance reports (ships third)
+│   └── drift/              # runtime vs static divergence (ships fourth)
+├── policy/                 # policy engine (shared across modules)
+├── alerting/               # notification integrations (shared)
+├── registry/               # managed sink/rule registry (shared)
+├── federation/             # multi-repo graph sync protocol
+├── dashboard/              # customer-facing web UI / API
+└── licensing/              # license key enforcement
+```
+
+### What lives where
+
+| Capability | knowing (public) | Platform (private) |
+|-----------|-----------------|-------------------|
+| Extraction (all languages, all edge types) | Yes | Imports from knowing |
+| `prove`, `prove-absent`, `diff`, `fsck`, `audit` | Yes | Imports from knowing |
+| `reads_env`, `executes_process` edge types | Yes | Imports from knowing |
+| Isolation score computation | Yes | Imports from knowing |
+| Basic `knowing audit-supply-chain` (manual, single repo) | Yes | Uses same logic |
+| Continuous monitoring daemon | No | Yes |
+| Policy engine (custom rules per org) | No | Yes |
+| Managed sink registry (auto-updated) | No | Yes |
+| Multi-repo federated proofs | No | Yes |
+| Temporal compliance reports | No | Yes |
+| Alerting (Slack, PagerDuty, Jira, webhook) | No | Yes |
+| SBOM enrichment (CycloneDX/SPDX) | No | Yes |
+| Architecture enforcement (continuous) | No | Yes |
+| Runtime drift detection (continuous) | No | Yes |
+| Customer dashboard / API | No | Yes |
+| License key enforcement | No | Yes |
+
+### Pricing tiers (draft)
+
+| Tier | What | Buyer |
+|------|------|-------|
+| **Open source** | knowing CLI, all primitives, basic supply chain detection (manual) | Individual developers, OSS projects |
+| **Team** | Platform with supply chain module, basic policy, Slack alerts | Small security teams (5-20 eng) |
+| **Enterprise** | All modules, federation, temporal compliance, SBOM, SLA, support | Large orgs, regulated industries |
+
+### Analogy
+
+Datadog started as infrastructure monitoring (the wedge), but the identity was always
+"observability platform." The first feature got them in the door; the platform is what
+made them $2B ARR. We start with supply chain (the wedge, because TanStack just
+happened and everyone is scared) and expand to full code structure intelligence.
+
+---
+
+## Open Source Product Faces (within knowing repo)
+
+The open-source repo also benefits from focused entry points for different audiences.
+These are thin CLI wrappers over the same engine, not separate products.
+
+## Problem (audience fragmentation)
 
 knowing has one README, one install command, one set of GitHub topics. It speaks to four audiences simultaneously:
 

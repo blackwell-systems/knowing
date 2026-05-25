@@ -8,7 +8,6 @@ knowing is a self-adapting code intelligence engine. It builds a content-address
 
 It runs entirely on a developer laptop with no paid LLM calls and no cloud API dependencies.
 
-**Scale:** 253K nodes and 614K edges on Kubernetes. 101K lines of Go.
 
 **Coverage:** 17 extractors spanning Go, TypeScript, Python, Rust, Java, C#, Ruby, SQL, Proto, GraphQL, Helm, Kubernetes YAML, Dockerfile, Makefile, CloudFormation, GitLab CI, and .env files. 34 edge types (calls, imports, implements, references, contains, member_of, similar_to, type_hint_of, co_tested_with, authored_by, handles_route, publishes, subscribes, connects_to, and 20 more).
 

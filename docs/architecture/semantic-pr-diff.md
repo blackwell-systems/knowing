@@ -136,22 +136,22 @@ Three MCP tools expose semantic diff functionality to agents:
 
 Agents use `pr_impact` before committing to verify a change does not introduce unexpected cross-repo dependencies or blast radius growth.
 
-## CLI Command: `knowing audit-diff`
+## CLI Command: `knowing diff`
 
-`knowing audit-diff` is the CLI equivalent of the CI workflow. It computes the semantic diff between the current working tree and a base ref:
+`knowing diff` computes the semantic diff between two snapshots:
 
 ```bash
-# Diff against main
-knowing audit-diff --base main
-
-# Diff between two specific commits
-knowing audit-diff --base abc123 --head def456
+# Diff between two snapshot hashes
+knowing diff -db graph.db <base-hash> <head-hash>
 
 # JSON output for programmatic use
-knowing audit-diff --base main --format json
+knowing diff -db graph.db -format json <base-hash> <head-hash>
+
+# GCF output (token-efficient, for agent consumption)
+knowing diff -db graph.db -format gcf <base-hash> <head-hash>
 ```
 
-The output format matches the PR comment format. The command exits with a non-zero status if thresholds are exceeded (configurable via flags).
+The output format matches the PR comment format. Edge changes include `added`/`removed` status annotations in both GCF and JSON output.
 
 ## CI Integration
 

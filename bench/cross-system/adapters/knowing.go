@@ -1,6 +1,7 @@
 package adapters
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/blackwell-systems/knowing/internal/community"
 	knowingctx "github.com/blackwell-systems/knowing/internal/context"
 	"github.com/blackwell-systems/knowing/internal/edgetype"
+	"github.com/blackwell-systems/knowing/internal/embedding"
 	"github.com/blackwell-systems/knowing/internal/indexer"
 	"github.com/blackwell-systems/knowing/internal/store"
 	"github.com/blackwell-systems/knowing/internal/types"
@@ -58,6 +60,7 @@ type Knowing struct {
 	stores     map[string]*store.SQLiteStore
 	memories   map[string]*knowingctx.TaskMemory // per-repo task memory for compounding tests
 	nodeCounts map[string]int                    // cached node count per repo for adaptive density
+	searchers  map[string]*embedding.Searcher    // per-repo vector searcher (nil if embeddings disabled)
 }
 
 func NewKnowing() *Knowing {
@@ -65,6 +68,7 @@ func NewKnowing() *Knowing {
 		stores:     make(map[string]*store.SQLiteStore),
 		memories:   make(map[string]*knowingctx.TaskMemory),
 		nodeCounts: make(map[string]int),
+		searchers:  make(map[string]*embedding.Searcher),
 	}
 }
 
@@ -155,6 +159,39 @@ func (a *Knowing) Index(repoPath string) (int64, error) {
 		}
 	}
 
+	// Build embedding index if BENCH_EMBEDDINGS=1.
+	// Only embeds the first N symbols (sorted by node hash for determinism).
+	// Embedding all 253K k8s nodes would take ~60 min; cap at 5000 for benchmark viability.
+	// Skip if already built for this repo (Index is called per-task, not per-repo).
+	if os.Getenv("BENCH_EMBEDDINGS") == "1" && a.searchers[repoPath] == nil {
+		embedder, err := embedding.New()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  [warn] embeddings disabled: %v\n", err)
+		} else {
+			searcher := embedding.NewSearcher(embedder)
+			nodes, err := s.NodesByName(ctx, "%")
+			if err == nil && len(nodes) > 0 {
+				// Cap at 5000 symbols for benchmark feasibility (~70s at 14ms/symbol).
+				maxEmbed := 5000
+				if len(nodes) < maxEmbed {
+					maxEmbed = len(nodes)
+				}
+				embedNodes := nodes[:maxEmbed]
+				// Batch embed in chunks of 64 for memory efficiency.
+				batchSize := 64
+				for i := 0; i < len(embedNodes); i += batchSize {
+					end := i + batchSize
+					if end > len(embedNodes) {
+						end = len(embedNodes)
+					}
+					_ = searcher.IndexBatch(ctx, embedNodes[i:end], nil)
+				}
+				fmt.Fprintf(os.Stderr, "  Embeddings: %d symbols indexed (of %d total)\n", searcher.Count(), len(nodes))
+			}
+			a.searchers[repoPath] = searcher
+		}
+	}
+
 	return time.Since(start).Milliseconds(), nil
 }
 
@@ -171,6 +208,11 @@ func (a *Knowing) Retrieve(repoPath string, task benchtype.Task, tokenBudget int
 	knowingctx.GraphNodeCount = a.nodeCounts[repoPath]
 
 	engine := knowingctx.NewContextEngine(s)
+
+	// Attach vector search if available (embedding-based semantic retrieval).
+	if vs, ok := a.searchers[repoPath]; ok && vs != nil {
+		engine.SetVector(vs)
+	}
 
 	// Attach task memory if available (enables compounding across queries).
 	if tm, ok := a.memories[repoPath]; ok && tm != nil {

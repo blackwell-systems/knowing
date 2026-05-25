@@ -50,17 +50,18 @@ that feeds agents context. These are different things.
 
 **Venue:** IR/NLP (SIGIR, EMNLP, NAACL)
 
-**Novel claim:** RWR on a multi-relational code graph (32 typed edges with distinct weights)
+**Novel claim:** RWR on a multi-relational code graph (36 typed edges with distinct weights)
 outperforms BM25, PageRank, and heuristic scoring for task-specific code retrieval.
 The key insight: precision is entirely reachability-determined, not parameter-sensitive.
 
 **Key contributions:**
-1. 1.50x more precise than codegraph (19K stars), 3.21x vs Gortex, 15.5x vs grep
+1. 1.53x more precise than codegraph (19K stars), 3.29x vs Gortex, 15.9x vs grep
 2. 32-config parameter sweep proving P@10 is structurally determined (zero variance)
 3. Multi-channel fusion (RRF): tiered keyword + BM25 + equivalence + path-context + vector
 4. Edge-type-weighted walk: `calls` 1.0, `implements` 0.8, `extends` 0.7, `imports` 0.5
 5. Feedback compounding via content-addressed symbol hashes (+20pp per round)
 6. Adjacency cache: 4,717x latency reduction (9s to 2ms) via binary serialization
+7. Neutral edge experiment: `accesses_field` (session 15) adds 660+ edges per repo with zero P@10 change, confirming reachability-determination (fields already reachable via call edges)
 
 **What's NOT novel here:** RWR itself, BM25, HITS, RRF are all known algorithms. The
 contribution is the application domain (code retrieval), the empirical validation at
@@ -78,11 +79,11 @@ scale, and the reachability-determination finding.
 ## Ordering and Dependencies
 
 ```
-Paper 1 (Proofs)     Paper 2 (Merkle Diff)     Paper 3 (CRET)     Paper 4 (RWR)
-     |                      |                       |                   |
-     v                      v                       v                   v
-  event-stream          formal proofs            extract toolkit     ablation study
-  demo (impl)           O(pkg) bound             5 more repos        embed comparison
+Paper 1+2 (PUBLISHED)     Paper 3 (CRET)     Paper 4 (RWR)     Paper 5 (Density)
+        |                       |                   |                  |
+        v                       v                   v                  v
+   event-stream            extract toolkit     ablation study     formalize model
+   demo (blog)             5 more repos        embed comparison   additional repos
 ```
 
 **Papers 1+2 are PUBLISHED** as a combined paper: "The Hierarchical Identity Architecture:
