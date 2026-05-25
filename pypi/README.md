@@ -1,8 +1,8 @@
 # knowing
 
-**Git versions files. knowing versions the understanding of code.**
+**A self-adapting code intelligence engine that gets smarter with scale, not dumber.**
 
-An intelligence versioning system: a content-addressed graph where every relationship between symbols is tracked, scored, and snapshotted with hierarchical Merkle trees.
+Content-addressed graph of code relationships with density-adaptive retrieval. Observes its own graph structure and adjusts how it searches: on small repos it finds symbols by keyword; on large enterprise codebases it automatically shifts to structural navigation. 34 edge types, cryptographic proofs, hierarchical Merkle snapshots.
 
 This is the Python wrapper package that downloads and runs the `knowing` binary.
 

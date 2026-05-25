@@ -8,6 +8,7 @@
 - **Language-aware at boundaries**: Go calling Go is straightforward; Go calling a Python service via HTTP needs route mapping
 - **MCP-native**: exposed as MCP tools, consumed by agents directly
 - **Local-first, no paid LLM**: all indexing, retrieval, and ranking run locally without external API calls. Pure Go binary with no runtime dependencies beyond SQLite. Vector search (disabled by default) is the only component that would require an embedding model
+- **Density-adaptive retrieval**: the system observes its own graph density at query time and adjusts seed selection strategy. On graphs exceeding 40K nodes, it automatically prefers type/interface nodes as RWR seeds (structural anchors walk down to methods via contains edges). This prevents the precision degradation that affects all static retrieval systems at scale. The system gets smarter with graph growth, not dumber.
 - **Fast**: optimized for interactive agent queries over large multi-repo graphs
 - **Deterministic**: same input at same commit always produces the same graph (verifiable via hash)
 - **Hierarchical Merkle tree**: snapshots build a four-level tree (repo root -> package roots -> edge-type roots -> edge leaves); the flat tree was dropped after the hash domain prefix change made backward compatibility moot; `DiffHierarchicalTrees` is 216x faster on real data (~24.9K edges), 517x on 100K synthetic edges; `SubgraphRoot` gives O(1) cache keys per package set; `EdgeTypeRoot` answers "did call edges change?" in one lookup (see `internal/snapshot/hierarchical.go`)

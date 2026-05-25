@@ -163,6 +163,12 @@ knowing ships **115 seed equivalence classes** organized into three tiers:
 
 At runtime, matching a phrase from an equivalence class boosts the seed weight of the associated symbols before the retrieval walk begins. After the walk, graph-derived aliases (from `internal/context/graph_aliases.go`) and session feedback further adjust weights. The 115 seed classes provide the floor; graph learning builds on top.
 
+## Density-Adaptive Retrieval
+
+The retrieval pipeline observes the graph's node count at query time. On graphs exceeding 40K nodes, it automatically enables type-seed preference: reordering RRF candidates so type/interface/class nodes are selected as RWR seeds before methods/functions. Types make better seeds on dense graphs because they have `contains` edges to their methods (the walk propagates downward productively) rather than methods which can only walk upward to callers (competing with thousands of other methods for the same keyword).
+
+This is not a parameter tweak. It's the system detecting that keyword competition on a dense FTS index would degrade precision, and compensating by changing its entry point into the graph. The result: knowing gets more precise as the graph grows, while static retrieval systems (codegraph, GitNexus, Gortex) get less precise.
+
 ## Retrieval Seed Channels
 
 The retrieval pipeline uses 5 independent seed channels fused with Reciprocal Rank Fusion (RRF) to select candidates for the Random Walk with Restart:
