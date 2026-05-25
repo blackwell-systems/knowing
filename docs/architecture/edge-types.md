@@ -1,6 +1,6 @@
 # Edge Types Reference
 
-This document catalogs every edge type in the knowing knowledge graph: what it
+This document catalogs all 32 edge types in the knowing knowledge graph: what each
 represents, which extractors produce it, its provenance tier, and how it
 participates in blast radius traversal and context ranking.
 
@@ -38,8 +38,8 @@ participates in blast radius traversal and context ranking.
 | `runtime_rpc` | gRPC/RPC call observed in traces | otel_trace | 0.2 - 0.95 | Trace ingestor | No | 0.3 (default) |
 | `runtime_produces` | Message published to a topic | otel_trace | 0.2 - 0.95 | Trace ingestor | No | 0.3 (default) |
 | `runtime_consumes` | Message consumed from a topic | otel_trace | 0.2 - 0.95 | Trace ingestor | No | 0.3 (default) |
-| `contains` | Type/class contains a method | deterministic | 1.0 | Indexer (QN structure) | No | 0.8 |
-| `member_of` | Method belongs to a type/class (reverse of contains) | deterministic | 1.0 | Indexer (QN structure) | No | 0.6 |
+| `contains` | Type/class contains a method/field | structural | 1.0 | Indexer (QN hierarchy) | No | 0.8 |
+| `member_of` | Method/field belongs to a type/class (reverse of contains) | structural | 1.0 | Indexer (QN hierarchy) | No | 0.6 |
 
 ## Static Edge Types
 
@@ -458,40 +458,44 @@ A package or module is tested by a CI workflow job.
 
 ### `contains`
 
-A type or class contains a method declaration.
+A type or class contains a method or field.
 
-- **Direction:** source type contains target method. `pkg.AuthService -contains-> pkg.AuthService.Validate`
+- **Direction:** source type contains target method/field. `pkg.AuthService -contains-> pkg.AuthService.Validate`
   means the AuthService type declares the Validate method.
-- **Producers:** The indexer (`internal/indexer/indexer.go`) via `generateContainsEdges()`. Connects
-  type/class nodes to their methods by analyzing qualified name (QN) structure: if a method's QN
-  is prefixed by a type's QN (e.g., `pkg.Type.Method` starts with `pkg.Type`), a `contains` edge
-  is emitted. Also generated on-the-fly in the bench adapter (`bench/cross-system/adapters/knowing.go`)
-  for evaluation without re-indexing.
-- **Provenance:** `deterministic` (confidence 1.0). Containment is derived from qualified name
-  structure, which is unambiguous.
+- **Producers:** The indexer (`internal/indexer/indexer.go`) via `generateContainsEdges()` during
+  indexer post-processing. Connects type/class nodes to their methods and fields by analyzing
+  qualified name (QN) hierarchy: if a node's QN is prefixed by a type's QN (e.g.,
+  `pkg.Type.Method` starts with `pkg.Type`), a `contains` edge is emitted. For example, if
+  `Foo.Bar` exists and `Foo` is a type node, then `Foo --contains--> Foo.Bar`. Also generated
+  on-the-fly in the bench adapter (`bench/cross-system/adapters/knowing.go`) for evaluation
+  without re-indexing.
+- **Provenance:** `structural` (confidence 1.0). Containment is deterministic, derived purely
+  from qualified name hierarchy, which is unambiguous.
 - **Blast radius:** Not traversed.
 - **RWR weight:** 0.8. High weight reflecting that a type's methods are structurally related
   to the type. Enables path-context seeding to reach methods through their declaring types,
   bridging the gap between package-level concepts and implementation-level symbols.
-- **Coverage:** Connects approximately 77% of previously-disconnected type/class nodes to their
-  methods. Provides structural infrastructure for future ranking improvements.
+- **Coverage:** Connected approximately 77% of previously-disconnected type/class nodes to their
+  methods. Provides structural infrastructure for RWR to walk from type seeds to discover all
+  member methods.
 
 ### `member_of`
 
 A method or field belongs to a type or class (the reverse of `contains`).
 
-- **Direction:** source method is a member of target type. `pkg.AuthService.Validate -member_of-> pkg.AuthService`
+- **Direction:** source method/field is a member of target type. `pkg.AuthService.Validate -member_of-> pkg.AuthService`
   means the Validate method belongs to the AuthService type.
-- **Producers:** The indexer (`internal/indexer/indexer.go`) via `generateContainsEdges()`. For each
-  `contains` edge emitted (type -> method), a corresponding `member_of` edge is emitted in the
-  reverse direction (method -> type). Also generated in the bench adapter for evaluation.
-- **Provenance:** `deterministic` (confidence 1.0). Derived from qualified name structure, same as
+- **Producers:** The indexer (`internal/indexer/indexer.go`) via `generateContainsEdges()` during
+  indexer post-processing. For each `contains` edge emitted (type -> method/field), a
+  corresponding `member_of` edge is emitted in the reverse direction (method/field -> type).
+  Also generated in the bench adapter for evaluation.
+- **Provenance:** `structural` (confidence 1.0). Deterministic from QN hierarchy, same as
   `contains`.
 - **Blast radius:** Not traversed.
 - **RWR weight:** 0.6. Moderate weight, slightly lower than `contains` (0.8). Enables RWR to walk
-  from a method back to its declaring type, which connects to other methods on the same type.
-  This bidirectional connectivity (contains + member_of) ensures that type hierarchies form
-  tightly connected subgraphs in the random walk.
+  from any matched method back to its parent type, then to sibling methods via outgoing
+  `contains` edges. This bidirectional connectivity (contains + member_of) ensures that type
+  hierarchies form tightly connected subgraphs in the random walk.
 
 ## Runtime Edge Types
 
@@ -559,7 +563,8 @@ Provenance tracks how an edge was discovered and determines its confidence level
 | `lsp_resolved` | 0.9 | LSP enricher (gopls, pyright, tsserver, rust-analyzer, jdtls, OmniSharp) | Edge confirmed by querying the language server's GetDefinition at the call site. The original ast_inferred edge is deleted and replaced. |
 | `scip_resolved` | 0.95 | SCIP ingestor | Edge resolved from a SCIP index file. Near-full confidence; SCIP indexes are produced by compiler-grade tools with complete type information. |
 | `ast_resolved` | 1.0 | Python extractor | Edge resolved with full confidence. (Python extractor uses this provenance, though cross-module targets may still be dangling.) |
-| `deterministic` | 1.0 | CODEOWNERS parser | Edge derived from explicit configuration (CODEOWNERS rules). No inference involved. |
+| `structural` | 1.0 | Indexer (`generateContainsEdges`) | Edge derived from qualified name hierarchy. If a method's QN is prefixed by a type's QN, containment is certain. |
+| `deterministic` | 1.0 | CODEOWNERS parser, authorship extractor | Edge derived from explicit configuration (CODEOWNERS rules) or git history. No inference involved. |
 | `otel_trace` | 0.2 - 0.95 | Trace ingestor | Edge observed in production runtime data. Confidence varies by observation count and recency. |
 
 ### Runtime confidence scoring
