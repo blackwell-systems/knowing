@@ -1,3 +1,4 @@
+completion_date: "2026-05-25"
 title: Supply Chain Attack Detection Infrastructure
 feature_slug: supply-chain-detection
 verdict: SUITABLE
@@ -757,6 +758,7 @@ waves:
             - cmd/knowing/main.go
           dependencies:
             - D
+      base_commit: c8638a9f96487c3b37b5efab610f741d596006fe
 quality_gates:
     level: standard
     gates:
@@ -774,6 +776,9 @@ post_merge_checklist:
         - title: Background Service Initialization
           items:
             - description: Verify if isolation_test.go needs initialization in Server constructor
+            - description: Verify if env_edges_test.go needs initialization in Server constructor
+            - description: Verify if audit_supply_chain.go needs initialization in Server constructor
+            - description: Verify if audit_supply_chain_test.go needs initialization in Server constructor
 completion_reports:
     A:
         status: complete
@@ -873,6 +878,24 @@ completion_reports:
             - TestIsolation_Clamping
         verification: PASS
         notes: All edge types, node kinds, walk weights, wire format entries, and isolation score computation implemented. 5 tests passing.
+    E:
+        status: complete
+        branch: polywave/supply-chain-detection/wave2-agent-E
+        commit: 2a844a1
+        files_changed:
+            - cmd/knowing/audit_supply_chain.go
+            - cmd/knowing/audit_supply_chain_test.go
+            - cmd/knowing/main.go
+        files_created:
+            - cmd/knowing/audit_supply_chain.go
+            - cmd/knowing/audit_supply_chain_test.go
+        tests_added:
+            - TestAuditSupplyChain_MissingBase
+            - TestAuditSupplyChain_InvalidBaseRef
+            - TestAuditSupplyChain_JSONOutput
+            - TestAuditSupplyChain_FailOnSuspicious
+        verification: PASS
+        notes: CLI command complete with all flags, JSON report output, and --fail-on-suspicious exit behavior. Consumes diff.ComputeIsolation from Agent D.
 pre_mortem:
     overall_risk: low
     rows:
@@ -917,4 +940,4 @@ critic_report:
     summary: 'All agent briefs verified against the codebase. File existence checks pass: all modify-action files exist, all new-action files do not yet exist. Symbol accuracy is confirmed: edgetype constants, kinds, walk weights, wire format IDs, GraphStore interface methods (EdgesFrom, EdgesTo, NodesByFileHash), SemanticDiff, resolveSnapshotRef, defaultDB all exist at their expected locations. Pattern accuracy confirmed: extractor function signatures follow established patterns (gotsextractor/field_access_edges.go for Agent A, treesitter/field_access_edges.go for Agent B, tsextractor/endpoint_edges.go for Agent C). CLI registration pattern (switch case + printUsage) verified in cmd/knowing/main.go. Interface contracts reference correct types. No disjoint ownership violations. Complexity is balanced (max 6 files for Agent D). One minor note: the brief references ''accesses_field: 34'' in adjEdgeTypeToID which is correct, but the wire edgeTypeToID has ''accesses_field: 36'' (different map, different IDs) which is also correctly stated.'
     reviewed_at: "2026-05-25T22:41:29Z"
     issue_count: 0
-state: REVIEWED
+state: COMPLETE
