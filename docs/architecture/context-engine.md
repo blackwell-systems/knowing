@@ -2,11 +2,13 @@
 
 The context packing subsystem (`internal/context/`) produces token-budgeted, graph-ranked context blocks for agent consumption. It answers: "given a task or a set of changed files, which symbols from the knowledge graph should an agent see?" Three entry points exist: task-based (`ForTask`, keyword search from a description), file-based (`ForFiles`, blast-radius expansion from changed files), and PR-based (`ForPR`, RWR from all symbols in changed files). A fourth entry point, `ExplainSymbol`, runs the full retrieval pipeline and returns a detailed scoring breakdown for a specific symbol.
 
+**Current performance:** P@10 = 0.185 on fresh index (7 repos, 117 tasks). 1.63x vs codegraph, 4.3x vs Aider, 12.3x vs grep. Query latency 2ms on k8s (with adjacency cache). Parameter sweep proved all RWR/ranking parameters are irrelevant (identical P@10 across 26 configs); P@10 is reachability-determined, not ranking-determined.
+
 ## Architecture
 
 ```
 internal/context/
-├── context.go          ContextEngine: ForTask, ForFiles, ForPR entry points, 4-channel RRF fusion, knapsack packing
+├── context.go          ContextEngine: ForTask, ForFiles, ForPR entry points, 5-channel RRF fusion, knapsack packing
 ├── explain.go          ExplainSymbol: full pipeline + detailed scoring breakdown; tieredSearchSet (unified method)
 ├── equivalence.go      Equivalence class seed retrieval: 115 equivalence classes (63 universal + 21 knowing-specific + 31 language-specific) -> target symbols
 ├── universal_seeds.go  63 universal software concepts (weight 0.8), cross-repo retrieval
@@ -16,7 +18,8 @@ internal/context/
 ├── ranking.go          RankSymbols: weighted scoring formula with HITS authority + session boost
 ├── hits.go             ComputeHITS: hub/authority scores for subgraph reranking (top 200 nodes, 10 iterations)
 ├── session.go          SessionTracker: exponential-decay recency boost for symbols accessed in-session
-├── walk.go             RandomWalkWithRestart (alpha=0.2, 20 iterations, 4-hop BFS adjacency preload)
+├── sweep.go            SweepParams: sweepable RWR/ranking parameters (alpha, maxIter, scoreCutoff, maxSeeds, RRFk, ranking weights)
+├── walk.go             RandomWalkWithRestart (alpha=0.2, 20 iterations, community-aware, rank-weighted seeds)
 ├── tokens.go           EstimateNodeTokens: per-symbol token cost estimation with format-aware scaling
 └── format.go           FormatContextBlock: XML, Markdown, JSON output (GCF/GCB/TOON via internal/wire/)
 ```
@@ -57,18 +60,19 @@ After initial scoring, the top candidates are reranked using HITS (Hyperlink-Ind
 
 Symbols are not packed by raw score alone. The packer uses a density-ranked greedy fractional knapsack approach: symbols are sorted by their score/cost ratio (where cost is estimated token count), so that high-value, low-cost symbols are included preferentially over expensive symbols (long functions) when the budget is tight. This maximizes the total relevance delivered per token.
 
-## 4-Channel RRF Seed Fusion
+## 5-Channel RRF Seed Fusion
 
-Seed selection uses Reciprocal Rank Fusion (`rrfFuseMulti`) across four channels:
+Seed selection uses Reciprocal Rank Fusion (`rrfFuseMulti`) across five channels:
 
 | Channel | Weight | Source |
 |---------|--------|--------|
 | 1. Tiered keyword matching | 2.0 | 4-tier compound-first: exact > prefix > substring > path (interface seeding is a separate post-RRF step) |
-| 2. BM25 FTS5 | 2.0 | SQLite FTS5 over symbol_name, concepts, qualified_name, signature, file_path |
+| 2. BM25 FTS5 | 2.0 | SQLite FTS5 over 6 columns: symbol_name (10x), concepts (5x), file_path (4x), qualified_name (3x), doc (3x), signature (1x) |
 | 3. Vector/embedding search | 0.0 | BGE-small-en-v1.5 via HNSW (disabled pending code-tuned model) |
 | 4. Equivalence class matching | 2.0 | 115 equivalence classes (63 universal + 21 knowing-specific + 31 language-specific) mapped to target symbols |
+| 5. Path-context seeding | 1.5 | Extracts package/directory terms from task, finds type nodes in matching packages, injects as supplemental RWR seeds at weight 0.3 |
 
-This replaces the previous approach of tiered matching with conditional BM25 fallback. The `rrfFuseMulti` function handles N channels with per-channel weights, producing a single ranked seed set. After RRF fusion, interface-aware seeding adds all implementors of any interface/type in the candidate set as additional seeds.
+The `rrfFuseMulti` function handles N channels with per-channel weights, producing a single ranked seed set. After RRF fusion, interface-aware seeding adds all implementors of any interface/type in the candidate set as additional seeds. The path channel receives lower weight (1.5x) because it is valuable for bridging concepts to packages but less precise than name-matching channels.
 
 ## Equivalence Class Seed Retrieval
 
@@ -94,9 +98,11 @@ Migration 014 adds `neighborhood_root BLOB` to the feedback table. When recordin
 
 ## BM25 Full-Text Search (FTS5 Index)
 
-Migration 006 creates the SQLite FTS5 virtual table (`nodes_fts`). Migration 016 adds a `symbol_name` column that stores just the terminal symbol identifier (e.g., "QuerySet.filter" instead of the full qualified path). Migration 017 adds a `concepts` column that stores CamelCase-split tokens from file names and parent directories (e.g., "commandLineParser.ts" becomes "command Line Parser commandLineParser"). The `extractSymbolName` function strips the repo URL, package path, and file extension prefix to produce the short form.
+Migration 006 creates the SQLite FTS5 virtual table (`nodes_fts`). Migration 016 adds a `symbol_name` column that stores just the terminal symbol identifier (e.g., "QuerySet.filter" instead of the full qualified path). Migration 017 adds a `concepts` column that stores CamelCase-split tokens from file names and parent directories (e.g., "commandLineParser.ts" becomes "command Line Parser commandLineParser"). Migration 018 adds a `doc` column that indexes node docstrings for BM25 retrieval. The `extractSymbolName` function strips the repo URL, package path, and file extension prefix to produce the short form.
 
-The FTS5 table now indexes five columns with BM25 weights: `symbol_name` (10x), `concepts` (5x), `qualified_name` (3x), `signature` (1x), `file_path` (1x). The high weight on `symbol_name` ensures that keyword searches like "before_request" rank symbols by their actual name rather than by incidental path token frequency. The `concepts` column bridges the vocabulary gap where developers say "parser" but the symbol lives in `commandLineParser.ts`.
+The FTS5 table indexes six columns with BM25 weights: `symbol_name` (10x), `concepts` (5x), `file_path` (4x), `qualified_name` (3x), `doc` (3x), `signature` (1x). The high weight on `symbol_name` ensures that keyword searches like "before_request" rank symbols by their actual name rather than by incidental path token frequency. The `concepts` column bridges the vocabulary gap where developers say "parser" but the symbol lives in `commandLineParser.ts`. The `doc` column bridges another vocabulary gap: task descriptions use natural language ("validate the request body") and docstrings also use natural language descriptions of what code does.
+
+BM25 queries also inject file_path-targeted prefix terms extracted from the task description (e.g., `file_path:migration*`), matching symbols in packages whose names overlap with task keywords. This uses prefix matching to handle singular/plural directory names.
 
 The FTS5 tokenizer uses `tokenchars '_'` so that snake_case identifiers (e.g., `before_request`) are indexed as single tokens rather than being split at the underscore.
 
@@ -106,9 +112,18 @@ Tokenization uses CamelCase-aware splitting (`splitForFTS`, `splitCamelCase`) so
 
 The embedding model is BGE-small-en-v1.5 (384 dimensions, retrieval-tuned), replacing the initially tested MiniLM-L6-v2. Infrastructure: hugot ONNX runtime, coder/hnsw index, RRF Channel 3 (weight 0.0). Off-the-shelf models tested net-negative on the eval (see `eval/EXPERIMENTS.md`). Embed text includes doc comments (Node.Doc field, extracted via tree-sitter) for future code-tuned models. Enable with `KNOWING_EMBEDDINGS=1`.
 
-## Doc Comment Extraction
+## Docstring Extraction and FTS Indexing
 
-Migration 007 adds a `doc` column to the nodes table. The Go tree-sitter extractor extracts doc comments for functions, methods, and types using a language-agnostic `extractDocComment` function that walks tree-sitter `PrevSibling` nodes to collect adjacent comment blocks. Doc comments are stored in the `Node.Doc` field and included in embedding text for improved vector search quality when a code-tuned model becomes available.
+Migration 007 adds a `doc` column to the nodes table. Migration 018 adds a `doc` column to `nodes_fts_content` and rebuilds the FTS virtual table to include it at BM25 weight 3.0. Docstrings are extracted for 6 languages via a shared `docextract` package (`internal/indexer/docextract/`):
+
+- **Go**: `extractDocComment` walks `PrevSibling` comment nodes (`//` and `/* */`)
+- **Python**: `extractPythonDocstring` extracts body-first string literals (triple-quoted docstrings)
+- **TypeScript**: `FromPrecedingComments` handles JSDoc (`/** */`)
+- **Rust**: `FromPrecedingComments` handles `///`, `//!`, and `/* */`
+- **Java**: `FromPrecedingComments` handles Javadoc (`/** */`)
+- **C#**: `FromPrecedingComments` handles XML doc comments (`///`)
+
+All extractors cap at 500 characters. Doc comments are stored in the `Node.Doc` field and indexed in both the FTS5 `doc` column (for BM25 retrieval) and embedding text (for future code-tuned vector models). The docstring FTS column was the first change to move P@10 since the equivalence channel fix, improving full-corpus P@10 from 0.180 to 0.185 (+2.8%).
 
 ## Noise Filtering
 
@@ -141,26 +156,28 @@ Bigram generation joins adjacent non-stop-words into both CamelCase and snake_ca
 
 1. Extract structured keywords via `extractKeywordSet` (backtick detection, stop-word filtering, CamelCase split, compound preservation, bigram generation).
 2. Check caches: first the in-memory SubgraphCache, then the persistent `notes` table (migration 012) keyed by task hash; return immediately if snapshot hash matches (staleness detection).
-3. Run 4-channel RRF seed fusion:
+3. Run 5-channel RRF seed fusion:
    - Channel 1 (weight 2.0): 4-tier compound-first keyword matching (exact > prefix > substring > path)
-   - Channel 2 (weight 2.0): BM25 FTS5 search (compound identifiers targeted at symbol_name column)
+   - Channel 2 (weight 2.0): BM25 FTS5 search (compound identifiers targeted at symbol_name column; file_path-targeted prefix terms appended from path extraction)
    - Channel 3 (weight 0.0): Vector/embedding search (disabled)
    - Channel 4 (weight 2.0): Equivalence class matching (115 equivalence classes: 63 universal + 21 knowing-specific + 31 language-specific, plus graph-derived aliases at weight 0.7)
+   - Channel 5 (weight 1.5): Path-context seeding (finds type/class nodes in packages matching task terms; prioritizes rich types with contains edges)
 4. `rrfFuseMulti` merges all channels into a single ranked seed set (k=60, limit=40).
 5. Interface-aware seeding: if any candidate is an interface/type, add all implementors as seeds.
 6. Filter noisy symbols (externals, mocks, fixtures, build artifacts, minified names).
-7. Run Random Walk with Restart (alpha=0.2, 20 iterations) from seed nodes; 4-hop BFS adjacency preload.
-8. Build scoring inputs from all nodes with RWR score >= 0.02 (phantom external nodes excluded).
-9. Apply feedback boosts (from FeedbackProvider with merkleized validity).
-10. Apply session boosts (from SessionTracker, 3-minute half-life, cap 2.0).
-11. Apply task memory boosts: recall matching keywords (7-day linear decay), boost formula `0.5 + recall_score * 0.4` (range [0.5, 0.9]), applied as max against existing FeedbackBoost.
-12. If task is about testing (detected by keyword), disable test file penalty.
-13. Run HITS on the top-200 candidates (10 iterations) to compute authority/hub scores.
-14. Score all candidates via `RankSymbols` (blast_radius, confidence, recency, distance, feedback, session, HITS adjustments).
-15. Pack into token budget via density-ranked knapsack (score/cost ratio ordering).
-16. Record returned symbols in session tracker; record top-5 symbols to task memory for future recall.
-17. Compute content-addressed PackRoot; persist to both in-memory SubgraphCache and persistent notes table (with snapshot hash for staleness detection).
-18. Format output as GCF, GCB, TOON, JSON, XML, or Markdown.
+7. Select top-15 RRF candidates as RWR seeds (maxSeeds=15, rank-weighted restart probability). Inject up to 10 supplemental path seeds at weight 0.3 (from Channel 5 results not already in the seed set).
+8. Community-aware RWR: if all seeds cluster in exactly 1 community, constrain the walk to that community. Otherwise, run unconstrained Random Walk with Restart (alpha=0.2, 20 iterations, rank-weighted seed probabilities).
+9. Build scoring inputs from all nodes with RWR score >= 0.02 (phantom external and stdlib nodes excluded).
+10. Apply feedback boosts (from FeedbackProvider with merkleized validity).
+11. Apply session boosts (from SessionTracker, 3-minute half-life, cap 2.0).
+12. Apply task memory boosts: recall matching keywords (7-day linear decay), boost formula `0.5 + recall_score * 0.4` (range [0.5, 0.9]), applied as max against existing FeedbackBoost.
+13. If task is about testing (detected by keyword), disable test file penalty.
+14. Run HITS on the top-200 candidates (10 iterations) to compute authority/hub scores.
+15. Score all candidates via `RankSymbols` (blast_radius, confidence, recency, distance, feedback, session, HITS adjustments).
+16. Pack into token budget via density-ranked knapsack (score/cost ratio ordering).
+17. Record returned symbols in session tracker; record top-5 symbols to task memory for future recall.
+18. Compute content-addressed PackRoot; persist to both in-memory SubgraphCache and persistent notes table (with snapshot hash for staleness detection).
+19. Format output as GCF, GCB, TOON, JSON, XML, or Markdown.
 
 ## ForFiles Flow
 
@@ -211,7 +228,7 @@ The hierarchical Merkle tree (`internal/snapshot/hierarchical.go`) provides `Sub
 
 ## RWR Edge Weights
 
-The Random Walk with Restart algorithm (`internal/context/walk.go`) uses edge-type-specific weights to control transition probabilities. Edges with higher weights transfer more probability mass during the walk, making their targets rank higher. The weight map has 20 explicit entries; unknown edge types default to 0.3.
+The Random Walk with Restart algorithm (`internal/context/walk.go`) uses edge-type-specific weights to control transition probabilities. Edges with higher weights transfer more probability mass during the walk, making their targets rank higher. The weight map has 21 explicit entries; unknown edge types default to 0.3. Canonical weights are also defined in `internal/edgetype/constants.go` via the `RWRWeight()` function.
 
 | Edge Type | RWR Weight | Rationale |
 |-----------|-----------|-----------|
@@ -219,10 +236,12 @@ The Random Walk with Restart algorithm (`internal/context/walk.go`) uses edge-ty
 | `implements` | 0.8 | Interface satisfaction indicates tight coupling |
 | `implements_rpc` | 0.8 | gRPC service implementation (same as implements) |
 | `overrides` | 0.8 | Method override affects all overriding methods |
+| `contains` | 0.8 | Type -> method/field; enables RWR walks from type seeds to discover methods |
 | `handles_route` | 0.7 | HTTP handler binding is structurally significant |
 | `extends` | 0.7 | Class inheritance is structurally significant |
 | `tests` | 0.6 | Test coverage is relevant but weaker than calls |
 | `consumes_rpc` | 0.6 | gRPC client indicates inter-service dependency |
+| `member_of` | 0.6 | Method/field -> type; enables RWR walks from methods to parent type then siblings |
 | `imports` | 0.5 | Package-level proximity |
 | `depends_on` | 0.5 | Resource dependency |
 | `consumes_endpoint` | 0.5 | HTTP client call to endpoint |
@@ -234,12 +253,42 @@ The Random Walk with Restart algorithm (`internal/context/walk.go`) uses edge-ty
 | `decorates` | 0.3 | Decorator/annotation (cross-cutting) |
 | `inherits` | 0.3 (default) | Child-to-parent-method via inheritance propagation; not explicitly in the weight map |
 | `documents` | 0.2 | Doc comment (informational only) |
+| `similar_to` | 0.15 | Semantic similarity (Jaccard on tokenized bodies); weak signal to avoid overweighting |
 | `owned_by` | 0.0 | Organizational; excluded from walk |
 | `authored_by` | 0.0 | Organizational; excluded from walk |
 
 Zero-weight edges (`owned_by`, `authored_by`) are genuinely excluded from the random walk. The implementation uses `w, ok := edgeWeight[e.EdgeType]; if !ok { w = 0.3 }` so that explicit 0.0 weights are respected rather than treated as "unknown."
 
 Edge-type filtering: callers can scope the RWR walk by filtering edges before traversal. The `edgeWeight` map serves as both a weighting mechanism and an implicit type registry; edge types not in the map receive the default weight but still participate in the walk.
+
+## Sweepable Parameters and Parameter Sweep
+
+All RWR and ranking parameters are configurable via `SweepParams` (`internal/context/sweep.go`) for benchmarking:
+
+| Parameter | Default | Purpose |
+|-----------|---------|---------|
+| Alpha | 0.2 | RWR restart probability |
+| MaxIter | 20 | RWR iterations |
+| ScoreCutoff | 0.02 | Minimum RWR score threshold for candidate inclusion |
+| MaxSeeds | 15 | Maximum RWR seeds from RRF-ranked candidates |
+| RRFk | 60 | RRF fusion constant |
+| BlastW | 0.35 | Blast radius ranking weight |
+| ConfW | 0.20 | Confidence ranking weight |
+| RecencyW | 0.15 | Recency ranking weight |
+| DistanceW | 0.15 | Distance ranking weight |
+| TestPenalty | 0.3 | Test file score multiplier |
+
+**Parameter sweep result:** A 26-configuration sweep across all parameters produced identical P@10=0.180 (pre-docstring FTS). This proves that P@10 is reachability-determined, not ranking-determined. The retrieval bottleneck is whether relevant symbols are reachable from seeds at all, not how they are ranked once found. New retrieval signals (additional seed channels, new edge types, docstring indexing) are the path forward; tuning existing parameters is futile.
+
+## Contains and Member_of Edges
+
+Migration adds structural `contains` (type -> method/field, weight 0.8) and `member_of` (method/field -> type, weight 0.6) edges derived from qualified name hierarchy. The `generateContainsEdges` function in `internal/indexer/indexer.go` identifies type/class/struct/interface nodes and connects them to child nodes whose qualified name is `ParentQN.ChildName`.
+
+This connects 77%+ of previously-disconnected type nodes to their methods, enabling two critical RWR walk patterns:
+- Type seed -> contains -> method discovery (e.g., "Operation" type finds `.state_forwards()`, `.database_forwards()`)
+- Method match -> member_of -> parent type -> contains -> sibling methods
+
+The path-context seeding channel (Channel 5) leverages these edges directly: it finds type nodes in matching packages and relies on contains edges for RWR to walk from those types to their methods.
 
 ## Token Estimation
 
