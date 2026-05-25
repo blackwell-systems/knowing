@@ -7,7 +7,11 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 | # | Item | Why | Effort |
 |---|------|-----|--------|
 | 1 | **Real users** | Everything else is validated by benchmarks, not usage. Task memory compounds with use. agent-lsp has 40 stars after 1 month; knowing needs the same traction. | Ongoing |
-| 2 | **Fix remaining unreachable symbols** | 291/653 ground truth symbols still unreachable. Remaining gaps: Go interface embedding, channel send/receive, struct field access edges. Each new edge type that creates paths = step-function P@10 improvement. | Medium |
+| 2 | **Missing relationship extractors** | Real code relationships not yet captured. These exist in code and belong in the graph for correctness. | Medium |
+| 2a | Go interface embedding (`type A struct { B }`) | Implicit interface satisfaction via struct embedding. A satisfies B's interface but no edge is created. | Low |
+| 2b | Channel send/receive edges | `ch <- value` and `<-ch` create producer/consumer relationships between goroutines. | Low |
+| 2c | Struct field access edges | `obj.Field` connects the accessor to the field's type definition. | Low |
+| 2d | Go type assertion edges | `v.(Type)` connects the assertion site to the concrete type. | Low |
 | 3 | **Fix unreachable-by-not-in-DB** | Some ground truth references unindexed modules (k8s.io/client-go). Either update fixtures or selectively index. | Low |
 | 4 | **Parallel write backend** | SQLite single-writer funnels all extraction results through one goroutine. Even with producer-consumer pipeline, writes are serial. Need parallel write support for large repos. | High |
 
