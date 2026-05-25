@@ -518,6 +518,95 @@ func (e *TreeSitterExtractor) extractCallWithImports(node *sitter.Node, opts typ
 		CallSiteFile: opts.FilePath,
 	}
 	result.Edges = append(result.Edges, edge)
+
+	// Callback registration detection: when calling .connect(), .register(),
+	// .before_request(), .add_url_rule(), .on(), etc., the first argument is
+	// a callback function that gets invoked later. Create an edge from the
+	// registrar object to the callback so RWR can walk registrar -> callback.
+	e.extractCallbackRegistration(node, opts, classContext, calledName, targetHash, pyImports, result)
+}
+
+// callbackMethods is the set of method names that register callbacks.
+// When obj.method(handler) is called, we create an edge from obj to handler.
+var callbackMethods = map[string]bool{
+	"connect":          true, // Django signals: post_save.connect(handler)
+	"disconnect":       true, // Django signals: post_save.disconnect(handler)
+	"register":         true, // Generic registration patterns
+	"register_handler": true,
+	"add_handler":      true,
+	"before_request":   true, // Flask: app.before_request(func)
+	"after_request":    true, // Flask: app.after_request(func)
+	"teardown_request": true, // Flask: app.teardown_request(func)
+	"before_app_request":   true,
+	"after_app_request":    true,
+	"teardown_appcontext":  true,
+	"teardown_app_request": true,
+	"errorhandler":     true, // Flask: app.errorhandler(404)(func)
+	"add_url_rule":     true, // Flask: app.add_url_rule(rule, view_func=func)
+	"on":               true, // Node.js EventEmitter: emitter.on('event', handler)
+	"addEventListener": true, // DOM/Browser
+	"subscribe":        true, // Observable/PubSub patterns
+	"use":              true, // Express middleware: app.use(middleware)
+	"add_middleware":   true, // Starlette/FastAPI
+}
+
+// extractCallbackRegistration detects registration calls and creates edges
+// from the registrar to the callback argument.
+func (e *TreeSitterExtractor) extractCallbackRegistration(node *sitter.Node, opts types.ExtractOptions, classContext, calledName string, registrarHash types.Hash, pyImports map[string]string, result *types.ExtractResult) {
+	// Extract the terminal method name from "obj.method" or just "method".
+	parts := strings.Split(calledName, ".")
+	methodName := parts[len(parts)-1]
+	if !callbackMethods[methodName] {
+		return
+	}
+
+	// Find the arguments node in the call expression.
+	argsNode := node.ChildByFieldName("arguments")
+	if argsNode == nil {
+		return
+	}
+
+	// The first non-keyword argument is typically the callback.
+	for i := 0; i < int(argsNode.ChildCount()); i++ {
+		arg := argsNode.Child(i)
+		if arg == nil {
+			continue
+		}
+		// Skip parentheses, commas, keyword arguments.
+		argType := arg.Type()
+		if argType == "(" || argType == ")" || argType == "," || argType == "keyword_argument" {
+			continue
+		}
+
+		// The argument content is the callback reference.
+		callbackName := arg.Content(opts.Content)
+		if callbackName == "" || strings.HasPrefix(callbackName, "\"") || strings.HasPrefix(callbackName, "'") {
+			continue // skip string literals (event names like 'click')
+		}
+		// Skip numeric literals and None/True/False.
+		if callbackName == "None" || callbackName == "True" || callbackName == "False" {
+			continue
+		}
+		if len(callbackName) > 0 && callbackName[0] >= '0' && callbackName[0] <= '9' {
+			continue
+		}
+
+		// Resolve the callback to a qualified name.
+		callbackQName := e.resolveCallTarget(opts, classContext, callbackName, pyImports)
+		callbackHash := types.ComputeNodeHash(opts.RepoURL, opts.ModuleRoot, types.EmptyHash, callbackQName, types.KindFunction)
+
+		// Create edge: registrar --calls--> callback
+		cbEdgeHash := types.ComputeEdgeHash(registrarHash, callbackHash, edgetype.Calls, "callback_registration")
+		result.Edges = append(result.Edges, types.Edge{
+			EdgeHash:   cbEdgeHash,
+			SourceHash: registrarHash,
+			TargetHash: callbackHash,
+			EdgeType:   edgetype.Calls,
+			Confidence: 0.8,
+			Provenance: "callback_registration",
+		})
+		break // only process the first callback argument
+	}
 }
 
 // resolveCallTarget resolves a called name to its qualified target using the
