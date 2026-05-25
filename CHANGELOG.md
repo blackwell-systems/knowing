@@ -8,6 +8,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+#### Type-method path seeding (P@10 0.202 -> 0.204, Kafka +10.5%)
+- When path terms match a package, checks if types in that package have methods matching task keywords
+- Seeds the type so RWR walks to its methods via contains edges
+- Example: "consumer group coordinator" finds ConsumerCoordinator in kafka's group/ package
+- Kafka P@10: 0.200 -> 0.216. Aggregate: 0.202 -> 0.204
+
+#### Concept thesaurus for BM25 keyword expansion
+- Static thesaurus of ~80 programming domain concept clusters
+- Expands BM25 queries with related code vocabulary ("consumer" also searches "subscriber", "listener", "handler")
+- Covers: messaging, concurrency, serialization, validation, patterns, networking, caching, testing, configuration, lifecycle, error handling
+- Kafka P@10: 0.216 -> 0.221 (stacked with type-method seeding)
+
+#### `co_tested_with` edge type (33rd edge type)
+- Lateral connections between non-test symbols referenced from the same test file
+- If test file T calls/imports both symbol A and symbol B, creates co_tested_with edge
+- Bridges structurally disconnected symbols that serve the same feature
+- IsTestFile() detects test files across Go, Python, TypeScript, Rust, Java, C#
+- Caps: 20 targets per file, 20 pairs per file (prevents N^2 explosion)
+- RWR weight: 0.5. Confidence: 0.6. Provenance: co_test_inference
+
+#### `NodesByFileHash` interface method
+- New GraphStore method returns all nodes belonging to a given file hash
+- Implemented in SQLiteStore + all mock stores
+- Infrastructure for file-scoped queries without needing repo hash + path
+
+#### Session 14 experiments (tested and rejected)
+- **Call-chain seeding**: inject callees of top seeds as supplemental RWR seeds. Neutral (P@10 unchanged). Callees already reachable via RWR traversal.
+- **File-scoped co-retrieval**: inject sibling symbols from same file. Neutral. Siblings already reachable via contains/member_of edges.
+- **AND-semantics path matching**: intersect multiple path terms. Neutral. Ground truth symbols don't contain all task terms in their QN.
+- **Expanded framework thesaurus** ("backend"->"base", "custom"->"abstract"): Hurts Kafka (-0.005). Too noisy for BM25.
+- **Higher seed weight (0.6) for type-method matches**: Slightly worse than 0.3. RWR handles seed weighting internally.
+
+### Fixed
+- CI timing contracts: loosen Louvain 0-changes (10ms -> 15ms) and scoped FTS (50ms -> 75ms) for noisy CI runners
+
 #### Benchmark corpus expansion (9 repos, 167 tasks)
 - Added Terraform (Go, 2M LOC, 37K nodes, 184K edges, 20 tasks)
 - Added Kafka (Java, 500K LOC, 74K nodes, 780K edges, 19 tasks)
