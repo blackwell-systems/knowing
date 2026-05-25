@@ -185,6 +185,11 @@ func (e *CSharpExtractor) walkNode(node *sitter.Node, opts types.ExtractOptions,
 		if body != nil && n != nil {
 			e.walkForCallsWithImports(body, opts, parentContext, n.NodeHash, csharpImports, edges)
 		}
+		// Extract field access edges (this.Field patterns).
+		if body != nil && n != nil {
+			fieldEdges := extractFieldAccessEdges(body, opts, parentContext, n.NodeHash)
+			*edges = append(*edges, fieldEdges...)
+		}
 		return
 
 	case "constructor_declaration":
@@ -331,6 +336,10 @@ func (e *CSharpExtractor) extractClassDecl(node *sitter.Node, opts types.Extract
 	if classRoute != nil {
 		routeNodes = append(routeNodes, *classRoute)
 	}
+
+	// Extract class field declarations as field nodes.
+	fieldNodes := extractClassFieldNodes(node, opts, name)
+	*nodes = append(*nodes, fieldNodes...)
 
 	// Walk the class body for methods, constructors, nested types.
 	ctx := parentContext
