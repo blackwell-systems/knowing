@@ -54,6 +54,7 @@ type ContextEngine struct {
 	session  *SessionTracker     // nil disables session-aware boosting
 	memory   *TaskMemory         // nil disables passive task memory
 	cache    *cache.SubgraphCache // nil disables subgraph result caching
+	noPersistentCache bool       // skip notes-table pack cache (for benchmarks)
 }
 
 // TaskOptions configures a task-based context query.
@@ -146,6 +147,12 @@ func (e *ContextEngine) SetSession(st *SessionTracker) {
 // SetVector attaches a vector search backend to the engine.
 func (e *ContextEngine) SetVector(vs VectorSearcher) {
 	e.vector = vs
+}
+
+// DisablePersistentCache prevents the engine from reading/writing cached packs
+// in the notes table. Used in benchmarks to ensure fresh retrieval on every query.
+func (e *ContextEngine) DisablePersistentCache() {
+	e.noPersistentCache = true
 }
 
 // reRankWithEmbeddings re-orders the top-N ranked symbols using embedding similarity
@@ -315,34 +322,36 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	// for staleness detection. If the latest snapshot changed, the cached
 	// pack is stale and we recompute.
 	packNoteKey := types.NewHash([]byte("context_pack\x00" + normalized))
-	if note, err := e.store.GetNote(ctx, packNoteKey, "context_pack"); err == nil && note != nil {
-		var persisted persistedContextPack
-		// Try zlib-compressed base64 first (new format), fall back to raw JSON (legacy).
-		noteData := []byte(note.Value)
-		if raw, b64Err := base64.StdEncoding.DecodeString(note.Value); b64Err == nil {
-			if decompressed, zErr := decompressZlib(raw); zErr == nil {
-				noteData = decompressed
-			}
-		}
-		if err := json.Unmarshal(noteData, &persisted); err == nil {
-			// Staleness check: compare stored snapshot hash against current.
-			stale := false
-			if repos, err := e.store.AllRepos(ctx); err == nil && len(repos) > 0 {
-				if snap, err := e.store.LatestSnapshot(ctx, repos[0].RepoHash); err == nil && snap != nil {
-					if persisted.SnapshotHash != snap.SnapshotHash {
-						stale = true
-					}
+	if !e.noPersistentCache {
+		if note, err := e.store.GetNote(ctx, packNoteKey, "context_pack"); err == nil && note != nil {
+			var persisted persistedContextPack
+			// Try zlib-compressed base64 first (new format), fall back to raw JSON (legacy).
+			noteData := []byte(note.Value)
+			if raw, b64Err := base64.StdEncoding.DecodeString(note.Value); b64Err == nil {
+				if decompressed, zErr := decompressZlib(raw); zErr == nil {
+					noteData = decompressed
 				}
 			}
-			if !stale {
-				block := persisted.Block.toContextBlock()
-				block.Format = opts.Format
-				if e.cache != nil && !cacheKey.IsZero() {
-					if data, err := json.Marshal(persisted.Block); err == nil {
-						e.cache.Put(cacheKey, data)
+			if err := json.Unmarshal(noteData, &persisted); err == nil {
+				// Staleness check: compare stored snapshot hash against current.
+				stale := false
+				if repos, err := e.store.AllRepos(ctx); err == nil && len(repos) > 0 {
+					if snap, err := e.store.LatestSnapshot(ctx, repos[0].RepoHash); err == nil && snap != nil {
+						if persisted.SnapshotHash != snap.SnapshotHash {
+							stale = true
+						}
 					}
 				}
-				return block, nil
+				if !stale {
+					block := persisted.Block.toContextBlock()
+					block.Format = opts.Format
+					if e.cache != nil && !cacheKey.IsZero() {
+						if data, err := json.Marshal(persisted.Block); err == nil {
+							e.cache.Put(cacheKey, data)
+						}
+					}
+					return block, nil
+				}
 			}
 		}
 	}

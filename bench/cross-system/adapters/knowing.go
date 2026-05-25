@@ -208,6 +208,7 @@ func (a *Knowing) Retrieve(repoPath string, task benchtype.Task, tokenBudget int
 	knowingctx.GraphNodeCount = a.nodeCounts[repoPath]
 
 	engine := knowingctx.NewContextEngine(s)
+	engine.DisablePersistentCache() // Ensure fresh retrieval for benchmark accuracy.
 
 	// Attach vector search if available (embedding-based semantic retrieval).
 	if vs, ok := a.searchers[repoPath]; ok && vs != nil {
