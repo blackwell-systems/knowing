@@ -1,13 +1,13 @@
 id: cargo-hard-007
 repo: cargo
 tier: hard
-description: "Debug why a custom build profile with LTO and codegen-units=1 produces larger binaries than expected by tracing through profile resolution and rustc flag generation"
+description: "Debug why a custom build profile with LTO produces larger binaries by tracing through profile resolution and rustc flag generation"
 source: manual
 ground_truth:
-  - src/cargo/core/profiles.rs.Profiles
-  - src/cargo/core/profiles.rs.Profile
-  - src/cargo/core/compiler/build_context/target_info.rs.TargetInfo
-  - src/cargo/core/compiler/build_context/mod.rs.BuildContext
-  - src/cargo/core/compiler/mod.rs.compile
+  - manifest.TomlProfile
+  - manifest.TomlProfile.merge
+  - manifest.TomlProfiles
+  - build_context.BuildContext
+  - build_context.BuildContext.extra_args_for
 tags: [profiles, optimization, lto, cross-package, debugging]
-notes: "Profile debugging requires Profiles for resolution, Profile for individual settings, TargetInfo for platform flags, BuildContext for compilation setup, and compile for flag generation."
+notes: "Profile debugging requires TomlProfile for settings, merge for inheritance, TomlProfiles collection, and BuildContext for flag generation."

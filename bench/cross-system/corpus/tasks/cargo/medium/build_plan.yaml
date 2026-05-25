@@ -1,13 +1,13 @@
 id: cargo-medium-007
 repo: cargo
 tier: medium
-description: "Generate a build plan that shows the compilation order and parallelism opportunities for all crates in the dependency graph"
+description: "Generate a build plan that shows compilation order and parallelism for all crates in the dependency graph"
 source: manual
 ground_truth:
-  - src/cargo/core/compiler/job_queue/mod.rs.JobQueue
-  - src/cargo/core/compiler/unit_dependencies.rs.compute_deps
-  - src/cargo/core/compiler/build_context/mod.rs.BuildContext
-  - src/cargo/core/compiler/mod.rs.compile
-  - src/cargo/core/resolver/resolve.rs.Resolve
+  - job_queue.JobQueue
+  - job_queue.JobQueue.execute
+  - job_queue.JobQueue.enqueue
+  - build_context.BuildContext
+  - compiler.resolve_std
 tags: [compilation, parallelism, dependency-graph, cross-package]
-notes: "Build plan requires JobQueue for scheduling, compute_deps for dependency ordering, BuildContext for configuration, compile for orchestration, and Resolve for the dependency solution."
+notes: "Build plan requires JobQueue for scheduling and execution, BuildContext for configuration, and resolve_std for standard library handling."

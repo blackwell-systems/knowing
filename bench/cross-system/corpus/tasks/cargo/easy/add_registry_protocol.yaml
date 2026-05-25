@@ -1,12 +1,11 @@
 id: cargo-easy-004
 repo: cargo
 tier: easy
-description: "Add support for a new registry protocol that authenticates with OAuth tokens instead of API keys"
+description: "Add support for a new registry protocol that authenticates with OAuth tokens"
 source: manual
 ground_truth:
-  - src/cargo/sources/registry/mod.rs.RegistryData
-  - src/cargo/util/auth/mod.rs.auth_token
-  - src/cargo/util/auth/mod.rs.RegistryConfig
-  - src/cargo/sources/registry/http_remote.rs.HttpRegistry
+  - crates-io.Registry
+  - crates-io.Registry.add_owners
+  - crates-io.Registry.get
 tags: [registry, authentication, protocol, single-package]
-notes: "Registry protocol requires RegistryData trait, auth_token for credential handling, RegistryConfig for settings, and HttpRegistry as the transport."
+notes: "Registry protocol requires the Registry type and its methods for interacting with crates.io."
