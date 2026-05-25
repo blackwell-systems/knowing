@@ -53,8 +53,8 @@ knowing is a knowledge graph because code relationships are inherently graph-sha
 
 | Primitive | What it is | Hash computation |
 |-----------|-----------|-----------------|
-| **Node** | A symbol in source code. Kinds: function, method, type, interface, const, var, service, route, external, file, package. Identified by qualified name. | `sha256("node\0" \|\| repo \|\| package_path \|\| symbol_name \|\| symbol_kind)` |
-| **Edge** | A relationship between two nodes. 30 edge types (calls, imports, implements, extends, tests, handles_route, publishes, subscribes, documents, gated_by_flag, etc.). Carries a type, confidence score, and provenance. See [Edge Types](edge-types.md). | `sha256("edge\0" \|\| source_hash \|\| target_hash \|\| edge_type \|\| provenance)` |
+| **Node** | A symbol in source code. Kinds: function, method, type, interface, const, var, service, route, external, file, package. Identified by qualified name. Carries a `Doc` field (first 200 chars of the declaration's doc comment) populated by 6 language extractors (Go, Python, TypeScript, Rust, Java, C#). | `sha256("node\0" \|\| repo \|\| package_path \|\| symbol_name \|\| symbol_kind)` |
+| **Edge** | A relationship between two nodes. 32 edge types (calls, imports, implements, extends, tests, handles_route, publishes, subscribes, documents, gated_by_flag, contains, member_of, etc.). Carries a type, confidence score, and provenance. See [Edge Types](edge-types.md). | `sha256("edge\0" \|\| source_hash \|\| target_hash \|\| edge_type \|\| provenance)` |
 | **Hash** | A 32-byte SHA-256 digest used as the content-addressed identifier for every entity. All hash inputs carry a domain-type prefix (`node\0`, `edge\0`, `snapshot\0`, `merkle\0`) so hashes from different entity types are structurally distinguishable -- the same approach git uses with its `"blob <size>\0"` header. | n/a |
 | **Snapshot** | A point-in-time graph state. The root of a hierarchical Merkle tree (repo root -> package roots -> edge-type roots -> edge leaves). Also stores intermediate package roots and edge-type roots for scoped invalidation. Links to a parent snapshot (forming a chain like git commits), records the git commit that produced it, and carries a generation number (parent.Generation + 1) for O(1) ancestry checks. | `sha256("snapshot\0" \|\| hierarchical_merkle_root(edges grouped by package and edge type))` |
 | **Provenance** | Metadata on an edge describing how it was derived, by which indexer version, at what confidence, from which commit. Tiers: `ast_inferred` (0.7, tree-sitter), `ast_resolved` (0.85, import-map resolved), `lsp_resolved` (0.9, LSP confirmed), `scip_resolved` (1.0, SCIP), `runtime_observed` (0.8, OTel trace). Provenance is what lets agents distinguish "confirmed by type checker" from "guessed from string matching." | Included in edge hash input. |
@@ -144,7 +144,7 @@ This property enables:
 
 knowing decomposes into two planes separated by an artifact boundary:
 
-- The **execution plane** produces the graph (indexer, daemon, trace ingestion, graph store).
+- The **execution plane** produces the graph (24 extractors, daemon, trace ingestion, graph store).
 - The **intelligence plane** interprets the graph (semantic diff, blast radius, staleness analysis, ownership routing).
 
 The **artifact** is the content-addressed graph itself: a SQLite file containing nodes, edges, snapshots, and edge events. It is portable (copy one file), self-contained, and queryable by any tool that understands the schema.
@@ -162,6 +162,18 @@ knowing ships **115 seed equivalence classes** organized into three tiers:
 - **31 language-specific classes** (in `internal/context/language_seeds.go`): vocabulary bridges for Python (`__init__`/constructor, Django/Flask patterns), TypeScript (React hooks, Express/Fastify), Rust (trait/impl, Result/Option), Java (Spring annotations), and Kubernetes (resource type aliases).
 
 At runtime, matching a phrase from an equivalence class boosts the seed weight of the associated symbols before the retrieval walk begins. After the walk, graph-derived aliases (from `internal/context/graph_aliases.go`) and session feedback further adjust weights. The 115 seed classes provide the floor; graph learning builds on top.
+
+## Retrieval Seed Channels
+
+The retrieval pipeline uses 5 independent seed channels fused with Reciprocal Rank Fusion (RRF) to select candidates for the Random Walk with Restart:
+
+1. **Tiered keyword matching** (weight 2.0): compound-first exact > prefix > substring > path matching on symbol names.
+2. **BM25 FTS5** (weight 2.0): lexical recall over a 6-column FTS5 index (symbol_name, concepts, qualified_name, signature, file_path, doc). The `doc` column indexes docstrings for natural-language BM25 retrieval, bridging the vocabulary gap between task descriptions and symbol names.
+3. **Equivalence classes** (weight 2.0): concept-level vocabulary bridging (see above).
+4. **Vector/embedding search** (weight 0.0): disabled; infrastructure preserved for future code-tuned models.
+5. **Path-context seeding** (weight 1.5): extracts package/directory-like terms from the task description and finds type/class nodes whose qualified name path contains those terms. Types are structural anchors: with `contains` edges, RWR walks from types to their methods.
+
+Symbols appearing in multiple channels accumulate scores, promoting multi-channel hits. See `docs/architecture/retrieval-pipeline.md` for the full specification.
 
 ## Content-Addressed Context Packs
 
