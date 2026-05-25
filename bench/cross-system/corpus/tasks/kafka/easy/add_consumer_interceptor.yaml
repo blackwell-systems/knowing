@@ -1,0 +1,12 @@
+id: kafka-easy-002
+repo: kafka
+tier: easy
+description: "Add a consumer interceptor that logs message metadata before records are returned to the application"
+source: manual
+ground_truth:
+  - clients.consumer.ConsumerInterceptor
+  - clients.consumer.KafkaConsumer
+  - clients.consumer.ConsumerRecords
+  - clients.consumer.ConsumerRecord
+tags: [consumer, interceptor, single-package]
+notes: "Consumer interceptor requires the ConsumerInterceptor interface, KafkaConsumer that invokes it, and ConsumerRecords/ConsumerRecord that carry the data."

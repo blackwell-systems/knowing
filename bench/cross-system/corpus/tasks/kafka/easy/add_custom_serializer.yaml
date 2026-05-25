@@ -1,0 +1,12 @@
+id: kafka-easy-001
+repo: kafka
+tier: easy
+description: "Implement a custom Kafka serializer that converts domain objects to bytes for the producer"
+source: manual
+ground_truth:
+  - clients.producer.KafkaProducer
+  - common.serialization.Serializer
+  - common.serialization.StringSerializer
+  - clients.producer.ProducerRecord
+tags: [producer, serialization, single-package]
+notes: "Custom serializer requires the Serializer interface, an example (StringSerializer), KafkaProducer that uses it, and ProducerRecord that carries the serialized data."

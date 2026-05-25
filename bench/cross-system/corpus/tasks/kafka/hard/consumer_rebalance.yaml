@@ -1,0 +1,15 @@
+id: kafka-hard-001
+repo: kafka
+tier: hard
+description: "Debug why a consumer group rebalances unexpectedly by tracing through the coordinator, heartbeat thread, and partition assignment strategy"
+source: manual
+ground_truth:
+  - clients.consumer.internals.ConsumerCoordinator
+  - clients.consumer.internals.ConsumerCoordinator.poll
+  - clients.consumer.internals.AbstractCoordinator.joinGroupIfNeeded
+  - clients.consumer.internals.AbstractCoordinator.HeartbeatThread
+  - clients.consumer.ConsumerPartitionAssignor
+  - clients.consumer.RangeAssignor
+  - clients.consumer.internals.AbstractCoordinator.sendJoinGroupRequest
+tags: [consumer, rebalance, coordinator, cross-package, debugging]
+notes: "Consumer rebalance debugging requires the ConsumerCoordinator (orchestrates group membership), its poll loop, joinGroupIfNeeded (triggers rebalance), HeartbeatThread (detects session timeout), the assignment strategy interface, and the join request that initiates the protocol."
