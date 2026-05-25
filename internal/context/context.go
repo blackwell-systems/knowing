@@ -300,12 +300,25 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	// Channel 1: Compound-first tiered keyword matching.
 	tieredResults, _, _ := e.tieredSearchSet(ctx, ks)
 
+	// Extract path terms once (used by both BM25 and Channel 5 path seeding).
+	pathTerms := extractPathTerms(opts.TaskDescription)
+
 	// Channel 2: BM25 full-text search (compound-targeted, always runs when available).
 	var bm25Results []types.Node
 	if e.bm25 != nil {
 		ftsQuery := buildFTSQuery(keywords)
 		if ftsQuery == "" && len(fallbackKeywords) > 0 {
 			ftsQuery = buildFTSQuery(fallbackKeywords)
+		}
+		// Append file_path-targeted terms from path extraction.
+		// Uses prefix matching (term*) to handle singular/plural directory names
+		// (e.g., "migration*" matches both "migration.py" and "migrations/").
+		if ftsQuery != "" && len(pathTerms) > 0 {
+			for _, pt := range pathTerms {
+				if len(pt) >= 4 {
+					ftsQuery += fmt.Sprintf(" OR file_path:%s*", pt)
+				}
+			}
 		}
 		if nodes, err := e.bm25.SearchBM25Nodes(ctx, ftsQuery, 30); err == nil {
 			bm25Results = nodes
@@ -420,7 +433,6 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	// (e.g., "migration" -> django.db.migrations.operations.base.Operation -> .state_forwards).
 	var pathResults []types.Node
 	pathSeen := make(map[types.Hash]bool)
-	pathTerms := extractPathTerms(opts.TaskDescription)
 	for _, term := range pathTerms {
 		// Search for nodes whose qualified name contains this path segment.
 		nodes, err := e.store.NodesByName(ctx, "%/"+term+"%")

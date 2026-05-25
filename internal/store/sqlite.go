@@ -1113,7 +1113,7 @@ func (s *SQLiteStore) SearchBM25Nodes(ctx context.Context, query string, limit i
 		 JOIN nodes_fts_content c ON c.rowid = nodes_fts.rowid
 		 JOIN nodes n ON n.node_hash = c.node_hash
 		 WHERE nodes_fts MATCH ?
-		 ORDER BY bm25(nodes_fts, 10.0, 5.0, 3.0, 1.0, 1.0)
+		 ORDER BY bm25(nodes_fts, 10.0, 5.0, 3.0, 1.0, 4.0)
 		 LIMIT ?`,
 		query, limit,
 	)
