@@ -30,7 +30,7 @@ knowing is a content-addressed graph retrieval engine evaluated against 6 compet
 
 | System | P@10 | R@10 | Tasks | Notes |
 |--------|------|------|-------|-------|
-| **knowing** | **0.210** | **0.271** | 167 | Docstring FTS, 34 edge types, 5-channel retrieval |
+| **knowing** | **0.207** | **0.271** | 167 | Docstring FTS, 34 edge types, 5-channel retrieval |
 | codegraph (19K stars) | 0.135 | - | 107 | 10 tasks failed (unsupported repos) |
 | GitNexus | 0.075 | - | 66 | Killed on k8s (>60 min indexing) |
 | Gortex | 0.063 | - | 66 | 14 min k8s indexing, 14GB RAM |
@@ -40,10 +40,10 @@ knowing is a content-addressed graph retrieval engine evaluated against 6 compet
 
 ### Competitive Advantages
 
-- **vs codegraph (19K stars):** 1.56x more precise (P@10 0.210 vs 0.135), all 167 tasks vs 107
-- **vs GitNexus:** 2.80x more precise (P@10 0.210 vs 0.075), 167 tasks vs 66, 18s index vs >60 min
-- **vs Gortex:** 3.33x more precise (P@10 0.210 vs 0.063), 200MB RAM vs 14GB, 18s index vs 14 min
-- **vs grep:** 16.2x more precise (P@10 0.210 vs 0.013)
+- **vs codegraph (19K stars):** 1.53x more precise (P@10 0.207 vs 0.135), all 167 tasks vs 107
+- **vs GitNexus:** 2.76x more precise (P@10 0.207 vs 0.075), 167 tasks vs 66, 18s index vs >60 min
+- **vs Gortex:** 3.29x more precise (P@10 0.207 vs 0.063), 200MB RAM vs 14GB, 18s index vs 14 min
+- **vs grep:** 15.9x more precise (P@10 0.207 vs 0.013)
 - **vs Repomix:** 48x more token-efficient (4K tokens vs 300K for same task)
 
 **Note on Run 23 vs Run 24:** Run 23 (P@10=0.217) was measured on incrementally-built enriched
@@ -718,7 +718,7 @@ seed coverage within connected components.
 
 knowing wins on the dimensions that matter for AI agents:
 
-1. **Precision** (1.56x vs codegraph, 2.80x vs GitNexus, 16.2x vs grep): fewer wasted tokens
+1. **Precision** (1.53x vs codegraph, 2.76x vs GitNexus, 15.9x vs grep): fewer wasted tokens
 2. **Latency** (2ms on k8s, 500x faster than codegraph): doesn't block the agent
 3. **Freshness** (167ms time-to-consistency): reflects edits before the next prompt
 4. **Determinism** (same input = same output): debuggable, regression-testable
