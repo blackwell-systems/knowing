@@ -159,6 +159,19 @@ Current status: per-repo isolation (no cross-repo queries). First real user who 
 | `knowing daemon install-service` | Generate launchd plist (macOS) or systemd user unit (Linux). | P3 |
 | Per-repo config (`.knowing.yaml`) | Excludes, local overrides, workspace membership. | P3 |
 
+## Diagnostic Tools (for dense-graph investigation)
+
+These tools are needed to investigate and resolve the dense-graph dilution problem
+(VS Code 87K nodes, P@10 drops from 0.163 to 0.084 with correct extraction).
+See `docs/research/dense-graph-dilution-analysis.md` for full investigation plan.
+
+| # | Tool | What it enables | Effort |
+|---|------|----------------|--------|
+| 1 | **Query-time edge exclusion** | `BENCH_EXCLUDE_EDGES=similar_to` filters edges during RWR without reindexing. Enables rapid hypothesis testing (test each edge type's contribution in seconds, not minutes). Add type filter to adjacency map loading. | Low (5 lines) |
+| 2 | **Hub analysis tool** | Reports top-N nodes by in-degree for a given DB. Identifies probability sinks that absorb RWR mass on dense graphs. Answers: "which nodes accumulate walk probability regardless of query?" | Low (30 lines) |
+| 3 | **RWR score distribution tool** | For a given task, reports score distribution (min, max, median, p90, gap between rank-1 and rank-50). Diagnoses whether the walk is diffusing (flat distribution) or focused (steep dropoff). | Low (20 lines) |
+| 4 | **Top-10 comparison tool** | For a given task, shows top-10 results from two different DBs (or configs) side-by-side. Answers: "which new nodes pushed correct results out of the top 10?" | Medium (50 lines) |
+
 ## Benchmarking Roadmap
 
 14 benchmark harnesses exist today (see `bench/README.md`). The following gaps remain for a complete competitive evaluation story.
