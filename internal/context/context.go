@@ -1356,15 +1356,16 @@ func extractKeywordSet(desc string) KeywordSet {
 		}
 	}
 
-	// Assemble Components: priority terms first, then bigrams (speculative compounds),
-	// then individual words by length descending.
+	// Assemble Components: priority terms first, then individual words by length
+	// descending, then bigrams LAST (speculative compounds that often don't match
+	// real symbols and can dilute tiered search with junk like "ExtendRefactoring").
 	ks.Components = make([]string, 0, len(priorityTerms)+len(bigrams)+len(components))
 	ks.Components = append(ks.Components, priorityTerms...)
-	ks.Components = append(ks.Components, bigrams...)
 	sort.Slice(components, func(i, j int) bool {
 		return len(components[i]) > len(components[j])
 	})
 	ks.Components = append(ks.Components, components...)
+	ks.Components = append(ks.Components, bigrams...)
 
 	return ks
 }
