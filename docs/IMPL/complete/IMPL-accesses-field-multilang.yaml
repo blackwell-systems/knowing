@@ -1,3 +1,4 @@
+completion_date: "2026-05-25"
 title: Add accesses_field edge extraction to Rust, Python, Java, C#, and TypeScript extractors
 feature_slug: accesses-field-multilang
 verdict: SUITABLE
@@ -739,7 +740,7 @@ waves:
             - internal/indexer/tsextractor/field_access_edges.go
             - internal/indexer/tsextractor/field_access_edges_test.go
             - internal/indexer/tsextractor/extractor.go
-      base_commit: b5ff8e9801e9e99c35df204074fc0744d6d28648
+      base_commit: 817ccf435f8a11f00bad3b04c9168d8300b38175
 quality_gates:
     level: standard
     gates:
@@ -752,6 +753,106 @@ quality_gates:
         - type: test
           command: GOWORK=off go test ./internal/indexer/... -timeout 120s
           required: true
+post_merge_checklist:
+    groups:
+        - title: Background Service Initialization
+          items:
+            - description: Verify if field_access_edges_test.go needs initialization in Server constructor
+            - description: Verify if field_access_edges_test.go needs initialization in Server constructor
+            - description: Verify if field_access_edges_test.go needs initialization in Server constructor
+            - description: Verify if field_access_edges_test.go needs initialization in Server constructor
+            - description: Verify if field_access_edges_test.go needs initialization in Server constructor
+completion_reports:
+    A:
+        status: complete
+        branch: polywave/accesses-field-multilang/wave1-agent-A
+        commit: 62202d8
+        files_changed:
+            - internal/indexer/rustextractor/field_access_edges.go
+            - internal/indexer/rustextractor/field_access_edges_test.go
+            - internal/indexer/rustextractor/extractor.go
+        files_created:
+            - internal/indexer/rustextractor/field_access_edges.go
+            - internal/indexer/rustextractor/field_access_edges_test.go
+        tests_added:
+            - TestExtractFieldAccessEdges_RustSelf
+            - TestExtractFieldAccessEdges_RustSkipsMethodCalls
+            - TestExtractFieldAccessEdges_RustSkipsCommonFields
+            - TestExtractStructFieldNodes_Rust
+        verification: PASS
+        notes: 'Rust field access extraction complete. Key finding: tree-sitter Rust grammar uses node type ''self'' (not ''identifier'') for the self keyword in field_expression value position.'
+    B:
+        status: complete
+        branch: polywave/accesses-field-multilang/wave1-agent-B
+        commit: 392f237
+        files_changed:
+            - internal/indexer/treesitter/field_access_edges.go
+            - internal/indexer/treesitter/field_access_edges_test.go
+            - internal/indexer/treesitter/extractor.go
+        files_created:
+            - internal/indexer/treesitter/field_access_edges.go
+            - internal/indexer/treesitter/field_access_edges_test.go
+        tests_added:
+            - TestExtractFieldAccessEdges_PythonSelf
+            - TestExtractFieldAccessEdges_PythonSkipsMethodCalls
+            - TestExtractFieldAccessEdges_PythonSkipsCommonFields
+            - TestExtractClassFieldNodes_Python
+        verification: PASS
+        notes: Python accesses_field extraction complete. All 4 tests pass. Full indexer test suite passes. Extracts self.field accesses in methods, filters method calls and common fields, emits field nodes from __init__ assignments.
+    C:
+        status: complete
+        branch: polywave/accesses-field-multilang/wave1-agent-C
+        commit: b554d90
+        files_changed:
+            - internal/indexer/javaextractor/field_access_edges.go
+            - internal/indexer/javaextractor/field_access_edges_test.go
+            - internal/indexer/javaextractor/extractor.go
+        files_created:
+            - internal/indexer/javaextractor/field_access_edges.go
+            - internal/indexer/javaextractor/field_access_edges_test.go
+        tests_added:
+            - TestExtractFieldAccessEdges_JavaThis
+            - TestExtractFieldAccessEdges_JavaSkipsMethodCalls
+            - TestExtractFieldAccessEdges_JavaSkipsCommonFields
+            - TestExtractClassFieldNodes_Java
+        verification: PASS
+        notes: Java field access extraction complete. Extracts this.field patterns, creates field nodes for class declarations, filters common fields. All 4 tests passing. Full indexer package test suite green.
+    D:
+        status: complete
+        branch: polywave/accesses-field-multilang/wave1-agent-D
+        commit: 9ecd700
+        files_changed:
+            - internal/indexer/csharpextractor/field_access_edges.go
+            - internal/indexer/csharpextractor/field_access_edges_test.go
+            - internal/indexer/csharpextractor/extractor.go
+        files_created:
+            - internal/indexer/csharpextractor/field_access_edges.go
+            - internal/indexer/csharpextractor/field_access_edges_test.go
+        tests_added:
+            - TestExtractFieldAccessEdges_CSharpThis
+            - TestExtractFieldAccessEdges_CSharpSkipsMethodCalls
+            - TestExtractFieldAccessEdges_CSharpSkipsCommonFields
+            - TestExtractClassFieldNodes_CSharp
+        verification: PASS
+        notes: C# field access extraction complete. The tree-sitter C# grammar uses node type 'this' (not 'this_expression') for the this keyword. All 4 tests pass. Build and vet clean.
+    E:
+        status: complete
+        branch: polywave/accesses-field-multilang/wave1-agent-E
+        commit: dfdfe77
+        files_changed:
+            - internal/indexer/tsextractor/field_access_edges.go
+            - internal/indexer/tsextractor/field_access_edges_test.go
+            - internal/indexer/tsextractor/extractor.go
+        files_created:
+            - internal/indexer/tsextractor/field_access_edges.go
+            - internal/indexer/tsextractor/field_access_edges_test.go
+        tests_added:
+            - TestExtractFieldAccessEdges_TSThis
+            - TestExtractFieldAccessEdges_TSSkipsMethodCalls
+            - TestExtractFieldAccessEdges_TSSkipsCommonFields
+            - TestExtractClassFieldNodes_TypeScript
+        verification: PASS
+        notes: TypeScript field access extraction complete. extractFieldAccessEdges walks method bodies for this.field patterns, extractClassFieldNodes creates field nodes from class declarations, isCommonFieldName filters noise. All 4 tests passing. Full indexer test suite green.
 pre_mortem:
     overall_risk: low
     rows:
@@ -812,4 +913,4 @@ critic_report:
     summary: 'All 5 agent briefs verified against the codebase. File existence checks pass (new files do not exist, modify targets exist). Symbol accuracy confirmed: edgetype.AccessesField, types.KindField, types.ComputeNodeHash, types.ComputeEdgeHash, types.EmptyHash all exist with correct signatures. Pattern accuracy verified: all insertion points in extractor.go files match the actual code structure (exact text blocks, variable names, function signatures). Interface contracts reference valid types and packages. Import chains satisfied (tree-sitter, edgetype, types packages all available). No disjoint ownership violations. One advisory note: Agent D brief references e.qualifiedName() pattern for a package-level function, but the agent can inline the format string.'
     reviewed_at: "2026-05-25T20:33:36Z"
     issue_count: 1
-state: REVIEWED
+state: COMPLETE

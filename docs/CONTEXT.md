@@ -19,3 +19,5 @@
   - IMPL doc: docs/IMPL/complete/IMPL-code-quality-cleanup.yaml
 - **multi-module-enrichment**: completed 2026-05-24, 2 waves, 4 agents
   - IMPL doc: docs/IMPL/complete/IMPL-multi-module-enrichment.yaml
+- **accesses-field-multilang**: completed 2026-05-25, 1 waves, 5 agents
+  - IMPL doc: docs/IMPL/complete/IMPL-accesses-field-multilang.yaml
