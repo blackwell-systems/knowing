@@ -8,14 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-#### Docstring FTS indexing (P@10 0.180 -> 0.189, +5%)
+#### Docstring FTS indexing (P@10 0.180 -> 0.185, +2.8%)
 - New FTS5 column `doc` (weight 3.0) indexes node docstrings for BM25 retrieval
 - Bridges the vocabulary gap: task descriptions use natural language, docstrings are natural language descriptions of what code does
-- Python tree-sitter extractor now extracts docstrings from function and class bodies (first string literal in body, capped at 500 chars)
 - Migration 018 adds doc column to `nodes_fts_content` and rebuilds FTS virtual table
-- Flask P@10: 0.250 -> 0.271 (+8.4%)
-- Full corpus: 0.180 -> 0.189 (+5%), first movement past the 0.181 ceiling since session 11
-- Currently Python + Go only; TypeScript (JSDoc), Rust (///), Java (Javadoc), C# (XML doc) not yet extracted
+- Shared `docextract` package provides language-agnostic extraction from preceding comments
+- **6 languages**: Go (//), Python (body docstrings), TypeScript (JSDoc), Rust (///), Java (Javadoc), C# (XML ///)
+- BM25 column weights: symbol_name=10, concepts=5, qualified_name=3, file_path=4, doc=3, signature=1
+- Flask P@10: 0.250 -> 0.271 (+8.4%). Full corpus (fresh reindex): 0.180 -> 0.185 (+2.8%)
+- MRR improved +4.9% (first relevant result ranks higher thanks to docstring matching)
 
 #### Python import resolution fix
 - `resolveCallTarget` now handles `from X import Y` where Y is a submodule (file) correctly
