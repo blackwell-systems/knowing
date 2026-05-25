@@ -8,7 +8,7 @@ relevant code symbols that fit within a context window.
 This document is the authoritative reference for how the context engine finds and ranks
 symbols. It supersedes `context-packing.md`.
 
-**Current eval baseline:** 55 fixtures (20 easy, 20 medium, 15 hard), 31.6% P@10, 0.58 MRR (internal eval). Cross-system benchmark (~117 manual fixtures, 7 repos): P@10=0.189, 1.63x vs codegraph (19K stars), 4.3x vs Aider, 11x vs grep (d=0.92 very large effect). Parameter sweep (26 configs) proved P@10 is reachability-determined; all ranking parameters are irrelevant.
+**Current eval baseline:** 55 fixtures (20 easy, 20 medium, 15 hard), 31.6% P@10, 0.58 MRR (internal eval). Cross-system benchmark (167 tasks, 9 repos, 6 languages): P@10=0.207, 1.53x vs codegraph (19K stars), 2.76x vs GitNexus, 3.29x vs Gortex, 15.9x vs grep (d=0.92 very large effect). Parameter sweep (26 configs) proved P@10 is reachability-determined; all ranking parameters are irrelevant.
 
 ## Pipeline Overview
 
@@ -270,7 +270,7 @@ tree-sitter across all 6 supported languages (Go, Python, TypeScript, Rust, Java
 This bridges the vocabulary gap between how developers describe tasks in natural language
 and how symbols are named in code. For example, "migration operation" matches a function
 whose docstring says "Apply each operation in the migration". P@10 improved from 0.180 to
-0.189 (+5%) when docstring indexing was added.
+0.202 (+12.2%) when docstring indexing was added.
 
 The `file_path` column carries weight 4.0 (elevated from initial 1.0) to boost symbols
 whose file location matches directory-level terms in the query. Path terms extracted from
@@ -300,6 +300,14 @@ previously deferred to a background goroutine, but CLI processes (`knowing index
 immediately after `IndexRepo` returns, killing the goroutine before FTS completes. This
 left the FTS index empty in CLI mode. The synchronous rebuild adds ~500ms to index time.
 
+**Concept thesaurus expansion:** BM25 queries are expanded using a static thesaurus of
+~80 programming domain concept clusters. Each cluster maps related code vocabulary terms
+(e.g., "consumer" also searches "subscriber", "listener", "handler"). Covers messaging,
+concurrency, serialization, validation, patterns, networking, caching, testing,
+configuration, lifecycle, and error handling domains. Phrase-boosted BM25 additionally
+generates FTS5 phrase queries from adjacent word pairs in the Components list (e.g.,
+"code actions" as a quoted phrase matches only symbols with adjacent words in FTS index).
+
 ### Channel 4: Path-context seeding (weight 1.5)
 
 Extracts package/directory-like terms from the task description (`extractPathTerms`) and
@@ -327,6 +335,12 @@ weight 0.8), RWR walks from these type seeds to discover their methods.
 Example: task "fix the migration operation" extracts path term "migration". Finds
 `django.db.migrations.operations.base.Operation` (a type with `contains` edges to
 `state_forwards`, `database_forwards`, etc.). RWR walks to those methods.
+
+**Type-method path seeding enhancement:** When path terms match a package, the channel
+additionally checks if types in that package have methods matching task keywords. If so,
+the type is seeded so RWR walks to its methods via `contains` edges. For example,
+"consumer group coordinator" finds `ConsumerCoordinator` in kafka's `group/` package
+because the type has methods matching "coordinator".
 
 ### Channel 5: Vector search (weight 0.0, disabled)
 
@@ -407,6 +421,8 @@ structurally close to the seeds and sit at the intersection of many paths.
 | `gated_by_flag` | 0.3 | Feature flag gates |
 | `decorates` | 0.3 | Decorator/annotation relationships |
 | `documents` | 0.2 | Documentation links; minimal structural coupling |
+| `co_tested_with` | 0.5 | Lateral connection between co-tested symbols |
+| `type_hint_of` | 0.5 | Function parameter type annotation |
 | `similar_to` | 0.15 | Jaccard similarity edges between related symbols |
 | `owned_by` | 0.0 | Ownership metadata; zero walk weight (not structural) |
 | `authored_by` | 0.0 | Authorship metadata; zero walk weight (not structural) |
@@ -443,6 +459,18 @@ Before scoring, the RWR result loop skips phantom external nodes (`kind="externa
 contain no source code and must not enter the scoring pipeline. This filter is separate
 from `filterNoisySymbols` (which runs on seed candidates before RWR) and catches external
 nodes that were reached by walk propagation rather than seeding.
+
+### Self-adapting type-seed preference
+
+On dense graphs (>50K nodes), the pipeline automatically reorders RRF candidates to prefer
+type/interface/class nodes as RWR seeds over methods/functions. Types are better seeds
+because they have `contains` edges to their methods, producing more productive walks.
+
+This is self-adapting: auto-enables when `GraphNodeCount > 50000` (no manual configuration).
+Also available as a manual override via `BENCH_PREFER_TYPE_SEEDS=1`.
+
+Impact: VS Code P@10 improved from 0.095 to 0.137 (+44%). Aggregate P@10 from 0.202 to
+0.207 (+2.5%). Zero regressions on any repo.
 
 ### Critical finding: RWR is the primary differentiator
 

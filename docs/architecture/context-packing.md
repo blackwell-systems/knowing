@@ -20,7 +20,7 @@ Task Description
 [2. Keyword Extraction]    -- produce KeywordSet (Exact/Compounds/Components); backtick-quoted identifiers get highest priority
     |
     v
-[3. Seed Selection]        -- 4-channel RRF fusion (tiered keywords, BM25, vector, equivalence classes)
+[3. Seed Selection]        -- 5-channel RRF fusion (tiered keywords, BM25, vector, equivalence classes, path-context)
     |
     v
 [4. Noise Filtering]       -- exclude external nodes, mock/stub/fake symbols, test fixtures, build artifacts
@@ -259,18 +259,18 @@ Historical usefulness signals from the `feedback` MCP tool. The usefulness ratio
 
 As of v0.5.0, feedback records are merkleized: each stores the SubgraphRoot of the symbol's package at feedback time. When querying feedback, only records where `neighborhood_root` matches the current SubgraphRoot are counted. This provides automatic expiration: feedback becomes invalid when the symbol's package changes (any edge modification in the package invalidates the neighborhood root). Adds 11% overhead (255µs → 284µs for 100 symbols). Backward compatible: NULL `neighborhood_root` uses the legacy path (no expiration).
 
-## Seed Retrieval: 4-Channel RRF Fusion
+## Seed Retrieval: 5-Channel RRF Fusion
 
-Seed selection uses Reciprocal Rank Fusion (RRF) across four channels, replacing the
-previous single-channel tiered matching with BM25 fallback. The function `rrfFuseMulti`
+Seed selection uses Reciprocal Rank Fusion (RRF) across five channels. The function `rrfFuseMulti`
 merges ranked lists from all channels into a single seed set:
 
 | Channel | Weight | Source |
 |---------|--------|--------|
 | 1. Tiered keyword matching | 2.0 | 4-tier exact/prefix/substring/path matching (compound-first) |
-| 2. BM25 FTS5 | 2.0 | SQLite FTS5 over symbol_name, qualified_name, signature, file_path (CamelCase-aware tokenization via `buildFTSQuery`) |
+| 2. BM25 FTS5 | 2.0 | SQLite FTS5 over 6 columns: symbol_name (10x), concepts (5x), file_path (4x), qualified_name (3x), doc (3x), signature (1x). Includes concept thesaurus expansion (~80 domain clusters) for keyword broadening. |
 | 3. Vector/embedding search | 0.0 | BGE-small-en-v1.5 via HNSW (disabled pending code-tuned model) |
 | 4. Equivalence class matching | 2.0 | 115 equivalence classes (63 universal + 21 knowing-specific + 31 language-specific) with 1000+ phrases mapped to target symbols |
+| 5. Path-context seeding | 1.5 | Extracts package/directory terms from task, finds type nodes in matching packages, injects as supplemental RWR seeds at weight 0.3 |
 
 ### BM25 Full-Text Search (Channel 2)
 
@@ -278,15 +278,17 @@ Migration 006 creates the `nodes_fts` virtual table. Migration 016 adds a `symbo
 column that stores just the terminal symbol identifier (e.g., "QuerySet.filter" instead of
 the full qualified path). Migration 017 adds a `concepts` column that stores CamelCase-split
 tokens from file names and parent directories (e.g., "commandLineParser.ts" becomes
-"command Line Parser commandLineParser"). The table now indexes five columns with BM25
-weights: `symbol_name` (10x), `concepts` (5x), `qualified_name` (3x), `signature` (1x),
-`file_path` (1x). The high weight on `symbol_name` ensures keyword searches match by actual
-symbol name rather than by incidental path token frequency. The `concepts` column bridges
-the vocabulary gap where developers search for "parser" but the symbol lives in a
-differently-named file. Tokenization uses CamelCase-aware splitting (`splitForFTS`,
-`splitCamelCase`) so that compound identifiers (e.g., "SQLiteStore") are indexed as
-individual terms ("SQLite", "Store"). `RebuildFTS` is called after batch indexing to keep
-the FTS content synchronized with the nodes table.
+"command Line Parser commandLineParser"). Migration 018 adds a `doc` column that indexes
+node docstrings for BM25 retrieval. The table now indexes six columns with BM25
+weights: `symbol_name` (10x), `concepts` (5x), `file_path` (4x), `qualified_name` (3x),
+`doc` (3x), `signature` (1x). The high weight on `symbol_name` ensures keyword searches
+match by actual symbol name rather than by incidental path token frequency. The `concepts`
+column bridges the vocabulary gap where developers search for "parser" but the symbol lives
+in a differently-named file. The `doc` column bridges vocabulary between natural-language
+task descriptions and code documentation. Tokenization uses CamelCase-aware splitting
+(`splitForFTS`, `splitCamelCase`) so that compound identifiers (e.g., "SQLiteStore") are
+indexed as individual terms ("SQLite", "Store"). `RebuildFTS` is called after batch indexing
+to keep the FTS content synchronized with the nodes table.
 
 ### Embedding Search (Channel 3)
 

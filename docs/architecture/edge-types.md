@@ -1,6 +1,6 @@
 # Edge Types Reference
 
-This document catalogs all 32 edge types in the knowing knowledge graph: what each
+This document catalogs all 34 edge types in the knowing knowledge graph: what each
 represents, which extractors produce it, its provenance tier, and how it
 participates in blast radius traversal and context ranking.
 
@@ -40,6 +40,8 @@ participates in blast radius traversal and context ranking.
 | `runtime_consumes` | Message consumed from a topic | otel_trace | 0.2 - 0.95 | Trace ingestor | No | 0.3 (default) |
 | `contains` | Type/class contains a method/field | structural | 1.0 | Indexer (QN hierarchy) | No | 0.8 |
 | `member_of` | Method/field belongs to a type/class (reverse of contains) | structural | 1.0 | Indexer (QN hierarchy) | No | 0.6 |
+| `co_tested_with` | Symbols referenced from the same test file | co_test_inference | 0.6 | Indexer (test file analysis) | No | 0.5 |
+| `type_hint_of` | Function parameter type annotation | ast_inferred | 0.7 | Go, Java, TypeScript, Python extractors | No | 0.5 |
 
 ## Static Edge Types
 
@@ -496,6 +498,43 @@ A method or field belongs to a type or class (the reverse of `contains`).
   from any matched method back to its parent type, then to sibling methods via outgoing
   `contains` edges. This bidirectional connectivity (contains + member_of) ensures that type
   hierarchies form tightly connected subgraphs in the random walk.
+
+### `co_tested_with`
+
+Two non-test symbols are referenced from the same test file.
+
+- **Direction:** source co_tested_with target. `pkg.FuncA -co_tested_with-> pkg.FuncB`
+  means both FuncA and FuncB are called or imported by the same test file.
+- **Producers:** The indexer (`internal/indexer/indexer.go`) via `generateCoTestedEdges()`
+  during post-processing. For each test file (detected by `IsTestFile()` across Go,
+  Python, TypeScript, Rust, Java, C#), finds all non-test symbols referenced and creates
+  lateral edges between them.
+- **Provenance:** `co_test_inference` (confidence 0.6).
+- **Blast radius:** Not traversed.
+- **RWR weight:** 0.5. Moderate weight reflecting that co-tested symbols likely serve the
+  same feature, bridging structurally disconnected symbols that share functional context.
+- **Caps:** 20 targets per file, 20 pairs per file (prevents N^2 explosion on test files
+  that reference many symbols).
+
+### `type_hint_of`
+
+A function parameter references a type via its type annotation.
+
+- **Direction:** source function type_hint_of target type. `pkg.HandleRequest -type_hint_of-> pkg.AuthService`
+  means HandleRequest has a parameter annotated with the AuthService type.
+- **Producers:** Four language extractors:
+  - Go: extracts from `parameter_declaration` nodes, resolves imported types via import map.
+    Skips builtins (string, int, error, etc.).
+  - Java: extracts from `formal_parameter` nodes, handles generics (`List<T>` -> `List`)
+    and scoped types. Skips primitives and boxed types.
+  - TypeScript: extracts from required/optional/rest parameters via `type_annotation`.
+    Handles generics and nested type identifiers.
+  - Python: extracts from `typed_parameter` nodes with import-map resolution.
+- **Provenance:** `ast_inferred` (confidence 0.7).
+- **Blast radius:** Not traversed.
+- **RWR weight:** 0.5. Moderate weight: type annotations indicate structural dependency
+  between functions and the types they operate on. Enables RWR to walk from functions
+  to their parameter types and vice versa.
 
 ## Runtime Edge Types
 

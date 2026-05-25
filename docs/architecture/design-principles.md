@@ -128,7 +128,7 @@ Runtime trace ingestion straddles the planes. The ingest pipeline (normalizing s
 
 ## Graph Structure
 
-The knowledge graph uses 32 edge types (see `internal/edgetype/constants.go` and `docs/architecture/edge-types.md`). Notable structural properties:
+The knowledge graph uses 34 edge types (see `internal/edgetype/constants.go` and `docs/architecture/edge-types.md`). Notable structural properties:
 
 - **Structural edges** (`contains`, `member_of`) connect type/class nodes to their methods and fields via qualified name hierarchy. These edges connected 77% of previously-disconnected type/class nodes (5,457/7,086 in k8s) that had zero edges, enabling RWR to walk from types to their methods and back.
 - **Interface method propagation** creates `overrides` edges from implementing class methods to corresponding interface methods. When class C implements interface I and both define method M, C.M overrides I.M. This lets RWR walk from an interface method to all concrete implementations.
@@ -153,7 +153,9 @@ After seed retrieval, Random Walk with Restart (RWR) expands the seed set throug
 
 **Benchmark results (fresh index, no enrichment):**
 
-- P@10 = 0.185 across 117 tasks, 7 repos (Go, Python, TypeScript, Rust, Java, C#), 14K to 3.5M LOC
-- Competitive advantage: vs codegraph 1.36x, vs gitnexus 2.45x, vs gortex 2.92x, vs grep 14.2x
+- P@10 = 0.207 across 167 tasks, 9 repos, 6 languages (Go, Python, TypeScript, Rust, Java, C#), 14K to 3.5M LOC
+- Competitive advantage: vs codegraph 1.53x, vs GitNexus 2.76x, vs Gortex 3.29x, vs grep 15.9x
+- Self-adapting type-seed preference: on dense graphs (>50K nodes), automatically prefers type/interface/class nodes as RWR seeds. VS Code +44%, zero regressions.
+- Concept thesaurus: ~80 domain clusters expand BM25 queries with related code vocabulary.
 - Parameter sweep (RWR alpha, seed count, score cutoff, blast radius weight, distance weight, confidence weight, RRF k, test penalty): all 9 parameters produce identical P@10. Quality is determined entirely by graph reachability (binary: is the symbol connected to any seed?), not by continuous parameter tuning.
 - Implication: all P@10 improvements must target reachability (new edge types, new seed sources), not ranking (parameter adjustment).

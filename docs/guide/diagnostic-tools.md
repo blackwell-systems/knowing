@@ -80,6 +80,27 @@ contains generation, similarity computation, co-tested generation).
 - Ablation: which edge types are needed for P@10 on a specific repo
 - Debug dilution: index progressively with more edge types, measure at each step
 
+## Type-Seed Preference Override
+
+Force type/interface/class nodes to be preferred as RWR seeds, regardless of
+graph density. Useful for testing whether seed kind matters on a specific repo.
+
+```bash
+# Manual type-seed preference (auto-enables on >50K nodes)
+BENCH_PREFER_TYPE_SEEDS=1 BENCH_ADAPTERS=knowing \
+  go test ./bench/cross-system/ -run TestCrossSystem -timeout 30m -v
+```
+
+**How it works:** Sets `knowingctx.PreferTypeSeeds = true`. After RRF fusion,
+candidates are reordered to place type/interface/class nodes before
+method/function nodes. RWR seeds are then selected from this reordered list.
+Types make better seeds because their `contains` edges reach all their methods.
+
+**Use cases:**
+- Verify that dense-graph dilution is from seed kind (methods competing with types)
+- Compare type-seeded vs method-seeded results on any graph density
+- Confirm whether auto-detection threshold (50K nodes) is appropriate for a repo
+
 ## Combining Tools
 
 The env vars compose. You can use index-time filtering for the DB and query-time
@@ -170,11 +191,14 @@ RRF fusion picks different (worse) seeds. RWR then walks from wrong starting poi
 - k8s staging module inclusion: 117K -> 253K nodes (session 12)
 - LSP enrichment: adds 42K edges from pyright (session 13)
 
-**Fix approaches (under investigation):**
-- Phrase-aware BM25: adjacent word bigrams as FTS5 phrase queries
-- Node-kind-aware seed selection: prefer types/interfaces over methods for dense graphs
+**Fix approaches (shipped):**
+- **Self-adapting type-seed preference** (PreferTypeSeeds): on dense graphs (>50K nodes), automatically prefer type/interface/class nodes as RWR seeds. VS Code +44%. Available as `BENCH_PREFER_TYPE_SEEDS=1` manual override.
+- **Phrase-boosted BM25**: adjacent word bigrams as FTS5 phrase queries ("code actions" as quoted phrase).
+- **Concept thesaurus**: ~80 domain clusters expand BM25 queries with related code vocabulary.
+
+**Under investigation:**
 - Per-package BM25: smaller FTS index per scope restores IDF discrimination
-- Local embeddings: vector similarity is density-independent
+- Local embeddings: vector similarity is density-independent (see `docs/proposals/pure-go-embeddings.md`)
 
 ### Enrichment Dilution (session 12-13)
 

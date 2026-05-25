@@ -741,7 +741,7 @@ Repo: github.com/blackwell-systems/knowing
 - **Migrations:** `006_add_fts5_index.sql`, `016_fts_symbol_name.sql`, `017_fts_concepts_column.sql`, `018_fts_doc_column.sql`
 - **Entry point:** `RebuildFTS`, `SearchBM25Nodes`, `extractSymbolName` in `internal/store/sqlite.go`
 - **What it does:** Creates an SQLite FTS5 virtual table (`nodes_fts`) over six columns: `symbol_name`, `concepts`, `qualified_name`, `signature`, `file_path`, and `doc`. BM25 weights are: symbol_name=10x, concepts=5x, file_path=4x, doc=3x, qualified_name=3x, signature=1x. The `symbol_name` column (migration 016) stores just the terminal identifier (e.g., "QuerySet.filter") extracted by `extractSymbolName`, which strips repo URL, package path, and file extension prefix. The `concepts` column (migration 017) stores CamelCase-split tokens from file names and parent directories (e.g., "commandLineParser.ts" becomes "command Line Parser commandLineParser"), bridging the gap when developers say "parser" but the symbol is inside a differently-named file. The `doc` column (migration 018) indexes node docstrings, bridging the vocabulary gap between natural-language task descriptions and code; docstrings use the same terms developers use when describing tasks. Currently populated for Python and Go only. FTS5 tokenizer uses `tokenchars '_'` so snake_case identifiers (e.g., `before_request`) match as single tokens. Uses CamelCase-aware tokenization (`splitForFTS`, `splitCamelCase`) so compound identifiers are searchable by individual terms. `RebuildFTS` runs synchronously after snapshot computation (was previously a background goroutine that was killed on CLI process exit, leaving FTS empty in `knowing index` mode). Adds ~500ms to index time.
-- **Why it matters:** Improves recall for vague or partial task descriptions where substring matching alone misses relevant symbols. The high-weight `symbol_name` column ensures keyword searches match by actual symbol name rather than incidental path tokens. The `concepts` column provides vocabulary bridging from file/module names to symbols they contain, which is critical for non-Go repos where qualified names embed file paths. The `doc` column provides docstring-aware retrieval: P@10 improved from 0.180 to 0.189 (+5%) on the full corpus, with Flask gaining +8.4%.
+- **Why it matters:** Improves recall for vague or partial task descriptions where substring matching alone misses relevant symbols. The high-weight `symbol_name` column ensures keyword searches match by actual symbol name rather than incidental path tokens. The `concepts` column provides vocabulary bridging from file/module names to symbols they contain, which is critical for non-Go repos where qualified names embed file paths. The `doc` column provides docstring-aware retrieval: P@10 improved from 0.180 to 0.202 (+12.2%) on the full corpus, with Flask gaining +8.4%.
 
 ### 57. Session-Aware Retrieval Boosts
 
@@ -1296,7 +1296,7 @@ Repo: github.com/blackwell-systems/knowing
 - **Package(s):** `internal/context`
 - **Entry point:** `buildAdjacencyMap` in `internal/context/walk.go` (cache read path), `buildFromCache` (deserializer), `adjEdgeTypeToID`/`adjIDToEdgeType` (codec maps)
 - **What it does:** Pre-computes the full adjacency graph and stores it as a compact binary blob in the `graph_notes` table under key `"adjacency_cache"` with object hash `adjacency_cache_v2`. On subsequent RWR calls, the cache is loaded and BFS is done in-memory instead of issuing per-node SQL queries.
-- **Binary format:** Fixed-width 65 bytes per edge record: source hash (32 bytes) + target hash (32 bytes) + edge type ID (1 byte, mapped via `adjEdgeTypeToID`). 30 edge types mapped to uint8 IDs.
+- **Binary format:** Fixed-width 65 bytes per edge record: source hash (32 bytes) + target hash (32 bytes) + edge type ID (1 byte, mapped via `adjEdgeTypeToID`). 34 edge types mapped to uint8 IDs.
 - **Cache version:** v2 (automatically invalidates old v1 gob+base64 caches). Edge count threshold raised from 50K to 500K (covers all practical repos including k8s at 268K edges).
 - **Performance:** k8s graph (268K edges): 9.04s uncached to 1.9ms cached (4,717x speedup). Cache size ~17MB raw vs 252MB with old gob format (15x smaller).
 - **Cache invalidation:** Rebuilt when the adjacency graph changes (snapshot computation triggers rebuild). The `buildAdjacencyMap` function falls back to per-node BFS loading if the cache is missing or corrupted.
@@ -2082,7 +2082,7 @@ Coverage spans all packages including extractors, store, context engine, MCP han
 
 | Repo | Approach | Wall Time | Nodes | Edges | Cross-Repo Edges |
 |------|----------|-----------|-------|-------|-----------------|
-| knowing (self) | parallel extraction (8 workers) | **1.8s** | 7,224 | 24,936 (30 edge types) | -- |
+| knowing (self) | parallel extraction (8 workers) | **1.8s** | 7,224 | 24,936 (34 edge types) | -- |
 | knowing (self, earlier) | tree-sitter + LSP | ~9s | 2,564 | 8,604 | -- |
 | kubernetes | parallel extraction (8 workers) | **18.6s** | 117,401 | 335,000+ (57K lsp_resolved) | -- |
 | VS Code | parallel extraction | 4.1s | 43,379 | 93,382 | -- |

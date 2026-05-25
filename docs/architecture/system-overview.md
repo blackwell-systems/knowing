@@ -441,7 +441,7 @@ The graph connects symbols with typed, provenance-annotated edges:
 | Deployment | `deployed_by` (service deployed by CI workflow) |
 | Runtime | `runtime_calls`, `runtime_rpc`, `runtime_produces`, `runtime_consumes` |
 
-32 edge types total across static, structural, infrastructure, runtime, ownership, and operational categories. The `contains` and `member_of` edges connect types to their methods bidirectionally, enabling RWR walks from type seeds to discover all methods (and vice versa). See [Edge Types Reference](edge-types.md) for full details.
+34 edge types total across static, structural, infrastructure, runtime, ownership, and operational categories. The `contains` and `member_of` edges connect types to their methods bidirectionally, enabling RWR walks from type seeds to discover all methods (and vice versa). The `co_tested_with` edge connects symbols referenced from the same test file (lateral discovery). The `type_hint_of` edge connects functions to types referenced in their parameter annotations (Go, Java, TypeScript, Python). See [Edge Types Reference](edge-types.md) for full details.
 
 ## Wire Formats
 
@@ -501,4 +501,4 @@ Task Description
 - **Feedback compounding via task memory:** The MCP server records top-5 returned symbols in a `task_memory` table after each `context_for_task` call. Future queries with similar keywords recall stored symbols and boost them. Quality compounds across sessions; the system learns which symbols matter for which tasks.
 - **Merkleized feedback expiration:** Feedback records store the package Merkle root. When code changes, the root changes, and stale feedback becomes invisible automatically.
 
-**Benchmark:** Cross-system benchmark (7 repos, ~117 tasks): P@10=0.189 (cold start), 1.63x vs codegraph (19K stars), 4.3x vs Aider, 11x vs grep (p<0.0001, Cohen's d=0.92). Query latency: 2ms on k8s with adjacency cache. Parameter sweep proved all RWR/ranking parameters are irrelevant (identical P@10 across 26 configs); P@10 is reachability-determined, not ranking-determined. See [Retrieval Pipeline](retrieval-pipeline.md) for the full architecture reference.
+**Benchmark:** Cross-system benchmark (9 repos, 167 tasks, 6 languages): P@10=0.207, 1.53x vs codegraph (19K stars), 2.76x vs GitNexus, 3.29x vs Gortex, 15.9x vs grep (p<0.0001, Cohen's d=0.92). Query latency: 2ms on k8s with adjacency cache. Parameter sweep proved all RWR/ranking parameters are irrelevant (identical P@10 across 26 configs); P@10 is reachability-determined, not ranking-determined. See [Retrieval Pipeline](retrieval-pipeline.md) for the full architecture reference.

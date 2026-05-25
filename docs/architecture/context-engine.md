@@ -2,7 +2,7 @@
 
 The context packing subsystem (`internal/context/`) produces token-budgeted, graph-ranked context blocks for agent consumption. It answers: "given a task or a set of changed files, which symbols from the knowledge graph should an agent see?" Three entry points exist: task-based (`ForTask`, keyword search from a description), file-based (`ForFiles`, blast-radius expansion from changed files), and PR-based (`ForPR`, RWR from all symbols in changed files). A fourth entry point, `ExplainSymbol`, runs the full retrieval pipeline and returns a detailed scoring breakdown for a specific symbol.
 
-**Current performance:** P@10 = 0.185 on fresh index (7 repos, 117 tasks). 1.63x vs codegraph, 4.3x vs Aider, 12.3x vs grep. Query latency 2ms on k8s (with adjacency cache). Parameter sweep proved all RWR/ranking parameters are irrelevant (identical P@10 across 26 configs); P@10 is reachability-determined, not ranking-determined.
+**Current performance:** P@10 = 0.207 on fresh index (9 repos, 167 tasks, 6 languages). 1.53x vs codegraph, 2.76x vs GitNexus, 3.29x vs Gortex, 15.9x vs grep. Query latency 2ms on k8s (with adjacency cache). Parameter sweep proved all RWR/ranking parameters are irrelevant (identical P@10 across 26 configs); P@10 is reachability-determined, not ranking-determined.
 
 ## Architecture
 
@@ -155,7 +155,7 @@ Migration 007 adds a `doc` column to the nodes table. Migration 018 adds a `doc`
 - **Java**: `FromPrecedingComments` handles Javadoc (`/** */`)
 - **C#**: `FromPrecedingComments` handles XML doc comments (`///`)
 
-All extractors cap at 500 characters. Doc comments are stored in the `Node.Doc` field and indexed in both the FTS5 `doc` column (for BM25 retrieval) and embedding text (for future code-tuned vector models). The docstring FTS column was the first change to move P@10 since the equivalence channel fix, improving full-corpus P@10 from 0.180 to 0.185 (+2.8%).
+All extractors cap at 500 characters. Doc comments are stored in the `Node.Doc` field and indexed in both the FTS5 `doc` column (for BM25 retrieval) and embedding text (for future code-tuned vector models). The docstring FTS column was the first change to move P@10 since the equivalence channel fix, improving full-corpus P@10 from 0.180 to 0.202 (+12.2%).
 
 ## Noise Filtering
 
@@ -285,6 +285,8 @@ The Random Walk with Restart algorithm (`internal/context/walk.go`) uses edge-ty
 | `decorates` | 0.3 | Decorator/annotation (cross-cutting) |
 | `inherits` | 0.3 (default) | Child-to-parent-method via inheritance propagation; not explicitly in the weight map |
 | `documents` | 0.2 | Doc comment (informational only) |
+| `co_tested_with` | 0.5 | Lateral connection between symbols co-tested in the same test file |
+| `type_hint_of` | 0.5 | Function parameter type annotation linking function to type |
 | `similar_to` | 0.15 | Semantic similarity (Jaccard on tokenized bodies); weak signal to avoid overweighting |
 | `owned_by` | 0.0 | Organizational; excluded from walk |
 | `authored_by` | 0.0 | Organizational; excluded from walk |
@@ -310,7 +312,7 @@ All RWR and ranking parameters are configurable via `SweepParams` (`internal/con
 | DistanceW | 0.15 | Distance ranking weight |
 | TestPenalty | 0.3 | Test file score multiplier |
 
-**Parameter sweep result:** A 26-configuration sweep across all parameters produced identical P@10=0.180 (pre-docstring FTS). This proves that P@10 is reachability-determined, not ranking-determined. The retrieval bottleneck is whether relevant symbols are reachable from seeds at all, not how they are ranked once found. New retrieval signals (additional seed channels, new edge types, docstring indexing) are the path forward; tuning existing parameters is futile.
+**Parameter sweep result:** A 26-configuration sweep across all parameters produced identical P@10=0.180 (pre-docstring FTS, now 0.207 with subsequent improvements). This proves that P@10 is reachability-determined, not ranking-determined. The retrieval bottleneck is whether relevant symbols are reachable from seeds at all, not how they are ranked once found. New retrieval signals (additional seed channels, new edge types, docstring indexing, concept thesaurus, self-adapting type-seed preference) are the path forward; tuning existing parameters is futile.
 
 ## Contains and Member_of Edges
 
