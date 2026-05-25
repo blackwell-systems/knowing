@@ -8,6 +8,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+#### `accesses_field` edge type (36th edge type, P@10 neutral)
+- Connects methods to the struct/class fields they read/write via receiver
+- **Go**: extracts `self.field` access from method bodies, creates field nodes from struct declarations. 660 edges on knowing codebase, 1,170 field nodes.
+- **Rust**: extracts `self.field` from impl method bodies, field nodes from struct_item
+- **Python**: extracts `self.field` from method bodies, field nodes from `__init__` assignments and class-level type annotations
+- **Java**: extracts `this.field` from method bodies, field nodes from class field declarations
+- **C#**: extracts `this.Field` from method bodies, field nodes from class field declarations
+- **TypeScript**: extracts `this.field` from method bodies, field nodes from class property declarations
+- Filters common noise fields (mu, logger, ctx, err, lock, wg, once)
+- Field nodes use kind="field", QN pattern "repo://pkg.TypeName.fieldName"
+- Automatically connected to parent type via generateContainsEdges (member_of/contains)
+- RWR weight: 0.6, adjacency cache ID: 34
+
+#### Wire format codec overhaul
+- GCF: added 6 missing kind abbreviations (field, route, ext, file, pkg, svc)
+- Binary (GCB1): added 6 kinds (IDs 11-16), 27 edge types (IDs 10-36), 3 provenances (IDs 5-7)
+- Binary codec previously encoded unknown edge types as 0 (silent data loss on roundtrip)
+- All 36 edge types, 16 node kinds, 7 provenance tiers now encode correctly
+- `similar_to` added to edgetype constants (was used but undeclared)
+
 #### `type_hint_of` edge type (P@10 0.204 -> 0.210, +3%)
 - 34th edge type: connects functions to types referenced in parameter/return annotations
 - **Go**: extracts from `parameter_declaration` nodes, resolves imported types via import map. k8s: 33,689 edges. Skips builtins (string, int, error, etc.)
