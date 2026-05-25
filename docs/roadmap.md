@@ -6,14 +6,10 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 
 | # | Item | Why | Effort |
 |---|------|-----|--------|
-| 1 | **Add missing graph paths (reachability gaps)** | P@10 only moves when ground truth symbols become reachable via RWR for the first time. Improving existing paths (confidence, weighting) is neutral. The task: find symbols that are unreachable, determine why, add the missing edge/path. | Medium |
-| ~~1a~~ | ~~Run failure analysis on current state~~ | **DONE.** Failure analysis tool built (`bench/cross-system/failure_analysis_test.go`). Categorized all P@10 ground truth misses into: not_in_db, no_seeds, unreachable, ranked_low, matched. See FINDINGS.md. | Done |
-| 1b | Fix unreachable-by-missing-edges | `contains` + `member_of` edges shipped; connects 77% of previously-disconnected type/class nodes to methods via QN structure. Moved 19 symbols from unreachable to ranked_low. **Docstring FTS** (migration 018, `doc` column weight 3.0) was the breakthrough: P@10 0.180 -> 0.189 (+5%). Remaining unreachable symbols need further edge types (Go interface embedding, channel send/receive, struct field access). | Medium |
-| 1e | Docstring extraction for TS/Rust/Java/C# | Python + Go extractors now extract docstrings into Node.Doc for FTS indexing. TypeScript, Rust, Java, and C# extractors do not yet populate this field. Adding docstrings for these languages would improve BM25 recall on those corpora. | Low |
-| 1c | Fix unreachable-by-not-in-DB | For symbols in ground truth that reference unindexed modules (k8s.io/client-go, staging), either update fixtures to use indexable symbols or selectively index those modules. | Low |
-| ~~1d~~ | ~~Path-context boosting~~ | **DONE.** Path-context seeding (Channel 5) added to ForTask pipeline. Extracts package/directory terms from task description, finds TYPE nodes in those packages (prioritizing types with contains edges), injects as supplemental RWR seeds at weight 0.3. | Done |
-| 2 | **Real users** | Everything else is validated by benchmarks, not usage. Task memory compounds with use. | Ongoing |
-| 3 | **Parallel write backend** | SQLite single-writer funnels all extraction results through one goroutine. Even with producer-consumer pipeline, writes are serial. Need parallel write support for large repos. | High |
+| 1 | **Real users** | Everything else is validated by benchmarks, not usage. Task memory compounds with use. agent-lsp has 40 stars after 1 month; knowing needs the same traction. | Ongoing |
+| 2 | **Fix remaining unreachable symbols** | 291/653 ground truth symbols still unreachable. Remaining gaps: Go interface embedding, channel send/receive, struct field access edges. Each new edge type that creates paths = step-function P@10 improvement. | Medium |
+| 3 | **Fix unreachable-by-not-in-DB** | Some ground truth references unindexed modules (k8s.io/client-go). Either update fixtures or selectively index. | Low |
+| 4 | **Parallel write backend** | SQLite single-writer funnels all extraction results through one goroutine. Even with producer-consumer pipeline, writes are serial. Need parallel write support for large repos. | High |
 
 ## Storage Backend (P0 Performance)
 
@@ -143,7 +139,6 @@ Current status: per-repo isolation (no cross-repo queries). First real user who 
 | **Cross-repo context_for_task** | Search across ALL indexed repos simultaneously, not just one. Real projects span multiple repos (monorepo patterns, microservices). Merge results from all repos into one ranked list. See "Cross-Repo Query Architecture" section below. | P2 |
 | **Incremental context ("next page")** | After an agent gets initial context, allow requesting the NEXT N symbols not yet seen. Avoids re-querying with bigger budget and getting duplicates. Session-stateful cursor. | P2 |
 | **Staleness annotations on MCP responses** | When returning context, annotate symbols whose source files changed since last index. Agents know which results might be outdated without calling `knowing stale` separately. | P2 |
-| ~~**Multi-module enrichment (k8s fix)**~~ | **SHIPPED.** Parse go.work, one gopls per module, parallel sub-modules (4 concurrent), progress persistence, per-symbol timeout. k8s: 57K lsp_resolved edges. P@10 neutral (enrichment is correctness, not a ranking lever). | Done |
 | **CLI `--format gcf` output** | `knowing context` only supports json/xml/markdown. Adding gcf/gcb for direct agent consumption without MCP. | P3 |
 | `knowing daemon install-service` | Generate launchd plist (macOS) or systemd user unit (Linux). | P3 |
 | Per-repo config (`.knowing.yaml`) | Excludes, local overrides, workspace membership. | P3 |
@@ -194,15 +189,16 @@ context retrieval. Full proposal: [docs/proposals/code-retrieval-eval-toolkit.md
 ## Retrieval Pipeline
 
 Current results: see [bench/cross-system/FINDINGS.md](../bench/cross-system/FINDINGS.md).
-P@10=0.189 (post-docstring FTS, +5% from 0.180 baseline), 1.63x vs codegraph, 4.3x vs Aider, 11x vs grep. Query latency 2ms on k8s (with adjacency cache).
+P@10=0.185 (Run 24, fresh index with docstring FTS). 1.36x vs codegraph, 2.45x vs GitNexus, 2.92x vs Gortex, 14.2x vs grep. Query latency 2ms on k8s (with adjacency cache).
+
+**Key finding (session 13):** 32-config parameter sweep + 6-point doc weight sweep proved P@10 is entirely reachability-determined. No parameter tuning moves it. Only new edges or new seed sources improve retrieval.
 
 ### Retrieval Improvements
 
 | # | Item | Why | Status |
 |---|------|-----|--------|
 | 7 | **More equivalence concepts** | Only add when a specific task fixture exposes a gap. Must respect Run 22 constraint (no single-word phrases, no generic targets). | On-demand |
-| 12 | **Semantic similarity edges (LSH token vectors)** | Lightweight clone/similarity detection: functions with high token overlap get `SIMILAR_TO` edges. Bridges disconnected subgraphs where two functions do the same work but don't call each other. Inspired by codebase-memory's `SEMANTICALLY_RELATED` edges. NOT embedding-based (no model dependency). Compute Jaccard on tokenized function bodies, store edges above threshold. Revert immediately if P@10 regresses. | Experiment (revert if negative) |
-| 13 | **`is_entry_point` / `is_exported` node flags** | Tag functions as entry points (main, handlers, CLI commands) or exported (public API). Enables filtering: entry points get higher RWR restart weight. Inspired by codebase-memory's node properties. Low effort, no regression risk. | Experiment |
+| 13 | **`is_entry_point` / `is_exported` node flags** | Tag functions as entry points (main, handlers, CLI commands) or exported (public API). Enables filtering: entry points get higher RWR restart weight. | Experiment |
 | 11 | **Feedback parameter sweep (warm-start)** | Session boost (0.20), task memory formula (0.5+score*0.4), decay (7-day linear), top-N (5) are untuned. Only affects real-user compounding. | When users exist |
 
 ## Edge Type Expansion
