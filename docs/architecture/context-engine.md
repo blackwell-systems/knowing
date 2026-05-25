@@ -56,6 +56,26 @@ The session boost is provided by `SessionTracker` (`internal/context/session.go`
 
 After initial scoring, the top candidates are reranked using HITS (Hyperlink-Induced Topic Search) authority scores. Nodes with high authority (heavily called functions, core types, key interfaces) are promoted when they are seed matches; non-seed authorities (generic infrastructure like `context.Context`) are penalized. Seed hubs (orchestrators, entry points) receive a smaller bonus for structural context.
 
+## HITS Reranking (Hyperlink-Induced Topic Search)
+
+After RWR produces a scored candidate set, HITS computes Authority and Hub scores on the same subgraph that RWR explored (not the full graph). This reshapes the ranking to promote task-specific authorities over generic infrastructure.
+
+**Authority** scores identify nodes pointed to by many others: heavily called functions, important types, key interfaces. These are the structural centers of the subgraph.
+
+**Hub** scores identify nodes that point to many others: orchestrators, entry points, dispatch functions. These are the connectors that tie a subsystem together.
+
+**Implementation:** `ComputeHITS` in `internal/context/walk.go` runs 10 power iterations on the top-200 candidates from RWR. The algorithm alternately updates authority scores (sum of hub scores of all nodes pointing in) and hub scores (sum of authority scores of all nodes pointed to), normalizing after each iteration.
+
+**Ranking adjustments** (applied in `RankSymbols`, `internal/context/ranking.go`):
+
+| Condition | Adjustment | Rationale |
+|-----------|-----------|-----------|
+| Seed node with high authority | +0.25 * authority | Both keyword-relevant AND structurally central; strong signal of task relevance |
+| Non-seed node with high authority | -0.15 * authority | Generic infrastructure (`types.Hash`, `context.Context`) called by everything but rarely task-relevant |
+| Seed node with high hub score | +0.10 * hub | Entry points and orchestrators that connect task-relevant code |
+
+The asymmetric treatment of authority is the key insight: authority alone is not a quality signal. A node with high authority that also matches the task keywords (seed) is genuinely important to the task. A node with high authority that does not match keywords is likely generic infrastructure that appears in every subgraph regardless of the task. By penalizing non-seed authorities, HITS suppresses the "popular but irrelevant" nodes that would otherwise dominate purely structural rankings.
+
 ## Density-Ranked Knapsack Packing
 
 Symbols are not packed by raw score alone. The packer uses a density-ranked greedy fractional knapsack approach: symbols are sorted by their score/cost ratio (where cost is estimated token count), so that high-value, low-cost symbols are included preferentially over expensive symbols (long functions) when the budget is tight. This maximizes the total relevance delivered per token.
