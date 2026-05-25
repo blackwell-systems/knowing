@@ -35,6 +35,15 @@ type VectorSearcher interface {
 	EmbedAndSearch(ctx stdctx.Context, query string, k int) ([]types.Hash, error)
 }
 
+// VectorReRanker re-ranks candidates by embedding similarity to a query.
+// Optional interface; if the VectorSearcher also implements this, the engine
+// uses it to re-rank RWR output before packing.
+type VectorReRanker interface {
+	// ReRank embeds the query and each candidate text, returns indices sorted by
+	// descending cosine similarity to the query.
+	ReRank(ctx stdctx.Context, query string, candidates []string) ([]int, error)
+}
+
 // ContextEngine queries the knowing knowledge graph to produce task-specific,
 // token-budgeted context blocks ranked by graph relationships and runtime traffic.
 type ContextEngine struct {
@@ -137,6 +146,49 @@ func (e *ContextEngine) SetSession(st *SessionTracker) {
 // SetVector attaches a vector search backend to the engine.
 func (e *ContextEngine) SetVector(vs VectorSearcher) {
 	e.vector = vs
+}
+
+// reRankWithEmbeddings re-orders the top-N ranked symbols using embedding similarity
+// to the task description. Takes the top 50 candidates, embeds them alongside the query,
+// and reorders by cosine similarity. Symbols below top-50 retain their original order.
+func (e *ContextEngine) reRankWithEmbeddings(ctx stdctx.Context, reranker VectorReRanker, ranked []RankedSymbol, task string) []RankedSymbol {
+	// Only re-rank top 50 (embedding cost is proportional to count).
+	reRankN := 50
+	if len(ranked) < reRankN {
+		reRankN = len(ranked)
+	}
+	if reRankN == 0 || task == "" {
+		return ranked
+	}
+
+	// Build candidate texts from symbol metadata.
+	candidates := make([]string, reRankN)
+	for i := 0; i < reRankN; i++ {
+		n := ranked[i].Node
+		// Rich text: kind + name + signature + doc
+		parts := []string{n.Kind, n.QualifiedName}
+		if n.Signature != "" {
+			parts = append(parts, n.Signature)
+		}
+		if n.Doc != "" {
+			parts = append(parts, n.Doc)
+		}
+		candidates[i] = strings.Join(parts, " ")
+	}
+
+	// Re-rank via embeddings.
+	order, err := reranker.ReRank(ctx, task, candidates)
+	if err != nil || len(order) != reRankN {
+		return ranked // fallback to original order on error
+	}
+
+	// Rebuild ranked slice: re-ranked top-N + unchanged tail.
+	result := make([]RankedSymbol, len(ranked))
+	for i, origIdx := range order {
+		result[i] = ranked[origIdx]
+	}
+	copy(result[reRankN:], ranked[reRankN:])
+	return result
 }
 
 // SetTaskMemory attaches a task memory for passive retrieval learning.
@@ -902,6 +954,12 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 
 	// Rank and pack into budget.
 	ranked := RankSymbols(inputs, hitsResult)
+
+	// Re-rank top candidates using embedding similarity if available.
+	if reranker, ok := e.vector.(VectorReRanker); ok && len(ranked) > 0 {
+		ranked = e.reRankWithEmbeddings(ctx, reranker, ranked, opts.TaskDescription)
+	}
+
 	block := packIntoBudget(ranked, budget, opts.Format)
 
 	// Record returned symbols in session tracker for future query boosts.

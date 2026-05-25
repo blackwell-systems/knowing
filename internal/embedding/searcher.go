@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"math"
+	"sort"
 	"strings"
 
 	"github.com/blackwell-systems/knowing/internal/types"
@@ -82,6 +84,68 @@ func (s *Searcher) IndexBatch(ctx context.Context, nodes []types.Node, filePaths
 // Count returns the number of indexed vectors.
 func (s *Searcher) Count() int {
 	return s.embedder.Count()
+}
+
+// ReRank embeds the query and each candidate text, returns indices sorted by
+// descending cosine similarity to the query. Used as a post-RWR re-ranking step.
+func (s *Searcher) ReRank(ctx context.Context, query string, candidates []string) ([]int, error) {
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+
+	// Embed query + all candidates in one batch.
+	all := make([]string, 0, 1+len(candidates))
+	all = append(all, query)
+	all = append(all, candidates...)
+
+	vecs, err := s.embedder.EmbedBatch(ctx, all)
+	if err != nil {
+		return nil, fmt.Errorf("rerank embed: %w", err)
+	}
+	if len(vecs) < 1+len(candidates) {
+		return nil, fmt.Errorf("rerank: expected %d vectors, got %d", 1+len(candidates), len(vecs))
+	}
+
+	queryVec := vecs[0]
+
+	// Compute cosine similarity for each candidate.
+	type scored struct {
+		idx   int
+		score float64
+	}
+	scores := make([]scored, len(candidates))
+	for i := range candidates {
+		scores[i] = scored{idx: i, score: cosine(queryVec, vecs[i+1])}
+	}
+
+	// Sort by descending similarity.
+	sort.Slice(scores, func(a, b int) bool {
+		return scores[a].score > scores[b].score
+	})
+
+	result := make([]int, len(scores))
+	for i, s := range scores {
+		result[i] = s.idx
+	}
+	return result, nil
+}
+
+// cosine computes cosine similarity between two vectors.
+func cosine(a, b []float32) float64 {
+	var dot, normA, normB float32
+	for i := range a {
+		dot += a[i] * b[i]
+		normA += a[i] * a[i]
+		normB += b[i] * b[i]
+	}
+	if normA == 0 || normB == 0 {
+		return 0
+	}
+	return float64(dot) / (float64(sqrt32(normA)) * float64(sqrt32(normB)))
+}
+
+func sqrt32(x float32) float32 {
+	return float32(math.Sqrt(float64(x)))
 }
 
 // Close releases the underlying embedder resources.
