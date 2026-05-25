@@ -288,6 +288,7 @@ func (e *TypeScriptExtractor) extractNode(
 	case "function_declaration":
 		n := extractFuncDecl(node, opts, qnamePrefix, className)
 		*nodes = append(*nodes, n)
+		*edges = append(*edges, extractTSTypeHints(node, opts, qnamePrefix, n.NodeHash)...)
 		// Extract call edges from the function body.
 		body := node.ChildByFieldName("body")
 		extractCallEdgesFromBody(body, opts, qnamePrefix, n.NodeHash, hasExpress, nodes, edges)
@@ -322,6 +323,7 @@ func (e *TypeScriptExtractor) extractNode(
 				if child.Type() == "method_definition" {
 					m := extractMethodDef(child, opts, qnamePrefix, clsName)
 					*nodes = append(*nodes, m)
+					*edges = append(*edges, extractTSTypeHints(child, opts, qnamePrefix, m.NodeHash)...)
 
 					// Emit overrides edge if the method has an override modifier.
 					extractOverrideEdge(child, opts, qnamePrefix, clsName, m.NodeHash, edges)
@@ -1478,4 +1480,90 @@ func deduplicateEdges(edges []types.Edge) []types.Edge {
 		}
 	}
 	return result
+}
+
+// extractTSTypeHints creates type_hint_of edges from a function/method to the
+// types referenced in its parameter type annotations.
+func extractTSTypeHints(node *sitter.Node, opts types.ExtractOptions, qnamePrefix string, funcHash types.Hash) []types.Edge {
+	params := node.ChildByFieldName("parameters")
+	if params == nil {
+		return nil
+	}
+	var edges []types.Edge
+	seen := make(map[string]bool)
+	for i := 0; i < int(params.ChildCount()); i++ {
+		param := params.Child(i)
+		// TS parameters: required_parameter, optional_parameter, rest_parameter
+		switch param.Type() {
+		case "required_parameter", "optional_parameter", "rest_parameter":
+		default:
+			continue
+		}
+		// Type annotation is in the "type" field (type_annotation node).
+		typeAnnotation := param.ChildByFieldName("type")
+		if typeAnnotation == nil {
+			continue
+		}
+		typeName := extractTSTypeName(typeAnnotation, opts.Content)
+		if typeName == "" || seen[typeName] || isTSBuiltin(typeName) {
+			continue
+		}
+		seen[typeName] = true
+		targetHash := types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, typeName, "type")
+		edgeHash := types.ComputeEdgeHash(funcHash, targetHash, edgetype.TypeHintOf, "ast_inferred")
+		edges = append(edges, types.Edge{
+			EdgeHash:   edgeHash,
+			SourceHash: funcHash,
+			TargetHash: targetHash,
+			EdgeType:   edgetype.TypeHintOf,
+			Confidence: 0.8,
+			Provenance: "ast_inferred",
+		})
+	}
+	return edges
+}
+
+// extractTSTypeName gets the base type name from a TypeScript type annotation.
+func extractTSTypeName(node *sitter.Node, content []byte) string {
+	if node == nil {
+		return ""
+	}
+	switch node.Type() {
+	case "type_annotation":
+		// Unwrap: type_annotation -> inner type node
+		if node.ChildCount() > 1 {
+			return extractTSTypeName(node.Child(1), content)
+		}
+		if node.ChildCount() == 1 {
+			return extractTSTypeName(node.Child(0), content)
+		}
+	case "type_identifier":
+		return node.Content(content)
+	case "generic_type":
+		// Array<string> -> Array; Map<K,V> -> Map
+		for i := 0; i < int(node.ChildCount()); i++ {
+			child := node.Child(i)
+			if child.Type() == "type_identifier" {
+				return child.Content(content)
+			}
+		}
+	case "member_expression", "nested_type_identifier":
+		// namespace.Type -> Type (terminal)
+		text := node.Content(content)
+		if dotIdx := strings.LastIndex(text, "."); dotIdx >= 0 {
+			return text[dotIdx+1:]
+		}
+		return text
+	}
+	return ""
+}
+
+// isTSBuiltin returns true for TypeScript primitives.
+func isTSBuiltin(name string) bool {
+	switch name {
+	case "string", "number", "boolean", "void", "null", "undefined",
+		"any", "unknown", "never", "object", "symbol", "bigint":
+		return true
+	}
+	return false
 }

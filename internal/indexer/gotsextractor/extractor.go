@@ -120,6 +120,7 @@ func (e *GoTreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractO
 		case "function_declaration":
 			node := extractFuncDecl(child, opts, pkgPath)
 			nodes = append(nodes, node)
+			edges = append(edges, extractGoTypeHints(child, opts, pkgPath, node.NodeHash, imports)...)
 			body := child.ChildByFieldName("body")
 			// Single-pass walk: visits every node in the body once, dispatching to
 			// all pattern detectors (calls, throws, routes, flags, endpoints).
@@ -130,6 +131,7 @@ func (e *GoTreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractO
 		case "method_declaration":
 			node := extractMethodDecl(child, opts, pkgPath)
 			nodes = append(nodes, node)
+			edges = append(edges, extractGoTypeHints(child, opts, pkgPath, node.NodeHash, imports)...)
 			body := child.ChildByFieldName("body")
 			// Single-pass walk: same as function_declaration.
 			bodyResult := walkBodyOnce(body, opts, pkgPath, node.NodeHash, imports, externalNodes)
@@ -428,6 +430,76 @@ func extractTypeName(typeNode *sitter.Node, content []byte) string {
 	default:
 		return typeNode.Content(content)
 	}
+}
+
+// extractGoTypeHints creates type_hint_of edges from a function/method to
+// the types referenced in its parameter list. In Go, every parameter has a
+// type, so this creates edges for all non-builtin parameter types.
+func extractGoTypeHints(funcNode *sitter.Node, opts types.ExtractOptions, pkgPath string, funcHash types.Hash, imports map[string]string) []types.Edge {
+	params := funcNode.ChildByFieldName("parameters")
+	if params == nil {
+		return nil
+	}
+
+	var edges []types.Edge
+	seen := make(map[string]bool)
+
+	for i := 0; i < int(params.ChildCount()); i++ {
+		param := params.Child(i)
+		if param.Type() != "parameter_declaration" {
+			continue
+		}
+		typeNode := param.ChildByFieldName("type")
+		if typeNode == nil {
+			continue
+		}
+		typeName := extractTypeName(typeNode, opts.Content)
+		if typeName == "" || typeName == "Unknown" || seen[typeName] {
+			continue
+		}
+		// Skip builtins.
+		if isGoBuiltin(typeName) {
+			continue
+		}
+		seen[typeName] = true
+
+		// Resolve: if the type is from an imported package (qualified_type: pkg.Type),
+		// use the import map. Otherwise it's a local type in the same package.
+		targetPkg := pkgPath
+		targetName := typeName
+		if dotIdx := strings.LastIndex(typeName, "."); dotIdx > 0 {
+			pkgAlias := typeName[:dotIdx]
+			targetName = typeName[dotIdx+1:]
+			if importPath, ok := imports[pkgAlias]; ok {
+				targetPkg = importPath
+			}
+		}
+
+		targetHash := types.ComputeNodeHash(opts.RepoURL, targetPkg, types.EmptyHash, targetName, "type")
+		edgeHash := types.ComputeEdgeHash(funcHash, targetHash, edgetype.TypeHintOf, "ast_inferred")
+		edges = append(edges, types.Edge{
+			EdgeHash:   edgeHash,
+			SourceHash: funcHash,
+			TargetHash: targetHash,
+			EdgeType:   edgetype.TypeHintOf,
+			Confidence: 0.8,
+			Provenance: "ast_inferred",
+		})
+	}
+	return edges
+}
+
+// isGoBuiltin returns true if the type name is a Go builtin that shouldn't
+// generate type_hint_of edges (too generic, every function uses them).
+func isGoBuiltin(name string) bool {
+	switch name {
+	case "string", "int", "int8", "int16", "int32", "int64",
+		"uint", "uint8", "uint16", "uint32", "uint64",
+		"float32", "float64", "bool", "byte", "rune",
+		"error", "any", "interface", "struct":
+		return true
+	}
+	return false
 }
 
 // extractTypeDecl creates Nodes for type declarations (type specs).

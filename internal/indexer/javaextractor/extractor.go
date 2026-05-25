@@ -522,7 +522,91 @@ func extractMethodDecl(node *sitter.Node, opts types.ExtractOptions, pkgPath, cl
 		edges = append(edges, callEdges...)
 	}
 
+	// Extract type_hint_of edges from parameter types.
+	edges = append(edges, extractJavaTypeHints(node, opts, pkgPath, nodeHash)...)
+
 	return nodes, edges
+}
+
+// extractJavaTypeHints creates type_hint_of edges from a method to the types
+// of its formal parameters. Skips Java primitives and common builtins.
+func extractJavaTypeHints(methodNode *sitter.Node, opts types.ExtractOptions, pkgPath string, methodHash types.Hash) []types.Edge {
+	params := methodNode.ChildByFieldName("parameters")
+	if params == nil {
+		return nil
+	}
+	var edges []types.Edge
+	seen := make(map[string]bool)
+	for i := 0; i < int(params.ChildCount()); i++ {
+		param := params.Child(i)
+		if param.Type() != "formal_parameter" && param.Type() != "spread_parameter" {
+			continue
+		}
+		typeNode := param.ChildByFieldName("type")
+		if typeNode == nil {
+			continue
+		}
+		typeName := extractJavaTypeName(typeNode, opts.Content)
+		if typeName == "" || seen[typeName] || isJavaBuiltin(typeName) {
+			continue
+		}
+		seen[typeName] = true
+		targetHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, typeName, "type")
+		edgeHash := types.ComputeEdgeHash(methodHash, targetHash, edgetype.TypeHintOf, "ast_inferred")
+		edges = append(edges, types.Edge{
+			EdgeHash:   edgeHash,
+			SourceHash: methodHash,
+			TargetHash: targetHash,
+			EdgeType:   edgetype.TypeHintOf,
+			Confidence: 0.8,
+			Provenance: "ast_inferred",
+		})
+	}
+	return edges
+}
+
+// extractJavaTypeName gets the base type name from a Java type node.
+func extractJavaTypeName(node *sitter.Node, content []byte) string {
+	if node == nil {
+		return ""
+	}
+	switch node.Type() {
+	case "type_identifier":
+		return node.Content(content)
+	case "scoped_type_identifier":
+		// org.apache.kafka.clients.Consumer -> Consumer (terminal)
+		name := node.ChildByFieldName("name")
+		if name != nil {
+			return name.Content(content)
+		}
+		return node.Content(content)
+	case "generic_type":
+		// List<String> -> List
+		for i := 0; i < int(node.ChildCount()); i++ {
+			child := node.Child(i)
+			if child.Type() == "type_identifier" || child.Type() == "scoped_type_identifier" {
+				return extractJavaTypeName(child, content)
+			}
+		}
+	case "array_type":
+		// String[] -> String
+		element := node.ChildByFieldName("element")
+		if element != nil {
+			return extractJavaTypeName(element, content)
+		}
+	}
+	return ""
+}
+
+// isJavaBuiltin returns true for Java primitives and very common types.
+func isJavaBuiltin(name string) bool {
+	switch name {
+	case "int", "long", "short", "byte", "char", "boolean", "float", "double", "void",
+		"String", "Object", "Integer", "Long", "Boolean", "Double", "Float",
+		"Class", "Void", "Byte", "Short", "Character":
+		return true
+	}
+	return false
 }
 
 // extractConstructorDecl extracts a constructor declaration.
