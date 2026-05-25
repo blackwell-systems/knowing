@@ -3,10 +3,11 @@
 ## Design Goals
 
 - **Content-addressed**: every graph state is a hash; history, staleness, and integrity are structural properties, not bolted-on features. All hash inputs carry domain-type prefixes (`node\0`, `edge\0`, `snapshot\0`, `merkle\0`) so hashes from different entity types are structurally distinguishable, making cross-type hash collisions structurally impossible (same approach as git's `"blob <size>\0"` header)
-- **Two-tier extraction**: tree-sitter for fast AST parsing (seconds), LSP enrichment for type-resolved confidence (seconds more); graph is queryable after Tier 1
+- **Two-tier extraction**: 24 extractors across 12 languages + infrastructure; tree-sitter for fast AST parsing (seconds), LSP enrichment for type-resolved confidence (seconds more); graph is queryable after Tier 1
 - **Git-driven incremental**: commits are the unit of change; git diff provides the exact changed file set; no filesystem walking or content hashing for change detection
 - **Language-aware at boundaries**: Go calling Go is straightforward; Go calling a Python service via HTTP needs route mapping
 - **MCP-native**: exposed as MCP tools, consumed by agents directly
+- **Local-first, no paid LLM**: all indexing, retrieval, and ranking run locally without external API calls. Pure Go binary with no runtime dependencies beyond SQLite. Vector search (disabled by default) is the only component that would require an embedding model
 - **Fast**: optimized for interactive agent queries over large multi-repo graphs
 - **Deterministic**: same input at same commit always produces the same graph (verifiable via hash)
 - **Hierarchical Merkle tree**: snapshots build a four-level tree (repo root -> package roots -> edge-type roots -> edge leaves); the flat tree was dropped after the hash domain prefix change made backward compatibility moot; `DiffHierarchicalTrees` is 216x faster on real data (~24.9K edges), 517x on 100K synthetic edges; `SubgraphRoot` gives O(1) cache keys per package set; `EdgeTypeRoot` answers "did call edges change?" in one lookup (see `internal/snapshot/hierarchical.go`)
@@ -19,10 +20,15 @@ knowing decomposes into three planes separated by an artifact boundary. This sep
 
 ```
 Execution Plane (produces the artifact)
-├── Indexer
+├── Indexer (24 extractors across 12 languages + infrastructure)
 │   ├── Go extractor (go/packages, full type resolution, `--full` flag)
-│   ├── tree-sitter extractors (Go, Python, Ruby, TypeScript/JS, Rust, Java, C#, CSS, Protocol Buffers, GraphQL, OpenAPI/Swagger)
-│   ├── Infrastructure extractors (Terraform HCL, SQL, Kubernetes YAML, Cloud YAML, Dockerfile, Makefile, Helm, GitLab CI, package.json/npm, .env, Event/MQ, OpenAPI/Swagger, CODEOWNERS)
+│   ├── tree-sitter extractors (Go, Python, Ruby, TypeScript/JS, Rust, Java, C#, CSS, Protocol Buffers, GraphQL, SQL, OpenAPI/Swagger)
+│   ├── Infrastructure extractors (Terraform HCL, Kubernetes YAML, Cloud YAML, Dockerfile, Makefile, Helm, GitLab CI, package.json/npm, .env, Event/MQ, CODEOWNERS)
+│   ├── Docstring extraction (Go, Python, TypeScript, Rust, Java, C#) via shared `docextract` package
+│   ├── Callback registration edges (event-driven patterns: `on`, `connect`, `subscribe`, `register`, `add_done_callback`)
+│   ├── Interface method propagation (`overrides` edges from implementing methods to interface methods)
+│   ├── Python import resolution (submodule imports resolved to file paths)
+│   ├── Structural edges (`contains`/`member_of` from QN hierarchy; connects 77% of previously-disconnected type nodes)
 │   └── SCIP ingest (`knowing ingest-scip`, external dependency surfaces)
 ├── Trace ingestion pipeline
 │   ├── OTel span ingest
@@ -119,3 +125,35 @@ Basic graph reads (`cross_repo_callers`, `graph_query`, `repo_graph`) are execut
 **The trace ingestion boundary:**
 
 Runtime trace ingestion straddles the planes. The ingest pipeline (normalizing spans, resolving symbols, writing edges) is execution: it produces graph state. The aggregation, confidence scoring, and decay analysis that operate on ingested edges are intelligence: they interpret what the ingest pipeline produced. The architecture separates these by interface: `TraceIngestor` belongs to the execution plane and writes to `GraphStore`; confidence decay and runtime aggregation caching belong to the intelligence plane and read from `GraphStore` and `ComputationCache`.
+
+## Graph Structure
+
+The knowledge graph uses 32 edge types (see `internal/edgetype/constants.go` and `docs/architecture/edge-types.md`). Notable structural properties:
+
+- **Structural edges** (`contains`, `member_of`) connect type/class nodes to their methods and fields via qualified name hierarchy. These edges connected 77% of previously-disconnected type/class nodes (5,457/7,086 in k8s) that had zero edges, enabling RWR to walk from types to their methods and back.
+- **Interface method propagation** creates `overrides` edges from implementing class methods to corresponding interface methods. When class C implements interface I and both define method M, C.M overrides I.M. This lets RWR walk from an interface method to all concrete implementations.
+- **Callback registration edges** detect event-driven patterns (`on`, `connect`, `subscribe`, `register`, `add_done_callback`) and emit `calls` edges from the registrar to the callback argument, making event-driven code reachable via graph traversal.
+- **Python import resolution** resolves submodule imports to actual file paths (e.g., `from operations import base` resolves through the module path to the target file), producing higher-confidence edges with accurate qualified names.
+
+## Retrieval Pipeline
+
+The context engine (`internal/context/`) implements task-based retrieval: given a natural-language task description, it returns a ranked, token-budgeted set of symbols from the graph.
+
+**Full-text search:** FTS5 BM25 with 6 columns, weighted: `symbol_name` (10x), `concepts` (5x), `file_path` (4x), `qualified_name` (3x), `doc` (3x), `signature` (1x). The `concepts` column stores path-derived terms (directory names split on separators) so searching "migration" finds symbols in migration-related files. The `doc` column indexes docstrings extracted across 6 languages.
+
+**Seed retrieval channels** (5, fused via Reciprocal Rank Fusion):
+
+1. **Tiered keyword matching:** compound-first search (exact > prefix > substring > path) against qualified names
+2. **BM25 full-text search:** compound-targeted query against the FTS5 index, with file_path prefix terms appended
+3. **Vector (embedding) search:** semantic nearest-neighbor over symbol embeddings (disabled by default; requires embedding model)
+4. **Equivalence class matching:** maps conceptual phrases in the task description to concrete symbol targets via curated + graph-derived alias dictionaries
+5. **Path-context seeding:** extracts package/directory terms from the task description and finds TYPE/CLASS nodes in matching paths; types with `contains` edges serve as structural anchors for RWR walks
+
+After seed retrieval, Random Walk with Restart (RWR) expands the seed set through the graph, HITS reranking promotes authorities, and community-aware scoring prevents single-cluster dominance.
+
+**Benchmark results (fresh index, no enrichment):**
+
+- P@10 = 0.185 across 117 tasks, 7 repos (Go, Python, TypeScript, Rust, Java, C#), 14K to 3.5M LOC
+- Competitive advantage: vs codegraph 1.36x, vs gitnexus 2.45x, vs gortex 2.92x, vs grep 14.2x
+- Parameter sweep (RWR alpha, seed count, score cutoff, blast radius weight, distance weight, confidence weight, RRF k, test penalty): all 9 parameters produce identical P@10. Quality is determined entirely by graph reachability (binary: is the symbol connected to any seed?), not by continuous parameter tuning.
+- Implication: all P@10 improvements must target reachability (new edge types, new seed sources), not ranking (parameter adjustment).
