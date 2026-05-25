@@ -106,6 +106,103 @@ BENCH_REPOS=vscode,kubernetes BENCH_ADAPTERS=knowing \
   go test ./bench/cross-system/ -run TestCrossSystem -timeout 15m -v
 ```
 
+## Failure Analysis
+
+Categorizes every P@10 ground truth miss into actionable buckets.
+
+```bash
+# Full failure analysis across all repos
+GOWORK=off go test ./bench/cross-system/ -run TestFailureAnalysis -timeout 30m -v
+
+# Single repo
+BENCH_REPOS=vscode GOWORK=off go test ./bench/cross-system/ -run TestFailureAnalysis -timeout 10m -v
+```
+
+**Categories:**
+- `matched`: ground truth symbol appeared in top-10 (not a miss)
+- `ranked_low`: reachable via RWR but ranked outside top-10 (ranking problem)
+- `unreachable`: no RWR path exists from any seed to this symbol (graph connectivity problem)
+- `not_in_db`: symbol doesn't exist in the indexed graph (extraction gap)
+- `no_seeds`: keyword extraction produced zero seeds (should never happen)
+
+**When to use:** After any retrieval change, run failure analysis to understand
+WHERE the improvement/regression happened. A change that moves symbols from
+`unreachable` to `ranked_low` is structural progress (new paths). A change that
+moves symbols from `ranked_low` to `matched` is ranking progress (better scoring).
+
+## Parameter Sweep
+
+Tests all tunable parameters with zero variance expected (proves reachability-determination).
+
+```bash
+# Full 32-config sweep (slow, ~60 min)
+GOWORK=off go test ./bench/cross-system/ -run TestParameterSweep -timeout 60m -v
+
+# Quick validation (6 configs)
+BENCH_REPOS=flask,django GOWORK=off go test ./bench/cross-system/ -run TestParameterSweep -timeout 30m -v
+```
+
+**When to use:** After any structural change, verify that parameter tuning is still
+irrelevant. If a code change makes parameter tuning START mattering, that's a signal
+the change introduced a non-reachability-dependent path (which might be fragile).
+
+## Known Patterns
+
+### Dense Graph Dilution (session 14)
+
+**Symptom:** P@10 drops when more nodes/edges are added to the graph, even though
+the correct symbols are still present and reachable.
+
+**Root cause:** BM25/tiered search returns more candidates for the same keywords.
+RRF fusion picks different (worse) seeds. RWR then walks from wrong starting points.
+
+**Diagnostic sequence:**
+1. Run with `BENCH_EXCLUDE_EDGES` for each edge type. If none recovers, it's not edges.
+2. Run with `BENCH_BFS_DEPTH=2`. If no recovery, it's not walk depth.
+3. Check keyword extraction output for the failing task. If all keywords are generic
+   single words ("code", "action", "trigger"), the problem is seed specificity.
+4. Count FTS matches for each keyword (`SELECT COUNT(*) FROM nodes WHERE qualified_name
+   LIKE '%keyword%'`). If any keyword matches >1000 nodes, it's too generic for the
+   graph density.
+
+**Known triggers:**
+- Correct TS extraction (export_statement fix): 43K -> 87K nodes (session 14)
+- k8s staging module inclusion: 117K -> 253K nodes (session 12)
+- LSP enrichment: adds 42K edges from pyright (session 13)
+
+**Fix approaches (under investigation):**
+- Phrase-aware BM25: adjacent word bigrams as FTS5 phrase queries
+- Node-kind-aware seed selection: prefer types/interfaces over methods for dense graphs
+- Per-package BM25: smaller FTS index per scope restores IDF discrimination
+- Local embeddings: vector similarity is density-independent
+
+### Enrichment Dilution (session 12-13)
+
+**Symptom:** LSP enrichment adds correct edges but P@10 drops.
+
+**Root cause:** Enrichment adds edges to already-well-connected nodes (pyright resolves
+every call). These extra edges don't create new reachability; they just spread probability
+mass further along existing paths.
+
+**Diagnostic:** Compare P@10 with `--no-enrich` vs enriched. If unenriched is better,
+enrichment is diluting.
+
+**Fix:** Don't use enrichment for retrieval quality. Enrichment is for audit/confidence
+(provenance upgrade 0.7 -> 0.9), not for retrieval.
+
+### Feedback BFS Flooding (session 13)
+
+**Symptom:** Feedback compounding stops working or regresses P@10.
+
+**Root cause:** Weight-0 edges (contains, member_of, authored_by) being traversed during
+adjacency BFS expansion. These structural edges connect thousands of nodes that shouldn't
+participate in the feedback-weighted walk.
+
+**Diagnostic:** Check if `edgeWeights` has weight-0 entries that are NOT excluded from
+BFS frontier expansion in `buildAdjacencyMap`.
+
+**Fix:** Skip frontier expansion through weight-0 edges (already implemented in walk.go).
+
 ## Interpreting Results
 
 **Edge exclusion has no effect:** The dilution is not from that edge type.
