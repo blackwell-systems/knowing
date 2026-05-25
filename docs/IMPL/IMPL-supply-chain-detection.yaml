@@ -1,0 +1,817 @@
+title: Supply Chain Attack Detection Infrastructure
+feature_slug: supply-chain-detection
+verdict: SUITABLE
+suitability_assessment: |
+    1. File decomposition: Work decomposes cleanly into 5 agents with disjoint file ownership.
+       Each language extractor lives in its own package (gotsextractor, treesitter, tsextractor),
+       shared infrastructure is in separate files (edgetype/constants.go, wire/binary.go,
+       context/walk.go, types/kinds.go, diff/isolation.go), and the CLI command is its own file.
+       The only shared files (edgetype, walk, wire, kinds) are owned by a single infrastructure
+       agent; extractors only import from them.
+
+    2. Investigation-first: None. The feature requirements are fully specified with exact
+       tree-sitter node types, formulas, and target schemas.
+
+    3. Interface discoverability: Yes. The edge type constants, node kinds, and isolation
+       score API can be fully defined before implementation. Extractors follow an established
+       pattern (see accesses_field implementation).
+
+    4. Pre-implementation status: All TODO. No existing reads_env or executes_process
+       extraction exists. No isolation score computation exists. No audit-supply-chain command.
+
+    5. Parallelization value: High. 5 agents, build/test cycle >30s (GOWORK=off go test),
+       3+ files per agent, all Wave 1 agents are fully independent after scaffolds.
+
+    Estimated times:
+    - Scout phase: ~8 min
+    - Agent execution: ~12 min (5 agents x 8 min avg, single wave)
+    - Merge and verification: ~4 min
+    Total Polywave time: ~24 min
+
+    Sequential baseline: ~40 min (5 agents x 8 min avg)
+    Time savings: ~16 min (40% faster)
+
+    Recommendation: Clear speedup. Proceed.
+test_command: GOWORK=off go test ./internal/indexer/... ./internal/diff/... ./internal/edgetype/... ./cmd/... -timeout 120s
+lint_command: GOWORK=off go vet ./...
+file_ownership:
+    - file: internal/edgetype/constants.go
+      agent: D
+      wave: 1
+      action: modify
+    - file: internal/types/kinds.go
+      agent: D
+      wave: 1
+      action: modify
+    - file: internal/context/walk.go
+      agent: D
+      wave: 1
+      action: modify
+    - file: internal/wire/binary.go
+      agent: D
+      wave: 1
+      action: modify
+    - file: internal/diff/isolation.go
+      agent: D
+      wave: 1
+      action: new
+    - file: internal/diff/isolation_test.go
+      agent: D
+      wave: 1
+      action: new
+    - file: internal/indexer/gotsextractor/env_edges.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/indexer/gotsextractor/env_edges_test.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/indexer/gotsextractor/process_edges.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/indexer/gotsextractor/process_edges_test.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/indexer/treesitter/env_edges.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/indexer/treesitter/env_edges_test.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/indexer/treesitter/process_edges.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/indexer/treesitter/process_edges_test.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/indexer/tsextractor/env_edges.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/indexer/tsextractor/env_edges_test.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/indexer/tsextractor/process_edges.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/indexer/tsextractor/process_edges_test.go
+      agent: C
+      wave: 1
+      action: new
+    - file: cmd/knowing/audit_supply_chain.go
+      agent: E
+      wave: 2
+      action: new
+      depends_on:
+        - D
+    - file: cmd/knowing/audit_supply_chain_test.go
+      agent: E
+      wave: 2
+      action: new
+      depends_on:
+        - D
+    - file: cmd/knowing/main.go
+      agent: E
+      wave: 2
+      action: modify
+      depends_on:
+        - D
+interface_contracts:
+    - name: ReadsEnv constant
+      description: Edge type constant for function-to-environment-variable edges
+      definition: |
+        // In internal/edgetype/constants.go
+        ReadsEnv = "reads_env"
+      location: internal/edgetype/constants.go
+    - name: ExecutesProcess constant
+      description: Edge type constant for function-to-process edges
+      definition: |
+        // In internal/edgetype/constants.go
+        ExecutesProcess = "executes_process"
+      location: internal/edgetype/constants.go
+    - name: KindEnvVar constant
+      description: Node kind constant for environment variable nodes
+      definition: |
+        // In internal/types/kinds.go
+        KindEnvVar = "env_var"
+      location: internal/types/kinds.go
+    - name: KindProcess constant
+      description: Node kind constant for process nodes
+      definition: |
+        // In internal/types/kinds.go
+        KindProcess = "process"
+      location: internal/types/kinds.go
+    - name: IsolationScore
+      description: Computes isolation score for a file based on graph connectivity
+      definition: |
+        // In internal/diff/isolation.go
+        type IsolationResult struct {
+            File           string  `json:"file"`
+            Score          float64 `json:"score"`
+            InboundEdges   int     `json:"inbound_edges"`
+            OutboundEdges  int     `json:"outbound_edges"`
+            HookExecuted   bool    `json:"hook_executed"`
+            ReadsEnv       []string `json:"reads_env,omitempty"`
+            ExecutesProc   []string `json:"executes_process,omitempty"`
+        }
+
+        func ComputeIsolation(ctx context.Context, store types.GraphStore, changedFiles []types.Hash) ([]IsolationResult, error)
+      location: internal/diff/isolation.go
+    - name: ExtractEnvReadsGo
+      description: Extracts reads_env edges from Go function bodies (os.Getenv, os.LookupEnv)
+      definition: |
+        // In internal/indexer/gotsextractor/env_edges.go
+        func extractEnvReadEdges(funcNode *sitter.Node, opts types.ExtractOptions, pkgPath string, sourceHash types.Hash) ([]types.Node, []types.Edge)
+      location: internal/indexer/gotsextractor/env_edges.go
+    - name: ExtractProcessExecGo
+      description: Extracts executes_process edges from Go function bodies (exec.Command, exec.CommandContext)
+      definition: |
+        // In internal/indexer/gotsextractor/process_edges.go
+        func extractProcessExecEdges(funcNode *sitter.Node, opts types.ExtractOptions, pkgPath string, sourceHash types.Hash) ([]types.Node, []types.Edge)
+      location: internal/indexer/gotsextractor/process_edges.go
+    - name: ExtractEnvReadsPython
+      description: Extracts reads_env edges from Python function bodies (os.environ, os.getenv)
+      definition: |
+        // In internal/indexer/treesitter/env_edges.go
+        func extractEnvReadEdges(funcNode *sitter.Node, opts types.ExtractOptions, classContext string, funcHash types.Hash) ([]types.Node, []types.Edge)
+      location: internal/indexer/treesitter/env_edges.go
+    - name: ExtractProcessExecPython
+      description: Extracts executes_process edges from Python function bodies (subprocess.run, os.system)
+      definition: |
+        // In internal/indexer/treesitter/process_edges.go
+        func extractProcessExecEdges(funcNode *sitter.Node, opts types.ExtractOptions, classContext string, funcHash types.Hash) ([]types.Node, []types.Edge)
+      location: internal/indexer/treesitter/process_edges.go
+    - name: ExtractEnvReadsTS
+      description: Extracts reads_env edges from TypeScript function bodies (process.env.X)
+      definition: |
+        // In internal/indexer/tsextractor/env_edges.go
+        func ExtractEnvReadEdges(body *sitter.Node, opts types.ExtractOptions, qnamePrefix string, sourceHash types.Hash) ([]types.Node, []types.Edge)
+      location: internal/indexer/tsextractor/env_edges.go
+    - name: ExtractProcessExecTS
+      description: Extracts executes_process edges from TypeScript function bodies (child_process.spawn, exec)
+      definition: |
+        // In internal/indexer/tsextractor/process_edges.go
+        func ExtractProcessExecEdges(body *sitter.Node, opts types.ExtractOptions, qnamePrefix string, sourceHash types.Hash) ([]types.Node, []types.Edge)
+      location: internal/indexer/tsextractor/process_edges.go
+waves:
+    - number: 1
+      agents:
+        - id: D
+          task: |
+            ## Shared Infrastructure: Edge Types, Node Kinds, Walk Weights, Wire Format, Isolation Score
+
+            ### What to implement
+
+            1. **internal/edgetype/constants.go** - Add two new edge type constants and their RWR weights.
+
+               Add to the const block (after `AccessesField`):
+               ```go
+               	AccessesField    = "accesses_field"  // method -> field node it reads/writes via receiver
+               	ReadsEnv         = "reads_env"        // function -> env var it reads
+               	ExecutesProcess  = "executes_process"  // function -> process it spawns
+               ```
+
+               Add cases to `RWRWeight` switch (before the default case):
+               ```go
+               case ReadsEnv:
+               	return 0.4
+               case ExecutesProcess:
+               	return 0.5
+               ```
+
+            2. **internal/types/kinds.go** - Add two new node kind constants.
+
+               Add to the const block (after `KindField`):
+               ```go
+               	KindEnvVar  = "env_var"
+               	KindProcess = "process"
+               ```
+
+            3. **internal/context/walk.go** - Add entries to edgeWeights and adjEdgeTypeToID.
+
+               Add to `edgeWeights` map (after `"accesses_field": 0.6,`):
+               ```go
+               	"reads_env":         0.4,
+               	"executes_process":  0.5,
+               ```
+
+               Add to `adjEdgeTypeToID` map (after `"accesses_field": 34,`):
+               ```go
+               	"reads_env":         35,
+               	"executes_process":  36,
+               ```
+
+            4. **internal/wire/binary.go** - Add wire format entries.
+
+               Add to `edgeTypeToID` map (after `"accesses_field": 36,`):
+               ```go
+               	"reads_env":         37,
+               	"executes_process":  38,
+               ```
+
+               Add to `idToEdgeType` map (add line after the existing last entry):
+               ```go
+               	37: "reads_env", 38: "executes_process",
+               ```
+
+               Add to `kindToID` map (after `"service": 16,`):
+               ```go
+               	"env_var":  17,
+               	"process":  18,
+               ```
+
+               Add to `idToKind` map (after `16: "service",`):
+               ```go
+               	17: "env_var", 18: "process",
+               ```
+
+            5. **internal/diff/isolation.go** - New file implementing isolation score computation.
+
+               ```go
+               package diff
+
+               import (
+               	"context"
+               	"math"
+
+               	"github.com/blackwell-systems/knowing/internal/edgetype"
+               	"github.com/blackwell-systems/knowing/internal/types"
+               )
+
+               type IsolationResult struct {
+               	File         string   `json:"file"`
+               	Score        float64  `json:"score"`
+               	InboundEdges int      `json:"inbound_edges"`
+               	OutboundEdges int     `json:"outbound_edges"`
+               	HookExecuted bool     `json:"hook_executed"`
+               	ReadsEnv     []string `json:"reads_env,omitempty"`
+               	ExecutesProc []string `json:"executes_process,omitempty"`
+               }
+
+               func ComputeIsolation(ctx context.Context, store types.GraphStore, changedFiles []types.Hash) ([]IsolationResult, error)
+               ```
+
+               The isolation score formula:
+               - Count inbound edges: edges from nodes NOT in changedFiles pointing to nodes in changedFiles
+               - Count outbound dangerous edges: reads_env and executes_process edges from nodes in changedFiles
+               - Check hook_executed: look for lifecycle hook references (prepare, postinstall script edges)
+               - Score = (1.0 - min(inbound, 5) / 5.0) * outbound_factor * hook_factor
+                 - outbound_factor = min(outbound_dangerous, 10) / 10.0
+                 - hook_factor = 1.5 if hook_executed else 1.0
+                 - Clamped to [0.0, 1.0]
+
+               Use `store.NodesByFileHash(ctx, fileHash)` to get nodes for each file,
+               then `store.EdgesTo(ctx, nodeHash, "")` for inbound and
+               `store.EdgesFrom(ctx, nodeHash, "")` for outbound.
+
+            6. **internal/diff/isolation_test.go** - Tests for the isolation score computation.
+
+               Test cases:
+               - Well-connected file (many inbound edges) -> low score (~0.0)
+               - Isolated file with env reads -> high score (~0.7+)
+               - Isolated file with process execution -> high score
+               - Hook-executed isolated file -> score approaches 1.0
+               - Clamping: score never exceeds 1.0
+
+            ### Interfaces consumed
+            - `types.GraphStore` (existing interface)
+            - `types.Hash`, `types.Node`, `types.Edge` (existing types)
+
+            ### Verification gate
+            ```bash
+            GOWORK=off go build ./internal/edgetype/... ./internal/types/... ./internal/context/... ./internal/wire/... ./internal/diff/...
+            GOWORK=off go test ./internal/diff/... -run TestIsolation -v
+            GOWORK=off go vet ./internal/edgetype/... ./internal/types/... ./internal/context/... ./internal/wire/... ./internal/diff/...
+            ```
+
+            Postconditions:
+            ```bash
+            # ReadsEnv constant exists
+            grep -q 'ReadsEnv.*= "reads_env"' internal/edgetype/constants.go
+            # ExecutesProcess constant exists
+            grep -q 'ExecutesProcess.*= "executes_process"' internal/edgetype/constants.go
+            # KindEnvVar exists
+            grep -q 'KindEnvVar.*= "env_var"' internal/types/kinds.go
+            # Walk weights registered
+            grep -q '"reads_env"' internal/context/walk.go
+            # Wire IDs registered
+            grep -q '"reads_env"' internal/wire/binary.go
+            # Isolation file exists
+            test -f internal/diff/isolation.go
+            ```
+
+            ### Constraints
+            - Do NOT modify any extractor files (gotsextractor, treesitter, tsextractor). Those are owned by Agents A, B, C.
+            - Do NOT create the CLI command file. That is owned by Agent E in Wave 2.
+            - Do NOT modify cmd/knowing/main.go. That is owned by Agent E.
+          files:
+            - internal/edgetype/constants.go
+            - internal/types/kinds.go
+            - internal/context/walk.go
+            - internal/wire/binary.go
+            - internal/diff/isolation.go
+            - internal/diff/isolation_test.go
+        - id: A
+          task: |
+            ## Go Extraction: reads_env and executes_process edges
+
+            ### What to implement
+
+            1. **internal/indexer/gotsextractor/env_edges.go** - Extract `reads_env` edges from Go functions.
+
+               Pattern: Walk function/method bodies for call expressions matching:
+               - `os.Getenv("VAR_NAME")` - call_expression where function is selector `os.Getenv`
+               - `os.LookupEnv("VAR_NAME")` - call_expression where function is selector `os.LookupEnv`
+
+               For each match, create:
+               - Target node: kind=KindEnvVar ("env_var"), QN="env://VAR_NAME"
+               - Edge: type=ReadsEnv ("reads_env"), confidence=0.9, provenance="ast_inferred"
+
+               Follow the pattern in `field_access_edges.go`:
+               - Unexported function called from the main extractor
+               - Walks tree-sitter AST recursively
+               - Uses `opts.Content` to read string literal values
+               - Returns `([]types.Node, []types.Edge)`
+
+               Function signature:
+               ```go
+               func extractEnvReadEdges(funcNode *sitter.Node, opts types.ExtractOptions, pkgPath string, sourceHash types.Hash) ([]types.Node, []types.Edge)
+               ```
+
+               Tree-sitter node matching for Go:
+               - `call_expression` with `function` child being a `selector_expression`
+               - selector_expression: operand="os", field="Getenv" or "LookupEnv"
+               - First argument is a `interpreted_string_literal` (strip quotes to get var name)
+
+            2. **internal/indexer/gotsextractor/process_edges.go** - Extract `executes_process` edges.
+
+               Pattern: Walk function/method bodies for:
+               - `exec.Command("cmd", args...)` - selector_expression operand="exec", field="Command"
+               - `exec.CommandContext(ctx, "cmd", args...)` - same but skip first ctx arg
+
+               For each match, create:
+               - Target node: kind=KindProcess ("process"), QN="process://cmd-literal"
+               - Edge: type=ExecutesProcess ("executes_process"), confidence=0.9, provenance="ast_inferred"
+
+               If the command argument is not a string literal, use QN="process://dynamic".
+
+               Function signature:
+               ```go
+               func extractProcessExecEdges(funcNode *sitter.Node, opts types.ExtractOptions, pkgPath string, sourceHash types.Hash) ([]types.Node, []types.Edge)
+               ```
+
+            3. **Test files** with table-driven tests covering:
+               - os.Getenv with string literal
+               - os.LookupEnv with string literal
+               - Variable argument (should still extract with generic QN or skip)
+               - exec.Command with string literal
+               - exec.CommandContext with ctx + string literal
+               - Dynamic command argument -> "process://dynamic"
+               - No matches in a function body -> empty results
+
+               Use the pattern from `internal/indexer/gotsextractor/field_access_edges_test.go`:
+               parse Go source with tree-sitter, call the extraction function, assert nodes/edges.
+
+            ### Integration point
+            After creating the extraction functions, they need to be called from the main
+            Go extractor's function/method processing loop. However, DO NOT modify the main
+            extractor file (`gotsextractor.go`) in this wave. The integration will happen in
+            Wave 2 or post-merge. For now, just create the extraction functions and their tests.
+
+            NOTE: If the extractor already has a hook point where field_access_edges are called,
+            you MAY add your calls at that same location IF it's in a file you own. Check
+            `gotsextractor.go` for the pattern - if field_access_edges is called there, that
+            file is NOT in your ownership. Leave a comment in your test file noting the
+            integration point.
+
+            ### Verification gate
+            ```bash
+            GOWORK=off go build ./internal/indexer/gotsextractor/...
+            GOWORK=off go test ./internal/indexer/gotsextractor/... -run "TestExtractEnv|TestExtractProcess" -v
+            GOWORK=off go vet ./internal/indexer/gotsextractor/...
+            ```
+
+            Postconditions:
+            ```bash
+            grep -q 'func extractEnvReadEdges' internal/indexer/gotsextractor/env_edges.go
+            grep -q 'func extractProcessExecEdges' internal/indexer/gotsextractor/process_edges.go
+            grep -q 'edgetype.ReadsEnv' internal/indexer/gotsextractor/env_edges.go
+            grep -q 'edgetype.ExecutesProcess' internal/indexer/gotsextractor/process_edges.go
+            ```
+
+            ### Constraints
+            - Do NOT modify `internal/indexer/gotsextractor/gotsextractor.go` (main extractor dispatch)
+            - Do NOT modify files in other extractor packages (treesitter, tsextractor)
+            - Do NOT modify edgetype/constants.go, types/kinds.go, walk.go, or wire/binary.go (owned by Agent D)
+          files:
+            - internal/indexer/gotsextractor/env_edges.go
+            - internal/indexer/gotsextractor/env_edges_test.go
+            - internal/indexer/gotsextractor/process_edges.go
+            - internal/indexer/gotsextractor/process_edges_test.go
+        - id: B
+          task: |
+            ## Python Extraction: reads_env and executes_process edges
+
+            ### What to implement
+
+            1. **internal/indexer/treesitter/env_edges.go** - Extract `reads_env` edges from Python functions.
+
+               Patterns to match:
+               - `os.environ["VAR"]` - subscript where value is attribute `os.environ`, subscript is string
+               - `os.environ.get("VAR")` - call where function is attribute chain `os.environ.get`
+               - `os.getenv("VAR")` - call where function is attribute `os.getenv`
+
+               For each match, create:
+               - Target node: kind="env_var", QN="env://VAR_NAME"
+               - Edge: type="reads_env", confidence=0.9, provenance="ast_inferred"
+
+               Follow the pattern in `field_access_edges.go` (same package):
+               - Unexported function called from the main extractor
+               - Walks tree-sitter AST recursively
+               - Returns `([]types.Node, []types.Edge)`
+
+               Function signature:
+               ```go
+               func extractEnvReadEdges(funcNode *sitter.Node, opts types.ExtractOptions, classContext string, funcHash types.Hash) ([]types.Node, []types.Edge)
+               ```
+
+               Tree-sitter Python node types:
+               - `subscript`: value=`attribute` (os.environ), subscript=`string`
+               - `call`: function=`attribute` (os.environ.get or os.getenv), args contain string
+
+            2. **internal/indexer/treesitter/process_edges.go** - Extract `executes_process` edges.
+
+               Patterns:
+               - `subprocess.run(["cmd", ...])` or `subprocess.run("cmd")`
+               - `subprocess.Popen(["cmd", ...])`
+               - `subprocess.call(["cmd", ...])`
+               - `os.system("cmd")`
+
+               For each match, create:
+               - Target node: kind="process", QN="process://cmd-literal"
+               - Edge: type="executes_process", confidence=0.9, provenance="ast_inferred"
+
+               For list arguments, extract first element. For non-literal args, use "process://dynamic".
+
+               Function signature:
+               ```go
+               func extractProcessExecEdges(funcNode *sitter.Node, opts types.ExtractOptions, classContext string, funcHash types.Hash) ([]types.Node, []types.Edge)
+               ```
+
+            3. **Test files** with table-driven tests covering:
+               - os.environ["KEY"]
+               - os.environ.get("KEY")
+               - os.getenv("KEY")
+               - subprocess.run(["cmd"])
+               - subprocess.Popen("cmd")
+               - os.system("cmd string")
+               - Dynamic/variable args -> "process://dynamic"
+               - No matches -> empty results
+
+               Use the pattern from `internal/indexer/treesitter/field_access_edges_test.go`.
+
+            ### Verification gate
+            ```bash
+            GOWORK=off go build ./internal/indexer/treesitter/...
+            GOWORK=off go test ./internal/indexer/treesitter/... -run "TestExtractEnv|TestExtractProcess" -v
+            GOWORK=off go vet ./internal/indexer/treesitter/...
+            ```
+
+            Postconditions:
+            ```bash
+            grep -q 'func extractEnvReadEdges' internal/indexer/treesitter/env_edges.go
+            grep -q 'func extractProcessExecEdges' internal/indexer/treesitter/process_edges.go
+            grep -q 'edgetype.ReadsEnv' internal/indexer/treesitter/env_edges.go
+            grep -q 'edgetype.ExecutesProcess' internal/indexer/treesitter/process_edges.go
+            ```
+
+            ### Constraints
+            - Do NOT modify `internal/indexer/treesitter/treesitter.go` (main extractor dispatch)
+            - Do NOT modify files in other extractor packages (gotsextractor, tsextractor)
+            - Do NOT modify edgetype/constants.go, types/kinds.go, walk.go, or wire/binary.go (owned by Agent D)
+          files:
+            - internal/indexer/treesitter/env_edges.go
+            - internal/indexer/treesitter/env_edges_test.go
+            - internal/indexer/treesitter/process_edges.go
+            - internal/indexer/treesitter/process_edges_test.go
+        - id: C
+          task: |
+            ## TypeScript Extraction: reads_env and executes_process edges
+
+            ### What to implement
+
+            1. **internal/indexer/tsextractor/env_edges.go** - Extract `reads_env` edges from TS/JS functions.
+
+               Patterns to match:
+               - `process.env.GITHUB_TOKEN` - member_expression chain: process -> env -> field
+               - `process.env["NPM_TOKEN"]` - member_expression + subscript_expression with string
+
+               For each match, create:
+               - Target node: kind="env_var", QN="env://VAR_NAME"
+               - Edge: type="reads_env", confidence=0.9, provenance="ast_inferred"
+
+               Follow the pattern in `endpoint_edges.go` (same package):
+               - Exported function that takes body *sitter.Node
+               - Walks tree-sitter AST recursively
+               - Returns `([]types.Node, []types.Edge)`
+
+               Function signature (exported, matches endpoint_edges.go pattern):
+               ```go
+               func ExtractEnvReadEdges(body *sitter.Node, opts types.ExtractOptions, qnamePrefix string, sourceHash types.Hash) ([]types.Node, []types.Edge)
+               ```
+
+               Tree-sitter TypeScript/JavaScript node types:
+               - `member_expression`: object is member_expression (process.env), property is identifier
+               - `subscript_expression`: object is member_expression (process.env), index is string
+
+            2. **internal/indexer/tsextractor/process_edges.go** - Extract `executes_process` edges.
+
+               Patterns:
+               - `child_process.spawn("cmd", ...)` - call with callee being member_expression
+               - `child_process.exec("cmd", ...)`
+               - `child_process.execSync("cmd", ...)`
+               - `execSync("cmd")` - direct call to imported function
+               - `spawn("cmd", ...)` - direct call
+
+               For each match, create:
+               - Target node: kind="process", QN="process://cmd-literal"
+               - Edge: type="executes_process", confidence=0.9, provenance="ast_inferred"
+
+               For non-literal args, use "process://dynamic".
+
+               Function signature (exported):
+               ```go
+               func ExtractProcessExecEdges(body *sitter.Node, opts types.ExtractOptions, qnamePrefix string, sourceHash types.Hash) ([]types.Node, []types.Edge)
+               ```
+
+            3. **Test files** with table-driven tests covering:
+               - process.env.GITHUB_TOKEN
+               - process.env["NPM_TOKEN"]
+               - child_process.spawn("node")
+               - child_process.exec("npm install")
+               - execSync("cmd")
+               - Dynamic args -> "process://dynamic"
+               - No matches -> empty results
+
+               Use the pattern from `internal/indexer/tsextractor/field_access_edges_test.go`.
+
+            ### Verification gate
+            ```bash
+            GOWORK=off go build ./internal/indexer/tsextractor/...
+            GOWORK=off go test ./internal/indexer/tsextractor/... -run "TestExtractEnv|TestExtractProcess" -v
+            GOWORK=off go vet ./internal/indexer/tsextractor/...
+            ```
+
+            Postconditions:
+            ```bash
+            grep -q 'func ExtractEnvReadEdges' internal/indexer/tsextractor/env_edges.go
+            grep -q 'func ExtractProcessExecEdges' internal/indexer/tsextractor/process_edges.go
+            grep -q 'edgetype.ReadsEnv' internal/indexer/tsextractor/env_edges.go
+            grep -q 'edgetype.ExecutesProcess' internal/indexer/tsextractor/process_edges.go
+            ```
+
+            ### Constraints
+            - Do NOT modify `internal/indexer/tsextractor/tsextractor.go` (main extractor dispatch)
+            - Do NOT modify files in other extractor packages (gotsextractor, treesitter)
+            - Do NOT modify edgetype/constants.go, types/kinds.go, walk.go, or wire/binary.go (owned by Agent D)
+          files:
+            - internal/indexer/tsextractor/env_edges.go
+            - internal/indexer/tsextractor/env_edges_test.go
+            - internal/indexer/tsextractor/process_edges.go
+            - internal/indexer/tsextractor/process_edges_test.go
+    - number: 2
+      agents:
+        - id: E
+          task: |
+            ## CLI Command: knowing audit-supply-chain
+
+            ### What to implement
+
+            1. **cmd/knowing/audit_supply_chain.go** - New CLI command combining snapshot diff + isolation analysis.
+
+               Flags:
+               - `--base <hash>`: baseline snapshot hash (required, or use @prev/@N notation)
+               - `--head <hash>`: current snapshot hash (default: @latest)
+               - `--db <path>`: database path (default: defaultDB())
+               - `--threshold <float>`: isolation score threshold (default: 0.7)
+               - `--fail-on-suspicious`: exit non-zero if any file exceeds threshold
+               - `-o <path>`: output JSON report to file (default: stdout)
+
+               Command flow:
+               1. Open store, resolve snapshot hashes (reuse pattern from cmd/knowing/diff.go)
+               2. Compute semantic diff between base and head snapshots
+               3. For each new file in diff, compute isolation score using `diff.ComputeIsolation`
+               4. Filter files exceeding threshold
+               5. For suspicious files, trace capability paths (reads_env -> executes_process chains)
+               6. Generate Merkle proofs for suspicious edges (reuse pattern from cmd/knowing/prove.go)
+               7. Output JSON report
+
+               Output JSON structure:
+               ```go
+               type SupplyChainReport struct {
+                   GeneratedAt     string              `json:"generated_at"`
+                   BaseSnapshot    string              `json:"base_snapshot"`
+                   HeadSnapshot    string              `json:"head_snapshot"`
+                   Threshold       float64             `json:"threshold"`
+                   Summary         SupplyChainSummary  `json:"summary"`
+                   SuspiciousFiles []SuspiciousFile    `json:"suspicious_files,omitempty"`
+                   CapabilityPaths []CapabilityPath    `json:"capability_paths,omitempty"`
+               }
+
+               type SupplyChainSummary struct {
+                   FilesAnalyzed    int `json:"files_analyzed"`
+                   FilesSuspicious  int `json:"files_suspicious"`
+                   EnvReadsTotal    int `json:"env_reads_total"`
+                   ProcessExecTotal int `json:"process_exec_total"`
+               }
+
+               type SuspiciousFile struct {
+                   File           string   `json:"file"`
+                   Score          float64  `json:"score"`
+                   InboundEdges   int      `json:"inbound_edges"`
+                   OutboundEdges  int      `json:"outbound_edges"`
+                   HookExecuted   bool     `json:"hook_executed"`
+                   ReadsEnv       []string `json:"reads_env,omitempty"`
+                   ExecutesProc   []string `json:"executes_process,omitempty"`
+               }
+
+               type CapabilityPath struct {
+                   From     string   `json:"from"`
+                   To       string   `json:"to"`
+                   EdgeType string   `json:"edge_type"`
+                   Via      []string `json:"via,omitempty"`
+               }
+               ```
+
+            2. **cmd/knowing/main.go** - Register the new command.
+
+               Add case to the switch in `run()`. Insert after the "audit-diff" case:
+               ```go
+               case "audit-supply-chain":
+                   return cmdAuditSupplyChain(args[1:])
+               ```
+
+               Add to `printUsage()` in the "Integrity and proofs" section, after audit-diff:
+               ```
+               fmt.Fprintln(os.Stderr, "  audit-supply-chain  Detect suspicious supply chain patterns in new code")
+               ```
+
+               The exact insertion point in the switch statement is after this text:
+               ```go
+               	case "audit-diff":
+               		return cmdAuditDiff(args[1:])
+               ```
+
+               The exact insertion point in printUsage is after this line:
+               ```go
+               	fmt.Fprintln(os.Stderr, "  audit-diff  Compare two audit snapshots with classification (@latest, @prev, @N)")
+               ```
+
+            3. **cmd/knowing/audit_supply_chain_test.go** - Tests for the CLI command.
+
+               Test cases:
+               - Basic invocation with --help (should not error)
+               - Missing --base flag returns error
+               - JSON output format is valid
+               - --fail-on-suspicious exits non-zero when threshold exceeded
+
+               Use the test patterns from `cmd/knowing/diff_test.go` or `cmd/knowing/main_test.go`.
+
+            ### Interfaces consumed
+            - `diff.ComputeIsolation(ctx, store, fileHashes)` from Agent D's work
+            - `diff.SemanticDiff(ctx, store, oldSnap, newSnap)` (existing)
+            - `store.NewSQLiteStore(dbPath)` (existing)
+            - Snapshot resolution pattern from diff.go (resolveSnapshot helper)
+
+            ### Verification gate
+            ```bash
+            GOWORK=off go build ./cmd/knowing/...
+            GOWORK=off go test ./cmd/knowing/... -run "TestAuditSupplyChain" -v
+            GOWORK=off go vet ./cmd/knowing/...
+            ```
+
+            Postconditions:
+            ```bash
+            grep -q 'func cmdAuditSupplyChain' cmd/knowing/audit_supply_chain.go
+            grep -q 'audit-supply-chain' cmd/knowing/main.go
+            grep -q 'SupplyChainReport' cmd/knowing/audit_supply_chain.go
+            ```
+
+            ### Constraints
+            - Do NOT modify any file in internal/indexer/ (owned by Agents A, B, C)
+            - Do NOT modify internal/edgetype/, internal/types/, internal/context/, internal/wire/ (owned by Agent D)
+            - Do NOT modify internal/diff/isolation.go (owned by Agent D). Only import and call it.
+          files:
+            - cmd/knowing/audit_supply_chain.go
+            - cmd/knowing/audit_supply_chain_test.go
+            - cmd/knowing/main.go
+          dependencies:
+            - D
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: GOWORK=off go build ./...
+          required: true
+        - type: lint
+          command: GOWORK=off go vet ./...
+          required: true
+        - type: test
+          command: GOWORK=off go test ./internal/indexer/... ./internal/diff/... ./internal/edgetype/... ./cmd/... -timeout 120s
+          required: true
+post_merge_checklist:
+    groups: []
+pre_mortem:
+    overall_risk: low
+    rows:
+        - scenario: Agents A/B/C import edgetype.ReadsEnv before Agent D adds it, causing compilation failure in isolated worktrees
+          likelihood: high
+          impact: medium
+          mitigation: Scaffold entries ensure constants exist before Wave 1 worktrees are created. Agent D's changes to edgetype/constants.go and types/kinds.go are committed as scaffolds before agents launch.
+        - scenario: Tree-sitter node type names differ between Go/Python/TypeScript grammars, causing extraction to miss patterns
+          likelihood: medium
+          impact: medium
+          mitigation: Each agent's task includes specific tree-sitter node types for their language. Agents should verify by parsing sample code and inspecting the AST in their tests.
+        - scenario: Agent E's CLI command cannot compile because diff.ComputeIsolation is not merged yet
+          likelihood: low
+          impact: low
+          mitigation: Agent E is in Wave 2, which only starts after Wave 1 (including Agent D) is merged. The dependency is explicit.
+        - scenario: 'Wire format ID collision: new edge type IDs (37, 38) or kind IDs (17, 18) conflict with another concurrent change'
+          likelihood: low
+          impact: high
+          mitigation: Current max edge type ID is 36 (accesses_field), current max kind ID is 16 (service). IDs 37-38 and 17-18 are unoccupied. No other concurrent IMPL is active.
+        - scenario: Extractor functions are created but never called from main extractor dispatch
+          likelihood: high
+          impact: low
+          mitigation: This is by design for Wave 1. Integration into the main extractor dispatch will be a post-merge step. Each agent's test file validates the extraction logic independently.
+critic_report:
+    verdict: PASS
+    agent_reviews:
+        A:
+            agent_id: A
+            verdict: PASS
+        B:
+            agent_id: B
+            verdict: PASS
+        C:
+            agent_id: C
+            verdict: PASS
+        D:
+            agent_id: D
+            verdict: PASS
+        E:
+            agent_id: E
+            verdict: PASS
+    summary: 'All agent briefs verified against the codebase. File existence checks pass: all modify-action files exist, all new-action files do not yet exist. Symbol accuracy is confirmed: edgetype constants, kinds, walk weights, wire format IDs, GraphStore interface methods (EdgesFrom, EdgesTo, NodesByFileHash), SemanticDiff, resolveSnapshotRef, defaultDB all exist at their expected locations. Pattern accuracy confirmed: extractor function signatures follow established patterns (gotsextractor/field_access_edges.go for Agent A, treesitter/field_access_edges.go for Agent B, tsextractor/endpoint_edges.go for Agent C). CLI registration pattern (switch case + printUsage) verified in cmd/knowing/main.go. Interface contracts reference correct types. No disjoint ownership violations. Complexity is balanced (max 6 files for Agent D). One minor note: the brief references ''accesses_field: 34'' in adjEdgeTypeToID which is correct, but the wire edgeTypeToID has ''accesses_field: 36'' (different map, different IDs) which is also correctly stated.'
+    reviewed_at: "2026-05-25T22:41:29Z"
+    issue_count: 0
+state: REVIEWED
