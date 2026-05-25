@@ -73,6 +73,58 @@ new index and whether they're still the BEST answer for the task description.
 
 **Fix if confirmed:** Update fixtures to reflect proper extraction reality.
 
+## Results So Far (Session 14)
+
+### Edge exclusion ablation (BENCH_EXCLUDE_EDGES)
+
+| Config | VS Code P@10 |
+|--------|-------------|
+| All edges (dense 87K) | 0.084 |
+| Exclude similar_to | 0.095 |
+| Exclude type_hint_of | 0.095 |
+| Exclude both | 0.095 |
+
+**Verdict: edge types are not the root cause.** Removing the two most voluminous
+edge types (similarity: ~90K edges, type_hint_of: ~33K edges) recovers only 0.011.
+
+### BFS depth sweep (BENCH_BFS_DEPTH)
+
+| Depth | VS Code P@10 |
+|-------|-------------|
+| 2 | 0.100 |
+| 3 | 0.100 |
+| 4 (default) | 0.084 |
+
+**Verdict: walk parameters are not the root cause.** Limiting BFS expansion to
+2 hops (vs 4) doesn't recover precision because there's no adjacency cache on
+this DB (fallback BFS path), but seeds themselves are already bad.
+
+### Diagnosis: Seed Selection Degradation
+
+The problem is in the **retrieval front-end** (BM25/tiered search/RRF fusion),
+not in the walk. With 87K nodes in the FTS index (vs 43K), the same keywords
+match more candidates. The wrong candidates win RRF because:
+
+1. More symbols have the same name fragments (dense TS codebase with many exports)
+2. BM25 IDF values shift (common terms become LESS discriminative with more documents)
+3. Tiered search returns more prefix matches from the expanded node set
+4. RRF fusion picks the wrong top-15 seeds from this expanded candidate pool
+
+The old P@10=0.163 was artificially high because with only 43K nodes (broken
+extraction), the ONLY symbols matching task keywords were the correct ones.
+There was no competition. With correct extraction, there are 10-50x more
+competitors for every keyword, and the ground truth gets outranked.
+
+**This is NOT a walk/RWR problem. It's a seed quality problem on dense FTS indexes.**
+
+### Implications
+
+1. Local embeddings bypass this entirely (vector similarity doesn't degrade with index size)
+2. Node-kind-aware seed selection (prioritize types/interfaces over methods) may help
+3. Per-file or per-package BM25 (smaller index per scope) would restore IDF discrimination
+4. The parameter sweep finding still holds: P@10 is reachability-determined. But now we
+   know that "reachability" starts at seed selection, not just graph structure.
+
 ## Experiment Protocol
 
 ### Phase 1: Characterize the failure (diagnostic, no code changes)
