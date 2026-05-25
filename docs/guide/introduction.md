@@ -4,21 +4,23 @@ This guide builds understanding from zero. No assumed background in content-addr
 
 ## System at a Glance
 
-knowing is a local-first, content-addressed code intelligence graph. It runs entirely on a developer laptop with no paid LLM calls and no cloud API dependencies.
+knowing is a self-adapting code intelligence engine. It builds a content-addressed graph of code relationships, then observes the structural properties of that graph and adjusts its retrieval strategy accordingly. On small, sparse graphs it searches by keyword. On dense, enterprise-scale graphs it automatically shifts to structural navigation (preferring type hierarchies as entry points, using phrase-aware matching to cut through keyword competition). No configuration. No mode switches. The system detects its own operating regime and adapts.
 
-**Scale:** 253K nodes and 614K edges on Kubernetes. 94K lines of Go.
+It runs entirely on a developer laptop with no paid LLM calls and no cloud API dependencies.
 
-**Coverage:** 17 extractors spanning Go, TypeScript, Python, Rust, Java, C#, Ruby, SQL, Proto, GraphQL, Helm, Kubernetes YAML, Dockerfile, Makefile, CloudFormation, GitLab CI, and .env files. 34 edge types (calls, imports, implements, references, contains, member_of, similar_to, authored_by, handles_route, publishes, subscribes, connects_to, co_tested_with, type_hint_of, and 20 more).
+**Scale:** 253K nodes and 614K edges on Kubernetes. 101K lines of Go.
+
+**Coverage:** 17 extractors spanning Go, TypeScript, Python, Rust, Java, C#, Ruby, SQL, Proto, GraphQL, Helm, Kubernetes YAML, Dockerfile, Makefile, CloudFormation, GitLab CI, and .env files. 34 edge types (calls, imports, implements, references, contains, member_of, similar_to, type_hint_of, co_tested_with, authored_by, handles_route, publishes, subscribes, connects_to, and 20 more).
 
 **Integrity:** Every node, edge, and snapshot has a SHA-256 hash. A hierarchical Merkle tree organizes edges by package and type, enabling O(packages) diffs and cryptographic proofs of existence and absence.
 
-**Retrieval pipeline:** Tiered keyword search (exact/compound/component) into BM25/FTS, equivalence matching, RWR graph walk, HITS authority scoring, RRF fusion, and budget-constrained knapsack packing.
+**Retrieval pipeline:** Tiered keyword search (exact/compound/component) into BM25/FTS with concept expansion, equivalence matching, density-adaptive RWR graph walk, HITS authority scoring, RRF fusion, and budget-constrained knapsack packing. The pipeline self-tunes: on graphs exceeding 40K nodes, it automatically prefers structural anchors (types, interfaces) as walk seeds, preventing the precision degradation that affects every static retrieval system at scale.
 
 **Operational characteristics:**
 - Daemon mode with file watcher for incremental re-indexing
 - Time-to-consistency: 167ms (edit a file, reindex, query finds the new symbol)
 - Adjacency cache: 4,717x latency improvement (9s to 2ms on Kubernetes-scale graph)
-- LSP enrichment upgrades edge confidence from 0.7 to 0.9
+- Density-adaptive retrieval: auto-detects graph density, adjusts seed selection strategy
 - P@10 = 0.207 (1.53x codegraph, 2.76x GitNexus, 3.29x Gortex, 15.9x grep baseline)
 - MCP server interface with 28 tools for agent consumption
 
