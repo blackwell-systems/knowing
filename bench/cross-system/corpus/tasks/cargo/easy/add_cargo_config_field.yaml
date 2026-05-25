@@ -1,13 +1,12 @@
 id: cargo-easy-001
 repo: cargo
 tier: easy
-description: "Add a new configuration field to .cargo/config.toml that controls the default number of parallel jobs for build scripts"
+description: "Add a new configuration field to Cargo.toml that controls the number of parallel build jobs"
 source: manual
 ground_truth:
-  - src/cargo/util/config/mod.rs.GlobalContext
-  - src/cargo/util/config/mod.rs.GlobalContext.jobs
-  - src/cargo/util/config/de.rs.Deserializer
-  - src/cargo/util/config/value.rs.Value
-  - src/cargo/core/compiler/job_queue/mod.rs.JobQueue
-tags: [config, build, single-package, feature-addition]
-notes: "Adding a config field requires the GlobalContext struct where config is centralized, its deserialization mechanism (de.rs, value.rs), and the consumer of jobs configuration (JobQueue)."
+  - manifest.TomlManifest
+  - manifest.TomlProfile
+  - compiler.BuildConfig
+  - compiler.BuildConfig.emit_json
+tags: [configuration, toml, build, single-package]
+notes: "Config field requires TomlManifest for parsing, TomlProfile for build settings, and BuildConfig for runtime configuration."

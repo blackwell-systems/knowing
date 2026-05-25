@@ -1,13 +1,11 @@
 id: cargo-medium-004
 repo: cargo
 tier: medium
-description: "Add support for filtering cargo test by test file path patterns, not just test function names, so developers can run 'cargo test --file tests/api/*'"
+description: "Extend cargo test to support filtering tests by custom attributes and module path patterns"
 source: manual
 ground_truth:
-  - src/cargo/ops.TestOptions
-  - src/cargo/core/compiler.compute_deps
-  - src/cargo/core/compiler.UnitOutput
-  - src/cargo/core.Target.is_bench
-  - src/cargo/core/compiler.build_unit_dependencies
-tags: [testing, filtering, compiler, cross-package, feature-addition]
-notes: "Extending test filtering requires the test runner entry point (run_tests, TestOptions), understanding how test units are computed (compute_deps), the unit output for results, and the Target type which identifies what gets tested (Target.is_test)."
+  - ops.TestOptions
+  - compiler.BuildConfig
+  - build_context.BuildContext
+tags: [testing, filtering, compilation, cross-package]
+notes: "Test filtering requires TestOptions for filter configuration, BuildConfig for compilation settings, and BuildContext for test binary generation."
