@@ -50,7 +50,7 @@ knowing builds a content-addressed knowledge graph of software relationships and
 - [Architecture](architecture/): system design, concurrency model, data flow, hierarchical Merkle tree, git design audit
 - [CLI Reference](guide/cli.md): all 28 commands with flags and examples
 - [MCP Tools](guide/mcp-tools.md): all 28 tools and 8 resources with parameters and return formats
-- [Edge Types](architecture/edge-types.md): all 30 edge types with provenance and confidence
+- [Edge Types](architecture/edge-types.md): all 34 edge types with provenance and confidence
 - [Runtime Traces](operations/runtime-traces.md): OTel ingestion design
 - [Roadmap](roadmap.md): what's done, what's next
 - [Distribution](guide/distribution.md): all installation channels
