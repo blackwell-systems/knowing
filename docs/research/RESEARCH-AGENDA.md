@@ -3,59 +3,19 @@
 Four distinct papers can be extracted from the knowing system. Each targets a
 different venue and audience. Ordered by novelty (most novel first).
 
-## Paper 1: Content-Addressed Relationship Graphs with Cryptographic Audit Proofs
+## Paper 1: PUBLISHED
 
-**Venue:** Systems (OSDI, SOSP, EuroSys) or Security (USENIX Security, Oakland)
+**Title:** "The Hierarchical Identity Architecture: Content-Addressing as a Computation
+Primitive for Software Relationship Intelligence"
 
-**Novel claim:** Content-addressing applied to code *relationships* (not just code) enables
-cryptographic proofs of dependency existence and absence. `prove(A calls B at snapshot S)`
-and `prove-absent(A never calls B in any snapshot)` are new primitives that no existing
-system provides.
+**Status:** Published (May 2026). Covers content-addressed entities, the 6 problems of
+mutable graphs, hierarchical Merkle trees over semantic boundaries, formal properties,
+O(packages) diff, O(1) cache keys, competitive validation vs GitNexus. Combined what
+was originally scoped as two separate papers (crypto proofs + Merkle diff).
 
-**Key contributions:**
-1. Edge identity as `sha256(source || target || type || provenance)`: same relationship
-   discovered independently always has same hash (deduplication, federation, replay)
-2. Merkle inclusion/exclusion proofs over relationship graphs (certificate transparency
-   applied to software supply chains)
-3. Temporal audit: "when did this dependency first appear?" answered via snapshot chain
-   without replaying all extractions
-4. Feedback expiration via content-addressing: when code changes, symbol hash changes,
-   stale feedback becomes invisible. Zero-maintenance decay without timers or embedding drift.
-
-**Existing draft:** `content-addressing-as-computation-primitive.md`
-
-**What's needed:**
-- Formal security model (what does the proof guarantee? what's the trust boundary?)
-- Comparison to sigstore/in-toto/SLSA (supply chain integrity frameworks)
-- Real-world scenario: event-stream supply chain attack detected via proof-of-absence
-
----
-
-## Paper 2: Hierarchical Merkle Trees over Semantic Boundaries for Graph Diff
-
-**Venue:** Databases (VLDB, SIGMOD) or Systems (OSDI, ATC)
-
-**Novel claim:** Organizing a Merkle tree around semantic boundaries (packages, edge types)
-instead of sorted hashes turns the identity structure into a query optimization substrate.
-Diffs become O(packages) instead of O(edges). Cache invalidation scopes to packages that
-actually changed. Subgraph root lookups are O(1).
-
-**Key contributions:**
-1. 216x faster diff on real graph (268K edges) vs flat comparison
-2. 517x on 100K synthetic edges
-3. Package-scoped FTS rebuild avoids full-table reindex
-4. Community detection skips 94% of work when one package changes (6.9x Louvain, 38x LP)
-5. Context pack determinism: same query + same graph state = identical PackRoot
-
-**Empirical validation:** 5 repos (Flask to Kubernetes), benchmarked against flat approaches.
-Not a theoretical argument; measured speedups on production-scale graphs.
-
-**Existing draft:** `content-addressing-as-computation-primitive.md` (Section 3+)
-
-**What's needed:**
-- Separate from Paper 1 (the Merkle structure is orthogonal to the audit proofs)
-- Formal complexity analysis (prove O(packages) bound)
-- Comparison to existing graph versioning systems (DeltaGraph, GraphLab temporal)
+**Companion work (not a new paper):**
+- event-stream supply chain demo: practical demonstration of prove/prove-absent on a
+  real attack. Blog post or conference talk supplement, not a separate publication.
 
 ---
 
@@ -125,12 +85,14 @@ Paper 1 (Proofs)     Paper 2 (Merkle Diff)     Paper 3 (CRET)     Paper 4 (RWR)
   demo (impl)           O(pkg) bound             5 more repos        embed comparison
 ```
 
-Papers 1 and 2 are the most novel (no prior art in this exact formulation).
+**Papers 1+2 are PUBLISHED** as a combined paper: "The Hierarchical Identity Architecture:
+Content-Addressing as a Computation Primitive for Software Relationship Intelligence."
+
 Paper 3 is the most immediately useful to the community (benchmark gap).
 Paper 4 is the most incremental (well-known algorithms, new domain).
 
-Recommend: Paper 3 first (low effort, high visibility, establishes benchmark that
-Papers 1/2/4 can reference). Then Paper 1 (strongest novelty, crypto + systems crowd).
+Recommend: Paper 3 next (low effort, high visibility, establishes benchmark).
+Then Paper 4 (leverages CRET as evaluation framework).
 
 ---
 
