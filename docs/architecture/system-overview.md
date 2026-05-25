@@ -1,6 +1,6 @@
 # System Overview
 
-knowing is a persistent daemon that builds and serves a content-addressed knowledge graph of cross-repository code relationships.
+knowing is a self-adapting code intelligence engine. It builds a content-addressed knowledge graph of cross-repository code relationships, observes the structural properties of that graph (density, connectivity, community structure), and adjusts its retrieval strategy accordingly. On sparse graphs, keyword search finds the right symbols directly. On dense enterprise graphs (>40K nodes), the system automatically shifts to structural navigation: preferring type hierarchies as walk entry points, using phrase-aware matching to cut through keyword competition, and concentrating probability mass on structural anchors rather than diffusing it across thousands of method-level candidates.
 
 ## Components
 

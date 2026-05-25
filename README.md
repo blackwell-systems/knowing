@@ -13,7 +13,7 @@
 ---
 
 <p align="center">
-Code intelligence graph. MCP server with 28 tools. Static analysis, call graphs, runtime traces, cryptographic proofs. Gets smarter with use.
+Self-adapting code intelligence engine. Observes its own graph density and adjusts retrieval strategy automatically. 34 edge types, 28 MCP tools, cryptographic proofs. Gets smarter with scale, not dumber.
 </p>
 
 ---
