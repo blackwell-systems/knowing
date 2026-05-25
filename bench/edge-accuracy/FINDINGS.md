@@ -18,20 +18,20 @@ is excluded from matching since it differs by design.
 
 | Metric | Count | Rate |
 |--------|-------|------|
-| Tree-sitter edges (ast_inferred) | 41739 | - |
-| Go/ast edges (ast_resolved) | 82780 | - |
-| Confirmed (in both) | 12646 | 30.3% of inferred |
-| Inferred-only (potential FP) | 29093 | 69.7% of inferred |
-| Resolved-only (missed) | 70134 | 84.7% of resolved |
+| Tree-sitter edges (ast_inferred) | 41944 | - |
+| Go/ast edges (ast_resolved) | 83359 | - |
+| Confirmed (in both) | 12754 | 30.4% of inferred |
+| Inferred-only (potential FP) | 29190 | 69.6% of inferred |
+| Resolved-only (missed) | 70605 | 84.7% of resolved |
 
 ## Per-Edge-Type Breakdown
 
 | Edge Type | Tree-sitter | Go/ast | Confirmed | FP Rate | Miss Rate |
 |-----------|-------------|--------|-----------|---------|----------|
-| calls | 16799 | 7471 | 40.8% | 59.2% | 8.4% |
-| imports | 1897 | 1048 | 54.6% | 45.4% | 1.1% |
-| implements | 0 | 9 | 0.0% | 0.0% | 100.0% |
-| references | 0 | 67437 | 0.0% | 0.0% | 100.0% |
+| calls | 16852 | 7524 | 40.9% | 59.1% | 8.3% |
+| imports | 1901 | 1052 | 54.7% | 45.3% | 1.1% |
+| implements | 17 | 9 | 0.0% | 100.0% | 100.0% |
+| references | 29 | 67945 | 0.0% | 100.0% | 100.0% |
 
 ## Fair Comparison (calls + imports only)
 
@@ -42,11 +42,11 @@ attempt:
 
 | Metric | Count | Rate |
 |--------|-------|------|
-| Tree-sitter edges | 18696 | - |
-| Go/ast edges | 8519 | - |
-| Confirmed | 7883 | 42.2% of inferred |
-| Inferred-only (FP) | 10813 | 57.8% of inferred |
-| Resolved-only (missed) | 636 | 7.5% of resolved |
+| Tree-sitter edges | 18753 | - |
+| Go/ast edges | 8576 | - |
+| Confirmed | 7940 | 42.3% of inferred |
+| Inferred-only (FP) | 10813 | 57.7% of inferred |
+| Resolved-only (missed) | 636 | 7.4% of resolved |
 
 ## Interpretation
 
@@ -66,7 +66,7 @@ hash computation differs.
 
 ### What this means for knowing's two-tier strategy
 
-The 42.2% confirmation rate for calls+imports means tree-sitter provides
+The 42.3% confirmation rate for calls+imports means tree-sitter provides
 a noisy but non-zero signal. The lower confidence score (0.7 vs 1.0) causes the
 context engine to rank tree-sitter-only edges below confirmed edges in scoring.
 This is the intended behavior: tree-sitter provides fast initial coverage that

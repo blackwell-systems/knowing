@@ -6,7 +6,7 @@ and auto-generates a `FINDINGS.md` with results and interpretation.
 
 **Context Packing Study:** [CONTEXT-PACKING-STUDY.md](CONTEXT-PACKING-STUDY.md) (umbrella document tying all benchmarks into a coherent evaluation program)
 **Cross-System Methodology:** [cross-system/METHODOLOGY.md](cross-system/METHODOLOGY.md) (metrics, fixture design, statistical methods, regression detection)
-**Cross-System Specification:** [docs/research/cross-system-benchmark.md](../docs/research/cross-system-benchmark.md) (full methodology, 7 repos, fairness controls, ground truth protocol)
+**Cross-System Specification:** [docs/research/cross-system-benchmark.md](../docs/research/cross-system-benchmark.md) (full methodology, 9 repos, fairness controls, ground truth protocol)
 **Agent Efficiency Study:** [AGENT-EFFICIENCY-STUDY.md](AGENT-EFFICIENCY-STUDY.md) (6 experiments, honest findings on when knowing helps vs when grep suffices)
 
 ## Summary
@@ -14,7 +14,7 @@ and auto-generates a `FINDINGS.md` with results and interpretation.
 | Benchmark | What it proves | Key result |
 |-----------|---------------|------------|
 | [time-to-consistency](time-to-consistency/) | knowing reflects code changes faster than any competitor; query latency scales to 782K edges | Time-to-consistency: knowing 167ms vs codegraph 805ms vs Aider 3150ms. Adjacency cache: k8s queries 9.04s -> 1.9ms (4,717x speedup). 500x faster than codegraph on k8s. |
-| [cross-system](cross-system/) | Graph retrieval beats text search and all competitors across languages and scales | 7 repos, 167 tasks, 7 competitors. knowing P@10=0.202 vs codegraph 0.135 (1.50x) vs GitNexus 0.075 (2.69x) vs Gortex 0.063 (3.21x) vs grep 0.013 (15.5x). Docstring FTS + 32 edge types. |
+| [cross-system](cross-system/) | Graph retrieval beats text search and all competitors across languages and scales | 9 repos, 167 tasks, 7 competitors. knowing P@10=0.202 vs codegraph 0.135 (1.50x) vs GitNexus 0.075 (2.69x) vs Gortex 0.063 (3.21x) vs grep 0.013 (15.5x). Docstring FTS + 32 edge types. |
 | [agent-efficiency](agent-efficiency/) | When knowing helps and when it doesn't | Phase 1: grep wins on known/unique targets. Phase 2: on k8s (3.5M LOC), grep returns 10,840 matches per task; knowing returns 10 ranked results with 72% ground truth hit rate (99.9% noise elimination). |
 | [feedback-loop](feedback-loop/) | Feedback compounding improves precision over time | 34% -> 44% precision (+10pp) after one round (asymmetric weighting). Weight sweep: optimal at pos=0.25/neg=0.10. |
 | [context-relevance](context-relevance/) | Each engine layer adds measurable value | Feedback adds +9pp precision over baseline |
@@ -131,13 +131,14 @@ Merkle root based on the packages it spans. Results are written to
 
 ### cross-system
 
-Evaluates knowing's retrieval quality against 6 competitors across 7 repos spanning
-5 languages and scales from 14K to 3.5M LOC. Corpus: Flask (Python, 15K LOC),
+Evaluates knowing's retrieval quality against 7 competitors across 9 repos spanning
+6 languages and scales from 14K to 3.5M LOC. Corpus: Flask (Python, 15K LOC),
 Django (Python, 400K LOC), Cargo (Rust, 150K LOC), VS Code (TypeScript, 1M LOC),
-Kubernetes (Go, 3.5M LOC), Spark (Java, 14K LOC, 184 files), and Ocelot (C#, 30K
-LOC, 392 files). ~117 task fixtures with hand-curated ground truth. Measures P@10,
-R@10, NDCG@10, MRR, token efficiency, and latency with full statistical testing
-(paired t-test, Cohen's d, confidence intervals).
+Kubernetes (Go, 3.5M LOC), Spark (Java, 14K LOC, 184 files), Ocelot (C#, 30K LOC,
+392 files), Kafka (Java, 500K LOC), and Terraform (Go, 2M LOC). 167 task fixtures
+with hand-curated ground truth. Measures P@10, R@10, NDCG@10, MRR, token efficiency,
+and latency with full statistical testing (paired t-test, Cohen's d, confidence
+intervals).
 
 The Java and C# repos validate that cross-file import resolution (feature 112)
 produces usable call edges in those languages.

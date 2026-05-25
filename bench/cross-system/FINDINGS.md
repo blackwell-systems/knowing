@@ -666,32 +666,51 @@ Added two new large repos to validate at scale:
 
 | Repo | Language | LOC | Nodes | Edges | Tasks | P@10 |
 |------|----------|-----|-------|-------|-------|------|
-| Terraform | Go | 2M | 37,674 | 184,070 | 6 | 0.250 |
-| Kafka | Java | 500K | 74,734 | 780,028 | 4 | **0.300** |
+| Terraform | Go | 2M | 37,674 | 184,070 | 20 | 0.270 |
+| Kafka | Java | 500K | 74,734 | 780,028 | 19 | 0.200 |
 
-Kafka's P@10=0.300 is the highest per-repo result after Flask (0.271), validating that
-Javadoc docstrings indexed via the FTS doc column significantly improve retrieval.
-Kafka has dense, well-written Javadoc on every public class and method.
+Terraform's 0.270 is strong across the full 20-task corpus (graph walk and module
+resolution). Kafka's 0.200 validates that Javadoc docstrings indexed via the FTS doc
+column improve retrieval; early results on a 4-task subset showed 0.300, but the full
+19-task corpus converges to the corpus mean.
 
-Terraform's 0.250 is strong on medium+hard tasks (graph walk and module resolution)
-but the easy tasks need fixture QN refinement.
+**Full corpus now: 9 repos, 6 languages, 167 tasks.**
 
-**Full corpus now: 9 repos, 6 languages, 127 tasks.**
+### Session 14: Call-Chain and File-Scoped Seeding (Neutral)
 
-### Per-Repo P@10 Breakdown (Session 13 Final)
+Tested two new seed-augmentation strategies to improve reachability:
+
+1. **Call-chain seeding:** Inject callees of the top-3 RWR seeds as supplemental seeds
+   (weight 0.2). Hypothesis: if a top seed calls a function, that callee is likely
+   relevant context.
+2. **File-scoped co-retrieval:** Inject sibling symbols from the same file as the top-3
+   seeds (weight 0.15). Hypothesis: symbols defined alongside a top seed share semantic
+   context and may include ground truth targets.
+
+**Result: both strategies are P@10-neutral.** Per-repo breakdown showed no change from
+baseline across all 167 tasks. Neither strategy helps nor hurts.
+
+**Interpretation:** This confirms the reachability thesis from the parameter sweep.
+Symbols that are already reachable (connected to seeds) are already being found; adding
+more seeds from the same neighborhood does not surface new symbols. Symbols that are
+unreachable have no path from any seed, so adding more seeds from connected subgraphs
+cannot bridge the gap. The P@10 ceiling is determined by graph connectivity, not by
+seed coverage within connected components.
+
+### Per-Repo P@10 Breakdown (Session 14 Final)
 
 | Repo | Language | P@10 | Tasks | Notes |
 |------|----------|------|-------|-------|
-| Kafka | Java | **0.300** | 4 | Dense Javadoc, docstring FTS shines |
-| Flask | Python | **0.271** | 14 | Rich class hierarchy + docstrings |
+| Flask | Python | **0.332** | 19 | Rich class hierarchy + docstrings |
+| Terraform | Go | 0.270 | 20 | Strong across full corpus |
 | Ocelot | C# | 0.260 | 5 | Middleware pipeline |
-| Terraform | Go | 0.250 | 6 | Medium/hard strong, easy fixtures need work |
 | Cross-cutting | Mixed | 0.211 | 9 | Multi-repo tasks |
+| Kafka | Java | 0.200 | 19 | Dense Javadoc, full corpus converges to mean |
 | Spark Java | Java | 0.180 | 5 | Small but well-structured |
 | Django | Python | 0.179 | 33 | Large: many unreachable symbols |
 | Kubernetes | Go | 0.168 | 19 | Massive scale, no enrichment |
 | VS Code | TypeScript | 0.132 | 19 | Keyword extraction issues |
-| Cargo | Rust | 0.100 | 13 | Sparse documentation |
+| Cargo | Rust | 0.132 | 19 | Ground truth QN fixes improved from 0.100 |
 
 ---
 

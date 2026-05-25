@@ -809,6 +809,21 @@ func (s *SQLiteStore) NodesByFilePath(ctx context.Context, repoHash types.Hash, 
 	return scanNodes(rows)
 }
 
+// NodesByFileHash returns all nodes belonging to a given file hash.
+func (s *SQLiteStore) NodesByFileHash(ctx context.Context, fileHash types.Hash) ([]types.Node, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT n.node_hash, n.file_hash, n.qualified_name, n.kind, n.line, n.signature, n.doc, n.last_author, n.last_commit_at, n.coverage_pct
+		 FROM nodes n
+		 WHERE n.file_hash = ?`,
+		fileHash[:],
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanNodes(rows)
+}
+
 // StaleNodesByFiles returns all nodes belonging to the given file paths for a specific repo.
 // This is used by the CLI 'stale' command to find nodes that belong to changed files.
 func (s *SQLiteStore) StaleNodesByFiles(ctx context.Context, repoHash types.Hash, paths []string) ([]types.Node, error) {

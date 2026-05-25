@@ -37,6 +37,7 @@ type GraphStore interface {
 	DanglingEdges(ctx context.Context) ([]Edge, error)
 	AllRepos(ctx context.Context) ([]Repo, error)
 	NodesByQualifiedName(ctx context.Context, qualifiedName string) ([]Node, error)
+	NodesByFileHash(ctx context.Context, fileHash Hash) ([]Node, error)
 
 	// Delete operations for incremental re-indexing and garbage collection.
 	// GC operations: delete nodes/edges not in the keep set.

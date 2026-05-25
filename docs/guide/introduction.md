@@ -8,7 +8,7 @@ knowing is a local-first, content-addressed code intelligence graph. It runs ent
 
 **Scale:** 253K nodes and 614K edges on Kubernetes. 94K lines of Go.
 
-**Coverage:** 17 extractors spanning Go, TypeScript, Python, Rust, Java, C#, Ruby, SQL, Proto, GraphQL, Helm, Kubernetes YAML, Dockerfile, Makefile, CloudFormation, GitLab CI, and .env files. 30 edge types (calls, imports, implements, references, similar_to, authored_by, handles_route, publishes, subscribes, connects_to, and 20 more).
+**Coverage:** 17 extractors spanning Go, TypeScript, Python, Rust, Java, C#, Ruby, SQL, Proto, GraphQL, Helm, Kubernetes YAML, Dockerfile, Makefile, CloudFormation, GitLab CI, and .env files. 32 edge types (calls, imports, implements, references, contains, member_of, similar_to, authored_by, handles_route, publishes, subscribes, connects_to, and 20 more).
 
 **Integrity:** Every node, edge, and snapshot has a SHA-256 hash. A hierarchical Merkle tree organizes edges by package and type, enabling O(packages) diffs and cryptographic proofs of existence and absence.
 
@@ -19,7 +19,7 @@ knowing is a local-first, content-addressed code intelligence graph. It runs ent
 - Time-to-consistency: 167ms (edit a file, reindex, query finds the new symbol)
 - Adjacency cache: 4,717x latency improvement (9s to 2ms on Kubernetes-scale graph)
 - LSP enrichment upgrades edge confidence from 0.7 to 0.9
-- P@10 = 0.181 reproducible (1.33x codegraph, 13.9x grep baseline)
+- P@10 = 0.202 (1.50x codegraph, 2.69x GitNexus, 15.5x grep baseline)
 - MCP server interface with 28 tools for agent consumption
 
 ## The Problem
@@ -131,7 +131,7 @@ knowing's differentiator is graph-native retrieval: RWR (Random Walk with Restar
 
 **Context packers** (Aider, Repo Map, etc) analyze your repo and produce a condensed map for the agent's context window. They run at query time, produce text, and are stateless: they don't remember what was useful last time. They don't version their output or prove anything about it.
 
-**Code graphs / indexers** (Sourcegraph, codegraph, GitNexus, Stack Graphs) build a queryable index of code relationships. Most use mutable state (database rows with auto-increment IDs). They can answer "who calls X?" but can't answer "who called X last Tuesday?" or "prove no one calls X." They don't learn from feedback. In head-to-head benchmark (7 repos, 117 tasks): knowing achieves 1.63x the precision of codegraph (21.9K stars) and 1.51x vs codebase-memory (2.7K stars).
+**Code graphs / indexers** (Sourcegraph, codegraph, GitNexus, Stack Graphs) build a queryable index of code relationships. Most use mutable state (database rows with auto-increment IDs). They can answer "who calls X?" but can't answer "who called X last Tuesday?" or "prove no one calls X." They don't learn from feedback. In head-to-head benchmark (9 repos, 167 tasks, 6 languages): knowing achieves 1.50x the precision of codegraph (19K stars) and 1.51x vs codebase-memory (2.7K stars).
 
 **Agent memory systems** (MemGPT, various RAG frameworks) persist information across sessions. They remember conversations but not code structure. They can recall "you asked about auth last time" but can't tell you "auth's blast radius grew by 3 callers since then."
 
@@ -831,11 +831,11 @@ knowing is unique in applying content-addressing to *relationships between code*
 
 ### Measured performance
 
-These numbers are reproducible via `knowing eval` on the benchmark suite (7 repos, 117 tasks):
+These numbers are reproducible via `knowing eval` on the benchmark suite (9 repos, 167 tasks, 6 languages):
 
 | Metric | Value | Context |
 |---|---|---|
-| P@10 (precision at 10) | 0.181 | 1.33x codegraph (19K stars), 13.9x grep baseline |
+| P@10 (precision at 10) | 0.202 | 1.50x codegraph (19K stars), 15.5x grep baseline |
 | Adjacency cache latency | 2ms | Down from 9s uncached on k8s (4,717x improvement) |
 | Time-to-consistency | 167ms | File edit to query returning new symbol |
 | Feedback impact | +34pp over 5 rounds | 16% baseline to 50% with feedback |

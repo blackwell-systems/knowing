@@ -263,6 +263,16 @@ func (m *MockGraphStore) NodesByFilePath(_ context.Context, repoHash types.Hash,
 	return nodes, nil
 }
 
+func (m *MockGraphStore) NodesByFileHash(_ context.Context, fileHash types.Hash) ([]types.Node, error) {
+	var nodes []types.Node
+	for _, n := range m.Nodes {
+		if n.FileHash == fileHash {
+			nodes = append(nodes, *n)
+		}
+	}
+	return nodes, nil
+}
+
 func (m *MockGraphStore) StaleNodesByFiles(_ context.Context, _ types.Hash, _ []string) ([]types.Node, error) {
 	return nil, nil
 }
