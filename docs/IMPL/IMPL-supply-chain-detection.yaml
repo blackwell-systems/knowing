@@ -628,6 +628,7 @@ waves:
             - internal/indexer/tsextractor/env_edges_test.go
             - internal/indexer/tsextractor/process_edges.go
             - internal/indexer/tsextractor/process_edges_test.go
+      base_commit: 3f5747c094ef8c41b69cbd49245c2d6be08f8fa9
     - number: 2
       agents:
         - id: E
@@ -769,7 +770,109 @@ quality_gates:
           command: GOWORK=off go test ./internal/indexer/... ./internal/diff/... ./internal/edgetype/... ./cmd/... -timeout 120s
           required: true
 post_merge_checklist:
-    groups: []
+    groups:
+        - title: Background Service Initialization
+          items:
+            - description: Verify if isolation_test.go needs initialization in Server constructor
+completion_reports:
+    A:
+        status: complete
+        branch: polywave/supply-chain-detection/wave1-agent-A
+        commit: 491a7f7
+        files_changed:
+            - internal/indexer/gotsextractor/env_edges.go
+            - internal/indexer/gotsextractor/env_edges_test.go
+            - internal/indexer/gotsextractor/process_edges.go
+            - internal/indexer/gotsextractor/process_edges_test.go
+        files_created:
+            - internal/indexer/gotsextractor/env_edges.go
+            - internal/indexer/gotsextractor/env_edges_test.go
+            - internal/indexer/gotsextractor/process_edges.go
+            - internal/indexer/gotsextractor/process_edges_test.go
+        tests_added:
+            - TestExtractEnvReadEdges_Getenv
+            - TestExtractEnvReadEdges_LookupEnv
+            - TestExtractEnvReadEdges_VariableArg
+            - TestExtractEnvReadEdges_MultipleEnvVars
+            - TestExtractEnvReadEdges_NoMatches
+            - TestExtractProcessExecEdges_Command
+            - TestExtractProcessExecEdges_CommandContext
+            - TestExtractProcessExecEdges_DynamicArg
+            - TestExtractProcessExecEdges_NoMatches
+            - TestExtractProcessExecEdges_MultipleCommands
+        verification: PASS
+        notes: Build fails only on undefined types.KindEnvVar, types.KindProcess, edgetype.ReadsEnv, edgetype.ExecutesProcess (Agent D scope). Renamed extractFirstStringArg to extractFirstStringLiteralArg to avoid collision with existing function in extractor.go. Integration into main extractor loop (gotsextractor.go) is out of scope per brief.
+    B:
+        status: complete
+        branch: polywave/supply-chain-detection/wave1-agent-B
+        commit: 52f50a4
+        files_changed:
+            - internal/indexer/treesitter/env_edges.go
+            - internal/indexer/treesitter/env_edges_test.go
+            - internal/indexer/treesitter/process_edges.go
+            - internal/indexer/treesitter/process_edges_test.go
+        files_created:
+            - internal/indexer/treesitter/env_edges.go
+            - internal/indexer/treesitter/env_edges_test.go
+            - internal/indexer/treesitter/process_edges.go
+            - internal/indexer/treesitter/process_edges_test.go
+        tests_added:
+            - TestExtractEnvReadEdges
+            - TestExtractEnvReadEdges_MultipleInBody
+            - TestExtractProcessExecEdges
+            - TestExtractProcessExecEdges_NestedCalls
+        verification: PASS
+        notes: Implementation complete. Build fails only due to missing constants (edgetype.ReadsEnv, edgetype.ExecutesProcess, types.KindEnvVar, types.KindProcess) which are Agent D's scope. All function signatures match contracts. Tests use direct function calls with parsed AST nodes. Extractor dispatch integration (calling these functions from extractor.go) is out of scope per constraints.
+    C:
+        status: complete
+        branch: polywave/supply-chain-detection/wave1-agent-C
+        commit: 06c3467
+        files_changed:
+            - internal/indexer/tsextractor/env_edges.go
+            - internal/indexer/tsextractor/env_edges_test.go
+            - internal/indexer/tsextractor/process_edges.go
+            - internal/indexer/tsextractor/process_edges_test.go
+        files_created:
+            - internal/indexer/tsextractor/env_edges.go
+            - internal/indexer/tsextractor/env_edges_test.go
+            - internal/indexer/tsextractor/process_edges.go
+            - internal/indexer/tsextractor/process_edges_test.go
+        tests_added:
+            - TestExtractEnvReadEdges_DotNotation
+            - TestExtractEnvReadEdges_BracketNotation
+            - TestExtractEnvReadEdges_MultipleVars
+            - TestExtractEnvReadEdges_NoMatches
+            - TestExtractEnvReadEdges_NilBody
+            - TestExtractProcessExecEdges_Spawn
+            - TestExtractProcessExecEdges_Exec
+            - TestExtractProcessExecEdges_ExecSync
+            - TestExtractProcessExecEdges_DynamicArg
+            - TestExtractProcessExecEdges_NoMatches
+            - TestExtractProcessExecEdges_NilBody
+        verification: PASS
+        notes: All four files implemented. Build fails only due to missing constants (types.KindEnvVar, types.KindProcess, edgetype.ReadsEnv, edgetype.ExecutesProcess) which are Agent D scope. Postcondition greps all pass. Committed with --no-verify per parallel wave rules.
+    D:
+        status: complete
+        branch: polywave/supply-chain-detection/wave1-agent-D
+        commit: 1d8727f
+        files_changed:
+            - internal/edgetype/constants.go
+            - internal/types/kinds.go
+            - internal/context/walk.go
+            - internal/wire/binary.go
+            - internal/diff/isolation.go
+            - internal/diff/isolation_test.go
+        files_created:
+            - internal/diff/isolation.go
+            - internal/diff/isolation_test.go
+        tests_added:
+            - TestIsolation_WellConnectedFile
+            - TestIsolation_IsolatedWithEnvReads
+            - TestIsolation_IsolatedWithProcessExec
+            - TestIsolation_HookExecuted
+            - TestIsolation_Clamping
+        verification: PASS
+        notes: All edge types, node kinds, walk weights, wire format entries, and isolation score computation implemented. 5 tests passing.
 pre_mortem:
     overall_risk: low
     rows:
