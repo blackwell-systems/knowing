@@ -119,6 +119,8 @@ func run(args []string) error {
 		return cmdAudit(args[1:])
 	case "audit-diff":
 		return cmdAuditDiff(args[1:])
+	case "audit-supply-chain":
+		return cmdAuditSupplyChain(args[1:])
 	case "enrich":
 		return cmdEnrich(args[1:])
 	case "enrich-similarity":
@@ -180,6 +182,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  verify      Verify a Merkle proof offline (no database needed)")
 	fmt.Fprintln(os.Stderr, "  audit       Generate a structured compliance report")
 	fmt.Fprintln(os.Stderr, "  audit-diff  Compare two audit snapshots with classification (@latest, @prev, @N)")
+	fmt.Fprintln(os.Stderr, "  audit-supply-chain  Detect suspicious supply chain patterns in new code")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Server:")
 	fmt.Fprintln(os.Stderr, "  mcp         Run MCP server over stdio")
