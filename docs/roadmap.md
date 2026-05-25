@@ -9,8 +9,15 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 | 1 | **Real users** | Everything else is validated by benchmarks, not usage. Task memory compounds with use. | Ongoing | - |
 | 2 | **Local embeddings (Channel 6)** | Lightweight local embedding model embeds task descriptions and symbol signatures into shared vector space. Bridges vocabulary gap completely: "custom migration operation" finds `Operation.state_forwards` via semantic similarity. Pure Go inference proposed (`docs/proposals/pure-go-embeddings.md`). | High (3-4 days) | +5-15% P@10 |
 | 3 | **event-stream supply chain demo** | Index clean + compromised versions, show `knowing diff` catches malicious edges, prove absence/presence with Merkle proofs. Paper outlined (`docs/research/whitepapers/supply-chain-proof-of-absence.md`). | Medium | Commercial angle |
-| 4 | **Struct field access edges** | `obj.Field` connects the accessor to the field's type definition. Real relationship, belongs in graph. | Low | Correctness |
-| 5 | **Parallel write backend** | SQLite single-writer funnels all extraction results through one goroutine. Even with producer-consumer pipeline, writes are serial. Need parallel write support for large repos. | High | Performance |
+| 4 | **Parallel write backend** | SQLite single-writer funnels all extraction results through one goroutine. Even with producer-consumer pipeline, writes are serial. Need parallel write support for large repos. | High | Performance |
+
+### Session 15: Shipped
+
+- accesses_field edge type (Go: method -> receiver field, 36th edge type, P@10 neutral)
+- Struct field node extraction (kind="field", enables contains/member_of from type to fields)
+- Wire format codec overhaul (binary: 9 -> 36 edge types, 10 -> 16 kinds, 4 -> 7 provenances)
+- similar_to added to edgetype constants (was used but undeclared)
+- Multi-language accesses_field (Rust, Python, Java, C#, TypeScript) in progress
 
 ### Session 14: Shipped
 
