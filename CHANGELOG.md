@@ -8,6 +8,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+#### `type_hint_of` edge type (P@10 0.204 -> 0.210, +3%)
+- 34th edge type: connects functions to types referenced in parameter/return annotations
+- **Go**: extracts from `parameter_declaration` nodes, resolves imported types via import map. k8s: 33,689 edges. Skips builtins (string, int, error, etc.)
+- **Java**: extracts from `formal_parameter` nodes, handles generics (`List<T>` -> `List`) and scoped types. Kafka: 1,445 edges. Skips primitives and boxed types.
+- **TypeScript**: extracts from required/optional/rest parameters via `type_annotation`. Handles generics and nested type identifiers.
+- **Python**: extracts from `typed_parameter` nodes with import-map resolution. Django has ~0 type annotations (untyped codebase), so no impact there.
+- Per-repo: Kafka +14.5% (0.221->0.253), VS Code +23.5% (0.132->0.163), Terraform +1.9%, Django +1.7%
+- k8s regresses -8.9% (0.168->0.153): 33K type_hint_of edges may dilute RWR probability on the largest graph
+- RWR weight: 0.5, adjacency cache ID: 33
+
+#### `--edge-types` ablation filter for indexing
+- New CLI flag: `knowing index --edge-types calls,imports,implements`
+- Only generates and stores edges of specified types
+- Useful for: ablation studies, debugging dilution, fast iteration (skip similarity edges)
+- Filter applies at batch-write time and skips post-processing for excluded types
+
 #### Type-method path seeding (P@10 0.202 -> 0.204, Kafka +10.5%)
 - When path terms match a package, checks if types in that package have methods matching task keywords
 - Seeds the type so RWR walks to its methods via contains edges
