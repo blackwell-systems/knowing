@@ -1,0 +1,13 @@
+id: kafka-medium-005
+repo: kafka
+tier: medium
+description: "Implement manual offset commit with error handling to ensure exactly-once processing semantics in a consumer application"
+source: manual
+ground_truth:
+  - clients.consumer.KafkaConsumer.commitSync
+  - clients.consumer.KafkaConsumer.commitAsync
+  - clients.consumer.OffsetAndMetadata
+  - clients.consumer.OffsetCommitCallback
+  - common.TopicPartition
+tags: [consumer, offsets, exactly-once, cross-package]
+notes: "Manual offset commit requires commitSync/commitAsync methods, OffsetAndMetadata for position tracking, OffsetCommitCallback for async error handling, and TopicPartition for partition addressing."

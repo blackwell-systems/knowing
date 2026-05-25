@@ -1,0 +1,15 @@
+id: terraform-hard-003
+repo: terraform
+tier: hard
+description: "Debug why terraform state mv corrupts references by tracing through the state manager, resource addressing, and dependency graph update"
+source: manual
+ground_truth:
+  - command.StateMvCommand
+  - command.StateMvCommand.Run
+  - states.SyncState
+  - states.Module
+  - addrs.MoveEndpoint
+  - addrs.ParseMoveEndpoint
+  - terraform.MovedRefactoring
+tags: [state, move, refactoring, cross-package, debugging]
+notes: "State mv debugging requires the StateMvCommand, the SyncState that tracks mutations, Module for resource containers, address parsing for move endpoints, and the refactoring engine that updates the dependency graph."

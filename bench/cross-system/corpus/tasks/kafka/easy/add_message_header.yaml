@@ -1,0 +1,12 @@
+id: kafka-easy-004
+repo: kafka
+tier: easy
+description: "Add custom headers to a producer record for passing metadata like correlation IDs and trace context between services"
+source: manual
+ground_truth:
+  - common.header.Headers
+  - common.header.Header
+  - common.header.RecordHeaders
+  - clients.producer.ProducerRecord
+tags: [producer, headers, metadata, single-package]
+notes: "Message headers require the Headers interface, Header record type, RecordHeaders implementation, and ProducerRecord that carries them."

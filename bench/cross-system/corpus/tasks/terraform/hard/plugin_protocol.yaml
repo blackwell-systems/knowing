@@ -1,0 +1,14 @@
+id: terraform-hard-005
+repo: terraform
+tier: hard
+description: "Trace the gRPC plugin protocol between terraform core and a provider, including schema negotiation, plan computation, and apply execution"
+source: manual
+ground_truth:
+  - providers.Interface
+  - providers.GetProviderSchemaResponse
+  - providers.PlanResourceChangeResponse
+  - providers.ApplyResourceChangeResponse
+  - plugin.GRPCProvider
+  - plugin.GRPCProvider.ApplyResourceChange
+tags: [plugin, grpc, provider-protocol, cross-package, understanding]
+notes: "Plugin protocol requires the providers.Interface contract, schema/plan/apply response types, and the GRPCProvider that implements the wire protocol over gRPC."

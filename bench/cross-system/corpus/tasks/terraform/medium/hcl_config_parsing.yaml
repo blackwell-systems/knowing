@@ -1,0 +1,13 @@
+id: terraform-medium-005
+repo: terraform
+tier: medium
+description: "Trace how terraform parses an HCL configuration file into the internal config representation including variable interpolation and module references"
+source: manual
+ground_truth:
+  - configs.Parser
+  - configs.Module
+  - configs.Resource
+  - configs.Variable
+  - configs/configload.Loader
+tags: [configs, hcl, parsing, cross-package, understanding]
+notes: "HCL parsing requires Parser for file reading, Module as the top-level container, Resource/Variable for declarations, and Loader for module resolution."

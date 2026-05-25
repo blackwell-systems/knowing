@@ -1,0 +1,14 @@
+id: kafka-hard-002
+repo: kafka
+tier: hard
+description: "Debug why messages are being duplicated by tracing through the idempotent producer's sequence number tracking, transaction coordinator, and epoch fencing"
+source: manual
+ground_truth:
+  - clients.producer.internals.Sender
+  - clients.producer.internals.Sender.sendProducerData
+  - clients.producer.internals.TransactionManager
+  - clients.producer.internals.TransactionManager.maybeResolveSequences
+  - clients.producer.internals.ProducerBatch
+  - clients.producer.internals.RecordAccumulator
+tags: [producer, idempotence, transactions, cross-package, debugging]
+notes: "Idempotent producer debugging requires the Sender thread, TransactionManager for sequence tracking, ProducerBatch for retry handling, and RecordAccumulator for batching."

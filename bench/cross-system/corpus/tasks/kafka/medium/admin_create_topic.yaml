@@ -1,0 +1,13 @@
+id: kafka-medium-004
+repo: kafka
+tier: medium
+description: "Use the Admin client to create a topic with custom partition count, replication factor, and retention configuration"
+source: manual
+ground_truth:
+  - clients.admin.Admin
+  - clients.admin.KafkaAdminClient
+  - clients.admin.NewTopic
+  - clients.admin.CreateTopicsResult
+  - clients.admin.Config
+tags: [admin, topic-creation, configuration, cross-package]
+notes: "Topic creation requires the Admin interface, KafkaAdminClient implementation, NewTopic for specification, CreateTopicsResult for async handling, and Config for topic-level settings."

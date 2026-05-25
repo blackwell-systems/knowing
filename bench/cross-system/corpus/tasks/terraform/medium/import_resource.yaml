@@ -1,0 +1,13 @@
+id: terraform-medium-004
+repo: terraform
+tier: medium
+description: "Trace how terraform import brings an existing cloud resource under terraform management by associating it with a resource address in state"
+source: manual
+ground_truth:
+  - command.ImportCommand
+  - command.ImportCommand.Run
+  - terraform.ImportOpts
+  - states.ResourceInstanceObject
+  - providers.ImportResourceStateResponse
+tags: [import, state, providers, cross-package, understanding]
+notes: "Import requires the ImportCommand entry point, ImportOpts configuration, ResourceInstanceObject for the state representation, and the provider's ImportResourceStateResponse for reading the existing resource."

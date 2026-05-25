@@ -1,0 +1,14 @@
+id: kafka-medium-002
+repo: kafka
+tier: medium
+description: "Build a Kafka Streams topology that joins two input topics, applies a windowed aggregation, and writes results to an output topic"
+source: manual
+ground_truth:
+  - streams.StreamsBuilder
+  - streams.KafkaStreams
+  - streams.Topology
+  - streams.kstream.KStream
+  - streams.kstream.KTable
+  - streams.kstream.TimeWindows
+tags: [streams, topology, aggregation, cross-package, feature-addition]
+notes: "Streams topology requires StreamsBuilder for DSL construction, KafkaStreams runtime, Topology representation, KStream/KTable for the join, and TimeWindows for windowed aggregation."

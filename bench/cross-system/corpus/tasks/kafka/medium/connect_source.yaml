@@ -1,0 +1,13 @@
+id: kafka-medium-003
+repo: kafka
+tier: medium
+description: "Implement a Kafka Connect source connector that polls an external database and produces records to a topic"
+source: manual
+ground_truth:
+  - connect.source.SourceConnector
+  - connect.source.SourceTask
+  - connect.source.SourceRecord
+  - connect.connector.Task
+  - connect.storage.OffsetStorageReader
+tags: [connect, source, connector, cross-package, feature-addition]
+notes: "Source connector requires SourceConnector (lifecycle), SourceTask (polling), SourceRecord (output), Task interface, and OffsetStorageReader for tracking progress."

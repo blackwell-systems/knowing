@@ -1,0 +1,13 @@
+id: terraform-medium-003
+repo: terraform
+tier: medium
+description: "Implement state locking for a custom backend to prevent concurrent terraform apply operations from corrupting state"
+source: manual
+ground_truth:
+  - statemgr.Locker
+  - statemgr.LockInfo
+  - statemgr.NewLockInfo
+  - command.StateMeta
+  - command/views.StateLockError
+tags: [state, locking, concurrency, cross-package]
+notes: "State locking requires the Locker interface, LockInfo struct for lock metadata, StateMeta for state commands, and the error view for lock conflicts."

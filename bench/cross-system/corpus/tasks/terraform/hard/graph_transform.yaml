@@ -1,0 +1,14 @@
+id: terraform-hard-004
+repo: terraform
+tier: hard
+description: "Debug why a resource gets destroyed before its dependent by tracing through the graph transformers, dependency edges, and destroy node ordering"
+source: manual
+ground_truth:
+  - terraform.Graph
+  - terraform.GraphTransformer
+  - terraform.DestroyEdgeTransformer
+  - dag.AcyclicGraph
+  - dag.AcyclicGraph.TransitiveReduction
+  - terraform.ReferenceTransformer
+tags: [graph, transformers, destroy-order, cross-package, debugging]
+notes: "Destroy ordering requires the Graph type, GraphTransformer interface, DestroyEdgeTransformer for ordering constraints, AcyclicGraph for the DAG, TransitiveReduction for edge cleanup, and ReferenceTransformer for dependency injection."
