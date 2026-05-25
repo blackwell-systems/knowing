@@ -1,9 +1,39 @@
 # Proposal: Local Embeddings for Retrieval
 
-## Status: Phase 1 COMPLETE, Phase 2 pending measurement
+## Status: Phase 1 COMPLETE, Phase 2 ON HOLD
 
-Phase 1 (hugot integration) is already implemented and wired into the retrieval pipeline.
-Phase 2 (custom inference engine) is contingent on P@10 improvement validation.
+Phase 1 (hugot integration) is implemented and wired into the retrieval pipeline.
+Phase 2 (custom inference engine) is ON HOLD pending a better embedding strategy.
+
+### Embedding Benchmark Results (Session 15, 2026-05-25)
+
+**Finding: BGE-small-en-v1.5 with current text representation is NEUTRAL for P@10.**
+
+Ran the full corpus (167 tasks, 9 repos) with BENCH_EMBEDDINGS=1, capping at 5,000
+symbols per repo. Results across ~80 tasks completed before timeout:
+- P@10 scores are identical to baseline (0.207-0.208)
+- No per-task improvement observed
+- Embedding latency adds ~0ms to retrieval (HNSW search is <1ms)
+- Index time adds ~70s per repo (5000 x 14ms)
+
+**Why neutral:** The BGE model was trained on general text similarity, not code symbol
+retrieval. The `buildEmbedText` function produces text like "function Transitive Callers
+in package context with signature (ctx, task) ([]Hash, error)" which embeds reasonably
+but doesn't differentiate between code symbols better than BM25 keyword matching already
+does. The vocabulary gap between task descriptions ("refactor auth middleware") and
+symbol names ("SessionHandler", "TokenValidator") requires a code-specific embedding
+model, not a general-purpose one.
+
+**What would move the needle:**
+1. A code-retrieval-tuned model (CodeBERT, UniXcoder, or fine-tuned BGE on code pairs)
+2. Better text representation (include docstrings, file context, caller names)
+3. Hybrid scoring (use embedding similarity as a re-ranker on BM25 candidates, not as
+   a standalone channel)
+
+**Decision:** Keep the infrastructure (it works mechanically). Revisit when a
+code-retrieval-specific model is available in a size suitable for local inference.
+The custom Phase 2 engine is not worth building until the embedding signal itself
+proves valuable.
 
 ## Motivation
 
