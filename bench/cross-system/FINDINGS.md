@@ -585,6 +585,44 @@ reach. Flask generated 2,884 similarity edges. Cargo generated 15,389.
 
 The experiment succeeded. Feature kept.
 
+### Docstring FTS: First P@10 Movement (+5%) (2026-05-24)
+
+Added a `doc` column (weight 3.0) to the FTS5 index via migration 018. The column
+indexes node docstrings for BM25 retrieval. Python tree-sitter extractor now extracts
+docstrings from function and class bodies; Go extractor already populated Node.Doc.
+
+**BM25 column weights (6 columns):**
+
+| Column | Weight |
+|--------|--------|
+| symbol_name | 10.0 |
+| concepts | 5.0 |
+| file_path | 4.0 |
+| doc | 3.0 |
+| qualified_name | 3.0 |
+| signature | 1.0 |
+
+**Results:**
+
+| Corpus | Before | After | Delta |
+|--------|--------|-------|-------|
+| Flask | 0.250 | 0.271 | +8.4% |
+| Full (117 tasks) | 0.180 | 0.189 | +5.0% |
+
+**Why it works:** Task descriptions use natural language ("validate the request body").
+Docstrings also use natural language ("Validate the incoming request body against the
+schema"). BM25 on docstrings bridges the vocabulary gap between how developers describe
+tasks and how code describes itself, without requiring embeddings or an LLM.
+
+**Current coverage:** Python + Go only. TypeScript, Rust, Java, and C# extractors do
+not yet populate Node.Doc. Expanding coverage to those languages is expected to improve
+their per-repo P@10 by a similar margin.
+
+**Why the parameter sweep showed P@10=0.180 (not 0.189):** The sweep ran before the
+docstring FTS column was added. The docstring column is the first change that actually
+moved P@10 since the equivalence channel fix (Run 22), confirming that new retrieval
+signals (not parameter tuning) are the path forward.
+
 ---
 
 ## Conclusions

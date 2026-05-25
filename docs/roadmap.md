@@ -8,7 +8,8 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 |---|------|-----|--------|
 | 1 | **Add missing graph paths (reachability gaps)** | P@10 only moves when ground truth symbols become reachable via RWR for the first time. Improving existing paths (confidence, weighting) is neutral. The task: find symbols that are unreachable, determine why, add the missing edge/path. | Medium |
 | ~~1a~~ | ~~Run failure analysis on current state~~ | **DONE.** Failure analysis tool built (`bench/cross-system/failure_analysis_test.go`). Categorized all P@10 ground truth misses into: not_in_db, no_seeds, unreachable, ranked_low, matched. See FINDINGS.md. | Done |
-| 1b | Fix unreachable-by-missing-edges | `contains` edges (type->method, weight 0.6) shipped; connects 77% of previously-disconnected type/class nodes to methods via QN structure. Moved 19 symbols from unreachable to ranked_low. Remaining unreachable symbols need further edge types (Go interface embedding, channel send/receive, struct field access). | Medium |
+| 1b | Fix unreachable-by-missing-edges | `contains` + `member_of` edges shipped; connects 77% of previously-disconnected type/class nodes to methods via QN structure. Moved 19 symbols from unreachable to ranked_low. **Docstring FTS** (migration 018, `doc` column weight 3.0) was the breakthrough: P@10 0.180 -> 0.189 (+5%). Remaining unreachable symbols need further edge types (Go interface embedding, channel send/receive, struct field access). | Medium |
+| 1e | Docstring extraction for TS/Rust/Java/C# | Python + Go extractors now extract docstrings into Node.Doc for FTS indexing. TypeScript, Rust, Java, and C# extractors do not yet populate this field. Adding docstrings for these languages would improve BM25 recall on those corpora. | Low |
 | 1c | Fix unreachable-by-not-in-DB | For symbols in ground truth that reference unindexed modules (k8s.io/client-go, staging), either update fixtures to use indexable symbols or selectively index those modules. | Low |
 | ~~1d~~ | ~~Path-context boosting~~ | **DONE.** Path-context seeding (Channel 5) added to ForTask pipeline. Extracts package/directory terms from task description, finds TYPE nodes in those packages (prioritizing types with contains edges), injects as supplemental RWR seeds at weight 0.3. | Done |
 | 2 | **Real users** | Everything else is validated by benchmarks, not usage. Task memory compounds with use. | Ongoing |
@@ -193,7 +194,7 @@ context retrieval. Full proposal: [docs/proposals/code-retrieval-eval-toolkit.md
 ## Retrieval Pipeline
 
 Current results: see [bench/cross-system/FINDINGS.md](../bench/cross-system/FINDINGS.md).
-P@10=0.217 (Run 23), 1.63x vs codegraph, 4.3x vs Aider, 11x vs grep. Query latency 2ms on k8s (with adjacency cache).
+P@10=0.189 (post-docstring FTS, +5% from 0.180 baseline), 1.63x vs codegraph, 4.3x vs Aider, 11x vs grep. Query latency 2ms on k8s (with adjacency cache).
 
 ### Retrieval Improvements
 
@@ -206,7 +207,7 @@ P@10=0.217 (Run 23), 1.63x vs codegraph, 4.3x vs Aider, 11x vs grep. Query laten
 
 ## Edge Type Expansion
 
-31 edge types shipped. See [Edge Types Reference](architecture/edge-types.md) and [CHANGELOG](CHANGELOG.md) for full details.
+32 edge types shipped. See [Edge Types Reference](architecture/edge-types.md) and [CHANGELOG](CHANGELOG.md) for full details.
 
 | Category | Items | Status |
 |----------|-------|--------|

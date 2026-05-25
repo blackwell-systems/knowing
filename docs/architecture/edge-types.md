@@ -38,7 +38,8 @@ participates in blast radius traversal and context ranking.
 | `runtime_rpc` | gRPC/RPC call observed in traces | otel_trace | 0.2 - 0.95 | Trace ingestor | No | 0.3 (default) |
 | `runtime_produces` | Message published to a topic | otel_trace | 0.2 - 0.95 | Trace ingestor | No | 0.3 (default) |
 | `runtime_consumes` | Message consumed from a topic | otel_trace | 0.2 - 0.95 | Trace ingestor | No | 0.3 (default) |
-| `contains` | Type/class contains a method | deterministic | 1.0 | Indexer (QN structure) | No | 0.6 |
+| `contains` | Type/class contains a method | deterministic | 1.0 | Indexer (QN structure) | No | 0.8 |
+| `member_of` | Method belongs to a type/class (reverse of contains) | deterministic | 1.0 | Indexer (QN structure) | No | 0.6 |
 
 ## Static Edge Types
 
@@ -469,11 +470,28 @@ A type or class contains a method declaration.
 - **Provenance:** `deterministic` (confidence 1.0). Containment is derived from qualified name
   structure, which is unambiguous.
 - **Blast radius:** Not traversed.
-- **RWR weight:** 0.6. Moderate weight reflecting that a type's methods are structurally related
+- **RWR weight:** 0.8. High weight reflecting that a type's methods are structurally related
   to the type. Enables path-context seeding to reach methods through their declaring types,
   bridging the gap between package-level concepts and implementation-level symbols.
 - **Coverage:** Connects approximately 77% of previously-disconnected type/class nodes to their
   methods. Provides structural infrastructure for future ranking improvements.
+
+### `member_of`
+
+A method or field belongs to a type or class (the reverse of `contains`).
+
+- **Direction:** source method is a member of target type. `pkg.AuthService.Validate -member_of-> pkg.AuthService`
+  means the Validate method belongs to the AuthService type.
+- **Producers:** The indexer (`internal/indexer/indexer.go`) via `generateContainsEdges()`. For each
+  `contains` edge emitted (type -> method), a corresponding `member_of` edge is emitted in the
+  reverse direction (method -> type). Also generated in the bench adapter for evaluation.
+- **Provenance:** `deterministic` (confidence 1.0). Derived from qualified name structure, same as
+  `contains`.
+- **Blast radius:** Not traversed.
+- **RWR weight:** 0.6. Moderate weight, slightly lower than `contains` (0.8). Enables RWR to walk
+  from a method back to its declaring type, which connects to other methods on the same type.
+  This bidirectional connectivity (contains + member_of) ensures that type hierarchies form
+  tightly connected subgraphs in the random walk.
 
 ## Runtime Edge Types
 
