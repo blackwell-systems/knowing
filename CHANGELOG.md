@@ -8,7 +8,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-#### Docstring FTS indexing (P@10 0.180 -> 0.202, +2.8%)
+#### Benchmark corpus expansion (9 repos, 161 tasks)
+- Added Terraform (Go, 2M LOC, 37K nodes, 184K edges, 20 tasks)
+- Added Kafka (Java, 500K LOC, 74K nodes, 780K edges, 19 tasks)
+- Expanded Flask to 19 tasks (from 14)
+- Total: 9 repos, 6 languages, 161 tasks (from 117)
+- P@10 = 0.202 on full corpus (Kafka 0.300, Terraform 0.250 pull average up)
+
+#### Go structural edge extraction
+- Interface embedding: `type A struct { B }` creates A --implements--> B
+- Channel send/receive: creates references edges for producer/consumer relationships
+- Type assertions: `v.(Type)` creates references edge to the asserted type
+- All four extracted from Go AST in `go_structural_edges.go`
+
+#### Docstring FTS indexing (P@10 0.180 -> 0.202, +12.2%)
 - New FTS5 column `doc` (weight 3.0) indexes node docstrings for BM25 retrieval
 - Bridges the vocabulary gap: task descriptions use natural language, docstrings are natural language descriptions of what code does
 - Migration 018 adds doc column to `nodes_fts_content` and rebuilds FTS virtual table
