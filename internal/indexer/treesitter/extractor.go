@@ -263,6 +263,12 @@ func (e *TreeSitterExtractor) extractFunction(node *sitter.Node, opts types.Extr
 
 	result.Nodes = append(result.Nodes, n)
 
+	// Extract field access edges for methods (classContext != "").
+	if classContext != "" {
+		fieldEdges := extractFieldAccessEdges(node, opts, classContext, n.NodeHash)
+		result.Edges = append(result.Edges, fieldEdges...)
+	}
+
 	// Emit decorates edges for decorators on this function/method.
 	e.extractPythonDecoratorEdges(node, opts, n.NodeHash, result)
 
@@ -397,6 +403,10 @@ func (e *TreeSitterExtractor) extractClassWithImports(node *sitter.Node, opts ty
 
 	// Emit extends edges with import-resolved target hashes.
 	e.extractPythonBaseClasses(node, opts, n.NodeHash, pyImports, result)
+
+	// Extract class field declarations as field nodes.
+	fieldNodes := extractClassFieldNodes(node, opts, className)
+	result.Nodes = append(result.Nodes, fieldNodes...)
 
 	// Emit decorates edges for decorators on this class.
 	e.extractPythonDecoratorEdges(node, opts, n.NodeHash, result)
