@@ -7,13 +7,25 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 | # | Item | Why | Effort | Expected Impact |
 |---|------|-----|--------|-----------------|
 | 1 | **Real users** | Everything else is validated by benchmarks, not usage. Task memory compounds with use. agent-lsp has 40 stars after 1 month; knowing needs the same traction. | Ongoing | - |
-| 2 | **Call-chain-aware seeding** | When a seed is found, also seed its direct callees (1-hop expansion before RWR). Doubles effective reach without changing walk. Currently seeds only match by name; callees are where the actual work happens. | Low (20 lines) | +2-5% P@10 |
-| 3 | **File-scoped co-retrieval** | When BM25 finds a symbol, include other symbols from the same file as weak candidates. If `Migration.apply` is found, sibling methods (`unapply`, `mutate_state`) are likely relevant too. | Low (30 lines) | +2-3% P@10 |
-| 4 | **Import graph seeding** | Extend path-seeding to follow import edges from BM25 hits. When seed is in file A, follow A's imports to find related files, seed type nodes from those. | Medium (50 lines) | +3-5% P@10 |
+| 2 | **Type-aware keyword extraction** | Task descriptions describe BEHAVIOR ("custom migration operation") not SYMBOLS. Search for TYPE nodes in packages matching one term that have methods matching another. Example: `WHERE package LIKE '%migration%' AND kind='type' AND has_method LIKE '%forward%'` finds `Operation.state_forwards`. | Medium (50 lines) | +5-10% P@10 |
+| 3 | **AND-semantics path matching** | Path-context seeding currently uses OR (any term matches). With AND semantics, "migration operation" intersects to find nodes in `migrations/operations/` specifically, not the 1,743 nodes matching either term alone. | Low (30 lines) | +3-5% P@10 |
+| 4 | **Semantic concept expansion** | For each extracted keyword, also seed its related code concepts from a static ~200-entry thesaurus. "migration" also seeds "schema", "alter", "table". "handler" also seeds "middleware", "route", "endpoint". No LLM, just a handcrafted concept graph. | Medium (100 lines + thesaurus) | +3-8% P@10 |
 | 5 | **Local embeddings (Channel 6)** | Lightweight local embedding model (~30MB ONNX) embeds task descriptions and symbol signatures into shared vector space. Bridges vocabulary gap completely: "custom migration operation" finds `Operation.state_forwards` via semantic similarity. Infrastructure already exists (`internal/embedding/`). | High (prototyped) | +5-15% P@10 |
-| 6 | **Struct field access edges** | `obj.Field` connects the accessor to the field's type definition. Real relationship, belongs in graph. | Low | Correctness |
-| 7 | **Parallel write backend** | SQLite single-writer funnels all extraction results through one goroutine. Even with producer-consumer pipeline, writes are serial. Need parallel write support for large repos. | High | Performance |
-| 8 | **event-stream supply chain demo** | Index clean + compromised versions, show `knowing diff` catches malicious edges, prove absence/presence with Merkle proofs. Blog post: "We cryptographically proved this module can't exfiltrate data." | Medium | Commercial angle |
+| 6 | **event-stream supply chain demo** | Index clean + compromised versions, show `knowing diff` catches malicious edges, prove absence/presence with Merkle proofs. Blog post: "We cryptographically proved this module can't exfiltrate data." | Medium | Commercial angle |
+| 7 | **Struct field access edges** | `obj.Field` connects the accessor to the field's type definition. Real relationship, belongs in graph. | Low | Correctness |
+| 8 | **Parallel write backend** | SQLite single-writer funnels all extraction results through one goroutine. Even with producer-consumer pipeline, writes are serial. Need parallel write support for large repos. | High | Performance |
+
+### Session 14 Findings (rejected approaches)
+
+The following were implemented, benchmarked, and confirmed neutral (P@10 unchanged):
+
+| Approach | Why neutral |
+|----------|-------------|
+| **Call-chain seeding** (inject callees of top seeds as supplemental RWR seeds) | Callees are already reachable via RWR traversal; adding them as seeds just diffuses probability mass |
+| **File-scoped co-retrieval** (inject sibling symbols from same file) | Same: file siblings already reachable via contains/member_of edges |
+| **Import graph seeding** | Subsumed by existing path-context seeding (Channel 5) |
+
+The 32-config parameter sweep (session 13) proved P@10 is reachability-determined. The only levers that move P@10 are those that make previously-unreachable ground truth symbols reachable for the first time. Items 2-5 above target the 44.6% of ground truth symbols that are currently unreachable because keyword seeds connect to the wrong subgraph.
 
 ## Storage Backend (P0 Performance)
 
