@@ -187,6 +187,49 @@ func (e *TreeSitterExtractor) makeNode(opts types.ExtractOptions, qualifiedName,
 	}
 }
 
+// extractPythonDocstring extracts the docstring from a Python function or class body.
+// In Python, a docstring is the first statement of a function/class if it's a string literal.
+// Returns the docstring content (without quotes), or empty string if none.
+func extractPythonDocstring(body *sitter.Node, content []byte) string {
+	if body == nil || body.ChildCount() == 0 {
+		return ""
+	}
+	first := body.Child(0)
+	if first == nil {
+		return ""
+	}
+	// The first statement should be an expression_statement containing a string.
+	if first.Type() != "expression_statement" {
+		return ""
+	}
+	if first.ChildCount() == 0 {
+		return ""
+	}
+	strNode := first.Child(0)
+	if strNode == nil {
+		return ""
+	}
+	if strNode.Type() != "string" && strNode.Type() != "concatenated_string" {
+		return ""
+	}
+	raw := strNode.Content(content)
+	// Strip triple quotes or single quotes.
+	doc := strings.TrimPrefix(raw, `"""`)
+	doc = strings.TrimSuffix(doc, `"""`)
+	doc = strings.TrimPrefix(doc, `'''`)
+	doc = strings.TrimSuffix(doc, `'''`)
+	doc = strings.TrimPrefix(doc, `"`)
+	doc = strings.TrimSuffix(doc, `"`)
+	doc = strings.TrimPrefix(doc, `'`)
+	doc = strings.TrimSuffix(doc, `'`)
+	doc = strings.TrimSpace(doc)
+	// Cap at 500 chars to avoid bloating FTS with huge docstrings.
+	if len(doc) > 500 {
+		doc = doc[:500]
+	}
+	return doc
+}
+
 // extractFunction extracts a function definition node.
 func (e *TreeSitterExtractor) extractFunction(node *sitter.Node, opts types.ExtractOptions, classContext string, result *types.ExtractResult) {
 	nameNode := node.ChildByFieldName("name")
@@ -203,6 +246,11 @@ func (e *TreeSitterExtractor) extractFunction(node *sitter.Node, opts types.Extr
 
 	qname := e.qualifiedName(opts, classContext, name)
 	n := e.makeNode(opts, qname, kind, line)
+
+	// Extract Python docstring from function body.
+	body := node.ChildByFieldName("body")
+	n.Doc = extractPythonDocstring(body, opts.Content)
+
 	result.Nodes = append(result.Nodes, n)
 
 	// Emit decorates edges for decorators on this function/method.
@@ -210,7 +258,6 @@ func (e *TreeSitterExtractor) extractFunction(node *sitter.Node, opts types.Extr
 
 	// Walk function body for calls and imports, passing this function's
 	// node hash so calls use it as edge source.
-	body := node.ChildByFieldName("body")
 	if body != nil {
 		for i := 0; i < int(body.ChildCount()); i++ {
 			e.walkNode(body.Child(i), opts, classContext, n.NodeHash, result)
@@ -229,6 +276,11 @@ func (e *TreeSitterExtractor) extractClassWithImports(node *sitter.Node, opts ty
 
 	qname := e.qualifiedName(opts, "", className)
 	n := e.makeNode(opts, qname, "type", line)
+
+	// Extract Python docstring from class body.
+	classBody := node.ChildByFieldName("body")
+	n.Doc = extractPythonDocstring(classBody, opts.Content)
+
 	result.Nodes = append(result.Nodes, n)
 
 	// Emit extends edges with import-resolved target hashes.
