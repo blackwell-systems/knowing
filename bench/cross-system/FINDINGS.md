@@ -26,7 +26,33 @@ are reported as such.
 
 knowing is a content-addressed graph retrieval engine evaluated against 6 competitors across 7 codebases (3.5M LOC down to 14K LOC), ~117 task fixtures, and 23 iterative benchmark runs with full statistical rigor.
 
-### Final Results (Run 23)
+### Final Results (Run 24, Session 13: fresh index with docstring FTS)
+
+| System | P@10 | R@10 | Tasks | Notes |
+|--------|------|------|-------|-------|
+| **knowing** | **0.185** | **0.262** | 117 | Docstring FTS, 32 edge types, 5-channel retrieval |
+| codegraph (19K stars) | 0.135 | - | 107 | 10 tasks failed (unsupported repos) |
+| GitNexus | 0.075 | - | 66 | Killed on k8s (>60 min indexing) |
+| Gortex | 0.063 | - | 66 | 14 min k8s indexing, 14GB RAM |
+| grep | 0.013 | - | 117 | Baseline |
+| Aider (~20K stars) | - | - | - | Timed out (30 min limit) |
+| codebase-memory (2.6K stars) | - | - | - | Timed out (30 min limit) |
+
+### Competitive Advantages
+
+- **vs codegraph (19K stars):** 1.36x more precise (P@10 0.185 vs 0.135), all 117 tasks vs 107
+- **vs GitNexus:** 2.45x more precise (P@10 0.185 vs 0.075), 117 tasks vs 66, 18s index vs >60 min
+- **vs Gortex:** 2.92x more precise (P@10 0.185 vs 0.063), 200MB RAM vs 14GB, 18s index vs 14 min
+- **vs grep:** 14.2x more precise (P@10 0.185 vs 0.013)
+- **vs Repomix:** 48x more token-efficient (4K tokens vs 300K for same task)
+
+**Note on Run 23 vs Run 24:** Run 23 (P@10=0.217) was measured on incrementally-built enriched
+DBs accumulated over many sessions. Run 24 uses fresh indexes built from scratch with current
+code (no enrichment). Enrichment was confirmed P@10-negative (dilution: 42K new edges from
+pyright reduce precision). The Run 24 numbers are the honest baseline for the current
+architecture: all systems measured on the same freshly-indexed repos.
+
+### Historical: Run 23 Results (enriched DBs, 2026-05-23)
 
 | System | P@10 | R@10 | Index k8s | Query k8s | Time-to-consistency | RAM (k8s) |
 |--------|------|------|-----------|-----------|---------------------|-----------|
@@ -37,15 +63,6 @@ knowing is a content-addressed graph retrieval engine evaluated against 6 compet
 | Gortex | ~comparable | - | 14.2 min | ~6s | minutes (no incremental) | 14GB |
 | codebase-memory (2.6K stars) | 0.137 | 0.145 | N/A (times out) | 2,900ms | N/A (times out) | - |
 | grep | 0.020 | 0.035 | instant | instant | instant | - |
-
-### Competitive Advantages (all statistically significant)
-
-- **vs codegraph (19K stars):** 1.63x more precise (p=0.0006, d=0.36), 11.5x more token-efficient
-- **vs Aider (~20K stars):** 4.3x more precise (P@10 0.217 vs 0.050), graph-based vs file-level
-- **vs grep:** 11x more precise (p<0.0001, d=0.92 very large effect)
-- **vs GitNexus:** 2.75x more precise (p=0.0003, d=0.50), 193x faster indexing, 109x faster incremental, 10x faster queries
-- **vs Repomix:** 48x more token-efficient (4K tokens vs 300K for same task)
-- **vs codebase-memory (2.6K stars):** 1.51x more precise (P@10 0.207 vs 0.137 on Flask+Cargo), 2x better recall, instant vs 2.9s latency, can't handle Django/k8s (hangs at 100% CPU)
 - **vs Gortex:** 46x faster on enterprise repos, 70x less RAM, comparable quality on small repos
 
 ### Key Architectural Findings
