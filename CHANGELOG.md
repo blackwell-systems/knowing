@@ -12,8 +12,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - 34th edge type: connects functions to types referenced in parameter/return annotations
 - **Go**: extracts from `parameter_declaration` nodes, resolves imported types via import map. k8s: 33,689 edges. Skips builtins (string, int, error, etc.)
 - **Java**: extracts from `formal_parameter` nodes, handles generics (`List<T>` -> `List`) and scoped types. Kafka: 1,445 edges. Skips primitives and boxed types.
-- **TypeScript**: extracts from required/optional/rest parameters via `type_annotation`. Handles generics and nested type identifiers.
+- **TypeScript**: extracts from required/optional/rest parameters via `type_annotation`. Handles generics and nested type identifiers. VS Code: 32,830 edges (after export fix).
 - **Python**: extracts from `typed_parameter` nodes with import-map resolution. Django has ~0 type annotations (untyped codebase), so no impact there.
+
+#### Fixed: TypeScript extractor missing `export_statement` handling
+- Pre-existing bug: all exported classes, functions, and interfaces were silently skipped
+- VS Code was extracting only 72 TS nodes from ~1M LOC (should be 87K nodes)
+- Fix: unwrap `export_statement` -> declaration child and recurse in `extractNodeWithImports`
+- Impact: VS Code nodes 43K -> 87K, edges 131K -> 422K
+- **Tradeoff**: correct extraction causes VS Code P@10 to drop from 0.163 to 0.100 due to graph density dilution (same pattern as k8s staging in session 12). The old 0.163 was artificially inflated by sparse, broken extraction. The 0.100 with correct extraction is the honest baseline; improving it requires better seed selection for dense graphs.
+- Aggregate P@10 with correct extraction: 0.203 (honest) vs 0.210 (with broken TS extraction)
 - Per-repo: Kafka +14.5% (0.221->0.253), VS Code +23.5% (0.132->0.163), Terraform +1.9%, Django +1.7%
 - k8s regresses -8.9% (0.168->0.153): 33K type_hint_of edges may dilute RWR probability on the largest graph
 - RWR weight: 0.5, adjacency cache ID: 33
