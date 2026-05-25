@@ -436,6 +436,59 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	// (e.g., "migration" -> django.db.migrations.operations.base.Operation -> .state_forwards).
 	var pathResults []types.Node
 	pathSeen := make(map[types.Hash]bool)
+
+	// Type-method matching: find types in packages matching one path term,
+	// then check if their methods/children match another keyword. This bridges
+	// "migration operation" -> Type in migrations/ package with method containing "forward".
+	if len(pathTerms) >= 1 && len(keywords) > 0 {
+		for _, pathTerm := range pathTerms {
+			// Find type nodes in packages matching this path term.
+			typeNodes, _ := e.store.NodesByName(ctx, "%/"+pathTerm+"%")
+			if len(typeNodes) == 0 {
+				typeNodes, _ = e.store.NodesByName(ctx, "%."+pathTerm+".%")
+			}
+			for _, tn := range typeNodes {
+				if pathSeen[tn.NodeHash] {
+					continue
+				}
+				if tn.Kind != "type" && tn.Kind != "class" && tn.Kind != "struct" && tn.Kind != "interface" {
+					continue
+				}
+				// Check if this type has methods matching any keyword.
+				children, _ := e.store.EdgesFrom(ctx, tn.NodeHash, "contains")
+				if len(children) == 0 {
+					continue
+				}
+				for _, edge := range children {
+					child, _ := e.store.GetNode(ctx, edge.TargetHash)
+					if child == nil {
+						continue
+					}
+					childLower := strings.ToLower(child.QualifiedName)
+					for _, kw := range keywords {
+						if strings.Contains(childLower, strings.ToLower(kw)) {
+							// Found a type whose method matches a keyword.
+							// Seed the type (RWR walks to methods via contains).
+							pathSeen[tn.NodeHash] = true
+							pathResults = append(pathResults, tn)
+							break
+						}
+					}
+					if pathSeen[tn.NodeHash] {
+						break
+					}
+				}
+				if len(pathResults) >= 10 {
+					break
+				}
+			}
+			if len(pathResults) >= 10 {
+				break
+			}
+		}
+	}
+
+	// Per-term OR pass: for each term individually.
 	for _, term := range pathTerms {
 		// Search for nodes whose qualified name contains this path segment.
 		nodes, err := e.store.NodesByName(ctx, "%/"+term+"%")
