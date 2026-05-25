@@ -65,10 +65,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Higher seed weight (0.6) for type-method matches**: Slightly worse than 0.3. RWR handles seed weighting internally.
 
 #### Self-adapting type-seed preference (P@10 0.202 -> 0.207, VS Code +44%)
-- On dense graphs (>50K nodes), automatically reorder RRF candidates to prefer type/interface/class nodes as RWR seeds over methods/functions
+- On dense graphs (>40K nodes), automatically reorder RRF candidates to prefer type/interface/class nodes as RWR seeds over methods/functions
 - Types are better seeds because they have contains edges to their methods (more productive walk)
 - VS Code: 0.095 -> 0.137 (+44%). Aggregate: 0.202 -> 0.207 (+2.5%). Zero regressions.
-- Self-adapting: auto-enables when `GraphNodeCount > 50000` (no manual configuration)
+- Self-adapting: auto-enables when `GraphNodeCount > 40000` (no manual configuration)
+- Threshold 40K chosen empirically: VS Code DB has 49K nodes, k8s 117K, kafka 80K, django 42K
 - Also available as manual override: `BENCH_PREFER_TYPE_SEEDS=1`
 - Hub dampening (H1) tested and rejected: no effect on VS Code (0.095 unchanged)
 

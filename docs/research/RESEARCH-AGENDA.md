@@ -90,9 +90,53 @@ Content-Addressing as a Computation Primitive for Software Relationship Intellig
 
 Paper 3 is the most immediately useful to the community (benchmark gap).
 Paper 4 is the most incremental (well-known algorithms, new domain).
+Paper 5 (new, session 14) addresses the density-adaptive retrieval finding.
 
 Recommend: Paper 3 next (low effort, high visibility, establishes benchmark).
-Then Paper 4 (leverages CRET as evaluation framework).
+Then Paper 5 (novel finding with strong empirical evidence).
+
+---
+
+---
+
+## Paper 5: Density-Adaptive Graph Retrieval (new, session 14)
+
+**Venue:** IR/Systems (SIGIR, CIKM, WWW)
+
+**Novel claim:** On code graphs with correct extraction, retrieval precision DEGRADES as
+the graph grows denser, even when the correct results remain reachable. The root cause
+is NOT the graph walk (proven: BFS depth and edge type exclusion have zero effect) but
+seed selection degradation in the BM25 front-end (keyword competition). The fix is
+density-adaptive: automatically prefer structural anchor nodes (types/interfaces) as
+RWR seeds on graphs exceeding a density threshold.
+
+**Key contributions:**
+1. Empirical proof that graph walk parameters are irrelevant on dense graphs (32-config
+   parameter sweep + edge exclusion + BFS depth sweep, all zero effect)
+2. Root cause isolation: BM25 IDF saturation on large FTS indexes (3284 "action" matches
+   on 87K-node graph vs ~50 on 43K-node graph)
+3. Density-adaptive seed selection: prefer type/interface/class nodes as seeds when
+   graph exceeds 40K nodes. +44% P@10 on VS Code, zero regression elsewhere.
+4. Finding: "correct extraction hurts precision" is a general phenomenon in graph-based
+   retrieval (observed independently on 3 repos with 3 different triggers)
+
+**Empirical evidence:**
+- VS Code: 43K nodes (broken extraction) P@10=0.163 -> 87K nodes (correct) P@10=0.084
+- Same pattern: k8s staging (+136K nodes, -20%), LSP enrichment (+42K edges, negative)
+- Fix: PreferTypeSeeds recovers 0.084 -> 0.137 (+44%), aggregate 0.202 -> 0.207
+- Ablation: exclude similar_to (0.095), exclude type_hint_of (0.095), BFS depth=2 (0.100), hub dampening (0.095). None recovers. Only seed selection change works.
+
+**What's novel:** The "correct extraction paradox" (doing the right thing makes results
+worse) and the density-adaptive fix are not in existing literature. Prior work on
+personalized PageRank/RWR assumes the graph is fixed; nobody has studied what happens
+when correct extraction fundamentally changes the competition landscape for seed selection.
+
+**Existing material:** `docs/research/dense-graph-dilution-analysis.md`, session 14 benchmark data
+
+**What's needed:**
+- Formalize the "keyword competition" model (why IDF degrades with node count)
+- Test on additional dense codebases (chromium, linux kernel)
+- Compare against dense passage retrieval approaches (DPR, ColBERT) on same corpus
 
 ---
 
@@ -100,7 +144,7 @@ Then Paper 4 (leverages CRET as evaluation framework).
 
 | Paper | Draft | Completeness | Next Action |
 |-------|-------|-------------|-------------|
-| 1 | `content-addressing-as-computation-primitive.md` | ~70% | Add security model, supply chain demo |
-| 2 | Same doc (needs splitting) | ~50% | Extract Merkle sections, add formal analysis |
+| 1+2 | `content-addressing-as-computation-primitive.md` | PUBLISHED | Supply chain demo (blog supplement) |
 | 3 | `cross-system-benchmark.md` + METHODOLOGY | ~40% | Package as toolkit, write paper framing |
 | 4 | No draft | 0% | Write from scratch using FINDINGS data |
+| 5 | `dense-graph-dilution-analysis.md` | ~30% | Formalize model, add additional repos |
