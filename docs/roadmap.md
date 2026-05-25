@@ -6,26 +6,33 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 
 | # | Item | Why | Effort | Expected Impact |
 |---|------|-----|--------|-----------------|
-| 1 | **Real users** | Everything else is validated by benchmarks, not usage. Task memory compounds with use. agent-lsp has 40 stars after 1 month; knowing needs the same traction. | Ongoing | - |
-| 2 | **Type-aware keyword extraction** | Task descriptions describe BEHAVIOR ("custom migration operation") not SYMBOLS. Search for TYPE nodes in packages matching one term that have methods matching another. Example: `WHERE package LIKE '%migration%' AND kind='type' AND has_method LIKE '%forward%'` finds `Operation.state_forwards`. | Medium (50 lines) | +5-10% P@10 |
-| 3 | **AND-semantics path matching** | Path-context seeding currently uses OR (any term matches). With AND semantics, "migration operation" intersects to find nodes in `migrations/operations/` specifically, not the 1,743 nodes matching either term alone. | Low (30 lines) | +3-5% P@10 |
-| 4 | **Semantic concept expansion** | For each extracted keyword, also seed its related code concepts from a static ~200-entry thesaurus. "migration" also seeds "schema", "alter", "table". "handler" also seeds "middleware", "route", "endpoint". No LLM, just a handcrafted concept graph. | Medium (100 lines + thesaurus) | +3-8% P@10 |
-| 5 | **Local embeddings (Channel 6)** | Lightweight local embedding model (~30MB ONNX) embeds task descriptions and symbol signatures into shared vector space. Bridges vocabulary gap completely: "custom migration operation" finds `Operation.state_forwards` via semantic similarity. Infrastructure already exists (`internal/embedding/`). | High (prototyped) | +5-15% P@10 |
-| 6 | **event-stream supply chain demo** | Index clean + compromised versions, show `knowing diff` catches malicious edges, prove absence/presence with Merkle proofs. Blog post: "We cryptographically proved this module can't exfiltrate data." | Medium | Commercial angle |
-| 7 | **Struct field access edges** | `obj.Field` connects the accessor to the field's type definition. Real relationship, belongs in graph. | Low | Correctness |
-| 8 | **Parallel write backend** | SQLite single-writer funnels all extraction results through one goroutine. Even with producer-consumer pipeline, writes are serial. Need parallel write support for large repos. | High | Performance |
+| 1 | **Real users** | Everything else is validated by benchmarks, not usage. Task memory compounds with use. | Ongoing | - |
+| 2 | **Local embeddings (Channel 6)** | Lightweight local embedding model embeds task descriptions and symbol signatures into shared vector space. Bridges vocabulary gap completely: "custom migration operation" finds `Operation.state_forwards` via semantic similarity. Pure Go inference proposed (`docs/proposals/pure-go-embeddings.md`). | High (3-4 days) | +5-15% P@10 |
+| 3 | **event-stream supply chain demo** | Index clean + compromised versions, show `knowing diff` catches malicious edges, prove absence/presence with Merkle proofs. Paper outlined (`docs/research/whitepapers/supply-chain-proof-of-absence.md`). | Medium | Commercial angle |
+| 4 | **Struct field access edges** | `obj.Field` connects the accessor to the field's type definition. Real relationship, belongs in graph. | Low | Correctness |
+| 5 | **Parallel write backend** | SQLite single-writer funnels all extraction results through one goroutine. Even with producer-consumer pipeline, writes are serial. Need parallel write support for large repos. | High | Performance |
 
-### Session 14 Findings (rejected approaches)
+### Session 14: Shipped
 
-The following were implemented, benchmarked, and confirmed neutral (P@10 unchanged):
+- Type-method path seeding (type-aware keyword extraction)
+- Concept thesaurus (~80 domain clusters for BM25 expansion)
+- co_tested_with edge type (lateral connections between symbols in same test file)
+- type_hint_of edge type (Go, Java, TypeScript, Python parameter annotations)
+- Self-adapting PreferTypeSeeds (density-adaptive retrieval for >40K nodes)
+- Phrase-boosted BM25 from adjacent Components
+- TypeScript export_statement fix (was silently dropping all exported declarations)
+- --edge-types ablation filter, BENCH_EXCLUDE_EDGES, BENCH_BFS_DEPTH diagnostic tools
+
+### Session 14: Rejected (tested neutral or harmful)
 
 | Approach | Why neutral |
 |----------|-------------|
-| **Call-chain seeding** (inject callees of top seeds as supplemental RWR seeds) | Callees are already reachable via RWR traversal; adding them as seeds just diffuses probability mass |
-| **File-scoped co-retrieval** (inject sibling symbols from same file) | Same: file siblings already reachable via contains/member_of edges |
-| **Import graph seeding** | Subsumed by existing path-context seeding (Channel 5) |
-
-The 32-config parameter sweep (session 13) proved P@10 is reachability-determined. The only levers that move P@10 are those that make previously-unreachable ground truth symbols reachable for the first time. Items 2-5 above target the 44.6% of ground truth symbols that are currently unreachable because keyword seeds connect to the wrong subgraph.
+| **Call-chain seeding** | Callees already reachable via RWR traversal; diffuses probability mass |
+| **File-scoped co-retrieval** | File siblings already reachable via contains/member_of edges |
+| **AND-semantics path matching** | Ground truth symbols don't contain all task terms in their QN |
+| **Hub dampening** | No effect on VS Code (0.095 unchanged at any threshold) |
+| **BFS depth reduction** | No effect (depth 2/3/4 all produce same P@10) |
+| **Expanded framework thesaurus** ("backend"->"base") | Hurts: too noisy for BM25 |
 
 ## Storage Backend (P0 Performance)
 
