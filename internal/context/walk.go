@@ -139,6 +139,12 @@ func collectNodeHashes(adjFrom, adjTo map[types.Hash][]types.Edge) []types.Hash 
 // Set via bench adapter or CLI; nil means all edge types are included.
 var ExcludeEdgeTypes map[string]bool
 
+// BFSMaxDepth controls the BFS expansion depth for adjacency map construction.
+// Default 4. On dense graphs (>50K nodes), reducing to 2-3 limits how many nodes
+// enter the RWR walk, preventing probability mass dilution.
+// 0 means use default (4).
+var BFSMaxDepth int
+
 // edgeWeights maps edge type strings to weight multipliers used during RWR iteration.
 // Higher weights cause more probability to flow along those edge types.
 var edgeWeights = map[string]float64{
@@ -600,7 +606,10 @@ func buildAdjacencyMap(ctx stdctx.Context, store types.GraphStore, seeds []types
 	adjFrom = make(map[types.Hash][]types.Edge)
 	adjTo = make(map[types.Hash][]types.Edge)
 
-	maxDepth := 4
+	maxDepth := BFSMaxDepth
+	if maxDepth == 0 {
+		maxDepth = 4
+	}
 
 	visited := make(map[types.Hash]bool, len(seeds)*4)
 	frontier := make([]types.Hash, len(seeds))
@@ -714,7 +723,10 @@ func buildFromCache(data string, seeds []types.Hash, externals map[types.Hash]bo
 		visited[s] = true
 	}
 
-	maxDepth := 4
+	maxDepth := BFSMaxDepth
+	if maxDepth == 0 {
+		maxDepth = 4
+	}
 	for depth := 0; depth < maxDepth && len(frontier) > 0; depth++ {
 		var nextFrontier []types.Hash
 		for _, node := range frontier {

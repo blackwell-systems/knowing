@@ -2,6 +2,7 @@ package adapters
 
 import (
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -29,6 +30,14 @@ func init() {
 			}
 		}
 		knowingctx.ExcludeEdgeTypes = exclude
+	}
+
+	// BENCH_BFS_DEPTH=2 limits BFS expansion depth (default 4).
+	// On dense graphs, lower depth prevents reaching the entire graph.
+	if envDepth := os.Getenv("BENCH_BFS_DEPTH"); envDepth != "" {
+		if d, err := strconv.Atoi(envDepth); err == nil && d > 0 {
+			knowingctx.BFSMaxDepth = d
+		}
 	}
 }
 
