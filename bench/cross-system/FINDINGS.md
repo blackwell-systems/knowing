@@ -567,6 +567,26 @@ are fundamentally lower (further from seeds), and no reweighting changes the ord
 sources) not RANKING (weight tuning, parameter adjustment). The parameter sweep
 infrastructure is retained for regression detection.
 
+### BM25 Doc Weight Sweep: Also Identical (2026-05-24)
+
+After docstring FTS proved effective (+2.8% P@10 from reachability gains), we tested
+whether the doc column's BM25 weight affects quality. Swept 6 weights across all 117 tasks:
+
+| Doc Weight | P@10 |
+|-----------|------|
+| 1.0 | 0.185 |
+| 2.0 | 0.185 |
+| 3.0 | 0.185 |
+| 5.0 | 0.185 |
+| 7.0 | 0.185 |
+| 10.0 | 0.185 |
+
+**All identical.** This extends the parameter sweep conclusion: even the one parameter
+that "worked" (adding docstrings) works via REACHABILITY (making new symbols findable
+by BM25), not via RANKING (the weight assigned to doc matches vs name matches). Once a
+symbol enters the BM25 result set, its RWR score determines final position regardless
+of how highly BM25 ranked it.
+
 ### Semantic Similarity Edges: Positive Result (2026-05-24)
 
 Added lightweight `similar_to` edges (Jaccard similarity on tokenized symbol names,
