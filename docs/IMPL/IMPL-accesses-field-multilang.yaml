@@ -1,0 +1,814 @@
+title: Add accesses_field edge extraction to Rust, Python, Java, C#, and TypeScript extractors
+feature_slug: accesses-field-multilang
+verdict: SUITABLE
+suitability_assessment: |
+    1. File decomposition: 5 languages, each in its own package with disjoint file ownership.
+       Each agent creates field_access_edges.go + field_access_edges_test.go in its package
+       and wires into the main Extract function. Zero overlap.
+    2. Investigation-first: None. The Go implementation is the complete reference; each
+       language port is mechanical adaptation of the same algorithm to different tree-sitter
+       grammar node types.
+    3. Interface discoverability: The contract is already established by the Go implementation:
+       same function signature pattern, same edge type constant, same node hash computation.
+    4. Pre-implementation status: All 5 packages currently have zero accesses_field support.
+       The edgetype.AccessesField constant and types.KindField kind are already defined.
+    5. Parallelization value: High. 5 fully independent agents (single wave), each touching
+       3 files in a separate package. Build+test cycle ~30s per package. No cross-agent
+       dependencies whatsoever.
+
+    Estimated times:
+    - Scout phase: ~8 min (reading 5 extractors, mapping patterns)
+    - Agent execution: ~5 min (5 agents in parallel, ~5 min each but overlapping)
+    - Merge and verification: ~3 min
+    Total Polywave time: ~16 min
+
+    Sequential baseline: ~25 min (5 agents x 5 min sequential)
+    Time savings: ~9 min (36% faster)
+
+    Recommendation: Clear speedup. 5 fully independent packages with no wave dependencies.
+test_command: GOWORK=off go test ./internal/indexer/...
+lint_command: GOWORK=off go vet ./internal/indexer/...
+file_ownership:
+    - file: internal/indexer/rustextractor/field_access_edges.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/indexer/rustextractor/field_access_edges_test.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/indexer/rustextractor/extractor.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/treesitter/field_access_edges.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/indexer/treesitter/field_access_edges_test.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/indexer/treesitter/extractor.go
+      agent: B
+      wave: 1
+      action: modify
+    - file: internal/indexer/javaextractor/field_access_edges.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/indexer/javaextractor/field_access_edges_test.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/indexer/javaextractor/extractor.go
+      agent: C
+      wave: 1
+      action: modify
+    - file: internal/indexer/csharpextractor/field_access_edges.go
+      agent: D
+      wave: 1
+      action: new
+    - file: internal/indexer/csharpextractor/field_access_edges_test.go
+      agent: D
+      wave: 1
+      action: new
+    - file: internal/indexer/csharpextractor/extractor.go
+      agent: D
+      wave: 1
+      action: modify
+    - file: internal/indexer/tsextractor/field_access_edges.go
+      agent: E
+      wave: 1
+      action: new
+    - file: internal/indexer/tsextractor/field_access_edges_test.go
+      agent: E
+      wave: 1
+      action: new
+    - file: internal/indexer/tsextractor/extractor.go
+      agent: E
+      wave: 1
+      action: modify
+interface_contracts:
+    - name: extractFieldAccessEdges (per-language)
+      description: |
+        Each language implements its own extractFieldAccessEdges function following
+        the same pattern as the Go reference implementation. The function walks
+        method bodies for self/this field access patterns and emits accesses_field
+        edges from the method node hash to field node hashes.
+      definition: |
+        func extractFieldAccessEdges(methodNode *sitter.Node, opts types.ExtractOptions, basePath string, methodHash types.Hash) []types.Edge
+      location: internal/indexer/<pkg>/field_access_edges.go
+    - name: extractStructFields / extractClassFields (per-language)
+      description: |
+        Each language implements field node extraction for struct/class field
+        declarations. Creates nodes with kind="field" and QN pattern
+        "repo://basePath.TypeName.fieldName". Uses ComputeNodeHash with
+        scopedName = "TypeName.fieldName" and kind = types.KindField.
+      definition: |
+        func extractStructFields(node *sitter.Node, opts types.ExtractOptions, basePath string, typeName string) []types.Node
+      location: internal/indexer/<pkg>/field_access_edges.go
+    - name: isCommonFieldName
+      description: |
+        Shared filter function (duplicated per package since packages are independent).
+        Returns true for field names too generic to be useful retrieval signals.
+      definition: |
+        func isCommonFieldName(name string) bool
+        // Common fields: mu, mutex, lock, wg, once, ctx, err, logger, log
+      location: internal/indexer/<pkg>/field_access_edges.go
+waves:
+    - number: 1
+      agents:
+        - id: A
+          task: |
+            ## Rust: Add accesses_field edge extraction
+
+            ### What to implement
+
+            Port the Go `accesses_field` edge extraction to the Rust extractor package.
+            Create `internal/indexer/rustextractor/field_access_edges.go` with:
+
+            1. `extractFieldAccessEdges(methodNode, opts, basePath, implType, methodHash) []types.Edge`
+               - For methods inside `impl` blocks, the receiver is `self`/`&self`/`&mut self`
+               - Walk the method body for `field_expression` nodes where the object is `self`
+               - Tree-sitter Rust grammar: `field_expression` has children `value` (the object)
+                 and `field` (the field name accessed). The `value` for self-access is an
+                 `identifier` node with content "self"
+               - Exclude cases where the field_expression is the function child of a
+                 call_expression (those are method calls like `self.start()`)
+               - Emit accesses_field edge from methodHash to field node hash
+
+            2. `extractStructFieldNodes(structNode, opts, basePath, typeName) []types.Node`
+               - Walk `field_declaration_list` children of `struct_item` nodes
+               - Each `field_declaration` has a `name` field (field_identifier) and a type
+               - Create nodes with kind=types.KindField
+               - QN: `fmt.Sprintf("%s://%s/%s.%s.%s", opts.RepoURL, opts.ModuleRoot, basePath, typeName, fieldName)`
+               - Hash: `types.ComputeNodeHash(opts.RepoURL, basePath, types.EmptyHash, typeName+"."+fieldName, types.KindField)`
+
+            3. `isCommonFieldName(name string) bool`
+               - Filter: mu, mutex, lock, wg, once, ctx, err, logger, log (case-insensitive)
+
+            ### Wiring into extractor.go
+
+            In `extractImplItemWithImports` (and `extractImplItem`), after extracting the
+            method via `extractFunctionItemWithImports`, call `extractFieldAccessEdges` on
+            each method's function_item node. The `implType` variable already holds the
+            type name for the impl block.
+
+            In `extractStructItem`, after creating the struct node, call
+            `extractStructFieldNodes` and append the field nodes.
+
+            Wire the field access call in `extractFunctionItemWithImports` where `implType != ""`:
+
+            Insert after this exact text in extractor.go:
+            ```go
+            	body := node.ChildByFieldName("body")
+            	var edges []types.Edge
+            	edges = append(edges, routeEdges...)
+            	callEdges := extractCallEdgesFromBodyWithImports(body, opts, basePath, nodeHash, rustImports)
+            	edges = append(edges, callEdges...)
+            ```
+            Add:
+            ```go
+            	if implType != "" {
+            		fieldEdges := extractFieldAccessEdges(node, opts, basePath, implType, nodeHash)
+            		edges = append(edges, fieldEdges...)
+            	}
+            ```
+
+            For struct field nodes, in `extractStructItem`, after:
+            ```go
+            func extractStructItem(node *sitter.Node, opts types.ExtractOptions, basePath string) *types.Node {
+            ```
+            Change this function to also return field nodes, OR add the field extraction
+            call at the call site in `extractTopLevelWithImports` after the struct node
+            is created. The cleanest approach: in `extractTopLevelWithImports`, after
+            ```go
+            	case "struct_item":
+            		n := extractStructItem(node, opts, basePath)
+            		if n != nil {
+            			nodes = append(nodes, *n)
+            			deriveEdges := extractDeriveAttributes(node, opts, basePath, n.NodeHash)
+            			edges = append(edges, deriveEdges...)
+            		}
+            ```
+            Add:
+            ```go
+            		// Extract struct field declarations as field nodes.
+            		fieldNodes := extractStructFieldNodes(node, opts, basePath)
+            		nodes = append(nodes, fieldNodes...)
+            ```
+
+            ### Tree-sitter node types (Rust grammar)
+
+            - `field_expression`: `self.field_name` access. Children: value (identifier "self"), field (field_identifier)
+            - `call_expression`: parent of field_expression when it's a method call `self.method()`
+            - `struct_item` -> `field_declaration_list` -> `field_declaration` (name: field_identifier)
+
+            ### Tests (field_access_edges_test.go)
+
+            Write tests using the existing `makeOpts` helper in extractor_test.go:
+
+            1. `TestExtractFieldAccessEdges_RustSelf` - basic `self.field` in impl method
+            2. `TestExtractFieldAccessEdges_RustSkipsMethodCalls` - `self.method()` excluded
+            3. `TestExtractFieldAccessEdges_RustSkipsCommonFields` - filters mu, ctx, etc.
+            4. `TestExtractStructFieldNodes_Rust` - struct field declarations produce field nodes
+
+            ### Verification gate
+            ```bash
+            GOWORK=off go build ./internal/indexer/rustextractor/ && \
+            GOWORK=off go vet ./internal/indexer/rustextractor/ && \
+            GOWORK=off go test ./internal/indexer/rustextractor/ -timeout 60s -v -run "FieldAccess|StructField"
+            ```
+
+            Postconditions:
+            ```bash
+            # Verify extractFieldAccessEdges function exists
+            grep -c "func extractFieldAccessEdges" internal/indexer/rustextractor/field_access_edges.go
+            # Expected: 1
+            # Verify extractStructFieldNodes function exists
+            grep -c "func extractStructFieldNodes" internal/indexer/rustextractor/field_access_edges.go
+            # Expected: 1
+            # Verify wiring in extractor.go
+            grep -c "extractFieldAccessEdges" internal/indexer/rustextractor/extractor.go
+            # Expected: >= 1
+            ```
+
+            ### Constraints
+            - Do NOT modify files outside your ownership list
+            - Do NOT add any new edge type constants (edgetype.AccessesField already exists)
+            - Do NOT add any new kind constants (types.KindField already exists)
+            - Use provenance "ast_inferred" and confidence 0.8 (matching Go implementation)
+          files:
+            - internal/indexer/rustextractor/field_access_edges.go
+            - internal/indexer/rustextractor/field_access_edges_test.go
+            - internal/indexer/rustextractor/extractor.go
+        - id: B
+          task: |
+            ## Python: Add accesses_field edge extraction
+
+            ### What to implement
+
+            Port the Go `accesses_field` edge extraction to the Python extractor package.
+            Create `internal/indexer/treesitter/field_access_edges.go` with:
+
+            1. `extractFieldAccessEdges(methodNode, opts, classContext string, methodHash) []types.Edge`
+               - Python methods use `self` as their first parameter
+               - Walk the method body for `attribute` nodes where the object is `self`
+               - Tree-sitter Python grammar: `attribute` node has children `object` and
+                 `attribute` (the field name). The `object` for self-access is an `identifier`
+                 node with content "self"
+               - Exclude cases where the attribute node is the function child of a `call` node
+                 (those are method calls like `self.start()`)
+               - The classContext provides the type name for the scoped hash
+               - Emit accesses_field edge from methodHash to field node hash
+
+            2. `extractClassFieldNodes(classNode, opts, className) []types.Node`
+               - Walk class body for assignment statements in `__init__` that assign to
+                 `self.field_name` (these are Python's field declarations)
+               - Also look for class-level type annotations: `field_name: type` at class body level
+               - Tree-sitter patterns:
+                 - `expression_statement` containing `assignment` where left is `attribute`
+                   with object=`self` (in `__init__` method body)
+                 - `type` annotated assignments at class body level
+               - Create nodes with kind=types.KindField
+               - QN: `fmt.Sprintf("%s://%s/%s.%s.%s", opts.RepoURL, opts.ModuleRoot, opts.FilePath, className, fieldName)`
+               - Hash: `types.ComputeNodeHash(opts.RepoURL, opts.ModuleRoot, types.EmptyHash, className+"."+fieldName, types.KindField)`
+
+            3. `isCommonFieldName(name string) bool`
+               - Filter: mu, mutex, lock, wg, once, ctx, err, logger, log (case-insensitive)
+               - Also filter Python-specific: `_lock`, `_logger`
+
+            ### Wiring into extractor.go
+
+            In `extractFunction`, after creating the function node, if `classContext != ""`
+            (meaning it's a method), call `extractFieldAccessEdges` and append edges.
+
+            The current code in extractFunction walks the body for calls. Add field access
+            extraction BEFORE the body walk. Insert after this exact text:
+            ```go
+            	// Extract Python docstring from function body.
+            	body := node.ChildByFieldName("body")
+            	n.Doc = extractPythonDocstring(body, opts.Content)
+
+            	result.Nodes = append(result.Nodes, n)
+            ```
+            Add:
+            ```go
+            	// Extract field access edges for methods (classContext != "").
+            	if classContext != "" {
+            		fieldEdges := extractFieldAccessEdges(node, opts, classContext, n.NodeHash)
+            		result.Edges = append(result.Edges, fieldEdges...)
+            	}
+            ```
+
+            For class field nodes, in `extractClassWithImports`, after creating the class
+            node and before walking the body for methods. Insert after:
+            ```go
+            	result.Nodes = append(result.Nodes, n)
+
+            	// Emit extends edges with import-resolved target hashes.
+            	e.extractPythonBaseClasses(node, opts, n.NodeHash, pyImports, result)
+            ```
+            Add:
+            ```go
+            	// Extract class field declarations as field nodes.
+            	fieldNodes := extractClassFieldNodes(node, opts, className)
+            	result.Nodes = append(result.Nodes, fieldNodes...)
+            ```
+
+            ### Tree-sitter node types (Python grammar)
+
+            - `attribute`: `self.field_name` access. Has `object` and `attribute` children.
+              object is `identifier` "self", attribute is the field name string.
+            - `call`: parent of `attribute` when it's a method call `self.method()`
+              The `function` child of `call` is the `attribute` node.
+            - `class_definition` -> body -> `function_definition` (for `__init__`)
+              -> body -> `expression_statement` -> `assignment` (left=`attribute` with self)
+
+            ### Tests (field_access_edges_test.go)
+
+            Write tests using the existing `makeOpts` helper:
+
+            1. `TestExtractFieldAccessEdges_PythonSelf` - basic `self.field` in method
+            2. `TestExtractFieldAccessEdges_PythonSkipsMethodCalls` - `self.method()` excluded
+            3. `TestExtractFieldAccessEdges_PythonSkipsCommonFields` - filters logger, etc.
+            4. `TestExtractClassFieldNodes_Python` - __init__ assignments produce field nodes
+
+            ### Verification gate
+            ```bash
+            GOWORK=off go build ./internal/indexer/treesitter/ && \
+            GOWORK=off go vet ./internal/indexer/treesitter/ && \
+            GOWORK=off go test ./internal/indexer/treesitter/ -timeout 60s -v -run "FieldAccess|ClassField"
+            ```
+
+            Postconditions:
+            ```bash
+            grep -c "func extractFieldAccessEdges" internal/indexer/treesitter/field_access_edges.go
+            # Expected: 1
+            grep -c "func extractClassFieldNodes" internal/indexer/treesitter/field_access_edges.go
+            # Expected: 1
+            grep -c "extractFieldAccessEdges" internal/indexer/treesitter/extractor.go
+            # Expected: >= 1
+            ```
+
+            ### Constraints
+            - Do NOT modify files outside your ownership list
+            - Do NOT add any new edge type constants (edgetype.AccessesField already exists)
+            - Do NOT add any new kind constants (types.KindField already exists)
+            - Use provenance "ast_inferred" and confidence 0.8 (matching Go implementation)
+            - The `extractFieldAccessEdges` function should be a package-level function,
+              NOT a method on TreeSitterExtractor (to match Go reference pattern)
+          files:
+            - internal/indexer/treesitter/field_access_edges.go
+            - internal/indexer/treesitter/field_access_edges_test.go
+            - internal/indexer/treesitter/extractor.go
+        - id: C
+          task: |
+            ## Java: Add accesses_field edge extraction
+
+            ### What to implement
+
+            Port the Go `accesses_field` edge extraction to the Java extractor package.
+            Create `internal/indexer/javaextractor/field_access_edges.go` with:
+
+            1. `extractFieldAccessEdges(methodNode, opts, pkgPath, className string, methodHash) []types.Edge`
+               - Java methods access fields via `this.fieldName` (explicit) or bare `fieldName`
+                 (implicit). Only extract EXPLICIT `this.` access for now (high confidence).
+               - Walk the method body for `field_access` nodes where the object is `this`
+               - Tree-sitter Java grammar: `field_access` has `object` and `field` children.
+                 `object` is `this` keyword. `field` is the field_identifier.
+               - Exclude cases where the field_access is the `object` child of a
+                 `method_invocation` parent (those are `this.method()` calls)
+               - Emit accesses_field edge from methodHash to field node hash
+               - Scoped name: className + "." + fieldName
+
+            2. `extractClassFieldNodes(classBody, opts, pkgPath, className string) []types.Node`
+               - Walk class body for `field_declaration` nodes
+               - Tree-sitter Java: `class_body` -> `field_declaration` has `declarator` children
+                 which are `variable_declarator` nodes with a `name` field
+               - Create nodes with kind=types.KindField
+               - QN: `fmt.Sprintf("%s://%s.%s.%s", opts.RepoURL, pkgPath, className, fieldName)`
+               - Hash: `types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, className+"."+fieldName, types.KindField)`
+
+            3. `isCommonFieldName(name string) bool`
+               - Filter: mu, mutex, lock, wg, once, ctx, err, logger, log (case-insensitive)
+               - Also filter Java-specific: `LOG`, `LOGGER`, `serialVersionUID`
+
+            ### Wiring into extractor.go
+
+            In `extractMethodDeclWithImports`, after extracting call edges from the body,
+            add field access edge extraction. Insert after this exact text:
+            ```go
+            	// Walk the method body for call edges with import resolution.
+            	body := node.ChildByFieldName("body")
+            	if body != nil {
+            		callEdges := extractCallEdgesWithImports(body, opts, pkgPath, nodeHash, javaImports)
+            		edges = append(edges, callEdges...)
+            	}
+            ```
+            Add:
+            ```go
+            	// Extract field access edges (this.field patterns).
+            	if body != nil {
+            		fieldEdges := extractFieldAccessEdges(node, opts, pkgPath, className, nodeHash)
+            		edges = append(edges, fieldEdges...)
+            	}
+            ```
+
+            For class field nodes, in `extractClassDeclWithImports`, after extracting the
+            class node and annotations, before walking the body for methods. Insert after:
+            ```go
+            	// Extract Spring route annotations on the class itself (e.g., @RequestMapping on class).
+            	classRoutePrefix := extractAnnotationRoute(node, opts.Content)
+            ```
+            Add:
+            ```go
+            	// Extract class field declarations as field nodes.
+            	body := node.ChildByFieldName("body")
+            	if body != nil {
+            		fieldNodes := extractClassFieldNodes(body, opts, pkgPath, qualifiedClass)
+            		nodes = append(nodes, fieldNodes...)
+            	}
+            ```
+            Note: `body` is already declared later in the function for method walking.
+            Rename this one to `classBody` or move the field extraction into the existing
+            body loop. The cleanest approach: extract field nodes inside the existing
+            `if body != nil` block that walks members, before the for loop. Use:
+            ```go
+            	body := node.ChildByFieldName("body")
+            	if body != nil {
+            		// Extract field declarations as field nodes.
+            		fieldNodes := extractClassFieldNodes(body, opts, pkgPath, qualifiedClass)
+            		nodes = append(nodes, fieldNodes...)
+
+            		for i := 0; i < int(body.ChildCount()); i++ {
+            ```
+
+            ### Tree-sitter node types (Java grammar)
+
+            - `field_access`: `this.fieldName`. Has `object` (this) and `field` (identifier) children.
+            - `method_invocation`: parent check. If `field_access` is the `object` child of
+              a `method_invocation`, it's actually `this.obj.method()` pattern.
+              More precisely: if the `field_access` node itself appears as the direct `function`
+              child... Actually in Java tree-sitter, method calls on `this` appear as:
+              `method_invocation` with `object`=`this` and `name`=method_name.
+              So `this.method()` is a `method_invocation`, NOT a `field_access`.
+              `this.field` alone is a `field_access`. They are distinct node types.
+              Therefore: just collect all `field_access` nodes where object="this".
+            - `class_body` -> `field_declaration` -> `variable_declarator` (name: identifier)
+
+            ### Tests (field_access_edges_test.go)
+
+            Write tests using the existing `makeOpts` helper:
+
+            1. `TestExtractFieldAccessEdges_JavaThis` - basic `this.field` in method
+            2. `TestExtractFieldAccessEdges_JavaSkipsMethodCalls` - `this.method()` excluded
+               (method_invocation, not field_access, so this should pass automatically)
+            3. `TestExtractFieldAccessEdges_JavaSkipsCommonFields` - filters logger, LOG, etc.
+            4. `TestExtractClassFieldNodes_Java` - class field declarations produce field nodes
+
+            ### Verification gate
+            ```bash
+            GOWORK=off go build ./internal/indexer/javaextractor/ && \
+            GOWORK=off go vet ./internal/indexer/javaextractor/ && \
+            GOWORK=off go test ./internal/indexer/javaextractor/ -timeout 60s -v -run "FieldAccess|ClassField"
+            ```
+
+            Postconditions:
+            ```bash
+            grep -c "func extractFieldAccessEdges" internal/indexer/javaextractor/field_access_edges.go
+            # Expected: 1
+            grep -c "func extractClassFieldNodes" internal/indexer/javaextractor/field_access_edges.go
+            # Expected: 1
+            grep -c "extractFieldAccessEdges" internal/indexer/javaextractor/extractor.go
+            # Expected: >= 1
+            ```
+
+            ### Constraints
+            - Do NOT modify files outside your ownership list
+            - Do NOT add any new edge type constants (edgetype.AccessesField already exists)
+            - Do NOT add any new kind constants (types.KindField already exists)
+            - Use provenance "ast_inferred" and confidence 0.8 (matching Go implementation)
+            - Only extract EXPLICIT `this.field` access. Do NOT attempt implicit field resolution.
+          files:
+            - internal/indexer/javaextractor/field_access_edges.go
+            - internal/indexer/javaextractor/field_access_edges_test.go
+            - internal/indexer/javaextractor/extractor.go
+        - id: D
+          task: |
+            ## C#: Add accesses_field edge extraction
+
+            ### What to implement
+
+            Port the Go `accesses_field` edge extraction to the C# extractor package.
+            Create `internal/indexer/csharpextractor/field_access_edges.go` with:
+
+            1. `extractFieldAccessEdges(methodNode, opts, parentContext string, methodHash) []types.Edge`
+               - C# methods access fields via `this.FieldName` (explicit) or bare `FieldName`
+                 (implicit). Only extract EXPLICIT `this.` access for now (high confidence).
+               - Walk the method body for `member_access_expression` nodes where the
+                 expression (object) is `this`
+               - Tree-sitter C# grammar: `member_access_expression` has `expression` and
+                 `name` children. When `expression` is `this_expression` or identifier "this",
+                 it's a `this.Field` access.
+               - Exclude cases where the `member_access_expression` is the function child
+                 of an `invocation_expression` (those are method calls like `this.Start()`)
+               - Emit accesses_field edge from methodHash to field node hash
+               - Scoped name: use parentContext (class name) + "." + fieldName
+
+            2. `extractClassFieldNodes(classNode, opts, parentContext string) []types.Node`
+               - Walk declaration_list children of class_declaration for `field_declaration` nodes
+               - Tree-sitter C#: `class_declaration` -> `declaration_list` -> `field_declaration`
+                 Each field_declaration has `variable_declaration` -> `variable_declarator` (name: identifier)
+               - Also check for `property_declaration` nodes (C# properties are field-like)
+               - Create nodes with kind=types.KindField
+               - QN: `e.qualifiedName(opts, parentContext, fieldName)` pattern
+               - Hash: `types.ComputeNodeHash(opts.RepoURL, opts.FilePath, types.EmptyHash, parentContext+"."+fieldName, types.KindField)`
+
+            3. `isCommonFieldName(name string) bool`
+               - Filter: mu, mutex, lock, wg, once, ctx, err, logger, log (case-insensitive)
+               - Also filter C#-specific: `_logger`, `_context`, `_disposed`
+
+            ### Wiring into extractor.go
+
+            In the `walkNode` method, in the `method_declaration` case, after calling
+            `walkForCallsWithImports` on the body, add field access extraction.
+            Insert after this exact text:
+            ```go
+            	case "method_declaration":
+            		n, routeNodes, routeEdges := e.extractMethodDecl(node, opts, parentContext)
+            		if n != nil {
+            			*nodes = append(*nodes, *n)
+            			*nodes = append(*nodes, routeNodes...)
+            			*edges = append(*edges, routeEdges...)
+            		}
+            		// Walk body for call edges with import resolution.
+            		body := node.ChildByFieldName("body")
+            		if body != nil && n != nil {
+            			e.walkForCallsWithImports(body, opts, parentContext, n.NodeHash, csharpImports, edges)
+            		}
+            ```
+            Add:
+            ```go
+            		// Extract field access edges (this.Field patterns).
+            		if body != nil && n != nil {
+            			fieldEdges := extractFieldAccessEdges(body, opts, parentContext, n.NodeHash)
+            			*edges = append(*edges, fieldEdges...)
+            		}
+            ```
+
+            For class field nodes, in `extractClassDecl`, after creating the class node
+            and extracting base list/attributes, before walking the body. Insert after:
+            ```go
+            	// Check for class-level route attributes (e.g., [Route("api/[controller]")]).
+            	var routeNodes []types.Node
+            	classRoute := e.extractClassRouteAttribute(node, opts, parentContext, name)
+            	if classRoute != nil {
+            		routeNodes = append(routeNodes, *classRoute)
+            	}
+            ```
+            Add:
+            ```go
+            	// Extract class field declarations as field nodes.
+            	fieldNodes := extractClassFieldNodes(node, opts, name)
+            	*nodes = append(*nodes, fieldNodes...)
+            ```
+
+            ### Tree-sitter node types (C# grammar)
+
+            - `member_access_expression`: `this.FieldName`. Has `expression` and `name` children.
+              `expression` is `this_expression` (the literal `this` keyword in C# grammar).
+            - `invocation_expression`: parent check. If `member_access_expression` is the
+              `function` child of an `invocation_expression`, it's a method call.
+            - `class_declaration` -> `declaration_list` -> `field_declaration`
+              -> `variable_declaration` -> `variable_declarator` (identifier child)
+
+            ### Tests (field_access_edges_test.go)
+
+            Write tests using the existing `makeOpts` helper:
+
+            1. `TestExtractFieldAccessEdges_CSharpThis` - basic `this.Field` in method
+            2. `TestExtractFieldAccessEdges_CSharpSkipsMethodCalls` - `this.Method()` excluded
+            3. `TestExtractFieldAccessEdges_CSharpSkipsCommonFields` - filters _logger, etc.
+            4. `TestExtractClassFieldNodes_CSharp` - class field declarations produce field nodes
+
+            ### Verification gate
+            ```bash
+            GOWORK=off go build ./internal/indexer/csharpextractor/ && \
+            GOWORK=off go vet ./internal/indexer/csharpextractor/ && \
+            GOWORK=off go test ./internal/indexer/csharpextractor/ -timeout 60s -v -run "FieldAccess|ClassField"
+            ```
+
+            Postconditions:
+            ```bash
+            grep -c "func extractFieldAccessEdges" internal/indexer/csharpextractor/field_access_edges.go
+            # Expected: 1
+            grep -c "func extractClassFieldNodes" internal/indexer/csharpextractor/field_access_edges.go
+            # Expected: 1
+            grep -c "extractFieldAccessEdges" internal/indexer/csharpextractor/extractor.go
+            # Expected: >= 1
+            ```
+
+            ### Constraints
+            - Do NOT modify files outside your ownership list
+            - Do NOT add any new edge type constants (edgetype.AccessesField already exists)
+            - Do NOT add any new kind constants (types.KindField already exists)
+            - Use provenance "ast_inferred" and confidence 0.8 (matching Go implementation)
+            - Only extract EXPLICIT `this.Field` access. Do NOT attempt implicit field resolution.
+            - Note the C# tree-sitter uses `this_expression` for the `this` keyword, not
+              a plain identifier. Check for both patterns.
+          files:
+            - internal/indexer/csharpextractor/field_access_edges.go
+            - internal/indexer/csharpextractor/field_access_edges_test.go
+            - internal/indexer/csharpextractor/extractor.go
+        - id: E
+          task: |
+            ## TypeScript: Add accesses_field edge extraction
+
+            ### What to implement
+
+            Port the Go `accesses_field` edge extraction to the TypeScript extractor package.
+            Create `internal/indexer/tsextractor/field_access_edges.go` with:
+
+            1. `extractFieldAccessEdges(methodBody, opts, qnamePrefix, className string, methodHash) []types.Edge`
+               - TypeScript/JS methods access fields via `this.fieldName`
+               - Walk the method body for `member_expression` nodes where the object is `this`
+               - Tree-sitter TypeScript grammar: `member_expression` has `object` and
+                 `property` children. The `object` for this-access is a `this` node
+                 (type "this" in tree-sitter TS grammar).
+               - Exclude cases where the `member_expression` is the `function` child of a
+                 `call_expression` (those are method calls like `this.start()`)
+               - Emit accesses_field edge from methodHash to field node hash
+               - Scoped name: className + "." + fieldName
+
+            2. `extractClassFieldNodes(classBody, opts, qnamePrefix, className string) []types.Node`
+               - Walk class body for:
+                 a) `public_field_definition` / `field_definition` nodes (class fields)
+                 b) `property_signature` nodes (in interface-like declarations)
+               - Tree-sitter TS: `class_body` -> `public_field_definition` has a `name` child
+                 (property_identifier)
+               - Create nodes with kind=types.KindField
+               - QN: `fmt.Sprintf("%s://%s.%s.%s", opts.RepoURL, qnamePrefix, className, fieldName)`
+               - Hash: `types.ComputeNodeHash(opts.RepoURL, qnamePrefix, types.EmptyHash, className+"."+fieldName, types.KindField)`
+
+            3. `isCommonFieldName(name string) bool`
+               - Filter: mu, mutex, lock, wg, once, ctx, err, logger, log (case-insensitive)
+
+            ### Wiring into extractor.go
+
+            In `extractNodeWithImports`, in the `class_declaration` case, after extracting
+            methods from the class body, add field access to each method AND field node
+            extraction for the class.
+
+            For field nodes, insert after this exact text in the class_declaration case:
+            ```go
+            		body := node.ChildByFieldName("body")
+            		nameNode := node.ChildByFieldName("name")
+            		clsName := ""
+            		if nameNode != nil {
+            			clsName = nameNode.Content(opts.Content)
+            		}
+            ```
+            Add:
+            ```go
+            		// Extract class field declarations as field nodes.
+            		if body != nil && clsName != "" {
+            			fieldNodes := extractClassFieldNodes(body, opts, qnamePrefix, clsName)
+            			*nodes = append(*nodes, fieldNodes...)
+            		}
+            ```
+
+            For field access edges on methods, inside the method_definition loop, after:
+            ```go
+            					mBody := child.ChildByFieldName("body")
+            					extractCallEdgesFromBodyWithImports(mBody, opts, qnamePrefix, m.NodeHash, hasExpress, tsImports, nodes, edges)
+            ```
+            Add:
+            ```go
+            					// Extract field access edges (this.field patterns).
+            					if mBody != nil && clsName != "" {
+            						fieldEdges := extractFieldAccessEdges(mBody, opts, qnamePrefix, clsName, m.NodeHash)
+            						*edges = append(*edges, fieldEdges...)
+            					}
+            ```
+
+            ### Tree-sitter node types (TypeScript grammar)
+
+            - `member_expression`: `this.fieldName`. Has `object` and `property` children.
+              `object` type is literally "this" (a node whose type string is "this").
+            - `call_expression`: parent check. If `member_expression` is the `function` child
+              of a `call_expression`, it's a method call.
+            - `class_body` -> `public_field_definition` (name: property_identifier)
+              Also: `field_definition` in some TS grammar versions.
+
+            ### Tests (field_access_edges_test.go)
+
+            Write tests using the existing `makeOpts` helper:
+
+            1. `TestExtractFieldAccessEdges_TSThis` - basic `this.field` in class method
+            2. `TestExtractFieldAccessEdges_TSSkipsMethodCalls` - `this.method()` excluded
+            3. `TestExtractFieldAccessEdges_TSSkipsCommonFields` - filters logger, etc.
+            4. `TestExtractClassFieldNodes_TypeScript` - class field declarations produce field nodes
+
+            ### Verification gate
+            ```bash
+            GOWORK=off go build ./internal/indexer/tsextractor/ && \
+            GOWORK=off go vet ./internal/indexer/tsextractor/ && \
+            GOWORK=off go test ./internal/indexer/tsextractor/ -timeout 60s -v -run "FieldAccess|ClassField"
+            ```
+
+            Postconditions:
+            ```bash
+            grep -c "func extractFieldAccessEdges" internal/indexer/tsextractor/field_access_edges.go
+            # Expected: 1
+            grep -c "func extractClassFieldNodes" internal/indexer/tsextractor/field_access_edges.go
+            # Expected: 1
+            grep -c "extractFieldAccessEdges" internal/indexer/tsextractor/extractor.go
+            # Expected: >= 1
+            ```
+
+            ### Constraints
+            - Do NOT modify files outside your ownership list
+            - Do NOT add any new edge type constants (edgetype.AccessesField already exists)
+            - Do NOT add any new kind constants (types.KindField already exists)
+            - Use provenance "ast_inferred" and confidence 0.8 (matching Go implementation)
+            - The tree-sitter TS grammar uses "this" as the node TYPE for the `this` keyword,
+              not "identifier" with content "this". Check `node.Type() == "this"`.
+          files:
+            - internal/indexer/tsextractor/field_access_edges.go
+            - internal/indexer/tsextractor/field_access_edges_test.go
+            - internal/indexer/tsextractor/extractor.go
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: GOWORK=off go build ./internal/indexer/...
+          required: true
+        - type: lint
+          command: GOWORK=off go vet ./internal/indexer/...
+          required: true
+        - type: test
+          command: GOWORK=off go test ./internal/indexer/... -timeout 120s
+          required: true
+pre_mortem:
+    overall_risk: low
+    rows:
+        - scenario: Tree-sitter node type names differ from documented expectations
+          likelihood: medium
+          impact: low
+          mitigation: |
+            Each agent should print the AST for their test source using
+            tree.RootNode().String() to verify actual node types if tests fail.
+            The documented types are from grammar documentation; actual grammars
+            may use slightly different names (e.g., "field_definition" vs
+            "public_field_definition" in TS).
+        - scenario: Agent uses wrong hash computation leading to edges not matching field nodes
+          likelihood: low
+          impact: medium
+          mitigation: |
+            The scoped name pattern is clearly defined: "TypeName.fieldName" with
+            types.ComputeNodeHash(repoURL, basePath, types.EmptyHash, scopedName, types.KindField).
+            Tests verify edge target hashes match the field node hashes.
+        - scenario: Method calls misclassified as field access (false positives)
+          likelihood: low
+          impact: low
+          mitigation: |
+            Each language has distinct node types for method calls vs field access.
+            Java: method_invocation vs field_access. TS: call_expression wrapping
+            member_expression. Rust: call_expression wrapping field_expression.
+            Python: call node wrapping attribute. Tests specifically verify exclusion.
+        - scenario: C# this_expression node type varies across tree-sitter grammar versions
+          likelihood: low
+          impact: low
+          mitigation: |
+            Agent D should check for both "this_expression" and "this" as node type,
+            or check content == "this" on identifier nodes as a fallback.
+critic_report:
+    verdict: PASS
+    agent_reviews:
+        A:
+            agent_id: A
+            verdict: PASS
+        B:
+            agent_id: B
+            verdict: PASS
+        C:
+            agent_id: C
+            verdict: PASS
+        D:
+            agent_id: D
+            verdict: PASS
+            issues:
+                - check: pattern_accuracy
+                  severity: warning
+                  description: Brief mentions e.qualifiedName(opts, parentContext, fieldName) pattern for QN construction in extractClassFieldNodes, but this is a package-level function that cannot call receiver methods on CSharpExtractor. Agent will need to inline the format string (fmt.Sprintf) or restructure.
+                  file: internal/indexer/csharpextractor/field_access_edges.go
+                  symbol: extractClassFieldNodes
+        E:
+            agent_id: E
+            verdict: PASS
+    summary: 'All 5 agent briefs verified against the codebase. File existence checks pass (new files do not exist, modify targets exist). Symbol accuracy confirmed: edgetype.AccessesField, types.KindField, types.ComputeNodeHash, types.ComputeEdgeHash, types.EmptyHash all exist with correct signatures. Pattern accuracy verified: all insertion points in extractor.go files match the actual code structure (exact text blocks, variable names, function signatures). Interface contracts reference valid types and packages. Import chains satisfied (tree-sitter, edgetype, types packages all available). No disjoint ownership violations. One advisory note: Agent D brief references e.qualifiedName() pattern for a package-level function, but the agent can inline the format string.'
+    reviewed_at: "2026-05-25T20:33:36Z"
+    issue_count: 1
+state: REVIEWED
