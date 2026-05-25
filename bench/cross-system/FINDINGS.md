@@ -651,14 +651,47 @@ Docstrings also use natural language ("Validate the incoming request body agains
 schema"). BM25 on docstrings bridges the vocabulary gap between how developers describe
 tasks and how code describes itself, without requiring embeddings or an LLM.
 
-**Current coverage:** Python + Go only. TypeScript, Rust, Java, and C# extractors do
-not yet populate Node.Doc. Expanding coverage to those languages is expected to improve
-their per-repo P@10 by a similar margin.
+**Coverage:** All 6 language extractors now populate Node.Doc: Python (body docstrings),
+Go (// comments), TypeScript (JSDoc), Rust (///), Java (Javadoc), C# (XML ///). Shared
+`docextract` package handles language-agnostic comment stripping.
 
 **Why the parameter sweep showed P@10=0.180 (not 0.189):** The sweep ran before the
 docstring FTS column was added. The docstring column is the first change that actually
 moved P@10 since the equivalence channel fix (Run 22), confirming that new retrieval
 signals (not parameter tuning) are the path forward.
+
+### Corpus Expansion: Terraform + Kafka (2026-05-25)
+
+Added two new large repos to validate at scale:
+
+| Repo | Language | LOC | Nodes | Edges | Tasks | P@10 |
+|------|----------|-----|-------|-------|-------|------|
+| Terraform | Go | 2M | 37,674 | 184,070 | 6 | 0.250 |
+| Kafka | Java | 500K | 74,734 | 780,028 | 4 | **0.300** |
+
+Kafka's P@10=0.300 is the highest per-repo result after Flask (0.271), validating that
+Javadoc docstrings indexed via the FTS doc column significantly improve retrieval.
+Kafka has dense, well-written Javadoc on every public class and method.
+
+Terraform's 0.250 is strong on medium+hard tasks (graph walk and module resolution)
+but the easy tasks need fixture QN refinement.
+
+**Full corpus now: 9 repos, 6 languages, 127 tasks.**
+
+### Per-Repo P@10 Breakdown (Session 13 Final)
+
+| Repo | Language | P@10 | Tasks | Notes |
+|------|----------|------|-------|-------|
+| Kafka | Java | **0.300** | 4 | Dense Javadoc, docstring FTS shines |
+| Flask | Python | **0.271** | 14 | Rich class hierarchy + docstrings |
+| Ocelot | C# | 0.260 | 5 | Middleware pipeline |
+| Terraform | Go | 0.250 | 6 | Medium/hard strong, easy fixtures need work |
+| Cross-cutting | Mixed | 0.211 | 9 | Multi-repo tasks |
+| Spark Java | Java | 0.180 | 5 | Small but well-structured |
+| Django | Python | 0.179 | 33 | Large: many unreachable symbols |
+| Kubernetes | Go | 0.168 | 19 | Massive scale, no enrichment |
+| VS Code | TypeScript | 0.132 | 19 | Keyword extraction issues |
+| Cargo | Rust | 0.100 | 13 | Sparse documentation |
 
 ---
 
@@ -666,11 +699,11 @@ signals (not parameter tuning) are the path forward.
 
 knowing wins on the dimensions that matter for AI agents:
 
-1. **Precision** (1.63x vs codegraph, 4.3x vs Aider, 11x vs grep): fewer wasted tokens
+1. **Precision** (1.36x vs codegraph, 2.45x vs GitNexus, 14.2x vs grep): fewer wasted tokens
 2. **Latency** (2ms on k8s, 500x faster than codegraph): doesn't block the agent
 3. **Freshness** (167ms time-to-consistency): reflects edits before the next prompt
 4. **Determinism** (same input = same output): debuggable, regression-testable
-5. **Scale** (advantage widens from 1.3x to 2x at enterprise scale): doesn't degrade
+5. **Scale** (handles 3.5M LOC in 18s; competitors fail or take 14+ min): production-ready
 
 knowing loses on:
 - **Robustness to rephrasing** (0.07 Jaccard vs Aider's 0.74): different wordings produce different results (correct behavior: precision requires query sensitivity)
