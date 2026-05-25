@@ -136,18 +136,26 @@ func cmdAuditSupplyChain(args []string) error {
 }
 
 // collectNewFileHashes extracts unique file hashes from nodes added in the diff.
+// It looks up each added node by its NodeHash to retrieve the FileHash.
 func collectNewFileHashes(ctx context.Context, st *store.SQLiteStore, result *diff.SemanticDiffResult) []types.Hash {
 	seen := make(map[types.Hash]struct{})
 	var hashes []types.Hash
 
 	for _, n := range result.NodesAdded {
-		if n.File == "" {
+		nodeHash, err := types.ParseHash(n.NodeHash)
+		if err != nil {
 			continue
 		}
-		h := types.HashBytes([]byte(n.File))
-		if _, ok := seen[h]; !ok {
-			seen[h] = struct{}{}
-			hashes = append(hashes, h)
+		node, err := st.GetNode(ctx, nodeHash)
+		if err != nil || node == nil {
+			continue
+		}
+		if node.FileHash.IsZero() {
+			continue
+		}
+		if _, ok := seen[node.FileHash]; !ok {
+			seen[node.FileHash] = struct{}{}
+			hashes = append(hashes, node.FileHash)
 		}
 	}
 
@@ -158,8 +166,8 @@ func collectNewFileHashes(ctx context.Context, st *store.SQLiteStore, result *di
 func buildSupplyChainReport(ctx context.Context, st *store.SQLiteStore, baseHash, headHash types.Hash, threshold float64, results []diff.IsolationResult) *SupplyChainReport {
 	report := &SupplyChainReport{
 		GeneratedAt:  time.Now().UTC().Format(time.RFC3339),
-		BaseSnapshot: fmt.Sprintf("%x", baseHash),
-		HeadSnapshot: fmt.Sprintf("%x", headHash),
+		BaseSnapshot: baseHash.String(),
+		HeadSnapshot: headHash.String(),
 		Threshold:    threshold,
 	}
 
