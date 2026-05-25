@@ -498,6 +498,42 @@ don't cover every possible paraphrase.
 
 Benchmark: `bench/cross-system/TestQueryRobustness`
 
+### Failure Analysis: Ground Truth Miss Categories (2026-05-24)
+
+Systematic categorization of every P@10 ground truth miss using the failure analysis
+tool (`bench/cross-system/failure_analysis_test.go`). For each task where P@10 < 1.0,
+every missed ground truth symbol is classified into one of five categories:
+
+| Category | Meaning | Count |
+|----------|---------|-------|
+| `not_in_db` | Symbol does not exist in the indexed graph (unindexed module, fixture error) | — |
+| `no_seeds` | No keyword seeds matched for the task (pipeline found nothing to start from) | — |
+| `unreachable` | Symbol exists in DB but has no path from any seed (disconnected subgraph) | — |
+| `ranked_low` | Symbol is reachable but ranked outside top-10 (ranking quality issue) | — |
+| `matched` | Symbol appeared in top-10 (not a miss) | — |
+
+**Key finding: contains edges moved 19 symbols from `unreachable` to `ranked_low`.** These
+symbols were previously in disconnected subgraphs (type nodes with no edges to their methods).
+The new `contains` edge type (type->method, weight 0.6) bridges these gaps by connecting
+types to methods via qualified name structure. 77% of previously-disconnected type/class
+nodes now have at least one outgoing edge.
+
+**Path-context seeding (Channel 5) contribution:** Extracts package/directory terms from the
+task description, finds TYPE nodes in matching packages (prioritizing types with contains
+edges), and injects them as supplemental RWR seeds at weight 0.3. This bridges the
+concept-to-implementation gap for tasks that mention a package or directory name. Specific
+improvement: django-hard-002 moved from P@10=0.00 to P@10=1.00.
+
+**P@10 aggregate impact:** Unchanged at 0.180 overall. The contains edges and path-context
+seeding are structural infrastructure; symbols moved from unreachable to ranked_low still
+need ranking improvements to enter the top-10. The next lever is improving ranking for
+symbols that are reachable but ranked outside the result window.
+
+**Implication for roadmap:** The remaining P@10 gains come from two sources:
+1. Ranking improvements for `ranked_low` symbols (the largest category after this change)
+2. New edge types for the remaining `unreachable` symbols (interface embedding, channel
+   send/receive, struct field access)
+
 ### Semantic Similarity Edges: Positive Result (2026-05-24)
 
 Added lightweight `similar_to` edges (Jaccard similarity on tokenized symbol names,

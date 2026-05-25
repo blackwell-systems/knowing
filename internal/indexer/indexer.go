@@ -1299,6 +1299,21 @@ func generateContainsEdges(allNodes []types.Node) []types.Edge {
 			Confidence: 1.0,
 			Provenance: "structural",
 		})
+
+		// Reverse edge: method -> type (enables RWR to walk from a matched method
+		// to its parent type, then to sibling methods).
+		revHash := types.ComputeEdgeHash(n.NodeHash, parentHash, edgetype.MemberOf, "structural")
+		if !seen[revHash] {
+			seen[revHash] = true
+			edges = append(edges, types.Edge{
+				EdgeHash:   revHash,
+				SourceHash: n.NodeHash,
+				TargetHash: parentHash,
+				EdgeType:   edgetype.MemberOf,
+				Confidence: 1.0,
+				Provenance: "structural",
+			})
+		}
 	}
 
 	return edges

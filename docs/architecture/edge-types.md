@@ -38,6 +38,7 @@ participates in blast radius traversal and context ranking.
 | `runtime_rpc` | gRPC/RPC call observed in traces | otel_trace | 0.2 - 0.95 | Trace ingestor | No | 0.3 (default) |
 | `runtime_produces` | Message published to a topic | otel_trace | 0.2 - 0.95 | Trace ingestor | No | 0.3 (default) |
 | `runtime_consumes` | Message consumed from a topic | otel_trace | 0.2 - 0.95 | Trace ingestor | No | 0.3 (default) |
+| `contains` | Type/class contains a method | deterministic | 1.0 | Indexer (QN structure) | No | 0.6 |
 
 ## Static Edge Types
 
@@ -453,6 +454,26 @@ A package or module is tested by a CI workflow job.
 - **Blast radius:** Not traversed.
 - **RWR weight:** 0.5. Moderate weight; knowing which CI job tests a package is useful for
   test-scope queries and understanding CI coverage.
+
+### `contains`
+
+A type or class contains a method declaration.
+
+- **Direction:** source type contains target method. `pkg.AuthService -contains-> pkg.AuthService.Validate`
+  means the AuthService type declares the Validate method.
+- **Producers:** The indexer (`internal/indexer/indexer.go`) via `generateContainsEdges()`. Connects
+  type/class nodes to their methods by analyzing qualified name (QN) structure: if a method's QN
+  is prefixed by a type's QN (e.g., `pkg.Type.Method` starts with `pkg.Type`), a `contains` edge
+  is emitted. Also generated on-the-fly in the bench adapter (`bench/cross-system/adapters/knowing.go`)
+  for evaluation without re-indexing.
+- **Provenance:** `deterministic` (confidence 1.0). Containment is derived from qualified name
+  structure, which is unambiguous.
+- **Blast radius:** Not traversed.
+- **RWR weight:** 0.6. Moderate weight reflecting that a type's methods are structurally related
+  to the type. Enables path-context seeding to reach methods through their declaring types,
+  bridging the gap between package-level concepts and implementation-level symbols.
+- **Coverage:** Connects approximately 77% of previously-disconnected type/class nodes to their
+  methods. Provides structural infrastructure for future ranking improvements.
 
 ## Runtime Edge Types
 

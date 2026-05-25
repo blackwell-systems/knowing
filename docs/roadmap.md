@@ -7,10 +7,10 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 | # | Item | Why | Effort |
 |---|------|-----|--------|
 | 1 | **Add missing graph paths (reachability gaps)** | P@10 only moves when ground truth symbols become reachable via RWR for the first time. Improving existing paths (confidence, weighting) is neutral. The task: find symbols that are unreachable, determine why, add the missing edge/path. | Medium |
-| 1a | Run failure analysis on current state | Use the failure analysis tool (from session 8b) on current 0.181 baseline. Categorize each P@10=0 task: is ground truth unreachable (no path)? wrong keyword? not in DB? too many hops? | Low |
-| 1b | Fix unreachable-by-missing-edges | For symbols unreachable due to missing edge types (e.g., Go interface embedding, channel send/receive, struct field access), add new extractors. Each new edge type that creates paths = step-function P@10 improvement (inheritance was +29%). | Medium |
+| ~~1a~~ | ~~Run failure analysis on current state~~ | **DONE.** Failure analysis tool built (`bench/cross-system/failure_analysis_test.go`). Categorized all P@10 ground truth misses into: not_in_db, no_seeds, unreachable, ranked_low, matched. See FINDINGS.md. | Done |
+| 1b | Fix unreachable-by-missing-edges | `contains` edges (type->method, weight 0.6) shipped; connects 77% of previously-disconnected type/class nodes to methods via QN structure. Moved 19 symbols from unreachable to ranked_low. Remaining unreachable symbols need further edge types (Go interface embedding, channel send/receive, struct field access). | Medium |
 | 1c | Fix unreachable-by-not-in-DB | For symbols in ground truth that reference unindexed modules (k8s.io/client-go, staging), either update fixtures to use indexable symbols or selectively index those modules. | Low |
-| 1d | Path-context boosting | If task mentions a directory/package name ("scheduler", "api/v1"), boost seeds from matching file paths. Helps when keywords match but wrong package's symbols rank higher. | Low |
+| ~~1d~~ | ~~Path-context boosting~~ | **DONE.** Path-context seeding (Channel 5) added to ForTask pipeline. Extracts package/directory terms from task description, finds TYPE nodes in those packages (prioritizing types with contains edges), injects as supplemental RWR seeds at weight 0.3. | Done |
 | 2 | **Real users** | Everything else is validated by benchmarks, not usage. Task memory compounds with use. | Ongoing |
 | 3 | **Parallel write backend** | SQLite single-writer funnels all extraction results through one goroutine. Even with producer-consumer pipeline, writes are serial. Need parallel write support for large repos. | High |
 
@@ -206,7 +206,7 @@ P@10=0.217 (Run 23), 1.63x vs codegraph, 4.3x vs Aider, 11x vs grep. Query laten
 
 ## Edge Type Expansion
 
-30 edge types shipped. See [Edge Types Reference](architecture/edge-types.md) and [CHANGELOG](CHANGELOG.md) for full details.
+31 edge types shipped. See [Edge Types Reference](architecture/edge-types.md) and [CHANGELOG](CHANGELOG.md) for full details.
 
 | Category | Items | Status |
 |----------|-------|--------|

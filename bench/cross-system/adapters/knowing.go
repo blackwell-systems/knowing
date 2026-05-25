@@ -270,6 +270,17 @@ func ensureContainsEdges(ctx stdctx.Context, s *store.SQLiteStore) {
 			Confidence: 1.0,
 			Provenance: "structural",
 		})
+		// Reverse: method -> type (enables sibling discovery via RWR)
+		revHash := types.ComputeEdgeHash(n.NodeHash, parentHash, edgetype.MemberOf, "structural")
+		seen[revHash] = true
+		edges = append(edges, types.Edge{
+			EdgeHash:   revHash,
+			SourceHash: n.NodeHash,
+			TargetHash: parentHash,
+			EdgeType:   edgetype.MemberOf,
+			Confidence: 1.0,
+			Provenance: "structural",
+		})
 	}
 
 	// Batch insert.
