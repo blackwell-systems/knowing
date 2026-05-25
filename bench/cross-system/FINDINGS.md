@@ -26,11 +26,11 @@ are reported as such.
 
 knowing is a content-addressed graph retrieval engine evaluated against 6 competitors across 9 codebases (3.5M LOC down to 14K LOC), 167 task fixtures, and 24 iterative benchmark runs with full statistical rigor.
 
-### Final Results (Run 24, Session 13: fresh index with docstring FTS)
+### Final Results (Run 25, Session 14: fresh indexes across all repos)
 
 | System | P@10 | R@10 | Tasks | Notes |
 |--------|------|------|-------|-------|
-| **knowing** | **0.202** | **0.271** | 167 | Docstring FTS, 32 edge types, 5-channel retrieval |
+| **knowing** | **0.210** | **0.271** | 167 | Docstring FTS, 34 edge types, 5-channel retrieval |
 | codegraph (19K stars) | 0.135 | - | 107 | 10 tasks failed (unsupported repos) |
 | GitNexus | 0.075 | - | 66 | Killed on k8s (>60 min indexing) |
 | Gortex | 0.063 | - | 66 | 14 min k8s indexing, 14GB RAM |
@@ -40,10 +40,10 @@ knowing is a content-addressed graph retrieval engine evaluated against 6 compet
 
 ### Competitive Advantages
 
-- **vs codegraph (19K stars):** 1.50x more precise (P@10 0.202 vs 0.135), all 167 tasks vs 107
-- **vs GitNexus:** 2.69x more precise (P@10 0.202 vs 0.075), 167 tasks vs 66, 18s index vs >60 min
-- **vs Gortex:** 3.21x more precise (P@10 0.202 vs 0.063), 200MB RAM vs 14GB, 18s index vs 14 min
-- **vs grep:** 15.5x more precise (P@10 0.202 vs 0.013)
+- **vs codegraph (19K stars):** 1.56x more precise (P@10 0.210 vs 0.135), all 167 tasks vs 107
+- **vs GitNexus:** 2.80x more precise (P@10 0.210 vs 0.075), 167 tasks vs 66, 18s index vs >60 min
+- **vs Gortex:** 3.33x more precise (P@10 0.210 vs 0.063), 200MB RAM vs 14GB, 18s index vs 14 min
+- **vs grep:** 16.2x more precise (P@10 0.210 vs 0.013)
 - **vs Repomix:** 48x more token-efficient (4K tokens vs 300K for same task)
 
 **Note on Run 23 vs Run 24:** Run 23 (P@10=0.217) was measured on incrementally-built enriched
@@ -702,14 +702,14 @@ seed coverage within connected components.
 | Repo | Language | P@10 | Tasks | Notes |
 |------|----------|------|-------|-------|
 | Flask | Python | **0.332** | 19 | Rich class hierarchy + docstrings |
-| Terraform | Go | 0.270 | 20 | Strong across full corpus |
+| Terraform | Go | 0.275 | 20 | Strong across full corpus |
 | Ocelot | C# | 0.260 | 5 | Middleware pipeline |
-| Cross-cutting | Mixed | 0.211 | 9 | Multi-repo tasks |
-| Kafka | Java | 0.200 | 19 | Dense Javadoc, full corpus converges to mean |
+| Kafka | Java | 0.253 | 19 | Dense Javadoc, full corpus converges to mean |
+| Cross-cutting | Mixed | 0.200 | 9 | Multi-repo tasks |
+| Django | Python | 0.182 | 33 | Large: many unreachable symbols |
 | Spark Java | Java | 0.180 | 5 | Small but well-structured |
-| Django | Python | 0.179 | 33 | Large: many unreachable symbols |
-| Kubernetes | Go | 0.168 | 19 | Massive scale, no enrichment |
-| VS Code | TypeScript | 0.132 | 19 | Keyword extraction issues |
+| VS Code | TypeScript | 0.163 | 19 | Keyword extraction issues |
+| Kubernetes | Go | 0.153 | 19 | Massive scale, no enrichment |
 | Cargo | Rust | 0.132 | 19 | Ground truth QN fixes improved from 0.100 |
 
 ---
@@ -718,7 +718,7 @@ seed coverage within connected components.
 
 knowing wins on the dimensions that matter for AI agents:
 
-1. **Precision** (1.50x vs codegraph, 2.69x vs GitNexus, 15.5x vs grep): fewer wasted tokens
+1. **Precision** (1.56x vs codegraph, 2.80x vs GitNexus, 16.2x vs grep): fewer wasted tokens
 2. **Latency** (2ms on k8s, 500x faster than codegraph): doesn't block the agent
 3. **Freshness** (167ms time-to-consistency): reflects edits before the next prompt
 4. **Determinism** (same input = same output): debuggable, regression-testable

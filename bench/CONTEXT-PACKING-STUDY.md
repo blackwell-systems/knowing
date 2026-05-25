@@ -30,7 +30,7 @@ with the others.
 | 6 | **Scale** | `bench/cross-system/` (indexing perf) | Can we handle enterprise repos (3.5M LOC) in production time? |
 | 7 | **Differential value** | `bench/context-relevance/` | Does each pipeline layer add measurable precision? |
 
-## Cumulative Results (2026-05-25, Run 24, Session 14)
+## Cumulative Results (2026-05-25, Run 25, Session 14)
 
 ### Dimension 1: Retrieval Precision
 
@@ -38,18 +38,18 @@ with the others.
 
 | System | P@10 | Ratio vs knowing |
 |--------|------|------------------|
-| **knowing** | **0.202** | **1.00x** |
-| codegraph (19K stars) | 0.135 | 1.50x less precise |
-| Aider | 0.050 | 4.04x less precise |
-| GitNexus | 0.075 | 2.69x less precise |
-| Gortex | 0.063 | 3.21x less precise |
-| codebase-memory (2.6K stars) | 0.137 | 1.47x less precise |
-| CGC | 0.050 | 4.04x less precise |
-| grep | 0.013 | 15.5x less precise |
+| **knowing** | **0.210** | **1.00x** |
+| codegraph (19K stars) | 0.135 | 1.56x less precise |
+| Aider | 0.050 | 4.20x less precise |
+| GitNexus | 0.075 | 2.80x less precise |
+| Gortex | 0.063 | 3.33x less precise |
+| codebase-memory (2.6K stars) | 0.137 | 1.53x less precise |
+| CGC | 0.050 | 4.20x less precise |
+| grep | 0.013 | 16.2x less precise |
 
-**Verdict:** 15.5x precision advantage vs grep. 1.50x vs codegraph (nearest competitor). P@10 is reachability-determined (confirmed via 32-config parameter sweep with zero variance across RRF weights).
+**Verdict:** 16.2x precision advantage vs grep. 1.56x vs codegraph (nearest competitor). P@10 is reachability-determined (confirmed via 32-config parameter sweep with zero variance across RRF weights).
 
-Per-repo breakdown: Flask 0.332, Terraform 0.270, Ocelot 0.260, cross-cutting 0.211, Kafka 0.200, Spark 0.180, Django 0.179, Kubernetes 0.168, VS Code 0.132, Cargo 0.132. Remaining bottleneck: keyword extraction and seed selection (unreachable symbols have no path from seeds).
+Per-repo breakdown: Flask 0.332, Terraform 0.275, Ocelot 0.260, Kafka 0.253, cross-cutting 0.200, Django 0.182, Spark 0.180, VS Code 0.163, Kubernetes 0.153, Cargo 0.132. Remaining bottleneck: keyword extraction and seed selection (unreachable symbols have no path from seeds).
 
 ### Dimension 2: Token Efficiency
 
@@ -75,7 +75,7 @@ Per-repo breakdown: Flask 0.332, Terraform 0.270, Ocelot 0.260, cross-cutting 0.
 
 **Verdict:** +20pp precision after one feedback round. Compounding effect proven.
 
-**Note on session memory persistence:** The cross-system benchmark cannot demonstrate session memory improvement because each task is unique and runs once (no repeated queries). The feedback-loop bench independently proves +20pp compounding. Real-user value: quality compounds with usage; cold-start floor is 0.202, feedback-compounded ceiling is approximately 0.40.
+**Note on session memory persistence:** The cross-system benchmark cannot demonstrate session memory improvement because each task is unique and runs once (no repeated queries). The feedback-loop bench independently proves +20pp compounding. Real-user value: quality compounds with usage; cold-start floor is 0.210, feedback-compounded ceiling is approximately 0.40.
 
 ### Dimension 4: Determinism
 
@@ -139,13 +139,13 @@ Per-repo breakdown: Flask 0.332, Terraform 0.270, Ocelot 0.260, cross-cutting 0.
 
 ## Known Limitations
 
-1. **Absolute precision is 20.2%.** knowing beats grep 15.5x but ~80% of returned symbols still don't match ground truth. Root cause: P@10 is reachability-determined (confirmed via 32-config parameter sweep with zero variance). Unreachable symbols have no path from seeds; remaining miss rate requires better keyword extraction and seed selection, not algorithm tuning.
+1. **Absolute precision is 21.0%.** knowing beats grep 16.2x but ~79% of returned symbols still don't match ground truth. Root cause: P@10 is reachability-determined (confirmed via 32-config parameter sweep with zero variance). Unreachable symbols have no path from seeds; remaining miss rate requires better keyword extraction and seed selection, not algorithm tuning.
 
-2. **Cold-start.** Feedback compounding (Dimension 3) requires usage. First-run precision is 20.2%, not 36%. Task memory now persists across restarts, but compounding requires repeated similar queries over time.
+2. **Cold-start.** Feedback compounding (Dimension 3) requires usage. First-run precision is 21.0%, not 36%. Task memory now persists across restarts, but compounding requires repeated similar queries over time.
 
 3. **Go bias.** Most benchmarks validated on Go code (knowing dogfoods itself). Cross-system benchmark partially addresses this with Python, TypeScript, Rust, Java, and C# repos (9 repos, 6 languages total).
 
-4. **Competitor coverage.** 7 competitors benchmarked: codegraph (1.50x less precise, 19K stars), codebase-memory (1.47x less precise, hangs on large repos), GitNexus (2.69x less precise, cannot index enterprise repos), Gortex (3.21x less precise, 46x slower on k8s), Aider (4.04x less precise, file-level only), CGC (4.04x less precise), and grep (15.5x less precise, baseline).
+4. **Competitor coverage.** 7 competitors benchmarked: codegraph (1.56x less precise, 19K stars), codebase-memory (1.53x less precise, hangs on large repos), GitNexus (2.80x less precise, cannot index enterprise repos), Gortex (3.33x less precise, 46x slower on k8s), Aider (4.20x less precise, file-level only), CGC (4.20x less precise), and grep (16.2x less precise, baseline).
 
 5. **Ground truth coverage.** 95% of ground truth symbols verified against DB (validate-fixtures tool). Remaining 5% are edge cases (external deps, inherited methods with name mismatches).
 
@@ -177,25 +177,26 @@ Per-repo breakdown: Flask 0.332, Terraform 0.270, Ocelot 0.260, cross-cutting 0.
 | 22 | 2026-05-23 | **Equiv channel noise fix** | **0.226** | **+124% from regression, 4.5x vs Aider, channel balance** |
 | 23 | 2026-05-23 | **CodeGraph head-to-head** | **0.217** | **1.63x vs codegraph (19K stars), p=0.0006** |
 | 24 | 2026-05-25 | **Docstring FTS, 167 tasks, 9 repos** | **0.202** | **Fresh indexes (no enrichment), 5-channel RRF, 32 edge types, reachability-determined** |
+| 25 | 2026-05-25 | **Fresh indexes, 34 edge types (+co_tested_with, +type_hint_of)** | **0.210** | **Session 14 final, all repos freshly indexed, stable** |
 
-## Competitive Comparison Summary (Run 24)
+## Competitive Comparison Summary (Run 25)
 
 | System | P@10 | Ratio | Index k8s | RAM (k8s) |
 |--------|------|-------|-----------|-----------|
-| **knowing** | **0.202** | **1.00x** | **18.6s** | **200MB** |
-| codegraph (19K stars) | 0.135 | 1.50x | - | - |
-| codebase-memory (2.6K stars) | 0.137 | 1.47x | N/A (hangs) | - |
-| Aider | 0.050 | 4.04x | N/A (file-level) | - |
-| GitNexus | 0.075 | 2.69x | >60 min (killed) | 5.7GB |
-| Gortex | 0.063 | 3.21x | 14.2 min | 14GB |
-| CGC | 0.050 | 4.04x | - | - |
-| grep | 0.013 | 15.5x | instant | - |
+| **knowing** | **0.210** | **1.00x** | **18.6s** | **200MB** |
+| codegraph (19K stars) | 0.135 | 1.56x | - | - |
+| codebase-memory (2.6K stars) | 0.137 | 1.53x | N/A (hangs) | - |
+| Aider | 0.050 | 4.20x | N/A (file-level) | - |
+| GitNexus | 0.075 | 2.80x | >60 min (killed) | 5.7GB |
+| Gortex | 0.063 | 3.33x | 14.2 min | 14GB |
+| CGC | 0.050 | 4.20x | - | - |
+| grep | 0.013 | 16.2x | instant | - |
 
 ## Next Steps (priority order)
 
 1. **Keyword extraction improvement** (tiered search is the P@10 bottleneck; unreachable symbols need better seed selection)
 2. **Local embeddings (Channel 6)** (semantic similarity without paid LLM dependency)
-3. **Feedback compounding in production use** (cold-start floor 0.202, compounded ceiling ~0.40)
+3. **Feedback compounding in production use** (cold-start floor 0.210, compounded ceiling ~0.40)
 
 
 ## Reproducing

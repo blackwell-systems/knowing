@@ -205,7 +205,7 @@ context retrieval. Full proposal: [docs/proposals/code-retrieval-eval-toolkit.md
 ## Retrieval Pipeline
 
 Current results: see [bench/cross-system/FINDINGS.md](../bench/cross-system/FINDINGS.md).
-P@10=0.202 (Run 24, 167 tasks, 9 repos). 1.50x vs codegraph, 2.69x vs GitNexus, 3.21x vs Gortex, 15.5x vs grep. Query latency 2ms on k8s (with adjacency cache).
+P@10=0.210 (Run 25, 167 tasks, 9 repos). 1.56x vs codegraph, 2.80x vs GitNexus, 3.33x vs Gortex, 16.2x vs grep. Query latency 2ms on k8s (with adjacency cache).
 
 **Key finding (session 13):** 32-config parameter sweep + 6-point doc weight sweep proved P@10 is entirely reachability-determined. No parameter tuning moves it. Only new edges or new seed sources improve retrieval.
 
@@ -219,7 +219,7 @@ P@10=0.202 (Run 24, 167 tasks, 9 repos). 1.50x vs codegraph, 2.69x vs GitNexus, 
 
 ## Edge Type Expansion
 
-32 edge types shipped. See [Edge Types Reference](architecture/edge-types.md) and [CHANGELOG](CHANGELOG.md) for full details.
+34 edge types shipped. See [Edge Types Reference](architecture/edge-types.md) and [CHANGELOG](CHANGELOG.md) for full details.
 
 ### P1: Reachability edges (directly improve P@10)
 
