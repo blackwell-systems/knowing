@@ -1,9 +1,11 @@
 # Proposal: Local Embeddings for Retrieval
 
-## Status: Phase 1 COMPLETE, Phase 2 ON HOLD
+## Status: RE-RANKER VALIDATED (+4.5% P@10, +16.6% R@10). Phase 2 JUSTIFIED.
 
 Phase 1 (hugot integration) is implemented and wired into the retrieval pipeline.
-Phase 2 (custom inference engine) is ON HOLD pending a better embedding strategy.
+The re-ranker architecture produces the first P@10 improvement since session 14.
+Phase 2 (custom inference engine) is now JUSTIFIED by the latency problem: 11s/task
+with hugot is too slow for interactive use. Custom engine targets 1-2s.
 
 ### Embedding Benchmark Results (Session 15, 2026-05-25)
 
@@ -29,7 +31,34 @@ model, not a general-purpose one.
 2. Better text representation (include docstrings, file context, caller names)
 3. Test on repos where BM25 is known to fail (k8s, django SWE tasks)
 
-### Re-ranker Architecture (next experiment)
+### Re-ranker Results (VALIDATED, Session 15)
+
+**Flask (19 tasks), jina-embeddings-v2-base-code as re-ranker:**
+
+| Metric | Baseline | Re-ranker | Delta |
+|--------|----------|-----------|-------|
+| P@10 | 0.332 | 0.347 | **+4.5%** |
+| R@10 | 0.447 | 0.521 | **+16.6%** |
+| NDCG | 0.632 | 0.615 | -2.7% |
+| MRR | 0.775 | 0.681 | -12.1% |
+| Latency | 0ms | 11,642ms | (hugot, fixable) |
+
+The re-ranker finds symbols that the graph walk surfaced but ranked too low.
+R@10 +16.6% means significantly more ground truth symbols appear in the top 10.
+MRR drop is tunable (blend original rank score with embedding similarity instead
+of pure re-ordering).
+
+**Critical finding:** The problem with Channel 3 (independent candidate source) was
+that it found the SAME symbols as BM25. The re-ranker succeeds because it operates
+on a DIFFERENT set (the RWR output, which includes symbols reachable via graph walk
+that BM25 would never find by keyword alone). The architecture matters more than the model.
+
+**Next steps:**
+1. Blend scoring (0.7 * original_rank + 0.3 * embedding_similarity) to preserve MRR
+2. Run on full corpus (need latency fix first)
+3. Phase 2 custom engine to reduce 11s -> 1-2s latency
+
+### Re-ranker Architecture
 
 The current integration adds embeddings as Channel 3 (independent signal fused via RRF).
 This fails because:

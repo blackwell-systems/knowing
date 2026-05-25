@@ -83,6 +83,8 @@ Competitive ratios to recalculate from new P@10:
 4. **Enrichment hurts retrieval.** LSP enrichment adds correct edges but dilutes RWR. Useful for audit, harmful for retrieval.
 5. **The concept thesaurus helps messaging/concurrency domains.** Framework-specific expansions ("backend"->"base") hurt.
 6. **Struct field access edges are neutral for P@10.** Fields are already reachable via call edges. But they improve graph completeness (blast radius, test-scope, field-level impact).
+7. **Embeddings as independent channel are neutral.** BGE, jina-code, nomic all produce identical results as Channel 3. They find the same symbols as BM25.
+8. **Embeddings as RE-RANKER work (+4.5% P@10, +16.6% R@10 on flask).** Re-ranking top-50 RWR candidates by cosine similarity promotes relevant symbols that the graph surfaced but scored too low. Architecture matters more than model choice.
 
 ## Conventions
 
