@@ -39,6 +39,7 @@ const (
 	GatedByFlag      = "gated_by_flag"
 	DeployedBy       = "deployed_by"
 	TestedBy         = "tested_by"
+	CoTestedWith     = "co_tested_with" // lateral: two non-test symbols referenced from the same test file
 )
 
 // RWRWeight returns the Random Walk with Restart weight for the given edge type.

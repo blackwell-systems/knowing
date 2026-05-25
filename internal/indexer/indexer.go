@@ -636,6 +636,24 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 		fmt.Fprintf(os.Stderr, "  Similarity: %d edges\n", len(similarEdges))
 	}
 
+	// Generate co_tested_with edges: lateral connections between non-test symbols
+	// that are referenced from the same test file. Bridges structurally disconnected
+	// symbols that serve the same feature (e.g., BaseCache and RedisCache both tested
+	// in tests/cache/tests.py but with no direct call edge between them).
+	fmt.Fprintf(os.Stderr, "  Co-tested edges...\n")
+	coTestedEdges := GenerateCoTestedEdges(allNodes, allEdges)
+	if len(coTestedEdges) > 0 {
+		allEdges = append(allEdges, coTestedEdges...)
+		if bs, ok := idx.store.(batchStore); ok {
+			_ = bs.BatchPutEdges(ctx, coTestedEdges)
+		} else {
+			for _, e := range coTestedEdges {
+				_ = idx.store.PutEdge(ctx, e)
+			}
+		}
+		fmt.Fprintf(os.Stderr, "  Co-tested: %d edges\n", len(coTestedEdges))
+	}
+
 	// Extract authored_by edges from git blame (parallel, best-effort).
 	// This is expensive (one git blame subprocess per file) so it runs in parallel
 	// and is skippable via idx.SkipBlame.
@@ -1438,5 +1456,125 @@ func terminalName(qn string) string {
 		return qn[idx+1:]
 	}
 	return qn
+}
+
+// IsTestFile returns true if the file path indicates a test file.
+func IsTestFile(path string) bool {
+	lower := strings.ToLower(path)
+	return strings.Contains(lower, "_test.go") ||
+		strings.Contains(lower, "/tests/") ||
+		strings.Contains(lower, "/test/") ||
+		strings.Contains(lower, "_test.py") ||
+		strings.Contains(lower, "_test.ts") ||
+		strings.Contains(lower, "_test.rs") ||
+		strings.Contains(lower, ".test.ts") ||
+		strings.Contains(lower, ".test.js") ||
+		strings.Contains(lower, ".spec.ts") ||
+		strings.Contains(lower, ".spec.js") ||
+		strings.Contains(lower, "test_") ||
+		strings.HasSuffix(lower, "tests.py") ||
+		strings.HasSuffix(lower, "test.java") ||
+		strings.HasSuffix(lower, "tests.java")
+}
+
+// GenerateCoTestedEdges creates lateral "co_tested_with" edges between non-test
+// symbols that are referenced from the same test file. If test file T calls/imports
+// both symbol A and symbol B (and neither is a test symbol), A and B get a
+// co_tested_with edge. This bridges structurally disconnected symbols that serve
+// the same feature.
+func GenerateCoTestedEdges(allNodes []types.Node, allEdges []types.Edge) []types.Edge {
+	// Build node hash -> node lookup for quick access.
+	nodeByHash := make(map[types.Hash]*types.Node, len(allNodes))
+	for i := range allNodes {
+		nodeByHash[allNodes[i].NodeHash] = &allNodes[i]
+	}
+
+	// Build file hash -> file path from node QNs (extract file path from QN).
+	// Group nodes by file hash to detect test files.
+	testFileHashes := make(map[types.Hash]bool)
+	for i := range allNodes {
+		n := &allNodes[i]
+		// Extract file path from qualified name (between "://" and the symbol part).
+		if idx := strings.Index(n.QualifiedName, "://"); idx >= 0 {
+			pathPart := n.QualifiedName[idx+3:]
+			if IsTestFile(pathPart) {
+				testFileHashes[n.FileHash] = true
+			}
+		}
+	}
+
+	// For each edge from a test-file node to a non-test-file node, record
+	// (test file hash -> set of non-test target hashes).
+	testFileTargets := make(map[types.Hash][]types.Hash) // test file hash -> non-test targets
+	for _, e := range allEdges {
+		if e.EdgeType != "calls" && e.EdgeType != "imports" && e.EdgeType != "references" {
+			continue
+		}
+		src := nodeByHash[e.SourceHash]
+		if src == nil || !testFileHashes[src.FileHash] {
+			continue
+		}
+		tgt := nodeByHash[e.TargetHash]
+		if tgt == nil || testFileHashes[tgt.FileHash] {
+			continue // target is also in a test file
+		}
+		// Skip stdlib/external targets.
+		if strings.HasPrefix(tgt.QualifiedName, "stdlib://") || strings.HasPrefix(tgt.QualifiedName, "external://") {
+			continue
+		}
+		testFileTargets[src.FileHash] = append(testFileTargets[src.FileHash], e.TargetHash)
+	}
+
+	// For each test file, create co_tested_with edges between pairs of non-test targets.
+	// Cap pairs per file to avoid N^2 explosion on large test files.
+	seen := make(map[[2]types.Hash]bool)
+	var result []types.Edge
+	maxPairsPerFile := 20
+
+	for _, targets := range testFileTargets {
+		// Deduplicate targets within this file.
+		unique := make(map[types.Hash]bool)
+		var deduped []types.Hash
+		for _, h := range targets {
+			if !unique[h] {
+				unique[h] = true
+				deduped = append(deduped, h)
+			}
+		}
+		if len(deduped) < 2 {
+			continue
+		}
+		// Cap to prevent explosion.
+		if len(deduped) > 20 {
+			deduped = deduped[:20]
+		}
+		pairs := 0
+		for i := 0; i < len(deduped) && pairs < maxPairsPerFile; i++ {
+			for j := i + 1; j < len(deduped) && pairs < maxPairsPerFile; j++ {
+				a, b := deduped[i], deduped[j]
+				// Canonical ordering to avoid duplicates.
+				key := [2]types.Hash{a, b}
+				if strings.Compare(string(a[:]), string(b[:])) > 0 {
+					key = [2]types.Hash{b, a}
+				}
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				edgeHash := types.ComputeEdgeHash(a, b, edgetype.CoTestedWith, "co_test_inference")
+				result = append(result, types.Edge{
+					EdgeHash:     edgeHash,
+					SourceHash:   a,
+					TargetHash:   b,
+					EdgeType:     edgetype.CoTestedWith,
+					Confidence:   0.6,
+					Provenance:   "co_test_inference",
+					LastObserved: time.Now().Unix(),
+				})
+				pairs++
+			}
+		}
+	}
+	return result
 }
 

@@ -9,6 +9,7 @@ import (
 	"github.com/blackwell-systems/knowing/internal/community"
 	knowingctx "github.com/blackwell-systems/knowing/internal/context"
 	"github.com/blackwell-systems/knowing/internal/edgetype"
+	"github.com/blackwell-systems/knowing/internal/indexer"
 	"github.com/blackwell-systems/knowing/internal/store"
 	"github.com/blackwell-systems/knowing/internal/types"
 
@@ -56,6 +57,10 @@ func (a *Knowing) Index(repoPath string) (int64, error) {
 	// Generate contains edges (type -> method) if not already present.
 	// This connects disconnected type/class nodes to their methods via QN structure.
 	ensureContainsEdges(ctx, s)
+
+	// Generate co_tested_with edges (lateral connections between non-test symbols
+	// referenced from the same test file).
+	ensureCoTestedEdges(ctx, s)
 
 	// Run community detection if not already computed. This enables
 	// community-aware RWR filtering in the retrieval pipeline.
@@ -294,6 +299,50 @@ func ensureContainsEdges(ctx stdctx.Context, s *store.SQLiteStore) {
 		// Invalidate the adjacency cache since we added new edges.
 		// Without this, RWR uses the stale cache (built before contains edges)
 		// and can't traverse the new structural connections.
+		_ = s.DeleteNote(ctx, types.NewHash([]byte("adjacency_cache_v2")), "adjacency_cache")
+	}
+}
+
+// ensureCoTestedEdges generates co_tested_with edges between non-test symbols
+// that are referenced from the same test file. Skips if edges already exist.
+func ensureCoTestedEdges(ctx stdctx.Context, s *store.SQLiteStore) {
+	// Quick check: if co_tested_with edges already exist, skip.
+	allNodes, err := s.NodesByName(ctx, "%")
+	if err != nil || len(allNodes) == 0 {
+		return
+	}
+	for _, n := range allNodes[:min(len(allNodes), 20)] {
+		edges, _ := s.EdgesFrom(ctx, n.NodeHash, edgetype.CoTestedWith)
+		if len(edges) > 0 {
+			return // already generated
+		}
+	}
+
+	// Only load edges from test-file nodes (much faster than loading all edges).
+	// First identify test file hashes.
+	testFileHashes := make(map[types.Hash]bool)
+	for i := range allNodes {
+		qn := allNodes[i].QualifiedName
+		if idx := strings.Index(qn, "://"); idx >= 0 {
+			if indexer.IsTestFile(qn[idx+3:]) {
+				testFileHashes[allNodes[i].FileHash] = true
+			}
+		}
+	}
+
+	// Load edges only from nodes in test files.
+	var testEdges []types.Edge
+	for i := range allNodes {
+		if !testFileHashes[allNodes[i].FileHash] {
+			continue
+		}
+		edges, _ := s.EdgesFrom(ctx, allNodes[i].NodeHash, "")
+		testEdges = append(testEdges, edges...)
+	}
+
+	coTestedEdges := indexer.GenerateCoTestedEdges(allNodes, testEdges)
+	if len(coTestedEdges) > 0 {
+		_ = s.BatchPutEdges(ctx, coTestedEdges)
 		_ = s.DeleteNote(ctx, types.NewHash([]byte("adjacency_cache_v2")), "adjacency_cache")
 	}
 }
