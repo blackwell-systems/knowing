@@ -131,6 +131,8 @@ func (e *TreeSitterExtractor) walkNodeWithImports(node *sitter.Node, opts types.
 	switch node.Type() {
 	case "function_definition":
 		e.extractFunction(node, opts, classContext, result)
+		// Extract type_hint_of edges from parameter type annotations.
+		e.extractTypeHints(node, opts, classContext, pyImports, result)
 		// Also walk the body with imports for nested calls inside nested functions.
 		body := node.ChildByFieldName("body")
 		if body != nil {
@@ -271,6 +273,108 @@ func (e *TreeSitterExtractor) extractFunction(node *sitter.Node, opts types.Extr
 			e.walkNode(body.Child(i), opts, classContext, n.NodeHash, result)
 		}
 	}
+}
+
+// extractTypeHints creates type_hint_of edges from a function to the types
+// referenced in its parameter annotations and return type annotation.
+// Example: `def process(cache: BaseCache) -> bool:` creates edges to BaseCache.
+func (e *TreeSitterExtractor) extractTypeHints(funcNode *sitter.Node, opts types.ExtractOptions, classContext string, pyImports map[string]string, result *types.ExtractResult) {
+	nameNode := funcNode.ChildByFieldName("name")
+	if nameNode == nil {
+		return
+	}
+	funcName := nameNode.Content(opts.Content)
+	kind := types.KindFunction
+	if classContext != "" {
+		kind = types.KindMethod
+	}
+	funcQN := e.qualifiedName(opts, classContext, funcName)
+	funcHash := types.ComputeNodeHash(opts.RepoURL, opts.ModuleRoot, opts.FileHash, funcQN, kind)
+
+	// Walk parameters for type annotations.
+	params := funcNode.ChildByFieldName("parameters")
+	if params == nil {
+		return
+	}
+	seen := make(map[string]bool)
+	for i := 0; i < int(params.ChildCount()); i++ {
+		param := params.Child(i)
+		// Python typed parameters have type "typed_parameter" or "typed_default_parameter"
+		if param.Type() != "typed_parameter" && param.Type() != "typed_default_parameter" {
+			continue
+		}
+		// The type annotation is in the "type" field.
+		typeNode := param.ChildByFieldName("type")
+		if typeNode == nil {
+			continue
+		}
+		typeName := extractTypeName(typeNode, opts.Content)
+		if typeName == "" || seen[typeName] {
+			continue
+		}
+		seen[typeName] = true
+		e.emitTypeHintEdge(opts, funcHash, typeName, classContext, pyImports, result)
+	}
+
+	// Return type annotation.
+	returnType := funcNode.ChildByFieldName("return_type")
+	if returnType != nil {
+		typeName := extractTypeName(returnType, opts.Content)
+		if typeName != "" && !seen[typeName] {
+			seen[typeName] = true
+			e.emitTypeHintEdge(opts, funcHash, typeName, classContext, pyImports, result)
+		}
+	}
+}
+
+// extractTypeName gets the base type name from a type annotation node.
+// Handles: simple identifiers, subscripts (Generic[T] -> Generic), attributes (mod.Type -> Type).
+func extractTypeName(node *sitter.Node, content []byte) string {
+	switch node.Type() {
+	case "identifier":
+		name := node.Content(content)
+		// Skip builtins that are never useful as graph targets.
+		switch name {
+		case "int", "str", "float", "bool", "bytes", "None", "Any", "object", "type", "list", "dict", "tuple", "set":
+			return ""
+		}
+		return name
+	case "subscript":
+		// Generic[T] -> extract "Generic" (the base type).
+		value := node.ChildByFieldName("value")
+		if value != nil {
+			return extractTypeName(value, content)
+		}
+	case "attribute":
+		// module.Type -> extract "Type" (terminal name) for import resolution.
+		// Full dotted name for qualified resolution.
+		return node.Content(content)
+	case "none":
+		return ""
+	}
+	// For other node types, try the raw content if it looks like an identifier.
+	text := node.Content(content)
+	if len(text) > 0 && len(text) < 50 && text[0] >= 'A' && text[0] <= 'Z' {
+		return text
+	}
+	return ""
+}
+
+// emitTypeHintEdge resolves a type name and creates a type_hint_of edge.
+func (e *TreeSitterExtractor) emitTypeHintEdge(opts types.ExtractOptions, funcHash types.Hash, typeName string, classContext string, pyImports map[string]string, result *types.ExtractResult) {
+	// Resolve through import map (same as call resolution).
+	targetQN := e.resolveCallTarget(opts, classContext, typeName, pyImports)
+	targetHash := types.ComputeNodeHash(opts.RepoURL, opts.ModuleRoot, opts.FileHash, targetQN, "type")
+
+	edgeHash := types.ComputeEdgeHash(funcHash, targetHash, edgetype.TypeHintOf, "ast_inferred")
+	result.Edges = append(result.Edges, types.Edge{
+		EdgeHash:   edgeHash,
+		SourceHash: funcHash,
+		TargetHash: targetHash,
+		EdgeType:   edgetype.TypeHintOf,
+		Confidence: 0.7,
+		Provenance: "ast_inferred",
+	})
 }
 
 // extractClass extracts a class definition and its methods.

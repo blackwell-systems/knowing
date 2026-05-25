@@ -40,6 +40,7 @@ const (
 	DeployedBy       = "deployed_by"
 	TestedBy         = "tested_by"
 	CoTestedWith     = "co_tested_with" // lateral: two non-test symbols referenced from the same test file
+	TypeHintOf       = "type_hint_of"   // function -> type referenced in parameter/return type annotations
 )
 
 // RWRWeight returns the Random Walk with Restart weight for the given edge type.
