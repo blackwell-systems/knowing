@@ -757,6 +757,64 @@ The daemon watches the filesystem and triggers incremental re-indexing on file c
 
 Since the initial architecture, knowing has added cross-repo awareness (external packages get canonical identity hashes like `external://flask` or `stdlib`), community-aware graph walks (constrain RWR to seed communities for focused queries), and 28 MCP tools for agent integration. The system requires no cloud services; everything runs locally with zero configuration.
 
+## Core Extraction Technologies
+
+The diagram above shows "Extractors" as a single box, but this is where the bulk of the intelligence originates. Three technologies power the extraction pipeline: tree-sitter for parsing, AST traversal for structure discovery, and LSP enrichment for type resolution.
+
+### Tree-sitter: incremental parsing across 24 languages
+
+[Tree-sitter](https://tree-sitter.github.io/) is an incremental parsing library that produces concrete syntax trees from source code. knowing embeds 24 tree-sitter grammars (Go, TypeScript, Python, Rust, Java, C#, Ruby, PHP, Swift, Kotlin, Scala, C, C++, Zig, Elixir, Haskell, Lua, SQL, Proto, GraphQL, HCL, Dockerfile, Makefile, and Bash). Each grammar defines the syntax rules for its language and can parse a file in under 1ms.
+
+The key property is *incremental*: when a file changes, tree-sitter re-parses only the changed region, not the entire file. This is what enables 167ms time-to-consistency. A developer saves a file, the daemon detects the change, tree-sitter re-parses the modified spans, and the extractors walk the updated tree to find new or changed relationships.
+
+Tree-sitter produces a **concrete syntax tree** (CST), meaning every token is represented (parentheses, keywords, whitespace). knowing's extractors query specific node types from this tree using tree-sitter's pattern-matching query language. For example, a Go extractor queries for `call_expression` nodes to find function calls, `type_declaration` nodes to find type definitions, and `method_declaration` nodes to find methods.
+
+### AST traversal: extracting structure from syntax trees
+
+An **Abstract Syntax Tree** (AST) is the structured representation of source code that extractors traverse. Tree-sitter produces concrete syntax trees; knowing's extractors treat these as ASTs by filtering to semantically meaningful nodes and ignoring punctuation and whitespace.
+
+Each language extractor walks the tree looking for specific patterns:
+
+- **Declarations:** function definitions, type definitions, interface declarations, method signatures. These become graph nodes.
+- **Call sites:** function calls, method invocations, constructor calls. These become `calls` edges from the calling function to the called function.
+- **Import statements:** package imports, module imports, require statements. These become `imports` edges.
+- **Inheritance:** interface implementations, class extensions, trait implementations. These become `implements` edges.
+- **References:** type annotations, variable declarations that reference other types. These become `references` edges.
+
+The extractors produce edges at `ast_inferred` provenance with a confidence floor of 0.7. This confidence reflects a fundamental limitation: tree-sitter operates on syntax alone. When the extractor sees `auth.Login()`, it can identify a call expression with receiver `auth` and method `Login`, but it cannot determine what `auth` resolves to. It might be an imported package, a local variable, a struct field, or a function parameter. The extractor infers the most likely target and records the edge with moderate confidence.
+
+### LSP enrichment: resolving ambiguity with type information
+
+After static extraction, knowing can optionally run **language servers** (gopls for Go, pyright for Python, rust-analyzer for Rust, typescript-language-server for TypeScript) to resolve ambiguous call targets. This is the LSP enrichment pass.
+
+The problem it solves: static tree-sitter extraction sees `foo.Bar()` but does not know what `foo` is. It could be:
+- A package import (`foo` is package `github.com/org/foo`, `Bar` is an exported function)
+- A local variable (`foo` is a struct instance, `Bar` is a method on that struct's type)
+- An interface method (`foo` satisfies interface `Baz`, `Bar` is declared on `Baz`)
+- A re-exported alias (`foo` is imported under a different name)
+
+The language server has full type information. It resolves `foo.Bar()` to the concrete definition: the exact file, line, and symbol where `Bar` is defined. This eliminates ambiguity.
+
+**How enrichment works:**
+
+1. knowing opens the workspace in the language server.
+2. For each `ast_inferred` edge with confidence below 0.9, knowing sends a "go to definition" request at the call site's position (file, line, column).
+3. The language server responds with the resolved target location.
+4. knowing matches this location to a node in the graph.
+5. If the resolved target matches the inferred target, the edge confidence is upgraded from 0.7 (`ast_inferred`) to 0.9 (`lsp_resolved`).
+6. If the resolved target differs from the inferred target, the old edge is replaced with a corrected edge pointing to the actual target, at confidence 0.9.
+
+**Confidence upgrade in practice:**
+
+| Stage | Provenance | Confidence | What we know |
+|---|---|---|---|
+| After tree-sitter | `ast_inferred` | 0.7 | Syntax says `auth.Login()` exists at line 42 |
+| After LSP | `lsp_resolved` | 0.9 | Type system confirms this calls `pkg/auth.Login` at `auth.go:15` |
+
+The 0.2 confidence gap (0.7 to 0.9) matters for downstream ranking. In the RWR graph walk, edge weights are multiplied by confidence. An `lsp_resolved` edge carries 28% more weight than an `ast_inferred` edge, meaning LSP-confirmed relationships pull more strongly during retrieval. Consumers can also filter by confidence threshold: setting a minimum of 0.85 excludes all unconfirmed tree-sitter guesses while retaining LSP-verified relationships.
+
+LSP enrichment is optional because language servers require project setup (installed dependencies, build configuration). For repositories without a working language server, tree-sitter extraction at 0.7 confidence still produces a useful graph. LSP adds precision, not coverage.
+
 ## The Landscape
 
 ### What other systems use content-addressing for
