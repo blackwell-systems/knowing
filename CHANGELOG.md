@@ -8,6 +8,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+#### Supply chain attack detection infrastructure
+- `reads_env` edge type (37th): function -> environment variable it reads (Go, Python, TypeScript)
+- `executes_process` edge type (38th): function -> process it spawns (Go, Python, TypeScript)
+- `knowing audit-supply-chain` CLI command: structural diff + isolation scoring + capability path detection
+- Isolation score computation (`internal/diff/isolation.go`): scores files 0.0-1.0 based on graph connectivity, outbound edges to dangerous sinks, and lifecycle hook execution
+- Designed to detect attacks like TanStack/Mini Shai-Hulud (2026) and event-stream (2018)
+
+#### Embedding benchmark results
+- Wired BGE-small-en-v1.5 embeddings into benchmark adapter (BENCH_EMBEDDINGS=1)
+- Result: **neutral P@10** (general-purpose text embeddings don't improve code symbol retrieval)
+- Infrastructure works (hugot pure Go ONNX, 14ms/embedding, HNSW search <1ms)
+- Need code-retrieval-specific model to move the needle; Phase 2 custom engine on hold
+
 #### `accesses_field` edge type (36th edge type, P@10 neutral)
 - Connects methods to the struct/class fields they read/write via receiver
 - **Go**: extracts `self.field` access from method bodies, creates field nodes from struct declarations. 660 edges on knowing codebase, 1,170 field nodes.
