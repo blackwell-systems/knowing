@@ -21,6 +21,7 @@ import (
 	"github.com/smacker/go-tree-sitter/java"
 
 	"github.com/blackwell-systems/knowing/internal/edgetype"
+	"github.com/blackwell-systems/knowing/internal/indexer/docextract"
 	"github.com/blackwell-systems/knowing/internal/resolve"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
@@ -353,6 +354,7 @@ func extractClassDeclWithImports(node *sitter.Node, opts types.ExtractOptions, p
 		Kind:          types.KindType,
 		Line:          line,
 		Signature:     fmt.Sprintf("class %s", className),
+		Doc:           docextract.FromPrecedingComments(node, opts.Content, 500),
 	})
 
 	// Emit extends edge if there is a superclass field.
@@ -478,6 +480,7 @@ func extractMethodDecl(node *sitter.Node, opts types.ExtractOptions, pkgPath, cl
 		Kind:          kind,
 		Line:          line,
 		Signature:     fmt.Sprintf("%s.%s()", className, methodName),
+		Doc:           docextract.FromPrecedingComments(node, opts.Content, 500),
 	})
 
 	// Emit overrides edge if @Override annotation is present.
@@ -580,6 +583,7 @@ func extractMethodDeclWithImports(node *sitter.Node, opts types.ExtractOptions, 
 		Kind:          kind,
 		Line:          line,
 		Signature:     fmt.Sprintf("%s.%s()", className, methodName),
+		Doc:           docextract.FromPrecedingComments(node, opts.Content, 500),
 	})
 
 	// Emit overrides edge if @Override annotation is present.

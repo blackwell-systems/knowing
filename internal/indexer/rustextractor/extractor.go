@@ -23,6 +23,7 @@ import (
 	"github.com/smacker/go-tree-sitter/rust"
 
 	"github.com/blackwell-systems/knowing/internal/edgetype"
+	"github.com/blackwell-systems/knowing/internal/indexer/docextract"
 	"github.com/blackwell-systems/knowing/internal/resolve"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
@@ -269,6 +270,7 @@ func extractFunctionItem(node *sitter.Node, opts types.ExtractOptions, basePath,
 		Kind:          kind,
 		Line:          line,
 		Signature:     fmt.Sprintf("fn %s()", name),
+		Doc:           docextract.FromPrecedingComments(node, opts.Content, 500),
 	}
 
 	var nodes []types.Node
@@ -356,6 +358,7 @@ func extractStructItem(node *sitter.Node, opts types.ExtractOptions, basePath st
 		Kind:          types.KindType,
 		Line:          line,
 		Signature:     fmt.Sprintf("struct %s", name),
+		Doc:           docextract.FromPrecedingComments(node, opts.Content, 500),
 	}
 }
 
@@ -376,6 +379,7 @@ func extractEnumItem(node *sitter.Node, opts types.ExtractOptions, basePath stri
 		Kind:          types.KindType,
 		Line:          line,
 		Signature:     fmt.Sprintf("enum %s", name),
+		Doc:           docextract.FromPrecedingComments(node, opts.Content, 500),
 	}
 }
 
@@ -393,6 +397,7 @@ func extractTraitItem(node *sitter.Node, opts types.ExtractOptions, basePath str
 	return &types.Node{
 		NodeHash:      nodeHash,
 		FileHash:      opts.FileHash,
+		Doc:           docextract.FromPrecedingComments(node, opts.Content, 500),
 		QualifiedName: fmt.Sprintf("%s://%s/%s.%s", opts.RepoURL, opts.ModuleRoot, basePath, name),
 		Kind:          types.KindInterface,
 		Line:          line,

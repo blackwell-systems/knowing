@@ -20,6 +20,7 @@ import (
 	"github.com/smacker/go-tree-sitter/csharp"
 
 	"github.com/blackwell-systems/knowing/internal/edgetype"
+	"github.com/blackwell-systems/knowing/internal/indexer/docextract"
 	"github.com/blackwell-systems/knowing/internal/resolve"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
@@ -315,6 +316,7 @@ func (e *CSharpExtractor) extractClassDecl(node *sitter.Node, opts types.Extract
 		Kind:          types.KindType,
 		Line:          line,
 		Signature:     fmt.Sprintf("class %s", name),
+		Doc:           docextract.FromPrecedingComments(node, opts.Content, 500),
 	}
 
 	// Emit extends/implements edges from base_list.
@@ -433,6 +435,7 @@ func (e *CSharpExtractor) extractMethodDecl(node *sitter.Node, opts types.Extrac
 		Kind:          types.KindMethod,
 		Line:          line,
 		Signature:     fmt.Sprintf("method %s", name),
+		Doc:           docextract.FromPrecedingComments(node, opts.Content, 500),
 	}
 
 	var semanticEdges []types.Edge

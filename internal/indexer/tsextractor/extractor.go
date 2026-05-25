@@ -29,6 +29,7 @@ import (
 	"github.com/smacker/go-tree-sitter/typescript/typescript"
 
 	"github.com/blackwell-systems/knowing/internal/edgetype"
+	"github.com/blackwell-systems/knowing/internal/indexer/docextract"
 	"github.com/blackwell-systems/knowing/internal/resolve"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
@@ -442,6 +443,7 @@ func extractFuncDecl(node *sitter.Node, opts types.ExtractOptions, qnamePrefix, 
 		Kind:          types.KindFunction,
 		Line:          line,
 		Signature:     fmt.Sprintf("function %s()", name),
+		Doc:           docextract.FromPrecedingComments(node, opts.Content, 500),
 	}
 }
 
@@ -459,6 +461,7 @@ func extractClassDecl(node *sitter.Node, opts types.ExtractOptions, qnamePrefix 
 		Kind:          types.KindType,
 		Line:          line,
 		Signature:     fmt.Sprintf("class %s", name),
+		Doc:           docextract.FromPrecedingComments(node, opts.Content, 500),
 	}
 }
 
