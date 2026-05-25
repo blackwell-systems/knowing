@@ -8,11 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-#### Benchmark corpus expansion (9 repos, 161 tasks)
+#### Benchmark corpus expansion (9 repos, 167 tasks)
 - Added Terraform (Go, 2M LOC, 37K nodes, 184K edges, 20 tasks)
 - Added Kafka (Java, 500K LOC, 74K nodes, 780K edges, 19 tasks)
 - Expanded Flask to 19 tasks (from 14)
-- Total: 9 repos, 6 languages, 161 tasks (from 117)
+- Total: 9 repos, 6 languages, 167 tasks (from 117)
 - P@10 = 0.202 on full corpus (Kafka 0.300, Terraform 0.250 pull average up)
 
 #### Go structural edge extraction
