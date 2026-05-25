@@ -67,10 +67,24 @@ type Indexer struct {
 	Concurrency int  // number of parallel extraction workers; 0 means runtime.GOMAXPROCS
 	SkipBlame   bool // skip git blame authorship extraction (expensive on large repos)
 
+	// EdgeTypes filters which edge types to emit during indexing. When non-nil,
+	// only edges whose type is in this set are stored. Nil means all edge types.
+	// Useful for ablation studies and debugging dilution.
+	EdgeTypes map[string]bool
+
 	// changedMu protects lastChangedFiles, which is read by the daemon to
 	// determine which files need LSP enrichment after an index run.
 	changedMu        sync.Mutex
 	lastChangedFiles []string
+}
+
+// edgeAllowed returns true if the given edge type should be generated.
+// When EdgeTypes is nil (no filter), all types are allowed.
+func (idx *Indexer) edgeAllowed(edgeType string) bool {
+	if idx.EdgeTypes == nil {
+		return true
+	}
+	return idx.EdgeTypes[edgeType]
 }
 
 // NewIndexer creates an Indexer with the given store and snapshot computer.
@@ -490,6 +504,16 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 
 		// Flush batch to DB every batchSize files.
 		if len(batchFiles) >= batchSize || completed == totalFiles {
+			// Apply edge type filter to batch before writing.
+			if idx.EdgeTypes != nil {
+				filtered := batchEdges[:0]
+				for _, e := range batchEdges {
+					if idx.EdgeTypes[e.EdgeType] {
+						filtered = append(filtered, e)
+					}
+				}
+				batchEdges = filtered
+			}
 			if hasBatch {
 				if len(batchFiles) > 0 {
 					if err := bs.BatchPutFiles(ctx, batchFiles); err != nil {
@@ -567,91 +591,114 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 		}
 	}
 
+	// Apply edge type filter if set. Removes edges not in the allowed set.
+	// This is for ablation studies and debugging (--edge-types flag).
+	if idx.EdgeTypes != nil {
+		filtered := allEdges[:0]
+		for _, e := range allEdges {
+			if idx.EdgeTypes[e.EdgeType] {
+				filtered = append(filtered, e)
+			}
+		}
+		fmt.Fprintf(os.Stderr, "  Edge filter: %d -> %d edges (allowed: %d types)\n", len(allEdges), len(filtered), len(idx.EdgeTypes))
+		allEdges = filtered
+	}
+
 	// Propagate method inheritance: for each "extends" edge, find the parent's
 	// methods and create edges from the child class to those methods. This lets
 	// RWR walk from Flask -> Scaffold.before_request via inheritance.
-	fmt.Fprintf(os.Stderr, "  Inheritance propagation...\n")
-	inheritEdges := propagateInheritance(allNodes, allEdges)
-	if len(inheritEdges) > 0 {
-		allEdges = append(allEdges, inheritEdges...)
-		if bs, ok := idx.store.(batchStore); ok {
-			_ = bs.BatchPutEdges(ctx, inheritEdges)
-		} else {
-			for _, e := range inheritEdges {
-				_ = idx.store.PutEdge(ctx, e)
+	if idx.edgeAllowed("inherits") {
+		fmt.Fprintf(os.Stderr, "  Inheritance propagation...\n")
+		inheritEdges := propagateInheritance(allNodes, allEdges)
+		if len(inheritEdges) > 0 {
+			allEdges = append(allEdges, inheritEdges...)
+			if bs, ok := idx.store.(batchStore); ok {
+				_ = bs.BatchPutEdges(ctx, inheritEdges)
+			} else {
+				for _, e := range inheritEdges {
+					_ = idx.store.PutEdge(ctx, e)
+				}
 			}
+			fmt.Fprintf(os.Stderr, "  Inheritance: %d edges propagated\n", len(inheritEdges))
 		}
-		fmt.Fprintf(os.Stderr, "  Inheritance: %d edges propagated\n", len(inheritEdges))
 	}
 
 	// Propagate interface implementation: for each "implements" edge, find matching
 	// method names between the implementing class and the interface, and create
 	// "overrides" edges connecting them. This lets RWR walk from an interface method
 	// to all concrete implementations.
-	fmt.Fprintf(os.Stderr, "  Interface propagation...\n")
-	ifaceEdges := propagateInterfaceMethods(allNodes, allEdges)
-	if len(ifaceEdges) > 0 {
-		allEdges = append(allEdges, ifaceEdges...)
-		if bs, ok := idx.store.(batchStore); ok {
-			_ = bs.BatchPutEdges(ctx, ifaceEdges)
-		} else {
-			for _, e := range ifaceEdges {
-				_ = idx.store.PutEdge(ctx, e)
+	if idx.edgeAllowed("overrides") {
+		fmt.Fprintf(os.Stderr, "  Interface propagation...\n")
+		ifaceEdges := propagateInterfaceMethods(allNodes, allEdges)
+		if len(ifaceEdges) > 0 {
+			allEdges = append(allEdges, ifaceEdges...)
+			if bs, ok := idx.store.(batchStore); ok {
+				_ = bs.BatchPutEdges(ctx, ifaceEdges)
+			} else {
+				for _, e := range ifaceEdges {
+					_ = idx.store.PutEdge(ctx, e)
+				}
 			}
+			fmt.Fprintf(os.Stderr, "  Interface: %d edges propagated\n", len(ifaceEdges))
 		}
-		fmt.Fprintf(os.Stderr, "  Interface: %d edges propagated\n", len(ifaceEdges))
 	}
 
 	// Generate structural "contains" edges from type/class nodes to their methods.
 	// 77% of type nodes have zero edges; this connects them to their methods via QN
 	// structure (Type.Method), enabling RWR to walk from type seeds to discover methods.
-	fmt.Fprintf(os.Stderr, "  Contains edges...\n")
-	containsEdges := generateContainsEdges(allNodes)
-	if len(containsEdges) > 0 {
-		allEdges = append(allEdges, containsEdges...)
-		if bs, ok := idx.store.(batchStore); ok {
-			_ = bs.BatchPutEdges(ctx, containsEdges)
-		} else {
-			for _, e := range containsEdges {
-				_ = idx.store.PutEdge(ctx, e)
+	if idx.edgeAllowed(edgetype.Contains) {
+		fmt.Fprintf(os.Stderr, "  Contains edges...\n")
+		containsEdges := generateContainsEdges(allNodes)
+		if len(containsEdges) > 0 {
+			allEdges = append(allEdges, containsEdges...)
+			if bs, ok := idx.store.(batchStore); ok {
+				_ = bs.BatchPutEdges(ctx, containsEdges)
+			} else {
+				for _, e := range containsEdges {
+					_ = idx.store.PutEdge(ctx, e)
+				}
 			}
+			fmt.Fprintf(os.Stderr, "  Contains: %d edges\n", len(containsEdges))
 		}
-		fmt.Fprintf(os.Stderr, "  Contains: %d edges\n", len(containsEdges))
 	}
 
 	// Compute semantic similarity edges between functions in the same package.
 	// This bridges disconnected subgraphs where two functions do the same work
 	// but don't call each other.
-	fmt.Fprintf(os.Stderr, "  Similarity edges...\n")
-	similarEdges := ComputeSimilarityEdges(allNodes, 0.5)
-	if len(similarEdges) > 0 {
-		allEdges = append(allEdges, similarEdges...)
-		if bs, ok := idx.store.(batchStore); ok {
-			_ = bs.BatchPutEdges(ctx, similarEdges)
-		} else {
-			for _, e := range similarEdges {
-				_ = idx.store.PutEdge(ctx, e)
+	if idx.edgeAllowed("similar_to") {
+		fmt.Fprintf(os.Stderr, "  Similarity edges...\n")
+		similarEdges := ComputeSimilarityEdges(allNodes, 0.5)
+		if len(similarEdges) > 0 {
+			allEdges = append(allEdges, similarEdges...)
+			if bs, ok := idx.store.(batchStore); ok {
+				_ = bs.BatchPutEdges(ctx, similarEdges)
+			} else {
+				for _, e := range similarEdges {
+					_ = idx.store.PutEdge(ctx, e)
+				}
 			}
+			fmt.Fprintf(os.Stderr, "  Similarity: %d edges\n", len(similarEdges))
 		}
-		fmt.Fprintf(os.Stderr, "  Similarity: %d edges\n", len(similarEdges))
 	}
 
 	// Generate co_tested_with edges: lateral connections between non-test symbols
 	// that are referenced from the same test file. Bridges structurally disconnected
 	// symbols that serve the same feature (e.g., BaseCache and RedisCache both tested
 	// in tests/cache/tests.py but with no direct call edge between them).
-	fmt.Fprintf(os.Stderr, "  Co-tested edges...\n")
-	coTestedEdges := GenerateCoTestedEdges(allNodes, allEdges)
-	if len(coTestedEdges) > 0 {
-		allEdges = append(allEdges, coTestedEdges...)
-		if bs, ok := idx.store.(batchStore); ok {
-			_ = bs.BatchPutEdges(ctx, coTestedEdges)
-		} else {
-			for _, e := range coTestedEdges {
-				_ = idx.store.PutEdge(ctx, e)
+	if idx.edgeAllowed(edgetype.CoTestedWith) {
+		fmt.Fprintf(os.Stderr, "  Co-tested edges...\n")
+		coTestedEdges := GenerateCoTestedEdges(allNodes, allEdges)
+		if len(coTestedEdges) > 0 {
+			allEdges = append(allEdges, coTestedEdges...)
+			if bs, ok := idx.store.(batchStore); ok {
+				_ = bs.BatchPutEdges(ctx, coTestedEdges)
+			} else {
+				for _, e := range coTestedEdges {
+					_ = idx.store.PutEdge(ctx, e)
+				}
 			}
+			fmt.Fprintf(os.Stderr, "  Co-tested: %d edges\n", len(coTestedEdges))
 		}
-		fmt.Fprintf(os.Stderr, "  Co-tested: %d edges\n", len(coTestedEdges))
 	}
 
 	// Extract authored_by edges from git blame (parallel, best-effort).

@@ -298,6 +298,7 @@ func cmdIndex(args []string) error {
 	noEnrich := fs.Bool("no-enrich", false, "Skip LSP enrichment (faster, edges stay at 0.7 confidence)")
 	enrichConcurrency := fs.Int("enrich-concurrency", 8, "Number of parallel LSP requests during enrichment")
 	workers := fs.Int("workers", 0, "Number of parallel extraction workers (default: 8)")
+	edgeTypesFlag := fs.String("edge-types", "", "Comma-separated edge types to keep (ablation filter; empty = all)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -347,6 +348,15 @@ func cmdIndex(args []string) error {
 	idx.SkipBlame = *skipBlame
 	if *workers > 0 {
 		idx.Concurrency = *workers
+	}
+	if *edgeTypesFlag != "" {
+		idx.EdgeTypes = make(map[string]bool)
+		for _, et := range strings.Split(*edgeTypesFlag, ",") {
+			et = strings.TrimSpace(et)
+			if et != "" {
+				idx.EdgeTypes[et] = true
+			}
+		}
 	}
 
 	// Register extractors.
