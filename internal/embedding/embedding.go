@@ -16,16 +16,26 @@ import (
 	"github.com/knights-analytics/hugot/pipelines"
 )
 
-const (
-	// modelRepo is the HuggingFace repo for the default embedding model.
-	// BGE-small-en-v1.5 is retrieval-tuned (trained for search, not just similarity)
-	// and outperforms MiniLM-L6-v2 on code retrieval benchmarks.
+// Model configuration. Override with KNOWING_EMBED_MODEL env var.
+// Options: "bge-small" (default), "nomic-code", "jina-code"
+var (
 	modelRepo = "BAAI/bge-small-en-v1.5"
-	// onnxFile is the ONNX model file within the repo.
-	onnxFile = "onnx/model.onnx"
-	// Dims is the embedding vector dimensionality for BGE-small-en-v1.5.
-	Dims = 384
+	onnxFile  = "onnx/model.onnx"
+	Dims      = 384
 )
+
+func init() {
+	switch os.Getenv("KNOWING_EMBED_MODEL") {
+	case "nomic-code":
+		modelRepo = "nomic-ai/nomic-embed-text-v1.5"
+		onnxFile = "onnx/model.onnx"
+		Dims = 768
+	case "jina-code":
+		modelRepo = "jinaai/jina-embeddings-v2-base-code"
+		onnxFile = "onnx/model.onnx"
+		Dims = 768
+	}
+}
 
 // Embedder generates embedding vectors and provides nearest-neighbor search.
 type Embedder struct {

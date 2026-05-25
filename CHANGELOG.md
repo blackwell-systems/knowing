@@ -15,11 +15,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Isolation score computation (`internal/diff/isolation.go`): scores files 0.0-1.0 based on graph connectivity, outbound edges to dangerous sinks, and lifecycle hook execution
 - Designed to detect attacks like TanStack/Mini Shai-Hulud (2026) and event-stream (2018)
 
-#### Embedding benchmark results
-- Wired BGE-small-en-v1.5 embeddings into benchmark adapter (BENCH_EMBEDDINGS=1)
-- Result: **neutral P@10** (general-purpose text embeddings don't improve code symbol retrieval)
+#### Embedding model switching + benchmark results
+- `KNOWING_EMBED_MODEL` env var: switch between `bge-small` (default), `nomic-code`, `jina-code`
+- Wired embeddings into benchmark adapter (`BENCH_EMBEDDINGS=1`, capped at 5K symbols/repo)
+- BGE-small-en-v1.5 result: **neutral P@10** (general-purpose embeddings don't improve code retrieval)
 - Infrastructure works (hugot pure Go ONNX, 14ms/embedding, HNSW search <1ms)
-- Need code-retrieval-specific model to move the needle; Phase 2 custom engine on hold
+- Testing code-specific models (jina-code, nomic-code) in progress
 
 #### `accesses_field` edge type (36th edge type, P@10 neutral)
 - Connects methods to the struct/class fields they read/write via receiver
