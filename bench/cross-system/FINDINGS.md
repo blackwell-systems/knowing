@@ -24,13 +24,13 @@ are reported as such.
 
 ## Executive Summary
 
-knowing is a content-addressed graph retrieval engine evaluated against 6 competitors across 7 codebases (3.5M LOC down to 14K LOC), ~161 task fixtures, and 23 iterative benchmark runs with full statistical rigor.
+knowing is a content-addressed graph retrieval engine evaluated against 6 competitors across 9 codebases (3.5M LOC down to 14K LOC), 167 task fixtures, and 24 iterative benchmark runs with full statistical rigor.
 
 ### Final Results (Run 24, Session 13: fresh index with docstring FTS)
 
 | System | P@10 | R@10 | Tasks | Notes |
 |--------|------|------|-------|-------|
-| **knowing** | **0.202** | **0.271** | 161 | Docstring FTS, 32 edge types, 5-channel retrieval |
+| **knowing** | **0.202** | **0.271** | 167 | Docstring FTS, 32 edge types, 5-channel retrieval |
 | codegraph (19K stars) | 0.135 | - | 107 | 10 tasks failed (unsupported repos) |
 | GitNexus | 0.075 | - | 66 | Killed on k8s (>60 min indexing) |
 | Gortex | 0.063 | - | 66 | 14 min k8s indexing, 14GB RAM |
@@ -699,7 +699,7 @@ but the easy tasks need fixture QN refinement.
 
 knowing wins on the dimensions that matter for AI agents:
 
-1. **Precision** (1.36x vs codegraph, 2.45x vs GitNexus, 14.2x vs grep): fewer wasted tokens
+1. **Precision** (1.50x vs codegraph, 2.69x vs GitNexus, 15.5x vs grep): fewer wasted tokens
 2. **Latency** (2ms on k8s, 500x faster than codegraph): doesn't block the agent
 3. **Freshness** (167ms time-to-consistency): reflects edits before the next prompt
 4. **Determinism** (same input = same output): debuggable, regression-testable
