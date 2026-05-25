@@ -1,0 +1,12 @@
+id: terraform-easy-001
+repo: terraform
+tier: easy
+description: "Add a new CLI command to terraform that validates provider configurations against their schemas before running plan"
+source: manual
+ground_truth:
+  - command.ValidateCommand
+  - command.ValidateCommand.Run
+  - command.Meta
+  - command.Meta.Backend
+tags: [cli, command, validation, single-package]
+notes: "Adding a CLI command requires the ValidateCommand pattern (struct + Run method), the Meta base struct that all commands embed, and the Backend accessor for provider communication."

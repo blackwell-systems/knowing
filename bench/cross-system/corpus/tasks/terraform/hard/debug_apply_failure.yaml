@@ -1,0 +1,15 @@
+id: terraform-hard-001
+repo: terraform
+tier: hard
+description: "Debug why terraform apply fails to create a resource by tracing through the apply graph walk, eval context, and provider plugin communication"
+source: manual
+ground_truth:
+  - internal/terraform/context_apply.Context.ApplyAndEval
+  - internal/terraform/context_walk.Context.walk
+  - internal/terraform/eval_context_builtin.BuiltinEvalContext
+  - internal/terraform/node_resource_apply_instance.NodeApplyableResourceInstance
+  - internal/terraform/node_resource_apply_instance.NodeApplyableResourceInstance.Execute
+  - internal/providers/providers.ApplyResourceChangeResponse
+  - internal/terraform/graph_walk_context.ContextGraphWalker
+tags: [apply, debugging, graph-walk, eval-context, cross-package, bug-fix]
+notes: "Debugging apply requires tracing from ApplyAndEval through the graph walker, the eval context that provides provider access, the resource node that executes the apply, and the provider response that carries errors."

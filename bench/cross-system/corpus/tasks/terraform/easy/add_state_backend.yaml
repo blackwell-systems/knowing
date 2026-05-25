@@ -1,0 +1,13 @@
+id: terraform-easy-002
+repo: terraform
+tier: easy
+description: "Add a new state storage backend that persists terraform state to a custom object store"
+source: manual
+ground_truth:
+  - backend/init.Init
+  - backend/init.Backend
+  - backend.InitFn
+  - statefile.Read
+  - statefile.Write
+tags: [backend, state, storage, single-package]
+notes: "Adding a state backend requires the init.Init registration function, the Backend lookup, InitFn type for factory functions, and statefile Read/Write for serialization."

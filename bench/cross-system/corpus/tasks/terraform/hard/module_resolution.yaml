@@ -1,0 +1,15 @@
+id: terraform-hard-002
+repo: terraform
+tier: hard
+description: "Trace how terraform resolves module sources, downloads them, and integrates their configurations into the root module's dependency graph"
+source: manual
+ground_truth:
+  - internal/configs/config.Config
+  - internal/configs/module.Module
+  - internal/configs/parser.Parser
+  - internal/initwd/module_install.ModuleInstaller
+  - internal/initwd/module_install.ModuleInstaller.InstallModules
+  - internal/modsdir/manifest.Manifest
+  - internal/getmodules/getter.PackageFetcher
+tags: [modules, resolution, download, cross-package, understanding]
+notes: "Module resolution spans configs (Config/Module/Parser for HCL), initwd (ModuleInstaller for downloading), modsdir (Manifest for tracking installed modules), and getmodules (PackageFetcher for actual download)."
