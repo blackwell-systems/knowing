@@ -50,7 +50,7 @@ func walkForEnvReads(node *sitter.Node, opts types.ExtractOptions, pkgPath strin
 				opName := operand.Content(opts.Content)
 				fieldName := field.Content(opts.Content)
 				if opName == "os" && (fieldName == "Getenv" || fieldName == "LookupEnv") {
-					varName := extractFirstStringArg(node, opts.Content)
+					varName := extractFirstStringLiteralArg(node, opts.Content)
 					if varName != "" && !seen[varName] {
 						seen[varName] = true
 						n, e := makeEnvEdge(opts, pkgPath, sourceHash, varName)
@@ -67,9 +67,9 @@ func walkForEnvReads(node *sitter.Node, opts types.ExtractOptions, pkgPath strin
 	}
 }
 
-// extractFirstStringArg extracts the value of the first argument to a call_expression
+// extractFirstStringLiteralArg extracts the value of the first argument to a call_expression
 // if it is an interpreted_string_literal. Returns empty string otherwise.
-func extractFirstStringArg(callNode *sitter.Node, content []byte) string {
+func extractFirstStringLiteralArg(callNode *sitter.Node, content []byte) string {
 	args := callNode.ChildByFieldName("arguments")
 	if args == nil {
 		return ""
