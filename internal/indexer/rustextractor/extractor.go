@@ -164,6 +164,9 @@ func extractTopLevelWithImports(node *sitter.Node, opts types.ExtractOptions, ba
 			deriveEdges := extractDeriveAttributes(node, opts, basePath, n.NodeHash)
 			edges = append(edges, deriveEdges...)
 		}
+		// Extract struct field declarations as field nodes.
+		fieldNodes := extractStructFieldNodes(node, opts, basePath)
+		nodes = append(nodes, fieldNodes...)
 
 	case "enum_item":
 		n := extractEnumItem(node, opts, basePath)
@@ -215,6 +218,9 @@ func extractTopLevel(node *sitter.Node, opts types.ExtractOptions, basePath stri
 			deriveEdges := extractDeriveAttributes(node, opts, basePath, n.NodeHash)
 			edges = append(edges, deriveEdges...)
 		}
+		// Extract struct field declarations as field nodes.
+		fieldNodes := extractStructFieldNodes(node, opts, basePath)
+		nodes = append(nodes, fieldNodes...)
 
 	case "enum_item":
 		n := extractEnumItem(node, opts, basePath)
@@ -657,6 +663,11 @@ func extractFunctionItemWithImports(node *sitter.Node, opts types.ExtractOptions
 	edges = append(edges, routeEdges...)
 	callEdges := extractCallEdgesFromBodyWithImports(body, opts, basePath, nodeHash, rustImports)
 	edges = append(edges, callEdges...)
+
+	if implType != "" {
+		fieldEdges := extractFieldAccessEdges(node, opts, basePath, implType, nodeHash)
+		edges = append(edges, fieldEdges...)
+	}
 
 	return nodes, edges
 }
