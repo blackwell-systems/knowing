@@ -179,8 +179,9 @@ type MyInterface interface {
 		t.Fatalf("Extract() error: %v", err)
 	}
 
-	if len(result.Nodes) != 2 {
-		t.Fatalf("expected 2 nodes, got %d", len(result.Nodes))
+	// 2 type/interface nodes + 1 field node (Name)
+	if len(result.Nodes) != 3 {
+		t.Fatalf("expected 3 nodes (2 types + 1 field), got %d", len(result.Nodes))
 	}
 
 	kindMap := make(map[string]string)
@@ -195,6 +196,9 @@ type MyInterface interface {
 	}
 	if kindMap["MyInterface"] != "interface" {
 		t.Errorf("MyInterface kind = %q, want %q", kindMap["MyInterface"], "interface")
+	}
+	if kindMap["Name"] != "field" {
+		t.Errorf("Name kind = %q, want %q", kindMap["Name"], "field")
 	}
 }
 

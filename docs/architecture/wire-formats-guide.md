@@ -73,10 +73,12 @@ comment       = "#" SP text LF ;
 
 id            = DIGIT { DIGIT } ;
 kind          = "fn" | "type" | "method" | "iface" | "var" | "const"
-              | "resource" | "table" | "class" | "selector" ;
+              | "resource" | "table" | "class" | "selector" | "field"
+              | "route" | "ext" | "file" | "pkg" | "svc" ;
 qname         = non-whitespace-text ;
 score         = float ;
-provenance    = "ast_inferred" | "lsp_resolved" | "otel_trace" | token ;
+provenance    = "ast_inferred" | "ast_resolved" | "lsp_resolved"
+              | "scip_resolved" | "otel_trace" | "structural" | token ;
 status        = "added" | "removed" ;
 ```
 
@@ -138,6 +140,12 @@ The `<` arrow points toward the target. `@0<@4 calls` means "@4 calls @0."
 | `table` | table |
 | `class` | class |
 | `selector` | selector |
+| `field` | field |
+| `route` | route_handler |
+| `ext` | external |
+| `file` | file |
+| `pkg` | package |
+| `svc` | service |
 
 ### Session Statefulness
 
@@ -207,11 +215,11 @@ Compact binary encoding optimized for transport between services and persistent 
 
 ### Enum Tables
 
-**Kind:** function=1, type=2, method=3, interface=4, var=5, const=6, resource=7, table=8, class=9, selector=10
+**Kind (16 entries):** function=1, type=2, method=3, interface=4, var=5, const=6, resource=7, table=8, class=9, selector=10, field=11, route_handler=12, external=13, file=14, package=15, service=16
 
-**Provenance:** ast_inferred=1, ast_resolved=2, lsp_resolved=3, otel_trace=4
+**Provenance (7 entries):** ast_inferred=1, ast_resolved=2, lsp_resolved=3, otel_trace=4, scip_resolved=5, runtime_observed=6, structural=7
 
-**Edge type:** calls=1, imports=2, implements=3, references=4, handles_route=5, depends_on=6, deploys=7, exposes=8, configures=9
+**Edge type (36 entries):** calls=1, imports=2, implements=3, references=4, handles_route=5, depends_on=6, deploys=7, exposes=8, configures=9, extends=10, overrides=11, decorates=12, throws=13, owned_by=14, authored_by=15, tests=16, runtime_calls=17, runtime_rpc=18, runtime_produces=19, runtime_consumes=20, contains=21, member_of=22, documents=23, consumes_endpoint=24, implements_rpc=25, consumes_rpc=26, gated_by_flag=27, deployed_by=28, tested_by=29, publishes=30, subscribes=31, connects_to=32, similar_to=33, co_tested_with=34, type_hint_of=35, accesses_field=36
 
 **Status:** unchanged/empty=0, added=1, removed=2
 

@@ -13,4 +13,5 @@ const (
 	KindExternal  = "external"
 	KindFile      = "file"
 	KindPackage   = "package"
+	KindField     = "field"
 )

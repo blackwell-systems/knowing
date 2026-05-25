@@ -50,16 +50,22 @@ type Payload struct {
 
 // kindAbbrev maps full kind names to short GCF abbreviations.
 var kindAbbrev = map[string]string{
-	"function":  "fn",
-	"type":      "type",
-	"method":    "method",
-	"interface": "iface",
-	"var":       "var",
-	"const":     "const",
-	"resource":  "resource",
-	"table":     "table",
-	"class":     "class",
-	"selector":  "selector",
+	"function":      "fn",
+	"type":          "type",
+	"method":        "method",
+	"interface":     "iface",
+	"var":           "var",
+	"const":         "const",
+	"resource":      "resource",
+	"table":         "table",
+	"class":         "class",
+	"selector":      "selector",
+	"field":         "field",
+	"route_handler": "route",
+	"external":      "ext",
+	"file":          "file",
+	"package":       "pkg",
+	"service":       "svc",
 }
 
 // kindExpand is the reverse of kindAbbrev.
@@ -74,6 +80,12 @@ var kindExpand = map[string]string{
 	"table":    "table",
 	"class":    "class",
 	"selector": "selector",
+	"field":    "field",
+	"route":    "route_handler",
+	"ext":      "external",
+	"file":     "file",
+	"pkg":      "package",
+	"svc":      "service",
 }
 
 // Encode serializes a Payload into GCF text format.

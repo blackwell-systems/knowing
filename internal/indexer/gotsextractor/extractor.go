@@ -132,6 +132,7 @@ func (e *GoTreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractO
 			node := extractMethodDecl(child, opts, pkgPath)
 			nodes = append(nodes, node)
 			edges = append(edges, extractGoTypeHints(child, opts, pkgPath, node.NodeHash, imports)...)
+			edges = append(edges, extractFieldAccessEdges(child, opts, pkgPath, node.NodeHash)...)
 			body := child.ChildByFieldName("body")
 			// Single-pass walk: same as function_declaration.
 			bodyResult := walkBodyOnce(body, opts, pkgPath, node.NodeHash, imports, externalNodes)
@@ -503,6 +504,8 @@ func isGoBuiltin(name string) bool {
 }
 
 // extractTypeDecl creates Nodes for type declarations (type specs).
+// For struct types, it also extracts field nodes so that accesses_field
+// edges have real targets (and generateContainsEdges connects them to the type).
 func extractTypeDecl(node *sitter.Node, opts types.ExtractOptions, pkgPath string) []types.Node {
 	var nodes []types.Node
 	for i := 0; i < int(node.ChildCount()); i++ {
@@ -533,6 +536,63 @@ func extractTypeDecl(node *sitter.Node, opts types.ExtractOptions, pkgPath strin
 			Signature:     fmt.Sprintf("type %s", name),
 			Doc:           extractDocComment(child, opts.Content),
 		})
+
+		// Extract struct field nodes.
+		if typeBody != nil && typeBody.Type() == "struct_type" {
+			fieldNodes := extractStructFields(typeBody, opts, pkgPath, name)
+			nodes = append(nodes, fieldNodes...)
+		}
+	}
+	return nodes
+}
+
+// extractStructFields creates field nodes for each named field in a struct type.
+// Field QNs follow the pattern "repo://pkg.TypeName.fieldName" so that
+// generateContainsEdges automatically creates contains/member_of edges.
+func extractStructFields(structNode *sitter.Node, opts types.ExtractOptions, pkgPath, typeName string) []types.Node {
+	var nodes []types.Node
+	// Tree-sitter Go grammar: struct_type -> field_declaration_list -> field_declaration
+	var fieldList *sitter.Node
+	for i := 0; i < int(structNode.ChildCount()); i++ {
+		if structNode.Child(i).Type() == "field_declaration_list" {
+			fieldList = structNode.Child(i)
+			break
+		}
+	}
+	if fieldList == nil {
+		return nil
+	}
+
+	for i := 0; i < int(fieldList.ChildCount()); i++ {
+		child := fieldList.Child(i)
+		if child.Type() != "field_declaration" {
+			continue
+		}
+		// A field_declaration can have multiple names (e.g., `x, y int`).
+		// Each name child with type "field_identifier" is a field name.
+		for j := 0; j < int(child.ChildCount()); j++ {
+			nameNode := child.Child(j)
+			if nameNode.Type() != "field_identifier" {
+				continue
+			}
+			fieldName := nameNode.Content(opts.Content)
+			if fieldName == "" {
+				continue
+			}
+			fieldLine := int(nameNode.StartPoint().Row) + 1
+			// QN: repo://pkg.TypeName.fieldName (matches generateContainsEdges pattern)
+			// Use TypeName.fieldName as the symbol name to scope fields by type.
+			scopedName := typeName + "." + fieldName
+			qn := fmt.Sprintf("%s://%s.%s.%s", opts.RepoURL, pkgPath, typeName, fieldName)
+			fieldHash := types.ComputeNodeHash(opts.RepoURL, pkgPath, types.EmptyHash, scopedName, types.KindField)
+			nodes = append(nodes, types.Node{
+				NodeHash:      fieldHash,
+				FileHash:      opts.FileHash,
+				QualifiedName: qn,
+				Kind:          types.KindField,
+				Line:          fieldLine,
+			})
+		}
 	}
 	return nodes
 }

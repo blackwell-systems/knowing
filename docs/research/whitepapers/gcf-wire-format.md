@@ -108,10 +108,12 @@ comment       = "#" SP text LF ;
 
 id            = DIGIT { DIGIT } ;
 kind          = "fn" | "type" | "method" | "iface" | "var" | "const"
-              | "resource" | "table" | "class" | "selector" ;
+              | "resource" | "table" | "class" | "selector" | "field"
+              | "route" | "ext" | "file" | "pkg" | "svc" ;
 qname         = non-whitespace-text ;
 score         = float ;
-provenance    = "ast_inferred" | "lsp_resolved" | "otel_trace" | token ;
+provenance    = "ast_inferred" | "ast_resolved" | "lsp_resolved"
+              | "scip_resolved" | "otel_trace" | "structural" | token ;
 status        = "added" | "removed" ;
 ```
 
@@ -145,6 +147,12 @@ Fields are positional. No field names, no delimiters beyond whitespace. Kind abb
 | `table` | table |
 | `class` | class |
 | `selector` | selector |
+| `field` | field |
+| `route` | route_handler |
+| `ext` | external |
+| `file` | file |
+| `pkg` | package |
+| `svc` | service |
 
 ### 3.4 Edge Lines
 
@@ -186,7 +194,7 @@ This exploits a property unique to agent tool interactions: the consumer (the LL
 
 ## 4. Implementation Status
 
-This is not a speculative format proposal. GCF is implemented in a production MCP server, covered by tests, benchmarked against JSON, and used as an actual output mode across 16 tool responses.
+This is not a speculative format proposal. GCF is implemented in a production MCP server, covered by tests, benchmarked against JSON, and used as an actual output mode across 28 tool responses.
 
 The implementation includes:
 

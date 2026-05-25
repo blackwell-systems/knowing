@@ -39,8 +39,10 @@ const (
 	GatedByFlag      = "gated_by_flag"
 	DeployedBy       = "deployed_by"
 	TestedBy         = "tested_by"
-	CoTestedWith     = "co_tested_with" // lateral: two non-test symbols referenced from the same test file
-	TypeHintOf       = "type_hint_of"   // function -> type referenced in parameter/return type annotations
+	SimilarTo        = "similar_to"      // lateral: two functions in the same package with similar call patterns
+	CoTestedWith     = "co_tested_with"  // lateral: two non-test symbols referenced from the same test file
+	TypeHintOf       = "type_hint_of"    // function -> type referenced in parameter/return type annotations
+	AccessesField    = "accesses_field"  // method -> field node it reads/writes via receiver
 )
 
 // RWRWeight returns the Random Walk with Restart weight for the given edge type.
@@ -89,6 +91,8 @@ func RWRWeight(edgeType string) float64 {
 		return 0.4
 	case TestedBy:
 		return 0.5
+	case AccessesField:
+		return 0.6
 	default:
 		return 0.3
 	}
