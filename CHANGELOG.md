@@ -8,6 +8,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+#### Docstring FTS indexing (P@10 0.180 -> 0.189, +5%)
+- New FTS5 column `doc` (weight 3.0) indexes node docstrings for BM25 retrieval
+- Bridges the vocabulary gap: task descriptions use natural language, docstrings are natural language descriptions of what code does
+- Python tree-sitter extractor now extracts docstrings from function and class bodies (first string literal in body, capped at 500 chars)
+- Migration 018 adds doc column to `nodes_fts_content` and rebuilds FTS virtual table
+- Flask P@10: 0.250 -> 0.271 (+8.4%)
+- Full corpus: 0.180 -> 0.189 (+5%), first movement past the 0.181 ceiling since session 11
+- Currently Python + Go only; TypeScript (JSDoc), Rust (///), Java (Javadoc), C# (XML doc) not yet extracted
+
+#### Python import resolution fix
+- `resolveCallTarget` now handles `from X import Y` where Y is a submodule (file) correctly
+- Previously: `base.Operation.state_forwards()` resolved to `operations.py.base.Operation.state_forwards` (wrong hash)
+- Now: correctly resolves to `operations/base.py.Operation.state_forwards` (matching the actual node)
+- `extractImport` resolves internal imports to actual file paths (verifies file exists on disk)
+- Django: 36,226 unresolved call edges -> 0 (all calls now point to real targets)
+
 #### Compact binary adjacency cache for RWR
 - Replaces gob+base64 format with compact binary: 65 bytes/edge (source:32 + target:32 + type_id:1)
 - k8s (268K edges): ~17MB raw vs 252MB with gob (15x smaller)
