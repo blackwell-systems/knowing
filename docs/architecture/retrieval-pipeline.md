@@ -8,7 +8,7 @@ relevant code symbols that fit within a context window.
 This document is the authoritative reference for how the context engine finds and ranks
 symbols. It supersedes `context-packing.md`.
 
-**Current eval baseline:** 55 fixtures (20 easy, 20 medium, 15 hard), 31.6% P@10, 0.58 MRR (internal eval). Cross-system benchmark (~117 manual fixtures, 7 repos): P@10=0.217, 1.63x vs codegraph (19K stars), 4.3x vs Aider, 11x vs grep (d=0.92 very large effect).
+**Current eval baseline:** 55 fixtures (20 easy, 20 medium, 15 hard), 31.6% P@10, 0.58 MRR (internal eval). Cross-system benchmark (~117 manual fixtures, 7 repos): P@10=0.189, 1.63x vs codegraph (19K stars), 4.3x vs Aider, 11x vs grep (d=0.92 very large effect). Parameter sweep (26 configs) proved P@10 is reachability-determined; all ranking parameters are irrelevant.
 
 ## Pipeline Overview
 
@@ -19,7 +19,7 @@ Task Description
 [1. Keyword Extraction]        KeywordSet: Exact (backtick), Compounds (CamelCase/snake), Components (fallback)
     |
     v
-[2. Seed Retrieval]            4-channel RRF fusion (tiered, equivalence, BM25, vector)
+[2. Seed Retrieval]            5-channel RRF fusion (tiered, BM25, equivalence, path-context, vector)
     |
     v
 [3. Interface-Aware Seeding]   add implementors of matched interface types
@@ -117,9 +117,9 @@ Task: `"add a new MCP tool for snapshot diffing"`
 
 ---
 
-## 2. Seed Retrieval: 4-Channel RRF Fusion
+## 2. Seed Retrieval: 5-Channel RRF Fusion
 
-Seed selection uses Reciprocal Rank Fusion (RRF) to merge four independent retrieval
+Seed selection uses Reciprocal Rank Fusion (RRF) to merge five independent retrieval
 channels into a single seed set of up to 40 candidates.
 
 ### RRF formula
@@ -138,13 +138,16 @@ accumulate scores from all of them, promoting multi-channel hits.
 | Channel | Weight | What it does |
 |---------|--------|-------------|
 | Tiered keyword matching | 2.0 | Exact > prefix > substring > path matching |
-| BM25 FTS5 | 2.0 | Lexical recall over CamelCase-split symbol names |
+| BM25 FTS5 | 2.0 | Lexical recall over CamelCase-split symbol names and docstrings |
 | Equivalence classes | 2.0 | Concept-level vocabulary bridging |
+| Path-context seeding | 1.5 | Package/directory term matching to type nodes |
 | Vector/embedding search | 0.0 | Disabled; infrastructure preserved for future code-tuned models |
 
 Weights were equalized (was tiered=3, BM25=1, equiv=2) after cross-system benchmark
 investigation showed BM25 and tiered find the same symbols in practice. Equalizing
-removes artificial suppression of BM25 recall without degrading precision.
+removes artificial suppression of BM25 recall without degrading precision. Path-context
+gets 1.5x: valuable for bridging concepts to packages but less precise than
+name-matching channels (may return many symbols from a matching package).
 
 ### Channel 1: Tiered keyword matching (weight 2.0)
 
@@ -245,11 +248,13 @@ from the name, which requires domain understanding.
 Always runs when available. Uses `buildFTSQuery` to construct a compound-targeted query:
 compound identifiers (snake_case, CamelCase, dotted) are quoted as phrases and targeted
 at the `symbol_name` column for maximum BM25 relevance; simple words are joined with OR
-for broad matching. Returns up to 30 results ordered by BM25 relevance.
+for broad matching. File_path-targeted terms from path extraction are appended with
+prefix matching (e.g., `file_path:migration*`) to boost symbols in relevant directories.
+Returns up to 30 results ordered by BM25 relevance.
 
 **What is indexed:**
 
-The FTS5 table indexes five columns from each node (migration 016 added `symbol_name`, migration 017 added `concepts`):
+The FTS5 table indexes six columns from each node (migration 016 added `symbol_name`, migration 017 added `concepts`, migration 018 added `doc`):
 
 | Column | BM25 weight | Content |
 |--------|-------------|---------|
@@ -257,7 +262,21 @@ The FTS5 table indexes five columns from each node (migration 016 added `symbol_
 | `concepts` | 5.0 | CamelCase-split tokens from file name and parent directory (e.g., "commandLineParser.ts" becomes "command Line Parser commandLineParser") |
 | `qualified_name` | 3.0 | CamelCase-split qualified name (original tokens preserved alongside splits) |
 | `signature` | 1.0 | CamelCase-split function signature |
-| `file_path` | 1.0 | File path from the files table |
+| `file_path` | 4.0 | File path from the files table |
+| `doc` | 3.0 | Docstring/doc comment text extracted from source code |
+
+The `doc` column (migration 018) indexes natural-language docstrings extracted by
+tree-sitter across all 6 supported languages (Go, Python, TypeScript, Rust, Java, C#).
+This bridges the vocabulary gap between how developers describe tasks in natural language
+and how symbols are named in code. For example, "migration operation" matches a function
+whose docstring says "Apply each operation in the migration". P@10 improved from 0.180 to
+0.189 (+5%) when docstring indexing was added.
+
+The `file_path` column carries weight 4.0 (elevated from initial 1.0) to boost symbols
+whose file location matches directory-level terms in the query. Path terms extracted from
+the task description are appended to the FTS query with prefix matching
+(`file_path:term*`), enabling singular/plural directory matching (e.g., "migration*"
+matches both "migration.py" and "migrations/").
 
 The `symbol_name` column is extracted by `extractSymbolName` in `sqlite.go`, which strips
 the repo URL prefix (everything before `://`), the package/file path (everything up to
@@ -281,7 +300,35 @@ previously deferred to a background goroutine, but CLI processes (`knowing index
 immediately after `IndexRepo` returns, killing the goroutine before FTS completes. This
 left the FTS index empty in CLI mode. The synchronous rebuild adds ~500ms to index time.
 
-### Channel 4: Vector search (weight 0.0, disabled)
+### Channel 4: Path-context seeding (weight 1.5)
+
+Extracts package/directory-like terms from the task description (`extractPathTerms`) and
+finds TYPE/CLASS nodes whose qualified name path contains those terms. Types are
+structural anchors: with `contains` edges, RWR walks from types to their methods.
+
+**How it works:**
+
+1. `extractPathTerms` extracts lowercase words (>= 4 chars) from the task description
+   that could be directory or package names, excluding common English words.
+2. For each term, searches for nodes via `NodesByName` matching `%/term%` (path separator)
+   or `%.term.%` (dot separator for Python packages).
+3. `isPathMatch` verifies the term appears in the path portion of the qualified name
+   (not the terminal symbol name) to prevent false positives.
+4. Results are prioritized: types with `contains` edges (have methods) rank above types
+   without, which rank above non-type nodes. Cap: 5 rich types, 10 lean types, 15 other
+   per term; 30 total.
+
+**Integration with RWR:** Path results do NOT compete in the main RRF fusion for seed
+ranking (where they would lose to name-matched results). Instead, they are injected
+directly as supplemental RWR seeds at restart weight 0.3, lower than the primary seeds
+(which get weights 1.0 to 0.4 by RRF rank). With `contains` edges (type -> method,
+weight 0.8), RWR walks from these type seeds to discover their methods.
+
+Example: task "fix the migration operation" extracts path term "migration". Finds
+`django.db.migrations.operations.base.Operation` (a type with `contains` edges to
+`state_forwards`, `database_forwards`, etc.). RWR walks to those methods.
+
+### Channel 5: Vector search (weight 0.0, disabled)
 
 Infrastructure is complete: ONNX runtime, HNSW index, RRF channel wiring. Disabled
 because all tested models (MiniLM-L6-v2, BGE-small-en-v1.5) produced net-negative results.
@@ -360,8 +407,11 @@ structurally close to the seeds and sit at the intersection of many paths.
 | `gated_by_flag` | 0.3 | Feature flag gates |
 | `decorates` | 0.3 | Decorator/annotation relationships |
 | `documents` | 0.2 | Documentation links; minimal structural coupling |
+| `similar_to` | 0.15 | Jaccard similarity edges between related symbols |
 | `owned_by` | 0.0 | Ownership metadata; zero walk weight (not structural) |
 | `authored_by` | 0.0 | Authorship metadata; zero walk weight (not structural) |
+| `contains` | 0.8 | Type/class -> method/field (structural, from QN hierarchy) |
+| `member_of` | 0.6 | Method/field -> type/class (reverse of contains) |
 | `inherits` | 0.3 (default) | Child-to-parent-method via inheritance propagation; uses default weight |
 | unknown | 0.3 | Default for any edge type not in the weight map |
 
