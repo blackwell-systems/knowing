@@ -111,6 +111,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - After contains+path: 168 matched (25.7%), 194 ranked_low (29.7%), 291 unreachable (44.6%)
 - Identifies most impactful tasks for targeted improvement (top: django-hard-001, vscode-hard-003)
 
+#### Parameter sweep benchmark (`bench/cross-system/sweep_test.go`)
+- 26-config grid search across all tunable retrieval parameters
+- Sweeps: RWR alpha (0.10-0.40), max seeds (10-30), score cutoff (0.005-0.10), ranking weights (blast/distance/confidence/recency), RRF k (20-100), test penalty (0.0-0.7), combined configs
+- Result: ALL configurations produce identical P@10=0.180, R@10=0.263, MRR=0.349
+- Proves definitively that P@10 is determined by graph reachability, not parameter tuning
+- Sweep infrastructure retained for regression detection on future changes
+
 #### Exported `ExtractKeywordSet` for benchmark tooling
 - Public entry point for the structured keyword extraction pipeline
 - Used by failure analysis tool to inspect what keywords are extracted per task

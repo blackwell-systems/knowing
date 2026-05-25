@@ -534,6 +534,39 @@ symbols that are reachable but ranked outside the result window.
 2. New edge types for the remaining `unreachable` symbols (interface embedding, channel
    send/receive, struct field access)
 
+### Parameter Sweep: All 26 Configs Produce Identical P@10 (2026-05-24)
+
+Systematic grid search across all tunable retrieval parameters using
+`bench/cross-system/sweep_test.go`. Each configuration runs the full 117-task
+benchmark. Result: **zero variance across all 26 configurations**.
+
+| Parameter | Values Tested | P@10 |
+|-----------|--------------|------|
+| RWR alpha (restart probability) | 0.10, 0.15, 0.20, 0.30, 0.40 | 0.180 (all) |
+| Max RWR seeds | 10, 15, 20, 25, 30 | 0.180 (all) |
+| RWR score cutoff | 0.005, 0.01, 0.02, 0.05, 0.10 | 0.180 (all) |
+| Blast radius weight | 0.20, 0.35, 0.50 | 0.180 (all) |
+| Distance weight | 0.15, 0.30, 0.40 | 0.180 (all) |
+| Confidence weight | 0.20, 0.40 | 0.180 (all) |
+| RRF k constant | 20, 40, 60, 100 | 0.180 (all) |
+| Test file penalty | 0.0, 0.3, 0.5, 0.7 | 0.180 (all) |
+| Combined (seeds+cutoff, alpha+seeds, seedheavy) | 3 combos | 0.180 (all) |
+
+**Conclusion:** P@10 is determined entirely by graph reachability (binary: is the
+symbol connected to any seed?), not by continuous parameter tuning. The ranking
+formula, RWR walk parameters, and fusion weights are all irrelevant because the
+set of symbols returned is the same regardless of how aggressively we explore.
+
+**Why this is the case:** The 47.5% unreachable symbols have ZERO RWR score
+regardless of parameters (no path exists). The 25.7% matched symbols always rank in
+top-10 regardless of weights (they have dominant RWR scores from being close to
+seeds). The 26.8% ranked_low are stuck at positions 11-30 because their RWR scores
+are fundamentally lower (further from seeds), and no reweighting changes the ordering.
+
+**Implication:** All future P@10 work must target REACHABILITY (new edges, new seed
+sources) not RANKING (weight tuning, parameter adjustment). The parameter sweep
+infrastructure is retained for regression detection.
+
 ### Semantic Similarity Edges: Positive Result (2026-05-24)
 
 Added lightweight `similar_to` edges (Jaccard similarity on tokenized symbol names,
