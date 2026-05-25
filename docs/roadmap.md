@@ -213,8 +213,10 @@ P@10=0.210 (Run 25, 167 tasks, 9 repos). 1.56x vs codegraph, 2.80x vs GitNexus, 
 
 | # | Item | Why | Status |
 |---|------|-----|--------|
-| 7 | **More equivalence concepts** | Only add when a specific task fixture exposes a gap. Must respect Run 22 constraint (no single-word phrases, no generic targets). | On-demand |
-| 13 | **`is_entry_point` / `is_exported` node flags** | Tag functions as entry points (main, handlers, CLI commands) or exported (public API). Enables filtering: entry points get higher RWR restart weight. | Experiment |
+| 7 | **BFS frontier pruning for dense graphs** | On graphs >50K nodes (VS Code 87K, k8s 117K), RWR probability mass spreads too thin and correct results drop below rank 10. Limit which nodes enter the adjacency map: prune by minimum edge weight, maximum distance from seeds, or node degree cap. Session 14 proved: correct TS extraction (87K nodes) causes VS Code P@10 to drop from 0.163 to 0.100 due to density dilution. | Experiment |
+| 8 | **Community-scoped RWR tuning for dense graphs** | Already partially implemented (single-community constraint). Needs tuning: on dense TypeScript graphs, community detection may produce too-large communities (thousands of nodes). Per-community node cap or hierarchical community splitting could keep RWR focused. | Experiment |
+| 9 | **More equivalence concepts** | Only add when a specific task fixture exposes a gap. Must respect Run 22 constraint (no single-word phrases, no generic targets). | On-demand |
+| 10 | **`is_entry_point` / `is_exported` node flags** | Tag functions as entry points (main, handlers, CLI commands) or exported (public API). Enables filtering: entry points get higher RWR restart weight. | Experiment |
 | 11 | **Feedback parameter sweep (warm-start)** | Session boost (0.20), task memory formula (0.5+score*0.4), decay (7-day linear), top-N (5) are untuned. Only affects real-user compounding. | When users exist |
 
 ## Edge Type Expansion
