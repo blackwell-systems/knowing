@@ -1,0 +1,13 @@
+id: flask-medium-007
+repo: flask
+tier: medium
+description: "Write integration tests using Flask's test client to verify request handling, session state, and response codes"
+source: manual
+ground_truth:
+  - flask.testing.FlaskClient
+  - flask.testing.FlaskCliRunner
+  - flask.app.Flask.test_client
+  - flask.app.Flask.test_cli_runner
+  - flask.ctx.RequestContext
+tags: [testing, client, integration, cross-package]
+notes: "Flask testing requires FlaskClient for HTTP simulation, FlaskCliRunner for CLI testing, the factory methods on Flask, and RequestContext for request lifecycle."

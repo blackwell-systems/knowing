@@ -1,0 +1,14 @@
+id: terraform-hard-007
+repo: terraform
+tier: hard
+description: "Debug why terraform shows an unexpected diff by tracing through plan computation, provider schema comparison, and value normalization"
+source: manual
+ground_truth:
+  - terraform.Context.PlanAndEval
+  - terraform.Context.planWalk
+  - plans.ResourceInstanceChangeSrc
+  - plans.Changes
+  - providers.PlanResourceChangeResponse
+  - terraform.NodePlannableResourceInstance
+tags: [plan, diff, normalization, cross-package, debugging]
+notes: "Plan diff debugging requires the PlanAndEval entry, planWalk for graph construction, ResourceInstanceChangeSrc for the computed diff, Changes collection, provider's PlanResourceChangeResponse, and the plannable node that orchestrates it."

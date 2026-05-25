@@ -1,0 +1,14 @@
+id: flask-hard-006
+repo: flask
+tier: hard
+description: "Build a Flask extension that integrates with the application factory pattern, registers multiple blueprints, and provides its own configuration namespace"
+source: manual
+ground_truth:
+  - flask.app.Flask
+  - flask.sansio.app.App.register_blueprint
+  - flask.sansio.blueprints.Blueprint
+  - flask.sansio.blueprints.Blueprint.register
+  - flask.config.Config
+  - flask.globals.current_app
+tags: [extension, blueprints, app-factory, cross-package]
+notes: "Extension development requires Flask app, blueprint registration, Blueprint class with its register hook, Config for namespace, and current_app proxy for deferred access."

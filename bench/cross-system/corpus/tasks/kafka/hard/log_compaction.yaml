@@ -1,0 +1,13 @@
+id: kafka-hard-005
+repo: kafka
+tier: hard
+description: "Trace how Kafka's log compaction process identifies duplicate keys, builds the offset map, and rewrites log segments to remove obsolete records"
+source: manual
+ground_truth:
+  - storage.internals.log.LogCleaner
+  - storage.internals.log.Cleaner
+  - storage.internals.log.OffsetMap
+  - storage.internals.log.LogSegment
+  - storage.internals.log.CleanerConfig
+tags: [storage, compaction, log-segments, cross-package, understanding]
+notes: "Log compaction requires LogCleaner (coordinator), Cleaner (worker), OffsetMap (deduplication structure), LogSegment (I/O unit), and CleanerConfig for tuning."

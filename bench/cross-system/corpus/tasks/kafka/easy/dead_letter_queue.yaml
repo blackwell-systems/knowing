@@ -1,0 +1,12 @@
+id: kafka-easy-007
+repo: kafka
+tier: easy
+description: "Configure a consumer to send failed messages to a dead letter topic using the error handling infrastructure"
+source: manual
+ground_truth:
+  - clients.consumer.KafkaConsumer
+  - clients.producer.KafkaProducer
+  - clients.consumer.ConsumerRecord
+  - clients.producer.ProducerRecord
+tags: [consumer, error-handling, dead-letter, single-package]
+notes: "Dead letter queue pattern requires a consumer to read, a producer to write failures, and the record types for both sides."

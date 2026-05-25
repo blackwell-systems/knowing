@@ -1,0 +1,12 @@
+id: flask-medium-006
+repo: flask
+tier: medium
+description: "Implement a custom response class that automatically sets security headers and content-type negotiation"
+source: manual
+ground_truth:
+  - flask.wrappers.Response
+  - flask.app.Flask.make_response
+  - flask.app.Flask.response_class
+  - flask.sansio.app.App.response_class
+tags: [response, headers, security, cross-package]
+notes: "Custom response requires the Response base class, make_response factory, and the response_class attribute that Flask uses to construct responses."

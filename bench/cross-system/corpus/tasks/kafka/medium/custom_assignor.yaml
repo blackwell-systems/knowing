@@ -1,0 +1,13 @@
+id: kafka-medium-006
+repo: kafka
+tier: medium
+description: "Implement a custom partition assignment strategy that distributes partitions across consumers based on rack awareness"
+source: manual
+ground_truth:
+  - clients.consumer.ConsumerPartitionAssignor
+  - clients.consumer.ConsumerPartitionAssignor.GroupSubscription
+  - clients.consumer.ConsumerPartitionAssignor.GroupAssignment
+  - clients.consumer.RangeAssignor
+  - common.Cluster
+tags: [consumer, assignment, rack-awareness, cross-package]
+notes: "Custom assignor requires the ConsumerPartitionAssignor interface, GroupSubscription/GroupAssignment types, RangeAssignor as a reference pattern, and Cluster metadata for topology awareness."

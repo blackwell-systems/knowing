@@ -1,0 +1,13 @@
+id: terraform-medium-007
+repo: terraform
+tier: medium
+description: "Implement drift detection that compares actual cloud resource state against the expected state in the terraform state file"
+source: manual
+ground_truth:
+  - terraform.Context.PlanAndEval
+  - plans.ResourceInstanceChangeSrc
+  - plans.Action
+  - states.ResourceInstanceObject
+  - providers.ReadResourceResponse
+tags: [drift, plan, state-comparison, cross-package]
+notes: "Drift detection runs via PlanAndEval which compares desired (config) vs actual (provider read) vs stored (state). ResourceInstanceChangeSrc captures the diff, Action classifies it."
