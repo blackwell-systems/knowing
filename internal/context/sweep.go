@@ -1,0 +1,123 @@
+package context
+
+import "sync"
+
+// SweepParams holds tunable parameters for the retrieval pipeline.
+// Used by the parameter sweep benchmark to test different configurations.
+// Zero values mean "use default".
+type SweepParams struct {
+	Alpha       float64 // RWR restart probability (default 0.2)
+	MaxIter     int     // RWR iterations (default 20)
+	ScoreCutoff float64 // min RWR score threshold (default 0.02)
+	MaxSeeds    int     // max RWR seeds (default 15)
+	RRFk        float64 // RRF constant (default 60)
+	BlastW      float64 // blast radius ranking weight
+	ConfW       float64 // confidence ranking weight
+	RecencyW    float64 // recency ranking weight
+	DistanceW   float64 // distance ranking weight
+	TestPenalty float64 // test file penalty multiplier (default 0.3, -1 means use default)
+}
+
+var (
+	sweepMu     sync.RWMutex
+	sweepParams SweepParams
+)
+
+// SetSweepParams sets the global sweep parameters for the retrieval pipeline.
+// Pass a zero-value struct to reset to defaults.
+func SetSweepParams(p SweepParams) {
+	sweepMu.Lock()
+	defer sweepMu.Unlock()
+	sweepParams = p
+}
+
+// getSweepParams returns the current sweep parameters.
+func getSweepParams() SweepParams {
+	sweepMu.RLock()
+	defer sweepMu.RUnlock()
+	return sweepParams
+}
+
+// Helpers to get parameter with fallback to default.
+func sweepAlpha() float64 {
+	p := getSweepParams()
+	if p.Alpha > 0 {
+		return p.Alpha
+	}
+	return 0.2
+}
+
+func sweepMaxIter() int {
+	p := getSweepParams()
+	if p.MaxIter > 0 {
+		return p.MaxIter
+	}
+	return 20
+}
+
+func sweepScoreCutoff() float64 {
+	p := getSweepParams()
+	if p.ScoreCutoff > 0 {
+		return p.ScoreCutoff
+	}
+	return 0.02
+}
+
+func sweepMaxSeeds() int {
+	p := getSweepParams()
+	if p.MaxSeeds > 0 {
+		return p.MaxSeeds
+	}
+	return 15
+}
+
+func sweepRRFk() float64 {
+	p := getSweepParams()
+	if p.RRFk > 0 {
+		return p.RRFk
+	}
+	return 60
+}
+
+func sweepBlastW() float64 {
+	p := getSweepParams()
+	if p.BlastW > 0 {
+		return p.BlastW
+	}
+	return 0.35
+}
+
+func sweepConfW() float64 {
+	p := getSweepParams()
+	if p.ConfW > 0 {
+		return p.ConfW
+	}
+	return 0.20
+}
+
+func sweepRecencyW() float64 {
+	p := getSweepParams()
+	if p.RecencyW > 0 {
+		return p.RecencyW
+	}
+	return 0.15
+}
+
+func sweepDistanceW() float64 {
+	p := getSweepParams()
+	if p.DistanceW > 0 {
+		return p.DistanceW
+	}
+	return 0.15
+}
+
+func sweepTestPenalty() float64 {
+	p := getSweepParams()
+	if p.TestPenalty < 0 {
+		return 0.3 // -1 sentinel means use default
+	}
+	if p.TestPenalty > 0 {
+		return p.TestPenalty
+	}
+	return 0.3
+}

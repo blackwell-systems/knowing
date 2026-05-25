@@ -82,49 +82,43 @@ func RankSymbols(symbols []ScoringInput, hitsScores ...map[types.Hash]HITSScores
 			session = 0.20 * (s.SessionBoost / 2.0) // normalize [0,2] to [0,1], then weight
 		}
 
+		// Get sweep-tunable ranking weights.
+		wBlast := sweepBlastW()
+		wConf := sweepConfW()
+		wRecency := sweepRecencyW()
+		wDist := sweepDistanceW()
+
 		if hits != nil {
 			// HITS-enhanced ranking: authority and hub scores reshape the results.
-			//
-			// Seeds with high authority are the most valuable: they're both
-			// keyword-relevant AND structurally central (many callers). Boost them.
-			//
-			// Non-seeds with high authority are generic infrastructure (types.Hash,
-			// GraphStore, context.Context): called by everything but rarely
-			// task-relevant. Penalize them to push them below task-specific symbols.
-			//
-			// Hubs (nodes that call many things) are useful when they're seeds
-			// (entry points you matched on) but noisy otherwise.
 			h := hits[s.Node.NodeHash]
 			isSeed := s.DistanceFromTarget == 0
 			var authorityAdj float64
 			if isSeed && h.Authority > 0.05 {
-				authorityAdj = h.Authority * 0.25 // strong boost for task-relevant authorities
+				authorityAdj = h.Authority * 0.25
 			} else if !isSeed && h.Authority > 0.2 {
-				authorityAdj = -h.Authority * 0.15 // meaningful penalty for generic infrastructure
+				authorityAdj = -h.Authority * 0.15
 			}
-			// Hub bonus for seed entry points (orchestrators, handlers).
 			if isSeed && h.Hub > 0.1 {
 				authorityAdj += h.Hub * 0.10
 			}
 
-			blastRadius = (float64(s.CallerCount) / float64(maxCallers)) * 0.35
-			confidence = s.Confidence * 0.20
-			recency = recencyFromTimestamp(s.LastObserved) * 0.15
-			distance = (1.0 / (1.0 + float64(s.DistanceFromTarget))) * 0.15
-			total = blastRadius + confidence + recency + distance + authorityAdj + feedback + session		} else {
+			blastRadius = (float64(s.CallerCount) / float64(maxCallers)) * wBlast
+			confidence = s.Confidence * wConf
+			recency = recencyFromTimestamp(s.LastObserved) * wRecency
+			distance = (1.0 / (1.0 + float64(s.DistanceFromTarget))) * wDist
+			total = blastRadius + confidence + recency + distance + authorityAdj + feedback + session
+		} else {
 			// Original ranking (no HITS): blast radius is the primary signal.
-			blastRadius = (float64(s.CallerCount) / float64(maxCallers)) * 0.40
-			confidence = s.Confidence * 0.25
-			recency = recencyFromTimestamp(s.LastObserved) * 0.20
-			distance = (1.0 / (1.0 + float64(s.DistanceFromTarget))) * 0.15
-			total = blastRadius + confidence + recency + distance + feedback + session		}
+			blastRadius = (float64(s.CallerCount) / float64(maxCallers)) * (wBlast + 0.05)
+			confidence = s.Confidence * (wConf + 0.05)
+			recency = recencyFromTimestamp(s.LastObserved) * (wRecency + 0.05)
+			distance = (1.0 / (1.0 + float64(s.DistanceFromTarget))) * wDist
+			total = blastRadius + confidence + recency + distance + feedback + session
+		}
 
 		// Test file penalty: deprioritize symbols from test files.
-		// Applied as a multiplicative factor so it doesn't completely eliminate
-		// test symbols (they can still rank high if they have strong signals),
-		// but pushes them below equally-scored production symbols.
 		if s.IsTestFile {
-			total *= 0.3
+			total *= sweepTestPenalty()
 		}
 
 		results = append(results, RankedSymbol{

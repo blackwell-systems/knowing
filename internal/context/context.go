@@ -522,7 +522,7 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 		{nodes: equivResults, weight: 2.0},
 		{nodes: pathResults, weight: 1.5},
 		{nodes: vectorResults, weight: 0.0},
-	}, 60, 40)
+	}, int(sweepRRFk()), 40)
 
 	seen := make(map[types.Hash]bool, len(candidates))
 	for _, c := range candidates {
@@ -586,7 +586,7 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	// Cap seeds at top-15 by RRF rank. On small graphs (< 3000 nodes), too many
 	// seeds cause RWR to converge to near-uniform (everything is 2 hops from
 	// everything). Limiting seeds keeps the walk focused on the best candidates.
-	maxSeeds := 15
+	maxSeeds := sweepMaxSeeds()
 	if len(candidates) < maxSeeds {
 		maxSeeds = len(candidates)
 	}
@@ -630,20 +630,21 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 		for cid := range commCounts {
 			communityIDs[cid] = true
 		}
-		rwrScores, err = CommunityFilteredRWR(ctx, e.store, seedHashes, 0.2, 20, communityIDs)
+		rwrScores, err = CommunityFilteredRWR(ctx, e.store, seedHashes, sweepAlpha(), sweepMaxIter(), communityIDs)
 	} else {
-		rwrScores, err = RandomWalkWithRestartWeighted(ctx, e.store, seedHashes, seedWeights, 0.2, 20)
+		rwrScores, err = RandomWalkWithRestartWeighted(ctx, e.store, seedHashes, seedWeights, sweepAlpha(), sweepMaxIter())
 	}
 	if err != nil {
 		return nil, err
 	}
 
 	// Build scoring inputs from all nodes that received a non-trivial RWR score.
-	// Threshold 0.02: balance between expanding the candidate pool for HITS/feedback
+	// Score cutoff: balance between expanding the candidate pool for HITS/feedback
 	// reranking and avoiding noise from distant, weakly-connected nodes.
+	scoreCutoff := sweepScoreCutoff()
 	var inputs []ScoringInput
 	for nodeHash, rwrScore := range rwrScores {
-		if rwrScore < 0.02 {
+		if rwrScore < scoreCutoff {
 			continue // skip negligible nodes
 		}
 

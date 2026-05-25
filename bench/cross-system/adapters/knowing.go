@@ -201,6 +201,11 @@ func (a *Knowing) Reset(repoPath string) error {
 	return nil
 }
 
+// EnsureContainsEdgesPublic is the exported entry point for the parameter sweep test.
+func EnsureContainsEdgesPublic(ctx stdctx.Context, s *store.SQLiteStore) {
+	ensureContainsEdges(ctx, s)
+}
+
 // ensureContainsEdges generates structural "contains" edges from type/class nodes
 // to their method/field nodes if they don't already exist. This is a one-time
 // migration for pre-indexed databases that lack these edges.
