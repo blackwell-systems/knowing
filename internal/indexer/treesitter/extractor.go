@@ -286,29 +286,51 @@ func (e *TreeSitterExtractor) extractClass(node *sitter.Node, opts types.Extract
 }
 
 // extractImport extracts import statements and creates edges.
+// For internal imports (same repo), resolves the module path to an actual file and
+// creates import edges that point to real file/module nodes (enabling RWR traversal).
 func (e *TreeSitterExtractor) extractImport(node *sitter.Node, opts types.ExtractOptions, classContext string, result *types.ExtractResult) {
-	// Build an import node representing the imported module.
 	importText := node.Content(opts.Content)
 	moduleName := parseImportModule(importText)
 	if moduleName == "" {
 		return
 	}
 
-	// Create a node for the import target (the module being imported).
-	// Use external repo URL when the import targets an external package.
-	targetQName := moduleName
-	targetRepoURL := opts.RepoURL
-	if extURL := resolve.InferExternalRepoURL(moduleName, "", resolve.PythonConfig); extURL != "" {
-		targetRepoURL = extURL
-	}
-	targetHash := types.ComputeNodeHash(targetRepoURL, opts.ModuleRoot, types.EmptyHash, targetQName, "module")
-
-	// Create an edge from the file-level context to the imported module.
+	// Determine source hash (the importing file).
 	sourceQName := fmt.Sprintf("%s://%s/%s", opts.RepoURL, opts.ModuleRoot, opts.FilePath)
 	if classContext != "" {
 		sourceQName = fmt.Sprintf("%s.%s", sourceQName, classContext)
 	}
 	sourceHash := types.ComputeNodeHash(opts.RepoURL, opts.ModuleRoot, opts.FileHash, sourceQName, "module")
+
+	// Try to resolve as an internal module first (file exists on disk).
+	// This creates import edges that match real nodes, enabling RWR to traverse
+	// from importing file to imported module's symbols.
+	targetRepoURL := opts.RepoURL
+	modulePath := resolveModuleToPath(moduleName, opts.ModuleRoot)
+	fullPath := filepath.Join(opts.ModuleRoot, modulePath)
+	isInternal := false
+	if _, err := os.Stat(fullPath); err == nil {
+		isInternal = true
+	}
+
+	if !isInternal {
+		// External import: use external repo URL if detectable.
+		if extURL := resolve.InferExternalRepoURL(moduleName, "", resolve.PythonConfig); extURL != "" {
+			targetRepoURL = extURL
+		}
+	}
+
+	var targetHash types.Hash
+	if isInternal {
+		// Internal import: compute hash that matches the file node created during extraction.
+		// File nodes are hashed as: ComputeNodeHash(repoURL, filePath, EmptyHash, basename, KindFile)
+		// But we also want to match type/class nodes in that file.
+		// Use the file's qualified name format to match what the extractor produces.
+		targetQName := fmt.Sprintf("%s://%s/%s", opts.RepoURL, opts.ModuleRoot, modulePath)
+		targetHash = types.ComputeNodeHash(targetRepoURL, opts.ModuleRoot, types.EmptyHash, targetQName, "module")
+	} else {
+		targetHash = types.ComputeNodeHash(targetRepoURL, opts.ModuleRoot, types.EmptyHash, moduleName, "module")
+	}
 
 	provenance := "ast_resolved"
 	edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, edgetype.Imports, provenance)
@@ -321,6 +343,56 @@ func (e *TreeSitterExtractor) extractImport(node *sitter.Node, opts types.Extrac
 		Provenance: provenance,
 	}
 	result.Edges = append(result.Edges, edge)
+
+	// For "from X import Y" statements, also create edges to the imported symbols.
+	// If the import is "from django.db.migrations import operations", create an
+	// edge to the operations package. If "from operations import base", resolve
+	// base as either a submodule (operations/base.py) or a symbol.
+	if node.Type() == "import_from_statement" {
+		for i := 0; i < int(node.ChildCount()); i++ {
+			child := node.Child(i)
+			if child == nil {
+				continue
+			}
+			var importedName string
+			switch child.Type() {
+			case "dotted_name":
+				moduleNode := node.ChildByFieldName("module_name")
+				if child == moduleNode {
+					continue // skip the source module itself
+				}
+				importedName = child.Content(opts.Content)
+			case "aliased_import":
+				nameNode := child.ChildByFieldName("name")
+				if nameNode != nil {
+					importedName = nameNode.Content(opts.Content)
+				}
+			default:
+				continue
+			}
+			if importedName == "" {
+				continue
+			}
+
+			// Try to resolve importedName as a submodule of moduleName.
+			subModulePath := resolveModuleToPath(moduleName+"."+importedName, opts.ModuleRoot)
+			subFullPath := filepath.Join(opts.ModuleRoot, subModulePath)
+			if _, err := os.Stat(subFullPath); err == nil {
+				// importedName is a submodule file. Create edge to that file's types.
+				subTargetQName := fmt.Sprintf("%s://%s/%s", opts.RepoURL, opts.ModuleRoot, subModulePath)
+				subTargetHash := types.ComputeNodeHash(targetRepoURL, opts.ModuleRoot, types.EmptyHash, subTargetQName, "module")
+				subEdgeHash := types.ComputeEdgeHash(sourceHash, subTargetHash, edgetype.Imports, provenance)
+				result.Edges = append(result.Edges, types.Edge{
+					EdgeHash:   subEdgeHash,
+					SourceHash: sourceHash,
+					TargetHash: subTargetHash,
+					EdgeType:   edgetype.Imports,
+					Confidence: 1.0,
+					Provenance: provenance,
+				})
+			}
+		}
+	}
 }
 
 // extractCall extracts function call expressions and creates call edges.
@@ -414,16 +486,38 @@ func (e *TreeSitterExtractor) resolveCallTarget(opts types.ExtractOptions, class
 		return e.qualifiedName(opts, classContext, calledName)
 	}
 
-	// Resolve the module path to a file path within this repo.
-	// "flask.app" -> "src/flask/app.py" (convention: replace dots with /, append .py)
-	// "flask" -> "src/flask/__init__.py" (package import)
+	// Handle "from X import Y" where Y might be a submodule (file) rather than a symbol.
+	// Example: "from django.db.migrations.operations import base"
+	//   -> srcModule = "django.db.migrations.operations", firstName = "base"
+	//   -> base is a submodule: operations/base.py
+	//   -> call "base.Operation.state_forwards()" should resolve to operations/base.py.Operation.state_forwards
+	//
+	// Strategy: try resolving as submodule first (srcModule/firstName.py exists?),
+	// then fall back to symbol in the module (srcModule.py.firstName).
+
+	// Try 1: firstName is a submodule file (from package import submodule).
+	subModulePath := resolveModuleToPath(srcModule+"."+firstName, opts.ModuleRoot)
+	if subModulePath != "" {
+		// Check if this path actually exists on disk.
+		fullSubPath := filepath.Join(opts.ModuleRoot, subModulePath)
+		if _, err := os.Stat(fullSubPath); err == nil {
+			// firstName is a submodule. The remaining parts are the symbol path.
+			if len(parts) > 1 {
+				symbolPart := strings.Join(parts[1:], ".")
+				return fmt.Sprintf("%s://%s/%s.%s", opts.RepoURL, opts.ModuleRoot, subModulePath, symbolPart)
+			}
+			// Just the module itself (no symbol access after import).
+			return fmt.Sprintf("%s://%s/%s", opts.RepoURL, opts.ModuleRoot, subModulePath)
+		}
+	}
+
+	// Try 2: firstName is a symbol in the module (standard case).
+	// "Flask.before_request" with module "flask.app" -> "repoURL://moduleRoot/src/flask/app.py.Flask.before_request"
 	modulePath := resolveModuleToPath(srcModule, opts.ModuleRoot)
 	if modulePath == "" {
 		return e.qualifiedName(opts, classContext, calledName)
 	}
 
-	// Build the target qualified name using the resolved file path.
-	// "Flask.before_request" with module "flask.app" -> "repoURL://moduleRoot/src/flask/app.py.Flask.before_request"
 	symbolPart := strings.Join(parts, ".")
 	return fmt.Sprintf("%s://%s/%s.%s", opts.RepoURL, opts.ModuleRoot, modulePath, symbolPart)
 }
