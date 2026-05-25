@@ -64,11 +64,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Expanded framework thesaurus** ("backend"->"base", "custom"->"abstract"): Hurts Kafka (-0.005). Too noisy for BM25.
 - **Higher seed weight (0.6) for type-method matches**: Slightly worse than 0.3. RWR handles seed weighting internally.
 
-#### `BENCH_EXCLUDE_EDGES` query-time edge ablation tool
-- Set `BENCH_EXCLUDE_EDGES=similar_to,type_hint_of` to exclude edge types from RWR walk
-- No reindex needed: filters at adjacency cache BFS and fallback BFS paths at query time
-- Enables hypothesis testing in seconds (which edge types cause dilution on dense graphs)
-- Package-level `ExcludeEdgeTypes` variable in context package, bench adapter reads from env
+#### Self-adapting type-seed preference (P@10 0.202 -> 0.207, VS Code +44%)
+- On dense graphs (>50K nodes), automatically reorder RRF candidates to prefer type/interface/class nodes as RWR seeds over methods/functions
+- Types are better seeds because they have contains edges to their methods (more productive walk)
+- VS Code: 0.095 -> 0.137 (+44%). Aggregate: 0.202 -> 0.207 (+2.5%). Zero regressions.
+- Self-adapting: auto-enables when `GraphNodeCount > 50000` (no manual configuration)
+- Also available as manual override: `BENCH_PREFER_TYPE_SEEDS=1`
+- Hub dampening (H1) tested and rejected: no effect on VS Code (0.095 unchanged)
+
+#### Phrase-boosted BM25 from adjacent Components
+- Generates FTS5 phrase queries from adjacent word pairs in Components list
+- "code actions" as a quoted phrase matches only symbols with adjacent words in FTS index
+- VS Code: 0.084 -> 0.095. No regressions. Aggregate: 0.201 -> 0.202.
+
+#### Diagnostic tools for retrieval investigation
+- `BENCH_EXCLUDE_EDGES=similar_to,type_hint_of`: query-time edge exclusion (no reindex)
+- `BENCH_BFS_DEPTH=2`: configurable BFS expansion depth
+- `BENCH_HUB_DAMPEN=50`: hub node dampening (penalize high-in-degree nodes)
+- `BENCH_PREFER_TYPE_SEEDS=1`: manual type-seed preference override
+- All filter at adjacency cache BFS and fallback BFS paths
+- Documented in `docs/guide/diagnostic-tools.md`
+
+#### Dense-graph dilution investigation (docs/research/dense-graph-dilution-analysis.md)
+- 5 hypotheses tested, 3 ruled out (similarity edges, type_hint_of edges, BFS depth)
+- Root cause confirmed: seed selection degrades on dense FTS indexes (keyword competition)
+- PreferTypeSeeds (H8) confirmed as effective fix for VS Code (+44%)
 
 ### Fixed
 - CI timing contracts: loosen Louvain 0-changes (10ms -> 15ms) and scoped FTS (50ms -> 75ms) for noisy CI runners

@@ -145,6 +145,26 @@ var ExcludeEdgeTypes map[string]bool
 // 0 means use default (4).
 var BFSMaxDepth int
 
+// HubDampeningThreshold: after RWR, penalize nodes with in-degree above this
+// threshold by dividing their score by sqrt(in-degree/threshold). 0 means disabled.
+// Targets hub nodes that absorb probability regardless of query (Disposable, Event, etc.)
+var HubDampeningThreshold int
+
+// PreferTypeSeeds: when true, BM25/tiered results are reordered to prioritize
+// type/interface/class nodes over methods/functions as RWR seeds. On dense graphs,
+// types are better seeds because RWR walks from them to methods via contains edges.
+var PreferTypeSeeds bool
+
+// AdaptiveDensity: when true, automatically enable hub dampening and type-seed
+// preference based on graph density (nodes/edges ratio from the store). Dense
+// graphs (>50K nodes or edges/nodes > 5) get hub dampening at threshold 50 and
+// type-seed preference enabled. This eliminates the need for manual env var tuning.
+var AdaptiveDensity bool
+
+// GraphNodeCount is set by the adapter/engine when the graph size is known.
+// Used by AdaptiveDensity to decide thresholds. 0 means unknown.
+var GraphNodeCount int
+
 // edgeWeights maps edge type strings to weight multipliers used during RWR iteration.
 // Higher weights cause more probability to flow along those edge types.
 var edgeWeights = map[string]float64{

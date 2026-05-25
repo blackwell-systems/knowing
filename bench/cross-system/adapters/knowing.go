@@ -39,6 +39,18 @@ func init() {
 			knowingctx.BFSMaxDepth = d
 		}
 	}
+
+	// BENCH_HUB_DAMPEN=50 penalizes nodes with in-degree > 50.
+	if envHub := os.Getenv("BENCH_HUB_DAMPEN"); envHub != "" {
+		if h, err := strconv.Atoi(envHub); err == nil && h > 0 {
+			knowingctx.HubDampeningThreshold = h
+		}
+	}
+
+	// BENCH_PREFER_TYPE_SEEDS=1 reorders candidates to prefer types as seeds.
+	if os.Getenv("BENCH_PREFER_TYPE_SEEDS") == "1" {
+		knowingctx.PreferTypeSeeds = true
+	}
 }
 
 // Knowing implements benchtype.Adapter for knowing's context engine.
@@ -76,6 +88,11 @@ func (a *Knowing) Index(repoPath string) (int64, error) {
 	a.stores[repoPath] = s
 	// Initialize task memory for this repo (enables compounding across queries).
 	a.memories[repoPath] = knowingctx.NewTaskMemory(s.DB())
+
+	// Set graph node count for adaptive density behavior.
+	if nodes, err := s.NodesByName(stdctx.Background(), "%"); err == nil {
+		knowingctx.GraphNodeCount = len(nodes)
+	}
 
 	ctx := stdctx.Background()
 

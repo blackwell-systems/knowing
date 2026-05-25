@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -641,6 +642,28 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	// Filter out noise: minified bundles, dist/, vendor/, node_modules/
 	candidates = filterNoisySymbols(candidates)
 
+	// PreferTypeSeeds (H8): on dense graphs, reorder candidates so type/interface/class
+	// nodes come before methods/functions. Types are better RWR seeds because they have
+	// contains edges to their methods, making the walk more productive. On sparse graphs
+	// this is irrelevant (all candidates are already good seeds).
+	// Self-adapting: auto-enable when graph has >50K nodes (dense graph threshold).
+	preferTypes := PreferTypeSeeds
+	if !preferTypes && GraphNodeCount > 50000 {
+		preferTypes = true
+	}
+	if preferTypes && len(candidates) > 0 {
+		sort.SliceStable(candidates, func(i, j int) bool {
+			iIsType := candidates[i].Kind == "type" || candidates[i].Kind == "class" ||
+				candidates[i].Kind == "interface" || candidates[i].Kind == "struct"
+			jIsType := candidates[j].Kind == "type" || candidates[j].Kind == "class" ||
+				candidates[j].Kind == "interface" || candidates[j].Kind == "struct"
+			if iIsType && !jIsType {
+				return true
+			}
+			return false
+		})
+	}
+
 	// Determine candidate communities for scoped RWR.
 	// If candidates cluster in 1-3 communities, constrain the walk.
 	commCounts := make(map[int]int)
@@ -768,6 +791,13 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 			if edge.LastObserved > lastObserved {
 				lastObserved = edge.LastObserved
 			}
+		}
+
+		// Hub dampening (H1): penalize nodes with very high in-degree.
+		// These are utility types that absorb RWR probability regardless of query.
+		if HubDampeningThreshold > 0 && len(edges) > HubDampeningThreshold {
+			dampFactor := math.Sqrt(float64(len(edges)) / float64(HubDampeningThreshold))
+			rwrScore /= dampFactor
 		}
 
 		// Use RWR score as the caller count proxy. Scale to an integer
