@@ -313,6 +313,23 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 		if ftsQuery == "" && len(fallbackKeywords) > 0 {
 			ftsQuery = buildFTSQuery(fallbackKeywords)
 		}
+		// Phrase-boost: generate adjacent-word phrases from Components for
+		// higher-precision BM25 matching on dense graphs. "code actions" as a
+		// phrase matches only symbols where those words appear adjacent (215 matches)
+		// vs "code OR actions" (3284+5000 matches individually).
+		if len(ks.Components) >= 2 {
+			for i := 0; i < len(ks.Components)-1 && i < 5; i++ {
+				a, b := ks.Components[i], ks.Components[i+1]
+				if len(a) >= 3 && len(b) >= 3 {
+					phrase := fmt.Sprintf("\"%s %s\"", a, b)
+					if ftsQuery == "" {
+						ftsQuery = phrase
+					} else {
+						ftsQuery += " OR " + phrase
+					}
+				}
+			}
+		}
 		// Append file_path-targeted terms from path extraction.
 		// Uses prefix matching (term*) to handle singular/plural directory names
 		// (e.g., "migration*" matches both "migration.py" and "migrations/").
