@@ -5,6 +5,12 @@ token-budgeted, relevance-ranked block of symbols from the knowledge graph. It i
 core of knowing's value proposition: given a natural-language task, produce the most
 relevant code symbols that fit within a context window.
 
+The pipeline is density-adaptive: it observes the graph's node count at query time and
+automatically adjusts its seed selection strategy. On dense graphs (>40K nodes), it
+prefers type/interface/class nodes as RWR seeds over methods/functions, because types
+have `contains` edges to their methods (making the walk more productive). This prevents
+the precision degradation that affects every static retrieval system at scale.
+
 This document is the authoritative reference for how the context engine finds and ranks
 symbols. It supersedes `context-packing.md`.
 
@@ -26,6 +32,9 @@ Task Description
     |
     v
 [4. Noise Filtering]           exclude externals, mocks, stubs, dist/, vendor/, minified
+    |
+    v
+[4b. Density-Adaptive Reorder] on >40K nodes: prefer types/interfaces as seeds (auto)
     |
     v
 [5. Random Walk with Restart]  propagate relevance through graph (alpha=0.2, early termination on top-K stability)
