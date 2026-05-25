@@ -78,7 +78,19 @@ The asymmetric treatment of authority is the key insight: authority alone is not
 
 ## Density-Ranked Knapsack Packing
 
-Symbols are not packed by raw score alone. The packer uses a density-ranked greedy fractional knapsack approach: symbols are sorted by their score/cost ratio (where cost is estimated token count), so that high-value, low-cost symbols are included preferentially over expensive symbols (long functions) when the budget is tight. This maximizes the total relevance delivered per token.
+**The problem.** After scoring, we have N ranked candidate symbols but a fixed token budget (typically 4000-8000 tokens). A naive approach (take the top-N symbols by score until the budget is exhausted) wastes budget on large, low-value symbols. A 500-line orchestrator function scoring 0.9 consumes half the budget, displacing dozens of smaller high-value helpers. The knapsack approach maximizes total relevance delivered per token rather than per symbol.
+
+**Density metric.** Each candidate's packing priority is determined by its value density: `score / estimated_tokens`. A 100-token function with score 0.8 has density 0.008; a 500-token function with score 0.9 has density 0.0018. Despite the higher raw score, the smaller function packs over 4x more value per token. When budget is constrained, including five small high-density symbols delivers more total relevance than one large symbol with a marginally higher score.
+
+**Algorithm.** Candidates are sorted by density (score/tokens) in descending order, then greedily packed until the budget is exhausted. This is the fractional knapsack greedy approximation: sorting by value-density and taking greedily is provably optimal for the fractional variant, and near-optimal for the 0/1 variant when item sizes are small relative to the budget (which holds here, since most symbols are 50-200 tokens against a 4000+ token budget).
+
+**Token estimation.** Symbol token cost is estimated at source line count multiplied by approximately 4 tokens per line (a heuristic calibrated against GPT-family tokenizers). This avoids requiring a tokenizer dependency at query time. The actual context output formats (XML, JSON, GCF, TOON) add per-symbol overhead from tags, delimiters, and metadata fields; format-aware scaling factors (see Token Estimation section below) adjust the budget accounting so packing decisions reflect the true rendered cost.
+
+**Edge inclusion.** After selecting symbols via the knapsack, edges between selected symbols are included in the context pack. This gives the consuming agent structural context (who calls whom, who implements what) without spending budget on unreachable symbols. Only edges where both endpoints are in the selected set are included; edges pointing to symbols outside the pack are omitted.
+
+**PackRoot.** The final pack is content-addressed: `PackRoot = hash(task_normalized + sorted(selected_node_hashes))`. Same query against the same graph state always produces the same PackRoot. This enables deduplication (skip re-retrieval for repeated queries), citation (reference a specific pack by hash), and cache keying (invalidate only when the underlying subgraph changes). See the Content-Addressed Context Packs section below for full details.
+
+**Implementation.** `packIntoBudget` in `internal/context/context.go` accepts the ranked symbol list, token budget, and output format; returns a `ContextBlock` with the selected symbols, included edges, token usage, and PackRoot.
 
 ## 5-Channel RRF Seed Fusion
 
