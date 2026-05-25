@@ -220,6 +220,11 @@ func (e *TypeScriptExtractor) extractNodeWithImports(
 		if nameNode != nil {
 			clsName = nameNode.Content(opts.Content)
 		}
+		// Extract class field declarations as field nodes.
+		if body != nil && clsName != "" {
+			fieldNodes := extractClassFieldNodes(body, opts, qnamePrefix, clsName)
+			*nodes = append(*nodes, fieldNodes...)
+		}
 		if body != nil {
 			for i := 0; i < int(body.ChildCount()); i++ {
 				child := body.Child(i)
@@ -231,6 +236,11 @@ func (e *TypeScriptExtractor) extractNodeWithImports(
 					extractTSDecoratorEdges(child, opts, qnamePrefix, m.NodeHash, edges)
 					mBody := child.ChildByFieldName("body")
 					extractCallEdgesFromBodyWithImports(mBody, opts, qnamePrefix, m.NodeHash, hasExpress, tsImports, nodes, edges)
+					// Extract field access edges (this.field patterns).
+					if mBody != nil && clsName != "" {
+						fieldEdges := extractFieldAccessEdges(mBody, opts, qnamePrefix, clsName, m.NodeHash)
+						*edges = append(*edges, fieldEdges...)
+					}
 					mEpNodes, mEpEdges := ExtractEndpointEdges(mBody, opts, qnamePrefix, m.NodeHash)
 					*nodes = append(*nodes, mEpNodes...)
 					*edges = append(*edges, mEpEdges...)
