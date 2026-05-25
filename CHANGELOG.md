@@ -18,6 +18,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Flask P@10: 0.250 -> 0.271 (+8.4%). Full corpus (fresh reindex): 0.180 -> 0.185 (+2.8%)
 - MRR improved +4.9% (first relevant result ranks higher thanks to docstring matching)
 
+#### Fixed: feedback compounding regression
+- Root cause: weight-0 edges (contains, member_of, authored_by) were traversed during adjacency BFS, flooding the subgraph with thousands of extra nodes that diluted RWR probability and made feedback boosts ineffective
+- Fix: exclude weight-0 edges from BFS frontier expansion in `buildAdjacencyMap`
+- Result: TestFeedbackCompounding passes again (baseline 44%, feedback 44%, no regression)
+
 #### Python import resolution fix
 - `resolveCallTarget` now handles `from X import Y` where Y is a submodule (file) correctly
 - Previously: `base.Operation.state_forwards()` resolved to `operations.py.base.Operation.state_forwards` (wrong hash)

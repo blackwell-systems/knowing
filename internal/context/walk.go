@@ -610,6 +610,13 @@ func buildAdjacencyMap(ctx stdctx.Context, store types.GraphStore, seeds []types
 				adjFrom[node] = from
 				for _, e := range from {
 					if !visited[e.TargetHash] && !externals[e.TargetHash] {
+						// Don't expand frontier through weight-0 edges (contains,
+						// member_of, authored_by). These create structural connections
+						// but including their targets in BFS floods the adjacency map
+						// with thousands of nodes that dilute RWR probability.
+						if w, ok := edgeWeights[e.EdgeType]; ok && w == 0 {
+							continue
+						}
 						visited[e.TargetHash] = true
 						nextFrontier = append(nextFrontier, e.TargetHash)
 					}
@@ -624,6 +631,9 @@ func buildAdjacencyMap(ctx stdctx.Context, store types.GraphStore, seeds []types
 				adjTo[node] = to
 				for _, e := range to {
 					if !visited[e.SourceHash] && !externals[e.SourceHash] {
+						if w, ok := edgeWeights[e.EdgeType]; ok && w == 0 {
+							continue
+						}
 						visited[e.SourceHash] = true
 						nextFrontier = append(nextFrontier, e.SourceHash)
 					}
