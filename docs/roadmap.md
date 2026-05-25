@@ -4,16 +4,16 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 
 ## Immediate Priorities
 
-| # | Item | Why | Effort |
-|---|------|-----|--------|
-| 1 | **Real users** | Everything else is validated by benchmarks, not usage. Task memory compounds with use. agent-lsp has 40 stars after 1 month; knowing needs the same traction. | Ongoing |
-| 2 | **Missing relationship extractors** | Real code relationships not yet captured. These exist in code and belong in the graph for correctness. | Medium |
-| 2a | Go interface embedding (`type A struct { B }`) | Implicit interface satisfaction via struct embedding. A satisfies B's interface but no edge is created. | Low |
-| 2b | Channel send/receive edges | `ch <- value` and `<-ch` create producer/consumer relationships between goroutines. | Low |
-| 2c | Struct field access edges | `obj.Field` connects the accessor to the field's type definition. | Low |
-| 2d | Go type assertion edges | `v.(Type)` connects the assertion site to the concrete type. | Low |
-| 3 | **Fix unreachable-by-not-in-DB** | Some ground truth references unindexed modules (k8s.io/client-go). Either update fixtures or selectively index. | Low |
-| 4 | **Parallel write backend** | SQLite single-writer funnels all extraction results through one goroutine. Even with producer-consumer pipeline, writes are serial. Need parallel write support for large repos. | High |
+| # | Item | Why | Effort | Expected Impact |
+|---|------|-----|--------|-----------------|
+| 1 | **Real users** | Everything else is validated by benchmarks, not usage. Task memory compounds with use. agent-lsp has 40 stars after 1 month; knowing needs the same traction. | Ongoing | - |
+| 2 | **Call-chain-aware seeding** | When a seed is found, also seed its direct callees (1-hop expansion before RWR). Doubles effective reach without changing walk. Currently seeds only match by name; callees are where the actual work happens. | Low (20 lines) | +2-5% P@10 |
+| 3 | **File-scoped co-retrieval** | When BM25 finds a symbol, include other symbols from the same file as weak candidates. If `Migration.apply` is found, sibling methods (`unapply`, `mutate_state`) are likely relevant too. | Low (30 lines) | +2-3% P@10 |
+| 4 | **Import graph seeding** | Extend path-seeding to follow import edges from BM25 hits. When seed is in file A, follow A's imports to find related files, seed type nodes from those. | Medium (50 lines) | +3-5% P@10 |
+| 5 | **Local embeddings (Channel 6)** | Lightweight local embedding model (~30MB ONNX) embeds task descriptions and symbol signatures into shared vector space. Bridges vocabulary gap completely: "custom migration operation" finds `Operation.state_forwards` via semantic similarity. Infrastructure already exists (`internal/embedding/`). | High (prototyped) | +5-15% P@10 |
+| 6 | **Struct field access edges** | `obj.Field` connects the accessor to the field's type definition. Real relationship, belongs in graph. | Low | Correctness |
+| 7 | **Parallel write backend** | SQLite single-writer funnels all extraction results through one goroutine. Even with producer-consumer pipeline, writes are serial. Need parallel write support for large repos. | High | Performance |
+| 8 | **event-stream supply chain demo** | Index clean + compromised versions, show `knowing diff` catches malicious edges, prove absence/presence with Merkle proofs. Blog post: "We cryptographically proved this module can't exfiltrate data." | Medium | Commercial angle |
 
 ## Storage Backend (P0 Performance)
 
