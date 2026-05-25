@@ -55,14 +55,16 @@ func init() {
 
 // Knowing implements benchtype.Adapter for knowing's context engine.
 type Knowing struct {
-	stores  map[string]*store.SQLiteStore
-	memories map[string]*knowingctx.TaskMemory // per-repo task memory for compounding tests
+	stores     map[string]*store.SQLiteStore
+	memories   map[string]*knowingctx.TaskMemory // per-repo task memory for compounding tests
+	nodeCounts map[string]int                    // cached node count per repo for adaptive density
 }
 
 func NewKnowing() *Knowing {
 	return &Knowing{
-		stores:   make(map[string]*store.SQLiteStore),
-		memories: make(map[string]*knowingctx.TaskMemory),
+		stores:     make(map[string]*store.SQLiteStore),
+		memories:   make(map[string]*knowingctx.TaskMemory),
+		nodeCounts: make(map[string]int),
 	}
 }
 
@@ -89,12 +91,12 @@ func (a *Knowing) Index(repoPath string) (int64, error) {
 	// Initialize task memory for this repo (enables compounding across queries).
 	a.memories[repoPath] = knowingctx.NewTaskMemory(s.DB())
 
-	// Set graph node count for adaptive density behavior.
-	if nodes, err := s.NodesByName(stdctx.Background(), "%"); err == nil {
-		knowingctx.GraphNodeCount = len(nodes)
-	}
-
 	ctx := stdctx.Background()
+
+	// Cache node count for adaptive density (used at Retrieve time).
+	if nodes, err := s.NodesByName(ctx, "%"); err == nil {
+		a.nodeCounts[repoPath] = len(nodes)
+	}
 
 	// Generate contains edges (type -> method) if not already present.
 	// This connects disconnected type/class nodes to their methods via QN structure.
@@ -164,6 +166,9 @@ func (a *Knowing) Retrieve(repoPath string, task benchtype.Task, tokenBudget int
 
 	ctx := stdctx.Background()
 	start := time.Now()
+
+	// Set graph node count for adaptive density (PreferTypeSeeds auto-enables >50K).
+	knowingctx.GraphNodeCount = a.nodeCounts[repoPath]
 
 	engine := knowingctx.NewContextEngine(s)
 

@@ -648,7 +648,7 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	// this is irrelevant (all candidates are already good seeds).
 	// Self-adapting: auto-enable when graph has >50K nodes (dense graph threshold).
 	preferTypes := PreferTypeSeeds
-	if !preferTypes && GraphNodeCount > 50000 {
+	if !preferTypes && GraphNodeCount > 40000 {
 		preferTypes = true
 	}
 	if preferTypes && len(candidates) > 0 {
