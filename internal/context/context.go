@@ -171,11 +171,14 @@ var stopWords = map[string]bool{
 	"var": true, "const": true, "return": true, "import": true,
 	"package": true, "struct": true, "interface": true, "string": true,
 	"int": true, "bool": true, "error": true, "nil": true,
-	// Action words that describe intent but don't identify code
+	// Pure action words: describe intent, never identify code.
+	// NOTE: words that are ALSO feature names (rename, debug, trace, cache)
+	// must NOT be in stopWords. They belong in actionVerbs only (for verb-pattern
+	// detection) so they still appear in Components for BM25/tiered matching.
 	"refactor": true, "fix": true, "update": true, "change": true,
 	"modify": true, "implement": true, "create": true, "delete": true,
-	"remove": true, "move": true, "rename": true, "improve": true,
-	"optimize": true, "debug": true, "test": true, "review": true,
+	"remove": true, "move": true, "improve": true,
+	"optimize": true, "review": true,
 }
 
 // abbreviations maps common Go/programming abbreviations to their expansions.
@@ -1228,9 +1231,10 @@ func extractKeywordSet(desc string) KeywordSet {
 	actionVerbs := map[string]bool{
 		"add": true, "implement": true, "create": true, "build": true,
 		"fix": true, "refactor": true, "update": true, "change": true,
-		"remove": true, "delete": true, "move": true, "rename": true,
-		"find": true, "detect": true, "trace": true, "compute": true,
+		"remove": true, "delete": true, "move": true,
+		"find": true, "detect": true, "compute": true,
 		"generate": true, "resolve": true, "wire": true, "connect": true,
+		"extend": true, "introduce": true, "integrate": true,
 	}
 	fillerWords := map[string]bool{
 		"a": true, "an": true, "the": true, "new": true, "existing": true,
