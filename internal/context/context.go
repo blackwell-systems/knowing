@@ -323,6 +323,16 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 				}
 			}
 		}
+		// Concept expansion: add related code vocabulary as supplemental OR terms.
+		// "consumer" also searches "subscriber", "listener", "handler", etc.
+		// Uses all keywords (including components) since domain terms like
+		// "consumer", "scheduler" are typically single words in Components.
+		// Capped at 10 expansions to avoid flooding BM25 with noise.
+		if expanded := expandKeywords(fallbackKeywords, 10); len(expanded) > 0 {
+			for _, exp := range expanded {
+				ftsQuery += fmt.Sprintf(" OR %s", exp)
+			}
+		}
 		if nodes, err := e.bm25.SearchBM25Nodes(ctx, ftsQuery, 30); err == nil {
 			bm25Results = nodes
 		}
@@ -440,9 +450,10 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	// Type-method matching: find types in packages matching one path term,
 	// then check if their methods/children match another keyword. This bridges
 	// "migration operation" -> Type in migrations/ package with method containing "forward".
+	// Results go into pathResults (at front) so they flow through both RRF and seed injection.
 	if len(pathTerms) >= 1 && len(keywords) > 0 {
+		var typeMethodHits []types.Node
 		for _, pathTerm := range pathTerms {
-			// Find type nodes in packages matching this path term.
 			typeNodes, _ := e.store.NodesByName(ctx, "%/"+pathTerm+"%")
 			if len(typeNodes) == 0 {
 				typeNodes, _ = e.store.NodesByName(ctx, "%."+pathTerm+".%")
@@ -454,7 +465,6 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 				if tn.Kind != "type" && tn.Kind != "class" && tn.Kind != "struct" && tn.Kind != "interface" {
 					continue
 				}
-				// Check if this type has methods matching any keyword.
 				children, _ := e.store.EdgesFrom(ctx, tn.NodeHash, "contains")
 				if len(children) == 0 {
 					continue
@@ -467,10 +477,8 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 					childLower := strings.ToLower(child.QualifiedName)
 					for _, kw := range keywords {
 						if strings.Contains(childLower, strings.ToLower(kw)) {
-							// Found a type whose method matches a keyword.
-							// Seed the type (RWR walks to methods via contains).
 							pathSeen[tn.NodeHash] = true
-							pathResults = append(pathResults, tn)
+							typeMethodHits = append(typeMethodHits, tn)
 							break
 						}
 					}
@@ -478,14 +486,16 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 						break
 					}
 				}
-				if len(pathResults) >= 10 {
+				if len(typeMethodHits) >= 10 {
 					break
 				}
 			}
-			if len(pathResults) >= 10 {
+			if len(typeMethodHits) >= 10 {
 				break
 			}
 		}
+		// Prepend to pathResults so they get priority in RRF and seed injection.
+		pathResults = append(typeMethodHits, pathResults...)
 	}
 
 	// Per-term OR pass: for each term individually.
