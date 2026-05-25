@@ -162,7 +162,7 @@ LSP servers require files to be opened via `textDocument/didOpen` before they ca
 
 These limitations exist only between Tier 1 and Tier 2 completion. After enrichment, all limitations are resolved.
 
-**Extractors (26 registered: 12 language + 13 infrastructure/cloud + CODEOWNERS):**
+**Extractors (24 registered: 12 language + 11 infrastructure/cloud + CODEOWNERS):**
 
 | Language / Format | Tier 1 (fast) | Tier 2 (enrichment) | LSP server |
 |----------|--------------|--------------------|-----------| 
@@ -203,12 +203,13 @@ Python, TypeScript, Rust, Java, and C# extractors build per-file import maps dur
 | Java | `buildJavaImportMap` | `import com.pkg.Class`, `import static` |
 | C# | `buildCSharpImportMap` | `using Namespace`, `using static` |
 
-**Cross-repo awareness (all 5 OOP extractors):**
+**Cross-repo awareness (all 6 language extractors with LSP enrichment):**
 
-Each OOP extractor has an `inferExternalRepoURL` function that detects when an import target is external (third-party or stdlib) and computes a target hash using `"external://{packageName}"` or `"stdlib"` as the repo URL prefix instead of the local repo URL. This gives cross-repo identity to import edges without requiring full registry lookups.
+Each extractor detects when an import target is external (third-party or stdlib) and computes a target hash using `"external://{packageName}"`, `"stdlib"`, or the inferred repo URL as the prefix instead of the local repo URL. This gives cross-repo identity to import edges without requiring full registry lookups.
 
 | Language | Stdlib detection | External detection |
 |----------|-----------------|-------------------|
+| Go | No dots in first path segment (e.g., `fmt`, `net`) | First 3 path segments as repo URL (e.g., `github.com/org/repo`) |
 | Python | ~50 known stdlib modules | `site-packages/` in path |
 | TypeScript | n/a | Bare specifiers (non-relative imports) |
 | Rust | `std::`/`core::`/`alloc::` | Other non-crate paths |
@@ -428,6 +429,7 @@ The graph connects symbols with typed, provenance-annotated edges:
 | Category | Edge types |
 |----------|-----------|
 | Code | `calls`, `imports`, `implements`, `references`, `extends`, `overrides`, `decorates`, `throws` |
+| Structural | `contains` (type -> method, weight 0.8), `member_of` (method -> type, weight 0.6) |
 | Route | `handles_route` (route handler node to handler function, from static extraction) |
 | Infrastructure | `depends_on` (Terraform, SQL, CSS), `deploys` (K8s Service to Deployment), `exposes` (K8s Ingress to Service), `configures` (K8s ConfigMap/Secret to Deployment) |
 | Messaging | `publishes`, `subscribes`, `connects_to` |
@@ -439,7 +441,7 @@ The graph connects symbols with typed, provenance-annotated edges:
 | Deployment | `deployed_by` (service deployed by CI workflow) |
 | Runtime | `runtime_calls`, `runtime_rpc`, `runtime_produces`, `runtime_consumes` |
 
-30 edge types total across static, infrastructure, runtime, ownership, and operational categories. See [Edge Types Reference](edge-types.md) for full details.
+32 edge types total across static, structural, infrastructure, runtime, ownership, and operational categories. The `contains` and `member_of` edges connect types to their methods bidirectionally, enabling RWR walks from type seeds to discover all methods (and vice versa). See [Edge Types Reference](edge-types.md) for full details.
 
 ## Wire Formats
 
@@ -466,7 +468,7 @@ Task Description
 [1. Keyword Extraction]        compound-first: KeywordSet with Exact/Compounds/Components tiers
     |
     v
-[2. Seed Retrieval]            4-channel RRF fusion (tiered graph search, BM25, equivalence classes, vector)
+[2. Seed Retrieval]            5-channel RRF fusion (tiered keyword, BM25, vector [disabled], equivalence classes, path-context)
     |
     v
 [3. Interface-Aware Seeding]   add implementors of matched interface types
@@ -493,8 +495,10 @@ Task Description
 **Key design choices:**
 
 - **Compound-first keyword extraction:** The `KeywordSet` struct separates Exact (backtick-quoted identifiers), Compounds (snake_case, CamelCase, dotted names), and Components (split words). Compounds are queried before components; components only used as fallback when compounds yield fewer than 5 results.
+- **BM25 via FTS5 (6 weighted columns):** `symbol_name` (10x), `concepts` (5x), `file_path` (4x), `doc` (3x), `qualified_name` (3x), `signature` (1x). The `doc` column indexes docstrings extracted across 6 languages (Go, Python, TypeScript, Rust, Java, C#) via the shared `docextract` package, bridging the vocabulary gap between natural-language task descriptions and code documentation.
+- **Path-context seeding (Channel 5):** Extracts package/directory terms from task descriptions, finds TYPE nodes in matching packages (prioritizing types with `contains` edges), and injects them as supplemental RWR seeds. Bridges concept-to-implementation gap (e.g., "migration" finds types in migrations/ package, then RWR walks to their methods).
 - **Phantom external node filtering:** External nodes (kind="external", from unresolved LSP targets) are filtered at seed retrieval and RWR result collection. Without this, repos with many unresolved imports have phantom nodes dominating all top positions.
 - **Feedback compounding via task memory:** The MCP server records top-5 returned symbols in a `task_memory` table after each `context_for_task` call. Future queries with similar keywords recall stored symbols and boost them. Quality compounds across sessions; the system learns which symbols matter for which tasks.
 - **Merkleized feedback expiration:** Feedback records store the package Merkle root. When code changes, the root changes, and stale feedback becomes invisible automatically.
 
-**Benchmark:** Cross-system benchmark (7 repos, ~117 tasks): P@10=0.217, 1.63x vs codegraph (19K stars), 4.3x vs Aider, 11x vs grep (p<0.0001, Cohen's d=0.92). Query latency: 2ms on k8s with adjacency cache. See [Retrieval Pipeline](retrieval-pipeline.md) for the full architecture reference.
+**Benchmark:** Cross-system benchmark (7 repos, ~117 tasks): P@10=0.189 (cold start), 1.63x vs codegraph (19K stars), 4.3x vs Aider, 11x vs grep (p<0.0001, Cohen's d=0.92). Query latency: 2ms on k8s with adjacency cache. Parameter sweep proved all RWR/ranking parameters are irrelevant (identical P@10 across 26 configs); P@10 is reachability-determined, not ranking-determined. See [Retrieval Pipeline](retrieval-pipeline.md) for the full architecture reference.
