@@ -146,7 +146,7 @@ func (s *SQLiteStore) PutNode(ctx context.Context, n types.Node) error {
 		return err
 	}
 	// Keep FTS index in sync (best-effort; ignore errors if table doesn't exist yet).
-	s.upsertFTS(ctx, n.NodeHash[:], n.QualifiedName, n.Signature, "")
+	s.upsertFTS(ctx, n.NodeHash[:], n.QualifiedName, n.Signature, "", n.Doc)
 	return nil
 }
 
@@ -1113,7 +1113,7 @@ func (s *SQLiteStore) SearchBM25Nodes(ctx context.Context, query string, limit i
 		 JOIN nodes_fts_content c ON c.rowid = nodes_fts.rowid
 		 JOIN nodes n ON n.node_hash = c.node_hash
 		 WHERE nodes_fts MATCH ?
-		 ORDER BY bm25(nodes_fts, 10.0, 5.0, 3.0, 1.0, 4.0)
+		 ORDER BY bm25(nodes_fts, 10.0, 5.0, 3.0, 1.0, 4.0, 3.0)
 		 LIMIT ?`,
 		query, limit,
 	)
@@ -1127,15 +1127,15 @@ func (s *SQLiteStore) SearchBM25Nodes(ctx context.Context, query string, limit i
 // upsertFTS inserts or replaces a node in the FTS content table.
 // Does NOT rebuild the FTS index (that's done by RebuildFTS after batch ops).
 // Best-effort: silently ignores errors (e.g., if FTS table doesn't exist yet).
-func (s *SQLiteStore) upsertFTS(ctx context.Context, nodeHash []byte, qualifiedName, signature, filePath string) {
+func (s *SQLiteStore) upsertFTS(ctx context.Context, nodeHash []byte, qualifiedName, signature, filePath, doc string) {
 	// Delete existing entry for this node_hash (if any).
 	s.db.ExecContext(ctx, //nolint:errcheck
 		`DELETE FROM nodes_fts_content WHERE node_hash = ?`, nodeHash)
 	// Insert new entry.
 	s.db.ExecContext(ctx, //nolint:errcheck
-		`INSERT INTO nodes_fts_content(node_hash, symbol_name, concepts, qualified_name, signature, file_path)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		nodeHash, extractSymbolName(qualifiedName), extractConcepts(filePath), qualifiedName, signature, filePath)
+		`INSERT INTO nodes_fts_content(node_hash, symbol_name, concepts, qualified_name, signature, file_path, doc)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		nodeHash, extractSymbolName(qualifiedName), extractConcepts(filePath), qualifiedName, signature, filePath, doc)
 }
 
 // extractConcepts derives searchable concept tokens from a file path.
@@ -1235,9 +1235,9 @@ func (s *SQLiteStore) RebuildFTS(ctx context.Context) error {
 		return fmt.Errorf("clear fts content: %w", err)
 	}
 
-	// Read all nodes with their file paths.
+	// Read all nodes with their file paths and docstrings.
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT n.node_hash, n.qualified_name, COALESCE(n.signature, ''), COALESCE(f.path, '')
+		`SELECT n.node_hash, n.qualified_name, COALESCE(n.signature, ''), COALESCE(f.path, ''), COALESCE(n.doc, '')
 		 FROM nodes n LEFT JOIN files f ON n.file_hash = f.file_hash`)
 	if err != nil {
 		return fmt.Errorf("read nodes for fts: %w", err)
@@ -1246,12 +1246,12 @@ func (s *SQLiteStore) RebuildFTS(ctx context.Context) error {
 	// Phase 1: collect all rows into memory.
 	type ftsRow struct {
 		nodeHash []byte
-		qn, sig, fp string
+		qn, sig, fp, doc string
 	}
 	var allRows []ftsRow
 	for rows.Next() {
 		var r ftsRow
-		if err := rows.Scan(&r.nodeHash, &r.qn, &r.sig, &r.fp); err != nil {
+		if err := rows.Scan(&r.nodeHash, &r.qn, &r.sig, &r.fp, &r.doc); err != nil {
 			rows.Close()
 			return fmt.Errorf("scan node for fts: %w", err)
 		}
@@ -1265,7 +1265,7 @@ func (s *SQLiteStore) RebuildFTS(ctx context.Context) error {
 	// Phase 2: parallel splitForFTS computation.
 	type ftsPrepped struct {
 		nodeHash []byte
-		symbolName, concepts, splitQN, splitSig, fp string
+		symbolName, concepts, splitQN, splitSig, fp, doc string
 	}
 	prepped := make([]ftsPrepped, len(allRows))
 
@@ -1293,6 +1293,7 @@ func (s *SQLiteStore) RebuildFTS(ctx context.Context) error {
 					splitQN:    splitForFTS(r.qn),
 					splitSig:   splitForFTS(r.sig),
 					fp:         r.fp,
+					doc:        r.doc,
 				}
 			}
 		}(start, end)
@@ -1307,14 +1308,14 @@ func (s *SQLiteStore) RebuildFTS(ctx context.Context) error {
 	defer tx.Rollback() //nolint:errcheck
 
 	stmt, err := tx.PrepareContext(ctx,
-		`INSERT INTO nodes_fts_content(node_hash, symbol_name, concepts, qualified_name, signature, file_path) VALUES (?, ?, ?, ?, ?, ?)`)
+		`INSERT INTO nodes_fts_content(node_hash, symbol_name, concepts, qualified_name, signature, file_path, doc) VALUES (?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("prepare fts insert: %w", err)
 	}
 	defer stmt.Close()
 
 	for _, p := range prepped {
-		if _, err := stmt.ExecContext(ctx, p.nodeHash, p.symbolName, p.concepts, p.splitQN, p.splitSig, p.fp); err != nil {
+		if _, err := stmt.ExecContext(ctx, p.nodeHash, p.symbolName, p.concepts, p.splitQN, p.splitSig, p.fp, p.doc); err != nil {
 			return fmt.Errorf("insert fts content: %w", err)
 		}
 	}
@@ -1360,7 +1361,7 @@ func (s *SQLiteStore) RebuildFTSForPackages(ctx context.Context, packages []stri
 
 	// Re-insert FTS rows for nodes in the changed packages.
 	insStmt, err := tx.PrepareContext(ctx,
-		`INSERT INTO nodes_fts_content(node_hash, symbol_name, concepts, qualified_name, signature, file_path) VALUES (?, ?, ?, ?, ?, ?)`)
+		`INSERT INTO nodes_fts_content(node_hash, symbol_name, concepts, qualified_name, signature, file_path, doc) VALUES (?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("prepare fts insert: %w", err)
 	}
@@ -1368,7 +1369,7 @@ func (s *SQLiteStore) RebuildFTSForPackages(ctx context.Context, packages []stri
 
 	for _, pkg := range packages {
 		rows, err := s.db.QueryContext(ctx,
-			`SELECT n.node_hash, n.qualified_name, COALESCE(n.signature, ''), COALESCE(f.path, '')
+			`SELECT n.node_hash, n.qualified_name, COALESCE(n.signature, ''), COALESCE(f.path, ''), COALESCE(n.doc, '')
 			 FROM nodes n LEFT JOIN files f ON n.file_hash = f.file_hash
 			 WHERE n.qualified_name LIKE ?`, pkg+"%")
 		if err != nil {
@@ -1376,12 +1377,12 @@ func (s *SQLiteStore) RebuildFTSForPackages(ctx context.Context, packages []stri
 		}
 		for rows.Next() {
 			var nodeHash []byte
-			var qn, sig, fp string
-			if err := rows.Scan(&nodeHash, &qn, &sig, &fp); err != nil {
+			var qn, sig, fp, doc string
+			if err := rows.Scan(&nodeHash, &qn, &sig, &fp, &doc); err != nil {
 				rows.Close()
 				return fmt.Errorf("scan node for fts: %w", err)
 			}
-			if _, err := insStmt.ExecContext(ctx, nodeHash, splitForFTS(extractSymbolName(qn)), extractConcepts(fp), splitForFTS(qn), splitForFTS(sig), fp); err != nil {
+			if _, err := insStmt.ExecContext(ctx, nodeHash, splitForFTS(extractSymbolName(qn)), extractConcepts(fp), splitForFTS(qn), splitForFTS(sig), fp, doc); err != nil {
 				rows.Close()
 				return fmt.Errorf("insert fts for %s: %w", qn, err)
 			}
