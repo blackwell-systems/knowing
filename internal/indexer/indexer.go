@@ -584,6 +584,24 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 		fmt.Fprintf(os.Stderr, "  Inheritance: %d edges propagated\n", len(inheritEdges))
 	}
 
+	// Propagate interface implementation: for each "implements" edge, find matching
+	// method names between the implementing class and the interface, and create
+	// "overrides" edges connecting them. This lets RWR walk from an interface method
+	// to all concrete implementations.
+	fmt.Fprintf(os.Stderr, "  Interface propagation...\n")
+	ifaceEdges := propagateInterfaceMethods(allNodes, allEdges)
+	if len(ifaceEdges) > 0 {
+		allEdges = append(allEdges, ifaceEdges...)
+		if bs, ok := idx.store.(batchStore); ok {
+			_ = bs.BatchPutEdges(ctx, ifaceEdges)
+		} else {
+			for _, e := range ifaceEdges {
+				_ = idx.store.PutEdge(ctx, e)
+			}
+		}
+		fmt.Fprintf(os.Stderr, "  Interface: %d edges propagated\n", len(ifaceEdges))
+	}
+
 	// Generate structural "contains" edges from type/class nodes to their methods.
 	// 77% of type nodes have zero edges; this connects them to their methods via QN
 	// structure (Type.Method), enabling RWR to walk from type seeds to discover methods.
@@ -1317,6 +1335,99 @@ func generateContainsEdges(allNodes []types.Node) []types.Edge {
 	}
 
 	return edges
+}
+
+// propagateInterfaceMethods creates "overrides" edges from implementing class methods
+// to the corresponding interface methods. When class C implements interface I, and both
+// have a method named "Run", we create C.Run --overrides--> I.Run.
+// This lets RWR walk from an interface method to all concrete implementations (and back).
+func propagateInterfaceMethods(allNodes []types.Node, allEdges []types.Edge) []types.Edge {
+	// Build type/interface name -> hash + methods map.
+	type typeInfo struct {
+		hash    types.Hash
+		kind    string
+		methods map[string]types.Hash // terminal method name -> hash
+	}
+	typeByHash := make(map[types.Hash]*typeInfo)
+	typeByName := make(map[string]*typeInfo)
+
+	// First pass: collect types and interfaces.
+	for i := range allNodes {
+		n := &allNodes[i]
+		if n.Kind != "type" && n.Kind != "interface" && n.Kind != "class" && n.Kind != "struct" && n.Kind != "trait" {
+			continue
+		}
+		name := terminalName(n.QualifiedName)
+		if name == "" {
+			continue
+		}
+		info := &typeInfo{hash: n.NodeHash, kind: n.Kind, methods: make(map[string]types.Hash)}
+		typeByHash[n.NodeHash] = info
+		typeByName[name] = info
+	}
+
+	// Second pass: associate methods with their parent type.
+	for i := range allNodes {
+		n := &allNodes[i]
+		if n.Kind != "method" && n.Kind != "function" {
+			continue
+		}
+		qn := n.QualifiedName
+		lastDot := strings.LastIndex(qn, ".")
+		if lastDot < 0 {
+			continue
+		}
+		prefix := qn[:lastDot]
+		secondLastDot := strings.LastIndex(prefix, ".")
+		if secondLastDot < 0 {
+			continue
+		}
+		parentName := prefix[secondLastDot+1:]
+		if info, ok := typeByName[parentName]; ok {
+			methodName := terminalName(qn)
+			info.methods[methodName] = n.NodeHash
+		}
+	}
+
+	// Find "implements" edges and create overrides for matching method names.
+	var overrideEdges []types.Edge
+	seen := make(map[types.Hash]bool)
+
+	for _, e := range allEdges {
+		if e.EdgeType != "implements" {
+			continue
+		}
+		// implements: source = implementing class, target = interface
+		implInfo := typeByHash[e.SourceHash]
+		ifaceInfo := typeByHash[e.TargetHash]
+		if implInfo == nil || ifaceInfo == nil {
+			continue
+		}
+
+		// For each interface method, check if the implementing class has a method with the same name.
+		for methodName, ifaceMethodHash := range ifaceInfo.methods {
+			implMethodHash, ok := implInfo.methods[methodName]
+			if !ok {
+				continue
+			}
+			// Create: implMethod --overrides--> ifaceMethod
+			edgeHash := types.ComputeEdgeHash(implMethodHash, ifaceMethodHash, edgetype.Overrides, "interface_propagation")
+			if seen[edgeHash] {
+				continue
+			}
+			seen[edgeHash] = true
+			overrideEdges = append(overrideEdges, types.Edge{
+				EdgeHash:   edgeHash,
+				SourceHash: implMethodHash,
+				TargetHash: ifaceMethodHash,
+				EdgeType:   edgetype.Overrides,
+				Confidence: 0.9,
+				Provenance: "interface_propagation",
+			})
+		}
+	}
+
+	return overrideEdges
 }
 
 // terminalName extracts the last dot-separated component of a qualified name.

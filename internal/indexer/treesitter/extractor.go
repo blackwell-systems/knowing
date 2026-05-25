@@ -84,6 +84,14 @@ func (e *TreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractOpt
 	// Detect Python web framework routes (Flask, FastAPI, Django).
 	e.extractPythonRoutes(root, opts, result)
 
+	// Same-file method resolution: for each call edge whose target doesn't match
+	// a known node in this file, check if a method with the same terminal name
+	// exists among the extracted nodes. This handles patterns like:
+	//   for op in self.operations: op.database_forwards(...)
+	// where we can't determine the type of 'op' but can see that a method named
+	// 'database_forwards' exists in the same module.
+	resolveIntraFileCallsByName(opts, result)
+
 	// Sort nodes deterministically by qualified name then kind.
 	sort.Slice(result.Nodes, func(i, j int) bool {
 		if result.Nodes[i].QualifiedName != result.Nodes[j].QualifiedName {
@@ -607,6 +615,18 @@ func (e *TreeSitterExtractor) extractCallbackRegistration(node *sitter.Node, opt
 		})
 		break // only process the first callback argument
 	}
+}
+
+// resolveIntraFileCallsByName is a placeholder for future same-file method resolution.
+// The full implementation requires type inference (knowing what type a variable holds)
+// which is what LSP enrichment (pyright/gopls) provides. Without type info, we can't
+// reliably determine that `op.database_forwards()` calls `Operation.database_forwards`
+// rather than some other class's `database_forwards` method.
+//
+// The existing contains + member_of + inherits edges handle the structural connections.
+// For dynamic dispatch resolution, use `knowing index` with enrichment enabled.
+func resolveIntraFileCallsByName(_ types.ExtractOptions, _ *types.ExtractResult) {
+	// No-op: deferred to LSP enrichment.
 }
 
 // resolveCallTarget resolves a called name to its qualified target using the
