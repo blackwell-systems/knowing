@@ -27,6 +27,9 @@ const (
 	RuntimeProduces = "runtime_produces"
 	RuntimeConsumes = "runtime_consumes"
 
+	// Structural edges (derived from QN hierarchy)
+	Contains = "contains" // type/class -> method/field
+
 	// P2/P3 static edge types
 	Documents        = "documents"
 	ConsumesEndpoint = "consumes_endpoint"
@@ -51,6 +54,8 @@ func RWRWeight(edgeType string) float64 {
 		return 0.7
 	case Extends:
 		return 0.7
+	case Contains:
+		return 0.6
 	case Imports:
 		return 0.5
 	case DependsOn:

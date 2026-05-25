@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/blackwell-systems/knowing/internal/edgetype"
 	"github.com/blackwell-systems/knowing/internal/indexer/authorship"
 	"github.com/blackwell-systems/knowing/internal/indexer/gotsextractor"
 	"github.com/blackwell-systems/knowing/internal/indexer/ownership"
@@ -581,6 +582,23 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 			}
 		}
 		fmt.Fprintf(os.Stderr, "  Inheritance: %d edges propagated\n", len(inheritEdges))
+	}
+
+	// Generate structural "contains" edges from type/class nodes to their methods.
+	// 77% of type nodes have zero edges; this connects them to their methods via QN
+	// structure (Type.Method), enabling RWR to walk from type seeds to discover methods.
+	fmt.Fprintf(os.Stderr, "  Contains edges...\n")
+	containsEdges := generateContainsEdges(allNodes)
+	if len(containsEdges) > 0 {
+		allEdges = append(allEdges, containsEdges...)
+		if bs, ok := idx.store.(batchStore); ok {
+			_ = bs.BatchPutEdges(ctx, containsEdges)
+		} else {
+			for _, e := range containsEdges {
+				_ = idx.store.PutEdge(ctx, e)
+			}
+		}
+		fmt.Fprintf(os.Stderr, "  Contains: %d edges\n", len(containsEdges))
 	}
 
 	// Compute semantic similarity edges between functions in the same package.
@@ -1216,6 +1234,74 @@ func propagateInheritance(allNodes []types.Node, allEdges []types.Edge) []types.
 	}
 
 	return inheritEdges
+}
+
+// generateContainsEdges creates structural "contains" edges from type/class nodes
+// to their method/field nodes. This is derived purely from QN structure:
+//
+//	Type QN:   "repo://path/file.py.ClassName"
+//	Method QN: "repo://path/file.py.ClassName.method_name"
+//
+// If method QN == type QN + "." + something (single level), then type --contains--> method.
+//
+// This connects 77%+ of type nodes (which are otherwise completely disconnected)
+// to their methods, enabling RWR to walk from a type seed to discover all its methods.
+func generateContainsEdges(allNodes []types.Node) []types.Edge {
+	// Build a map of all type/class/struct/interface node QNs to their hashes.
+	typeQNs := make(map[string]types.Hash) // QN -> node hash
+	for i := range allNodes {
+		n := &allNodes[i]
+		switch n.Kind {
+		case "type", "class", "struct", "interface", "trait", "module", "object":
+			typeQNs[n.QualifiedName] = n.NodeHash
+		}
+	}
+
+	if len(typeQNs) == 0 {
+		return nil
+	}
+
+	// For each non-type node, check if stripping its terminal name yields a type QN.
+	var edges []types.Edge
+	seen := make(map[types.Hash]bool)
+
+	for i := range allNodes {
+		n := &allNodes[i]
+		// Skip type nodes themselves (they don't contain themselves).
+		switch n.Kind {
+		case "type", "class", "struct", "interface", "trait", "module", "object":
+			continue
+		}
+
+		qn := n.QualifiedName
+		lastDot := strings.LastIndex(qn, ".")
+		if lastDot < 0 {
+			continue
+		}
+		parentQN := qn[:lastDot]
+
+		parentHash, ok := typeQNs[parentQN]
+		if !ok {
+			continue
+		}
+
+		edgeHash := types.ComputeEdgeHash(parentHash, n.NodeHash, edgetype.Contains, "structural")
+		if seen[edgeHash] {
+			continue
+		}
+		seen[edgeHash] = true
+
+		edges = append(edges, types.Edge{
+			EdgeHash:   edgeHash,
+			SourceHash: parentHash,
+			TargetHash: n.NodeHash,
+			EdgeType:   edgetype.Contains,
+			Confidence: 1.0,
+			Provenance: "structural",
+		})
+	}
+
+	return edges
 }
 
 // terminalName extracts the last dot-separated component of a qualified name.

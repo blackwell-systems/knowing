@@ -412,17 +412,103 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 		equivResults = equivResults[:maxEquiv]
 	}
 
+	// Channel 5: Path-context seeding.
+	// Extracts package/directory-like terms from the task description and finds
+	// TYPE/CLASS nodes whose qualified name PATH contains those terms. Types are
+	// structural anchors: with contains edges, RWR walks from types to their methods.
+	// This bridges the gap between conceptual task descriptions and implementations
+	// (e.g., "migration" -> django.db.migrations.operations.base.Operation -> .state_forwards).
+	var pathResults []types.Node
+	pathSeen := make(map[types.Hash]bool)
+	pathTerms := extractPathTerms(opts.TaskDescription)
+	for _, term := range pathTerms {
+		// Search for nodes whose qualified name contains this path segment.
+		nodes, err := e.store.NodesByName(ctx, "%/"+term+"%")
+		if err != nil {
+			continue
+		}
+		// Also try dot-separated paths (Python: django.db.migrations.*)
+		if len(nodes) == 0 {
+			nodes, _ = e.store.NodesByName(ctx, "%."+term+".%")
+		}
+		// Collect matching type/class nodes, prioritized by connectivity.
+		// Types with outgoing contains edges (i.e., with methods) are framework code;
+		// types without are often individual instances (e.g., 0001_initial.py.Migration).
+		var richTypes, leanTypes, otherMatches []types.Node
+		for _, n := range nodes {
+			if pathSeen[n.NodeHash] {
+				continue
+			}
+			if !isPathMatch(n.QualifiedName, term) {
+				continue
+			}
+			pathSeen[n.NodeHash] = true
+			switch n.Kind {
+			case "type", "class", "struct", "interface", "trait":
+				// Check if this type has contains edges (methods).
+				edges, _ := e.store.EdgesFrom(ctx, n.NodeHash, "contains")
+				if len(edges) > 0 {
+					richTypes = append(richTypes, n)
+				} else {
+					leanTypes = append(leanTypes, n)
+				}
+			default:
+				otherMatches = append(otherMatches, n)
+			}
+			// Stop scanning after finding enough candidates.
+			if len(richTypes) >= 5 {
+				break
+			}
+			if len(richTypes)+len(leanTypes)+len(otherMatches) >= 100 {
+				break
+			}
+		}
+		// Priority: rich types (with methods) > lean types > other nodes.
+		taken := 0
+		for _, n := range richTypes {
+			if taken >= 5 {
+				break
+			}
+			pathResults = append(pathResults, n)
+			taken++
+		}
+		for _, n := range leanTypes {
+			if taken >= 10 {
+				break
+			}
+			pathResults = append(pathResults, n)
+			taken++
+		}
+		for _, n := range otherMatches {
+			if taken >= 15 {
+				break
+			}
+			pathResults = append(pathResults, n)
+			taken++
+		}
+	}
+	// Cap total path results.
+	if len(pathResults) > 30 {
+		pathResults = pathResults[:30]
+	}
+	if opts.RepoURL != "" {
+		repoPrefix := opts.RepoURL + "://"
+		pathResults = filterByRepoPrefix(pathResults, repoPrefix)
+	}
+
 	// Fuse all channels with weighted Reciprocal Rank Fusion.
 	// Weights: tiered 2x (exact/prefix, most precise), BM25 2x (relevance-ranked,
 	// complementary to tiered via signature and multi-term matching),
-	// equivalence 2x (concept-level), vector 0x (disabled, infrastructure preserved).
-	// Equal weights for tiered+BM25: both find symbols by name but BM25 adds
-	// signature matching and relevance ranking that tiered lacks.
+	// equivalence 2x (concept-level), path 1.5x (directory-based, broader),
+	// vector 0x (disabled, infrastructure preserved).
+	// Path channel gets 1.5x: valuable for bridging concepts to packages but
+	// less precise than name-matching channels (may return many symbols from a package).
 	// k=60 is the standard RRF constant.
 	candidates := rrfFuseMulti([]rankedChannel{
 		{nodes: tieredResults, weight: 2.0},
 		{nodes: bm25Results, weight: 2.0},
 		{nodes: equivResults, weight: 2.0},
+		{nodes: pathResults, weight: 1.5},
 		{nodes: vectorResults, weight: 0.0},
 	}, 60, 40)
 
@@ -492,8 +578,8 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	if len(candidates) < maxSeeds {
 		maxSeeds = len(candidates)
 	}
-	seedHashes := make([]types.Hash, 0, maxSeeds)
-	seedWeights := make(map[types.Hash]float64, maxSeeds)
+	seedHashes := make([]types.Hash, 0, maxSeeds+10)
+	seedWeights := make(map[types.Hash]float64, maxSeeds+10)
 	seedSet := make(map[types.Hash]bool)
 	for i := 0; i < maxSeeds; i++ {
 		c := candidates[i]
@@ -501,6 +587,22 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 		seedSet[c.NodeHash] = true
 		// Weight decays by rank: rank 1 = 1.0, rank 10 = 0.55, rank 15 = 0.40
 		seedWeights[c.NodeHash] = 1.0 / (1.0 + float64(i)*0.1)
+	}
+
+	// Inject path-seeded type nodes as supplemental RWR seeds.
+	// These don't compete in RRF (where they'd lose to name-matched results)
+	// but still contribute to RWR with lower restart weight (0.3).
+	// With contains edges, RWR walks from these types to their methods.
+	for _, n := range pathResults {
+		if seedSet[n.NodeHash] {
+			continue // already a seed from main channels
+		}
+		seedHashes = append(seedHashes, n.NodeHash)
+		seedSet[n.NodeHash] = true
+		seedWeights[n.NodeHash] = 0.3
+		if len(seedHashes) >= maxSeeds+10 {
+			break
+		}
 	}
 
 	// Community-aware RWR: if ALL seeds cluster in exactly 1 community,
@@ -1055,6 +1157,12 @@ func (ks KeywordSet) IsEmpty() bool {
 	return len(ks.Exact) == 0 && len(ks.Compounds) == 0 && len(ks.Components) == 0
 }
 
+// ExtractKeywordSet is the exported entry point for keyword extraction.
+// Used by benchmarks and tooling that need structured access to extracted keywords.
+func ExtractKeywordSet(desc string) KeywordSet {
+	return extractKeywordSet(desc)
+}
+
 // extractKeywords is a backward-compatible wrapper that returns all keywords
 // as a flat list in priority order. Use extractKeywordSet for structured access.
 func extractKeywords(desc string) []string {
@@ -1567,4 +1675,188 @@ func filterByRepoPrefix(nodes []types.Node, prefix string) []types.Node {
 		}
 	}
 	return result
+}
+
+// extractPathTerms extracts package/directory-like terms from a task description.
+// These are lowercase words (>= 4 chars) that could be directory or package names,
+// excluding common English words that would match too broadly.
+//
+// Examples:
+//   - "custom migration operation" -> ["migration"]
+//   - "EndpointSlice controller reconciliation" -> ["endpointslice", "controller", "reconciliation"]
+//   - "scheduler framework plugin" -> ["scheduler", "framework", "plugin"]
+//   - "CSI driver provisioning" -> ["driver", "provisioning"]
+func extractPathTerms(desc string) []string {
+	// Words that appear commonly in task descriptions but rarely as package names.
+	// These would match too many unrelated nodes if used as path queries.
+	pathStopWords := map[string]bool{
+		"about": true, "above": true, "after": true, "again": true, "also": true,
+		"always": true, "based": true, "because": true, "been": true, "before": true,
+		"being": true, "between": true, "both": true, "called": true, "change": true,
+		"check": true, "code": true, "could": true, "create": true, "custom": true,
+		"data": true, "debug": true, "default": true, "does": true, "doing": true,
+		"done": true, "during": true, "each": true, "ensure": true, "every": true,
+		"existing": true, "extend": true, "field": true, "file": true, "find": true,
+		"first": true, "following": true, "from": true, "function": true, "given": true,
+		"have": true, "here": true, "high": true, "implement": true, "into": true,
+		"just": true, "keep": true, "know": true, "large": true, "like": true,
+		"list": true, "look": true, "make": true, "many": true, "method": true,
+		"more": true, "most": true, "much": true, "must": true, "name": true,
+		"need": true, "never": true, "node": true, "only": true, "open": true,
+		"other": true, "over": true, "part": true, "pass": true, "path": true,
+		"place": true, "point": true, "read": true, "request": true, "result": true,
+		"return": true, "right": true, "same": true, "should": true, "show": true,
+		"since": true, "single": true, "some": true, "specific": true, "start": true,
+		"state": true, "step": true, "still": true, "support": true, "system": true,
+		"take": true, "test": true, "text": true, "that": true, "then": true,
+		"there": true, "these": true, "they": true, "thing": true, "this": true,
+		"through": true, "time": true, "trace": true, "tracing": true, "type": true,
+		"under": true, "update": true, "used": true, "using": true, "value": true,
+		"very": true, "want": true, "well": true, "what": true, "when": true,
+		"where": true, "which": true, "while": true, "will": true, "with": true,
+		"within": true, "without": true, "work": true, "would": true, "write": true,
+		"zero": true, "adding": true, "added": true, "calls": true,
+		"handle": true, "handling": true, "level": true, "logic": true, "main": true,
+		"module": true, "object": true, "operation": true, "option": true, "order": true,
+		"perform": true, "process": true, "provide": true, "running": true, "service": true,
+		"setting": true, "source": true, "string": true, "class": true, "model": true,
+		"view": true, "base": true, "error": true, "response": true, "down": true,
+	}
+
+	words := strings.Fields(desc)
+	var terms []string
+	seen := make(map[string]bool)
+
+	for _, w := range words {
+		// Strip punctuation.
+		clean := strings.Trim(w, ".,;:!?\"'`()[]{}#<>")
+		if clean == "" {
+			continue
+		}
+
+		// Split CamelCase into components for path matching.
+		// "EndpointSlice" -> also check "endpointslice" (as-is, lowercased)
+		lower := strings.ToLower(clean)
+
+		// Skip short words and stop words.
+		if len(lower) < 4 || pathStopWords[lower] {
+			continue
+		}
+
+		// Skip if it contains special chars (URLs, flags, etc.)
+		if strings.ContainsAny(lower, "=/<>{}[]()@#$%^&*+") {
+			continue
+		}
+
+		// Skip pure numbers.
+		allDigit := true
+		for _, r := range lower {
+			if r < '0' || r > '9' {
+				allDigit = false
+				break
+			}
+		}
+		if allDigit {
+			continue
+		}
+
+		if !seen[lower] {
+			seen[lower] = true
+			terms = append(terms, lower)
+		}
+
+		// For compound identifiers like "EndpointSlice" or "endpoint_slice",
+		// also extract sub-components that are >= 4 chars.
+		if strings.Contains(clean, "_") {
+			parts := strings.Split(clean, "_")
+			for _, p := range parts {
+				pl := strings.ToLower(p)
+				if len(pl) >= 4 && !pathStopWords[pl] && !seen[pl] {
+					seen[pl] = true
+					terms = append(terms, pl)
+				}
+			}
+		} else if hasMixedCase(clean) {
+			// CamelCase split.
+			parts := splitCamelWords(clean)
+			for _, p := range parts {
+				pl := strings.ToLower(p)
+				if len(pl) >= 4 && !pathStopWords[pl] && !seen[pl] {
+					seen[pl] = true
+					terms = append(terms, pl)
+				}
+			}
+		}
+	}
+
+	// Limit to top 5 most specific terms (longer = more specific).
+	sort.Slice(terms, func(i, j int) bool {
+		return len(terms[i]) > len(terms[j])
+	})
+	if len(terms) > 5 {
+		terms = terms[:5]
+	}
+
+	return terms
+}
+
+// isPathMatch checks if a term appears in the path portion of a qualified name,
+// not just in the terminal symbol name. This prevents false positives where
+// a package term accidentally matches a method name.
+//
+// QualifiedName formats:
+//   - Go: "github.com/org/repo://pkg/controller/endpointslice/reconciler.reconcile"
+//   - Python: "github.com/org/repo://django/db/migrations/operations/base.py.Operation"
+//   - Rust: "github.com/org/repo://src/cargo/core/resolver/mod.rs.resolve"
+//
+// The term must start at a path boundary (after /, ., _, -, :) but may be a
+// prefix of the segment (e.g., "migration" matches "migrations/").
+func isPathMatch(qualifiedName, term string) bool {
+	lower := strings.ToLower(qualifiedName)
+	termLower := strings.ToLower(term)
+
+	// Find the path portion: everything up to the terminal symbol name.
+	// Terminal name starts after the last file extension marker (.py., .go., .rs., .ts., .java.)
+	// or if none, after the last dot following a slash.
+	pathPortion := lower
+	exts := []string{".py.", ".go.", ".rs.", ".ts.", ".java.", ".cs.", ".rb.", ".js."}
+	for _, ext := range exts {
+		if idx := strings.LastIndex(lower, ext); idx >= 0 {
+			pathPortion = lower[:idx+len(ext)]
+			break
+		}
+	}
+	if pathPortion == lower {
+		// No file extension found. Use everything before last dot after last slash.
+		lastSlash := strings.LastIndex(lower, "/")
+		if lastSlash >= 0 {
+			afterSlash := lower[lastSlash:]
+			if dotIdx := strings.Index(afterSlash, "."); dotIdx >= 0 {
+				pathPortion = lower[:lastSlash+dotIdx]
+			}
+		}
+	}
+
+	// Check if term appears in the path starting at a boundary.
+	// Allow term to be a PREFIX of a path segment (e.g., "migration" matches in
+	// "/migrations/" because "migration" starts at a boundary and is a prefix).
+	idx := strings.Index(pathPortion, termLower)
+	if idx < 0 {
+		return false
+	}
+
+	// Verify left boundary: character before should be a separator or start.
+	if idx > 0 {
+		prev := pathPortion[idx-1]
+		if prev != '/' && prev != '.' && prev != '_' && prev != '-' && prev != ':' {
+			return false
+		}
+	}
+
+	// Right boundary: the term can be a prefix of the segment. No right-boundary
+	// check needed because we already confirmed it's in the path portion (not the
+	// terminal symbol name). The path portion guarantee prevents false positives
+	// like "cache" matching "CacheHandler" (which would be in the symbol portion).
+
+	return true
 }

@@ -1,12 +1,14 @@
 package adapters
 
 import (
+	"strings"
 	"time"
 
 	"github.com/blackwell-systems/knowing/bench/cross-system/benchtype"
 	"github.com/blackwell-systems/knowing/bench/cross-system/normalize"
 	"github.com/blackwell-systems/knowing/internal/community"
 	knowingctx "github.com/blackwell-systems/knowing/internal/context"
+	"github.com/blackwell-systems/knowing/internal/edgetype"
 	"github.com/blackwell-systems/knowing/internal/store"
 	"github.com/blackwell-systems/knowing/internal/types"
 
@@ -49,9 +51,14 @@ func (a *Knowing) Index(repoPath string) (int64, error) {
 	// Initialize task memory for this repo (enables compounding across queries).
 	a.memories[repoPath] = knowingctx.NewTaskMemory(s.DB())
 
+	ctx := stdctx.Background()
+
+	// Generate contains edges (type -> method) if not already present.
+	// This connects disconnected type/class nodes to their methods via QN structure.
+	ensureContainsEdges(ctx, s)
+
 	// Run community detection if not already computed. This enables
 	// community-aware RWR filtering in the retrieval pipeline.
-	ctx := stdctx.Background()
 	existing, _ := community.LoadAssignments(ctx, s)
 	if len(existing) == 0 {
 		if nodes, err := s.NodesByName(ctx, "%"); err == nil && len(nodes) > 0 {
@@ -192,4 +199,85 @@ func (a *Knowing) Reset(repoPath string) error {
 		delete(a.stores, repoPath)
 	}
 	return nil
+}
+
+// ensureContainsEdges generates structural "contains" edges from type/class nodes
+// to their method/field nodes if they don't already exist. This is a one-time
+// migration for pre-indexed databases that lack these edges.
+func ensureContainsEdges(ctx stdctx.Context, s *store.SQLiteStore) {
+	// Check if contains edges already exist.
+	// Quick heuristic: if any "contains" edge exists, assume migration is done.
+	testNodes, _ := s.NodesByName(ctx, "%")
+	if len(testNodes) == 0 {
+		return
+	}
+	// Check for existing contains edges by querying a sample.
+	for _, n := range testNodes[:min(len(testNodes), 10)] {
+		edges, _ := s.EdgesFrom(ctx, n.NodeHash, edgetype.Contains)
+		if len(edges) > 0 {
+			return // already has contains edges
+		}
+	}
+
+	// Load all nodes and generate contains edges.
+	allNodes, err := s.NodesByName(ctx, "%")
+	if err != nil || len(allNodes) == 0 {
+		return
+	}
+
+	// Build map of type/class QNs to hashes.
+	typeQNs := make(map[string]types.Hash)
+	for i := range allNodes {
+		n := &allNodes[i]
+		switch n.Kind {
+		case "type", "class", "struct", "interface", "trait", "module", "object":
+			typeQNs[n.QualifiedName] = n.NodeHash
+		}
+	}
+	if len(typeQNs) == 0 {
+		return
+	}
+
+	// For each non-type node, check if parent QN is a known type.
+	var edges []types.Edge
+	seen := make(map[types.Hash]bool)
+	for i := range allNodes {
+		n := &allNodes[i]
+		switch n.Kind {
+		case "type", "class", "struct", "interface", "trait", "module", "object":
+			continue
+		}
+		qn := n.QualifiedName
+		lastDot := strings.LastIndex(qn, ".")
+		if lastDot < 0 {
+			continue
+		}
+		parentQN := qn[:lastDot]
+		parentHash, ok := typeQNs[parentQN]
+		if !ok {
+			continue
+		}
+		edgeHash := types.ComputeEdgeHash(parentHash, n.NodeHash, edgetype.Contains, "structural")
+		if seen[edgeHash] {
+			continue
+		}
+		seen[edgeHash] = true
+		edges = append(edges, types.Edge{
+			EdgeHash:   edgeHash,
+			SourceHash: parentHash,
+			TargetHash: n.NodeHash,
+			EdgeType:   edgetype.Contains,
+			Confidence: 1.0,
+			Provenance: "structural",
+		})
+	}
+
+	// Batch insert.
+	if len(edges) > 0 {
+		_ = s.BatchPutEdges(ctx, edges)
+		// Invalidate the adjacency cache since we added new edges.
+		// Without this, RWR uses the stale cache (built before contains edges)
+		// and can't traverse the new structural connections.
+		_ = s.DeleteNote(ctx, types.NewHash([]byte("adjacency_cache_v2")), "adjacency_cache")
+	}
 }
