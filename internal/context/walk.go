@@ -155,6 +155,8 @@ var edgeWeights = map[string]float64{
 	"decorates":         0.3,
 	"documents":         0.2,
 	"similar_to":        0.15,
+	"contains":          0.0, // structural: excluded from walk (path seeding uses them directly)
+	"member_of":         0.0, // structural: excluded from walk (reverse of contains)
 	"owned_by":          0.0,
 	"authored_by":       0.0,
 }
