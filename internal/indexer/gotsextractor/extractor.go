@@ -163,6 +163,10 @@ func (e *GoTreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractO
 	testsEdges := ExtractTestsEdges(root, opts, pkgPath, imports)
 	edges = append(edges, testsEdges...)
 
+	// Extract structural edges: interface embedding, type assertions, channel ops.
+	structEdges := extractGoStructuralEdges(root, opts, pkgPath, imports, externalNodes)
+	edges = append(edges, structEdges...)
+
 	// Create a synthetic file node for import edge sources. Import edges use
 	// a file-level node as their source (since imports belong to the file, not
 	// a function). This node must be stored so the edge's source is not dangling.
