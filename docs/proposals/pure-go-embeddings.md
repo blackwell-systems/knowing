@@ -25,10 +25,59 @@ symbol names ("SessionHandler", "TokenValidator") requires a code-specific embed
 model, not a general-purpose one.
 
 **What would move the needle:**
-1. A code-retrieval-tuned model (CodeBERT, UniXcoder, or fine-tuned BGE on code pairs)
+1. **Re-ranker architecture** (most promising, see below)
 2. Better text representation (include docstrings, file context, caller names)
-3. Hybrid scoring (use embedding similarity as a re-ranker on BM25 candidates, not as
-   a standalone channel)
+3. Test on repos where BM25 is known to fail (k8s, django SWE tasks)
+
+### Re-ranker Architecture (next experiment)
+
+The current integration adds embeddings as Channel 3 (independent signal fused via RRF).
+This fails because:
+- On well-named codebases (flask), BM25 already finds the right symbols. Embeddings
+  add nothing because there's no vocabulary gap to bridge.
+- On large codebases (k8s, django), we can only embed 5K/253K symbols due to latency.
+  The unreachable symbols we need aren't in the 5K we embedded.
+- RRF fusion treats embedding results as equal-weight candidates. But embedding
+  similarity is a weak signal for code retrieval (the models aren't code-specific enough).
+
+**Proposed fix: use embeddings as a re-ranker, not a candidate source.**
+
+```
+Current (Channel 3, independent):
+  BM25 candidates ─┐
+  Vector candidates ─┼─> RRF fusion -> RWR walk -> pack
+  Path candidates  ─┘
+
+Proposed (re-ranker on BM25 output):
+  BM25 candidates -> RWR walk -> top-50 candidates -> embed query + candidates
+                                                    -> cosine re-rank -> top-15 -> pack
+```
+
+Why this could work:
+1. No need to pre-embed all symbols (embed only the ~50 RWR candidates at query time)
+2. 50 embeddings x 14ms = 700ms (acceptable if results improve significantly)
+3. The model scores relevance between the task description and each candidate's text
+4. This catches cases where RWR surfaced the right neighborhood but ranked wrong within it
+5. Works with any model (BGE, jina, nomic) since it's pairwise similarity, not retrieval
+
+Why it might not work:
+- If the correct symbols aren't in the top-50 RWR candidates at all (true unreachability),
+  re-ranking can't help. Only an independent candidate source can.
+- 700ms latency overhead might be unacceptable for interactive use (but fine for batch/CI)
+
+**Implementation cost:** ~50 LOC change in `packIntoBudget` or a new `reRankWithEmbeddings`
+step between RWR scoring and packing. No model change needed, no pre-indexing needed.
+
+### Tested models (all neutral as Channel 3)
+
+| Model | Type | Dims | Flask P@10 | Delta |
+|-------|------|------|-----------|-------|
+| BAAI/bge-small-en-v1.5 | General retrieval | 384 | 0.332 | 0% |
+| jinaai/jina-embeddings-v2-base-code | Code-specific | 768 | 0.332 | 0% |
+| nomic-ai/nomic-embed-text-v1.5 | Code-aware | 768 | 0.332 | 0% |
+
+All three are neutral because the integration architecture (independent channel) is wrong
+for this problem, not because the models are bad.
 
 **Decision:** Keep the infrastructure (it works mechanically). Revisit when a
 code-retrieval-specific model is available in a size suitable for local inference.
