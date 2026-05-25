@@ -1,6 +1,7 @@
 package gotsextractor
 
 import (
+	"context"
 	"testing"
 
 	sitter "github.com/smacker/go-tree-sitter"
@@ -14,7 +15,7 @@ func parseGoSource(t *testing.T, src string) *sitter.Node {
 	t.Helper()
 	parser := sitter.NewParser()
 	parser.SetLanguage(golang.GetLanguage())
-	tree, err := parser.ParseCtx(nil, nil, []byte(src))
+	tree, err := parser.ParseCtx(context.Background(), nil, []byte(src))
 	if err != nil {
 		t.Fatal(err)
 	}

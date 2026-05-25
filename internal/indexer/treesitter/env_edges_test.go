@@ -1,6 +1,7 @@
 package treesitter
 
 import (
+	"context"
 	"testing"
 
 	sitter "github.com/smacker/go-tree-sitter"
@@ -163,7 +164,7 @@ func parsePythonFunc(t *testing.T, content []byte) *sitter.Node {
 	t.Helper()
 	parser := sitter.NewParser()
 	parser.SetLanguage(python.GetLanguage())
-	tree, err := parser.ParseCtx(nil, nil, content)
+	tree, err := parser.ParseCtx(context.Background(), nil, content)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
