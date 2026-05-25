@@ -28,7 +28,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Shared `docextract` package provides language-agnostic extraction from preceding comments
 - **6 languages**: Go (//), Python (body docstrings), TypeScript (JSDoc), Rust (///), Java (Javadoc), C# (XML ///)
 - BM25 column weights: symbol_name=10, concepts=5, qualified_name=3, file_path=4, doc=3, signature=1
-- Flask P@10: 0.250 -> 0.271 (+8.4%). Full corpus (161 tasks, 9 repos): 0.180 -> 0.202 (+12.2%)
+- Flask P@10: 0.250 -> 0.271 (+8.4%). Full corpus (167 tasks, 9 repos): 0.180 -> 0.202 (+12.2%)
 - MRR improved +4.9% (first relevant result ranks higher thanks to docstring matching)
 
 #### Fixed: feedback compounding regression

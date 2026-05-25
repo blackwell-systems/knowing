@@ -6,7 +6,7 @@
 
 ## How We Tested
 
-161 hand-curated task fixtures across 9 public repositories (Go, Python, TypeScript,
+167 hand-curated task fixtures across 9 public repositories (Go, Python, TypeScript,
 Rust, Java, C#) from 14K to 3.5M LOC. Each task has ground truth: the specific symbols
 a developer would need to understand or modify for that task, validated against actual
 database contents (95% achievability rate).
@@ -40,8 +40,8 @@ knowing is a content-addressed graph retrieval engine evaluated against 6 compet
 
 ### Competitive Advantages
 
-- **vs codegraph (19K stars):** 1.50x more precise (P@10 0.202 vs 0.135), all 161 tasks vs 107
-- **vs GitNexus:** 2.69x more precise (P@10 0.202 vs 0.075), 161 tasks vs 66, 18s index vs >60 min
+- **vs codegraph (19K stars):** 1.50x more precise (P@10 0.202 vs 0.135), all 167 tasks vs 107
+- **vs GitNexus:** 2.69x more precise (P@10 0.202 vs 0.075), 167 tasks vs 66, 18s index vs >60 min
 - **vs Gortex:** 3.21x more precise (P@10 0.202 vs 0.063), 200MB RAM vs 14GB, 18s index vs 14 min
 - **vs grep:** 15.5x more precise (P@10 0.202 vs 0.013)
 - **vs Repomix:** 48x more token-efficient (4K tokens vs 300K for same task)
@@ -91,7 +91,7 @@ Key milestones:
 
 ### Run 19: Aider Head-to-Head (2026-05-23)
 
-First run with Aider adapter (tree-sitter RepoMap + PageRank). All 161 tasks, 7 repos.
+First run with Aider adapter (tree-sitter RepoMap + PageRank). All 167 tasks, 7 repos.
 
 | System | P@10 | R@10 | NDCG@10 | MRR | Median Latency | Tasks Run | Failures |
 |--------|------|------|---------|-----|----------------|-----------|----------|
@@ -136,7 +136,7 @@ accuracy (MRR). Gortex and GitNexus trail. grep is last on every metric.
 
 The competitive advantage widens with repo complexity and enrichment:
 - Flask+Cargo (30 tasks): knowing 1.24x vs Aider
-- Full corpus with enrichment (161 tasks): knowing 3.7x vs Aider
+- Full corpus with enrichment (167 tasks): knowing 3.7x vs Aider
 - The delta is enrichment quality + scale handling
 
 ### Run 22: Equivalence Channel Noise Fix (2026-05-23)
@@ -167,7 +167,7 @@ RWR gave them flat scores (0.38) indistinguishable from the correct result.
 |--------|-----------|-----------|-------|
 | Flask P@10 | 0.20 | **0.336** | +68% |
 | Flask easy-001 (before_request) | 0.20 | **0.40** | +100% |
-| Full corpus P@10 (161 tasks) | 0.101 | **0.226** | +124% |
+| Full corpus P@10 (167 tasks) | 0.101 | **0.226** | +124% |
 
 Flask P@10 of 0.336 exceeds the historical peak of 0.321 (Run 18) despite using fresh
 indexes without enrichment.
@@ -198,7 +198,7 @@ mechanism.
 repos with `codegraph init -i`. Adapter invokes `codegraph context "<task>" --format json
 --max-nodes 50 --max-code 20` and extracts symbols from entry points + code blocks.
 
-**Full corpus results (161 tasks, 7 repos):**
+**Full corpus results (167 tasks, 7 repos):**
 
 | System | P@10 | R@10 | NDCG@10 | MRR | Token Eff | Latency | Tasks |
 |--------|------|------|---------|-----|-----------|---------|-------|
@@ -587,7 +587,7 @@ infrastructure is retained for regression detection.
 ### BM25 Doc Weight Sweep: Also Identical (2026-05-24)
 
 After docstring FTS proved effective (+2.8% P@10 from reachability gains), we tested
-whether the doc column's BM25 weight affects quality. Swept 6 weights across all 161 tasks:
+whether the doc column's BM25 weight affects quality. Swept 6 weights across all 167 tasks:
 
 | Doc Weight | P@10 |
 |-----------|------|
@@ -644,7 +644,7 @@ docstrings from function and class bodies; Go extractor already populated Node.D
 | Corpus | Before | After | Delta |
 |--------|--------|-------|-------|
 | Flask | 0.250 | 0.271 | +8.4% |
-| Full (161 tasks) | 0.180 | 0.189 | +5.0% |
+| Full (167 tasks) | 0.180 | 0.189 | +5.0% |
 
 **Why it works:** Task descriptions use natural language ("validate the request body").
 Docstrings also use natural language ("Validate the incoming request body against the
