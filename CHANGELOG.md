@@ -91,6 +91,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Cross-module edge attenuation in RWR (0.3x for transitions between top-level directories)
 - Repo-scoped search filtering via `TaskOptions.RepoURL` (prevents cross-repo noise in multi-module DBs)
 
+#### Structural `contains` edges (type -> method)
+- New edge type: `contains` (RWR weight 0.6) connects type/class nodes to their method/field nodes
+- Generated from QN structure during indexing: if `Foo.Bar` exists and `Foo` is a type, emit `Foo --contains--> Foo.Bar`
+- Fixes: 77% of type/class nodes (5,457/7,086 in k8s) had zero edges, completely disconnected from the graph
+- Impact: 19 ground truth symbols moved from "unreachable" to "ranked_low" (reachable but below top-10)
+- spark-java: 0 unreachable symbols (from 1). k8s: 44 (from 47). flask: 23 (from 25).
+- `django-hard-002` P@10 went from 0.00 to 1.00 (custom migration operation task)
+
+#### Path-context seeding (Channel 5 in retrieval pipeline)
+- Extracts package/directory-like terms from task descriptions
+- Finds TYPE nodes in matching packages, prioritizing types with methods (rich types)
+- Injects as supplemental RWR seeds (weight 0.3), bypassing RRF competition
+- Bridges concept-to-implementation gap: "migration" in task -> finds types in migrations/ package
+
+#### P@10 failure analysis tool (`bench/cross-system/failure_analysis_test.go`)
+- Categorizes every ground truth miss: not_in_db, no_seeds, unreachable, ranked_low, matched
+- Baseline results: 168 matched (25.7%), 175 ranked_low (26.8%), 310 unreachable (47.5%)
+- After contains+path: 168 matched (25.7%), 194 ranked_low (29.7%), 291 unreachable (44.6%)
+- Identifies most impactful tasks for targeted improvement (top: django-hard-001, vscode-hard-003)
+
+#### Exported `ExtractKeywordSet` for benchmark tooling
+- Public entry point for the structured keyword extraction pipeline
+- Used by failure analysis tool to inspect what keywords are extracted per task
+
 ### Changed
 
 #### LSP enrichment ROI measured (neutral for P@10, confirmed at enterprise scale)
