@@ -372,6 +372,10 @@ func extractClassDeclWithImports(node *sitter.Node, opts types.ExtractOptions, p
 	// Walk the class body for methods, constructors, nested classes.
 	body := node.ChildByFieldName("body")
 	if body != nil {
+		// Extract field declarations as field nodes.
+		fieldNodes := extractClassFieldNodes(body, opts, pkgPath, qualifiedClass)
+		nodes = append(nodes, fieldNodes...)
+
 		for i := 0; i < int(body.ChildCount()); i++ {
 			member := body.Child(i)
 			switch member.Type() {
@@ -707,6 +711,12 @@ func extractMethodDeclWithImports(node *sitter.Node, opts types.ExtractOptions, 
 	if body != nil {
 		callEdges := extractCallEdgesWithImports(body, opts, pkgPath, nodeHash, javaImports)
 		edges = append(edges, callEdges...)
+	}
+
+	// Extract field access edges (this.field patterns).
+	if body != nil {
+		fieldEdges := extractFieldAccessEdges(node, opts, pkgPath, className, nodeHash)
+		edges = append(edges, fieldEdges...)
 	}
 
 	return nodes, edges
