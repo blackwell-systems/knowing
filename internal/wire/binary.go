@@ -42,6 +42,8 @@ var kindToID = map[string]uint8{
 	"file":          14,
 	"package":       15,
 	"service":       16,
+	"env_var":        17,
+	"process":        18,
 }
 
 var idToKind = map[uint8]string{
@@ -49,6 +51,7 @@ var idToKind = map[uint8]string{
 	5: "var", 6: "const", 7: "resource", 8: "table",
 	9: "class", 10: "selector", 11: "field", 12: "route_handler",
 	13: "external", 14: "file", 15: "package", 16: "service",
+	17: "env_var", 18: "process",
 }
 
 // Provenance encoding (1 byte).
@@ -106,6 +109,8 @@ var edgeTypeToID = map[string]uint8{
 	"co_tested_with":    34,
 	"type_hint_of":      35,
 	"accesses_field":    36,
+	"reads_env":         37,
+	"executes_process":  38,
 }
 
 var idToEdgeType = map[uint8]string{
@@ -120,6 +125,7 @@ var idToEdgeType = map[uint8]string{
 	29: "tested_by", 30: "publishes", 31: "subscribes",
 	32: "connects_to", 33: "similar_to", 34: "co_tested_with",
 	35: "type_hint_of", 36: "accesses_field",
+	37: "reads_env", 38: "executes_process",
 }
 
 // Edge status encoding (1 byte).

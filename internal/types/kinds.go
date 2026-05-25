@@ -14,4 +14,6 @@ const (
 	KindFile      = "file"
 	KindPackage   = "package"
 	KindField     = "field"
+	KindEnvVar    = "env_var"
+	KindProcess   = "process"
 )
