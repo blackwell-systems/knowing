@@ -1,0 +1,14 @@
+id: cargo-hard-006
+repo: cargo
+tier: hard
+description: "Trace how cargo publish packages a crate, verifies it builds cleanly, uploads to the registry, and updates the index"
+source: manual
+ground_truth:
+  - src/cargo/ops/registry/publish.rs.PublishOpts
+  - src/cargo/ops/cargo_package.rs.PackageOpts
+  - src/cargo/ops/cargo_package.rs.package
+  - src/cargo/sources/registry/mod.rs.RegistryData
+  - src/cargo/util/auth/mod.rs.auth_token
+  - src/cargo/core/manifest.rs.Manifest
+tags: [publish, registry, packaging, cross-package, understanding]
+notes: "Publishing requires PublishOpts configuration, PackageOpts for tarball creation, the package function for verification, RegistryData for upload, auth_token for credentials, and Manifest for metadata."

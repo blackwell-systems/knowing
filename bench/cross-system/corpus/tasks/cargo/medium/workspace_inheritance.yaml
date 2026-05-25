@@ -1,0 +1,13 @@
+id: cargo-medium-006
+repo: cargo
+tier: medium
+description: "Implement workspace-level dependency inheritance so child packages can reference versions defined in the workspace Cargo.toml"
+source: manual
+ground_truth:
+  - src/cargo/core/workspace.rs.Workspace
+  - src/cargo/core/workspace.rs.Workspace.members
+  - src/cargo/util/toml/mod.rs.parse_document
+  - src/cargo/core/dependency.rs.Dependency
+  - src/cargo/core/manifest.rs.Manifest
+tags: [workspace, inheritance, dependencies, cross-package]
+notes: "Workspace inheritance requires Workspace for root manifest, members for iteration, parse_document for TOML reading, Dependency for version specs, and Manifest for package metadata."
