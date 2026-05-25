@@ -64,6 +64,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Expanded framework thesaurus** ("backend"->"base", "custom"->"abstract"): Hurts Kafka (-0.005). Too noisy for BM25.
 - **Higher seed weight (0.6) for type-method matches**: Slightly worse than 0.3. RWR handles seed weighting internally.
 
+#### `BENCH_EXCLUDE_EDGES` query-time edge ablation tool
+- Set `BENCH_EXCLUDE_EDGES=similar_to,type_hint_of` to exclude edge types from RWR walk
+- No reindex needed: filters at adjacency cache BFS and fallback BFS paths at query time
+- Enables hypothesis testing in seconds (which edge types cause dilution on dense graphs)
+- Package-level `ExcludeEdgeTypes` variable in context package, bench adapter reads from env
+
 ### Fixed
 - CI timing contracts: loosen Louvain 0-changes (10ms -> 15ms) and scoped FTS (50ms -> 75ms) for noisy CI runners
 
