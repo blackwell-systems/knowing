@@ -739,6 +739,7 @@ waves:
             - internal/indexer/tsextractor/field_access_edges.go
             - internal/indexer/tsextractor/field_access_edges_test.go
             - internal/indexer/tsextractor/extractor.go
+      base_commit: b5ff8e9801e9e99c35df204074fc0744d6d28648
 quality_gates:
     level: standard
     gates:
