@@ -201,6 +201,7 @@ func (e *TypeScriptExtractor) extractNodeWithImports(
 	case "function_declaration":
 		n := extractFuncDecl(node, opts, qnamePrefix, className)
 		*nodes = append(*nodes, n)
+		*edges = append(*edges, extractTSTypeHints(node, opts, qnamePrefix, n.NodeHash)...)
 		body := node.ChildByFieldName("body")
 		extractCallEdgesFromBodyWithImports(body, opts, qnamePrefix, n.NodeHash, hasExpress, tsImports, nodes, edges)
 		epNodes, epEdges := ExtractEndpointEdges(body, opts, qnamePrefix, n.NodeHash)
@@ -225,6 +226,7 @@ func (e *TypeScriptExtractor) extractNodeWithImports(
 				if child.Type() == "method_definition" {
 					m := extractMethodDef(child, opts, qnamePrefix, clsName)
 					*nodes = append(*nodes, m)
+					*edges = append(*edges, extractTSTypeHints(child, opts, qnamePrefix, m.NodeHash)...)
 					extractOverrideEdge(child, opts, qnamePrefix, clsName, m.NodeHash, edges)
 					extractTSDecoratorEdges(child, opts, qnamePrefix, m.NodeHash, edges)
 					mBody := child.ChildByFieldName("body")
@@ -249,6 +251,23 @@ func (e *TypeScriptExtractor) extractNodeWithImports(
 			child := node.Child(i)
 			if child.Type() == "variable_declarator" {
 				e.extractVariableDeclarator(child, opts, qnamePrefix, className, fileNodeHash, hasExpress, nodes, edges)
+			}
+		}
+
+	case "export_statement":
+		// export class Foo {}, export function bar(), export interface Baz
+		// Unwrap and recurse into the declaration child.
+		decl := node.ChildByFieldName("declaration")
+		if decl != nil {
+			e.extractNodeWithImports(decl, opts, qnamePrefix, className, fileNodeHash, hasExpress, tsImports, nodes, edges)
+		} else {
+			// export { Foo, Bar } or export default ...
+			for i := 0; i < int(node.ChildCount()); i++ {
+				child := node.Child(i)
+				switch child.Type() {
+				case "class_declaration", "function_declaration", "interface_declaration", "lexical_declaration":
+					e.extractNodeWithImports(child, opts, qnamePrefix, className, fileNodeHash, hasExpress, tsImports, nodes, edges)
+				}
 			}
 		}
 
