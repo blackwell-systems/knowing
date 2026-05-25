@@ -221,11 +221,28 @@ P@10=0.202 (Run 24, 167 tasks, 9 repos). 1.50x vs codegraph, 2.69x vs GitNexus, 
 
 32 edge types shipped. See [Edge Types Reference](architecture/edge-types.md) and [CHANGELOG](CHANGELOG.md) for full details.
 
+### P1: Reachability edges (directly improve P@10)
+
+These edges bridge the 45.6% of unreachable ground truth symbols (407/893). Each creates new paths from keyword seeds to previously-disconnected subgraphs. Prioritized by breadth of applicability across languages.
+
+| # | Edge Type | What it connects | Languages | Expected Impact | Effort |
+|---|-----------|-----------------|-----------|-----------------|--------|
+| 1 | **`implements_interface` propagation** | When function accepts interface type, connect to all concrete implementors. If `func Handle(c Cache)` exists and `RedisCache implements Cache`, create edge from `Handle` to `RedisCache`. Currently only Go has partial support; needs full cross-language extraction. | Go, Java, TypeScript, C#, Rust (traits) | +3-8% P@10 (bridges k8s 71, django 117 unreachable) | Medium |
+| 2 | **`co_tested_with`** | Symbols imported/used in the same test file are functionally related. If `TestCacheIntegration` imports both `RedisCache` and `BaseCache`, create lateral edge between them. Bridges otherwise-disconnected symbols that serve the same feature. | All (test file detection is universal) | +2-5% P@10 (k8s has 58K tests edges; lateral connections between tested symbols) | Medium |
+| 3 | **`type_hint_of`** | Function parameter type annotations create usage edges that aren't calls. `def process(cache: BaseCache)` means `process` depends on `BaseCache`. Invisible to call-graph extraction but structurally meaningful. | Python, TypeScript, Java, Rust, Go, C# | +2-5% P@10 (bridges django 117 unreachable: many functions accept base types as params) | Medium |
+
+**Why these matter (failure analysis, session 14):**
+- Django: 117/192 ground truth symbols unreachable. Root cause: framework base classes (`BaseCache`, `BaseDatabaseWrapper`, `Operation`) are referenced by type hint and interface contract, not by direct call. Seeds find concrete implementations but can't walk to the base class.
+- Kubernetes: 71/116 unreachable. Root cause: interface-heavy architecture where functions accept interfaces (`runtime.Object`, `Informer`) but ground truth is the concrete implementations. Interface propagation would bridge these.
+- Kafka: 50/93 unreachable. Root cause: consumer/producer patterns where coordinator classes are referenced via type parameters and configuration, not direct calls.
+
+### P2: Structural edges
+
 | Category | Items | Status |
 |----------|-------|--------|
-| Runtime | `runtime_queries`, `runtime_connects_to` | P2 |
-| Configuration | `configures` (config key to symbol that reads it) | P2 |
-| Agent workflow | `suggested_for_task` / `used_by_agent` | P3 |
+| Runtime | `runtime_queries`, `runtime_connects_to` | Planned |
+| Configuration | `configures` (config key to symbol that reads it) | Planned |
+| Agent workflow | `suggested_for_task` / `used_by_agent` | Planned |
 
 ## Observability Ingestion
 
