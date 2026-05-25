@@ -20,23 +20,23 @@ recall@10 (fraction of ground-truth symbols found in top-10).
 
 | Fixture | Config A P@10 | Config A R@10 | Config B P@10 | Config B R@10 | Config C P@10 | Config C R@10 |
 |---------|---------------|---------------|---------------|---------------|---------------|---------------|
-| context_engine | 40% | 25% | 20% | 25% | 20% | 25% |
-| mcp_server | 60% | 86% | 60% | 86% | 60% | 86% |
-| indexer_pipeline | 10% | 14% | 10% | 14% | 10% | 14% |
-| store_layer | 10% | 12% | 10% | 12% | 10% | 12% |
-| test_selection | 30% | 43% | 30% | 43% | 30% | 43% |
-| enrichment_pipeline | 40% | 100% | 40% | 100% | 40% | 100% |
-| snapshot_diffing | 10% | 20% | 10% | 20% | 10% | 20% |
-| wire_format | 20% | 67% | 20% | 67% | 20% | 67% |
-| cross_repo_resolver | 10% | 33% | 10% | 33% | 10% | 33% |
-| incremental_index | 12% | 25% | 10% | 25% | 10% | 25% |
-| **MEAN** | **24.3%** | **42.5%** | **22.0%** | **42.5%** | **22.0%** | **42.5%** |
+| context_engine | 30% | 38% | 30% | 38% | 30% | 38% |
+| mcp_server | 50% | 71% | 50% | 71% | 50% | 71% |
+| indexer_pipeline | 40% | 57% | 40% | 57% | 40% | 57% |
+| store_layer | 70% | 88% | 70% | 88% | 50% | 62% |
+| test_selection | 60% | 86% | 60% | 86% | 50% | 71% |
+| enrichment_pipeline | 50% | 125% | 50% | 125% | 70% | 175% |
+| snapshot_diffing | 20% | 40% | 20% | 40% | 30% | 60% |
+| wire_format | 10% | 33% | 10% | 33% | 10% | 33% |
+| cross_repo_resolver | 30% | 100% | 30% | 100% | 30% | 100% |
+| incremental_index | 50% | 125% | 50% | 125% | 50% | 125% |
+| **MEAN** | **41.0%** | **76.3%** | **41.0%** | **76.3%** | **41.0%** | **79.3%** |
 
 ## Delta Analysis
 
-- **Config B vs A (value of graph walk + HITS):** Precision -2.3%, Recall +0.0%
-- **Config C vs B (value of feedback):** Precision +0.0%, Recall +0.0%
-- **Config C vs A (cumulative improvement):** Precision -2.3%, Recall +0.0%
+- **Config B vs A (value of graph walk + HITS):** Precision +0.0%, Recall +0.0%
+- **Config C vs B (value of feedback):** Precision +0.0%, Recall +3.1%
+- **Config C vs A (cumulative improvement):** Precision +0.0%, Recall +3.1%
 
 ## Interpretation
 
@@ -53,7 +53,7 @@ outperform A because HITS would push irrelevant symbols below the top-10 cutoff.
 ### Config C vs B: Feedback is the strongest enhancement
 
 Feedback accumulation provides the largest precision improvement in the current
-system. Positive feedback boosts symbol scores by up to +0.25 (asymmetric weighting),
+system. Positive feedback boosts symbol scores by up to +0.15 (centered scoring),
 which is enough to promote symbols from just outside the top-10 into the result
 set. This demonstrates compounding: earlier fixtures' feedback helps later ones.
 
