@@ -117,13 +117,40 @@ competitors for every keyword, and the ground truth gets outranked.
 
 **This is NOT a walk/RWR problem. It's a seed quality problem on dense FTS indexes.**
 
-### Implications
+### Resolution: PreferTypeSeeds (SHIPPED)
 
-1. Local embeddings bypass this entirely (vector similarity doesn't degrade with index size)
-2. Node-kind-aware seed selection (prioritize types/interfaces over methods) may help
-3. Per-file or per-package BM25 (smaller index per scope) would restore IDF discrimination
+**Hypothesis H8 (node-kind-aware seed selection) CONFIRMED.**
+
+Reordering RRF candidates to prefer type/interface/class nodes as RWR seeds:
+
+| Config | VS Code P@10 |
+|--------|-------------|
+| Baseline (all hypotheses failed) | 0.095 |
+| H1: Hub dampening (threshold 50) | 0.095 (no effect) |
+| **H8: PreferTypeSeeds** | **0.137 (+44%)** |
+| H1 + H8 combined | 0.137 (H1 adds nothing) |
+
+**Full corpus with PreferTypeSeeds: P@10 = 0.207. Zero regressions.**
+
+The fix is self-adapting: auto-enables when `GraphNodeCount > 40000`. The threshold
+was determined empirically (VS Code DB has 49,451 nodes). Django (42K), kafka (80K),
+and k8s (117K) all trigger and are unaffected.
+
+**Why types are better seeds:** On dense graphs, generic keywords match thousands of
+methods. Methods can only walk UP (to their callers), competing with thousands of other
+methods for the same RWR probability. Types walk DOWN (to their methods via `contains`
+edges), reaching an entire class's API surface from a single seed. The walk from a type
+is more productive because it covers a coherent set of related symbols.
+
+### Implications (updated)
+
+1. Local embeddings still the biggest lever (bypasses keyword competition entirely)
+2. ~~Node-kind-aware seed selection may help~~ CONFIRMED and shipped as self-adapting
+3. Per-file or per-package BM25 (smaller index per scope) would restore IDF discrimination (not needed now, PreferTypeSeeds is sufficient)
 4. The parameter sweep finding still holds: P@10 is reachability-determined. But now we
    know that "reachability" starts at seed selection, not just graph structure.
+5. **New finding:** the system should adapt its retrieval strategy based on observed graph
+   density. This is now a core design principle (density-adaptive retrieval).
 
 ## Experiment Protocol
 
