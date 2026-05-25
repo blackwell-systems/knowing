@@ -1,6 +1,7 @@
 package adapters
 
 import (
+	"os"
 	"strings"
 	"time"
 
@@ -15,6 +16,21 @@ import (
 
 	stdctx "context"
 )
+
+func init() {
+	// BENCH_EXCLUDE_EDGES=similar_to,type_hint_of excludes these edge types
+	// from RWR walk at query time (no reindex needed). For ablation studies.
+	if envExclude := os.Getenv("BENCH_EXCLUDE_EDGES"); envExclude != "" {
+		exclude := make(map[string]bool)
+		for _, et := range strings.Split(envExclude, ",") {
+			et = strings.TrimSpace(et)
+			if et != "" {
+				exclude[et] = true
+			}
+		}
+		knowingctx.ExcludeEdgeTypes = exclude
+	}
+}
 
 // Knowing implements benchtype.Adapter for knowing's context engine.
 type Knowing struct {

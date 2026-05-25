@@ -133,6 +133,12 @@ func collectNodeHashes(adjFrom, adjTo map[types.Hash][]types.Edge) []types.Hash 
 	return result
 }
 
+// ExcludeEdgeTypes is a set of edge types to exclude from adjacency map construction.
+// When non-nil, edges of these types are skipped during BFS expansion AND during RWR
+// iteration. Used for ablation studies (diagnosing which edge types cause dilution).
+// Set via bench adapter or CLI; nil means all edge types are included.
+var ExcludeEdgeTypes map[string]bool
+
 // edgeWeights maps edge type strings to weight multipliers used during RWR iteration.
 // Higher weights cause more probability to flow along those edge types.
 var edgeWeights = map[string]float64{
@@ -613,6 +619,9 @@ func buildAdjacencyMap(ctx stdctx.Context, store types.GraphStore, seeds []types
 				}
 				adjFrom[node] = from
 				for _, e := range from {
+					if ExcludeEdgeTypes != nil && ExcludeEdgeTypes[e.EdgeType] {
+						continue
+					}
 					if !visited[e.TargetHash] && !externals[e.TargetHash] {
 						// Don't expand frontier through weight-0 edges (contains,
 						// member_of, authored_by). These create structural connections
@@ -634,6 +643,9 @@ func buildAdjacencyMap(ctx stdctx.Context, store types.GraphStore, seeds []types
 				}
 				adjTo[node] = to
 				for _, e := range to {
+					if ExcludeEdgeTypes != nil && ExcludeEdgeTypes[e.EdgeType] {
+						continue
+					}
 					if !visited[e.SourceHash] && !externals[e.SourceHash] {
 						if w, ok := edgeWeights[e.EdgeType]; ok && w == 0 {
 							continue
@@ -707,12 +719,18 @@ func buildFromCache(data string, seeds []types.Hash, externals map[types.Hash]bo
 		var nextFrontier []types.Hash
 		for _, node := range frontier {
 			for _, ce := range fromMap[node] {
+				if ExcludeEdgeTypes != nil && ExcludeEdgeTypes[ce.edgeType] {
+					continue
+				}
 				if !visited[ce.target] && !externals[ce.target] {
 					visited[ce.target] = true
 					nextFrontier = append(nextFrontier, ce.target)
 				}
 			}
 			for _, ce := range toMap[node] {
+				if ExcludeEdgeTypes != nil && ExcludeEdgeTypes[ce.edgeType] {
+					continue
+				}
 				if !visited[ce.source] && !externals[ce.source] {
 					visited[ce.source] = true
 					nextFrontier = append(nextFrontier, ce.source)
@@ -727,6 +745,9 @@ func buildFromCache(data string, seeds []types.Hash, externals map[types.Hash]bo
 	adjTo := make(map[types.Hash][]types.Edge, len(visited))
 	for node := range visited {
 		for _, ce := range fromMap[node] {
+			if ExcludeEdgeTypes != nil && ExcludeEdgeTypes[ce.edgeType] {
+				continue
+			}
 			adjFrom[node] = append(adjFrom[node], types.Edge{
 				SourceHash: ce.source,
 				TargetHash: ce.target,
@@ -734,6 +755,9 @@ func buildFromCache(data string, seeds []types.Hash, externals map[types.Hash]bo
 			})
 		}
 		for _, ce := range toMap[node] {
+			if ExcludeEdgeTypes != nil && ExcludeEdgeTypes[ce.edgeType] {
+				continue
+			}
 			adjTo[node] = append(adjTo[node], types.Edge{
 				SourceHash: ce.source,
 				TargetHash: ce.target,
