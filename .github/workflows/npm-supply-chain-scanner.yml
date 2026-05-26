@@ -10,96 +10,10 @@ permissions:
   issues: write
 
 jobs:
-  fetch:
-    name: Fetch packages to scan
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      matrix: ${{ steps.split.outputs.matrix }}
-      total: ${{ steps.split.outputs.total }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Fetch recent npm publishes
-        run: |
-          chmod +x scripts/fetch-npm-recent-changes.sh scripts/fetch-recent-publishes.sh
-          # Try real-time feed first, fall back to curated watchlist
-          ./scripts/fetch-npm-recent-changes.sh 180 200 > all-packages.txt 2>/dev/null || true
-          FOUND=$(grep -cv "^#" all-packages.txt 2>/dev/null || echo "0")
-          if [ "$FOUND" -lt 5 ]; then
-            echo "Real-time feed returned $FOUND packages, falling back to watchlist"
-            ./scripts/fetch-recent-publishes.sh > all-packages.txt 2>/dev/null || true
-            FOUND=$(grep -cv "^#" all-packages.txt 2>/dev/null || echo "0")
-          fi
-          if [ "$FOUND" -lt 1 ]; then
-            echo "Watchlist also empty, using inline fallback"
-            # Minimal set to ensure the scanner exercises end-to-end
-            echo "express 5.1.0 5.0.1" > all-packages.txt
-            echo "axios 1.9.0 1.8.4" >> all-packages.txt
-            echo "lodash 4.17.21 4.17.20" >> all-packages.txt
-          fi
-          echo "Total packages:"
-          grep -cv "^#" all-packages.txt 2>/dev/null || echo "0"
-
-      - name: Split into parallel batches
-        id: split
-        run: |
-          TOTAL=$(grep -cv "^#" all-packages.txt 2>/dev/null || echo "0")
-          TOTAL=$(echo "$TOTAL" | tr -d '[:space:]')
-          echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
-
-          # Split into batches of 25 for parallel scanning
-          mkdir -p batches
-          BATCH_SIZE=25
-          BATCHES=()
-          i=0
-          while IFS= read -r line; do
-            [[ "$line" == \#* ]] && continue
-            [ -z "$line" ] && continue
-            BATCH_IDX=$((i / BATCH_SIZE))
-            mkdir -p "batches"
-            echo "$line" >> "batches/batch-${BATCH_IDX}.txt"
-            i=$((i + 1))
-          done < all-packages.txt
-
-          # Build matrix JSON
-          MATRIX="["
-          FIRST=true
-          for f in batches/batch-*.txt; do
-            [ -f "$f" ] || continue
-            IDX=$(basename "$f" .txt | sed 's/batch-//')
-            COUNT=$(wc -l < "$f" | tr -d ' ')
-            if [ "$FIRST" = true ]; then FIRST=false; else MATRIX+=","; fi
-            MATRIX+="{\"batch\":\"$IDX\",\"count\":\"$COUNT\"}"
-          done
-          MATRIX+="]"
-
-          if [ "$MATRIX" = "[]" ]; then
-            MATRIX='[{"batch":"0","count":"0"}]'
-          fi
-
-          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
-          echo "Matrix: $MATRIX"
-
-          # Ensure batches dir has at least one file for artifact upload
-          [ -z "$(ls batches/ 2>/dev/null)" ] && echo "# empty" > batches/batch-0.txt
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: package-batches
-          path: batches/
-          retention-days: 1
-
   scan:
-    name: "Scan batch ${{ matrix.batch }} (${{ matrix.count }} pkgs)"
-    needs: fetch
-    if: needs.fetch.outputs.total != '0'
+    name: Scan npm packages
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    strategy:
-      matrix:
-        include: ${{ fromJSON(needs.fetch.outputs.matrix) }}
-      fail-fast: false
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -109,33 +23,50 @@ jobs:
       - name: Build knowing
         run: GOWORK=off go build -o knowing ./cmd/knowing
 
-      - uses: actions/download-artifact@v4
-        with:
-          name: package-batches
-          path: batches/
+      - name: Fetch packages to scan
+        run: |
+          chmod +x scripts/fetch-recent-publishes.sh scripts/fetch-npm-recent-changes.sh scripts/check-isolation-score.sh
+          # Try real-time feed, fall back to watchlist, fall back to inline
+          ./scripts/fetch-npm-recent-changes.sh 180 50 > packages.txt 2>/dev/null || true
+          COUNT=$(grep -cv "^#" packages.txt 2>/dev/null || echo 0)
+          if [ "$COUNT" -lt 3 ]; then
+            ./scripts/fetch-recent-publishes.sh > packages.txt 2>/dev/null || true
+            COUNT=$(grep -cv "^#" packages.txt 2>/dev/null || echo 0)
+          fi
+          if [ "$COUNT" -lt 1 ]; then
+            cat > packages.txt << 'FALLBACK'
+          express 5.1.0 5.0.1
+          axios 1.9.0 1.8.4
+          lodash 4.17.21 4.17.20
+          FALLBACK
+          fi
+          echo "Packages to scan:"
+          cat packages.txt
 
-      - name: Scan batch
+      - name: Scan packages
         run: |
           mkdir -p scan-output
-          BATCH_FILE="batches/batch-${{ matrix.batch }}.txt"
-          [ -f "$BATCH_FILE" ] || { echo "No batch file"; exit 0; }
-
           while IFS=' ' read -r pkg new_ver prev_ver; do
+            pkg=$(echo "$pkg" | tr -d '[:space:]')
+            new_ver=$(echo "$new_ver" | tr -d '[:space:]')
+            prev_ver=$(echo "$prev_ver" | tr -d '[:space:]')
             [ -z "$pkg" ] && continue
+            [[ "$pkg" == \#* ]] && continue
+
+            echo ""
             echo "=== Scanning $pkg: $prev_ver -> $new_ver ==="
 
             WORK=$(mktemp -d)
+
             npm pack "${pkg}@${prev_ver}" --pack-destination "$WORK" 2>/dev/null || { rm -rf "$WORK"; continue; }
             npm pack "${pkg}@${new_ver}" --pack-destination "$WORK" 2>/dev/null || { rm -rf "$WORK"; continue; }
 
             mkdir -p "$WORK/old" "$WORK/new"
-            OLD_TGZ=$(ls "$WORK"/*"${prev_ver}"*.tgz 2>/dev/null | head -1)
-            NEW_TGZ=$(ls "$WORK"/*"${new_ver}"*.tgz 2>/dev/null | head -1)
-            [ -z "$OLD_TGZ" ] || [ -z "$NEW_TGZ" ] && { rm -rf "$WORK"; continue; }
+            for f in "$WORK"/*"${prev_ver}"*.tgz; do [ -f "$f" ] && tar xzf "$f" -C "$WORK/old" --strip-components=1 && break; done
+            for f in "$WORK"/*"${new_ver}"*.tgz; do [ -f "$f" ] && tar xzf "$f" -C "$WORK/new" --strip-components=1 && break; done
 
-            tar xzf "$OLD_TGZ" -C "$WORK/old" --strip-components=1
-            tar xzf "$NEW_TGZ" -C "$WORK/new" --strip-components=1
-
+            git config --global user.email "ci@knowing.dev" 2>/dev/null || true
+            git config --global user.name "knowing-ci" 2>/dev/null || true
             (cd "$WORK/old" && git init -q && git add . && git commit -q -m "old" 2>/dev/null) || true
             (cd "$WORK/new" && git init -q && git add . && git commit -q -m "new" 2>/dev/null) || true
 
@@ -154,42 +85,23 @@ jobs:
               fi
             fi
             rm -rf "$WORK"
-          done < "$BATCH_FILE"
+          done < packages.txt
 
-      - uses: actions/upload-artifact@v4
+      - name: Report
         if: always()
-        with:
-          name: scan-results-batch-${{ matrix.batch }}
-          path: scan-output/
-          retention-days: 90
-
-  report:
-    name: Report findings
-    needs: [fetch, scan]
-    if: always() && needs.fetch.outputs.total != '0'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: scan-results-batch-*
-          path: all-results/
-          merge-multiple: true
-
-      - name: Aggregate and report
         run: |
-          ALERTS=$(find all-results -name "*.json" 2>/dev/null | wc -l | tr -d ' ')
-          echo "Total suspicious packages: $ALERTS"
+          TOTAL=$(grep -cv "^#" packages.txt 2>/dev/null || echo 0)
+          ALERTS=$(find scan-output -name "*.json" 2>/dev/null | wc -l | tr -d ' ')
 
           {
             echo "## npm Supply Chain Scanner"
             echo ""
-            echo "Scanned **${{ needs.fetch.outputs.total }}** packages."
+            echo "Scanned **${TOTAL}** packages."
             echo ""
             if [ "$ALERTS" -gt 0 ]; then
               echo "### :rotating_light: $ALERTS suspicious package(s) detected"
               echo ""
-              for f in all-results/*.json; do
+              for f in scan-output/*.json; do
                 [ -f "$f" ] || continue
                 PKG=$(basename "$f" .json | tr '_' '/')
                 echo "<details><summary>$PKG</summary>"
@@ -201,16 +113,23 @@ jobs:
                 echo ""
               done
             else
-              echo ":white_check_mark: No suspicious packages detected. All clear."
+              echo ":white_check_mark: No suspicious packages detected."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
           if [ "$ALERTS" -gt 0 ]; then
-            BODY=$(cat "$GITHUB_STEP_SUMMARY")
             gh issue create \
               --title "[DRAFT] npm supply chain alert: $(date -u +%Y-%m-%d)" \
-              --body "$BODY" \
-              --label "supply-chain-alert,draft-disclosure" || echo "Issue creation failed"
+              --body "$(cat "$GITHUB_STEP_SUMMARY")" \
+              --label "supply-chain-alert,draft-disclosure" || true
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: npm-scan-${{ github.run_id }}
+          path: scan-output/
+          retention-days: 90
+          if-no-files-found: ignore
