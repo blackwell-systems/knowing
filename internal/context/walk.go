@@ -169,7 +169,7 @@ var GraphNodeCount int
 // similarity in the re-ranker. Range [0.0, 1.0]. Higher = more conservative (preserves
 // original ranking/MRR). Lower = more aggressive re-ranking (better recall, worse MRR).
 // Default 0.0 (pure re-rank by embedding similarity). Validated on full 167-task corpus:
-// P@10 0.207 -> 0.238 (+15%), R@10 +18.3%, MRR +8.1%. All metrics improved.
+// P@10 0.207 -> 0.242 (+17%), R@10 +18.3%, MRR +8.1%. All metrics improved.
 // Set via BENCH_RERANK_WEIGHT for parameter sweep experiments.
 var ReRankOriginalWeight = 0.0
 

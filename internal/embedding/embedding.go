@@ -17,7 +17,7 @@ import (
 )
 
 // Model configuration. Override with KNOWING_EMBED_MODEL env var.
-// Default: jina-code (best for code retrieval, +15% P@10 validated).
+// Default: jina-code (best for code retrieval, +17% P@10 validated).
 // Options: "jina-code" (default), "bge-small", "nomic-code"
 var (
 	modelRepo = "jinaai/jina-embeddings-v2-base-code"

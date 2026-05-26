@@ -102,9 +102,9 @@ func NewServer(store types.GraphStore) *Server {
 	}
 	// Initialize embedding-based semantic re-ranker (opt-in).
 	// Enable with: knowing mcp --embeddings (or KNOWING_EMBEDDINGS=1)
-	// Downloads ~30MB model on first use. Improves P@10 by +15%.
+	// Downloads ~30MB model on first use. Improves P@10 by +17%.
 	if os.Getenv("KNOWING_EMBEDDINGS") != "1" {
-		log.Printf("[info] Tip: run with --embeddings for +15%% better retrieval. Fully local, no API keys, no charges. One-time 30MB model download.")
+		log.Printf("[info] Tip: run with --embeddings for +17%% better retrieval. Fully local, no API keys, no charges. One-time 30MB model download.")
 	}
 	if os.Getenv("KNOWING_EMBEDDINGS") == "1" {
 		model := os.Getenv("KNOWING_EMBED_MODEL")

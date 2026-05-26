@@ -44,7 +44,7 @@ That's it. The MCP server auto-indexes your repo on first launch. Your agent now
 knowing is three products built on one foundation (content-addressed graph with hierarchical Merkle trees):
 
 **1. Context engine for AI agents**
-One call returns the most relevant symbols for a task, ranked by graph centrality, recency, and learned usefulness, packed to fit your token budget. An optional local embedding re-ranker (+15% precision) reorders graph-surfaced candidates by semantic similarity, using pure Go inference with no API calls. 47% fewer tool calls. 84% fewer tokens. Results improve with feedback.
+One call returns the most relevant symbols for a task, ranked by graph centrality, recency, and learned usefulness, packed to fit your token budget. An optional local embedding re-ranker (+17% precision) reorders graph-surfaced candidates by semantic similarity, using pure Go inference with no API calls. 47% fewer tool calls. 84% fewer tokens. Results improve with feedback.
 
 **2. Audit primitive for compliance**
 Every graph state is a Merkle root tied to a git commit. `knowing prove` generates a cryptographic proof that a relationship existed. `knowing verify` checks it offline. `knowing fsck` verifies the entire graph in 98ms. Supply chain detection extracts credential access, process spawning, and network exfiltration edges to flag structurally suspicious code.
@@ -159,7 +159,7 @@ knowing audit-supply-chain --scan-all
 
 The `--watch` flag re-indexes on file changes. Your agent always queries fresh data. No manual `knowing index` or database path needed: the MCP server auto-indexes the git repository on first launch and registers it in the roster for future sessions.
 
-Add `--embeddings` to enable the local embedding re-ranker (+15% precision, fully offline, no API keys, no charges). The model auto-downloads on first use (~30MB).
+Add `--embeddings` to enable the local embedding re-ranker (+17% precision, fully offline, no API keys, no charges). The model auto-downloads on first use (~30MB).
 
 For HTTP transport (multi-agent, daemon mode):
 

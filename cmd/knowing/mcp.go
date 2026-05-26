@@ -36,7 +36,7 @@ func cmdMCP(args []string) error {
 	repoURL := fs.String("url", "", "Repository URL (auto-detected if empty)")
 	noEnrich := fs.Bool("no-enrich", false, "Skip LSP enrichment after reindex (only with --watch)")
 	debounceMs := fs.Int("debounce", 500, "Debounce interval in ms (only with --watch)")
-	embeddings := fs.Bool("embeddings", false, "Enable local embedding re-ranker (+15% retrieval). Runs entirely on your machine, no API keys, no cloud calls, no charges. Downloads a 30MB model once on first use.")
+	embeddings := fs.Bool("embeddings", false, "Enable local embedding re-ranker (+17% retrieval). Runs entirely on your machine, no API keys, no cloud calls, no charges. Downloads a 30MB model once on first use.")
 	embedModel := fs.String("embed-model", "", "Embedding model: jina-code (default, best for code), bge-small, nomic-code. All models run locally.")
 	if err := fs.Parse(args); err != nil {
 		return err

@@ -12,7 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `ReRankByHashes` method on `VectorReRanker` interface: hash-based vector lookup with text fallback
 - `EmbeddingStore` interface (`embedding.EmbeddingStore`): `BatchPutEmbeddings`, `GetEmbeddings`
 - `embeddings` table in SQLite schema (node_hash, model, vector)
-- **Adaptive seed count**: auto-increases RWR seeds on large graphs (>40K nodes: 25 seeds, >10K: 20 seeds, default 15). Django P@10 +14.2%. Full corpus P@10 0.238 -> 0.242.
+- **Adaptive seed count**: auto-increases RWR seeds on large graphs (>40K nodes: 25 seeds, >10K: 20 seeds, default 15). Django P@10 +14.2%. Full corpus P@10 0.242.
 - **Package-level supply chain verdict**: "clean"/"review"/"suspicious" based on suspicious file ratio (>10%) AND count (>=2). Reduces FP rate from 21.5% (file-level) to 1.0% (package-level) on 200 clean packages.
 - **Benign process target classification**: 22 known-safe executables (node, python, git, cargo, etc.) excluded from supply chain danger scoring.
 - **Test/benchmark file exclusion**: files in /test/, /benchmarks/, _test.go, .spec.ts skipped in supply chain scanning.
@@ -30,7 +30,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed (post v0.10.0)
 
-- **ReRankOriginalWeight default set to 0.0** (pure re-rank): the validated configuration that produces +15% P@10. Previously defaulted to 0.7 which gave no improvement.
+- **ReRankOriginalWeight default set to 0.0** (pure re-rank): the validated configuration that produces +17% P@10. Previously defaulted to 0.7 which gave no improvement.
 - **jina-code as default embedding model**: changed from bge-small to jina-code (the model validated on the full corpus)
 - **`--embeddings` and `--embed-model` CLI flags** on `knowing mcp`: proper UX for enabling embeddings (was env-var only)
 - **Clear local/offline messaging**: CLI help and log messages emphasize no API keys, no cloud calls, no charges

@@ -1,6 +1,6 @@
 # Proposal: Local Embeddings for Retrieval
 
-## Status: SHIPPED. Full corpus +15% P@10, +18.3% R@10. Vector cache: 660ms -> 220ms.
+## Status: SHIPPED. Full corpus +17% P@10, +18.3% R@10. Vector cache: 660ms -> 220ms.
 
 Phase 1 (hugot integration) is shipped and validated on full 167-task corpus.
 Phase 2 (custom inference engine) is NO LONGER NEEDED: the "11s/task" number was

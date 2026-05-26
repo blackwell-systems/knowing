@@ -365,7 +365,7 @@ scored candidates by cosine similarity to the task description. This is the bigg
 improvement in project history: P@10 0.207 -> 0.242 (+17%), R@10 0.306 -> 0.362 (+18.3%).
 
 The key insight: architecture matters more than model. The same jina-code model that is
-neutral as a seed channel produces +15% when used to re-rank graph-surfaced candidates.
+neutral as a seed channel produces +17% when used to re-rank graph-surfaced candidates.
 See `docs/architecture/embedding-reranker.md` for the full design.
 
 Enable with `--embeddings` on `knowing mcp` or `BENCH_EMBEDDINGS=1` for benchmarks.

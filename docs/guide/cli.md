@@ -546,7 +546,7 @@ data without needing a separate `knowing watch` or `knowing serve` process.
 | `-url` | string | *(auto-detected)* | Repository URL (auto-detected from git remote if empty) |
 | `-no-enrich` | bool | `false` | Skip LSP enrichment after reindex (only with `-watch`) |
 | `-debounce` | int | `500` | Debounce interval in milliseconds (only with `-watch`) |
-| `-embeddings` | bool | `false` | Enable local embedding re-ranker (+15% retrieval). Runs entirely on your machine, no API keys, no cloud calls, no charges. Downloads a 30MB model once on first use. |
+| `-embeddings` | bool | `false` | Enable local embedding re-ranker (+17% retrieval). Runs entirely on your machine, no API keys, no cloud calls, no charges. Downloads a 30MB model once on first use. |
 | `-embed-model` | string | `jina-code` | Embedding model: `jina-code` (default, best for code), `bge-small`, `nomic-code`. All models run locally. |
 
 **Examples:**
@@ -558,7 +558,7 @@ knowing mcp
 # Start with file watching enabled (re-indexes on save)
 knowing mcp --watch
 
-# Enable embedding re-ranker for +15% better retrieval (local, no API)
+# Enable embedding re-ranker for +17% better retrieval (local, no API)
 knowing mcp --watch --embeddings
 
 # Use a specific embedding model

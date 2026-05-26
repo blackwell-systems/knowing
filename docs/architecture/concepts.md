@@ -179,7 +179,7 @@ The retrieval pipeline uses 5 independent seed channels fused with Reciprocal Ra
 4. **Vector/embedding search** (weight 2.0): embeds the task description and symbols in the HNSW index, returns nearest neighbors as additional seed candidates. Opt-in (`--embeddings`).
 5. **Path-context seeding** (weight 1.5): extracts package/directory-like terms from the task description and finds type/class nodes whose qualified name path contains those terms. Types are structural anchors: with `contains` edges, RWR walks from types to their methods.
 
-After RWR scoring, an optional **embedding re-ranker** reorders the top-50 candidates by cosine similarity between the task description and each symbol's text representation. This improves P@10 by +15% on the full corpus. The re-ranker uses a local embedding model (jina-embeddings-v2-base-code by default) via pure Go ONNX inference. No API calls, no cloud dependencies.
+After RWR scoring, an optional **embedding re-ranker** reorders the top-50 candidates by cosine similarity between the task description and each symbol's text representation. This improves P@10 by +17% on the full corpus. The re-ranker uses a local embedding model (jina-embeddings-v2-base-code by default) via pure Go ONNX inference. No API calls, no cloud dependencies.
 
 Symbols appearing in multiple channels accumulate scores, promoting multi-channel hits. See `docs/architecture/retrieval-pipeline.md` for the full specification.
 

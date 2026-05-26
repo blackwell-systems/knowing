@@ -24,7 +24,7 @@
 | SCIP adapter | Not built | Requires per-language SCIP index generation |
 | Statistical analysis | Done | Wilcoxon, Cohen's d, bootstrap CI, 26 runs |
 | SWE-bench integration | Done | 10 fixtures; finding: fault localization != context retrieval |
-| Embedding re-ranker | Done | +15% P@10, +18.3% R@10 on full corpus (Run 26) |
+| Embedding re-ranker | Done | +17% P@10, +18.3% R@10 on full corpus (Run 26) |
 | Failure analysis | Done | 56% noise, 36% test symbols; RWR reach is bottleneck |
 
 ### Key Results (Run 26, 167 tasks, 9 repos)
