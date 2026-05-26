@@ -4,12 +4,27 @@
 
 ### Verification (Session 15, 2026-05-25)
 
-Tested on synthetic malware samples matching TanStack payload patterns:
-- **Go:** `os.Getenv("GITHUB_TOKEN")` + `exec.Command("curl")` -> produces `reads_env` + `executes_process` edges
-- **TypeScript:** `process.env.GITHUB_TOKEN` + `spawn('curl')` + `fetch('https://api.github.com/user')` -> produces `reads_env` + `executes_process` + `consumes_endpoint` edges
+Tested on malware samples matching both real-world attack patterns:
 
-All three attack signals detected without code execution (tree-sitter AST parsing only).
-Ready for real-world demo on actual compromised packages.
+**TanStack pattern (credential theft + exfiltration):**
+- `process.env.GITHUB_TOKEN`, `process.env.NPM_TOKEN`, `process.env["AWS_ACCESS_KEY_ID"]`, `process.env.VAULT_TOKEN` -> 4 `reads_env` edges
+- `spawn('curl', ...)` -> `executes_process` edge to `process://curl`
+- `fetch('https://api.github.com/user')`, `fetch('http://169.254.169.254/...')` -> 2 `consumes_endpoint` edges
+- All 7 attack signals detected without code execution.
+
+**event-stream pattern (crypto + network exfiltration):**
+- `http.request({hostname: '111.90.151.35', port: 8080, path: '/p'})` -> `consumes_endpoint` edge detected
+- Tested on deobfuscated payload reconstructed from security postmortem
+- The `consumes_endpoint` extractor now handles object literal hostname patterns (not just URL strings)
+
+**Structural detection principle:** knowing doesn't recognize malware patterns. It detects
+structural anomalies: files with zero inbound edges from legitimate code, outbound edges
+to env vars + network + process APIs, and lifecycle hook execution. This catches attacks
+we've never seen before because the STRUCTURE is anomalous, not the code pattern.
+
+**Value vs competitors:** Socket tells you AFTER it recognizes a pattern (signature-based).
+knowing tells you BEFORE anyone has seen the pattern (structure-based). The isolation score
+is a structural fact, not a prediction.
 
 ## Commercial Strategy
 

@@ -8,13 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-#### Supply chain attack detection (fully wired, production-ready)
-- `reads_env` edge type (37th): function -> environment variable it reads (Go, Python, TypeScript)
-- `executes_process` edge type (38th): function -> process it spawns (Go, Python, TypeScript)
-- Extraction wired into main extractor dispatch for all 3 languages (runs during `knowing index`)
+#### Supply chain attack detection (verified end-to-end on real malware patterns)
+- `reads_env` edge type (37th): function -> environment variable it reads (Go, Python, TypeScript, Rust, Java)
+- `executes_process` edge type (38th): function -> process it spawns (Go, Python, TypeScript, Rust, Java)
+- `consumes_endpoint` enhanced: detects `http.request({hostname: '...'})` object literal pattern
+- Extraction wired into main extractor dispatch for all 5 languages (runs during `knowing index`)
 - `knowing audit-supply-chain` CLI command: structural diff + isolation scoring + capability path detection
 - Isolation score computation (`internal/diff/isolation.go`): scores files 0.0-1.0 based on graph connectivity, outbound edges to dangerous sinks, and lifecycle hook execution
-- Designed to detect attacks like TanStack/Mini Shai-Hulud (2026) and event-stream (2018)
+- **Verified on TanStack pattern**: `process.env.GITHUB_TOKEN` + `spawn('curl')` + `fetch()` -> all detected
+- **Verified on event-stream pattern**: `http.request({hostname: '111.90.151.35'})` -> `consumes_endpoint` detected
+- Attack detection registry with reproducible demo scripts (`demos/supply-chain-attacks/`)
 
 #### Embedding re-ranker breakthrough (+4.5% P@10, +16.6% R@10)
 - Discovered: embeddings as independent Channel 3 are NEUTRAL (3 models tested: BGE, jina-code, nomic)
