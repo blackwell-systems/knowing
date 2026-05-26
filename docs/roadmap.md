@@ -263,12 +263,17 @@ P@10=0.238 (Run 26, 167 tasks, 9 repos). 1.76x vs codegraph, 3.17x vs GitNexus, 
 
 | # | Item | Why | Status |
 |---|------|-----|--------|
-| 7 | **Hub node dampening (H1)** | On dense graphs, high-in-degree utility types (Disposable, Event, URI) absorb RWR probability regardless of query. Fix: divide transition probability by sqrt(in-degree) of target, or exclude nodes with in-degree > threshold from final ranking. Session 14: edge exclusion and BFS depth ruled out; seed selection confirmed as root cause. Hub dampening attacks the problem from the ranking side. | Next to test |
-| 8 | **Node-kind-aware seed selection** | On dense FTS indexes, generic keywords match thousands of methods. Prefer type/interface nodes as seeds (structural anchors) over individual methods. This concentrates seeds on the nodes that RWR can best propagate from (types with contains edges to methods). | Next to test |
-| 9 | **Community-scoped RWR tuning for dense graphs** | Already partially implemented (single-community constraint). Needs tuning: on dense TypeScript graphs, community detection may produce too-large communities (thousands of nodes). Per-community node cap or hierarchical community splitting could keep RWR focused. Session 14: H4 not yet tested. | Experiment |
-| 9 | **More equivalence concepts** | Only add when a specific task fixture exposes a gap. Must respect Run 22 constraint (no single-word phrases, no generic targets). | On-demand |
-| 10 | **`is_entry_point` / `is_exported` node flags** | Tag functions as entry points (main, handlers, CLI commands) or exported (public API). Enables filtering: entry points get higher RWR restart weight. | Experiment |
-| 11 | **Feedback parameter sweep (warm-start)** | Session boost (0.20), task memory formula (0.5+score*0.4), decay (7-day linear), top-N (5) are untuned. Only affects real-user compounding. | When users exist |
+| 7 | **Bidirectional inheritance edges** | Current inherits edges go child -> parent.method. Added reverse: parent.method -> child.method (same name). Enables 1-hop RWR walk from base class methods to concrete implementations. Key for Django (42% of tasks score zero due to unreachable base class methods). | Testing (session 16) |
+| 8 | **Density-adaptive RWR alpha** | Observe edge/node ratio at query time. High density (>5 edges/node): lower alpha (0.15) to walk further. Low density (<2 edges/node): higher alpha (0.25) to stay near seeds. | To test |
+| 9 | **Density-adaptive inherits weight** | Deep-inheritance repos (Django, Kafka) benefit from higher inherits edge weight. Flat repos (Go, Rust) don't use it. Auto-detect inheritance depth and boost inherits weight from 0.3 to 0.6 when depth > 3. | To test |
+| 10 | **Adaptive seed count by structural richness** | % of type nodes with contains edges indicates how productive type seeds are. High % (>60%): fewer seeds needed (types reach methods). Low %: more seeds needed to compensate. | To test |
+| 11 | **Community count adaptive walk** | Many small communities: community-scoped RWR is effective. Few large communities: unconstrained walk is better. Threshold currently hardcoded; should adapt to detected modularity. | Experiment |
+| 12 | **FTS hit rate channel balancing** | Observe BM25 result count vs equiv result count. When BM25 returns many results, equiv is redundant (lower weight). When BM25 returns few, equiv is critical (higher weight). Adaptive RRF weights per query. | Experiment |
+| 13 | **Disconnection rate adaptive seeding** | Measure % of nodes with zero inbound edges. High disconnection (>30%): more aggressive seeding (increase seed count, lower path-context threshold). Low disconnection: current defaults are fine. | Experiment |
+| 14 | **Hub node dampening (H1)** | On dense graphs, high-in-degree utility types absorb RWR probability. Divide transition probability by sqrt(in-degree) of target. Session 14: edge exclusion and BFS depth ruled out; seed selection confirmed as root cause. | To test |
+| 15 | **`is_entry_point` / `is_exported` node flags** | Tag functions as entry points (main, handlers, CLI commands) or exported (public API). Entry points get higher RWR restart weight. | Experiment |
+| 16 | **More equivalence concepts** | Only add when a specific task fixture exposes a gap. Must respect Run 22 constraint (no single-word phrases, no generic targets). | On-demand |
+| 17 | **Feedback parameter sweep (warm-start)** | Session boost (0.20), task memory formula (0.5+score*0.4), decay (7-day linear), top-N (5) are untuned. Only affects real-user compounding. | When users exist |
 
 ## Edge Type Expansion
 
