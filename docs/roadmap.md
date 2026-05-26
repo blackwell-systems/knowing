@@ -51,18 +51,33 @@ Embedding re-ranker: +17% P@10 with SQLite vector cache (220ms cached).
 - Phrase-boosted BM25 from adjacent Components
 - TypeScript export_statement fix (was silently dropping all exported declarations)
 
-### Tested Neutral or Harmful (sessions 14-15)
+### Tested Neutral or Harmful (sessions 14-16)
 
-| Approach | Why neutral |
-|----------|-------------|
-| **Embeddings as Channel 3** (seed source) | Three models neutral: find same symbols as BM25. Architecture was wrong. |
-| **Blended re-rank** (weight > 0.0) | Pure re-rank (weight=0.0) wins P@10/R@10. Blending preserves MRR but sacrifices recall. |
-| **Call-chain seeding** | Callees already reachable via RWR traversal; diffuses probability mass |
-| **Hub dampening** | No effect on VS Code (0.095 unchanged at any threshold) |
-| **BFS depth reduction** | No effect (depth 2/3/4 all produce same P@10) |
-| **Expanded framework thesaurus** ("backend"->"base") | Hurts: too noisy for BM25 |
-| **accesses_field for P@10** | Neutral: fields already reachable via call edges. Adds graph completeness, not retrieval. |
-| **LSP enrichment for P@10** | Neutral: upgrades confidence but RWR weights by edge type, not confidence. |
+| Approach | Result | Session | Details |
+|----------|--------|---------|---------|
+| **Embeddings as Channel 3** (seed source) | Neutral | 15 | Three models find same symbols as BM25. Architecture was wrong. |
+| **Blended re-rank** (weight > 0.0) | Harmful | 15 | Pure re-rank (weight=0.0) wins P@10/R@10. Blending preserves MRR but sacrifices recall. |
+| **Call-chain seeding** | Neutral | 14 | Callees already reachable via RWR traversal; diffuses probability mass |
+| **Hub dampening** | Neutral | 14 | No effect on VS Code (0.095 unchanged at any threshold) |
+| **BFS depth reduction** | Neutral | 14 | No effect (depth 2/3/4 all produce same P@10) |
+| **Expanded framework thesaurus** ("backend"->"base") | Harmful | 14 | Too noisy for BM25 |
+| **accesses_field for P@10** | Neutral | 15 | Fields already reachable via call edges. Adds graph completeness, not retrieval. |
+| **LSP enrichment for P@10** | Neutral | 13 | Upgrades confidence but RWR weights by edge type, not confidence. |
+| **Coherence-aware packing** (CoherenceBonus=0.3) | Harmful (-1.8%) | 16 | Greedy density packing already near-optimal. File-based coherence adds noise. |
+| **Bidirectional inheritance edges** | Harmful (-2.5%) | 16 | Reverse inherits add noise without new reachability. Django zeros are vocabulary gaps. |
+| **BM25 gap injection (no embedding filter)** | Harmful (-1.4%) | 16 | Raw BM25 candidates too noisy. Displaces good graph results. |
+| **Seed count sweep** (10-50 on Django) | Neutral | 16 | 10 and 15 and 25 seeds all produce P@10=0.222-0.228. Confirms parameter irrelevance. |
+| **Gap injection parameter sweep** (15 configs) | Neutral | 16 | Threshold 0.1-0.5, maxgap 3-10 all produce P@10=0.225-0.228 on Django. Parameters don't matter. |
+
+### Tested Positive (sessions 14-16)
+
+| Approach | Impact | Session | Details |
+|----------|--------|---------|---------|
+| **PreferTypeSeeds** (>40K nodes) | VS Code +44% | 14 | Types are better seeds: contains edges walk to methods |
+| **Embedding re-ranker** (pure, weight=0.0) | +17% full corpus | 15 | Architecture matters more than model. Three models neutral as seeds, all effective as re-ranker. |
+| **Vector cache** (SQLite) | 660ms -> 220ms | 16 | 3x latency reduction. No quality change. |
+| **Adaptive seed count** (>40K: 25, >10K: 20) | Django +14.2% | 16 | More seeds on large graphs compensates for disconnection. Full corpus 0.238 -> 0.242. |
+| **Embedding-filtered gap injection** (>40K, maxgap=3) | Django +3.2% | 16 | BM25 gap candidates filtered by cosine similarity. Small positive on large graphs. Full corpus impact TBD (running). |
 
 ## Storage Backend (P0 Performance)
 
