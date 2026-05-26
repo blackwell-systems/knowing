@@ -27,10 +27,12 @@ type SupplyChainReport struct {
 
 // SupplyChainSummary provides aggregate counts.
 type SupplyChainSummary struct {
-	FilesAnalyzed    int `json:"files_analyzed"`
-	FilesSuspicious  int `json:"files_suspicious"`
-	EnvReadsTotal    int `json:"env_reads_total"`
-	ProcessExecTotal int `json:"process_exec_total"`
+	FilesAnalyzed    int     `json:"files_analyzed"`
+	FilesSuspicious  int     `json:"files_suspicious"`
+	SuspiciousRatio  float64 `json:"suspicious_ratio"`
+	EnvReadsTotal    int     `json:"env_reads_total"`
+	ProcessExecTotal int     `json:"process_exec_total"`
+	Verdict          string  `json:"verdict"` // "clean", "suspicious", "review"
 }
 
 // SuspiciousFile describes a file that exceeds the isolation threshold.
@@ -60,7 +62,9 @@ func cmdAuditSupplyChain(args []string) error {
 	base := fs.String("base", "", "Baseline snapshot hash or ref (@prev, @N)")
 	head := fs.String("head", "@latest", "Current snapshot hash or ref (default: @latest)")
 	threshold := fs.Float64("threshold", 0.3, "Isolation score threshold for suspicious files")
-	failOnSuspicious := fs.Bool("fail-on-suspicious", false, "Exit non-zero if any file exceeds threshold")
+	minRatio := fs.Float64("min-ratio", 0.10, "Package-level: minimum suspicious/total file ratio to trigger verdict")
+	minCount := fs.Int("min-count", 2, "Package-level: minimum suspicious file count to trigger verdict")
+	failOnSuspicious := fs.Bool("fail-on-suspicious", false, "Exit non-zero if package verdict is 'suspicious'")
 	scanAll := fs.Bool("scan-all", false, "Scan all files (skip diff, useful when clean/compromised are in separate DBs)")
 	outFile := fs.String("o", "", "Write JSON report to file (default: stdout)")
 	fs.Usage = func() {
@@ -117,8 +121,8 @@ func cmdAuditSupplyChain(args []string) error {
 		return fmt.Errorf("computing isolation: %w", err)
 	}
 
-	// Build report.
-	report := buildSupplyChainReport(ctx, st, baseHash, headHash, *threshold, isolationResults)
+	// Build report with package-level aggregation.
+	report := buildSupplyChainReport(ctx, st, baseHash, headHash, *threshold, *minRatio, *minCount, isolationResults)
 
 	// Marshal and output.
 	out, err := json.MarshalIndent(report, "", "  ")
@@ -134,8 +138,9 @@ func cmdAuditSupplyChain(args []string) error {
 		fmt.Println(string(out))
 	}
 
-	if *failOnSuspicious && report.Summary.FilesSuspicious > 0 {
-		return fmt.Errorf("found %d suspicious files exceeding threshold %.2f", report.Summary.FilesSuspicious, *threshold)
+	if *failOnSuspicious && report.Summary.Verdict == "suspicious" {
+		return fmt.Errorf("verdict: suspicious (%d/%d files, %.1f%% ratio exceeds thresholds)",
+			report.Summary.FilesSuspicious, report.Summary.FilesAnalyzed, report.Summary.SuspiciousRatio*100)
 	}
 
 	return nil
@@ -190,7 +195,11 @@ func collectNewFileHashes(ctx context.Context, st *store.SQLiteStore, result *di
 }
 
 // buildSupplyChainReport constructs the full report from isolation results.
-func buildSupplyChainReport(ctx context.Context, st *store.SQLiteStore, baseHash, headHash types.Hash, threshold float64, results []diff.IsolationResult) *SupplyChainReport {
+// Package-level verdict uses combined thresholds: a package is "suspicious"
+// only when BOTH the suspicious file ratio exceeds minRatio AND the count
+// exceeds minCount. This eliminates false positives from packages that
+// legitimately spawn a few processes (build tools, loggers, CLI frameworks).
+func buildSupplyChainReport(ctx context.Context, st *store.SQLiteStore, baseHash, headHash types.Hash, threshold, minRatio float64, minCount int, results []diff.IsolationResult) *SupplyChainReport {
 	report := &SupplyChainReport{
 		GeneratedAt:  time.Now().UTC().Format(time.RFC3339),
 		BaseSnapshot: baseHash.String(),
@@ -223,11 +232,32 @@ func buildSupplyChainReport(ctx context.Context, st *store.SQLiteStore, baseHash
 		}
 	}
 
+	// Package-level aggregation.
+	suspiciousCount := len(report.SuspiciousFiles)
+	totalFiles := len(results)
+	var ratio float64
+	if totalFiles > 0 {
+		ratio = float64(suspiciousCount) / float64(totalFiles)
+	}
+
+	// Verdict: "suspicious" requires both ratio AND count thresholds.
+	// "review" means some files flagged but below package-level thresholds.
+	// "clean" means no files flagged at all.
+	verdict := "clean"
+	if suspiciousCount > 0 {
+		verdict = "review"
+	}
+	if suspiciousCount >= minCount && ratio >= minRatio {
+		verdict = "suspicious"
+	}
+
 	report.Summary = SupplyChainSummary{
-		FilesAnalyzed:    len(results),
-		FilesSuspicious:  len(report.SuspiciousFiles),
+		FilesAnalyzed:    totalFiles,
+		FilesSuspicious:  suspiciousCount,
+		SuspiciousRatio:  ratio,
 		EnvReadsTotal:    envTotal,
 		ProcessExecTotal: procTotal,
+		Verdict:          verdict,
 	}
 
 	return report
