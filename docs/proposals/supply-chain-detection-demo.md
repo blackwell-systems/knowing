@@ -1,6 +1,20 @@
 # Proposal: Supply Chain Attack Detection
 
-## Status: VERIFIED (extraction works end-to-end on Go + TypeScript)
+## Status: SHIPPED (sessions 15-16)
+
+All core components implemented and validated:
+- `reads_env`, `executes_process` edge types (5 languages)
+- `knowing audit-supply-chain` CLI with package-level verdict
+- Isolation scoring with env-only attenuation, benign process targets, test exclusion
+- 200-package FP evaluation: 1.0% FP rate (package-level verdict)
+- TanStack + event-stream patterns detected
+- GHA action repo: `blackwell-systems/knowing-supply-scan`
+- Whitepaper evaluation section written with real data
+- Blog post drafted
+
+**Remaining:** SaaS backend for paid scanning service, Marketplace listing (needs org conversion), additional historical attack backtests (xz-utils, ua-parser-js, colors/faker).
+
+## Original Status: VERIFIED (extraction works end-to-end on Go + TypeScript)
 
 ### Verification (Session 15, 2026-05-25)
 
