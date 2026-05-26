@@ -166,9 +166,9 @@ func TestIsolation_IsolatedWithEnvReads(t *testing.T) {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
 	// inbound_factor = 1.0 (0 inbound), outbound_factor = 3/5 = 0.6
-	// score = 1.0 * 0.6 * 1.0 = 0.6
-	if results[0].Score < 0.4 || results[0].Score > 0.8 {
-		t.Errorf("expected score ~0.6, got %f", results[0].Score)
+	// env-only 0.2x penalty: 1.0 * 0.6 * 0.2 = 0.12
+	if results[0].Score < 0.08 || results[0].Score > 0.16 {
+		t.Errorf("expected score ~0.12 (env-only penalty), got %f", results[0].Score)
 	}
 	if len(results[0].ReadsEnv) == 0 {
 		t.Error("expected ReadsEnv to be populated")
@@ -393,11 +393,11 @@ func TestIsolation_ManyInboundReducesScore(t *testing.T) {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
 	// inbound_factor = 1.0 - (10/10 * 0.7) = 0.3
-	// outbound_factor = 2/5 = 0.4
-	// score = 0.3 * 0.4 * 1.0 = 0.12
-	expected := 0.12
-	if results[0].Score < expected-0.02 || results[0].Score > expected+0.02 {
-		t.Errorf("expected score ~%.2f, got %f", expected, results[0].Score)
+	// outbound_factor = 2/5 = 0.4, but env-only gets 0.2x = 0.08
+	// score = 0.3 * 0.08 * 1.0 = 0.024
+	expected := 0.024
+	if results[0].Score < expected-0.01 || results[0].Score > expected+0.01 {
+		t.Errorf("expected score ~%.3f, got %f", expected, results[0].Score)
 	}
 	if results[0].InboundEdges != 10 {
 		t.Errorf("expected 10 inbound edges, got %d", results[0].InboundEdges)
@@ -487,10 +487,10 @@ func TestIsolation_HookFactorBoostsScore(t *testing.T) {
 	hookScore := results[1].Score
 
 	// Both have inbound_factor=1.0, outbound_factor=1/5=0.2.
-	// File 1 (env): score = 1.0 * 0.2 * 1.0 = 0.2
-	// File 2 (hook): score = 1.0 * 0.2 * 1.5 = 0.3
-	if envScore < 0.15 || envScore > 0.25 {
-		t.Errorf("expected env score ~0.2, got %f", envScore)
+	// File 1 (env-only): 0.2 * 0.2x env penalty = 0.04
+	// File 2 (hook+proc): 0.2 * 1.5 = 0.3
+	if envScore < 0.03 || envScore > 0.06 {
+		t.Errorf("expected env score ~0.04 (env-only penalty), got %f", envScore)
 	}
 	if hookScore < 0.25 || hookScore > 0.35 {
 		t.Errorf("expected hook score ~0.3, got %f", hookScore)
@@ -667,8 +667,8 @@ func TestIsolation_InboundFromChangedFilesIgnored(t *testing.T) {
 	if file1Result.InboundEdges != 0 {
 		t.Errorf("expected 0 inbound edges (edge from changed file ignored), got %d", file1Result.InboundEdges)
 	}
-	// inbound_factor=1.0, outbound_factor=1/5=0.2, score=0.2
-	if file1Result.Score < 0.15 || file1Result.Score > 0.25 {
-		t.Errorf("expected score ~0.2, got %f", file1Result.Score)
+	// inbound_factor=1.0, outbound_factor=1/5=0.2, env-only 0.2x = 0.04
+	if file1Result.Score < 0.03 || file1Result.Score > 0.06 {
+		t.Errorf("expected score ~0.04 (env-only penalty), got %f", file1Result.Score)
 	}
 }

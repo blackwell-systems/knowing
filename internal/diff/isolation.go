@@ -113,9 +113,17 @@ func ComputeIsolation(ctx context.Context, store types.GraphStore, changedFiles 
 		inboundFactor := 1.0 - (inboundCapped / 10.0 * 0.7) // max 70% reduction from inbound
 
 		// outbound_factor: more dangerous outbound edges increase the score.
-		// Even 1 dangerous edge should produce a meaningful score.
+		// Key insight: reads_env alone is normal (config, feature flags, logging).
+		// The supply chain signal is the COMBINATION: reads credentials AND
+		// spawns processes or makes network calls (exfiltration pattern).
+		// reads_env-only gets 0.2x weight; with executes_process it gets full weight.
+		hasProc := len(procs) > 0
+		envOnly := len(envVars) > 0 && !hasProc
 		outboundCapped := math.Min(float64(outboundDangerous), 5.0)
 		outboundFactor := outboundCapped / 5.0
+		if envOnly {
+			outboundFactor *= 0.2 // reads_env alone is not suspicious
+		}
 
 		// hook_factor: hook execution amplifies the score.
 		hookFactor := 1.0
