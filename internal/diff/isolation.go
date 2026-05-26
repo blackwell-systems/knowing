@@ -108,12 +108,14 @@ func ComputeIsolation(ctx context.Context, store types.GraphStore, changedFiles 
 
 		// Compute isolation score.
 		// inbound_factor: well-connected files (many inbound) get low isolation.
-		inboundCapped := math.Min(float64(inbound), 5.0)
-		inboundFactor := 1.0 - inboundCapped/5.0
+		// Use a gentler curve: even 1-2 inbound edges shouldn't zero out the score.
+		inboundCapped := math.Min(float64(inbound), 10.0)
+		inboundFactor := 1.0 - (inboundCapped / 10.0 * 0.7) // max 70% reduction from inbound
 
 		// outbound_factor: more dangerous outbound edges increase the score.
-		outboundCapped := math.Min(float64(outboundDangerous), 10.0)
-		outboundFactor := outboundCapped / 10.0
+		// Even 1 dangerous edge should produce a meaningful score.
+		outboundCapped := math.Min(float64(outboundDangerous), 5.0)
+		outboundFactor := outboundCapped / 5.0
 
 		// hook_factor: hook execution amplifies the score.
 		hookFactor := 1.0

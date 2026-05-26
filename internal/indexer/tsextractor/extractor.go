@@ -142,6 +142,36 @@ func (e *TypeScriptExtractor) Extract(ctx context.Context, opts types.ExtractOpt
 	// Deduplicate edges by EdgeHash.
 	edges = deduplicateEdges(edges)
 
+	// Ensure file node exists if any edges reference it as source.
+	// Module-level code (env reads, process exec, imports) uses fileNodeHash
+	// as source, but the file node is only created by import edge logic.
+	// Create it unconditionally to prevent dangling source references.
+	hasFileSourceEdge := false
+	for _, e := range edges {
+		if e.SourceHash == fileNodeHash {
+			hasFileSourceEdge = true
+			break
+		}
+	}
+	if hasFileSourceEdge {
+		fileNodeExists := false
+		for _, n := range nodes {
+			if n.NodeHash == fileNodeHash {
+				fileNodeExists = true
+				break
+			}
+		}
+		if !fileNodeExists {
+			nodes = append(nodes, types.Node{
+				NodeHash:      fileNodeHash,
+				FileHash:      opts.FileHash,
+				QualifiedName: fmt.Sprintf("%s://%s.%s", opts.RepoURL, qnamePrefix, filepath.Base(opts.FilePath)),
+				Kind:          types.KindFile,
+				Line:          1,
+			})
+		}
+	}
+
 	return &types.ExtractResult{
 		Nodes: nodes,
 		Edges: edges,
@@ -269,6 +299,13 @@ func (e *TypeScriptExtractor) extractNodeWithImports(
 				e.extractVariableDeclarator(child, opts, qnamePrefix, className, fileNodeHash, hasExpress, nodes, edges)
 			}
 		}
+		// Module-level env reads and process execution (supply chain detection).
+		envNodes, envEdges := ExtractEnvReadEdges(node, opts, qnamePrefix, fileNodeHash)
+		*nodes = append(*nodes, envNodes...)
+		*edges = append(*edges, envEdges...)
+		procNodes, procEdges := ExtractProcessExecEdges(node, opts, qnamePrefix, fileNodeHash)
+		*nodes = append(*nodes, procNodes...)
+		*edges = append(*edges, procEdges...)
 
 	case "export_statement":
 		// export class Foo {}, export function bar(), export interface Baz
@@ -301,6 +338,16 @@ func (e *TypeScriptExtractor) extractNodeWithImports(
 		if expr != nil && expr.Type() == "call_expression" {
 			handleTopLevelCallExpression(expr, opts, qnamePrefix, fileNodeHash, hasExpress, nodes, edges)
 		}
+		// Module-level supply chain detection (spawn, fetch at top level).
+		envNodes, envEdges := ExtractEnvReadEdges(node, opts, qnamePrefix, fileNodeHash)
+		*nodes = append(*nodes, envNodes...)
+		*edges = append(*edges, envEdges...)
+		procNodes, procEdges := ExtractProcessExecEdges(node, opts, qnamePrefix, fileNodeHash)
+		*nodes = append(*nodes, procNodes...)
+		*edges = append(*edges, procEdges...)
+		epNodes, epEdges := ExtractEndpointEdges(node, opts, qnamePrefix, fileNodeHash)
+		*nodes = append(*nodes, epNodes...)
+		*edges = append(*edges, epEdges...)
 	}
 }
 
@@ -392,7 +439,6 @@ func (e *TypeScriptExtractor) extractNode(
 				e.extractVariableDeclarator(child, opts, qnamePrefix, className, fileNodeHash, hasExpress, nodes, edges)
 			}
 		}
-
 	case "expression_statement":
 		// Check for top-level call expressions (e.g., route registrations).
 		expr := node.ChildByFieldName("expression")

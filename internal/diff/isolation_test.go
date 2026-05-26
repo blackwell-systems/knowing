@@ -165,10 +165,10 @@ func TestIsolation_IsolatedWithEnvReads(t *testing.T) {
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
-	// inbound_factor = 1.0 (0 inbound), outbound_factor = 3/10 = 0.3
-	// score = 1.0 * 0.3 * 1.0 = 0.3
-	if results[0].Score < 0.2 || results[0].Score > 0.4 {
-		t.Errorf("expected score ~0.3, got %f", results[0].Score)
+	// inbound_factor = 1.0 (0 inbound), outbound_factor = 3/5 = 0.6
+	// score = 1.0 * 0.6 * 1.0 = 0.6
+	if results[0].Score < 0.4 || results[0].Score > 0.8 {
+		t.Errorf("expected score ~0.6, got %f", results[0].Score)
 	}
 	if len(results[0].ReadsEnv) == 0 {
 		t.Error("expected ReadsEnv to be populated")

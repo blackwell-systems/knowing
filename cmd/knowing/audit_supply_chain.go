@@ -59,7 +59,7 @@ func cmdAuditSupplyChain(args []string) error {
 	dbPath := fs.String("db", defaultDB(), "Path to the SQLite database (env: KNOWING_DB)")
 	base := fs.String("base", "", "Baseline snapshot hash or ref (@prev, @N)")
 	head := fs.String("head", "@latest", "Current snapshot hash or ref (default: @latest)")
-	threshold := fs.Float64("threshold", 0.7, "Isolation score threshold for suspicious files")
+	threshold := fs.Float64("threshold", 0.3, "Isolation score threshold for suspicious files")
 	failOnSuspicious := fs.Bool("fail-on-suspicious", false, "Exit non-zero if any file exceeds threshold")
 	scanAll := fs.Bool("scan-all", false, "Scan all files (skip diff, useful when clean/compromised are in separate DBs)")
 	outFile := fs.String("o", "", "Write JSON report to file (default: stdout)")
