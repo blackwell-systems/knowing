@@ -2,23 +2,44 @@
 
 What's shipped is in the [changelog](CHANGELOG.md). This document covers what's next.
 
+## Current State (v0.10.1, 2026-05-25)
+
+**P@10 = 0.238** (167 tasks, 9 repos, 6 languages). 38 edge types. 23 extractors.
+1.76x codegraph, 3.17x GitNexus, 3.78x Gortex, 18.3x grep.
+Embedding re-ranker: +15% P@10 with SQLite vector cache (220ms cached).
+
 ## Immediate Priorities
 
 | # | Item | Why | Effort | Expected Impact |
 |---|------|-----|--------|-----------------|
 | 1 | **Real users** | Everything else is validated by benchmarks, not usage. Task memory compounds with use. | Ongoing | - |
-| 2 | **Local embeddings (Channel 6)** | Lightweight local embedding model embeds task descriptions and symbol signatures into shared vector space. Bridges vocabulary gap completely: "custom migration operation" finds `Operation.state_forwards` via semantic similarity. Pure Go inference proposed (`docs/proposals/pure-go-embeddings.md`). | High (3-4 days) | +5-15% P@10 |
-| 3 | **event-stream supply chain demo** | Index clean + compromised versions, show `knowing diff` catches malicious edges, prove absence/presence with Merkle proofs. Paper outlined (`docs/research/whitepapers/supply-chain-proof-of-absence.md`). | Medium | Commercial angle |
-| 4 | **Coherence-aware context packing** | Current packing is greedy by value density (score/tokens). Treats symbols independently. Alternatives: (1) subgraph coherence bonus (boost symbols that are graph-neighbors of already-packed ones), (2) MMR diversity penalty (penalize redundant symbols from same file/type), (3) coverage packing (track which task aspects are covered, prefer uncovered). Coherence bonus is most promising since it leverages the graph we already have. | Medium | Quality |
-| 5 | **Parallel write backend** | SQLite single-writer funnels all extraction results through one goroutine. Even with producer-consumer pipeline, writes are serial. Need parallel write support for large repos. | High | Performance |
+| 2 | **Supply chain whitepaper** | False positive evaluation (scan 200+ clean packages), related work section. Draft has TanStack + event-stream case studies. Whitepaper at `docs/research/whitepapers/supply-chain-proof-of-absence.md`. | Medium | Publication + commercial |
+| 3 | **Investigate re-ranker regressions** | VS Code -16%, Ocelot -30.8% with embedding re-ranker. Dense graphs may need different re-rank strategy (weight > 0.0 to preserve graph ordering). | Medium | Quality |
+| 4 | **Root-level Go file extraction** | Go files at repo root produce 0 nodes due to package path computation bug. Affects flat-structure repos. | Low | Correctness |
+| 5 | **Coherence-aware context packing** | Current packing is greedy by value density (score/tokens). Treats symbols independently. Subgraph coherence bonus (boost graph-neighbors of already-packed symbols) is most promising. No evidence of harm yet; speculative improvement. | Medium | Quality |
+| 6 | **GHA Marketplace action** | Package the supply chain scanner for paid distribution. Free tier scans public repos; paid tier for private repos + continuous monitoring. | Medium | Commercial |
+| 7 | **Parallel write backend** | SQLite single-writer funnels all extraction results through one goroutine. Even with producer-consumer pipeline, writes are serial. Need parallel write support for large repos. | High | Performance |
+
+### Session 16: Shipped
+
+- **Pre-computed embedding vector cache**: re-rank latency 660ms -> 220ms (3x speedup). Vectors stored in SQLite (migration 019). `ReRankByHashes` reads cached vectors, only embeds query text.
+- `EmbeddingStore` interface, `SetStore()`, `float32sToBytes`/`bytesToFloat32s` serialization
+- `VectorReRanker.ReRankByHashes` for hash-based cache-first re-ranking
+- 43 new unit tests across 4 packages (embedding, store, context, diff/isolation)
+- Latency profiling test (`internal/embedding/latency_test.go`)
+- Architecture doc: `docs/architecture/embedding-reranker.md`
+- Updated all docs with current numbers (P@10=0.238, 38 edge types, 9 repos, re-ranker)
+- Proposal status: pure-go-embeddings.md marked SHIPPED, Phase 2 no longer needed
 
 ### Session 15: Shipped
 
-- accesses_field edge type (Go: method -> receiver field, 36th edge type, P@10 neutral)
-- Struct field node extraction (kind="field", enables contains/member_of from type to fields)
-- Wire format codec overhaul (binary: 9 -> 36 edge types, 10 -> 16 kinds, 4 -> 7 provenances)
-- similar_to added to edgetype constants (was used but undeclared)
-- Multi-language accesses_field (Rust, Python, Java, C#, TypeScript) in progress
+- **Embedding re-ranker**: +15% P@10, +18.3% R@10 on full 167-task corpus. jina-code model via hugot pure-Go ONNX. Pure re-rank (weight=0.0) validated optimal.
+- **Supply chain detection**: `reads_env` (37th), `executes_process` (38th) edge types across 5 languages. `knowing audit-supply-chain` CLI. Isolation scoring. Verified on TanStack + event-stream patterns.
+- **accesses_field** edge type (36th): 6 languages (Go, Rust, Python, Java, C#, TypeScript)
+- Wire format codec overhaul (binary: 9 -> 38 edge types, 10 -> 18 kinds, 4 -> 7 provenances)
+- Three automated scanners (npm, PyPI, Maven Central) on GitHub Actions
+- Attack detection registry (`demos/supply-chain-attacks/`)
+- v0.9.0, v0.10.0, v0.10.1 released
 
 ### Session 14: Shipped
 
@@ -29,18 +50,19 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 - Self-adapting PreferTypeSeeds (density-adaptive retrieval for >40K nodes)
 - Phrase-boosted BM25 from adjacent Components
 - TypeScript export_statement fix (was silently dropping all exported declarations)
-- --edge-types ablation filter, BENCH_EXCLUDE_EDGES, BENCH_BFS_DEPTH diagnostic tools
 
-### Session 14: Rejected (tested neutral or harmful)
+### Tested Neutral or Harmful (sessions 14-15)
 
 | Approach | Why neutral |
 |----------|-------------|
+| **Embeddings as Channel 3** (seed source) | Three models neutral: find same symbols as BM25. Architecture was wrong. |
+| **Blended re-rank** (weight > 0.0) | Pure re-rank (weight=0.0) wins P@10/R@10. Blending preserves MRR but sacrifices recall. |
 | **Call-chain seeding** | Callees already reachable via RWR traversal; diffuses probability mass |
-| **File-scoped co-retrieval** | File siblings already reachable via contains/member_of edges |
-| **AND-semantics path matching** | Ground truth symbols don't contain all task terms in their QN |
 | **Hub dampening** | No effect on VS Code (0.095 unchanged at any threshold) |
 | **BFS depth reduction** | No effect (depth 2/3/4 all produce same P@10) |
 | **Expanded framework thesaurus** ("backend"->"base") | Hurts: too noisy for BM25 |
+| **accesses_field for P@10** | Neutral: fields already reachable via call edges. Adds graph completeness, not retrieval. |
+| **LSP enrichment for P@10** | Neutral: upgrades confidence but RWR weights by edge type, not confidence. |
 
 ## Storage Backend (P0 Performance)
 
@@ -233,9 +255,9 @@ context retrieval. Full proposal: [docs/proposals/code-retrieval-eval-toolkit.md
 ## Retrieval Pipeline
 
 Current results: see [bench/cross-system/FINDINGS.md](../bench/cross-system/FINDINGS.md).
-P@10=0.210 (Run 25, 167 tasks, 9 repos). 1.56x vs codegraph, 2.80x vs GitNexus, 3.33x vs Gortex, 16.2x vs grep. Query latency 2ms on k8s (with adjacency cache).
+P@10=0.238 (Run 26, 167 tasks, 9 repos). 1.76x vs codegraph, 3.17x vs GitNexus, 3.78x vs Gortex, 18.3x vs grep. Query latency 2ms on k8s (with adjacency cache). Embedding re-ranker adds 220ms (cached vectors).
 
-**Key finding (session 13):** 32-config parameter sweep + 6-point doc weight sweep proved P@10 is entirely reachability-determined. No parameter tuning moves it. Only new edges or new seed sources improve retrieval.
+**Key findings:** (1) 32-config parameter sweep proved P@10 is reachability-determined; ranking parameters are irrelevant. (2) Embedding re-ranker (+15% P@10) is the exception: it doesn't change reachability but reorders graph-surfaced candidates by semantic relevance. Architecture matters more than model.
 
 ### Retrieval Improvements
 
@@ -250,22 +272,28 @@ P@10=0.210 (Run 25, 167 tasks, 9 repos). 1.56x vs codegraph, 2.80x vs GitNexus, 
 
 ## Edge Type Expansion
 
-34 edge types shipped. See [Edge Types Reference](architecture/edge-types.md) and [CHANGELOG](CHANGELOG.md) for full details.
+38 edge types shipped. See [Edge Types Reference](architecture/edge-types.md) and [CHANGELOG](CHANGELOG.md) for full details. Recent additions: `accesses_field` (36th, 6 languages), `reads_env` (37th, supply chain), `executes_process` (38th, supply chain).
 
-### P1: Reachability edges (directly improve P@10)
+### Shipped P1 edges (sessions 14-15)
 
-These edges bridge the 45.6% of unreachable ground truth symbols (407/893). Each creates new paths from keyword seeds to previously-disconnected subgraphs. Prioritized by breadth of applicability across languages.
+| Edge Type | Status | Impact |
+|-----------|--------|--------|
+| `co_tested_with` | Shipped (session 14) | Lateral connections between co-tested symbols |
+| `type_hint_of` | Shipped (session 14) | Parameter type annotations across 6 languages |
+| `accesses_field` | Shipped (session 15) | Method -> struct field access across 6 languages. P@10 neutral but adds graph completeness. |
+| `reads_env` | Shipped (session 15) | Function -> env var (supply chain detection) |
+| `executes_process` | Shipped (session 15) | Function -> process spawning (supply chain detection) |
 
-| # | Edge Type | What it connects | Languages | Expected Impact | Effort |
-|---|-----------|-----------------|-----------|-----------------|--------|
-| 1 | **`implements_interface` propagation** | When function accepts interface type, connect to all concrete implementors. If `func Handle(c Cache)` exists and `RedisCache implements Cache`, create edge from `Handle` to `RedisCache`. Currently only Go has partial support; needs full cross-language extraction. | Go, Java, TypeScript, C#, Rust (traits) | +3-8% P@10 (bridges k8s 71, django 117 unreachable) | Medium |
-| 2 | **`co_tested_with`** | Symbols imported/used in the same test file are functionally related. If `TestCacheIntegration` imports both `RedisCache` and `BaseCache`, create lateral edge between them. Bridges otherwise-disconnected symbols that serve the same feature. | All (test file detection is universal) | +2-5% P@10 (k8s has 58K tests edges; lateral connections between tested symbols) | Medium |
-| 3 | **`type_hint_of`** | Function parameter type annotations create usage edges that aren't calls. `def process(cache: BaseCache)` means `process` depends on `BaseCache`. Invisible to call-graph extraction but structurally meaningful. | Python, TypeScript, Java, Rust, Go, C# | +2-5% P@10 (bridges django 117 unreachable: many functions accept base types as params) | Medium |
+### Remaining P1: Reachability edges
 
-**Why these matter (failure analysis, session 14):**
-- Django: 117/192 ground truth symbols unreachable. Root cause: framework base classes (`BaseCache`, `BaseDatabaseWrapper`, `Operation`) are referenced by type hint and interface contract, not by direct call. Seeds find concrete implementations but can't walk to the base class.
-- Kubernetes: 71/116 unreachable. Root cause: interface-heavy architecture where functions accept interfaces (`runtime.Object`, `Informer`) but ground truth is the concrete implementations. Interface propagation would bridge these.
-- Kafka: 50/93 unreachable. Root cause: consumer/producer patterns where coordinator classes are referenced via type parameters and configuration, not direct calls.
+| # | Edge Type | What it connects | Expected Impact | Effort |
+|---|-----------|-----------------|-----------------|--------|
+| 1 | **`implements_interface` propagation** | When function accepts interface type, connect to all concrete implementors. Currently only Go has partial support; needs full cross-language extraction. | +3-8% P@10 (bridges k8s 71, django 117 unreachable) | Medium |
+
+**Remaining failure analysis (sessions 13-14):**
+- Django: 117/192 ground truth symbols unreachable. Root cause: framework base classes referenced by type hint and interface contract, not direct call.
+- Kubernetes: 71/116 unreachable. Root cause: interface-heavy architecture where functions accept interfaces but ground truth is concrete implementations.
+- Kafka: 50/93 unreachable. Root cause: consumer/producer patterns referenced via type parameters and configuration.
 
 ### P2: Structural edges
 
