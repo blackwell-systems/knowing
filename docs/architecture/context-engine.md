@@ -100,7 +100,7 @@ Seed selection uses Reciprocal Rank Fusion (`rrfFuseMulti`) across five channels
 |---------|--------|--------|
 | 1. Tiered keyword matching | 2.0 | 4-tier compound-first: exact > prefix > substring > path (interface seeding is a separate post-RRF step) |
 | 2. BM25 FTS5 | 2.0 | SQLite FTS5 over 6 columns: symbol_name (10x), concepts (5x), file_path (4x), qualified_name (3x), doc (3x), signature (1x) |
-| 3. Vector/embedding search | 0.0 | BGE-small-en-v1.5 via HNSW (disabled pending code-tuned model) |
+| 3. Vector/embedding search | 0.0 | jina-code via HNSW (neutral as seed channel; used as post-scoring re-ranker instead, see step 7b) |
 | 4. Equivalence class matching | 2.0 | 115 equivalence classes (63 universal + 21 knowing-specific + 31 language-specific) mapped to target symbols |
 | 5. Path-context seeding | 1.5 | Extracts package/directory terms from task, finds type nodes in matching packages, injects as supplemental RWR seeds at weight 0.3 |
 
@@ -140,9 +140,23 @@ The FTS5 tokenizer uses `tokenchars '_'` so that snake_case identifiers (e.g., `
 
 Tokenization uses CamelCase-aware splitting (`splitForFTS`, `splitCamelCase`) so that a query for "Store" matches "SQLiteStore" or "NewSQLiteStore". `RebuildFTS` runs synchronously after snapshot computation (previously deferred to a background goroutine that was killed on CLI process exit, leaving FTS empty). Adds ~500ms to index time. BM25 is fused as RRF Channel 2 with weight 2.0.
 
-## Embedding Search (Infrastructure Shipped, Disabled)
+## Embedding Re-ranker (Shipped, +15% P@10)
 
-The embedding model is BGE-small-en-v1.5 (384 dimensions, retrieval-tuned), replacing the initially tested MiniLM-L6-v2. Infrastructure: hugot ONNX runtime, coder/hnsw index, RRF Channel 3 (weight 0.0). Off-the-shelf models tested net-negative on the eval (see `eval/EXPERIMENTS.md`). Embed text includes doc comments (Node.Doc field, extracted via tree-sitter) for future code-tuned models. Enable with `KNOWING_EMBEDDINGS=1`.
+The embedding model is jina-embeddings-v2-base-code (768 dimensions, code-tuned) via hugot
+pure-Go ONNX runtime. As an independent seed channel (Channel 3), embeddings are neutral
+(three models tested identical to BM25). As a **post-scoring re-ranker** (step 15b in
+ForTask), they produce the biggest single improvement in project history: P@10 0.207 -> 0.238
+(+15%), R@10 0.306 -> 0.362 (+18.3%).
+
+**How it works:** After scoring (step 15), the top-50 candidates are re-ranked by cosine
+similarity between the task description and each candidate's embedding. `ReRankByHashes`
+looks up pre-computed vectors from SQLite (populated at index time), only embedding the
+query text (~120ms). Cache misses fall back to on-the-fly embedding and auto-persist.
+Total re-rank latency: ~220ms cached, ~660ms uncached.
+
+**Configuration:** `ReRankOriginalWeight = 0.0` (pure re-rank, validated optimal).
+Enable with `--embeddings` on `knowing mcp` or `BENCH_EMBEDDINGS=1` for benchmarks.
+See `docs/architecture/embedding-reranker.md` for the full design.
 
 ## Docstring Extraction and FTS Indexing
 
@@ -206,6 +220,7 @@ Bigram generation joins adjacent non-stop-words into both CamelCase and snake_ca
 13. If task is about testing (detected by keyword), disable test file penalty.
 14. Run HITS on the top-200 candidates (10 iterations) to compute authority/hub scores.
 15. Score all candidates via `RankSymbols` (blast_radius, confidence, recency, distance, feedback, session, HITS adjustments).
+15b. **Embedding re-rank (optional, `--embeddings`):** If a `VectorReRanker` is attached, re-rank top-50 scored candidates by cosine similarity to the task description via `reRankWithEmbeddings`. Uses `ReRankByHashes` to look up pre-computed vectors from SQLite; only embeds the query text (~120ms cached). Pure re-rank (weight=0.0) is validated optimal.
 16. Pack into token budget via density-ranked knapsack (score/cost ratio ordering).
 17. Record returned symbols in session tracker; record top-5 symbols to task memory for future recall.
 18. Compute content-addressed PackRoot; persist to both in-memory SubgraphCache and persistent notes table (with snapshot hash for staleness detection).
@@ -288,6 +303,9 @@ The Random Walk with Restart algorithm (`internal/context/walk.go`) uses edge-ty
 | `co_tested_with` | 0.5 | Lateral connection between symbols co-tested in the same test file |
 | `type_hint_of` | 0.5 | Function parameter type annotation linking function to type |
 | `similar_to` | 0.15 | Semantic similarity (Jaccard on tokenized bodies); weak signal to avoid overweighting |
+| `accesses_field` | 0.6 | Method -> struct/class field it reads/writes (6 languages) |
+| `reads_env` | 0.4 | Function -> environment variable it reads (supply chain detection) |
+| `executes_process` | 0.5 | Function -> process it spawns (supply chain detection) |
 | `owned_by` | 0.0 | Organizational; excluded from walk |
 | `authored_by` | 0.0 | Organizational; excluded from walk |
 
@@ -312,7 +330,7 @@ All RWR and ranking parameters are configurable via `SweepParams` (`internal/con
 | DistanceW | 0.15 | Distance ranking weight |
 | TestPenalty | 0.3 | Test file score multiplier |
 
-**Parameter sweep result:** A 26-configuration sweep across all parameters produced identical P@10=0.180 (pre-docstring FTS, now 0.207 with subsequent improvements). This proves that P@10 is reachability-determined, not ranking-determined. The retrieval bottleneck is whether relevant symbols are reachable from seeds at all, not how they are ranked once found. New retrieval signals (additional seed channels, new edge types, docstring indexing, concept thesaurus, self-adapting type-seed preference) are the path forward; tuning existing parameters is futile.
+**Parameter sweep result:** A 26-configuration sweep across all parameters produced identical P@10=0.180 (pre-docstring FTS, now 0.238 with subsequent improvements including docstring FTS, density-adaptive seeding, and embedding re-ranker). This proves that P@10 is reachability-determined, not ranking-determined. The retrieval bottleneck is whether relevant symbols are reachable from seeds at all, not how they are ranked once found. New retrieval signals (additional seed channels, new edge types, docstring indexing, concept thesaurus, self-adapting type-seed preference) are the path forward; tuning existing parameters is futile.
 
 ## Contains and Member_of Edges
 

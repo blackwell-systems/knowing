@@ -1,11 +1,12 @@
 # Proposal: Local Embeddings for Retrieval
 
-## Status: RE-RANKER VALIDATED (+4.5% P@10, +16.6% R@10). Phase 2 JUSTIFIED.
+## Status: SHIPPED. Full corpus +15% P@10, +18.3% R@10. Vector cache: 660ms -> 220ms.
 
-Phase 1 (hugot integration) is implemented and wired into the retrieval pipeline.
-The re-ranker architecture produces the first P@10 improvement since session 14.
-Phase 2 (custom inference engine) is now JUSTIFIED by the latency problem: 11s/task
-with hugot is too slow for interactive use. Custom engine targets 1-2s.
+Phase 1 (hugot integration) is shipped and validated on full 167-task corpus.
+Phase 2 (custom inference engine) is NO LONGER NEEDED: the "11s/task" number was
+total indexing time, not per-query cost. With the SQLite vector cache, re-rank
+latency is 220ms (embed 1 query + read 50 cached vectors). Acceptable for
+interactive use. See `docs/architecture/embedding-reranker.md` for full details.
 
 ### Embedding Benchmark Results (Session 15, 2026-05-25)
 

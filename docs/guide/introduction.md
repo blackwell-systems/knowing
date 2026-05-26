@@ -267,7 +267,7 @@ Each edge carries:
 
 | Field | Description |
 |---|---|
-| `type` | Relationship kind: calls, imports, implements, references, similar_to, co_tested_with, type_hint_of, etc. (34 types total) |
+| `type` | Relationship kind: calls, imports, implements, references, similar_to, co_tested_with, type_hint_of, accesses_field, reads_env, executes_process, etc. (38 types total) |
 | `confidence` | Float 0.0 to 1.0 indicating certainty of the relationship |
 | `provenance` | Discovery method: `ast_inferred`, `lsp_resolved`, `git_blame`, `similarity`, `runtime` |
 | `file` | Source file where the call site exists |
@@ -838,12 +838,16 @@ These numbers are reproducible via `knowing eval` on the benchmark suite (9 repo
 
 | Metric | Value | Context |
 |---|---|---|
-| P@10 (precision at 10) | 0.207 | 1.76x codegraph (19K stars), 3.17x GitNexus, 3.78x Gortex, 18.3x grep |
+| P@10 (precision at 10) | 0.238 | 1.76x codegraph (19K stars), 3.17x GitNexus, 3.78x Gortex, 18.3x grep |
+| R@10 (recall at 10) | 0.362 | +18.3% from embedding re-ranker |
+| NDCG@10 | 0.393 | +12.6% from embedding re-ranker |
+| MRR | 0.440 | +8.1% from embedding re-ranker |
+| Embedding re-rank latency | 220ms | Cached vectors; 660ms uncached (first run) |
 | Adjacency cache latency | 2ms | Down from 9s uncached on k8s (4,717x improvement) |
 | Time-to-consistency | 167ms | File edit to query returning new symbol |
 | Feedback impact | +34pp over 5 rounds | 16% baseline to 50% with feedback |
 | Index throughput | 494x incremental vs full | IndexFilesIncremental on warm graph |
-| Similarity edges | +19.5% MRR | Embedding-based similar_to edges vs graph-only |
+| Edge types | 38 | Including accesses_field, reads_env, executes_process (supply chain) |
 
 All measurements taken on developer hardware (no GPU, no cloud). The system is designed to be fast enough that agents never wait for it.
 

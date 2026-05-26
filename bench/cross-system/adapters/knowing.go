@@ -177,6 +177,7 @@ func (a *Knowing) Index(repoPath string) (int64, error) {
 			fmt.Fprintf(os.Stderr, "  [warn] embeddings disabled: %v\n", err)
 		} else {
 			searcher := embedding.NewSearcher(embedder)
+			searcher.SetStore(s) // persistent vector cache
 			nodes, err := s.NodesByName(ctx, "%")
 			if err == nil && len(nodes) > 0 {
 				// Cap at 5000 symbols for benchmark feasibility (~70s at 14ms/symbol).

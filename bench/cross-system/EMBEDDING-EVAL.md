@@ -66,8 +66,10 @@ KNOWING_EMBED_MODEL=jina-code BENCH_EMBEDDINGS=1 BENCH_REPOS=flask BENCH_ADAPTER
    pack cache returning stale results. `DisablePersistentCache()` is required for valid
    benchmark measurements.
 
-3. **Latency is the blocker.** 11s/task with hugot pure Go ONNX. Custom inference engine
-   (Phase 2) would reduce to 1-2s. Acceptable for batch/CI but not interactive MCP queries.
+3. **Latency is acceptable.** Re-rank call (51 texts: 1 query + 50 candidates) takes ~660ms
+   via hugot pure Go ONNX. Single embed ~115ms, batch amortizes to ~13ms/text. Well under 1s
+   for interactive MCP queries. The earlier "11s/task" number was total indexing time (embedding
+   every node in a repo), not per re-rank call. See Latency Profile section below.
 
 4. **Blending preserves ranking quality.** Pure re-ordering hurts MRR (-12.1%) because
    the embedding sometimes promotes wrong symbols to #1. Blended scoring (0.7 original +
@@ -83,12 +85,56 @@ KNOWING_EMBED_MODEL=jina-code BENCH_EMBEDDINGS=1 BENCH_REPOS=flask BENCH_ADAPTER
 | **NDCG** | 0.349 | **0.393** | **+12.6%** |
 | **MRR** | 0.407 | **0.440** | **+8.1%** |
 | Tasks | 167 | 167 | - |
-| Latency | 0ms | 10,539ms | (fixable with custom engine) |
+| Latency | 0ms | ~660ms/re-rank | (batch 51 texts via hugot ONNX) |
 
 Every metric improved. Biggest improvement in project history. Run completed
 in 4,820s (80 min) with no timeout.
 
 Top per-repo improvements: Kubernetes +92.8%, Kafka +39.5%, Cargo +15.9%.
+
+## Latency Profile (2026-05-25, Apple Silicon)
+
+Model: jina-code (768 dims), hugot v0.7.2 pure-Go ONNX runtime.
+
+| Operation | Time | Per-text |
+|-----------|------|----------|
+| Model load | 73ms | (one-time) |
+| Single embed | 115ms | 115ms |
+| Batch 5 | 101ms | 20.0ms |
+| Batch 10 | 157ms | 15.7ms |
+| Batch 20 | 276ms | 13.8ms |
+| Batch 30 | 412ms | 13.7ms |
+| Batch 40 | 526ms | 13.2ms |
+| Batch 50 | 658ms | 13.1ms |
+| **Batch 51 (re-rank call)** | **660ms** | **12.9ms** |
+| 50x cosine (768-dim) x1000 | 5.9ms | 0.12us |
+
+**Breakdown:** All time is ONNX inference (tokenization + forward pass). Cosine
+computation is negligible. Batching amortizes fixed overhead: 115ms single vs
+12.9ms/text in batch of 51. The re-rank hot path (1 query + 50 candidates) is
+a single `EmbedBatch` call taking ~660ms.
+
+**Correction:** The "11s/task" number reported earlier was total per-task time
+during full corpus benchmarking (indexing all nodes + re-ranking), not the
+re-rank call itself.
+
+### With Vector Cache (SQLite-backed, added 2026-05-25)
+
+Pre-computed embeddings stored in SQLite. Re-rank only embeds the query (1 text),
+reads 50 cached vectors from disk, computes cosine similarities.
+
+| Path | Time | Speedup |
+|------|------|---------|
+| Old (embed 51 texts) | 660ms | baseline |
+| **Cached (embed 1 + SQLite lookup)** | **220ms** | **3.0x** |
+| Uncached first-run (embed 51 + persist) | 694ms | ~1x (amortized on subsequent) |
+
+Storage overhead: ~8 bytes/dim x 768 dims = ~6KB/vector. 5000 vectors = ~30MB.
+Vectors persist across sessions; re-indexing updates them.
+
+Cache miss behavior: on miss, falls back to on-the-fly embedding and persists
+the result for next time. First query after indexing is uncached; all subsequent
+queries hit the cache.
 
 ## Baseline (no embeddings)
 

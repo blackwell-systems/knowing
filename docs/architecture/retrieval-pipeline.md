@@ -46,6 +46,9 @@ Task Description
 [7. Scoring]                   6-component formula with feedback + session boosts
     |
     v
+[7b. Embedding Re-rank]        cosine-sort top-50 by cached vectors (optional, --embeddings)
+    |
+    v
 [8. Budget Packing]            density-ranked greedy knapsack (score/cost ratio)
     |
     v
@@ -351,13 +354,21 @@ the type is seeded so RWR walks to its methods via `contains` edges. For example
 "consumer group coordinator" finds `ConsumerCoordinator` in kafka's `group/` package
 because the type has methods matching "coordinator".
 
-### Channel 5: Vector search (weight 0.0, disabled)
+### Channel 5: Vector search (weight 0.0 as seed channel; re-ranker active separately)
 
-Infrastructure is complete: ONNX runtime, HNSW index, RRF channel wiring. Disabled
-because all tested models (MiniLM-L6-v2, BGE-small-en-v1.5) produced net-negative results.
-General-purpose embedding models do not understand code vocabulary gaps (e.g., "blast
-radius" should match `TransitiveCallers`). Enable with `KNOWING_EMBEDDINGS=1` for
-experimentation.
+As an independent seed channel, embeddings remain disabled (weight 0.0). Three models
+(BGE-small, jina-code, nomic) tested neutral: they find the same symbols as BM25.
+
+However, the same embedding infrastructure powers the **embedding re-ranker** (step 7b),
+which operates after scoring, not during seed selection. The re-ranker reorders the top-50
+scored candidates by cosine similarity to the task description. This is the biggest single
+improvement in project history: P@10 0.207 -> 0.238 (+15%), R@10 0.306 -> 0.362 (+18.3%).
+
+The key insight: architecture matters more than model. The same jina-code model that is
+neutral as a seed channel produces +15% when used to re-rank graph-surfaced candidates.
+See `docs/architecture/embedding-reranker.md` for the full design.
+
+Enable with `--embeddings` on `knowing mcp` or `BENCH_EMBEDDINGS=1` for benchmarks.
 
 ---
 
@@ -435,6 +446,9 @@ structurally close to the seeds and sit at the intersection of many paths.
 | `similar_to` | 0.15 | Jaccard similarity edges between related symbols |
 | `owned_by` | 0.0 | Ownership metadata; zero walk weight (not structural) |
 | `authored_by` | 0.0 | Authorship metadata; zero walk weight (not structural) |
+| `accesses_field` | 0.6 | Method -> struct/class field it reads/writes |
+| `reads_env` | 0.4 | Function -> environment variable it reads |
+| `executes_process` | 0.5 | Function -> process it spawns |
 | `contains` | 0.8 | Type/class -> method/field (structural, from QN hierarchy) |
 | `member_of` | 0.6 | Method/field -> type/class (reverse of contains) |
 | `inherits` | 0.3 (default) | Child-to-parent-method via inheritance propagation; uses default weight |
@@ -851,8 +865,9 @@ wasting recall without improving precision.
 **RWR convergence threshold.** 0.001 provides good balance. Tighter convergence has
 negligible impact on ranking; looser convergence risks instability.
 
-**Embedding weight.** Keep at 0.0 until a code-tuned model is available. General-purpose
-models (MiniLM, BGE-small) tested net-negative at every weight level (experiments 9-12).
+**Embedding seed weight.** Keep Channel 5 at 0.0. Three models tested neutral as seed
+sources (experiments 9-12, Run 26). The re-ranker (step 7b) is the correct integration
+point for embeddings. `ReRankOriginalWeight` at 0.0 (pure re-rank) is validated optimal.
 
 ### What the experiments taught (21 experiments, summarized)
 
@@ -940,34 +955,34 @@ blast-radius symbols deserve attention when making changes.
 
 ---
 
-## Design Position: Why Equivalence Classes Over Embeddings
+## Design Position: Equivalence Classes + Embedding Re-ranker
 
-Other retrieval tools built their pipelines with embeddings as the primary
-concept-matching layer. Without embeddings, they only have BM25 (lexical). So embeddings
-fill a critical gap for them.
+The retrieval pipeline uses two complementary concept-matching strategies:
 
-knowing's pipeline has equivalence classes filling the same role, and they outperform
-embeddings on our eval. Adding embeddings on top of equivalence classes is redundant:
-both try to bridge "blast radius" to "TransitiveCallers". When one system already
-handles it, the other just adds noise.
+**Equivalence classes** (seed selection, step 2): 115 curated concept classes that
+deterministically map natural-language phrases to target symbols. Local, inspectable,
+zero-cost, compounds with curation. This is the primary seed quality mechanism.
 
-Embeddings would be net positive only if they catch concepts that equivalence classes
-miss (vocabulary not manually defined) AND do it with fewer false positives than the
-current signal-to-noise ratio. A code-tuned model might achieve the first condition, but
-the second is the hard part: the pipeline is already precise enough that additional noise
-hurts the easy tier.
+**Embedding re-ranker** (post-scoring, step 7b): reorders top-50 candidates by cosine
+similarity to the task description. Catches relevant symbols the graph surfaced but
+scored low. +15% P@10 on full corpus.
 
-**The strategic conclusion:** equivalence classes + graph-derived aliases + task memory is
-knowing's retrieval path. It is local, deterministic, inspectable, and compounds with
-use. That is the moat, not a better embedding model. The embedding infrastructure stays
-as an optional plugin (KNOWING_EMBEDDINGS=1), not the core strategy.
+The key insight is that embeddings fail as seed sources (Channel 5 = neutral) but
+succeed as re-rankers. As seeds, embeddings find the same symbols as BM25 (vocabulary
+overlap). As re-rankers, they promote graph-discovered candidates that text matching
+undervalues. The graph provides structural reach; embeddings provide semantic ranking.
 
-This is validated by 23 experiments (see `eval/EXPERIMENTS.md`):
-- Experiments 9-12: MiniLM and BGE-small tested net-negative at every weight level
-- Experiment 17: doc comments in BM25/embed text did not compensate for model weakness
-- Experiment 18: equivalence classes produced +8pp hard tier, the largest single-feature gain
-- Cross-repo eval: 46.7% R@10 on a foreign codebase with zero configuration, using universal
-  equivalence classes and graph-derived aliases (no embeddings)
+**What this means for the architecture:** equivalence classes remain the core seed
+strategy (deterministic, inspectable, compounds with curation). The re-ranker is an
+optional enhancement that improves ranking quality without changing which symbols are
+reachable. Both are local, offline, and zero-cost.
+
+This is validated by 26 benchmark runs:
+- Experiments 9-12: embeddings as Channel 3 tested net-negative (same symbols as BM25)
+- Run 26: embeddings as re-ranker: +15% P@10, +18.3% R@10 (biggest single improvement)
+- Experiment 18: equivalence classes produced +8pp hard tier (biggest seed improvement)
+- Architecture > model: three models neutral as seeds, all effective as re-rankers
+- See `docs/architecture/embedding-reranker.md` for full re-ranker design
 
 ---
 
@@ -977,8 +992,9 @@ This is validated by 23 experiments (see `eval/EXPERIMENTS.md`):
    universal + 31 language-specific) cover common patterns but not every domain concept.
    Queries using terminology not covered by any class fall back to lexical matching only.
 
-2. **Embeddings disabled.** Vector search infrastructure exists but is disabled (weight 0).
-   Optional via KNOWING_EMBEDDINGS=1 for experimentation with code-tuned models.
+2. **Embedding re-ranker is optional.** Enabled via `--embeddings` on `knowing mcp`.
+   When enabled, adds ~220ms to query time (cached vectors) or ~660ms (first run).
+   Improves P@10 by +15% on average but regresses on some dense-graph repos (VS Code -16%).
 
 3. **LIKE-based tiered matching.** `NodesByName` uses SQL `LIKE %keyword%`, so "auth"
    matches `AuthService`, `OAuth2Handler`, and `unauthorized_error` equally.
@@ -1012,5 +1028,8 @@ This is validated by 23 experiments (see `eval/EXPERIMENTS.md`):
 | `internal/context/hits.go` | `ComputeHITS`, `HITSScores` |
 | `internal/context/session.go` | `SessionTracker`, `SessionBoosts` |
 | `internal/context/task_memory.go` | `TaskMemory`, `Recall`, `RecordBatch`, `NormalizeKeywords` |
-| `internal/store/sqlite.go` | `SearchBM25Nodes`, `RebuildFTS`, `splitForFTS`, `splitCamelCase` |
+| `internal/context/walk.go` | `ReRankOriginalWeight` (blend parameter, default 0.0) |
+| `internal/embedding/embedding.go` | `Embedder`: hugot ONNX session, `Embed`/`EmbedBatch` |
+| `internal/embedding/searcher.go` | `Searcher`: HNSW index, `ReRank`, `ReRankByHashes`, vector cache |
+| `internal/store/sqlite.go` | `SearchBM25Nodes`, `RebuildFTS`, `splitForFTS`, `BatchPutEmbeddings`, `GetEmbeddings` |
 | `eval/EXPERIMENTS.md` | All 21 experiment logs with results |

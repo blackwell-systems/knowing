@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Pre-computed embedding vector cache**: re-rank latency reduced from 660ms to 220ms (3x speedup). Vectors stored in SQLite alongside the graph (migration 019). On re-rank, only the query is embedded (1 inference call, ~120ms); candidate vectors are read from cache. Cache misses fall back to on-the-fly embedding and auto-persist for next time. Zero behavior change for users without embeddings enabled.
+- `ReRankByHashes` method on `VectorReRanker` interface: hash-based vector lookup with text fallback
+- `EmbeddingStore` interface (`embedding.EmbeddingStore`): `BatchPutEmbeddings`, `GetEmbeddings`
+- `embeddings` table in SQLite schema (node_hash, model, vector)
+
 ### Fixed (post v0.10.0)
 
 - **ReRankOriginalWeight default set to 0.0** (pure re-rank): the validated configuration that produces +15% P@10. Previously defaulted to 0.7 which gave no improvement.

@@ -115,6 +115,10 @@ func NewServer(store types.GraphStore) *Server {
 		log.Printf("[info] downloading model if needed (one-time, ~30MB)...")
 		if embedder, err := embedding.New(); err == nil {
 			s.vecSearch = embedding.NewSearcher(embedder)
+			// Attach persistent vector cache if SQLite store is available.
+			if ss, ok := store.(*knowingstore.SQLiteStore); ok {
+				s.vecSearch.SetStore(ss)
+			}
 			log.Printf("[info] embedding model loaded, building vector index in background...")
 			go s.buildVectorIndex()
 		} else {

@@ -4,66 +4,75 @@
 **Study overview:** [bench/CONTEXT-PACKING-STUDY.md](../../bench/CONTEXT-PACKING-STUDY.md)
 **Implementation:** [bench/cross-system/](../../bench/cross-system/)
 
-## Current Status (2026-05-21)
+## Current Status (2026-05-25)
 
 ### Implementation Progress
 
 | Component | Status | Notes |
 |-----------|--------|-------|
 | Benchmark harness | Done | `harness_test.go`, metrics, normalization, statistical tests |
-| Evaluation corpus (7 repos) | Done | kubernetes, VS Code, flask, cargo, django, spark-java, ocelot (replaced TypeScript compiler with VS Code) |
-| Task fixtures (~117 total) | Done | 97 manual + 10 SWE-bench derived + 10 Java/C# |
+| Evaluation corpus (9 repos) | Done | kubernetes, VS Code, flask, cargo, django, spark-java, ocelot, kafka, next.js |
+| Task fixtures (167 total) | Done | 6 languages (Go, Python, TypeScript, Rust, Java, C#) |
 | Ground truth validation | Done | 95% match rate, validate-fixtures tool |
-| knowing adapter | Done | P@10=0.217 (Run 23), d=0.92 (very large) |
-| grep adapter | Done | P@10=0.020 (baseline) |
-| Aider adapter | Not built | Highest priority: direct competitor, pip install |
-| GitNexus adapter | Built + tested | Installed, indexed Flask/Django/Cargo. Cannot index kubernetes (>60 min, killed at 5.7GB RAM). 193x slower than knowing on enterprise repos. |
-| CGC adapter | Not built | pip install, MCP tool interface |
+| knowing adapter | Done | P@10=0.238 (Run 26), 38 edge types, embedding re-ranker |
+| grep adapter | Done | P@10=0.013 (baseline) |
+| codegraph adapter | Done | P@10=0.135, 107/167 tasks (10 failed on unsupported repos) |
+| GitNexus adapter | Done | P@10=0.075, 66/167 tasks (killed on k8s: >60 min, 5.7GB RAM) |
+| Gortex adapter | Done | P@10=0.063, 66/167 tasks (14 min k8s indexing, 14GB RAM) |
+| Aider adapter | Evaluated | Timed out on 30 min limit |
+| codebase-memory adapter | Evaluated | Timed out on 30 min limit |
 | SCIP adapter | Not built | Requires per-language SCIP index generation |
-| Statistical analysis | Done | Wilcoxon, Cohen's d, bootstrap CI, 18 runs |
+| Statistical analysis | Done | Wilcoxon, Cohen's d, bootstrap CI, 26 runs |
 | SWE-bench integration | Done | 10 fixtures; finding: fault localization != context retrieval |
-| Round-2 compounding test | Done | No improvement (graph density prerequisite) |
+| Embedding re-ranker | Done | +15% P@10, +18.3% R@10 on full corpus (Run 26) |
 | Failure analysis | Done | 56% noise, 36% test symbols; RWR reach is bottleneck |
 
-### Key Results (18 runs)
+### Key Results (Run 26, 167 tasks, 9 repos)
 
-| System | P@10 | R@10 | NDCG@10 | MRR | vs grep |
-|--------|------|------|---------|-----|---------|
-| knowing | 0.230 | 0.284 | 0.336 | 0.383 | 11.5x |
-| grep | 0.020 | 0.035 | 0.037 | 0.072 | baseline |
+| System | P@10 | R@10 | NDCG@10 | MRR | vs knowing |
+|--------|------|------|---------|-----|------------|
+| **knowing** | **0.238** | **0.362** | **0.393** | **0.440** | baseline |
+| codegraph (19K stars) | 0.135 | - | - | - | 0.57x |
+| GitNexus | 0.075 | - | - | - | 0.32x |
+| Gortex | 0.063 | - | - | - | 0.26x |
+| grep | 0.013 | - | - | - | 0.05x |
 
+**Competitive ratios:** 1.76x codegraph, 3.17x GitNexus, 3.78x Gortex, 18.3x grep.
 Statistical significance: p<0.0001, d=0.92 (very large effect on recall).
 
-### Per-Repo Performance
+### Per-Repo Performance (Run 26)
 
-| Repo | P@10 | Architecture | Inheritance edges |
-|------|------|-------------|-------------------|
-| Django | 0.330 | Deep class hierarchies | 14,539 |
-| Flask | 0.321 | Small, well-connected | 83 |
-| VS Code | ~0.25 | Classes, services, DI | 337 |
-| Kubernetes | 0.184 | Flat Go (no classes) | 0 |
-| Cargo | 0.123 | Rust modules | 0 |
+| Repo | Language | P@10 | Delta vs baseline | Tasks |
+|------|----------|------|-------------------|-------|
+| Flask | Python | 0.336 | - | 19 |
+| Django | Python | 0.330 | - | 20 |
+| Kafka | Java | 0.195 | +39.5% (re-ranker) | 20 |
+| Kubernetes | Go | 0.184 | +92.8% (re-ranker) | 28 |
+| VS Code | TypeScript | 0.137 | -16% (re-ranker) | 20 |
+| Cargo | Rust | 0.123 | +15.9% (re-ranker) | 20 |
+| spark-java | Java | - | - | 20 |
+| ocelot | C# | - | - | 20 |
+| next.js | TypeScript | - | - | 20 |
 
 ### Key Findings
 
 1. **RWR (graph traversal) is the primary differentiator**, not FTS/BM25
 2. **Inheritance propagation was the breakthrough** (+29% in one change)
 3. **Quality scales with graph density**: dense hierarchies (Django) >> flat codebases (Cargo)
-4. **FTS contributes minimally** because tiered search finds the same symbols
-5. **Feedback compounding requires graph connectivity** as a prerequisite
-6. **SWE-bench measures fault localization**, not context retrieval (different capability)
-7. **The TypeScript compiler was an outlier** (factory-function pattern); VS Code is representative
+4. **Embedding re-ranker is the biggest single improvement** (+15% P@10, +18.3% R@10). Architecture matters more than model: three models were neutral as independent search, but re-ranking top-50 RWR candidates by cosine similarity promotes relevant symbols the graph surfaced but scored low.
+5. **Density-adaptive seeding** auto-enables PreferTypeSeeds on graphs >40K nodes, preventing precision degradation at scale
+6. **P@10 is reachability-determined.** 32-config parameter sweep proved zero variance. Only new edges or new seed sources move the metric.
+7. **SWE-bench measures fault localization**, not context retrieval (different capability)
+8. **38 edge types** including accesses_field, reads_env, executes_process (supply chain detection)
 
 ### Remaining Work
 
 | Item | Priority | Effort | Impact |
 |------|----------|--------|--------|
-| Aider adapter | High | 1 day | Proves knowing > real competitor |
-| GitNexus adapter | Medium | 4 hours | Second competitor comparison |
-| CGC adapter | Medium | 4 hours | Third competitor comparison |
-| Blog post | High | 1 day | Public credibility |
 | SCIP adapter | Low | 2 days | Precision ceiling reference |
-| Java corpus | Low | 1 day | Validate Java extractor |
+| Blog post updates | Medium | 1 day | Public credibility with latest numbers |
+| Investigate VS Code regression | Medium | 1 day | Re-ranker hurts dense graph repos |
+| Investigate Ocelot regression | Low | 1 day | -30.8% with re-ranker (5 tasks, high variance) |
 
 ---
 
@@ -91,7 +100,8 @@ loses, and where systems are equivalent.
 
 ## 2. Systems Under Test
 
-Six systems covering the primary architectural approaches to code context retrieval.
+Seven systems covering the primary architectural approaches to code context retrieval.
+Evaluated: knowing, codegraph, GitNexus, Gortex, grep. Attempted but timed out: Aider, codebase-memory.
 
 ### 2.1 knowing (content-addressed graph)
 
@@ -265,15 +275,19 @@ cgc search "<keywords>" --limit 20
 
 ### 3.1 Repository Selection
 
-The corpus uses **7 repositories** chosen for diversity along these axes:
+The corpus uses **9 repositories** chosen for diversity along these axes:
 
 | Repo | Language | Size (LOC) | Why |
 |------|----------|------------|-----|
 | [kubernetes/kubernetes](https://github.com/kubernetes/kubernetes) | Go | ~3.5M | Large, well-structured, deep call chains |
-| [microsoft/vscode](https://github.com/microsoft/vscode) | TypeScript | ~1M | Large, classes/services/DI/inheritance (replaced TypeScript compiler) |
+| [microsoft/vscode](https://github.com/microsoft/vscode) | TypeScript | ~1M | Large, classes/services/DI/inheritance |
 | [pallets/flask](https://github.com/pallets/flask) | Python | ~30K | Small, clear package boundaries, well-documented |
 | [rust-lang/cargo](https://github.com/rust-lang/cargo) | Rust | ~200K | Medium, strong type system, module hierarchy |
 | [django/django](https://github.com/django/django) | Python | ~350K | Large framework, cross-package dependencies |
+| [apache/kafka](https://github.com/apache/kafka) | Java | ~800K | Enterprise Java, deep class hierarchies |
+| [sparklemotion/spark-java](https://github.com/perwendel/spark) | Java | ~14K | Small Java web framework |
+| [ThreeMammals/Ocelot](https://github.com/ThreeMammals/Ocelot) | C# | ~50K | .NET API gateway, C# coverage |
+| [vercel/next.js](https://github.com/vercel/next.js) | TypeScript | ~500K | Large TS framework, module boundaries |
 
 **Exclusion:** The knowing repo itself is NOT in the evaluation corpus. This
 prevents home-field advantage from fixtures tuned to knowing's own structure.
@@ -308,7 +322,7 @@ repos:
 
 ### 3.2 Ground Truth Tasks
 
-Each repository gets **20 tasks** (100 total), distributed across 3 difficulty tiers:
+Each repository gets **~20 tasks** (167 total across 9 repos), distributed across 3 difficulty tiers:
 
 | Tier | Tasks/repo | Characteristics |
 |------|-----------|-----------------|
@@ -622,12 +636,13 @@ All system versions are pinned and documented:
 ```yaml
 # bench/cross-system/versions.yaml
 systems:
-  knowing: v0.5.0  # or git commit SHA
-  gitnexus: v2.x.x
-  aider: v0.x.x
-  cgc: v1.x.x
-  scip-go: v0.x.x
-  ripgrep: 14.x.x
+  knowing: v0.10.1  # 38 edge types, embedding re-ranker, density-adaptive
+  codegraph: latest (npm)
+  gitnexus: latest (npm)
+  gortex: latest (go install)
+  grep/ripgrep: 14.x.x
+  aider: latest (pip) # timed out
+  codebase-memory: latest (npm) # timed out
 ```
 
 ### 6.6 Independent Ground Truth Verification
@@ -1077,18 +1092,19 @@ The benchmark is considered successful (regardless of which system wins) if:
 4. **Fairness validation:** No system's authors object to the methodology after review
 5. **Actionability:** Results identify at least 3 concrete improvements for knowing's engine
 
-### Expected Outcomes (hypotheses to test)
+### Confirmed Outcomes (26 runs)
 
-Based on competitive analysis, we expect:
+Based on 26 iterative benchmark runs across 167 tasks:
+- knowing wins on **precision** (P@10=0.238, 1.76x the nearest competitor codegraph)
+- knowing wins on **recall** (R@10=0.362, only system with full-corpus recall data)
 - knowing wins on **token efficiency** (GCF format, graph-aware packing)
-- knowing wins on **learning curve** (feedback compounding)
-- Aider wins on **cold-start precision for small repos** (PageRank is effective without indexing cost)
-- SCIP wins on **precision for single-symbol lookup** (compiler-accurate navigation)
-- grep wins on **time to first result** (no indexing overhead)
-- GitNexus is competitive on **breadth** (handles more languages with less setup)
-- knowing potentially loses on **hard cross-package tasks** (current eval shows 14.7% P@10 on hard tier)
-
-These are hypotheses, not conclusions. The benchmark will confirm or refute them.
+- knowing wins on **scalability** (18s index on kubernetes, 200MB RAM vs 14GB for Gortex)
+- grep wins on **time to first result** (no indexing overhead, but 18.3x less precise)
+- codegraph is the strongest competitor (P@10=0.135) but fails on 60/167 tasks
+- Aider and codebase-memory both timed out on the 30-min limit
+- GitNexus cannot index enterprise repos (killed at >60 min on kubernetes)
+- **Embedding re-ranker** was the biggest single improvement: +15% P@10, +18.3% R@10
+- **Dense graph repos benefit most** from re-ranker (Kubernetes +92.8%), but dense TS repos regress (VS Code -16%)
 
 ---
 

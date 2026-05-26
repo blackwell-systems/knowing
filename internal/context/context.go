@@ -45,6 +45,10 @@ type VectorReRanker interface {
 	// ReRankScores embeds the query and each candidate, returns cosine similarity
 	// scores (0.0-1.0) for each candidate at its original index position.
 	ReRankScores(ctx stdctx.Context, query string, candidates []string) ([]float64, error)
+	// ReRankByHashes re-ranks using cached vectors looked up by node hash.
+	// Only embeds the query (1 inference call). Falls back to embedding
+	// candidates on cache miss. Returns scores at original index positions.
+	ReRankByHashes(ctx stdctx.Context, query string, hashes []types.Hash, fallbackTexts []string) ([]float64, error)
 }
 
 // ContextEngine queries the knowing knowledge graph to produce task-specific,
@@ -171,11 +175,13 @@ func (e *ContextEngine) reRankWithEmbeddings(ctx stdctx.Context, reranker Vector
 		return ranked
 	}
 
-	// Build candidate texts from symbol metadata.
+	// Build candidate hashes and fallback texts.
+	hashes := make([]types.Hash, reRankN)
 	candidates := make([]string, reRankN)
 	for i := 0; i < reRankN; i++ {
 		n := ranked[i].Node
-		// Rich text: kind + name + signature + doc
+		hashes[i] = n.NodeHash
+		// Rich text: kind + name + signature + doc (used as fallback on cache miss)
 		parts := []string{n.Kind, n.QualifiedName}
 		if n.Signature != "" {
 			parts = append(parts, n.Signature)
@@ -186,8 +192,9 @@ func (e *ContextEngine) reRankWithEmbeddings(ctx stdctx.Context, reranker Vector
 		candidates[i] = strings.Join(parts, " ")
 	}
 
-	// Get embedding similarity scores for each candidate.
-	scores, err := reranker.ReRankScores(ctx, task, candidates)
+	// Try hash-based re-rank first (uses cached vectors, only embeds query).
+	// Falls back to full re-embedding on cache miss.
+	scores, err := reranker.ReRankByHashes(ctx, task, hashes, candidates)
 	if err != nil || len(scores) != reRankN {
 		return ranked // fallback to original order on error
 	}

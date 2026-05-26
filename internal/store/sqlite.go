@@ -1648,6 +1648,84 @@ func (s *SQLiteStore) CommunitiesForNodes(ctx context.Context, hashes []types.Ha
 	return result, nil
 }
 
+// BatchPutEmbeddings upserts embedding vectors for the given node hashes.
+// Each vector is stored as a raw []byte (little-endian float32 sequence).
+func (s *SQLiteStore) BatchPutEmbeddings(ctx context.Context, model string, hashes []types.Hash, vectors [][]byte) error {
+	if len(hashes) == 0 {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctx,
+		`INSERT OR REPLACE INTO embeddings (node_hash, model, vector) VALUES (?, ?, ?)`)
+	if err != nil {
+		return fmt.Errorf("prepare: %w", err)
+	}
+	defer stmt.Close()
+
+	for i, h := range hashes {
+		if _, err := stmt.ExecContext(ctx, h[:], model, vectors[i]); err != nil {
+			return fmt.Errorf("insert embedding %d: %w", i, err)
+		}
+	}
+	return tx.Commit()
+}
+
+// GetEmbeddings retrieves cached embedding vectors for the given node hashes and model.
+// Returns a map from hash to raw vector bytes. Missing hashes are omitted.
+func (s *SQLiteStore) GetEmbeddings(ctx context.Context, model string, hashes []types.Hash) (map[types.Hash][]byte, error) {
+	if len(hashes) == 0 {
+		return nil, nil
+	}
+	result := make(map[types.Hash][]byte, len(hashes))
+
+	const chunkSize = 99
+	for i := 0; i < len(hashes); i += chunkSize {
+		end := i + chunkSize
+		if end > len(hashes) {
+			end = len(hashes)
+		}
+		chunk := hashes[i:end]
+
+		placeholders := make([]string, len(chunk))
+		args := make([]interface{}, 0, len(chunk)+1)
+		args = append(args, model)
+		for j, h := range chunk {
+			placeholders[j] = "?"
+			args = append(args, h[:])
+		}
+
+		query := `SELECT node_hash, vector FROM embeddings WHERE model = ? AND node_hash IN (` +
+			strings.Join(placeholders, ",") + `)`
+
+		rows, err := s.db.QueryContext(ctx, query, args...)
+		if err != nil {
+			return nil, fmt.Errorf("GetEmbeddings chunk %d: %w", i/chunkSize, err)
+		}
+
+		for rows.Next() {
+			var hashBytes []byte
+			var vec []byte
+			if err := rows.Scan(&hashBytes, &vec); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			var h types.Hash
+			copy(h[:], hashBytes)
+			result[h] = vec
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("GetEmbeddings rows: %w", err)
+		}
+	}
+	return result, nil
+}
+
 // scanNotes is a shared helper for scanning note rows.
 func scanNotes(rows *sql.Rows) ([]types.Note, error) {
 	var notes []types.Note

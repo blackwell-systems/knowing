@@ -95,6 +95,21 @@ Developer commits code
 │    ├── Close all files                                 │
 │    └── Shutdown language server, repeat for next       │
 └───────────────────────────────────────────────────────┘
+
+┌───────────────────────────────────────────────────────┐
+│ 8. Embedding vector indexing (if --embeddings enabled) │
+│    Runs in MCP server background at startup.           │
+│                                                       │
+│    ├── Load all nodes via NodesByName("%")             │
+│    ├── Filter noise (vendor, dist, mocks)             │
+│    ├── Batch embed in chunks of 64 via hugot ONNX     │
+│    │   (jina-code, 768 dims, ~13ms/text batched)      │
+│    ├── Add vectors to in-memory HNSW index            │
+│    ├── Persist vectors to SQLite embeddings table     │
+│    │   (keyed by node_hash + model for cache reuse)   │
+│    └── Subsequent re-rank calls read cached vectors   │
+│        (~220ms vs ~660ms uncached)                    │
+└───────────────────────────────────────────────────────┘
 ```
 
 ## Timing Summary
@@ -105,5 +120,6 @@ Developer commits code
 | Tier 1 extraction (tree-sitter, parallel) | ~1.8s | Write lock | Yes |
 | Snapshot computation (hierarchical Merkle tree) | ~5ms | Write lock | Yes |
 | Tier 2 enrichment (LSP) | ~8s | None (WAL) | No (background) |
+| Embedding index (if enabled) | ~65s (5K nodes) | None (WAL) | No (background) |
 
-The write lock is held only during Tier 1 extraction and snapshot computation. Queries are blocked for approximately 1.5 seconds per commit. Enrichment runs in the background without blocking anything.
+The write lock is held only during Tier 1 extraction and snapshot computation. Queries are blocked for approximately 1.5 seconds per commit. Enrichment and embedding indexing run in the background without blocking anything. Embedding vectors are cached in SQLite; subsequent MCP server startups skip re-embedding for nodes whose vectors are already cached.

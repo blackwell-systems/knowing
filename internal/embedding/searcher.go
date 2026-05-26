@@ -2,6 +2,7 @@ package embedding
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"math"
@@ -11,16 +12,32 @@ import (
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
+// EmbeddingStore persists embedding vectors keyed by node hash and model name.
+// Implemented by store.SQLiteStore.
+type EmbeddingStore interface {
+	BatchPutEmbeddings(ctx context.Context, model string, hashes []types.Hash, vectors [][]byte) error
+	GetEmbeddings(ctx context.Context, model string, hashes []types.Hash) (map[types.Hash][]byte, error)
+}
+
 // Searcher wraps an Embedder and provides the VectorSearcher interface
 // expected by the context engine. It resolves HNSW string keys (hex-encoded
 // node hashes) back to types.Hash values.
 type Searcher struct {
 	embedder *Embedder
+	store    EmbeddingStore // nil = no persistence (in-memory only)
+	model    string         // model identifier for cache key
 }
 
 // NewSearcher creates a Searcher from an initialized Embedder.
 func NewSearcher(e *Embedder) *Searcher {
-	return &Searcher{embedder: e}
+	return &Searcher{embedder: e, model: modelRepo}
+}
+
+// SetStore attaches a persistent embedding store for vector caching.
+// When set, IndexBatch writes vectors to the store, and ReRankByHashes
+// reads cached vectors instead of re-embedding candidates.
+func (s *Searcher) SetStore(store EmbeddingStore) {
+	s.store = store
 }
 
 // EmbedAndSearch embeds the query text and returns the k nearest symbol hashes.
@@ -60,6 +77,7 @@ func (s *Searcher) IndexNode(ctx context.Context, node types.Node, filePath stri
 
 // IndexBatch embeds multiple nodes and adds them to the HNSW index.
 // More efficient than individual IndexNode calls due to batched embedding.
+// When a store is attached, vectors are also persisted to SQLite.
 func (s *Searcher) IndexBatch(ctx context.Context, nodes []types.Node, filePaths []string) error {
 	if len(nodes) == 0 {
 		return nil
@@ -77,6 +95,19 @@ func (s *Searcher) IndexBatch(ctx context.Context, nodes []types.Node, filePaths
 
 	for i, vec := range vecs {
 		s.embedder.AddVector(hex.EncodeToString(nodes[i].NodeHash[:]), vec)
+	}
+
+	// Persist to store if available.
+	if s.store != nil {
+		hashes := make([]types.Hash, len(nodes))
+		raw := make([][]byte, len(nodes))
+		for i, vec := range vecs {
+			hashes[i] = nodes[i].NodeHash
+			raw[i] = float32sToBytes(vec)
+		}
+		if err := s.store.BatchPutEmbeddings(ctx, s.model, hashes, raw); err != nil {
+			return fmt.Errorf("persist embeddings: %w", err)
+		}
 	}
 	return nil
 }
@@ -281,6 +312,98 @@ func splitSymbolToWords(s string) string {
 		result = append(result, r)
 	}
 	return string(result)
+}
+
+// ReRankByHashes re-ranks candidates using cached vectors from the store.
+// Only embeds the query text (1 inference call). Candidates with no cached
+// vector fall back to on-the-fly embedding. Returns cosine similarity scores
+// at original index positions, same contract as ReRankScores.
+func (s *Searcher) ReRankByHashes(ctx context.Context, query string, hashes []types.Hash, fallbackTexts []string) ([]float64, error) {
+	if len(hashes) == 0 {
+		return nil, nil
+	}
+
+	// Embed just the query (1 text, ~115ms).
+	queryVec, err := s.embedder.Embed(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("embed query: %w", err)
+	}
+
+	// Look up cached vectors.
+	var cached map[types.Hash][]byte
+	if s.store != nil {
+		cached, err = s.store.GetEmbeddings(ctx, s.model, hashes)
+		if err != nil {
+			cached = nil // degrade gracefully
+		}
+	}
+
+	// Identify cache misses that need embedding.
+	var missIdxs []int
+	var missTexts []string
+	candidateVecs := make([][]float32, len(hashes))
+
+	for i, h := range hashes {
+		if raw, ok := cached[h]; ok && len(raw) > 0 {
+			candidateVecs[i] = bytesToFloat32s(raw)
+		} else {
+			missIdxs = append(missIdxs, i)
+			if i < len(fallbackTexts) {
+				missTexts = append(missTexts, fallbackTexts[i])
+			} else {
+				missTexts = append(missTexts, "")
+			}
+		}
+	}
+
+	// Batch-embed cache misses.
+	if len(missTexts) > 0 {
+		missVecs, err := s.embedder.EmbedBatch(ctx, missTexts)
+		if err != nil {
+			return nil, fmt.Errorf("embed misses: %w", err)
+		}
+		// Persist newly computed vectors.
+		if s.store != nil && len(missVecs) == len(missIdxs) {
+			persistHashes := make([]types.Hash, len(missIdxs))
+			persistRaw := make([][]byte, len(missIdxs))
+			for j, idx := range missIdxs {
+				persistHashes[j] = hashes[idx]
+				persistRaw[j] = float32sToBytes(missVecs[j])
+			}
+			_ = s.store.BatchPutEmbeddings(ctx, s.model, persistHashes, persistRaw)
+		}
+		for j, idx := range missIdxs {
+			candidateVecs[idx] = missVecs[j]
+		}
+	}
+
+	// Compute cosine similarities.
+	scores := make([]float64, len(hashes))
+	for i, vec := range candidateVecs {
+		if vec != nil {
+			scores[i] = cosine(queryVec, vec)
+		}
+	}
+	return scores, nil
+}
+
+// float32sToBytes serializes a float32 slice to little-endian bytes.
+func float32sToBytes(v []float32) []byte {
+	buf := make([]byte, len(v)*4)
+	for i, f := range v {
+		binary.LittleEndian.PutUint32(buf[i*4:], math.Float32bits(f))
+	}
+	return buf
+}
+
+// bytesToFloat32s deserializes little-endian bytes to a float32 slice.
+func bytesToFloat32s(b []byte) []float32 {
+	n := len(b) / 4
+	v := make([]float32, n)
+	for i := range n {
+		v[i] = math.Float32frombits(binary.LittleEndian.Uint32(b[i*4:]))
+	}
+	return v
 }
 
 func hashFromHex(h string) (types.Hash, error) {
