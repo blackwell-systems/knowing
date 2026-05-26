@@ -278,10 +278,15 @@ func computePkgPath(root *sitter.Node, opts types.ExtractOptions) (string, error
 		relDir = ""
 	}
 
-	// Read the module path from go.mod.
+	// Read the module path from go.mod. Fall back to RepoURL if go.mod
+	// is missing (e.g., standalone scripts, repos without Go modules).
 	modulePath, err := readModulePath(opts.ModuleRoot)
 	if err != nil {
-		return "", err
+		if opts.RepoURL != "" {
+			modulePath = opts.RepoURL
+		} else {
+			return "", err
+		}
 	}
 
 	if relDir == "" {

@@ -178,6 +178,7 @@ func (idx *Indexer) extractFile(ctx context.Context, opts types.ExtractOptions) 
 	for _, ext := range extractors {
 		result, err := ext.Extract(ctx, opts)
 		if err != nil {
+			fmt.Fprintf(os.Stderr, "  [warn] extractor failed on %s: %v\n", opts.FilePath, err)
 			continue
 		}
 		if result != nil {
