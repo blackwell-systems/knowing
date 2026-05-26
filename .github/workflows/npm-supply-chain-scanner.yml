@@ -80,21 +80,10 @@ jobs:
                 -o "$WORK/report.json" 2>/dev/null || true
 
               if [ -f "$WORK/report.json" ]; then
-                # Check isolation score
-                MAX_SCORE=$(python3 -c "
-import json
-with open('$WORK/report.json') as f:
-    d = json.load(f)
-    print(d.get('summary', {}).get('max_isolation_score', 0))
-" 2>/dev/null || echo "0")
-
-                echo "  Max isolation score: $MAX_SCORE"
-
-                # Flag if suspicious
-                if python3 -c "exit(0 if float('$MAX_SCORE') > 0.7 else 1)" 2>/dev/null; then
-                  echo "  *** SUSPICIOUS: isolation score > 0.7 ***"
+                MAX_SCORE=$(bash scripts/check-isolation-score.sh "$WORK/report.json" 0.7) && {
+                  echo "  *** SUSPICIOUS: isolation score $MAX_SCORE > 0.7 ***"
                   cp "$WORK/report.json" "scan-output/${pkg//\//_}_${new_ver}.json"
-                fi
+                } || echo "  Clean (score: $MAX_SCORE)"
               fi
             fi
 
