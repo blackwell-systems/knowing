@@ -20,7 +20,7 @@ It runs entirely on a developer laptop with no paid LLM calls and no cloud API d
 - Time-to-consistency: 167ms (edit a file, reindex, query finds the new symbol)
 - Adjacency cache: 4,717x latency improvement (9s to 2ms on Kubernetes-scale graph)
 - Density-adaptive retrieval: auto-detects graph density, adjusts seed selection strategy
-- P@10 = 0.207 (1.53x codegraph, 2.76x GitNexus, 3.29x Gortex, 15.9x grep baseline)
+- P@10 = 0.238 (1.76x codegraph, 3.17x GitNexus, 3.78x Gortex, 18.3x grep baseline)
 - MCP server interface with 28 tools for agent consumption
 
 ## The Problem
@@ -132,7 +132,7 @@ knowing's differentiator is graph-native retrieval: RWR (Random Walk with Restar
 
 **Context packers** (Aider, Repo Map, etc) analyze your repo and produce a condensed map for the agent's context window. They run at query time, produce text, and are stateless: they don't remember what was useful last time. They don't version their output or prove anything about it.
 
-**Code graphs / indexers** (Sourcegraph, codegraph, GitNexus, Stack Graphs) build a queryable index of code relationships. Most use mutable state (database rows with auto-increment IDs). They can answer "who calls X?" but can't answer "who called X last Tuesday?" or "prove no one calls X." They don't learn from feedback. In head-to-head benchmark (9 repos, 167 tasks, 6 languages): knowing achieves 1.53x the precision of codegraph (19K stars), 2.76x vs GitNexus, and 3.29x vs Gortex.
+**Code graphs / indexers** (Sourcegraph, codegraph, GitNexus, Stack Graphs) build a queryable index of code relationships. Most use mutable state (database rows with auto-increment IDs). They can answer "who calls X?" but can't answer "who called X last Tuesday?" or "prove no one calls X." They don't learn from feedback. In head-to-head benchmark (9 repos, 167 tasks, 6 languages): knowing achieves 1.53x the precision of codegraph (19K stars), 3.17x vs GitNexus, and 3.78x vs Gortex.
 
 **Agent memory systems** (MemGPT, various RAG frameworks) persist information across sessions. They remember conversations but not code structure. They can recall "you asked about auth last time" but can't tell you "auth's blast radius grew by 3 callers since then."
 
@@ -836,7 +836,7 @@ These numbers are reproducible via `knowing eval` on the benchmark suite (9 repo
 
 | Metric | Value | Context |
 |---|---|---|
-| P@10 (precision at 10) | 0.207 | 1.53x codegraph (19K stars), 2.76x GitNexus, 3.29x Gortex, 15.9x grep |
+| P@10 (precision at 10) | 0.207 | 1.76x codegraph (19K stars), 3.17x GitNexus, 3.78x Gortex, 18.3x grep |
 | Adjacency cache latency | 2ms | Down from 9s uncached on k8s (4,717x improvement) |
 | Time-to-consistency | 167ms | File edit to query returning new symbol |
 | Feedback impact | +34pp over 5 rounds | 16% baseline to 50% with feedback |

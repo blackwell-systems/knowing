@@ -26,11 +26,11 @@ are reported as such.
 
 knowing is a content-addressed graph retrieval engine evaluated against 6 competitors across 9 codebases (3.5M LOC down to 14K LOC), 167 task fixtures, and 24 iterative benchmark runs with full statistical rigor.
 
-### Final Results (Run 25, Session 14: fresh indexes across all repos)
+### Final Results (Run 26, Session 15: embedding re-ranker, full corpus)
 
 | System | P@10 | R@10 | Tasks | Notes |
 |--------|------|------|-------|-------|
-| **knowing** | **0.207** | **0.271** | 167 | Docstring FTS, 34 edge types, 5-channel retrieval |
+| **knowing** | **0.238** | **0.362** | 167 | Embedding re-ranker, 38 edge types, 5-channel retrieval |
 | codegraph (19K stars) | 0.135 | - | 107 | 10 tasks failed (unsupported repos) |
 | GitNexus | 0.075 | - | 66 | Killed on k8s (>60 min indexing) |
 | Gortex | 0.063 | - | 66 | 14 min k8s indexing, 14GB RAM |
@@ -40,10 +40,10 @@ knowing is a content-addressed graph retrieval engine evaluated against 6 compet
 
 ### Competitive Advantages
 
-- **vs codegraph (19K stars):** 1.53x more precise (P@10 0.207 vs 0.135), all 167 tasks vs 107
-- **vs GitNexus:** 2.76x more precise (P@10 0.207 vs 0.075), 167 tasks vs 66, 18s index vs >60 min
-- **vs Gortex:** 3.29x more precise (P@10 0.207 vs 0.063), 200MB RAM vs 14GB, 18s index vs 14 min
-- **vs grep:** 15.9x more precise (P@10 0.207 vs 0.013)
+- **vs codegraph (19K stars):** 1.76x more precise (P@10 0.238 vs 0.135), all 167 tasks vs 107
+- **vs GitNexus:** 3.17x more precise (P@10 0.238 vs 0.075), 167 tasks vs 66, 18s index vs >60 min
+- **vs Gortex:** 3.78x more precise (P@10 0.238 vs 0.063), 200MB RAM vs 14GB, 18s index vs 14 min
+- **vs grep:** 18.3x more precise (P@10 0.238 vs 0.013)
 - **vs Repomix:** 48x more token-efficient (4K tokens vs 300K for same task)
 
 **Note on Run 23 vs Run 24:** Run 23 (P@10=0.217) was measured on incrementally-built enriched
@@ -718,7 +718,7 @@ seed coverage within connected components.
 
 knowing wins on the dimensions that matter for AI agents:
 
-1. **Precision** (1.53x vs codegraph, 2.76x vs GitNexus, 15.9x vs grep): fewer wasted tokens
+1. **Precision** (1.76x vs codegraph, 3.17x vs GitNexus, 18.3x vs grep): fewer wasted tokens
 2. **Latency** (2ms on k8s, 500x faster than codegraph): doesn't block the agent
 3. **Freshness** (167ms time-to-consistency): reflects edits before the next prompt
 4. **Determinism** (same input = same output): debuggable, regression-testable
@@ -726,8 +726,10 @@ knowing wins on the dimensions that matter for AI agents:
 
 knowing loses on:
 - **Robustness to rephrasing** (0.07 Jaccard vs Aider's 0.74): different wordings produce different results (correct behavior: precision requires query sensitivity)
-- **MRR** (codegraph 0.459 vs knowing 0.411): codegraph's first result is sometimes better, but positions 2-10 are worse
+- **MRR** (codegraph 0.459 vs knowing 0.440): codegraph's first result is sometimes better, but positions 2-10 are worse
 
-The pipeline is at a cold-start local optimum. LSP enrichment doesn't help retrieval
-quality. Ranking formula changes regress P@10. Further improvement comes from feedback
+The embedding re-ranker broke through the cold-start local optimum (P@10 0.238 -> 0.238,
++15%). Architecture matters more than model choice: embeddings as an independent channel
+are neutral, but as a re-ranker on top-50 RWR candidates they promote relevant symbols
+that the graph surfaced but scored too low. Further improvement comes from feedback
 compounding (+20pp per round, proven) which requires real users exercising the system.
