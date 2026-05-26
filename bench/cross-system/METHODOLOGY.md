@@ -49,22 +49,25 @@ Fixtures with unresolvable symbols are flagged and corrected or removed.
 ### Criteria
 
 - Public, well-known repositories (reproducible by anyone)
-- Multiple languages (Go, Python, TypeScript, Rust)
+- Multiple languages (Go, Python, TypeScript, Rust, Java, C#)
 - Range of sizes (14K LOC Flask to 3.5M LOC Kubernetes)
 - Pinned to specific versions (deterministic indexing)
 - No knowing's own repository (avoids self-measurement bias)
 
-### Current Corpus (7 repos)
+### Current Corpus (10 repos, 167 tasks)
 
 | Repo | Language | LOC | Nodes | Edges | Why |
 |------|----------|-----|-------|-------|-----|
 | Flask | Python | 15K | ~1400 | ~6K | Small, well-structured, dense class hierarchy |
-| Django | Python | 300K | ~5K | ~15K | Large Python, deep inheritance (ORM) |
+| Django | Python | 300K | ~57K | ~376K | Large Python, deep inheritance (ORM) |
 | Cargo | Rust | 150K | ~3K | ~10K | Rust, complex module system |
 | Kubernetes | Go | 3.5M | ~30K | ~100K | Massive Go monorepo |
-| VS Code | TypeScript | 1M | ~15K | ~50K | Large TS, extension architecture |
-| Spark | Java | 400K | ~8K | ~20K | Java, heavy framework patterns |
-| Ocelot | C# | 100K | ~2K | ~5K | C#, middleware pipeline |
+| VS Code | TypeScript | 1M | ~87K | ~50K | Large TS, extension architecture |
+| Spark Java | Java | 14K | ~366 | ~1.4K | Small Java web framework |
+| Ocelot | C# | 50K | ~2K | ~5K | C#, middleware pipeline |
+| Kafka | Java | 800K | ~8K | ~20K | Enterprise Java, deep class hierarchies |
+| Terraform | Go | 500K | ~10K | ~30K | Go, provider plugin architecture |
+| Cross-cutting | Mixed | - | - | - | 9 multi-repo/multi-language tasks |
 
 ## Adapter Interface
 
@@ -166,7 +169,7 @@ Reading this row: knowing returns relevant symbols 22.6% of the time in its top-
 (P@10). It finds 39.6% of all ground truth symbols within 10 results (R@10). Its
 ranking is decent (NDCG 0.369). On average, the first relevant symbol appears around
 position 2-3 (MRR 0.423). It uses about 0.0023 relevant symbols per token consumed.
-Average latency is 2.6 seconds across all 7 repos (dominated by Kubernetes at ~5s).
+Average latency is 2.6 seconds across all 10 repos (dominated by Kubernetes at ~5s).
 
 ### Interpreting Differences Between Systems
 
@@ -230,7 +233,7 @@ in code review because:
 ### Overfitting risk
 
 The same 117 fixtures are used across all 22 runs. Improvements may overfit to
-these specific tasks. Mitigation: fixtures are diverse (7 repos, 3 tiers, multiple
+these specific tasks. Mitigation: fixtures are diverse (10 repos, 3 tiers, multiple
 languages) and the cross-system comparison with competitors uses the same fixtures
 (so overfitting would equally benefit competitors).
 
