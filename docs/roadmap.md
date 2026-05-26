@@ -77,7 +77,7 @@ Embedding re-ranker: +17% P@10 with SQLite vector cache (220ms cached).
 | **Embedding re-ranker** (pure, weight=0.0) | +17% full corpus | 15 | Architecture matters more than model. Three models neutral as seeds, all effective as re-ranker. |
 | **Vector cache** (SQLite) | 660ms -> 220ms | 16 | 3x latency reduction. No quality change. |
 | **Adaptive seed count** (>40K: 25, >10K: 20) | Django +14.2% | 16 | More seeds on large graphs compensates for disconnection. Full corpus 0.238 -> 0.242. |
-| **Embedding-filtered gap injection** (>40K, maxgap=3) | Django +3.2% | 16 | BM25 gap candidates filtered by cosine similarity. Small positive on large graphs. Full corpus impact TBD (running). |
+| **Embedding-filtered gap injection** (>40K, maxgap=3) | Django +3.2%, aggregate neutral | 16 | BM25 gap candidates filtered by cosine similarity. Helps Django but absorbed by run variance on other repos. Full corpus: 0.238 (same as without). **Reverted**: optimal state is 0.242 without gap injection. Concept is sound but needs a better candidate source than BM25. |
 
 ## Storage Backend (P0 Performance)
 
