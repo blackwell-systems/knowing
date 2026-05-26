@@ -17,15 +17,20 @@ import (
 )
 
 // Model configuration. Override with KNOWING_EMBED_MODEL env var.
-// Options: "bge-small" (default), "nomic-code", "jina-code"
+// Default: jina-code (best for code retrieval, +15% P@10 validated).
+// Options: "jina-code" (default), "bge-small", "nomic-code"
 var (
-	modelRepo = "BAAI/bge-small-en-v1.5"
+	modelRepo = "jinaai/jina-embeddings-v2-base-code"
 	onnxFile  = "onnx/model.onnx"
-	Dims      = 384
+	Dims      = 768
 )
 
 func init() {
 	switch os.Getenv("KNOWING_EMBED_MODEL") {
+	case "bge-small":
+		modelRepo = "BAAI/bge-small-en-v1.5"
+		onnxFile = "onnx/model.onnx"
+		Dims = 384
 	case "nomic-code":
 		modelRepo = "nomic-ai/nomic-embed-text-v1.5"
 		onnxFile = "onnx/model.onnx"

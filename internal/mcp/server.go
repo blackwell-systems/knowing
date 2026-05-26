@@ -103,12 +103,16 @@ func NewServer(store types.GraphStore) *Server {
 	// Initialize embedding-based semantic re-ranker (opt-in).
 	// Enable with: knowing mcp --embeddings (or KNOWING_EMBEDDINGS=1)
 	// Downloads ~30MB model on first use. Improves P@10 by +15%.
+	if os.Getenv("KNOWING_EMBEDDINGS") != "1" {
+		log.Printf("[info] Tip: run with --embeddings for +15%% better retrieval. Fully local, no API keys, no charges. One-time 30MB model download.")
+	}
 	if os.Getenv("KNOWING_EMBEDDINGS") == "1" {
 		model := os.Getenv("KNOWING_EMBED_MODEL")
 		if model == "" {
-			model = "bge-small"
+			model = "jina-code"
 		}
-		log.Printf("[info] embedding re-ranker enabled (model: %s, downloading if needed...)", model)
+		log.Printf("[info] embedding re-ranker enabled (model: %s, fully local, no API calls, no charges)", model)
+		log.Printf("[info] downloading model if needed (one-time, ~30MB)...")
 		if embedder, err := embedding.New(); err == nil {
 			s.vecSearch = embedding.NewSearcher(embedder)
 			log.Printf("[info] embedding model loaded, building vector index in background...")
