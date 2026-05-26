@@ -1,0 +1,150 @@
+name: "Supply Chain Scanner: Maven Central"
+
+on:
+  schedule:
+    - cron: '15 */3 * * *'  # every 3 hours, offset 15 min from npm
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Build knowing
+        run: GOWORK=off go build -o knowing ./cmd/knowing
+
+      - name: Fetch Maven packages to scan
+        run: |
+          chmod +x scripts/fetch-recent-publishes-maven.sh
+          ./scripts/fetch-recent-publishes-maven.sh > packages.txt
+          echo "Packages to scan:"
+          cat packages.txt | grep -v "^#"
+
+      - name: Scan packages for supply chain anomalies
+        run: |
+          mkdir -p scan-output
+          while IFS=' ' read -r ga new_ver prev_ver; do
+            [[ "$ga" == \#* ]] && continue
+            [ -z "$ga" ] && continue
+
+            GROUP=$(echo "$ga" | cut -d: -f1)
+            ARTIFACT=$(echo "$ga" | cut -d: -f2)
+            GROUP_PATH=$(echo "$GROUP" | tr '.' '/')
+
+            echo ""
+            echo "=== Scanning $ga: $prev_ver -> $new_ver ==="
+
+            WORK=$(mktemp -d)
+
+            # Download JARs (source JARs preferred, fall back to regular JARs)
+            BASE_URL="https://repo1.maven.org/maven2/${GROUP_PATH}/${ARTIFACT}"
+
+            # Try sources JAR first (has .java files), fall back to regular JAR
+            for ver in "$prev_ver" "$new_ver"; do
+              dir="$WORK/$([ "$ver" = "$prev_ver" ] && echo old || echo new)"
+              mkdir -p "$dir"
+
+              # Try sources JAR
+              curl -sf "${BASE_URL}/${ver}/${ARTIFACT}-${ver}-sources.jar" -o "$WORK/tmp.jar" 2>/dev/null && {
+                (cd "$dir" && jar xf "$WORK/tmp.jar" 2>/dev/null) || (cd "$dir" && python3 -m zipfile -e "$WORK/tmp.jar" .)
+                rm -f "$WORK/tmp.jar"
+                continue
+              }
+
+              # Fall back to regular JAR (has .class files, knowing can still index .java if present)
+              curl -sf "${BASE_URL}/${ver}/${ARTIFACT}-${ver}.jar" -o "$WORK/tmp.jar" 2>/dev/null && {
+                (cd "$dir" && jar xf "$WORK/tmp.jar" 2>/dev/null) || (cd "$dir" && python3 -m zipfile -e "$WORK/tmp.jar" .)
+                rm -f "$WORK/tmp.jar"
+              }
+            done
+
+            # Check we got something
+            [ -z "$(find "$WORK/old" -name '*.java' 2>/dev/null | head -1)" ] && { rm -rf "$WORK"; continue; }
+            [ -z "$(find "$WORK/new" -name '*.java' 2>/dev/null | head -1)" ] && { rm -rf "$WORK"; continue; }
+
+            # Init git
+            (cd "$WORK/old" && git init -q && git add . && git commit -q -m "old" 2>/dev/null) || true
+            (cd "$WORK/new" && git init -q && git add . && git commit -q -m "new" 2>/dev/null) || true
+
+            # Index both
+            ./knowing index -db "$WORK/old.db" -no-enrich "$WORK/old" 2>/dev/null || { rm -rf "$WORK"; continue; }
+            ./knowing index -db "$WORK/new.db" -no-enrich "$WORK/new" 2>/dev/null || { rm -rf "$WORK"; continue; }
+
+            # Get snapshots
+            OLD_SNAP=$(./knowing query -db "$WORK/old.db" --latest-snapshot 2>/dev/null || echo "")
+            NEW_SNAP=$(./knowing query -db "$WORK/new.db" --latest-snapshot 2>/dev/null || echo "")
+
+            if [ -n "$OLD_SNAP" ] && [ -n "$NEW_SNAP" ]; then
+              ./knowing audit-supply-chain \
+                --db "$WORK/new.db" \
+                --base "$OLD_SNAP" \
+                --head "$NEW_SNAP" \
+                -o "$WORK/report.json" 2>/dev/null || true
+
+              if [ -f "$WORK/report.json" ]; then
+                MAX_SCORE=$(python3 -c "
+import json
+with open('$WORK/report.json') as f:
+    d = json.load(f)
+    print(d.get('summary', {}).get('max_isolation_score', 0))
+" 2>/dev/null || echo "0")
+
+                echo "  Max isolation score: $MAX_SCORE"
+
+                if python3 -c "exit(0 if float('$MAX_SCORE') > 0.7 else 1)" 2>/dev/null; then
+                  echo "  *** SUSPICIOUS: isolation score > 0.7 ***"
+                  SAFE_NAME=$(echo "${ga}_${new_ver}" | tr ':/' '_')
+                  cp "$WORK/report.json" "scan-output/${SAFE_NAME}.json"
+                fi
+              fi
+            fi
+
+            rm -rf "$WORK"
+          done < packages.txt
+
+      - name: Create issue for suspicious findings
+        if: always()
+        run: |
+          ALERTS=$(ls scan-output/*.json 2>/dev/null | wc -l | tr -d ' ')
+          echo "Scan complete. Suspicious packages: $ALERTS"
+
+          if [ "$ALERTS" -gt 0 ]; then
+            BODY="## Maven Central Supply Chain Scanner Alert\n\n"
+            BODY+="Detected **$ALERTS** suspicious package update(s):\n\n"
+            for f in scan-output/*.json; do
+              PKG=$(basename "$f" .json | tr '_' ':')
+              BODY+="### $PKG\n\`\`\`json\n$(python3 -m json.tool "$f" 2>/dev/null || cat "$f")\n\`\`\`\n\n"
+            done
+            echo -e "$BODY" > alert-body.md
+            gh issue create \
+              --title "Maven supply chain alert: $(date -u +%Y-%m-%d)" \
+              --body "$(cat alert-body.md)" \
+              --label "supply-chain-alert" || echo "No alerts to report"
+          else
+            echo "No suspicious packages detected."
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload scan artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maven-scan-${{ github.run_id }}
+          path: scan-output/
+          retention-days: 90
