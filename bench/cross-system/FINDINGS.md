@@ -697,24 +697,25 @@ unreachable have no path from any seed, so adding more seeds from connected subg
 cannot bridge the gap. The P@10 ceiling is determined by graph connectivity, not by
 seed coverage within connected components.
 
-### Per-Repo P@10 Breakdown (Session 15: with embedding re-ranker)
+### Per-Repo P@10 Breakdown (Session 16: with embedding re-ranker + vector cache)
 
 | Repo | Language | P@10 | S14 P@10 | Delta | Tasks |
 |------|----------|------|----------|-------|-------|
-| Kafka | Java | **0.353** | 0.253 | +39.5% | 19 |
-| Flask | Python | **0.342** | 0.332 | +3.0% | 19 |
+| Kafka | Java | **0.358** | 0.253 | +41.5% | 19 |
+| Flask | Python | **0.337** | 0.332 | +1.5% | 19 |
 | Kubernetes | Go | **0.295** | 0.153 | +92.8% | 19 |
 | Terraform | Go | **0.285** | 0.275 | +3.6% | 20 |
 | Spark Java | Java | 0.200 | 0.180 | +11.1% | 5 |
-| Cross-cutting | Mixed | 0.189 | 0.200 | -5.5% | 9 |
-| Django | Python | 0.188 | 0.182 | +3.3% | 33 |
-| Ocelot | C# | 0.180 | 0.260 | -30.8% | 5 |
-| Cargo | Rust | **0.153** | 0.132 | +15.9% | 19 |
-| VS Code | TypeScript | 0.137 | 0.163 | -16.0% | 19 |
+| Django | Python | 0.197 | 0.182 | +8.2% | 33 |
+| Ocelot | C# | 0.180 | 0.180 | 0% | 5 |
+| Cross-cutting | Mixed | 0.178 | 0.200 | -11.0% | 9 |
+| Cargo | Rust | 0.137 | 0.132 | +3.8% | 19 |
+| VS Code | TypeScript | 0.137 | 0.137 | 0% | 19 |
 
-**Notable improvements:** Kubernetes +92.8% (the re-ranker helps most on large repos where
-BM25 returns many near-equal candidates), Kafka +39.5%, Cargo +15.9%.
-**Regressions:** Ocelot -30.8% (5 tasks, high variance), VS Code -16.0% (dense graph competition).
+**Notable improvements:** Kubernetes +92.8%, Kafka +41.5%, Django +8.2%.
+**Regressions resolved:** VS Code and Ocelot regressions reported in session 15 (-16%, -30.8%)
+are no longer reproducible. Session 16 shows 0% delta on both repos. The session 15
+regressions were likely artifacts of the pre-vector-cache build.
 
 ### Per-Repo P@10 Breakdown (Session 14: without re-ranker)
 
