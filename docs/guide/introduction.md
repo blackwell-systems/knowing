@@ -21,8 +21,8 @@ It runs entirely on a developer laptop with no paid LLM calls and no cloud API d
 - Time-to-consistency: 167ms (edit a file, reindex, query finds the new symbol)
 - Adjacency cache: 4,717x latency improvement (9s to 2ms on Kubernetes-scale graph)
 - Density-adaptive retrieval: auto-detects graph density, adjusts seed selection strategy
-- Embedding re-ranker: +15% P@10 improvement, fully local, opt-in (`--embeddings`)
-- P@10 = 0.238 (1.76x codegraph, 3.17x GitNexus, 3.78x Gortex, 18.3x grep baseline)
+- Embedding re-ranker: +17% P@10 improvement, fully local, opt-in (`--embeddings`)
+- P@10 = 0.242 (1.79x codegraph, 3.23x GitNexus, 3.84x Gortex, 18.6x grep baseline)
 - MCP server interface with 28 tools for agent consumption
 
 ## The Problem
@@ -134,7 +134,7 @@ knowing's differentiator is graph-native retrieval: RWR (Random Walk with Restar
 
 **Context packers** (Aider, Repo Map, etc) analyze your repo and produce a condensed map for the agent's context window. They run at query time, produce text, and are stateless: they don't remember what was useful last time. They don't version their output or prove anything about it.
 
-**Code graphs / indexers** (Sourcegraph, codegraph, GitNexus, Stack Graphs) build a queryable index of code relationships. Most use mutable state (database rows with auto-increment IDs). They can answer "who calls X?" but can't answer "who called X last Tuesday?" or "prove no one calls X." They don't learn from feedback. In head-to-head benchmark (9 repos, 167 tasks, 6 languages): knowing achieves 1.53x the precision of codegraph (19K stars), 3.17x vs GitNexus, and 3.78x vs Gortex.
+**Code graphs / indexers** (Sourcegraph, codegraph, GitNexus, Stack Graphs) build a queryable index of code relationships. Most use mutable state (database rows with auto-increment IDs). They can answer "who calls X?" but can't answer "who called X last Tuesday?" or "prove no one calls X." They don't learn from feedback. In head-to-head benchmark (9 repos, 167 tasks, 6 languages): knowing achieves 1.79x the precision of codegraph (19K stars), 3.23x vs GitNexus, and 3.84x vs Gortex.
 
 **Agent memory systems** (MemGPT, various RAG frameworks) persist information across sessions. They remember conversations but not code structure. They can recall "you asked about auth last time" but can't tell you "auth's blast radius grew by 3 callers since then."
 
@@ -838,7 +838,7 @@ These numbers are reproducible via `knowing eval` on the benchmark suite (9 repo
 
 | Metric | Value | Context |
 |---|---|---|
-| P@10 (precision at 10) | 0.238 | 1.76x codegraph (19K stars), 3.17x GitNexus, 3.78x Gortex, 18.3x grep |
+| P@10 (precision at 10) | 0.242 | 1.79x codegraph (19K stars), 3.23x GitNexus, 3.84x Gortex, 18.6x grep |
 | R@10 (recall at 10) | 0.362 | +18.3% from embedding re-ranker |
 | NDCG@10 | 0.393 | +12.6% from embedding re-ranker |
 | MRR | 0.440 | +8.1% from embedding re-ranker |

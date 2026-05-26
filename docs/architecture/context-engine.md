@@ -2,7 +2,7 @@
 
 The context packing subsystem (`internal/context/`) produces token-budgeted, graph-ranked context blocks for agent consumption. It answers: "given a task or a set of changed files, which symbols from the knowledge graph should an agent see?" Three entry points exist: task-based (`ForTask`, keyword search from a description), file-based (`ForFiles`, blast-radius expansion from changed files), and PR-based (`ForPR`, RWR from all symbols in changed files). A fourth entry point, `ExplainSymbol`, runs the full retrieval pipeline and returns a detailed scoring breakdown for a specific symbol.
 
-**Current performance:** P@10 = 0.238 on fresh index (9 repos, 167 tasks, 6 languages). 1.76x vs codegraph, 3.17x vs GitNexus, 3.78x vs Gortex, 18.3x vs grep. Query latency 2ms on k8s (with adjacency cache). Parameter sweep proved all RWR/ranking parameters are irrelevant (identical P@10 across 26 configs); P@10 is reachability-determined, not ranking-determined.
+**Current performance:** P@10 = 0.242 on fresh index (9 repos, 167 tasks, 6 languages). 1.79x vs codegraph, 3.23x vs GitNexus, 3.84x vs Gortex, 18.6x vs grep. Query latency 2ms on k8s (with adjacency cache). Parameter sweep proved all RWR/ranking parameters are irrelevant (identical P@10 across 26 configs); P@10 is reachability-determined, not ranking-determined.
 
 ## Architecture
 
@@ -140,13 +140,13 @@ The FTS5 tokenizer uses `tokenchars '_'` so that snake_case identifiers (e.g., `
 
 Tokenization uses CamelCase-aware splitting (`splitForFTS`, `splitCamelCase`) so that a query for "Store" matches "SQLiteStore" or "NewSQLiteStore". `RebuildFTS` runs synchronously after snapshot computation (previously deferred to a background goroutine that was killed on CLI process exit, leaving FTS empty). Adds ~500ms to index time. BM25 is fused as RRF Channel 2 with weight 2.0.
 
-## Embedding Re-ranker (Shipped, +15% P@10)
+## Embedding Re-ranker (Shipped, +17% P@10)
 
 The embedding model is jina-embeddings-v2-base-code (768 dimensions, code-tuned) via hugot
 pure-Go ONNX runtime. As an independent seed channel (Channel 3), embeddings are neutral
 (three models tested identical to BM25). As a **post-scoring re-ranker** (step 15b in
-ForTask), they produce the biggest single improvement in project history: P@10 0.207 -> 0.238
-(+15%), R@10 0.306 -> 0.362 (+18.3%).
+ForTask), they produce the biggest single improvement in project history: P@10 0.207 -> 0.242
+(+17%), R@10 0.306 -> 0.362 (+18.3%).
 
 **How it works:** After scoring (step 15), the top-50 candidates are re-ranked by cosine
 similarity between the task description and each candidate's embedding. `ReRankByHashes`
@@ -330,7 +330,7 @@ All RWR and ranking parameters are configurable via `SweepParams` (`internal/con
 | DistanceW | 0.15 | Distance ranking weight |
 | TestPenalty | 0.3 | Test file score multiplier |
 
-**Parameter sweep result:** A 26-configuration sweep across all parameters produced identical P@10=0.180 (pre-docstring FTS, now 0.238 with subsequent improvements including docstring FTS, density-adaptive seeding, and embedding re-ranker). This proves that P@10 is reachability-determined, not ranking-determined. The retrieval bottleneck is whether relevant symbols are reachable from seeds at all, not how they are ranked once found. New retrieval signals (additional seed channels, new edge types, docstring indexing, concept thesaurus, self-adapting type-seed preference) are the path forward; tuning existing parameters is futile.
+**Parameter sweep result:** A 26-configuration sweep across all parameters produced identical P@10=0.180 (pre-docstring FTS, now 0.242 with subsequent improvements including docstring FTS, density-adaptive seeding, and embedding re-ranker). This proves that P@10 is reachability-determined, not ranking-determined. The retrieval bottleneck is whether relevant symbols are reachable from seeds at all, not how they are ranked once found. New retrieval signals (additional seed channels, new edge types, docstring indexing, concept thesaurus, self-adapting type-seed preference) are the path forward; tuning existing parameters is futile.
 
 ## Contains and Member_of Edges
 

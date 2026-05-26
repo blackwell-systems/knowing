@@ -5,7 +5,7 @@ by cosine similarity to the task description. It uses a pre-trained code embeddi
 model (jina-embeddings-v2-base-code) running locally via pure-Go ONNX inference.
 No API calls, no cloud services, no charges.
 
-**Impact:** P@10 0.207 -> 0.238 (+15.0%), R@10 0.306 -> 0.362 (+18.3%) on the
+**Impact:** P@10 0.207 -> 0.242 (+17%), R@10 0.306 -> 0.362 (+18.3%) on the
 full 167-task cross-system benchmark. Every metric improved. Biggest single
 improvement in project history.
 

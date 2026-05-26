@@ -152,14 +152,14 @@ The context engine (`internal/context/`) implements task-based retrieval: given 
 
 After seed retrieval, Random Walk with Restart (RWR) expands the seed set through the graph, HITS reranking promotes authorities, and community-aware scoring prevents single-cluster dominance.
 
-**Embedding re-ranker (opt-in, `--embeddings`):** After RWR scoring, the top-50 candidates are re-ranked by cosine similarity between the task description and each symbol's text representation, using a local embedding model (jina-embeddings-v2-base-code). This improves P@10 by +15% across the full corpus. The model runs via pure Go ONNX inference: no Python, no API keys, no charges. Key finding: embeddings as an independent retrieval channel (Channel 3) are neutral; the same models as a re-ranker on graph output produce a 15% improvement. Architecture matters more than model choice.
+**Embedding re-ranker (opt-in, `--embeddings`):** After RWR scoring, the top-50 candidates are re-ranked by cosine similarity between the task description and each symbol's text representation, using a local embedding model (jina-embeddings-v2-base-code). This improves P@10 by +17% across the full corpus. The model runs via pure Go ONNX inference: no Python, no API keys, no charges. Key finding: embeddings as an independent retrieval channel (Channel 3) are neutral; the same models as a re-ranker on graph output produce a 17% improvement. Architecture matters more than model choice.
 
 **Benchmark results (fresh index, with embedding re-ranker):**
 
-- P@10 = 0.238 across 167 tasks, 9 repos, 6 languages (Go, Python, TypeScript, Rust, Java, C#), 14K to 3.5M LOC
-- Competitive advantage: vs codegraph 1.76x, vs GitNexus 3.17x, vs Gortex 3.78x, vs grep 18.3x
+- P@10 = 0.242 across 167 tasks, 9 repos, 6 languages (Go, Python, TypeScript, Rust, Java, C#), 14K to 3.5M LOC
+- Competitive advantage: vs codegraph 1.79x, vs GitNexus 3.23x, vs Gortex 3.84x, vs grep 18.6x
 - Self-adapting type-seed preference: on dense graphs (>40K nodes), automatically prefers type/interface/class nodes as RWR seeds
-- Embedding re-ranker: +15% P@10 aggregate, zero regressions on any repo (session 16 confirmed)
+- Embedding re-ranker: +17% P@10 aggregate, zero regressions on any repo (session 16 confirmed)
 - Concept thesaurus: ~80 domain clusters expand BM25 queries with related code vocabulary.
 - Parameter sweep (RWR alpha, seed count, score cutoff, blast radius weight, distance weight, confidence weight, RRF k, test penalty): all 9 parameters produce identical P@10. Quality is determined entirely by graph reachability (binary: is the symbol connected to any seed?), not by continuous parameter tuning.
 - Implication: all P@10 improvements must target reachability (new edge types, new seed sources), not ranking (parameter adjustment).

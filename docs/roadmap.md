@@ -4,9 +4,9 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 
 ## Current State (v0.10.1, 2026-05-25)
 
-**P@10 = 0.238** (167 tasks, 9 repos, 6 languages). 38 edge types. 23 extractors.
-1.76x codegraph, 3.17x GitNexus, 3.78x Gortex, 18.3x grep.
-Embedding re-ranker: +15% P@10 with SQLite vector cache (220ms cached).
+**P@10 = 0.242** (167 tasks, 9 repos, 6 languages). 38 edge types. 23 extractors.
+1.79x codegraph, 3.23x GitNexus, 3.84x Gortex, 18.6x grep.
+Embedding re-ranker: +17% P@10 with SQLite vector cache (220ms cached).
 
 ## Immediate Priorities
 
@@ -28,12 +28,12 @@ Embedding re-ranker: +15% P@10 with SQLite vector cache (220ms cached).
 - 43 new unit tests across 4 packages (embedding, store, context, diff/isolation)
 - Latency profiling test (`internal/embedding/latency_test.go`)
 - Architecture doc: `docs/architecture/embedding-reranker.md`
-- Updated all docs with current numbers (P@10=0.238, 38 edge types, 9 repos, re-ranker)
+- Updated all docs with current numbers (P@10=0.242, 38 edge types, 9 repos, re-ranker)
 - Proposal status: pure-go-embeddings.md marked SHIPPED, Phase 2 no longer needed
 
 ### Session 15: Shipped
 
-- **Embedding re-ranker**: +15% P@10, +18.3% R@10 on full 167-task corpus. jina-code model via hugot pure-Go ONNX. Pure re-rank (weight=0.0) validated optimal.
+- **Embedding re-ranker**: +17% P@10, +18.3% R@10 on full 167-task corpus. jina-code model via hugot pure-Go ONNX. Pure re-rank (weight=0.0) validated optimal.
 - **Supply chain detection**: `reads_env` (37th), `executes_process` (38th) edge types across 5 languages. `knowing audit-supply-chain` CLI. Isolation scoring. Verified on TanStack + event-stream patterns.
 - **accesses_field** edge type (36th): 6 languages (Go, Rust, Python, Java, C#, TypeScript)
 - Wire format codec overhaul (binary: 9 -> 38 edge types, 10 -> 18 kinds, 4 -> 7 provenances)
@@ -255,9 +255,9 @@ context retrieval. Full proposal: [docs/proposals/code-retrieval-eval-toolkit.md
 ## Retrieval Pipeline
 
 Current results: see [bench/cross-system/FINDINGS.md](../bench/cross-system/FINDINGS.md).
-P@10=0.238 (Run 26, 167 tasks, 9 repos). 1.76x vs codegraph, 3.17x vs GitNexus, 3.78x vs Gortex, 18.3x vs grep. Query latency 2ms on k8s (with adjacency cache). Embedding re-ranker adds 220ms (cached vectors).
+P@10=0.242 (Run 26, 167 tasks, 9 repos). 1.79x vs codegraph, 3.23x vs GitNexus, 3.84x vs Gortex, 18.6x vs grep. Query latency 2ms on k8s (with adjacency cache). Embedding re-ranker adds 220ms (cached vectors).
 
-**Key findings:** (1) 32-config parameter sweep proved P@10 is reachability-determined; ranking parameters are irrelevant. (2) Embedding re-ranker (+15% P@10) is the exception: it doesn't change reachability but reorders graph-surfaced candidates by semantic relevance. Architecture matters more than model.
+**Key findings:** (1) 32-config parameter sweep proved P@10 is reachability-determined; ranking parameters are irrelevant. (2) Embedding re-ranker (+17% P@10) is the exception: it doesn't change reachability but reorders graph-surfaced candidates by semantic relevance. Architecture matters more than model.
 
 ### Retrieval Improvements
 

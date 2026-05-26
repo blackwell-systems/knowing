@@ -14,7 +14,7 @@
 | Evaluation corpus (9 repos) | Done | kubernetes, VS Code, flask, cargo, django, spark-java, ocelot, kafka, next.js |
 | Task fixtures (167 total) | Done | 6 languages (Go, Python, TypeScript, Rust, Java, C#) |
 | Ground truth validation | Done | 95% match rate, validate-fixtures tool |
-| knowing adapter | Done | P@10=0.238 (Run 26), 38 edge types, embedding re-ranker |
+| knowing adapter | Done | P@10=0.242 (Run 26), 38 edge types, embedding re-ranker |
 | grep adapter | Done | P@10=0.013 (baseline) |
 | codegraph adapter | Done | P@10=0.135, 107/167 tasks (10 failed on unsupported repos) |
 | GitNexus adapter | Done | P@10=0.075, 66/167 tasks (killed on k8s: >60 min, 5.7GB RAM) |
@@ -31,13 +31,13 @@
 
 | System | P@10 | R@10 | NDCG@10 | MRR | vs knowing |
 |--------|------|------|---------|-----|------------|
-| **knowing** | **0.238** | **0.362** | **0.393** | **0.440** | baseline |
+| **knowing** | **0.242** | **0.362** | **0.393** | **0.440** | baseline |
 | codegraph (19K stars) | 0.135 | - | - | - | 0.57x |
 | GitNexus | 0.075 | - | - | - | 0.32x |
 | Gortex | 0.063 | - | - | - | 0.26x |
 | grep | 0.013 | - | - | - | 0.05x |
 
-**Competitive ratios:** 1.76x codegraph, 3.17x GitNexus, 3.78x Gortex, 18.3x grep.
+**Competitive ratios:** 1.79x codegraph, 3.23x GitNexus, 3.84x Gortex, 18.6x grep.
 Statistical significance: p<0.0001, d=0.92 (very large effect on recall).
 
 ### Per-Repo Performance (Run 26)
@@ -59,7 +59,7 @@ Statistical significance: p<0.0001, d=0.92 (very large effect on recall).
 1. **RWR (graph traversal) is the primary differentiator**, not FTS/BM25
 2. **Inheritance propagation was the breakthrough** (+29% in one change)
 3. **Quality scales with graph density**: dense hierarchies (Django) >> flat codebases (Cargo)
-4. **Embedding re-ranker is the biggest single improvement** (+15% P@10, +18.3% R@10). Architecture matters more than model: three models were neutral as independent search, but re-ranking top-50 RWR candidates by cosine similarity promotes relevant symbols the graph surfaced but scored low.
+4. **Embedding re-ranker is the biggest single improvement** (+17% P@10, +18.3% R@10). Architecture matters more than model: three models were neutral as independent search, but re-ranking top-50 RWR candidates by cosine similarity promotes relevant symbols the graph surfaced but scored low.
 5. **Density-adaptive seeding** auto-enables PreferTypeSeeds on graphs >40K nodes, preventing precision degradation at scale
 6. **P@10 is reachability-determined.** 32-config parameter sweep proved zero variance. Only new edges or new seed sources move the metric.
 7. **SWE-bench measures fault localization**, not context retrieval (different capability)
@@ -1095,15 +1095,15 @@ The benchmark is considered successful (regardless of which system wins) if:
 ### Confirmed Outcomes (26 runs)
 
 Based on 26 iterative benchmark runs across 167 tasks:
-- knowing wins on **precision** (P@10=0.238, 1.76x the nearest competitor codegraph)
+- knowing wins on **precision** (P@10=0.242, 1.79x the nearest competitor codegraph)
 - knowing wins on **recall** (R@10=0.362, only system with full-corpus recall data)
 - knowing wins on **token efficiency** (GCF format, graph-aware packing)
 - knowing wins on **scalability** (18s index on kubernetes, 200MB RAM vs 14GB for Gortex)
-- grep wins on **time to first result** (no indexing overhead, but 18.3x less precise)
+- grep wins on **time to first result** (no indexing overhead, but 18.6x less precise)
 - codegraph is the strongest competitor (P@10=0.135) but fails on 60/167 tasks
 - Aider and codebase-memory both timed out on the 30-min limit
 - GitNexus cannot index enterprise repos (killed at >60 min on kubernetes)
-- **Embedding re-ranker** was the biggest single improvement: +15% P@10, +18.3% R@10
+- **Embedding re-ranker** was the biggest single improvement: +17% P@10, +18.3% R@10
 - **Dense graph repos benefit most** from re-ranker (Kubernetes +92.8%). Session 15 regressions (VS Code -16%, Ocelot -30.8%) resolved in session 16: both show 0% P@10 delta.
 
 ---

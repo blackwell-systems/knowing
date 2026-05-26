@@ -70,9 +70,9 @@ Competitive ratios to recalculate from new P@10:
 
 ## Current State
 
-- **P@10 = 0.238** (167 tasks, 9 repos, 6 languages, 38 edge types)
+- **P@10 = 0.242** (167 tasks, 9 repos, 6 languages, 38 edge types)
 - **Density-adaptive:** auto-enables PreferTypeSeeds when GraphNodeCount > 40K
-- **Competitive:** 1.76x codegraph, 3.17x GitNexus, 3.78x Gortex, 18.3x grep
+- **Competitive:** 1.79x codegraph, 3.23x GitNexus, 3.84x Gortex, 18.6x grep
 - **Identity:** "self-adapting code intelligence engine that gets smarter with scale"
 
 ## Key Findings (inform all future retrieval work)
@@ -84,7 +84,7 @@ Competitive ratios to recalculate from new P@10:
 5. **The concept thesaurus helps messaging/concurrency domains.** Framework-specific expansions ("backend"->"base") hurt.
 6. **Struct field access edges are neutral for P@10.** Fields are already reachable via call edges. But they improve graph completeness (blast radius, test-scope, field-level impact).
 7. **Embeddings as independent channel are neutral.** BGE, jina-code, nomic all produce identical results as Channel 3. They find the same symbols as BM25.
-8. **Embeddings as RE-RANKER: +15% P@10, +18.3% R@10 on full corpus (167 tasks).** Re-ranking top-50 RWR candidates by cosine similarity promotes relevant symbols that the graph surfaced but scored too low. jina-code model. Every metric improved. Biggest gain in project history.
+8. **Embeddings as RE-RANKER: +17% P@10, +18.3% R@10 on full corpus (167 tasks).** Re-ranking top-50 RWR candidates by cosine similarity promotes relevant symbols that the graph surfaced but scored too low. jina-code model. Every metric improved. Biggest gain in project history.
 
 ## Conventions
 

@@ -486,7 +486,7 @@ Task Description
 [7. Scoring]                   6-component formula with feedback boosts + session memory
     |
     v
-[7b. Embedding Re-rank]        (opt-in) re-rank top-50 by cosine similarity to task (+15% P@10)
+[7b. Embedding Re-rank]        (opt-in) re-rank top-50 by cosine similarity to task (+17% P@10)
     |
     v
 [8. Budget Packing]            density-ranked greedy knapsack (score/cost ratio)
@@ -504,4 +504,4 @@ Task Description
 - **Feedback compounding via task memory:** The MCP server records top-5 returned symbols in a `task_memory` table after each `context_for_task` call. Future queries with similar keywords recall stored symbols and boost them. Quality compounds across sessions; the system learns which symbols matter for which tasks.
 - **Merkleized feedback expiration:** Feedback records store the package Merkle root. When code changes, the root changes, and stale feedback becomes invisible automatically.
 
-**Benchmark:** Cross-system benchmark (9 repos, 167 tasks, 6 languages): P@10=0.238, 1.76x vs codegraph (19K stars), 3.17x vs GitNexus, 3.78x vs Gortex, 18.3x vs grep (p<0.0001, Cohen's d=0.92). Query latency: 2ms on k8s with adjacency cache. Parameter sweep proved all RWR/ranking parameters are irrelevant (identical P@10 across 26 configs); P@10 is reachability-determined, not ranking-determined. See [Retrieval Pipeline](retrieval-pipeline.md) for the full architecture reference.
+**Benchmark:** Cross-system benchmark (9 repos, 167 tasks, 6 languages): P@10=0.242, 1.79x vs codegraph (19K stars), 3.23x vs GitNexus, 3.84x vs Gortex, 18.6x vs grep (p<0.0001, Cohen's d=0.92). Query latency: 2ms on k8s with adjacency cache. Parameter sweep proved all RWR/ranking parameters are irrelevant (identical P@10 across 26 configs); P@10 is reachability-determined, not ranking-determined. See [Retrieval Pipeline](retrieval-pipeline.md) for the full architecture reference.

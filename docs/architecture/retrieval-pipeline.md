@@ -14,7 +14,7 @@ the precision degradation that affects every static retrieval system at scale.
 This document is the authoritative reference for how the context engine finds and ranks
 symbols. It supersedes `context-packing.md`.
 
-**Current eval baseline:** 55 fixtures (20 easy, 20 medium, 15 hard), 31.6% P@10, 0.58 MRR (internal eval). Cross-system benchmark (167 tasks, 9 repos, 6 languages): P@10=0.238, 1.76x vs codegraph (19K stars), 3.17x vs GitNexus, 3.78x vs Gortex, 18.3x vs grep (d=0.92 very large effect). Parameter sweep (26 configs) proved P@10 is reachability-determined; all ranking parameters are irrelevant.
+**Current eval baseline:** 55 fixtures (20 easy, 20 medium, 15 hard), 31.6% P@10, 0.58 MRR (internal eval). Cross-system benchmark (167 tasks, 9 repos, 6 languages): P@10=0.242, 1.79x vs codegraph (19K stars), 3.23x vs GitNexus, 3.84x vs Gortex, 18.6x vs grep (d=0.92 very large effect). Parameter sweep (26 configs) proved P@10 is reachability-determined; all ranking parameters are irrelevant.
 
 ## Pipeline Overview
 
@@ -362,7 +362,7 @@ As an independent seed channel, embeddings remain disabled (weight 0.0). Three m
 However, the same embedding infrastructure powers the **embedding re-ranker** (step 7b),
 which operates after scoring, not during seed selection. The re-ranker reorders the top-50
 scored candidates by cosine similarity to the task description. This is the biggest single
-improvement in project history: P@10 0.207 -> 0.238 (+15%), R@10 0.306 -> 0.362 (+18.3%).
+improvement in project history: P@10 0.207 -> 0.242 (+17%), R@10 0.306 -> 0.362 (+18.3%).
 
 The key insight: architecture matters more than model. The same jina-code model that is
 neutral as a seed channel produces +15% when used to re-rank graph-surfaced candidates.
@@ -965,7 +965,7 @@ zero-cost, compounds with curation. This is the primary seed quality mechanism.
 
 **Embedding re-ranker** (post-scoring, step 7b): reorders top-50 candidates by cosine
 similarity to the task description. Catches relevant symbols the graph surfaced but
-scored low. +15% P@10 on full corpus.
+scored low. +17% P@10 on full corpus.
 
 The key insight is that embeddings fail as seed sources (Channel 5 = neutral) but
 succeed as re-rankers. As seeds, embeddings find the same symbols as BM25 (vocabulary
@@ -979,7 +979,7 @@ reachable. Both are local, offline, and zero-cost.
 
 This is validated by 26 benchmark runs:
 - Experiments 9-12: embeddings as Channel 3 tested net-negative (same symbols as BM25)
-- Run 26: embeddings as re-ranker: +15% P@10, +18.3% R@10 (biggest single improvement)
+- Run 26: embeddings as re-ranker: +17% P@10, +18.3% R@10 (biggest single improvement)
 - Experiment 18: equivalence classes produced +8pp hard tier (biggest seed improvement)
 - Architecture > model: three models neutral as seeds, all effective as re-rankers
 - See `docs/architecture/embedding-reranker.md` for full re-ranker design
@@ -994,7 +994,7 @@ This is validated by 26 benchmark runs:
 
 2. **Embedding re-ranker is optional.** Enabled via `--embeddings` on `knowing mcp`.
    When enabled, adds ~220ms to query time (cached vectors) or ~660ms (first run).
-   Improves P@10 by +15% on average but regresses on some dense-graph repos (VS Code -16%).
+   Improves P@10 by +17% on average but regresses on some dense-graph repos (VS Code -16%).
 
 3. **LIKE-based tiered matching.** `NodesByName` uses SQL `LIKE %keyword%`, so "auth"
    matches `AuthService`, `OAuth2Handler`, and `unauthorized_error` equally.
