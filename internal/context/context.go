@@ -192,8 +192,8 @@ func (e *ContextEngine) reRankWithEmbeddings(ctx stdctx.Context, reranker Vector
 		return ranked // fallback to original order on error
 	}
 
-	// Blended scoring: preserve original rank signal while boosting semantically relevant.
-	// Tunable via ReRankOriginalWeight (default 0.7). Higher = more conservative (preserves MRR).
+	// Blended scoring: weight=0.0 means pure re-rank by embedding (validated default).
+	// Tunable via ReRankOriginalWeight. Higher = more conservative (preserves MRR).
 	originalWeight := ReRankOriginalWeight
 	embedWeight := 1.0 - originalWeight
 
