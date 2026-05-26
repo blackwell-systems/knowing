@@ -30,6 +30,29 @@ var benignProcessTargets = map[string]struct{}{
 	"worker_threads": {}, "cluster.fork": {},
 }
 
+// isTestOrBenchmarkPath returns true if the qualified name indicates a test,
+// benchmark, or example file that is not shipped to end users. These files
+// are excluded from supply chain scoring because process spawning in tests
+// is expected behavior (test runners, fixture generation, etc.).
+func isTestOrBenchmarkPath(qualifiedName string) bool {
+	lower := strings.ToLower(qualifiedName)
+	// Test directories and files across languages.
+	if strings.Contains(lower, "/test/") || strings.Contains(lower, "/tests/") ||
+		strings.Contains(lower, "/__tests__/") || strings.Contains(lower, "/spec/") ||
+		strings.Contains(lower, "_test.go") || strings.Contains(lower, ".test.") ||
+		strings.Contains(lower, ".spec.") || strings.Contains(lower, "/test_") ||
+		strings.Contains(lower, "tests/test_") || strings.Contains(lower, "conftest.py") {
+		return true
+	}
+	// Benchmark and example directories.
+	if strings.Contains(lower, "/benchmark/") || strings.Contains(lower, "/benchmarks/") ||
+		strings.Contains(lower, "/example/") || strings.Contains(lower, "/examples/") ||
+		strings.Contains(lower, "/fixtures/") || strings.Contains(lower, "/testdata/") {
+		return true
+	}
+	return false
+}
+
 // isBenignProcessTarget returns true if the process target name refers to a
 // known-safe executable (runtime, compiler, package manager, shell, or worker).
 func isBenignProcessTarget(target string) bool {
@@ -89,8 +112,17 @@ func ComputeIsolation(ctx context.Context, store types.GraphStore, changedFiles 
 
 	for _, fh := range changedFiles {
 		nodes := fileToNodes[fh]
+		filePath := fileToPath[fh]
+
+		// Skip test, benchmark, and example files. Process spawning in
+		// tests is expected (test runners, fixture generation) and these
+		// files are not shipped to end users.
+		if isTestOrBenchmarkPath(filePath) {
+			continue
+		}
+
 		result := IsolationResult{
-			File: fileToPath[fh],
+			File: filePath,
 		}
 
 		var envVars []string
