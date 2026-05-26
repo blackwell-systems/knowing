@@ -1,0 +1,145 @@
+name: npm Supply Chain Scanner
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # every 6 hours (conservative start, increase when proven)
+  workflow_dispatch:         # manual trigger for testing
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Build knowing
+        run: GOWORK=off go build -o knowing ./cmd/knowing
+        env:
+          GOWORK: 'off'
+
+      - name: Fetch packages to scan
+        run: |
+          chmod +x scripts/fetch-recent-publishes.sh
+          ./scripts/fetch-recent-publishes.sh > packages.txt
+          echo "Packages to scan:"
+          cat packages.txt | grep -v "^#"
+
+      - name: Scan packages for supply chain anomalies
+        run: |
+          mkdir -p scan-output
+          while IFS=' ' read -r pkg new_ver prev_ver; do
+            # Skip comments
+            [[ "$pkg" == \#* ]] && continue
+            [ -z "$pkg" ] && continue
+
+            echo ""
+            echo "=== Scanning $pkg: $prev_ver -> $new_ver ==="
+
+            WORK=$(mktemp -d)
+            trap "rm -rf $WORK" RETURN
+
+            # Download both versions (tarball only, no install, no execution)
+            npm pack "${pkg}@${prev_ver}" --pack-destination "$WORK" 2>/dev/null || continue
+            npm pack "${pkg}@${new_ver}" --pack-destination "$WORK" 2>/dev/null || continue
+
+            # Extract
+            mkdir -p "$WORK/old" "$WORK/new"
+            OLD_TGZ=$(ls "$WORK"/*"${prev_ver}"*.tgz 2>/dev/null | head -1)
+            NEW_TGZ=$(ls "$WORK"/*"${new_ver}"*.tgz 2>/dev/null | head -1)
+            [ -z "$OLD_TGZ" ] || [ -z "$NEW_TGZ" ] && continue
+
+            tar xzf "$OLD_TGZ" -C "$WORK/old" --strip-components=1
+            tar xzf "$NEW_TGZ" -C "$WORK/new" --strip-components=1
+
+            # Initialize git repos (knowing needs git)
+            (cd "$WORK/old" && git init -q && git add . && git commit -q -m "old" 2>/dev/null) || true
+            (cd "$WORK/new" && git init -q && git add . && git commit -q -m "new" 2>/dev/null) || true
+
+            # Index both versions
+            ./knowing index -db "$WORK/old.db" -no-enrich "$WORK/old" 2>/dev/null || continue
+            ./knowing index -db "$WORK/new.db" -no-enrich "$WORK/new" 2>/dev/null || continue
+
+            # Get snapshots
+            OLD_SNAP=$(./knowing query -db "$WORK/old.db" --latest-snapshot 2>/dev/null || echo "")
+            NEW_SNAP=$(./knowing query -db "$WORK/new.db" --latest-snapshot 2>/dev/null || echo "")
+
+            if [ -n "$OLD_SNAP" ] && [ -n "$NEW_SNAP" ]; then
+              # Run supply chain audit
+              ./knowing audit-supply-chain \
+                --db "$WORK/new.db" \
+                --base "$OLD_SNAP" \
+                --head "$NEW_SNAP" \
+                -o "$WORK/report.json" 2>/dev/null || true
+
+              if [ -f "$WORK/report.json" ]; then
+                # Check isolation score
+                MAX_SCORE=$(python3 -c "
+import json
+with open('$WORK/report.json') as f:
+    d = json.load(f)
+    print(d.get('summary', {}).get('max_isolation_score', 0))
+" 2>/dev/null || echo "0")
+
+                echo "  Max isolation score: $MAX_SCORE"
+
+                # Flag if suspicious
+                if python3 -c "exit(0 if float('$MAX_SCORE') > 0.7 else 1)" 2>/dev/null; then
+                  echo "  *** SUSPICIOUS: isolation score > 0.7 ***"
+                  cp "$WORK/report.json" "scan-output/${pkg//\//_}_${new_ver}.json"
+                fi
+              fi
+            fi
+
+            rm -rf "$WORK"
+          done < packages.txt
+
+      - name: Report findings
+        if: always()
+        run: |
+          ALERTS=$(ls scan-output/*.json 2>/dev/null | wc -l | tr -d ' ')
+          echo "Scan complete. Suspicious packages: $ALERTS"
+
+          if [ "$ALERTS" -gt 0 ]; then
+            echo "## Supply Chain Scanner Alert" > alert-body.md
+            echo "" >> alert-body.md
+            echo "The automated scanner detected **$ALERTS** suspicious package update(s):" >> alert-body.md
+            echo "" >> alert-body.md
+            for f in scan-output/*.json; do
+              PKG=$(basename "$f" .json | sed 's/_/\//g')
+              echo "### $PKG" >> alert-body.md
+              echo '```json' >> alert-body.md
+              python3 -m json.tool "$f" >> alert-body.md 2>/dev/null || cat "$f" >> alert-body.md
+              echo '```' >> alert-body.md
+              echo "" >> alert-body.md
+            done
+          fi
+
+      - name: Create issue for suspicious findings
+        if: always()
+        run: |
+          if [ -f alert-body.md ]; then
+            gh issue create \
+              --title "Supply chain alert: $(date -u +%Y-%m-%d)" \
+              --body "$(cat alert-body.md)" \
+              --label "supply-chain-alert" || echo "No alerts to report"
+          else
+            echo "No suspicious packages detected. All clear."
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload scan artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scan-results-${{ github.run_id }}
+          path: scan-output/
+          retention-days: 90
