@@ -719,6 +719,17 @@ func extractMethodDeclWithImports(node *sitter.Node, opts types.ExtractOptions, 
 		edges = append(edges, fieldEdges...)
 	}
 
+	// Extract env read and process exec edges.
+	if body != nil {
+		envNodes, envEdges := extractEnvReadEdges(node, opts, pkgPath, className, nodeHash)
+		nodes = append(nodes, envNodes...)
+		edges = append(edges, envEdges...)
+
+		procNodes, procEdges := extractProcessExecEdges(node, opts, pkgPath, className, nodeHash)
+		nodes = append(nodes, procNodes...)
+		edges = append(edges, procEdges...)
+	}
+
 	return nodes, edges
 }
 
@@ -752,6 +763,17 @@ func extractConstructorDeclWithImports(node *sitter.Node, opts types.ExtractOpti
 	if body != nil {
 		callEdges := extractCallEdgesWithImports(body, opts, pkgPath, nodeHash, javaImports)
 		edges = append(edges, callEdges...)
+	}
+
+	// Extract env read and process exec edges from constructor body.
+	if body != nil {
+		envNodes, envEdges := extractEnvReadEdges(node, opts, pkgPath, className, nodeHash)
+		nodes = append(nodes, envNodes...)
+		edges = append(edges, envEdges...)
+
+		procNodes, procEdges := extractProcessExecEdges(node, opts, pkgPath, className, nodeHash)
+		nodes = append(nodes, procNodes...)
+		edges = append(edges, procEdges...)
 	}
 
 	return nodes, edges
