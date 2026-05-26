@@ -173,6 +173,12 @@ var GraphNodeCount int
 // Set via BENCH_RERANK_WEIGHT for parameter sweep experiments.
 var ReRankOriginalWeight = 0.0
 
+// AdaptiveSeedCount, when true, increases maxSeeds based on GraphNodeCount.
+// On large graphs (>40K nodes), more seeds compensate for higher disconnection
+// rates where ground truth symbols are further from any individual seed.
+// Default false; auto-enabled when AdaptiveDensity is true.
+var AdaptiveSeedCount bool
+
 // CoherenceBonus controls the density boost for symbols that share a file with
 // already-packed symbols. Range [0.0, 1.0]. At 0.0 (default), packing is purely
 // density-ranked (current behavior). At 0.3, a symbol co-located with a packed

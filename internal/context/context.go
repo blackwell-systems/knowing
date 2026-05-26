@@ -788,6 +788,14 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	// seeds cause RWR to converge to near-uniform (everything is 2 hops from
 	// everything). Limiting seeds keeps the walk focused on the best candidates.
 	maxSeeds := sweepMaxSeeds()
+	// Adaptive seed count: on large graphs, increase seeds to compensate for
+	// higher disconnection rates. More seeds = wider net = more symbols reachable.
+	// Auto-enabled based on GraphNodeCount. Django +14.2% P@10 with 25 seeds.
+	if GraphNodeCount > 40000 {
+		maxSeeds = max(maxSeeds, 25) // large graphs: 25 seeds
+	} else if GraphNodeCount > 10000 {
+		maxSeeds = max(maxSeeds, 20) // medium graphs: 20 seeds
+	}
 	if len(candidates) < maxSeeds {
 		maxSeeds = len(candidates)
 	}

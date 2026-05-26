@@ -62,6 +62,11 @@ func init() {
 		}
 	}
 
+	// BENCH_ADAPTIVE_SEEDS=1 increases seed count on large graphs.
+	if os.Getenv("BENCH_ADAPTIVE_SEEDS") == "1" {
+		knowingctx.AdaptiveSeedCount = true
+	}
+
 	// BENCH_COHERENCE_BONUS=0.3 boosts density for symbols co-located with
 	// already-packed symbols. Range [0.0, 1.0]. Default 0.0 (no bonus).
 	if envCoherence := os.Getenv("BENCH_COHERENCE_BONUS"); envCoherence != "" {
