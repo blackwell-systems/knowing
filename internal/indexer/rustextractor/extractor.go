@@ -293,6 +293,14 @@ func extractFunctionItem(node *sitter.Node, opts types.ExtractOptions, basePath,
 	callEdges := extractCallEdgesFromBody(body, opts, basePath, nodeHash)
 	edges = append(edges, callEdges...)
 
+	envNodes, envEdges := extractEnvReadEdges(node, opts, basePath, nodeHash)
+	nodes = append(nodes, envNodes...)
+	edges = append(edges, envEdges...)
+
+	procNodes, procEdges := extractProcessExecEdges(node, opts, basePath, nodeHash)
+	nodes = append(nodes, procNodes...)
+	edges = append(edges, procEdges...)
+
 	return nodes, edges
 }
 
@@ -668,6 +676,14 @@ func extractFunctionItemWithImports(node *sitter.Node, opts types.ExtractOptions
 		fieldEdges := extractFieldAccessEdges(node, opts, basePath, implType, nodeHash)
 		edges = append(edges, fieldEdges...)
 	}
+
+	envNodes, envEdges := extractEnvReadEdges(node, opts, basePath, nodeHash)
+	nodes = append(nodes, envNodes...)
+	edges = append(edges, envEdges...)
+
+	procNodes, procEdges := extractProcessExecEdges(node, opts, basePath, nodeHash)
+	nodes = append(nodes, procNodes...)
+	edges = append(edges, procEdges...)
 
 	return nodes, edges
 }
