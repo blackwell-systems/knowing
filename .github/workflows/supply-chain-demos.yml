@@ -27,6 +27,8 @@ jobs:
 
       - name: Create TanStack-pattern test payload
         run: |
+          git config --global user.email "ci@knowing.dev"
+          git config --global user.name "knowing-ci"
           mkdir -p /tmp/tanstack-test/src
           cat > /tmp/tanstack-test/src/malicious.ts << 'PAYLOAD'
           import { spawn } from 'child_process';
@@ -101,6 +103,8 @@ jobs:
 
       - name: Create event-stream-pattern test payload
         run: |
+          git config --global user.email "ci@knowing.dev"
+          git config --global user.name "knowing-ci"
           mkdir -p /tmp/es-test/src
           cat > /tmp/es-test/src/payload.js << 'PAYLOAD'
           var http = require('https');
