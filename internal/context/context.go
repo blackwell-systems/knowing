@@ -981,7 +981,7 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	// Only inject gap candidates on large graphs (>10K nodes) where
 	// disconnection rates cause zero-scoring tasks. Small graphs have
 	// near-complete reachability; gap injection just adds noise.
-	if len(bm25Results) > 0 && len(inputs) > 0 && GraphNodeCount > 10000 {
+	if len(bm25Results) > 0 && len(inputs) > 0 && GraphNodeCount > 40000 {
 		rwrSet := make(map[types.Hash]bool, len(inputs))
 		for _, inp := range inputs {
 			rwrSet[inp.Node.NodeHash] = true
