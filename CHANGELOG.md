@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed (post v0.10.0)
+
+- **ReRankOriginalWeight default set to 0.0** (pure re-rank): the validated configuration that produces +15% P@10. Previously defaulted to 0.7 which gave no improvement.
+- **jina-code as default embedding model**: changed from bge-small to jina-code (the model validated on the full corpus)
+- **`--embeddings` and `--embed-model` CLI flags** on `knowing mcp`: proper UX for enabling embeddings (was env-var only)
+- **Clear local/offline messaging**: CLI help and log messages emphasize no API keys, no cloud calls, no charges
+- **Module-level TS extraction**: `process.env.X` and `spawn()` at top level of JS/TS files now detected (real malware executes at module load)
+- **Isolation score formula tuned**: gentler inbound curve, steeper outbound curve, default threshold 0.3 (was 0.7)
+- **`--scan-all` mode** for `audit-supply-chain` (for cross-DB comparisons)
+- **Supply chain demo workflows** passing in CI with rich job summaries
+
+## [v0.10.0] - 2026-05-26
+
 ### Added
 
 #### Supply chain attack detection (verified end-to-end on real malware patterns)
