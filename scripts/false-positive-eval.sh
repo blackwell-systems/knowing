@@ -301,10 +301,20 @@ scan_package() {
   [ -z "$src_dir" ] && src_dir="$pkg_dir"
 
   # Initialize a git repo (knowing needs it)
-  # Add .gitignore to exclude node_modules, test fixtures, dist, build
+  # Build .gitignore to exclude non-source artifacts
+  local gitignore="node_modules/\n*.tgz\n*.whl\n*.tar.gz\n*.dist-info/\n"
+  # For npm: exclude dist/build/out if lib/ or src/ has source files (prefer source over compiled)
+  if [ "$ecosystem" = "npm" ]; then
+    for candidate in lib src; do
+      if [ -d "$src_dir/$candidate" ]; then
+        gitignore="${gitignore}dist/\nbuild/\nout/\n"
+        break
+      fi
+    done
+  fi
   (cd "$src_dir" && \
    git init -q && \
-   printf 'node_modules/\n.git/\n*.tgz\n*.whl\n*.tar.gz\n*.dist-info/\ndist/\nbuild/\nout/\n' > .gitignore && \
+   printf "$gitignore" > .gitignore && \
    git add -A && \
    git commit -q -m "init" --allow-empty) 2>/dev/null || true
 
