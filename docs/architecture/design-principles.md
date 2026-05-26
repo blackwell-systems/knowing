@@ -7,7 +7,7 @@
 - **Git-driven incremental**: commits are the unit of change; git diff provides the exact changed file set; no filesystem walking or content hashing for change detection
 - **Language-aware at boundaries**: Go calling Go is straightforward; Go calling a Python service via HTTP needs route mapping
 - **MCP-native**: exposed as MCP tools, consumed by agents directly
-- **Local-first, no paid LLM**: all indexing, retrieval, and ranking run locally without external API calls. Pure Go binary with no runtime dependencies beyond SQLite. Vector search (disabled by default) is the only component that would require an embedding model
+- **Local-first, no paid LLM**: all indexing, retrieval, ranking, and embedding inference run locally without external API calls. Pure Go binary with no runtime dependencies beyond SQLite. The embedding re-ranker uses a local model via pure Go ONNX inference (no Python, no API keys, no charges)
 - **Density-adaptive retrieval**: the system observes its own graph density at query time and adjusts seed selection strategy. On graphs exceeding 40K nodes, it automatically prefers type/interface nodes as RWR seeds (structural anchors walk down to methods via contains edges). This prevents the precision degradation that affects all static retrieval systems at scale. The system gets smarter with graph growth, not dumber.
 - **Fast**: optimized for interactive agent queries over large multi-repo graphs
 - **Deterministic**: same input at same commit always produces the same graph (verifiable via hash)
@@ -129,7 +129,7 @@ Runtime trace ingestion straddles the planes. The ingest pipeline (normalizing s
 
 ## Graph Structure
 
-The knowledge graph uses 34 edge types (see `internal/edgetype/constants.go` and `docs/architecture/edge-types.md`). Notable structural properties:
+The knowledge graph uses 38 edge types (see `internal/edgetype/constants.go` and `docs/architecture/edge-types.md`). Notable structural properties:
 
 - **Structural edges** (`contains`, `member_of`) connect type/class nodes to their methods and fields via qualified name hierarchy. These edges connected 77% of previously-disconnected type/class nodes (5,457/7,086 in k8s) that had zero edges, enabling RWR to walk from types to their methods and back.
 - **Interface method propagation** creates `overrides` edges from implementing class methods to corresponding interface methods. When class C implements interface I and both define method M, C.M overrides I.M. This lets RWR walk from an interface method to all concrete implementations.
@@ -146,17 +146,20 @@ The context engine (`internal/context/`) implements task-based retrieval: given 
 
 1. **Tiered keyword matching:** compound-first search (exact > prefix > substring > path) against qualified names
 2. **BM25 full-text search:** compound-targeted query against the FTS5 index, with file_path prefix terms appended
-3. **Vector (embedding) search:** semantic nearest-neighbor over symbol embeddings (disabled by default; requires embedding model)
+3. **Vector (embedding) search:** semantic nearest-neighbor over symbol embeddings (opt-in via `--embeddings`; runs locally, no API)
 4. **Equivalence class matching:** maps conceptual phrases in the task description to concrete symbol targets via curated + graph-derived alias dictionaries
 5. **Path-context seeding:** extracts package/directory terms from the task description and finds TYPE/CLASS nodes in matching paths; types with `contains` edges serve as structural anchors for RWR walks
 
 After seed retrieval, Random Walk with Restart (RWR) expands the seed set through the graph, HITS reranking promotes authorities, and community-aware scoring prevents single-cluster dominance.
 
-**Benchmark results (fresh index, no enrichment):**
+**Embedding re-ranker (opt-in, `--embeddings`):** After RWR scoring, the top-50 candidates are re-ranked by cosine similarity between the task description and each symbol's text representation, using a local embedding model (jina-embeddings-v2-base-code). This improves P@10 by +15% across the full corpus. The model runs via pure Go ONNX inference: no Python, no API keys, no charges. Key finding: embeddings as an independent retrieval channel (Channel 3) are neutral; the same models as a re-ranker on graph output produce a 15% improvement. Architecture matters more than model choice.
+
+**Benchmark results (fresh index, with embedding re-ranker):**
 
 - P@10 = 0.238 across 167 tasks, 9 repos, 6 languages (Go, Python, TypeScript, Rust, Java, C#), 14K to 3.5M LOC
-- Competitive advantage: vs codegraph 1.53x, vs GitNexus 2.76x, vs Gortex 3.29x, vs grep 15.9x
-- Self-adapting type-seed preference: on dense graphs (>50K nodes), automatically prefers type/interface/class nodes as RWR seeds. VS Code +44%, zero regressions.
+- Competitive advantage: vs codegraph 1.76x, vs GitNexus 3.17x, vs Gortex 3.78x, vs grep 18.3x
+- Self-adapting type-seed preference: on dense graphs (>40K nodes), automatically prefers type/interface/class nodes as RWR seeds
+- Embedding re-ranker: Kubernetes +92.8%, Kafka +39.5%, Cargo +15.9%
 - Concept thesaurus: ~80 domain clusters expand BM25 queries with related code vocabulary.
 - Parameter sweep (RWR alpha, seed count, score cutoff, blast radius weight, distance weight, confidence weight, RRF k, test penalty): all 9 parameters produce identical P@10. Quality is determined entirely by graph reachability (binary: is the symbol connected to any seed?), not by continuous parameter tuning.
 - Implication: all P@10 improvements must target reachability (new edge types, new seed sources), not ranking (parameter adjustment).
