@@ -14,7 +14,7 @@ Embedding re-ranker: +15% P@10 with SQLite vector cache (220ms cached).
 |---|------|-----|--------|-----------------|
 | 1 | **Real users** | Everything else is validated by benchmarks, not usage. Task memory compounds with use. | Ongoing | - |
 | 2 | **Supply chain whitepaper** | False positive evaluation (scan 200+ clean packages), related work section. Draft has TanStack + event-stream case studies. Whitepaper at `docs/research/whitepapers/supply-chain-proof-of-absence.md`. | Medium | Publication + commercial |
-| 3 | **Investigate re-ranker regressions** | VS Code -16%, Ocelot -30.8% with embedding re-ranker. Dense graphs may need different re-rank strategy (weight > 0.0 to preserve graph ordering). | Medium | Quality |
+| 3 | ~~Investigate re-ranker regressions~~ | **RESOLVED (session 16).** VS Code and Ocelot both show 0% P@10 delta with re-ranker. Session 15 regressions were artifacts of pre-vector-cache build. | Done | - |
 | 4 | **Root-level Go file extraction** | Go files at repo root produce 0 nodes due to package path computation bug. Affects flat-structure repos. | Low | Correctness |
 | 5 | **Coherence-aware context packing** | Current packing is greedy by value density (score/tokens). Treats symbols independently. Subgraph coherence bonus (boost graph-neighbors of already-packed symbols) is most promising. No evidence of harm yet; speculative improvement. | Medium | Quality |
 | 6 | **GHA Marketplace action** | Package the supply chain scanner for paid distribution. Free tier scans public repos; paid tier for private repos + continuous monitoring. | Medium | Commercial |

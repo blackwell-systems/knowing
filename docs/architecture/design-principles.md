@@ -159,7 +159,7 @@ After seed retrieval, Random Walk with Restart (RWR) expands the seed set throug
 - P@10 = 0.238 across 167 tasks, 9 repos, 6 languages (Go, Python, TypeScript, Rust, Java, C#), 14K to 3.5M LOC
 - Competitive advantage: vs codegraph 1.76x, vs GitNexus 3.17x, vs Gortex 3.78x, vs grep 18.3x
 - Self-adapting type-seed preference: on dense graphs (>40K nodes), automatically prefers type/interface/class nodes as RWR seeds
-- Embedding re-ranker: Kubernetes +92.8%, Kafka +39.5%, Cargo +15.9%
+- Embedding re-ranker: +15% P@10 aggregate, zero regressions on any repo (session 16 confirmed)
 - Concept thesaurus: ~80 domain clusters expand BM25 queries with related code vocabulary.
 - Parameter sweep (RWR alpha, seed count, score cutoff, blast radius weight, distance weight, confidence weight, RRF k, test penalty): all 9 parameters produce identical P@10. Quality is determined entirely by graph reachability (binary: is the symbol connected to any seed?), not by continuous parameter tuning.
 - Implication: all P@10 improvements must target reachability (new edge types, new seed sources), not ranking (parameter adjustment).

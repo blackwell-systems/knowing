@@ -71,8 +71,8 @@ Statistical significance: p<0.0001, d=0.92 (very large effect on recall).
 |------|----------|--------|--------|
 | SCIP adapter | Low | 2 days | Precision ceiling reference |
 | Blog post updates | Medium | 1 day | Public credibility with latest numbers |
-| Investigate VS Code regression | Medium | 1 day | Re-ranker hurts dense graph repos |
-| Investigate Ocelot regression | Low | 1 day | -30.8% with re-ranker (5 tasks, high variance) |
+| ~~VS Code regression~~ | Done | - | Resolved in session 16: 0% delta (was -16%) |
+| ~~Ocelot regression~~ | Done | - | Resolved in session 16: 0% delta (was -30.8%) |
 
 ---
 
@@ -1104,7 +1104,7 @@ Based on 26 iterative benchmark runs across 167 tasks:
 - Aider and codebase-memory both timed out on the 30-min limit
 - GitNexus cannot index enterprise repos (killed at >60 min on kubernetes)
 - **Embedding re-ranker** was the biggest single improvement: +15% P@10, +18.3% R@10
-- **Dense graph repos benefit most** from re-ranker (Kubernetes +92.8%), but dense TS repos regress (VS Code -16%)
+- **Dense graph repos benefit most** from re-ranker (Kubernetes +92.8%). Session 15 regressions (VS Code -16%, Ocelot -30.8%) resolved in session 16: both show 0% P@10 delta.
 
 ---
 
