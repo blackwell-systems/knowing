@@ -67,6 +67,13 @@ func init() {
 		knowingctx.AdaptiveSeedCount = true
 	}
 
+	// BENCH_MAX_SEEDS=25 overrides the max seed count directly (for sweeps).
+	if envSeeds := os.Getenv("BENCH_MAX_SEEDS"); envSeeds != "" {
+		if s, err := strconv.Atoi(envSeeds); err == nil && s > 0 {
+			knowingctx.SetSweepParams(knowingctx.SweepParams{MaxSeeds: s})
+		}
+	}
+
 	// BENCH_COHERENCE_BONUS=0.3 boosts density for symbols co-located with
 	// already-packed symbols. Range [0.0, 1.0]. Default 0.0 (no bonus).
 	if envCoherence := os.Getenv("BENCH_COHERENCE_BONUS"); envCoherence != "" {

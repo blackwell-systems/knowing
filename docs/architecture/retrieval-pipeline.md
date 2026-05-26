@@ -495,6 +495,23 @@ Also available as a manual override via `BENCH_PREFER_TYPE_SEEDS=1`.
 Impact: VS Code P@10 improved from 0.095 to 0.137 (+44%). Aggregate P@10 from 0.202 to
 0.207 (+2.5%). Zero regressions on any repo.
 
+### Adaptive seed count
+
+On large graphs, the default 15 seeds may not cast a wide enough net. The pipeline
+auto-increases seed count based on `GraphNodeCount`:
+
+| Graph size | Max seeds | Rationale |
+|------------|-----------|-----------|
+| >40K nodes | 25 | Large graphs have higher disconnection rates |
+| >10K nodes | 20 | Medium graphs benefit from modest increase |
+| <10K nodes | 15 (default) | Small graphs don't need more seeds |
+
+Impact: Django (57K nodes) P@10 improved from 0.197 to 0.225 (+14.2%) with 25 seeds.
+Flask (1.4K nodes) is unaffected (threshold not triggered). Combined with the embedding
+re-ranker, the full corpus aggregate improved from 0.238 to 0.242.
+
+Available as manual override via `BENCH_MAX_SEEDS=N` for parameter sweep experiments.
+
 ### Critical finding: RWR is the primary differentiator
 
 Cross-system benchmark Runs 7-10 demonstrated that RWR (graph traversal) is the
