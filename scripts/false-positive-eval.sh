@@ -13,6 +13,12 @@ OUTPUT="${1:-bench/supply-chain/false-positive-results.jsonl}"
 WORKDIR=$(mktemp -d)
 THRESHOLD=0.3
 
+# Detect pip command (pip3 on macOS/Homebrew, pip elsewhere)
+PIP="pip"
+if ! command -v pip &>/dev/null; then
+  PIP="pip3"
+fi
+
 mkdir -p "$(dirname "$OUTPUT")"
 > "$OUTPUT"  # truncate
 
@@ -246,21 +252,61 @@ scan_package() {
     (cd "$pkg_dir" && npm pack "$name" --pack-destination . 2>/dev/null && \
      tar xzf *.tgz --strip-components=1 2>/dev/null) || { echo "  SKIP $ecosystem/$name (download failed)"; return 1; }
   elif [ "$ecosystem" = "pypi" ]; then
-    pip download --no-deps --no-binary :all: "$name" -d "$pkg_dir" 2>/dev/null || \
-    pip download --no-deps "$name" -d "$pkg_dir" 2>/dev/null || { echo "  SKIP $ecosystem/$name (download failed)"; return 1; }
-    # Extract the archive
-    (cd "$pkg_dir" && for f in *.tar.gz *.zip; do
-      [ -f "$f" ] && (tar xzf "$f" 2>/dev/null || python3 -m zipfile -e "$f" . 2>/dev/null) && break
+    # Try source dist first, fall back to wheel (which is just a zip)
+    if ! $PIP download --no-deps --no-binary :all: "$name" -d "$pkg_dir" 2>/dev/null; then
+      if ! $PIP download --no-deps "$name" -d "$pkg_dir" 2>/dev/null; then
+        echo "  SKIP $ecosystem/$name (download failed)"; return 1
+      fi
+    fi
+    # Extract archives: .tar.gz, .zip, or .whl (wheels are zips)
+    (cd "$pkg_dir" && for f in *.tar.gz *.zip *.whl; do
+      [ -f "$f" ] || continue
+      case "$f" in
+        *.tar.gz) tar xzf "$f" 2>/dev/null ;;
+        *.zip|*.whl) python3 -m zipfile -e "$f" . 2>/dev/null ;;
+      esac
     done) || true
   fi
 
-  # Find the source directory (may be nested)
-  local src_dir
-  src_dir=$(find "$pkg_dir" -name "*.js" -o -name "*.ts" -o -name "*.py" | head -1 | xargs dirname 2>/dev/null || echo "$pkg_dir")
+  # Find the source directory
+  local src_dir=""
+
+  if [ "$ecosystem" = "npm" ]; then
+    # npm pack + --strip-components=1 puts everything at pkg_dir root.
+    # Prefer lib/ or src/ over dist/, build/, out/ (compiled JS).
+    for candidate in lib src; do
+      if [ -d "$pkg_dir/$candidate" ] && find "$pkg_dir/$candidate" -name "*.js" -o -name "*.ts" | head -1 | grep -q .; then
+        src_dir="$pkg_dir"
+        break
+      fi
+    done
+    # If no lib/src with source files, use pkg_dir root (but not dist/)
+    [ -z "$src_dir" ] && src_dir="$pkg_dir"
+  elif [ "$ecosystem" = "pypi" ]; then
+    # Source dists extract to a versioned dir (e.g. requests-2.31.0/) with setup.py.
+    # Wheels extract package dirs directly into pkg_dir.
+    # Strategy: look for setup.py/pyproject.toml in a subdirectory (source dist),
+    # otherwise use pkg_dir (wheel extraction or flat layout).
+    src_dir=$(find "$pkg_dir" -maxdepth 2 \( -name "setup.py" -o -name "pyproject.toml" \) -not -path "$pkg_dir/setup.py" -not -path "$pkg_dir/pyproject.toml" | head -1 | xargs dirname 2>/dev/null || echo "")
+    # For wheels: no setup.py, but __init__.py exists directly under pkg_dir/pkgname/
+    # Use pkg_dir itself so the indexer sees the whole package tree
+    if [ -z "$src_dir" ]; then
+      if find "$pkg_dir" -maxdepth 2 -name "*.py" | head -1 | grep -q .; then
+        src_dir="$pkg_dir"
+      fi
+    fi
+    [ -z "$src_dir" ] && src_dir="$pkg_dir"
+  fi
+
   [ -z "$src_dir" ] && src_dir="$pkg_dir"
 
   # Initialize a git repo (knowing needs it)
-  (cd "$src_dir" && git init -q && git add -A && git commit -q -m "init" --allow-empty) 2>/dev/null || true
+  # Add .gitignore to exclude node_modules, test fixtures, dist, build
+  (cd "$src_dir" && \
+   git init -q && \
+   printf 'node_modules/\n.git/\n*.tgz\n*.whl\n*.tar.gz\n*.dist-info/\ndist/\nbuild/\nout/\n' > .gitignore && \
+   git add -A && \
+   git commit -q -m "init" --allow-empty) 2>/dev/null || true
 
   # Index (skip LSP enrichment: not needed for supply chain edges, saves ~14s/pkg)
   local db="$pkg_dir/knowing.db"

@@ -216,12 +216,13 @@ func TestIsolation_IsolatedWithProcessExec(t *testing.T) {
 }
 
 func TestIsolation_HookExecuted(t *testing.T) {
-	// An isolated file with hook execution should approach 1.0.
+	// An isolated file with suspicious process execution should approach 1.0.
+	// Uses "wget" (suspicious) instead of "bash" (benign).
 	fileHash := hash(1)
 	nodeHash := hash(10)
 	procNodeHash := hash(40)
 
-	// 10 executes_process edges (capped at 10).
+	// 10 executes_process edges (capped at 5 for outbound).
 	var edges []types.Edge
 	for i := 0; i < 10; i++ {
 		edges = append(edges, types.Edge{
@@ -237,7 +238,7 @@ func TestIsolation_HookExecuted(t *testing.T) {
 		},
 		edges: edges,
 		allNodes: map[types.Hash]*types.Node{
-			procNodeHash: {NodeHash: procNodeHash, QualifiedName: "bash"},
+			procNodeHash: {NodeHash: procNodeHash, QualifiedName: "wget"},
 		},
 	}
 
@@ -248,7 +249,7 @@ func TestIsolation_HookExecuted(t *testing.T) {
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
-	// inbound_factor = 1.0, outbound_factor = 10/10 = 1.0, hook_factor = 1.5
+	// inbound_factor = 1.0, outbound capped at 5 -> outbound_factor = 1.0, hook_factor = 1.5
 	// score = 1.0 * 1.0 * 1.5 = 1.5 -> clamped to 1.0
 	if results[0].Score != 1.0 {
 		t.Errorf("expected score 1.0 for hook-executed isolated file, got %f", results[0].Score)
@@ -446,8 +447,8 @@ func TestIsolation_ConsumesEndpointNotDangerous(t *testing.T) {
 }
 
 func TestIsolation_HookFactorBoostsScore(t *testing.T) {
-	// Verify the hook factor (1.5x) amplifies scores.
-	// Compare two identical setups: one with reads_env (no hook), one with executes_process (hook).
+	// Verify the hook factor (1.5x) amplifies scores for suspicious targets.
+	// Compare: reads_env (no hook) vs suspicious executes_process (hook).
 	fileHash1 := hash(1)
 	nodeHash1 := hash(10)
 	envNodeHash := hash(30)
@@ -459,7 +460,7 @@ func TestIsolation_HookFactorBoostsScore(t *testing.T) {
 	edges := []types.Edge{
 		// File 1: 1 reads_env edge (not a hook).
 		{SourceHash: nodeHash1, TargetHash: envNodeHash, EdgeType: edgetype.ReadsEnv},
-		// File 2: 1 executes_process edge (is a hook).
+		// File 2: 1 executes_process edge with suspicious target (is a hook).
 		{SourceHash: nodeHash2, TargetHash: procNodeHash, EdgeType: edgetype.ExecutesProcess},
 	}
 
@@ -471,7 +472,7 @@ func TestIsolation_HookFactorBoostsScore(t *testing.T) {
 		edges: edges,
 		allNodes: map[types.Hash]*types.Node{
 			envNodeHash:  {NodeHash: envNodeHash, QualifiedName: "API_KEY"},
-			procNodeHash: {NodeHash: procNodeHash, QualifiedName: "npm"},
+			procNodeHash: {NodeHash: procNodeHash, QualifiedName: "curl"},
 		},
 	}
 
@@ -486,9 +487,9 @@ func TestIsolation_HookFactorBoostsScore(t *testing.T) {
 	envScore := results[0].Score
 	hookScore := results[1].Score
 
-	// Both have inbound_factor=1.0, outbound_factor=1/5=0.2.
-	// File 1 (env-only): 0.2 * 0.2x env penalty = 0.04
-	// File 2 (hook+proc): 0.2 * 1.5 = 0.3
+	// Both have inbound_factor=1.0.
+	// File 1 (env-only): outbound_factor=1/5=0.2, env-only 0.2x penalty = 0.04
+	// File 2 (suspicious proc): outbound_factor=1/5=0.2, hook_factor=1.5 -> 0.3
 	if envScore < 0.03 || envScore > 0.06 {
 		t.Errorf("expected env score ~0.04 (env-only penalty), got %f", envScore)
 	}
@@ -496,7 +497,7 @@ func TestIsolation_HookFactorBoostsScore(t *testing.T) {
 		t.Errorf("expected hook score ~0.3, got %f", hookScore)
 	}
 	if !results[1].HookExecuted {
-		t.Error("expected HookExecuted=true for executes_process file")
+		t.Error("expected HookExecuted=true for suspicious executes_process file")
 	}
 	if results[0].HookExecuted {
 		t.Error("expected HookExecuted=false for reads_env-only file")
@@ -670,5 +671,277 @@ func TestIsolation_InboundFromChangedFilesIgnored(t *testing.T) {
 	// inbound_factor=1.0, outbound_factor=1/5=0.2, env-only 0.2x = 0.04
 	if file1Result.Score < 0.03 || file1Result.Score > 0.06 {
 		t.Errorf("expected score ~0.04 (env-only penalty), got %f", file1Result.Score)
+	}
+}
+
+func TestIsolation_BenignProcessTargetIgnored(t *testing.T) {
+	// A file that only spawns benign processes (node, npm, git, tsc) should
+	// score 0 because none of those targets count as dangerous.
+	fileHash := hash(1)
+	nodeHash := hash(10)
+
+	nodeTarget := hash(41)
+	npmTarget := hash(42)
+	gitTarget := hash(43)
+	tscTarget := hash(44)
+
+	edges := []types.Edge{
+		{SourceHash: nodeHash, TargetHash: nodeTarget, EdgeType: edgetype.ExecutesProcess},
+		{SourceHash: nodeHash, TargetHash: npmTarget, EdgeType: edgetype.ExecutesProcess},
+		{SourceHash: nodeHash, TargetHash: gitTarget, EdgeType: edgetype.ExecutesProcess},
+		{SourceHash: nodeHash, TargetHash: tscTarget, EdgeType: edgetype.ExecutesProcess},
+	}
+
+	store := &mockIsolationStore{
+		nodes: map[types.Hash][]types.Node{
+			fileHash: {{NodeHash: nodeHash, QualifiedName: "pkg/build.go.Compile"}},
+		},
+		edges: edges,
+		allNodes: map[types.Hash]*types.Node{
+			nodeTarget: {NodeHash: nodeTarget, QualifiedName: "node"},
+			npmTarget:  {NodeHash: npmTarget, QualifiedName: "npm"},
+			gitTarget:  {NodeHash: gitTarget, QualifiedName: "git"},
+			tscTarget:  {NodeHash: tscTarget, QualifiedName: "tsc"},
+		},
+	}
+
+	results, err := ComputeIsolation(context.Background(), store, []types.Hash{fileHash})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	// All process targets are benign: outboundDangerous=0, score=0.
+	if results[0].Score != 0.0 {
+		t.Errorf("expected score 0.0 for benign-only process targets, got %f", results[0].Score)
+	}
+	if results[0].OutboundEdges != 0 {
+		t.Errorf("expected 0 dangerous outbound edges, got %d", results[0].OutboundEdges)
+	}
+	// ExecutesProc should still list all targets (benign included).
+	if len(results[0].ExecutesProc) != 4 {
+		t.Errorf("expected 4 ExecutesProc entries (benign still collected), got %d", len(results[0].ExecutesProc))
+	}
+	if results[0].HookExecuted {
+		t.Error("expected HookExecuted=false when all process targets are benign")
+	}
+}
+
+func TestIsolation_SuspiciousProcessTargetCounted(t *testing.T) {
+	// Suspicious targets (curl, wget, nc, ssh) should boost the score.
+	fileHash := hash(1)
+	nodeHash := hash(10)
+
+	curlTarget := hash(41)
+	ncTarget := hash(42)
+
+	edges := []types.Edge{
+		{SourceHash: nodeHash, TargetHash: curlTarget, EdgeType: edgetype.ExecutesProcess},
+		{SourceHash: nodeHash, TargetHash: ncTarget, EdgeType: edgetype.ExecutesProcess},
+	}
+
+	store := &mockIsolationStore{
+		nodes: map[types.Hash][]types.Node{
+			fileHash: {{NodeHash: nodeHash, QualifiedName: "pkg/exfil.go.Send"}},
+		},
+		edges: edges,
+		allNodes: map[types.Hash]*types.Node{
+			curlTarget: {NodeHash: curlTarget, QualifiedName: "curl"},
+			ncTarget:   {NodeHash: ncTarget, QualifiedName: "nc"},
+		},
+	}
+
+	results, err := ComputeIsolation(context.Background(), store, []types.Hash{fileHash})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	// inbound_factor=1.0, outbound_factor=2/5=0.4, hook_factor=1.5
+	// score = 1.0 * 0.4 * 1.5 = 0.6
+	if results[0].Score < 0.5 || results[0].Score > 0.7 {
+		t.Errorf("expected score ~0.6 for suspicious process targets, got %f", results[0].Score)
+	}
+	if results[0].OutboundEdges != 2 {
+		t.Errorf("expected 2 dangerous outbound edges, got %d", results[0].OutboundEdges)
+	}
+	if !results[0].HookExecuted {
+		t.Error("expected HookExecuted=true for suspicious process targets")
+	}
+}
+
+func TestIsolation_MixedBenignAndSuspiciousTargets(t *testing.T) {
+	// A file with both benign (node) and suspicious (wget) targets.
+	// Only the suspicious target should count as dangerous.
+	fileHash := hash(1)
+	nodeHash := hash(10)
+
+	nodeTarget := hash(41)
+	wgetTarget := hash(42)
+	bashTarget := hash(43)
+
+	edges := []types.Edge{
+		{SourceHash: nodeHash, TargetHash: nodeTarget, EdgeType: edgetype.ExecutesProcess},
+		{SourceHash: nodeHash, TargetHash: wgetTarget, EdgeType: edgetype.ExecutesProcess},
+		{SourceHash: nodeHash, TargetHash: bashTarget, EdgeType: edgetype.ExecutesProcess},
+	}
+
+	store := &mockIsolationStore{
+		nodes: map[types.Hash][]types.Node{
+			fileHash: {{NodeHash: nodeHash, QualifiedName: "pkg/install.go.Setup"}},
+		},
+		edges: edges,
+		allNodes: map[types.Hash]*types.Node{
+			nodeTarget: {NodeHash: nodeTarget, QualifiedName: "node"},
+			wgetTarget: {NodeHash: wgetTarget, QualifiedName: "wget"},
+			bashTarget: {NodeHash: bashTarget, QualifiedName: "bash"},
+		},
+	}
+
+	results, err := ComputeIsolation(context.Background(), store, []types.Hash{fileHash})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	// Only wget is suspicious: outboundDangerous=1
+	// inbound_factor=1.0, outbound_factor=1/5=0.2, hook_factor=1.5
+	// score = 1.0 * 0.2 * 1.5 = 0.3
+	if results[0].Score < 0.25 || results[0].Score > 0.35 {
+		t.Errorf("expected score ~0.3, got %f", results[0].Score)
+	}
+	if results[0].OutboundEdges != 1 {
+		t.Errorf("expected 1 dangerous outbound edge (only wget), got %d", results[0].OutboundEdges)
+	}
+	// All 3 procs should still be collected.
+	if len(results[0].ExecutesProc) != 3 {
+		t.Errorf("expected 3 ExecutesProc entries, got %d", len(results[0].ExecutesProc))
+	}
+}
+
+func TestIsolation_BenignProcessWithPathPrefix(t *testing.T) {
+	// Process targets with full paths (e.g., /usr/bin/node) should still be
+	// classified as benign after stripping the directory prefix.
+	fileHash := hash(1)
+	nodeHash := hash(10)
+
+	nodeTarget := hash(41)
+	pythonTarget := hash(42)
+
+	edges := []types.Edge{
+		{SourceHash: nodeHash, TargetHash: nodeTarget, EdgeType: edgetype.ExecutesProcess},
+		{SourceHash: nodeHash, TargetHash: pythonTarget, EdgeType: edgetype.ExecutesProcess},
+	}
+
+	store := &mockIsolationStore{
+		nodes: map[types.Hash][]types.Node{
+			fileHash: {{NodeHash: nodeHash, QualifiedName: "pkg/runner.go.Start"}},
+		},
+		edges: edges,
+		allNodes: map[types.Hash]*types.Node{
+			nodeTarget:   {NodeHash: nodeTarget, QualifiedName: "/usr/bin/node"},
+			pythonTarget: {NodeHash: pythonTarget, QualifiedName: "/usr/local/bin/python3"},
+		},
+	}
+
+	results, err := ComputeIsolation(context.Background(), store, []types.Hash{fileHash})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].Score != 0.0 {
+		t.Errorf("expected score 0.0 for benign targets with path prefixes, got %f", results[0].Score)
+	}
+	if results[0].OutboundEdges != 0 {
+		t.Errorf("expected 0 dangerous outbound edges, got %d", results[0].OutboundEdges)
+	}
+}
+
+func TestIsolation_EnvPlusBenignProcIsEnvOnly(t *testing.T) {
+	// reads_env + benign executes_process should still get the env-only penalty
+	// because benign procs don't represent exfiltration capability.
+	fileHash := hash(1)
+	nodeHash := hash(10)
+	envNodeHash := hash(30)
+	npmTarget := hash(41)
+
+	edges := []types.Edge{
+		{SourceHash: nodeHash, TargetHash: envNodeHash, EdgeType: edgetype.ReadsEnv},
+		{SourceHash: nodeHash, TargetHash: npmTarget, EdgeType: edgetype.ExecutesProcess},
+	}
+
+	store := &mockIsolationStore{
+		nodes: map[types.Hash][]types.Node{
+			fileHash: {{NodeHash: nodeHash, QualifiedName: "pkg/setup.go.Init"}},
+		},
+		edges: edges,
+		allNodes: map[types.Hash]*types.Node{
+			envNodeHash: {NodeHash: envNodeHash, QualifiedName: "NODE_ENV"},
+			npmTarget:   {NodeHash: npmTarget, QualifiedName: "npm"},
+		},
+	}
+
+	results, err := ComputeIsolation(context.Background(), store, []types.Hash{fileHash})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	// npm is benign, so outboundDangerous=1 (just the reads_env).
+	// hasSuspiciousProc=false, envOnly=true.
+	// inbound_factor=1.0, outbound_factor=1/5=0.2, env-only 0.2x -> 0.04
+	if results[0].Score < 0.03 || results[0].Score > 0.06 {
+		t.Errorf("expected score ~0.04 (env-only penalty with benign proc), got %f", results[0].Score)
+	}
+	if results[0].HookExecuted {
+		t.Error("expected HookExecuted=false when only benign procs present")
+	}
+}
+
+func TestIsolation_EnvPlusSuspiciousProcIsFullWeight(t *testing.T) {
+	// reads_env + suspicious executes_process should get FULL weight (no env-only penalty).
+	// This is the classic exfiltration pattern: read credentials, send them out.
+	fileHash := hash(1)
+	nodeHash := hash(10)
+	envNodeHash := hash(30)
+	curlTarget := hash(41)
+
+	edges := []types.Edge{
+		{SourceHash: nodeHash, TargetHash: envNodeHash, EdgeType: edgetype.ReadsEnv},
+		{SourceHash: nodeHash, TargetHash: curlTarget, EdgeType: edgetype.ExecutesProcess},
+	}
+
+	store := &mockIsolationStore{
+		nodes: map[types.Hash][]types.Node{
+			fileHash: {{NodeHash: nodeHash, QualifiedName: "pkg/exfil.go.Steal"}},
+		},
+		edges: edges,
+		allNodes: map[types.Hash]*types.Node{
+			envNodeHash: {NodeHash: envNodeHash, QualifiedName: "AWS_SECRET_KEY"},
+			curlTarget:  {NodeHash: curlTarget, QualifiedName: "curl"},
+		},
+	}
+
+	results, err := ComputeIsolation(context.Background(), store, []types.Hash{fileHash})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	// 2 dangerous outbound (1 reads_env + 1 suspicious proc).
+	// inbound_factor=1.0, outbound_factor=2/5=0.4, hook_factor=1.5
+	// score = 1.0 * 0.4 * 1.5 = 0.6
+	if results[0].Score < 0.5 || results[0].Score > 0.7 {
+		t.Errorf("expected score ~0.6 (full weight, env+suspicious proc), got %f", results[0].Score)
+	}
+	if !results[0].HookExecuted {
+		t.Error("expected HookExecuted=true for suspicious process target")
 	}
 }

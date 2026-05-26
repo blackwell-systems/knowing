@@ -3,10 +3,43 @@ package diff
 import (
 	"context"
 	"math"
+	"path/filepath"
+	"strings"
 
 	"github.com/blackwell-systems/knowing/internal/edgetype"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
+
+// benignProcessTargets lists process names that are expected/safe: compilers,
+// package managers, runtimes, version control, and shells. These should not
+// boost the isolation score because legitimate packages spawn them routinely
+// (esbuild for compilation, pino for worker threads, etc.).
+var benignProcessTargets = map[string]struct{}{
+	// JavaScript / Node.js
+	"node": {}, "node.exe": {},
+	"npm": {}, "npx": {}, "yarn": {}, "pnpm": {},
+	// Python
+	"python": {}, "python3": {}, "pip": {}, "pip3": {},
+	// Go / Rust / Java / TypeScript compilers
+	"go": {}, "cargo": {}, "rustc": {}, "javac": {}, "tsc": {},
+	// Version control
+	"git": {},
+	// Shells (benign when running known scripts)
+	"sh": {}, "bash": {}, "zsh": {},
+	// Node.js parallelism patterns
+	"worker_threads": {}, "cluster.fork": {},
+}
+
+// isBenignProcessTarget returns true if the process target name refers to a
+// known-safe executable (runtime, compiler, package manager, shell, or worker).
+func isBenignProcessTarget(target string) bool {
+	// Strip directory prefix: "/usr/bin/node" -> "node"
+	base := filepath.Base(target)
+	// Normalize to lowercase for case-insensitive matching.
+	base = strings.ToLower(base)
+	_, ok := benignProcessTargets[base]
+	return ok
+}
 
 // IsolationResult represents the isolation score for a single changed file.
 // Higher scores indicate more isolated files with dangerous outbound edges,
@@ -62,6 +95,7 @@ func ComputeIsolation(ctx context.Context, store types.GraphStore, changedFiles 
 
 		var envVars []string
 		var procs []string
+		var suspiciousProcs []string
 		var inbound int
 		var outboundDangerous int
 		var hookExecuted bool
@@ -92,16 +126,23 @@ func ComputeIsolation(ctx context.Context, store types.GraphStore, changedFiles 
 						envVars = append(envVars, target.QualifiedName)
 					}
 				case edgetype.ExecutesProcess:
-					outboundDangerous++
 					target, err := store.GetNode(ctx, e.TargetHash)
 					if err == nil && target != nil {
 						procs = append(procs, target.QualifiedName)
+						if isBenignProcessTarget(target.QualifiedName) {
+							// Benign targets (compilers, runtimes, package managers)
+							// are collected but do not boost the danger score
+							// and do not trigger hook detection.
+						} else {
+							suspiciousProcs = append(suspiciousProcs, target.QualifiedName)
+							outboundDangerous++
+							hookExecuted = true
+						}
+					} else {
+						// Unknown target (can't resolve): treat as suspicious.
+						outboundDangerous++
+						hookExecuted = true
 					}
-				}
-
-				// Check for hook execution (lifecycle scripts).
-				if isHookEdge(e) {
-					hookExecuted = true
 				}
 			}
 		}
@@ -117,8 +158,8 @@ func ComputeIsolation(ctx context.Context, store types.GraphStore, changedFiles 
 		// The supply chain signal is the COMBINATION: reads credentials AND
 		// spawns processes or makes network calls (exfiltration pattern).
 		// reads_env-only gets 0.2x weight; with executes_process it gets full weight.
-		hasProc := len(procs) > 0
-		envOnly := len(envVars) > 0 && !hasProc
+		hasSuspiciousProc := len(suspiciousProcs) > 0
+		envOnly := len(envVars) > 0 && !hasSuspiciousProc
 		outboundCapped := math.Min(float64(outboundDangerous), 5.0)
 		outboundFactor := outboundCapped / 5.0
 		if envOnly {
@@ -148,13 +189,3 @@ func ComputeIsolation(ctx context.Context, store types.GraphStore, changedFiles 
 	return results, nil
 }
 
-// isHookEdge checks if an edge represents a lifecycle hook execution
-// (e.g., prepare scripts, postinstall scripts).
-func isHookEdge(e types.Edge) bool {
-	// Hooks are identified by edges from nodes whose qualified names
-	// contain lifecycle script indicators.
-	if e.EdgeType == edgetype.ExecutesProcess {
-		return true
-	}
-	return false
-}
