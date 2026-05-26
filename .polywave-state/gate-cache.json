@@ -1224,6 +1224,18 @@
         "cached_at": "2026-05-20T09:29:09.279419-07:00"
       }
     },
+    "414f788a71203337967d5482f9b71893": {
+      "test": {
+        "gate_type": "test",
+        "command": "GOWORK=off go test ./internal/indexer/rustextractor/ ./internal/indexer/javaextractor/ -timeout 60s",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "ok  \tgithub.com/blackwell-systems/knowing/internal/indexer/rustextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/javaextractor\t(cached)\n",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-25T17:27:05.389665-07:00"
+      }
+    },
     "4225157b5a05b68dae77449fa55b229f": {
       "lint": {
         "gate_type": "lint",
@@ -1704,6 +1716,18 @@
         "cached_at": "2026-05-25T13:34:02.819579-07:00"
       }
     },
+    "615dd8a3f7f702b028a058afd1f678b1": {
+      "test": {
+        "gate_type": "test",
+        "command": "GOWORK=off go test ./internal/indexer/rustextractor/ ./internal/indexer/javaextractor/ -timeout 60s",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "ok  \tgithub.com/blackwell-systems/knowing/internal/indexer/rustextractor\t0.375s\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/javaextractor\t0.515s\n",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-25T17:22:37.93543-07:00"
+      }
+    },
     "639a44a1aff55c340c581b4288b29716": {
       "lint": {
         "gate_type": "lint",
@@ -2086,6 +2110,18 @@
         "stderr": "",
         "from_cache": true,
         "cached_at": "2026-05-20T10:44:28.459961-07:00"
+      }
+    },
+    "7feca3777c14b5e75be2110f835a0512": {
+      "build": {
+        "gate_type": "build",
+        "command": "GOWORK=off go build ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-25T17:22:33.540572-07:00"
       }
     },
     "81b14bde5e150098958eeb93ab3ee4a7": {
@@ -2520,6 +2556,18 @@
         "cached_at": "2026-05-22T20:20:53.745449-07:00"
       }
     },
+    "a06b1a14e0a6b48daa1d55858c2faf4f": {
+      "lint": {
+        "gate_type": "lint",
+        "command": "GOWORK=off go vet ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-25T17:27:05.075074-07:00"
+      }
+    },
     "a11022c859960411fbb006b207f5e0fc": {
       "test": {
         "gate_type": "test",
@@ -2590,6 +2638,18 @@
         "stderr": "",
         "from_cache": true,
         "cached_at": "2026-05-15T12:14:11.977428-07:00"
+      }
+    },
+    "aab408624cd3bdf7c5f964f9eab4c38c": {
+      "build": {
+        "gate_type": "build",
+        "command": "GOWORK=off go build ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-25T17:27:02.802398-07:00"
       }
     },
     "ac2637ab34534252d6f94a6d8e0e16ac": {
@@ -3022,6 +3082,18 @@
         "stderr": "",
         "from_cache": true,
         "cached_at": "2026-05-25T13:34:14.617536-07:00"
+      }
+    },
+    "d257a044742d43a6e731647617dd94b1": {
+      "lint": {
+        "gate_type": "lint",
+        "command": "GOWORK=off go vet ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-25T17:22:36.693701-07:00"
       }
     },
     "d395917fd973b10644cfb72d81be478a": {
