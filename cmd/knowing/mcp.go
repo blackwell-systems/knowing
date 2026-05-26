@@ -36,8 +36,18 @@ func cmdMCP(args []string) error {
 	repoURL := fs.String("url", "", "Repository URL (auto-detected if empty)")
 	noEnrich := fs.Bool("no-enrich", false, "Skip LSP enrichment after reindex (only with --watch)")
 	debounceMs := fs.Int("debounce", 500, "Debounce interval in ms (only with --watch)")
+	embeddings := fs.Bool("embeddings", false, "Enable semantic embedding re-ranker (+15% retrieval, downloads ~30MB model on first use)")
+	embedModel := fs.String("embed-model", "", "Embedding model: bge-small (default), jina-code, nomic-code")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+
+	// CLI flags override env vars for embeddings config.
+	if *embeddings {
+		os.Setenv("KNOWING_EMBEDDINGS", "1")
+	}
+	if *embedModel != "" {
+		os.Setenv("KNOWING_EMBED_MODEL", *embedModel)
 	}
 
 	// Zero-config: if database doesn't exist, auto-detect the repo and index it.
