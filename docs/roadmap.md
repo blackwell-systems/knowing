@@ -5,7 +5,7 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 ## Current State (v0.10.1, 2026-05-25)
 
 **P@10 = 0.242** (167 tasks, 9 repos, 6 languages). 38 edge types. 23 extractors.
-1.79x codegraph, 3.23x GitNexus, 3.84x Gortex, 18.6x grep.
+1.79x codegraph, 1.77x codebase-memory, 3.23x GitNexus, 3.84x Gortex, 18.6x grep.
 Embedding re-ranker: +17% P@10 with SQLite vector cache (220ms cached).
 
 ## Immediate Priorities

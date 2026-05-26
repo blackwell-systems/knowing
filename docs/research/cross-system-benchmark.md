@@ -37,7 +37,7 @@
 | Gortex | 0.063 | - | - | - | 0.26x |
 | grep | 0.013 | - | - | - | 0.05x |
 
-**Competitive ratios:** 1.79x codegraph, 3.23x GitNexus, 3.84x Gortex, 18.6x grep.
+**Competitive ratios:** 1.79x codegraph, 1.77x codebase-memory, 3.23x GitNexus, 3.84x Gortex, 18.6x grep.
 Statistical significance: p<0.0001, d=0.92 (very large effect on recall).
 
 ### Per-Repo Performance (Run 26)

@@ -22,7 +22,7 @@ It runs entirely on a developer laptop with no paid LLM calls and no cloud API d
 - Adjacency cache: 4,717x latency improvement (9s to 2ms on Kubernetes-scale graph)
 - Density-adaptive retrieval: auto-detects graph density, adjusts seed selection strategy
 - Embedding re-ranker: +17% P@10 improvement, fully local, opt-in (`--embeddings`)
-- P@10 = 0.242 (1.79x codegraph, 3.23x GitNexus, 3.84x Gortex, 18.6x grep baseline)
+- P@10 = 0.242 (1.79x codegraph, 1.77x codebase-memory, 3.23x GitNexus, 3.84x Gortex, 18.6x grep baseline)
 - MCP server interface with 28 tools for agent consumption
 
 ## The Problem

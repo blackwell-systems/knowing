@@ -80,7 +80,7 @@ These aren't separate features. They're structural consequences of content-addre
 | What | Result |
 |---|---:|
 | Cross-system retrieval | **P@10=0.242** (167 tasks, 9 repos, 6 languages) |
-| vs competitors | 1.79x codegraph (19K stars), 3.23x GitNexus, 3.84x Gortex, 18.6x grep |
+| vs competitors | 1.79x codegraph (19K stars), 1.77x codebase-memory (2.7K stars), 3.23x GitNexus, 3.84x Gortex, 18.6x grep |
 | Embedding re-ranker | +17% P@10, +18.3% R@10 (local inference, no API, no charges) |
 | Re-rank latency | 220ms cached, 660ms uncached (vector cache in SQLite) |
 | Agent context precision | +20pp after 1 round, +34pp after 5 |
