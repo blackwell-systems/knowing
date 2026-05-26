@@ -70,7 +70,7 @@ For full details, see [data-model.md](data-model.md) (the `edge_events` table se
 | `ast_resolved` | 1.0 | Parsed from source with full type resolution | Implemented (Python extractor, Go `--full`) |
 | `scip_resolved` | 0.95 | Imported from SCIP index (external dependency) | Implemented (`knowing ingest-scip`) |
 | `lsp_resolved` | 0.9 | Resolved via language server query | Implemented (enrichment pipeline) |
-| `ast_inferred` | 0.7 | Tree-sitter AST extraction without type resolution | Implemented (all 26 extractor packages) |
+| `ast_inferred` | 0.7 | Tree-sitter AST extraction without type resolution | Implemented (all 23 extractor packages) |
 | `otel_trace` | 0.2-0.95 | Observed in runtime traces | Implemented (trace ingestor) |
 | `config_declared` | 0.8 | Declared in infrastructure config (Terraform, K8s) | Not implemented (infra extractors use ast_inferred) |
 | `inferred_from_import` | 0.7 | Inferred from import statement (no call site found) | Not implemented |
