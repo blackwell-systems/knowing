@@ -68,6 +68,8 @@ Embedding re-ranker: +17% P@10 with SQLite vector cache (220ms cached).
 | **BM25 gap injection (no embedding filter)** | Harmful (-1.4%) | 16 | Raw BM25 candidates too noisy. Displaces good graph results. |
 | **Seed count sweep** (10-50 on Django) | Neutral | 16 | 10 and 15 and 25 seeds all produce P@10=0.222-0.228. Confirms parameter irrelevance. |
 | **Gap injection parameter sweep** (15 configs) | Neutral | 16 | Threshold 0.1-0.5, maxgap 3-10 all produce P@10=0.225-0.228 on Django. Parameters don't matter. |
+| **Density-adaptive RWR alpha** (0.15 on dense) | Neutral | 17 | Alpha=0.15 on dense repos (flask 5.9, cargo 13.5, kafka 12.5): P@10 0.280 vs baseline 0.278. Within run variance. |
+| **Density-adaptive inherits weight** (1.0 on deep) | Neutral | 17 | Boosted implements/overrides/extends to 1.0 on repos >1.5% inherits edges. Django +0.009, kafka+flask -0.008. Net neutral. |
 
 ### Tested Positive (sessions 14-16)
 
@@ -280,8 +282,8 @@ P@10=0.242 (Run 26, 167 tasks, 9 repos). 1.79x vs codegraph, 3.23x vs GitNexus, 
 |---|------|-----|--------|
 | 7 | ~~Bidirectional inheritance edges~~ | Tested session 16: Django -2.5%, Flask -1.5%. Reverse inherits edges add noise without new reachability. Django's 42% zero-rate is vocabulary gaps, not connectivity gaps. | **Rejected** |
 | 8 | **Reachability gap injection** | After RWR, run BM25/embedding search independently. Symbols that score high on text relevance but are NOT in the RWR reachable set are "gap candidates": relevant symbols the graph can't reach. Inject top-N gap candidates into ranking. This directly targets the 42% Django zero-rate (vocabulary gaps where ground truth is unreachable from any seed). Different from Channel 3 (which failed): Channel 3 mixed text results into RRF fusion where they competed with graph results. Gap injection specifically supplements what the graph missed. ~20 LOC. | **Next to test** |
-| 9 | **Density-adaptive RWR alpha** | Observe edge/node ratio at query time. High density (>5 edges/node): lower alpha (0.15) to walk further. Low density (<2 edges/node): higher alpha (0.25) to stay near seeds. | To test |
-| 9 | **Density-adaptive inherits weight** | Deep-inheritance repos (Django, Kafka) benefit from higher inherits edge weight. Flat repos (Go, Rust) don't use it. Auto-detect inheritance depth and boost inherits weight from 0.3 to 0.6 when depth > 3. | To test |
+| 9 | ~~Density-adaptive RWR alpha~~ | Tested session 17: alpha=0.15 on dense repos (flask 5.9, cargo 13.5, kafka 12.5). P@10 0.280 vs baseline 0.278 (+0.002, within run variance). Neutral. Confirms parameter tuning doesn't move the metric. | **Rejected** |
+| 9 | ~~Density-adaptive inherits weight~~ | Tested session 17: boosted implements/overrides/extends to 1.0 on repos with >1.5% inherits edges. Django +0.009, kafka+flask -0.008. Net neutral. | **Rejected** |
 | 10 | **Adaptive seed count by structural richness** | % of type nodes with contains edges indicates how productive type seeds are. High % (>60%): fewer seeds needed (types reach methods). Low %: more seeds needed to compensate. | To test |
 | 11 | **Community count adaptive walk** | Many small communities: community-scoped RWR is effective. Few large communities: unconstrained walk is better. Threshold currently hardcoded; should adapt to detected modularity. | Experiment |
 | 12 | **FTS hit rate channel balancing** | Observe BM25 result count vs equiv result count. When BM25 returns many results, equiv is redundant (lower weight). When BM25 returns few, equiv is critical (higher weight). Adaptive RRF weights per query. | Experiment |

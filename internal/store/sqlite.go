@@ -492,6 +492,13 @@ func (s *SQLiteStore) EdgesTo(ctx context.Context, targetHash types.Hash, edgeTy
 
 // AllEdges loads every edge in the database in a single query. Used by
 // buildAdjacencyMap to construct the in-memory graph representation with one
+// EdgeCount returns the total number of edges without loading them into memory.
+func (s *SQLiteStore) EdgeCount(ctx context.Context) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM edges`).Scan(&count)
+	return count, err
+}
+
 // round-trip instead of per-node queries. On k8s (268K edges), this replaces
 // thousands of individual EdgesFrom/EdgesTo calls with one bulk SELECT.
 func (s *SQLiteStore) AllEdges(ctx context.Context) ([]types.Edge, error) {

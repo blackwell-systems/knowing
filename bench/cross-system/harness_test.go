@@ -170,12 +170,18 @@ func TestCrossSystemRound2(t *testing.T) {
 	tasks := filterAchievableGroundTruth(rawTasks, "corpus/repos")
 	t.Logf("Loaded %d tasks for round-2 test", len(tasks))
 
+	// Respect BENCH_REPOS filter (same as TestCrossSystem).
+	repoFilter := buildRepoFilter(t)
+
 	// Only test knowing (other adapters don't have memory).
 	knowing := adapters.NewKnowing()
 
 	// --- Round 1: Cold start ---
 	var round1Results []benchtype.MetricResult
 	for _, task := range tasks {
+		if !repoAllowed(task.Repo, repoFilter) {
+			continue
+		}
 		repoPath := filepath.Join("corpus", "repos", task.Repo)
 		if _, err := knowing.Index(repoPath); err != nil {
 			continue
@@ -201,6 +207,9 @@ func TestCrossSystemRound2(t *testing.T) {
 	// This is what happens naturally when an agent uses knowing and accesses
 	// the returned symbols: the SessionTracker notices and TaskMemory records it.
 	for _, task := range tasks {
+		if !repoAllowed(task.Repo, repoFilter) {
+			continue
+		}
 		repoPath := filepath.Join("corpus", "repos", task.Repo)
 		s := knowing.StoreFor(repoPath)
 		if s == nil {
@@ -228,6 +237,9 @@ func TestCrossSystemRound2(t *testing.T) {
 	// Running the same tasks should show significant improvement.
 	var round2Results []benchtype.MetricResult
 	for _, task := range tasks {
+		if !repoAllowed(task.Repo, repoFilter) {
+			continue
+		}
 		repoPath := filepath.Join("corpus", "repos", task.Repo)
 		result, err := knowing.Retrieve(repoPath, task, defaultTokenBudget)
 		if err != nil || result.Error != "" {

@@ -81,6 +81,7 @@ func init() {
 			knowingctx.CoherenceBonus = c
 		}
 	}
+
 }
 
 // Knowing implements benchtype.Adapter for knowing's context engine.
