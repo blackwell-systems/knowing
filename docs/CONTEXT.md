@@ -23,3 +23,5 @@
   - IMPL doc: docs/IMPL/complete/IMPL-accesses-field-multilang.yaml
 - **supply-chain-detection**: completed 2026-05-25, 2 waves, 5 agents
   - IMPL doc: docs/IMPL/complete/IMPL-supply-chain-detection.yaml
+- **env-process-edges-rust-java**: completed 2026-05-25, 1 waves, 2 agents
+  - IMPL doc: docs/IMPL/complete/IMPL-env-process-edges-rust-java.yaml

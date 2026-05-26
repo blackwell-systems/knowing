@@ -1,0 +1,477 @@
+completion_date: "2026-05-25"
+title: Add reads_env and executes_process edge extraction to Rust and Java extractors
+feature_slug: env-process-edges-rust-java
+verdict: SUITABLE
+suitability_assessment: |
+    All five suitability questions resolve cleanly:
+
+    1. File decomposition: Work splits into two fully independent agents (Rust extractor
+       vs Java extractor) with zero file overlap. Each agent owns 4 new files + 1 modify.
+    2. Investigation-first: None. The pattern is well-established across Go, Python, and
+       TypeScript extractors. No unknowns.
+    3. Interface discoverability: Both agents consume the same existing interfaces
+       (types.Node, types.Edge, edgetype constants, types.ExtractOptions). No new
+       cross-agent interfaces needed.
+    4. Pre-implementation status: Edge types (reads_env, executes_process) and node kinds
+       (env_var, process) already exist in constants. Only extractor implementations missing.
+    5. Parallelization value: High. Both agents are fully independent (single wave),
+       build/test cycle is non-trivial (GOWORK=off go build/test), and each agent
+       touches 5 files with non-trivial AST logic.
+
+    Estimated times:
+    - Scout phase: ~5 min
+    - Agent execution: ~8 min (2 agents in parallel, ~8 min each, fully parallel)
+    - Merge and verification: ~3 min
+    Total Polywave time: ~16 min
+
+    Sequential baseline: ~20 min (2 agents x 10 min avg)
+    Time savings: ~4 min (20% faster)
+
+    Recommendation: Clear speedup plus coordination value (identical patterns, shared
+    reference implementations ensure consistency).
+test_command: GOWORK=off go test ./internal/indexer/rustextractor/ ./internal/indexer/javaextractor/ -timeout 60s
+lint_command: GOWORK=off go vet ./internal/indexer/rustextractor/ ./internal/indexer/javaextractor/
+file_ownership:
+    - file: internal/indexer/rustextractor/env_edges.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/indexer/rustextractor/env_edges_test.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/indexer/rustextractor/process_edges.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/indexer/rustextractor/process_edges_test.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/indexer/rustextractor/extractor.go
+      agent: A
+      wave: 1
+      action: modify
+    - file: internal/indexer/javaextractor/env_edges.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/indexer/javaextractor/env_edges_test.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/indexer/javaextractor/process_edges.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/indexer/javaextractor/process_edges_test.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/indexer/javaextractor/extractor.go
+      agent: B
+      wave: 1
+      action: modify
+interface_contracts:
+    - name: extractEnvReadEdges (Rust)
+      description: Walk Rust function body for env::var / env::var_os calls and emit reads_env edges
+      definition: |
+        func extractEnvReadEdges(funcNode *sitter.Node, opts types.ExtractOptions, basePath string, sourceHash types.Hash) ([]types.Node, []types.Edge)
+      location: internal/indexer/rustextractor/env_edges.go
+    - name: extractProcessExecEdges (Rust)
+      description: Walk Rust function body for Command::new calls and emit executes_process edges
+      definition: |
+        func extractProcessExecEdges(funcNode *sitter.Node, opts types.ExtractOptions, basePath string, sourceHash types.Hash) ([]types.Node, []types.Edge)
+      location: internal/indexer/rustextractor/process_edges.go
+    - name: extractEnvReadEdges (Java)
+      description: Walk Java method body for System.getenv calls and emit reads_env edges
+      definition: |
+        func extractEnvReadEdges(methodNode *sitter.Node, opts types.ExtractOptions, pkgPath string, className string, methodHash types.Hash) ([]types.Node, []types.Edge)
+      location: internal/indexer/javaextractor/env_edges.go
+    - name: extractProcessExecEdges (Java)
+      description: Walk Java method body for Runtime.exec / ProcessBuilder calls and emit executes_process edges
+      definition: |
+        func extractProcessExecEdges(methodNode *sitter.Node, opts types.ExtractOptions, pkgPath string, className string, methodHash types.Hash) ([]types.Node, []types.Edge)
+      location: internal/indexer/javaextractor/process_edges.go
+waves:
+    - number: 1
+      agents:
+        - id: A
+          task: |
+            ## Rust: Add reads_env and executes_process edge extraction
+
+            ### What to implement
+
+            Add two new files to `internal/indexer/rustextractor/` that extract
+            reads_env and executes_process edges from Rust function/method bodies,
+            following the identical pattern used in `internal/indexer/gotsextractor/env_edges.go`
+            and `internal/indexer/gotsextractor/process_edges.go`.
+
+            **Reference implementations to follow:**
+            - `internal/indexer/gotsextractor/env_edges.go` (pattern for env edges)
+            - `internal/indexer/gotsextractor/process_edges.go` (pattern for process edges)
+            - `internal/indexer/rustextractor/field_access_edges.go` (pattern for wiring into Rust extractor)
+
+            ### File 1: `internal/indexer/rustextractor/env_edges.go`
+
+            Create `extractEnvReadEdges(funcNode *sitter.Node, opts types.ExtractOptions, basePath string, sourceHash types.Hash) ([]types.Node, []types.Edge)`
+
+            **Rust patterns to detect in tree-sitter AST:**
+            - `env::var("KEY")` - call_expression where function is scoped_identifier "env::var"
+            - `env::var_os("KEY")` - same pattern with "env::var_os"
+            - `std::env::var("KEY")` - scoped_identifier "std::env::var"
+            - `std::env::var_os("KEY")` - scoped_identifier "std::env::var_os"
+
+            Walk the function body recursively. For each call_expression, check if the
+            function child is a scoped_identifier whose content matches the patterns above.
+            Extract the first string_literal argument value as the env var name.
+
+            Create synthetic env_var node with QN="env://VAR_NAME" and emit reads_env edge
+            from sourceHash to the target. Use confidence 0.9, provenance "ast_inferred".
+            Use the same `makeEnvEdge` helper pattern from the Go extractor.
+
+            **Important tree-sitter Rust details:**
+            - String literals in Rust are `string_literal` node type (not `interpreted_string_literal`)
+            - Arguments are in the `arguments` field of call_expression
+            - Scoped identifiers like `env::var` are `scoped_identifier` node type
+
+            ### File 2: `internal/indexer/rustextractor/process_edges.go`
+
+            Create `extractProcessExecEdges(funcNode *sitter.Node, opts types.ExtractOptions, basePath string, sourceHash types.Hash) ([]types.Node, []types.Edge)`
+
+            **Rust patterns to detect:**
+            - `Command::new("cmd")` - call_expression where function is scoped_identifier "Command::new"
+            - `std::process::Command::new("cmd")` - full path variant
+
+            Extract the first string_literal argument as the command name. If not a string
+            literal, use "dynamic". Create synthetic process node with QN="process://cmd"
+            and emit executes_process edge. Confidence 0.9, provenance "ast_inferred".
+
+            ### Wiring into extractor.go
+
+            In `extractFunctionItemWithImports` (line ~668), add env and process edge
+            extraction alongside the existing field access extraction. Insert after this
+            exact text:
+
+            ```go
+            	if implType != "" {
+            		fieldEdges := extractFieldAccessEdges(node, opts, basePath, implType, nodeHash)
+            		edges = append(edges, fieldEdges...)
+            	}
+            ```
+
+            Add (OUTSIDE the if block, since env/process edges apply to all functions):
+            ```go
+            	envNodes, envEdges := extractEnvReadEdges(node, opts, basePath, nodeHash)
+            	nodes = append(nodes, envNodes...)
+            	edges = append(edges, envEdges...)
+
+            	procNodes, procEdges := extractProcessExecEdges(node, opts, basePath, nodeHash)
+            	nodes = append(nodes, procNodes...)
+            	edges = append(edges, procEdges...)
+            ```
+
+            Also wire into `extractFunctionItem` (line ~290) after the call edges extraction.
+            Insert after this exact text:
+
+            ```go
+            	callEdges := extractCallEdgesFromBody(body, opts, basePath, nodeHash)
+            	edges = append(edges, callEdges...)
+            ```
+
+            Add:
+            ```go
+            	envNodes, envEdges := extractEnvReadEdges(node, opts, basePath, nodeHash)
+            	nodes = append(nodes, envNodes...)
+            	edges = append(edges, envEdges...)
+
+            	procNodes, procEdges := extractProcessExecEdges(node, opts, basePath, nodeHash)
+            	nodes = append(nodes, procNodes...)
+            	edges = append(edges, procEdges...)
+            ```
+
+            ### Tests
+
+            Create test files following the pattern in `field_access_edges_test.go`.
+            Use the `makeOpts` helper already defined in `extractor_test.go`.
+
+            **env_edges_test.go:** Test with Rust source containing `env::var("DB_HOST")`
+            and `std::env::var_os("PATH")` inside a function. Verify reads_env edges are
+            emitted with correct target hashes (env://DB_HOST, env://PATH).
+
+            **process_edges_test.go:** Test with Rust source containing
+            `Command::new("cargo")` inside a function. Verify executes_process edge
+            emitted with target hash for process://cargo.
+
+            ### Verification gate
+
+            ```bash
+            GOWORK=off go build ./internal/indexer/rustextractor/ && \
+            GOWORK=off go vet ./internal/indexer/rustextractor/ && \
+            GOWORK=off go test ./internal/indexer/rustextractor/ -timeout 60s -run "TestExtractEnvRead|TestExtractProcessExec"
+            ```
+
+            Postconditions:
+            ```bash
+            # env_edges.go defines extractEnvReadEdges
+            grep -c "func extractEnvReadEdges" internal/indexer/rustextractor/env_edges.go
+            # Expected: 1
+
+            # process_edges.go defines extractProcessExecEdges
+            grep -c "func extractProcessExecEdges" internal/indexer/rustextractor/process_edges.go
+            # Expected: 1
+
+            # extractor.go calls both new functions
+            grep -c "extractEnvReadEdges\|extractProcessExecEdges" internal/indexer/rustextractor/extractor.go
+            # Expected: >= 2 (at least one call site each)
+            ```
+
+            ### Constraints
+            - Do NOT modify files outside your ownership list.
+            - Do NOT add new edge type constants or node kind constants; use the existing
+              `edgetype.ReadsEnv`, `edgetype.ExecutesProcess`, `types.KindEnvVar`, `types.KindProcess`.
+            - Do NOT change the existing `extractFieldAccessEdges` function or its tests.
+          files:
+            - internal/indexer/rustextractor/env_edges.go
+            - internal/indexer/rustextractor/env_edges_test.go
+            - internal/indexer/rustextractor/process_edges.go
+            - internal/indexer/rustextractor/process_edges_test.go
+            - internal/indexer/rustextractor/extractor.go
+        - id: B
+          task: |
+            ## Java: Add reads_env and executes_process edge extraction
+
+            ### What to implement
+
+            Add two new files to `internal/indexer/javaextractor/` that extract
+            reads_env and executes_process edges from Java method bodies, following the
+            identical pattern used in `internal/indexer/gotsextractor/env_edges.go` and
+            `internal/indexer/gotsextractor/process_edges.go`.
+
+            **Reference implementations to follow:**
+            - `internal/indexer/gotsextractor/env_edges.go` (pattern for env edges)
+            - `internal/indexer/gotsextractor/process_edges.go` (pattern for process edges)
+            - `internal/indexer/javaextractor/field_access_edges.go` (pattern for wiring into Java extractor)
+
+            ### File 1: `internal/indexer/javaextractor/env_edges.go`
+
+            Create `extractEnvReadEdges(methodNode *sitter.Node, opts types.ExtractOptions, pkgPath string, className string, methodHash types.Hash) ([]types.Node, []types.Edge)`
+
+            **Java patterns to detect in tree-sitter AST:**
+            - `System.getenv("KEY")` - method_invocation where object is "System" and
+              name (method) is "getenv", with a string_literal argument.
+
+            Walk the method body recursively. For each method_invocation node, check if
+            object field content is "System" and name field content is "getenv".
+            Extract the first string_literal argument value as the env var name.
+
+            Create synthetic env_var node with QN="env://VAR_NAME" and emit reads_env edge
+            from methodHash to the target. Use confidence 0.9, provenance "ast_inferred".
+
+            **Important tree-sitter Java details:**
+            - String literals are `string_literal` node type
+            - method_invocation has `object` and `name` fields
+            - Arguments are in `arguments` field of method_invocation
+
+            ### File 2: `internal/indexer/javaextractor/process_edges.go`
+
+            Create `extractProcessExecEdges(methodNode *sitter.Node, opts types.ExtractOptions, pkgPath string, className string, methodHash types.Hash) ([]types.Node, []types.Edge)`
+
+            **Java patterns to detect:**
+            - `Runtime.getRuntime().exec("cmd")` - method_invocation chain where the final
+              method name is "exec" and the object is itself a method_invocation of
+              "Runtime.getRuntime()". Extract the first string_literal arg.
+            - `new ProcessBuilder("cmd")` - object_creation_expression where type is
+              "ProcessBuilder". Extract the first string_literal argument.
+
+            For both patterns, extract the command string. If not a string literal, use
+            "dynamic". Create synthetic process node with QN="process://cmd" and emit
+            executes_process edge. Confidence 0.9, provenance "ast_inferred".
+
+            ### Wiring into extractor.go
+
+            In `extractMethodDeclWithImports` (line ~710), add env and process edge
+            extraction alongside the existing field access extraction. Insert after this
+            exact text:
+
+            ```go
+            	// Extract field access edges (this.field patterns).
+            	if body != nil {
+            		fieldEdges := extractFieldAccessEdges(node, opts, pkgPath, className, nodeHash)
+            		edges = append(edges, fieldEdges...)
+            	}
+            ```
+
+            Add:
+            ```go
+            	// Extract env read and process exec edges.
+            	if body != nil {
+            		envNodes, envEdges := extractEnvReadEdges(node, opts, pkgPath, className, nodeHash)
+            		nodes = append(nodes, envNodes...)
+            		edges = append(edges, envEdges...)
+
+            		procNodes, procEdges := extractProcessExecEdges(node, opts, pkgPath, className, nodeHash)
+            		nodes = append(nodes, procNodes...)
+            		edges = append(edges, procEdges...)
+            	}
+            ```
+
+            Also wire into `extractConstructorDeclWithImports` (line ~750) after the call
+            edges extraction. Insert after this exact text:
+
+            ```go
+            	// Walk the constructor body for call edges with import resolution.
+            	body := node.ChildByFieldName("body")
+            	if body != nil {
+            		callEdges := extractCallEdgesWithImports(body, opts, pkgPath, nodeHash, javaImports)
+            		edges = append(edges, callEdges...)
+            	}
+            ```
+
+            Add:
+            ```go
+            	// Extract env read and process exec edges from constructor body.
+            	if body != nil {
+            		envNodes, envEdges := extractEnvReadEdges(node, opts, pkgPath, className, nodeHash)
+            		nodes = append(nodes, envNodes...)
+            		edges = append(edges, envEdges...)
+
+            		procNodes, procEdges := extractProcessExecEdges(node, opts, pkgPath, className, nodeHash)
+            		nodes = append(nodes, procNodes...)
+            		edges = append(edges, procEdges...)
+            	}
+            ```
+
+            ### Tests
+
+            Create test files following the pattern in `field_access_edges_test.go`.
+            Use the test helpers already defined in `extractor_test.go`.
+
+            **env_edges_test.go:** Test with Java source containing
+            `String val = System.getenv("API_KEY");` inside a method. Verify reads_env
+            edge emitted with correct target hash (env://API_KEY).
+
+            **process_edges_test.go:** Test with Java source containing
+            `Runtime.getRuntime().exec("ls")` and `new ProcessBuilder("docker")`.
+            Verify executes_process edges emitted for process://ls and process://docker.
+
+            ### Verification gate
+
+            ```bash
+            GOWORK=off go build ./internal/indexer/javaextractor/ && \
+            GOWORK=off go vet ./internal/indexer/javaextractor/ && \
+            GOWORK=off go test ./internal/indexer/javaextractor/ -timeout 60s -run "TestExtractEnvRead|TestExtractProcessExec"
+            ```
+
+            Postconditions:
+            ```bash
+            # env_edges.go defines extractEnvReadEdges
+            grep -c "func extractEnvReadEdges" internal/indexer/javaextractor/env_edges.go
+            # Expected: 1
+
+            # process_edges.go defines extractProcessExecEdges
+            grep -c "func extractProcessExecEdges" internal/indexer/javaextractor/process_edges.go
+            # Expected: 1
+
+            # extractor.go calls both new functions
+            grep -c "extractEnvReadEdges\|extractProcessExecEdges" internal/indexer/javaextractor/extractor.go
+            # Expected: >= 2 (at least one call site each)
+            ```
+
+            ### Constraints
+            - Do NOT modify files outside your ownership list.
+            - Do NOT add new edge type constants or node kind constants; use the existing
+              `edgetype.ReadsEnv`, `edgetype.ExecutesProcess`, `types.KindEnvVar`, `types.KindProcess`.
+            - Do NOT change the existing `extractFieldAccessEdges` function or its tests.
+          files:
+            - internal/indexer/javaextractor/env_edges.go
+            - internal/indexer/javaextractor/env_edges_test.go
+            - internal/indexer/javaextractor/process_edges.go
+            - internal/indexer/javaextractor/process_edges_test.go
+            - internal/indexer/javaextractor/extractor.go
+      base_commit: 14503bff2f6cefa2de088e321252289e4fadb16a
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: GOWORK=off go build ./...
+          required: true
+        - type: lint
+          command: GOWORK=off go vet ./...
+          required: true
+        - type: test
+          command: GOWORK=off go test ./internal/indexer/rustextractor/ ./internal/indexer/javaextractor/ -timeout 60s
+          required: true
+post_merge_checklist:
+    groups:
+        - title: Background Service Initialization
+          items:
+            - description: Verify if env_edges_test.go needs initialization in Server constructor
+            - description: Verify if process_edges_test.go needs initialization in Server constructor
+            - description: Verify if env_edges_test.go needs initialization in Server constructor
+            - description: Verify if process_edges_test.go needs initialization in Server constructor
+completion_reports:
+    A:
+        status: complete
+        branch: polywave/env-process-edges-rust-java/wave1-agent-A
+        commit: "9817e12"
+        files_changed:
+            - internal/indexer/rustextractor/env_edges.go
+            - internal/indexer/rustextractor/env_edges_test.go
+            - internal/indexer/rustextractor/process_edges.go
+            - internal/indexer/rustextractor/process_edges_test.go
+            - internal/indexer/rustextractor/extractor.go
+        files_created:
+            - internal/indexer/rustextractor/env_edges.go
+            - internal/indexer/rustextractor/env_edges_test.go
+            - internal/indexer/rustextractor/process_edges.go
+            - internal/indexer/rustextractor/process_edges_test.go
+        tests_added:
+            - TestExtractEnvReadEdges_RustEnvVar
+            - TestExtractEnvReadEdges_RustDeduplicates
+            - TestExtractProcessExecEdges_RustCommandNew
+            - TestExtractProcessExecEdges_RustDynamicCommand
+            - TestExtractProcessExecEdges_RustFullPath
+        verification: PASS
+        notes: All 5 tests pass. Wired into both extractFunctionItem and extractFunctionItemWithImports call sites. Renamed local helper to extractEnvVarStringArg to avoid conflict with existing extractFirstRustStringArg in extractor.go.
+    B:
+        status: complete
+        branch: polywave/env-process-edges-rust-java/wave1-agent-B
+        commit: 47d4bd6
+        files_changed:
+            - internal/indexer/javaextractor/env_edges.go
+            - internal/indexer/javaextractor/env_edges_test.go
+            - internal/indexer/javaextractor/process_edges.go
+            - internal/indexer/javaextractor/process_edges_test.go
+            - internal/indexer/javaextractor/extractor.go
+        files_created:
+            - internal/indexer/javaextractor/env_edges.go
+            - internal/indexer/javaextractor/env_edges_test.go
+            - internal/indexer/javaextractor/process_edges.go
+            - internal/indexer/javaextractor/process_edges_test.go
+        tests_added:
+            - TestExtractEnvReadEdges_SystemGetenv
+            - TestExtractEnvReadEdges_NoStringLiteral
+            - TestExtractEnvReadEdges_Deduplicates
+            - TestExtractProcessExecEdges_RuntimeExec
+            - TestExtractProcessExecEdges_ProcessBuilder
+            - TestExtractProcessExecEdges_BothPatterns
+            - TestExtractProcessExecEdges_DynamicArg
+        verification: PASS
+        notes: Java reads_env and executes_process extraction complete. All 7 tests passing. Wired into both method and constructor extraction paths.
+pre_mortem:
+    overall_risk: low
+    rows:
+        - scenario: Tree-sitter Rust string_literal node type differs from expected
+          likelihood: low
+          impact: medium
+          mitigation: Agent A should verify node type by parsing a trivial Rust snippet in tests. The field_access_edges_test.go already demonstrates successful tree-sitter Rust parsing in this package.
+        - scenario: Java Runtime.getRuntime().exec() chain is complex to match in AST
+          likelihood: medium
+          impact: low
+          mitigation: Agent B can fall back to checking if method name is 'exec' and object is a method_invocation containing 'getRuntime'. Partial match is acceptable since false positives are low-confidence.
+        - scenario: Wiring into extractor.go introduces variable name collision (envNodes, envEdges already used)
+          likelihood: low
+          impact: low
+          mitigation: Both extractors only use these variable names in the field_access wiring section. Agents should verify no naming collision exists in the function scope before inserting.
+state: COMPLETE
