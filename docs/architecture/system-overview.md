@@ -441,7 +441,7 @@ The graph connects symbols with typed, provenance-annotated edges:
 | Deployment | `deployed_by` (service deployed by CI workflow) |
 | Runtime | `runtime_calls`, `runtime_rpc`, `runtime_produces`, `runtime_consumes` |
 
-34 edge types total across static, structural, infrastructure, runtime, ownership, and operational categories. The `contains` and `member_of` edges connect types to their methods bidirectionally, enabling RWR walks from type seeds to discover all methods (and vice versa). The `co_tested_with` edge connects symbols referenced from the same test file (lateral discovery). The `type_hint_of` edge connects functions to types referenced in their parameter annotations (Go, Java, TypeScript, Python). See [Edge Types Reference](edge-types.md) for full details.
+38 edge types total across static, structural, infrastructure, runtime, ownership, supply chain, and operational categories. The `contains` and `member_of` edges connect types to their methods and fields bidirectionally. The `co_tested_with` edge connects symbols referenced from the same test file (lateral discovery). The `type_hint_of` edge connects functions to parameter types. The `accesses_field` edge connects methods to the struct fields they read/write. Supply chain edges (`reads_env`, `executes_process`) detect credential access and process spawning patterns. See [Edge Types Reference](edge-types.md) for full details.
 
 ## Wire Formats
 
@@ -468,7 +468,7 @@ Task Description
 [1. Keyword Extraction]        compound-first: KeywordSet with Exact/Compounds/Components tiers
     |
     v
-[2. Seed Retrieval]            5-channel RRF fusion (tiered keyword, BM25, vector [disabled], equivalence classes, path-context)
+[2. Seed Retrieval]            5-channel RRF fusion (tiered keyword, BM25, vector [opt-in], equivalence classes, path-context)
     |
     v
 [3. Interface-Aware Seeding]   add implementors of matched interface types
@@ -484,6 +484,9 @@ Task Description
     |
     v
 [7. Scoring]                   6-component formula with feedback boosts + session memory
+    |
+    v
+[7b. Embedding Re-rank]        (opt-in) re-rank top-50 by cosine similarity to task (+15% P@10)
     |
     v
 [8. Budget Packing]            density-ranked greedy knapsack (score/cost ratio)
