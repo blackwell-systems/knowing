@@ -104,8 +104,8 @@ func TestAuditSupplyChain_JSONOutput(t *testing.T) {
 	if report.HeadSnapshot == "" {
 		t.Error("expected non-empty head_snapshot in report")
 	}
-	if report.Threshold != 0.7 {
-		t.Errorf("expected threshold 0.7, got %f", report.Threshold)
+	if report.Threshold != 0.3 {
+		t.Errorf("expected threshold 0.3, got %f", report.Threshold)
 	}
 	if report.GeneratedAt == "" {
 		t.Error("expected non-empty generated_at in report")
