@@ -4,22 +4,24 @@ This guide builds understanding from zero. No assumed background in content-addr
 
 ## System at a Glance
 
-knowing is a self-adapting code intelligence engine. It builds a content-addressed graph of code relationships, then observes the structural properties of that graph and adjusts its retrieval strategy accordingly. On small, sparse graphs it searches by keyword. On dense, enterprise-scale graphs it automatically shifts to structural navigation (preferring type hierarchies as entry points, using phrase-aware matching to cut through keyword competition). No configuration. No mode switches. The system detects its own operating regime and adapts.
+knowing is a self-adapting code intelligence engine. It builds a content-addressed graph of code relationships, then observes the structural properties of that graph and adjusts its retrieval strategy accordingly. On small, sparse graphs it searches by keyword. On dense, enterprise-scale graphs it automatically shifts to structural navigation (preferring type hierarchies as entry points, using phrase-aware matching to cut through keyword competition). An optional local embedding re-ranker uses semantic similarity to promote the most relevant symbols from the graph walk's output. No configuration. No mode switches. The system detects its own operating regime and adapts.
 
-It runs entirely on a developer laptop with no paid LLM calls and no cloud API dependencies.
+It runs entirely on a developer laptop with no paid LLM calls and no cloud API dependencies. The embedding model runs locally via pure Go inference (no Python, no API keys, no charges).
 
-
-**Coverage:** 17 extractors spanning Go, TypeScript, Python, Rust, Java, C#, Ruby, SQL, Proto, GraphQL, Helm, Kubernetes YAML, Dockerfile, Makefile, CloudFormation, GitLab CI, and .env files. 34 edge types (calls, imports, implements, references, contains, member_of, similar_to, type_hint_of, co_tested_with, authored_by, handles_route, publishes, subscribes, connects_to, and 20 more).
+**Coverage:** 17 extractors spanning Go, TypeScript, Python, Rust, Java, C#, Ruby, SQL, Proto, GraphQL, Helm, Kubernetes YAML, Dockerfile, Makefile, CloudFormation, GitLab CI, and .env files. 38 edge types including calls, imports, implements, references, contains, member_of, similar_to, type_hint_of, co_tested_with, accesses_field, reads_env, executes_process, consumes_endpoint, authored_by, handles_route, publishes, subscribes, and more.
 
 **Integrity:** Every node, edge, and snapshot has a SHA-256 hash. A hierarchical Merkle tree organizes edges by package and type, enabling O(packages) diffs and cryptographic proofs of existence and absence.
 
-**Retrieval pipeline:** Tiered keyword search (exact/compound/component) into BM25/FTS with concept expansion, equivalence matching, density-adaptive RWR graph walk, HITS authority scoring, RRF fusion, and budget-constrained knapsack packing. The pipeline self-tunes: on graphs exceeding 40K nodes, it automatically prefers structural anchors (types, interfaces) as walk seeds, preventing the precision degradation that affects every static retrieval system at scale.
+**Retrieval pipeline:** Tiered keyword search (exact/compound/component) into BM25/FTS with concept expansion, equivalence matching, density-adaptive RWR graph walk, HITS authority scoring, RRF fusion, optional embedding re-ranker, and budget-constrained knapsack packing. The pipeline self-tunes: on graphs exceeding 40K nodes, it automatically prefers structural anchors (types, interfaces) as walk seeds. The embedding re-ranker uses local inference to reorder the graph walk's top-50 candidates by semantic similarity to the task description.
+
+**Supply chain detection:** Extracts `reads_env` (credential access), `executes_process` (process spawning), and `consumes_endpoint` (network exfiltration) edges. Computes isolation scores for structurally disconnected code. Detects supply chain attack patterns like TanStack/Mini Shai-Hulud (2026) and event-stream (2018) without executing any code.
 
 **Operational characteristics:**
 - Daemon mode with file watcher for incremental re-indexing
 - Time-to-consistency: 167ms (edit a file, reindex, query finds the new symbol)
 - Adjacency cache: 4,717x latency improvement (9s to 2ms on Kubernetes-scale graph)
 - Density-adaptive retrieval: auto-detects graph density, adjusts seed selection strategy
+- Embedding re-ranker: +15% P@10 improvement, fully local, opt-in (`--embeddings`)
 - P@10 = 0.238 (1.76x codegraph, 3.17x GitNexus, 3.78x Gortex, 18.3x grep baseline)
 - MCP server interface with 28 tools for agent consumption
 
