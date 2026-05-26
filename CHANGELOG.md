@@ -22,6 +22,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **GHA action**: `blackwell-systems/knowing-supply-scan` (v1.0.0), free action for supply chain scanning on PRs.
 - **Platform API scaffold**: `blackwell-systems/platform` (private), SaaS backend for paid scanning.
 
+### Tested and Reverted
+
+- **Reachability gap injection**: BM25 candidates that RWR couldn't reach, filtered by embedding cosine similarity. Django +3.2% but aggregate neutral (0.238 vs 0.242 without). Reverted. BM25 is too noisy as a gap candidate source. 15-config parameter sweep (threshold 0.1-0.5, maxgap 3-10) confirmed parameters are irrelevant.
+- **Coherence-aware context packing**: file-based density boost for co-located symbols. Flask -1.8%. Greedy density packing already near-optimal.
+- **Bidirectional inheritance edges**: parent.method -> child.method reverse edges. Django -2.5%. Adds noise without new reachability.
+- **Seed count sweep**: 10/15/20/25/30/40/50 seeds on Django all produce identical P@10. Confirms the reachability finding.
+
+### Documentation
+
+- **Benchmark paper**: "Evaluating Code Context Retrieval for AI Agents" drafted at `docs/research/whitepapers/code-context-retrieval-benchmark.md`. 167 tasks, 7 systems, 10 repos, conflict of interest disclosure, per-tier breakdown, scale tolerance analysis.
+- **Supply chain whitepaper evaluation**: Section 7 written with 200-package FP data (1.0% rate).
+- All docs updated to P@10=0.242 with new competitive ratios across 20+ files.
+- Comprehensive experiment log in roadmap: 15 tested-negative, 5 tested-positive.
+
 ### Fixed
 
 - **Extraction errors now logged** (was silent `continue`). Failures visible in stderr.
