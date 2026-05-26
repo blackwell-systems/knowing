@@ -1,6 +1,15 @@
 # Proposal: Supply Chain Attack Detection
 
-## Status: PROPOSED
+## Status: VERIFIED (extraction works end-to-end on Go + TypeScript)
+
+### Verification (Session 15, 2026-05-25)
+
+Tested on synthetic malware samples matching TanStack payload patterns:
+- **Go:** `os.Getenv("GITHUB_TOKEN")` + `exec.Command("curl")` -> produces `reads_env` + `executes_process` edges
+- **TypeScript:** `process.env.GITHUB_TOKEN` + `spawn('curl')` + `fetch('https://api.github.com/user')` -> produces `reads_env` + `executes_process` + `consumes_endpoint` edges
+
+All three attack signals detected without code execution (tree-sitter AST parsing only).
+Ready for real-world demo on actual compromised packages.
 
 ## Commercial Strategy
 
