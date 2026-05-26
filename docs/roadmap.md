@@ -450,6 +450,21 @@ Derived from a deep dive into git's C implementation (pack-objects, commit-graph
 | Drift detection | Alerts on static/runtime divergence |
 | Enterprise dashboard | Cross-repo visualization, team analytics |
 
+## Git Design Audit (open items from docs/architecture/git-design-audit.md)
+
+All CRITICAL and HIGH items shipped (session 12). Remaining are LOW priority.
+
+| # | Item | Priority | Effort | Verdict |
+|---|------|----------|--------|---------|
+| 9.2 | `MaxOpenConns(1)` on SQLite | **Do now** | 1 line | Free perf. Single writer, no reason for connection pool. |
+| 5.2 | Incremental snapshot computation | Do eventually | 3h | Real speedup on large repos. Compute snapshot from changed files only. |
+| 7.1 | Named snapshot refs (`snapshot_refs` table) | Do eventually | 4h | Needed for `knowing tag v1.0` and diff-mode supply chain product. |
+| 7.2 | Reflog table | Only if 7.1 ships | 2h | Audit trail for ref mutations. Pointless without named refs. |
+| 5.1 | ReconstructEdgeSet from event log | **Skip** | 1 week | Over-engineering. SQLite has the full edge table. Nobody replays events. |
+| 2.3 | Edge observation column split | **Skip** | 1 day | Premature optimization. No repo has hit row-size bottleneck. |
+| 10.1 | Merkle-diff sync protocol | **Not yet** | 2 weeks | Zero users need multi-machine sync. Build when someone asks. |
+| 10.2 | `knowing export` / `knowing import` | Maybe | 1 week | Useful for platform API. But `cp knowing.db` works today. |
+
 ## Git-Inspired (Not Yet Built)
 
 | Item | Priority | Effort |
