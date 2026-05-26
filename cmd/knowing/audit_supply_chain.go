@@ -61,6 +61,7 @@ func cmdAuditSupplyChain(args []string) error {
 	head := fs.String("head", "@latest", "Current snapshot hash or ref (default: @latest)")
 	threshold := fs.Float64("threshold", 0.7, "Isolation score threshold for suspicious files")
 	failOnSuspicious := fs.Bool("fail-on-suspicious", false, "Exit non-zero if any file exceeds threshold")
+	scanAll := fs.Bool("scan-all", false, "Scan all files (skip diff, useful when clean/compromised are in separate DBs)")
 	outFile := fs.String("o", "", "Write JSON report to file (default: stdout)")
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: knowing audit-supply-chain --base <ref> [--head <ref>] [flags]\n\n")
@@ -96,14 +97,19 @@ func cmdAuditSupplyChain(args []string) error {
 
 	ctx := context.Background()
 
-	// Compute semantic diff to find new files.
-	diffResult, err := diff.SemanticDiff(ctx, st, baseHash, headHash)
-	if err != nil {
-		return fmt.Errorf("computing semantic diff: %w", err)
-	}
+	var newFileHashes []types.Hash
 
-	// Collect file hashes for new nodes.
-	newFileHashes := collectNewFileHashes(ctx, st, diffResult)
+	if *scanAll {
+		// Scan all files in the DB (no diff needed).
+		newFileHashes = collectAllFileHashes(ctx, st)
+	} else {
+		// Compute semantic diff to find new files.
+		diffResult, err := diff.SemanticDiff(ctx, st, baseHash, headHash)
+		if err != nil {
+			return fmt.Errorf("computing semantic diff: %w", err)
+		}
+		newFileHashes = collectNewFileHashes(ctx, st, diffResult)
+	}
 
 	// Compute isolation scores for new files.
 	isolationResults, err := diff.ComputeIsolation(ctx, st, newFileHashes)
@@ -133,6 +139,27 @@ func cmdAuditSupplyChain(args []string) error {
 	}
 
 	return nil
+}
+
+// collectAllFileHashes returns all unique file hashes in the database.
+// Used with --scan-all when clean/compromised versions are in separate DBs.
+func collectAllFileHashes(ctx context.Context, st *store.SQLiteStore) []types.Hash {
+	nodes, err := st.NodesByName(ctx, "%")
+	if err != nil {
+		return nil
+	}
+	seen := make(map[types.Hash]struct{})
+	var hashes []types.Hash
+	for _, n := range nodes {
+		if n.FileHash.IsZero() {
+			continue
+		}
+		if _, ok := seen[n.FileHash]; !ok {
+			seen[n.FileHash] = struct{}{}
+			hashes = append(hashes, n.FileHash)
+		}
+	}
+	return hashes
 }
 
 // collectNewFileHashes extracts unique file hashes from nodes added in the diff.

