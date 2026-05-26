@@ -178,7 +178,9 @@ portability.
    cache returns stale results, masking all delta measurements. Always call
    `DisablePersistentCache()` in benchmarks.
 
-5. **Embeddings help where graph connectivity is sparse.** Kubernetes (+92.8%)
-   and Kafka (+39.5%) saw the largest gains. VS Code (-16%) regressed because
-   its dense graph already surfaces the right candidates; re-ranking shuffles
-   them away from optimal order.
+5. **Embeddings help most where graph connectivity is sparse.** Kubernetes
+   (+92.8%) and Kafka (+39.5%) saw the largest gains in session 15. Initial
+   regressions on VS Code (-16%) and Ocelot (-30.8%) reported in session 15
+   were not reproducible in session 16 testing: both repos showed 0% P@10
+   delta with neutral-to-positive NDCG and MRR improvements. The regressions
+   were likely artifacts of the pre-vector-cache build.

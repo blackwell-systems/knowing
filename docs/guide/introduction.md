@@ -130,7 +130,7 @@ Across all of these tools, recurring gaps appear:
 
 #### Where knowing sits
 
-knowing's differentiator is graph-native retrieval: RWR (Random Walk with Restart) + HITS authority scoring + BM25 fusion, producing a single deterministic ranking per query. The same input always yields the same output. The pipeline scales to 253K nodes (Kubernetes) without hanging. It runs locally with no LLM dependency, completing in 2ms on cached graphs via the adjacency cache. And because the graph is content-addressed and Merkle-versioned, every result is reproducible, cacheable, and provable.
+knowing's differentiator is graph-native retrieval: RWR (Random Walk with Restart) + HITS authority scoring + BM25 fusion + optional embedding re-ranker, producing a single deterministic ranking per query. The same input always yields the same output. The pipeline scales to 253K nodes (Kubernetes) without hanging. It runs locally with no LLM dependency (the embedding model is pure Go ONNX inference, not an LLM), completing in 2ms on cached graphs via the adjacency cache (220ms with embedding re-rank). And because the graph is content-addressed and Merkle-versioned, every result is reproducible, cacheable, and provable.
 
 **Context packers** (Aider, Repo Map, etc) analyze your repo and produce a condensed map for the agent's context window. They run at query time, produce text, and are stateless: they don't remember what was useful last time. They don't version their output or prove anything about it.
 
