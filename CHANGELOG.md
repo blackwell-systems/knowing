@@ -8,19 +8,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-#### Supply chain attack detection infrastructure
+#### Supply chain attack detection (fully wired, production-ready)
 - `reads_env` edge type (37th): function -> environment variable it reads (Go, Python, TypeScript)
 - `executes_process` edge type (38th): function -> process it spawns (Go, Python, TypeScript)
+- Extraction wired into main extractor dispatch for all 3 languages (runs during `knowing index`)
 - `knowing audit-supply-chain` CLI command: structural diff + isolation scoring + capability path detection
 - Isolation score computation (`internal/diff/isolation.go`): scores files 0.0-1.0 based on graph connectivity, outbound edges to dangerous sinks, and lifecycle hook execution
 - Designed to detect attacks like TanStack/Mini Shai-Hulud (2026) and event-stream (2018)
 
-#### Embedding model switching + benchmark results
-- `KNOWING_EMBED_MODEL` env var: switch between `bge-small` (default), `nomic-code`, `jina-code`
-- Wired embeddings into benchmark adapter (`BENCH_EMBEDDINGS=1`, capped at 5K symbols/repo)
-- BGE-small-en-v1.5 result: **neutral P@10** (general-purpose embeddings don't improve code retrieval)
-- Infrastructure works (hugot pure Go ONNX, 14ms/embedding, HNSW search <1ms)
-- Testing code-specific models (jina-code, nomic-code) in progress
+#### Embedding re-ranker breakthrough (+4.5% P@10, +16.6% R@10)
+- Discovered: embeddings as independent Channel 3 are NEUTRAL (3 models tested: BGE, jina-code, nomic)
+- Discovered: persistent pack cache was masking all embedding experiments
+- Implemented re-ranker: embed top-50 RWR candidates, blend original score with cosine similarity
+- **jina-embeddings-v2-base-code as re-ranker: P@10 0.332 -> 0.347 (+4.5%), R@10 0.447 -> 0.521 (+16.6%)**
+- Blended scoring (`BENCH_RERANK_WEIGHT`): tunable 0.0-1.0, default 0.7 (0.7 original + 0.3 embedding)
+- `KNOWING_EMBED_MODEL` env var: switch between `bge-small`, `nomic-code`, `jina-code`
+- `DisablePersistentCache()` method for accurate benchmark measurements
+- First P@10 improvement since PreferTypeSeeds (session 14)
 
 #### `accesses_field` edge type (36th edge type, P@10 neutral)
 - Connects methods to the struct/class fields they read/write via receiver
