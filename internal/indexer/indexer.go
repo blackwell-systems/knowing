@@ -644,6 +644,37 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 		}
 	}
 
+	// Resolve dangling type_hint_of edges. The type hint extractor computes target
+	// hashes with kind="type", but the actual node might have been created with
+	// kind="interface", "trait", "class", or "struct". When the target hash doesn't
+	// match any node, try alternative kinds and rewrite the edge if a match is found.
+	{
+		fmt.Fprintf(os.Stderr, "  Resolving type hint edges...\n")
+		resolved, dangling, oldHashes := resolveTypeHintEdges(allNodes, allEdges)
+		if resolved > 0 {
+			// Delete old dangling edges and insert rewritten ones.
+			type edgeDeleter interface {
+				DeleteEdge(ctx context.Context, hash types.Hash) error
+			}
+			if del, ok := idx.store.(edgeDeleter); ok {
+				for _, h := range oldHashes {
+					_ = del.DeleteEdge(ctx, h)
+				}
+			}
+			// Insert the rewritten edges.
+			var rewritten []types.Edge
+			for i := range allEdges {
+				if allEdges[i].Provenance == "type_hint_resolved" {
+					rewritten = append(rewritten, allEdges[i])
+				}
+			}
+			if bs, ok := idx.store.(batchStore); ok && len(rewritten) > 0 {
+				_ = bs.BatchPutEdges(ctx, rewritten)
+			}
+			fmt.Fprintf(os.Stderr, "  Type hints: %d resolved, %d still dangling\n", resolved, dangling)
+		}
+	}
+
 	// Generate structural "contains" edges from type/class nodes to their methods.
 	// 77% of type nodes have zero edges; this connects them to their methods via QN
 	// structure (Type.Method), enabling RWR to walk from type seeds to discover methods.
@@ -1494,6 +1525,128 @@ func propagateInterfaceMethods(allNodes []types.Node, allEdges []types.Edge) []t
 	}
 
 	return overrideEdges
+}
+
+// resolveTypeHintEdges fixes dangling type_hint_of edges where the target hash
+// was computed with kind="type" but the actual node has a different kind
+// (interface, trait, class, struct). Returns (resolved count, still-dangling count).
+// Modifies allEdges in-place: resolved edges get new target hashes and
+// provenance="type_hint_resolved".
+func resolveTypeHintEdges(allNodes []types.Node, allEdges []types.Edge) (int, int, []types.Hash) {
+	// Build node hash set for quick existence checks.
+	nodeExists := make(map[types.Hash]bool, len(allNodes))
+	for i := range allNodes {
+		nodeExists[allNodes[i].NodeHash] = true
+	}
+
+	// Build lookup: (repoURL, packagePath, symbolName) -> node hash for all type-like nodes.
+	// This lets us find the correct hash regardless of kind.
+	type nodeKey struct {
+		repo, pkg, name string
+	}
+	keyToHash := make(map[nodeKey]types.Hash)
+	for i := range allNodes {
+		n := &allNodes[i]
+		switch n.Kind {
+		case "type", "interface", "trait", "class", "struct":
+			// Extract name from qualified name (last dot component).
+			name := terminalName(n.QualifiedName)
+			if name == "" {
+				continue
+			}
+			// Extract package from QN: everything between "://" and the last ".Name"
+			qn := n.QualifiedName
+			pkgStart := strings.Index(qn, "://")
+			if pkgStart < 0 {
+				continue
+			}
+			pkgAndName := qn[pkgStart+3:]
+			lastDot := strings.LastIndex(pkgAndName, ".")
+			if lastDot < 0 {
+				continue
+			}
+			pkg := pkgAndName[:lastDot]
+
+			// Extract repo from QN: everything before "://"
+			repo := qn[:pkgStart]
+
+			key := nodeKey{repo: repo, pkg: pkg, name: name}
+			keyToHash[key] = n.NodeHash
+		}
+	}
+
+	resolved, dangling := 0, 0
+	for i := range allEdges {
+		e := &allEdges[i]
+		if e.EdgeType != edgetype.TypeHintOf {
+			continue
+		}
+		if nodeExists[e.TargetHash] {
+			continue // target exists, no fix needed
+		}
+
+		// Target is dangling. Try to find the real node by recomputing from the
+		// source edge's context. We can't reverse the hash, but we can check if
+		// any type-like node shares the same (repo, pkg, name) tuple.
+		//
+		// Strategy: try all alternative kinds for this target hash. Since we can't
+		// reverse the hash, we use the lookup table built from all type-like nodes.
+		// The edge's source hash tells us which function created it, but we need
+		// the target's identity. We try matching the dangling hash against hashes
+		// computed with alternative kinds.
+		//
+		// Efficient approach: for each dangling target, check if any node in the
+		// keyToHash map produces a hash that matches when we try different kinds.
+		// But we don't know the repo/pkg/name of the dangling target.
+		//
+		// Alternative: precompute a reverse map from "type" hash -> nodeKey, then
+		// look up the nodeKey and recompute with other kinds.
+
+		// We need to build this reverse map. Let's do it lazily on first dangling edge.
+		dangling++
+	}
+
+	if dangling == 0 {
+		return 0, 0, nil
+	}
+
+	// Build reverse map: for each (repo, pkg, name) compute hash with kind="type"
+	// and map it to the actual node hash (which may have a different kind).
+	typeHashToReal := make(map[types.Hash]types.Hash)
+	for key, realHash := range keyToHash {
+		typeHash := types.ComputeNodeHash(key.repo, key.pkg, types.EmptyHash, key.name, "type")
+		if typeHash != realHash {
+			typeHashToReal[typeHash] = realHash
+		}
+	}
+
+	// Now resolve: for each dangling type_hint_of edge, look up in the reverse map.
+	// Collect old hashes to delete from store (replaced by rewritten edges).
+	resolved, dangling = 0, 0
+	var oldHashes []types.Hash
+	for i := range allEdges {
+		e := &allEdges[i]
+		if e.EdgeType != edgetype.TypeHintOf {
+			continue
+		}
+		if nodeExists[e.TargetHash] {
+			continue
+		}
+		if realHash, ok := typeHashToReal[e.TargetHash]; ok {
+			// Track old hash for deletion, then rewrite.
+			oldHashes = append(oldHashes, e.EdgeHash)
+			oldSource := e.SourceHash
+			e.TargetHash = realHash
+			e.EdgeHash = types.ComputeEdgeHash(oldSource, realHash, edgetype.TypeHintOf, "type_hint_resolved")
+			e.Provenance = "type_hint_resolved"
+			e.Confidence = 0.8
+			resolved++
+		} else {
+			dangling++
+		}
+	}
+
+	return resolved, dangling, oldHashes
 }
 
 // terminalName extracts the last dot-separated component of a qualified name.

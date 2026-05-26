@@ -70,6 +70,7 @@ Embedding re-ranker: +17% P@10 with SQLite vector cache (220ms cached).
 | **Gap injection parameter sweep** (15 configs) | Neutral | 16 | Threshold 0.1-0.5, maxgap 3-10 all produce P@10=0.225-0.228 on Django. Parameters don't matter. |
 | **Density-adaptive RWR alpha** (0.15 on dense) | Neutral | 17 | Alpha=0.15 on dense repos (flask 5.9, cargo 13.5, kafka 12.5): P@10 0.280 vs baseline 0.278. Within run variance. |
 | **Density-adaptive inherits weight** (1.0 on deep) | Neutral | 17 | Boosted implements/overrides/extends to 1.0 on repos >1.5% inherits edges. Django +0.009, kafka+flask -0.008. Net neutral. |
+| **Interface type hint propagation** (post-processing) | Neutral | 17 | Connect type_hint_of targets to sibling implementors. Edge structure mismatch: type_hint_of and implements share 0 target hashes on Java/Python. Go (k8s): 393 edges on 523K, P@10 neutral. Needs extractor-level fix. |
 
 ### Tested Positive (sessions 14-16)
 
@@ -311,7 +312,7 @@ P@10=0.242 (Run 26, 167 tasks, 9 repos). 1.79x vs codegraph, 3.23x vs GitNexus, 
 
 | # | Edge Type | What it connects | Expected Impact | Effort |
 |---|-----------|-----------------|-----------------|--------|
-| 1 | **`implements_interface` propagation** | When function accepts interface type, connect to all concrete implementors. Currently only Go has partial support; needs full cross-language extraction. | +3-8% P@10 (bridges k8s 71, django 117 unreachable) | Medium |
+| 1 | **`implements_interface` propagation** | Tested session 17: post-processing to connect type_hint_of targets to sibling implementors. Blocked by edge structure mismatch: type_hint_of points at concrete types, implements points at interfaces, and they share 0 target hashes on Java/Python. Go (k8s) had 107 overlapping hashes producing 393 edges on 523K, P@10 neutral. Real fix: extractors must create type_hint_of edges pointing at interface types when the parameter type is an interface. That's an extractor-level change, not post-processing. | Blocked (extractor change needed) | Medium |
 
 **Remaining failure analysis (sessions 13-14):**
 - Django: 117/192 ground truth symbols unreachable. Root cause: framework base classes referenced by type hint and interface contract, not direct call.
