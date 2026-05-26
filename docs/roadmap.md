@@ -248,6 +248,7 @@ See `docs/research/dense-graph-dilution-analysis.md` for full investigation plan
 
 | Benchmark | What it proves | Status | Effort |
 |-----------|---------------|--------|--------|
+| **Ruby benchmark repo (Rails)** | Adds 7th language to corpus. Rails mirrors Django: heavy framework conventions, deep class hierarchy, method_missing magic. Tests whether retrieval improvements generalize to Ruby. Candidates: Rails (large, MVC), Devise (auth, focused), Sidekiq (jobs, moderate). Requires 10-20 task fixtures with ground truth symbols. | Not started | Medium (fixture curation is the bottleneck) |
 | **Multi-language extraction coverage** | For each of the 24 extractors: number of node types extracted, edge types produced, lines of test coverage. Comparison vs Sourcegraph SCIP, GitNexus, tree-sitter-graph. | Not started | Low (automated count + table) |
 | **Grafana scale validation** | Full retrieval quality measurement on 714K-edge production graph (not just latency). P@10 with Grafana-specific task fixtures. | Latency test exists (`grafana_scale_test.go`); no retrieval quality measurement | Medium |
 | **Graph integrity under load** | Spawn 10 concurrent indexers on overlapping repos. Run `knowing fsck` after. Proves content-addressing prevents corruption under concurrency. | Not started (fsck bench exists for single-indexer correctness) | Medium |
@@ -292,7 +293,8 @@ P@10=0.242 (Run 26, 167 tasks, 9 repos). 1.79x vs codegraph, 3.23x vs GitNexus, 
 | 14 | **Hub node dampening (H1)** | On dense graphs, high-in-degree utility types absorb RWR probability. Divide transition probability by sqrt(in-degree) of target. Session 14: edge exclusion and BFS depth ruled out; seed selection confirmed as root cause. | To test |
 | 15 | **`is_entry_point` / `is_exported` node flags** | Tag functions as entry points (main, handlers, CLI commands) or exported (public API). Entry points get higher RWR restart weight. | Experiment |
 | 16 | **More equivalence concepts** | Only add when a specific task fixture exposes a gap. Must respect Run 22 constraint (no single-word phrases, no generic targets). | On-demand |
-| 17 | **Feedback parameter sweep (warm-start)** | Session boost (0.20), task memory formula (0.5+score*0.4), decay (7-day linear), top-N (5) are untuned. Only affects real-user compounding. | When users exist |
+| 17 | **Alternative seed selection (BM25 replacement)** | BM25 has been the constant across all 44 experiments. Never A/B tested against alternatives. Candidates: (a) embedding-based seed selection (semantic similarity, finds seeds with zero keyword overlap), (b) file-path heuristics (task mentions "auth middleware" -> files with auth/middleware in path), (c) docstring semantic search (embed task, cosine against docstrings). Embedding-as-Channel-3 found same symbols as BM25 (session 15), but that was fusion, not replacement. The 42% Django zero-rate is a vocabulary gap that BM25 structurally cannot bridge. | Experiment |
+| 18 | **Feedback parameter sweep (warm-start)** | Session boost (0.20), task memory formula (0.5+score*0.4), decay (7-day linear), top-N (5) are untuned. Only affects real-user compounding. | When users exist |
 
 ## Edge Type Expansion
 
@@ -312,7 +314,7 @@ P@10=0.242 (Run 26, 167 tasks, 9 repos). 1.79x vs codegraph, 3.23x vs GitNexus, 
 
 | # | Edge Type | What it connects | Expected Impact | Effort |
 |---|-----------|-----------------|-----------------|--------|
-| 1 | **`implements_interface` propagation** | Tested session 17: post-processing to connect type_hint_of targets to sibling implementors. Blocked by edge structure mismatch: type_hint_of points at concrete types, implements points at interfaces, and they share 0 target hashes on Java/Python. Go (k8s) had 107 overlapping hashes producing 393 edges on 523K, P@10 neutral. Real fix: extractors must create type_hint_of edges pointing at interface types when the parameter type is an interface. That's an extractor-level change, not post-processing. | Blocked (extractor change needed) | Medium |
+| 1 | **`implements_interface` propagation** | Session 17: diagnosed root cause. type_hint_of extractors compute target hash with kind="type" but interface nodes use kind="interface", producing different SHA-256 hashes (40% of k8s type_hint_of edges dangling). **Shipped:** resolveTypeHintEdges post-processing step fixes 3,836 edges across 4 repos by matching (repo, pkg, name) across type-like kinds. Phase 2: after resolution, propagate from fixed type_hint_of -> interface to all implementors via implements edges. | Phase 2: propagation from resolved edges | Low |
 
 **Remaining failure analysis (sessions 13-14):**
 - Django: 117/192 ground truth symbols unreachable. Root cause: framework base classes referenced by type hint and interface contract, not direct call.

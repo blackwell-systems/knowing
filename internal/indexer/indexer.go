@@ -76,6 +76,28 @@ type Indexer struct {
 	// determine which files need LSP enrichment after an index run.
 	changedMu        sync.Mutex
 	lastChangedFiles []string
+
+	// LastTimings holds per-phase timing from the most recent IndexRepo call.
+	// Populated automatically; read after IndexRepo returns.
+	LastTimings *IndexTimings
+}
+
+// IndexTimings holds wall-clock duration for each indexing phase.
+type IndexTimings struct {
+	FileDiscovery    time.Duration
+	Extraction       time.Duration
+	Codeowners       time.Duration
+	Inheritance      time.Duration
+	InterfacePropag  time.Duration
+	TypeHintResolve  time.Duration
+	TypeHintPropag   time.Duration
+	Contains         time.Duration
+	Similarity       time.Duration
+	CoTested         time.Duration
+	Authorship       time.Duration
+	Snapshot         time.Duration
+	FTSRebuild       time.Duration
+	Total            time.Duration
 }
 
 // edgeAllowed returns true if the given edge type should be generated.
@@ -214,6 +236,28 @@ func (idx *Indexer) extractFile(ctx context.Context, opts types.ExtractOptions) 
 // IndexRepo indexes all source files in a repository, skipping files
 // whose content hash has not changed since the last index.
 func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash string) (*types.Snapshot, error) {
+	indexStart := time.Now()
+	timings := &IndexTimings{}
+	defer func() {
+		timings.Total = time.Since(indexStart)
+		idx.LastTimings = timings
+		fmt.Fprintf(os.Stderr, "\n  === Index Timings ===\n")
+		fmt.Fprintf(os.Stderr, "  File discovery:     %s\n", timings.FileDiscovery.Truncate(time.Millisecond))
+		fmt.Fprintf(os.Stderr, "  Extraction+writes:  %s\n", timings.Extraction.Truncate(time.Millisecond))
+		fmt.Fprintf(os.Stderr, "  CODEOWNERS:         %s\n", timings.Codeowners.Truncate(time.Millisecond))
+		fmt.Fprintf(os.Stderr, "  Inheritance:        %s\n", timings.Inheritance.Truncate(time.Millisecond))
+		fmt.Fprintf(os.Stderr, "  Interface propagat: %s\n", timings.InterfacePropag.Truncate(time.Millisecond))
+		fmt.Fprintf(os.Stderr, "  Type hint resolve:  %s\n", timings.TypeHintResolve.Truncate(time.Millisecond))
+		fmt.Fprintf(os.Stderr, "  Type hint propagat: %s\n", timings.TypeHintPropag.Truncate(time.Millisecond))
+		fmt.Fprintf(os.Stderr, "  Contains:           %s\n", timings.Contains.Truncate(time.Millisecond))
+		fmt.Fprintf(os.Stderr, "  Similarity:         %s\n", timings.Similarity.Truncate(time.Millisecond))
+		fmt.Fprintf(os.Stderr, "  Co-tested:          %s\n", timings.CoTested.Truncate(time.Millisecond))
+		fmt.Fprintf(os.Stderr, "  Authorship:         %s\n", timings.Authorship.Truncate(time.Millisecond))
+		fmt.Fprintf(os.Stderr, "  Snapshot:           %s\n", timings.Snapshot.Truncate(time.Millisecond))
+		fmt.Fprintf(os.Stderr, "  FTS rebuild:        %s\n", timings.FTSRebuild.Truncate(time.Millisecond))
+		fmt.Fprintf(os.Stderr, "  TOTAL:              %s\n", timings.Total.Truncate(time.Millisecond))
+	}()
+
 	// Repo identity is sha256(repoURL); this is the same computation used
 	// by ComputeNodeHash and everywhere else that needs the repo hash.
 	repoHash := types.NewHash([]byte(repoURL))
@@ -387,6 +431,9 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 			fileHash: fileHash,
 		})
 	}
+
+	timings.FileDiscovery = time.Since(indexStart)
+	phaseStart := time.Now()
 
 	// Phase 2+3: Producer-consumer pipeline.
 	// Extract workers produce results into a channel. A storage writer consumes
@@ -568,6 +615,9 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 		return nil, storeErr
 	}
 
+	timings.Extraction = time.Since(phaseStart)
+	phaseStart = time.Now()
+
 	fmt.Fprintf(os.Stderr, "  CODEOWNERS...\n")
 	// Extract CODEOWNERS ownership edges if a CODEOWNERS file exists.
 	if coPath := ownership.FindCodeowners(repoPath); coPath != "" {
@@ -605,6 +655,9 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 		allEdges = filtered
 	}
 
+	timings.Codeowners = time.Since(phaseStart)
+	phaseStart = time.Now()
+
 	// Propagate method inheritance: for each "extends" edge, find the parent's
 	// methods and create edges from the child class to those methods. This lets
 	// RWR walk from Flask -> Scaffold.before_request via inheritance.
@@ -629,6 +682,8 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 	// "overrides" edges connecting them. This lets RWR walk from an interface method
 	// to all concrete implementations.
 	if idx.edgeAllowed("overrides") {
+		timings.Inheritance = time.Since(phaseStart)
+		phaseStart = time.Now()
 		fmt.Fprintf(os.Stderr, "  Interface propagation...\n")
 		ifaceEdges := propagateInterfaceMethods(allNodes, allEdges)
 		if len(ifaceEdges) > 0 {
@@ -649,6 +704,8 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 	// kind="interface", "trait", "class", or "struct". When the target hash doesn't
 	// match any node, try alternative kinds and rewrite the edge if a match is found.
 	{
+		timings.InterfacePropag = time.Since(phaseStart)
+		phaseStart = time.Now()
 		fmt.Fprintf(os.Stderr, "  Resolving type hint edges...\n")
 		resolved, dangling, oldHashes := resolveTypeHintEdges(allNodes, allEdges)
 		if resolved > 0 {
@@ -675,10 +732,34 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 		}
 	}
 
+	// Propagate type_hint_of through interfaces: when a function has type_hint_of -> Interface
+	// (now correctly resolved), create type_hint_of edges to all concrete implementors.
+	// This gives RWR a direct path from functions to the concrete types they work with,
+	// bypassing the two-hop indirection through the interface node.
+	if idx.edgeAllowed("type_hint_of") {
+		timings.TypeHintResolve = time.Since(phaseStart)
+		phaseStart = time.Now()
+		fmt.Fprintf(os.Stderr, "  Interface type hint propagation...\n")
+		typeHintEdges := propagateInterfaceTypeHints(allNodes, allEdges)
+		if len(typeHintEdges) > 0 {
+			allEdges = append(allEdges, typeHintEdges...)
+			if bs, ok := idx.store.(batchStore); ok {
+				_ = bs.BatchPutEdges(ctx, typeHintEdges)
+			} else {
+				for _, e := range typeHintEdges {
+					_ = idx.store.PutEdge(ctx, e)
+				}
+			}
+			fmt.Fprintf(os.Stderr, "  Interface type hints: %d edges propagated\n", len(typeHintEdges))
+		}
+	}
+
 	// Generate structural "contains" edges from type/class nodes to their methods.
 	// 77% of type nodes have zero edges; this connects them to their methods via QN
 	// structure (Type.Method), enabling RWR to walk from type seeds to discover methods.
 	if idx.edgeAllowed(edgetype.Contains) {
+		timings.TypeHintPropag = time.Since(phaseStart)
+		phaseStart = time.Now()
 		fmt.Fprintf(os.Stderr, "  Contains edges...\n")
 		containsEdges := generateContainsEdges(allNodes)
 		if len(containsEdges) > 0 {
@@ -698,6 +779,8 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 	// This bridges disconnected subgraphs where two functions do the same work
 	// but don't call each other.
 	if idx.edgeAllowed("similar_to") {
+		timings.Contains = time.Since(phaseStart)
+		phaseStart = time.Now()
 		fmt.Fprintf(os.Stderr, "  Similarity edges...\n")
 		similarEdges := ComputeSimilarityEdges(allNodes, 0.5)
 		if len(similarEdges) > 0 {
@@ -718,6 +801,8 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 	// symbols that serve the same feature (e.g., BaseCache and RedisCache both tested
 	// in tests/cache/tests.py but with no direct call edge between them).
 	if idx.edgeAllowed(edgetype.CoTestedWith) {
+		timings.Similarity = time.Since(phaseStart)
+		phaseStart = time.Now()
 		fmt.Fprintf(os.Stderr, "  Co-tested edges...\n")
 		coTestedEdges := GenerateCoTestedEdges(allNodes, allEdges)
 		if len(coTestedEdges) > 0 {
@@ -737,6 +822,8 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 	// This is expensive (one git blame subprocess per file) so it runs in parallel
 	// and is skippable via idx.SkipBlame.
 	if !idx.SkipBlame && len(changedFilePaths) > 0 {
+		timings.CoTested = time.Since(phaseStart)
+		phaseStart = time.Now()
 		fmt.Fprintf(os.Stderr, "  Authorship extraction (%d files)...\n", len(allFiles))
 		blameStart := time.Now()
 
@@ -808,6 +895,8 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 	// FTS competes with snapshot for SQLite access (WAL reader/writer contention).
 	// Running them concurrently causes both to be slow. Sequential: snapshot first
 	// (fast, read-only query + small write), then FTS in background (slow, heavy writes).
+	timings.Authorship = time.Since(phaseStart)
+	phaseStart = time.Now()
 	fmt.Fprintf(os.Stderr, "  Computing snapshot...\n")
 	finalStart := time.Now()
 
@@ -858,11 +947,15 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 	// Previously ran in a background goroutine, but CLI processes exit immediately
 	// after IndexRepo returns, killing the goroutine before FTS completes.
 	if fr, ok := idx.store.(ftsRebuilder); ok {
+		timings.Snapshot = time.Since(phaseStart)
+		phaseStart = time.Now()
 		fmt.Fprintf(os.Stderr, "  Rebuilding FTS index...\n")
 		ftsStart := time.Now()
 		_ = fr.RebuildFTS(context.Background())
 		fmt.Fprintf(os.Stderr, "  FTS rebuilt in %s\n", time.Since(ftsStart).Truncate(time.Millisecond))
 	}
+
+	timings.FTSRebuild = time.Since(phaseStart)
 
 	// Record edge events for the diff between old and new edges. These
 	// events power SnapshotDiff: "removed" events for edges that disappeared
@@ -1647,6 +1740,57 @@ func resolveTypeHintEdges(allNodes []types.Node, allEdges []types.Edge) (int, in
 	}
 
 	return resolved, dangling, oldHashes
+}
+
+// propagateInterfaceTypeHints creates additional type_hint_of edges from functions
+// to concrete implementors of interface parameters. When func F has type_hint_of -> InterfaceI
+// (after resolution), and ConcreteC implements InterfaceI, create F --type_hint_of--> ConcreteC.
+// This gives RWR a direct path from functions to concrete types, bypassing the
+// two-hop indirection through the interface node.
+func propagateInterfaceTypeHints(allNodes []types.Node, allEdges []types.Edge) []types.Edge {
+	// Build interface -> []implementor map from "implements" edges.
+	// implements: source = concrete type, target = interface/trait.
+	implementors := make(map[types.Hash][]types.Hash)
+	for _, e := range allEdges {
+		if e.EdgeType == "implements" {
+			implementors[e.TargetHash] = append(implementors[e.TargetHash], e.SourceHash)
+		}
+	}
+	if len(implementors) == 0 {
+		return nil
+	}
+
+	// For each type_hint_of edge targeting an interface (has implementors), create
+	// edges to all concrete implementors.
+	var newEdges []types.Edge
+	seen := make(map[types.Hash]bool)
+
+	for _, e := range allEdges {
+		if e.EdgeType != edgetype.TypeHintOf {
+			continue
+		}
+		impls, ok := implementors[e.TargetHash]
+		if !ok {
+			continue
+		}
+		for _, implHash := range impls {
+			edgeHash := types.ComputeEdgeHash(e.SourceHash, implHash, edgetype.TypeHintOf, "interface_type_hint_propagation")
+			if seen[edgeHash] {
+				continue
+			}
+			seen[edgeHash] = true
+			newEdges = append(newEdges, types.Edge{
+				EdgeHash:   edgeHash,
+				SourceHash: e.SourceHash,
+				TargetHash: implHash,
+				EdgeType:   edgetype.TypeHintOf,
+				Confidence: 0.8,
+				Provenance: "interface_type_hint_propagation",
+			})
+		}
+	}
+
+	return newEdges
 }
 
 // terminalName extracts the last dot-separated component of a qualified name.
