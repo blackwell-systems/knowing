@@ -262,10 +262,10 @@ scan_package() {
   # Initialize a git repo (knowing needs it)
   (cd "$src_dir" && git init -q && git add -A && git commit -q -m "init" --allow-empty) 2>/dev/null || true
 
-  # Index (use KNOWING env var for custom binary path, skip LSP enrichment)
+  # Index (skip LSP enrichment: not needed for supply chain edges, saves ~14s/pkg)
   local db="$pkg_dir/knowing.db"
   local KNOWING="${KNOWING:-knowing}"
-  "$KNOWING" index -url "$ecosystem/$name" -db "$db" "$src_dir" 2>/dev/null || { echo "  SKIP $ecosystem/$name (index failed)"; return 1; }
+  "$KNOWING" index -url "$ecosystem/$name" -db "$db" -no-enrich "$src_dir" 2>/dev/null || { echo "  SKIP $ecosystem/$name (index failed)"; return 1; }
 
   # Scan
   local result
