@@ -1704,14 +1704,48 @@ func packIntoBudget(ranked []RankedSymbol, budget int, format string) *ContextBl
 		return ranked[items[a].index].Score > ranked[items[b].index].Score
 	})
 
-	// Greedily pack by density order.
+	// Greedily pack by density order with optional coherence bonus.
+	// When CoherenceBonus > 0, each iteration picks the best unpacked item
+	// considering a density boost for symbols sharing a file with already-packed
+	// symbols. This favors coherent subgraphs over scattered singletons.
 	var tokensUsed int
-	for _, item := range items {
-		if tokensUsed+item.cost > budget {
-			continue // skip this item, try smaller ones
+	if CoherenceBonus > 0 {
+		packedFiles := make(map[types.Hash]bool)
+		packed := make([]bool, len(items))
+		for range items {
+			bestIdx := -1
+			bestDensity := -1.0
+			for i, item := range items {
+				if packed[i] || tokensUsed+item.cost > budget {
+					continue
+				}
+				d := item.density
+				if packedFiles[ranked[item.index].Node.FileHash] {
+					d *= (1.0 + CoherenceBonus)
+				}
+				if d > bestDensity {
+					bestDensity = d
+					bestIdx = i
+				}
+			}
+			if bestIdx < 0 {
+				break
+			}
+			packed[bestIdx] = true
+			tokensUsed += items[bestIdx].cost
+			sym := ranked[items[bestIdx].index]
+			block.Symbols = append(block.Symbols, sym)
+			packedFiles[sym.Node.FileHash] = true
 		}
-		tokensUsed += item.cost
-		block.Symbols = append(block.Symbols, ranked[item.index])
+	} else {
+		// Original greedy pack (no coherence).
+		for _, item := range items {
+			if tokensUsed+item.cost > budget {
+				continue
+			}
+			tokensUsed += item.cost
+			block.Symbols = append(block.Symbols, ranked[item.index])
+		}
 	}
 
 	// Re-sort the packed symbols by score descending for output ordering.

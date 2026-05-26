@@ -55,10 +55,18 @@ func init() {
 	}
 
 	// BENCH_RERANK_WEIGHT=0.85 sets the original score weight in the re-ranker blend.
-	// Range [0.0, 1.0]. Default 0.7. Higher = more conservative (preserves MRR).
+	// Range [0.0, 1.0]. Default 0.0. Higher = more conservative (preserves MRR).
 	if envWeight := os.Getenv("BENCH_RERANK_WEIGHT"); envWeight != "" {
 		if w, err := strconv.ParseFloat(envWeight, 64); err == nil && w >= 0 && w <= 1 {
 			knowingctx.ReRankOriginalWeight = w
+		}
+	}
+
+	// BENCH_COHERENCE_BONUS=0.3 boosts density for symbols co-located with
+	// already-packed symbols. Range [0.0, 1.0]. Default 0.0 (no bonus).
+	if envCoherence := os.Getenv("BENCH_COHERENCE_BONUS"); envCoherence != "" {
+		if c, err := strconv.ParseFloat(envCoherence, 64); err == nil && c >= 0 && c <= 1 {
+			knowingctx.CoherenceBonus = c
 		}
 	}
 }

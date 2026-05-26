@@ -173,6 +173,13 @@ var GraphNodeCount int
 // Set via BENCH_RERANK_WEIGHT for parameter sweep experiments.
 var ReRankOriginalWeight = 0.0
 
+// CoherenceBonus controls the density boost for symbols that share a file with
+// already-packed symbols. Range [0.0, 1.0]. At 0.0 (default), packing is purely
+// density-ranked (current behavior). At 0.3, a symbol co-located with a packed
+// symbol gets a 30% density boost, favoring coherent subgraphs over scattered
+// high-scoring singletons. Set via BENCH_COHERENCE_BONUS for experiments.
+var CoherenceBonus = 0.0
+
 // edgeWeights maps edge type strings to weight multipliers used during RWR iteration.
 // Higher weights cause more probability to flow along those edge types.
 var edgeWeights = map[string]float64{
