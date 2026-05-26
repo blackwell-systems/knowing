@@ -2,7 +2,7 @@ name: npm Supply Chain Scanner
 
 on:
   schedule:
-    - cron: '0 */6 * * *'  # every 6 hours (conservative start, increase when proven)
+    - cron: '0 */3 * * *'  # every 3 hours (8 runs/day, ~15 min each, well within free tier)
   workflow_dispatch:         # manual trigger for testing
 
 permissions:
