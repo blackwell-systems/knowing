@@ -263,7 +263,7 @@ P@10=0.238 (Run 26, 167 tasks, 9 repos). 1.76x vs codegraph, 3.17x vs GitNexus, 
 
 | # | Item | Why | Status |
 |---|------|-----|--------|
-| 7 | **Bidirectional inheritance edges** | Current inherits edges go child -> parent.method. Added reverse: parent.method -> child.method (same name). Enables 1-hop RWR walk from base class methods to concrete implementations. Key for Django (42% of tasks score zero due to unreachable base class methods). | Testing (session 16) |
+| 7 | ~~Bidirectional inheritance edges~~ | Tested session 16: Django -2.5%, Flask -1.5%. Reverse inherits edges add noise without new reachability. Django's 42% zero-rate is vocabulary gaps, not connectivity gaps. | **Rejected** |
 | 8 | **Density-adaptive RWR alpha** | Observe edge/node ratio at query time. High density (>5 edges/node): lower alpha (0.15) to walk further. Low density (<2 edges/node): higher alpha (0.25) to stay near seeds. | To test |
 | 9 | **Density-adaptive inherits weight** | Deep-inheritance repos (Django, Kafka) benefit from higher inherits edge weight. Flat repos (Go, Rust) don't use it. Auto-detect inheritance depth and boost inherits weight from 0.3 to 0.6 when depth > 3. | To test |
 | 10 | **Adaptive seed count by structural richness** | % of type nodes with contains edges indicates how productive type seeds are. High % (>60%): fewer seeds needed (types reach methods). Low %: more seeds needed to compensate. | To test |
