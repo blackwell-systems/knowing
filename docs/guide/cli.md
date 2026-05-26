@@ -13,7 +13,7 @@ See [distribution.md](distribution.md) for installation instructions.
 knowing <subcommand> [flags]
 ```
 
-Subcommands: `serve`, `daemon`, `index`, `query`, `export`, `diff`, `context`, `why`, `mcp`, `watch`, `reindex`, `init`, `add`, `remove`, `list`, `stats`, `stale`, `reset`, `vacuum`, `test-scope`, `ingest-scip`, `enrich`, `fsck`, `prove`, `verify`, `prove-absent`, `audit`, `audit-diff`, `version`.
+Subcommands: `serve`, `daemon`, `index`, `query`, `export`, `diff`, `context`, `why`, `mcp`, `watch`, `reindex`, `init`, `add`, `remove`, `list`, `stats`, `stale`, `reset`, `vacuum`, `test-scope`, `ingest-scip`, `enrich`, `fsck`, `prove`, `verify`, `prove-absent`, `audit`, `audit-diff`, `audit-supply-chain`, `version`.
 
 ## Environment
 
@@ -546,6 +546,8 @@ data without needing a separate `knowing watch` or `knowing serve` process.
 | `-url` | string | *(auto-detected)* | Repository URL (auto-detected from git remote if empty) |
 | `-no-enrich` | bool | `false` | Skip LSP enrichment after reindex (only with `-watch`) |
 | `-debounce` | int | `500` | Debounce interval in milliseconds (only with `-watch`) |
+| `-embeddings` | bool | `false` | Enable local embedding re-ranker (+15% retrieval). Runs entirely on your machine, no API keys, no cloud calls, no charges. Downloads a 30MB model once on first use. |
+| `-embed-model` | string | `jina-code` | Embedding model: `jina-code` (default, best for code), `bge-small`, `nomic-code`. All models run locally. |
 
 **Examples:**
 
@@ -555,6 +557,12 @@ knowing mcp
 
 # Start with file watching enabled (re-indexes on save)
 knowing mcp --watch
+
+# Enable embedding re-ranker for +15% better retrieval (local, no API)
+knowing mcp --watch --embeddings
+
+# Use a specific embedding model
+knowing mcp --watch --embeddings --embed-model jina-code
 
 # Watch a specific repo path with custom debounce
 knowing mcp --watch -repo ./my-repo -debounce 1000
@@ -1388,6 +1396,66 @@ knowing audit-diff @prev @latest
 - Requires a pre-built database containing both snapshots.
 - Change classifications: `behavioral` (calls, imports), `structural` (implements, references), `runtime_drift` (runtime_calls, runtime_rpc), `metadata_only` (confidence or provenance change only).
 - Output is a JSON report with added edge count, removed edge count, classification breakdown, and per-edge details.
+
+---
+
+### audit-supply-chain
+
+Detect supply chain attack patterns by combining structural diff with isolation scoring.
+
+```
+knowing audit-supply-chain --base <ref> [--head <ref>] [flags]
+```
+
+Analyzes files in the database for supply chain risk signals: structurally isolated code
+(zero inbound edges from legitimate modules) with outbound edges to dangerous APIs
+(credential reads, process spawning, network exfiltration). Computes an isolation score
+(0.0 to 1.0) per file and traces capability paths (e.g., "reads GITHUB_TOKEN, spawns curl").
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `-db` | string | *(default DB)* | Path to the SQLite database |
+| `-base` | string | *(required)* | Baseline snapshot ref |
+| `-head` | string | `@latest` | Current snapshot ref |
+| `-threshold` | float | `0.3` | Isolation score threshold for flagging suspicious files |
+| `-scan-all` | bool | `false` | Scan all files (skip diff, for when clean/compromised are in separate DBs) |
+| `-fail-on-suspicious` | bool | `false` | Exit non-zero if any file exceeds threshold |
+| `-o` | string | *(stdout)* | Write JSON report to file |
+
+**Examples:**
+
+```bash
+# Scan all files in a database for supply chain patterns
+knowing audit-supply-chain --base @latest --head @latest --scan-all -db suspect.db
+
+# Compare two versions (same DB containing both snapshots)
+knowing audit-supply-chain --base abc123 --head def456 -o report.json
+
+# CI gate: fail if suspicious code detected
+knowing audit-supply-chain --base @prev --head @latest --fail-on-suspicious
+```
+
+**Output (JSON):**
+
+Reports suspicious files with isolation scores, credential reads (`reads_env`),
+process spawning (`executes_process`), and capability paths showing the attack chain.
+
+```json
+{
+  "summary": {"files_analyzed": 3, "files_suspicious": 1, "env_reads_total": 2, "process_exec_total": 1},
+  "suspicious_files": [{
+    "file": "src/malicious.ts",
+    "score": 0.9,
+    "reads_env": ["env://GITHUB_TOKEN", "env://NPM_TOKEN"],
+    "executes_process": ["process://curl"]
+  }],
+  "capability_paths": [{"from": "env://GITHUB_TOKEN", "to": "process://curl"}]
+}
+```
+
+**Safety:** Analyzes code via tree-sitter AST parsing. Never executes JavaScript, Python, or any other code.
 
 ---
 
