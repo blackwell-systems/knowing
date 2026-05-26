@@ -186,7 +186,7 @@ var GapThreshold = 0.3
 
 // GapMaxCandidates is the maximum number of gap candidates to inject per query.
 // Set via BENCH_GAP_MAX for parameter sweep experiments.
-var GapMaxCandidates = 5
+var GapMaxCandidates = 3
 
 // CoherenceBonus controls the density boost for symbols that share a file with
 // already-packed symbols. Range [0.0, 1.0]. At 0.0 (default), packing is purely
