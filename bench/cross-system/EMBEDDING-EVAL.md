@@ -74,6 +74,22 @@ KNOWING_EMBED_MODEL=jina-code BENCH_EMBEDDINGS=1 BENCH_REPOS=flask BENCH_ADAPTER
    0.3 embedding) should preserve the original's strong #1 ranking while still promoting
    relevant symbols from lower ranks.
 
+## Full Corpus Result (CONFIRMED, Session 15)
+
+| Metric | Baseline | Re-ranker (jina-code) | Delta |
+|--------|----------|----------------------|-------|
+| **P@10** | 0.207 | **0.238** | **+15.0%** |
+| **R@10** | 0.306 | **0.362** | **+18.3%** |
+| **NDCG** | 0.349 | **0.393** | **+12.6%** |
+| **MRR** | 0.407 | **0.440** | **+8.1%** |
+| Tasks | 167 | 167 | - |
+| Latency | 0ms | 10,539ms | (fixable with custom engine) |
+
+Every metric improved. Biggest improvement in project history. Run completed
+in 4,820s (80 min) with no timeout.
+
+Top per-repo improvements: Kubernetes +92.8%, Kafka +39.5%, Cargo +15.9%.
+
 ## Baseline (no embeddings)
 
 | Repo | P@10 | R@10 | NDCG | MRR | Tasks |
