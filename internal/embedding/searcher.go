@@ -130,6 +130,33 @@ func (s *Searcher) ReRank(ctx context.Context, query string, candidates []string
 	return result, nil
 }
 
+// ReRankScores embeds the query and each candidate, returns cosine similarity
+// scores for each candidate at its original index position.
+func (s *Searcher) ReRankScores(ctx context.Context, query string, candidates []string) ([]float64, error) {
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+
+	all := make([]string, 0, 1+len(candidates))
+	all = append(all, query)
+	all = append(all, candidates...)
+
+	vecs, err := s.embedder.EmbedBatch(ctx, all)
+	if err != nil {
+		return nil, fmt.Errorf("rerank-scores embed: %w", err)
+	}
+	if len(vecs) < 1+len(candidates) {
+		return nil, fmt.Errorf("rerank-scores: expected %d vectors, got %d", 1+len(candidates), len(vecs))
+	}
+
+	queryVec := vecs[0]
+	scores := make([]float64, len(candidates))
+	for i := range candidates {
+		scores[i] = cosine(queryVec, vecs[i+1])
+	}
+	return scores, nil
+}
+
 // cosine computes cosine similarity between two vectors.
 func cosine(a, b []float32) float64 {
 	var dot, normA, normB float32

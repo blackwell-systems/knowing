@@ -165,6 +165,12 @@ var AdaptiveDensity bool
 // Used by AdaptiveDensity to decide thresholds. 0 means unknown.
 var GraphNodeCount int
 
+// ReRankOriginalWeight controls the blend between original RWR score and embedding
+// similarity in the re-ranker. Range [0.0, 1.0]. Higher = more conservative (preserves
+// original ranking/MRR). Lower = more aggressive re-ranking (better recall, worse MRR).
+// Default 0.7. Set via BENCH_RERANK_WEIGHT for parameter sweep experiments.
+var ReRankOriginalWeight = 0.7
+
 // edgeWeights maps edge type strings to weight multipliers used during RWR iteration.
 // Higher weights cause more probability to flow along those edge types.
 var edgeWeights = map[string]float64{

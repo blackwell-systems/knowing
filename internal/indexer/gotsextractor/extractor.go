@@ -121,6 +121,12 @@ func (e *GoTreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractO
 			node := extractFuncDecl(child, opts, pkgPath)
 			nodes = append(nodes, node)
 			edges = append(edges, extractGoTypeHints(child, opts, pkgPath, node.NodeHash, imports)...)
+			envNodes, envEdges := extractEnvReadEdges(child, opts, pkgPath, node.NodeHash)
+			nodes = append(nodes, envNodes...)
+			edges = append(edges, envEdges...)
+			procNodes, procEdges := extractProcessExecEdges(child, opts, pkgPath, node.NodeHash)
+			nodes = append(nodes, procNodes...)
+			edges = append(edges, procEdges...)
 			body := child.ChildByFieldName("body")
 			// Single-pass walk: visits every node in the body once, dispatching to
 			// all pattern detectors (calls, throws, routes, flags, endpoints).
@@ -133,6 +139,12 @@ func (e *GoTreeSitterExtractor) Extract(ctx context.Context, opts types.ExtractO
 			nodes = append(nodes, node)
 			edges = append(edges, extractGoTypeHints(child, opts, pkgPath, node.NodeHash, imports)...)
 			edges = append(edges, extractFieldAccessEdges(child, opts, pkgPath, node.NodeHash)...)
+			envNodes, envEdges := extractEnvReadEdges(child, opts, pkgPath, node.NodeHash)
+			nodes = append(nodes, envNodes...)
+			edges = append(edges, envEdges...)
+			procNodes, procEdges := extractProcessExecEdges(child, opts, pkgPath, node.NodeHash)
+			nodes = append(nodes, procNodes...)
+			edges = append(edges, procEdges...)
 			body := child.ChildByFieldName("body")
 			// Single-pass walk: same as function_declaration.
 			bodyResult := walkBodyOnce(body, opts, pkgPath, node.NodeHash, imports, externalNodes)

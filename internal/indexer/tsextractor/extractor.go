@@ -207,6 +207,12 @@ func (e *TypeScriptExtractor) extractNodeWithImports(
 		epNodes, epEdges := ExtractEndpointEdges(body, opts, qnamePrefix, n.NodeHash)
 		*nodes = append(*nodes, epNodes...)
 		*edges = append(*edges, epEdges...)
+		envNodes, envEdges := ExtractEnvReadEdges(body, opts, qnamePrefix, n.NodeHash)
+		*nodes = append(*nodes, envNodes...)
+		*edges = append(*edges, envEdges...)
+		procNodes, procEdges := ExtractProcessExecEdges(body, opts, qnamePrefix, n.NodeHash)
+		*nodes = append(*nodes, procNodes...)
+		*edges = append(*edges, procEdges...)
 
 	case "class_declaration":
 		n := extractClassDecl(node, opts, qnamePrefix)

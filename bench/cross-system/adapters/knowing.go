@@ -53,6 +53,14 @@ func init() {
 	if os.Getenv("BENCH_PREFER_TYPE_SEEDS") == "1" {
 		knowingctx.PreferTypeSeeds = true
 	}
+
+	// BENCH_RERANK_WEIGHT=0.85 sets the original score weight in the re-ranker blend.
+	// Range [0.0, 1.0]. Default 0.7. Higher = more conservative (preserves MRR).
+	if envWeight := os.Getenv("BENCH_RERANK_WEIGHT"); envWeight != "" {
+		if w, err := strconv.ParseFloat(envWeight, 64); err == nil && w >= 0 && w <= 1 {
+			knowingctx.ReRankOriginalWeight = w
+		}
+	}
 }
 
 // Knowing implements benchtype.Adapter for knowing's context engine.

@@ -133,6 +133,18 @@ func (e *TreeSitterExtractor) walkNodeWithImports(node *sitter.Node, opts types.
 		e.extractFunction(node, opts, classContext, result)
 		// Extract type_hint_of edges from parameter type annotations.
 		e.extractTypeHints(node, opts, classContext, pyImports, result)
+		// Extract reads_env and executes_process edges.
+		nameNode := node.ChildByFieldName("name")
+		if nameNode != nil {
+			fnName := e.qualifiedName(opts, classContext, nameNode.Content(opts.Content))
+			fnHash := types.ComputeNodeHash(opts.RepoURL, opts.ModuleRoot, opts.FileHash, fnName, types.KindFunction)
+			envNodes, envEdges := extractEnvReadEdges(node, opts, classContext, fnHash)
+			result.Nodes = append(result.Nodes, envNodes...)
+			result.Edges = append(result.Edges, envEdges...)
+			procNodes, procEdges := extractProcessExecEdges(node, opts, classContext, fnHash)
+			result.Nodes = append(result.Nodes, procNodes...)
+			result.Edges = append(result.Edges, procEdges...)
+		}
 		// Also walk the body with imports for nested calls inside nested functions.
 		body := node.ChildByFieldName("body")
 		if body != nil {

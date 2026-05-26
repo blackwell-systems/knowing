@@ -42,6 +42,9 @@ type VectorReRanker interface {
 	// ReRank embeds the query and each candidate text, returns indices sorted by
 	// descending cosine similarity to the query.
 	ReRank(ctx stdctx.Context, query string, candidates []string) ([]int, error)
+	// ReRankScores embeds the query and each candidate, returns cosine similarity
+	// scores (0.0-1.0) for each candidate at its original index position.
+	ReRankScores(ctx stdctx.Context, query string, candidates []string) ([]float64, error)
 }
 
 // ContextEngine queries the knowing knowledge graph to produce task-specific,
@@ -183,16 +186,40 @@ func (e *ContextEngine) reRankWithEmbeddings(ctx stdctx.Context, reranker Vector
 		candidates[i] = strings.Join(parts, " ")
 	}
 
-	// Re-rank via embeddings.
-	order, err := reranker.ReRank(ctx, task, candidates)
-	if err != nil || len(order) != reRankN {
+	// Get embedding similarity scores for each candidate.
+	scores, err := reranker.ReRankScores(ctx, task, candidates)
+	if err != nil || len(scores) != reRankN {
 		return ranked // fallback to original order on error
 	}
 
-	// Rebuild ranked slice: re-ranked top-N + unchanged tail.
+	// Blended scoring: preserve original rank signal while boosting semantically relevant.
+	// Tunable via ReRankOriginalWeight (default 0.7). Higher = more conservative (preserves MRR).
+	originalWeight := ReRankOriginalWeight
+	embedWeight := 1.0 - originalWeight
+
+	type blended struct {
+		idx   int
+		score float64
+	}
+	items := make([]blended, reRankN)
+	for i := 0; i < reRankN; i++ {
+		// Normalize original score to [0,1] relative to the top-N range.
+		origNorm := ranked[i].Score / ranked[0].Score // top symbol = 1.0
+		items[i] = blended{
+			idx:   i,
+			score: originalWeight*origNorm + embedWeight*scores[i],
+		}
+	}
+
+	// Sort by blended score descending.
+	sort.Slice(items, func(a, b int) bool {
+		return items[a].score > items[b].score
+	})
+
+	// Rebuild ranked slice: blended top-N + unchanged tail.
 	result := make([]RankedSymbol, len(ranked))
-	for i, origIdx := range order {
-		result[i] = ranked[origIdx]
+	for i, item := range items {
+		result[i] = ranked[item.idx]
 	}
 	copy(result[reRankN:], ranked[reRankN:])
 	return result
