@@ -1,5 +1,21 @@
 # Dense Graph Dilution: Analysis Plan
 
+## Resolution (Session 16, 2026-05-26)
+
+The dense graph dilution problem is substantially resolved:
+- **PreferTypeSeeds** (session 14): VS Code 0.084 -> 0.137 (+63%)
+- **Embedding re-ranker** (session 15): aggregate 0.207 -> 0.238 (+15%), VS Code stable at 0.137
+- **Adaptive seed count** (session 16): Django 0.197 -> 0.225 (+14.2%) by increasing seeds on large graphs
+- **Full corpus**: P@10 = 0.238, zero regressions on any repo
+- VS Code re-ranker regression (session 15: -16%) resolved in session 16: 0% delta
+
+Success criteria status: VS Code P@10=0.137 (target was >=0.150, close but not met).
+Aggregate P@10=0.238 (target was >=0.210, exceeded by +13%). No regressions on any repo.
+
+Remaining investigation: VS Code 0.137 is still below the 0.163 it achieved with broken
+extraction (43K nodes). The 87K-node correct extraction still dilutes seeds. Further
+density-adaptive strategies (adaptive alpha, FTS channel balancing) are on the roadmap.
+
 ## Problem Statement
 
 When the TypeScript extractor correctly extracts exported declarations (export_statement fix),
