@@ -13,7 +13,7 @@
 ---
 
 <p align="center">
-Self-adapting code intelligence engine. Observes its own graph density and adjusts retrieval strategy automatically. 34 edge types, 28 MCP tools, cryptographic proofs. Gets smarter with scale, not dumber.
+Self-adapting code intelligence engine. Observes its own graph density and adjusts retrieval strategy automatically. 38 edge types, 28 MCP tools, local embedding re-ranker, cryptographic proofs. Gets smarter with scale, not dumber.
 </p>
 
 ---
@@ -44,10 +44,10 @@ That's it. The MCP server auto-indexes your repo on first launch. Your agent now
 knowing is three products built on one foundation (content-addressed graph with hierarchical Merkle trees):
 
 **1. Context engine for AI agents**
-One call returns the most relevant symbols for a task, ranked by graph centrality, recency, and learned usefulness, packed to fit your token budget. 47% fewer tool calls. 84% fewer tokens. Results improve with feedback.
+One call returns the most relevant symbols for a task, ranked by graph centrality, recency, and learned usefulness, packed to fit your token budget. An optional local embedding re-ranker (+15% precision) reorders graph-surfaced candidates by semantic similarity, using pure Go inference with no API calls. 47% fewer tool calls. 84% fewer tokens. Results improve with feedback.
 
 **2. Audit primitive for compliance**
-Every graph state is a Merkle root tied to a git commit. `knowing prove` generates a cryptographic proof that a relationship existed. `knowing verify` checks it offline. `knowing fsck` verifies the entire graph in 98ms.
+Every graph state is a Merkle root tied to a git commit. `knowing prove` generates a cryptographic proof that a relationship existed. `knowing verify` checks it offline. `knowing fsck` verifies the entire graph in 98ms. Supply chain detection extracts credential access, process spawning, and network exfiltration edges to flag structurally suspicious code.
 
 **3. Memory layer that learns**
 Feedback from agents compounds across sessions. When code changes, feedback expires automatically (verified via package Merkle roots). The system gets smarter over time, not noisier. That is the property knowing is built around.
@@ -71,6 +71,7 @@ These aren't separate features. They're structural consequences of content-addre
 - "Prove service A calls service B at this commit." (Merkle proof, verifiable offline)
 - "Prove this dependency does NOT exist." (absence proof via sorted leaves)
 - "Generate a compliance report." (`knowing audit -proofs`, one command)
+- "Does this package read credentials and spawn processes?" (`knowing audit-supply-chain --scan-all`)
 
 ---
 
@@ -78,6 +79,10 @@ These aren't separate features. They're structural consequences of content-addre
 
 | What | Result |
 |---|---:|
+| Cross-system retrieval | **P@10=0.238** (167 tasks, 9 repos, 6 languages) |
+| vs competitors | 1.76x codegraph (19K stars), 3.17x GitNexus, 3.78x Gortex, 18.3x grep |
+| Embedding re-ranker | +15% P@10, +18.3% R@10 (local inference, no API, no charges) |
+| Re-rank latency | 220ms cached, 660ms uncached (vector cache in SQLite) |
 | Agent context precision | +20pp after 1 round, +34pp after 5 |
 | Tool calls saved | 47% fewer (one context call replaces repeated grep+read) |
 | Token savings | 84% fewer tokens (GCF wire format) |
@@ -87,10 +92,9 @@ These aren't separate features. They're structural consequences of content-addre
 | Graph integrity check | 98ms (24,936 edges) |
 | Proof generation | 72us generate, 1.2us verify |
 | Feedback expiration | 100% expire on code change, 11% overhead |
-| Cross-repo retrieval | 46.7% R@10 on foreign codebase, zero config |
-| Cross-system retrieval | P@10=0.217, 1.63x vs codegraph (19K stars), 4.3x vs Aider, 11x vs grep |
-| Indexing throughput | 7 repos (47,150 files) in ~52s |
-| Language coverage | 7/7 repos pass (Go, Python, TS, Rust, Java, C#). codegraph: 5/7 |
+| Indexing throughput | 9 repos (6 languages) in ~52s |
+| Language coverage | 9/9 repos pass (Go, Python, TS, Rust, Java, C#) |
+| Edge types | 38 (including supply chain: reads_env, executes_process) |
 
 All benchmarks are reproducible: `GOWORK=off go test ./bench/... -timeout 5m`
 
@@ -134,6 +138,9 @@ knowing fsck
 
 # Check if the graph is stale (CI gate: exits 1 if stale)
 knowing stale
+
+# Supply chain audit (scan all files for suspicious patterns)
+knowing audit-supply-chain --scan-all
 ```
 
 ### MCP Integration
@@ -151,6 +158,8 @@ knowing stale
 ```
 
 The `--watch` flag re-indexes on file changes. Your agent always queries fresh data. No manual `knowing index` or database path needed: the MCP server auto-indexes the git repository on first launch and registers it in the roster for future sessions.
+
+Add `--embeddings` to enable the local embedding re-ranker (+15% precision, fully offline, no API keys, no charges). The model auto-downloads on first use (~30MB).
 
 For HTTP transport (multi-agent, daemon mode):
 
@@ -203,11 +212,12 @@ The entire system is built on one idea: content-addressed identity. Every symbol
 +----------------+------------------------+--------------------------+
 |   Indexer      |     Graph Store        |      MCP Server          |
 |                |                        |                          |
-| 26 extractors  | Content-addressed      | 28 tools + 8 resources   |
+| 23 extractors  | Content-addressed      | 28 tools + 8 resources   |
 | tree-sitter    | SQLite + Merkle tree   | stdio / HTTP (1.8s index)|
-| LSP + SCIP     | Hierarchical snapshots | GCF / GCB / JSON         |
+| LSP + SCIP     | 38 edge types          | GCF / GCB / JSON         |
 | OTel traces    | Subgraph cache (93x)   | PackRoot dedup (99%)     |
-|                | Community detection    |                          |
+|                | Embedding vector cache | Embedding re-ranker      |
+|                | Community detection    | Supply chain audit       |
 +----------------+------------------------+--------------------------+
 ```
 
@@ -303,6 +313,7 @@ GCF uses `|`-separated fields and local IDs (`$1 -> $3`) instead of repeated qua
 - Static blast radius follows `calls` edges; other edge types provide context, not traversal.
 - Runtime tools require OpenTelemetry trace ingestion; without traces they have no observations.
 - LSP enrichment: Go, TypeScript, Python, Rust, Java, C#. Auto-detected from project markers. Others fall back to tree-sitter.
+- Embedding re-ranker is opt-in (`--embeddings`). Adds ~220ms to query time (cached) or ~660ms (first run). Improves average precision but regresses on some dense-graph repos.
 
 ---
 
@@ -317,6 +328,7 @@ GCF uses `|`-separated fields and local IDs (`$1 -> $3`) instead of repeated qua
 | [MCP Tools](docs/guide/mcp-tools.md) | Tool schemas, parameters, return formats |
 | [Edge Types](docs/architecture/edge-types.md) | Relationship semantics and provenance |
 | [Context Packing](docs/architecture/context-packing.md) | RWR, HITS, ranking, token budgeting |
+| [Embedding Re-ranker](docs/architecture/embedding-reranker.md) | Local inference, vector cache, latency profile |
 | [Runtime Traces](docs/operations/runtime-traces.md) | OTel ingestion and runtime confidence |
 | [Wire Formats](docs/architecture/wire-formats.md) | GCF, GCB, JSON formats and benchmarks |
 | [Roadmap](docs/roadmap.md) | Completed workstreams and next priorities |
