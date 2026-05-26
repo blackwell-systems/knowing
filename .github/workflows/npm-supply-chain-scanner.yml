@@ -22,15 +22,22 @@ jobs:
 
       - name: Fetch recent npm publishes
         run: |
-          chmod +x scripts/fetch-npm-recent-changes.sh
-          ./scripts/fetch-npm-recent-changes.sh 180 200 > all-packages.txt
+          chmod +x scripts/fetch-npm-recent-changes.sh scripts/fetch-recent-publishes.sh
+          # Try real-time feed first, fall back to curated watchlist
+          ./scripts/fetch-npm-recent-changes.sh 180 200 > all-packages.txt 2>/dev/null || true
+          FOUND=$(grep -cv "^#" all-packages.txt 2>/dev/null || echo "0")
+          if [ "$FOUND" -lt 5 ]; then
+            echo "Real-time feed returned $FOUND packages, falling back to watchlist"
+            ./scripts/fetch-recent-publishes.sh > all-packages.txt 2>/dev/null || true
+          fi
           echo "Total packages:"
-          wc -l < all-packages.txt
+          grep -cv "^#" all-packages.txt 2>/dev/null || echo "0"
 
       - name: Split into parallel batches
         id: split
         run: |
-          TOTAL=$(grep -c -v "^#" all-packages.txt || echo 0)
+          TOTAL=$(grep -cv "^#" all-packages.txt 2>/dev/null || echo "0")
+          TOTAL=$(echo "$TOTAL" | tr -d '[:space:]')
           echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
 
           # Split into batches of 25 for parallel scanning
