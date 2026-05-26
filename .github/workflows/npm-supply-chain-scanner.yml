@@ -2,135 +2,196 @@ name: "Supply Chain Scanner: npm"
 
 on:
   schedule:
-    - cron: '0 */3 * * *'  # every 3 hours (8 runs/day, ~15 min each, well within free tier)
-  workflow_dispatch:         # manual trigger for testing
+    - cron: '0 */3 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: write
   issues: write
 
 jobs:
-  scan:
+  fetch:
+    name: Fetch packages to scan
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.split.outputs.matrix }}
+      total: ${{ steps.split.outputs.total }}
     steps:
       - uses: actions/checkout@v4
 
+      - name: Fetch recent npm publishes
+        run: |
+          chmod +x scripts/fetch-npm-recent-changes.sh
+          ./scripts/fetch-npm-recent-changes.sh 180 200 > all-packages.txt
+          echo "Total packages:"
+          wc -l < all-packages.txt
+
+      - name: Split into parallel batches
+        id: split
+        run: |
+          TOTAL=$(grep -c -v "^#" all-packages.txt || echo 0)
+          echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
+
+          # Split into batches of 25 for parallel scanning
+          BATCH_SIZE=25
+          BATCHES=()
+          i=0
+          while IFS= read -r line; do
+            [[ "$line" == \#* ]] && continue
+            [ -z "$line" ] && continue
+            BATCH_IDX=$((i / BATCH_SIZE))
+            mkdir -p "batches"
+            echo "$line" >> "batches/batch-${BATCH_IDX}.txt"
+            i=$((i + 1))
+          done < all-packages.txt
+
+          # Build matrix JSON
+          MATRIX="["
+          FIRST=true
+          for f in batches/batch-*.txt; do
+            [ -f "$f" ] || continue
+            IDX=$(basename "$f" .txt | sed 's/batch-//')
+            COUNT=$(wc -l < "$f" | tr -d ' ')
+            if [ "$FIRST" = true ]; then FIRST=false; else MATRIX+=","; fi
+            MATRIX+="{\"batch\":\"$IDX\",\"count\":\"$COUNT\"}"
+          done
+          MATRIX+="]"
+
+          if [ "$MATRIX" = "[]" ]; then
+            MATRIX='[{"batch":"0","count":"0"}]'
+          fi
+
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo "Matrix: $MATRIX"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-batches
+          path: batches/
+          retention-days: 1
+
+  scan:
+    name: "Scan batch ${{ matrix.batch }} (${{ matrix.count }} pkgs)"
+    needs: fetch
+    if: needs.fetch.outputs.total != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        include: ${{ fromJSON(needs.fetch.outputs.matrix) }}
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: '1.25'
 
       - name: Build knowing
         run: GOWORK=off go build -o knowing ./cmd/knowing
-        env:
-          GOWORK: 'off'
 
-      - name: Fetch packages to scan
-        run: |
-          chmod +x scripts/fetch-recent-publishes.sh
-          ./scripts/fetch-recent-publishes.sh > packages.txt
-          echo "Packages to scan:"
-          cat packages.txt | grep -v "^#"
+      - uses: actions/download-artifact@v4
+        with:
+          name: package-batches
+          path: batches/
 
-      - name: Scan packages for supply chain anomalies
+      - name: Scan batch
         run: |
           mkdir -p scan-output
-          while IFS=' ' read -r pkg new_ver prev_ver; do
-            # Skip comments
-            [[ "$pkg" == \#* ]] && continue
-            [ -z "$pkg" ] && continue
+          BATCH_FILE="batches/batch-${{ matrix.batch }}.txt"
+          [ -f "$BATCH_FILE" ] || { echo "No batch file"; exit 0; }
 
-            echo ""
+          while IFS=' ' read -r pkg new_ver prev_ver; do
+            [ -z "$pkg" ] && continue
             echo "=== Scanning $pkg: $prev_ver -> $new_ver ==="
 
             WORK=$(mktemp -d)
-            trap "rm -rf $WORK" RETURN
+            npm pack "${pkg}@${prev_ver}" --pack-destination "$WORK" 2>/dev/null || { rm -rf "$WORK"; continue; }
+            npm pack "${pkg}@${new_ver}" --pack-destination "$WORK" 2>/dev/null || { rm -rf "$WORK"; continue; }
 
-            # Download both versions (tarball only, no install, no execution)
-            npm pack "${pkg}@${prev_ver}" --pack-destination "$WORK" 2>/dev/null || continue
-            npm pack "${pkg}@${new_ver}" --pack-destination "$WORK" 2>/dev/null || continue
-
-            # Extract
             mkdir -p "$WORK/old" "$WORK/new"
             OLD_TGZ=$(ls "$WORK"/*"${prev_ver}"*.tgz 2>/dev/null | head -1)
             NEW_TGZ=$(ls "$WORK"/*"${new_ver}"*.tgz 2>/dev/null | head -1)
-            [ -z "$OLD_TGZ" ] || [ -z "$NEW_TGZ" ] && continue
+            [ -z "$OLD_TGZ" ] || [ -z "$NEW_TGZ" ] && { rm -rf "$WORK"; continue; }
 
             tar xzf "$OLD_TGZ" -C "$WORK/old" --strip-components=1
             tar xzf "$NEW_TGZ" -C "$WORK/new" --strip-components=1
 
-            # Initialize git repos (knowing needs git)
             (cd "$WORK/old" && git init -q && git add . && git commit -q -m "old" 2>/dev/null) || true
             (cd "$WORK/new" && git init -q && git add . && git commit -q -m "new" 2>/dev/null) || true
 
-            # Index both versions
-            ./knowing index -db "$WORK/old.db" -no-enrich "$WORK/old" 2>/dev/null || continue
-            ./knowing index -db "$WORK/new.db" -no-enrich "$WORK/new" 2>/dev/null || continue
+            ./knowing index -db "$WORK/new.db" -no-enrich "$WORK/new" 2>/dev/null || { rm -rf "$WORK"; continue; }
 
-            # Get snapshots
-            OLD_SNAP=$(./knowing query -db "$WORK/old.db" --latest-snapshot 2>/dev/null || echo "")
-            NEW_SNAP=$(./knowing query -db "$WORK/new.db" --latest-snapshot 2>/dev/null || echo "")
-
-            if [ -n "$OLD_SNAP" ] && [ -n "$NEW_SNAP" ]; then
-              # Run supply chain audit
-              ./knowing audit-supply-chain \
-                --db "$WORK/new.db" \
-                --base "$OLD_SNAP" \
-                --head "$NEW_SNAP" \
-                -o "$WORK/report.json" 2>/dev/null || true
+            SNAP=$(sqlite3 "$WORK/new.db" "SELECT hex(snapshot_hash) FROM snapshots LIMIT 1" 2>/dev/null || echo "")
+            if [ -n "$SNAP" ]; then
+              ./knowing audit-supply-chain -db "$WORK/new.db" -base "$SNAP" -head "$SNAP" -scan-all -o "$WORK/report.json" 2>/dev/null || true
 
               if [ -f "$WORK/report.json" ]; then
-                MAX_SCORE=$(bash scripts/check-isolation-score.sh "$WORK/report.json" 0.7) && {
-                  echo "  *** SUSPICIOUS: isolation score $MAX_SCORE > 0.7 ***"
-                  cp "$WORK/report.json" "scan-output/${pkg//\//_}_${new_ver}.json"
+                MAX_SCORE=$(bash scripts/check-isolation-score.sh "$WORK/report.json" 0.3) && {
+                  echo "  *** SUSPICIOUS: isolation score $MAX_SCORE ***"
+                  SAFE=$(echo "${pkg}_${new_ver}" | tr '/@' '__')
+                  cp "$WORK/report.json" "scan-output/${SAFE}.json"
                 } || echo "  Clean (score: $MAX_SCORE)"
               fi
             fi
-
             rm -rf "$WORK"
-          done < packages.txt
+          done < "$BATCH_FILE"
 
-      - name: Report findings
+      - uses: actions/upload-artifact@v4
         if: always()
+        with:
+          name: scan-results-batch-${{ matrix.batch }}
+          path: scan-output/
+          retention-days: 90
+
+  report:
+    name: Report findings
+    needs: [fetch, scan]
+    if: always() && needs.fetch.outputs.total != '0'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: scan-results-batch-*
+          path: all-results/
+          merge-multiple: true
+
+      - name: Aggregate and report
         run: |
-          ALERTS=$(ls scan-output/*.json 2>/dev/null | wc -l | tr -d ' ')
-          echo "Scan complete. Suspicious packages: $ALERTS"
+          ALERTS=$(find all-results -name "*.json" 2>/dev/null | wc -l | tr -d ' ')
+          echo "Total suspicious packages: $ALERTS"
+
+          {
+            echo "## npm Supply Chain Scanner"
+            echo ""
+            echo "Scanned **${{ needs.fetch.outputs.total }}** packages."
+            echo ""
+            if [ "$ALERTS" -gt 0 ]; then
+              echo "### :rotating_light: $ALERTS suspicious package(s) detected"
+              echo ""
+              for f in all-results/*.json; do
+                [ -f "$f" ] || continue
+                PKG=$(basename "$f" .json | tr '_' '/')
+                echo "<details><summary>$PKG</summary>"
+                echo ""
+                echo '```json'
+                python3 -m json.tool "$f" 2>/dev/null || cat "$f"
+                echo '```'
+                echo "</details>"
+                echo ""
+              done
+            else
+              echo ":white_check_mark: No suspicious packages detected. All clear."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
           if [ "$ALERTS" -gt 0 ]; then
-            echo "## Supply Chain Scanner Alert" > alert-body.md
-            echo "" >> alert-body.md
-            echo "The automated scanner detected **$ALERTS** suspicious package update(s):" >> alert-body.md
-            echo "" >> alert-body.md
-            for f in scan-output/*.json; do
-              PKG=$(basename "$f" .json | sed 's/_/\//g')
-              echo "### $PKG" >> alert-body.md
-              echo '```json' >> alert-body.md
-              python3 -m json.tool "$f" >> alert-body.md 2>/dev/null || cat "$f" >> alert-body.md
-              echo '```' >> alert-body.md
-              echo "" >> alert-body.md
-            done
-          fi
-
-      - name: Create issue for suspicious findings
-        if: always()
-        run: |
-          if [ -f alert-body.md ]; then
-            # Draft issue (not public) for responsible disclosure.
-            # Manually publish after notifying registry security team.
+            BODY=$(cat "$GITHUB_STEP_SUMMARY")
             gh issue create \
               --title "[DRAFT] npm supply chain alert: $(date -u +%Y-%m-%d)" \
-              --body "$(cat alert-body.md)" \
-              --label "supply-chain-alert,draft-disclosure" || echo "No alerts to report"
-          else
-            echo "No suspicious packages detected. All clear."
+              --body "$BODY" \
+              --label "supply-chain-alert,draft-disclosure" || echo "Issue creation failed"
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload scan artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: scan-results-${{ github.run_id }}
-          path: scan-output/
-          retention-days: 90
