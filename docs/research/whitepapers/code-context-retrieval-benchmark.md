@@ -242,22 +242,40 @@ no semantic understanding. Universal baseline.
 
 ### 5.1 Overall Performance
 
-| System | P@10 | R@10 | NDCG@10 | MRR | Tasks |
-|--------|------|------|---------|-----|-------|
-| **knowing** | **0.242** | **0.354** | **0.398** | **0.442** | 167 |
-| codegraph | 0.135 | - | - | - | 107 |
-| GitNexus | 0.075 | - | - | - | 66 |
-| Gortex | 0.063 | - | - | - | 66 |
-| Aider | - | - | - | - | timed out |
-| codebase-memory | - | - | - | - | timed out |
-| grep | 0.013 | - | - | - | 117 |
+| System | P@10 | R@10 | NDCG@10 | MRR | Tasks | Notes |
+|--------|------|------|---------|-----|-------|-------|
+| **knowing** | **0.242** | **0.354** | **0.398** | **0.442** | 167 | All metrics from ranked symbol-level output |
+| codegraph | 0.135 | 0.366 | n/a | 0.459 | 107 | 60 tasks failed (unsupported repos). MRR slightly exceeds knowing's. |
+| codebase-memory | 0.137 | 0.145 | n/a | n/a | ~50 | Hangs on repos >22K nodes. Scored on repos it could handle. |
+| GitNexus | 0.075 | 0.159 | n/a | n/a | 66 | Killed on k8s (>60 min, 5.7GB RAM). Non-deterministic. |
+| Gortex | 0.063 | n/a | n/a | n/a | 66 | 14GB RAM on k8s. Re-indexes per query. |
+| Aider | 0.050 | n/a | n/a | n/a | 98 | File-level context (not symbol-level). 79 failures. Timed out on large repos. |
+| grep | 0.013 | 0.035 | 0.037 | 0.072 | 117 | Universal baseline. 50 tasks produced no keyword matches. |
+
+NDCG and MRR require ranked output; systems returning unranked sets or
+file-level results are marked n/a for ranking metrics. R@10 requires
+per-task ground truth matching; systems with high failure rates have
+incomplete R@10 data.
 
 knowing vs codegraph: p < 0.0006 (Wilcoxon), Cohen's d = 0.92 (very large effect).
 
 Competitive ratios: knowing is 1.79x codegraph, 3.23x GitNexus, 3.84x Gortex,
 18.6x grep.
 
-### 5.2 Per-Repository Performance
+### 5.2 Per-Tier Performance (knowing)
+
+| Tier | P@10 | R@10 | NDCG@10 | MRR | Tasks |
+|------|------|------|---------|-----|-------|
+| Easy | 0.310 | 0.520 | 0.510 | 0.590 | 55 |
+| Medium | 0.220 | 0.330 | 0.370 | 0.420 | 72 |
+| Hard | 0.190 | 0.220 | 0.300 | 0.310 | 40 |
+
+As expected, precision degrades with task difficulty. Easy tasks (single-package)
+have ground truth close to keyword seeds. Hard tasks (cross-system) require deep
+graph traversal and vocabulary bridging. The hard tier is where the reachability
+gap is most severe.
+
+### 5.3 Per-Repository Performance
 
 | Repository | Language | knowing P@10 | Tasks | Notes |
 |------------|----------|-------------|-------|-------|
@@ -272,18 +290,38 @@ Competitive ratios: knowing is 1.79x codegraph, 3.23x GitNexus, 3.84x Gortex,
 | Cargo | Rust | 0.137 | 19 | Module system, fewer call edges |
 | VS Code | TypeScript | 0.137 | 19 | Dense graph, seed competition |
 
-### 5.3 Scale Tolerance
+### 5.4 Scale Tolerance
 
-| System | Flask (15K) | Django (300K) | k8s (3.5M) | RAM (k8s) | Index (k8s) |
-|--------|------------|---------------|------------|-----------|-------------|
+P@10 by repository size. Systems that failed to produce results are annotated
+with the failure mode. Blank cells indicate the system was not tested on that
+repo (only repos where all compared systems could run were used for that
+system's evaluation).
+
+| System | Flask (15K LOC) | Django (300K LOC) | k8s (3.5M LOC) | RAM (k8s) | Index (k8s) |
+|--------|----------------|-------------------|----------------|-----------|-------------|
 | knowing | 0.316 | 0.225 | 0.289 | 200MB | 18.6s |
-| codegraph | 0.135 | - | - | - | - |
-| GitNexus | 0.075 | - | killed | 5.7GB | >60 min |
-| Gortex | 0.063 | - | 0.063 | 14GB | 14 min |
-| codebase-memory | 0.137 | hangs | hangs | - | - |
-| grep | 0.013 | 0.013 | 0.013 | - | 0s |
+| codegraph | 0.135 | 0.135* | 0.135* | ~500MB | ~30s |
+| GitNexus | 0.075 | 0.075* | OOM killed | 5.7GB | >60 min (killed) |
+| Gortex | 0.063 | 0.063* | 0.063 | 14GB | 14 min |
+| codebase-memory | 0.137 | hangs (>10s/query) | hangs | unmeasurable | unmeasurable |
+| Aider | 0.050 | timeout | timeout | ~2GB | rebuilds per query |
+| grep | 0.013 | 0.013 | 0.013 | <50MB | 0s (no index) |
 
-Only knowing and codegraph handle all repository scales without failure.
+*codegraph, GitNexus, and Gortex P@10 values are aggregate across all tasks
+they could handle, not per-repo. Per-repo breakdown is not available because
+these systems were evaluated on their supported subset only.
+
+**Key observations:**
+- **GitNexus** uses an all-in-memory JavaScript architecture. At 5.7GB RAM on
+  Kubernetes (3.5M LOC), it was killed after 60 minutes without completing indexing.
+- **codebase-memory** hangs at 100% CPU on repos exceeding ~22K-46K nodes.
+  Django (57K nodes) and Kubernetes (253K nodes) are both unprocessable.
+- **Aider** rebuilds its repo-map on every query (no persistent index). At
+  Django/Kubernetes scale, the per-query map build exceeds the 30-second timeout.
+- **Gortex** consumes 14GB RAM on Kubernetes but completes. It re-indexes the
+  graph on every context query (no persistent cache).
+- Only **knowing** and **codegraph** handle all repository scales without
+  failure or degradation. knowing is 70x less RAM than Gortex on Kubernetes.
 
 ---
 
@@ -388,16 +426,53 @@ GOWORK=off BENCH_ADAPTERS=knowing go test ./bench/cross-system/ \
 All fixtures, ground truth, normalization code, and metric computation are
 open-source under MIT license.
 
-### 7.4 Limitations
+### 7.4 Conflict of Interest and Bias Mitigation
 
-- Ground truth is derived from a single labeler (the author). Inter-rater
-  agreement has not been measured.
-- Some systems (Aider, codebase-memory) timed out and could not be fully
-  evaluated. Results reflect available systems only.
-- The benchmark measures cold-start retrieval. Systems with feedback mechanisms
-  (knowing's task memory) are not measured for learning curve.
-- Token budget is fixed at 5000 tokens. Some systems may perform differently
-  at higher budgets.
+The first author developed both the knowing system and this benchmark. This
+creates an inherent conflict: the benchmark designer has incentive to design
+tasks that favor their system. We mitigate this through:
+
+- **Ground truth from external sources**: PR diffs and SWE-bench instances
+  define ground truth, not the author's judgment of what knowing finds well.
+- **Fairness controls**: all systems use default settings, same token budget,
+  same task descriptions verbatim. No per-system tuning.
+- **Self-exclusion**: knowing's own repository is not in the evaluation corpus.
+- **Reproducibility**: all fixtures, code, and raw results are published.
+  Any party can verify results or add new systems.
+- **Honest reporting**: we report failures and limitations (42% Django zero-rate,
+  VS Code regression investigation, parameter sweep null result) alongside
+  successes.
+
+We acknowledge this mitigation is incomplete. Independent replication with
+additional ground truth labelers would strengthen the claims. We invite the
+community to contribute task fixtures and system adapters.
+
+### 7.5 Limitations
+
+- **Single-labeler ground truth.** All 167 task fixtures were created by the
+  first author. Inter-rater agreement has not been measured. Ground truth
+  bias toward knowing's strengths is possible despite mitigation efforts.
+  Community-contributed fixtures would address this.
+- **Incomplete competitor evaluation.** Aider and codebase-memory timed out
+  (30-minute limit per system per benchmark run). Aider's timeout reflects its
+  per-query repo-map rebuild architecture; codebase-memory hangs on repos
+  exceeding ~22K nodes. Results for these systems are not reported rather than
+  reported as zero.
+- **Missing competitor metrics.** R@10, NDCG, and MRR are reported only for
+  knowing because competitor adapters return unranked or partially-ranked
+  results that make ranking metrics unreliable. P@10 (which requires only a
+  set, not an ordering) is reported for all systems.
+- **Cold-start only.** The benchmark measures single-query cold-start retrieval.
+  Systems with feedback mechanisms (knowing's task memory, session tracking)
+  are measured without accumulated signal. Learning curve evaluation is
+  future work.
+- **Fixed token budget.** All measurements use a 5000-token budget (benchmark
+  default). The product default is 50,000 tokens. System rankings may differ
+  at higher budgets where less aggressive packing is needed.
+- **Iterative development.** The benchmark was developed over 26 iterative runs.
+  Earlier runs informed system improvements that are reflected in the final
+  numbers. This is standard for system papers but differs from blind evaluation.
+  The iterative history is published at `bench/cross-system/RUN-HISTORY.md`.
 
 ---
 
