@@ -74,6 +74,20 @@ func init() {
 		}
 	}
 
+	// BENCH_GAP_THRESHOLD=0.3 sets the embedding similarity threshold for gap injection.
+	if envGapThresh := os.Getenv("BENCH_GAP_THRESHOLD"); envGapThresh != "" {
+		if t, err := strconv.ParseFloat(envGapThresh, 64); err == nil && t >= 0 && t <= 1 {
+			knowingctx.GapThreshold = t
+		}
+	}
+
+	// BENCH_GAP_MAX=5 sets the max gap candidates to inject per query.
+	if envGapMax := os.Getenv("BENCH_GAP_MAX"); envGapMax != "" {
+		if m, err := strconv.Atoi(envGapMax); err == nil && m > 0 {
+			knowingctx.GapMaxCandidates = m
+		}
+	}
+
 	// BENCH_COHERENCE_BONUS=0.3 boosts density for symbols co-located with
 	// already-packed symbols. Range [0.0, 1.0]. Default 0.0 (no bonus).
 	if envCoherence := os.Getenv("BENCH_COHERENCE_BONUS"); envCoherence != "" {

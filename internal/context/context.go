@@ -1000,7 +1000,7 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 				continue
 			}
 			gapCandidates = append(gapCandidates, node)
-			if len(gapCandidates) >= 20 { // collect up to 20 for embedding filter
+			if len(gapCandidates) >= GapMaxCandidates*4 { // collect pool for embedding filter
 				break
 			}
 		}
@@ -1008,7 +1008,7 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 		if len(gapCandidates) > 0 {
 			// If embedding re-ranker is available, use it to filter gap candidates
 			// by semantic similarity to the task. Only inject candidates above threshold.
-			maxGap := 5
+			maxGap := GapMaxCandidates
 			if reranker, ok := e.vector.(VectorReRanker); ok && opts.TaskDescription != "" {
 				// Build candidate texts for embedding.
 				candidateTexts := make([]string, len(gapCandidates))
@@ -1037,7 +1037,7 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 						if gapCount >= maxGap {
 							break
 						}
-						if score < 0.3 {
+						if score < GapThreshold {
 							continue // not similar enough to task
 						}
 						inputs = append(inputs, ScoringInput{

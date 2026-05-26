@@ -179,6 +179,15 @@ var ReRankOriginalWeight = 0.0
 // Default false; auto-enabled when AdaptiveDensity is true.
 var AdaptiveSeedCount bool
 
+// GapThreshold is the minimum embedding cosine similarity for a gap candidate
+// to be injected. Range [0.0, 1.0]. Higher = stricter filter (fewer injections).
+// Set via BENCH_GAP_THRESHOLD for parameter sweep experiments.
+var GapThreshold = 0.3
+
+// GapMaxCandidates is the maximum number of gap candidates to inject per query.
+// Set via BENCH_GAP_MAX for parameter sweep experiments.
+var GapMaxCandidates = 5
+
 // CoherenceBonus controls the density boost for symbols that share a file with
 // already-packed symbols. Range [0.0, 1.0]. At 0.0 (default), packing is purely
 // density-ranked (current behavior). At 0.3, a symbol co-located with a packed
