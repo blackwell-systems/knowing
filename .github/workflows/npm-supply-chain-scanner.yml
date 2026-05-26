@@ -49,6 +49,7 @@ jobs:
           echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
 
           # Split into batches of 25 for parallel scanning
+          mkdir -p batches
           BATCH_SIZE=25
           BATCHES=()
           i=0
@@ -79,6 +80,9 @@ jobs:
 
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
           echo "Matrix: $MATRIX"
+
+          # Ensure batches dir has at least one file for artifact upload
+          [ -z "$(ls batches/ 2>/dev/null)" ] && echo "# empty" > batches/batch-0.txt
 
       - uses: actions/upload-artifact@v4
         with:
