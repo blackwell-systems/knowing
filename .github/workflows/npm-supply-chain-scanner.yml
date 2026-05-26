@@ -126,10 +126,12 @@ with open('$WORK/report.json') as f:
         if: always()
         run: |
           if [ -f alert-body.md ]; then
+            # Draft issue (not public) for responsible disclosure.
+            # Manually publish after notifying registry security team.
             gh issue create \
-              --title "Supply chain alert: $(date -u +%Y-%m-%d)" \
+              --title "[DRAFT] npm supply chain alert: $(date -u +%Y-%m-%d)" \
               --body "$(cat alert-body.md)" \
-              --label "supply-chain-alert" || echo "No alerts to report"
+              --label "supply-chain-alert,draft-disclosure" || echo "No alerts to report"
           else
             echo "No suspicious packages detected. All clear."
           fi

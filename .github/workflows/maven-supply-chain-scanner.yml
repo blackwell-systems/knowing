@@ -132,9 +132,9 @@ with open('$WORK/report.json') as f:
             done
             echo -e "$BODY" > alert-body.md
             gh issue create \
-              --title "Maven supply chain alert: $(date -u +%Y-%m-%d)" \
+              --title "[DRAFT] Maven supply chain alert: $(date -u +%Y-%m-%d)" \
               --body "$(cat alert-body.md)" \
-              --label "supply-chain-alert" || echo "No alerts to report"
+              --label "supply-chain-alert,draft-disclosure" || echo "No alerts to report"
           else
             echo "No suspicious packages detected."
           fi
