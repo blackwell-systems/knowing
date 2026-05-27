@@ -51,7 +51,24 @@ is used in the scoring formula.
 
 ### Three Phases Per Language Server
 
-The enrichment pipeline runs three phases for each detected language server:
+The enrichment pipeline runs three phases for each detected language server, followed by
+a phantom creation pass. Here is what each phase produces:
+
+| Phase | What it does | Nodes created | Edges created/modified |
+|-------|-------------|---------------|----------------------|
+| 1. Workspace Readiness | Opens a file, waits for server to load | None | None |
+| 2. Upgrade Call Edges | Confirms tree-sitter edges via GetDefinition | None (uses existing nodes) | Replaces `ast_inferred` with `lsp_resolved`. May retarget to a different node if LSP resolves differently than tree-sitter predicted. |
+| 3. Discover New Edges | Finds implements + references via GetImplementation/GetReferences | None directly | New `lsp_resolved` edges for relationships tree-sitter missed (interface implementations, cross-package references) |
+| Phantom Creation (after all phases) | Scans all edges, creates stub nodes for missing targets | Creates phantom external nodes for stdlib/dependency types | None (edges already exist; phantoms fill in missing endpoints) |
+
+The key sequencing insight: **upgrades** (Phase 2) never create nodes; they only change
+provenance and confidence on edges between nodes that already exist. **Discovery**
+(Phase 3) creates new edges whose targets may point to locations with no corresponding
+node record (e.g., a stdlib function or a type in an unindexed dependency). **Phantom
+creation** then fills in those gaps by scanning every edge and creating stub
+`external` nodes for any hash that has no node record in the database. This ordering
+means discovery does not need to worry about whether target nodes exist yet; it inserts
+edges freely, and the phantom pass cleans up afterward.
 
 **Phase 1: Workspace Readiness**
 
@@ -239,6 +256,61 @@ Enrichment time varies widely by language server performance and repo size:
 | cargo | Rust | 950 | ~1 min | 72K | rust-analyzer, fast |
 | ocelot | C# | 768 | ~6 min | 10K | csharp-ls |
 | terraform | Go | 2,242 | 5-15 min | varies | gopls warmup dominates (367 deps) |
+
+---
+
+## Inspecting Enrichment Results
+
+After enrichment completes, you can query the SQLite database directly to verify
+what changed. The queries below are grouped by purpose.
+
+### Basic Statistics
+
+```bash
+# Total nodes and edges in the graph
+sqlite3 graph.db "SELECT 'nodes', COUNT(*) FROM nodes UNION ALL SELECT 'edges', COUNT(*) FROM edges"
+
+# Breakdown of edges by provenance (ast_inferred vs lsp_resolved)
+sqlite3 graph.db "SELECT provenance, COUNT(*) FROM edges GROUP BY provenance ORDER BY COUNT(*) DESC"
+
+# Breakdown of edges by type
+sqlite3 graph.db "SELECT edge_type, COUNT(*) FROM edges GROUP BY edge_type ORDER BY COUNT(*) DESC"
+```
+
+### Enrichment Progress
+
+```bash
+# How many edges were upgraded by enrichment?
+sqlite3 graph.db "SELECT COUNT(*) FROM edges WHERE provenance='lsp_resolved'"
+
+# How many edges are still ast_inferred (not yet upgraded)?
+sqlite3 graph.db "SELECT COUNT(*) FROM edges WHERE provenance='ast_inferred'"
+
+# Check enrichment progress mid-run (run while enrichment is active)
+sqlite3 graph.db "SELECT provenance, COUNT(*) FROM edges GROUP BY provenance"
+
+# Edges discovered by enrichment (new, not upgrades)
+sqlite3 graph.db "SELECT edge_type, COUNT(*) FROM edges WHERE provenance='lsp_resolved' AND edge_type IN ('implements','references') GROUP BY edge_type"
+```
+
+### Phantom Nodes
+
+Phantom nodes are stub `external` nodes with no backing source file. They serve
+as graph connectors for stdlib and dependency types.
+
+```bash
+# How many phantom external nodes were created?
+sqlite3 graph.db "SELECT COUNT(*) FROM nodes n LEFT JOIN files f ON n.file_hash = f.file_hash WHERE f.file_hash IS NULL"
+
+# How many real (non-phantom) nodes exist?
+sqlite3 graph.db "SELECT COUNT(*) FROM nodes n JOIN files f ON n.file_hash = f.file_hash"
+
+# Sample phantom node names (check for quality)
+sqlite3 graph.db "SELECT qualified_name FROM nodes n LEFT JOIN files f ON n.file_hash = f.file_hash WHERE f.file_hash IS NULL LIMIT 10"
+```
+
+A phantom node count of zero means enrichment either did not run or produced no
+new edges pointing to external targets.
 
 ---
 

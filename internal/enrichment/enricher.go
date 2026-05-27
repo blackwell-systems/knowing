@@ -34,6 +34,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -603,6 +604,14 @@ func (e *Enricher) upgradeCallEdges(
 	if len(workItems) == 0 {
 		return
 	}
+
+	// Sort by URI so edges from the same file (and package) are adjacent.
+	// gopls loads packages on-demand; grouping by package means the first
+	// request triggers loading, and subsequent requests for that package
+	// are fast (package already in memory).
+	sort.Slice(workItems, func(i, j int) bool {
+		return workItems[i].uri < workItems[j].uri
+	})
 
 	log.Printf("enrichment: upgrading %d call edges (%d concurrent)", len(workItems), e.concurrency)
 
