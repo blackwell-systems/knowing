@@ -116,11 +116,23 @@ func DetectLSPServers(workspaceRoot string) *LSPConfig {
 		}
 	}
 
-	// C#: check for *.csproj or *.sln + OmniSharp
+	// C#: check for *.csproj or *.sln + OmniSharp or csharp-ls
 	if hasGlob(workspaceRoot, "*.csproj", "*.sln") {
 		if _, err := lookPath("OmniSharp"); err == nil {
 			servers = append(servers, LSPServerConfig{
 				Command:    []string{"OmniSharp", "--languageserver"},
+				Extensions: []string{"cs"},
+				LanguageID: "csharp",
+			})
+		} else if csharpLS, err := lookPath("csharp-ls"); err == nil {
+			servers = append(servers, LSPServerConfig{
+				Command:    []string{csharpLS},
+				Extensions: []string{"cs"},
+				LanguageID: "csharp",
+			})
+		} else if dotnetToolPath := filepath.Join(os.Getenv("HOME"), ".dotnet", "tools", "csharp-ls"); fileExists(dotnetToolPath) {
+			servers = append(servers, LSPServerConfig{
+				Command:    []string{dotnetToolPath},
 				Extensions: []string{"cs"},
 				LanguageID: "csharp",
 			})
@@ -154,4 +166,9 @@ var lookPath = execLookPath
 
 func execLookPath(file string) (string, error) {
 	return exec.LookPath(file)
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }

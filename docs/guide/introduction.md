@@ -4,7 +4,7 @@ This guide builds understanding from zero. No assumed background in content-addr
 
 ## System at a Glance
 
-knowing is a self-adapting code intelligence engine. It builds a content-addressed graph of code relationships, then observes the structural properties of that graph and adjusts its retrieval strategy accordingly. On small, sparse graphs it searches by keyword. On dense, enterprise-scale graphs it automatically shifts to structural navigation (preferring type hierarchies as entry points, using phrase-aware matching to cut through keyword competition). An optional local embedding re-ranker uses semantic similarity to promote the most relevant symbols from the graph walk's output. No configuration. No mode switches. The system detects its own operating regime and adapts.
+knowing is a self-adapting code intelligence engine. It builds a content-addressed graph of code relationships, then observes the structural properties of that graph and adjusts its retrieval strategy accordingly. The full pipeline (keyword search, graph walk, scoring, fusion, packing) runs on every query, but how each step behaves adapts to the graph: on dense, enterprise-scale graphs (40K+ symbols) the system automatically prefers type hierarchies as entry points and increases the number of starting points to compensate for keyword flooding. An optional local embedding re-ranker uses semantic similarity to promote the most relevant symbols from the graph walk's output. No configuration. No mode switches. The system detects its own operating regime and adapts.
 
 It runs entirely on a developer laptop with no paid LLM calls and no cloud API dependencies. The embedding model runs locally via pure Go inference (no Python, no API keys, no charges).
 
@@ -14,27 +14,55 @@ It runs entirely on a developer laptop with no paid LLM calls and no cloud API d
 
 **Retrieval pipeline:** AI coding agents need relevant code context to work effectively, but codebases are too large to send in their entirety. The retrieval pipeline's job is to take a natural language task description and return the most relevant code symbols, ranked and packed into a token budget. This replaces the grep-read loops that agents normally perform (47% fewer tool calls, 84% fewer tokens in measured usage). The pipeline powers the `context_for_task` MCP tool that agents call to get context in a single request.
 
-The pipeline transforms a natural language task into a ranked set of code symbols through seven stages:
+The pipeline transforms a natural language task into a ranked set of code symbols through seven stages. We'll trace a single example ("fix the auth middleware timeout") through each one:
 
-1. **Keyword extraction** pulls search terms from the task description (e.g., "fix the auth middleware timeout" produces `auth`, `middleware`, `timeout`). The language developers use in task descriptions rarely matches the naming in code exactly: the task says "auth" but the code calls it `Authentication` or `authorize`. To bridge this gap, the system expands keywords using a concept thesaurus (`auth` automatically includes `authentication`, `authorize`, `credential`, `session`) and splits compound names like `validateAuthToken` into their parts (`validate`, `Auth`, `Token`) so partial matches still connect.
-2. **BM25 over FTS5** scores every node in the graph (each node represents a code symbol: a function, class, type, or variable) by how well its name and docstring match the extracted keywords. BM25 (Best Match 25) is a term-frequency algorithm that ranks matches higher when keywords appear in shorter, more specific names rather than long generic ones. FTS5 is SQLite's full-text search engine, which makes this lookup fast even across 100K+ nodes. The top matches (e.g., `AuthMiddleware`, `SessionTimeout`) are the symbols that look most relevant based on name alone, but they're not enough: the agent also needs to see what calls them, what they call, and what types they share. That's what the next step discovers.
-3. **Graph walk** discovers the code that keyword search can't find and assigns every symbol a relevance score. Keyword search finds `AuthMiddleware` because the name matches, but the agent also needs `validateToken` (which `AuthMiddleware` calls), `AuthConfig` (the struct it reads), and `test_auth_timeout.py` (the test that covers it). None of those contain "auth" or "timeout" in their names. The graph walk finds them by following relationships outward from the keyword matches: `calls` edges reach `validateToken`, `imports` edges reach `AuthConfig`, `tested_by` edges reach the test file. As it walks, it accumulates a score for each symbol it visits: symbols reached by short, direct paths from the keyword matches get high scores, while symbols only reachable through long chains of indirect relationships get low scores. The output is a scored list of every reachable symbol, ranked by structural proximity to the task. The walk periodically resets back to the keyword matches so it doesn't drift into unrelated parts of the codebase. On large codebases (40K+ symbols), the system automatically uses more starting points and prefers type-level entries (interfaces, structs) over individual functions.
-4. **HITS scoring** (Hyperlink-Induced Topic Search) identifies authority nodes (called by many things, representing core logic) and hub nodes (calling many things, representing orchestrators). Authority scores serve as a secondary relevance signal alongside RWR.
-5. **RRF fusion** (Reciprocal Rank Fusion) merges the ranked lists from BM25, equivalence classes, RWR, and HITS into a single ranking by combining reciprocal ranks: `score = sum(1 / (k + rank))` across all lists. This is robust to outliers in any single ranker.
-6. **Embedding re-ranker** (optional) re-ranks the top graph results using a local neural model (jina-code, pure Go ONNX inference, no API calls). Reorders candidates by semantic similarity to the task description. Adds +17% P@10.
-7. **Knapsack packing** fills the token budget by greedy density ranking: each symbol has a relevance score and a token cost, and the packer selects symbols by score-per-token (highest value per token first) until the budget is exhausted.
+### Step 1: Keyword extraction
 
-**Example:** Given the task "fix the auth middleware timeout":
+Pulls search terms from the task description (e.g., "fix the auth middleware timeout" produces `auth`, `middleware`, `timeout`). The language developers use in task descriptions rarely matches the naming in code exactly: the task says "auth" but the code calls it `Authentication` or `authorize`. To bridge this gap, the system expands keywords using a concept thesaurus (`auth` automatically includes `authentication`, `authorize`, `credential`, `session`) and splits compound names like `validateAuthToken` into their parts (`validate`, `Auth`, `Token`) so partial matches still connect.
 
-1. **Keywords:** extracts `[auth, middleware, timeout]`, thesaurus expands to `[authentication, authorize, session]`
-2. **BM25:** finds seed nodes: `AuthMiddleware`, `SessionHandler`, `TimeoutConfig`
-3. **RWR:** walks outward from seeds, discovering callers (`HandleRequest` -> `AuthMiddleware`), callees (`AuthMiddleware` -> `validateToken`), and related types (`AuthConfig`)
-4. **HITS:** identifies `AuthMiddleware` as high-authority (called by 12 route handlers)
-5. **RRF:** merges BM25, RWR, and HITS rankings into a single list
-6. **Re-ranker:** promotes `validateToken` (semantically close to "timeout") above `SessionHandler` (structurally close but less relevant)
-7. **Packing:** selects top 47 symbols fitting the 5,000-token budget, covering the middleware, its callers, configuration, and token validation path
+### Step 2: Keyword matching (BM25: Best Match 25, over FTS5: Full-Text Search 5)
 
-For implementation details, see [Retrieval Pipeline](../architecture/retrieval-pipeline.md), [Context Engine](../architecture/context-engine.md), [Embedding Re-ranker](../architecture/embedding-reranker.md), [Context Packing](../architecture/context-packing.md), and [Wire Formats](../architecture/wire-formats.md).
+Now we need to find which code symbols match those keywords. BM25 is a standard information retrieval algorithm that scores text by keyword relevance. FTS5 is SQLite's built-in search engine that indexes text for fast lookup. Together they score every node in the graph (each node represents a code symbol: a function, class, type, or variable) by how well its name and docstring match the extracted keywords. BM25 ranks matches higher when keywords appear in shorter, more specific names rather than long generic ones, so `AuthMiddleware` scores higher than `AbstractBaseAuthenticationMiddlewareFactory`. FTS5 makes this fast even across 100K+ nodes.
+
+The top matches (e.g., `AuthMiddleware`, `SessionTimeout`) are the symbols that look most relevant based on name alone, but they're not enough: the agent also needs to see what calls them, what they call, and what types they share. That's what the next step discovers.
+
+### Step 3: Graph walk
+
+Discovers the code that keyword search can't find and assigns every symbol a relevance score. Keyword search finds `AuthMiddleware` because the name matches, but the agent also needs `validateToken` (which `AuthMiddleware` calls), `AuthConfig` (the struct it reads), and `test_auth_timeout.py` (the test that covers it). None of those contain "auth" or "timeout" in their names.
+
+The graph walk finds them by following relationships outward from the keyword matches: `calls` edges reach `validateToken`, `imports` edges reach `AuthConfig`, `tested_by` edges reach the test file. As it walks, it accumulates a score for each symbol it visits: symbols reached by short, direct paths from the keyword matches get high scores, while symbols only reachable through long chains of indirect relationships get low scores. The output is a scored list of every reachable symbol, ranked by structural proximity to the task.
+
+Without a check on drift, the walk would follow edges further and further from the task: `AuthMiddleware` calls `validateToken`, which calls `crypto.Hash`, which calls `io.Read`, which calls... eventually you're deep in the standard library, far from anything useful. The restart mechanism prevents this: at each step, the walk has a 20% probability of jumping back to one of the original keyword matches instead of following another edge. This means the walk constantly re-anchors itself to the task. Symbols close to the keyword matches get visited repeatedly (high score), while symbols many hops away get visited rarely (low score). The result is a natural relevance decay: the further a symbol is from the task, the lower it scores.
+
+On large codebases (40K+ symbols), the system automatically uses more starting points and prefers type-level entries (interfaces, structs) over individual functions, because dense graphs dilute probability mass across too many edges.
+
+### Step 4: HITS (Hyperlink-Induced Topic Search) scoring
+
+Adds a second opinion on which symbols matter most. The graph walk scored symbols by proximity (how close they are to the keyword matches), but proximity alone can be misleading: a utility function one hop away scores high even if it's called by everything and isn't specific to auth.
+
+HITS (Hyperlink-Induced Topic Search) scores symbols by their role in the call graph using an iterative algorithm: start by giving every symbol equal authority and hub scores, then repeatedly update them. A symbol's authority score becomes the sum of the hub scores of everything that calls it; its hub score becomes the sum of the authority scores of everything it calls. After several rounds the scores converge. The result: symbols called by many important callers get high authority ("core logic"), while symbols that call many important targets get high hub scores ("orchestrators"). In our example, `AuthMiddleware` gets a high authority score (12 route handlers call it), while `HandleRequest` gets a high hub score (it orchestrates calls to middleware, logging, and response writing). `validateToken` gets moderate authority (called by 3 middleware functions) but low hub (it's a leaf function that doesn't call much). These scores help distinguish the important symbols from the incidental ones in the next step.
+
+### Step 5: RRF (Reciprocal Rank Fusion)
+
+Solves a problem: we now have three different rankings of the same symbols (BM25 ranked by name match, graph walk ranked by proximity, HITS ranked by structural importance), and they disagree. BM25 thinks `SessionTimeout` is #2 (great name match) but the graph walk has it at #15 (far from the call chain). HITS thinks `HandleRequest` is important (high hub) but BM25 didn't find it at all (no keyword match).
+
+Reciprocal Rank Fusion doesn't look at what the scores mean or how they were computed. It only looks at rank positions. For each symbol, it sums `1 / (k + rank)` across every list the symbol appears in (where k=60 is a constant that prevents the top rank from dominating). A symbol ranked #1 in one list gets `1/61 = 0.016`. A symbol ranked #1 in three lists gets `3 * 0.016 = 0.049`. A symbol ranked #1 in one list but #50 in the others gets `0.016 + 0.009 + 0.009 = 0.034`. This means consistent mediocrity beats one-list dominance, which is the right behavior: a symbol that all three methods agree is relevant is more likely to actually be relevant than one that only keyword search liked.
+
+In our example, `AuthMiddleware` tops all three lists so it stays #1. `validateToken` ranks well in both graph walk (#2) and HITS (#3) so it merges to #2 despite BM25 not finding it. `SessionTimeout` drops from BM25's #2 to merged #7 because neither the graph walk nor HITS ranked it highly.
+
+### Step 6: Embedding re-ranker
+
+Gives the ranking a final adjustment using semantic understanding (optional, enabled with `--embeddings`). Everything up to this point used structural signals (keyword matching, graph proximity, link analysis), but none of those understand what words mean.
+
+The re-ranker uses a local neural model (jina-code, pure Go ONNX inference, no API calls, no charges) to compute how semantically similar each symbol is to the original task description. In our example, the task mentions "timeout" and `TimeoutConfig` is semantically close to that concept even though the graph walk ranked it #8 (it's two hops away from `AuthMiddleware`). The re-ranker promotes it to #3. Meanwhile `SessionTimeout` (a class for HTTP session expiry, not auth timeouts) gets demoted because the re-ranker understands the semantic difference. This step adds +17% P@10 on the benchmark corpus.
+
+### Step 7: Knapsack packing
+
+Turns the ranking into a context block that fits the agent's token budget. Each symbol has a relevance score (from the merged ranking) and a token cost (how many tokens its source code takes). The packer selects symbols greedily by score-per-token: a 45-token config struct with score 0.028 is more efficient than a 300-token test file with score 0.030. It fills the budget from the top, skipping symbols that would overflow.
+
+In our example with a 5,000-token budget: `AuthMiddleware` (210 tokens, score 0.049) goes in first, then `TimeoutConfig` (45 tokens), `validateToken` (180 tokens), `AuthConfig` (60 tokens), and so on until 47 symbols totaling 4,812 tokens are packed. The agent receives this as a single context block with all the code it needs for the task, replacing what would have been 15+ grep-read tool calls.
+
+For implementation details, see [Retrieval Pipeline](../architecture/retrieval-pipeline.md), [Context Engine](../architecture/context-engine.md), [Embedding Re-ranker](../architecture/embedding-reranker.md), [Context Packing](../architecture/context-packing.md), and [Wire Formats](../architecture/wire-formats.md). If you are getting poor results from the pipeline, see the [CLI Troubleshooting guide](cli.md#troubleshooting) for diagnostic steps.
 
 **Supply chain detection:** Extracts `reads_env` (credential access), `executes_process` (process spawning), and `consumes_endpoint` (network exfiltration) edges. Computes isolation scores for structurally disconnected code. Detects supply chain attack patterns like TanStack/Mini Shai-Hulud (2026) and event-stream (2018) without executing any code.
 
@@ -881,15 +909,63 @@ All measurements taken on developer hardware (no GPU, no cloud). The system is d
 - **Not a build system.** It doesn't compile or run code. It observes and analyzes.
 - **Not a runtime monitor.** It can ingest OpenTelemetry traces, but it's primarily a static analysis system augmented with runtime observations.
 
+## Try It in 5 Minutes
+
+This section walks through indexing a real repo and running your first queries.
+
+```bash
+# 1. Install
+brew install blackwell-systems/tap/knowing
+
+# 2. Go to your repo
+cd /path/to/your/repo
+
+# 3. Index it (fast structural-only index, typically < 10 seconds)
+knowing add .
+
+# 4. Check what was extracted
+knowing stats
+# Look for: node count (functions, types, etc.) and edge count (calls, imports, etc.)
+# A 50K-LOC TypeScript repo typically produces 2K-10K nodes and 5K-30K edges.
+
+# 5. Search for a symbol you know
+knowing query "MyService"
+
+# 6. Get context for a task
+knowing context -task "add rate limiting to the API handler"
+# This returns ranked symbols packed into a 50K-token budget.
+# To see compact output suitable for LLMs:
+knowing context -task "add rate limiting to the API handler" -format gcf
+
+# 7. Understand why a symbol ranked where it did
+knowing why -task "add rate limiting" -symbol "APIHandler"
+
+# 8. (Optional) Enable embedding re-ranker for +17% better results
+knowing context -task "add rate limiting" --embeddings
+# Downloads a 30MB model on first use, then runs locally.
+```
+
+**Tips for good results:**
+
+- Use specific symbol names in your task description. Backtick-quoted
+  identifiers get the highest search priority:
+  `"fix the \`validateToken\` timeout in \`AuthMiddleware\`"`
+- If results seem off, check `knowing stats` to verify enough edges were
+  extracted. Low edge counts mean the graph walk has little to work with.
+- See [Troubleshooting](cli.md#troubleshooting) for common issues and
+  diagnostic steps.
+
 ## Where to Go Next
 
 | Goal | Read |
 |---|---|
-| Install and try it | [CLI Reference](cli.md) |
-| Add to your agent (Claude Code, etc) | [README Quick Start](../../README.md#quick-start) |
+| Install and try it | [CLI Reference](cli.md) (includes [Troubleshooting](cli.md#troubleshooting)) |
+| Add to your agent (Claude Code, Cursor, etc.) | [README Quick Start](../../README.md#quick-start) |
+| All MCP tools your agent can call | [MCP Tools Reference](mcp-tools.md) |
 | Understand the architecture | [System Overview](../architecture/system-overview.md) |
 | Formal definitions of every concept | [Core Concepts](../architecture/concepts.md) |
 | Audit and compliance workflows | [Audit & Compliance](audit-compliance.md) |
-| MCP tool reference | [MCP Tools](mcp-tools.md) |
+| Retrieval pipeline internals | [Retrieval Pipeline](../architecture/retrieval-pipeline.md) |
 | Hierarchical Merkle tree deep dive | [Merkle Algorithms](../architecture/merkle-algorithms.md) |
+| Diagnostic and benchmark tools | [Diagnostic Tools](diagnostic-tools.md) |
 | What's planned next | [Roadmap](../../docs/roadmap.md) |

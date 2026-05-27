@@ -52,8 +52,14 @@ func ComputeSimilarityEdges(nodes []types.Node, threshold float64) []types.Edge 
 	}
 	var allCandidates []candidate
 
-	for _, group := range packages {
+	for pkg, group := range packages {
 		if len(group) < 2 {
+			continue
+		}
+		// Skip oversized packages: 16K functions = 140M pairwise comparisons.
+		// These produce mostly noise and consume 10GB+ of memory.
+		if len(group) > 500 {
+			_ = pkg // suppress unused warning
 			continue
 		}
 		for i := 0; i < len(group); i++ {

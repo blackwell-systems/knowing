@@ -10,27 +10,36 @@ Git is the system of record for source code. knowing is the system of record for
 # Install
 brew install blackwell-systems/tap/knowing
 
-# Index a repository
-knowing index /path/to/repo
+# Index a repository (registers in roster, assigns per-repo database)
+knowing add /path/to/repo
 
-# Query the graph
-knowing query "pkg.FunctionName"
+# Verify the index worked
+knowing stats
+
+# Query the graph for a symbol
+knowing query "FunctionName"
 
 # Generate context for an agent
-knowing context --task "refactor auth middleware" --budget 50000
+knowing context -task "refactor auth middleware" -budget 50000
 
-# Compute semantic diff
-knowing diff <old-snapshot> <new-snapshot>
+# Explain why a symbol ranked where it did
+knowing why -task "refactor auth" -symbol "AuthHandler"
+
+# Compute semantic diff between snapshots
+knowing diff @prev @latest
 
 # Export the graph
-knowing export --format json
+knowing export -format json
 
 # Start the daemon with MCP server (HTTP)
 knowing serve /path/to/repo
 
-# Start the MCP server over stdio (for .mcp.json)
-knowing mcp -db knowing.db
+# Start the MCP server over stdio (for .mcp.json, zero-config)
+knowing mcp --watch
 ```
+
+For detailed setup instructions, troubleshooting, and MCP integration, see the
+[CLI Reference](guide/cli.md) and the [README Quick Start](../README.md#quick-start).
 
 ## What It Does
 
@@ -47,10 +56,12 @@ knowing builds a content-addressed knowledge graph of software relationships and
 
 ## Documentation
 
-- [Architecture](architecture/): system design, concurrency model, data flow, hierarchical Merkle tree, git design audit
-- [CLI Reference](guide/cli.md): all 28 commands with flags and examples
+- [Introduction](guide/introduction.md): how knowing works, the retrieval pipeline explained from zero, try-it-in-5-minutes walkthrough
+- [CLI Reference](guide/cli.md): all 28 commands with flags, examples, and [troubleshooting](guide/cli.md#troubleshooting)
 - [MCP Tools](guide/mcp-tools.md): all 28 tools and 8 resources with parameters and return formats
-- [Edge Types](architecture/edge-types.md): all 34 edge types with provenance and confidence
+- [Architecture](architecture/): system design, concurrency model, data flow, hierarchical Merkle tree
+- [Edge Types](architecture/edge-types.md): all 38 edge types with provenance and confidence
+- [Diagnostic Tools](guide/diagnostic-tools.md): retrieval quality investigation, ablation studies
 - [Runtime Traces](operations/runtime-traces.md): OTel ingestion design
 - [Roadmap](roadmap.md): what's done, what's next
 - [Distribution](guide/distribution.md): all installation channels

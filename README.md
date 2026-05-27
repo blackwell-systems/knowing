@@ -102,25 +102,66 @@ All benchmarks are reproducible: `GOWORK=off go test ./bench/... -timeout 5m`
 
 ## Quick Start
 
+### Path A: MCP server (recommended for AI agents)
+
 ```bash
-# Install
+# 1. Install
 brew install blackwell-systems/tap/knowing
-# Or: go install github.com/blackwell-systems/knowing/cmd/knowing@latest
 # Or: npm install -g @blackwell-systems/knowing
 # Or: pip install knowing
+# Or: go install github.com/blackwell-systems/knowing/cmd/knowing@latest
 
-# That's it. Add the MCP config and start a session.
-# The server auto-indexes your repo on first launch.
+# 2. Add to your agent config (.mcp.json, Claude Code settings, etc.)
+#    See "MCP Integration" below for the config block.
+#    The server auto-indexes your repo on first launch. Done.
+```
 
-# Or index manually for CLI usage:
+### Path B: CLI usage (explore the graph yourself)
+
+```bash
+# 1. Install (same as above)
+brew install blackwell-systems/tap/knowing
+
+# 2. Index your repo
 knowing add .
 
-# Remove a repo (evicts all data: nodes, edges, snapshots, feedback)
-knowing remove ./path/to/repo
+# 3. Verify the index worked
+knowing stats
+# You should see node and edge counts. A healthy TypeScript repo with 50K LOC
+# typically produces 2K-10K nodes and 5K-30K edges. If you see very few edges,
+# the extractors may not have found your code (check language support below).
 
-# Get context for a task
+# 4. Get context for a task
 knowing context -task "refactor auth middleware" -format gcf
 
+# 5. Check graph integrity
+knowing fsck
+```
+
+### Verify your setup
+
+After indexing, run these commands to confirm everything is working:
+
+```bash
+# Show node/edge counts, repos, snapshots
+knowing stats
+
+# Search for a symbol you know exists in your code
+knowing query "MyKnownFunction"
+
+# Check graph integrity (should report 0 errors)
+knowing fsck
+
+# If results seem wrong, check if the graph is stale
+knowing stale
+```
+
+If `knowing stats` shows zero nodes or very few edges, see
+[Troubleshooting](docs/guide/cli.md#troubleshooting) below.
+
+### More CLI commands
+
+```bash
 # Find affected tests
 knowing test-scope -files internal/auth/middleware.go
 
@@ -133,17 +174,35 @@ knowing prove -source "AuthService" -target "SessionStore"
 # Verify offline (no database needed)
 knowing verify proof.json
 
-# Check graph integrity
-knowing fsck
-
 # Check if the graph is stale (CI gate: exits 1 if stale)
 knowing stale
 
 # Supply chain audit (scan all files for suspicious patterns)
 knowing audit-supply-chain --scan-all
+
+# Remove a repo (evicts all data: nodes, edges, snapshots, feedback)
+knowing remove ./path/to/repo
 ```
 
+For the full command reference, see [CLI Reference](docs/guide/cli.md).
+
 ### MCP Integration
+
+**For Claude Code** (`.mcp.json` in your project root or `~/.claude/mcp.json` globally):
+
+```json
+{
+  "mcpServers": {
+    "knowing": {
+      "command": "knowing",
+      "args": ["mcp", "--watch"],
+      "transport": "stdio"
+    }
+  }
+}
+```
+
+**For Cursor** (`.cursor/mcp.json`):
 
 ```json
 {
@@ -159,7 +218,20 @@ knowing audit-supply-chain --scan-all
 
 The `--watch` flag re-indexes on file changes. Your agent always queries fresh data. No manual `knowing index` or database path needed: the MCP server auto-indexes the git repository on first launch and registers it in the roster for future sessions.
 
-Add `--embeddings` to enable the local embedding re-ranker (+17% precision, fully offline, no API keys, no charges). The model auto-downloads on first use (~30MB).
+Add `--embeddings` to enable the local embedding re-ranker (+17% precision, fully offline, no API keys, no charges). The model auto-downloads on first use (~30MB):
+
+```json
+{ "mcpServers": { "knowing": { "command": "knowing", "args": ["mcp", "--watch", "--embeddings"] } } }
+```
+
+**What your agent gets:** The key tool is `context_for_task`. When your agent calls it with a task description, knowing returns ranked, relevant code symbols packed into a token budget. This replaces grep-read loops. Other useful tools: `blast_radius` (what breaks if I change this?), `test_scope` (which tests to run?), `explain_symbol` (why did this rank here?). See [MCP Tools Reference](docs/guide/mcp-tools.md) for all 28 tools.
+
+**Verifying the MCP server is working:** Start a session with your agent and ask it to call the `context_for_task` tool with a task description that references code you know exists. If results are empty or irrelevant, the repo may not be indexed yet (first launch takes a few seconds). You can also verify from the CLI:
+
+```bash
+knowing stats          # should show nodes and edges
+knowing query "MyFunc" # should find symbols you recognize
+```
 
 For HTTP transport (multi-agent, daemon mode):
 
@@ -321,10 +393,11 @@ GCF uses `|`-separated fields and local IDs (`$1 -> $3`) instead of repeated qua
 
 | Doc | Contents |
 |---|---|
+| [Introduction](docs/guide/introduction.md) | How it works, retrieval pipeline explained, 5-minute walkthrough |
 | [Architecture](docs/architecture/) | System design, schemas, content addressing, daemon model |
 | [Features](docs/guide/features.md) | Implementation inventory, entry points, limitations |
 | [Audit & Compliance](docs/guide/audit-compliance.md) | Merkle proofs, fsck, snapshot chain, CI gates |
-| [CLI Reference](docs/guide/cli.md) | Commands, flags, examples |
+| [CLI Reference](docs/guide/cli.md) | Commands, flags, examples, [troubleshooting](docs/guide/cli.md#troubleshooting) |
 | [MCP Tools](docs/guide/mcp-tools.md) | Tool schemas, parameters, return formats |
 | [Edge Types](docs/architecture/edge-types.md) | Relationship semantics and provenance |
 | [Context Packing](docs/architecture/context-packing.md) | RWR, HITS, ranking, token budgeting |

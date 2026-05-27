@@ -276,6 +276,14 @@ context retrieval. Full proposal: [docs/proposals/code-retrieval-eval-toolkit.md
 
 **Status:** Not started. Prerequisite complete (Aider comparison done, Run 19-22).
 
+### Release Infrastructure
+
+| Item | Description | Status |
+|------|-------------|--------|
+| **Corpus DB tarball in releases** | Attach `corpus-dbs-vX.Y.Z.tar.gz` to each GitHub release as a separate asset (not bundled with binaries). Contains all 9 pre-built benchmark DBs with enrichment. Enables instant corpus restore via `make corpus-restore TARBALL=...` instead of 30+ min rebuild. | Not started |
+| **`make corpus-rebuild`** | Makefile target that indexes + enriches all 9 repos with correct flags. Documents which repos need enrichment and with which LSP servers. | **Shipped (session 17)** |
+| **Corpus DB integrity check** | CI job that runs `knowing fsck` on each corpus DB after release to verify no corruption. | Not started |
+
 ### Not yet benchmarked (tracked for completeness)
 
 - **Proof verification throughput**: N proofs/sec verified (currently 1.2µs each = ~800K/sec theoretical)

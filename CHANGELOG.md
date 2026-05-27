@@ -19,6 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `ReRankByHashes` method on `VectorReRanker` interface: hash-based vector lookup with text fallback
 - `EmbeddingStore` interface (`embedding.EmbeddingStore`): `BatchPutEmbeddings`, `GetEmbeddings`
 - `embeddings` table in SQLite schema (node_hash, model, vector)
+- **Similarity OOM fix**: skip packages with >500 functions in similarity computation. Kafka's `org.apache.kafka.streams` (16,781 functions) caused 140M pairwise comparisons, consuming 10GB+ RAM and crashing the indexer before snapshot creation. Similarity edges are weighted 0.15 (lowest) and P@10-neutral; skipping oversized packages loses nothing measurable.
 - **Adaptive seed count**: auto-increases RWR seeds on large graphs (>40K nodes: 25 seeds, >10K: 20 seeds, default 15). Django P@10 +14.2%. Full corpus P@10 0.242.
 - **Package-level supply chain verdict**: "clean"/"review"/"suspicious" based on suspicious file ratio (>10%) AND count (>=2). Reduces FP rate from 21.5% (file-level) to 1.0% (package-level) on 200 clean packages.
 - **Benign process target classification**: 22 known-safe executables (node, python, git, cargo, etc.) excluded from supply chain danger scoring.

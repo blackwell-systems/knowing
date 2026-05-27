@@ -1,6 +1,6 @@
 # FEATURES.md -- Comprehensive Feature Dump for AI Reference
 
-Generated: 2026-05-15 (updated: 2026-05-24, features 77-131 added: hash domain prefixes, fsck, GC, lockfile, LRU cache, modular community detection, DiffOptions, indexed_at, verify, React viz, MCP resources, graph notes, Phase 3 complete, Merkle proofs, stats CLI, named refs, generation numbers, auto-GC, merkle-strata extraction; P2 edge types, parallel indexer, cross-system benchmark, language equivalence classes, cross-file import resolution, inheritance propagation, deeper call chains, test deprioritization; FTS concepts column, task memory persistence; compound-first keyword extraction, Java/C# import resolution; daemon lifecycle, untrack_repo; staleness reporting, cross-repo awareness for non-Go extractors; implicit feedback, zero-config MCP onboarding, asymmetric feedback weighting, community-aware RWR, cross-system benchmark adapters; enterprise-scale multi-module enrichment, cross-module edge attenuation, repo-scoped search filtering, adjacency cache v2, RWR early termination, similarity edges, stdlib node filter, incremental file reindexing)
+Generated: 2026-05-15 (updated: 2026-05-26, features 77-131 added previously; features 132-152 added: knowing enrich lsp, dangling type_hint_of resolution, interface type hint propagation, EdgeCount, IndexTimings, accesses_field edge type, wire format codec overhaul, pre-computed embedding vector cache, ReRankByHashes, EmbeddingStore, adaptive seed count, package-level supply chain verdict, benign process target classification, test/benchmark file exclusion, env-only attenuation, csharp-ls enrichment support, readiness probe for LSP enrichment, coherence-aware context packing, GHA action, BENCH_REPOS fix, 200-package FP evaluation)
 Source: code inspection of all Go files across internal/, cmd/, and config
 Repo: github.com/blackwell-systems/knowing
 
@@ -1358,6 +1358,183 @@ Repo: github.com/blackwell-systems/knowing
 - **Result:** P@10 0.180 (neutral). Reverted. The ranking improvement from confidence weighting was negligible because RWR already weights by edge type, and the difference between 0.7 and 0.9 confidence is too small to shift rankings.
 - **Status:** Not present in current code. Documented here for completeness (experiment 13 in `eval/EXPERIMENTS.md`).
 - **Learning:** LSP enrichment is infrastructure (correctness, audit trail, cross-repo resolution), not a retrieval quality lever. Upgrading 1.2% of edges from 0.7 to 0.9 does not change RWR ranking order.
+
+### 132. `knowing enrich lsp` Command (Standalone LSP Enrichment)
+
+- **Package(s):** `cmd/knowing`, `internal/enrichment`
+- **Entry point:** `cmdEnrichLSP` in `cmd/knowing/enrich.go`
+- **What it does:** Runs LSP enrichment on an already-indexed database without reindexing. Opens the existing DB, detects available language servers via the enrichment config, upgrades edge confidence from `ast_inferred` (0.7) to `lsp_resolved` (0.9), discovers cross-module edges, and creates phantom external nodes for unresolved targets.
+- **CLI:** `knowing enrich lsp [flags] <repo-path>`. Flags: `-concurrency N` (parallel LSP requests), `-db <path>` (database path), `-url <repo-url>` (override repo URL).
+- **Why it matters:** Decouples enrichment from indexing. Useful for running enrichment on pre-indexed databases, CI pipelines, or after adding a new language server without needing to reindex the entire repository.
+- **Dependencies:** `internal/enrichment`, `internal/store`.
+
+### 133. Dangling `type_hint_of` Edge Resolution
+
+- **Package(s):** `internal/indexer`
+- **Entry point:** `resolveTypeHintEdges` in `internal/indexer/indexer.go`
+- **What it does:** Post-processing step that fixes `type_hint_of` edges computed with the wrong node kind. When the extractor creates a `type_hint_of` edge targeting a type node, it may compute the target hash with the wrong kind (e.g., "type" instead of "interface" or vice versa). This function resolves the mismatch by matching (repo, package, name) across all type-like node kinds and retargeting to the correct hash.
+- **Scale:** 3,836 edges fixed across k8s (1,087), VS Code (2,068), Terraform (521), Kafka (160).
+- **When it runs:** Automatically during `IndexRepo`, after all extractors complete and before snapshot computation.
+- **Dependencies:** None beyond the indexer.
+
+### 134. Interface Type Hint Propagation
+
+- **Package(s):** `internal/indexer`
+- **Entry point:** `propagateInterfaceTypeHints` in `internal/indexer/indexer.go`
+- **What it does:** After dangling `type_hint_of` edges are resolved (Feature 133), this pass propagates type hints through interfaces to concrete implementors. If a function has a `type_hint_of` edge to an interface, and concrete types implement that interface (via `implements` edges), new `type_hint_of` edges are created from the function to each concrete type. This creates direct paths from functions to the concrete types they work with, without requiring RWR to traverse two hops (function -> interface -> concrete type).
+- **Scale:** 808 new edges across k8s (237), Terraform (473), Kafka (98).
+- **Dependencies:** Requires `implements` edges and resolved `type_hint_of` edges.
+
+### 135. `EdgeCount` Method on SQLiteStore
+
+- **Package(s):** `internal/store`
+- **Entry point:** `SQLiteStore.EdgeCount` in `internal/store/sqlite.go`
+- **What it does:** Returns the total number of edges in the database via `SELECT COUNT(*) FROM edges`. Lightweight alternative to loading all edges into memory for simple counting.
+- **Dependencies:** None beyond the store.
+
+### 136. Per-Phase Indexing Timings (`IndexTimings`)
+
+- **Package(s):** `internal/indexer`
+- **Entry point:** `IndexTimings` struct in `internal/indexer/indexer.go`, populated during `IndexRepo`
+- **What it does:** Measures wall-clock duration for each indexing phase independently: file discovery, extraction, each post-processing step (inheritance propagation, interface method propagation, type hint resolution, type hint propagation, contains edge generation, similarity edge computation, co-tested edge computation, accesses_field extraction), authorship (git blame), snapshot computation, and FTS rebuild. Emitted to stderr after every `IndexRepo` call. Stored on the `Indexer` struct as `LastTimings` for programmatic access.
+- **Why it matters:** Makes indexing performance regressions visible. Previously, only total index time was reported, making it impossible to identify which phase was slow.
+- **Dependencies:** None.
+
+### 137. `accesses_field` Edge Type (36th Edge Type)
+
+- **Package(s):** `internal/indexer` (6 language extractors), `internal/edgetype`
+- **Entry point:** Field extraction functions in each language extractor, `generateContainsEdges` for field-to-type containment
+- **What it does:** Connects methods to the struct/class fields they read or write via the receiver. Extracts `self.field` (Python, Rust), `this.field` (Java, C#, TypeScript), and receiver-based field access (Go) from method bodies. Also creates field nodes from struct declarations, `__init__` assignments, class field declarations, and class property declarations.
+- **Languages:** Go, Python, TypeScript, Java, C#, Rust (all 6 OOP languages).
+- **Field nodes:** Kind="field", qualified name pattern "repo://pkg.TypeName.fieldName". Automatically connected to parent type via `generateContainsEdges` (member_of/contains).
+- **Noise filtering:** Common noise fields (mu, logger, ctx, err, lock, wg, once) are excluded.
+- **RWR weight:** 0.6, adjacency cache ID: 34.
+- **P@10 impact:** Neutral on aggregate (reachability unchanged for current benchmark tasks).
+- **Dependencies:** Tree-sitter AST per language.
+
+### 138. Wire Format Codec Overhaul
+
+- **Package(s):** `internal/context` (GCF), `internal/context` (GCB1)
+- **What it does:** Updated both wire format codecs to support the full set of node kinds and edge types:
+  - **GCF (Graph Compact Format):** Added 6 missing kind abbreviations (field, route, ext, file, pkg, svc).
+  - **GCB1 (Graph Compact Binary):** Added 6 kinds (IDs 11-16), 27 edge types (IDs 10-36), 3 provenances (IDs 5-7).
+- **Bug fix:** Binary codec previously encoded unknown edge types as 0 (silent data loss on roundtrip). Now all 36 edge types, 16 node kinds, and 7 provenance tiers encode correctly.
+- **Also:** `similar_to` added to `edgetype` constants (was used in code but undeclared as a constant).
+- **Dependencies:** None.
+
+### 139. Pre-Computed Embedding Vector Cache
+
+- **Package(s):** `internal/embedding`, `internal/store`
+- **Entry points:** `Searcher.ReRankByHashes` in `internal/embedding/searcher.go`, `EmbeddingStore` interface in `internal/embedding/searcher.go`, `SQLiteStore.BatchPutEmbeddings` and `SQLiteStore.GetEmbeddings` in `internal/store/sqlite.go`
+- **What it does:** Reduces re-rank latency from 660ms to 220ms (3x speedup) by caching embedding vectors in SQLite alongside the graph. On re-rank, only the query string is embedded (1 inference call, ~120ms); candidate vectors are read from the `embeddings` table by node hash. Cache misses fall back to on-the-fly embedding and auto-persist for next time. Zero behavior change for users without embeddings enabled.
+- **Schema:** Migration 019 adds the `embeddings` table (columns: node_hash, model, vector). Vectors stored as raw bytes.
+- **Interfaces:**
+  - `EmbeddingStore`: defines `BatchPutEmbeddings(ctx, model, hashes, vectors)` and `GetEmbeddings(ctx, model, hashes)`.
+  - `VectorReRanker`: updated with `ReRankByHashes(ctx, query, hashes, fallbackTexts)` for hash-based vector lookup with text fallback.
+- **Dependencies:** `internal/store` (SQLite), `internal/embedding` (ONNX inference).
+
+### 140. Adaptive Seed Count
+
+- **Package(s):** `internal/context`
+- **Entry point:** Seed count logic in `internal/context/walk.go`, controlled by `GraphNodeCount` on the context engine
+- **What it does:** Auto-increases RWR seed count on large graphs. When the graph has >40K nodes, uses 25 seeds; >10K nodes uses 20 seeds; default is 15 seeds. This prevents large, dense graphs from under-seeding (where 15 seeds provide insufficient coverage of the graph's surface area).
+- **Impact:** Django P@10 +14.2%. Full corpus P@10 0.242.
+- **Override:** `BENCH_ADAPTIVE_SEEDS=1` enables in benchmark; `BENCH_MAX_SEEDS=N` overrides the count directly.
+- **Dependencies:** None beyond the context engine.
+
+### 141. Package-Level Supply Chain Verdict
+
+- **Package(s):** `internal/diff`, `cmd/knowing`
+- **Entry point:** `audit-supply-chain` CLI command in `cmd/knowing/audit_supply_chain.go`
+- **What it does:** Aggregates file-level isolation scores into a package-level verdict: "clean", "review", or "suspicious". A package is marked "suspicious" when the suspicious file ratio exceeds 10% AND at least 2 files are flagged. This two-threshold approach reduces the false positive rate from 21.5% (file-level) to 1.0% (package-level) on a 200-package evaluation (100 npm + 100 PyPI).
+- **Verdicts:** "clean" (no suspicious files), "review" (1 suspicious file or <10% ratio), "suspicious" (>=2 suspicious files AND >10% ratio).
+- **Dependencies:** `internal/diff/isolation.go`.
+
+### 142. Benign Process Target Classification
+
+- **Package(s):** `internal/diff`
+- **Entry point:** `isBenignProcessTarget` and `benignProcessTargets` in `internal/diff/isolation.go`
+- **What it does:** Maintains a list of 22 known-safe executables (node, python, git, cargo, npm, npx, yarn, pnpm, pip, go, rustc, javac, mvn, gradle, dotnet, tsc, eslint, prettier, jest, mocha, webpack, esbuild) that are excluded from supply chain danger scoring. When an `executes_process` edge targets one of these binaries, it is not counted toward the file's isolation score. Also handles path-prefixed targets (e.g., `/usr/bin/git` matches "git").
+- **Why it matters:** Build scripts and postinstall hooks commonly invoke compilers and package managers. Without this filter, every npm package with a build step would be flagged as suspicious.
+- **Dependencies:** None.
+
+### 143. Test/Benchmark File Exclusion in Supply Chain Scanning
+
+- **Package(s):** `internal/diff`
+- **Entry point:** Isolation score computation in `internal/diff/isolation.go`
+- **What it does:** Skips files in `/test/`, `/tests/`, `/benchmarks/`, `_test.go`, `.spec.ts`, `.test.ts`, and similar test patterns during supply chain scanning. Test files commonly spawn processes and read environment variables as part of normal test infrastructure; including them generates noise.
+- **Dependencies:** None.
+
+### 144. Env-Only Attenuation
+
+- **Package(s):** `internal/diff`
+- **Entry point:** Isolation score computation in `internal/diff/isolation.go`
+- **What it does:** When a file has `reads_env` edges but no `executes_process` edges, the environment variable reads receive a 0.2x weight in the isolation score. Reading environment variables alone (without spawning processes) is a normal configuration pattern and not a supply chain risk indicator. The attenuation only applies when there is no process execution to exfiltrate the read values.
+- **Dependencies:** None.
+
+### 145. `csharp-ls` Support in Enrichment Config
+
+- **Package(s):** `internal/enrichment`
+- **Entry point:** `DetectLSPServers` in `internal/enrichment/config.go`
+- **What it does:** Adds `csharp-ls` as a fallback language server for C# enrichment. The detection order is: (1) OmniSharp on PATH, (2) `csharp-ls` on PATH, (3) `csharp-ls` installed as a dotnet tool at `~/.dotnet/tools/csharp-ls`. Only activates when the workspace contains `*.csproj` or `*.sln` files.
+- **Why it matters:** OmniSharp requires Mono or .NET SDK with specific configuration. `csharp-ls` is a lightweight alternative that works as a standalone dotnet tool, making C# enrichment accessible on more systems.
+- **Dependencies:** `internal/enrichment`.
+
+### 146. Readiness Probe for LSP Enrichment
+
+- **Package(s):** `internal/enrichment`
+- **Entry point:** Readiness probe loop in `Enricher.Run` (internal/enrichment/enricher.go)
+- **What it does:** Before starting enrichment, probes the LSP server with a lightweight request to ensure it has finished workspace indexing. Uses an exponential backoff schedule (1s, 2s, 4s, 8s, 15s, 30s, 60s, 120s) and a small probe file from the workspace as the target. If the server responds within the timeout, enrichment proceeds immediately. If no probe file is found, the readiness check is skipped. If the server is still unresponsive after the full probe sequence, enrichment proceeds anyway (best-effort).
+- **Why it matters:** Async language servers like jdtls (Java) and OmniSharp (C#) need time to index the workspace before they can answer queries. Without the probe, early enrichment queries return incomplete results or errors.
+- **Dependencies:** `agent-lsp/pkg/lsp`.
+
+### 147. Coherence-Aware Context Packing (Experimental, Default Off)
+
+- **Package(s):** `internal/context`
+- **Entry point:** `CoherenceBonus` parameter on the context engine
+- **What it does:** Boosts density scoring for co-located symbols during context packing. When enabled, symbols from the same file or package receive a bonus to their score/cost ratio, encouraging the packer to group related symbols together. Available via `BENCH_COHERENCE_BONUS=0.3` environment variable.
+- **Status:** Tested neutral on Flask (-1.8%). Greedy density packing is already near-optimal. Available for experimentation but not enabled by default.
+- **Dependencies:** None beyond the context engine.
+
+### 148. 200-Package False Positive Evaluation
+
+- **Package(s):** `scripts/`, `bench/supply-chain/`
+- **Entry point:** `scripts/false-positive-eval.sh`
+- **What it does:** Automated evaluation script that scans 100 npm packages and 100 PyPI packages through the supply chain scanner and records verdicts. Results stored at `bench/supply-chain/false-positive-results-v2.jsonl` in JSON Lines format. Used to validate the 1.0% FP rate of package-level verdicts.
+- **Dependencies:** `knowing` binary, npm, pip.
+
+### 149. GHA Action (`knowing-supply-scan`)
+
+- **Package(s):** External repository: `blackwell-systems/knowing-supply-scan`
+- **What it does:** Free GitHub Actions action (v1.0.0) that runs supply chain scanning on pull requests. Indexes the changed package, runs `audit-supply-chain`, and posts results as a PR comment with verdict, suspicious file list, and isolation scores.
+- **Usage:** Add to `.github/workflows/` with `uses: blackwell-systems/knowing-supply-scan@v1`.
+- **Dependencies:** `knowing` binary (downloaded automatically by the action).
+
+### 150. `TestCrossSystemRound2` BENCH_REPOS Fix
+
+- **Package(s):** `bench/cross-system`
+- **What it does:** Fixed the Round2 benchmark to respect the `BENCH_REPOS` environment variable filter. Previously, Round2 loaded all 167 tasks regardless of the filter, causing timeouts when running single-repo benchmarks.
+- **Dependencies:** None.
+
+### 151. `accesses_field` Edge Type: Multi-Language Extractors
+
+- **Package(s):** `internal/indexer/gotsextractor`, `internal/indexer/treesitter`, `internal/indexer/tsextractor`, `internal/indexer/javaextractor`, `internal/indexer/csharpextractor`, `internal/indexer/rustextractor`
+- **What it does:** Each language extractor implements field access extraction with language-specific patterns:
+  - **Go:** Extracts receiver-based field access (`s.field`) from method bodies. Creates field nodes from struct type declarations.
+  - **Python:** Extracts `self.field` from method bodies. Creates field nodes from `__init__` assignments and class-level type annotations.
+  - **TypeScript:** Extracts `this.field` from method bodies. Creates field nodes from class property declarations.
+  - **Java:** Extracts `this.field` (explicit and implicit) from method bodies. Creates field nodes from class field declarations.
+  - **C#:** Extracts `this.Field` from method bodies. Creates field nodes from class field declarations.
+  - **Rust:** Extracts `self.field` from impl method bodies. Creates field nodes from `struct_item` field declarations.
+- **Scale:** 660 edges on the knowing codebase, 1,170 field nodes. Larger repos produce proportionally more.
+- **Dependencies:** Tree-sitter AST per language.
+
+### 152. Platform API Scaffold
+
+- **Package(s):** External repository: `blackwell-systems/platform` (private)
+- **What it does:** SaaS backend scaffold for paid supply chain scanning. Provides the API server infrastructure for the commercial offering.
+- **Status:** Scaffold only; not yet deployed.
+- **Dependencies:** External.
 
 ### GraphStore (`internal/types/interfaces.go`)
 

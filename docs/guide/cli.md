@@ -45,21 +45,30 @@ session. The server auto-indexes the git repository on first launch:
 { "mcpServers": { "knowing": { "command": "knowing", "args": ["mcp", "--watch"] } } }
 ```
 
-**For CLI use:** Index a repository, query it, and export the graph:
+See [MCP Tools Reference](mcp-tools.md) for all 28 tools and configuration
+details.
+
+**For CLI use:** Index a repository, verify the index, query it:
 
 ```bash
-# 1. Index a local repo (uses tree-sitter fast path, then runs LSP enrichment)
-knowing index -url github.com/org/repo ./path/to/repo
+# 1. Index a local repo (registers in roster, assigns per-repo database)
+knowing add ./path/to/repo
 
-# 2. Query for a symbol by name prefix
+# 2. Verify the index worked (check node/edge counts)
+knowing stats
+
+# 3. Query for a symbol by name prefix
 knowing query "MyService"
 
-# 3. Export the full graph as JSON
-knowing export > graph.json
+# 4. Get context for a task
+knowing context -task "refactor the auth handler" -format gcf
 
-# 4. Export filtered to a single repo
-knowing export -repo github.com/org/repo > repo-graph.json
+# 5. Export the full graph as JSON
+knowing export > graph.json
 ```
+
+If `knowing stats` shows 0 nodes or very few edges, or if context results
+seem wrong, see [Troubleshooting](#troubleshooting) below.
 
 For continuous indexing with file watching, use the daemon:
 
@@ -437,12 +446,32 @@ knowing context -files "internal/auth/handler.go,internal/auth/middleware.go" -r
 knowing context -task "add caching to user lookup" -budget 20000 -format json
 ```
 
+**Output formats:**
+
+| Format | Best for | Description |
+|--------|----------|-------------|
+| `xml` | Human reading (default) | Structured XML with symbol names, scores, and source snippets |
+| `gcf` | LLM/agent consumption | Compact line-oriented format, 84% fewer tokens than JSON |
+| `json` | Programmatic use | Full metadata including scores, hashes, file paths |
+| `markdown` | Documentation | Readable Markdown with code blocks |
+| `gcb` | Service transport | Binary format for caching and inter-service use |
+| `toon` | Debugging | Minimal cartoon format |
+
+For agent integrations, `gcf` is recommended: it packs the most context into the
+fewest tokens. For human debugging, use the default `xml` or `json` to see
+scores and understand why symbols were included.
+
 **Notes:**
 
 - Specify either `-task` or `-files`, not both.
 - Output is written to stdout. Pipe or redirect as needed.
 - The token budget controls how much context is included. The engine ranks
   symbols by relevance and packs them greedily until the budget is exhausted.
+- If results seem irrelevant, use `knowing why -task "..." -symbol "ExpectedSymbol"`
+  to understand why a specific symbol ranked where it did. See
+  [Troubleshooting](#troubleshooting) for more diagnostic steps.
+- The quality of results depends heavily on the task description. Use specific
+  symbol names (especially backtick-quoted identifiers) for best results.
 
 ---
 
@@ -834,6 +863,24 @@ knowing stats -json
 # Stats for a specific database
 knowing stats -db ~/.knowing/repos/my-repo.db
 ```
+
+**Interpreting the output:**
+
+A healthy index should show:
+
+- **Nodes:** Proportional to your codebase size. A 50K-LOC TypeScript repo
+  typically produces 2,000-10,000 nodes (functions, classes, types, variables).
+- **Edges:** More edges than nodes (typically 2-5x). These are the relationships
+  (calls, imports, implements, etc.) that power retrieval. Very few edges
+  (< 100) suggests the extractors are not finding relationships in your code.
+- **Snapshots:** At least 1. Each `knowing index` or `knowing add` creates a
+  snapshot.
+- **Files:** Should match the number of source files in your repo (minus
+  files in .gitignore).
+
+If node or edge counts are unexpectedly low, try `knowing reindex .` for a
+clean re-extraction, and check that your language is
+[supported](../../README.md#languages-and-formats).
 
 **Notes:**
 
@@ -1474,3 +1521,165 @@ Prints the version string (currently `knowing v0.1.0`) and exits.
 ```bash
 knowing version
 ```
+
+---
+
+## Troubleshooting
+
+### Verifying your index
+
+After running `knowing add .` or `knowing index`, verify the graph was built
+correctly:
+
+```bash
+# 1. Check node and edge counts
+knowing stats
+# A healthy 50K-LOC TypeScript repo typically produces 2K-10K nodes
+# and 5K-30K edges. If you see 0 nodes, indexing failed silently.
+# If you see nodes but very few edges (< 100), the extractors may
+# not be detecting relationships in your code structure.
+
+# 2. Search for a symbol you know exists
+knowing query "MyKnownClassName"
+# If this returns "No nodes found", the symbol was not extracted.
+# Try a broader prefix: knowing query "MyKnown"
+
+# 3. Check graph integrity
+knowing fsck
+# Should report 0 errors. If it reports hash mismatches, re-index:
+# knowing reindex .
+
+# 4. Check if the graph is stale relative to your latest commit
+knowing stale
+# Exits 0 if fresh, 1 if stale. Re-index if stale.
+```
+
+### "Context returns unrelated symbols"
+
+This is the most common issue for new users. The retrieval pipeline relies on
+keyword matching to find entry points (seeds), then walks the graph outward
+from those seeds. If the seeds are wrong, everything downstream is wrong.
+
+**Step 1: Check that indexing produced enough edges.**
+
+```bash
+knowing stats
+```
+
+If the edge count is very low relative to your codebase size, the extractors
+may not be finding relationships. Common causes:
+
+- **Monorepo with code in nested directories:** `knowing add .` indexes from
+  the current directory. Make sure you are in the repository root.
+- **Non-standard project structure:** knowing discovers files by walking the
+  git worktree. Files not tracked by git are skipped.
+- **Unsupported language features:** Tree-sitter extraction covers common
+  patterns but may miss framework-specific conventions (e.g., decorator-based
+  routing in custom frameworks). Check [supported languages and
+  frameworks](../../README.md#languages-and-formats).
+
+**Step 2: Check seed quality with `knowing why`.**
+
+```bash
+knowing why -task "your task description" -symbol "ExpectedSymbol"
+```
+
+This shows the full scoring breakdown. Key things to look for:
+
+- **"Not found in result set"**: The symbol was not reachable from any seed.
+  This means keyword extraction did not find entry points close to this symbol
+  in the graph. Try a task description that uses the exact names from your code
+  (e.g., "fix the `AuthMiddleware` timeout" instead of "fix the auth timeout").
+- **Seed: no**: The symbol was found but was not a seed. It was discovered via
+  graph walk. If it ranked low, the walk may not have reached it strongly enough.
+- **Distance: high**: The symbol is many hops from the seeds. The pipeline
+  naturally deprioritizes distant symbols.
+
+**Step 3: Use specific symbol names in your task.**
+
+The pipeline works best when the task description contains terms that match
+symbol names in your code. Compare:
+
+- Vague: "fix the authentication bug" (matches many things)
+- Specific: "fix the `validateToken` timeout in `AuthMiddleware`" (matches
+  exactly the symbols you need)
+
+Backtick-quoted identifiers in the task get the highest search priority.
+
+**Step 4: Enable the embedding re-ranker.**
+
+If structural retrieval returns somewhat relevant but poorly ordered results,
+the embedding re-ranker can significantly improve ranking (+17% in benchmarks).
+It is off by default. Enable it:
+
+```bash
+# CLI
+knowing context -task "your task" --embeddings
+
+# MCP server (add --embeddings to args)
+{ "args": ["mcp", "--watch", "--embeddings"] }
+```
+
+The model downloads once (~30MB) and runs locally with no API calls.
+
+**Step 5: Re-index with a clean slate.**
+
+If the database is from an older version or was built incrementally over many
+changes, a clean re-index can help:
+
+```bash
+knowing reindex .
+```
+
+### "knowing query returns no results"
+
+- **Symbol name mismatch:** `knowing query` does prefix matching on qualified
+  names. The qualified name includes the repo URL and package path
+  (e.g., `github.com/org/repo/pkg.FuncName`). Try a shorter prefix:
+  `knowing query "FuncName"` instead of the full path.
+- **Database not found:** knowing resolves the database via the roster. Run
+  `knowing list` to see registered repos. If your repo is not listed, run
+  `knowing add .` from the repo root.
+- **Wrong directory:** The roster maps directories to databases. Run commands
+  from inside the repository, or use `-db` to point to the database explicitly.
+
+### "MCP server not responding" or agent can't use knowing tools
+
+- **Binary not on PATH:** Verify with `which knowing`. If not found, ensure
+  your install method added it to PATH. For Homebrew: `brew link knowing`.
+- **First launch is slow:** The MCP server auto-indexes on first launch. For
+  large repos this can take 10-30 seconds. The agent may time out waiting.
+  Pre-index with `knowing add .` before starting the agent session.
+- **stdio transport issues:** Some agent frameworks require explicit
+  `"transport": "stdio"` in the config. Check the
+  [MCP Tools Reference](mcp-tools.md) for config examples.
+- **Verify from CLI:** If the MCP server should be working, verify the
+  underlying data is present: `knowing stats` and `knowing query "SomeSymbol"`
+  from the same directory where the agent runs.
+
+### "Hash mismatch" errors from `knowing fsck`
+
+Hash mismatches mean the stored data does not match its content-addressed hash.
+This happens when:
+
+- **Version upgrade:** Hash domain prefixes were added in v0.3.0. Databases
+  from older versions will show mismatches. Fix: `knowing reindex .`
+- **Database corruption:** Rare, but possible after unclean shutdowns. Fix:
+  `knowing reset && knowing index .`
+
+### Performance issues
+
+- **Indexing is slow:** Use `--no-enrich --skip-blame` for fast structural-only
+  indexing. LSP enrichment and git blame add precision but take longer.
+- **Queries are slow:** First query on a large graph builds the adjacency cache
+  (can take seconds). Subsequent queries use the cache (2ms). If queries are
+  consistently slow, check `knowing stats` for graph size; graphs above 100K
+  nodes are expected to take longer.
+- **Large database file:** Run `knowing vacuum` to compact after deletions.
+
+### Getting help
+
+If none of the above resolves your issue:
+
+1. Run `knowing stats -json` and `knowing fsck` to collect diagnostic info.
+2. Open an issue at [github.com/blackwell-systems/knowing](https://github.com/blackwell-systems/knowing/issues) with the diagnostic output and a description of what you expected vs. what happened.
