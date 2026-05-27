@@ -14,9 +14,9 @@ Embedding re-ranker: +17% P@10 with SQLite vector cache (220ms cached).
 |---|------|-----|--------|-----------------|
 | 1 | **Real users** | Everything else is validated by benchmarks, not usage. Task memory compounds with use. | Ongoing | - |
 | 2 | **Supply chain whitepaper** | False positive evaluation (scan 200+ clean packages), related work section. Draft has TanStack + event-stream case studies. Whitepaper at `docs/research/whitepapers/supply-chain-proof-of-absence.md`. | Medium | Publication + commercial |
-| 3 | ~~Investigate re-ranker regressions~~ | **RESOLVED (session 16).** VS Code and Ocelot both show 0% P@10 delta with re-ranker. Session 15 regressions were artifacts of pre-vector-cache build. | Done | - |
+| 3 | ~~Investigate re-ranker regressions~~ | **RESOLVED (session 16).** | Done | - |
 | 4 | **Root-level Go file extraction** | Go files at repo root produce 0 nodes due to package path computation bug. Affects flat-structure repos. | Low | Correctness |
-| 5 | **Coherence-aware context packing** | Current packing is greedy by value density (score/tokens). Treats symbols independently. Subgraph coherence bonus (boost graph-neighbors of already-packed symbols) is most promising. No evidence of harm yet; speculative improvement. | Medium | Quality |
+| 5 | ~~Coherence-aware context packing~~ | **Rejected (session 16).** CoherenceBonus=0.3 tested harmful (-1.8%). Greedy density packing already near-optimal. | Done | - |
 | 6 | **GHA Marketplace action** | Package the supply chain scanner for paid distribution. Free tier scans public repos; paid tier for private repos + continuous monitoring. | Medium | Commercial |
 | 7 | **Parallel write backend** | SQLite single-writer funnels all extraction results through one goroutine. Even with producer-consumer pipeline, writes are serial. Need parallel write support for large repos. | High | Performance |
 
@@ -51,7 +51,25 @@ Embedding re-ranker: +17% P@10 with SQLite vector cache (220ms cached).
 - Phrase-boosted BM25 from adjacent Components
 - TypeScript export_statement fix (was silently dropping all exported declarations)
 
-### Tested Neutral or Harmful (sessions 14-16)
+### Session 17: Shipped
+
+- **Dangling type_hint_of edge resolution**: post-processing step fixes edges computed with wrong node kind (type vs interface). 3,836 edges fixed across k8s (1,087), vscode (2,068), terraform (521), kafka (160).
+- **Interface type hint propagation (phase 2)**: after resolution, propagates type_hint_of through interfaces to concrete implementors. 808 new edges.
+- **`knowing enrich lsp` command**: standalone LSP enrichment on already-indexed DBs. Supports -concurrency, -db, -url flags.
+- **Similarity OOM fix**: skip packages with >500 functions in pairwise Jaccard (kafka's 16,781 functions caused 10GB+ RAM).
+- **csharp-ls support**: enrichment config detects csharp-ls as fallback when OmniSharp unavailable.
+- **Two-phase gopls warmup**: fixed OpenDocument argument order bug + didOpen before GetDefinition. Enables Go enrichment for the first time.
+- **Terraform enriched**: 82K new edges, 73K phantom nodes, 12 min.
+- **Kubernetes enriched**: 192K new edges, 169K phantom nodes, 58 min. K8s P@10: 0.000 -> 0.159 (no embeddings).
+- **Skip test/generated files in edge upgrade**: filters `_test.go` and `zz_generated` from upgrade phase. 70% reduction on k8s.
+- **Package-sorted edges**: sort workItems by URI for better gopls cache locality.
+- **Readiness probe for enrichment**: escalating timeout probes (5s, 10s, 30s, 60s, 120s).
+- **`EdgeCount` method on SQLiteStore**: lightweight COUNT(*) without loading all edges.
+- **Per-phase indexing timings**: `IndexTimings` struct emitted to stderr.
+- **Makefile**: corpus-rebuild, corpus-enrich, corpus-backup, corpus-restore targets.
+- **Docs overhaul**: introduction rewrite (7 pipeline steps, mermaid diagram), extraction pipeline architecture, enrichment architecture, troubleshooting guide, README split.
+
+### Tested Neutral or Harmful (sessions 14-17)
 
 | Approach | Result | Session | Details |
 |----------|--------|---------|---------|
@@ -62,7 +80,7 @@ Embedding re-ranker: +17% P@10 with SQLite vector cache (220ms cached).
 | **BFS depth reduction** | Neutral | 14 | No effect (depth 2/3/4 all produce same P@10) |
 | **Expanded framework thesaurus** ("backend"->"base") | Harmful | 14 | Too noisy for BM25 |
 | **accesses_field for P@10** | Neutral | 15 | Fields already reachable via call edges. Adds graph completeness, not retrieval. |
-| ~~LSP enrichment for P@10~~ | **Revised: +0.040** | 13, 17 | Session 13 found neutral (tested confidence upgrades only). Session 17 A/B test: enriched django+flask P@10=0.222 vs non-enriched 0.210. Enrichment creates phantom external nodes; type_hint_of edges (added session 14) connect functions to those nodes. Neither works alone. Together = +0.040 P@10 via shared-type reachability. |
+| ~~LSP enrichment for P@10~~ | **Revised: strongly positive** | 13, 17 | Session 13 found neutral (tested confidence upgrades only). Session 17: Python enrichment +0.040 P@10 (django+flask). Go enrichment: k8s 0.000 -> 0.159 (192K new edges, 169K phantom nodes). Enrichment creates phantom external nodes; type_hint_of edges connect functions to those nodes. **Moved to Tested Positive table.** |
 | **Coherence-aware packing** (CoherenceBonus=0.3) | Harmful (-1.8%) | 16 | Greedy density packing already near-optimal. File-based coherence adds noise. |
 | **Bidirectional inheritance edges** | Harmful (-2.5%) | 16 | Reverse inherits add noise without new reachability. Django zeros are vocabulary gaps. |
 | **BM25 gap injection (no embedding filter)** | Harmful (-1.4%) | 16 | Raw BM25 candidates too noisy. Displaces good graph results. |
@@ -72,7 +90,19 @@ Embedding re-ranker: +17% P@10 with SQLite vector cache (220ms cached).
 | **Density-adaptive inherits weight** (1.0 on deep) | Neutral | 17 | Boosted implements/overrides/extends to 1.0 on repos >1.5% inherits edges. Django +0.009, kafka+flask -0.008. Net neutral. |
 | **Interface type hint propagation** (post-processing) | Neutral | 17 | Connect type_hint_of targets to sibling implementors. Edge structure mismatch: type_hint_of and implements share 0 target hashes on Java/Python. Go (k8s): 393 edges on 523K, P@10 neutral. Needs extractor-level fix. |
 
-### Tested Positive (sessions 14-16)
+### Re-test Candidates (post-enrichment graph structure change)
+
+Go enrichment fundamentally changed graph structure on k8s (268K -> 705K edges, 72K -> 242K nodes, 169K phantom nodes) and terraform (similar). Three previously-neutral experiments were tested on pre-enrichment graphs and rejected for graph-structural reasons. With the new graph density, the structural premises that led to their rejection may no longer hold.
+
+| Approach | Original Result | Why it might flip | Priority |
+|----------|----------------|-------------------|----------|
+| **Hub dampening** | Neutral (session 14, vscode) | 169K phantom nodes on k8s include high-degree stdlib types (`error`, `context.Context`, `io.Reader`) that absorb RWR probability. Hub dampening divides transition probability by sqrt(in-degree). These exact hub nodes didn't exist pre-enrichment. **Note:** GraphNodeCount fix (excluding phantoms) was tested and hurt terraform (0.265->0.220) and was neutral on cargo (0.168->0.164). Phantom nodes are a valid density signal because they come with real enrichment edges. PreferTypeSeeds triggering on phantom-inflated counts is correct behavior. | High |
+| **Coherence-aware packing** | Harmful -1.8% (session 16) | Tested on sparse graphs where most symbols clustered in same files. 192K new cross-package reference edges create meaningful cross-package neighbors. Coherence bonus rewards packing graph-neighbors; more real neighbors = less noise. | Medium |
+| **BFS depth reduction** | Neutral (session 14) | 705K edges on k8s means RWR covers far more ground per step. Depth 4 may diffuse probability into phantom nodes. Shorter depth could keep the walk focused on real code. | Medium |
+
+**Not re-testing:** Bidirectional inheritance (directionality problem), blended re-rank (architecture), embeddings as Channel 3 (vocabulary/fusion), framework thesaurus (BM25 noise), seed count/gap parameter sweeps (parameter irrelevance confirmed). These were rejected for reasons unrelated to graph structure.
+
+### Tested Positive (sessions 14-17)
 
 | Approach | Impact | Session | Details |
 |----------|--------|---------|---------|
@@ -81,10 +111,17 @@ Embedding re-ranker: +17% P@10 with SQLite vector cache (220ms cached).
 | **Vector cache** (SQLite) | 660ms -> 220ms | 16 | 3x latency reduction. No quality change. |
 | **Adaptive seed count** (>40K: 25, >10K: 20) | Django +14.2% | 16 | More seeds on large graphs compensates for disconnection. Full corpus 0.238 -> 0.242. |
 | **Embedding-filtered gap injection** (>40K, maxgap=3) | Django +3.2%, aggregate neutral | 16 | BM25 gap candidates filtered by cosine similarity. Helps Django but absorbed by run variance on other repos. Full corpus: 0.238 (same as without). **Reverted**: optimal state is 0.242 without gap injection. Concept is sound but needs a better candidate source than BM25. |
+| **Go enrichment (two-phase warmup)** | k8s 0.000 -> 0.159 | 17 | Phantom nodes + type_hint_of edges create reachability paths. 192K new edges on k8s, 82K on terraform. |
+| **Dangling type_hint_of resolution** | 3,836 edges fixed | 17 | Post-processing fixes kind mismatch (type vs interface). Enables phase 2 propagation. |
 
 ## Enrichment Performance
 
-gopls initialization dominates enrichment time on large Go repos (terraform: 14+ min CPU just to load the module graph before any LSP requests are served). This is the primary bottleneck for `knowing enrich lsp` and `knowing index` (without `-no-enrich`).
+gopls on-demand package loading dominates enrichment time on large Go repos. The two-phase warmup (didOpen + retry) solved the "zero upgrades" problem. Both Go repos are now fully enriched:
+
+- **Terraform**: 82K new edges discovered, 73K phantom nodes, 12 min total
+- **Kubernetes**: 192K new edges discovered, 169K phantom nodes, 58 min gopls (root module covers all 30 sub-modules)
+
+The persistent daemon (#3) is the real fix for repeat runs; everything else works around the cold start.
 
 | # | Item | What it does | Expected Impact | Effort |
 |---|------|-------------|-----------------|--------|
@@ -95,7 +132,9 @@ gopls initialization dominates enrichment time on large Go repos (terraform: 14+
 | 5 | **Parallel git blame** | `git blame` runs per-file sequentially (~40% of index time on large repos). Parallelize across files since blame is read-only. Or: batch blame using `git log --follow` for recent authorship. | 2-4x faster authorship extraction | Low |
 | 6 | **Node.js heap size for tsserver** | Set `NODE_OPTIONS="--max-old-space-size=8192"` when spawning tsserver. Default heap (~4GB) causes GC thrashing on large TypeScript repos (vscode: 34 min enrichment, majority in GC). More heap = less GC = faster enrichment. | 2-3x faster TS enrichment on large repos | Low |
 | 7 | **Deno LSP for TypeScript** | Use `deno lsp` (Rust-based) instead of tsserver for TypeScript enrichment. No GC, no Node.js heap limits. Add as alternative in enrichment config detection (check for `deno` on PATH, prefer over tsserver). Test on vscode to compare enrichment time and edge quality. | Potentially 5-10x faster TS enrichment | Low |
-| 8 | **Import-based phantom nodes for Go (skip gopls)** | Parse Go import statements and generate phantom stub nodes for stdlib/dependency types without running gopls. Covers 90% of enrichment value (phantom nodes for shared-type reachability) with 0% of gopls cost. Go's import paths are explicit and resolvable from go.mod, so no type checker needed to create the phantom nodes. Only misses: cross-package reference discovery and confidence upgrades (both neutral for P@10). | Instant Go enrichment (no gopls), recovers +0.040 P@10 for Go repos | Medium |
+| 8 | **Import-based phantom nodes for Go (skip gopls)** | Parse Go import statements and generate phantom stub nodes for stdlib/dependency types without running gopls. Now that gopls enrichment works (k8s: +0.159 P@10), the value proposition changed: this is a fast fallback for environments without gopls, not the primary path. gopls discovers 192K edges + 169K phantoms on k8s; import parsing would get only the phantoms. | Fast fallback for Go enrichment without gopls | Low (deprioritized) |
+| 9 | ~~Progressive concurrency~~ | **Partially shipped (session 17).** Two-phase warmup starts with single-worker probe, then jumps to 64 concurrent after warmup succeeds. Not fully progressive (no gradual ramp-up), but the warmup/blast pattern works well in practice. | **Shipped (simplified)** | Done |
+| 10 | ~~Skip test/generated files in edge upgrade~~ | **Shipped (session 17).** Filters `_test.go` and `zz_generated` files from upgrade phase. Reduced k8s upgrade workload from 143K to 42K edges (70% reduction). | **Shipped** | Done |
 
 ## Storage Backend (P0 Performance)
 
@@ -127,7 +166,7 @@ Packages are already the unit of Merkle computation, cache invalidation, diffing
 | knowing (84K LOC) | 448 | 25K | 0.4s | 1.7s |
 | flask (15K LOC) | 97 | 9K | 0.04s | 0.3s |
 | cargo (150K LOC) | 979 | 79K | 0.2s | 5.5s |
-| kubernetes (3.5M LOC) | 4,877 | 268K | 18.6s | ~22s (data queryable immediately) |
+| kubernetes (3.5M LOC) | 4,877 | 705K (268K ast + 287K lsp + 150K other) | 18.6s extraction + 58 min enrichment | ~22s queryable (enrichment async) |
 
 ## Cross-Repo Query Architecture
 
@@ -339,7 +378,7 @@ P@10=0.242 (Run 26, 167 tasks, 9 repos). 1.79x vs codegraph, 3.23x vs GitNexus, 
 
 | # | Edge Type | What it connects | Expected Impact | Effort |
 |---|-----------|-----------------|-----------------|--------|
-| 1 | **`implements_interface` propagation** | Session 17: diagnosed root cause. type_hint_of extractors compute target hash with kind="type" but interface nodes use kind="interface", producing different SHA-256 hashes (40% of k8s type_hint_of edges dangling). **Shipped:** resolveTypeHintEdges post-processing step fixes 3,836 edges across 4 repos by matching (repo, pkg, name) across type-like kinds. Phase 2: after resolution, propagate from fixed type_hint_of -> interface to all implementors via implements edges. | Phase 2: propagation from resolved edges | Low |
+| 1 | ~~`implements_interface` propagation~~ | **Shipped (session 17).** Both phases complete: (1) resolveTypeHintEdges fixes 3,836 dangling edges across 4 repos. (2) propagateInterfaceTypeHints creates 808 new edges from type_hint_of -> interface to concrete implementors. Tested neutral on P@10 in isolation, but the resolved edges are load-bearing for enrichment's phantom node reachability. | **Shipped** | Done |
 
 **Remaining failure analysis (sessions 13-14):**
 - Django: 117/192 ground truth symbols unreachable. Root cause: framework base classes referenced by type hint and interface contract, not direct call.

@@ -1,0 +1,16 @@
+id: ocelot-medium-003
+repo: ocelot
+tier: medium
+description: "Implement a custom load balancing strategy that distributes requests based on session affinity using sticky cookies"
+source: manual
+ground_truth:
+  - Ocelot.LoadBalancer.Interfaces.ILoadBalancer
+  - Ocelot.LoadBalancer.Interfaces.ILoadBalancer.LeaseAsync
+  - Ocelot.LoadBalancer.Interfaces.ILoadBalancerCreator
+  - Ocelot.LoadBalancer.Interfaces.ILoadBalancerCreator.Create
+  - Ocelot.LoadBalancer.Balancers.CookieStickySessions.LeaseAsync
+  - Ocelot.LoadBalancer.Creators.CookieStickySessionsCreator.Create
+  - Ocelot.DependencyInjection.IOcelotBuilder.AddCustomLoadBalancer
+  - Ocelot.LoadBalancer.LoadBalancingMiddleware.Invoke
+tags: [load-balancing, session-affinity, cross-namespace, feature-addition]
+notes: "Custom load balancer requires understanding the ILoadBalancer/ILoadBalancerCreator interfaces, CookieStickySessions as a reference implementation, how creators are registered via DI (AddCustomLoadBalancer), and how LoadBalancingMiddleware dispatches to the chosen balancer."

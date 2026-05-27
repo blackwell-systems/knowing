@@ -1,0 +1,15 @@
+id: ocelot-medium-006
+repo: ocelot
+tier: medium
+description: "Add custom delegating handlers to the HTTP request pipeline for cross-cutting concerns like logging, retry, or tracing"
+source: manual
+ground_truth:
+  - Ocelot.DependencyInjection.IOcelotBuilder.AddDelegatingHandler
+  - Ocelot.Requester.IDelegatingHandlerFactory
+  - Ocelot.Requester.IDelegatingHandlerFactory.Get
+  - Ocelot.Requester.DelegatingHandlerFactory.Get
+  - Ocelot.Requester.GlobalDelegatingHandler.GlobalDelegatingHandler
+  - Ocelot.Requester.MessageInvokerPool.CreateMessageInvoker
+  - Ocelot.Requester.TimeoutDelegatingHandler.SendAsync
+tags: [delegating-handlers, http-pipeline, cross-namespace]
+notes: "Delegating handlers wrap the HTTP client pipeline. Registered via IOcelotBuilder.AddDelegatingHandler, resolved by IDelegatingHandlerFactory, assembled into a chain by MessageInvokerPool.CreateMessageInvoker. GlobalDelegatingHandler applies to all routes. TimeoutDelegatingHandler is a built-in example."

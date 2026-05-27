@@ -245,21 +245,19 @@ The `ContextEngine.ForTask` pipeline is fully sequential within a single request
 
 No goroutines are spawned within `ForTask`. The RWR's `buildAdjacencyMap` does a BFS pre-load of edges (4 hops from seeds) into in-memory maps, then the iteration loop operates entirely on those maps with zero concurrent access.
 
-## LSP Enrichment is Sequential
+## LSP Enrichment Concurrency
 
-Language servers do not support concurrent requests from the same client. The LSP protocol is request-response with a single message stream per client connection. The enricher iterates all detected language servers sequentially, processing each one in turn:
+The enricher uses high concurrency for LSP requests. Language servers handle concurrent requests well once their workspace is loaded. The enricher iterates all detected language servers sequentially (one language at a time), but within each server session, requests are highly parallel:
 
 1. Auto-detect available language servers via project markers and PATH binaries (`DetectLSPServers`).
 2. For each detected server:
    a. Start the server process (`lsp.NewLSPClient`, `client.Initialize`).
-   b. Open source files matching the server's extensions (`textDocument/didOpen`, sequential).
-   c. Wait for workspace ready (`WaitForWorkspaceReadyTimeout`, up to 120s for large projects).
-   d. Upgrade ast_inferred call edges: for each edge with call-site positions, query `GetDefinition` (sequential).
-   e. Discover new edges: for each file, query `GetDocumentSymbols`, then `GetImplementation`/`GetReferences` per symbol (sequential).
-   f. Close all files and shut down the language server (`Shutdown`).
+   b. **Two-phase warmup:** open one probe file via `didOpen` to trigger package loading, then retry `GetDefinition` with escalating timeouts until the server responds. This prevents flooding an unloaded server.
+   c. **Edge upgrade (128 concurrent workers):** after warmup, blast through all `ast_inferred` edges with 128 concurrent `GetDefinition` calls. A buffered-channel semaphore limits concurrency. A single writer goroutine serializes all DB mutations (delete old edge, insert upgraded edge).
+   d. **Edge discovery (8 concurrent, batches of 50 files):** for each batch, open 50 files, query `GetDocumentSymbols` + `GetImplementation`/`GetReferences` concurrently (semaphore-bounded at 8), close the batch. DB writes serialized via `writeMu` mutex.
+   e. Close all files and shut down the language server (`Shutdown`).
 3. Create phantom external nodes for dangling edge targets (sequential DB writes).
-
-This is an inherent limitation of the LSP protocol, not a design choice. The enricher could use multiple language server instances for parallelism, but the memory cost of multiple server instances (each loading the full dependency graph) outweighs the latency benefit for typical repo sizes.
+4. For Go workspaces with `go.work`, spawn one gopls per module (root module first, then 4 sub-modules in parallel via semaphore).
 
 **Enrichment writes do not hold the daemon write lock.** After the write lock is released, enrichment uses SQLite's WAL mode for safe concurrent access (the store handles `busy_timeout` internally). This means MCP queries can proceed during enrichment.
 

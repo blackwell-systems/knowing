@@ -584,6 +584,12 @@ func (e *Enricher) upgradeCallEdges(
 			if fileFilter != nil && !fileFilter(edge.CallSiteFile) {
 				continue
 			}
+			// Skip test files and generated code: these edges are low-value
+			// for enrichment and can represent 30-50% of edges on large repos.
+			if isTestFile(edge.CallSiteFile) || strings.Contains(edge.CallSiteFile, "zz_generated") {
+				stats.edgesSkipped.Add(1)
+				continue
+			}
 
 			// Skip if an lsp_resolved edge already exists for this source/target/type.
 			resolvedHash := types.ComputeEdgeHash(edge.SourceHash, edge.TargetHash, edge.EdgeType, "lsp_resolved")

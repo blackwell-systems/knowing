@@ -77,7 +77,7 @@ Tier 2: LSP enrichment (type-resolved, per-language)
   ├── Discover new edges: query GetImplementation, GetReferences on symbols
   │   └── implements and references edges (tree-sitter cannot produce these)
   ├── Close all files, shutdown language server
-  └── Completes in ~8 seconds for a 6,000-node repo (LSP enrichment only; tree-sitter extraction is separate)
+  └── Time varies by language: Python ~10 min, Rust ~1 min, Go 12-58 min (gopls warmup), TypeScript ~34 min (GC-bound)
 ```
 
 **Why two tiers instead of one:**
@@ -110,7 +110,7 @@ Graph is queryable (ast_inferred edges, confidence 0.7)
     ▼
 Tier 2: LSP enrichment
     │  ├── Start language server (gopls for Go, pyright for Python, etc.)
-    │  ├── Open ALL source files (textDocument/didOpen) ← required for cross-package resolution
+    │  ├── Two-phase warmup: open one file (didOpen), retry GetDefinition until server responds
     │  ├── Edge upgrade pass:
     │  │   ├── For each ast_inferred edge with call-site position:
     │  │   │   ├── Query GetDefinition at (CallSiteFile, CallSiteLine, CallSiteCol)
@@ -125,7 +125,7 @@ Tier 2: LSP enrichment
     │  └── New edges stored as lsp_resolved (0.9)
     │
     ▼
-Graph is fully enriched (all edges lsp_resolved or ast_resolved)
+Graph is enriched (upgraded edges are lsp_resolved; many remain ast_inferred)
 ```
 
 **Parallel Indexer (Tier 1):**
@@ -140,7 +140,7 @@ The indexer uses a producer-consumer pipeline (configurable via `--workers` flag
 
 Progress output to stderr every 2 seconds shows files processed and extraction rate. On the knowing codebase (84K LOC, 429 source files, 62 packages), the parallel indexer produces 7,224 nodes and ~24.9K edges in 1.8 seconds (1,451 files/sec throughput).
 
-The worker pool handles tree-sitter extraction only; LSP enrichment is sequential (language servers are not designed for concurrent requests from the same client).
+The worker pool handles tree-sitter extraction only; LSP enrichment uses its own concurrency model (64 concurrent workers post-warmup for edge upgrades, 8 concurrent for discovery batches). Language servers handle concurrent requests well once warmed up.
 
 **Call-site positions:**
 
@@ -148,7 +148,7 @@ Edges carry `CallSiteLine` (1-indexed), `CallSiteCol` (0-indexed), and `CallSite
 
 **textDocument/didOpen requirement:**
 
-LSP servers require files to be opened via `textDocument/didOpen` before they can resolve cross-package references. This is an LSP protocol requirement, not a gopls-specific behavior. The enricher opens all source files before any query pass and closes them after completion. Without this step, `GetDefinition`, `GetImplementation`, and `GetReferences` return empty results or errors for cross-package targets.
+LSP servers require files to be opened via `textDocument/didOpen` before they can resolve cross-package references. The enricher uses a two-phase approach: during warmup, it opens a single probe file to trigger package loading (gopls uses lazy loading and needs this stimulus). During the discovery phase, files are opened in batches of 50 to limit memory pressure. Without any `didOpen`, `GetDefinition`, `GetImplementation`, and `GetReferences` return empty results because the server has not loaded any packages.
 
 **What tree-sitter cannot do (explicit limitations):**
 
@@ -234,7 +234,7 @@ For explicit control, `SetLSPConfig` overrides auto-detection and `LoadLSPConfig
 |-----------|-----------|--------|------|
 | `ast_inferred` | 0.7 | tree-sitter syntactic matching | After Tier 1 (seconds) |
 | `lsp_resolved` | 0.9 | LSP GetDefinition confirmation | After Tier 2 (seconds more) |
-| `ast_resolved` | 1.0 | go/packages full type resolution | `--full` flag only (minutes) |
+| `ast_resolved` | 0.85 | Import-map resolution (Python, TS, Rust, Java, C#) or go/packages | After Tier 1 (import-resolved) or `--full` flag |
 
 ## HTTP Route Extraction
 

@@ -538,23 +538,30 @@ nested calls and callbacks. Previously `map(process, items)` only extracted the 
 call, missing `process` as a target. Flask: 5,022 to 9,237 edges (+84%). Django: 151K to
 185K edges (+22%). More edges means more RWR connectivity.
 
-### LSP enrichment: measured net-neutral for retrieval
+### LSP enrichment: strongly positive for retrieval (revised session 17)
 
-LSP enrichment (running a language server to resolve references at higher confidence)
-was measured on Flask and Django with identical results: **zero retrieval quality difference**
-with or without enrichment (80/80 and 50/50 real symbols in top-10 respectively).
+LSP enrichment was originally measured as net-neutral (session 13). This finding was
+revised in session 17 after `type_hint_of` edges (added session 14) created new
+reachability paths through phantom external nodes.
 
-Why: LSP upgrades existing tree-sitter edges from 0.7 to 0.9 confidence, but RWR weights
-by edge type (calls=1.0, imports=0.5), not confidence. The edges already exist; LSP just
-makes them slightly more certain. LSP also creates phantom external nodes (59-67% of all
-nodes on Flask/Django) that bloat the FTS index and add 53% latency overhead.
+**Current results:**
+- **Python repos**: enriched django+flask P@10 = 0.222 vs non-enriched 0.210 (+0.040)
+- **Go repos**: kubernetes P@10 went from 0.000 to 0.159 after enrichment (192K new edges, 169K phantom nodes). Terraform P@10 went from ~0.095 to 0.265.
 
-LSP enrichment remains useful for non-retrieval purposes (blast radius confidence display,
-dead code detection requiring high-confidence edges) but the retrieval pipeline does not
-benefit from it. The tree-sitter extractor + import resolution + inheritance propagation
-is self-sufficient for RWR-based ranking.
+**Why the original finding was wrong:** Session 13 tested only confidence upgrades
+(0.7 to 0.9), which are indeed neutral for RWR (weights by edge type, not confidence).
+But enrichment also creates phantom external nodes and discovers new edges (implements,
+references). When `type_hint_of` edges (added later) connect functions to phantom nodes,
+RWR can walk between functions that share an external type (e.g., `http.Request`,
+`context.Context`). This "shared-type reachability" creates paths that did not exist
+with tree-sitter alone. Neither enrichment nor type_hint_of helps alone; together they
+produce the improvement.
 
-Benchmark: `bench/time-to-consistency/TestEnrichmentROI` and `TestEnrichmentROI_Django`.
+**Phantom nodes in FTS:** Counterintuitively, keeping 169K+ phantom nodes in the BM25
+index helps P@10. Removing them was tested and hurt (0.222 to 0.213). Without phantoms,
+common terms become artificially rare, distorting IDF distribution.
+
+See [enrichment-pipeline.md](enrichment-pipeline.md) for the full enrichment architecture.
 
 ### What was tried and rejected
 

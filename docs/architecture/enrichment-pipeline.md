@@ -249,13 +249,14 @@ because definition resolution on cross-package symbols can be slow on large repo
 
 Enrichment time varies widely by language server performance and repo size:
 
-| Repo | Language | Files | Time | Phantom nodes | Notes |
-|------|----------|-------|------|--------------|-------|
-| django | Python | 2,771 | ~10 min | 79K | pyright, fast |
-| vscode | TypeScript | 3,958 | ~34 min | 468K | tsserver, GC-bound |
-| cargo | Rust | 950 | ~1 min | 72K | rust-analyzer, fast |
-| ocelot | C# | 768 | ~6 min | 10K | csharp-ls |
-| terraform | Go | 2,242 | 5-15 min | varies | gopls warmup dominates (367 deps) |
+| Repo | Language | Files | Time | Edges upgraded | New edges | Phantom nodes | Notes |
+|------|----------|-------|------|---------------|-----------|--------------|-------|
+| django | Python | 2,771 | ~10 min | - | - | 79K | pyright, fast |
+| vscode | TypeScript | 3,958 | ~34 min | - | - | 468K | tsserver, GC-bound |
+| cargo | Rust | 950 | ~1 min | - | - | 72K | rust-analyzer, fast |
+| ocelot | C# | 768 | ~6 min | - | - | 10K | csharp-ls |
+| terraform | Go | 2,242 | 12 min | 5,850 | 82,721 | 73K | gopls, two-phase warmup |
+| kubernetes | Go | 2,956 | 58 min | 39,678 | 192,271 | 169K | gopls, 64 concurrent post-warmup. Root module covers all 30 sub-modules. |
 
 ---
 
@@ -387,14 +388,15 @@ For repos with very large dependency trees, consider running enrichment on a mac
 ### "Should I skip enrichment?"
 
 Use `-no-enrich` for fast iteration during development or supply chain scanning.
-Enrichment adds +0.040 P@10 on Python and TypeScript repos but is entirely optional.
-The tree-sitter extraction + import resolution + inheritance propagation pipeline is
-self-sufficient for RWR-based ranking (see
-[retrieval-pipeline.md](retrieval-pipeline.md)).
+Enrichment is strongly positive for retrieval: +0.040 P@10 on Python repos, and
+dramatically larger on Go repos (kubernetes 0.000 -> 0.159, terraform ~0.095 -> 0.265).
+The tree-sitter extraction pipeline is self-sufficient for basic retrieval, but enrichment
+creates phantom nodes and cross-package edges that significantly expand RWR reachability.
+See [retrieval-pipeline.md](retrieval-pipeline.md) for measured impact.
 
-For Go repos, enrichment is slower due to gopls warmup but now works reliably with the
-two-phase warmup protocol. For Rust repos, rust-analyzer is fast and enrichment completes
-in about a minute.
+For Go repos, the two-phase warmup protocol makes enrichment reliable. Expect 12-58 min
+depending on repo size (terraform: 12 min, kubernetes: 58 min). For Rust repos,
+rust-analyzer is fast (~1 min). For Python, pyright is fast (~10 min).
 
 ---
 

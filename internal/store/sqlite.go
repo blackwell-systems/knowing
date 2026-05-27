@@ -1733,6 +1733,17 @@ func (s *SQLiteStore) GetEmbeddings(ctx context.Context, model string, hashes []
 	return result, nil
 }
 
+// RealNodeCount returns the count of non-phantom nodes (nodes that have a
+// backing file). Phantom external nodes created by LSP enrichment are excluded.
+// This is used by the adaptive density system (PreferTypeSeeds, adaptive seed
+// count) to avoid phantom node inflation triggering density-adaptive behavior
+// on repos that are not actually dense.
+func (s *SQLiteStore) RealNodeCount(ctx context.Context) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM nodes n JOIN files f ON n.file_hash = f.file_hash`).Scan(&count)
+	return count, err
+}
+
 // scanNotes is a shared helper for scanning note rows.
 func scanNotes(rows *sql.Rows) ([]types.Note, error) {
 	var notes []types.Note

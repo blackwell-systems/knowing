@@ -1,5 +1,5 @@
 # Cross-system benchmark evaluation corpus.
-# 5 repos spanning different sizes, languages, and architectures.
+# 6 repos spanning different sizes, languages, and architectures.
 # Commits are pinned for reproducibility.
 
 repos:
@@ -42,3 +42,11 @@ repos:
     size_class: large  # ~300K LOC
     clone_depth: 1
     notes: "Large Python framework. ORM, views, middleware. SWE-bench tasks available."
+
+  - name: ocelot
+    url: https://github.com/ThreeMammals/Ocelot
+    commit: "23.4.2"
+    language: CSharp
+    size_class: medium  # ~80K LOC
+    clone_depth: 1
+    notes: ".NET API gateway. Middleware pipeline, load balancing, rate limiting, service discovery, request aggregation."

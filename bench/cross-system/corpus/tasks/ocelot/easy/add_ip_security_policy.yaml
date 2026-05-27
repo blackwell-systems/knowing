@@ -1,0 +1,13 @@
+id: ocelot-easy-004
+repo: ocelot
+tier: easy
+description: "Add IP whitelist/blacklist security policy to restrict access to downstream routes"
+source: manual
+ground_truth:
+  - Ocelot.Security.Middleware.SecurityMiddleware.Invoke
+  - Ocelot.Security.ISecurityPolicy
+  - Ocelot.Security.ISecurityPolicy.Security
+  - Ocelot.Security.IPSecurity.IPSecurityPolicy.Security
+  - Ocelot.Configuration.SecurityOptions.SecurityOptions
+tags: [security, ip-filtering, single-namespace]
+notes: "Developer wants to add IP-based access control. SecurityMiddleware invokes ISecurityPolicy implementations. IPSecurityPolicy is the concrete implementation. SecurityOptions configures allowed/blocked IPs."

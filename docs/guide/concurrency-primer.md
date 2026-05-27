@@ -210,19 +210,20 @@ The enricher (`internal/enrichment/enricher.go`) upgrades `ast_inferred` edges t
 [workItems] --> N LSP workers (semaphore-bounded) --> [results channel] --> 1 DB writer
 ```
 
-- **N LSP workers** (bounded by `e.concurrency`, default 8) resolve edges via `GetDefinition`. Each worker acquires a slot from a buffered-channel semaphore before issuing the LSP call.
+- **N LSP workers** resolve edges via `GetDefinition`. After the two-phase warmup (one probe file + retry until server responds), the semaphore is set to 128 concurrent workers. Before warmup, it starts at `e.concurrency` (default 8).
 - **1 writer goroutine** reads from `results` and serializes all `DeleteEdge`/`PutEdge` mutations against SQLite.
 - **`writerWg`** ensures the writer finishes before `upgradeCallEdges` returns.
 
 ```go
-// Semaphore: buffered channel limits concurrent LSP calls.
-sem := make(chan struct{}, e.concurrency)
+// Post-warmup: high concurrency once server is loaded.
+postWarmupConcurrency := 128
+sem := make(chan struct{}, postWarmupConcurrency)
 
 // Results channel: parallel workers -> serial writer.
-results := make(chan edgeResolveResult, e.concurrency*2)
+results := make(chan edgeResolveResult, postWarmupConcurrency*2)
 ```
 
-**Why this design:** LSP calls take 5-50ms each. With 8 concurrent workers, 2000 edges resolve in ~15 seconds instead of ~100 seconds sequentially. The single writer avoids SQLite `SQLITE_BUSY` contention entirely.
+**Why this design:** LSP calls take 5-50ms each post-warmup. With 128 concurrent workers, 42K edges on kubernetes resolve in ~20 minutes. The single writer avoids SQLite `SQLITE_BUSY` contention entirely. The two-phase warmup is critical: without it, all 128 workers fire requests before the server has loaded any packages, producing zero results.
 
 ### Semaphore Pattern (Buffered Channel as Concurrency Limiter)
 
@@ -813,8 +814,8 @@ The watchdog pattern (fire-and-forget + timer) ensures no single file blocks the
 | Indexer extraction | goroutines, channels, WaitGroup | N workers (GOMAXPROCS) |
 | Indexer storage | single goroutine reading from channel | 1 writer |
 | CGO watchdog | goroutine, select, Timer | 1 per file (fire-and-forget) |
-| Enrichment edge upgrade | semaphore (buffered chan), WaitGroup, results channel | 8 LSP workers, 1 DB writer |
-| Enrichment discovery | semaphore (buffered chan), WaitGroup, Mutex (writeMu) | 8 concurrent per batch |
+| Enrichment edge upgrade | semaphore (buffered chan), WaitGroup, results channel | 128 LSP workers post-warmup, 1 DB writer |
+| Enrichment discovery | semaphore (buffered chan), WaitGroup, Mutex (writeMu) | 8 concurrent per batch of 50 files |
 | Enrichment multi-module | semaphore (buffered chan), WaitGroup, atomic.Int64 | 1 root sequential, 4 sub-modules parallel |
 | Enrichment per-symbol timeout | context.WithTimeout, goroutine, select | child context per LSP call |
 | Enrichment progress | sync.Mutex, atomic file write (rename) | mutex-protected map, crash-safe persistence |

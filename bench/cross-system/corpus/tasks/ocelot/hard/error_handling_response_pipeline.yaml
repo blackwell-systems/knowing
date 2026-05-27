@@ -1,0 +1,17 @@
+id: ocelot-hard-004
+repo: ocelot
+tier: hard
+description: "Trace how errors propagate through the middleware pipeline from downstream failures to the upstream HTTP response, including exception handling, status code mapping, and error response formatting"
+source: manual
+ground_truth:
+  - Ocelot.Errors.ExceptionHandlerMiddleware.Invoke
+  - Ocelot.Errors.ExceptionHandlerMiddleware.CreateMessage
+  - Ocelot.Errors.ExceptionHandlerMiddleware.TrySetGlobalRequestId
+  - Ocelot.Responder.Middleware.ResponderMiddleware.Invoke
+  - Ocelot.Responder.Middleware.ResponderMiddleware.SetErrorResponse
+  - Ocelot.Responder.IErrorsToHttpStatusCodeMapper
+  - Ocelot.Responder.ErrorsToHttpStatusCodeMapper.Map
+  - Ocelot.Responder.HttpContextResponder.SetErrorResponseOnContext
+  - Ocelot.Requester.IExceptionToErrorMapper.Map
+tags: [error-handling, response-pipeline, cross-namespace, architectural]
+notes: "Error flow: ExceptionHandlerMiddleware catches exceptions at the top. Middleware errors accumulate in the context. ResponderMiddleware checks for errors, maps them to HTTP status codes via ErrorsToHttpStatusCodeMapper, and writes the response via HttpContextResponder. IExceptionToErrorMapper converts HttpClient exceptions to Ocelot error types."

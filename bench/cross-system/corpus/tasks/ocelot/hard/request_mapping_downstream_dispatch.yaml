@@ -1,0 +1,17 @@
+id: ocelot-hard-007
+repo: ocelot
+tier: hard
+description: "Trace how an incoming HTTP request is mapped, dispatched to a downstream service, and the response written back, covering request mapping, HTTP client pooling, and response handling"
+source: manual
+ground_truth:
+  - Ocelot.Request.Mapper.IRequestMapper.Map
+  - Ocelot.Request.Mapper.RequestMapper.Map
+  - Ocelot.Request.Mapper.RequestMapper.MapHeaders
+  - Ocelot.Request.Mapper.RequestMapper.MapContent
+  - Ocelot.Request.Middleware.DownstreamRequestInitialiserMiddleware.Invoke
+  - Ocelot.Requester.Middleware.HttpRequesterMiddleware.Invoke
+  - Ocelot.Requester.IHttpRequester.GetResponse
+  - Ocelot.Requester.IMessageInvokerPool.Get
+  - Ocelot.Responder.HttpContextResponder.SetResponseOnHttpContext
+tags: [request-mapping, http-dispatch, response-handling, cross-namespace, architectural]
+notes: "Full dispatch flow: DownstreamRequestInitialiserMiddleware uses IRequestMapper to convert the ASP.NET Core HttpRequest to an HttpRequestMessage (mapping headers, content, method). HttpRequesterMiddleware calls IHttpRequester.GetResponse, which obtains a pooled HttpMessageInvoker from IMessageInvokerPool. ResponderMiddleware writes the downstream response back via HttpContextResponder."

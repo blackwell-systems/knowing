@@ -4,7 +4,7 @@ The extraction system (`internal/indexer/`) is the foundation of the knowledge g
 It parses source files using tree-sitter grammars to produce **nodes** (code symbols:
 functions, types, classes, methods, fields) and **edges** (relationships: calls, imports,
 implements, extends, type hints). Everything else in the system builds on the extracted
-graph: [LSP enrichment](enrichment.md) upgrades confidence, the
+graph: [LSP enrichment](enrichment-pipeline.md) upgrades confidence, the
 [retrieval pipeline](retrieval-pipeline.md) walks edges to rank symbols, and
 [Merkle proofs](merkle-proofs.md) attest to graph contents.
 
@@ -129,9 +129,9 @@ same two nodes are distinct records.
 | Provenance | Confidence | Source |
 |------------|-----------|--------|
 | `ast_inferred` | 0.7 | Tree-sitter extraction. Syntax-level pattern matching: the extractor saw a function call node in the AST but cannot confirm the target resolves correctly. |
-| `ast_resolved` | 0.95 | `go/packages` or import-map resolution. The extractor confirmed the call target through import maps (Python, TypeScript, Rust, Java, C#) or full type resolution (Go `--full`). |
-| `lsp_resolved` | 0.9 | LSP enrichment confirmed the edge via `GetDefinition`. See [enrichment.md](enrichment.md). |
-| `scip_resolved` | 1.0 | SCIP index import. External compiler-produced index with full type resolution. |
+| `ast_resolved` | 0.85 | Import-map resolution. The extractor confirmed the call target through import maps (Python, TypeScript, Rust, Java, C#). Go `--full` uses `go/packages` for full type resolution. |
+| `lsp_resolved` | 0.9 | LSP enrichment confirmed the edge via `GetDefinition`. See [enrichment-pipeline.md](enrichment-pipeline.md). |
+| `scip_resolved` | 0.95 | SCIP index import. External compiler-produced index with full type resolution. |
 | `similarity` | variable | Jaccard similarity score between function token sets. Ranges from the threshold (0.5) to 1.0. |
 | `interface_propagation` | 0.9 | Post-processing derived. Created by matching method names between implementing classes and interfaces. |
 | `structural` | 1.0 | QN-structure derived. `contains` and `member_of` edges from type-to-method hierarchy. |
@@ -644,7 +644,7 @@ If QNs appear malformed, check:
 
 3. **LSP enrichment.** Enrichment (enabled by default) adds significant time, especially
    for Go repos where gopls needs a multi-minute warmup. Use `-no-enrich` for fast
-   iteration. See [enrichment.md](enrichment.md) for details.
+   iteration. See [enrichment-pipeline.md](enrichment-pipeline.md) for details.
 
 4. **Large repos.** Kubernetes (4,877 files, 117K nodes) takes ~19s for extraction alone.
    This is normal. The extraction pipeline scales linearly with file count.
@@ -751,7 +751,7 @@ produces the same graph, regardless of which worker processes which file.
 
 ## Related Documents
 
-- [LSP Enrichment](enrichment.md): what happens after extraction (confidence upgrades, new edges, phantom nodes)
+- [LSP Enrichment](enrichment-pipeline.md): what happens after extraction (confidence upgrades, new edges, phantom nodes)
 - [Edge Types](edge-types.md): full catalog of 38 edge types with RWR weights
 - [Data Flow](data-flow.md): end-to-end commit-to-graph pipeline
 - [Retrieval Pipeline](retrieval-pipeline.md): how the extracted graph is queried via RWR

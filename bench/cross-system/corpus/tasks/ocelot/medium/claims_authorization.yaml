@@ -1,0 +1,15 @@
+id: ocelot-medium-007
+repo: ocelot
+tier: medium
+description: "Configure claims-based authorization that restricts route access based on JWT claim values and scopes"
+source: manual
+ground_truth:
+  - Ocelot.Authorization.AuthorizationMiddleware.Invoke
+  - Ocelot.Authorization.IClaimsAuthorizer
+  - Ocelot.Authorization.IClaimsAuthorizer.Authorize
+  - Ocelot.Authorization.ClaimsAuthorizer.Authorize
+  - Ocelot.Authorization.IScopesAuthorizer
+  - Ocelot.Authorization.IScopesAuthorizer.Authorize
+  - Ocelot.Configuration.Builder.DownstreamRouteBuilder.WithRouteClaimsRequirement
+tags: [authorization, claims, scopes, cross-namespace]
+notes: "Authorization has two strategies: claims-based (IClaimsAuthorizer checks specific claim key-value pairs) and scopes-based (IScopesAuthorizer checks OAuth scopes). AuthorizationMiddleware invokes both. Claims requirements are configured per-route via WithRouteClaimsRequirement."

@@ -9,17 +9,19 @@ The full architecture specification for knowing, split into focused subdocuments
 If you are new to knowing, read these in order:
 
 1. **Concepts** (foundational vocabulary)
-2. **System Overview** (component map, extraction pipeline, edge types)
-3. **Data Flow** (end-to-end trace of a single commit)
-4. **Concurrency Model** (goroutine architecture, locking, shutdown)
-5. **Runtime Trace Ingestion** (production observability edges)
-6. **Context Engine** (retrieval pipeline, scoring, packing)
-7. **Wire Formats** (GCF, binary, JSON codec system)
-8. **CLI Commands** (export, watch, why, enrich)
-9. **Design Principles** (goals, architectural planes, MCP tool split)
-10. **Deep Dives** (15 foundational architecture decisions)
-11. **Merkle Tree Algorithms** (hierarchical roots, subgraph caching, incremental recompute)
-12. **Git Design Audit** (gap analysis vs. git's reference implementation, actionable recommendations)
+2. **System Overview** (component map, two-tier extraction, edge types)
+3. **Extraction Pipeline** (tree-sitter, 23 extractors, post-processing)
+4. **Enrichment Pipeline** (LSP enrichment, phantom nodes, gopls warmup)
+5. **Retrieval Pipeline** (seeds, RWR, HITS, scoring, embedding re-ranker)
+6. **Data Flow** (end-to-end trace of a single commit)
+7. **Edge Types** (38 edge types with RWR weights)
+8. **Embedding Re-ranker** (+17% P@10, vector cache, architecture)
+9. **Context Engine** (ForTask/ForFiles/ForPR entry points, scoring formula)
+10. **Wire Formats** (GCF, binary, JSON codec system)
+11. **Design Principles** (goals, architectural planes, MCP tool split)
+12. **Deep Dives** (15 foundational architecture decisions)
+13. **Merkle Tree Algorithms** (hierarchical roots, subgraph caching)
+14. **Git Design Audit** (gap analysis vs. git's reference implementation)
 
 ## Documents
 
@@ -42,3 +44,12 @@ If you are new to knowing, read these in order:
 | [git-design-audit.md](git-design-audit.md) | Systematic audit of knowing's content-addressed design against git's reference implementation: 10 areas, 23 recommendations, severity-ranked. |
 | [cross-repo.md](cross-repo.md) | Per-repo isolation model, content-addressed cross-repo identity, roster infrastructure, module mapping, phantom external nodes, limitations, and architectural proofs from the cross-repo fixture test. |
 | [semantic-pr-diff.md](semantic-pr-diff.md) | Relationship-level PR diff: design, output format, implementation (`internal/diff/`), MCP tools (`snapshot_diff`, `semantic_diff`, `pr_impact`), CLI (`knowing audit-diff`), GitHub Actions workflow. |
+| [extraction-pipeline.md](extraction-pipeline.md) | Tree-sitter extraction: 23 extractors, multi-dispatch, post-processing (9 steps), producer-consumer pipeline, content-addressed hashing, incremental indexing, CLI usage. |
+| [enrichment-pipeline.md](enrichment-pipeline.md) | LSP enrichment: three phases (readiness, upgrade, discovery), phantom nodes, two-phase gopls warmup, multi-module Go support, per-symbol timeout, performance characteristics. |
+| [retrieval-pipeline.md](retrieval-pipeline.md) | Full retrieval reference: keyword extraction, 5-channel RRF seed fusion, RWR (parameters, edge weights, adjacency cache), HITS, scoring formula, embedding re-ranker, budget packing, session/task memory. |
+| [embedding-reranker.md](embedding-reranker.md) | Embedding re-ranker: +17% P@10, jina-code model, pure Go ONNX, SQLite vector cache (220ms), ReRankByHashes, architecture decisions. |
+| [edge-types.md](edge-types.md) | Full catalog of 38 edge types with RWR weights, categories, and provenance. |
+| [equivalence-classes.md](equivalence-classes.md) | Equivalence class system: 115 concepts across 4 layers (seed, universal, language-specific, graph-derived). |
+| [context-packing.md](context-packing.md) | Context packing: density-ranked greedy knapsack, token estimation, persistent pack cache, staleness detection. |
+| [hooks-integration.md](hooks-integration.md) | Git hooks integration: post-commit, post-checkout, pre-push hooks for daemon change detection. |
+| [wire-formats-guide.md](wire-formats-guide.md) | Practical guide to wire format usage and integration. |

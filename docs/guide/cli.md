@@ -1122,15 +1122,58 @@ knowing ingest-scip -db /var/lib/knowing/data.db -file deps.scip -repo github.co
 
 ### enrich
 
-Run offline enrichment passes that stamp per-symbol metadata onto the graph.
+Run offline enrichment passes on an already-indexed database.
 
 ```
-knowing enrich {blame|coverage} [flags] <repo-path>
+knowing enrich {lsp|blame|coverage} [flags] <repo-path>
 ```
 
-Two enrichment passes are available: `blame` (git authorship) and `coverage`
-(Go test coverage). Each pass reads external data sources and stamps metadata
-onto existing nodes in the database.
+Three enrichment passes are available: `lsp` (LSP-based edge upgrade and
+discovery), `blame` (git authorship), and `coverage` (Go test coverage).
+
+#### enrich lsp
+
+Run LSP enrichment on an already-indexed database. Auto-detects language
+servers (gopls, pyright, typescript-language-server, rust-analyzer, jdtls,
+OmniSharp/csharp-ls) and runs the three-phase enrichment pipeline: workspace
+readiness, edge upgrade, and edge discovery. Creates phantom external nodes
+for stdlib/dependency types.
+
+```
+knowing enrich lsp [flags] <repo-path>
+```
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `-db` | string | *(per-repo, from roster)* | Path to the SQLite database |
+| `-url` | string | *(auto-detected)* | Repository URL |
+| `-concurrency` | int | `8` | Parallel LSP request count (post-warmup bumps to 128 for edge upgrades) |
+
+**Examples:**
+
+```bash
+# Run LSP enrichment (auto-detects language servers)
+knowing enrich lsp ./my-repo
+
+# With explicit database and concurrency
+knowing enrich lsp -db /path/to/knowing.db -concurrency 16 ./my-repo
+
+# With explicit repo URL
+knowing enrich lsp -url https://github.com/org/repo ./my-repo
+```
+
+**Notes:**
+
+- Requires a pre-built database with nodes from a prior `knowing index` run.
+- For Go repos, uses two-phase gopls warmup (didOpen + retry) before high-concurrency blast.
+- For Go workspaces with `go.work`, spawns one gopls per module. Progress persisted
+  in `.knowing/enrich-progress.json` for crash recovery.
+- Enrichment is strongly positive for retrieval: +0.040 P@10 on Python repos,
+  kubernetes 0.000 -> 0.159. See [enrichment-pipeline.md](../architecture/enrichment-pipeline.md).
+
+---
 
 #### enrich blame
 

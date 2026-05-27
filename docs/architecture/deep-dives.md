@@ -55,7 +55,7 @@ For full details, see [data-model.md](data-model.md) (the `edge_events` table se
 ```json
 {
   "source": "ast_resolved",
-  "confidence": 1.0,
+  "confidence": 0.85,
   "indexer_version": "0.1.0",
   "source_commit": "abc123def",
   "source_file_hash": "sha256:...",
@@ -67,7 +67,7 @@ For full details, see [data-model.md](data-model.md) (the `edge_events` table se
 
 | Source | Confidence | Meaning | Status |
 |--------|-----------|---------|--------|
-| `ast_resolved` | 1.0 | Parsed from source with full type resolution | Implemented (Python extractor, Go `--full`) |
+| `ast_resolved` | 0.85 | Import-map resolution (Python, TS, Rust, Java, C#) or Go `go/packages` (`--full`) | Implemented (5 language extractors + Go full) |
 | `scip_resolved` | 0.95 | Imported from SCIP index (external dependency) | Implemented (`knowing ingest-scip`) |
 | `lsp_resolved` | 0.9 | Resolved via language server query | Implemented (enrichment pipeline) |
 | `ast_inferred` | 0.7 | Tree-sitter AST extraction without type resolution | Implemented (all 23 extractor packages) |

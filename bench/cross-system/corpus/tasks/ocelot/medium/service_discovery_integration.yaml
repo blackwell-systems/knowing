@@ -1,0 +1,15 @@
+id: ocelot-medium-005
+repo: ocelot
+tier: medium
+description: "Integrate a custom service discovery provider that resolves downstream hosts from a service registry"
+source: manual
+ground_truth:
+  - Ocelot.ServiceDiscovery.IServiceDiscoveryProviderFactory
+  - Ocelot.ServiceDiscovery.IServiceDiscoveryProviderFactory.Get
+  - Ocelot.ServiceDiscovery.Providers.IServiceDiscoveryProvider
+  - Ocelot.ServiceDiscovery.Providers.IServiceDiscoveryProvider.GetAsync
+  - Ocelot.DownstreamRouteFinder.Finder.DownstreamRouteProviderFactory.IsServiceDiscovery
+  - Ocelot.LoadBalancer.LoadBalancingMiddleware.Invoke
+  - Ocelot.Configuration.Validator.FileConfigurationFluentValidator.HaveServiceDiscoveryProviderRegistered
+tags: [service-discovery, provider-pattern, cross-namespace, feature-addition]
+notes: "Service discovery requires implementing IServiceDiscoveryProvider (GetAsync returns hosts), registering via IServiceDiscoveryProviderFactory, and understanding how DownstreamRouteProviderFactory switches between static and dynamic routing. Validator ensures the provider is registered."

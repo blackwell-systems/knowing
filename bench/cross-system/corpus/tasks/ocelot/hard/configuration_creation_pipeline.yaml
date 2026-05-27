@@ -1,0 +1,17 @@
+id: ocelot-hard-005
+repo: ocelot
+tier: hard
+description: "Trace the full configuration pipeline from JSON file loading through validation, creation, and storage of the internal configuration used at runtime"
+source: manual
+ground_truth:
+  - Ocelot.DependencyInjection.ConfigurationBuilderExtensions.AddOcelot
+  - Ocelot.DependencyInjection.ConfigurationBuilderExtensions.GetMergedOcelotJson
+  - Ocelot.Configuration.File.FileConfiguration.FileConfiguration
+  - Ocelot.Configuration.Validator.IConfigurationValidator.IsValid
+  - Ocelot.Configuration.Validator.FileConfigurationFluentValidator.IsValid
+  - Ocelot.Configuration.Creator.IInternalConfigurationCreator.Create
+  - Ocelot.Configuration.Repository.IInternalConfigurationRepository.AddOrReplace
+  - Ocelot.Configuration.Repository.IFileConfigurationRepository
+  - Ocelot.Middleware.OcelotMiddlewareExtensions.CreateConfiguration
+tags: [configuration, validation, pipeline, cross-namespace, architectural]
+notes: "Config pipeline: ConfigurationBuilderExtensions.AddOcelot loads and merges JSON files. FileConfigurationFluentValidator validates routes, aggregates, and global config. IInternalConfigurationCreator.Create transforms FileConfiguration into the runtime InternalConfiguration. IInternalConfigurationRepository stores it. CreateConfiguration orchestrates the full flow at startup."
