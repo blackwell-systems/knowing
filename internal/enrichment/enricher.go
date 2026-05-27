@@ -635,8 +635,51 @@ func (e *Enricher) upgradeCallEdges(
 		}
 	}()
 
-	// Parallel LSP resolution workers.
-	sem := make(chan struct{}, e.concurrency)
+	// Two-phase LSP resolution:
+	// Phase A: warm up the language server with a single sequential request
+	// using a long timeout (300s). This lets gopls/tsserver finish loading the
+	// workspace before we flood it with parallel requests.
+	// Phase B: blast through remaining edges with high concurrency (64 workers)
+	// and a short timeout (5s). The server is warm so responses are fast.
+	if len(workItems) > 0 {
+		// Warm up the language server by opening a file first. gopls uses lazy
+		// loading: it won't load a package until a file from that package is
+		// opened via textDocument/didOpen. Without this, GetDefinition returns
+		// "no package metadata" instantly because the package was never loaded.
+		log.Printf("enrichment: warming up server (opening file + retrying, up to 300s)...")
+		warmStart := time.Now()
+		warmDeadline := warmStart.Add(300 * time.Second)
+		item := workItems[0]
+
+		// Open the file to trigger package loading.
+		if content, err := os.ReadFile(strings.TrimPrefix(item.uri, "file://")); err == nil {
+			_ = client.OpenDocument(ctx, item.uri, string(content), "go")
+			log.Printf("enrichment: opened %s to trigger package loading", item.uri)
+		}
+
+		warmPos := lsptypes.Position{Line: 5, Character: 0} // safe position near top of file
+		for time.Now().Before(warmDeadline) {
+			warmCtx, warmCancel := context.WithTimeout(ctx, 30*time.Second)
+			_, warmErr := client.GetDefinition(warmCtx, item.uri, warmPos)
+			warmCancel()
+			if warmErr == nil {
+				log.Printf("enrichment: server warmed up in %s, switching to 64 concurrent workers",
+					time.Since(warmStart).Truncate(time.Millisecond))
+				break
+			}
+			if ctx.Err() != nil {
+				break
+			}
+			log.Printf("enrichment: server loading (%v), retrying in 5s...", warmErr)
+			time.Sleep(5 * time.Second)
+		}
+	}
+
+	postWarmupConcurrency := 128
+	if e.concurrency > postWarmupConcurrency {
+		postWarmupConcurrency = e.concurrency
+	}
+	sem := make(chan struct{}, postWarmupConcurrency)
 	var wg sync.WaitGroup
 
 	for i := range workItems {
@@ -647,7 +690,7 @@ func (e *Enricher) upgradeCallEdges(
 		wg.Add(1)
 		sem <- struct{}{}
 
-		go func(item edgeWorkItem) {
+		go func(idx int, item edgeWorkItem) {
 			defer wg.Done()
 			defer func() { <-sem }()
 
@@ -657,8 +700,10 @@ func (e *Enricher) upgradeCallEdges(
 
 			stats.edgesProcessed.Add(1)
 
+			timeout := 30 * time.Second
+
 			var locs []lsptypes.Location
-			err := WithSymbolTimeout(ctx, e.symbolTimeout, func(tctx context.Context) error {
+			err := WithSymbolTimeout(ctx, timeout, func(tctx context.Context) error {
 				var innerErr error
 				locs, innerErr = client.GetDefinition(tctx, item.uri, item.pos)
 				return innerErr
@@ -683,7 +728,7 @@ func (e *Enricher) upgradeCallEdges(
 			}
 
 			results <- edgeResolveResult{original: item.edge, targetHash: targetHash}
-		}(workItems[i])
+		}(i, workItems[i])
 	}
 
 	wg.Wait()
