@@ -49,7 +49,11 @@ Pulls search terms from the task description (e.g., "fix the auth middleware tim
 
 ### Step 2: Keyword matching (BM25: Best Match 25, over FTS5: Full-Text Search 5)
 
-Now we need to find which code symbols match those keywords. BM25 is a standard information retrieval algorithm that scores text by keyword relevance. FTS5 is SQLite's built-in search engine that indexes text for fast lookup. Together they score every node in the graph (each node represents a code symbol: a function, class, type, or variable) by how well its name and docstring match the extracted keywords. BM25 ranks matches higher when keywords appear in shorter, more specific names rather than long generic ones, so `AuthMiddleware` scores higher than `AbstractBaseAuthenticationMiddlewareFactory`. FTS5 makes this fast even across 100K+ nodes.
+Now we need to find which code symbols match those keywords. This is a search problem: we have 100K+ symbols in the graph, each with a name and a docstring, and we need to rank them by how well they match `[auth, middleware, timeout, ...]`.
+
+**FTS5** (Full-Text Search 5) is SQLite's built-in search engine. When a repo is indexed, knowing builds an FTS5 index over every node's name and docstring. This is like a book's index at the back: instead of scanning every page for "auth", you look up "auth" in the index and immediately get a list of pages (nodes) that contain it. Without FTS5, we'd have to scan all 100K+ node names sequentially. With it, the lookup is near-instant.
+
+**BM25** (Best Match 25) is the scoring algorithm that FTS5 uses to rank the results. When FTS5 finds 600 nodes containing "auth", BM25 decides which ones are most relevant. It does this by considering three things: (1) how often the keyword appears in the node's text (more mentions = higher score), (2) how long the node's text is (a match in a short, specific name like `AuthMiddleware` scores higher than a match in a long generic name like `AbstractBaseAuthenticationMiddlewareFactory`), and (3) how rare the keyword is across all nodes (a match on "middleware" is more valuable than a match on "get" because "middleware" appears in fewer nodes). The combination produces a relevance score for each matching node.
 
 The top matches (e.g., `AuthMiddleware`, `SessionTimeout`) are the symbols that look most relevant based on name alone, but they're not enough: the agent also needs to see what calls them, what they call, and what types they share. That's what the next step discovers.
 

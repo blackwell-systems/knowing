@@ -109,6 +109,8 @@ func run(args []string) error {
 		return cmdWatch(args[1:])
 	case "fsck":
 		return cmdFsck(args[1:])
+	case "rebuild-fts":
+		return cmdRebuildFTS(args[1:])
 	case "prove":
 		return cmdProve(args[1:])
 	case "verify":
