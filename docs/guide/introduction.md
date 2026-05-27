@@ -16,6 +16,30 @@ It runs entirely on a developer laptop with no paid LLM calls and no cloud API d
 
 The pipeline transforms a natural language task into a ranked set of code symbols through seven stages. We'll trace a single example ("fix the auth middleware timeout") through each one:
 
+```mermaid
+flowchart TD
+    A["Task: fix the auth middleware timeout"] --> B["1. Keyword extraction
+    auth, middleware, timeout, authentication, authorize..."]
+    B --> C["2. BM25 keyword matching
+    AuthMiddleware (12.4), SessionTimeout (9.1), TimeoutConfig (8.7)..."]
+    C --> D["3. Graph walk
+    follows calls, imports, tested_by edges
+    85 reachable symbols with proximity scores"]
+    D --> E["4. HITS scoring
+    AuthMiddleware: authority 0.91
+    HandleRequest: hub 0.87"]
+    E --> F["5. RRF fusion
+    merges BM25 + walk + HITS rankings
+    single merged ranking"]
+    F --> G["6. Embedding re-ranker
+    TimeoutConfig promoted (semantic match)
+    SessionTimeout demoted"]
+    G --> H["7. Knapsack packing
+    47 symbols, 4,812 tokens
+    fits the 5,000-token budget"]
+    H --> I["Agent receives context block"]
+```
+
 ### Step 1: Keyword extraction
 
 Pulls search terms from the task description (e.g., "fix the auth middleware timeout" produces `auth`, `middleware`, `timeout`). The language developers use in task descriptions rarely matches the naming in code exactly: the task says "auth" but the code calls it `Authentication` or `authorize`. To bridge this gap, the system expands keywords using a concept thesaurus (`auth` automatically includes `authentication`, `authorize`, `credential`, `session`) and splits compound names like `validateAuthToken` into their parts (`validate`, `Auth`, `Token`) so partial matches still connect.
@@ -40,7 +64,15 @@ On large codebases (40K+ symbols), the system automatically uses more starting p
 
 Adds a second opinion on which symbols matter most. The graph walk scored symbols by proximity (how close they are to the keyword matches), but proximity alone can be misleading: a utility function one hop away scores high even if it's called by everything and isn't specific to auth.
 
-HITS (Hyperlink-Induced Topic Search) scores symbols by their role in the call graph using an iterative algorithm: start by giving every symbol equal authority and hub scores, then repeatedly update them. A symbol's authority score becomes the sum of the hub scores of everything that calls it; its hub score becomes the sum of the authority scores of everything it calls. After several rounds the scores converge. The result: symbols called by many important callers get high authority ("core logic"), while symbols that call many important targets get high hub scores ("orchestrators"). In our example, `AuthMiddleware` gets a high authority score (12 route handlers call it), while `HandleRequest` gets a high hub score (it orchestrates calls to middleware, logging, and response writing). `validateToken` gets moderate authority (called by 3 middleware functions) but low hub (it's a leaf function that doesn't call much). These scores help distinguish the important symbols from the incidental ones in the next step.
+HITS (Hyperlink-Induced Topic Search) scores symbols by their role in the call graph. Think of it like reputation:
+
+- An **authority** is a symbol that does important work. Many things depend on it. `AuthMiddleware` is called by 12 different route handlers. It's the thing that actually does the auth work.
+
+- A **hub** is a symbol that knows where the important work happens. It delegates to many authorities. `HandleRequest` doesn't do much itself, but it calls `AuthMiddleware`, then `parseBody`, then `routeToHandler`, then `writeResponse`. It's a coordinator.
+
+The algorithm computes these scores iteratively: start by giving every symbol equal authority and hub scores, then repeatedly update them. A symbol's authority score becomes the sum of the hub scores of everything that calls it (if important coordinators depend on you, you must be important). Its hub score becomes the sum of the authority scores of everything it calls (if you call many important functions, you must be a good coordinator). After several rounds the scores converge.
+
+In our example, `AuthMiddleware` gets high authority, `HandleRequest` gets high hub, and `validateToken` gets moderate authority (called by 3 middleware functions) but low hub (it's a leaf function that calls almost nothing). These scores help distinguish the important symbols from the incidental ones in the next step.
 
 ### Step 5: RRF (Reciprocal Rank Fusion)
 
