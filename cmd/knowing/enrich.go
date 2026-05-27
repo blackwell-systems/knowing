@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackwell-systems/knowing/internal/enrichment"
 	"github.com/blackwell-systems/knowing/internal/store"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
@@ -20,7 +21,7 @@ import (
 // cmdEnrich runs offline enrichment passes that stamp per-symbol metadata.
 func cmdEnrich(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: knowing enrich {blame|coverage} [flags] <repo-path>")
+		return fmt.Errorf("usage: knowing enrich {lsp|blame|coverage} [flags] <repo-path>")
 	}
 
 	switch args[0] {
@@ -28,8 +29,10 @@ func cmdEnrich(args []string) error {
 		return cmdEnrichBlame(args[1:])
 	case "coverage":
 		return cmdEnrichCoverage(args[1:])
+	case "lsp":
+		return cmdEnrichLSP(args[1:])
 	default:
-		return fmt.Errorf("unknown enrichment pass: %s (available: blame, coverage)", args[0])
+		return fmt.Errorf("unknown enrichment pass: %s (available: blame, coverage, lsp)", args[0])
 	}
 }
 
@@ -349,4 +352,55 @@ func computeCoverageForLine(blocks []coverageBlock, line int) float64 {
 		return -1 // no coverage data for this line
 	}
 	return float64(covered) / float64(total) * 100
+}
+
+// cmdEnrichLSP runs LSP enrichment on an already-indexed database.
+// Opens the existing DB, detects language servers, upgrades edge confidence
+// from ast_inferred to lsp_resolved, and discovers new cross-module edges.
+func cmdEnrichLSP(args []string) error {
+	fs := flag.NewFlagSet("enrich lsp", flag.ExitOnError)
+	dbPath := fs.String("db", defaultDB(), "Path to SQLite database (env: KNOWING_DB)")
+	repoURL := fs.String("url", "", "Repository URL (auto-detected if empty)")
+	concurrency := fs.Int("concurrency", 8, "Number of parallel LSP requests")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	if fs.NArg() < 1 {
+		return fmt.Errorf("usage: knowing enrich lsp [flags] <repo-path>")
+	}
+	repoPath, err := filepath.Abs(fs.Arg(0))
+	if err != nil {
+		return fmt.Errorf("resolving path: %w", err)
+	}
+
+	if *repoURL == "" {
+		*repoURL = detectRepoURL(repoPath)
+	}
+
+	st, err := store.NewSQLiteStore(*dbPath)
+	if err != nil {
+		return fmt.Errorf("opening store: %w", err)
+	}
+	defer st.Close()
+
+	ctx := context.Background()
+	repoHash := types.NewHash([]byte(*repoURL))
+
+	// Verify the DB has nodes (enrichment needs an already-indexed graph).
+	nodes, err := st.NodesByName(ctx, "%")
+	if err != nil || len(nodes) == 0 {
+		return fmt.Errorf("no nodes found in database (run 'knowing index' first)")
+	}
+	fmt.Fprintf(os.Stderr, "LSP enrichment: %d nodes in %s\n", len(nodes), *dbPath)
+
+	enricher := enrichment.NewEnricher(st, repoPath)
+	enricher.SetConcurrency(*concurrency)
+	if err := enricher.Run(ctx, repoHash); err != nil {
+		return fmt.Errorf("enrichment failed: %w", err)
+	}
+	enricher.Close(ctx)
+
+	fmt.Fprintf(os.Stderr, "LSP enrichment complete\n")
+	return nil
 }

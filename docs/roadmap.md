@@ -82,6 +82,18 @@ Embedding re-ranker: +17% P@10 with SQLite vector cache (220ms cached).
 | **Adaptive seed count** (>40K: 25, >10K: 20) | Django +14.2% | 16 | More seeds on large graphs compensates for disconnection. Full corpus 0.238 -> 0.242. |
 | **Embedding-filtered gap injection** (>40K, maxgap=3) | Django +3.2%, aggregate neutral | 16 | BM25 gap candidates filtered by cosine similarity. Helps Django but absorbed by run variance on other repos. Full corpus: 0.238 (same as without). **Reverted**: optimal state is 0.242 without gap injection. Concept is sound but needs a better candidate source than BM25. |
 
+## Enrichment Performance
+
+gopls initialization dominates enrichment time on large Go repos (terraform: 14+ min CPU just to load the module graph before any LSP requests are served). This is the primary bottleneck for `knowing enrich lsp` and `knowing index` (without `-no-enrich`).
+
+| # | Item | What it does | Expected Impact | Effort |
+|---|------|-------------|-----------------|--------|
+| 1 | **Per-package gopls for single-module repos** | Spawn one gopls per top-level package directory, each loads only its subtree. Already implemented for go.work repos (multi-module enrichment). Extend to single-module repos by synthetically partitioning. | 3-5x faster on large repos (parallel init, each instance loads fewer packages) | Medium |
+| 2 | **Lazy/streaming LSP requests** | Fire LSP requests immediately without waiting for gopls to fully initialize. gopls queues and answers as packages load. Early requests may timeout (10s per-symbol limit), later ones succeed. Currently the enricher blocks on the first response, which waits for full init. | Eliminates init wait; trades some skipped symbols for 5-10 min wall clock savings | Low |
+| 3 | **Persistent gopls daemon (`-remote` mode)** | Run gopls as a persistent background process that stays warm between enrichment runs. Second enrichment of the same repo is near-instant (workspace already loaded). | Near-zero init on repeat runs. Requires daemon lifecycle management. | Medium |
+| 4 | **Incremental enrichment via CLI** | Expose `RunScoped(changedFiles)` through `knowing enrich lsp --files <list>`. Only enrich symbols in changed files. Already implemented in the enricher (used by daemon mode), but the CLI always runs full enrichment. | 10-100x faster for incremental changes (enrich 5 files vs 2,000) | Low |
+| 5 | **Parallel git blame** | `git blame` runs per-file sequentially (~40% of index time on large repos). Parallelize across files since blame is read-only. Or: batch blame using `git log --follow` for recent authorship. | 2-4x faster authorship extraction | Low |
+
 ## Storage Backend (P0 Performance)
 
 Current: SQLite (single-writer, FTS5 deferred to background). Extraction is parallel (GOMAXPROCS workers, producer-consumer pipeline), but all DB writes funnel through one goroutine. Performance pragmas: `synchronous=NORMAL`, `mmap_size=256MB`, `cache_size=64MB`, `busy_timeout=5000`, `temp_store=MEMORY`. Multi-row batch INSERTs (edges: 100/statement, nodes: 99/statement, files: 249/statement) reduce per-row overhead.

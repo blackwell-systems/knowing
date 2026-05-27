@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **`knowing enrich lsp` command**: standalone LSP enrichment that runs on an already-indexed database without reindexing. Opens existing DB, detects language servers, upgrades edge confidence, discovers cross-module edges, creates phantom external nodes. Supports `-concurrency`, `-db`, `-url` flags.
+- **Dangling type_hint_of edge resolution**: post-processing step that fixes type_hint_of edges computed with wrong node kind (type vs interface). Resolves by matching (repo, package, name) across all type-like kinds. 3,836 edges fixed across k8s (1,087), vscode (2,068), terraform (521), kafka (160).
+- **Interface type hint propagation**: after resolution, propagates type_hint_of through interfaces to concrete implementors. Creates direct paths from functions to the concrete types they work with. 808 new edges across k8s (237), terraform (473), kafka (98).
+- **`EdgeCount` method on SQLiteStore**: lightweight edge counting via `SELECT COUNT(*)` without loading all edges into memory.
+- **Per-phase indexing timings**: `IndexTimings` struct emitted to stderr after every `IndexRepo` call. Measures file discovery, extraction, each post-processing step, authorship, snapshot, and FTS rebuild independently.
+- **`TestCrossSystemRound2` fix**: Round2 benchmark now respects `BENCH_REPOS` filter (was loading all 167 tasks regardless, causing timeouts).
+- **Introduction docs rewrite**: retrieval pipeline section with concrete definitions of all 7 stages, worked example, architecture doc cross-references.
 - **Pre-computed embedding vector cache**: re-rank latency reduced from 660ms to 220ms (3x speedup). Vectors stored in SQLite alongside the graph (migration 019). On re-rank, only the query is embedded (1 inference call, ~120ms); candidate vectors are read from cache. Cache misses fall back to on-the-fly embedding and auto-persist for next time. Zero behavior change for users without embeddings enabled.
 - `ReRankByHashes` method on `VectorReRanker` interface: hash-based vector lookup with text fallback
 - `EmbeddingStore` interface (`embedding.EmbeddingStore`): `BatchPutEmbeddings`, `GetEmbeddings`
@@ -28,6 +35,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Coherence-aware context packing**: file-based density boost for co-located symbols. Flask -1.8%. Greedy density packing already near-optimal.
 - **Bidirectional inheritance edges**: parent.method -> child.method reverse edges. Django -2.5%. Adds noise without new reachability.
 - **Seed count sweep**: 10/15/20/25/30/40/50 seeds on Django all produce identical P@10. Confirms the reachability finding.
+- **Density-adaptive RWR alpha**: alpha=0.15 on dense repos (flask 5.9, cargo 13.5, kafka 12.5). P@10 0.280 vs baseline 0.278. Within run variance.
+- **Density-adaptive inherits weight**: boosted implements/overrides/extends to 1.0 on repos with >1.5% inherits edges. Django +0.009, kafka+flask -0.008. Net neutral.
+- **Interface type hint propagation (pre-resolution)**: attempted before fixing dangling edges. Edge structure mismatch: type_hint_of and implements shared 0 target hashes on Java/Python. Go (k8s): 393 edges on 523K, P@10 neutral.
 
 ### Documentation
 

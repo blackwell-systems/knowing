@@ -243,7 +243,36 @@ func (e *Enricher) runForServerWithClient(ctx context.Context, client *lsp.LSPCl
 	// Wait for the workspace to be indexed. Do NOT open all files upfront:
 	// gopls reads from disk for workspace indexing. Sending 3K files via
 	// didOpen floods stdin and wastes memory (50MB+ for large repos).
+	log.Printf("enrichment: waiting for workspace ready (up to 300s)...")
+	waitStart := time.Now()
 	client.WaitForWorkspaceReadyTimeout(ctx, 300*time.Second)
+	log.Printf("enrichment: workspace ready (progress tokens) after %s", time.Since(waitStart).Truncate(time.Millisecond))
+
+	// Readiness probe: progress tokens clearing doesn't mean the server can
+	// actually serve requests (gopls reports ready before finishing package
+	// loading). Send a probe request with increasing timeouts until the server
+	// responds. This prevents flooding the server with 55K+ requests that all
+	// timeout while it's still loading.
+	if probeFile := findProbeFile(files, filePathByHash, langFilter, e.workspaceRoot); probeFile != "" {
+		for _, probeSec := range []int{5, 10, 30, 60, 120} {
+			probeCtx, probeCancel := context.WithTimeout(ctx, time.Duration(probeSec)*time.Second)
+			_, err := client.GetDefinition(probeCtx, probeFile, lsptypes.Position{Line: 1, Character: 0})
+			probeCancel()
+			if err == nil {
+				log.Printf("enrichment: server responding after %s (probe %ds succeeded)", time.Since(waitStart).Truncate(time.Millisecond), probeSec)
+				break
+			}
+			if probeSec == 120 {
+				log.Printf("enrichment: server still not responding after all probes, proceeding anyway")
+				break
+			}
+			log.Printf("enrichment: server not ready (probe %ds: %v), retrying with %ds...", probeSec, err, probeSec*2)
+		}
+	} else {
+		log.Printf("enrichment: no probe file found, skipping readiness check")
+	}
+
+	log.Printf("enrichment: readiness probe complete, starting enrichment")
 
 	// Phase 1: Upgrade ast_inferred call edges. GetDefinition does not
 	// require didOpen; gopls resolves from its workspace index.
@@ -765,6 +794,23 @@ func (e *Enricher) findNodeByFileLine(ctx context.Context, st types.GraphStore, 
 
 
 // isTestFile returns true for test files across common languages.
+// findProbeFile returns the first file path (as a file:// URI) that matches the
+// language filter. Used as a readiness probe target for the LSP server.
+func findProbeFile(files []types.File, filePathByHash map[types.Hash]string, langFilter func(string) bool, workspaceRoot string) string {
+	for _, f := range files {
+		path, ok := filePathByHash[f.FileHash]
+		if !ok || !langFilter(path) {
+			continue
+		}
+		// Resolve relative paths against workspace root, not cwd.
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(workspaceRoot, path)
+		}
+		return "file://" + path
+	}
+	return ""
+}
+
 func isTestFile(path string) bool {
 	return strings.HasSuffix(path, "_test.go") ||
 		strings.HasSuffix(path, ".test.ts") ||
