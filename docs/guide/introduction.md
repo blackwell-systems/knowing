@@ -44,11 +44,17 @@ flowchart TD
 
 Pulls search terms from the task description (e.g., "fix the auth middleware timeout" produces `auth`, `middleware`, `timeout`). The language developers use in task descriptions rarely matches the naming in code exactly: the task says "auth" but the code calls it `Authentication` or `authorize`. To bridge this gap, the system expands keywords using a concept thesaurus (`auth` automatically includes `authentication`, `authorize`, `credential`, `session`) and splits compound names like `validateAuthToken` into their parts (`validate`, `Auth`, `Token`) so partial matches still connect.
 
+**Input:** `"fix the auth middleware timeout"` (task description string)
+**Output:** `[auth, middleware, timeout, authentication, authorize, session, credential]` (expanded keyword set)
+
 ### Step 2: Keyword matching (BM25: Best Match 25, over FTS5: Full-Text Search 5)
 
 Now we need to find which code symbols match those keywords. BM25 is a standard information retrieval algorithm that scores text by keyword relevance. FTS5 is SQLite's built-in search engine that indexes text for fast lookup. Together they score every node in the graph (each node represents a code symbol: a function, class, type, or variable) by how well its name and docstring match the extracted keywords. BM25 ranks matches higher when keywords appear in shorter, more specific names rather than long generic ones, so `AuthMiddleware` scores higher than `AbstractBaseAuthenticationMiddlewareFactory`. FTS5 makes this fast even across 100K+ nodes.
 
 The top matches (e.g., `AuthMiddleware`, `SessionTimeout`) are the symbols that look most relevant based on name alone, but they're not enough: the agent also needs to see what calls them, what they call, and what types they share. That's what the next step discovers.
+
+**Input:** `[auth, middleware, timeout, authentication, authorize, session, credential]` (expanded keywords)
+**Output:** `AuthMiddleware` (BM25 12.4), `SessionTimeout` (9.1), `TimeoutConfig` (8.7), `AuthorizeRequest` (7.3), `CredentialStore` (6.8) ... (15 seed nodes ranked by keyword relevance)
 
 ### Step 3: Graph walk
 
@@ -59,6 +65,9 @@ The graph walk finds them by following relationships outward from the keyword ma
 Without a check on drift, the walk would follow edges further and further from the task: `AuthMiddleware` calls `validateToken`, which calls `crypto.Hash`, which calls `io.Read`, which calls... eventually you're deep in the standard library, far from anything useful. The restart mechanism prevents this: at each step, the walk has a 20% probability of jumping back to one of the original keyword matches instead of following another edge. This means the walk constantly re-anchors itself to the task. Symbols close to the keyword matches get visited repeatedly (high score), while symbols many hops away get visited rarely (low score). The result is a natural relevance decay: the further a symbol is from the task, the lower it scores.
 
 On large codebases (40K+ symbols), the system automatically uses more starting points and prefers type-level entries (interfaces, structs) over individual functions, because dense graphs dilute probability mass across too many edges.
+
+**Input:** `AuthMiddleware`, `SessionTimeout`, `TimeoutConfig`, ... (15 seed nodes from BM25)
+**Output:** `AuthMiddleware` (0.92), `validateToken` (0.71), `AuthConfig` (0.68), `test_auth_timeout.py` (0.44), `HandleRequest` (0.31), ... (85 reachable symbols with proximity scores)
 
 ### Step 4: HITS (Hyperlink-Induced Topic Search) scoring
 
@@ -74,6 +83,9 @@ The algorithm computes these scores iteratively: start by giving every symbol eq
 
 In our example, `AuthMiddleware` gets high authority, `HandleRequest` gets high hub, and `validateToken` gets moderate authority (called by 3 middleware functions) but low hub (it's a leaf function that calls almost nothing). These scores help distinguish the important symbols from the incidental ones in the next step.
 
+**Input:** the subgraph of 85 reachable symbols and their edges from the graph walk
+**Output:** `AuthMiddleware` (authority 0.91, hub 0.12), `HandleRequest` (authority 0.23, hub 0.87), `validateToken` (authority 0.78, hub 0.05), `AuthConfig` (authority 0.65, hub 0.02)
+
 ### Step 5: RRF (Reciprocal Rank Fusion)
 
 Solves a problem: we now have three different rankings of the same symbols (BM25 ranked by name match, graph walk ranked by proximity, HITS ranked by structural importance), and they disagree. BM25 thinks `SessionTimeout` is #2 (great name match) but the graph walk has it at #15 (far from the call chain). HITS thinks `HandleRequest` is important (high hub) but BM25 didn't find it at all (no keyword match).
@@ -82,17 +94,26 @@ Reciprocal Rank Fusion doesn't look at what the scores mean or how they were com
 
 In our example, `AuthMiddleware` tops all three lists so it stays #1. `validateToken` ranks well in both graph walk (#2) and HITS (#3) so it merges to #2 despite BM25 not finding it. `SessionTimeout` drops from BM25's #2 to merged #7 because neither the graph walk nor HITS ranked it highly.
 
+**Input:** three ranked lists: BM25 (`AuthMiddleware` #1, `SessionTimeout` #2, ...), graph walk (`AuthMiddleware` #1, `validateToken` #2, ...), HITS (`AuthMiddleware` #1, `validateToken` #2, `AuthConfig` #3, ...)
+**Output:** `AuthMiddleware` (RRF 0.049), `validateToken` (0.032), `AuthConfig` (0.028), `TimeoutConfig` (0.025), `HandleRequest` (0.019), ... (single merged ranking)
+
 ### Step 6: Embedding re-ranker
 
 Gives the ranking a final adjustment using semantic understanding (optional, enabled with `--embeddings`). Everything up to this point used structural signals (keyword matching, graph proximity, link analysis), but none of those understand what words mean.
 
 The re-ranker uses a local neural model (jina-code, pure Go ONNX inference, no API calls, no charges) to compute how semantically similar each symbol is to the original task description. In our example, the task mentions "timeout" and `TimeoutConfig` is semantically close to that concept even though the graph walk ranked it #8 (it's two hops away from `AuthMiddleware`). The re-ranker promotes it to #3. Meanwhile `SessionTimeout` (a class for HTTP session expiry, not auth timeouts) gets demoted because the re-ranker understands the semantic difference. This step adds +17% P@10 on the benchmark corpus.
 
+**Input:** top 50 from merged ranking + task `"fix the auth middleware timeout"`
+**Output:** `AuthMiddleware` (0.049), `TimeoutConfig` (0.031), `validateToken` (0.028), `SessionTimeout` (0.024), `AuthConfig` (0.022), ... (re-ordered: `TimeoutConfig` promoted from #4 to #2, `SessionTimeout` demoted from #7 to #12)
+
 ### Step 7: Knapsack packing
 
 Turns the ranking into a context block that fits the agent's token budget. Each symbol has a relevance score (from the merged ranking) and a token cost (how many tokens its source code takes). The packer selects symbols greedily by score-per-token: a 45-token config struct with score 0.028 is more efficient than a 300-token test file with score 0.030. It fills the budget from the top, skipping symbols that would overflow.
 
 In our example with a 5,000-token budget: `AuthMiddleware` (210 tokens, score 0.049) goes in first, then `TimeoutConfig` (45 tokens), `validateToken` (180 tokens), `AuthConfig` (60 tokens), and so on until 47 symbols totaling 4,812 tokens are packed. The agent receives this as a single context block with all the code it needs for the task, replacing what would have been 15+ grep-read tool calls.
+
+**Input:** 50 re-ranked symbols + 5,000-token budget
+**Output:** 47 symbols selected totaling 4,812 tokens: `AuthMiddleware` (210 tokens), `TimeoutConfig` (45 tokens), `validateToken` (180 tokens), `AuthConfig` (60 tokens), ... packed as a single context block ready for the agent
 
 For implementation details, see [Retrieval Pipeline](../architecture/retrieval-pipeline.md), [Context Engine](../architecture/context-engine.md), [Embedding Re-ranker](../architecture/embedding-reranker.md), [Context Packing](../architecture/context-packing.md), and [Wire Formats](../architecture/wire-formats.md). If you are getting poor results from the pipeline, see the [CLI Troubleshooting guide](cli.md#troubleshooting) for diagnostic steps.
 

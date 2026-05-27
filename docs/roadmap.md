@@ -62,7 +62,7 @@ Embedding re-ranker: +17% P@10 with SQLite vector cache (220ms cached).
 | **BFS depth reduction** | Neutral | 14 | No effect (depth 2/3/4 all produce same P@10) |
 | **Expanded framework thesaurus** ("backend"->"base") | Harmful | 14 | Too noisy for BM25 |
 | **accesses_field for P@10** | Neutral | 15 | Fields already reachable via call edges. Adds graph completeness, not retrieval. |
-| **LSP enrichment for P@10** | Neutral | 13 | Upgrades confidence but RWR weights by edge type, not confidence. |
+| ~~LSP enrichment for P@10~~ | **Revised: +0.040** | 13, 17 | Session 13 found neutral (tested confidence upgrades only). Session 17 A/B test: enriched django+flask P@10=0.222 vs non-enriched 0.210. Enrichment creates phantom external nodes; type_hint_of edges (added session 14) connect functions to those nodes. Neither works alone. Together = +0.040 P@10 via shared-type reachability. |
 | **Coherence-aware packing** (CoherenceBonus=0.3) | Harmful (-1.8%) | 16 | Greedy density packing already near-optimal. File-based coherence adds noise. |
 | **Bidirectional inheritance edges** | Harmful (-2.5%) | 16 | Reverse inherits add noise without new reachability. Django zeros are vocabulary gaps. |
 | **BM25 gap injection (no embedding filter)** | Harmful (-1.4%) | 16 | Raw BM25 candidates too noisy. Displaces good graph results. |
@@ -93,6 +93,9 @@ gopls initialization dominates enrichment time on large Go repos (terraform: 14+
 | 3 | **Persistent gopls daemon (`-remote` mode)** | Run gopls as a persistent background process that stays warm between enrichment runs. Second enrichment of the same repo is near-instant (workspace already loaded). | Near-zero init on repeat runs. Requires daemon lifecycle management. | Medium |
 | 4 | **Incremental enrichment via CLI** | Expose `RunScoped(changedFiles)` through `knowing enrich lsp --files <list>`. Only enrich symbols in changed files. Already implemented in the enricher (used by daemon mode), but the CLI always runs full enrichment. | 10-100x faster for incremental changes (enrich 5 files vs 2,000) | Low |
 | 5 | **Parallel git blame** | `git blame` runs per-file sequentially (~40% of index time on large repos). Parallelize across files since blame is read-only. Or: batch blame using `git log --follow` for recent authorship. | 2-4x faster authorship extraction | Low |
+| 6 | **Node.js heap size for tsserver** | Set `NODE_OPTIONS="--max-old-space-size=8192"` when spawning tsserver. Default heap (~4GB) causes GC thrashing on large TypeScript repos (vscode: 34 min enrichment, majority in GC). More heap = less GC = faster enrichment. | 2-3x faster TS enrichment on large repos | Low |
+| 7 | **Deno LSP for TypeScript** | Use `deno lsp` (Rust-based) instead of tsserver for TypeScript enrichment. No GC, no Node.js heap limits. Add as alternative in enrichment config detection (check for `deno` on PATH, prefer over tsserver). Test on vscode to compare enrichment time and edge quality. | Potentially 5-10x faster TS enrichment | Low |
+| 8 | **Import-based phantom nodes for Go (skip gopls)** | Parse Go import statements and generate phantom stub nodes for stdlib/dependency types without running gopls. Covers 90% of enrichment value (phantom nodes for shared-type reachability) with 0% of gopls cost. Go's import paths are explicit and resolvable from go.mod, so no type checker needed to create the phantom nodes. Only misses: cross-package reference discovery and confidence upgrades (both neutral for P@10). | Instant Go enrichment (no gopls), recovers +0.040 P@10 for Go repos | Medium |
 
 ## Storage Backend (P0 Performance)
 
