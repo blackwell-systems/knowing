@@ -16,6 +16,44 @@ tree-sitter graph is the authoritative baseline.
 
 ---
 
+## Pipeline Overview
+
+The full indexing pipeline runs in six sequential stages. Each stage's wall-clock time
+is captured in the `IndexTimings` struct and emitted to stderr after every run.
+
+```
+Repository on disk
+    |
+    v
+[1. File Discovery]          Walk directory, skip vendor/generated, hash-compare for changes
+    |
+    v
+[2. Extraction]              Parallel tree-sitter parsing (GOMAXPROCS workers, multi-dispatch)
+    |
+    v
+[3. Post-Processing]         Derive new edges: inheritance, interfaces, contains, similarity, co-tested, authorship
+    |
+    v
+[4. Snapshot]                Hierarchical Merkle tree from edge hashes (in-memory, no DB re-read)
+    |
+    v
+[5. FTS Rebuild]             BM25 full-text search index over CamelCase-split symbol names + docstrings
+    |
+    v
+[6. Finalization]            Edge events, cross-repo resolution, auto-GC, adjacency cache
+```
+
+| Stage | Parallelism | Touches DB | Typical time (medium repo) |
+|-------|-------------|-----------|---------------------------|
+| File discovery | Sequential | Read (hash compare) | 100-500ms |
+| Extraction | GOMAXPROCS workers | Write (batch 500 files) | 1-5s |
+| Post-processing (9 steps) | Sequential per step | Read + write | 0.5-2s |
+| Snapshot | Sequential | Write (Merkle tree) | 50-200ms |
+| FTS rebuild | Sequential | Write (rebuild index) | 300-600ms |
+| Finalization | Sequential | Write (events, cross-repo, GC) | 50-200ms |
+
+---
+
 ## Multi-Dispatch Architecture
 
 Each file is processed by **all** matching extractors, not just the first. The
@@ -357,6 +395,309 @@ provenance from `ast_inferred` (0.7) to `ast_resolved` (0.95):
 The Go tree-sitter extractor resolves imports differently: it reads `go.mod` for the
 module path and builds a `ModuleToRepoURL` map from all indexed repos and the global
 roster. This enables cross-repo edge targeting without heuristic inference.
+
+---
+
+## Content-Addressed Hashing
+
+Every entity in the knowledge graph (nodes, edges, files, repos, snapshots) is identified
+by a SHA-256 hash computed from its semantic content. This provides deterministic identity,
+deduplication, and Merkle-based snapshot diffing. All hash functions use NUL-delimited
+domain-prefixed inputs to prevent cross-domain collisions and ambiguous concatenation.
+
+### Node hashes
+
+A node's identity depends on four fields: `(repoURL, packagePath, symbolName, symbolKind)`.
+File content is explicitly excluded; moving a function to a different file does not change
+its hash (the symbol retains its identity). Two nodes in different files with the same
+qualified identity share a hash.
+
+```
+NodeHash = SHA-256("node" + NUL + repoURL + NUL + packagePath + NUL + symbolName + NUL + symbolKind)
+```
+
+The `"node\0"` domain prefix was added in a later migration. Databases created before this
+change must be re-indexed to avoid cross-domain hash collisions with edge and snapshot
+hashes.
+
+### Edge hashes
+
+An edge's identity includes provenance, so upgrading an edge from `ast_inferred` to
+`lsp_resolved` produces a different hash. The old edge must be deleted and a new one
+inserted (this is what the enrichment upgrade phase does).
+
+```
+EdgeHash = SHA-256("edge" + NUL + sourceHash + NUL + targetHash + NUL + edgeType + NUL + provenance)
+```
+
+### File hashes
+
+A file's identity incorporates its content, so changes to file contents produce a new
+hash. This powers the skip-if-unchanged optimization during incremental indexing.
+
+```
+FileHash = SHA-256(repoHash + NUL + relativePath + NUL + contentHash)
+```
+
+### Snapshot hashes
+
+The snapshot hash is a Merkle root over all sorted edge hashes, wrapped with a domain
+prefix. See [data-flow.md](data-flow.md) for the hierarchical Merkle tree construction.
+
+```
+SnapshotHash = SHA-256("snapshot" + NUL + merkleRoot)
+```
+
+See `internal/types/types.go` for the canonical implementations: `ComputeNodeHash`,
+`ComputeEdgeHash`, `ComputeSnapshotHash`.
+
+---
+
+## CLI Usage
+
+### Full index
+
+```bash
+# Index a repository (auto-detects repo URL from go.mod or git remote)
+knowing index <repo-path>
+
+# Explicit database path and repo URL
+knowing index -db /path/to/knowing.db -url github.com/org/repo <repo-path>
+
+# Skip LSP enrichment (faster, edges stay at ast_inferred confidence 0.7)
+knowing index -no-enrich <repo-path>
+
+# Skip git blame authorship extraction (faster on large repos)
+knowing index -skip-blame <repo-path>
+
+# Use full Go type resolution (go/packages instead of tree-sitter)
+knowing index -full <repo-path>
+
+# Control extraction parallelism (default: 8 workers)
+knowing index -workers 16 <repo-path>
+
+# Control LSP enrichment concurrency (default: 8)
+knowing index -enrich-concurrency 16 <repo-path>
+
+# Edge type ablation filter (keep only specified types; for benchmarking)
+knowing index -edge-types calls,imports,implements <repo-path>
+
+# Incremental index (only specified changed files, no post-processing)
+knowing index -files "pkg/foo.go,pkg/bar.go" <repo-path>
+```
+
+### Flag reference
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-db` | `$KNOWING_DB` or `knowing.db` | Path to SQLite database |
+| `-url` | auto-detected | Repository URL (from `go.mod` module path, or absolute filesystem path) |
+| `-commit` | `HEAD` | Commit hash to record in the snapshot |
+| `-files` | (empty) | Comma-separated changed file paths for incremental mode |
+| `-full` | `false` | Use `go/packages` for full type resolution (Go only, confidence 1.0) |
+| `-skip-blame` | `false` | Skip `git blame` authorship extraction |
+| `-no-enrich` | `false` | Skip LSP enrichment after indexing |
+| `-enrich-concurrency` | `8` | Parallel LSP request count during enrichment |
+| `-workers` | `8` | Parallel extraction worker count |
+| `-edge-types` | (all) | Comma-separated edge type allowlist (ablation filter) |
+
+---
+
+## Inspecting Extraction Results
+
+After indexing, query the SQLite database directly to verify what was extracted.
+
+### Basic counts
+
+```bash
+# Total nodes and edges
+sqlite3 knowing.db "SELECT 'nodes', COUNT(*) FROM nodes UNION ALL SELECT 'edges', COUNT(*) FROM edges"
+
+# Nodes by kind (function, type, method, interface, etc.)
+sqlite3 knowing.db "SELECT kind, COUNT(*) FROM nodes GROUP BY kind ORDER BY COUNT(*) DESC"
+
+# Edges by type (calls, imports, implements, extends, etc.)
+sqlite3 knowing.db "SELECT edge_type, COUNT(*) FROM edges GROUP BY edge_type ORDER BY COUNT(*) DESC"
+
+# Edges by provenance (ast_inferred, ast_resolved, lsp_resolved, etc.)
+sqlite3 knowing.db "SELECT provenance, COUNT(*) FROM edges GROUP BY provenance ORDER BY COUNT(*) DESC"
+```
+
+### File coverage
+
+```bash
+# How many files were indexed?
+sqlite3 knowing.db "SELECT COUNT(*) FROM files"
+
+# Files with the most nodes (identify hotspots)
+sqlite3 knowing.db "SELECT f.path, COUNT(*) as n FROM nodes n2 JOIN files f ON n2.file_hash = f.file_hash GROUP BY f.path ORDER BY n DESC LIMIT 20"
+
+# Files that produced zero nodes (possible extraction gaps)
+sqlite3 knowing.db "SELECT f.path FROM files f LEFT JOIN nodes n ON f.file_hash = n.file_hash WHERE n.node_hash IS NULL LIMIT 20"
+```
+
+### Post-processing verification
+
+```bash
+# Contains/member_of edges (structural hierarchy)
+sqlite3 knowing.db "SELECT COUNT(*) FROM edges WHERE edge_type IN ('contains','member_of')"
+
+# Inheritance edges (propagated from extends)
+sqlite3 knowing.db "SELECT COUNT(*) FROM edges WHERE edge_type = 'inherits'"
+
+# Similarity edges
+sqlite3 knowing.db "SELECT COUNT(*) FROM edges WHERE provenance = 'similarity'"
+
+# Co-tested edges
+sqlite3 knowing.db "SELECT COUNT(*) FROM edges WHERE edge_type = 'co_tested_with'"
+
+# Type hint edges (resolved + propagated)
+sqlite3 knowing.db "SELECT provenance, COUNT(*) FROM edges WHERE edge_type = 'type_hint_of' GROUP BY provenance"
+```
+
+### Snapshot state
+
+```bash
+# Current snapshot
+sqlite3 knowing.db "SELECT hex(snapshot_hash), node_count, edge_count, commit_hash, datetime(timestamp, 'unixepoch') FROM snapshots ORDER BY timestamp DESC LIMIT 1"
+
+# Snapshot chain length
+sqlite3 knowing.db "SELECT COUNT(*) FROM snapshots"
+```
+
+---
+
+## Troubleshooting
+
+### "No nodes extracted from a file"
+
+Common causes:
+
+1. **Generated file detected.** The first 512 bytes contain a marker (`Code generated`,
+   `DO NOT EDIT`, `AUTO-GENERATED`, `# Generated by`). The file is silently skipped.
+   Verify: `head -c 512 <file> | grep -i "generated\|do not edit"`.
+
+2. **No matching extractor.** The file extension or path does not match any registered
+   extractor's `CanHandle` predicate. Check `registerAllExtractors` in
+   `cmd/knowing/main.go` for the full list.
+
+3. **Root-level Go files without go.mod.** `computePkgPath` requires a `go.mod` to derive
+   the package path. Files at the repository root without `go.mod` produce empty package
+   paths, which generate invalid qualified names that hash to nothing.
+
+4. **Tree-sitter parse failure.** If tree-sitter cannot parse the file (syntax errors,
+   unsupported language version), the extractor returns zero nodes. The 10-second watchdog
+   timer also fires on stuck CGO calls, producing an empty result.
+
+5. **Content hash unchanged.** If the file content has not changed since the last index
+   run, the file is skipped entirely. Run `knowing index` with a fresh database to force
+   re-extraction.
+
+### "Wrong qualified name format"
+
+Qualified names follow the pattern: `{repoURL}://{pkgPath}.{TypeName}.{SymbolName}`.
+
+If QNs appear malformed, check:
+
+1. **Repo URL resolution.** If `-url` is not passed, the indexer tries `go.mod` module
+   path, then falls back to the absolute filesystem path. Different runs with different
+   working directories can produce different repo URLs, which produce different node hashes.
+   Always pass `-url` explicitly for reproducible results.
+
+2. **Package path computation.** Each language extractor computes package paths differently:
+   Go uses the module path from `go.mod`; Python uses dotted directory paths; TypeScript
+   uses the relative file path. Verify by querying:
+   `sqlite3 knowing.db "SELECT qualified_name FROM nodes LIMIT 10"`.
+
+3. **Method QN nesting.** Methods include their parent type:
+   `repo://pkg.ClassName.methodName`. If the type name is missing, the extractor did not
+   detect the method's enclosing type (can happen with deeply nested or anonymous types).
+
+### "Missing edges between symbols that should be connected"
+
+1. **Import resolution failed.** Python, TypeScript, Rust, Java, and C# extractors build
+   import maps to resolve call targets. If the import statement uses a pattern the map
+   builder does not handle (dynamic imports, `importlib`, aliased re-exports), the call
+   edge stays `ast_inferred` with a potentially wrong target hash.
+
+2. **Cross-file calls without imports.** Some languages allow implicit access to symbols
+   in the same package (Go) or module (Python `__init__.py` re-exports). If the extractor
+   does not build the right scope, it may compute a target hash using only the local file's
+   package, missing the actual target.
+
+3. **Post-processing did not run.** Incremental indexing (`-files` flag) skips all
+   post-processing steps (inheritance, interfaces, contains, similarity, co-tested). Run a
+   full `knowing index` to regenerate derived edges.
+
+4. **Similarity skipped.** Packages with >500 functions are excluded from similarity
+   computation to prevent OOM. Check if the target package exceeds this threshold.
+
+### "Index is slow"
+
+1. **Similarity computation.** Before the OOM fix, Kafka's `org.apache.kafka.streams`
+   (16,781 functions) took 64 seconds for pairwise comparisons. After the >500 function
+   skip guard, similarity is sub-second on all repos. If you see slow similarity, a package
+   near the 500 threshold may still be expensive.
+
+2. **Git blame.** Authorship extraction runs `git blame` per changed file. On repos with
+   long histories, this is the dominant cost. Use `-skip-blame` to skip it.
+
+3. **LSP enrichment.** Enrichment (enabled by default) adds significant time, especially
+   for Go repos where gopls needs a multi-minute warmup. Use `-no-enrich` for fast
+   iteration. See [enrichment.md](enrichment.md) for details.
+
+4. **Large repos.** Kubernetes (4,877 files, 117K nodes) takes ~19s for extraction alone.
+   This is normal. The extraction pipeline scales linearly with file count.
+
+---
+
+## FAQ
+
+**Why does extraction use tree-sitter instead of language-native compilers?**
+
+Tree-sitter is language-agnostic, zero-dependency, and fast: it parses any file in <10ms
+without requiring build systems, dependency resolution, or network access. Language-native
+compilers (e.g., `go/packages`, `tsc`) produce higher-confidence edges but require a
+working build environment. The `--full` flag enables `go/packages` for Go when full type
+resolution is needed. For all other languages, tree-sitter with import-map resolution
+achieves `ast_resolved` (0.95) confidence, which is sufficient for RWR-based retrieval.
+
+**Why are node hashes based on (repo, package, name, kind) and not file content?**
+
+Content-independence means a function's identity survives file moves and renames. If you
+move `func Foo` from `a.go` to `b.go` without changing its package or name, it keeps
+its hash. All edges pointing to it remain valid. If the hash included file content, every
+edit to the function body would invalidate all inbound edges and require re-resolving them.
+
+**What happens when two symbols have the same (repo, package, name, kind)?**
+
+They produce the same node hash and are deduplicated. This is intentional for Go (where
+methods with the same name on the same type in the same package are the same symbol) but
+can cause collisions in languages with overloading (Java, C#). In practice, the qualified
+name includes enough disambiguation (class name, parameter hints) to avoid this for the
+extractors that support those languages.
+
+**Can I add a new language extractor?**
+
+Yes. Implement the `Extractor` interface (see `internal/indexer/extractor.go`): `CanHandle`
+returns true for target file paths, and `Extract` returns nodes and edges. Register the
+extractor in `registerAllExtractors` (`cmd/knowing/main.go`). The multi-dispatch
+architecture means your extractor can run alongside existing ones on the same files.
+
+**Why does incremental indexing skip post-processing?**
+
+Post-processing steps (inheritance propagation, similarity, co-tested) operate on the
+global graph, not individual files. Running them incrementally would require tracking
+which edges to recompute, which is complex and error-prone. The tradeoff: incremental
+indexing is 494x faster (24ms vs 5.8s) but produces a graph without derived edges until
+the next full `knowing index` run.
+
+**Does extraction order matter?**
+
+No. File processing order is deterministic (sorted paths) but the extraction result is
+order-independent. Each file is processed in isolation; cross-file relationships are
+resolved through import maps and qualified name hashing. The same set of files always
+produces the same graph, regardless of which worker processes which file.
 
 ---
 

@@ -448,6 +448,7 @@ on the next query without cache invalidation.
 
 ## Related Documents
 
+- [Extraction Pipeline](extraction-pipeline.md): the tree-sitter extraction stage that runs before enrichment; produces the baseline graph
 - [Retrieval Pipeline](retrieval-pipeline.md): how RWR uses edges from enrichment; measured impact of enrichment on P@10
 - [Embedding Re-ranker](embedding-reranker.md): the re-ranking stage that operates after enrichment-augmented graph walks
 - [Edge Types](edge-types.md): full catalog of the 38 edge types, including `lsp_resolved` provenance
