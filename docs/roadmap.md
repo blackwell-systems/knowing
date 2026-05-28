@@ -4,21 +4,22 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 
 ## Current State (v0.10.1, 2026-05-25)
 
-**P@10 = 0.223 cold, 0.249 with compounding** (222 tasks, 12 repos, 7 languages). 38 edge types. 23 extractors.
-1.79x codegraph, 1.77x codebase-memory, 3.23x GitNexus, 3.84x Gortex, 18.6x grep.
-Embedding re-ranker: +17% P@10 with SQLite vector cache (220ms cached).
+**P@10 = 0.245** (237 tasks, 12 repos, 7 languages, nomic-embed-text model). 38 edge types. 23 extractors.
+1.81x codegraph, 1.79x codebase-memory, 3.27x GitNexus, 3.89x Gortex, 18.8x grep.
+Embedding re-ranker (nomic): +17% P@10. Gap-fill seeds: +11.2%. Task memory compounding: +3.8%.
 
-## Immediate Priorities
+## Immediate Priorities (transition from building to shipping)
 
 | # | Item | Why | Effort | Expected Impact |
 |---|------|-----|--------|-----------------|
-| 1 | **Real users** | Everything else is validated by benchmarks, not usage. Task memory compounds with use. | Ongoing | - |
-| 2 | **Supply chain whitepaper** | False positive evaluation (scan 200+ clean packages), related work section. Draft has TanStack + event-stream case studies. Whitepaper at `docs/research/whitepapers/supply-chain-proof-of-absence.md`. | Medium | Publication + commercial |
-| 3 | ~~Investigate re-ranker regressions~~ | **RESOLVED (session 16).** | Done | - |
-| 4 | **Root-level Go file extraction** | Go files at repo root produce 0 nodes due to package path computation bug. Affects flat-structure repos. | Low | Correctness |
-| 5 | ~~Coherence-aware context packing~~ | **Rejected (session 16).** CoherenceBonus=0.3 tested harmful (-1.8%). Greedy density packing already near-optimal. | Done | - |
-| 6 | **GHA Marketplace action** | Package the supply chain scanner for paid distribution. Free tier scans public repos; paid tier for private repos + continuous monitoring. | Medium | Commercial |
-| 7 | **Parallel write backend** | SQLite single-writer funnels all extraction results through one goroutine. Even with producer-consumer pipeline, writes are serial. Need parallel write support for large repos. | High | Performance |
+| 1 | **Deploy platform API** | api.blackwell-systems.com. DigitalOcean Droplet, Cloudflare Tunnel, bare metal. DEPLOY.md + deploy.sh ready. Just need GitHub deploy key. | 15 min | Live product |
+| 2 | **Make nomic-code the default model** | P@10 0.245 (was 0.242 with jina-code). Faster inference (14 min vs 20 min). Update code default + all docs. | 30 min | Quality + speed |
+| 3 | **Blog post** | Numbers are publishable: 12 repos, 7 languages, 237 tasks, P@10 0.245, 1.81x codegraph. LinkedIn audience is warm (11K views on mcp-assert). | 2 hours | Visibility |
+| 4 | **Export codesage-large to ONNX** | Microsoft's code-search specialized model. `optimum.onnxruntime` one-liner. If it beats nomic, another free P@10 lift with zero code changes. | 1 hour | Quality |
+| 5 | **Add hugo to corpus** | Go web server, 75K LOC, enriched with gopls. Another 0.250+ repo adds 20 tasks above average. | 2 hours | Corpus credibility |
+| 6 | **Supply chain whitepaper** | False positive evaluation done (1.0% on 200 packages). Draft has TanStack + event-stream case studies. | Medium | Publication |
+| 7 | **Root-level Go file extraction** | Go files at repo root produce 0 nodes due to package path computation bug. | Low | Correctness |
+| 8 | **GHA Marketplace action** | Package supply chain scanner for paid distribution. Free tier for public repos. | Medium | Commercial |
 
 ### Session 16: Shipped
 
