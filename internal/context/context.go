@@ -10,7 +10,9 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -743,7 +745,13 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	// 1. HNSW (EmbedAndSearch): fast O(log n), requires in-memory index built at startup
 	// 2. Store brute-force (LoadAndSearchFromStore): O(n) cosine, no index build needed,
 	//    works with pre-embedded vectors from SQLite. Falls back to this when HNSW is empty.
-	if len(candidates) < 5 && e.vector != nil {
+	gapThreshold := 5
+	if v := os.Getenv("BENCH_GAP_THRESHOLD"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			gapThreshold = n
+		}
+	}
+	if len(candidates) < gapThreshold && e.vector != nil {
 		gapHashes, gapErr := e.vector.EmbedAndSearch(ctx, opts.TaskDescription, 20)
 		// If HNSW returned nothing (empty index), try brute-force from store.
 		if (gapErr != nil || len(gapHashes) == 0) {
