@@ -16,14 +16,20 @@ GOWORK=off go test ./bench/...      # benchmark harnesses (some need pre-indexed
 ## Benchmark (P@10 evaluation)
 
 ```bash
-# Full cross-system benchmark (222 tasks, 12 repos, ~90 min with embeddings)
+# Full corpus, sequential (official numbers, ~20 min with pre-embedded vectors)
 BENCH_EMBEDDINGS=1 BENCH_ADAPTERS=knowing GOWORK=off go test ./bench/cross-system/ -run TestCrossSystem -v -timeout 0
+
+# Full corpus, parallel (iteration mode, ~5 min, P@10 ~0.022 lower due to ONNX CPU contention)
+BENCH_PARALLEL=1 BENCH_EMBEDDINGS=1 BENCH_ADAPTERS=knowing GOWORK=off go test ./bench/cross-system/ -run TestCrossSystem -v -timeout 0
 
 # Single repo (fast iteration, no embeddings)
 BENCH_REPOS=django BENCH_ADAPTERS=knowing GOWORK=off go test ./bench/cross-system/ -run TestCrossSystem -v -timeout 10m
 
-# With embeddings on single repo (~7 min)
+# With embeddings on single repo (~2 min with pre-embedded vectors)
 BENCH_EMBEDDINGS=1 BENCH_REPOS=django BENCH_ADAPTERS=knowing GOWORK=off go test ./bench/cross-system/ -run TestCrossSystem -v -timeout 30m
+
+# Pre-embed all nodes (one-time, ~2 hours for full corpus, skips phantoms)
+knowing enrich embeddings -db <repo>/.knowing/graph.db
 
 # Diagnostic env vars (compose freely, no reindex needed):
 BENCH_EXCLUDE_EDGES=similar_to,type_hint_of   # exclude edge types from RWR walk
@@ -34,6 +40,8 @@ BENCH_RERANK_WEIGHT=0.5                       # blend original + embedding score
 BENCH_COHERENCE_BONUS=0.3                     # file-based packing coherence
 BENCH_MAX_SEEDS=25                            # override max seed count
 BENCH_ADAPTIVE_SEEDS=1                        # enable adaptive seed count
+BENCH_GAP_THRESHOLD=5                         # gap-fill activation threshold (default 5)
+BENCH_PARALLEL=1                              # parallel repo execution (fast, ~0.022 P@10 lower)
 ```
 
 ## Testing Methodology
