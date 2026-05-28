@@ -296,6 +296,9 @@ func TestCrossSystemRound2(t *testing.T) {
 		}
 		metric := metrics.Compute(result, task.GroundTruth)
 		round2Results = append(round2Results, metric)
+		t.Logf("  [knowing] %s: P@10=%.2f R@10=%.2f NDCG=%.2f MRR=%.2f tokens=%d latency=%dms",
+			task.ID, metric.PrecisionAt10, metric.RecallAt10,
+			metric.NDCGAt10, metric.MRR, metric.TokensUsed, metric.LatencyMs)
 	}
 
 	r2Agg := metrics.Aggregate(round2Results, "knowing")
