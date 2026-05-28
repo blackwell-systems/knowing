@@ -129,7 +129,9 @@ For implementation details, see [Retrieval Pipeline](../architecture/retrieval-p
 - Adjacency cache: 4,717x latency improvement (9s to 2ms on Kubernetes-scale graph)
 - Density-adaptive retrieval: auto-detects graph density, adjusts seed selection strategy
 - Embedding re-ranker: +17% P@10 improvement, fully local, opt-in (`--embeddings`)
-- P@10 = 0.242 (1.79x codegraph, 1.77x codebase-memory, 3.23x GitNexus, 3.84x Gortex, 18.6x grep baseline)
+- P@10 = 0.223 cold start, 0.249 with compounding (222 tasks, 12 repos, 7 languages)
+- Self-adapting compounding: +11.5% P@10 from passive task memory
+- Competitive: 1.65x codegraph, 2.97x GitNexus, 3.54x Gortex, 17.2x grep (cold start)
 - MCP server interface with 28 tools for agent consumption
 
 ## The Problem
@@ -199,7 +201,7 @@ The AI coding agent era has produced several categories of tools trying to solve
 
 #### Text search (grep/ripgrep)
 
-The baseline. Agents grep for symbol names and read the matching files. ripgrep is extremely fast (sub-second on million-line codebases) and requires no indexing. The limitation is purely semantic: text search cannot distinguish "functions that call this handler" from "comments mentioning the word handle." Searching for "Handle" in a Go codebase returns 10,000+ matches spanning HTTP handlers, file handles, error handling, and variables. The agent burns its context window sorting signal from noise, misses relationships that don't share string literals, and cannot answer structural questions ("what implements this interface?"). Measured: P@10 = 0.013 across 167 tasks.
+The baseline. Agents grep for symbol names and read the matching files. ripgrep is extremely fast (sub-second on million-line codebases) and requires no indexing. The limitation is purely semantic: text search cannot distinguish "functions that call this handler" from "comments mentioning the word handle." Searching for "Handle" in a Go codebase returns 10,000+ matches spanning HTTP handlers, file handles, error handling, and variables. The agent burns its context window sorting signal from noise, misses relationships that don't share string literals, and cannot answer structural questions ("what implements this interface?"). Measured: P@10 = 0.013 across 222 tasks.
 
 #### codegraph (21.9K stars, colbymchenry/codegraph)
 
@@ -241,7 +243,7 @@ knowing's differentiator is graph-native retrieval: RWR (Random Walk with Restar
 
 **Context packers** (Aider, Repo Map, etc) analyze your repo and produce a condensed map for the agent's context window. They run at query time, produce text, and are stateless: they don't remember what was useful last time. They don't version their output or prove anything about it.
 
-**Code graphs / indexers** (Sourcegraph, codegraph, GitNexus, Stack Graphs) build a queryable index of code relationships. Most use mutable state (database rows with auto-increment IDs). They can answer "who calls X?" but can't answer "who called X last Tuesday?" or "prove no one calls X." They don't learn from feedback. In head-to-head benchmark (9 repos, 167 tasks, 6 languages): knowing achieves 1.79x the precision of codegraph (19K stars), 3.23x vs GitNexus, and 3.84x vs Gortex.
+**Code graphs / indexers** (Sourcegraph, codegraph, GitNexus, Stack Graphs) build a queryable index of code relationships. Most use mutable state (database rows with auto-increment IDs). They can answer "who calls X?" but can't answer "who called X last Tuesday?" or "prove no one calls X." They don't learn from feedback. In head-to-head benchmark (12 repos, 222 tasks, 7 languages): knowing achieves 1.65x the precision of codegraph (19K stars), 2.97x vs GitNexus, and 3.54x vs Gortex.
 
 **Agent memory systems** (MemGPT, various RAG frameworks) persist information across sessions. They remember conversations but not code structure. They can recall "you asked about auth last time" but can't tell you "auth's blast radius grew by 3 callers since then."
 
@@ -941,15 +943,15 @@ knowing is unique in applying content-addressing to *relationships between code*
 
 ### Measured performance
 
-These numbers are reproducible via `knowing eval` on the benchmark suite (9 repos, 167 tasks, 6 languages):
+These numbers are reproducible via the benchmark suite (12 repos, 222 tasks, 7 languages):
 
-| Metric | Value | Context |
-|---|---|---|
-| P@10 (precision at 10) | 0.242 | 1.79x codegraph (19K stars), 3.23x GitNexus, 3.84x Gortex, 18.6x grep |
-| R@10 (recall at 10) | 0.362 | +18.3% from embedding re-ranker |
-| NDCG@10 | 0.393 | +12.6% from embedding re-ranker |
-| MRR | 0.440 | +8.1% from embedding re-ranker |
-| Embedding re-rank latency | 220ms | Cached vectors; 660ms uncached (first run) |
+| Metric | Cold Start | With Compounding | Context |
+|---|---|---|---|
+| P@10 (precision at 10) | 0.223 | 0.249 (+11.5%) | 1.65x codegraph, 2.97x GitNexus, 3.54x Gortex, 17.2x grep |
+| R@10 (recall at 10) | 0.336 | 0.386 (+15.0%) | 12 repos, 7 languages (Go, Python, TS, Rust, Java, C#) |
+| NDCG@10 | 0.350 | 0.382 | Ranking quality improves with compounding |
+| MRR | 0.395 | 0.406 | First relevant result position |
+| Embedding re-rank latency | 220ms | 220ms | Cached vectors; 660ms uncached (first run) |
 | Adjacency cache latency | 2ms | Down from 9s uncached on k8s (4,717x improvement) |
 | Time-to-consistency | 167ms | File edit to query returning new symbol |
 | Feedback impact | +34pp over 5 rounds | 16% baseline to 50% with feedback |

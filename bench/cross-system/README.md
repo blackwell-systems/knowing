@@ -1,9 +1,9 @@
 # Cross-System Context Retrieval Benchmark
 
-Rigorous comparison of context retrieval systems on identical tasks across 9 public repositories.
+Rigorous comparison of context retrieval systems on identical tasks across 12 public repositories, 7 languages.
 
-**Results:** [FINDINGS.md](FINDINGS.md) (competitive comparisons, scale analysis, latency; Runs 19-24)
-**Run history:** [RUN-HISTORY.md](RUN-HISTORY.md) (24 iterative runs, internal reference)
+**Results:** [FINDINGS.md](FINDINGS.md) (competitive comparisons, per-repo breakdown, scale analysis)
+**Run history:** [RUN-HISTORY.md](RUN-HISTORY.md)
 **Methodology:** [METHODOLOGY.md](METHODOLOGY.md) (metrics, fixture design, statistical methods, limitations)
 **Full specification:** [docs/research/cross-system-benchmark.md](../../docs/research/cross-system-benchmark.md)
 **Study overview:** [bench/CONTEXT-PACKING-STUDY.md](../CONTEXT-PACKING-STUDY.md)
@@ -54,26 +54,28 @@ Effect size via Cohen's d. Confidence intervals via bootstrap (10K resamples).
 
 ## Evaluation Corpus
 
-9 repos pinned to specific versions, 6 languages:
+12 repos pinned to specific versions, 7 languages:
 
-- **kubernetes** (Go, ~3.5M LOC) - v1.30.0
-- **VS Code** (TypeScript, ~1M LOC) - 1.90.0
-- **django** (Python, ~300K LOC) - 5.1
-- **terraform** (Go, ~2M LOC) - hashicorp/terraform
-- **kafka** (Java, ~500K LOC) - apache/kafka
-- **cargo** (Rust, ~150K LOC) - 0.82.0
-- **flask** (Python, ~15K LOC) - 3.1.0
-- **spark-java** (Java, ~14K LOC) - Spark micro-framework
-- **ocelot** (C#, ~30K LOC) - ThreeMammals/Ocelot
+- **kubernetes** (Go, ~3.5M LOC) - v1.30.0, enriched with gopls
+- **VS Code** (TypeScript, ~1M LOC) - 1.90.0, enriched with tsserver
+- **django** (Python, ~300K LOC) - 5.1, enriched with pyright
+- **terraform** (Go, ~2M LOC) - hashicorp/terraform, enriched with gopls
+- **kafka** (Java, ~500K LOC) - apache/kafka, enriched with jdtls
+- **cargo** (Rust, ~150K LOC) - 0.82.0, enriched with rust-analyzer
+- **flask** (Python, ~15K LOC) - 3.1.0, enriched with pyright
+- **caddy** (Go, ~75K LOC) - caddyserver/caddy, enriched with gopls
+- **fastapi** (Python, ~30K LOC) - fastapi/fastapi, enriched with pyright
+- **spark-java** (Java, ~14K LOC) - Spark micro-framework, enriched with jdtls
+- **ocelot** (C#, ~30K LOC) - ThreeMammals/Ocelot, enriched with csharp-ls
 
-167 tasks across 3 difficulty tiers (easy/medium/hard) with hand-labeled ground truth symbols.
+222 tasks across 3 difficulty tiers (easy/medium/hard) with hand-labeled ground truth symbols.
 
 ## Directory Structure
 
 ```
 bench/cross-system/
-  FINDINGS.md          # competitive results (executive summary + Runs 19-24)
-  RUN-HISTORY.md       # chronological run log (Runs 1-20, internal reference)
+  FINDINGS.md          # competitive results (executive summary, per-repo breakdown)
+  RUN-HISTORY.md       # chronological run log (internal reference)
   METHODOLOGY.md       # metrics, fixture design, statistical methods
   benchtype/           # shared types (leaf package, no internal imports)
   normalize/           # symbol canonicalization + tests
@@ -84,7 +86,7 @@ bench/cross-system/
     tasks/<repo>/<tier>/*.yaml  # ground truth fixtures
     repos/             # cloned repos (gitignored)
   scripts/
-    clone-repos.sh     # shallow clone all 9 repos
+    clone-repos.sh     # shallow clone all 12 repos
     index-repos.sh     # index with knowing
   results/             # benchmark output (gitignored)
   harness_test.go      # main entry point

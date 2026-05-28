@@ -4,7 +4,7 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 
 ## Current State (v0.10.1, 2026-05-25)
 
-**P@10 = 0.242** (167 tasks, 9 repos, 6 languages). 38 edge types. 23 extractors.
+**P@10 = 0.223 cold, 0.249 with compounding** (222 tasks, 12 repos, 7 languages). 38 edge types. 23 extractors.
 1.79x codegraph, 1.77x codebase-memory, 3.23x GitNexus, 3.84x Gortex, 18.6x grep.
 Embedding re-ranker: +17% P@10 with SQLite vector cache (220ms cached).
 
@@ -323,7 +323,7 @@ context retrieval. Full proposal: [docs/proposals/code-retrieval-eval-toolkit.md
 | Item | Description | Status |
 |------|-------------|--------|
 | **Corpus DB tarball in releases** | Attach `corpus-dbs-vX.Y.Z.tar.gz` to each GitHub release as a separate asset (not bundled with binaries). Contains all 9 pre-built benchmark DBs with enrichment. Enables instant corpus restore via `make corpus-restore TARBALL=...` instead of 30+ min rebuild. | Not started |
-| **`make corpus-rebuild`** | Makefile target that indexes + enriches all 9 repos with correct flags. Documents which repos need enrichment and with which LSP servers. | **Shipped (session 17)** |
+| **`make corpus-rebuild`** | Makefile target that indexes + enriches all 12 repos with correct flags. Documents which repos need enrichment and with which LSP servers. | **Shipped (session 17)** |
 | **Corpus DB integrity check** | CI job that runs `knowing fsck` on each corpus DB after release to verify no corruption. | Not started |
 
 ### Not yet benchmarked (tracked for completeness)
@@ -336,7 +336,7 @@ context retrieval. Full proposal: [docs/proposals/code-retrieval-eval-toolkit.md
 ## Retrieval Pipeline
 
 Current results: see [bench/cross-system/FINDINGS.md](../bench/cross-system/FINDINGS.md).
-P@10=0.242 (Run 26, 167 tasks, 9 repos). 1.79x vs codegraph, 3.23x vs GitNexus, 3.84x vs Gortex, 18.6x vs grep. Query latency 2ms on k8s (with adjacency cache). Embedding re-ranker adds 220ms (cached vectors).
+P@10=0.223 cold, 0.249 with compounding (222 tasks, 12 repos, 7 languages). 1.65x vs codegraph, 2.97x vs GitNexus, 3.54x vs Gortex, 17.2x vs grep. Query latency 2ms on k8s (with adjacency cache). Embedding re-ranker adds 220ms (cached vectors). Task memory compounding: +11.5% P@10 from round 1 to round 2.
 
 **Key findings:** (1) 32-config parameter sweep proved P@10 is reachability-determined; ranking parameters are irrelevant. (2) Embedding re-ranker (+17% P@10) is the exception: it doesn't change reachability but reorders graph-surfaced candidates by semantic relevance. Architecture matters more than model.
 

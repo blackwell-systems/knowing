@@ -54,20 +54,22 @@ Fixtures with unresolvable symbols are flagged and corrected or removed.
 - Pinned to specific versions (deterministic indexing)
 - No knowing's own repository (avoids self-measurement bias)
 
-### Current Corpus (10 repos, 167 tasks)
+### Current Corpus (12 repos, 222 tasks, 7 languages)
 
-| Repo | Language | LOC | Nodes | Edges | Why |
-|------|----------|-----|-------|-------|-----|
-| Flask | Python | 15K | ~1400 | ~6K | Small, well-structured, dense class hierarchy |
-| Django | Python | 300K | ~57K | ~376K | Large Python, deep inheritance (ORM) |
-| Cargo | Rust | 150K | ~3K | ~10K | Rust, complex module system |
-| Kubernetes | Go | 3.5M | ~30K | ~100K | Massive Go monorepo |
-| VS Code | TypeScript | 1M | ~87K | ~50K | Large TS, extension architecture |
-| Spark Java | Java | 14K | ~366 | ~1.4K | Small Java web framework |
-| Ocelot | C# | 50K | ~2K | ~5K | C#, middleware pipeline |
-| Kafka | Java | 800K | ~8K | ~20K | Enterprise Java, deep class hierarchies |
-| Terraform | Go | 500K | ~10K | ~30K | Go, provider plugin architecture |
-| Cross-cutting | Mixed | - | - | - | 9 multi-repo/multi-language tasks |
+| Repo | Language | LOC | Nodes (real) | Nodes (with phantoms) | Edges | Tasks | Why |
+|------|----------|-----|-------------|----------------------|-------|-------|-----|
+| Kubernetes | Go | 3.5M | 72K | 242K | 705K | 19 | Massive Go monorepo, enriched with gopls |
+| VS Code | TypeScript | 1M | 84K | 552K | ~50K | 19 | Large TS, extension architecture |
+| Django | Python | 300K | 49K | 128K | ~376K | 33 | Large Python, deep inheritance (ORM) |
+| Terraform | Go | 500K | 26K | 99K | ~184K | 20 | Go, provider plugin architecture, enriched with gopls |
+| Kafka | Java | 800K | ~8K | ~20K | ~20K | 19 | Enterprise Java, deep class hierarchies |
+| Cargo | Rust | 150K | 9K | 81K | ~79K | 19 | Rust, complex module system |
+| Caddy | Go | 75K | 11K | 23K | 47K | 20 | Go web server, enriched with gopls (NEW) |
+| FastAPI | Python | 30K | 9K | 18K | 51K | 20 | Modern Python, type-annotated, enriched with pyright (NEW) |
+| Ocelot | C# | 50K | 17K | ~17K | 53K | 20 | C# API gateway, enriched with csharp-ls (NEW) |
+| Flask | Python | 15K | ~1400 | ~6K | ~9K | 19 | Small, well-structured, dense class hierarchy |
+| Spark Java | Java | 14K | ~366 | ~1.4K | ~1.4K | 5 | Small Java web framework |
+| Cross-cutting | Mixed | - | - | - | - | 9 | Multi-repo/multi-language tasks |
 
 ## Adapter Interface
 

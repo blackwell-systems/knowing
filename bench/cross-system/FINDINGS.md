@@ -1,15 +1,15 @@
 # Cross-System Benchmark: Competitive Results
 
 **Methodology:** [METHODOLOGY.md](METHODOLOGY.md)
-**Run history:** [RUN-HISTORY.md](RUN-HISTORY.md) (23 iterative runs)
+**Run history:** [RUN-HISTORY.md](RUN-HISTORY.md)
 **Study overview:** [bench/CONTEXT-PACKING-STUDY.md](../CONTEXT-PACKING-STUDY.md)
 
 ## How We Tested
 
-167 hand-curated task fixtures across 9 public repositories (Go, Python, TypeScript,
-Rust, Java, C#) from 14K to 3.5M LOC. Each task has ground truth: the specific symbols
-a developer would need to understand or modify for that task, validated against actual
-database contents (95% achievability rate).
+222 hand-curated task fixtures across 12 public repositories (Go, Python, TypeScript,
+Rust, Java, C#) from 14K to 3.5M LOC, 7 languages. Each task has ground truth: the
+specific symbols a developer would need to understand or modify for that task, validated
+against actual database contents (95% achievability rate).
 
 For each task, each system receives the same natural-language description and returns
 ranked symbols. We measure P@10 (fraction of top-10 results that match ground truth),
@@ -24,13 +24,14 @@ are reported as such.
 
 ## Executive Summary
 
-knowing is a content-addressed graph retrieval engine evaluated against 6 competitors across 9 codebases (3.5M LOC down to 14K LOC), 167 task fixtures, and 24 iterative benchmark runs with full statistical rigor.
+knowing is a content-addressed graph retrieval engine evaluated against 6 competitors across 12 codebases (3.5M LOC down to 14K LOC), 222 task fixtures, 7 languages, and 26+ iterative benchmark runs with full statistical rigor.
 
-### Final Results (Run 26, Session 15: embedding re-ranker, full corpus)
+### Final Results (Session 17: 12 repos, Go/C# enrichment, full corpus)
 
 | System | P@10 | R@10 | Tasks | Notes |
 |--------|------|------|-------|-------|
-| **knowing** | **0.242** | **0.362** | 167 | Embedding re-ranker, 38 edge types, 5-channel retrieval |
+| **knowing (cold start)** | **0.223** | **0.336** | 222 | 12 repos, 7 languages, embedding re-ranker, 38 edge types |
+| **knowing (with compounding)** | **0.249** | **0.386** | 222 | +11.5% from passive task memory (self-adapting) |
 | codegraph (19K stars) | 0.135 | - | 107 | 10 tasks failed (unsupported repos) |
 | GitNexus | 0.075 | - | 66 | Killed on k8s (>60 min indexing) |
 | Gortex | 0.063 | - | 66 | 14 min k8s indexing, 14GB RAM |
@@ -38,13 +39,36 @@ knowing is a content-addressed graph retrieval engine evaluated against 6 compet
 | Aider (~20K stars) | - | - | - | Timed out (30 min limit) |
 | codebase-memory (2.6K stars) | - | - | - | Timed out (30 min limit) |
 
-### Competitive Advantages
+### Per-Repo Breakdown (Session 17, cold start)
 
-- **vs codegraph (19K stars):** 1.79x more precise (P@10 0.242 vs 0.135), all 167 tasks vs 107
-- **vs GitNexus:** 3.23x more precise (P@10 0.242 vs 0.075), 167 tasks vs 66, 18s index vs >60 min
-- **vs Gortex:** 3.84x more precise (P@10 0.242 vs 0.063), 200MB RAM vs 14GB, 18s index vs 14 min
-- **vs grep:** 18.6x more precise (P@10 0.242 vs 0.013)
+| Repo | Language | P@10 | Tasks | Notes |
+|------|----------|------|-------|-------|
+| kafka | Java | 0.337 | 19 | Best in corpus |
+| caddy | Go | 0.285 | 20 | NEW (session 17), enriched with gopls |
+| terraform | Go | 0.275 | 20 | First-time enrichment: ~0.095 -> 0.275 |
+| flask | Python | 0.263 | 19 | Enriched with pyright |
+| kubernetes | Go | 0.232 | 19 | First-time enrichment: 0.000 -> 0.232 |
+| cargo | Rust | 0.216 | 19 | Enriched with rust-analyzer |
+| cross-cutting | multi | 0.211 | 9 | Multi-repo tasks |
+| django | Python | 0.176 | 33 | 42% zero-rate (vocabulary gaps) |
+| ocelot | C# | 0.175 | 20 | NEW (session 17), first C# benchmark |
+| vscode | TypeScript | 0.153 | 19 | Enriched with tsserver |
+| spark-java | Java | 0.140 | 5 | Smallest fixture set |
+
+### Competitive Advantages (cold start)
+
+- **vs codegraph (19K stars):** 1.65x more precise (P@10 0.223 vs 0.135), all 222 tasks vs 107
+- **vs GitNexus:** 2.97x more precise (P@10 0.223 vs 0.075), 222 tasks vs 66, 18s index vs >60 min
+- **vs Gortex:** 3.54x more precise (P@10 0.223 vs 0.063), 200MB RAM vs 14GB, 18s index vs 14 min
+- **vs grep:** 17.2x more precise (P@10 0.223 vs 0.013)
 - **vs Repomix:** 48x more token-efficient (4K tokens vs 300K for same task)
+
+### Competitive Advantages (with compounding)
+
+- **vs codegraph:** 1.84x (P@10 0.249 vs 0.135)
+- **vs GitNexus:** 3.32x (P@10 0.249 vs 0.075)
+- **vs Gortex:** 3.95x (P@10 0.249 vs 0.063)
+- **vs grep:** 19.2x (P@10 0.249 vs 0.013)
 
 **Note on Run 23 vs Run 24:** Run 23 (P@10=0.217) was measured on incrementally-built enriched
 DBs accumulated over many sessions. Run 24 uses fresh indexes built from scratch with current
