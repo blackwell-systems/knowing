@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackwell-systems/knowing/internal/embedding"
 	"github.com/blackwell-systems/knowing/internal/enrichment"
 	"github.com/blackwell-systems/knowing/internal/store"
 	"github.com/blackwell-systems/knowing/internal/types"
@@ -31,8 +32,10 @@ func cmdEnrich(args []string) error {
 		return cmdEnrichCoverage(args[1:])
 	case "lsp":
 		return cmdEnrichLSP(args[1:])
+	case "embeddings":
+		return cmdEnrichEmbeddings(args[1:])
 	default:
-		return fmt.Errorf("unknown enrichment pass: %s (available: blame, coverage, lsp)", args[0])
+		return fmt.Errorf("unknown enrichment pass: %s (available: blame, coverage, lsp, embeddings)", args[0])
 	}
 }
 
@@ -352,6 +355,106 @@ func computeCoverageForLine(blocks []coverageBlock, line int) float64 {
 		return -1 // no coverage data for this line
 	}
 	return float64(covered) / float64(total) * 100
+}
+
+// cmdEnrichEmbeddings batch-embeds all nodes in the database. Persists vectors
+// to the embeddings table so brute-force vector search (gap-fill) works without
+// the HNSW index rebuild. Incremental: skips nodes that already have vectors.
+func cmdEnrichEmbeddings(args []string) error {
+	fs := flag.NewFlagSet("enrich embeddings", flag.ExitOnError)
+	dbPath := fs.String("db", defaultDB(), "Path to SQLite database (env: KNOWING_DB)")
+	batchSize := fs.Int("batch", 32, "Embedding batch size")
+	model := fs.String("model", "", "Embedding model (default: jina-code)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	if *model != "" {
+		os.Setenv("KNOWING_EMBED_MODEL", *model)
+	}
+
+	st, err := store.NewSQLiteStore(*dbPath)
+	if err != nil {
+		return fmt.Errorf("opening store: %w", err)
+	}
+	defer st.Close()
+
+	ctx := context.Background()
+
+	// Load all nodes.
+	nodes, err := st.NodesByName(ctx, "%")
+	if err != nil || len(nodes) == 0 {
+		return fmt.Errorf("no nodes found in database (run 'knowing index' first)")
+	}
+
+	// Check which nodes already have embeddings.
+	allHashes := make([]types.Hash, len(nodes))
+	for i, n := range nodes {
+		allHashes[i] = n.NodeHash
+	}
+
+	// Initialize embedder.
+	embedder, err := embedding.New()
+	if err != nil {
+		return fmt.Errorf("initializing embedder: %w", err)
+	}
+	defer embedder.Close()
+
+	searcher := embedding.NewSearcher(embedder)
+	searcher.SetStore(st)
+
+	// Get existing embeddings to skip. Use the searcher's model key
+	// (matches the model name used when persisting vectors).
+	existing, err := st.GetAllEmbeddings(ctx, searcher.Model())
+	if err != nil {
+		existing = nil // proceed without skip optimization
+	}
+
+	// Filter to nodes that need embedding.
+	var toEmbed []types.Node
+	for _, n := range nodes {
+		if _, ok := existing[n.NodeHash]; !ok {
+			toEmbed = append(toEmbed, n)
+		}
+	}
+
+	if len(toEmbed) == 0 {
+		fmt.Fprintf(os.Stderr, "All %d nodes already have embeddings. Nothing to do.\n", len(nodes))
+		return nil
+	}
+
+	fmt.Fprintf(os.Stderr, "Embedding %d nodes (%d already cached, %d total)...\n",
+		len(toEmbed), len(nodes)-len(toEmbed), len(nodes))
+
+	start := time.Now()
+	embedded := 0
+
+	for i := 0; i < len(toEmbed); i += *batchSize {
+		end := i + *batchSize
+		if end > len(toEmbed) {
+			end = len(toEmbed)
+		}
+		batch := toEmbed[i:end]
+		filePaths := make([]string, len(batch))
+
+		if err := searcher.IndexBatch(ctx, batch, filePaths); err != nil {
+			log.Printf("warning: batch %d failed: %v", i / *batchSize, err)
+			continue
+		}
+		embedded += len(batch)
+
+		if embedded%1000 == 0 || end == len(toEmbed) {
+			elapsed := time.Since(start)
+			rate := float64(embedded) / elapsed.Seconds()
+			remaining := float64(len(toEmbed)-embedded) / rate
+			fmt.Fprintf(os.Stderr, "  [%d/%d] %.0f/sec, ETA %.0fs\n",
+				embedded, len(toEmbed), rate, remaining)
+		}
+	}
+
+	fmt.Fprintf(os.Stderr, "Embedding complete: %d nodes in %v\n",
+		embedded, time.Since(start).Round(time.Millisecond))
+	return nil
 }
 
 // cmdEnrichLSP runs LSP enrichment on an already-indexed database.

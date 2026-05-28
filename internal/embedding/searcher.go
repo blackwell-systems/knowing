@@ -41,6 +41,11 @@ func (s *Searcher) SetStore(store EmbeddingStore) {
 	s.store = store
 }
 
+// Model returns the model identifier used for cache keys.
+func (s *Searcher) Model() string {
+	return s.model
+}
+
 // EmbedAndSearch embeds the query text and returns the k nearest symbol hashes.
 func (s *Searcher) EmbedAndSearch(ctx context.Context, query string, k int) ([]types.Hash, error) {
 	if s.embedder.Count() == 0 {
