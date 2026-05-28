@@ -1,6 +1,6 @@
 # FEATURES.md -- Comprehensive Feature Dump for AI Reference
 
-Generated: 2026-05-15 (updated: 2026-05-26, features 77-131 added previously; features 132-152 added: knowing enrich lsp, dangling type_hint_of resolution, interface type hint propagation, EdgeCount, IndexTimings, accesses_field edge type, wire format codec overhaul, pre-computed embedding vector cache, ReRankByHashes, EmbeddingStore, adaptive seed count, package-level supply chain verdict, benign process target classification, test/benchmark file exclusion, env-only attenuation, csharp-ls enrichment support, readiness probe for LSP enrichment, coherence-aware context packing, GHA action, BENCH_REPOS fix, 200-package FP evaluation)
+Generated: 2026-05-15 (updated: 2026-05-27, features 77-152 added previously; features 153-175 added: embedding gap-fill seeds, knowing enrich embeddings, brute-force vector search from SQLite, parallel benchmark harness, GraphNodeCount per-engine field, nomic-embed-text default model, BENCH_GAP_THRESHOLD, round 2 per-task logging, spark-java fixtures expanded, two-phase gopls warmup, kubernetes/terraform enrichment results, caddy/fastapi/ocelot corpus repos, skip test/generated in edge upgrade, package-sorted edges, RealNodeCount, corpus expansion 12 repos/237 tasks/7 languages, task memory compounding, platform deployment, Makefile targets, similarity OOM fix, adaptive retrieval architecture doc)
 Source: code inspection of all Go files across internal/, cmd/, and config
 Repo: github.com/blackwell-systems/knowing
 
@@ -764,12 +764,12 @@ Repo: github.com/blackwell-systems/knowing
 - **What it does:** Bridges the vocabulary gap between natural-language task descriptions and code symbol names. Contains 20 hand-curated concept classes (TRANSITIVE_IMPACT, SYMBOL_LOOKUP, DATAFLOW_TRACE, TEST_SELECTION, etc.) with 200+ phrases mapped to specific target symbols. Cross-product expansion with action verbs generates additional phrase variants. Fused as RRF Channel 4 with weight 2.0.
 - **Why it matters:** Biggest single-feature improvement to retrieval accuracy. Hard tier P@10 rose from 10% to 18% (+8pp). Deterministic, zero dependencies, inspectable.
 
-### 60. 4-Channel RRF Fusion
+### 60. Multi-Channel RRF Fusion (5 Channels)
 
 - **Package(s):** `internal/context/`
 - **Entry point:** `rrfFuseMulti` in `internal/context/context.go`
-- **What it does:** Replaces the previous single-channel tiered matching (with BM25 fallback) with a proper N-channel Reciprocal Rank Fusion system. Four channels: tiered keywords (weight 2.0), BM25 FTS5 (weight 2.0), vector/embedding search (weight 0.0, disabled), and equivalence class matching (weight 2.0). Each channel produces an independent ranked list; `rrfFuseMulti` merges them with per-channel weights. Weights were equalized (was 3:1:0:2) after cross-system benchmark showed BM25 and tiered find the same symbols.
-- **Why it matters:** Enables systematic combination of heterogeneous retrieval signals. Symbols appearing in multiple channels get promoted. New retrieval methods can be added as channels without disrupting existing ones.
+- **What it does:** N-channel Reciprocal Rank Fusion combining five retrieval channels: (1) tiered keywords (weight 2.0), (2) BM25 FTS5 (weight 2.0), (3) embedding re-ranker (pure re-rank, weight 0.0 original + full embedding score), (4) equivalence class matching (weight 2.0), and (5) gap-fill vector search (activates when BM25 returns fewer than 5 candidates, using brute-force cosine from cached vectors). Each channel produces an independent ranked list; `rrfFuseMulti` merges them with per-channel weights. Channel weights were equalized after cross-system benchmark showed BM25 and tiered find the same symbols.
+- **Why it matters:** Enables systematic combination of heterogeneous retrieval signals. Symbols appearing in multiple channels get promoted. The gap-fill channel addresses vocabulary gaps where keyword-based channels return too few candidates. New retrieval methods can be added as channels without disrupting existing ones.
 
 ### 61. Doc Comment Extraction (Node.Doc Field)
 
@@ -779,11 +779,11 @@ Repo: github.com/blackwell-systems/knowing
 - **What it does:** Extracts doc comments for functions, methods, and types using a language-agnostic function that walks tree-sitter `PrevSibling` nodes to collect adjacent comment blocks. Stored in the `Node.Doc` field (added by migration 007). Included in embedding text for future code-tuned models.
 - **Why it matters:** Provides natural-language descriptions of symbols for embedding search and potential future BM25 enrichment.
 
-### 62. BGE-small-en-v1.5 Embedding Model
+### 62. Embedding Model (nomic-embed-text-v1.5, Default)
 
-- **Package(s):** `internal/context/`
-- **What it does:** Replaces MiniLM-L6-v2 with BGE-small-en-v1.5 (384 dimensions, retrieval-tuned). Same infrastructure: hugot ONNX runtime, coder/hnsw index, RRF Channel 3. Currently disabled (weight 0.0) because off-the-shelf models tested net-negative on the eval.
-- **Why it matters:** Infrastructure is preserved and ready to enable when a code-tuned model becomes available. Enable with `KNOWING_EMBEDDINGS=1`.
+- **Package(s):** `internal/embedding/`
+- **What it does:** Pure Go ONNX inference via hugot for embedding-based re-ranking and gap-fill search. The default model is nomic-embed-text-v1.5 (P@10 0.245 sequential, faster inference than jina-code: 14 min vs 20 min for full corpus). Previous models (BGE-small, jina-code) coexist via the `model` column in the embeddings table. Embedding vectors are cached in SQLite (migration 019) for 3x re-rank speedup (660ms to 220ms). Enable with `--embeddings` flag on `knowing mcp` or `BENCH_EMBEDDINGS=1` for benchmarks. Switchable via `KNOWING_EMBED_MODEL` env var.
+- **Why it matters:** The re-ranker architecture delivers +17% P@10. The model itself is less important than the integration point (re-ranker vs independent channel). All 12 benchmark repos are pre-embedded with both jina-code and nomic models.
 
 ### 63. BFS Depth Limit on RWR Walk
 
@@ -1254,7 +1254,7 @@ Repo: github.com/blackwell-systems/knowing
 
 - **Package(s):** `bench/cross-system/adapters/`
 - **Entry point:** `adapters/registry.go` (adapter registration), `adapters/adapter.go` (interface definition)
-- **What it does:** Pluggable adapter interface for comparing retrieval systems on the same 100-task corpus. Seven adapters registered: `knowing` (primary system), `grep` (baseline), `aider` (aider-chat retrieval), `gortex` (gortex retrieval), `codegraph` (CodeGraph), `gitnexus` (GitNexus), `cgc` (Codebase Graph Context). Each adapter implements a common interface that accepts a task description and returns ranked symbol results.
+- **What it does:** Pluggable adapter interface for comparing retrieval systems on the same benchmark corpus (237 tasks, 12 repos, 7 languages). Seven adapters registered: `knowing` (primary system), `grep` (baseline), `aider` (aider-chat retrieval), `gortex` (gortex retrieval), `codegraph` (CodeGraph), `gitnexus` (GitNexus), `cgc` (Codebase Graph Context). Each adapter implements a common interface that accepts a task description and returns ranked symbol results. Supports parallel execution via `BENCH_PARALLEL=1` (4x speedup, ~5 min vs 20 min).
 - **Why it matters:** Enables apples-to-apples comparison of retrieval quality (P@K, NDCG, MRR) across competing approaches using identical ground truth and normalization. The adapter pattern means adding a new system for comparison is a single file addition.
 
 ### 122. Enterprise-Scale Multi-Module LSP Enrichment
@@ -1266,6 +1266,7 @@ Repo: github.com/blackwell-systems/knowing
   2. **Per-symbol timeout** (`WithSymbolTimeout`): Wraps individual LSP calls (GetDefinition, GetImplementation, GetReferences) with a configurable timeout (default 10s via `DefaultSymbolTimeout`). Prevents individual hung gopls calls from blocking the entire enrichment pipeline. Returns `ErrSymbolTimeout` on expiry.
   3. **Progress persistence** (`EnrichProgress`): Tracks per-module completion status in `.knowing/enrich-progress.json`. Interrupted runs resume automatically by skipping already-completed modules. `MarkModule` records success/failure per module; `IsComplete` checks before starting a module.
   4. **Parallel cross-module enrichment**: Root module processed solo first (1.2GB gopls for k8s root), then sub-modules enriched in parallel (4 concurrent gopls instances, ~200MB each). Concurrent LSP resolution with serialized DB writes (producer-consumer pattern).
+  5. **Two-phase gopls warmup** (v0.11.0): Fixed OpenDocument argument order bug and added `didOpen` before `GetDefinition`. This enables Go enrichment to work for the first time. Post-warmup, 128 concurrent workers process symbols in parallel.
 - **CLI flag:** `-enrich-concurrency N` on `index` and `reindex` commands (default 8 parallel LSP requests per module).
 - **Batched file discovery:** Opens files in batches of 50 (no bulk `didOpen`), reducing gopls memory pressure.
 - **k8s result:** 7,618 edges upgraded from `ast_inferred` (0.7) to `lsp_resolved` (0.9). Previously: 0 (gopls crashed on the full workspace).
@@ -1535,6 +1536,163 @@ Repo: github.com/blackwell-systems/knowing
 - **What it does:** SaaS backend scaffold for paid supply chain scanning. Provides the API server infrastructure for the commercial offering.
 - **Status:** Scaffold only; not yet deployed.
 - **Dependencies:** External.
+
+### 153. Embedding Gap-Fill Seeds
+
+- **Package(s):** `internal/context`
+- **Entry point:** Gap-fill logic in `internal/context/context.go`, `LoadAndSearchFromStore` in `internal/embedding/searcher.go`
+- **What it does:** When BM25 returns fewer than 5 candidates for a task, vector search fills the gap by finding supplemental seeds via brute-force cosine similarity from cached embedding vectors. The threshold is configurable via `BENCH_GAP_THRESHOLD` environment variable. Gap-fill uses `LoadAndSearchFromStore`, which does O(n) cosine search from the SQLite embeddings table without requiring an HNSW index rebuild.
+- **Results:** Django +43% (0.176 to 0.252), Flask +22%. Zero regressions across the full corpus. 20 lines of code.
+- **Why it matters:** Addresses the vocabulary gap problem where keyword-based channels cannot find candidates because ground truth symbols share no keywords with the task description. Vector search bridges this gap by matching on semantic similarity rather than exact tokens.
+- **Dependencies:** `internal/embedding` (ONNX inference), `internal/store` (embeddings table).
+
+### 154. `knowing enrich embeddings` Command
+
+- **Package(s):** `cmd/knowing`, `internal/embedding`
+- **Entry point:** `cmdEnrichEmbeddings` in `cmd/knowing/enrich.go`
+- **What it does:** Batch pre-embeds all real nodes in the graph, skipping phantom/external nodes (70% reduction in embedding work). Incremental: skips nodes that already have cached vectors in the embeddings table. Stores vectors via `BatchPutEmbeddings` on the `EmbeddingStore` interface.
+- **CLI:** `knowing enrich embeddings [flags] <repo-path>`.
+- **Why it matters:** Pre-populating the embedding cache means the first re-rank query does not need to embed all candidates on-the-fly. Reduces cold-start re-rank latency from seconds to the ~220ms cached path.
+- **Dependencies:** `internal/embedding`, `internal/store`.
+
+### 155. Brute-Force Vector Search from SQLite (`LoadAndSearchFromStore`)
+
+- **Package(s):** `internal/embedding`
+- **Entry point:** `LoadAndSearchFromStore` in `internal/embedding/searcher.go`
+- **What it does:** O(n) cosine similarity search directly from cached embedding vectors in the SQLite embeddings table. Lazy loading: vectors are loaded into memory on first gap-fill query, not at startup (3% memory vs 91% if loaded eagerly). No HNSW index rebuild required. Returns top-K nearest neighbors by cosine similarity.
+- **Why it matters:** Provides a simple, zero-configuration vector search capability that works from the same SQLite database as the graph. Avoids the complexity and memory cost of maintaining a separate HNSW index while being fast enough for gap-fill queries (where the candidate set is the full node population but queries are infrequent).
+- **Dependencies:** `internal/store` (embeddings table).
+
+### 156. Parallel Benchmark Harness
+
+- **Package(s):** `bench/cross-system`
+- **Entry point:** `BENCH_PARALLEL=1` environment variable
+- **What it does:** Runs benchmark repos in parallel goroutines instead of sequentially. Each repo gets its own goroutine with an independent context engine. Results are collected and merged after all repos complete. 4x speedup (5 min vs 20 min).
+- **Consistency:** P@10 = 0.220 +/- 0.002, which is 0.022 below sequential due to ONNX CPU contention during embedding inference. Sequential remains the authoritative measurement; parallel is for fast iteration.
+- **Dependencies:** None beyond existing benchmark infrastructure.
+
+### 157. `GraphNodeCount` Per-Engine Field
+
+- **Package(s):** `internal/context`
+- **Entry point:** `ContextEngine.nodeCount` field, `SetNodeCount` / `effectiveNodeCount` methods in `internal/context/context.go`
+- **What it does:** Moved the graph node count from a global variable to a per-engine instance field. Each `ContextEngine` has its own `nodeCount` set via `SetNodeCount`. The `effectiveNodeCount` method returns the instance value if set, falling back to the global for backward compatibility. Thread-safe for parallel benchmark execution where multiple engines run concurrently.
+- **Why it matters:** Required for the parallel benchmark harness (Feature 156). With a global variable, parallel engines would race on the node count, causing incorrect density-adaptive behavior (PreferTypeSeeds, adaptive seed count).
+- **Dependencies:** None.
+
+### 158. nomic-embed-text-v1.5 as Default Model
+
+- **Package(s):** `internal/embedding`
+- **What it does:** Changed the default embedding model from jina-embeddings-v2-base-code to nomic-embed-text-v1.5. P@10 0.245 sequential (was 0.242 with jina-code). Faster inference (14 min vs 20 min for full corpus). All 12 benchmark repos are pre-embedded with both models (coexist via the `model` column in the embeddings table).
+- **Why it matters:** Marginal P@10 improvement with significantly faster inference. Model coexistence means switching back is zero-cost.
+- **Dependencies:** ONNX runtime via hugot.
+
+### 159. `BENCH_GAP_THRESHOLD` Environment Variable
+
+- **Package(s):** `bench/cross-system`, `internal/context`
+- **What it does:** Configurable activation threshold for embedding gap-fill seeds (Feature 153). When BM25 returns fewer candidates than this threshold, vector search activates. Default is 5. Tested values: < 3, < 5, < 8, < 10 (all within variance of each other, confirming < 5 is near-optimal).
+- **Dependencies:** None.
+
+### 160. Round 2 Per-Task Logging
+
+- **Package(s):** `bench/cross-system`
+- **What it does:** The warm pass (Round 2) of the benchmark now prints per-task P@10 lines to stdout. Previously, Round 2 was silent, making it difficult to diagnose which tasks improved or regressed between cold and warm passes.
+- **Dependencies:** None.
+
+### 161. Spark-Java Fixtures Expanded
+
+- **Package(s):** `bench/cross-system`
+- **What it does:** Expanded Spark-Java benchmark fixtures from 5 to 20 tasks (15 new). New tasks cover filters, sessions, templates, SSL configuration, WebSocket handling, and Jetty lifecycle management. Provides better coverage of the Spark-Java framework's API surface.
+- **Dependencies:** None.
+
+### 162. Kubernetes Enrichment Results
+
+- **Package(s):** `bench/cross-system/corpus/repos/kubernetes/`
+- **What it does:** First successful Go enrichment of the Kubernetes corpus, enabled by two-phase gopls warmup (Feature 122). Results: 39,678 edges upgraded to `lsp_resolved`, 192,271 new edges discovered, 169,517 phantom external nodes created. P@10 improved from 0.000 to 0.232.
+- **Why it matters:** Kubernetes was previously unenrichable because gopls crashed on the full workspace. The two-phase warmup and multi-module enrichment made this possible.
+- **Dependencies:** `internal/enrichment`.
+
+### 163. Terraform Enrichment Results
+
+- **Package(s):** `bench/cross-system/corpus/repos/terraform/`
+- **What it does:** First successful Go enrichment of the Terraform corpus. Results: 5,850 edges upgraded, 82,721 new edges discovered, 73,079 phantom external nodes. P@10 improved from approximately 0.095 to 0.275.
+- **Dependencies:** `internal/enrichment`.
+
+### 164. Caddy Go Benchmark Corpus
+
+- **Package(s):** `bench/cross-system/corpus/repos/caddy/`
+- **What it does:** Added Caddy (Go HTTP server) as a new benchmark corpus repo. Cloned, indexed, and enriched with gopls (13,257 new edges, 12,003 phantom nodes). 20 benchmark fixtures. P@10 = 0.285.
+- **Why it matters:** Expands Go corpus coverage beyond Kubernetes and Terraform. Caddy is a medium-sized, well-structured Go project that tests retrieval on idiomatic Go patterns.
+- **Dependencies:** None.
+
+### 165. FastAPI Python Benchmark Corpus
+
+- **Package(s):** `bench/cross-system/corpus/repos/fastapi/`
+- **What it does:** Added FastAPI as a new Python benchmark corpus repo. Cloned, indexed, and enriched with pyright (4,433 new edges, 10,647 phantom nodes). 20 benchmark fixtures.
+- **Why it matters:** Expands Python corpus beyond Django and Flask. FastAPI uses modern Python patterns (type hints, async, Pydantic models) that test different extraction and retrieval paths than Django's class-based views.
+- **Dependencies:** None.
+
+### 166. Ocelot C# Benchmark Corpus
+
+- **Package(s):** `bench/cross-system/corpus/repos/ocelot/`
+- **What it does:** Added Ocelot (C# API gateway) as the first C# benchmark corpus repo. 20 benchmark fixtures. P@10 = 0.175. Enriched with csharp-ls (Feature 145).
+- **Why it matters:** First C# representation in the benchmark corpus. Tests the C# extractor, csharp-ls enrichment, and retrieval quality on a real-world .NET project. Brings the language count to 7.
+- **Dependencies:** csharp-ls enrichment.
+
+### 167. Skip Test/Generated Files in Edge Upgrade
+
+- **Package(s):** `internal/enrichment`
+- **What it does:** Filters `_test.go` and `zz_generated` files from the edge upgrade phase of LSP enrichment. Test files produce edges that are correct but unhelpful for retrieval. Generated files produce edges that are voluminous but low-signal. On Kubernetes, this reduces upgrade work by approximately 70%.
+- **Dependencies:** None beyond the enricher.
+
+### 168. Package-Sorted Edges for LSP Enrichment
+
+- **Package(s):** `internal/enrichment`
+- **What it does:** Sorts enrichment work items by URI (file path) before processing. This groups edges from the same file together, improving gopls cache locality. When gopls has a file open and processes multiple edges from it, subsequent `GetDefinition` calls are faster because the file's AST is already parsed and cached.
+- **Dependencies:** None beyond the enricher.
+
+### 169. `RealNodeCount` Method on SQLiteStore
+
+- **Package(s):** `internal/store`
+- **Entry point:** `SQLiteStore.RealNodeCount` in `internal/store/sqlite.go`
+- **What it does:** Returns the count of non-phantom nodes via a JOIN against the files table. Phantom nodes (created by enrichment for external/stdlib targets) are excluded. This provides the "real" graph size for density-adaptive decisions. Tested but ultimately not used for PreferTypeSeeds threshold (phantom nodes are a valid density signal because enrichment edges make the graph genuinely denser).
+- **Dependencies:** None beyond the store.
+
+### 170. Corpus Expansion (12 Repos, 237 Tasks, 7 Languages)
+
+- **Package(s):** `bench/cross-system`
+- **What it does:** Expanded the benchmark corpus from 9 repos / 167 tasks / 6 languages to 12 repos / 237 tasks / 7 languages. New repos: Caddy (Go), FastAPI (Python), Ocelot (C#). Spark-Java expanded from 5 to 20 tasks. The corpus now covers: Go (Kubernetes, Terraform, Caddy), Python (Django, Flask, FastAPI), TypeScript (VS Code), Java (Kafka, Spark-Java), Rust (Cargo), C# (Ocelot).
+- **Why it matters:** Larger, more diverse corpus reduces the chance of overfitting to a specific language or project structure. 237 tasks provides higher statistical power for detecting P@10 changes.
+
+### 171. Task Memory Compounding Quantified
+
+- **Package(s):** `bench/cross-system`
+- **What it does:** The benchmark harness runs two rounds: Round 1 (cold start) and Round 2 (warm, with task memory from Round 1). The difference measures passive learning from agent behavior. Results: +11.5% P@10, +15.0% R@10 from Round 1 to Round 2. This quantifies the value of Feature 66 (Passive Task Memory) on a controlled benchmark.
+- **Why it matters:** Provides empirical evidence that the system gets smarter with use, without any explicit feedback or configuration.
+
+### 172. Platform Deployment (DEPLOY.md, deploy.sh)
+
+- **Package(s):** `scripts/deploy.sh`, `DEPLOY.md`
+- **What it does:** Deployment automation for the platform API server on bare metal DigitalOcean with Cloudflare Tunnel. `deploy.sh` handles provisioning, binary upload, systemd service configuration, and tunnel setup. `DEPLOY.md` documents the deployment procedure, required secrets, and monitoring.
+- **Dependencies:** DigitalOcean, Cloudflare Tunnel.
+
+### 173. Makefile Targets for Corpus Management
+
+- **Package(s):** `Makefile`
+- **What it does:** Adds four corpus management targets: `corpus-rebuild` (re-index all benchmark repos), `corpus-enrich` (run LSP enrichment on all repos), `corpus-backup` (snapshot all corpus DBs), `corpus-restore` (restore from backup). Standardizes the workflow for maintaining the 12-repo benchmark corpus.
+- **Dependencies:** `knowing` binary.
+
+### 174. Similarity OOM Fix
+
+- **Package(s):** `internal/indexer`
+- **Entry point:** `ComputeSimilarityEdges` in `internal/indexer/similarity.go`
+- **What it does:** Skips packages with more than 500 functions during similarity edge computation. Kafka's `org.apache.kafka.streams` package (16,781 functions) caused 140 million pairwise comparisons, consuming 10GB+ RAM and crashing the indexer before snapshot creation. Similarity edges are weighted 0.15 (lowest) and P@10-neutral; skipping oversized packages loses nothing measurable.
+- **Dependencies:** None.
+
+### 175. Adaptive Retrieval Architecture Doc
+
+- **Package(s):** `docs/architecture/adaptive-retrieval.md`
+- **What it does:** Documents all 6 self-adapting mechanisms in the retrieval pipeline: (1) PreferTypeSeeds on dense graphs (>40K nodes), (2) adaptive seed count (>40K: 25, >10K: 20, default 15), (3) community-filtered RWR (1-3 seed communities), (4) cross-module edge attenuation (0.3x), (5) gap-fill vector search (BM25 < 5 candidates), (6) passive task memory (session compounding). Includes an ablation table showing the contribution of each mechanism.
+- **Why it matters:** Central reference for how the engine adapts to different graph sizes and densities without manual configuration.
 
 ### GraphStore (`internal/types/interfaces.go`)
 
