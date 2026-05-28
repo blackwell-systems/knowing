@@ -207,6 +207,52 @@ Null hypothesis: median difference = 0.
 
 Bootstrap with 10K resamples. Reports 95% CI for the difference between systems.
 
+## Experiment Protocol
+
+### Testing workflow
+
+Django is the acid test repo for retrieval experiments:
+- 33 tasks (largest single-repo fixture set)
+- 42% zero-rate problem (vocabulary gaps), so improvements that move Django are structural
+- Where adaptive seeds showed +14.2%, bidirectional inheritance showed -2.5%, gap injection +3.2%
+
+**Three-step protocol:**
+
+1. **Django only, no embeddings (~30s):** quick signal on structural changes
+   ```bash
+   BENCH_REPOS=django BENCH_ADAPTERS=knowing GOWORK=off go test ./bench/cross-system/ -run TestCrossSystem -v -timeout 10m
+   ```
+2. **Django with embeddings (~7min):** confirms interaction with re-ranker
+   ```bash
+   BENCH_EMBEDDINGS=1 BENCH_REPOS=django BENCH_ADAPTERS=knowing GOWORK=off go test ./bench/cross-system/ -run TestCrossSystem -v -timeout 30m
+   ```
+3. **Full corpus with embeddings (~90min):** only if Django moves positively
+   ```bash
+   BENCH_EMBEDDINGS=1 BENCH_ADAPTERS=knowing GOWORK=off go test ./bench/cross-system/ -run TestCrossSystem -v -timeout 0
+   ```
+
+If Django is neutral or negative, don't run the full corpus. If Django is positive,
+the full corpus confirms whether it generalizes or gets absorbed by run variance.
+
+**Important:** Not all experiments affect Django. Check graph density first:
+```bash
+sqlite3 <repo>/.knowing/graph.db "SELECT COUNT(*) FROM edges; SELECT COUNT(*) FROM nodes;"
+```
+If the experiment only affects dense graphs (like adaptive alpha), test on dense repos
+(flask, cargo, kafka) instead of Django.
+
+### Output capture
+
+Always capture full output to a file (`2>&1 | tee /tmp/file.log` or `> /tmp/file.log 2>&1`).
+Never pipe through `tail` or `grep` as it loses early output (embedding progress, task counts).
+
+### TestCrossSystemRound2
+
+The harness includes a `TestCrossSystemRound2` test that runs automatically after the
+main benchmark. It re-runs all tasks with task memory from round 1, measuring the
+compounding effect. Round 2 reports cold-start and warm-start P@10 with the delta.
+Session 17 measured +11.5% P@10 from compounding on 222 tasks.
+
 ## Regression Detection
 
 ### How regressions are caught
@@ -234,10 +280,11 @@ in code review because:
 
 ### Overfitting risk
 
-The same 117 fixtures are used across all 22 runs. Improvements may overfit to
-these specific tasks. Mitigation: fixtures are diverse (10 repos, 3 tiers, multiple
+The same 222 fixtures are used across runs. Improvements may overfit to
+these specific tasks. Mitigation: fixtures are diverse (12 repos, 3 tiers, 7
 languages) and the cross-system comparison with competitors uses the same fixtures
-(so overfitting would equally benefit competitors).
+(so overfitting would equally benefit competitors). Session 17 added 60 new
+fixtures (caddy, ocelot, fastapi) to reduce overfitting to the original set.
 
 ### Cold-start only
 

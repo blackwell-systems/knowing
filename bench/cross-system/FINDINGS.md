@@ -70,11 +70,11 @@ knowing is a content-addressed graph retrieval engine evaluated against 6 compet
 - **vs Gortex:** 3.95x (P@10 0.249 vs 0.063)
 - **vs grep:** 19.2x (P@10 0.249 vs 0.013)
 
-**Note on Run 23 vs Run 24:** Run 23 (P@10=0.217) was measured on incrementally-built enriched
-DBs accumulated over many sessions. Run 24 uses fresh indexes built from scratch with current
-code (no enrichment). Enrichment was confirmed P@10-negative (dilution: 42K new edges from
-pyright reduce precision). The Run 24 numbers are the honest baseline for the current
-architecture: all systems measured on the same freshly-indexed repos.
+**Note on enrichment history:** Session 13 measured enrichment as P@10-neutral (tested confidence
+upgrades only). Session 17 revised this finding: LSP enrichment is strongly positive when
+combined with type_hint_of edges (added session 14). Go enrichment produced the largest
+per-repo improvements in project history (k8s 0.000->0.232, terraform ~0.095->0.275).
+All 12 repos are now enriched with their respective language servers.
 
 ### Historical: Run 23 Results (enriched DBs, 2026-05-23)
 
