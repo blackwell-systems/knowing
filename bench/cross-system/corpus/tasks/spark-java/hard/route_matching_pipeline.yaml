@@ -1,0 +1,16 @@
+id: spark-java-hard-006
+repo: spark-java
+tier: hard
+description: "Understand how URL patterns are matched to route handlers including path parameters and wildcards"
+source: manual
+ground_truth:
+  - spark.route.Routes.find
+  - spark.route.Routes.findTargetsForRequestedRoute
+  - spark.route.Routes.findTargetWithGivenAcceptType
+  - spark.route.RouteEntry
+  - spark.route.RouteEntry.matches
+  - spark.routematch.RouteMatch
+  - spark.routematch.RouteMatch.getMatchUri
+  - spark.utils.SparkUtils.convertRouteToList
+tags: [routing, matching, architectural]
+notes: "Full matching pipeline: Routes.find -> findTargetsForRequestedRoute iterates RouteEntry -> RouteEntry.matches checks path patterns -> RouteMatch holds result. SparkUtils.convertRouteToList tokenizes paths for comparison."

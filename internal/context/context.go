@@ -708,6 +708,36 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 		seen[c.NodeHash] = true
 	}
 
+	// Embedding gap-fill: when BM25/tiered/equiv return fewer than 5 seeds,
+	// use vector search to find semantically similar symbols that keyword matching
+	// missed. This targets the vocabulary gap problem (42% of Django tasks score
+	// zero because ground truth shares no keywords with the task description).
+	// Gap-fill seeds enter at weight 1.0 (same as primary seeds) but only when
+	// primary channels are weak. Cannot regress repos where BM25 already works.
+	if len(candidates) < 5 && e.vector != nil {
+		gapHashes, gapErr := e.vector.EmbedAndSearch(ctx, opts.TaskDescription, 20)
+		if gapErr == nil {
+			for _, h := range gapHashes {
+				if seen[h] {
+					continue
+				}
+				n, err := e.store.GetNode(ctx, h)
+				if err != nil || n == nil {
+					continue
+				}
+				// Skip phantom/external nodes
+				if n.Kind == "external" {
+					continue
+				}
+				seen[h] = true
+				candidates = append(candidates, *n)
+				if len(candidates) >= 15 {
+					break
+				}
+			}
+		}
+	}
+
 	// Tier 5: interface-aware seeding.
 	// If any candidate is an interface type, add all implementors as seeds.
 	// "Build a new extractor" -> finds types.Extractor -> adds all existing extractors.

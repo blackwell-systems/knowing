@@ -1,0 +1,15 @@
+id: spark-java-hard-002
+repo: spark-java
+tier: hard
+description: "Configure HTTPS/SSL with keystore and truststore for mutual TLS authentication"
+source: manual
+ground_truth:
+  - spark.Service.secure
+  - spark.ssl.SslStores
+  - spark.ssl.SslStores.create
+  - spark.ssl.SslStores.keystoreFile
+  - spark.ssl.SslStores.trustStoreFile
+  - spark.embeddedserver.jetty.SocketConnectorFactory.createSecureSocketConnector
+  - spark.embeddedserver.jetty.EmbeddedJettyServer.ignite
+tags: [ssl, security, cross-package]
+notes: "Full SSL pipeline: Service.secure -> SslStores config -> SocketConnectorFactory creates secure connector -> EmbeddedJettyServer.ignite wires it to Jetty."

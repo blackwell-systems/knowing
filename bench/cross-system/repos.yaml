@@ -66,3 +66,11 @@ repos:
     size_class: medium  # ~14K LOC core, large docs_src
     clone_depth: 1
     notes: "Modern Python web framework on Starlette/Pydantic. Dependency injection, type-based parameter resolution, OpenAPI generation, security schemes."
+
+  - name: spark-java
+    url: https://github.com/perwendel/spark
+    commit: "master"
+    language: Java
+    size_class: small  # ~14K LOC
+    clone_depth: 1
+    notes: "Micro web framework for Java (Sinatra-inspired). Embedded Jetty, route matching, filters, WebSocket, template engines, SSL."

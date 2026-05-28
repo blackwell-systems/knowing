@@ -1,0 +1,13 @@
+id: spark-java-medium-003
+repo: spark-java
+tier: medium
+description: "Implement session-based user login state tracking across requests"
+source: manual
+ground_truth:
+  - spark.Session
+  - spark.Session.attribute
+  - spark.Session.invalidate
+  - spark.Session.maxInactiveInterval
+  - spark.Request.session
+tags: [session, state, cross-package]
+notes: "Requires understanding Session wrapper, how to obtain it from Request, and session lifecycle (create, read attributes, invalidate)."

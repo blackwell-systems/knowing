@@ -1,0 +1,13 @@
+id: spark-java-medium-004
+repo: spark-java
+tier: medium
+description: "Create a custom response transformer to automatically serialize route return values as JSON"
+source: manual
+ground_truth:
+  - spark.ResponseTransformer
+  - spark.ResponseTransformer.render
+  - spark.ResponseTransformerRouteImpl
+  - spark.ResponseTransformerRouteImpl.create
+  - spark.Routable.defaultResponseTransformer
+tags: [serialization, response, cross-package]
+notes: "Cross-package: ResponseTransformer interface -> ResponseTransformerRouteImpl wrapping -> Routable.defaultResponseTransformer for global application."

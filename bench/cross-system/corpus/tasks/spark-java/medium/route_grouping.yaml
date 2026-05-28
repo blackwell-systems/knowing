@@ -1,0 +1,13 @@
+id: spark-java-medium-007
+repo: spark-java
+tier: medium
+description: "Organize routes under path prefixes using route groups for an API with versioned endpoints"
+source: manual
+ground_truth:
+  - spark.Service.path
+  - spark.RouteGroup
+  - spark.RouteGroup.addRoutes
+  - spark.RouteImpl.withPrefix
+  - spark.FilterImpl.withPrefix
+tags: [routing, organization, cross-package]
+notes: "Requires Service.path for nesting, RouteGroup interface, and understanding how withPrefix applies the path prefix to routes and filters."

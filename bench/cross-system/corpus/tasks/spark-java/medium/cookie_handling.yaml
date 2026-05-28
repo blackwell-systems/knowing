@@ -1,0 +1,13 @@
+id: spark-java-medium-008
+repo: spark-java
+tier: medium
+description: "Read, set, and remove HTTP cookies in request handlers"
+source: manual
+ground_truth:
+  - spark.Request.cookies
+  - spark.Request.cookie
+  - spark.Response.cookie
+  - spark.Response.removeCookie
+  - spark.http.matching.ResponseWrapper.cookie
+tags: [cookies, request-response, cross-package]
+notes: "Cookie handling spans Request (reading) and Response (writing/removing). ResponseWrapper delegates cookie operations in the matching pipeline."

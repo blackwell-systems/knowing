@@ -1,0 +1,13 @@
+id: spark-java-medium-006
+repo: spark-java
+tier: medium
+description: "Configure custom HTML pages for 404 Not Found and 500 Internal Server Error responses"
+source: manual
+ground_truth:
+  - spark.Service.notFound
+  - spark.Service.internalServerError
+  - spark.CustomErrorPages
+  - spark.CustomErrorPages.existsFor
+  - spark.CustomErrorPages.getFor
+tags: [error-handling, configuration, cross-package]
+notes: "Service.notFound/internalServerError register handlers, CustomErrorPages stores and retrieves them. Cross-package between Service and CustomErrorPages singleton."

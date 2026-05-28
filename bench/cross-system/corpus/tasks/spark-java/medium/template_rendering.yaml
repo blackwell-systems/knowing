@@ -1,0 +1,14 @@
+id: spark-java-medium-005
+repo: spark-java
+tier: medium
+description: "Render HTML pages using a template engine with model data"
+source: manual
+ground_truth:
+  - spark.TemplateEngine
+  - spark.TemplateEngine.render
+  - spark.TemplateViewRoute
+  - spark.TemplateViewRoute.handle
+  - spark.ModelAndView
+  - spark.ModelAndView.getViewName
+tags: [templates, views, cross-package]
+notes: "Requires understanding TemplateEngine abstraction, TemplateViewRoute interface for template-based routes, and ModelAndView for passing data to templates."

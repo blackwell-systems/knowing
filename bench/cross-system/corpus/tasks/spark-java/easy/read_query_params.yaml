@@ -1,0 +1,13 @@
+id: spark-java-easy-006
+repo: spark-java
+tier: easy
+description: "Read and parse query parameters from a GET request URL"
+source: manual
+ground_truth:
+  - spark.Request.queryParams
+  - spark.Request.queryParamsValues
+  - spark.Request.queryMap
+  - spark.QueryParamsMap
+  - spark.QueryParamsMap.value
+tags: [request, parameters, single-package]
+notes: "Developer wants to access query string parameters. Needs Request query methods and QueryParamsMap for nested parameter access."

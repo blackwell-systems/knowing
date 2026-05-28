@@ -1,0 +1,13 @@
+id: spark-java-easy-004
+repo: spark-java
+tier: easy
+description: "Add an after filter to set CORS headers on every response"
+source: manual
+ground_truth:
+  - spark.Routable.after
+  - spark.Filter.handle
+  - spark.http.matching.AfterFilters.execute
+  - spark.Response.header
+  - spark.Spark.after
+tags: [middleware, filters, single-package]
+notes: "Analogous to add_before_filter but for after-processing. Developer needs after() method, Filter interface, and AfterFilters execution."
