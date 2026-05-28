@@ -7,7 +7,6 @@ ground_truth:
   - fastapi.dependencies.utils.get_dependant
   - fastapi.dependencies.utils.solve_dependencies
   - fastapi.dependencies.models.Dependant
-  - fastapi.param_functions.Depends
   - fastapi.params.Depends
   - fastapi.dependencies.utils.analyze_param
 tags: [dependency-injection, cross-module, architecture]
