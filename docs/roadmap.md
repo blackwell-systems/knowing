@@ -2,20 +2,20 @@
 
 What's shipped is in the [changelog](CHANGELOG.md). This document covers what's next.
 
-## Current State (v0.10.1, 2026-05-25)
+## Current State (v0.11.0, 2026-05-28)
 
-**P@10 = 0.245** (237 tasks, 12 repos, 7 languages, nomic-embed-text model). 38 edge types. 23 extractors.
-1.81x codegraph, 1.79x codebase-memory, 3.27x GitNexus, 3.89x Gortex, 18.8x grep.
-Embedding re-ranker (nomic): +17% P@10. Gap-fill seeds: +11.2%. Task memory compounding: +3.8%.
+**P@10 = 0.257 cold start, 0.262 with compounding** (237 tasks, 12 repos, 7 languages, nomic-embed-text-v1.5 model). 38 edge types. 23 extractors. 152 equivalence classes.
+1.90x codegraph, 1.88x codebase-memory, 3.43x GitNexus, 4.08x Gortex, 19.8x grep.
+Embedding re-ranker (nomic): +17% P@10. Gap-fill seeds: +11.2%. Equivalence classes (C#, FastAPI, Terraform): +4%. Task memory compounding: +3.7%.
 
-## Immediate Priorities (transition from building to shipping)
+## Immediate Priorities
 
 | # | Item | Why | Effort | Expected Impact |
 |---|------|-----|--------|-----------------|
-| 1 | **Deploy platform API** | api.blackwell-systems.com. DigitalOcean Droplet, Cloudflare Tunnel, bare metal. DEPLOY.md + deploy.sh ready. Just need GitHub deploy key. | 15 min | Live product |
-| 2 | **Make nomic-code the default model** | P@10 0.245 (was 0.242 with jina-code). Faster inference (14 min vs 20 min). Update code default + all docs. | 30 min | Quality + speed |
-| 3 | **Blog post** | Numbers are publishable: 12 repos, 7 languages, 237 tasks, P@10 0.245, 1.81x codegraph. LinkedIn audience is warm (11K views on mcp-assert). | 2 hours | Visibility |
-| 4 | **Export codesage-large to ONNX** | Microsoft's code-search specialized model. `optimum.onnxruntime` one-liner. If it beats nomic, another free P@10 lift with zero code changes. | 1 hour | Quality |
+| 1 | **Language equivalence classes** | C# classes: +6.1% corpus, +51% ocelot. FastAPI and Terraform have similar vocabulary gaps. Hand-curated classes are scaffolding for future automatic discovery from graph co-retrieval patterns. | 1 hour | Quality (+3-5% corpus) |
+| 2 | **Deploy platform API** | api.blackwell-systems.com. DigitalOcean Droplet, Cloudflare Tunnel, bare metal. DEPLOY.md + deploy.sh ready. Just need GitHub deploy key. | 15 min | Live product |
+| 3 | **AI-generated evaluation corpus** | LLM generates tasks + ground truth, DB-validated before use: all symbols must exist in nodes table, >= 3 symbols, span >= 2 files. Auto-difficulty from graph properties. Run 1000, keep ~600. Weekly CI. Hybrid: hand-curated for regression, AI-generated for statistical coverage. | Medium | Eval credibility |
+| 4 | **Blog post** | Numbers are publishable: 12 repos, 7 languages, 237 tasks. LinkedIn audience is warm (11K views on mcp-assert). | 2 hours | Visibility |
 | 5 | **Add hugo to corpus** | Go web server, 75K LOC, enriched with gopls. Another 0.250+ repo adds 20 tasks above average. | 2 hours | Corpus credibility |
 | 6 | **Supply chain whitepaper** | False positive evaluation done (1.0% on 200 packages). Draft has TanStack + event-stream case studies. | Medium | Publication |
 | 7 | **Root-level Go file extraction** | Go files at repo root produce 0 nodes due to package path computation bug. | Low | Correctness |
@@ -114,6 +114,10 @@ Go enrichment fundamentally changed graph structure on k8s (268K -> 705K edges, 
 | **Embedding-filtered gap injection** (>40K, maxgap=3) | Django +3.2%, aggregate neutral | 16 | BM25 gap candidates filtered by cosine similarity. Helps Django but absorbed by run variance on other repos. Full corpus: 0.238 (same as without). **Reverted**: optimal state is 0.242 without gap injection. Concept is sound but needs a better candidate source than BM25. |
 | **Go enrichment (two-phase warmup)** | k8s 0.000 -> 0.159 | 17 | Phantom nodes + type_hint_of edges create reachability paths. 192K new edges on k8s, 82K on terraform. |
 | **Dangling type_hint_of resolution** | 3,836 edges fixed | 17 | Post-processing fixes kind mismatch (type vs interface). Enables phase 2 propagation. |
+| **C# equivalence classes** | Ocelot +51%, corpus +6.1% | 18 | 15 ASP.NET/API gateway vocabulary classes bridge "middleware" -> Invoke, "claims auth" -> IClaimsAuthorizer, etc. |
+| **Embedding gap-fill seeds** | Django +43%, corpus +11.2% | 17 | When BM25 < 5 candidates, brute-force cosine from SQLite vectors. Zero regressions. |
+| **nomic-embed-text-v1.5 model swap** | +2% over jina-code | 17 | Faster inference (14 min vs 20 min). Drop-in swap, same architecture. |
+| **Pre-embed all nodes** | Infrastructure | 17 | `knowing enrich embeddings` command. Phantom skip (70% reduction). All 12 repos pre-embedded. |
 
 ## Enrichment Performance
 
@@ -134,8 +138,6 @@ The persistent daemon (#3) is the real fix for repeat runs; everything else work
 | 6 | **Node.js heap size for tsserver** | Set `NODE_OPTIONS="--max-old-space-size=8192"` when spawning tsserver. Default heap (~4GB) causes GC thrashing on large TypeScript repos (vscode: 34 min enrichment, majority in GC). More heap = less GC = faster enrichment. | 2-3x faster TS enrichment on large repos | Low |
 | 7 | **Deno LSP for TypeScript** | Use `deno lsp` (Rust-based) instead of tsserver for TypeScript enrichment. No GC, no Node.js heap limits. Add as alternative in enrichment config detection (check for `deno` on PATH, prefer over tsserver). Test on vscode to compare enrichment time and edge quality. | Potentially 5-10x faster TS enrichment | Low |
 | 8 | **Import-based phantom nodes for Go (skip gopls)** | Parse Go import statements and generate phantom stub nodes for stdlib/dependency types without running gopls. Now that gopls enrichment works (k8s: +0.159 P@10), the value proposition changed: this is a fast fallback for environments without gopls, not the primary path. gopls discovers 192K edges + 169K phantoms on k8s; import parsing would get only the phantoms. | Fast fallback for Go enrichment without gopls | Low (deprioritized) |
-| 9 | ~~Progressive concurrency~~ | **Partially shipped (session 17).** Two-phase warmup starts with single-worker probe, then jumps to 64 concurrent after warmup succeeds. Not fully progressive (no gradual ramp-up), but the warmup/blast pattern works well in practice. | **Shipped (simplified)** | Done |
-| 10 | ~~Skip test/generated files in edge upgrade~~ | **Shipped (session 17).** Filters `_test.go` and `zz_generated` files from upgrade phase. Reduced k8s upgrade workload from 143K to 42K edges (70% reduction). | **Shipped** | Done |
 
 ## Storage Backend (P0 Performance)
 
@@ -323,7 +325,7 @@ context retrieval. Full proposal: [docs/proposals/code-retrieval-eval-toolkit.md
 
 | Item | Description | Status |
 |------|-------------|--------|
-| **Corpus DB tarball in releases** | Attach `corpus-dbs-vX.Y.Z.tar.gz` to each GitHub release as a separate asset (not bundled with binaries). Contains all 9 pre-built benchmark DBs with enrichment. Enables instant corpus restore via `make corpus-restore TARBALL=...` instead of 30+ min rebuild. | Not started |
+| **Corpus DB tarball in releases** | Attach `corpus-dbs-vX.Y.Z.tar.gz` to each GitHub release as a separate asset (not bundled with binaries). Contains all 12 pre-built benchmark DBs with enrichment + pre-embedded vectors (1.6GB). Enables instant corpus restore via `make corpus-restore TARBALL=...` instead of 30+ min rebuild. DBs are gitignored and can't be recovered from git; losing them means hours of re-indexing + re-enrichment + re-embedding. | **HIGH PRIORITY** |
 | **`make corpus-rebuild`** | Makefile target that indexes + enriches all 12 repos with correct flags. Documents which repos need enrichment and with which LSP servers. | **Shipped (session 17)** |
 | **Corpus DB integrity check** | CI job that runs `knowing fsck` on each corpus DB after release to verify no corruption. | Not started |
 
@@ -337,7 +339,7 @@ context retrieval. Full proposal: [docs/proposals/code-retrieval-eval-toolkit.md
 ## Retrieval Pipeline
 
 Current results: see [bench/cross-system/FINDINGS.md](../bench/cross-system/FINDINGS.md).
-P@10=0.223 cold, 0.249 with compounding (222 tasks, 12 repos, 7 languages). 1.65x vs codegraph, 2.97x vs GitNexus, 3.54x vs Gortex, 17.2x vs grep. Query latency 2ms on k8s (with adjacency cache). Embedding re-ranker adds 220ms (cached vectors). Task memory compounding: +11.5% P@10 from round 1 to round 2.
+P@10=0.257 cold, 0.262 warm (237 tasks, 12 repos, 7 languages). 1.90x vs codegraph, 3.43x vs GitNexus, 4.08x vs Gortex, 19.8x vs grep. Query latency 2ms on k8s (with adjacency cache). Embedding re-ranker adds 220ms (cached vectors). Equivalence classes: +4%. Task memory compounding: +3.7% P@10 from round 1 to round 2.
 
 **Key findings:** (1) 32-config parameter sweep proved P@10 is reachability-determined; ranking parameters are irrelevant. (2) Embedding re-ranker (+17% P@10) is the exception: it doesn't change reachability but reorders graph-surfaced candidates by semantic relevance. Architecture matters more than model.
 
@@ -346,26 +348,25 @@ P@10=0.223 cold, 0.249 with compounding (222 tasks, 12 repos, 7 languages). 1.65
 | # | Item | Why | Status |
 |---|------|-----|--------|
 | 7 | ~~Bidirectional inheritance edges~~ | Tested session 16: Django -2.5%, Flask -1.5%. Reverse inherits edges add noise without new reachability. Django's 42% zero-rate is vocabulary gaps, not connectivity gaps. | **Rejected** |
-| 8 | **Reachability gap injection** | After RWR, run BM25/embedding search independently. Symbols that score high on text relevance but are NOT in the RWR reachable set are "gap candidates": relevant symbols the graph can't reach. Inject top-N gap candidates into ranking. This directly targets the 42% Django zero-rate (vocabulary gaps where ground truth is unreachable from any seed). Different from Channel 3 (which failed): Channel 3 mixed text results into RRF fusion where they competed with graph results. Gap injection specifically supplements what the graph missed. ~20 LOC. | **Next to test** |
+| 8 | ~~Reachability gap injection~~ | **Superseded by #17 (embedding gap-fill seeds).** Gap-fill fires when BM25 < 5 candidates, queries embedding vectors for supplemental seeds. Django +43%, corpus +11.2%. Same concept, better implementation (embedding-based instead of BM25-based). | **Shipped (as #17)** |
 | 9 | ~~Density-adaptive RWR alpha~~ | Tested session 17: alpha=0.15 on dense repos (flask 5.9, cargo 13.5, kafka 12.5). P@10 0.280 vs baseline 0.278 (+0.002, within run variance). Neutral. Confirms parameter tuning doesn't move the metric. | **Rejected** |
 | 9 | ~~Density-adaptive inherits weight~~ | Tested session 17: boosted implements/overrides/extends to 1.0 on repos with >1.5% inherits edges. Django +0.009, kafka+flask -0.008. Net neutral. | **Rejected** |
 | 10 | **Adaptive seed count by structural richness** | % of type nodes with contains edges indicates how productive type seeds are. High % (>60%): fewer seeds needed (types reach methods). Low %: more seeds needed to compensate. | To test |
 | 11 | **Community count adaptive walk** | Many small communities: community-scoped RWR is effective. Few large communities: unconstrained walk is better. Threshold currently hardcoded; should adapt to detected modularity. | Experiment |
 | 12 | **FTS hit rate channel balancing** | Observe BM25 result count vs equiv result count. When BM25 returns many results, equiv is redundant (lower weight). When BM25 returns few, equiv is critical (higher weight). Adaptive RRF weights per query. | Experiment |
 | 13 | **Disconnection rate adaptive seeding** | Measure % of nodes with zero inbound edges. High disconnection (>30%): more aggressive seeding (increase seed count, lower path-context threshold). Low disconnection: current defaults are fine. | Experiment |
-| 14 | **Hub node dampening (H1)** | On dense graphs, high-in-degree utility types absorb RWR probability. Divide transition probability by sqrt(in-degree) of target. Session 14: edge exclusion and BFS depth ruled out; seed selection confirmed as root cause. | To test |
+| 14 | ~~Hub node dampening (H1)~~ | Re-tested session 17 on enriched graphs (BENCH_HUB_DAMPEN=50). P@10 = 0.219 vs 0.220 baseline. Still neutral. Edge weights already handle high-degree nodes. | **Rejected** |
 | 15 | **`is_entry_point` / `is_exported` node flags** | Tag functions as entry points (main, handlers, CLI commands) or exported (public API). Entry points get higher RWR restart weight. | Experiment |
 | 16 | **More equivalence concepts** | Only add when a specific task fixture exposes a gap. Must respect Run 22 constraint (no single-word phrases, no generic targets). | On-demand |
-| 16a | **C# equivalence classes and fixture tuning** | Ocelot scored P@10=0.160 (20 tasks). R@10=0.388 (symbols reachable but ranked below top 10). Two improvements: (1) Add C#/ASP.NET equivalence classes for `IServiceCollection`, middleware pipeline, `IApplicationBuilder`, DI patterns, `IOptions<T>`, `IHostedService`. The language_seeds.go has no C# entries currently. (2) Manual review of ocelot fixtures: agent-created ground truth may include symbols that are technically correct but not what a developer would actually need. Tuning fixture quality is higher ROI than code changes. | Low effort, targeted |
+| 16a | ~~C# equivalence classes~~ | **SHIPPED (session 18).** 15 C# classes (CS_MIDDLEWARE, CS_DI, CS_CONFIG, CS_ROUTING, CS_AUTH, CS_LOADBALANCE, CS_CACHE, CS_RATELIMIT, CS_HTTP_CLIENT, CS_QUALITY_OF_SERVICE, CS_HEADER_TRANSFORM, CS_AGGREGATION, CS_WEBSOCKET, CS_SECURITY, CS_ERROR_HANDLING). Ocelot P@10: 0.175 -> 0.265 (+51%). Full corpus: 0.247 -> 0.262 (+6.1%). | **Shipped** |
 | 17 | ~~Embedding gap-fill seeds~~ | **SHIPPED (session 17).** When BM25 returns < 5 seeds, HNSW vector search finds supplemental embedding-based seeds. Django: 0.176 -> 0.250 (+42%). Full corpus run in progress. 20 lines, no new dependencies, fully revertible. Cannot regress repos where BM25 already works (gap-fill only fires when primary channels are weak). | **Shipped** |
 | 17a | ~~Gap-fill threshold tuning~~ | Tested < 3, < 8, < 10 vs baseline < 5. All within variance (+-0.005). Threshold doesn't matter: tasks with 0-4 and 0-9 candidates are largely the same set. **Neutral.** | Done |
 | 17b | **Graduated gap-fill weight** | Binary activation (on/off at threshold 5) could be graduated: lower weight (0.5) when BM25 found 3-4 seeds, full weight only when BM25 found 0-1. Proportional intervention instead of binary. | Experiment |
-| 19 | **Pre-embed all nodes** | **HIGH PRIORITY (enables gap-fill in production).** New `knowing enrich embeddings` command that batch-embeds all nodes after indexing. Currently gap-fill only works in benchmarks (where embedding phase runs) and in MCP with `--embeddings`. Pre-embedding makes gap-fill available on every query without cold-start penalty. 100K nodes * 32 batch size * ~200ms/batch = ~10 min. Incremental: only embed new/changed nodes. | Medium, unlocks production gap-fill |
-| 20 | **sqlite-vec integration** | Replace in-memory HNSW with sqlite-vec for persistent ANN search. Currently HNSW must be rebuilt from scratch each process start (~60 min for k8s). sqlite-vec stores the index in SQLite, loads instantly. Pure Go option: `viant/sqlite-vec`. Required for production-scale gap-fill without `--embeddings` flag overhead. | Infrastructure |
-| 21 | **Adaptive retrieval architecture doc** | Dedicated `adaptive-retrieval.md` threading all self-adapting mechanisms into one document: PreferTypeSeeds, adaptive seed count, phantom density signal, task memory compounding, feedback expiration, gap-fill activation. This is the project's central thesis and the benchmark paper's argument. Currently scattered across retrieval-pipeline.md, context-engine.md, and roadmap. | Documentation |
+| 19 | ~~Pre-embed all nodes~~ | **SHIPPED (session 17).** `knowing enrich embeddings` command. Batch pre-embed with phantom skip (70% reduction). Incremental: only embed new/changed nodes. All 12 corpus repos pre-embedded. | **Shipped** |
+| 20 | **sqlite-vec integration** | Replace brute-force cosine with sqlite-vec ANN for persistent search. Current brute-force from SQLite works but scales O(n). sqlite-vec would give O(log n) queries. Pure Go option: `viant/sqlite-vec`. | Infrastructure (not urgent: brute-force is fast enough for current corpus sizes) |
+| 21 | ~~Adaptive retrieval architecture doc~~ | **SHIPPED (session 17).** `docs/architecture/adaptive-retrieval.md` with all 6 self-adapting mechanisms and ablation table. | **Shipped** |
 | 22 | **More corpus repos** | Every enriched repo at 0.200+ lifts the aggregate. Candidates: hugo (Go, 75K LOC), celery (Python, 80K LOC), Spring Boot (Java/Kotlin). Each takes ~2 hours: clone, index, enrich, fixtures, benchmark. Target: 15 repos, 300 tasks. | Corpus expansion |
-| 23 | **Fixture quality review** | Manual review of 60 agent-created fixtures (caddy, ocelot, fastapi). Agent ground truth may include technically correct but practically unhelpful symbols. Tuning fixture quality is higher ROI than code changes. A wrong ground truth symbol penalizes the system unfairly. | Quality |
-| 24 | **llamafile / accelerated embedding inference** | Current hugot pure-Go ONNX embeds ~25 symbols/sec. llamafile bundles model + runtime with SIMD/AVX/Metal acceleration, potentially 5-10x faster. Helps: `knowing enrich embeddings` (100K nodes in 10 min instead of 60), first-time large repo indexing, CI cold starts. Does NOT help benchmark reruns (bottleneck is HNSW rebuild, not embedding) or production MCP (vectors cached after first query). The structural fix is persisting the index (#20); llamafile makes the one-time embed faster. Also opens the door to local LLM for platform API (supply chain explanation generation). | Performance, optional |
+| 23 | **Fixture quality review** | Manual review of 60 agent-created fixtures (caddy, ocelot, fastapi). Agent ground truth may include technically correct but practically unhelpful symbols. Tuning fixture quality is higher ROI than code changes. A wrong ground truth symbol penalizes the system unfairly. Will be partially obsoleted by AI-generated evaluation corpus (#5 in Immediate Priorities). | Quality |
 | 18 | **Feedback parameter sweep (warm-start)** | Session boost (0.20), task memory formula (0.5+score*0.4), decay (7-day linear), top-N (5) are untuned. Only affects real-user compounding. | When users exist |
 
 ## Edge Type Expansion

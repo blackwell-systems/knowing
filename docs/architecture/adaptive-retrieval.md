@@ -7,7 +7,7 @@ automatically. This is the project's central thesis: a code retrieval system tha
 adapts to its graph outperforms any fixed-strategy system, and the gap widens with
 scale.
 
-**Current result:** P@10 = 0.246 cold start, 0.253 with compounding (237 tasks,
+**Current result:** P@10 = 0.257 cold start, 0.262 with compounding (237 tasks,
 12 repos, 7 languages). 1.82x codegraph, 3.28x GitNexus, 3.90x Gortex.
 
 ## The Problem with Fixed-Strategy Retrieval
@@ -163,7 +163,7 @@ Each mechanism measured independently on the full corpus:
 | Feedback expiration | N/A | N/A | correctness | Code change |
 | Enrichment + type_hint | 0.200 (no enrich) | 0.248 (enriched) | +24% | LSP available |
 
-Combined: P@10 = 0.246 cold, 0.253 warm (237 tasks, 12 repos).
+Combined: P@10 = 0.257 cold, 0.262 warm (237 tasks, 12 repos).
 Without any adaptation: ~0.180 (estimated from pre-enrichment, pre-gap-fill baseline).
 
 ## Why Fixed-Strategy Systems Can't Compete

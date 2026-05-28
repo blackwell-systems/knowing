@@ -18,17 +18,19 @@ DOTNET_ROOT := /opt/homebrew/opt/dotnet/libexec
 # Repos and their enrichment config.
 # Format: repo:lang (lang determines which LSP to use; "none" = skip enrichment)
 CORPUS_REPOS := \
+	caddy:go \
 	cargo:rust \
 	django:python \
+	fastapi:python \
 	flask:python \
 	kafka:java \
-	kubernetes:none \
+	kubernetes:go \
 	ocelot:csharp \
 	spark-java:java \
-	terraform:none \
+	terraform:go \
 	vscode:typescript
 
-.PHONY: build test bench bench-embed corpus-rebuild corpus-enrich corpus-backup corpus-restore
+.PHONY: build test bench bench-embed corpus-rebuild corpus-enrich corpus-backup corpus-restore corpus-upload corpus-download
 
 build:
 	GOWORK=$(GOWORK) go build -o $(BUILD_DIR)/$(BINARY) ./cmd/knowing/
@@ -83,21 +85,74 @@ corpus-enrich: build
 corpus-rebuild: corpus-index corpus-enrich
 	@echo "=== Corpus fully rebuilt ==="
 
-# Backup all corpus DBs to a tarball.
+# Backup all corpus DBs to tarballs. Split into two parts to stay under
+# GitHub's 2GB release asset limit. Checkpoints WAL files before archiving.
+# Part 1: small repos (<200MB each). Part 2: large repos (>=200MB each).
+CORPUS_SMALL := caddy cargo fastapi flask ocelot spark-java
+CORPUS_LARGE := django kafka kubernetes terraform vscode
+
 corpus-backup:
-	@echo "Backing up corpus DBs..."
-	tar czf corpus-dbs-$(shell date +%Y%m%d).tar.gz \
-		$(foreach entry,$(CORPUS_REPOS),$(CORPUS)/$(firstword $(subst :, ,$(entry)))/.knowing/graph.db)
-	@echo "Saved to corpus-dbs-$(shell date +%Y%m%d).tar.gz"
+	@echo "Checkpointing WAL files..."
+	@for entry in $(CORPUS_REPOS); do \
+		repo=$${entry%%:*}; \
+		db="$(CORPUS)/$$repo/.knowing/graph.db"; \
+		if [ -f "$$db" ]; then sqlite3 "$$db" "PRAGMA wal_checkpoint(TRUNCATE);" >/dev/null 2>&1; fi; \
+	done
+	@VERSION=$$(git describe --tags --abbrev=0 2>/dev/null || echo "dev"); \
+	DATE=$(shell date +%Y%m%d); \
+	echo "Creating part 1 (small repos)..."; \
+	tar czf "corpus-dbs-$${VERSION}-$${DATE}-part1.tar.gz" \
+		$(foreach repo,$(CORPUS_SMALL),$(CORPUS)/$(repo)/.knowing/graph.db); \
+	echo "  Part 1: $$(du -h corpus-dbs-$${VERSION}-$${DATE}-part1.tar.gz | cut -f1)"; \
+	echo "Creating part 2 (large repos)..."; \
+	tar czf "corpus-dbs-$${VERSION}-$${DATE}-part2.tar.gz" \
+		$(foreach repo,$(CORPUS_LARGE),$(CORPUS)/$(repo)/.knowing/graph.db); \
+	echo "  Part 2: $$(du -h corpus-dbs-$${VERSION}-$${DATE}-part2.tar.gz | cut -f1)"; \
+	echo "Done. Upload with: make corpus-upload"
 
 # Restore corpus DBs from a tarball.
 corpus-restore:
 	@if [ -z "$(TARBALL)" ]; then \
-		echo "Usage: make corpus-restore TARBALL=corpus-dbs-20260527.tar.gz"; \
+		echo "Usage: make corpus-restore TARBALL=corpus-dbs-v0.11.0-20260528.tar.gz"; \
 		exit 1; \
 	fi
 	tar xzf $(TARBALL)
 	@echo "Restored from $(TARBALL)"
+
+# Upload corpus tarballs to the latest GitHub release.
+# Usage: make corpus-upload TAG=v0.11.0
+#   or:  make corpus-upload (uses latest release)
+corpus-upload:
+	@TAG="$(TAG)"; \
+	if [ -z "$$TAG" ]; then \
+		TAG=$$(gh release list --limit 1 --json tagName -q '.[0].tagName'); \
+	fi; \
+	PARTS=$$(ls -t corpus-dbs-*-part*.tar.gz 2>/dev/null); \
+	if [ -z "$$PARTS" ]; then \
+		echo "No tarballs found. Run 'make corpus-backup' first."; \
+		exit 1; \
+	fi; \
+	for f in $$PARTS; do \
+		echo "Uploading $$f to release $$TAG..."; \
+		gh release upload "$$TAG" "$$f" --clobber; \
+	done; \
+	echo "Done. Download: make corpus-download TAG=$$TAG"
+
+# Download corpus tarballs from a GitHub release and restore.
+# Usage: make corpus-download TAG=v0.11.0
+#   or:  make corpus-download (uses latest release)
+corpus-download:
+	@TAG="$(TAG)"; \
+	if [ -z "$$TAG" ]; then \
+		TAG=$$(gh release list --limit 1 --json tagName -q '.[0].tagName'); \
+	fi; \
+	echo "Downloading corpus DBs from release $$TAG..."; \
+	gh release download "$$TAG" -p 'corpus-dbs-*' || { echo "No corpus tarball in release $$TAG"; exit 1; }; \
+	for f in corpus-dbs-*-part*.tar.gz; do \
+		echo "Extracting $$f..."; \
+		tar xzf "$$f"; \
+	done; \
+	echo "Restored all corpus DBs."
 
 # Clear stale embedding caches (needed after reindexing since node hashes change).
 corpus-clear-embeddings:
