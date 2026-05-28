@@ -68,7 +68,7 @@ Effect size via Cohen's d. Confidence intervals via bootstrap (10K resamples).
 - **spark-java** (Java, ~14K LOC) - Spark micro-framework, enriched with jdtls
 - **ocelot** (C#, ~30K LOC) - ThreeMammals/Ocelot, enriched with csharp-ls
 
-222 tasks across 3 difficulty tiers (easy/medium/hard) with hand-labeled ground truth symbols.
+237 tasks across 3 difficulty tiers (easy/medium/hard) with hand-labeled ground truth symbols.
 
 ## Directory Structure
 

@@ -54,7 +54,7 @@ Fixtures with unresolvable symbols are flagged and corrected or removed.
 - Pinned to specific versions (deterministic indexing)
 - No knowing's own repository (avoids self-measurement bias)
 
-### Current Corpus (12 repos, 222 tasks, 7 languages)
+### Current Corpus (12 repos, 237 tasks, 7 languages)
 
 | Repo | Language | LOC | Nodes (real) | Nodes (with phantoms) | Edges | Tasks | Why |
 |------|----------|-----|-------------|----------------------|-------|-------|-----|
@@ -251,7 +251,7 @@ Never pipe through `tail` or `grep` as it loses early output (embedding progress
 The harness includes a `TestCrossSystemRound2` test that runs automatically after the
 main benchmark. It re-runs all tasks with task memory from round 1, measuring the
 compounding effect. Round 2 reports cold-start and warm-start P@10 with the delta.
-Session 17 measured +11.5% P@10 from compounding on 222 tasks.
+Session 17 measured +1.9% P@10 from compounding on 237 tasks (with gap-fill + nomic model).
 
 ## Regression Detection
 

@@ -142,3 +142,25 @@ queries hit the cache.
 |------|------|------|------|-----|-------|
 | flask | 0.332 | 0.447 | 0.632 | 0.775 | 19 |
 | Full corpus | 0.207 | 0.306 | 0.349 | 0.407 | 167 |
+
+## Model Comparison (Session 17, 237 tasks, 12 repos)
+
+nomic-embed-text-v1.5 vs jina-embeddings-v2-base-code. Both used as re-ranker
+(pure re-rank, weight=0.0) + gap-fill seeds (threshold < 5). Sequential mode.
+
+| Metric | jina-code | nomic | Delta |
+|--------|-----------|-------|-------|
+| **P@10 (cold)** | 0.242 | **0.247** | **+2.1%** |
+| **P@10 (warm)** | 0.249 | **0.251** | **+0.8%** |
+| **R@10** | 0.364 | **0.380** | **+4.4%** |
+| **MRR** | 0.410 | **0.419** | **+2.2%** |
+| Latency | 20 min | **14 min** | **-30%** |
+| Model size | 161M params | 137M params | smaller |
+
+nomic wins on every metric. Faster and more accurate. Switched as default model.
+
+Key finding: the re-ranker model matters more than previously thought. Session 15
+tested three models as Channel 3 (seed source) and found them neutral. Session 17
+tested nomic as re-ranker and found it better than jina-code. Architecture still
+matters more than model (re-rank vs seeds), but within the re-rank architecture,
+model choice produces measurable differences.
