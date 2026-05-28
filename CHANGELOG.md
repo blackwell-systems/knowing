@@ -15,6 +15,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **GraphNodeCount per-engine field**: moved from global to `ContextEngine.nodeCount`. Thread-safe for parallel execution. `SetNodeCount`/`effectiveNodeCount` with fallback to global.
 - **Spark-java fixtures expanded**: 5 -> 20 tasks (15 new). Covers filters, sessions, templates, SSL, WebSocket, Jetty lifecycle.
 - **Adaptive retrieval architecture doc**: `docs/architecture/adaptive-retrieval.md` threading all 6 self-adapting mechanisms with ablation table.
+- **nomic-embed-text-v1.5 as default model**: P@10 0.245 sequential (was 0.242 with jina-code). Faster inference (14 min vs 20 min). All 12 repos pre-embedded with both models (coexist via model column).
+- **`BENCH_GAP_THRESHOLD` env var**: configurable gap-fill activation threshold.
+- **Round 2 per-task logging**: warm pass now prints per-task P@10 lines (was silent).
+
+### Fixed
+
+- **Fixture quality**: removed duplicate ground truth in fastapi (File, Depends normalization collision). Fixed wrong symbol in ocelot (IClientWebSocket -> IClientWebSocketConnector). Added missing pipeline middleware to ocelot hard-001.
+
+### Tested Neutral
+
+- Gap-fill threshold < 3, < 8, < 10: all within variance of baseline < 5.
+- Hub dampening (BENCH_HUB_DAMPEN=50) on enriched graphs: 0.219 vs 0.220. Still neutral.
+- Confirms: P@10 is reachability-determined. Parameter tuning is exhausted.
 
 ## [v0.11.0] - 2026-05-27
 
