@@ -118,6 +118,13 @@ func (m *mockStore) GetEmbeddings(_ context.Context, _ string, hashes []types.Ha
 	return result, nil
 }
 
+func (m *mockStore) GetAllEmbeddings(_ context.Context, _ string) (map[types.Hash][]byte, error) {
+	if m.getErr != nil {
+		return nil, m.getErr
+	}
+	return m.getResult, nil
+}
+
 // --- Mock embedder via a Searcher with fake internals ---
 // We can't easily construct an Embedder without ONNX, so we test the pieces
 // that don't need inference directly (serialization, store interactions).

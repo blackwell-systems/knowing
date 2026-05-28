@@ -35,6 +35,13 @@ type VectorSearcher interface {
 	EmbedAndSearch(ctx stdctx.Context, query string, k int) ([]types.Hash, error)
 }
 
+// StoreSearcher provides brute-force cosine search from persisted vectors.
+// Optional interface; when the HNSW index is empty (no embedding phase),
+// the gap-fill falls back to this for O(n) search from SQLite-cached vectors.
+type StoreSearcher interface {
+	LoadAndSearchFromStore(ctx stdctx.Context, query string, k int) ([]types.Hash, error)
+}
+
 // VectorReRanker re-ranks candidates by embedding similarity to a query.
 // Optional interface; if the VectorSearcher also implements this, the engine
 // uses it to re-rank RWR output before packing.
@@ -714,8 +721,19 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	// zero because ground truth shares no keywords with the task description).
 	// Gap-fill seeds enter at weight 1.0 (same as primary seeds) but only when
 	// primary channels are weak. Cannot regress repos where BM25 already works.
+	//
+	// Two search strategies:
+	// 1. HNSW (EmbedAndSearch): fast O(log n), requires in-memory index built at startup
+	// 2. Store brute-force (LoadAndSearchFromStore): O(n) cosine, no index build needed,
+	//    works with pre-embedded vectors from SQLite. Falls back to this when HNSW is empty.
 	if len(candidates) < 5 && e.vector != nil {
 		gapHashes, gapErr := e.vector.EmbedAndSearch(ctx, opts.TaskDescription, 20)
+		// If HNSW returned nothing (empty index), try brute-force from store.
+		if (gapErr != nil || len(gapHashes) == 0) {
+			if storeSearcher, ok := e.vector.(StoreSearcher); ok {
+				gapHashes, gapErr = storeSearcher.LoadAndSearchFromStore(ctx, opts.TaskDescription, 20)
+			}
+		}
 		if gapErr == nil {
 			for _, h := range gapHashes {
 				if seen[h] {

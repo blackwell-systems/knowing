@@ -17,6 +17,7 @@ import (
 type EmbeddingStore interface {
 	BatchPutEmbeddings(ctx context.Context, model string, hashes []types.Hash, vectors [][]byte) error
 	GetEmbeddings(ctx context.Context, model string, hashes []types.Hash) (map[types.Hash][]byte, error)
+	GetAllEmbeddings(ctx context.Context, model string) (map[types.Hash][]byte, error)
 }
 
 // Searcher wraps an Embedder and provides the VectorSearcher interface
@@ -404,6 +405,63 @@ func bytesToFloat32s(b []byte) []float32 {
 		v[i] = math.Float32frombits(binary.LittleEndian.Uint32(b[i*4:]))
 	}
 	return v
+}
+
+// LoadAndSearchFromStore loads all cached vectors from the embedding store and
+// performs brute-force cosine similarity search against the query. This bypasses
+// the HNSW index entirely: no index build, no in-memory graph, just read vectors
+// from SQLite and compute cosine. O(n) per query but eliminates the multi-minute
+// HNSW rebuild that dominates startup time on large repos.
+//
+// Returns the k nearest node hashes sorted by descending similarity.
+// If the store has no vectors, returns nil (not an error).
+func (s *Searcher) LoadAndSearchFromStore(ctx context.Context, query string, k int) ([]types.Hash, error) {
+	if s.store == nil {
+		return nil, nil
+	}
+
+	// Embed the query (1 inference call, ~120ms).
+	queryVec, err := s.embedder.Embed(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("embed query: %w", err)
+	}
+
+	// Load all cached vectors from SQLite.
+	// GetAllEmbeddings returns map[Hash][]byte for the model.
+	allVecs, err := s.store.GetAllEmbeddings(ctx, s.model)
+	if err != nil || len(allVecs) == 0 {
+		return nil, err
+	}
+
+	// Brute-force cosine similarity.
+	type scored struct {
+		hash  types.Hash
+		score float64
+	}
+	results := make([]scored, 0, len(allVecs))
+	for h, raw := range allVecs {
+		vec := bytesToFloat32s(raw)
+		if len(vec) == 0 {
+			continue
+		}
+		sim := cosine(queryVec, vec)
+		results = append(results, scored{hash: h, score: sim})
+	}
+
+	// Sort by descending similarity.
+	sort.Slice(results, func(a, b int) bool {
+		return results[a].score > results[b].score
+	})
+
+	// Take top-k.
+	if k > len(results) {
+		k = len(results)
+	}
+	hashes := make([]types.Hash, k)
+	for i := 0; i < k; i++ {
+		hashes[i] = results[i].hash
+	}
+	return hashes, nil
 }
 
 func hashFromHex(h string) (types.Hash, error) {

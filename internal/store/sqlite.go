@@ -1733,6 +1733,30 @@ func (s *SQLiteStore) GetEmbeddings(ctx context.Context, model string, hashes []
 	return result, nil
 }
 
+// GetAllEmbeddings returns all cached vectors for a model. Used by brute-force
+// cosine search to bypass HNSW index rebuild. Loads all vectors into memory in
+// a single query.
+func (s *SQLiteStore) GetAllEmbeddings(ctx context.Context, model string) (map[types.Hash][]byte, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT node_hash, vector FROM embeddings WHERE model = ?`, model)
+	if err != nil {
+		return nil, fmt.Errorf("GetAllEmbeddings: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[types.Hash][]byte, 1024)
+	for rows.Next() {
+		var hashBytes []byte
+		var vec []byte
+		if err := rows.Scan(&hashBytes, &vec); err != nil {
+			return nil, err
+		}
+		var h types.Hash
+		copy(h[:], hashBytes)
+		result[h] = vec
+	}
+	return result, rows.Err()
+}
+
 // RealNodeCount returns the count of non-phantom nodes (nodes that have a
 // backing file). Phantom external nodes created by LSP enrichment are excluded.
 // This is used by the adaptive density system (PreferTypeSeeds, adaptive seed
