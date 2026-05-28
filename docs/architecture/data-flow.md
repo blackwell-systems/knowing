@@ -103,7 +103,7 @@ Developer commits code
 │    ├── Load all nodes via NodesByName("%")             │
 │    ├── Filter noise (vendor, dist, mocks)             │
 │    ├── Batch embed in chunks of 64 via hugot ONNX     │
-│    │   (jina-code, 768 dims, ~13ms/text batched)      │
+│    │   (nomic-code, 768 dims, ~13ms/text batched)      │
 │    ├── Add vectors to in-memory HNSW index            │
 │    ├── Persist vectors to SQLite embeddings table     │
 │    │   (keyed by node_hash + model for cache reuse)   │

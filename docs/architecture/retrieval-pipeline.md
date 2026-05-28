@@ -14,7 +14,7 @@ the precision degradation that affects every static retrieval system at scale.
 This document is the authoritative reference for how the context engine finds and ranks
 symbols. It supersedes `context-packing.md`.
 
-**Current eval baseline:** Cross-system benchmark (222 tasks, 12 repos, 7 languages): P@10=0.223 cold start, 0.249 with task memory compounding (+11.5%). 1.65x vs codegraph (19K stars), 2.97x vs GitNexus, 3.54x vs Gortex, 17.2x vs grep. Parameter sweep (26 configs) proved P@10 is reachability-determined; all ranking parameters are irrelevant.
+**Current eval baseline:** Cross-system benchmark (237 tasks, 12 repos, 7 languages): P@10=0.247 cold start, 0.251 with task memory compounding (+1.9%). 1.83x vs codegraph (19K stars), 3.29x vs GitNexus, 3.92x vs Gortex, 19.0x vs grep. nomic-embed-text re-ranker + gap-fill seeds. Parameter sweep (26 configs) proved P@10 is reachability-determined; all ranking parameters are irrelevant.
 
 ## Pipeline Overview
 
@@ -365,7 +365,7 @@ As an independent seed channel, embeddings remain disabled (weight 0.0). Three m
 However, the same embedding infrastructure powers the **embedding re-ranker** (step 7b),
 which operates after scoring, not during seed selection. The re-ranker reorders the top-50
 scored candidates by cosine similarity to the task description. This is the biggest single
-improvement in project history: P@10 0.207 -> 0.242 (+17%), R@10 0.306 -> 0.362 (+18.3%).
+improvement in project history: P@10 0.207 -> 0.247 (+19%), R@10 0.306 -> 0.380 (+24%). Session 17 switched to nomic-embed-text-v1.5 (better than jina-code on every metric).
 
 The key insight: architecture matters more than model. The same jina-code model that is
 neutral as a seed channel produces +17% when used to re-rank graph-surfaced candidates.
@@ -539,7 +539,7 @@ auto-increases seed count based on `GraphNodeCount`:
 
 Impact: Django (57K nodes) P@10 improved from 0.197 to 0.225 (+14.2%) with 25 seeds.
 Flask (1.4K nodes) is unaffected (threshold not triggered). Combined with the embedding
-re-ranker, the full corpus aggregate improved from 0.238 to 0.242.
+re-ranker, the full corpus aggregate improved from 0.238 to 0.247 (with nomic model and gap-fill seeds).
 
 Available as manual override via `BENCH_MAX_SEEDS=N` for parameter sweep experiments.
 

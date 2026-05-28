@@ -64,7 +64,7 @@ covering more subgraphs.
 within 4 RWR hops. On a 57K-node Django repo, 15 seeds leave large regions
 unreachable. More seeds = broader coverage = more ground truth found.
 
-**Measured impact:** Django +14.2% (0.197 -> 0.225). Full corpus +1.7% (0.238 -> 0.242).
+**Measured impact:** Django +14.2% (0.197 -> 0.225). Full corpus +3.8% (0.238 -> 0.247).
 
 ### 3. Embedding Gap-Fill Seeds (vocabulary-adaptive fallback)
 
@@ -86,7 +86,7 @@ keyword overlap.
 it intervenes only where the existing pipeline is already failing.
 
 **Measured impact:** Django +43% (0.176 -> 0.252). Flask +22% (0.263 -> 0.321).
-Full corpus +11.2% (0.223 -> 0.248). Zero regressions across all 12 repos.
+Full corpus +11.2% (0.223 -> 0.247 with nomic model). Zero regressions across all 12 repos.
 
 ### 4. Task Memory Compounding (learning-adaptive boosting)
 
@@ -157,8 +157,8 @@ Each mechanism measured independently on the full corpus:
 | Mechanism | Without | With | Delta | Trigger |
 |-----------|---------|------|-------|---------|
 | PreferTypeSeeds | 0.202 | 0.207 | +2.5% | Node count > 40K |
-| Adaptive seed count | 0.238 | 0.242 | +1.7% | Node count > 10K/40K |
-| Gap-fill seeds | 0.223 | 0.248 | +11.2% | Candidates < 5 |
+| Adaptive seed count | 0.238 | 0.247 | +3.8% | Node count > 10K/40K |
+| Gap-fill seeds | 0.223 | 0.247 | +10.8% | Candidates < 5 |
 | Task memory | 0.248 (cold) | 0.253 (warm) | +3.8% | Any repeated query |
 | Feedback expiration | N/A | N/A | correctness | Code change |
 | Enrichment + type_hint | 0.200 (no enrich) | 0.248 (enriched) | +24% | LSP available |

@@ -152,11 +152,11 @@ The context engine (`internal/context/`) implements task-based retrieval: given 
 
 After seed retrieval, Random Walk with Restart (RWR) expands the seed set through the graph, HITS reranking promotes authorities, and community-aware scoring prevents single-cluster dominance.
 
-**Embedding re-ranker (opt-in, `--embeddings`):** After RWR scoring, the top-50 candidates are re-ranked by cosine similarity between the task description and each symbol's text representation, using a local embedding model (jina-embeddings-v2-base-code). This improves P@10 by +17% across the full corpus. The model runs via pure Go ONNX inference: no Python, no API keys, no charges. Key finding: embeddings as an independent retrieval channel (Channel 3) are neutral; the same models as a re-ranker on graph output produce a 17% improvement. Architecture matters more than model choice.
+**Embedding re-ranker (opt-in, `--embeddings`):** After RWR scoring, the top-50 candidates are re-ranked by cosine similarity between the task description and each symbol's text representation, using a local embedding model (nomic-embed-text-v1.5). This improves P@10 by +19% across the full corpus. The model runs via pure Go ONNX inference: no Python, no API keys, no charges. Key finding: embeddings as an independent retrieval channel (Channel 3) are neutral; the same models as a re-ranker on graph output produce a 17% improvement. Architecture matters more than model choice.
 
 **Benchmark results (fresh index, with embedding re-ranker):**
 
-- P@10 = 0.223 cold start, 0.249 with compounding across 222 tasks, 12 repos, 7 languages (Go, Python, TypeScript, Rust, Java, C#), 14K to 3.5M LOC
+- P@10 = 0.247 cold start, 0.251 with compounding across 237 tasks, 12 repos, 7 languages (Go, Python, TypeScript, Rust, Java, C#), 14K to 3.5M LOC
 - Task memory compounding: +11.5% P@10 from passive learning (self-adapting claim, quantified)
 - Competitive advantage (cold): vs codegraph 1.65x, vs GitNexus 2.97x, vs Gortex 3.54x, vs grep 17.2x
 - Self-adapting type-seed preference: on dense graphs (>40K nodes), automatically prefers type/interface/class nodes as RWR seeds

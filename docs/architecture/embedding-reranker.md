@@ -2,10 +2,10 @@
 
 The embedding re-ranker is a post-RWR stage that reorders the top-50 candidates
 by cosine similarity to the task description. It uses a pre-trained code embedding
-model (jina-embeddings-v2-base-code) running locally via pure-Go ONNX inference.
+model (nomic-embed-text-v1.5, default) running locally via pure-Go ONNX inference.
 No API calls, no cloud services, no charges.
 
-**Impact:** P@10 0.207 -> 0.242 (+17%), R@10 0.306 -> 0.362 (+18.3%) on the
+**Impact:** P@10 0.207 -> 0.247 (+19%), R@10 0.306 -> 0.380 (+24%) on the
 full 167-task cross-system benchmark. Every metric improved. Biggest single
 improvement in project history.
 
@@ -114,7 +114,7 @@ The `model` column allows multiple models to coexist. Switching models
 
 ## Latency Profile
 
-Measured on Apple Silicon, jina-code (768 dims), hugot v0.7.2 pure-Go ONNX.
+Measured on Apple Silicon, nomic-code (768 dims), hugot v0.7.2 pure-Go ONNX.
 
 | Operation | Time |
 |-----------|------|
@@ -141,8 +141,8 @@ portability.
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `--embeddings` | off | Enable embedding re-ranker on `knowing mcp` |
-| `--embed-model` | jina-code | Model: `jina-code`, `bge-small`, `nomic-code` |
-| `KNOWING_EMBED_MODEL` | jina-code | Env var (CLI flag takes precedence) |
+| `--embed-model` | nomic-code | Model: `nomic-code` (default), `jina-code`, `bge-small` |
+| `KNOWING_EMBED_MODEL` | nomic-code | Env var (CLI flag takes precedence) |
 | `BENCH_EMBEDDINGS` | 0 | Enable in benchmark adapter |
 | `BENCH_RERANK_WEIGHT` | 0.0 | Override `ReRankOriginalWeight` in benchmarks |
 | `ReRankOriginalWeight` | 0.0 | Blend weight (0.0 = pure re-rank, 1.0 = no re-rank) |

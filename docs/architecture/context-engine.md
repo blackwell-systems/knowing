@@ -100,7 +100,7 @@ Seed selection uses Reciprocal Rank Fusion (`rrfFuseMulti`) across five channels
 |---------|--------|--------|
 | 1. Tiered keyword matching | 2.0 | 4-tier compound-first: exact > prefix > substring > path (interface seeding is a separate post-RRF step) |
 | 2. BM25 FTS5 | 2.0 | SQLite FTS5 over 6 columns: symbol_name (10x), concepts (5x), file_path (4x), qualified_name (3x), doc (3x), signature (1x) |
-| 3. Vector/embedding search | 0.0 | jina-code via HNSW (neutral as seed channel; used as post-scoring re-ranker instead, see step 7b) |
+| 3. Vector/embedding search | 0.0 | nomic-code via HNSW (neutral as seed channel; used as post-scoring re-ranker instead, see step 7b) |
 | 4. Equivalence class matching | 2.0 | 115 equivalence classes (63 universal + 21 knowing-specific + 31 language-specific) mapped to target symbols |
 | 5. Path-context seeding | 1.5 | Extracts package/directory terms from task, finds type nodes in matching packages, injects as supplemental RWR seeds at weight 0.3 |
 
@@ -142,10 +142,10 @@ Tokenization uses CamelCase-aware splitting (`splitForFTS`, `splitCamelCase`) so
 
 ## Embedding Re-ranker (Shipped, +17% P@10)
 
-The embedding model is jina-embeddings-v2-base-code (768 dimensions, code-tuned) via hugot
+The embedding model is nomic-embed-text-v1.5 (768 dimensions, code-tuned) via hugot
 pure-Go ONNX runtime. As an independent seed channel (Channel 3), embeddings are neutral
 (three models tested identical to BM25). As a **post-scoring re-ranker** (step 15b in
-ForTask), they produce the biggest single improvement in project history: P@10 0.207 -> 0.242
+ForTask), they produce the biggest single improvement in project history: P@10 0.207 -> 0.247
 (+17%), R@10 0.306 -> 0.362 (+18.3%).
 
 **How it works:** After scoring (step 15), the top-50 candidates are re-ranked by cosine
@@ -331,7 +331,7 @@ All RWR and ranking parameters are configurable via `SweepParams` (`internal/con
 | DistanceW | 0.15 | Distance ranking weight |
 | TestPenalty | 0.3 | Test file score multiplier |
 
-**Parameter sweep result:** A 26-configuration sweep across all parameters produced identical P@10=0.180 (pre-docstring FTS, now 0.242 with subsequent improvements including docstring FTS, density-adaptive seeding, and embedding re-ranker). This proves that P@10 is reachability-determined, not ranking-determined. The retrieval bottleneck is whether relevant symbols are reachable from seeds at all, not how they are ranked once found. New retrieval signals (additional seed channels, new edge types, docstring indexing, concept thesaurus, self-adapting type-seed preference) are the path forward; tuning existing parameters is futile.
+**Parameter sweep result:** A 26-configuration sweep across all parameters produced identical P@10=0.180 (pre-docstring FTS, now 0.247 with subsequent improvements including docstring FTS, density-adaptive seeding, and embedding re-ranker). This proves that P@10 is reachability-determined, not ranking-determined. The retrieval bottleneck is whether relevant symbols are reachable from seeds at all, not how they are ranked once found. New retrieval signals (additional seed channels, new edge types, docstring indexing, concept thesaurus, self-adapting type-seed preference) are the path forward; tuning existing parameters is futile.
 
 ## Contains and Member_of Edges
 
