@@ -24,9 +24,11 @@ type EmbeddingStore interface {
 // expected by the context engine. It resolves HNSW string keys (hex-encoded
 // node hashes) back to types.Hash values.
 type Searcher struct {
-	embedder *Embedder
-	store    EmbeddingStore // nil = no persistence (in-memory only)
-	model    string         // model identifier for cache key
+	embedder    *Embedder
+	store       EmbeddingStore // nil = no persistence (in-memory only)
+	model       string         // model identifier for cache key
+	vecCache    map[types.Hash][]float32 // lazy-loaded from store on first gap-fill
+	vecCacheSet bool                     // true after first load attempt
 }
 
 // NewSearcher creates a Searcher from an initialized Embedder.
@@ -425,30 +427,40 @@ func (s *Searcher) LoadAndSearchFromStore(ctx context.Context, query string, k i
 		return nil, nil
 	}
 
+	// Lazy-load vectors on first call. Converts bytes to float32 once and
+	// caches for all subsequent searches on this repo. Only loads when
+	// gap-fill actually fires (< 5 candidates), not at startup.
+	if !s.vecCacheSet {
+		s.vecCacheSet = true
+		raw, err := s.store.GetAllEmbeddings(ctx, s.model)
+		if err == nil && len(raw) > 0 {
+			s.vecCache = make(map[types.Hash][]float32, len(raw))
+			for h, b := range raw {
+				v := bytesToFloat32s(b)
+				if len(v) > 0 {
+					s.vecCache[h] = v
+				}
+			}
+		}
+	}
+
+	if len(s.vecCache) == 0 {
+		return nil, nil
+	}
+
 	// Embed the query (1 inference call, ~120ms).
 	queryVec, err := s.embedder.Embed(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("embed query: %w", err)
 	}
 
-	// Load all cached vectors from SQLite.
-	// GetAllEmbeddings returns map[Hash][]byte for the model.
-	allVecs, err := s.store.GetAllEmbeddings(ctx, s.model)
-	if err != nil || len(allVecs) == 0 {
-		return nil, err
-	}
-
-	// Brute-force cosine similarity.
+	// Brute-force cosine similarity against cached vectors.
 	type scored struct {
 		hash  types.Hash
 		score float64
 	}
-	results := make([]scored, 0, len(allVecs))
-	for h, raw := range allVecs {
-		vec := bytesToFloat32s(raw)
-		if len(vec) == 0 {
-			continue
-		}
+	results := make([]scored, 0, len(s.vecCache))
+	for h, vec := range s.vecCache {
 		sim := cosine(queryVec, vec)
 		results = append(results, scored{hash: h, score: sim})
 	}
