@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [v0.11.0] - 2026-05-27
 
 ### Added
 
@@ -29,6 +29,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **200-package FP evaluation**: `scripts/false-positive-eval.sh` scans 100 npm + 100 PyPI packages. Results at `bench/supply-chain/false-positive-results-v2.jsonl`.
 - **GHA action**: `blackwell-systems/knowing-supply-scan` (v1.0.0), free action for supply chain scanning on PRs.
 - **Platform API scaffold**: `blackwell-systems/platform` (private), SaaS backend for paid scanning.
+- **Two-phase gopls warmup**: fixed OpenDocument argument order bug + didOpen before GetDefinition. Enables Go enrichment for the first time. 128 concurrent workers post-warmup.
+- **Kubernetes enriched**: 39,678 edges upgraded, 192,271 new edges discovered, 169,517 phantom nodes. P@10: 0.000 -> 0.232.
+- **Terraform enriched**: 5,850 edges upgraded, 82,721 new edges discovered, 73,079 phantom nodes. P@10: ~0.095 -> 0.275.
+- **Caddy Go benchmark corpus**: cloned, indexed, enriched (13,257 new edges, 12,003 phantoms). 20 fixtures. P@10 = 0.285.
+- **FastAPI Python benchmark corpus**: cloned, indexed, enriched with pyright (4,433 new edges, 10,647 phantoms). 20 fixtures.
+- **Ocelot C# benchmark corpus**: 20 fixtures (first C# benchmark). P@10 = 0.175. Enriched with csharp-ls.
+- **csharp-ls support**: enrichment config detects csharp-ls as fallback when OmniSharp unavailable.
+- **Skip test/generated files in edge upgrade**: filters `_test.go` and `zz_generated` from upgrade phase. 70% reduction on k8s.
+- **Package-sorted edges**: sort workItems by URI for better gopls cache locality.
+- **Readiness probe for enrichment**: escalating timeout probes (5s, 10s, 30s, 60s, 120s).
+- **`RealNodeCount` method on SQLiteStore**: COUNT excluding phantom nodes (JOIN against files table).
+- **Corpus expanded**: 9 repos/167 tasks/6 languages -> 12 repos/222 tasks/7 languages.
+- **Benchmark result**: P@10 = 0.223 cold start, 0.249 with task memory compounding (+11.5%). 1.65x codegraph, 2.97x GitNexus, 3.54x Gortex, 17.2x grep.
+- **Task memory compounding quantified**: +11.5% P@10, +15.0% R@10 from passive learning (round 1 to round 2).
+- **Platform deployment**: DEPLOY.md and scripts/deploy.sh for bare metal DigitalOcean + Cloudflare Tunnel.
+- **Makefile**: corpus-rebuild, corpus-enrich, corpus-backup, corpus-restore targets.
 
 ### Tested and Reverted
 
@@ -39,13 +55,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Density-adaptive RWR alpha**: alpha=0.15 on dense repos (flask 5.9, cargo 13.5, kafka 12.5). P@10 0.280 vs baseline 0.278. Within run variance.
 - **Density-adaptive inherits weight**: boosted implements/overrides/extends to 1.0 on repos with >1.5% inherits edges. Django +0.009, kafka+flask -0.008. Net neutral.
 - **Interface type hint propagation (pre-resolution)**: attempted before fixing dangling edges. Edge structure mismatch: type_hint_of and implements shared 0 target hashes on Java/Python. Go (k8s): 393 edges on 523K, P@10 neutral.
+- **GraphNodeCount excluding phantoms**: hypothesis that phantom inflation triggers PreferTypeSeeds incorrectly. Terraform 0.265->0.220 (worse), cargo 0.168->0.164 (neutral). Phantom nodes are a valid density signal because enrichment edges make the graph genuinely denser.
 
 ### Documentation
 
-- **Benchmark paper**: "Evaluating Code Context Retrieval for AI Agents" drafted at `docs/research/whitepapers/code-context-retrieval-benchmark.md`. 167 tasks, 7 systems, 10 repos, conflict of interest disclosure, per-tier breakdown, scale tolerance analysis.
+- **Benchmark paper**: "Evaluating Code Context Retrieval for AI Agents" drafted at `docs/research/whitepapers/code-context-retrieval-benchmark.md`. 222 tasks, 7 systems, 12 repos, conflict of interest disclosure, per-tier breakdown, scale tolerance analysis.
 - **Supply chain whitepaper evaluation**: Section 7 written with 200-package FP data (1.0% rate).
-- All docs updated to P@10=0.242 with new competitive ratios across 20+ files.
-- Comprehensive experiment log in roadmap: 15 tested-negative, 5 tested-positive.
+- All docs updated to P@10=0.223/0.249 with new competitive ratios across 20+ files (12 repos, 222 tasks, 7 languages).
+- Comprehensive experiment log in roadmap: 15 tested-negative, 7 tested-positive.
+- **Confidence values corrected** across 5 docs: ast_resolved 0.85 (was 1.0/0.95), scip_resolved 0.95 (was 1.0).
+- **Enrichment finding reversed**: "net-neutral" -> "strongly positive" across retrieval-pipeline.md, FINDINGS.md, system-overview.md.
+- **enrichment.md renamed to enrichment-pipeline.md**, all cross-references updated.
+- **Architecture README**: 10 missing docs added, reading order restructured.
+- **CLI reference**: enrich lsp subcommand documented.
+- **Concurrency docs**: LSP enrichment rewritten from "sequential" to concurrent (128 workers, two-phase warmup).
+- **METHODOLOGY.md**: testing protocol added (django acid test, three-step workflow, output capture rules).
+- **Extraction pipeline**: complete architecture doc (23 extractors, post-processing, hashing, CLI, troubleshooting, FAQ).
 
 ### Fixed
 
