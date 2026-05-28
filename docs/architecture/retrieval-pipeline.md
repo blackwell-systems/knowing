@@ -28,6 +28,9 @@ Task Description
 [2. Seed Retrieval]            5-channel RRF fusion (tiered, BM25, equivalence, path-context, vector)
     |
     v
+[2b. Gap-Fill Seeds]           if < 5 candidates, query embedding store for semantic supplements
+    |
+    v
 [3. Interface-Aware Seeding]   add implementors of matched interface types
     |
     v
@@ -369,6 +372,34 @@ neutral as a seed channel produces +17% when used to re-rank graph-surfaced cand
 See `docs/architecture/embedding-reranker.md` for the full design.
 
 Enable with `--embeddings` on `knowing mcp` or `BENCH_EMBEDDINGS=1` for benchmarks.
+
+### Gap-Fill Seeds (step 2b)
+
+When all five seed channels combined return fewer than 5 candidates, the pipeline
+queries the embedding vector store for semantically similar symbols as supplemental
+seeds. This targets vocabulary gaps where ground truth symbols share no keywords with
+the task description. Gap-fill seeds enter at the same priority level as primary seeds
+but only fire when primary channels are weak, so they cannot regress repos where
+BM25/tiered/equivalence already produce sufficient candidates.
+
+**Two search strategies:**
+
+1. **HNSW via `EmbedAndSearch`** (fast path): requires `--embeddings` to be active.
+   Embeds the task description and queries the in-memory HNSW index for nearest
+   neighbors by cosine similarity.
+2. **Brute-force via `LoadAndSearchFromStore`** (fallback): loads pre-computed vectors
+   from SQLite and performs linear scan. Works with any repo that has been indexed with
+   embeddings, without rebuilding the HNSW index at query time.
+
+**Threshold:** configurable via `BENCH_GAP_THRESHOLD` environment variable (default 5).
+When the combined candidate count from channels 1-5 is below this threshold, gap-fill
+activates.
+
+**Impact:** Django P@10 +43% (0.176 to 0.252), flask +22%. Zero regressions on any
+repo. Full corpus +11.2%. The mechanism is effective precisely because it only fires
+on tasks where lexical seed selection fails entirely (the 42% zero-score tier in Django).
+
+See `docs/architecture/adaptive-retrieval.md` for the full mechanism description.
 
 ---
 

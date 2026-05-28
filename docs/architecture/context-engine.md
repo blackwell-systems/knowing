@@ -2,7 +2,7 @@
 
 The context packing subsystem (`internal/context/`) produces token-budgeted, graph-ranked context blocks for agent consumption. It answers: "given a task or a set of changed files, which symbols from the knowledge graph should an agent see?" Three entry points exist: task-based (`ForTask`, keyword search from a description), file-based (`ForFiles`, blast-radius expansion from changed files), and PR-based (`ForPR`, RWR from all symbols in changed files). A fourth entry point, `ExplainSymbol`, runs the full retrieval pipeline and returns a detailed scoring breakdown for a specific symbol.
 
-**Current performance:** P@10 = 0.223 cold start, 0.249 with compounding (12 repos, 222 tasks, 7 languages). 1.65x vs codegraph, 2.97x vs GitNexus, 3.54x vs Gortex, 17.2x vs grep. Task memory compounding: +11.5% P@10. Query latency 2ms on k8s (with adjacency cache). Parameter sweep proved all RWR/ranking parameters are irrelevant (identical P@10 across 26 configs); P@10 is reachability-determined, not ranking-determined.
+**Current performance:** P@10 = 0.247 cold start, 0.251 with compounding (12 repos, 237 tasks, 7 languages). 1.83x vs codegraph, 3.29x vs GitNexus, 3.92x vs Gortex, 19.0x vs grep. Nomic re-ranker + gap-fill seeds. Query latency 2ms on k8s (with adjacency cache). Parameter sweep proved all RWR/ranking parameters are irrelevant (identical P@10 across 26 configs); P@10 is reachability-determined, not ranking-determined.
 
 ## Architecture
 
@@ -104,7 +104,7 @@ Seed selection uses Reciprocal Rank Fusion (`rrfFuseMulti`) across five channels
 | 4. Equivalence class matching | 2.0 | 115 equivalence classes (63 universal + 21 knowing-specific + 31 language-specific) mapped to target symbols |
 | 5. Path-context seeding | 1.5 | Extracts package/directory terms from task, finds type nodes in matching packages, injects as supplemental RWR seeds at weight 0.3 |
 
-The `rrfFuseMulti` function handles N channels with per-channel weights, producing a single ranked seed set. After RRF fusion, interface-aware seeding adds all implementors of any interface/type in the candidate set as additional seeds. The path channel receives lower weight (1.5x) because it is valuable for bridging concepts to packages but less precise than name-matching channels.
+The `rrfFuseMulti` function handles N channels with per-channel weights, producing a single ranked seed set. When the fused set contains fewer than 5 candidates (threshold configurable via `BENCH_GAP_THRESHOLD`), gap-fill seeds supplement the channels by querying the embedding vector store for semantically similar symbols. This targets vocabulary gaps where ground truth shares no keywords with the task description. Impact: Django +43%, flask +22%, zero regressions. After RRF fusion (and gap-fill if triggered), interface-aware seeding adds all implementors of any interface/type in the candidate set as additional seeds. The path channel receives lower weight (1.5x) because it is valuable for bridging concepts to packages but less precise than name-matching channels.
 
 ## Equivalence Class Seed Retrieval
 
@@ -209,6 +209,7 @@ Bigram generation joins adjacent non-stop-words into both CamelCase and snake_ca
    - Channel 4 (weight 2.0): Equivalence class matching (115 equivalence classes: 63 universal + 21 knowing-specific + 31 language-specific, plus graph-derived aliases at weight 0.7)
    - Channel 5 (weight 1.5): Path-context seeding (finds type/class nodes in packages matching task terms; prioritizes rich types with contains edges)
 4. `rrfFuseMulti` merges all channels into a single ranked seed set (k=60, limit=40).
+4b. Gap-fill seeds: if the fused candidate set has fewer than 5 results (configurable via `BENCH_GAP_THRESHOLD`), query the embedding vector store for semantically similar symbols as supplemental seeds. Two strategies: HNSW via `EmbedAndSearch` (fast, requires `--embeddings`) or brute-force via `LoadAndSearchFromStore` (works with pre-embedded vectors). Gap-fill only fires when primary channels are weak, so it cannot regress repos where lexical matching already works.
 5. Interface-aware seeding: if any candidate is an interface/type, add all implementors as seeds.
 6. Filter noisy symbols (externals, mocks, fixtures, build artifacts, minified names).
 7. Select top-15 RRF candidates as RWR seeds (maxSeeds=15, rank-weighted restart probability). Inject up to 10 supplemental path seeds at weight 0.3 (from Channel 5 results not already in the seed set).
