@@ -17,10 +17,10 @@ import (
 )
 
 // Model configuration. Override with KNOWING_EMBED_MODEL env var.
-// Default: jina-code (best for code retrieval, +17% P@10 validated).
-// Options: "jina-code" (default), "bge-small", "nomic-code"
+// Default: nomic-code (P@10 0.247, faster than jina-code, session 17 validated).
+// Options: "nomic-code" (default), "jina-code", "bge-small"
 var (
-	modelRepo = "jinaai/jina-embeddings-v2-base-code"
+	modelRepo = "nomic-ai/nomic-embed-text-v1.5"
 	onnxFile  = "onnx/model.onnx"
 	Dims      = 768
 )
