@@ -69,6 +69,23 @@ type ContextEngine struct {
 	memory   *TaskMemory         // nil disables passive task memory
 	cache    *cache.SubgraphCache // nil disables subgraph result caching
 	noPersistentCache bool       // skip notes-table pack cache (for benchmarks)
+	nodeCount int                // per-engine node count for density-adaptive retrieval (0 = use global)
+}
+
+// SetNodeCount sets the per-engine node count for density-adaptive retrieval.
+// When set (> 0), overrides the global GraphNodeCount. Thread-safe: each engine
+// has its own field, no global mutation needed.
+func (e *ContextEngine) SetNodeCount(n int) {
+	e.nodeCount = n
+}
+
+// effectiveNodeCount returns the node count to use for density-adaptive decisions.
+// Prefers per-engine field, falls back to global.
+func (e *ContextEngine) effectiveNodeCount() int {
+	if e.nodeCount > 0 {
+		return e.nodeCount
+	}
+	return GraphNodeCount
 }
 
 // TaskOptions configures a task-based context query.
@@ -791,7 +808,7 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	// this is irrelevant (all candidates are already good seeds).
 	// Self-adapting: auto-enable when graph has >50K nodes (dense graph threshold).
 	preferTypes := PreferTypeSeeds
-	if !preferTypes && GraphNodeCount > 40000 {
+	if !preferTypes && e.effectiveNodeCount() > 40000 {
 		preferTypes = true
 	}
 	if preferTypes && len(candidates) > 0 {
@@ -838,10 +855,10 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	maxSeeds := sweepMaxSeeds()
 	// Adaptive seed count: on large graphs, increase seeds to compensate for
 	// higher disconnection rates. More seeds = wider net = more symbols reachable.
-	// Auto-enabled based on GraphNodeCount. Django +14.2% P@10 with 25 seeds.
-	if GraphNodeCount > 40000 {
+	// Auto-enabled based on node count. Django +14.2% P@10 with 25 seeds.
+	if e.effectiveNodeCount() > 40000 {
 		maxSeeds = max(maxSeeds, 25) // large graphs: 25 seeds
-	} else if GraphNodeCount > 10000 {
+	} else if e.effectiveNodeCount() > 10000 {
 		maxSeeds = max(maxSeeds, 20) // medium graphs: 20 seeds
 	}
 	if len(candidates) < maxSeeds {

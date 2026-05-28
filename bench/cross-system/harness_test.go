@@ -120,11 +120,6 @@ func TestCrossSystem(t *testing.T) {
 			repoPath := filepath.Join("corpus", "repos", repo)
 			var rr repoResult
 
-			// Set GraphNodeCount for this repo.
-			if nc, ok := adapter.(*adapters.Knowing); ok {
-				nc.SetNodeCount(repo)
-			}
-
 			for _, task := range tasks {
 				result, err := adapter.Retrieve(repoPath, task, defaultTokenBudget)
 				if err != nil {

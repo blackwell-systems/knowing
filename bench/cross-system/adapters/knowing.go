@@ -5,7 +5,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/blackwell-systems/knowing/bench/cross-system/benchtype"
@@ -91,7 +90,6 @@ type Knowing struct {
 	memories   map[string]*knowingctx.TaskMemory // per-repo task memory for compounding tests
 	nodeCounts map[string]int                    // cached node count per repo for adaptive density
 	searchers  map[string]*embedding.Searcher    // per-repo vector searcher (nil if embeddings disabled)
-	mu         sync.Mutex                        // protects GraphNodeCount global during parallel repos
 }
 
 func NewKnowing() *Knowing {
@@ -211,13 +209,6 @@ func (a *Knowing) Index(repoPath string) (int64, error) {
 	return time.Since(start).Milliseconds(), nil
 }
 
-// SetNodeCount sets GraphNodeCount for a specific repo. Called per-repo
-// goroutine before the task loop in parallel benchmark execution.
-func (a *Knowing) SetNodeCount(repo string) {
-	repoPath := "corpus/repos/" + repo
-	knowingctx.GraphNodeCount = a.nodeCounts[repoPath]
-}
-
 func (a *Knowing) Retrieve(repoPath string, task benchtype.Task, tokenBudget int) (benchtype.RetrievalResult, error) {
 	s, ok := a.stores[repoPath]
 	if !ok {
@@ -227,10 +218,8 @@ func (a *Knowing) Retrieve(repoPath string, task benchtype.Task, tokenBudget int
 	ctx := stdctx.Background()
 	start := time.Now()
 
-	// GraphNodeCount is set per-repo by the harness goroutine before the task loop.
-	// Not set here to avoid race with parallel repo execution.
-
 	engine := knowingctx.NewContextEngine(s)
+	engine.SetNodeCount(a.nodeCounts[repoPath])
 	engine.DisablePersistentCache() // Ensure fresh retrieval for benchmark accuracy.
 
 	// Attach vector search if available (embedding-based semantic retrieval).
