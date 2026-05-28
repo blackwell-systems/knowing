@@ -50,3 +50,11 @@ repos:
     size_class: medium  # ~80K LOC
     clone_depth: 1
     notes: ".NET API gateway. Middleware pipeline, load balancing, rate limiting, service discovery, request aggregation."
+
+  - name: caddy
+    url: https://github.com/caddyserver/caddy
+    commit: "4d60d936"
+    language: Go
+    size_class: medium  # ~120K LOC
+    clone_depth: 1
+    notes: "Go web server / reverse proxy. Modular architecture, automatic HTTPS, Caddyfile config adaptation, middleware pipeline, health checks."

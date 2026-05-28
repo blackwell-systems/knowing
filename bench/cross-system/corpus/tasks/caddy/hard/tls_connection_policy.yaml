@@ -1,0 +1,17 @@
+id: caddy-hard-006
+repo: caddy
+tier: hard
+description: "How does caddy build a TLS configuration for incoming connections, including connection policy matching, cipher suite selection, client authentication, and certificate selection?"
+source: manual
+ground_truth:
+  - caddytls.ConnectionPolicies
+  - caddytls.ConnectionPolicies.TLSConfig
+  - caddytls.ConnectionPolicy
+  - caddytls.ConnectionPolicy.buildStandardTLSConfig
+  - caddytls.ConnectionMatcher
+  - caddytls.ClientAuthentication
+  - caddytls.ClientAuthentication.ConfigureTLSConfig
+  - caddytls.CustomCertSelectionPolicy
+  - caddytls.CustomCertSelectionPolicy.SelectCertificate
+tags: [tls, connection-policy, client-auth, certificate, architecture]
+notes: "ConnectionPolicies.TLSConfig builds the net/tls config. Each ConnectionPolicy matches via ConnectionMatcher and builds its own TLS settings via buildStandardTLSConfig. ClientAuthentication.ConfigureTLSConfig sets up mTLS verification. CustomCertSelectionPolicy.SelectCertificate handles SNI-based cert selection."
