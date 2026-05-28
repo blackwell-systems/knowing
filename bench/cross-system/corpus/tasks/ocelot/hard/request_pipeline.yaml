@@ -13,5 +13,7 @@ ground_truth:
   - Ocelot.Cache.OutputCacheMiddleware.Invoke
   - Ocelot.LoadBalancer.LoadBalancerMiddleware.Invoke
   - Ocelot.Request.Middleware.DownstreamRequestInitialiserMiddleware.Invoke
+  - Ocelot.Requester.Middleware.HttpRequesterMiddleware.Invoke
+  - Ocelot.Responder.Middleware.ResponderMiddleware.Invoke
 tags: [pipeline, architectural, cross-namespace]
 notes: "Full pipeline: UseOcelot -> BuildOcelotPipeline registers middleware in order. Each middleware calls Invoke. Requires understanding the registration and execution order."

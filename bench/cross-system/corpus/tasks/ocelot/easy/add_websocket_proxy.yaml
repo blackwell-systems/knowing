@@ -8,6 +8,6 @@ ground_truth:
   - Ocelot.WebSockets.WebSocketsProxyMiddleware.Proxy
   - Ocelot.WebSockets.WebSocketsProxyMiddleware.PumpAsync
   - Ocelot.WebSockets.IWebSocketsFactory.CreateClient
-  - Ocelot.WebSockets.IClientWebSocket.ConnectAsync
+  - Ocelot.WebSockets.IClientWebSocketConnector.ConnectAsync
 tags: [websockets, proxy, single-namespace]
 notes: "Developer wants to enable WebSocket proxying. Needs WebSocketsProxyMiddleware (Invoke, Proxy, PumpAsync for bidirectional streaming), the factory for creating client connections, and the ConnectAsync entry point."
