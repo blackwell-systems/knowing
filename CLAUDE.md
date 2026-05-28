@@ -16,7 +16,7 @@ GOWORK=off go test ./bench/...      # benchmark harnesses (some need pre-indexed
 ## Benchmark (P@10 evaluation)
 
 ```bash
-# Full cross-system benchmark (167 tasks, 10 repos, ~80 min with embeddings)
+# Full cross-system benchmark (222 tasks, 12 repos, ~90 min with embeddings)
 BENCH_EMBEDDINGS=1 BENCH_ADAPTERS=knowing GOWORK=off go test ./bench/cross-system/ -run TestCrossSystem -v -timeout 0
 
 # Single repo (fast iteration, no embeddings)
@@ -35,6 +35,42 @@ BENCH_COHERENCE_BONUS=0.3                     # file-based packing coherence
 BENCH_MAX_SEEDS=25                            # override max seed count
 BENCH_ADAPTIVE_SEEDS=1                        # enable adaptive seed count
 ```
+
+## Testing Methodology
+
+Django is the acid test repo for retrieval experiments:
+- 33 tasks (largest single-repo fixture set)
+- 42% zero-rate problem (vocabulary gaps), so improvements that move Django are structural
+- Where adaptive seeds showed +14.2%, bidirectional inheritance showed -2.5%, gap injection +3.2%
+
+**Protocol:**
+1. **Django only, no embeddings (~30s):** quick signal on structural changes
+   ```bash
+   BENCH_REPOS=django BENCH_ADAPTERS=knowing GOWORK=off go test ./bench/cross-system/ -run TestCrossSystem -v -timeout 10m
+   ```
+2. **Django with embeddings (~7min):** confirms interaction with re-ranker
+   ```bash
+   BENCH_EMBEDDINGS=1 BENCH_REPOS=django BENCH_ADAPTERS=knowing GOWORK=off go test ./bench/cross-system/ -run TestCrossSystem -v -timeout 30m
+   ```
+3. **Full corpus with embeddings (~80min):** only if Django moves positively
+   ```bash
+   BENCH_EMBEDDINGS=1 BENCH_ADAPTERS=knowing GOWORK=off go test ./bench/cross-system/ -run TestCrossSystem -v -timeout 0
+   ```
+
+If Django is neutral or negative, don't run the full corpus. If Django is positive,
+the full corpus confirms whether it generalizes or gets absorbed by run variance.
+
+**Important:** Not all experiments affect Django. Check graph density first:
+```bash
+sqlite3 <repo>/.knowing/graph.db "SELECT COUNT(*) FROM edges; SELECT COUNT(*) FROM nodes;"
+```
+Density = edges/nodes. Current densities: cargo 13.5, kafka 12.5, terraform 9.5,
+ocelot 8.3, spark-java 7.7, kubernetes 6.2, flask 5.9, vscode 4.7, django 2.8.
+If the experiment only affects dense graphs (like adaptive alpha), test on dense repos
+(flask, cargo, kafka) instead of Django.
+
+**Output capture:** Always capture full output to a file (`2>&1 | tee /tmp/file.log`
+or `> /tmp/file.log 2>&1`). Never pipe through `tail` as it loses early output.
 
 ## When Benchmark Numbers Change
 
@@ -78,15 +114,18 @@ Competitive ratios to recalculate from new P@10:
 - `internal/snapshot/` — hierarchical Merkle tree (via merkle-strata library)
 - `internal/mcp/` — MCP server (28 tools, 8 resources)
 - `internal/enrichment/` — LSP enrichment (multi-module gopls, per-symbol timeout, progress persistence)
-- `bench/cross-system/` — competitive benchmark (167 tasks, 10 repos, 7 competitors)
+- `bench/cross-system/` — competitive benchmark (222 tasks, 12 repos, 7 competitors)
 - `cmd/knowing/audit_supply_chain.go` — supply chain CLI (package-level verdict)
 
-## Current State (session 16, 2026-05-26)
+## Current State (session 17, 2026-05-27)
 
-- **P@10 = 0.242** (167 tasks, 10 repos, 6 languages, 38 edge types)
+- **P@10 = 0.223 cold start, 0.249 with compounding** (222 tasks, 12 repos, 7 languages, 38 edge types)
+- **Self-adapting compounding:** +11.5% P@10 from passive task memory (round 1 to round 2)
 - **Density-adaptive:** PreferTypeSeeds >40K nodes, adaptive seed count >10K nodes
 - **Embedding re-ranker:** +17% P@10, pure re-rank (weight=0.0), vector cache 220ms
-- **Competitive:** 1.79x codegraph, 1.77x codebase-memory, 3.23x GitNexus, 3.84x Gortex, 18.6x grep
+- **LSP enrichment:** strongly positive. Go: k8s 0.000->0.232, terraform ~0.095->0.275. Python: +0.040
+- **Competitive (cold):** 1.65x codegraph, 1.63x codebase-memory, 2.97x GitNexus, 3.54x Gortex, 17.2x grep
+- **Competitive (warm):** 1.84x codegraph, 1.82x codebase-memory, 3.32x GitNexus, 3.95x Gortex, 19.2x grep
 - **Supply chain:** 1.0% FP on 200 clean packages (package-level verdict)
 - **Identity:** "self-adapting code intelligence engine that gets smarter with scale"
 
@@ -95,12 +134,12 @@ Competitive ratios to recalculate from new P@10:
 1. **P@10 is reachability-determined.** 32-config parameter sweep + seed count sweep (10-50) proved zero variance. Only new edges or new seed sources move the metric. Don't tune weights.
 2. **Dense graph dilution is a seed selection problem.** Edge exclusion, BFS depth, hub dampening all tested neutral. Fix: density-adaptive seed selection (PreferTypeSeeds + adaptive seed count).
 3. **Embedding architecture > model.** Three models neutral as Channel 3 (independent search). Same models +17% as re-ranker. The integration point matters, not the model.
-4. **Enrichment hurts retrieval.** LSP enrichment adds correct edges but dilutes RWR. Useful for audit, harmful for retrieval.
+4. **Enrichment is strongly positive for retrieval.** Session 13 found neutral (tested confidence upgrades only). Session 17 revised: Go enrichment k8s 0.000->0.232, terraform ~0.095->0.275. Python +0.040. Phantom nodes + type_hint_of edges create shared-type reachability paths. Neither works alone.
 5. **42% of Django tasks score zero.** Vocabulary gaps: ground truth symbols share no keywords with task. No parameter tuning fixes this. Need new candidate sources.
 6. **Gap injection concept is sound but BM25 is too noisy.** Embedding-filtered BM25 gap candidates: Django +3.2% but aggregate neutral. Need higher-precision candidate source.
 7. **Coherence packing, bidirectional inheritance: both harmful.** Greedy density packing is near-optimal. Reverse inherits edges add noise without reachability.
 
-## Experiment Summary (41 total across sessions 8-16)
+## Experiment Summary (44 total across sessions 8-17)
 
 ### What works
 | Experiment | Impact | Session |
@@ -110,11 +149,14 @@ Competitive ratios to recalculate from new P@10:
 | Adaptive seed count (>40K: 25, >10K: 20) | Django +14.2%, corpus +1.7% | 16 |
 | PreferTypeSeeds (>40K nodes) | VS Code +44% | 14 |
 | Docstring FTS indexing | +12.2% | 13 |
+| Task memory compounding | +11.5% P@10 round-over-round | 17 |
+| Go enrichment (two-phase warmup) | k8s 0.000->0.232, terraform ~0.095->0.275 | 17 |
 | Equivalence classes (115 concepts) | +8pp hard tier | 14 |
 | Vector cache (SQLite) | 660ms -> 220ms | 16 |
+| Dangling type_hint_of resolution | 3,836 edges fixed across 4 repos | 17 |
 
 ### What doesn't work
-Embeddings as Channel 3, blended re-rank, call-chain seeding, hub dampening, BFS depth reduction, framework thesaurus, coherence packing, bidirectional inheritance, raw BM25 gap injection, seed count tuning (10-50), gap parameter sweep (15 configs). All neutral or harmful. See docs/roadmap.md for details.
+Embeddings as Channel 3, blended re-rank, call-chain seeding, hub dampening, BFS depth reduction, framework thesaurus, coherence packing, bidirectional inheritance, raw BM25 gap injection, seed count tuning (10-50), gap parameter sweep (15 configs), density-adaptive RWR alpha, density-adaptive inherits weight, interface type hint propagation (edge structure mismatch), GraphNodeCount excluding phantoms (phantoms are valid density signal). All neutral or harmful. See docs/roadmap.md for details.
 
 ## Repos
 
@@ -124,12 +166,14 @@ Embeddings as Channel 3, blended re-rank, call-chain seeding, hub dampening, BFS
 
 ## Next Priorities
 
-1. **Retrieval improvements**: density-adaptive alpha, FTS channel balancing, better gap candidate source. See docs/roadmap.md "Retrieval Improvements" for the full list of 11 queued experiments.
-2. **Deploy platform API** (DigitalOcean Droplet + Cloudflare Tunnel)
-3. **Publish benchmark paper** on Zenodo (docs/research/whitepapers/code-context-retrieval-benchmark.md)
-4. **Publish supply chain blog post**
-5. **v0.11.0 release**
-6. **Org conversion** (blackwell-systems user -> org for Marketplace)
+1. **Embedding gap-fill seeds** (HIGH): when BM25 returns < 5 seeds, query sqlite-vec ANN for supplemental candidates. Targets django's 42% zero-rate without regressing strong repos. Prerequisites: sqlite-vec + pre-embed all nodes.
+2. **Deploy platform API** (DigitalOcean Droplet + Cloudflare Tunnel). DEPLOY.md and deploy.sh ready.
+3. **Update all benchmark docs** with 12-repo/222-task/0.223 cold/0.249 warm numbers.
+4. **Publish benchmark paper** on Zenodo (docs/research/whitepapers/code-context-retrieval-benchmark.md)
+5. **v0.11.0 release**: 50+ unreleased commits
+6. **Zig extractor**: tree-sitter-zig grammar exists, vendor parser.c. LinkedIn interest.
+7. **Re-test hub dampening, coherence, BFS depth** on enriched graphs (may flip post-enrichment)
+8. **Org conversion** (blackwell-systems user -> org for Marketplace)
 
 ## Documentation Map
 
@@ -155,11 +199,28 @@ Embeddings as Channel 3, blended re-rank, call-chain seeding, hub dampening, BFS
 
 - **Persistent pack cache masks experiments.** `DisablePersistentCache()` is required in benchmark adapter or results are stale. The notes-table cache returns previous run's output.
 - **BENCH_EMBEDDINGS=1 required for re-ranker.** Without it, embeddings don't load and P@10 stays at ~0.207 (no re-ranker). With it, P@10=0.242.
-- **Django has 36 tasks in bench, not 33.** The fixture count varies by how the harness discovers them. Don't worry about task count mismatches between runs.
+- **Django has 33 tasks in bench.** Consistently 33 fixtures on disk.
 - **Kubernetes P@10 varies +-0.05 between runs.** High variance from 19-22 task subset loading and embedding non-determinism. Don't chase k8s fluctuations.
 - **`knowing index` runs LSP enrichment by default.** Use `-no-enrich` when you only need tree-sitter edges (supply chain scanning, quick benchmarks). Saves ~14s per package.
 - **The knowing binary on PATH may be stale.** After code changes, rebuild with `GOWORK=off go build -o /tmp/knowing-test ./cmd/knowing/` for testing. Or `go install`.
 - **`command npm` not `npm`.** nvm shell hook interferes. Always use `command npm`.
+- **Don't use `timeout` on long-running commands.** Let indexing, enrichment, and benchmarks run until they finish. Kill manually if they go too long. `timeout` causes premature kills on processes that are legitimately slow (gopls loading, tsserver type-checking, kafka authorship).
+- **Never delete benchmark corpus DBs.** The DBs at `bench/cross-system/corpus/repos/<repo>/.knowing/graph.db` are gitignored and can't be restored from git. Enrichment status: Python (django, flask, fastapi) enriched with pyright. Java (spark-java, kafka) enriched with jdtls. TypeScript (vscode) enriched with tsserver. Go (terraform, kubernetes, caddy) enriched with gopls (two-phase warmup). Rust (cargo) enriched with rust-analyzer. C# (ocelot) enriched with csharp-ls. All 12 repos are enriched. If you need to test with modified indexing, copy the DB first.
+
+## Debugging Hung Processes
+
+When a process appears stuck, use these tools to diagnose instead of guessing:
+
+- **`sample <pid> 1`** (macOS): samples native call stacks for 1 second. Shows where threads are spending time (active CPU work vs idle waits). If all threads are in `pthread_cond_wait`, the process is blocked on I/O, not CPU-bound.
+- **`kill -SIGQUIT <pid>`** (Go processes): dumps all goroutine stacks to stderr. Shows the exact function and line where each goroutine is blocked. Go's built-in equivalent of strace for goroutines. The process exits after the dump.
+- **`ps aux | grep <name> | awk '{print "CPU:", $3"%", "TIME:", $10}'`**: quick check whether a process is actively working (high CPU) or idle (low CPU with high wall clock time).
+
+Example workflow from session 17:
+1. `sample` showed gopls threads idle in `pthread_cond_wait` while enricher also idle: both waiting for each other, not CPU-bound.
+2. `SIGQUIT` goroutine dump showed 8 goroutines blocked in `sendRequest -> selectgo -> GetDefinition`: enricher sending requests gopls wasn't answering.
+3. `sample` on tsserver showed `StringIndexOf` and `GarbageCollection`: actively type-checking, not stuck.
+
+These tools turn "it's hanging" into "here's exactly where and why."
 
 ## Conventions
 
