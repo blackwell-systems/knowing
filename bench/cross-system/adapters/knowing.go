@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/blackwell-systems/knowing/bench/cross-system/benchtype"
@@ -90,6 +91,7 @@ type Knowing struct {
 	memories   map[string]*knowingctx.TaskMemory // per-repo task memory for compounding tests
 	nodeCounts map[string]int                    // cached node count per repo for adaptive density
 	searchers  map[string]*embedding.Searcher    // per-repo vector searcher (nil if embeddings disabled)
+	mu         sync.Mutex                        // protects GraphNodeCount global during parallel repos
 }
 
 func NewKnowing() *Knowing {
@@ -188,41 +190,32 @@ func (a *Knowing) Index(repoPath string) (int64, error) {
 		}
 	}
 
-	// Build embedding index if BENCH_EMBEDDINGS=1.
-	// Only embeds the first N symbols (sorted by node hash for determinism).
-	// Embedding all 253K k8s nodes would take ~60 min; cap at 5000 for benchmark viability.
-	// Skip if already built for this repo (Index is called per-task, not per-repo).
+	// Enable embeddings if BENCH_EMBEDDINGS=1.
+	// Uses pre-embedded vectors from SQLite (via `knowing enrich embeddings`).
+	// No HNSW index rebuild needed: the re-ranker uses ReRankByHashes (reads
+	// vectors from cache), and gap-fill uses LoadAndSearchFromStore (brute-force
+	// cosine from SQLite). If vectors aren't pre-embedded, falls back to
+	// on-the-fly embedding for the re-ranker (slower but functional).
 	if os.Getenv("BENCH_EMBEDDINGS") == "1" && a.searchers[repoPath] == nil {
 		embedder, err := embedding.New()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  [warn] embeddings disabled: %v\n", err)
 		} else {
 			searcher := embedding.NewSearcher(embedder)
-			searcher.SetStore(s) // persistent vector cache
-			nodes, err := s.NodesByName(ctx, "%")
-			if err == nil && len(nodes) > 0 {
-				// Cap at 5000 symbols for benchmark feasibility (~70s at 14ms/symbol).
-				maxEmbed := 5000
-				if len(nodes) < maxEmbed {
-					maxEmbed = len(nodes)
-				}
-				embedNodes := nodes[:maxEmbed]
-				// Batch embed in chunks of 64 for memory efficiency.
-				batchSize := 64
-				for i := 0; i < len(embedNodes); i += batchSize {
-					end := i + batchSize
-					if end > len(embedNodes) {
-						end = len(embedNodes)
-					}
-					_ = searcher.IndexBatch(ctx, embedNodes[i:end], nil)
-				}
-				fmt.Fprintf(os.Stderr, "  Embeddings: %d symbols indexed (of %d total)\n", searcher.Count(), len(nodes))
-			}
+			searcher.SetStore(s) // reads pre-embedded vectors from SQLite
+			fmt.Fprintf(os.Stderr, "  Embeddings: using pre-cached vectors from SQLite (no HNSW rebuild)\n")
 			a.searchers[repoPath] = searcher
 		}
 	}
 
 	return time.Since(start).Milliseconds(), nil
+}
+
+// SetNodeCount sets GraphNodeCount for a specific repo. Called per-repo
+// goroutine before the task loop in parallel benchmark execution.
+func (a *Knowing) SetNodeCount(repo string) {
+	repoPath := "corpus/repos/" + repo
+	knowingctx.GraphNodeCount = a.nodeCounts[repoPath]
 }
 
 func (a *Knowing) Retrieve(repoPath string, task benchtype.Task, tokenBudget int) (benchtype.RetrievalResult, error) {
@@ -234,8 +227,8 @@ func (a *Knowing) Retrieve(repoPath string, task benchtype.Task, tokenBudget int
 	ctx := stdctx.Background()
 	start := time.Now()
 
-	// Set graph node count for adaptive density (PreferTypeSeeds auto-enables >50K).
-	knowingctx.GraphNodeCount = a.nodeCounts[repoPath]
+	// GraphNodeCount is set per-repo by the harness goroutine before the task loop.
+	// Not set here to avoid race with parallel repo execution.
 
 	engine := knowingctx.NewContextEngine(s)
 	engine.DisablePersistentCache() // Ensure fresh retrieval for benchmark accuracy.

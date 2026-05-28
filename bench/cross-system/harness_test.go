@@ -89,37 +89,76 @@ func TestCrossSystem(t *testing.T) {
 	for _, adapter := range available {
 		t.Logf("\n--- System: %s ---", adapter.Name())
 
+		// Group tasks by repo for parallel execution.
+		repoTasks := make(map[string][]benchtype.Task)
 		for _, task := range tasks {
 			if !repoAllowed(task.Repo, repoFilter) {
 				continue
 			}
+			repoTasks[task.Repo] = append(repoTasks[task.Repo], task)
+		}
 
-			repoPath := filepath.Join("corpus", "repos", task.Repo)
-
-			// Index (idempotent, only meaningful for knowing)
+		// Pre-index all repos (sequential, idempotent).
+		for repo := range repoTasks {
+			repoPath := filepath.Join("corpus", "repos", repo)
 			if _, err := adapter.Index(repoPath); err != nil {
-				t.Logf("  [%s] %s: index error: %v (skipping)", adapter.Name(), task.ID, err)
-				continue
+				t.Logf("  [%s] %s: index error: %v (skipping repo)", adapter.Name(), repo, err)
+				delete(repoTasks, repo)
 			}
+		}
 
-			result, err := adapter.Retrieve(repoPath, task, defaultTokenBudget)
-			if err != nil {
-				t.Logf("  [%s] %s: retrieve error: %v", adapter.Name(), task.ID, err)
-				continue
+		// Run repos in parallel, tasks within each repo sequentially.
+		type repoResult struct {
+			metrics []benchtype.MetricResult
+			logs    []string
+		}
+		resultCh := make(chan repoResult, len(repoTasks))
+
+		for repo, rTasks := range repoTasks {
+			go func(repo string, tasks []benchtype.Task) {
+				repoPath := filepath.Join("corpus", "repos", repo)
+				var rr repoResult
+
+				// Set GraphNodeCount for this repo's goroutine. Each goroutine
+				// owns one repo and sets the global before its task loop. Since
+				// ForTask reads it synchronously within the same goroutine,
+				// this is safe as long as we don't yield between set and read.
+				// TODO: refactor GraphNodeCount to a per-engine field.
+				if nc, ok := adapter.(*adapters.Knowing); ok {
+					nc.SetNodeCount(repo)
+				}
+
+				for _, task := range tasks {
+					result, err := adapter.Retrieve(repoPath, task, defaultTokenBudget)
+					if err != nil {
+						rr.logs = append(rr.logs, fmt.Sprintf("  [%s] %s: retrieve error: %v", adapter.Name(), task.ID, err))
+						continue
+					}
+					if result.Error != "" {
+						rr.logs = append(rr.logs, fmt.Sprintf("  [%s] %s: %s", adapter.Name(), task.ID, result.Error))
+						continue
+					}
+
+					metric := metrics.Compute(result, task.GroundTruth)
+					rr.metrics = append(rr.metrics, metric)
+
+					rr.logs = append(rr.logs, fmt.Sprintf("  [%s] %s: P@10=%.2f R@10=%.2f NDCG=%.2f MRR=%.2f tokens=%d latency=%dms",
+						adapter.Name(), task.ID,
+						metric.PrecisionAt10, metric.RecallAt10,
+						metric.NDCGAt10, metric.MRR,
+						metric.TokensUsed, metric.LatencyMs))
+				}
+				resultCh <- rr
+			}(repo, rTasks)
+		}
+
+		// Collect results from all repos.
+		for range repoTasks {
+			rr := <-resultCh
+			for _, log := range rr.logs {
+				t.Log(log)
 			}
-			if result.Error != "" {
-				t.Logf("  [%s] %s: %s", adapter.Name(), task.ID, result.Error)
-				continue
-			}
-
-			metric := metrics.Compute(result, task.GroundTruth)
-			allResults = append(allResults, metric)
-
-			t.Logf("  [%s] %s: P@10=%.2f R@10=%.2f NDCG=%.2f MRR=%.2f tokens=%d latency=%dms",
-				adapter.Name(), task.ID,
-				metric.PrecisionAt10, metric.RecallAt10,
-				metric.NDCGAt10, metric.MRR,
-				metric.TokensUsed, metric.LatencyMs)
+			allResults = append(allResults, rr.metrics...)
 		}
 	}
 
