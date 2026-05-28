@@ -1,0 +1,16 @@
+id: fastapi-hard-007
+repo: fastapi
+tier: hard
+description: "Trace the full error handling pipeline when request validation fails: from Pydantic raising a validation error during parameter extraction, through error location regeneration, to the exception handler returning a JSON response"
+source: synthetic
+ground_truth:
+  - fastapi.dependencies.utils.request_params_to_args
+  - fastapi.dependencies.utils.request_body_to_args
+  - fastapi._compat.v2.ModelField.validate
+  - fastapi._compat.v2._regenerate_error_with_loc
+  - fastapi.exceptions.RequestValidationError
+  - fastapi.exceptions.RequestValidationError.__init__
+  - fastapi.exception_handlers.request_validation_exception_handler
+  - fastapi.routing.get_request_handler
+tags: [validation, error-handling, pydantic, cross-package, architecture]
+notes: "Traces validation errors across the full stack: request_params_to_args and request_body_to_args extract and validate values using ModelField.validate. Errors are enriched with location info via _regenerate_error_with_loc, collected into RequestValidationError, and dispatched to request_validation_exception_handler. get_request_handler is where the error collection and raising happens."

@@ -1,0 +1,14 @@
+id: fastapi-medium-001
+repo: fastapi
+tier: medium
+description: "How does FastAPI resolve nested dependencies when an endpoint depends on a function that itself has Depends() parameters?"
+source: manual
+ground_truth:
+  - fastapi.dependencies.utils.get_dependant
+  - fastapi.dependencies.utils.solve_dependencies
+  - fastapi.dependencies.models.Dependant
+  - fastapi.param_functions.Depends
+  - fastapi.params.Depends
+  - fastapi.dependencies.utils.analyze_param
+tags: [dependency-injection, cross-module, architecture]
+notes: "Requires understanding how get_dependant recursively builds the dependency tree, how solve_dependencies resolves values at runtime, the Dependant model that represents the tree, and analyze_param which classifies each parameter."

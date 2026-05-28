@@ -1,0 +1,11 @@
+id: fastapi-easy-001
+repo: fastapi
+tier: easy
+description: "Add a background task to a FastAPI endpoint that sends an email notification after returning a response"
+source: manual
+ground_truth:
+  - fastapi.background.BackgroundTasks
+  - fastapi.background.BackgroundTasks.add_task
+  - fastapi.routing.run_endpoint_function
+tags: [background-tasks, single-package, feature-addition]
+notes: "Developer needs the BackgroundTasks class to inject into the endpoint, add_task to schedule work, and run_endpoint_function to understand how the endpoint executes before tasks run."

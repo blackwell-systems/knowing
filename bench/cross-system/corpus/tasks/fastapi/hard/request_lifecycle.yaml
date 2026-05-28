@@ -1,0 +1,17 @@
+id: fastapi-hard-001
+repo: fastapi
+tier: hard
+description: "I want to understand the full request lifecycle in FastAPI from when a route is matched to when the response is serialized, including dependency resolution, validation, and response encoding"
+source: synthetic
+ground_truth:
+  - fastapi.routing.APIRoute.get_route_handler
+  - fastapi.routing.get_request_handler
+  - fastapi.routing.request_response
+  - fastapi.dependencies.utils.solve_dependencies
+  - fastapi.routing.run_endpoint_function
+  - fastapi.routing.serialize_response
+  - fastapi.encoders.jsonable_encoder
+  - fastapi.dependencies.utils.request_params_to_args
+  - fastapi.dependencies.utils.request_body_to_args
+tags: [broad-scope, architecture, request-lifecycle, cross-package]
+notes: "Tests retrieval breadth. Requires understanding the full chain: route matching yields get_route_handler, which calls get_request_handler to build the ASGI app, request_response wraps it, solve_dependencies resolves all params, run_endpoint_function calls the user code, and serialize_response + jsonable_encoder handle the output."

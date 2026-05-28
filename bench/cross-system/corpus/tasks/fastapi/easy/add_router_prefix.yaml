@@ -1,0 +1,12 @@
+id: fastapi-easy-006
+repo: fastapi
+tier: easy
+description: "Organize endpoints into separate APIRouter modules with prefixes and include them in the main FastAPI application"
+source: manual
+ground_truth:
+  - fastapi.routing.APIRouter
+  - fastapi.routing.APIRouter.__init__
+  - fastapi.routing.APIRouter.include_router
+  - fastapi.applications.FastAPI.include_router
+tags: [routing, organization, single-package, feature-addition]
+notes: "Developer needs the APIRouter class, its constructor for setting prefix/tags, and include_router on both APIRouter and FastAPI to compose routers hierarchically."

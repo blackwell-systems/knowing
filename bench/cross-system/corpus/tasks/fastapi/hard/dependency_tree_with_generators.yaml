@@ -1,0 +1,17 @@
+id: fastapi-hard-002
+repo: fastapi
+tier: hard
+description: "How does FastAPI handle dependency functions that use yield (generator dependencies) for setup/teardown, including async generators and the exit stack that manages their lifecycle?"
+source: manual
+ground_truth:
+  - fastapi.dependencies.utils.solve_dependencies
+  - fastapi.dependencies.utils._solve_generator
+  - fastapi.dependencies.utils.get_dependant
+  - fastapi.dependencies.models.Dependant
+  - fastapi.dependencies.models.Dependant.is_gen_callable
+  - fastapi.dependencies.models.Dependant.is_async_gen_callable
+  - fastapi.middleware.asyncexitstack.AsyncExitStackMiddleware
+  - fastapi.middleware.asyncexitstack.AsyncExitStackMiddleware.__call__
+  - fastapi.concurrency.contextmanager_in_threadpool
+tags: [dependency-injection, generators, lifecycle, cross-package]
+notes: "Deep dive into yield-based dependency lifecycle. Requires understanding solve_dependencies which orchestrates resolution, _solve_generator which wraps generators, the Dependant flags for generator detection, AsyncExitStackMiddleware which manages the exit stack across the request, and contextmanager_in_threadpool for sync generator support."

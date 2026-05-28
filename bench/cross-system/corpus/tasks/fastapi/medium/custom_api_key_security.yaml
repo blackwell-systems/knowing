@@ -1,0 +1,14 @@
+id: fastapi-medium-005
+repo: fastapi
+tier: medium
+description: "Implement API key authentication that accepts the key from a header, query parameter, or cookie, and integrates with OpenAPI documentation"
+source: manual
+ground_truth:
+  - fastapi.security.api_key.APIKeyHeader
+  - fastapi.security.api_key.APIKeyQuery
+  - fastapi.security.api_key.APIKeyCookie
+  - fastapi.security.api_key.APIKeyBase
+  - fastapi.security.api_key.APIKeyBase.check_api_key
+  - fastapi.security.base.SecurityBase
+tags: [security, api-key, cross-module, feature-addition]
+notes: "Developer needs the three API key classes (header, query, cookie), the base class that defines the common check_api_key logic, and SecurityBase which integrates with the OpenAPI schema generation."

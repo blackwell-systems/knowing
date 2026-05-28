@@ -1,0 +1,12 @@
+id: fastapi-easy-004
+repo: fastapi
+tier: easy
+description: "Create an endpoint that accepts file uploads using FastAPI's UploadFile"
+source: manual
+ground_truth:
+  - fastapi.datastructures.UploadFile
+  - fastapi.datastructures.UploadFile.read
+  - fastapi.param_functions.File
+  - fastapi.params.File
+tags: [file-upload, single-package, feature-addition]
+notes: "Developer needs the UploadFile type for the parameter annotation, the read method to access file contents, and the File function to declare the parameter as a file upload."

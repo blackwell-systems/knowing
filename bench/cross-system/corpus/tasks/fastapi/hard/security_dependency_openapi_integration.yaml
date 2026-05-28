@@ -1,0 +1,16 @@
+id: fastapi-hard-005
+repo: fastapi
+tier: hard
+description: "How do security dependencies in FastAPI integrate with both the dependency injection system and the OpenAPI schema generation, so that declaring OAuth2PasswordBearer as a dependency automatically adds the security scheme to the docs?"
+source: synthetic
+ground_truth:
+  - fastapi.security.oauth2.OAuth2PasswordBearer
+  - fastapi.security.oauth2.OAuth2PasswordBearer.__init__
+  - fastapi.security.base.SecurityBase
+  - fastapi.dependencies.models.Dependant._is_security_scheme
+  - fastapi.dependencies.models.Dependant._security_dependencies
+  - fastapi.openapi.utils.get_openapi_security_definitions
+  - fastapi.param_functions.Security
+  - fastapi.params.Security
+tags: [security, openapi, dependency-injection, cross-package, architecture]
+notes: "Requires understanding the dual role of security classes: they are both callable dependencies (OAuth2PasswordBearer.__call__) and OpenAPI schema contributors (via SecurityBase.model). The Dependant model tracks security schemes, and get_openapi_security_definitions collects them during schema generation."

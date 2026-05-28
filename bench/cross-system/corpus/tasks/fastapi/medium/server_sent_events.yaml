@@ -1,0 +1,13 @@
+id: fastapi-medium-006
+repo: fastapi
+tier: medium
+description: "Implement a server-sent events (SSE) streaming endpoint that pushes real-time updates to clients with proper event formatting"
+source: manual
+ground_truth:
+  - fastapi.sse.EventSourceResponse
+  - fastapi.sse.ServerSentEvent
+  - fastapi.sse.format_sse_event
+  - fastapi.routing._serialize_sse_item
+  - fastapi.routing._sse_with_checkpoints
+tags: [sse, streaming, cross-module, feature-addition]
+notes: "Developer needs EventSourceResponse for the streaming response type, ServerSentEvent for structured events, format_sse_event for wire format, and the internal routing functions that handle SSE serialization and keepalive."

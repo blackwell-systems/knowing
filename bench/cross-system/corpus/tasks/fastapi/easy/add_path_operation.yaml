@@ -1,0 +1,12 @@
+id: fastapi-easy-003
+repo: fastapi
+tier: easy
+description: "Add a new GET endpoint with path parameters and query parameters to an existing FastAPI application"
+source: manual
+ground_truth:
+  - fastapi.routing.APIRouter.get
+  - fastapi.param_functions.Query
+  - fastapi.param_functions.Path
+  - fastapi.routing.APIRouter.api_route
+tags: [routing, parameters, single-package, feature-addition]
+notes: "Developer needs the HTTP method decorator (get), the Query and Path parameter functions for type annotation, and api_route as the underlying route registration mechanism."

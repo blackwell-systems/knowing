@@ -1,0 +1,12 @@
+id: fastapi-easy-002
+repo: fastapi
+tier: easy
+description: "Register a custom exception handler that returns JSON error responses for HTTP exceptions instead of the default plain text"
+source: manual
+ground_truth:
+  - fastapi.applications.FastAPI.exception_handler
+  - fastapi.exception_handlers.http_exception_handler
+  - fastapi.exception_handlers.request_validation_exception_handler
+  - fastapi.exceptions.HTTPException
+tags: [error-handling, single-package, feature-addition]
+notes: "Developer needs the exception_handler decorator on the FastAPI app, the default handlers as patterns, and the HTTPException class to understand the exception type."

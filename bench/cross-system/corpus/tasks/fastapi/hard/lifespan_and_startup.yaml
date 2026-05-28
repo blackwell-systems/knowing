@@ -1,0 +1,16 @@
+id: fastapi-hard-006
+repo: fastapi
+tier: hard
+description: "How does FastAPI handle application lifespan events including startup/shutdown, how do router lifespans get merged when including sub-routers, and how does the legacy on_event decorator relate to the modern lifespan context manager?"
+source: manual
+ground_truth:
+  - fastapi.routing._DefaultLifespan
+  - fastapi.routing._merge_lifespan_context
+  - fastapi.routing._wrap_gen_lifespan_context
+  - fastapi.routing.APIRouter._startup
+  - fastapi.routing.APIRouter._shutdown
+  - fastapi.routing.APIRouter.on_event
+  - fastapi.routing.APIRouter.add_event_handler
+  - fastapi.routing.APIRouter.include_router
+tags: [lifespan, startup, shutdown, cross-module, architecture]
+notes: "Requires understanding the lifespan system: _DefaultLifespan provides backward compat with on_event, _merge_lifespan_context combines parent and child lifespans when including routers, _wrap_gen_lifespan_context adapts generator lifespans to async context managers, and the startup/shutdown methods manage the event handler lists."

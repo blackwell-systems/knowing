@@ -1,0 +1,14 @@
+id: fastapi-medium-004
+repo: fastapi
+tier: medium
+description: "Add a WebSocket endpoint with dependency injection that authenticates the connection and handles bidirectional messaging"
+source: manual
+ground_truth:
+  - fastapi.routing.APIWebSocketRoute
+  - fastapi.routing.APIWebSocketRoute.__init__
+  - fastapi.routing.get_websocket_app
+  - fastapi.routing.websocket_session
+  - fastapi.routing.APIRouter.websocket
+  - fastapi.dependencies.utils.solve_dependencies
+tags: [websocket, dependency-injection, cross-module, feature-addition]
+notes: "Developer needs APIWebSocketRoute for the route type, get_websocket_app which builds the ASGI handler, websocket_session which wraps the endpoint execution, the websocket decorator for registration, and solve_dependencies for auth injection."

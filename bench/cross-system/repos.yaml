@@ -58,3 +58,11 @@ repos:
     size_class: medium  # ~120K LOC
     clone_depth: 1
     notes: "Go web server / reverse proxy. Modular architecture, automatic HTTPS, Caddyfile config adaptation, middleware pipeline, health checks."
+
+  - name: fastapi
+    url: https://github.com/fastapi/fastapi
+    commit: "2bd97a6"
+    language: Python
+    size_class: medium  # ~14K LOC core, large docs_src
+    clone_depth: 1
+    notes: "Modern Python web framework on Starlette/Pydantic. Dependency injection, type-based parameter resolution, OpenAPI generation, security schemes."
