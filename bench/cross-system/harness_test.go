@@ -89,7 +89,7 @@ func TestCrossSystem(t *testing.T) {
 	for _, adapter := range available {
 		t.Logf("\n--- System: %s ---", adapter.Name())
 
-		// Group tasks by repo for parallel execution.
+		// Group tasks by repo.
 		repoTasks := make(map[string][]benchtype.Task)
 		for _, task := range tasks {
 			if !repoAllowed(task.Repo, repoFilter) {
@@ -107,58 +107,73 @@ func TestCrossSystem(t *testing.T) {
 			}
 		}
 
-		// Run repos in parallel, tasks within each repo sequentially.
+		// Repo execution: parallel if BENCH_PARALLEL=1, sequential otherwise.
+		// Parallel mode is faster (4.6 min vs 20 min) but currently regresses
+		// P@10 due to shared state (GraphNodeCount global, SQLite WAL contention,
+		// ONNX runtime thread safety). Use sequential for official measurements.
 		type repoResult struct {
 			metrics []benchtype.MetricResult
 			logs    []string
 		}
-		resultCh := make(chan repoResult, len(repoTasks))
 
-		for repo, rTasks := range repoTasks {
-			go func(repo string, tasks []benchtype.Task) {
-				repoPath := filepath.Join("corpus", "repos", repo)
-				var rr repoResult
+		runRepo := func(repo string, tasks []benchtype.Task) repoResult {
+			repoPath := filepath.Join("corpus", "repos", repo)
+			var rr repoResult
 
-				// Set GraphNodeCount for this repo's goroutine. Each goroutine
-				// owns one repo and sets the global before its task loop. Since
-				// ForTask reads it synchronously within the same goroutine,
-				// this is safe as long as we don't yield between set and read.
-				// TODO: refactor GraphNodeCount to a per-engine field.
-				if nc, ok := adapter.(*adapters.Knowing); ok {
-					nc.SetNodeCount(repo)
+			// Set GraphNodeCount for this repo.
+			if nc, ok := adapter.(*adapters.Knowing); ok {
+				nc.SetNodeCount(repo)
+			}
+
+			for _, task := range tasks {
+				result, err := adapter.Retrieve(repoPath, task, defaultTokenBudget)
+				if err != nil {
+					rr.logs = append(rr.logs, fmt.Sprintf("  [%s] %s: retrieve error: %v", adapter.Name(), task.ID, err))
+					continue
+				}
+				if result.Error != "" {
+					rr.logs = append(rr.logs, fmt.Sprintf("  [%s] %s: %s", adapter.Name(), task.ID, result.Error))
+					continue
 				}
 
-				for _, task := range tasks {
-					result, err := adapter.Retrieve(repoPath, task, defaultTokenBudget)
-					if err != nil {
-						rr.logs = append(rr.logs, fmt.Sprintf("  [%s] %s: retrieve error: %v", adapter.Name(), task.ID, err))
-						continue
-					}
-					if result.Error != "" {
-						rr.logs = append(rr.logs, fmt.Sprintf("  [%s] %s: %s", adapter.Name(), task.ID, result.Error))
-						continue
-					}
+				metric := metrics.Compute(result, task.GroundTruth)
+				rr.metrics = append(rr.metrics, metric)
 
-					metric := metrics.Compute(result, task.GroundTruth)
-					rr.metrics = append(rr.metrics, metric)
-
-					rr.logs = append(rr.logs, fmt.Sprintf("  [%s] %s: P@10=%.2f R@10=%.2f NDCG=%.2f MRR=%.2f tokens=%d latency=%dms",
-						adapter.Name(), task.ID,
-						metric.PrecisionAt10, metric.RecallAt10,
-						metric.NDCGAt10, metric.MRR,
-						metric.TokensUsed, metric.LatencyMs))
-				}
-				resultCh <- rr
-			}(repo, rTasks)
+				rr.logs = append(rr.logs, fmt.Sprintf("  [%s] %s: P@10=%.2f R@10=%.2f NDCG=%.2f MRR=%.2f tokens=%d latency=%dms",
+					adapter.Name(), task.ID,
+					metric.PrecisionAt10, metric.RecallAt10,
+					metric.NDCGAt10, metric.MRR,
+					metric.TokensUsed, metric.LatencyMs))
+			}
+			return rr
 		}
 
-		// Collect results from all repos.
-		for range repoTasks {
-			rr := <-resultCh
-			for _, log := range rr.logs {
-				t.Log(log)
+		parallel := os.Getenv("BENCH_PARALLEL") == "1"
+
+		if parallel {
+			// Parallel: all repos simultaneously. Fast but may have race conditions.
+			resultCh := make(chan repoResult, len(repoTasks))
+			for repo, rTasks := range repoTasks {
+				go func(repo string, tasks []benchtype.Task) {
+					resultCh <- runRepo(repo, tasks)
+				}(repo, rTasks)
 			}
-			allResults = append(allResults, rr.metrics...)
+			for range repoTasks {
+				rr := <-resultCh
+				for _, log := range rr.logs {
+					t.Log(log)
+				}
+				allResults = append(allResults, rr.metrics...)
+			}
+		} else {
+			// Sequential: one repo at a time. Correct, used for official numbers.
+			for repo, rTasks := range repoTasks {
+				rr := runRepo(repo, rTasks)
+				for _, log := range rr.logs {
+					t.Log(log)
+				}
+				allResults = append(allResults, rr.metrics...)
+			}
 		}
 	}
 
