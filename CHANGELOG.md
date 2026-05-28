@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- **Embedding gap-fill seeds**: when BM25 returns < 5 candidates, vector search finds supplemental seeds. Django +43% (0.176 -> 0.252), flask +22%. Zero regressions. 20 lines of code.
+- **`knowing enrich embeddings` command**: batch pre-embeds all real nodes, skips phantoms (70% reduction). Incremental: skips already-cached vectors.
+- **Brute-force vector search from SQLite**: `LoadAndSearchFromStore` does O(n) cosine from cached vectors. No HNSW index rebuild needed. Lazy loading: vectors loaded on first gap-fill query, not at startup (3% memory vs 91%).
+- **Parallel benchmark harness**: `BENCH_PARALLEL=1` runs repos in parallel goroutines. 5 min vs 20 min (4x speedup). P@10 = 0.220 +-0.002 (consistent, 0.022 below sequential due to ONNX CPU contention).
+- **GraphNodeCount per-engine field**: moved from global to `ContextEngine.nodeCount`. Thread-safe for parallel execution. `SetNodeCount`/`effectiveNodeCount` with fallback to global.
+- **Spark-java fixtures expanded**: 5 -> 20 tasks (15 new). Covers filters, sessions, templates, SSL, WebSocket, Jetty lifecycle.
+- **Adaptive retrieval architecture doc**: `docs/architecture/adaptive-retrieval.md` threading all 6 self-adapting mechanisms with ablation table.
+
 ## [v0.11.0] - 2026-05-27
 
 ### Added
