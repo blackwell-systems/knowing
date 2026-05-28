@@ -410,21 +410,30 @@ func cmdEnrichEmbeddings(args []string) error {
 		existing = nil // proceed without skip optimization
 	}
 
-	// Filter to nodes that need embedding.
+	// Filter to nodes that need embedding. Skip phantom external nodes
+	// (meaningless names like "external://calls.target" waste embedding inference
+	// and gap-fill already filters them from results).
 	var toEmbed []types.Node
+	skippedPhantoms := 0
 	for _, n := range nodes {
+		if n.Kind == "external" || strings.HasPrefix(n.QualifiedName, "external://") {
+			skippedPhantoms++
+			continue
+		}
 		if _, ok := existing[n.NodeHash]; !ok {
 			toEmbed = append(toEmbed, n)
 		}
 	}
 
+	realNodes := len(nodes) - skippedPhantoms
 	if len(toEmbed) == 0 {
-		fmt.Fprintf(os.Stderr, "All %d nodes already have embeddings. Nothing to do.\n", len(nodes))
+		fmt.Fprintf(os.Stderr, "All %d real nodes already have embeddings (%d phantoms skipped). Nothing to do.\n",
+			realNodes, skippedPhantoms)
 		return nil
 	}
 
-	fmt.Fprintf(os.Stderr, "Embedding %d nodes (%d already cached, %d total)...\n",
-		len(toEmbed), len(nodes)-len(toEmbed), len(nodes))
+	fmt.Fprintf(os.Stderr, "Embedding %d nodes (%d already cached, %d phantoms skipped, %d total)...\n",
+		len(toEmbed), realNodes-len(toEmbed), skippedPhantoms, len(nodes))
 
 	start := time.Now()
 	embedded := 0
