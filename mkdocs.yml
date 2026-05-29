@@ -17,31 +17,44 @@ theme:
 
 nav:
   - Home: index.md
+  - Guide:
+    - Introduction: guide/introduction.md
+    - CLI Reference: guide/cli.md
+    - MCP Tools: guide/mcp-tools.md
+    - Audit & Compliance: guide/audit-compliance.md
+    - Features: guide/features.md
+    - Distribution: guide/distribution.md
+    - Concurrency Primer: guide/concurrency-primer.md
+    - Diagnostic Tools: guide/diagnostic-tools.md
   - Architecture:
     - Concepts: architecture/concepts.md
     - System Overview: architecture/system-overview.md
     - Data Flow: architecture/data-flow.md
-    - Concurrency: architecture/concurrency.md
-    - Context Engine: architecture/context-engine.md
-    - Wire Formats: architecture/wire-formats.md
-    - CLI Commands: architecture/cli-commands.md
-    - Design Principles: architecture/design-principles.md
-    - Deep Dives: architecture/deep-dives.md
+    - Data Model: architecture/data-model.md
+    - Extraction Pipeline: architecture/extraction-pipeline.md
+    - Enrichment Pipeline: architecture/enrichment-pipeline.md
     - Retrieval Pipeline: architecture/retrieval-pipeline.md
+    - Adaptive Retrieval: architecture/adaptive-retrieval.md
+    - Context Engine: architecture/context-engine.md
     - Context Packing: architecture/context-packing.md
+    - Embedding Re-ranker: architecture/embedding-reranker.md
     - Edge Types: architecture/edge-types.md
     - Equivalence Classes: architecture/equivalence-classes.md
-    - Hooks Integration: architecture/hooks-integration.md
-    - Runtime Traces: architecture/runtime-traces.md
+    - Concurrency: architecture/concurrency.md
+    - Wire Formats: architecture/wire-formats.md
+    - Cross-Repo: architecture/cross-repo.md
+    - Semantic PR Diff: architecture/semantic-pr-diff.md
     - Merkle Algorithms: architecture/merkle-algorithms.md
+    - Merkle Proofs: architecture/merkle-proofs.md
+    - Design Principles: architecture/design-principles.md
+    - Deep Dives: architecture/deep-dives.md
+    - Git Design Audit: architecture/git-design-audit.md
     - ADR - Hierarchical Merkle: architecture/adr-hierarchical-merkle.md
-  - Guide:
-    - CLI Reference: guide/cli.md
-    - MCP Tools: guide/mcp-tools.md
-    - Features: guide/features.md
-    - Distribution: guide/distribution.md
+    - Hooks Integration: architecture/hooks-integration.md
+    - CLI Commands: architecture/cli-commands.md
   - Research:
-    - Whitepaper: research/whitepaper.md
+    - Whitepaper: research/content-addressing-as-computation-primitive.md
+    - Benchmark: research/cross-system-benchmark.md
     - Eval Framework: research/eval-framework.md
   - Operations:
     - Deployment: operations/deployment.md
