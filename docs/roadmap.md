@@ -2,21 +2,23 @@
 
 What's shipped is in the [changelog](CHANGELOG.md). This document covers what's next.
 
-## Current State (v0.11.0, 2026-05-28)
+## Current State (v0.12.0, 2026-05-29)
 
 **P@10 = 0.266 cold start, 0.271 with compounding** (277 tasks, 14 repos, 8 languages, nomic-embed-text-v1.5 model). 38 edge types. 23 extractors. 164 equivalence classes.
 1.97x codegraph, 1.94x codebase-memory, 3.55x GitNexus, 4.22x Gortex, 20.5x grep.
-Embedding re-ranker (nomic): +17% P@10. Gap-fill seeds: +11.2%. Equivalence classes (C#, FastAPI, Terraform): +4%. Task memory compounding: +5.0%. Ruby enrichment (ruby-lsp): Jekyll #1 in corpus at 0.370.
+Embedding re-ranker (nomic): +17% P@10. Gap-fill seeds: +11.2%. Equivalence classes (C#, FastAPI, Terraform, Rust): +4%. Task memory compounding: +5.0%. Ruby enrichment (ruby-lsp): Jekyll #1 in corpus at 0.370. Parallel benchmark: 5.5 min (was 80 min sequential) via PreloadVectors.
 
 ## Immediate Priorities
 
 | # | Item | Why | Effort | Expected Impact |
 |---|------|-----|--------|-----------------|
-| 1 | ~~Language equivalence classes~~ | **SHIPPED (session 18).** C# (15), FastAPI (10), Terraform (11) classes. Total 152 classes across 4 layers. Ocelot +51%, corpus +4%. | **Shipped** |
+| 1 | ~~Language equivalence classes~~ | **SHIPPED (sessions 18-19).** C# (15), FastAPI (10), Terraform (11), Rust (12) classes. Total 164 classes across 4 layers. Ocelot +51%, cargo +20%, corpus +4%. | **Shipped** |
+| 1a | ~~Jekyll + ripgrep corpus repos~~ | **SHIPPED (session 19).** Jekyll (Ruby, ruby-lsp enriched, P@10=0.370 #1) and ripgrep (Rust, rust-analyzer enriched, P@10=0.250). 14 repos, 277 tasks, 8 languages. | **Shipped** |
+| 1b | ~~PreloadVectors~~ | **SHIPPED (session 19).** Eager embedding cache at engine init. Parallel benchmark: 80 min -> 5.5 min (round 1). Zero P@10 regression. | **Shipped** |
 | 2 | **Deploy platform API** | api.blackwell-systems.com. DigitalOcean Droplet, Cloudflare Tunnel, bare metal. DEPLOY.md + deploy.sh ready. Just need GitHub deploy key. | 15 min | Live product |
 | 3 | **AI-generated evaluation corpus** | LLM generates tasks + ground truth, DB-validated before use: all symbols must exist in nodes table, >= 3 symbols, span >= 2 files. Auto-difficulty from graph properties. Run 1000, keep ~600. Weekly CI. Hybrid: hand-curated for regression, AI-generated for statistical coverage. | Medium | Eval credibility |
 | 4 | **Blog post** | Numbers are publishable: 14 repos, 8 languages, 277 tasks. LinkedIn audience is warm (11K views on mcp-assert). | 2 hours | Visibility |
-| 5 | **Add more corpus repos** | Every enriched repo at 0.200+ lifts the aggregate. Candidates: celery (Python, 80K LOC), Spring Boot (Java/Kotlin). Target: 15 repos, 300 tasks. | 2 hours each | Corpus credibility |
+| 5 | **Add more corpus repos** | Candidates: celery (Python, 80K LOC), Spring Boot (Java/Kotlin). Homebrew blocked on Ruby LSP (22a). Target: 16+ repos, 300 tasks. | 2 hours each | Corpus credibility |
 | 6 | **Supply chain whitepaper** | False positive evaluation done (1.0% on 200 packages). Draft has TanStack + event-stream case studies. | Medium | Publication |
 | 7 | ~~Root-level Go file extraction~~ | Tested: caddy has 701 nodes from 33 root-level .go files. Standalone repo test also works. Cannot reproduce. | **Not a bug** |
 | 8 | **GHA Marketplace action** | Package supply chain scanner for paid distribution. Free tier for public repos. | Medium | Commercial |
