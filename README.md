@@ -16,6 +16,9 @@ Self-adapting code intelligence engine. Observes its own graph density and adjus
 
 ---
 
+> [!NOTE]
+> **Built on published research:** [Content-Addressing as a Computation Primitive for Software Relationship Intelligence](https://zenodo.org/records/20342255) (DOI: 10.5281/zenodo.20342255)
+
 Your architecture diagram says service A calls service B. Can you prove it?
 
 **knowing can.** It builds a content-addressed graph of extracted code relationships, snapshots it as a Merkle tree tied to a git commit, and generates cryptographic proofs that verify offline. Agents use it for ranked context. Security teams use it for audit. Platform teams use it to compare code against production traces.
