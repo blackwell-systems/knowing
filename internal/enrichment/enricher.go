@@ -218,6 +218,7 @@ func (e *Enricher) runForServer(ctx context.Context, serverCfg LSPServerConfig, 
 			lspRoot = filepath.Join(e.workspaceRoot, serverCfg.WorkDir)
 		}
 	}
+
 	args := []string{}
 	if len(serverCfg.Command) > 1 {
 		args = serverCfg.Command[1:]

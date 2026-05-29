@@ -188,6 +188,7 @@ func execLookPath(file string) (string, error) {
 	return exec.LookPath(file)
 }
 
+
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
