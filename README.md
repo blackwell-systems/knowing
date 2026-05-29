@@ -12,9 +12,7 @@
 
 ---
 
-<p align="center">
 Self-adapting code intelligence engine. Observes its own graph density and adjusts retrieval strategy automatically. 38 edge types, 28 MCP tools, local embedding re-ranker, cryptographic proofs. Gets smarter with scale, not dumber.
-</p>
 
 ---
 
