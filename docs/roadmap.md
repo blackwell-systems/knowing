@@ -12,67 +12,14 @@ Embedding re-ranker (nomic): +17% P@10. Gap-fill seeds: +11.2%. Equivalence clas
 
 | # | Item | Why | Effort | Expected Impact |
 |---|------|-----|--------|-----------------|
-| 1 | ~~Language equivalence classes~~ | **SHIPPED (sessions 18-19).** C# (15), FastAPI (10), Terraform (11), Rust (12) classes. Total 164 classes across 4 layers. Ocelot +51%, cargo +20%, corpus +4%. | **Shipped** |
-| 1a | ~~Jekyll + ripgrep corpus repos~~ | **SHIPPED (session 19).** Jekyll (Ruby, ruby-lsp enriched, P@10=0.370 #1) and ripgrep (Rust, rust-analyzer enriched, P@10=0.250). 14 repos, 277 tasks, 8 languages. | **Shipped** |
-| 1b | ~~PreloadVectors~~ | **SHIPPED (session 19).** Eager embedding cache at engine init. Parallel benchmark: 80 min -> 5.5 min (round 1). Zero P@10 regression. | **Shipped** |
 | 2 | **Deploy platform API** | api.blackwell-systems.com. DigitalOcean Droplet, Cloudflare Tunnel, bare metal. DEPLOY.md + deploy.sh ready. Just need GitHub deploy key. | 15 min | Live product |
 | 3 | **AI-generated evaluation corpus** | LLM generates tasks + ground truth, DB-validated before use: all symbols must exist in nodes table, >= 3 symbols, span >= 2 files. Auto-difficulty from graph properties. Run 1000, keep ~600. Weekly CI. Hybrid: hand-curated for regression, AI-generated for statistical coverage. | Medium | Eval credibility |
 | 4 | **Blog post** | Numbers are publishable: 14 repos, 8 languages, 277 tasks. LinkedIn audience is warm (11K views on mcp-assert). | 2 hours | Visibility |
 | 5 | **Add more corpus repos** | Candidates: celery (Python, 80K LOC), Spring Boot (Java/Kotlin). Homebrew blocked on Ruby LSP (22a). Target: 16+ repos, 300 tasks. | 2 hours each | Corpus credibility |
 | 6 | **Supply chain whitepaper** | False positive evaluation done (1.0% on 200 packages). Draft has TanStack + event-stream case studies. | Medium | Publication |
-| 7 | ~~Root-level Go file extraction~~ | Tested: caddy has 701 nodes from 33 root-level .go files. Standalone repo test also works. Cannot reproduce. | **Not a bug** |
 | 8 | **GHA Marketplace action** | Package supply chain scanner for paid distribution. Free tier for public repos. | Medium | Commercial |
 
-### Session 16: Shipped
-
-- **Pre-computed embedding vector cache**: re-rank latency 660ms -> 220ms (3x speedup). Vectors stored in SQLite (migration 019). `ReRankByHashes` reads cached vectors, only embeds query text.
-- `EmbeddingStore` interface, `SetStore()`, `float32sToBytes`/`bytesToFloat32s` serialization
-- `VectorReRanker.ReRankByHashes` for hash-based cache-first re-ranking
-- 43 new unit tests across 4 packages (embedding, store, context, diff/isolation)
-- Latency profiling test (`internal/embedding/latency_test.go`)
-- Architecture doc: `docs/architecture/embedding-reranker.md`
-- Updated all docs with current numbers (P@10=0.242, 38 edge types, 9 repos, re-ranker)
-- Proposal status: pure-go-embeddings.md marked SHIPPED, Phase 2 no longer needed
-
-### Session 15: Shipped
-
-- **Embedding re-ranker**: +17% P@10, +18.3% R@10 on full 167-task corpus. jina-code model via hugot pure-Go ONNX. Pure re-rank (weight=0.0) validated optimal.
-- **Supply chain detection**: `reads_env` (37th), `executes_process` (38th) edge types across 5 languages. `knowing audit-supply-chain` CLI. Isolation scoring. Verified on TanStack + event-stream patterns.
-- **accesses_field** edge type (36th): 6 languages (Go, Rust, Python, Java, C#, TypeScript)
-- Wire format codec overhaul (binary: 9 -> 38 edge types, 10 -> 18 kinds, 4 -> 7 provenances)
-- Three automated scanners (npm, PyPI, Maven Central) on GitHub Actions
-- Attack detection registry (`demos/supply-chain-attacks/`)
-- v0.9.0, v0.10.0, v0.10.1 released
-
-### Session 14: Shipped
-
-- Type-method path seeding (type-aware keyword extraction)
-- Concept thesaurus (~80 domain clusters for BM25 expansion)
-- co_tested_with edge type (lateral connections between symbols in same test file)
-- type_hint_of edge type (Go, Java, TypeScript, Python parameter annotations)
-- Self-adapting PreferTypeSeeds (density-adaptive retrieval for >40K nodes)
-- Phrase-boosted BM25 from adjacent Components
-- TypeScript export_statement fix (was silently dropping all exported declarations)
-
-### Session 17: Shipped
-
-- **Dangling type_hint_of edge resolution**: post-processing step fixes edges computed with wrong node kind (type vs interface). 3,836 edges fixed across k8s (1,087), vscode (2,068), terraform (521), kafka (160).
-- **Interface type hint propagation (phase 2)**: after resolution, propagates type_hint_of through interfaces to concrete implementors. 808 new edges.
-- **`knowing enrich lsp` command**: standalone LSP enrichment on already-indexed DBs. Supports -concurrency, -db, -url flags.
-- **Similarity OOM fix**: skip packages with >500 functions in pairwise Jaccard (kafka's 16,781 functions caused 10GB+ RAM).
-- **csharp-ls support**: enrichment config detects csharp-ls as fallback when OmniSharp unavailable.
-- **Two-phase gopls warmup**: fixed OpenDocument argument order bug + didOpen before GetDefinition. Enables Go enrichment for the first time.
-- **Terraform enriched**: 82K new edges, 73K phantom nodes, 12 min.
-- **Kubernetes enriched**: 192K new edges, 169K phantom nodes, 58 min. K8s P@10: 0.000 -> 0.159 (no embeddings).
-- **Skip test/generated files in edge upgrade**: filters `_test.go` and `zz_generated` from upgrade phase. 70% reduction on k8s.
-- **Package-sorted edges**: sort workItems by URI for better gopls cache locality.
-- **Readiness probe for enrichment**: escalating timeout probes (5s, 10s, 30s, 60s, 120s).
-- **`EdgeCount` method on SQLiteStore**: lightweight COUNT(*) without loading all edges.
-- **Per-phase indexing timings**: `IndexTimings` struct emitted to stderr.
-- **Makefile**: corpus-rebuild, corpus-enrich, corpus-backup, corpus-restore targets.
-- **Docs overhaul**: introduction rewrite (7 pipeline steps, mermaid diagram), extraction pipeline architecture, enrichment architecture, troubleshooting guide, README split.
-
-### Tested Neutral or Harmful (sessions 14-17)
+### Tested Neutral or Harmful (sessions 14-19)
 
 | Approach | Result | Session | Details |
 |----------|--------|---------|---------|
@@ -328,7 +275,6 @@ context retrieval. Full proposal: [docs/proposals/code-retrieval-eval-toolkit.md
 | Item | Description | Status |
 |------|-------------|--------|
 | **Corpus DB tarball in releases** | Attach `corpus-dbs-vX.Y.Z.tar.gz` to each GitHub release as a separate asset (not bundled with binaries). Contains all 12 pre-built benchmark DBs with enrichment + pre-embedded vectors (1.6GB). Enables instant corpus restore via `make corpus-restore TARBALL=...` instead of 30+ min rebuild. DBs are gitignored and can't be recovered from git; losing them means hours of re-indexing + re-enrichment + re-embedding. | **HIGH PRIORITY** |
-| **`make corpus-rebuild`** | Makefile target that indexes + enriches all 12 repos with correct flags. Documents which repos need enrichment and with which LSP servers. | **Shipped (session 17)** |
 | **Corpus DB integrity check** | CI job that runs `knowing fsck` on each corpus DB after release to verify no corruption. | Not started |
 
 ### Not yet benchmarked (tracked for completeness)
@@ -350,7 +296,6 @@ P@10=0.266 cold, 0.271 warm (277 tasks, 14 repos, 8 languages). 1.97x vs codegra
 | # | Item | Why | Status |
 |---|------|-----|--------|
 | 7 | ~~Bidirectional inheritance edges~~ | Tested session 16: Django -2.5%, Flask -1.5%. Reverse inherits edges add noise without new reachability. Django's 42% zero-rate is vocabulary gaps, not connectivity gaps. | **Rejected** |
-| 8 | ~~Reachability gap injection~~ | **Superseded by #17 (embedding gap-fill seeds).** Gap-fill fires when BM25 < 5 candidates, queries embedding vectors for supplemental seeds. Django +43%, corpus +11.2%. Same concept, better implementation (embedding-based instead of BM25-based). | **Shipped (as #17)** |
 | 9 | ~~Density-adaptive RWR alpha~~ | Tested session 17: alpha=0.15 on dense repos (flask 5.9, cargo 13.5, kafka 12.5). P@10 0.280 vs baseline 0.278 (+0.002, within run variance). Neutral. Confirms parameter tuning doesn't move the metric. | **Rejected** |
 | 9 | ~~Density-adaptive inherits weight~~ | Tested session 17: boosted implements/overrides/extends to 1.0 on repos with >1.5% inherits edges. Django +0.009, kafka+flask -0.008. Net neutral. | **Rejected** |
 | 10 | **Adaptive seed count by structural richness** | % of type nodes with contains edges indicates how productive type seeds are. High % (>60%): fewer seeds needed (types reach methods). Low %: more seeds needed to compensate. | To test |
@@ -361,15 +306,11 @@ P@10=0.266 cold, 0.271 warm (277 tasks, 14 repos, 8 languages). 1.97x vs codegra
 | 15 | ~~Entry point seed channel~~ | Tested session 19: route_handler/service nodes as Channel 6 in RRF (weight 1.5x, keyword-filtered, cached). Django +10% without embeddings (0.250 -> 0.275), but **neutral on full corpus with embeddings** (0.264 vs 0.266 baseline). Embedding re-ranker already captures what entry point seeding provides. Route handlers have phantom targets (handles_route -> external), limiting RWR reachability from entry points. | **Neutral** |
 | 16 | **More equivalence concepts** | Only add when a specific task fixture exposes a gap. Must respect Run 22 constraint (no single-word phrases, no generic targets). | On-demand |
 | 16b | **Rust equivalence classes** | Cargo at 0.216 with rust-analyzer enrichment. Zero Rust-specific equiv classes. Macro vocabulary gap: task says "serialize", ground truth is `Serialize::serialize`. Candidates: serde (serialize/deserialize/from_str), tokio (async/spawn/runtime), error handling (thiserror/anyhow/Result/From), derive traits (Clone/Debug/Default), web (axum/Router/handler/extract). 10-15 classes. Also: SCIP ingestion (`rust-analyzer scip .`) would capture proc-macro expanded code that tree-sitter misses. | On-demand |
-| 16a | ~~C# equivalence classes~~ | **SHIPPED (session 18).** 15 C# classes (CS_MIDDLEWARE, CS_DI, CS_CONFIG, CS_ROUTING, CS_AUTH, CS_LOADBALANCE, CS_CACHE, CS_RATELIMIT, CS_HTTP_CLIENT, CS_QUALITY_OF_SERVICE, CS_HEADER_TRANSFORM, CS_AGGREGATION, CS_WEBSOCKET, CS_SECURITY, CS_ERROR_HANDLING). Ocelot P@10: 0.175 -> 0.265 (+51%). Full corpus: 0.247 -> 0.262 (+6.1%). | **Shipped** |
-| 17 | ~~Embedding gap-fill seeds~~ | **SHIPPED (session 17).** When BM25 returns < 5 seeds, HNSW vector search finds supplemental embedding-based seeds. Django: 0.176 -> 0.250 (+42%). Full corpus run in progress. 20 lines, no new dependencies, fully revertible. Cannot regress repos where BM25 already works (gap-fill only fires when primary channels are weak). | **Shipped** |
-| 17a | ~~Gap-fill threshold tuning~~ | Tested < 3, < 8, < 10 vs baseline < 5. All within variance (+-0.005). Threshold doesn't matter: tasks with 0-4 and 0-9 candidates are largely the same set. **Neutral.** | Done |
+| 17a | ~~Gap-fill threshold tuning~~ | Tested < 3, < 8, < 10 vs baseline < 5. All within variance (+-0.005). Threshold doesn't matter: tasks with 0-4 and 0-9 candidates are largely the same set. **Neutral.** | Rejected |
 | 17b | **Graduated gap-fill weight** | Binary activation (on/off at threshold 5) could be graduated: lower weight (0.5) when BM25 found 3-4 seeds, full weight only when BM25 found 0-1. Proportional intervention instead of binary. | Experiment |
 | 17c | **Embedding re-ranker regression on unenriched repos** | Homebrew (tree-sitter only, no LSP): P@10 = 0.275 without embeddings, 0.200 with embeddings. First observed case where the re-ranker hurts. Hypothesis: without LSP enrichment, symbol QNs are less descriptive (Ruby `::` namespacing), so cosine similarity promotes semantically similar but graph-wrong symbols. Investigate whether this affects other unenriched repos. Possible fix: disable re-ranker when lsp_resolved edge count is zero. | Investigation |
-| 19 | ~~Pre-embed all nodes~~ | **SHIPPED (session 17).** `knowing enrich embeddings` command. Batch pre-embed with phantom skip (70% reduction). Incremental: only embed new/changed nodes. All 12 corpus repos pre-embedded. | **Shipped** |
 | 19a | **Parallel benchmark P@10 variance** | `BENCH_PARALLEL=1` has +-0.009 P@10 variance vs sequential (0.264 stable). **SHIPPED:** (4) PreloadVectors: eager vector cache at init, round 1 25 min -> 5.3 min. (1) Shared ONNX Embedder: single session, less memory. **Tested, didn't help:** semaphore (4 concurrent repos): 0.238, worse than unbounded. Shared embedder alone: 0.255, didn't reduce variance. **Root cause:** non-deterministic goroutine scheduling affects RWR walk convergence, not I/O or ONNX contention. Per-task scores differ between sequential and parallel on identical inputs (cargo-easy-001: 0.40 seq vs 0.00 parallel). **Remaining ideas:** (5) Serialize HNSW index to file. (6) `PRAGMA mmap_size`. (2) Pre-compute query embeddings for benchmark-only. None address the root cause. Sequential remains official scoring mode; parallel is for iteration speed only. | Investigated, open |
 | 20 | **sqlite-vec integration** | Replace brute-force cosine with sqlite-vec ANN for persistent search. Current brute-force from SQLite works but scales O(n). sqlite-vec would give O(log n) queries. Pure Go option: `viant/sqlite-vec`. | Infrastructure (not urgent: brute-force is fast enough for current corpus sizes) |
-| 21 | ~~Adaptive retrieval architecture doc~~ | **SHIPPED (session 17).** `docs/architecture/adaptive-retrieval.md` with all 6 self-adapting mechanisms and ablation table. | **Shipped** |
 | 22 | **More corpus repos** | Every enriched repo at 0.200+ lifts the aggregate. Candidates: celery (Python, 80K LOC), Spring Boot (Java/Kotlin). Target: 16+ repos, 300 tasks. | Corpus expansion |
 | 22a | **Homebrew corpus repo (blocked)** | 278K LOC Ruby, 8,476 nodes, density 15.2. Tree-sitter P@10 = 0.275 (no embeddings). 20 fixtures written. **Blocked on Ruby LSP enrichment.** Investigated extensively (session 19): (1) ruby-lsp's composed bundle uses `bundle exec` which fails when project has `BUNDLE_DISABLE_SHARED_GEMS`/`BUNDLE_PATH` in `.bundle/config` (Homebrew-specific). Even with gem in Gemfile + lockfile + vendor/bundle, bundler 4.0 can't find the executable. (2) `BUNDLE_GEMFILE=""` bypasses bundler but ruby-lsp produces zero semantic edges (syntax only). (3) solargraph too slow (9+ min on 23K LOC Jekyll, timeout on 278K LOC Homebrew). (4) `.bundle/config` rename: ruby-lsp caches composed bundle state. **Root cause:** ruby-lsp requires functioning bundler context for semantic resolution, Homebrew's bundler config is incompatible. **Unblock path:** try on a Ruby repo without custom bundler config (Discourse, Sidekiq), or wait for ruby-lsp `--use-launcher` flag to mature. | Blocked |
 | 23 | **Fixture quality review** | Manual review of 60 agent-created fixtures (caddy, ocelot, fastapi). Agent ground truth may include technically correct but practically unhelpful symbols. Tuning fixture quality is higher ROI than code changes. A wrong ground truth symbol penalizes the system unfairly. Will be partially obsoleted by AI-generated evaluation corpus (#5 in Immediate Priorities). | Quality |
@@ -379,22 +320,6 @@ P@10=0.266 cold, 0.271 warm (277 tasks, 14 repos, 8 languages). 1.97x vs codegra
 ## Edge Type Expansion
 
 38 edge types shipped. See [Edge Types Reference](architecture/edge-types.md) and [CHANGELOG](CHANGELOG.md) for full details. Recent additions: `accesses_field` (36th, 6 languages), `reads_env` (37th, supply chain), `executes_process` (38th, supply chain).
-
-### Shipped P1 edges (sessions 14-15)
-
-| Edge Type | Status | Impact |
-|-----------|--------|--------|
-| `co_tested_with` | Shipped (session 14) | Lateral connections between co-tested symbols |
-| `type_hint_of` | Shipped (session 14) | Parameter type annotations across 6 languages |
-| `accesses_field` | Shipped (session 15) | Method -> struct field access across 6 languages. P@10 neutral but adds graph completeness. |
-| `reads_env` | Shipped (session 15) | Function -> env var (supply chain detection) |
-| `executes_process` | Shipped (session 15) | Function -> process spawning (supply chain detection) |
-
-### Remaining P1: Reachability edges
-
-| # | Edge Type | What it connects | Expected Impact | Effort |
-|---|-----------|-----------------|-----------------|--------|
-| 1 | ~~`implements_interface` propagation~~ | **Shipped (session 17).** Both phases complete: (1) resolveTypeHintEdges fixes 3,836 dangling edges across 4 repos. (2) propagateInterfaceTypeHints creates 808 new edges from type_hint_of -> interface to concrete implementors. Tested neutral on P@10 in isolation, but the resolved edges are load-bearing for enrichment's phantom node reachability. | **Shipped** | Done |
 
 **Remaining failure analysis (sessions 13-14):**
 - Django: 117/192 ground truth symbols unreachable. Root cause: framework base classes referenced by type hint and interface contract, not direct call.
