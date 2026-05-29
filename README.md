@@ -392,7 +392,6 @@ GCF uses `|`-separated fields and local IDs (`$1 -> $3`) instead of repeated qua
 
 ## Current Boundaries
 
-- **Breaking hash change (v0.3.0):** Hash domain prefixes added. Databases from before v0.3.0 must be re-indexed. Run `knowing fsck` after.
 - Static blast radius follows `calls` edges; other edge types provide context, not traversal.
 - Runtime tools require OpenTelemetry trace ingestion; without traces they have no observations.
 - LSP enrichment: Go, TypeScript, Python, Rust, Java, C#. Auto-detected from project markers. Others fall back to tree-sitter.
