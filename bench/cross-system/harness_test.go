@@ -146,7 +146,9 @@ func TestCrossSystem(t *testing.T) {
 		parallel := os.Getenv("BENCH_PARALLEL") == "1"
 
 		if parallel {
-			// Parallel: all repos simultaneously. Fast but may have race conditions.
+			// Parallel: all repos simultaneously. Fast but has P@10 variance
+			// (+-0.009 from CPU contention during RWR walks). Use sequential
+			// for official measurements.
 			resultCh := make(chan repoResult, len(repoTasks))
 			for repo, rTasks := range repoTasks {
 				go func(repo string, tasks []benchtype.Task) {

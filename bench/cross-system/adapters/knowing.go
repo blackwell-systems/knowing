@@ -90,6 +90,7 @@ type Knowing struct {
 	memories   map[string]*knowingctx.TaskMemory // per-repo task memory for compounding tests
 	nodeCounts map[string]int                    // cached node count per repo for adaptive density
 	searchers  map[string]*embedding.Searcher    // per-repo vector searcher (nil if embeddings disabled)
+	embedder   *embedding.Embedder               // shared ONNX session (serializes inference via internal mutex)
 }
 
 func NewKnowing() *Knowing {
@@ -195,11 +196,18 @@ func (a *Knowing) Index(repoPath string) (int64, error) {
 	// cosine from SQLite). If vectors aren't pre-embedded, falls back to
 	// on-the-fly embedding for the re-ranker (slower but functional).
 	if os.Getenv("BENCH_EMBEDDINGS") == "1" && a.searchers[repoPath] == nil {
-		embedder, err := embedding.New()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "  [warn] embeddings disabled: %v\n", err)
-		} else {
-			searcher := embedding.NewSearcher(embedder)
+		// Share a single Embedder (ONNX session) across all repos. The Embedder's
+		// internal mutex serializes inference, eliminating ONNX CPU contention in
+		// parallel mode. Each repo gets its own Searcher (separate vector cache).
+		if a.embedder == nil {
+			if e, err := embedding.New(); err != nil {
+				fmt.Fprintf(os.Stderr, "  [warn] embeddings disabled: %v\n", err)
+			} else {
+				a.embedder = e
+			}
+		}
+		if a.embedder != nil {
+			searcher := embedding.NewSearcher(a.embedder)
 			searcher.SetStore(s)
 			n := searcher.PreloadVectors(stdctx.Background())
 			fmt.Fprintf(os.Stderr, "  Embeddings: pre-loaded %d vectors from SQLite (no HNSW rebuild)\n", n)
