@@ -114,6 +114,10 @@ func NewServer(store types.GraphStore) *Server {
 			// Attach persistent vector cache if SQLite store is available.
 			if ss, ok := store.(*knowingstore.SQLiteStore); ok {
 				s.vecSearch.SetStore(ss)
+				// Eagerly load vectors into memory so gap-fill never blocks on SQLite.
+				if n := s.vecSearch.PreloadVectors(context.Background()); n > 0 {
+					log.Printf("[knowing] Pre-loaded %d embedding vectors into memory", n)
+				}
 			}
 			go s.buildVectorIndex()
 		} else {

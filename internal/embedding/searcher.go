@@ -48,6 +48,29 @@ func (s *Searcher) Model() string {
 	return s.model
 }
 
+// PreloadVectors eagerly loads all cached vectors from the embedding store into
+// memory. Call this at engine setup time to eliminate per-task SQLite reads during
+// gap-fill. Safe to call multiple times (no-op after first load). Returns the
+// number of vectors loaded.
+func (s *Searcher) PreloadVectors(ctx context.Context) int {
+	if s.store == nil || s.vecCacheSet {
+		return len(s.vecCache)
+	}
+	s.vecCacheSet = true
+	raw, err := s.store.GetAllEmbeddings(ctx, s.model)
+	if err != nil || len(raw) == 0 {
+		return 0
+	}
+	s.vecCache = make(map[types.Hash][]float32, len(raw))
+	for h, b := range raw {
+		v := bytesToFloat32s(b)
+		if len(v) > 0 {
+			s.vecCache[h] = v
+		}
+	}
+	return len(s.vecCache)
+}
+
 // EmbedAndSearch embeds the query text and returns the k nearest symbol hashes.
 func (s *Searcher) EmbedAndSearch(ctx context.Context, query string, k int) ([]types.Hash, error) {
 	if s.embedder.Count() == 0 {

@@ -200,8 +200,9 @@ func (a *Knowing) Index(repoPath string) (int64, error) {
 			fmt.Fprintf(os.Stderr, "  [warn] embeddings disabled: %v\n", err)
 		} else {
 			searcher := embedding.NewSearcher(embedder)
-			searcher.SetStore(s) // reads pre-embedded vectors from SQLite
-			fmt.Fprintf(os.Stderr, "  Embeddings: using pre-cached vectors from SQLite (no HNSW rebuild)\n")
+			searcher.SetStore(s)
+			n := searcher.PreloadVectors(stdctx.Background())
+			fmt.Fprintf(os.Stderr, "  Embeddings: pre-loaded %d vectors from SQLite (no HNSW rebuild)\n", n)
 			a.searchers[repoPath] = searcher
 		}
 	}
