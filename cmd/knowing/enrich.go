@@ -15,7 +15,6 @@ import (
 
 	"github.com/blackwell-systems/knowing/internal/embedding"
 	"github.com/blackwell-systems/knowing/internal/enrichment"
-	"github.com/blackwell-systems/knowing/internal/indexer"
 	"github.com/blackwell-systems/knowing/internal/store"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
@@ -35,10 +34,8 @@ func cmdEnrich(args []string) error {
 		return cmdEnrichLSP(args[1:])
 	case "embeddings":
 		return cmdEnrichEmbeddings(args[1:])
-	case "co-change":
-		return cmdEnrichCoChange(args[1:])
 	default:
-		return fmt.Errorf("unknown enrichment pass: %s (available: blame, coverage, lsp, embeddings, co-change)", args[0])
+		return fmt.Errorf("unknown enrichment pass: %s (available: blame, coverage, lsp, embeddings)", args[0])
 	}
 }
 
@@ -517,72 +514,5 @@ func cmdEnrichLSP(args []string) error {
 	enricher.Close(ctx)
 
 	fmt.Fprintf(os.Stderr, "LSP enrichment complete\n")
-	return nil
-}
-
-// cmdEnrichCoChange adds co_changed_with edges to an already-indexed database
-// by analyzing git commit history. Does not reindex or modify existing edges.
-func cmdEnrichCoChange(args []string) error {
-	fs := flag.NewFlagSet("enrich co-change", flag.ExitOnError)
-	dbPath := fs.String("db", defaultDB(), "Path to SQLite database (env: KNOWING_DB)")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-
-	if fs.NArg() < 1 {
-		return fmt.Errorf("usage: knowing enrich co-change [flags] <repo-path>")
-	}
-	repoPath, err := filepath.Abs(fs.Arg(0))
-	if err != nil {
-		return fmt.Errorf("resolving path: %w", err)
-	}
-
-	st, err := store.NewSQLiteStore(*dbPath)
-	if err != nil {
-		return fmt.Errorf("opening store: %w", err)
-	}
-	defer st.Close()
-
-	ctx := context.Background()
-
-	nodes, err := st.NodesByName(ctx, "%")
-	if err != nil || len(nodes) == 0 {
-		return fmt.Errorf("no nodes found in database (run 'knowing index' first)")
-	}
-
-	// Load all files from the database.
-	var files []types.File
-	rows, err := st.DB().QueryContext(ctx, "SELECT file_hash, repo_hash, path, content_hash FROM files")
-	if err != nil {
-		return fmt.Errorf("loading files: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var f types.File
-		var fh, rh, ch []byte
-		if err := rows.Scan(&fh, &rh, &f.Path, &ch); err != nil {
-			continue
-		}
-		copy(f.FileHash[:], fh)
-		copy(f.RepoHash[:], rh)
-		copy(f.ContentHash[:], ch)
-		files = append(files, f)
-	}
-
-	// Delete existing co-change edges before regenerating.
-	_, _ = st.DB().ExecContext(ctx, "DELETE FROM edges WHERE edge_type = 'co_changed_with'")
-
-	fmt.Fprintf(os.Stderr, "Co-change enrichment: %d nodes, %d files in %s\n", len(nodes), len(files), *dbPath)
-	start := time.Now()
-
-	edges := indexer.GenerateCoChangeEdges(repoPath, nodes, files)
-	if len(edges) > 0 {
-		if err := st.BatchPutEdges(ctx, edges); err != nil {
-			return fmt.Errorf("storing edges: %w", err)
-		}
-	}
-
-	fmt.Fprintf(os.Stderr, "Co-change enrichment complete: %d edges in %v\n",
-		len(edges), time.Since(start).Round(time.Millisecond))
 	return nil
 }
