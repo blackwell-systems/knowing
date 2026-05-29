@@ -218,11 +218,7 @@ For the full command reference, see [CLI Reference](docs/guide/cli.md).
 
 The `--watch` flag re-indexes on file changes. Your agent always queries fresh data. No manual `knowing index` or database path needed: the MCP server auto-indexes the git repository on first launch and registers it in the roster for future sessions.
 
-Add `--embeddings` to enable the local embedding re-ranker (+17% precision, fully offline, no API keys, no charges). The model auto-downloads on first use (~30MB):
-
-```json
-{ "mcpServers": { "knowing": { "command": "knowing", "args": ["mcp", "--watch", "--embeddings"] } } }
-```
+The embedding re-ranker is on by default (+17% precision, fully offline, no API keys, no charges). The model auto-downloads on first use (~30MB). To disable it, add `--no-embeddings`.
 
 **What your agent gets:** The key tool is `context_for_task`. When your agent calls it with a task description, knowing returns ranked, relevant code symbols packed into a token budget. This replaces grep-read loops. Other useful tools: `blast_radius` (what breaks if I change this?), `test_scope` (which tests to run?), `explain_symbol` (why did this rank here?). See [MCP Tools Reference](docs/guide/mcp-tools.md) for all 28 tools.
 

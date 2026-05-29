@@ -36,15 +36,20 @@ func cmdMCP(args []string) error {
 	repoURL := fs.String("url", "", "Repository URL (auto-detected if empty)")
 	noEnrich := fs.Bool("no-enrich", false, "Skip LSP enrichment after reindex (only with --watch)")
 	debounceMs := fs.Int("debounce", 500, "Debounce interval in ms (only with --watch)")
-	embeddings := fs.Bool("embeddings", false, "Enable local embedding re-ranker (+17% retrieval). Runs entirely on your machine, no API keys, no cloud calls, no charges. Downloads a 30MB model once on first use.")
-	embedModel := fs.String("embed-model", "", "Embedding model: jina-code (default, best for code), bge-small, nomic-code. All models run locally.")
+	noEmbeddings := fs.Bool("no-embeddings", false, "Disable local embedding re-ranker (enabled by default, +17% retrieval)")
+	embedModel := fs.String("embed-model", "", "Embedding model: nomic-code (default), jina-code, bge-small. All models run locally.")
+	// Legacy flag: --embeddings is accepted but ignored (embeddings are now on by default).
+	fs.Bool("embeddings", false, "Deprecated: embeddings are now enabled by default. Use --no-embeddings to disable.")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	// CLI flags override env vars for embeddings config.
-	if *embeddings {
+	// Embeddings on by default. --no-embeddings or KNOWING_EMBEDDINGS=0 disables.
+	if !*noEmbeddings && os.Getenv("KNOWING_EMBEDDINGS") != "0" {
 		os.Setenv("KNOWING_EMBEDDINGS", "1")
+	}
+	if *noEmbeddings {
+		os.Setenv("KNOWING_EMBEDDINGS", "0")
 	}
 	if *embedModel != "" {
 		os.Setenv("KNOWING_EMBED_MODEL", *embedModel)

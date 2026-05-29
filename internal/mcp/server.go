@@ -100,36 +100,37 @@ func NewServer(store types.GraphStore) *Server {
 		implicit:   knowingctx.NewImplicitFeedback(),
 		startTime:  time.Now(),
 	}
-	// Initialize embedding-based semantic re-ranker (opt-in).
-	// Enable with: knowing mcp --embeddings (or KNOWING_EMBEDDINGS=1)
+	// Initialize embedding-based semantic re-ranker (on by default).
+	// Disable with: knowing mcp --no-embeddings (or KNOWING_EMBEDDINGS=0)
 	// Downloads ~30MB model on first use. Improves P@10 by +17%.
-	if os.Getenv("KNOWING_EMBEDDINGS") != "1" {
-		log.Printf("[info] Tip: run with --embeddings for +17%% better retrieval. Fully local, no API keys, no charges. One-time 30MB model download.")
-	}
 	if os.Getenv("KNOWING_EMBEDDINGS") == "1" {
 		model := os.Getenv("KNOWING_EMBED_MODEL")
 		if model == "" {
-			model = "jina-code"
+			model = "nomic-code"
 		}
-		log.Printf("[info] embedding re-ranker enabled (model: %s, fully local, no API calls, no charges)", model)
-		log.Printf("[info] downloading model if needed (one-time, ~30MB)...")
+		log.Printf("[knowing] Embedding re-ranker: ON (model: %s, local inference, no API calls)", model)
 		if embedder, err := embedding.New(); err == nil {
 			s.vecSearch = embedding.NewSearcher(embedder)
 			// Attach persistent vector cache if SQLite store is available.
 			if ss, ok := store.(*knowingstore.SQLiteStore); ok {
 				s.vecSearch.SetStore(ss)
 			}
-			log.Printf("[info] embedding model loaded, building vector index in background...")
 			go s.buildVectorIndex()
 		} else {
-			log.Printf("[warn] embedding re-ranker disabled: %v", err)
+			log.Printf("[knowing] Embedding re-ranker: FAILED (%v)", err)
 		}
+	} else {
+		log.Printf("[knowing] Embedding re-ranker: OFF (run without --no-embeddings for +17%% better retrieval)")
 	}
 	// Try to get SQLiteStore for runtime queries and task memory.
 	if ss, ok := store.(*knowingstore.SQLiteStore); ok {
 		s.sqlStore = ss
 		s.taskMemory = knowingctx.NewTaskMemory(ss.DB())
 	}
+
+	// Startup summary: show the user what features are active.
+	s.logStartupSummary(store)
+
 	s.mcpServer = mcpserver.NewMCPServer(
 		"knowing",
 		"0.1.0",
@@ -138,6 +139,43 @@ func NewServer(store types.GraphStore) *Server {
 	s.registerPrompts()
 	s.registerResources()
 	return s
+}
+
+// logStartupSummary prints a concise summary of active features and graph stats.
+func (s *Server) logStartupSummary(store types.GraphStore) {
+	ctx := context.Background()
+
+	// Graph stats from SQLite.
+	var nodes, edges, vectors int
+	if ss, ok := store.(*knowingstore.SQLiteStore); ok {
+		if ec, err := ss.EdgeCount(ctx); err == nil {
+			edges = ec
+		}
+		if rc, err := ss.RealNodeCount(ctx); err == nil {
+			nodes = rc
+		}
+		// Count pre-embedded vectors.
+		var count int
+		_ = ss.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM embeddings`).Scan(&count)
+		vectors = count
+	}
+
+	embeddingStatus := "OFF"
+	if s.vecSearch != nil {
+		embeddingStatus = "ON"
+	}
+	gapFillStatus := "OFF"
+	if s.vecSearch != nil && vectors > 0 {
+		gapFillStatus = fmt.Sprintf("ON (%d vectors cached)", vectors)
+	} else if s.vecSearch != nil {
+		gapFillStatus = "ON (will embed on first query)"
+	}
+
+	log.Printf("[knowing] Graph: %d nodes, %d edges", nodes, edges)
+	log.Printf("[knowing] Embedding re-ranker: %s | Gap-fill seeds: %s | Equivalence classes: 152", embeddingStatus, gapFillStatus)
+	if vectors == 0 && nodes > 0 {
+		log.Printf("[knowing] Tip: run 'knowing enrich embeddings' to pre-cache vectors for faster gap-fill (+11%% retrieval)")
+	}
 }
 
 // SetSnapshotManager attaches a SnapshotManager so MCP handlers can access

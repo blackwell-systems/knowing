@@ -418,6 +418,14 @@ func cmdIndex(args []string) error {
 		enricher.Close(ctx)
 	}
 
+	// Check if vectors are pre-embedded. If not, suggest it.
+	var vecCount int
+	_ = st.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM embeddings`).Scan(&vecCount)
+	if vecCount == 0 && snap.NodeCount > 0 {
+		fmt.Fprintf(os.Stderr, "\nTip: run 'knowing enrich embeddings' to enable semantic gap-fill (+11%% retrieval).\n")
+		fmt.Fprintf(os.Stderr, "Pre-caches embedding vectors so the MCP server starts instantly with full quality.\n")
+	}
+
 	return nil
 }
 
