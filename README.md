@@ -201,21 +201,17 @@ For the full command reference, see [CLI Reference](docs/guide/cli.md).
 
 ### MCP Integration
 
-**For Claude Code** (`.mcp.json` in your project root or `~/.claude/mcp.json` globally):
+Add the MCP server to your agent. The config is the same everywhere; only the file path differs.
 
-```json
-{
-  "mcpServers": {
-    "knowing": {
-      "command": "knowing",
-      "args": ["mcp", "--watch"],
-      "transport": "stdio"
-    }
-  }
-}
-```
-
-**For Cursor** (`.cursor/mcp.json`):
+| Agent | Config file |
+|-------|-------------|
+| **Claude Code** | `.mcp.json` (project root) or `~/.claude/mcp.json` (global) |
+| **Cursor** | `.cursor/mcp.json` |
+| **Windsurf** | `~/.codeium/windsurf/mcp_config.json` |
+| **VS Code** (Copilot, Continue, Cline, Roo) | `.vscode/mcp.json` |
+| **Zed** | `~/.config/zed/settings.json` under `"context_servers"` |
+| **Codex** (OpenAI) | `codex.json` or `--mcp-config` flag |
+| **JetBrains** | Settings > Tools > MCP Servers |
 
 ```json
 {
