@@ -4,15 +4,15 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 
 ## Current State (v0.11.0, 2026-05-28)
 
-**P@10 = 0.264 cold start, 0.268 with compounding** (257 tasks, 13 repos, 8 languages, nomic-embed-text-v1.5 model). 38 edge types. 23 extractors. 152 equivalence classes.
-1.96x codegraph, 1.93x codebase-memory, 3.52x GitNexus, 4.19x Gortex, 20.3x grep.
-Embedding re-ranker (nomic): +17% P@10. Gap-fill seeds: +11.2%. Equivalence classes (C#, FastAPI, Terraform): +4%. Task memory compounding: +3.7%.
+**P@10 = 0.266 cold start, 0.271 with compounding** (257 tasks, 13 repos, 8 languages, nomic-embed-text-v1.5 model). 38 edge types. 23 extractors. 152 equivalence classes.
+1.97x codegraph, 1.94x codebase-memory, 3.55x GitNexus, 4.22x Gortex, 20.5x grep.
+Embedding re-ranker (nomic): +17% P@10. Gap-fill seeds: +11.2%. Equivalence classes (C#, FastAPI, Terraform): +4%. Task memory compounding: +5.0%. Ruby enrichment (ruby-lsp): Jekyll #1 in corpus at 0.370.
 
 ## Immediate Priorities
 
 | # | Item | Why | Effort | Expected Impact |
 |---|------|-----|--------|-----------------|
-| 1 | **Language equivalence classes** | C# classes: +6.1% corpus, +51% ocelot. FastAPI and Terraform have similar vocabulary gaps. Hand-curated classes are scaffolding for future automatic discovery from graph co-retrieval patterns. | 1 hour | Quality (+3-5% corpus) |
+| 1 | ~~Language equivalence classes~~ | **SHIPPED (session 18).** C# (15), FastAPI (10), Terraform (11) classes. Total 152 classes across 4 layers. Ocelot +51%, corpus +4%. | **Shipped** |
 | 2 | **Deploy platform API** | api.blackwell-systems.com. DigitalOcean Droplet, Cloudflare Tunnel, bare metal. DEPLOY.md + deploy.sh ready. Just need GitHub deploy key. | 15 min | Live product |
 | 3 | **AI-generated evaluation corpus** | LLM generates tasks + ground truth, DB-validated before use: all symbols must exist in nodes table, >= 3 symbols, span >= 2 files. Auto-difficulty from graph properties. Run 1000, keep ~600. Weekly CI. Hybrid: hand-curated for regression, AI-generated for statistical coverage. | Medium | Eval credibility |
 | 4 | **Blog post** | Numbers are publishable: 13 repos, 8 languages, 257 tasks. LinkedIn audience is warm (11K views on mcp-assert). | 2 hours | Visibility |
@@ -339,7 +339,7 @@ context retrieval. Full proposal: [docs/proposals/code-retrieval-eval-toolkit.md
 ## Retrieval Pipeline
 
 Current results: see [bench/cross-system/FINDINGS.md](../bench/cross-system/FINDINGS.md).
-P@10=0.264 cold, 0.268 warm (257 tasks, 13 repos, 8 languages). 1.96x vs codegraph, 3.52x vs GitNexus, 4.19x vs Gortex, 20.3x vs grep. Query latency 2ms on k8s (with adjacency cache). Embedding re-ranker adds 220ms (cached vectors). Equivalence classes: +4%. Task memory compounding: +3.7% P@10 from round 1 to round 2.
+P@10=0.266 cold, 0.271 warm (257 tasks, 13 repos, 8 languages). 1.97x vs codegraph, 3.55x vs GitNexus, 4.22x vs Gortex, 20.5x vs grep. Query latency 2ms on k8s (with adjacency cache). Embedding re-ranker adds 220ms (cached vectors). Equivalence classes: +4%. Task memory compounding: +5.0% P@10 from round 1 to round 2.
 
 **Key findings:** (1) 32-config parameter sweep proved P@10 is reachability-determined; ranking parameters are irrelevant. (2) Embedding re-ranker (+17% P@10) is the exception: it doesn't change reachability but reorders graph-surfaced candidates by semantic relevance. Architecture matters more than model.
 
