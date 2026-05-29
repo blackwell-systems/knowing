@@ -61,7 +61,7 @@ Every graph state is a Merkle root tied to a git commit. `knowing prove` generat
 **3. Memory layer that learns**
 Feedback from agents compounds across sessions. When code changes, feedback expires automatically (verified via package Merkle roots). The system gets smarter over time, not noisier. That is the property knowing is built around.
 
-These aren't separate features. They're structural consequences of content-addressing: the same hash that makes context cacheable also makes it provable, and the same Merkle root that detects staleness also expires stale feedback.
+**These aren't separate features.** They're structural consequences of content-addressing: the same hash that makes context cacheable also makes it provable, and the same Merkle root that detects staleness also expires stale feedback.
 
 ---
 
