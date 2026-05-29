@@ -18,7 +18,7 @@ Embedding re-ranker (nomic): +17% P@10. Gap-fill seeds: +11.2%. Equivalence clas
 | 4 | **Blog post** | Numbers are publishable: 12 repos, 7 languages, 237 tasks. LinkedIn audience is warm (11K views on mcp-assert). | 2 hours | Visibility |
 | 5 | **Add hugo to corpus** | Go web server, 75K LOC, enriched with gopls. Another 0.250+ repo adds 20 tasks above average. | 2 hours | Corpus credibility |
 | 6 | **Supply chain whitepaper** | False positive evaluation done (1.0% on 200 packages). Draft has TanStack + event-stream case studies. | Medium | Publication |
-| 7 | **Root-level Go file extraction** | Go files at repo root produce 0 nodes due to package path computation bug. | Low | Correctness |
+| 7 | ~~Root-level Go file extraction~~ | Tested: caddy has 701 nodes from 33 root-level .go files. Standalone repo test also works. Cannot reproduce. | **Not a bug** |
 | 8 | **GHA Marketplace action** | Package supply chain scanner for paid distribution. Free tier for public repos. | Medium | Commercial |
 
 ### Session 16: Shipped
