@@ -11,7 +11,7 @@ knowing version   # should print the version
 
 ## Configure your agent
 
-Add to `.mcp.json` (Claude Code) or `.cursor/mcp.json` (Cursor):
+Add to your agent's MCP config (`.mcp.json` for Claude Code, `.cursor/mcp.json` for Cursor, `.vscode/mcp.json` for VS Code, [see all](https://github.com/blackwell-systems/knowing#mcp-integration)):
 
 ```json
 {
