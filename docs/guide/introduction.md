@@ -8,7 +8,7 @@ knowing is a self-adapting code intelligence engine. It builds a content-address
 
 It runs entirely on a developer laptop with no paid LLM calls and no cloud API dependencies. The embedding model runs locally via pure Go inference (no Python, no API keys, no charges).
 
-**Coverage:** 17 extractors spanning Go, TypeScript, Python, Rust, Java, C#, Ruby, SQL, Proto, GraphQL, Helm, Kubernetes YAML, Dockerfile, Makefile, CloudFormation, GitLab CI, and .env files. 38 edge types including calls, imports, implements, references, contains, member_of, similar_to, type_hint_of, co_tested_with, accesses_field, reads_env, executes_process, consumes_endpoint, authored_by, handles_route, publishes, subscribes, and more.
+**Coverage:** 23 extractors spanning Go, TypeScript, Python, Rust, Java, C#, Ruby, SQL, Proto, GraphQL, Helm, Kubernetes YAML, Dockerfile, Makefile, CloudFormation, GitLab CI, and .env files. 38 edge types including calls, imports, implements, references, contains, member_of, similar_to, type_hint_of, co_tested_with, accesses_field, reads_env, executes_process, consumes_endpoint, authored_by, handles_route, publishes, subscribes, and more.
 
 **Integrity:** Every node, edge, and snapshot has a SHA-256 hash. A hierarchical Merkle tree organizes edges by package and type, enabling O(packages) diffs and cryptographic proofs of existence and absence.
 
@@ -103,9 +103,9 @@ In our example, `AuthMiddleware` tops all three lists so it stays #1. `validateT
 
 ### Step 6: Embedding re-ranker
 
-Gives the ranking a final adjustment using semantic understanding (optional, enabled with `--embeddings`). Everything up to this point used structural signals (keyword matching, graph proximity, link analysis), but none of those understand what words mean.
+Gives the ranking a final adjustment using semantic understanding (on by default). Everything up to this point used structural signals (keyword matching, graph proximity, link analysis), but none of those understand what words mean.
 
-The re-ranker uses a local neural model (jina-code, pure Go ONNX inference, no API calls, no charges) to compute how semantically similar each symbol is to the original task description. In our example, the task mentions "timeout" and `TimeoutConfig` is semantically close to that concept even though the graph walk ranked it #8 (it's two hops away from `AuthMiddleware`). The re-ranker promotes it to #3. Meanwhile `SessionTimeout` (a class for HTTP session expiry, not auth timeouts) gets demoted because the re-ranker understands the semantic difference. This step adds +17% P@10 on the benchmark corpus.
+The re-ranker uses a local neural model (nomic-embed-text-v1.5, pure Go ONNX inference, no API calls, no charges) to compute how semantically similar each symbol is to the original task description. In our example, the task mentions "timeout" and `TimeoutConfig` is semantically close to that concept even though the graph walk ranked it #8 (it's two hops away from `AuthMiddleware`). The re-ranker promotes it to #3. Meanwhile `SessionTimeout` (a class for HTTP session expiry, not auth timeouts) gets demoted because the re-ranker understands the semantic difference. This step adds +17% P@10 on the benchmark corpus. The model auto-downloads on first use (~30MB). Disable with `--no-embeddings`.
 
 **Input:** top 50 from merged ranking + task `"fix the auth middleware timeout"`
 **Output:** `AuthMiddleware` (0.049), `TimeoutConfig` (0.031), `validateToken` (0.028), `SessionTimeout` (0.024), `AuthConfig` (0.022), ... (re-ordered: `TimeoutConfig` promoted from #4 to #2, `SessionTimeout` demoted from #7 to #12)
@@ -128,7 +128,7 @@ For implementation details, see [Retrieval Pipeline](../architecture/retrieval-p
 - Time-to-consistency: 167ms (edit a file, reindex, query finds the new symbol)
 - Adjacency cache: 4,717x latency improvement (9s to 2ms on Kubernetes-scale graph)
 - Density-adaptive retrieval: auto-detects graph density, adjusts seed selection strategy
-- Embedding re-ranker: +17% P@10 improvement, fully local, opt-in (`--embeddings`)
+- Embedding re-ranker: +17% P@10 improvement, fully local, on by default
 - P@10 = 0.223 cold start, 0.249 with compounding (222 tasks, 12 repos, 7 languages)
 - Self-adapting compounding: +11.5% P@10 from passive task memory
 - Competitive: 1.65x codegraph, 2.97x GitNexus, 3.54x Gortex, 17.2x grep (cold start)
@@ -844,7 +844,7 @@ Source code (files)
 Daemon (file watcher, incremental re-indexing, 167ms time-to-consistency)
     |
     v
-Extractors (17 extractors: tree-sitter, LSP, SCIP, YAML/config parsers)
+Extractors (23 extractors: tree-sitter, LSP, SCIP, YAML/config parsers)
     |
     v
 Code Graph (nodes + edges + provenance + confidence)
@@ -999,9 +999,9 @@ knowing context -task "add rate limiting to the API handler" -format gcf
 # 7. Understand why a symbol ranked where it did
 knowing why -task "add rate limiting" -symbol "APIHandler"
 
-# 8. (Optional) Enable embedding re-ranker for +17% better results
-knowing context -task "add rate limiting" --embeddings
-# Downloads a 30MB model on first use, then runs locally.
+# 8. (Optional) Pre-cache embedding vectors for faster gap-fill (+11%)
+knowing enrich embeddings
+# The embedding re-ranker is already on by default (+17%).
 ```
 
 **Tips for good results:**

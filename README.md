@@ -41,6 +41,13 @@ That's it. The MCP server auto-indexes your repo on first launch and downloads a
 
 > **Not using an AI agent?** Skip to [CLI usage](#path-b-cli-usage-explore-the-graph-yourself) below.
 
+| You want to... | Start here |
+|---|---|
+| Give your AI agent graph-ranked context | [MCP setup](#mcp-integration) |
+| Explore the graph from the CLI | [CLI usage](#path-b-cli-usage-explore-the-graph-yourself) |
+| Understand how retrieval works | [Introduction](docs/guide/introduction.md) |
+| Audit with cryptographic proofs | [Audit & Compliance](docs/guide/audit-compliance.md) |
+
 ---
 
 ## Three Things, One Architecture

@@ -11,114 +11,36 @@ How to install knowing. The release pipeline is fully automated: every `v*` tag 
 | **PyPI** | `pip install knowing` |
 | **Go** | `go install github.com/blackwell-systems/knowing/cmd/knowing@latest` |
 | **Docker** | `docker pull ghcr.io/blackwell-systems/knowing:latest` |
-| **curl** (macOS/Linux) | `curl -fsSL https://raw.githubusercontent.com/blackwell-systems/knowing/main/install.sh \| sh` |
 
 All methods install the same single binary. No runtime dependencies.
 
 ## Channels
 
-### GitHub Releases
-Pre-built binaries for all platforms, published automatically by GoReleaser on every `v*` tag.
-
-| Platform | Architecture |
-|----------|-------------|
-| macOS | arm64, amd64 |
-| Linux | arm64, amd64 |
-| Windows | arm64, amd64 |
-
 ### Homebrew
 ```bash
 brew install blackwell-systems/tap/knowing
 ```
-Formula in [blackwell-systems/homebrew-tap](https://github.com/blackwell-systems/homebrew-tap) updated automatically by GoReleaser on every release.
-
-### curl | sh (macOS / Linux)
-```bash
-curl -fsSL https://raw.githubusercontent.com/blackwell-systems/knowing/main/install.sh | sh
-```
-Detects OS and architecture, downloads the matching binary from GitHub Releases, installs to `/usr/local/bin`.
-
-### PowerShell (Windows)
-```powershell
-iwr -useb https://raw.githubusercontent.com/blackwell-systems/knowing/main/install.ps1 | iex
-```
-Detects amd64/arm64, downloads the matching zip from GitHub Releases, installs to `%LOCALAPPDATA%\knowing`, adds to user PATH. No admin required.
-
-### Scoop (Windows)
-```powershell
-scoop bucket add blackwell-systems https://github.com/blackwell-systems/knowing
-scoop install blackwell-systems/knowing
-```
-Manifest at `bucket/knowing.json` in this repo (the repo doubles as the Scoop bucket). `autoupdate` configured so `scoop update knowing` picks up new releases automatically.
-
-### Winget (Windows)
-```powershell
-winget install BlackwellSystems.knowing
-```
-Manifests at `winget/manifests/b/BlackwellSystems/knowing/`. Submit new versions as a PR to [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs).
+Formula in [blackwell-systems/homebrew-tap](https://github.com/blackwell-systems/homebrew-tap) updated automatically on every release.
 
 ### npm
 ```bash
 npm install -g @blackwell-systems/knowing
 ```
-Uses the optionalDependencies pattern (same as esbuild): a root package with a JS shim and six platform-specific packages each containing the native binary. npm installs only the package matching the current platform.
-
-Published automatically by the `npm-publish` CI job after GoReleaser completes.
-
-**Packages:**
-- `@blackwell-systems/knowing` (root; install this)
-- `@blackwell-systems/knowing-darwin-arm64`
-- `@blackwell-systems/knowing-darwin-x64`
-- `@blackwell-systems/knowing-linux-arm64`
-- `@blackwell-systems/knowing-linux-x64`
-- `@blackwell-systems/knowing-win32-x64`
-- `@blackwell-systems/knowing-win32-arm64`
-
-### Docker (GHCR + Docker Hub)
-```bash
-# GHCR
-docker pull ghcr.io/blackwell-systems/knowing:latest
-
-# Docker Hub
-docker pull blackwellsystems/knowing:latest
-```
-
-All images are multi-arch (`linux/amd64` + `linux/arm64`) via Docker manifest lists. Native performance on Apple Silicon and AWS Graviton, with no Rosetta/QEMU emulation. Built and pushed to both registries automatically by GoReleaser on every `v*` tag. Tags: `latest`, semver (`0.1.2`, `0.1`).
-
-### MCP registries
-
-#### Official MCP Registry
-Published automatically via `mcp-publisher` in CI using GitHub OIDC (no secrets required).
-
-**Server name:** `io.github.blackwell-systems/knowing`
-
-```bash
-curl "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.blackwell-systems/knowing"
-```
-
-#### Glama
-Listed at [glama.ai/mcp/servers/blackwell-systems/knowing](https://glama.ai/mcp/servers/blackwell-systems/knowing). Profile managed via `glama.json` in repo root.
+Uses the optionalDependencies pattern (same as esbuild): a root package with a JS shim and platform-specific packages each containing the native binary. npm installs only the package matching the current platform.
 
 ### PyPI
 ```bash
 pip install knowing
 ```
-Platform-specific wheels containing the Go binary. Each wheel is tagged with the correct platform (e.g. `macosx_11_0_arm64`, `manylinux2014_x86_64`), so pip resolves the right one automatically. No Go toolchain required. Built and published automatically by the `pypi-publish` CI job on every release tag.
+Platform-specific wheels containing the Go binary. Each wheel is tagged with the correct platform (e.g. `macosx_11_0_arm64`, `manylinux2014_x86_64`), so pip resolves the right one automatically. No Go toolchain required.
 
-### Self-update
+### Docker (GHCR + Docker Hub)
 ```bash
-knowing update           # Download and replace binary with latest release
-knowing update --check   # Compare current vs latest version without downloading
-knowing update --force   # Update even if already on the latest version
+docker pull ghcr.io/blackwell-systems/knowing:latest
+# or
+docker pull blackwellsystems/knowing:latest
 ```
-Fetches the latest release from the GitHub Releases API, downloads the correct binary for the current OS and architecture, and atomically replaces the running binary. Works regardless of the original install method.
-
-### Clean uninstall
-```bash
-knowing uninstall           # Remove all configs, database, caches
-knowing uninstall --dry-run # Preview what would be removed
-```
-Removes MCP server entries from `.mcp.json`, `.cursor/mcp.json`, and other config files. Removes the knowing database and cache directories. Does not remove the binary itself (prints the `rm $(which knowing)` command for manual removal).
+Multi-arch images (`linux/amd64` + `linux/arm64`). Native performance on Apple Silicon and AWS Graviton.
 
 ### Go install
 ```bash
@@ -126,24 +48,22 @@ go install github.com/blackwell-systems/knowing/cmd/knowing@latest
 ```
 Requires a Go toolchain. Builds from source and installs to `$GOPATH/bin`.
 
-### Smithery
-`smithery.yaml` in the repo root enables auto-indexing on Smithery. Auto-discovered from GitHub.
-
-### cursor.directory
-Submitted. Listed under Developer Tools.
-
-### mcpservers.org
-Manually submitted. Free listing.
-
-### Awesome MCP Servers
-Submitted to [punkpeye/awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers).
-
-## Update and uninstall
+## Verify installation
 
 ```bash
-knowing update           # download and replace with latest release
-knowing update --check   # compare current vs latest without downloading
-knowing uninstall        # remove configs, database, caches (prints rm command for binary)
+knowing version   # should print the version
+knowing stats     # after indexing, should show nodes and edges
+```
+
+## Updating
+
+Use your package manager to update:
+
+```bash
+brew upgrade knowing                                    # Homebrew
+npm update -g @blackwell-systems/knowing                # npm
+pip install --upgrade knowing                            # PyPI
+go install github.com/blackwell-systems/knowing/cmd/knowing@latest  # Go
 ```
 
 ## Documentation site
