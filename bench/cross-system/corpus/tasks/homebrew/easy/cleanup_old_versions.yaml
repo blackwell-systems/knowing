@@ -1,0 +1,13 @@
+id: homebrew-easy-002
+repo: homebrew
+tier: easy
+description: "Fix a bug where cleanup fails to remove old formula versions when the keg directory has a symlink that points outside the Cellar"
+source: manual
+ground_truth:
+  - Homebrew::Cleanup
+  - Homebrew::Cleanup.cleanup_formula
+  - Homebrew::Cleanup.cleanup_keg
+  - Homebrew::Cleanup.prune_prefix_symlinks_and_directories
+  - Homebrew::Cleanup.unremovable_kegs
+tags: [cleanup, kegs, symlinks, bug-fix]
+notes: "Cleanup flow goes through cleanup_formula -> cleanup_keg for each installed version. prune_prefix_symlinks_and_directories handles link removal. unremovable_kegs tracks kegs that couldn't be removed."

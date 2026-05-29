@@ -1,0 +1,18 @@
+id: jekyll-hard-005
+repo: jekyll
+tier: hard
+description: "Fix a bug where Liquid template access to document data through drops returns stale values when frontmatter defaults are modified between the read and render phases"
+source: manual
+ground_truth:
+  - Jekyll::Drops::Drop
+  - Jekyll::Drops::Drop.[]
+  - Jekyll::Drops::DocumentDrop
+  - Jekyll::Drops::SiteDrop
+  - Jekyll::Drops::UnifiedPayloadDrop
+  - Jekyll::Drops::UnifiedPayloadDrop.site
+  - Jekyll::FrontmatterDefaults.all
+  - Jekyll::FrontmatterDefaults.find
+  - Jekyll::Document.data
+  - Jekyll::Document.merge_data!
+tags: [drops, frontmatter, liquid, data-flow, bug-fix]
+notes: "The drop system (Drop.[], DocumentDrop, SiteDrop, UnifiedPayloadDrop) exposes Ruby objects to Liquid templates. FrontmatterDefaults.all/find resolve defaults that merge into Document.data via merge_data!. The staleness bug occurs when defaults are resolved at read time but the drop caches values before render-time mutations."

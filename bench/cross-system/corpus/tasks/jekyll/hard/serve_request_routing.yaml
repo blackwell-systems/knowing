@@ -1,0 +1,16 @@
+id: jekyll-hard-006
+repo: jekyll
+tier: hard
+description: "Add support for custom middleware in the Jekyll serve command that can intercept requests, modify responses, and inject headers before the static file servlet processes them"
+source: manual
+ground_truth:
+  - Jekyll::Commands::Jekyll::Commands::Serve::Servlet
+  - Jekyll::Commands::Jekyll::Commands::Serve::Servlet.do_GET
+  - Jekyll::Commands::Jekyll::Commands::Serve::Servlet.search_file
+  - Jekyll::Commands::Jekyll::Commands::Serve::Servlet.search_index_file
+  - Jekyll::Commands::Jekyll::Commands::Serve::SkipAnalyzer
+  - Jekyll::Commands::Jekyll::Commands::Serve::BodyProcessor
+  - Jekyll::Commands::Jekyll::Commands::Serve::BodyProcessor.process!
+  - Jekyll::Commands::Build.process
+tags: [serve, middleware, http, feature-addition]
+notes: "The serve pipeline flows from Build.process (which triggers rebuild) through the Servlet.do_GET handler which uses search_file and search_index_file to resolve paths. SkipAnalyzer decides whether to process the response, and BodyProcessor handles live reload injection. Middleware must hook between path resolution and response delivery."

@@ -1,0 +1,13 @@
+id: jekyll-easy-002
+repo: jekyll
+tier: easy
+description: "Fix a bug where static files in a collection are not copied to the output directory when the collection has a custom permalink"
+source: manual
+ground_truth:
+  - Jekyll::StaticFile
+  - Jekyll::StaticFile.write
+  - Jekyll::StaticFile.destination
+  - Jekyll::StaticFile.destination_rel_dir
+  - Jekyll::Collection.files
+tags: [static-files, collections, bug-fix]
+notes: "Static file output depends on destination and destination_rel_dir for path resolution, and the Collection.files method for discovery."

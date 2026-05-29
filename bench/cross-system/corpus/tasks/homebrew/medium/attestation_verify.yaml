@@ -1,0 +1,14 @@
+id: homebrew-medium-007
+repo: homebrew
+tier: medium
+description: "Add support for verifying bottle attestation signatures from third-party taps"
+source: manual
+ground_truth:
+  - Homebrew::Attestation
+  - Homebrew::Attestation.check_core_attestation
+  - Homebrew::Attestation.check_attestation
+  - Bottle
+  - Bottle.fetch
+  - Tap
+tags: [attestation, security, bottles, feature-addition]
+notes: "Bottle attestation verification runs through Attestation.check_core_attestation for core tap and check_attestation for other taps. Bottle.fetch retrieves the bottle before verification. The Tap determines which attestation policy applies."

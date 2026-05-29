@@ -1,0 +1,17 @@
+id: homebrew-hard-004
+repo: homebrew
+tier: hard
+description: "Fix a bug where migrating a formula between taps loses the formula's installed keg, bottle cache, and version pin, requiring a full reinstall"
+source: manual
+ground_truth:
+  - Tap
+  - Tap.formula_renames
+  - Tap.tap_migrations
+  - Homebrew::API::Formula.tap_migrations
+  - Keg
+  - Keg.for
+  - Keg.from_rack
+  - FormulaInstaller.install
+  - Homebrew::Cleanup.cleanup_formula
+tags: [taps, migration, kegs, cross-package, bug-fix]
+notes: "Tap migration involves Tap.tap_migrations and formula_renames for the mapping, Keg.for/from_rack to locate existing installations, FormulaInstaller for reinstallation if needed, and Cleanup to handle the old tap's artifacts."

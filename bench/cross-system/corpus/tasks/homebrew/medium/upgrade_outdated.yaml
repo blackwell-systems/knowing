@@ -1,0 +1,14 @@
+id: homebrew-medium-002
+repo: homebrew
+tier: medium
+description: "Fix a bug where the upgrade command skips formulae that are outdated due to a rebuild but not a version bump"
+source: manual
+ground_truth:
+  - Homebrew::Cmd::UpgradeCmd
+  - Homebrew::Cmd::UpgradeCmd.run
+  - Homebrew::Cmd::UpgradeCmd.formula_outdated?
+  - Homebrew::Cmd::UpgradeCmd.formulae_upgrade_context
+  - Homebrew::Cmd::UpgradeCmd.upgrade_outdated_formulae!
+  - BottleSpecification.rebuild
+tags: [upgrade, outdated, bottles, bug-fix]
+notes: "Upgrade flow goes run -> formulae_upgrade_context -> upgrade_outdated_formulae!. formula_outdated? determines if a formula needs upgrading. BottleSpecification.rebuild tracks the rebuild number that may indicate a new bottle without a version change."

@@ -1,0 +1,14 @@
+id: homebrew-medium-005
+repo: homebrew
+tier: medium
+description: "Fix a bug where the curl download strategy does not reuse cached downloads when the ETag matches but the URL has changed due to a mirror redirect"
+source: manual
+ground_truth:
+  - CurlDownloadStrategy
+  - CurlDownloadStrategy.fetch
+  - CurlDownloadStrategy.cached_location
+  - CurlDownloadStrategy.resolve_url_basename_time_file_size
+  - AbstractDownloadStrategy
+  - AbstractDownloadStrategy.cached_location
+tags: [download, caching, curl, bug-fix]
+notes: "Download caching depends on cached_location for path resolution. CurlDownloadStrategy.fetch handles the actual download. resolve_url_basename_time_file_size extracts metadata from the URL for cache key generation."

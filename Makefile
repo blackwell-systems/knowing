@@ -28,6 +28,7 @@ CORPUS_REPOS := \
 	ocelot:csharp \
 	spark-java:java \
 	terraform:go \
+	jekyll:ruby \
 	vscode:typescript
 
 .PHONY: build test bench bench-embed corpus-rebuild corpus-enrich corpus-backup corpus-restore corpus-upload corpus-download

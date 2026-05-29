@@ -508,6 +508,12 @@ func cmdEnrichLSP(args []string) error {
 
 	enricher := enrichment.NewEnricher(st, repoPath)
 	enricher.SetConcurrency(*concurrency)
+
+	// Load knowing-lsp.json if present in the repo root.
+	if lspCfg, err := enrichment.LoadLSPConfig(filepath.Join(repoPath, "knowing-lsp.json")); err == nil {
+		enricher.SetLSPConfig(lspCfg)
+	}
+
 	if err := enricher.Run(ctx, repoHash); err != nil {
 		return fmt.Errorf("enrichment failed: %w", err)
 	}

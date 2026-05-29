@@ -1,0 +1,13 @@
+id: jekyll-easy-003
+repo: jekyll
+tier: easy
+description: "Add a new URL placeholder for pages that includes the page's parent directory name in the permalink"
+source: manual
+ground_truth:
+  - Jekyll::Page
+  - Jekyll::Page.url
+  - Jekyll::Page.url_placeholders
+  - Jekyll::Page.permalink
+  - Jekyll::Page.template
+tags: [pages, urls, feature-addition]
+notes: "Page URL generation flows through url_placeholders which provides the substitution hash, template which selects the pattern, and permalink/url which assemble the final path."

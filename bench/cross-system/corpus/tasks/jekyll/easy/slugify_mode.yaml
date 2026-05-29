@@ -1,0 +1,11 @@
+id: jekyll-easy-007
+repo: jekyll
+tier: easy
+description: "Add a new slugify mode that preserves unicode characters while still lowercasing and replacing spaces with hyphens"
+source: manual
+ground_truth:
+  - Jekyll::Filters.slugify
+  - Jekyll::Utils.slugify
+  - Jekyll::Drops::UrlDrop.slug
+tags: [filters, urls, feature-addition]
+notes: "Slugification happens in Utils.slugify with mode dispatch, exposed to templates through the Filters.slugify Liquid filter and consumed by UrlDrop.slug for permalink generation."

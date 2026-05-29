@@ -1,0 +1,14 @@
+id: homebrew-medium-004
+repo: homebrew
+tier: medium
+description: "Add a new audit check that verifies formula homepage URLs return valid HTTP status codes"
+source: manual
+ground_truth:
+  - Homebrew::FormulaAuditor
+  - Homebrew::FormulaAuditor.audit_homepage
+  - Homebrew::FormulaAuditor.audit_urls
+  - Homebrew::FormulaAuditor.problem
+  - Homebrew::DevCmd::AuditCmd
+  - Homebrew::DevCmd::AuditCmd.run
+tags: [audit, urls, feature-addition]
+notes: "Formula auditing runs through AuditCmd.run which creates FormulaAuditor instances. audit_homepage and audit_urls check URL validity. problem records audit failures."

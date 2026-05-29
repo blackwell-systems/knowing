@@ -1,0 +1,14 @@
+id: jekyll-medium-004
+repo: jekyll
+tier: medium
+description: "Add support for custom sort orders on collections, allowing users to specify a frontmatter key and direction in the collection config"
+source: manual
+ground_truth:
+  - Jekyll::Collection
+  - Jekyll::Collection.docs
+  - Jekyll::Collection.determine_sort_order
+  - Jekyll::Collection.read
+  - Jekyll::Reader.sort_files!
+  - Jekyll::Document.data
+tags: [collections, sorting, feature-addition]
+notes: "Collection document ordering is determined by determine_sort_order and applied during Collection.read. Reader.sort_files! provides the top-level sorting call. Document.data exposes the frontmatter values used as sort keys."

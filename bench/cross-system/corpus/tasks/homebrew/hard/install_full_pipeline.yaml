@@ -1,0 +1,17 @@
+id: homebrew-hard-001
+repo: homebrew
+tier: hard
+description: "Fix a bug where installing a formula with both build and runtime dependencies fails when a build dependency conflicts with a different version of a runtime dependency"
+source: manual
+ground_truth:
+  - Homebrew::Cmd::InstallCmd
+  - Homebrew::Cmd::InstallCmd.run
+  - FormulaInstaller
+  - FormulaInstaller.install
+  - FormulaInstaller.install_dependencies
+  - FormulaInstaller.compute_dependencies
+  - Dependency
+  - Dependency.satisfied?
+  - Dependency.installed?
+tags: [install, dependencies, conflicts, cross-package, bug-fix]
+notes: "The install pipeline flows InstallCmd.run -> FormulaInstaller.install -> install_dependencies -> compute_dependencies. Both build and runtime deps are resolved, and the conflict arises when compute_dependencies doesn't account for version constraints between dependency types."

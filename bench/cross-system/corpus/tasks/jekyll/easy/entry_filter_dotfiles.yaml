@@ -1,0 +1,13 @@
+id: jekyll-easy-004
+repo: jekyll
+tier: easy
+description: "Fix a bug where dotfiles explicitly listed in the site config include array are still being filtered out during directory reading"
+source: manual
+ground_truth:
+  - Jekyll::EntryFilter
+  - Jekyll::EntryFilter.filter
+  - Jekyll::EntryFilter.special?
+  - Jekyll::EntryFilter.included?
+  - Jekyll::EntryFilter.excluded?
+tags: [entry-filter, configuration, bug-fix]
+notes: "The EntryFilter.filter method orchestrates inclusion/exclusion logic. The special? method catches dotfiles, but included? should override it when the file is in the config include list."

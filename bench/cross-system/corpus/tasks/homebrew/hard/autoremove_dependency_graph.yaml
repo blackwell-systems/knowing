@@ -1,0 +1,17 @@
+id: homebrew-hard-006
+repo: homebrew
+tier: hard
+description: "Fix a bug where autoremove incorrectly uninstalls formulae that are still needed as build dependencies by other installed formulae"
+source: manual
+ground_truth:
+  - Homebrew::Cleanup
+  - Homebrew::Cleanup.autoremove
+  - Homebrew::Cleanup.install_cleanup_formulae
+  - FormulaInstaller.compute_dependencies
+  - Dependency
+  - Dependency.installed?
+  - Dependency.uses_from_macos?
+  - Formula
+  - Homebrew::Cmd::UninstallCmd.run
+tags: [cleanup, autoremove, dependencies, cross-package, bug-fix]
+notes: "Autoremove flows through Cleanup.autoremove which determines which formulae are no longer needed. install_cleanup_formulae identifies candidates. The dependency graph from FormulaInstaller.compute_dependencies and Dependency.installed?/uses_from_macos? determines which packages are still required."

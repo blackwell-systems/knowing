@@ -208,12 +208,22 @@ func (e *Enricher) runForServer(ctx context.Context, serverCfg LSPServerConfig, 
 	}
 
 	// Single-server path: start one LSP instance for the workspace root.
+	// WorkDir overrides the LSP rootUri when the project file (Gemfile, etc.)
+	// is in a subdirectory of the indexed repo.
+	lspRoot := e.workspaceRoot
+	if serverCfg.WorkDir != "" {
+		if filepath.IsAbs(serverCfg.WorkDir) {
+			lspRoot = serverCfg.WorkDir
+		} else {
+			lspRoot = filepath.Join(e.workspaceRoot, serverCfg.WorkDir)
+		}
+	}
 	args := []string{}
 	if len(serverCfg.Command) > 1 {
 		args = serverCfg.Command[1:]
 	}
 	client := lsp.NewLSPClient(serverCfg.Command[0], args)
-	if err := client.Initialize(ctx, e.workspaceRoot); err != nil {
+	if err := client.Initialize(ctx, lspRoot); err != nil {
 		log.Printf("enrichment: start %s: %v", serverCfg.Command[0], err)
 		return
 	}

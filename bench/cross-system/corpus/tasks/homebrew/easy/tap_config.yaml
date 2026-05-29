@@ -1,0 +1,13 @@
+id: homebrew-easy-004
+repo: homebrew
+tier: easy
+description: "Fix a bug where adding a tap with a custom URL fails when the repository name contains uppercase characters"
+source: manual
+ground_truth:
+  - Tap
+  - Tap.fetch
+  - Tap.initialize
+  - Tap.from_path
+  - Tap::InvalidNameError
+tags: [taps, configuration, bug-fix]
+notes: "Tap creation flows through Tap.fetch -> initialize. The name validation in initialize should handle case normalization. Tap.from_path resolves filesystem paths to tap objects. InvalidNameError is raised for invalid tap names."

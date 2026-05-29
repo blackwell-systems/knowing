@@ -1,6 +1,6 @@
 # Cross-System Context Retrieval Benchmark
 
-Rigorous comparison of context retrieval systems on identical tasks across 12 public repositories, 7 languages.
+Rigorous comparison of context retrieval systems on identical tasks across 13 public repositories, 8 languages.
 
 **Results:** [FINDINGS.md](FINDINGS.md) (competitive comparisons, per-repo breakdown, scale analysis)
 **Run history:** [RUN-HISTORY.md](RUN-HISTORY.md)
@@ -54,7 +54,7 @@ Effect size via Cohen's d. Confidence intervals via bootstrap (10K resamples).
 
 ## Evaluation Corpus
 
-12 repos pinned to specific versions, 7 languages:
+13 repos pinned to specific versions, 8 languages:
 
 - **kubernetes** (Go, ~3.5M LOC) - v1.30.0, enriched with gopls
 - **VS Code** (TypeScript, ~1M LOC) - 1.90.0, enriched with tsserver
@@ -67,8 +67,9 @@ Effect size via Cohen's d. Confidence intervals via bootstrap (10K resamples).
 - **fastapi** (Python, ~30K LOC) - fastapi/fastapi, enriched with pyright
 - **spark-java** (Java, ~14K LOC) - Spark micro-framework, enriched with jdtls
 - **ocelot** (C#, ~30K LOC) - ThreeMammals/Ocelot, enriched with csharp-ls
+- **jekyll** (Ruby, ~23K LOC) - jekyll/jekyll, tree-sitter only (no LSP enrichment)
 
-237 tasks across 3 difficulty tiers (easy/medium/hard) with hand-labeled ground truth symbols.
+257 tasks across 3 difficulty tiers (easy/medium/hard) with hand-labeled ground truth symbols.
 
 ## Directory Structure
 

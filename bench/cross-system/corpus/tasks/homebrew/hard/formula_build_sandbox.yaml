@@ -1,0 +1,16 @@
+id: homebrew-hard-003
+repo: homebrew
+tier: hard
+description: "Add support for running formula build steps in a sandboxed environment that restricts network access and filesystem writes outside the build directory"
+source: manual
+ground_truth:
+  - FormulaInstaller
+  - FormulaInstaller.build
+  - FormulaInstaller.install
+  - Sandbox
+  - Sandbox.allow_write_path
+  - Sandbox.deny_all_network
+  - Sandbox.exec
+  - Formula
+tags: [installer, sandbox, security, feature-addition]
+notes: "Formula building happens in FormulaInstaller.build called from install. The Sandbox class provides the confinement primitives: allow_write_path for permitted directories, deny_all_network for network isolation, and exec to run the build under sandbox restrictions."

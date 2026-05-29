@@ -1,0 +1,13 @@
+id: jekyll-easy-006
+repo: jekyll
+tier: easy
+description: "Add support for highlighting specific line ranges in code blocks using the highlight tag"
+source: manual
+ground_truth:
+  - Jekyll::Tags::HighlightBlock
+  - Jekyll::Tags::HighlightBlock.render
+  - Jekyll::Tags::HighlightBlock.parse_options
+  - Jekyll::Tags::HighlightBlock.mark_lines
+  - Jekyll::Tags::HighlightBlock.render_rouge
+tags: [tags, highlighting, feature-addition]
+notes: "The highlight tag parses options from markup, mark_lines handles line selection, and render_rouge produces the final HTML with Rouge."

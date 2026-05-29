@@ -1,0 +1,12 @@
+id: jekyll-easy-001
+repo: jekyll
+tier: easy
+description: "Add a custom Liquid filter that truncates text to a word boundary instead of a character boundary"
+source: manual
+ground_truth:
+  - Jekyll::Filters
+  - Jekyll::Filters.markdownify
+  - Jekyll::Filters.number_of_words
+  - Jekyll::Filters.slugify
+tags: [filters, liquid, feature-addition]
+notes: "Adding a custom filter requires understanding the Filters module pattern and how existing filters like markdownify and number_of_words process text."

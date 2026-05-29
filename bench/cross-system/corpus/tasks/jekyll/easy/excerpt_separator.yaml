@@ -1,0 +1,13 @@
+id: jekyll-easy-005
+repo: jekyll
+tier: easy
+description: "Fix a bug where a custom excerpt_separator in a document's front matter is ignored when generating the excerpt"
+source: manual
+ground_truth:
+  - Jekyll::Excerpt
+  - Jekyll::Excerpt.initialize
+  - Jekyll::Excerpt.extract_excerpt
+  - Jekyll::Document.excerpt_separator
+  - Jekyll::Document.generate_excerpt
+tags: [excerpts, documents, bug-fix]
+notes: "Excerpt generation starts from Document.generate_excerpt, reads the separator from Document.excerpt_separator, then Excerpt.extract_excerpt splits the content at that boundary."

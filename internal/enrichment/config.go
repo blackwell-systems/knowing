@@ -16,6 +16,9 @@ type LSPServerConfig struct {
 	Extensions []string `json:"extensions"`
 	// LanguageID is the LSP language identifier (e.g., "go", "typescript", "python").
 	LanguageID string `json:"language_id"`
+	// WorkDir overrides the LSP initialize rootUri. Use when the project root (Gemfile, package.json)
+	// is in a subdirectory of the indexed repo. If empty, the workspace root is used.
+	WorkDir string `json:"work_dir,omitempty"`
 }
 
 // LSPConfig is the top-level configuration for multi-language enrichment.
@@ -135,6 +138,23 @@ func DetectLSPServers(workspaceRoot string) *LSPConfig {
 				Command:    []string{dotnetToolPath},
 				Extensions: []string{"cs"},
 				LanguageID: "csharp",
+			})
+		}
+	}
+
+	// Ruby: check for Gemfile + ruby-lsp or solargraph
+	if _, err := os.Stat(filepath.Join(workspaceRoot, "Gemfile")); err == nil {
+		if _, err := lookPath("ruby-lsp"); err == nil {
+			servers = append(servers, LSPServerConfig{
+				Command:    []string{"ruby-lsp"},
+				Extensions: []string{"rb"},
+				LanguageID: "ruby",
+			})
+		} else if _, err := lookPath("solargraph"); err == nil {
+			servers = append(servers, LSPServerConfig{
+				Command:    []string{"solargraph", "stdio"},
+				Extensions: []string{"rb"},
+				LanguageID: "ruby",
 			})
 		}
 	}

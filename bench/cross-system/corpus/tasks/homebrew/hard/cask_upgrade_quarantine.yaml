@@ -1,0 +1,16 @@
+id: homebrew-hard-002
+repo: homebrew
+tier: hard
+description: "Fix a bug where upgrading a cask loses the quarantine attribute removal that was applied during the original install, causing Gatekeeper to block the upgraded app"
+source: manual
+ground_truth:
+  - Cask::Installer
+  - Cask::Installer.install
+  - Cask::Installer.upgrade
+  - Cask::Installer.uninstall
+  - Cask::Installer.install_artifacts
+  - Cask::Quarantine
+  - Cask::Artifact::App
+  - Homebrew::Cmd::UpgradeCmd.upgrade_outdated_casks!
+tags: [casks, upgrade, quarantine, security, bug-fix]
+notes: "Cask upgrade goes through UpgradeCmd.upgrade_outdated_casks! -> Cask::Installer.upgrade which calls uninstall then install. The quarantine attribute is managed by Cask::Quarantine. The bug is that install_artifacts doesn't preserve the quarantine-removal state from the previous install."

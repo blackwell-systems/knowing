@@ -24,14 +24,14 @@ are reported as such.
 
 ## Executive Summary
 
-knowing is a content-addressed graph retrieval engine evaluated against 6 competitors across 12 codebases (3.5M LOC down to 14K LOC), 222 task fixtures, 7 languages, and 26+ iterative benchmark runs with full statistical rigor.
+knowing is a content-addressed graph retrieval engine evaluated against 6 competitors across 13 codebases (3.5M LOC down to 14K LOC), 257 task fixtures, 8 languages, and 26+ iterative benchmark runs with full statistical rigor.
 
-### Final Results (Session 17: 12 repos, Go/C# enrichment, full corpus)
+### Final Results (Session 19: 13 repos, Jekyll added, full corpus)
 
 | System | P@10 | R@10 | Tasks | Notes |
 |--------|------|------|-------|-------|
-| **knowing (cold start)** | **0.247** | **0.380** | 237 | 12 repos, 7 languages, nomic re-ranker + gap-fill, 38 edge types |
-| **knowing (with compounding)** | **0.251** | **0.402** | 237 | +1.9% from passive task memory (self-adapting) |
+| **knowing (cold start)** | **0.264** | **0.414** | 257 | 13 repos, 8 languages, nomic re-ranker + gap-fill, 38 edge types |
+| **knowing (with compounding)** | **0.268** | **0.424** | 257 | +4.2% from passive task memory (self-adapting) |
 | codegraph (19K stars) | 0.135 | - | 107 | 10 tasks failed (unsupported repos) |
 | GitNexus | 0.075 | - | 66 | Killed on k8s (>60 min indexing) |
 | Gortex | 0.063 | - | 66 | 14 min k8s indexing, 14GB RAM |
@@ -39,34 +39,35 @@ knowing is a content-addressed graph retrieval engine evaluated against 6 compet
 | Aider (~20K stars) | - | - | - | Timed out (30 min limit) |
 | codebase-memory (2.6K stars) | - | - | - | Timed out (30 min limit) |
 
-### Per-Repo Breakdown (Session 17, cold start)
+### Per-Repo Breakdown (Session 19, cold start)
 
 | Repo | Language | P@10 | Tasks | Notes |
 |------|----------|------|-------|-------|
 | kafka | Java | 0.337 | 19 | Best in corpus |
-| caddy | Go | 0.285 | 20 | NEW (session 17), enriched with gopls |
-| terraform | Go | 0.275 | 20 | First-time enrichment: ~0.095 -> 0.275 |
+| jekyll | Ruby | 0.325 | 20 | NEW (session 19), tree-sitter only (no LSP enrichment) |
+| caddy | Go | 0.285 | 20 | Enriched with gopls |
+| terraform | Go | 0.275 | 20 | Enriched with gopls |
 | flask | Python | 0.263 | 19 | Enriched with pyright |
-| kubernetes | Go | 0.232 | 19 | First-time enrichment: 0.000 -> 0.232 |
+| kubernetes | Go | 0.232 | 19 | Enriched with gopls |
 | cargo | Rust | 0.216 | 19 | Enriched with rust-analyzer |
 | cross-cutting | multi | 0.211 | 9 | Multi-repo tasks |
 | django | Python | 0.176 | 33 | 42% zero-rate (vocabulary gaps) |
-| ocelot | C# | 0.175 | 20 | NEW (session 17), first C# benchmark |
+| ocelot | C# | 0.175 | 20 | Enriched with csharp-ls |
 | vscode | TypeScript | 0.153 | 19 | Enriched with tsserver |
 | spark-java | Java | 0.140 | 5 | Smallest fixture set |
 
 ### Competitive Advantages (cold start)
 
-- **vs codegraph (19K stars):** 1.83x more precise (P@10 0.247 vs 0.135), all 237 tasks vs 107
-- **vs GitNexus:** 3.29x more precise (P@10 0.247 vs 0.075), 237 tasks vs 66, 18s index vs >60 min
-- **vs Gortex:** 3.92x more precise (P@10 0.247 vs 0.063), 200MB RAM vs 14GB, 18s index vs 14 min
-- **vs grep:** 19.0x more precise (P@10 0.247 vs 0.013)
+- **vs codegraph (19K stars):** 1.96x more precise (P@10 0.264 vs 0.135), all 257 tasks vs 107
+- **vs GitNexus:** 3.52x more precise (P@10 0.264 vs 0.075), 257 tasks vs 66, 18s index vs >60 min
+- **vs Gortex:** 4.19x more precise (P@10 0.264 vs 0.063), 200MB RAM vs 14GB, 18s index vs 14 min
+- **vs grep:** 20.3x more precise (P@10 0.264 vs 0.013)
 - **vs Repomix:** 48x more token-efficient (4K tokens vs 300K for same task)
 
 ### Competitive Advantages (with compounding)
 
-- **vs codegraph:** 1.86x (P@10 0.251 vs 0.135)
-- **vs GitNexus:** 3.35x (P@10 0.251 vs 0.075)
+- **vs codegraph:** 1.99x (P@10 0.268 vs 0.135)
+- **vs GitNexus:** 3.57x (P@10 0.268 vs 0.075)
 - **vs Gortex:** 3.98x (P@10 0.251 vs 0.063)
 - **vs grep:** 19.3x (P@10 0.251 vs 0.013)
 

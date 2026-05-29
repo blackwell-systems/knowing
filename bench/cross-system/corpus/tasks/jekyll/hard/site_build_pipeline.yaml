@@ -1,0 +1,18 @@
+id: jekyll-hard-002
+repo: jekyll
+tier: hard
+description: "Add support for parallel document rendering during site.process, distributing conversion and layout placement across threads while maintaining correct Liquid variable scoping"
+source: manual
+ground_truth:
+  - Jekyll::Site
+  - Jekyll::Site.process
+  - Jekyll::Site.render
+  - Jekyll::Site.generate
+  - Jekyll::Site.write
+  - Jekyll::Renderer.run
+  - Jekyll::Renderer.render_document
+  - Jekyll::Renderer.place_in_layouts
+  - Jekyll::Convertible.render_liquid
+  - Jekyll::Drops::UnifiedPayloadDrop
+tags: [site, rendering, parallelism, feature-addition]
+notes: "Site.process orchestrates read->generate->render->write. Parallelizing render requires understanding that Renderer.run calls render_document and place_in_layouts per document, each needing its own Liquid context. UnifiedPayloadDrop provides the template payload that must be thread-safe."

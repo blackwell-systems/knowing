@@ -1,0 +1,15 @@
+id: jekyll-medium-005
+repo: jekyll
+tier: medium
+description: "Add detailed per-template profiling to the Liquid renderer that tracks render time, byte count, and render count per template file"
+source: manual
+ground_truth:
+  - Jekyll::LiquidRenderer
+  - Jekyll::LiquidRenderer.file
+  - Jekyll::LiquidRenderer.increment_bytes
+  - Jekyll::LiquidRenderer.increment_time
+  - Jekyll::LiquidRenderer.increment_count
+  - Jekyll::LiquidRenderer.stats_table
+  - Jekyll::LiquidRenderer::File.render
+tags: [liquid, rendering, profiling, feature-addition]
+notes: "The LiquidRenderer delegates to File instances per template. Each File.render call is tracked via increment_bytes/time/count, and stats_table aggregates the results. Profiling data flows through these counters."

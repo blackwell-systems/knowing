@@ -156,9 +156,9 @@ After seed retrieval, Random Walk with Restart (RWR) expands the seed set throug
 
 **Benchmark results (fresh index, with embedding re-ranker):**
 
-- P@10 = 0.257 cold start, 0.262 with compounding across 237 tasks, 12 repos, 7 languages (Go, Python, TypeScript, Rust, Java, C#), 14K to 3.5M LOC
-- Task memory compounding: +3.7% P@10 from passive learning (self-adapting claim, quantified)
-- Competitive advantage (cold): vs codegraph 1.90x, vs GitNexus 3.43x, vs Gortex 4.08x, vs grep 19.8x
+- P@10 = 0.264 cold start, 0.268 with compounding across 257 tasks, 13 repos, 8 languages (Go, Python, TypeScript, Rust, Java, C#, Ruby), 14K to 3.5M LOC
+- Task memory compounding: +4.2% P@10 from passive learning (self-adapting claim, quantified)
+- Competitive advantage (cold): vs codegraph 1.96x, vs GitNexus 3.52x, vs Gortex 4.19x, vs grep 20.3x
 - Self-adapting type-seed preference: on dense graphs (>40K nodes), automatically prefers type/interface/class nodes as RWR seeds
 - Embedding re-ranker: +17% P@10 aggregate, zero regressions on any repo (session 16 confirmed)
 - Concept thesaurus: ~80 domain clusters expand BM25 queries with related code vocabulary.

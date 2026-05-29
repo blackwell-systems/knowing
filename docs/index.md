@@ -2,7 +2,7 @@
 
 **Self-adapting code intelligence engine.** Gives AI agents ranked, graph-aware context instead of grep results. Gets smarter with scale, not dumber.
 
-P@10 = 0.257 across 237 tasks, 12 repos, 7 languages. 1.90x codegraph, 3.43x GitNexus. 38 edge types, 28 MCP tools, 152 equivalence classes, local embedding re-ranker.
+P@10 = 0.264 across 257 tasks, 13 repos, 8 languages. 1.96x codegraph, 3.52x GitNexus. 38 edge types, 28 MCP tools, 152 equivalence classes, local embedding re-ranker.
 
 ## Get started in 60 seconds
 

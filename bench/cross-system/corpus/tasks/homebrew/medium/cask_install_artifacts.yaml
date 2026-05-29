@@ -1,0 +1,14 @@
+id: homebrew-medium-003
+repo: homebrew
+tier: medium
+description: "Fix a bug where installing a cask with multiple app artifacts fails when the target Applications directory contains a case-insensitive name collision"
+source: manual
+ground_truth:
+  - Cask::Cask
+  - Cask::Cask.initialize
+  - Cask::Installer
+  - Cask::Installer.install
+  - Cask::Installer.install_artifacts
+  - Cask::Artifact::App
+tags: [casks, installer, artifacts, bug-fix]
+notes: "Cask installation flows through Cask::Installer.install -> install_artifacts. Each artifact type (App, Binary, etc.) handles its own installation. The App artifact moves .app bundles to the target directory."

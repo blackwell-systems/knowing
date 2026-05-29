@@ -1,0 +1,17 @@
+id: jekyll-hard-003
+repo: jekyll
+tier: hard
+description: "Fix a bug where hooks registered by plugins during :after_init fire in the wrong order relative to hooks registered in _plugins/, causing theme overrides to be applied before the theme's own hooks run"
+source: manual
+ground_truth:
+  - Jekyll::Hooks
+  - Jekyll::Hooks.register
+  - Jekyll::Hooks.register_one
+  - Jekyll::Hooks.insert_hook
+  - Jekyll::Hooks.trigger
+  - Jekyll::Hooks.priority_value
+  - Jekyll::PluginManager.conscientious_require
+  - Jekyll::PluginManager.require_plugin_files
+  - Jekyll::Site.setup
+tags: [hooks, plugins, themes, ordering, bug-fix]
+notes: "Hook registration happens through register -> register_one -> insert_hook, with priority_value controlling order. Plugins are loaded by PluginManager.conscientious_require and require_plugin_files during Site.setup. The bug is in the interaction between plugin load order and hook priority insertion."

@@ -1,0 +1,18 @@
+id: jekyll-hard-004
+repo: jekyll
+tier: hard
+description: "Fix a bug where theme assets with the same relative path as site assets are not properly overridden, causing the theme version to appear in the output instead of the site version"
+source: manual
+ground_truth:
+  - Jekyll::Theme
+  - Jekyll::Theme.root
+  - Jekyll::Site.configure_theme
+  - Jekyll::Site.setup
+  - Jekyll::Reader.read
+  - Jekyll::Reader.retrieve_static_files
+  - Jekyll::Reader.retrieve_pages
+  - Jekyll::StaticFile.write
+  - Jekyll::Cleaner.obsolete_files
+  - Jekyll::Cleaner.existing_files
+tags: [themes, assets, overrides, cross-package, bug-fix]
+notes: "Theme asset resolution involves Site.configure_theme loading the theme, Reader reading from both site and theme directories, StaticFile.write choosing which version to output, and Cleaner determining which files are obsolete. The override logic must compare paths from both the site source and Theme.root."

@@ -1,0 +1,13 @@
+id: homebrew-easy-006
+repo: homebrew
+tier: easy
+description: "Add retry logic to the formula API JSON download when the initial fetch times out"
+source: manual
+ground_truth:
+  - Homebrew::API::Formula
+  - Homebrew::API::Formula.fetch_api!
+  - Homebrew::API::Formula.fetch_formula_json!
+  - Homebrew::API::Formula.download_and_cache_data!
+  - Homebrew::API::Formula.cached_json_file_path
+tags: [api, download, retry, feature-addition]
+notes: "The API fetch chain goes fetch_api! -> fetch_formula_json! -> download_and_cache_data!. The cache path from cached_json_file_path determines where JSON is stored locally."

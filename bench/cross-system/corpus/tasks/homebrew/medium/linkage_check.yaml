@@ -1,0 +1,13 @@
+id: homebrew-medium-006
+repo: homebrew
+tier: medium
+description: "Fix a bug where the linkage checker reports false positives for system libraries on Apple Silicon Macs due to different library paths"
+source: manual
+ground_truth:
+  - Homebrew::Linkage::LinkageChecker
+  - Homebrew::Linkage::LinkageChecker.check_dylibs
+  - Homebrew::Linkage::LinkageChecker.display_test_output
+  - Homebrew::Linkage::LinkageChecker.broken_library_linkage?
+  - Keg
+tags: [linkage, libraries, platform, bug-fix]
+notes: "LinkageChecker.check_dylibs scans installed dylibs for broken references. broken_library_linkage? reports the result. The Keg provides the installed paths to check. System library paths differ between Intel and ARM."

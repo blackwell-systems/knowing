@@ -1,0 +1,15 @@
+id: jekyll-hard-001
+repo: jekyll
+tier: hard
+description: "Fix a race condition in the live reload server where concurrent browser connections cause websocket messages to be sent to closed connections, crashing the serve command"
+source: manual
+ground_truth:
+  - Jekyll::Commands::Jekyll::Commands::Serve::LiveReloadReactor
+  - Jekyll::Commands::Jekyll::Commands::Serve::LiveReloadReactor.start
+  - Jekyll::Commands::Jekyll::Commands::Serve::LiveReloadReactor.reload
+  - Jekyll::Commands::Jekyll::Commands::Serve::LiveReloadReactor.connect
+  - Jekyll::Commands::Jekyll::Commands::Serve::LiveReloadReactor.disconnect
+  - Jekyll::Commands::Jekyll::Commands::Serve::LiveReloadReactor.handle_websockets_event
+  - Jekyll::Commands::Jekyll::Commands::Serve::HttpAwareConnection.dispatch
+tags: [serve, livereload, websocket, concurrency, bug-fix]
+notes: "The LiveReloadReactor manages websocket connections. The race is between reload (sends to all connections), connect/disconnect (modifies connection list), and handle_websockets_event (processes incoming frames). HttpAwareConnection.dispatch handles the HTTP upgrade to websocket."

@@ -1,0 +1,13 @@
+id: homebrew-easy-005
+repo: homebrew
+tier: easy
+description: "Fix a bug where linking a keg fails with a confusing error when the target directory is not writable"
+source: manual
+ground_truth:
+  - Keg
+  - Keg.link
+  - Keg.link_completions_manpages_and_docs
+  - Keg::DirectoryNotWritableError
+  - Keg::LinkError
+tags: [kegs, linking, error-handling, bug-fix]
+notes: "Keg.link creates symlinks from the Cellar into the prefix. link_completions_manpages_and_docs handles documentation links. DirectoryNotWritableError and LinkError provide the error reporting."

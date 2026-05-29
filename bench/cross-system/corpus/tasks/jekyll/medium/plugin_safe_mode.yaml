@@ -1,0 +1,14 @@
+id: jekyll-medium-007
+repo: jekyll
+tier: medium
+description: "Fix a bug where plugins loaded via Bundler bypass the safe mode whitelist check, allowing arbitrary code execution in safe mode"
+source: manual
+ground_truth:
+  - Jekyll::PluginManager
+  - Jekyll::PluginManager.conscientious_require
+  - Jekyll::PluginManager.require_from_bundler
+  - Jekyll::PluginManager.plugin_allowed?
+  - Jekyll::PluginManager.whitelist
+  - Jekyll::Configuration.check_plugins
+tags: [plugins, security, safe-mode, bug-fix]
+notes: "Plugin loading goes through conscientious_require which calls require_gems and require_from_bundler. The plugin_allowed? method checks the whitelist, but require_from_bundler may not gate on it. Configuration.check_plugins validates plugin settings."

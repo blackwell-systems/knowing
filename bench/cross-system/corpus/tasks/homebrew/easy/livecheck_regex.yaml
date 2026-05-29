@@ -1,0 +1,12 @@
+id: homebrew-easy-007
+repo: homebrew
+tier: easy
+description: "Add a new livecheck strategy that checks GitHub release tags for version updates"
+source: manual
+ground_truth:
+  - Homebrew::Livecheck
+  - Homebrew::Livecheck.resolve_livecheck_reference
+  - Homebrew::Livecheck.checkable_urls
+  - Homebrew::Livecheck.latest_version
+tags: [livecheck, versions, feature-addition]
+notes: "Livecheck resolves which URL to check via resolve_livecheck_reference, gathers candidate URLs with checkable_urls, and determines the newest via latest_version."

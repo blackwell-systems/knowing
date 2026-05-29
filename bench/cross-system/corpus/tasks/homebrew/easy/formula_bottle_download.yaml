@@ -1,0 +1,13 @@
+id: homebrew-easy-001
+repo: homebrew
+tier: easy
+description: "Fix a bug where bottle downloads fail to verify the SHA256 checksum when the bottle was rebuilt with a different tag"
+source: manual
+ground_truth:
+  - Bottle
+  - Bottle.fetch
+  - Bottle.verify_download_integrity
+  - BottleSpecification.sha256
+  - BottleSpecification.tag_specification_for
+tags: [bottles, download, checksum, bug-fix]
+notes: "Bottle download verification flows through Bottle.fetch and verify_download_integrity. The checksum is looked up via BottleSpecification.sha256 and tag_specification_for maps the current platform to the correct checksum."

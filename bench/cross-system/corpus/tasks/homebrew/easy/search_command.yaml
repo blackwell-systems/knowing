@@ -1,0 +1,13 @@
+id: homebrew-easy-003
+repo: homebrew
+tier: easy
+description: "Add support for searching formulae by their dependencies, so users can find all formulae that depend on a specific library"
+source: manual
+ground_truth:
+  - Homebrew::Cmd::SearchCmd
+  - Homebrew::Cmd::SearchCmd.run
+  - Homebrew::Cmd::SearchCmd.print_results
+  - Dependency
+  - Dependency.to_formula
+tags: [search, dependencies, feature-addition]
+notes: "The search command runs through SearchCmd.run and displays via print_results. Adding dependency search requires resolving Dependency.to_formula to traverse the dependency graph."

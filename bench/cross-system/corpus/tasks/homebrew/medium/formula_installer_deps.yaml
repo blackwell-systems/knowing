@@ -1,0 +1,14 @@
+id: homebrew-medium-001
+repo: homebrew
+tier: medium
+description: "Fix a bug where the formula installer fails to detect circular dependencies when a formula depends on itself through an optional dependency chain"
+source: manual
+ground_truth:
+  - FormulaInstaller
+  - FormulaInstaller.install
+  - FormulaInstaller.install_dependencies
+  - FormulaInstaller.compute_dependencies
+  - Dependency
+  - Dependency.satisfied?
+tags: [installer, dependencies, circular, bug-fix]
+notes: "FormulaInstaller.install triggers install_dependencies which calls compute_dependencies to resolve the full dependency tree. Dependency.satisfied? checks if a dep is already installed. Circular detection must happen during compute_dependencies."

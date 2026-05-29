@@ -1,0 +1,17 @@
+id: homebrew-hard-005
+repo: homebrew
+tier: hard
+description: "Fix a bug where bottles built with non-default prefix paths fail relocation on Apple Silicon due to Mach-O load command differences between arm64 and x86_64"
+source: manual
+ground_truth:
+  - Bottle
+  - Bottle.fetch
+  - Bottle.pour
+  - BottleSpecification.compatible_locations?
+  - BottleSpecification.skip_relocation?
+  - Keg
+  - Keg.relocate_dynamic_linkage
+  - Keg.replace_placeholders_with_locations
+  - Homebrew::Cmd::InstallCmd.run
+tags: [bottles, relocation, platform, cross-package, bug-fix]
+notes: "Bottle installation flows from InstallCmd.run through Bottle.fetch -> pour. Location compatibility is checked via BottleSpecification.compatible_locations? and skip_relocation?. After pouring, Keg.relocate_dynamic_linkage and replace_placeholders_with_locations fix embedded paths."

@@ -7,8 +7,8 @@ automatically. This is the project's central thesis: a code retrieval system tha
 adapts to its graph outperforms any fixed-strategy system, and the gap widens with
 scale.
 
-**Current result:** P@10 = 0.257 cold start, 0.262 with compounding (237 tasks,
-12 repos, 7 languages). 1.82x codegraph, 3.28x GitNexus, 3.90x Gortex.
+**Current result:** P@10 = 0.264 cold start, 0.268 with compounding (257 tasks,
+13 repos, 8 languages). 1.96x codegraph, 3.52x GitNexus, 4.19x Gortex.
 
 ## The Problem with Fixed-Strategy Retrieval
 
@@ -26,7 +26,7 @@ This works at small scale. At large scale, it fails:
 The result: fixed-strategy systems get less precise as codebases grow. knowing
 gets more precise because it detects these conditions and compensates.
 
-## Six Self-Adapting Mechanisms
+## Seven Self-Adapting Mechanisms
 
 ### 1. PreferTypeSeeds (density-adaptive seed selection)
 
@@ -66,7 +66,37 @@ unreachable. More seeds = broader coverage = more ground truth found.
 
 **Measured impact:** Django +14.2% (0.197 -> 0.225). Full corpus +3.8% (0.238 -> 0.247).
 
-### 3. Embedding Gap-Fill Seeds (vocabulary-adaptive fallback)
+### 3. Equivalence Classes / Concept Thesaurus (vocabulary-adaptive bridging)
+
+**Trigger:** Always active; language-detected from graph content
+
+**What it does:** Maps framework-specific terminology to generic task vocabulary
+across 152 hand-curated equivalence classes in 4 layers: cross-language (35),
+Python (37), Go (13), and framework-specific (C# 15, FastAPI 10, Terraform 11,
+plus others). When a task says "dependency injection", the thesaurus expands
+the query to match `IServiceCollection.AddScoped`, `services.AddSingleton`,
+`Depends()`, `inject.Provide`. When a task says "routing", it matches
+`app.MapGet`, `HandleFunc`, `@app.route`, `Router`.
+
+**Why it's needed:** Framework code uses highly specialized vocabulary that
+shares no keywords with natural-language task descriptions. BM25 cannot
+bridge "validate the request body" to `[FromBody]` or `Pydantic.BaseModel`.
+Equivalence classes provide exact, curated bridges where statistical methods
+(BM25, embeddings) fail due to the vocabulary chasm between human intent and
+framework API surfaces.
+
+**Why it's adaptive:** Classes activate based on detected language and
+framework presence in the graph. A Python repo gets Python + FastAPI/Flask
+classes. A C# repo gets C# + ASP.NET classes. A Go repo gets Go classes.
+The system never applies irrelevant classes; language detection is automatic
+from node qualified names.
+
+**Measured impact:** C# equivalence classes: ocelot P@10 0.175 -> 0.265 (+51%).
+Full corpus +4% (0.247 -> 0.257). Hard tier +8pp from equivalence classes
+overall. Cross-language classes provide the baseline vocabulary bridge;
+framework-specific classes provide the precision lift.
+
+### 4. Embedding Gap-Fill Seeds (vocabulary-adaptive fallback)
 
 **Trigger:** `len(candidates) < 5` after BM25/tiered/equivalence seed selection
 
@@ -88,7 +118,7 @@ it intervenes only where the existing pipeline is already failing.
 **Measured impact:** Django +43% (0.176 -> 0.252). Flask +22% (0.263 -> 0.321).
 Full corpus +11.2% (0.223 -> 0.247 with nomic model). Zero regressions across all 12 repos.
 
-### 4. Task Memory Compounding (learning-adaptive boosting)
+### 5. Task Memory Compounding (learning-adaptive boosting)
 
 **Trigger:** Any repeated or similar query within or across sessions
 
@@ -111,7 +141,7 @@ On round 2, they get boosted alongside BM25-found symbols. The compounding
 surface area grows because there's more to compound. Gap-fill + compounding
 interact multiplicatively: neither achieves the combined effect alone.
 
-### 5. Merkleized Feedback Expiration (staleness-adaptive validity)
+### 6. Merkleized Feedback Expiration (staleness-adaptive validity)
 
 **Trigger:** Code change in the symbol's package (SubgraphRoot mismatch)
 
@@ -129,7 +159,7 @@ valid if and only if the code hasn't changed.
 **Measured overhead:** 11% (255us -> 284us for 100 symbols). The Merkle root
 comparison is a single hash equality check.
 
-### 6. LSP Enrichment Interaction (enrichment-adaptive reachability)
+### 7. LSP Enrichment Interaction (enrichment-adaptive reachability)
 
 **Trigger:** LSP enrichment creates phantom nodes + type_hint_of edges exist
 
@@ -158,21 +188,23 @@ Each mechanism measured independently on the full corpus:
 |-----------|---------|------|-------|---------|
 | PreferTypeSeeds | 0.202 | 0.207 | +2.5% | Node count > 40K |
 | Adaptive seed count | 0.238 | 0.247 | +3.8% | Node count > 10K/40K |
+| Equivalence classes | 0.247 | 0.257 | +4.0% | Language/framework detected |
 | Gap-fill seeds | 0.223 | 0.247 | +10.8% | Candidates < 5 |
 | Task memory | 0.248 (cold) | 0.253 (warm) | +3.8% | Any repeated query |
 | Feedback expiration | N/A | N/A | correctness | Code change |
 | Enrichment + type_hint | 0.200 (no enrich) | 0.248 (enriched) | +24% | LSP available |
 
-Combined: P@10 = 0.257 cold, 0.262 warm (237 tasks, 12 repos).
+Combined: P@10 = 0.264 cold, 0.268 warm (257 tasks, 13 repos).
 Without any adaptation: ~0.180 (estimated from pre-enrichment, pre-gap-fill baseline).
 
 ## Why Fixed-Strategy Systems Can't Compete
 
-Competitors would need to implement all six mechanisms to match knowing's
+Competitors would need to implement all seven mechanisms to match knowing's
 adaptive behavior. But the mechanisms interact: PreferTypeSeeds benefits from
-phantom density (mechanism 6). Gap-fill benefits from pre-embedded vectors
+phantom density (mechanism 7). Gap-fill benefits from pre-embedded vectors
 (infrastructure). Task memory benefits from gap-fill (more symbols to remember).
-The system is greater than the sum of its parts.
+Equivalence classes feed better seeds into RWR, which produces better symbols
+for task memory to compound. The system is greater than the sum of its parts.
 
 More importantly, the adaptive approach is structural: it follows from
 content-addressed storage (feedback expiration via Merkle roots), graph-native
@@ -184,6 +216,7 @@ the architecture, not an ad-hoc heuristic bolted on.
 
 | File | Mechanism |
 |------|-----------|
+| `internal/context/language_seeds.go` | Equivalence classes (152 concepts, 4 layers) |
 | `internal/context/context.go` | Gap-fill seeds (lines 711-745), PreferTypeSeeds (line 758) |
 | `internal/context/walk.go` | GraphNodeCount, adaptive seed count, PreferTypeSeeds flag |
 | `internal/context/task_memory.go` | Task memory recording and recall |
