@@ -88,7 +88,7 @@ Feedback from agents compounds across sessions. When code changes, feedback expi
 
 | What | Result |
 |---|---:|
-| Cross-system retrieval | **P@10=0.264 cold, 0.268 warm** (257 tasks, 13 repos, 8 languages) |
+| Cross-system retrieval | **P@10=0.264 cold, 0.268 warm** (277 tasks, 14 repos, 8 languages) |
 | vs competitors | 1.96x codegraph (19K stars), 1.93x codebase-memory (2.7K stars), 3.52x GitNexus, 4.19x Gortex, 20.3x grep |
 | Embedding re-ranker | +17% P@10 (local inference, no API, no charges, on by default) |
 | Gap-fill seeds | +11% P@10 (embedding-based fallback when keywords fail) |
@@ -103,8 +103,8 @@ Feedback from agents compounds across sessions. When code changes, feedback expi
 | Graph integrity check | 98ms (24,936 edges) |
 | Proof generation | 72us generate, 1.2us verify |
 | Feedback expiration | 100% expire on code change, 11% overhead |
-| Indexing throughput | 13 repos (8 languages) in ~54s |
-| Language coverage | 13/13 repos pass (Go, Python, TS, Rust, Java, C#, Ruby, multi) |
+| Indexing throughput | 14 repos (8 languages) in ~54s |
+| Language coverage | 13/14 repos pass (Go, Python, TS, Rust, Java, C#, Ruby, multi) |
 | Edge types | 38 (including supply chain: reads_env, executes_process) |
 
 All benchmarks are reproducible: `GOWORK=off go test ./bench/... -timeout 5m`

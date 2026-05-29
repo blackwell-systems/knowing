@@ -4,7 +4,7 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 
 ## Current State (v0.11.0, 2026-05-28)
 
-**P@10 = 0.266 cold start, 0.271 with compounding** (257 tasks, 13 repos, 8 languages, nomic-embed-text-v1.5 model). 38 edge types. 23 extractors. 152 equivalence classes.
+**P@10 = 0.266 cold start, 0.271 with compounding** (277 tasks, 14 repos, 8 languages, nomic-embed-text-v1.5 model). 38 edge types. 23 extractors. 164 equivalence classes.
 1.97x codegraph, 1.94x codebase-memory, 3.55x GitNexus, 4.22x Gortex, 20.5x grep.
 Embedding re-ranker (nomic): +17% P@10. Gap-fill seeds: +11.2%. Equivalence classes (C#, FastAPI, Terraform): +4%. Task memory compounding: +5.0%. Ruby enrichment (ruby-lsp): Jekyll #1 in corpus at 0.370.
 
@@ -15,7 +15,7 @@ Embedding re-ranker (nomic): +17% P@10. Gap-fill seeds: +11.2%. Equivalence clas
 | 1 | ~~Language equivalence classes~~ | **SHIPPED (session 18).** C# (15), FastAPI (10), Terraform (11) classes. Total 152 classes across 4 layers. Ocelot +51%, corpus +4%. | **Shipped** |
 | 2 | **Deploy platform API** | api.blackwell-systems.com. DigitalOcean Droplet, Cloudflare Tunnel, bare metal. DEPLOY.md + deploy.sh ready. Just need GitHub deploy key. | 15 min | Live product |
 | 3 | **AI-generated evaluation corpus** | LLM generates tasks + ground truth, DB-validated before use: all symbols must exist in nodes table, >= 3 symbols, span >= 2 files. Auto-difficulty from graph properties. Run 1000, keep ~600. Weekly CI. Hybrid: hand-curated for regression, AI-generated for statistical coverage. | Medium | Eval credibility |
-| 4 | **Blog post** | Numbers are publishable: 13 repos, 8 languages, 257 tasks. LinkedIn audience is warm (11K views on mcp-assert). | 2 hours | Visibility |
+| 4 | **Blog post** | Numbers are publishable: 14 repos, 8 languages, 277 tasks. LinkedIn audience is warm (11K views on mcp-assert). | 2 hours | Visibility |
 | 5 | **Add more corpus repos** | Every enriched repo at 0.200+ lifts the aggregate. Candidates: celery (Python, 80K LOC), Spring Boot (Java/Kotlin). Target: 15 repos, 300 tasks. | 2 hours each | Corpus credibility |
 | 6 | **Supply chain whitepaper** | False positive evaluation done (1.0% on 200 packages). Draft has TanStack + event-stream case studies. | Medium | Publication |
 | 7 | ~~Root-level Go file extraction~~ | Tested: caddy has 701 nodes from 33 root-level .go files. Standalone repo test also works. Cannot reproduce. | **Not a bug** |
@@ -339,7 +339,7 @@ context retrieval. Full proposal: [docs/proposals/code-retrieval-eval-toolkit.md
 ## Retrieval Pipeline
 
 Current results: see [bench/cross-system/FINDINGS.md](../bench/cross-system/FINDINGS.md).
-P@10=0.266 cold, 0.271 warm (257 tasks, 13 repos, 8 languages). 1.97x vs codegraph, 3.55x vs GitNexus, 4.22x vs Gortex, 20.5x vs grep. Query latency 2ms on k8s (with adjacency cache). Embedding re-ranker adds 220ms (cached vectors). Equivalence classes: +4%. Task memory compounding: +5.0% P@10 from round 1 to round 2.
+P@10=0.266 cold, 0.271 warm (277 tasks, 14 repos, 8 languages). 1.97x vs codegraph, 3.55x vs GitNexus, 4.22x vs Gortex, 20.5x vs grep. Query latency 2ms on k8s (with adjacency cache). Embedding re-ranker adds 220ms (cached vectors). Equivalence classes: +4%. Task memory compounding: +5.0% P@10 from round 1 to round 2.
 
 **Key findings:** (1) 32-config parameter sweep proved P@10 is reachability-determined; ranking parameters are irrelevant. (2) Embedding re-ranker (+17% P@10) is the exception: it doesn't change reachability but reorders graph-surfaced candidates by semantic relevance. Architecture matters more than model.
 
@@ -365,6 +365,7 @@ P@10=0.266 cold, 0.271 warm (257 tasks, 13 repos, 8 languages). 1.97x vs codegra
 | 17b | **Graduated gap-fill weight** | Binary activation (on/off at threshold 5) could be graduated: lower weight (0.5) when BM25 found 3-4 seeds, full weight only when BM25 found 0-1. Proportional intervention instead of binary. | Experiment |
 | 17c | **Embedding re-ranker regression on unenriched repos** | Homebrew (tree-sitter only, no LSP): P@10 = 0.275 without embeddings, 0.200 with embeddings. First observed case where the re-ranker hurts. Hypothesis: without LSP enrichment, symbol QNs are less descriptive (Ruby `::` namespacing), so cosine similarity promotes semantically similar but graph-wrong symbols. Investigate whether this affects other unenriched repos. Possible fix: disable re-ranker when lsp_resolved edge count is zero. | Investigation |
 | 19 | ~~Pre-embed all nodes~~ | **SHIPPED (session 17).** `knowing enrich embeddings` command. Batch pre-embed with phantom skip (70% reduction). Incremental: only embed new/changed nodes. All 12 corpus repos pre-embedded. | **Shipped** |
+| 19a | **Parallel benchmark without embedding regression** | `BENCH_PARALLEL=1` loses ~0.022 P@10 from ONNX CPU contention across parallel tasks. Three fix candidates: (1) **Mutex around ONNX inference**: parallel BM25/RWR/packing, serialize only the re-rank step (~200ms per task). Cleanest fix, eliminates contention while keeping everything else parallel. (2) **Pre-compute re-rank scores**: embed all task descriptions upfront, then cosine similarity is pure vector math (no ONNX). Changes the pipeline flow. (3) **Limit ONNX threads**: `OMP_NUM_THREADS=1` forces single-threaded inference per task, reduces contention at cost of slower per-task re-rank. Easiest to test. | Infrastructure |
 | 20 | **sqlite-vec integration** | Replace brute-force cosine with sqlite-vec ANN for persistent search. Current brute-force from SQLite works but scales O(n). sqlite-vec would give O(log n) queries. Pure Go option: `viant/sqlite-vec`. | Infrastructure (not urgent: brute-force is fast enough for current corpus sizes) |
 | 21 | ~~Adaptive retrieval architecture doc~~ | **SHIPPED (session 17).** `docs/architecture/adaptive-retrieval.md` with all 6 self-adapting mechanisms and ablation table. | **Shipped** |
 | 22 | **More corpus repos** | Every enriched repo at 0.200+ lifts the aggregate. Candidates: celery (Python, 80K LOC), Spring Boot (Java/Kotlin). Target: 16+ repos, 300 tasks. | Corpus expansion |

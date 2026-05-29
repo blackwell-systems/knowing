@@ -122,18 +122,18 @@ Competitive ratios to recalculate from new P@10:
 - `internal/snapshot/` — hierarchical Merkle tree (via merkle-strata library)
 - `internal/mcp/` — MCP server (28 tools, 8 resources)
 - `internal/enrichment/` — LSP enrichment (multi-module gopls, per-symbol timeout, progress persistence)
-- `bench/cross-system/` — competitive benchmark (222 tasks, 12 repos, 7 competitors)
+- `bench/cross-system/` — competitive benchmark (277 tasks, 14 repos, 7 competitors)
 - `cmd/knowing/audit_supply_chain.go` — supply chain CLI (package-level verdict)
 
-## Current State (session 17, 2026-05-27)
+## Current State (session 18, 2026-05-28)
 
-- **P@10 = 0.223 cold start, 0.249 with compounding** (222 tasks, 12 repos, 7 languages, 38 edge types)
-- **Self-adapting compounding:** +11.5% P@10 from passive task memory (round 1 to round 2)
+- **P@10 = 0.264 cold start, 0.268 with compounding** (277 tasks, 14 repos, 8 languages, 38 edge types, 164 equivalence classes)
+- **Self-adapting compounding:** +4.2% P@10 from passive task memory (round 1 to round 2)
 - **Density-adaptive:** PreferTypeSeeds >40K nodes, adaptive seed count >10K nodes
 - **Embedding re-ranker:** +17% P@10, pure re-rank (weight=0.0), vector cache 220ms
 - **LSP enrichment:** strongly positive. Go: k8s 0.000->0.232, terraform ~0.095->0.275. Python: +0.040
-- **Competitive (cold):** 1.65x codegraph, 1.63x codebase-memory, 2.97x GitNexus, 3.54x Gortex, 17.2x grep
-- **Competitive (warm):** 1.84x codegraph, 1.82x codebase-memory, 3.32x GitNexus, 3.95x Gortex, 19.2x grep
+- **Competitive (cold):** 1.96x codegraph, 1.93x codebase-memory, 3.52x GitNexus, 4.19x Gortex, 20.3x grep
+- **Competitive (warm):** 1.99x codegraph, 1.96x codebase-memory, 3.57x GitNexus, 4.25x Gortex, 20.6x grep
 - **Supply chain:** 1.0% FP on 200 clean packages (package-level verdict)
 - **Identity:** "self-adapting code intelligence engine that gets smarter with scale"
 
@@ -147,7 +147,7 @@ Competitive ratios to recalculate from new P@10:
 6. **Gap injection concept is sound but BM25 is too noisy.** Embedding-filtered BM25 gap candidates: Django +3.2% but aggregate neutral. Need higher-precision candidate source.
 7. **Coherence packing, bidirectional inheritance: both harmful.** Greedy density packing is near-optimal. Reverse inherits edges add noise without reachability.
 
-## Experiment Summary (44 total across sessions 8-17)
+## Experiment Summary (45 total across sessions 8-19)
 
 ### What works
 | Experiment | Impact | Session |
@@ -159,12 +159,14 @@ Competitive ratios to recalculate from new P@10:
 | Docstring FTS indexing | +12.2% | 13 |
 | Task memory compounding | +11.5% P@10 round-over-round | 17 |
 | Go enrichment (two-phase warmup) | k8s 0.000->0.232, terraform ~0.095->0.275 | 17 |
+| Ruby enrichment (ruby-lsp) | Jekyll 0.325->0.370 (+14%) | 19 |
+| C# equivalence classes (15 concepts) | Ocelot +51%, corpus +4% | 18 |
 | Equivalence classes (115 concepts) | +8pp hard tier | 14 |
 | Vector cache (SQLite) | 660ms -> 220ms | 16 |
 | Dangling type_hint_of resolution | 3,836 edges fixed across 4 repos | 17 |
 
 ### What doesn't work
-Embeddings as Channel 3, blended re-rank, call-chain seeding, hub dampening, BFS depth reduction, framework thesaurus, coherence packing, bidirectional inheritance, raw BM25 gap injection, seed count tuning (10-50), gap parameter sweep (15 configs), density-adaptive RWR alpha, density-adaptive inherits weight, interface type hint propagation (edge structure mismatch), GraphNodeCount excluding phantoms (phantoms are valid density signal). All neutral or harmful. See docs/roadmap.md for details.
+Embeddings as Channel 3, blended re-rank, call-chain seeding, hub dampening, BFS depth reduction, framework thesaurus, coherence packing, bidirectional inheritance, raw BM25 gap injection, seed count tuning (10-50), gap parameter sweep (15 configs), density-adaptive RWR alpha, density-adaptive inherits weight, interface type hint propagation (edge structure mismatch), GraphNodeCount excluding phantoms (phantoms are valid density signal), entry point seed channel (Django +10% without embeddings, neutral on full corpus with embeddings). All neutral or harmful. See docs/roadmap.md for details.
 
 ## Repos
 
@@ -174,14 +176,12 @@ Embeddings as Channel 3, blended re-rank, call-chain seeding, hub dampening, BFS
 
 ## Next Priorities
 
-1. **Embedding gap-fill seeds** (HIGH): when BM25 returns < 5 seeds, query sqlite-vec ANN for supplemental candidates. Targets django's 42% zero-rate without regressing strong repos. Prerequisites: sqlite-vec + pre-embed all nodes.
-2. **Deploy platform API** (DigitalOcean Droplet + Cloudflare Tunnel). DEPLOY.md and deploy.sh ready.
-3. **Update all benchmark docs** with 12-repo/222-task/0.223 cold/0.249 warm numbers.
-4. **Publish benchmark paper** on Zenodo (docs/research/whitepapers/code-context-retrieval-benchmark.md)
-5. **v0.11.0 release**: 50+ unreleased commits
-6. **Zig extractor**: tree-sitter-zig grammar exists, vendor parser.c. LinkedIn interest.
-7. **Re-test hub dampening, coherence, BFS depth** on enriched graphs (may flip post-enrichment)
-8. **Org conversion** (blackwell-systems user -> org for Marketplace)
+1. **Deploy platform API** (DigitalOcean Droplet + Cloudflare Tunnel). DEPLOY.md and deploy.sh ready.
+2. **AI-generated evaluation corpus**: LLM generates tasks + ground truth, DB-validated. Hybrid: hand-curated for regression, AI-generated for statistical coverage.
+3. **Blog post**: numbers are publishable, LinkedIn audience is warm.
+4. **Add hugo to corpus**: Go web server, 75K LOC, enriched with gopls.
+5. **Zig extractor**: tree-sitter-zig grammar exists, vendor parser.c. LinkedIn interest.
+6. **Org conversion** (blackwell-systems user -> org for Marketplace)
 
 ## Documentation Map
 

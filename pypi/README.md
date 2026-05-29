@@ -39,9 +39,9 @@ You should see ranked symbols with scores and file paths. If results are empty, 
 
 ## What it does
 
-knowing indexes code across 23 extractors (Go, TypeScript, Python, Rust, Java, C#, and more) into a content-addressed knowledge graph. 38 edge types, 28 MCP tools, 152 equivalence classes, local embedding re-ranker (+17% precision), gap-fill seeds (+11% precision).
+knowing indexes code across 23 extractors (Go, TypeScript, Python, Rust, Java, C#, and more) into a content-addressed knowledge graph. 38 edge types, 28 MCP tools, 164 equivalence classes, local embedding re-ranker (+17% precision), gap-fill seeds (+11% precision).
 
-P@10 = 0.264 across 257 tasks, 13 repos, 8 languages. 1.96x codegraph, 3.52x GitNexus.
+P@10 = 0.264 across 277 tasks, 14 repos, 8 languages. 1.96x codegraph, 3.52x GitNexus.
 
 ## CLI usage
 

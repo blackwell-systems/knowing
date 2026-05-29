@@ -24,13 +24,13 @@ are reported as such.
 
 ## Executive Summary
 
-knowing is a content-addressed graph retrieval engine evaluated against 6 competitors across 13 codebases (3.5M LOC down to 14K LOC), 257 task fixtures, 8 languages, and 26+ iterative benchmark runs with full statistical rigor.
+knowing is a content-addressed graph retrieval engine evaluated against 6 competitors across 14 codebases (3.5M LOC down to 14K LOC), 277 task fixtures, 8 languages, and 26+ iterative benchmark runs with full statistical rigor.
 
-### Final Results (Session 19: 13 repos, Jekyll added, full corpus)
+### Final Results (Session 19: 14 repos, Jekyll added, full corpus)
 
 | System | P@10 | R@10 | Tasks | Notes |
 |--------|------|------|-------|-------|
-| **knowing (cold start)** | **0.264** | **0.414** | 257 | 13 repos, 8 languages, nomic re-ranker + gap-fill, 38 edge types |
+| **knowing (cold start)** | **0.264** | **0.414** | 257 | 14 repos, 8 languages, nomic re-ranker + gap-fill, 38 edge types |
 | **knowing (with compounding)** | **0.268** | **0.424** | 257 | +4.2% from passive task memory (self-adapting) |
 | codegraph (19K stars) | 0.135 | - | 107 | 10 tasks failed (unsupported repos) |
 | GitNexus | 0.075 | - | 66 | Killed on k8s (>60 min indexing) |
@@ -54,12 +54,13 @@ knowing is a content-addressed graph retrieval engine evaluated against 6 compet
 | django | Python | 0.176 | 33 | 42% zero-rate (vocabulary gaps) |
 | ocelot | C# | 0.175 | 20 | Enriched with csharp-ls |
 | vscode | TypeScript | 0.153 | 19 | Enriched with tsserver |
+| ripgrep | Rust | 0.250 | 20 | NEW (session 19), enriched with rust-analyzer |
 | spark-java | Java | 0.140 | 5 | Smallest fixture set |
 
 ### Competitive Advantages (cold start)
 
-- **vs codegraph (19K stars):** 1.96x more precise (P@10 0.264 vs 0.135), all 257 tasks vs 107
-- **vs GitNexus:** 3.52x more precise (P@10 0.264 vs 0.075), 257 tasks vs 66, 18s index vs >60 min
+- **vs codegraph (19K stars):** 1.96x more precise (P@10 0.264 vs 0.135), all 277 tasks vs 107
+- **vs GitNexus:** 3.52x more precise (P@10 0.264 vs 0.075), 277 tasks vs 66, 18s index vs >60 min
 - **vs Gortex:** 4.19x more precise (P@10 0.264 vs 0.063), 200MB RAM vs 14GB, 18s index vs 14 min
 - **vs grep:** 20.3x more precise (P@10 0.264 vs 0.013)
 - **vs Repomix:** 48x more token-efficient (4K tokens vs 300K for same task)
