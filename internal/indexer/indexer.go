@@ -2,13 +2,11 @@ package indexer
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"database/sql"
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -67,8 +65,7 @@ type Indexer struct {
 	snapshot    SnapshotComputer
 	registry    *ExtractorRegistry
 	Concurrency int  // number of parallel extraction workers; 0 means runtime.GOMAXPROCS
-	SkipBlame    bool // skip git blame authorship extraction (expensive on large repos)
-	SkipCoChange bool // skip co-change edge extraction (requires git log)
+	SkipBlame   bool // skip git blame authorship extraction (expensive on large repos)
 
 	// EdgeTypes filters which edge types to emit during indexing. When non-nil,
 	// only edges whose type is in this set are stored. Nil means all edge types.
@@ -97,7 +94,6 @@ type IndexTimings struct {
 	Contains         time.Duration
 	Similarity       time.Duration
 	CoTested         time.Duration
-	CoChange         time.Duration
 	Authorship       time.Duration
 	Snapshot         time.Duration
 	FTSRebuild       time.Duration
@@ -256,7 +252,6 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 		fmt.Fprintf(os.Stderr, "  Contains:           %s\n", timings.Contains.Truncate(time.Millisecond))
 		fmt.Fprintf(os.Stderr, "  Similarity:         %s\n", timings.Similarity.Truncate(time.Millisecond))
 		fmt.Fprintf(os.Stderr, "  Co-tested:          %s\n", timings.CoTested.Truncate(time.Millisecond))
-		fmt.Fprintf(os.Stderr, "  Co-change:          %s\n", timings.CoChange.Truncate(time.Millisecond))
 		fmt.Fprintf(os.Stderr, "  Authorship:         %s\n", timings.Authorship.Truncate(time.Millisecond))
 		fmt.Fprintf(os.Stderr, "  Snapshot:           %s\n", timings.Snapshot.Truncate(time.Millisecond))
 		fmt.Fprintf(os.Stderr, "  FTS rebuild:        %s\n", timings.FTSRebuild.Truncate(time.Millisecond))
@@ -823,34 +818,11 @@ func (idx *Indexer) IndexRepo(ctx context.Context, repoURL, repoPath, commitHash
 		}
 	}
 
-	timings.CoTested = time.Since(phaseStart)
-
-	// Generate co_changed_with edges: lateral connections between symbols whose
-	// files frequently appear in the same git commit. Bridges structurally
-	// disconnected symbols that co-evolve (e.g., a handler and its config type
-	// always change together but have no direct call edge).
-	if !idx.SkipCoChange && idx.edgeAllowed(edgetype.CoChangedWith) && repoPath != "" {
-		phaseStart = time.Now()
-		fmt.Fprintf(os.Stderr, "  Co-change edges...\n")
-		coChangeEdges := GenerateCoChangeEdges(repoPath, allNodes, allFiles)
-		if len(coChangeEdges) > 0 {
-			allEdges = append(allEdges, coChangeEdges...)
-			if bs, ok := idx.store.(batchStore); ok {
-				_ = bs.BatchPutEdges(ctx, coChangeEdges)
-			} else {
-				for _, e := range coChangeEdges {
-					_ = idx.store.PutEdge(ctx, e)
-				}
-			}
-			fmt.Fprintf(os.Stderr, "  Co-change: %d edges\n", len(coChangeEdges))
-		}
-		timings.CoChange = time.Since(phaseStart)
-	}
-
 	// Extract authored_by edges from git blame (parallel, best-effort).
 	// This is expensive (one git blame subprocess per file) so it runs in parallel
 	// and is skippable via idx.SkipBlame.
 	if !idx.SkipBlame && len(changedFilePaths) > 0 {
+		timings.CoTested = time.Since(phaseStart)
 		phaseStart = time.Now()
 		fmt.Fprintf(os.Stderr, "  Authorship extraction (%d files)...\n", len(allFiles))
 		blameStart := time.Now()
@@ -1945,159 +1917,6 @@ func GenerateCoTestedEdges(allNodes []types.Node, allEdges []types.Edge) []types
 					LastObserved: time.Now().Unix(),
 				})
 				pairs++
-			}
-		}
-	}
-	return result
-}
-
-func isHexString(s string) bool {
-	for _, c := range s {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
-			return false
-		}
-	}
-	return true
-}
-
-// GenerateCoChangeEdges creates lateral "co_changed_with" edges between symbols
-// whose files frequently appear in the same git commit. This bridges structurally
-// disconnected symbols that co-evolve (e.g., a handler and its config type always
-// change together but have no direct call edge between them).
-//
-// Algorithm: parse `git log --name-only` to extract commit-to-files mapping,
-// build file co-occurrence counts, then emit edges between representative nodes
-// in frequently co-changed file pairs.
-func GenerateCoChangeEdges(repoPath string, allNodes []types.Node, allFiles []types.File) []types.Edge {
-	// Build file path -> node hashes map (one representative node per file).
-	fileHashToPath := make(map[types.Hash]string)
-	for _, f := range allFiles {
-		fileHashToPath[f.FileHash] = f.Path
-	}
-	pathToNodes := make(map[string][]types.Hash)
-	for _, n := range allNodes {
-		if n.Kind == "external" || n.Kind == "author" || n.Kind == "image" {
-			continue
-		}
-		p, ok := fileHashToPath[n.FileHash]
-		if !ok {
-			continue
-		}
-		if strings.Contains(p, "_test.go") || strings.Contains(p, "test_") || strings.HasSuffix(p, "_test.py") {
-			continue
-		}
-		pathToNodes[p] = append(pathToNodes[p], n.NodeHash)
-	}
-
-	// Run git log to get commit-to-files mapping.
-	// Use --format=%H to get commit hashes as boundaries between file lists.
-	cmd := exec.Command("git", "log", "--name-only", "--format=%H", "--diff-filter=AM", "--no-merges", "-n", "500")
-	cmd.Dir = repoPath
-	out, err := cmd.Output()
-	if err != nil {
-		return nil
-	}
-
-	// Parse output: COMMIT_BOUNDARY lines separate commits, non-blank lines are file paths.
-	type filePair struct{ a, b string }
-	pairCount := make(map[filePair]int)
-
-	scanner := bufio.NewScanner(bytes.NewReader(out))
-	var commitFiles []string
-	flushCommit := func() {
-		if len(commitFiles) < 2 || len(commitFiles) > 20 {
-			commitFiles = commitFiles[:0]
-			return
-		}
-		var relevant []string
-		for _, f := range commitFiles {
-			if _, ok := pathToNodes[f]; ok {
-				relevant = append(relevant, f)
-			}
-		}
-		if len(relevant) < 2 || len(relevant) > 15 {
-			commitFiles = commitFiles[:0]
-			return
-		}
-		for i := 0; i < len(relevant); i++ {
-			for j := i + 1; j < len(relevant); j++ {
-				a, b := relevant[i], relevant[j]
-				if a > b {
-					a, b = b, a
-				}
-				pairCount[filePair{a, b}]++
-			}
-		}
-		commitFiles = commitFiles[:0]
-	}
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		// Blank lines and commit hash lines (40 hex chars) are commit boundaries.
-		if line == "" || (len(line) == 40 && isHexString(line)) {
-			flushCommit()
-		} else {
-			commitFiles = append(commitFiles, line)
-		}
-	}
-	flushCommit()
-
-	// Emit edges for file pairs that co-changed >= 3 times.
-	const minCoChanges = 3
-	const maxEdges = 500
-	var result []types.Edge
-	seen := make(map[[2]types.Hash]bool)
-
-	for pair, count := range pairCount {
-		if count < minCoChanges {
-			continue
-		}
-		nodesA := pathToNodes[pair.a]
-		nodesB := pathToNodes[pair.b]
-		if len(nodesA) == 0 || len(nodesB) == 0 {
-			continue
-		}
-
-		limitA := len(nodesA)
-		if limitA > 3 {
-			limitA = 3
-		}
-		limitB := len(nodesB)
-		if limitB > 3 {
-			limitB = 3
-		}
-
-		for i := 0; i < limitA; i++ {
-			for j := 0; j < limitB; j++ {
-				a, b := nodesA[i], nodesB[j]
-				key := [2]types.Hash{a, b}
-				if strings.Compare(string(a[:]), string(b[:])) > 0 {
-					key = [2]types.Hash{b, a}
-				}
-				if seen[key] {
-					continue
-				}
-				seen[key] = true
-
-				conf := 0.5 + float64(count-minCoChanges)*0.025
-				if conf > 0.7 {
-					conf = 0.7
-				}
-
-				edgeHash := types.ComputeEdgeHash(a, b, edgetype.CoChangedWith, "co_change_inference")
-				result = append(result, types.Edge{
-					EdgeHash:     edgeHash,
-					SourceHash:   a,
-					TargetHash:   b,
-					EdgeType:     edgetype.CoChangedWith,
-					Confidence:   conf,
-					Provenance:   "co_change_inference",
-					LastObserved: time.Now().Unix(),
-				})
-
-				if len(result) >= maxEdges {
-					return result
-				}
 			}
 		}
 	}

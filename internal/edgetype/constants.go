@@ -45,7 +45,6 @@ const (
 	AccessesField    = "accesses_field"  // method -> field node it reads/writes via receiver
 	ReadsEnv         = "reads_env"        // function -> env var it reads
 	ExecutesProcess  = "executes_process"  // function -> process it spawns
-	CoChangedWith    = "co_changed_with"  // lateral: two symbols whose files frequently appear in the same git commit
 )
 
 // RWRWeight returns the Random Walk with Restart weight for the given edge type.
@@ -100,8 +99,6 @@ func RWRWeight(edgeType string) float64 {
 		return 0.4
 	case ExecutesProcess:
 		return 0.5
-	case CoChangedWith:
-		return 0.4
 	default:
 		return 0.3
 	}
