@@ -1,0 +1,13 @@
+id: ripgrep-easy-007
+repo: ripgrep
+tier: easy
+description: "Add a new built-in file type definition for Zig source files"
+source: manual
+ground_truth:
+  - Types
+  - TypesBuilder
+  - TypesBuilder.add_defaults
+  - TypesBuilder.select
+  - FileTypeDef
+tags: [ignore, file-types, feature-addition]
+notes: "File type definitions are managed by TypesBuilder. add_defaults loads built-in types, select activates a type for filtering, and FileTypeDef describes a single type."

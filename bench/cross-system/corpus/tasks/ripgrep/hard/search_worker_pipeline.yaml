@@ -1,0 +1,17 @@
+id: ripgrep-hard-001
+repo: ripgrep
+tier: hard
+description: "Fix a bug where the search worker pipeline drops matches when a preprocessor command (e.g. jq) produces output faster than the printer can consume it, causing buffer overflow"
+source: manual
+ground_truth:
+  - SearchWorker
+  - SearchWorker.search_preprocessor
+  - SearchWorker.search_reader
+  - SearchWorker.should_preprocess
+  - SearchWorkerBuilder
+  - Printer
+  - Standard
+  - Sink
+  - SinkMatch
+tags: [core, search, pipeline, printer, bug-fix]
+notes: "The search pipeline flows SearchWorker.search_preprocessor (runs external command) -> search_reader (feeds output to searcher) -> Sink/SinkMatch (delivers to Printer). Buffer management between the preprocessor and printer is the bug site."

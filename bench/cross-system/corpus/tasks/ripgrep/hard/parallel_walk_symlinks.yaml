@@ -1,0 +1,14 @@
+id: ripgrep-hard-005
+repo: ripgrep
+tier: hard
+description: "Fix a race condition in parallel directory walking where symlink cycle detection fails when multiple threads discover the same symlink target simultaneously"
+source: manual
+ground_truth:
+  - Walk
+  - WalkBuilder
+  - WalkBuilder.follow_links
+  - WalkParallel
+  - search_parallel
+  - Config
+tags: [walk, parallel, symlinks, concurrency, bug-fix]
+notes: "Parallel directory walking uses WalkParallel (created by WalkBuilder with follow_links enabled). search_parallel orchestrates the parallel search. Config controls symlink following. The race is in cycle detection when multiple walker threads resolve the same symlink."

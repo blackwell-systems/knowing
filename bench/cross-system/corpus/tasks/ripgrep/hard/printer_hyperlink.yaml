@@ -1,0 +1,16 @@
+id: ripgrep-hard-006
+repo: ripgrep
+tier: hard
+description: "Add terminal hyperlink support to the standard printer that generates clickable file:line links in terminals that support OSC 8 escape sequences"
+source: manual
+ground_truth:
+  - Standard
+  - StandardBuilder
+  - HyperlinkConfig
+  - HyperlinkEnvironment
+  - HyperlinkFormat
+  - Sink
+  - SinkMatch
+  - SinkContext
+tags: [printer, hyperlinks, terminal, feature-addition]
+notes: "Hyperlink output requires HyperlinkConfig (enabled/disabled), HyperlinkFormat (URL template), and HyperlinkEnvironment (system info for URL resolution). The Standard printer uses these via StandardBuilder to wrap file:line references in OSC 8 sequences, delivered through SinkMatch."

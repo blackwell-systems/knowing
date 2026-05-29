@@ -26,6 +26,7 @@ CORPUS_REPOS := \
 	kafka:java \
 	kubernetes:go \
 	ocelot:csharp \
+	ripgrep:rust \
 	spark-java:java \
 	terraform:go \
 	jekyll:ruby \
@@ -89,7 +90,7 @@ corpus-rebuild: corpus-index corpus-enrich
 # Backup all corpus DBs to tarballs. Split into two parts to stay under
 # GitHub's 2GB release asset limit. Checkpoints WAL files before archiving.
 # Part 1: small repos (<200MB each). Part 2: large repos (>=200MB each).
-CORPUS_SMALL := caddy cargo fastapi flask ocelot spark-java
+CORPUS_SMALL := caddy cargo fastapi flask jekyll ocelot ripgrep spark-java
 CORPUS_LARGE := django kafka kubernetes terraform vscode
 
 corpus-backup:

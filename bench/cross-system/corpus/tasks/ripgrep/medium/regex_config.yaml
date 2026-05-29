@@ -1,0 +1,12 @@
+id: ripgrep-medium-005
+repo: ripgrep
+tier: medium
+description: "Add support for PCRE2 lookahead assertions when the pcre2 feature is enabled"
+source: manual
+ground_truth:
+  - PatternMatcher
+  - RegexMatcher
+  - RegexMatcherBuilder
+  - ConfiguredHIR
+tags: [regex, pcre2, matcher, feature-addition]
+notes: "Pattern matching is abstracted through PatternMatcher. RegexMatcher and RegexMatcherBuilder configure the regex engine. ConfiguredHIR represents the compiled regex intermediate representation."

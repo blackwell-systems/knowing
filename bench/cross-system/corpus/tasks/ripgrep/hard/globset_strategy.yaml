@@ -1,0 +1,17 @@
+id: ripgrep-hard-004
+repo: ripgrep
+tier: hard
+description: "Optimize globset matching for repositories with thousands of ignore patterns by selecting the fastest matching strategy based on pattern characteristics"
+source: manual
+ground_truth:
+  - GlobSet
+  - GlobSetBuilder
+  - Glob.compile_strategic_matcher
+  - Glob.basename_literal
+  - Glob.ext
+  - Glob.required_ext
+  - BasenameLiteralStrategy
+  - ExtensionStrategy
+  - Candidate
+tags: [globset, performance, matching, optimization]
+notes: "GlobSet selects matching strategies based on pattern structure: BasenameLiteralStrategy for exact filename matches, ExtensionStrategy for extension-only patterns. Glob.compile_strategic_matcher analyzes patterns to choose the fastest strategy. Candidate wraps paths for efficient matching."

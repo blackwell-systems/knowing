@@ -1,0 +1,13 @@
+id: ripgrep-easy-002
+repo: ripgrep
+tier: easy
+description: "Fix a bug where nested .gitignore files in subdirectories don't override parent ignore rules"
+source: manual
+ground_truth:
+  - Gitignore
+  - Gitignore.matched
+  - GitignoreBuilder
+  - GitignoreBuilder.add
+  - GitignoreBuilder.build
+tags: [ignore, gitignore, bug-fix]
+notes: "Gitignore matching uses Gitignore.matched for path checks. GitignoreBuilder.add loads rules from files and build compiles them. Nested rules should override parents."

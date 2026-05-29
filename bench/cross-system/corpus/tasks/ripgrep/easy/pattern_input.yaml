@@ -1,0 +1,13 @@
+id: ripgrep-easy-003
+repo: ripgrep
+tier: easy
+description: "Add support for reading search patterns from a file with one pattern per line"
+source: manual
+ground_truth:
+  - pattern_from_bytes
+  - pattern_from_os
+  - patterns_from_path
+  - patterns_from_reader
+  - patterns_from_stdin
+tags: [cli, patterns, feature-addition]
+notes: "Pattern input is handled by the pattern_from_* family of functions in the cli crate. patterns_from_path reads from a file, patterns_from_reader from any reader."

@@ -832,24 +832,6 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 		})
 	}
 
-	// Determine candidate communities for scoped RWR.
-	// If candidates cluster in 1-3 communities, constrain the walk.
-	commCounts := make(map[int]int)
-	type communityProvider interface {
-		CommunitiesForNodes(ctx stdctx.Context, hashes []types.Hash) (map[types.Hash]int, error)
-	}
-	if cp, ok := e.store.(communityProvider); ok {
-		hashes := make([]types.Hash, len(candidates))
-		for i, c := range candidates {
-			hashes[i] = c.NodeHash
-		}
-		if commMap, err := cp.CommunitiesForNodes(ctx, hashes); err == nil {
-			for _, commID := range commMap {
-				commCounts[commID]++
-			}
-		}
-	}
-
 	// Run Random Walk with Restart from seed nodes to compute relevance
 	// scores across the entire reachable subgraph. This replaces manual
 	// neighbor expansion with a principled graph-based relevance signal.
@@ -899,23 +881,7 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 		}
 	}
 
-	// Community-aware RWR: if ALL seeds cluster in exactly 1 community,
-	// constrain the walk to that community. This prevents drifting into
-	// unrelated packages for highly focused queries.
-	// Threshold 1 (not 3): benchmark showed that constraining at 2-3 communities
-	// cuts off cross-package dependencies that are essential for recall (Run 21:
-	// P@10 0.230 -> 0.185 with threshold 3). Only single-community queries benefit.
-	var rwrScores map[types.Hash]float64
-	var err error
-	if len(commCounts) == 1 {
-		communityIDs := make(map[int]bool, len(commCounts))
-		for cid := range commCounts {
-			communityIDs[cid] = true
-		}
-		rwrScores, err = CommunityFilteredRWR(ctx, e.store, seedHashes, sweepAlpha(), sweepMaxIter(), communityIDs)
-	} else {
-		rwrScores, err = RandomWalkWithRestartWeighted(ctx, e.store, seedHashes, seedWeights, sweepAlpha(), sweepMaxIter())
-	}
+	rwrScores, err := RandomWalkWithRestartWeighted(ctx, e.store, seedHashes, seedWeights, sweepAlpha(), sweepMaxIter())
 	if err != nil {
 		return nil, err
 	}

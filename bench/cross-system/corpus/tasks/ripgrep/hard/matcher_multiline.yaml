@@ -1,0 +1,16 @@
+id: ripgrep-hard-003
+repo: ripgrep
+tier: hard
+description: "Add support for multiline matching that correctly handles matches spanning across buffer boundaries in the searcher"
+source: manual
+ground_truth:
+  - Searcher
+  - SearcherBuilder
+  - Searcher.search_path
+  - RegexMatcher
+  - RegexMatcherBuilder
+  - Sink
+  - SinkMatch
+  - LineStep
+tags: [searcher, regex, multiline, cross-package, feature-addition]
+notes: "Multiline matching requires coordination between RegexMatcher (pattern compilation with multiline flag), Searcher (buffer management across line boundaries), and Sink (delivering multi-line SinkMatch results). LineStep controls line-by-line vs multi-line scanning."

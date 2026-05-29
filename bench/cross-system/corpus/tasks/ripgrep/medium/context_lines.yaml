@@ -1,0 +1,14 @@
+id: ripgrep-medium-007
+repo: ripgrep
+tier: medium
+description: "Fix a bug where context lines (-C flag) overlap between adjacent matches, producing duplicate output lines"
+source: manual
+ground_truth:
+  - Standard
+  - StandardBuilder
+  - StandardBuilder.max_context
+  - Sink
+  - SinkContext
+  - SinkMatch
+tags: [printer, context, output, bug-fix]
+notes: "Context line output is managed by Standard printer configured via StandardBuilder.max_context. The Sink trait delivers SinkMatch for matches and SinkContext for surrounding context lines."

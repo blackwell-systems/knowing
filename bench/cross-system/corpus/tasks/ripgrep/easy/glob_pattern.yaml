@@ -1,0 +1,13 @@
+id: ripgrep-easy-001
+repo: ripgrep
+tier: easy
+description: "Add support for a new glob pattern syntax that matches files by their MIME type"
+source: manual
+ground_truth:
+  - Glob
+  - Glob.compile_matcher
+  - Glob.from_str
+  - GlobSet
+  - GlobSetBuilder
+tags: [globset, patterns, feature-addition]
+notes: "Glob pattern compilation flows through Glob.from_str -> compile_matcher. GlobSet aggregates multiple patterns via GlobSetBuilder."

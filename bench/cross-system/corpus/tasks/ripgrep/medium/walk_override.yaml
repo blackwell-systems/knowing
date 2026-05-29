@@ -1,0 +1,14 @@
+id: ripgrep-medium-004
+repo: ripgrep
+tier: medium
+description: "Fix a bug where override globs passed via --glob flag don't apply to files discovered through symlink traversal"
+source: manual
+ground_truth:
+  - Override
+  - OverrideBuilder
+  - OverrideBuilder.add
+  - OverrideBuilder.build
+  - Walk
+  - WalkBuilder
+tags: [ignore, glob, walk, bug-fix]
+notes: "Override and OverrideBuilder manage command-line glob overrides. Walk and WalkBuilder handle directory traversal. The override should apply regardless of how a file is discovered."

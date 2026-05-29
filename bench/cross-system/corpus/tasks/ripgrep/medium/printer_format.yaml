@@ -1,0 +1,14 @@
+id: ripgrep-medium-002
+repo: ripgrep
+tier: medium
+description: "Add a new output format that prints matches as JSON with file path, line number, and match content"
+source: manual
+ground_truth:
+  - Printer
+  - JSON
+  - JSONBuilder
+  - JSONSink
+  - Standard
+  - StandardBuilder
+tags: [printer, output, json, feature-addition]
+notes: "Output formatting is handled by Printer variants. JSON and JSONBuilder configure JSON output. Standard and StandardBuilder handle the default text format. JSONSink processes match events."

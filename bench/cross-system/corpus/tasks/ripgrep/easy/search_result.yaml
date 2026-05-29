@@ -1,0 +1,12 @@
+id: ripgrep-easy-004
+repo: ripgrep
+tier: easy
+description: "Add a summary statistics output that shows total matches, files searched, and elapsed time after a search completes"
+source: manual
+ground_truth:
+  - SearchResult
+  - SearchResult.has_match
+  - SearchResult.stats
+  - Stats
+tags: [core, search, feature-addition]
+notes: "SearchResult wraps the outcome of a search with has_match for quick boolean check and stats for detailed statistics."

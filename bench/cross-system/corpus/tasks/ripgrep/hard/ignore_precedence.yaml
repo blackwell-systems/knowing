@@ -1,0 +1,17 @@
+id: ripgrep-hard-002
+repo: ripgrep
+tier: hard
+description: "Fix a bug where the ignore rule precedence between .gitignore, .rgignore, and --glob flags produces incorrect results when rules from different sources conflict"
+source: manual
+ground_truth:
+  - Gitignore
+  - Gitignore.matched
+  - GitignoreBuilder
+  - Override
+  - OverrideBuilder
+  - Types
+  - TypesBuilder
+  - Walk
+  - WalkBuilder
+tags: [ignore, gitignore, glob, walk, precedence, bug-fix]
+notes: "Ignore precedence involves three systems: Gitignore (project rules), Override (CLI glob flags), and Types (file type filtering). Walk/WalkBuilder combines them during directory traversal. The precedence order should be: --glob > .rgignore > .gitignore."
