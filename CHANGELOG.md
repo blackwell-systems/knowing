@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Embeddings on by default**: embedding re-ranker (+17% P@10) now enabled without `--embeddings` flag. `--no-embeddings` to disable. New users get full quality out of the box.
+- **MCP startup summary**: server logs graph stats, feature status (embedding re-ranker, gap-fill, equivalence classes), and pre-embedded vector count on startup.
+- **Post-index guidance**: `knowing index` prints a tip to run `knowing enrich embeddings` when vectors are missing.
+- **C# equivalence classes** (15 concepts): CS_MIDDLEWARE, CS_DI, CS_CONFIG, CS_ROUTING, CS_AUTH, CS_LOADBALANCE, CS_CACHE, CS_RATELIMIT, CS_HTTP_CLIENT, CS_QUALITY_OF_SERVICE, CS_HEADER_TRANSFORM, CS_AGGREGATION, CS_WEBSOCKET, CS_SECURITY, CS_ERROR_HANDLING. Ocelot P@10: 0.175 -> 0.265 (+51%). Full corpus: +4%.
+- **FastAPI equivalence classes** (10 concepts): dependency injection, routers, background tasks, file uploads, validation, exception handlers, lifespan, security, WebSocket.
+- **Terraform equivalence classes** (11 concepts): providers, state backends, plan/apply, graph/DAG, resources, modules, config/HCL, variables, provisioners, formatting, CLI commands.
+- **Corpus DB tarballs in releases**: `make corpus-backup` creates split tarballs (under 2GB each). `make corpus-upload` / `make corpus-download` for GitHub release assets.
 - **Embedding gap-fill seeds**: when BM25 returns < 5 candidates, vector search finds supplemental seeds. Django +43% (0.176 -> 0.252), flask +22%. Zero regressions. 20 lines of code.
 - **`knowing enrich embeddings` command**: batch pre-embeds all real nodes, skips phantoms (70% reduction). Incremental: skips already-cached vectors.
 - **Brute-force vector search from SQLite**: `LoadAndSearchFromStore` does O(n) cosine from cached vectors. No HNSW index rebuild needed. Lazy loading: vectors loaded on first gap-fill query, not at startup (3% memory vs 91%).
@@ -15,19 +22,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **GraphNodeCount per-engine field**: moved from global to `ContextEngine.nodeCount`. Thread-safe for parallel execution. `SetNodeCount`/`effectiveNodeCount` with fallback to global.
 - **Spark-java fixtures expanded**: 5 -> 20 tasks (15 new). Covers filters, sessions, templates, SSL, WebSocket, Jetty lifecycle.
 - **Adaptive retrieval architecture doc**: `docs/architecture/adaptive-retrieval.md` threading all 6 self-adapting mechanisms with ablation table.
-- **nomic-embed-text-v1.5 as default model**: P@10 0.245 sequential (was 0.242 with jina-code). Faster inference (14 min vs 20 min). All 12 repos pre-embedded with both models (coexist via model column).
+- **nomic-embed-text-v1.5 as default model**: P@10 0.247 sequential (was 0.242 with jina-code). Faster inference (14 min vs 20 min). All 12 repos pre-embedded with both models (coexist via model column).
 - **`BENCH_GAP_THRESHOLD` env var**: configurable gap-fill activation threshold.
 - **Round 2 per-task logging**: warm pass now prints per-task P@10 lines (was silent).
 
 ### Fixed
 
+- **`knowing init` Go-only bug**: was registering only the Go extractor. Non-Go repos got 0 nodes. Now uses `registerAllExtractors` (23 extractors).
+- **Stale `--embed-model` help text**: said "jina-code (default)" but actual default was nomic-code.
 - **Fixture quality**: removed duplicate ground truth in fastapi (File, Depends normalization collision). Fixed wrong symbol in ocelot (IClientWebSocket -> IClientWebSocketConnector). Added missing pipeline middleware to ocelot hard-001.
 
 ### Tested Neutral
 
 - Gap-fill threshold < 3, < 8, < 10: all within variance of baseline < 5.
 - Hub dampening (BENCH_HUB_DAMPEN=50) on enriched graphs: 0.219 vs 0.220. Still neutral.
-- Confirms: P@10 is reachability-determined. Parameter tuning is exhausted.
+- codesage-large, voyage-code-3, nomic-embed-code: all non-viable for pure Go ONNX inference.
+- FastAPI + Terraform equivalence classes: no measurable delta beyond C# on full corpus (C# was the main driver).
 
 ## [v0.11.0] - 2026-05-27
 
