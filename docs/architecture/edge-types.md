@@ -1,6 +1,6 @@
 # Edge Types Reference
 
-This document catalogs all 34 edge types in the knowing knowledge graph: what each
+This document catalogs all 38 edge types in the knowing knowledge graph: what each
 represents, which extractors produce it, its provenance tier, and how it
 participates in blast radius traversal and context ranking.
 

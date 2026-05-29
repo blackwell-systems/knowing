@@ -1,42 +1,21 @@
 # Distribution
 
-This document describes how knowing is distributed, what is automated, and what is planned.
+How to install knowing. The release pipeline is fully automated: every `v*` tag push builds, tests, and publishes to all channels.
 
-## Release Status
+## Install
 
-v0.2.0 is live across all channels. The release pipeline is fully automated on `v*` tag push.
-
-| Channel | Status | Version |
-|---------|--------|---------|
-| GitHub Release | **Live** | v0.2.0 (4 platform binaries) |
-| Homebrew | **Live** | `brew install blackwell-systems/tap/knowing` |
-| npm | **Live** | `@blackwell-systems/knowing@0.1.2` |
-| PyPI | **Live** | `knowing==0.1.2` |
-| Docker (GHCR) | **Live** | `ghcr.io/blackwell-systems/knowing:v0.2.0` |
-| Docker (Hub) | **Live** | `blackwellsystems/knowing:v0.2.0` |
-| MCP Registry | **Live** | `io.github.blackwell-systems/knowing` |
-| Go install | **Live** | `go install ...@v0.2.0` |
-
-### Platform binaries
-
-| OS | Architecture | Build method |
-|----|-------------|--------------|
-| Linux | amd64 | Native GCC on ubuntu-latest |
-| Linux | arm64 | Cross-compile via aarch64-linux-gnu-gcc |
-| macOS | arm64 | Native clang on macos-latest |
-| macOS | amd64 | Cross-compile clang on macos-latest |
-
-### CI secrets (all configured)
-
-| Secret | Purpose |
+| Method | Command |
 |--------|---------|
-| `NPM_TOKEN` | npm publish |
-| `PYPI_TOKEN` | PyPI wheel upload |
-| `HOMEBREW_TAP_TOKEN` | Push formula to homebrew-tap |
-| `DOCKERHUB_USERNAME` | Docker Hub login |
-| `DOCKERHUB_TOKEN` | Docker Hub push |
+| **Homebrew** (macOS/Linux) | `brew install blackwell-systems/tap/knowing` |
+| **npm** | `npm install -g @blackwell-systems/knowing` |
+| **PyPI** | `pip install knowing` |
+| **Go** | `go install github.com/blackwell-systems/knowing/cmd/knowing@latest` |
+| **Docker** | `docker pull ghcr.io/blackwell-systems/knowing:latest` |
+| **curl** (macOS/Linux) | `curl -fsSL https://raw.githubusercontent.com/blackwell-systems/knowing/main/install.sh \| sh` |
 
-## Current channels
+All methods install the same single binary. No runtime dependencies.
+
+## Channels
 
 ### GitHub Releases
 Pre-built binaries for all platforms, published automatically by GoReleaser on every `v*` tag.
@@ -159,56 +138,14 @@ Manually submitted. Free listing.
 ### Awesome MCP Servers
 Submitted to [punkpeye/awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers).
 
+## Update and uninstall
+
+```bash
+knowing update           # download and replace with latest release
+knowing update --check   # compare current vs latest without downloading
+knowing uninstall        # remove configs, database, caches (prints rm command for binary)
+```
+
 ## Documentation site
 
-**URL:** [knowing.dev](https://knowing.dev) (planned)
-
-Built with mkdocs-material from the `docs/` folder. Deployed to GitHub Pages automatically on every push to `main`. Custom domain via Cloudflare DNS.
-
-## Release pipeline
-
-Every `git tag v*` push triggers three sequential CI jobs:
-
-```
-release              → GoReleaser: binaries, GitHub Release, Homebrew formula,
-                       Docker images (GHCR + Docker Hub)
-npm-publish          → downloads binaries from GitHub Release, publishes 7 npm packages
-mcp-registry-publish → publishes metadata to official MCP Registry (GitHub OIDC)
-```
-
-Docker images are built inside the `release` job by GoReleaser (`dockers:` section). Multi-arch manifest lists built for linux/amd64 + linux/arm64.
-
-## Marketing and Discovery
-
-| Channel | Status | Notes |
-|---------|--------|-------|
-| **LinkedIn** | Not posted | Launch announcement ready. |
-| **Reddit** | Not posted | r/mcp, r/ClaudeCode, r/golang. |
-| **Hacker News** | Not submitted | "Runtime traces as graph edges" angle is HN-ready. |
-| **Go Weekly** | Not submitted | Submit blog post link. |
-| **Twitter/X** | Not active | Thread format works for the data. |
-| **glama.ai** | Planned | MCP server discovery. |
-| **Product Hunt** | Not launched | Save for bigger release (runtime traces). |
-| **YouTube** | Not started | "Watch a codebase build its own knowledge graph" demo. |
-
-### Awesome Lists
-
-| List | Stars | Status | Section |
-|------|------:|--------|---------|
-| punkpeye/awesome-mcp-servers | 86K | Planned | Developer Tools |
-| ComposioHQ/awesome-claude-skills | 59K | Planned | Development & Code Tools |
-| hesreallyhim/awesome-claude-code | 43K | Planned | Tooling |
-| wong2/awesome-mcp-servers | 4K | Planned | Community Servers |
-| ai-for-developers/awesome-ai-coding-tools | 1.7K | Planned | MCP Servers and Directories |
-| rohitg00/awesome-claude-code-toolkit | 1.6K | Planned | Skills |
-| avelino/awesome-go | 172K | Blocked (5-month history req) | Go Tools |
-
-## Planned
-
-| Channel | Notes |
-|---------|-------|
-| **Nix flake** | `nix run github:blackwell-systems/knowing` |
-| **mcp.so** | Top Google result for "MCP servers"; direct submission |
-| **VS Code extension** | Zero-setup path for Copilot/Continue/Cline users |
-| **OTel Collector contrib** | knowing as an OTel exporter plugin for direct trace ingestion |
-| **GitHub Marketplace** | GitHub Action for CI-integrated indexing and semantic PR diffs |
+Docs at https://blackwell-systems.github.io/knowing. Built with mkdocs-material, deployed to GitHub Pages on every push to `main`.

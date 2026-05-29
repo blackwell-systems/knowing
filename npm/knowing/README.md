@@ -1,41 +1,17 @@
 # @blackwell-systems/knowing
 
-**A self-adapting code intelligence engine that gets smarter with scale, not dumber.**
+**Self-adapting code intelligence engine.** Gives AI agents ranked, graph-aware context instead of grep results. Gets smarter with scale, not dumber.
 
-Content-addressed graph of code relationships with density-adaptive retrieval. Observes its own graph structure and adjusts how it searches: on small repos it finds symbols by keyword; on large enterprise codebases it automatically shifts to structural navigation. 34 edge types, cryptographic proofs, hierarchical Merkle snapshots.
-
-## Install
+## Install and verify
 
 ```bash
 npm install -g @blackwell-systems/knowing
+knowing version   # should print the version
 ```
 
-Or use directly:
+## Configure your agent
 
-```bash
-npx @blackwell-systems/knowing index ./my-repo
-npx @blackwell-systems/knowing context -task "refactor auth" -format gcf
-npx @blackwell-systems/knowing mcp --watch
-```
-
-## What It Does
-
-knowing indexes code across 12 languages and 26 extractor packages into a content-addressed knowledge graph. Every node, edge, and snapshot is SHA-256 hashed with domain-type prefixes. Snapshots are structured as hierarchical Merkle trees (repo -> package -> edge-type -> leaf), enabling O(packages) diffs instead of O(edges) full scans.
-
-**For AI agents:** 28 MCP tools + 8 MCP resources serve graph-ranked context over stdio or HTTP. The GCF wire format delivers 84% token savings versus JSON. Agents get trustworthy, cacheable, replayable context with provenance and confidence on every edge.
-
-**Key capabilities:**
-
-- **26 extractor packages:** Go, TypeScript, Python, Rust, Java, C#, Protobuf, Terraform, SQL, Kubernetes, CloudFormation, Docker Compose, GitHub Actions, Helm, GraphQL, and more
-- **Hierarchical Merkle diffs:** 216x faster on real graphs (~24.9K edges), 517x at 100K edges
-- **Subgraph cache:** 93x faster repeat queries via content-addressed cache keys
-- **Runtime fusion:** OpenTelemetry trace ingestion merges static and runtime views
-- **`knowing fsck`:** git-style integrity verification of the entire graph
-- **Feedback loop:** rankings improve with use as agents mark useful symbols
-
-## Agent Integration
-
-Add to `.mcp.json`:
+Add to `.mcp.json` (Claude Code) or `.cursor/mcp.json` (Cursor):
 
 ```json
 {
@@ -49,8 +25,34 @@ Add to `.mcp.json`:
 }
 ```
 
+The MCP server auto-indexes your repo on first launch (10-30 seconds). The embedding re-ranker is on by default (downloads a 30MB model once, runs locally, no API keys).
+
+## First useful query
+
+Ask your agent:
+
+> *"Use the context_for_task tool to find symbols related to [something you know exists in your code]."*
+
+You should see ranked symbols with scores and file paths. If results are empty, the repo is still indexing. If results seem unrelated, use specific symbol names in your task description.
+
+## What it does
+
+knowing indexes code across 23 extractors (Go, TypeScript, Python, Rust, Java, C#, and more) into a content-addressed knowledge graph. 38 edge types, 28 MCP tools, 152 equivalence classes, local embedding re-ranker (+17% precision), gap-fill seeds (+11% precision).
+
+P@10 = 0.257 across 237 tasks, 12 repos, 7 languages. 1.90x codegraph, 3.43x GitNexus.
+
+## CLI usage
+
+```bash
+knowing add .                                          # index a repo
+knowing context -task "refactor auth" -format gcf      # ranked context
+knowing test-scope -files internal/auth/handler.go     # affected tests
+knowing why -task "refactor auth" -symbol "SessionHandler"  # explain ranking
+knowing enrich embeddings                              # pre-cache vectors for faster queries
+```
+
 ## Documentation
 
-Full docs, architecture, benchmarks, and roadmap at https://blackwell-systems.github.io/knowing
+Full docs at https://blackwell-systems.github.io/knowing
 
 Source: https://github.com/blackwell-systems/knowing

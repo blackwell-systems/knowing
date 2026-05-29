@@ -35,7 +35,11 @@ brew install blackwell-systems/tap/knowing
 { "mcpServers": { "knowing": { "command": "knowing", "args": ["mcp", "--watch"] } } }
 ```
 
-That's it. The MCP server auto-indexes your repo on first launch. Your agent now has ranked context (one call replaces grep-read loops), blast radius, test scope, and memory that compounds.
+That's it. The MCP server auto-indexes your repo on first launch and downloads a 30MB embedding model once. Your agent now has ranked context, blast radius, test scope, and memory that compounds.
+
+**Verify it works:** Ask your agent: *"Use the context_for_task tool to find symbols related to [something you know exists in your code]."* You should see ranked symbols from your codebase. If results are empty, the repo is still indexing (10-30 seconds on first launch). If results seem unrelated, see [Troubleshooting](docs/guide/cli.md#troubleshooting).
+
+> **Not using an AI agent?** Skip to [CLI usage](#path-b-cli-usage-explore-the-graph-yourself) below.
 
 ---
 
@@ -224,7 +228,13 @@ The embedding re-ranker is on by default (+17% precision, fully offline, no API 
 
 **What your agent gets:** The key tool is `context_for_task`. When your agent calls it with a task description, knowing returns ranked, relevant code symbols packed into a token budget. This replaces grep-read loops. Other useful tools: `blast_radius` (what breaks if I change this?), `test_scope` (which tests to run?), `explain_symbol` (why did this rank here?). See [MCP Tools Reference](docs/guide/mcp-tools.md) for all 28 tools.
 
-**Verifying the MCP server is working:** Start a session with your agent and ask it to call the `context_for_task` tool with a task description that references code you know exists. If results are empty or irrelevant, the repo may not be indexed yet (first launch takes a few seconds). You can also verify from the CLI:
+**Verify it works:**
+
+1. Start a session with your agent
+2. Ask: *"Use the context_for_task tool to find symbols related to [something specific in your code]"*
+3. You should see ranked symbols with scores and file paths from your codebase
+
+If results are empty: the repo may still be indexing (10-30 seconds on first launch). If results seem unrelated: use specific symbol names in your task description (e.g., "find the `AuthMiddleware` handler" not "find auth code"). You can also verify from the CLI:
 
 ```bash
 knowing stats          # should show nodes and edges

@@ -1,45 +1,32 @@
 # knowing
 
-**The system of record for how software systems behave, change, and relate over time.**
+**Self-adapting code intelligence engine.** Gives AI agents ranked, graph-aware context instead of grep results. Gets smarter with scale, not dumber.
 
-Git is the system of record for source code. knowing is the system of record for what that source code *means* in the context of a running organization.
+P@10 = 0.257 across 237 tasks, 12 repos, 7 languages. 1.90x codegraph, 3.43x GitNexus. 38 edge types, 28 MCP tools, 152 equivalence classes, local embedding re-ranker.
 
-## Quick Start
+## Get started in 60 seconds
 
 ```bash
-# Install
 brew install blackwell-systems/tap/knowing
-
-# Index a repository (registers in roster, assigns per-repo database)
-knowing add /path/to/repo
-
-# Verify the index worked
-knowing stats
-
-# Query the graph for a symbol
-knowing query "FunctionName"
-
-# Generate context for an agent
-knowing context -task "refactor auth middleware" -budget 50000
-
-# Explain why a symbol ranked where it did
-knowing why -task "refactor auth" -symbol "AuthHandler"
-
-# Compute semantic diff between snapshots
-knowing diff @prev @latest
-
-# Export the graph
-knowing export -format json
-
-# Start the daemon with MCP server (HTTP)
-knowing serve /path/to/repo
-
-# Start the MCP server over stdio (for .mcp.json, zero-config)
-knowing mcp --watch
 ```
 
-For detailed setup instructions, troubleshooting, and MCP integration, see the
-[CLI Reference](guide/cli.md) and the [README Quick Start](../README.md#quick-start).
+```json
+{ "mcpServers": { "knowing": { "command": "knowing", "args": ["mcp", "--watch"] } } }
+```
+
+The MCP server auto-indexes your repo on first launch. Ask your agent: *"Use context_for_task to find symbols related to [something in your code]."* You should see ranked symbols with scores and file paths.
+
+**New to knowing?** Read the [Introduction](guide/introduction.md) for a full walkthrough with examples.
+
+## Choose your path
+
+| You want to... | Start here |
+|---|---|
+| Give your AI agent graph-ranked context | [MCP setup](guide/cli.md#mcp) |
+| Explore the graph from the command line | [CLI Quick Start](guide/cli.md#quick-start) |
+| Understand how the retrieval pipeline works | [Introduction](guide/introduction.md) |
+| Audit code relationships with cryptographic proofs | [Audit & Compliance](guide/audit-compliance.md) |
+| Understand the architecture | [System Overview](architecture/system-overview.md) |
 
 ## What It Does
 
