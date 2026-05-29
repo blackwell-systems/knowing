@@ -37,7 +37,7 @@ brew install blackwell-systems/tap/knowing
 
 That's it. The MCP server auto-indexes your repo on first launch and downloads a 30MB embedding model once. Your agent now has ranked context, blast radius, test scope, and memory that compounds.
 
-**Verify it works:** Ask your agent: *"Use the context_for_task tool to find symbols related to [something you know exists in your code]."* You should see ranked symbols from your codebase. If results are empty, the repo is still indexing (10-30 seconds on first launch). If results seem unrelated, see [Troubleshooting](docs/guide/cli.md#troubleshooting).
+**Verify it works:** Ask your agent: *"Use the context_for_task tool to find symbols related to [something you know exists in your code]."* You should see ranked symbols with scores and file paths from your codebase. If results are empty, the repo is still indexing (10-30 seconds on first launch). If results seem unrelated, see [Troubleshooting](docs/guide/cli.md#troubleshooting).
 
 > **Not using an AI agent?** Skip to [CLI usage](#path-b-cli-usage-explore-the-graph-yourself) below.
 

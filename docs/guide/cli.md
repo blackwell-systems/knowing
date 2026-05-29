@@ -118,7 +118,7 @@ knowing serve -trace -trace-endpoint collector.local:4317 ./my-repo
 **Notes:**
 
 - The daemon blocks until it receives SIGINT or SIGTERM.
-- Registers all 26 extractor packages (12 languages + 13 infrastructure/cloud
+- Registers all 23 extractors (12 languages + 13 infrastructure/cloud
   + CODEOWNERS).
 - The MCP server exposes an `index_repo` tool that triggers indexing through
   the same pipeline as file-watch events.
@@ -238,7 +238,7 @@ knowing index --workers 4 ./repo
 
 - Uses a producer-consumer pipeline with parallel extraction (default 8 workers).
   Progress output to stderr shows files processed and extraction rate.
-- Registers all 26 extractor packages (12 languages + 13 infrastructure/cloud +
+- Registers all 23 extractors (12 languages + 13 infrastructure/cloud +
   CODEOWNERS). Includes a 10-second per-file watchdog timeout for stuck CGO calls.
 - When `-full` is used, the Go packages extractor provides full type
   resolution; LSP enrichment is skipped because the extractor already produces
