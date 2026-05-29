@@ -14,7 +14,6 @@ import (
 	"github.com/blackwell-systems/knowing/internal/enrichment"
 	"github.com/blackwell-systems/knowing/internal/indexer"
 	"github.com/blackwell-systems/knowing/internal/roster"
-	"github.com/blackwell-systems/knowing/internal/indexer/gotsextractor"
 	"github.com/blackwell-systems/knowing/internal/snapshot"
 	"github.com/blackwell-systems/knowing/internal/store"
 	"github.com/blackwell-systems/knowing/internal/types"
@@ -93,7 +92,7 @@ func cmdSetup(args []string) error {
 
 	snapMgr := snapshot.NewSnapshotManager(st)
 	idx := indexer.NewIndexer(st, snapMgr)
-	idx.Register(gotsextractor.NewGoTreeSitterExtractor())
+	registerAllExtractors(idx, false)
 
 	ctx := context.Background()
 	snap, err := idx.IndexRepo(ctx, *repoURL, gitRoot, "HEAD")

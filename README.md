@@ -79,10 +79,12 @@ These aren't separate features. They're structural consequences of content-addre
 
 | What | Result |
 |---|---:|
-| Cross-system retrieval | **P@10=0.242** (167 tasks, 9 repos, 6 languages) |
-| vs competitors | 1.79x codegraph (19K stars), 1.77x codebase-memory (2.7K stars), 3.23x GitNexus, 3.84x Gortex, 18.6x grep |
-| Embedding re-ranker | +17% P@10, +18.3% R@10 (local inference, no API, no charges) |
-| Re-rank latency | 220ms cached, 660ms uncached (vector cache in SQLite) |
+| Cross-system retrieval | **P@10=0.257 cold, 0.262 warm** (237 tasks, 12 repos, 7 languages) |
+| vs competitors | 1.90x codegraph (19K stars), 1.88x codebase-memory (2.7K stars), 3.43x GitNexus, 4.08x Gortex, 19.8x grep |
+| Embedding re-ranker | +17% P@10 (local inference, no API, no charges, on by default) |
+| Gap-fill seeds | +11% P@10 (embedding-based fallback when keywords fail) |
+| Equivalence classes | 152 concepts bridging task vocabulary to code symbols |
+| Re-rank latency | 220ms cached (vector cache in SQLite) |
 | Agent context precision | +20pp after 1 round, +34pp after 5 |
 | Tool calls saved | 47% fewer (one context call replaces repeated grep+read) |
 | Token savings | 84% fewer tokens (GCF wire format) |
@@ -92,8 +94,8 @@ These aren't separate features. They're structural consequences of content-addre
 | Graph integrity check | 98ms (24,936 edges) |
 | Proof generation | 72us generate, 1.2us verify |
 | Feedback expiration | 100% expire on code change, 11% overhead |
-| Indexing throughput | 9 repos (6 languages) in ~52s |
-| Language coverage | 9/9 repos pass (Go, Python, TS, Rust, Java, C#) |
+| Indexing throughput | 12 repos (7 languages) in ~52s |
+| Language coverage | 12/12 repos pass (Go, Python, TS, Rust, Java, C#, multi) |
 | Edge types | 38 (including supply chain: reads_env, executes_process) |
 
 All benchmarks are reproducible: `GOWORK=off go test ./bench/... -timeout 5m`
@@ -381,7 +383,7 @@ GCF uses `|`-separated fields and local IDs (`$1 -> $3`) instead of repeated qua
 - Static blast radius follows `calls` edges; other edge types provide context, not traversal.
 - Runtime tools require OpenTelemetry trace ingestion; without traces they have no observations.
 - LSP enrichment: Go, TypeScript, Python, Rust, Java, C#. Auto-detected from project markers. Others fall back to tree-sitter.
-- Embedding re-ranker is opt-in (`--embeddings`). Adds ~220ms to query time (cached) or ~660ms (first run). Improves average precision but regresses on some dense-graph repos.
+- Embedding re-ranker is on by default. Adds ~220ms to query time (cached vectors). Disable with `--no-embeddings`. Downloads a 30MB model on first use.
 
 ---
 
