@@ -44,6 +44,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GOWORK: "off"
+      KNOWING_EMBEDDINGS: "0"  # skip model download in CI (no pre-cached vectors)
     steps:
       - uses: actions/checkout@v4
 
