@@ -246,6 +246,22 @@ If the experiment only affects dense graphs (like adaptive alpha), test on dense
 Always capture full output to a file (`2>&1 | tee /tmp/file.log` or `> /tmp/file.log 2>&1`).
 Never pipe through `tail` or `grep` as it loses early output (embedding progress, task counts).
 
+### Corpus DB safety
+
+Corpus DBs (`corpus/repos/<repo>/.knowing/graph.db`) are gitignored and cannot be
+recovered from git. Enrichment takes hours to rebuild. Never modify them in place
+for experiments.
+
+**Procedure for experiments that modify DBs:**
+1. Keep a master backup set untouched (e.g., `cp *.db /tmp/corpus-backup/`)
+2. Copy FROM the master to a working path for the experiment
+3. Run enrichment/modifications on the working copy only
+4. Checkpoint WAL before swapping: `sqlite3 <copy>.db "PRAGMA wal_checkpoint(TRUNCATE);"`
+5. Swap the checkpointed copy into the benchmark path
+6. After the experiment, restore the original from the master backup
+
+Skipping step 4 causes "database disk image is malformed" errors (WAL not flushed).
+
 ### TestCrossSystemRound2
 
 The harness includes a `TestCrossSystemRound2` test that runs automatically after the

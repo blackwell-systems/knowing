@@ -359,7 +359,7 @@ func writeResults(t *testing.T, results []benchtype.MetricResult, available []be
 	t.Helper()
 
 	timestamp := time.Now().Format("2006-01-02T150405")
-	dir := filepath.Join("bench", "cross-system", "results", "run-"+timestamp)
+	dir := filepath.Join("results", "run-"+timestamp)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Logf("Warning: could not create results dir: %v", err)
 		return
