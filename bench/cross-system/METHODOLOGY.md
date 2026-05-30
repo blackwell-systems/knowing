@@ -4,6 +4,14 @@ This document describes the experimental methodology used in the cross-system co
 retrieval benchmark. It covers fixture design, ground truth validation, statistical
 methods, regression detection, and known limitations.
 
+**Note on the state of the field:** No competing code context retrieval system
+publishes a reproducible evaluation benchmark. codegraph (19K GitHub stars),
+GitNexus (40K stars), Gortex, codebase-memory, and Aider all ship without
+published precision metrics, ground truth corpora, or reproducibility tooling.
+This benchmark is the first multi-system evaluation in the space. We acknowledge
+its limitations (single labeler, curated corpus) and document them transparently.
+We welcome external reproduction and independent ground truth validation.
+
 ## Design Principles
 
 1. **Same input, different systems.** Every system receives identical task descriptions.
