@@ -751,9 +751,10 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 			gapThreshold = n
 		}
 	}
-	// When focused seeds is enabled, compute the dominant package from
-	// pre-gap-fill candidates so gap-fill can prefer the same neighborhood.
-	focusedSeeds := os.Getenv("BENCH_FOCUSED_SEEDS") == "1"
+	// Focused seed selection: cluster candidates by package path and prefer
+	// seeds from the same structural neighborhood. On by default; disable
+	// with BENCH_FOCUSED_SEEDS=0 for A/B testing.
+	focusedSeeds := os.Getenv("BENCH_FOCUSED_SEEDS") != "0"
 	var focusPkg string
 	if focusedSeeds {
 		focusPkg = dominantPkg(candidates)
@@ -858,7 +859,7 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	// Focused seed selection (#36): cluster candidates by package path, pick seeds
 	// from the most cohesive cluster. Quality over quantity: 3-5 seeds in the same
 	// structural neighborhood vs 15-25 scattered across the graph.
-	if os.Getenv("BENCH_FOCUSED_SEEDS") == "1" && len(candidates) > 5 {
+	if focusedSeeds && len(candidates) > 5 {
 		candidates = focusedSeedSelect(candidates)
 	}
 	maxSeeds := sweepMaxSeeds()

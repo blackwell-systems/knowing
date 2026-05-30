@@ -2,7 +2,7 @@
 
 The context packing subsystem (`internal/context/`) produces token-budgeted, graph-ranked context blocks for agent consumption. It answers: "given a task or a set of changed files, which symbols from the knowledge graph should an agent see?" Three entry points exist: task-based (`ForTask`, keyword search from a description), file-based (`ForFiles`, blast-radius expansion from changed files), and PR-based (`ForPR`, RWR from all symbols in changed files). A fourth entry point, `ExplainSymbol`, runs the full retrieval pipeline and returns a detailed scoring breakdown for a specific symbol.
 
-**Current performance:** P@10 = 0.267 cold start, 0.272 with compounding (14 repos, 277 tasks, 8 languages). 1.96x vs codegraph, 3.52x vs GitNexus, 4.19x vs Gortex, 20.3x vs grep. Gap-fill seeds (re-ranker disabled) + 152 equivalence classes. Query latency 2ms on k8s (with adjacency cache). Parameter sweep proved all RWR/ranking parameters are irrelevant (identical P@10 across 26 configs); P@10 is reachability-determined, not ranking-determined.
+**Current performance:** P@10 = 0.283 cold start (14 repos, 277 tasks, 8 languages). 2.10x vs codegraph, 3.77x vs GitNexus, 4.49x vs Gortex, 21.8x vs grep. Focused seed selection + cluster-aware gap-fill (re-ranker disabled) + 164 equivalence classes. Query latency 2ms on k8s (with adjacency cache). Parameter sweep proved all RWR/ranking parameters are irrelevant (identical P@10 across 26 configs); P@10 is reachability-determined, not ranking-determined.
 
 ## Architecture
 

@@ -129,9 +129,9 @@ For implementation details, see [Retrieval Pipeline](../architecture/retrieval-p
 - Adjacency cache: 4,717x latency improvement (9s to 2ms on Kubernetes-scale graph)
 - Density-adaptive retrieval: auto-detects graph density, adjusts seed selection strategy
 - Embedding gap-fill seeds: +11% P@10 improvement, fully local, on by default. Re-ranker disabled (net negative).
-- P@10 = 0.267 cold start, 0.272 with compounding (277 tasks, 14 repos, 8 languages)
+- P@10 = 0.283 cold start (277 tasks, 14 repos, 8 languages)
 - Self-adapting compounding: +4.2% P@10 from passive task memory
-- Competitive: 1.98x codegraph, 3.56x GitNexus, 4.24x Gortex, 20.5x grep (cold start)
+- Competitive: 2.10x codegraph, 3.77x GitNexus, 4.49x Gortex, 21.8x grep (cold start)
 - MCP server interface with 28 tools for agent consumption
 
 ## The Problem
@@ -243,7 +243,7 @@ knowing's differentiator is graph-native retrieval: RWR (Random Walk with Restar
 
 **Context packers** (Aider, Repo Map, etc) analyze your repo and produce a condensed map for the agent's context window. They run at query time, produce text, and are stateless: they don't remember what was useful last time. They don't version their output or prove anything about it.
 
-**Code graphs / indexers** (Sourcegraph, codegraph, GitNexus, Stack Graphs) build a queryable index of code relationships. Most use mutable state (database rows with auto-increment IDs). They can answer "who calls X?" but can't answer "who called X last Tuesday?" or "prove no one calls X." They don't learn from feedback. In head-to-head benchmark (14 repos, 277 tasks, 8 languages): knowing achieves 1.96x the precision of codegraph (19K stars), 3.52x vs GitNexus, and 4.19x vs Gortex.
+**Code graphs / indexers** (Sourcegraph, codegraph, GitNexus, Stack Graphs) build a queryable index of code relationships. Most use mutable state (database rows with auto-increment IDs). They can answer "who calls X?" but can't answer "who called X last Tuesday?" or "prove no one calls X." They don't learn from feedback. In head-to-head benchmark (14 repos, 277 tasks, 8 languages): knowing achieves 2.10x the precision of codegraph (19K stars), 3.77x vs GitNexus, and 4.49x vs Gortex.
 
 **Agent memory systems** (MemGPT, various RAG frameworks) persist information across sessions. They remember conversations but not code structure. They can recall "you asked about auth last time" but can't tell you "auth's blast radius grew by 3 callers since then."
 
@@ -947,7 +947,7 @@ These numbers are reproducible via the benchmark suite (14 repos, 277 tasks, 8 l
 
 | Metric | Cold Start | With Compounding | Context |
 |---|---|---|---|
-| P@10 (precision at 10) | 0.264 | 0.268 (+4.2%) | 1.98x codegraph, 3.56x GitNexus, 4.24x Gortex, 20.5x grep |
+| P@10 (precision at 10) | 0.283 | 0.288 (+1.8%) | 2.10x codegraph, 3.77x GitNexus, 4.49x Gortex, 21.8x grep |
 | R@10 (recall at 10) | 0.414 | 0.424 (+6.4%) | 14 repos, 8 languages (Go, Python, TS, Rust, Java, C#, Ruby) |
 | NDCG@10 | 0.350 | 0.382 | Ranking quality improves with compounding |
 | MRR | 0.395 | 0.406 | First relevant result position |

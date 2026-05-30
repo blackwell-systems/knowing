@@ -14,7 +14,7 @@ the precision degradation that affects every static retrieval system at scale.
 This document is the authoritative reference for how the context engine finds and ranks
 symbols. It supersedes `context-packing.md`.
 
-**Current eval baseline:** Cross-system benchmark (277 tasks, 14 repos, 8 languages): P@10=0.267 cold start, 0.268 with task memory compounding (+4.2%). 1.96x vs codegraph (19K stars), 3.52x vs GitNexus, 4.19x vs Gortex, 20.3x vs grep. gap-fill seeds (re-ranker disabled, net negative on P@10) + 152 equivalence classes. Parameter sweep (26 configs) proved P@10 is reachability-determined; all ranking parameters are irrelevant.
+**Current eval baseline:** Cross-system benchmark (277 tasks, 14 repos, 8 languages): P@10=0.283 cold start. 2.10x vs codegraph (19K stars), 3.77x vs GitNexus, 4.49x vs Gortex, 21.8x vs grep. Focused seed selection + cluster-aware gap-fill seeds (re-ranker disabled, net negative on P@10) + 164 equivalence classes. Parameter sweep (26 configs) proved P@10 is reachability-determined; all ranking parameters are irrelevant.
 
 ## Pipeline Overview
 

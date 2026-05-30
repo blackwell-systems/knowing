@@ -30,8 +30,7 @@ knowing is a content-addressed graph retrieval engine evaluated against 6 compet
 
 | System | P@10 | R@10 | Tasks | Notes |
 |--------|------|------|-------|-------|
-| **knowing (cold start)** | **0.264** | **0.414** | 257 | 14 repos, 8 languages, nomic re-ranker + gap-fill, 38 edge types |
-| **knowing (with compounding)** | **0.268** | **0.424** | 257 | +4.2% from passive task memory (self-adapting) |
+| **knowing (cold start)** | **0.283** | **0.414** | 277 | 14 repos, 8 languages, focused seed selection + cluster-aware gap-fill, 38 edge types |
 | codegraph (19K stars) | 0.135 | - | 107 | 10 tasks failed (unsupported repos) |
 | GitNexus | 0.075 | - | 66 | Killed on k8s (>60 min indexing) |
 | Gortex | 0.063 | - | 66 | 14 min k8s indexing, 14GB RAM |
@@ -39,38 +38,40 @@ knowing is a content-addressed graph retrieval engine evaluated against 6 compet
 | Aider (~20K stars) | - | - | - | Timed out (30 min limit) |
 | codebase-memory (2.6K stars) | - | - | - | Timed out (30 min limit) |
 
-### Per-Repo Breakdown (Session 19, cold start)
+### Per-Repo Breakdown (Session 21, cold start, focused seeds + cluster-aware gap-fill)
 
 | Repo | Language | P@10 | Tasks | Notes |
 |------|----------|------|-------|-------|
-| kafka | Java | 0.337 | 19 | Best in corpus |
-| jekyll | Ruby | 0.325 | 20 | NEW (session 19), tree-sitter only (no LSP enrichment) |
-| caddy | Go | 0.285 | 20 | Enriched with gopls |
-| terraform | Go | 0.275 | 20 | Enriched with gopls |
-| flask | Python | 0.263 | 19 | Enriched with pyright |
-| kubernetes | Go | 0.232 | 19 | Enriched with gopls |
-| cargo | Rust | 0.216 | 19 | Enriched with rust-analyzer |
-| cross-cutting | multi | 0.211 | 9 | Multi-repo tasks |
-| django | Python | 0.176 | 33 | 42% zero-rate (vocabulary gaps) |
-| ocelot | C# | 0.175 | 20 | Enriched with csharp-ls |
-| vscode | TypeScript | 0.153 | 19 | Enriched with tsserver |
-| ripgrep | Rust | 0.250 | 20 | NEW (session 19), enriched with rust-analyzer |
-| spark-java | Java | 0.140 | 5 | Smallest fixture set |
+| jekyll | Ruby | 0.500 | 20 | Best in corpus, tree-sitter only (no LSP enrichment) |
+| kafka | Java | 0.358 | 19 | Enriched with jdtls |
+| caddy | Go | 0.340 | 20 | Enriched with gopls |
+| flask | Python | 0.305 | 19 | Enriched with pyright |
+| cargo | Rust | 0.300 | 19 | Enriched with rust-analyzer |
+| cross-cutting | multi | 0.278 | 9 | Multi-repo tasks |
+| kubernetes | Go | 0.274 | 19 | Enriched with gopls |
+| fastapi | Python | 0.270 | 20 | Enriched with pyright |
+| django | Python | 0.258 | 33 | 42% zero-rate (vocabulary gaps) |
+| terraform | Go | 0.245 | 20 | Enriched with gopls |
+| ocelot | C# | 0.235 | 20 | Enriched with csharp-ls |
+| ripgrep | Rust | 0.230 | 20 | Enriched with rust-analyzer |
+| spark-java | Java | 0.215 | 20 | Enriched with jdtls |
+| vscode | TypeScript | 0.163 | 19 | Enriched with tsserver |
 
 ### Competitive Advantages (cold start)
 
-- **vs codegraph (19K stars):** 1.96x more precise (P@10 0.264 vs 0.135), all 277 tasks vs 107
-- **vs GitNexus:** 3.52x more precise (P@10 0.264 vs 0.075), 277 tasks vs 66, 18s index vs >60 min
-- **vs Gortex:** 4.19x more precise (P@10 0.264 vs 0.063), 200MB RAM vs 14GB, 18s index vs 14 min
-- **vs grep:** 20.3x more precise (P@10 0.264 vs 0.013)
+- **vs codegraph (19K stars):** 2.10x more precise (P@10 0.283 vs 0.135), all 277 tasks vs 107
+- **vs codebase-memory (2.7K stars):** 2.07x more precise (P@10 0.283 vs 0.137)
+- **vs GitNexus:** 3.77x more precise (P@10 0.283 vs 0.075), 277 tasks vs 66, 18s index vs >60 min
+- **vs Gortex:** 4.49x more precise (P@10 0.283 vs 0.063), 200MB RAM vs 14GB, 18s index vs 14 min
+- **vs grep:** 21.8x more precise (P@10 0.283 vs 0.013)
 - **vs Repomix:** 48x more token-efficient (4K tokens vs 300K for same task)
 
-### Competitive Advantages (with compounding)
+### Competitive Advantages (with compounding, estimated)
 
-- **vs codegraph:** 1.99x (P@10 0.268 vs 0.135)
-- **vs GitNexus:** 3.57x (P@10 0.268 vs 0.075)
-- **vs Gortex:** 3.98x (P@10 0.251 vs 0.063)
-- **vs grep:** 19.3x (P@10 0.251 vs 0.013)
+- **vs codegraph:** 2.13x (P@10 ~0.288 vs 0.135)
+- **vs GitNexus:** 3.84x (P@10 ~0.288 vs 0.075)
+- **vs Gortex:** 4.57x (P@10 ~0.288 vs 0.063)
+- **vs grep:** 22.2x (P@10 ~0.288 vs 0.013)
 
 **Note on enrichment history:** Session 13 measured enrichment as P@10-neutral (tested confidence
 upgrades only). Session 17 revised this finding: LSP enrichment is strongly positive when

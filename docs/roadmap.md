@@ -4,8 +4,8 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 
 ## Current State (v0.12.0, 2026-05-30)
 
-**P@10 = 0.267 cold start, 0.272 with compounding** (277 tasks, 14 repos, 8 languages, nomic-embed-text-v1.5 model). 38 edge types. 23 extractors. 164 equivalence classes. 55 experiments across 13 sessions.
-1.98x codegraph, 1.95x codebase-memory, 3.56x GitNexus, 4.24x Gortex, 20.5x grep.
+**P@10 = 0.283 cold start** (277 tasks, 14 repos, 8 languages, nomic-embed-text-v1.5 model). 38 edge types. 23 extractors. 164 equivalence classes. 58 experiments across 14 sessions.
+2.10x codegraph, 2.07x codebase-memory, 3.77x GitNexus, 4.49x Gortex, 21.8x grep.
 Embedding re-ranker: disabled (3 models tested, all net negative, architecture closed). Gap-fill seeds (embedding-based): +11.2%. Equivalence classes (C#, FastAPI, Terraform, Rust): +4%. Task memory compounding: +4.9%. Ruby enrichment (ruby-lsp): Jekyll #1 in corpus at 0.370. Parallel benchmark: 5.5 min (was 80 min sequential) via PreloadVectors.
 **Structural ceiling reached (session 20):** 55 experiments confirm P@10 is reachability-determined. Incremental path exhausted. Next-generation approaches needed (see below).
 
@@ -276,7 +276,7 @@ context retrieval. Full proposal: [docs/proposals/code-retrieval-eval-toolkit.md
 ## Retrieval Pipeline
 
 Current results: see [bench/cross-system/FINDINGS.md](../bench/cross-system/FINDINGS.md).
-P@10=0.267 cold, 0.272 warm (277 tasks, 14 repos, 8 languages). 1.97x vs codegraph, 3.55x vs GitNexus, 4.22x vs Gortex, 20.5x vs grep. Query latency 2ms on k8s (with adjacency cache). Embedding re-ranker adds 220ms (cached vectors). Equivalence classes: +4%. Task memory compounding: +5.0% P@10 from round 1 to round 2.
+P@10=0.283 cold (277 tasks, 14 repos, 8 languages). 2.10x vs codegraph, 3.77x vs GitNexus, 4.49x vs Gortex, 21.8x vs grep. Query latency 2ms on k8s (with adjacency cache). Embedding gap-fill adds 220ms (cached vectors). Focused seed selection + cluster-aware gap-fill: +6.0% over previous high. Equivalence classes: +4%.
 
 **Key findings:** (1) 32-config parameter sweep proved P@10 is reachability-determined; ranking parameters are irrelevant. (2) Embedding re-ranker was initially measured at +17% but session 19 per-repo A/B test showed it was net negative (9/13 repos hurt). The +17% was from gap-fill seeds sharing the BENCH_EMBEDDINGS flag. Re-ranker disabled; gap-fill seeds remain (+11%).
 
@@ -321,7 +321,7 @@ The adaptive infrastructure is knowing's core differentiator. Competitors use fi
 
 ### Next-generation retrieval (beyond incremental experiments)
 
-55 experiments across sessions 8-20 exhausted the incremental path. Every variation on "add more to the graph" (edges, seeds, parameters, models) either helps sparse repos while hurting dense ones, or washes out in aggregate. P@10 = 0.267 is the structural ceiling for the current approach (BM25 seeds -> RWR walk -> rank). Breaking through requires fundamentally different retrieval strategies.
+55 experiments across sessions 8-20 exhausted the incremental path (adding edges, tuning parameters, swapping models). Session 21 broke through the 0.267 ceiling with focused seed selection (#36): cluster seeds by package path and concentrate the walk in the dominant structural neighborhood. Combined with cluster-aware gap-fill, P@10 = 0.283 (+6.0%). The insight: seed quality (structural cohesion) matters more than seed quantity. 57 experiments proved count doesn't matter, but cohesion was an untested dimension.
 
 | # | Item | Approach | Why it might work |
 |---|------|----------|-------------------|
@@ -330,7 +330,7 @@ The adaptive infrastructure is knowing's core differentiator. Competitors use fi
 | 33 | **Two-phase retrieval (search-walk-search)** | Phase 1: current BM25+RWR finds a neighborhood (~500 nodes). Phase 2: run BM25 again within that neighborhood only, re-seeding with the most relevant matches. First walk finds the structural area; second search finds specific symbols within it. No ML required, uses existing infrastructure. Most practical next step. | The core problem: 15-25 seeds dilute the walk across the graph. Two-phase narrows the search space before the final ranking. Phase 1 answers "what area of the code?" Phase 2 answers "which specific symbols?" |
 | 34 | **Ground truth expansion** | Current 277 tasks may have incomplete ground truth. If the system finds useful symbols that aren't in the ground truth, it's penalized unfairly. Systematic review: for each zero-scoring task, examine what the system actually returns and judge relevance independently. | Free P@10 if ground truth is wrong. Session 20 confirmed fixtures are valid (symbols exist, are connected), but relevance of returned symbols was not reviewed. The system might be returning contextually useful symbols that aren't in the curated ground truth. |
 | 35 | **Query-conditioned walk** | Weight edges differently per query during RWR, not just by edge type. "Validate request body" amplifies edges toward validators, attenuates edges toward serializers. The walk becomes query-aware. Could use query keywords to boost edges whose target node names match, or train a lightweight model to predict per-query edge relevance. | The fundamental bottleneck: RWR walks blind from seeds. It doesn't know what it's looking for. On a graph with density 13.5, each step splits probability 13 ways. Query-conditioned edges focus the walk toward the answer. |
-| 36 | **Focused seed selection** | Instead of top-15 BM25 results as seeds, analyze structural cohesion: pick 3-5 seeds that are close to each other in the graph (same package, connected cluster). Quality over quantity. Current: "20 keyword matches, walk from all." Better: "3 seeds in the same structural cluster, walk focused." | 57 experiments proved seed COUNT doesn't matter. But seed QUALITY might: 3 cohesive seeds in the right neighborhood vs 15 scattered seeds across the graph. Untested dimension. |
+| 36 | ~~Focused seed selection~~ | **SHIPPED session 21 (#58).** Cluster RRF candidates by package path, promote largest cluster. Combined with cluster-aware gap-fill (embedding seeds filtered to dominant package). Full corpus: 0.283 vs 0.267 (+0.016, +6.0%). Django: 0.275 vs 0.253 (+8.7%). First experiment to break the session 20 ceiling. | **Shipped** |
 | 37 | **Learned scoring from ground truth** | Train a lightweight model (logistic regression, small NN) on the 277-task corpus. Features: BM25 rank, node degree, path distance to nearest type node, edge type distribution, package depth. Predict: is this candidate ground truth? Even a simple model could outperform hand-tuned RankSymbols formula. | We have labeled data (277 tasks with ground truth) that we only use for evaluation, never for training. Cross-validation across repos prevents overfitting. Risk: overfitting. Mitigation: leave-one-repo-out validation. |
 | 38 | **Per-query edge type selection** | For a "middleware" query, prefer calls/implements edges. For a "configuration" query, prefer configures/imports. Map query concepts to edge type weight profiles. Hand-curated profiles (like equiv classes) or learned from the corpus. | Different task types traverse different parts of the graph. A query about "error handling" should walk along throws/catches edges; a query about "routing" should walk along handles_route edges. Current RWR uses fixed weights for all queries. |
 
