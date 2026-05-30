@@ -7,7 +7,7 @@ automatically. This is the project's central thesis: a code retrieval system tha
 adapts to its graph outperforms any fixed-strategy system, and the gap widens with
 scale.
 
-**Current result:** P@10 = 0.283 cold start (277 tasks,
+**Current result:** P@10 = 0.283 cold start, 0.284 with compounding (277 tasks,
 14 repos, 8 languages). 2.10x codegraph, 3.77x GitNexus, 4.49x Gortex.
 
 ## The Problem with Fixed-Strategy Retrieval

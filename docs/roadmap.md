@@ -4,7 +4,7 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 
 ## Current State (v0.12.0, 2026-05-30)
 
-**P@10 = 0.283 cold start** (277 tasks, 14 repos, 8 languages, nomic-embed-text-v1.5 model). 38 edge types. 23 extractors. 164 equivalence classes. 58 experiments across 14 sessions.
+**P@10 = 0.283 cold start, 0.284 with compounding** (277 tasks, 14 repos, 8 languages, nomic-embed-text-v1.5 model). 38 edge types. 23 extractors. 164 equivalence classes. 58 experiments across 14 sessions.
 2.10x codegraph, 2.07x codebase-memory, 3.77x GitNexus, 4.49x Gortex, 21.8x grep.
 Embedding re-ranker: disabled (3 models tested, all net negative, architecture closed). Gap-fill seeds (embedding-based): +11.2%. Equivalence classes (C#, FastAPI, Terraform, Rust): +4%. Task memory compounding: +4.9%. Ruby enrichment (ruby-lsp): Jekyll #1 in corpus at 0.370. Parallel benchmark: 5.5 min (was 80 min sequential) via PreloadVectors.
 **Structural ceiling reached (session 20):** 55 experiments confirm P@10 is reachability-determined. Incremental path exhausted. Next-generation approaches needed (see below).

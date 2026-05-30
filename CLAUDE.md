@@ -125,15 +125,16 @@ Competitive ratios to recalculate from new P@10:
 - `bench/cross-system/` — competitive benchmark (277 tasks, 14 repos, 7 competitors)
 - `cmd/knowing/audit_supply_chain.go` — supply chain CLI (package-level verdict)
 
-## Current State (session 18, 2026-05-28)
+## Current State (session 21, 2026-05-30)
 
-- **P@10 = 0.267 cold start, 0.272 with compounding** (277 tasks, 14 repos, 8 languages, 38 edge types, 164 equivalence classes)
+- **P@10 = 0.283 cold start, 0.284 with compounding** (277 tasks, 14 repos, 8 languages, 38 edge types, 164 equivalence classes)
+- **Focused seed selection:** cluster seeds by package path, concentrate walk in dominant neighborhood (+6.0% over previous high)
+- **Cluster-aware gap-fill:** embedding seeds filtered to dominant package, prevents scattering
 - **Self-adapting compounding:** +4.2% P@10 from passive task memory (round 1 to round 2)
 - **Density-adaptive:** PreferTypeSeeds >40K nodes, adaptive seed count >10K nodes
 - **Embedding gap-fill seeds:** +11% P@10, vocabulary gap bridging, vector cache 220ms. Re-ranker disabled (net negative, session 19).
 - **LSP enrichment:** strongly positive. Go: k8s 0.000->0.232, terraform ~0.095->0.275. Python: +0.040
-- **Competitive (cold):** 1.98x codegraph, 1.95x codebase-memory, 3.56x GitNexus, 4.24x Gortex, 20.5x grep
-- **Competitive (warm):** 1.99x codegraph, 1.96x codebase-memory, 3.57x GitNexus, 4.25x Gortex, 20.6x grep
+- **Competitive (cold):** 2.10x codegraph, 2.07x codebase-memory, 3.77x GitNexus, 4.49x Gortex, 21.8x grep
 - **Supply chain:** 1.0% FP on 200 clean packages (package-level verdict)
 - **Identity:** "self-adapting code intelligence engine that gets smarter with scale"
 
@@ -147,11 +148,12 @@ Competitive ratios to recalculate from new P@10:
 6. **Gap injection concept is sound but BM25 is too noisy.** Embedding-filtered BM25 gap candidates: Django +3.2% but aggregate neutral. Need higher-precision candidate source.
 7. **Coherence packing, bidirectional inheritance: both harmful.** Greedy density packing is near-optimal. Reverse inherits edges add noise without reachability.
 
-## Experiment Summary (45 total across sessions 8-19)
+## Experiment Summary (58 total across sessions 8-21)
 
 ### What works
 | Experiment | Impact | Session |
 |-----------|--------|---------|
+| Focused seed selection + cluster-aware gap-fill | +6.0% P@10 (0.267->0.283), new all-time high | 21 |
 | Inheritance propagation | +29% | 13 |
 | ~~Embedding re-ranker~~ (pure, weight=0.0) | REVERTED: net negative (session 19, 9/13 repos hurt) | 15, 19 |
 | Adaptive seed count (>40K: 25, >10K: 20) | Django +14.2%, corpus +1.7% | 16 |
@@ -214,6 +216,10 @@ Embeddings as Channel 3, blended re-rank, call-chain seeding, hub dampening, BFS
 - **`command npm` not `npm`.** nvm shell hook interferes. Always use `command npm`.
 - **Don't use `timeout` on long-running commands.** Let indexing, enrichment, and benchmarks run until they finish. Kill manually if they go too long. `timeout` causes premature kills on processes that are legitimately slow (gopls loading, tsserver type-checking, kafka authorship).
 - **Never delete benchmark corpus DBs.** The DBs at `bench/cross-system/corpus/repos/<repo>/.knowing/graph.db` are gitignored and can't be restored from git. Enrichment status: Python (django, flask, fastapi) enriched with pyright. Java (spark-java, kafka) enriched with jdtls. TypeScript (vscode) enriched with tsserver. Go (terraform, kubernetes, caddy) enriched with gopls (two-phase warmup). Rust (cargo) enriched with rust-analyzer. C# (ocelot) enriched with csharp-ls. All 12 repos are enriched. If you need to test with modified indexing, copy the DB first.
+- **DB experiment procedure.** Never modify corpus DBs in place. Keep a master backup set untouched. Copy from master to a working path, enrich the copy, checkpoint WAL (`PRAGMA wal_checkpoint(TRUNCATE)`), remove stale SHM/WAL files at destination (`rm -f *.db-shm *.db-wal`), then swap. Restore from master after. Stale SHM files cause "database disk image is malformed" even with a clean main file. See `bench/cross-system/METHODOLOGY.md` for full procedure.
+- **`go clean -testcache` after code reverts.** After reverting code with `git checkout -- *.go`, `go test` may use a cached binary compiled from the pre-revert code. Always run `go clean -testcache` before the next benchmark. Session 20: cargo showed phantom regression (0.277 -> 0.150) from stale test binary.
+- **Test the problem repo first.** When an experiment regresses a specific repo, test that repo in isolation before running full corpus. Saves 20+ minutes per iteration.
+- **Experiment workflow.** (1) Copy master backup -> working copy. (2) Modify working copy. (3) Checkpoint WAL, delete SHM/WAL at destination. (4) Swap. (5) `go clean -testcache`. (6) Test problem repo first. (7) If positive, full corpus. (8) Restore from master after.
 
 ## Debugging Hung Processes
 

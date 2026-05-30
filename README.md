@@ -88,7 +88,7 @@ Feedback from agents compounds across sessions. When code changes, feedback expi
 
 | What | Result |
 |---|---:|
-| Cross-system retrieval | **P@10=0.283 cold** (277 tasks, 14 repos, 8 languages) |
+| Cross-system retrieval | **P@10=0.283 cold, 0.284 warm** (277 tasks, 14 repos, 8 languages) |
 | vs competitors | 2.10x codegraph (19K stars), 2.07x codebase-memory (2.7K stars), 3.77x GitNexus, 4.49x Gortex, 21.8x grep |
 | Embedding gap-fill | +11% P@10 (local inference, no API, no charges, on by default) |
 | Gap-fill seeds | +11% P@10 (embedding-based fallback when keywords fail) |

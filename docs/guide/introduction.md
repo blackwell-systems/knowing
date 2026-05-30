@@ -129,7 +129,7 @@ For implementation details, see [Retrieval Pipeline](../architecture/retrieval-p
 - Adjacency cache: 4,717x latency improvement (9s to 2ms on Kubernetes-scale graph)
 - Density-adaptive retrieval: auto-detects graph density, adjusts seed selection strategy
 - Embedding gap-fill seeds: +11% P@10 improvement, fully local, on by default. Re-ranker disabled (net negative).
-- P@10 = 0.283 cold start (277 tasks, 14 repos, 8 languages)
+- P@10 = 0.283 cold start, 0.284 with compounding (277 tasks, 14 repos, 8 languages)
 - Self-adapting compounding: +4.2% P@10 from passive task memory
 - Competitive: 2.10x codegraph, 3.77x GitNexus, 4.49x Gortex, 21.8x grep (cold start)
 - MCP server interface with 28 tools for agent consumption
