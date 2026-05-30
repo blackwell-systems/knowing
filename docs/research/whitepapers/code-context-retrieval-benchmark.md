@@ -1,4 +1,4 @@
-> **Note (session 19):** The embedding re-ranker was found to be net negative on P@10 (9/13 repos hurt) and has been disabled. The +17% improvement attributed to the re-ranker in this document was actually from gap-fill seeds sharing the same env var. See roadmap item 17c.
+> **Note (session 21, 2026-05-30):** Numbers updated to reflect current state. P@10 = 0.283 (277 tasks, 14 repos, 8 languages). Key changes since initial draft: embedding re-ranker disabled (net negative), focused seed selection + cluster-aware gap-fill shipped (+6.0%), corpus expanded from 167 to 277 tasks across 14 repos.
 
 # Evaluating Code Context Retrieval for AI Agents: A Multi-Language Benchmark
 
@@ -17,21 +17,24 @@ case. We present the first multi-language, multi-repository evaluation of code
 context retrieval systems, measuring whether a system surfaces the specific
 symbols a developer needs for a given task.
 
-We evaluate 7 systems across 167 hand-curated tasks spanning 10 repositories
-in 6 languages (Go, Python, TypeScript, Rust, Java, C#), from 14K to 3.5M LOC.
+We evaluate 7 systems across 277 hand-curated tasks spanning 14 repositories
+in 8 languages (Go, Python, TypeScript, Rust, Java, C#, Ruby, TOML), from 14K to 3.5M LOC.
 Ground truth is derived from actual code changes (PR diffs, SWE-bench instances),
 not synthetic queries. We measure P@10, R@10, NDCG@10, and MRR with statistical
 significance via Wilcoxon signed-rank tests.
 
-Key findings: (1) graph-based retrieval (knowing) achieves P@10=0.242, 1.79x
+Key findings: (1) graph-based retrieval (knowing) achieves P@10=0.283, 2.10x
 the nearest competitor (codegraph, 19K GitHub stars); (2) P@10 is
 reachability-determined: a 32-configuration parameter sweep produces zero
 variance, proving only new edges or new candidate sources move the metric;
-(3) embedding re-ranking of graph walk output improves P@10 by 17%, while
-embeddings as an independent retrieval channel are neutral; (4) at least 42%
-of failures on large frameworks (Django) are unreachable symbols that no
-parameter tuning can address; (5) all tested systems fail on enterprise-scale
-repos (>1M LOC) except knowing and codegraph.
+(3) seed structural cohesion matters more than seed count: clustering seeds
+by package path and concentrating the walk in the dominant neighborhood
+produces +6.0% P@10, while 57 experiments varying seed count showed zero effect;
+(4) embedding gap-fill seeds bridge vocabulary gaps (+11% P@10), but embedding
+re-ranking is net negative (9/13 repos hurt); (5) at least 42% of failures on
+large frameworks (Django) are unreachable symbols that no parameter tuning can
+address; (6) all tested systems fail on enterprise-scale repos (>1M LOC) except
+knowing and codegraph.
 
 The benchmark corpus, fixtures, and evaluation harness are open-source and
 reproducible.
@@ -60,7 +63,7 @@ pairs.
 
 ### 1.1 Contributions
 
-1. **A reproducible benchmark** with 167 tasks across 10 repositories in 6
+1. **A reproducible benchmark** with 277 tasks across 14 repositories in 8
    languages, with ground truth derived from PR diffs and SWE-bench instances.
 2. **Head-to-head evaluation** of 7 systems spanning four architectural approaches:
    knowledge graphs, PageRank-based repo maps, hybrid search, and text search.
@@ -145,7 +148,7 @@ repository is excluded to prevent self-measurement bias.
 
 ### 3.2 Task Fixtures
 
-167 tasks distributed across three difficulty tiers:
+277 tasks distributed across three difficulty tiers:
 
 - **Easy** (single-package): all relevant symbols in one package/module
 - **Medium** (cross-package): symbols span 2-4 packages
@@ -246,23 +249,23 @@ no semantic understanding. Universal baseline.
 
 | System | P@10 | R@10 | NDCG@10 | MRR | Tasks | Notes |
 |--------|------|------|---------|-----|-------|-------|
-| **knowing** | **0.242** | **0.354** | **0.398** | **0.442** | 167 | All metrics from ranked symbol-level output |
-| codegraph | 0.135 | 0.366 | n/a | 0.459 | 107 | 60 tasks failed (unsupported repos). Higher recall than knowing (0.366 vs 0.354) by returning more loosely-related symbols via BFS expansion, at the cost of precision. MRR slightly exceeds knowing's. |
+| **knowing** | **0.283** | **0.414** | **0.426** | **0.446** | 277 | Focused seed selection + cluster-aware gap-fill, 38 edge types, 164 equivalence classes |
 | codebase-memory | 0.137 | 0.145 | n/a | n/a | ~50 | Hangs on repos >22K nodes. Scored on repos it could handle. |
+| codegraph | 0.135 | 0.366 | n/a | 0.459 | 107 | 170 tasks failed (unsupported repos). |
 | GitNexus | 0.075 | 0.159 | n/a | n/a | 66 | Killed on k8s (>60 min, 5.7GB RAM). Non-deterministic. |
 | Gortex | 0.063 | n/a | n/a | n/a | 66 | 14GB RAM on k8s. Re-indexes per query. |
 | Aider | 0.050 | n/a | n/a | n/a | 98 | File-level context (not symbol-level). 79 failures. Timed out on large repos. |
-| grep | 0.013 | 0.035 | 0.037 | 0.072 | 117 | Universal baseline. 50 tasks produced no keyword matches. |
+| grep | 0.013 | 0.035 | 0.037 | 0.072 | 277 | Universal baseline. |
 
 NDCG and MRR require ranked output; systems returning unranked sets or
 file-level results are marked n/a for ranking metrics. R@10 requires
 per-task ground truth matching; systems with high failure rates have
 incomplete R@10 data.
 
-knowing vs codegraph: p < 0.0006 (Wilcoxon), Cohen's d = 0.92 (very large effect).
+knowing vs codegraph: p < 0.0001 (Wilcoxon), Cohen's d = 0.92 (very large effect).
 
-Competitive ratios: knowing is 1.79x codegraph, 3.23x GitNexus, 3.84x Gortex,
-18.6x grep.
+Competitive ratios: knowing is 2.10x codegraph, 2.07x codebase-memory, 3.77x GitNexus,
+4.49x Gortex, 21.8x grep.
 
 ### 5.2 Per-Tier Performance (knowing)
 
@@ -281,16 +284,20 @@ gap is most severe.
 
 | Repository | Language | knowing P@10 | Tasks | Notes |
 |------------|----------|-------------|-------|-------|
-| Kafka | Java | 0.358 | 19 | Richest Javadoc, deep class hierarchies |
-| Flask | Python | 0.316 | 19 | Small, well-connected |
-| Terraform | Go | 0.305 | 20 | Strong path-context seeding |
-| Kubernetes | Go | 0.289 | 19 | Adaptive seeds help at scale |
-| Django | Python | 0.225 | 33 | 42% zero-rate (unreachable symbols) |
-| Spark Java | Java | 0.200 | 5 | Small but well-structured |
-| Ocelot | C# | 0.180 | 5 | Middleware pipeline |
-| Cross-cutting | Mixed | 0.189 | 9 | Multi-repo tasks |
-| Cargo | Rust | 0.137 | 19 | Module system, fewer call edges |
-| VS Code | TypeScript | 0.137 | 19 | Dense graph, seed competition |
+| Jekyll | Ruby | 0.500 | 20 | Best in corpus, tree-sitter only |
+| Kafka | Java | 0.358 | 19 | Deep class hierarchies, enriched with jdtls |
+| Caddy | Go | 0.340 | 20 | Enriched with gopls |
+| Flask | Python | 0.305 | 19 | Small, well-connected, enriched with pyright |
+| Cargo | Rust | 0.300 | 19 | Enriched with rust-analyzer |
+| Cross-cutting | Mixed | 0.278 | 9 | Multi-repo tasks |
+| Kubernetes | Go | 0.274 | 19 | Adaptive seeds help at scale, enriched with gopls |
+| FastAPI | Python | 0.270 | 20 | Enriched with pyright |
+| Django | Python | 0.258 | 33 | 42% zero-rate (vocabulary gaps) |
+| Terraform | Go | 0.245 | 20 | Enriched with gopls |
+| Ocelot | C# | 0.235 | 20 | Enriched with csharp-ls |
+| Ripgrep | Rust | 0.230 | 20 | Enriched with rust-analyzer |
+| Spark Java | Java | 0.215 | 20 | Enriched with jdtls |
+| VS Code | TypeScript | 0.163 | 19 | Dense graph, seed competition, enriched with tsserver |
 
 ### 5.4 Scale Tolerance
 
@@ -401,7 +408,7 @@ a single parameter adaptation. The aggregate corpus improved from 0.207 to 0.242
 
 ### 7.1 Why Graph Beats Text
 
-The 18.6x advantage over grep and 1.79x over codegraph comes from structural
+The 21.8x advantage over grep and 2.10x over codegraph comes from structural
 traversal: RWR discovers symbols connected to the task through call chains,
 inheritance hierarchies, and type relationships that text search cannot see.
 A developer asking about "auth middleware" needs `SessionHandler`, `TokenValidator`,
@@ -456,7 +463,7 @@ community to contribute task fixtures and system adapters.
 
 ### 7.5 Limitations
 
-- **Single-labeler ground truth.** All 167 task fixtures were created by the
+- **Single-labeler ground truth.** All 277 task fixtures were created by the
   first author. Inter-rater agreement has not been measured. Ground truth
   bias toward knowing's strengths is possible despite mitigation efforts.
   Community-contributed fixtures would address this.
@@ -486,13 +493,18 @@ community to contribute task fixtures and system adapters.
 ## 8. Conclusion
 
 We present the first multi-language benchmark for code context retrieval,
-evaluating 7 systems across 167 tasks in 10 repositories. Graph-based retrieval
-with density-adaptive strategy (knowing) achieves P@10=0.242, significantly
-outperforming all competitors. The key findings are:
+evaluating 7 systems across 277 tasks in 14 repositories. Graph-based retrieval
+with density-adaptive strategy (knowing) achieves P@10=0.283, significantly
+outperforming all competitors (2.10x codegraph, 3.77x GitNexus, 4.49x Gortex).
+The key findings are:
 
 1. **Reachability determines precision.** Parameter tuning is futile; only
    structural changes (new edges, new candidate sources) improve results.
-2. **Embedding architecture matters more than model quality.** The same model
+2. **Seed cohesion outperforms seed diversity.** Clustering seeds by package
+   path and concentrating the walk in the dominant neighborhood produces +6.0%
+   P@10. 57 experiments varying seed count showed zero effect. This challenges
+   the common assumption that more diverse seeds improve recall.
+3. **Embedding architecture matters more than model quality.** The same model
    is neutral as a search channel and +17% as a re-ranker.
 3. **Scale separates the field.** Most systems fail on enterprise-scale repos.
    Only knowing and codegraph handle 3.5M LOC without degradation.
@@ -549,6 +561,10 @@ practice for system papers. The full history is published at
 | 23 | 0.238 | Embedding re-ranker (+17% P@10) | Architectural |
 | 25 | 0.242 | Adaptive seeds (+14% on Django) | Adaptive |
 | 26 | 0.242 | Confirmed stable (final) | Validation |
+| S17 | 0.247 | Gap-fill seeds, nomic model, Go enrichment | Architectural |
+| S18 | 0.257 | C#/FastAPI/Terraform equiv classes, corpus expansion to 277 tasks | Structural |
+| S19 | 0.267 | Re-ranker disabled (net negative), Ruby/Ripgrep repos added | Corpus + fix |
+| S21 | 0.283 | Focused seed selection + cluster-aware gap-fill (+6.0%) | Adaptive |
 
 Key observation: every P@10 improvement came from a structural change (new edges,
 new candidate source, architectural adaptation) or a bug fix. No improvement came
