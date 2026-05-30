@@ -6,25 +6,25 @@
 **Study overview:** [bench/CONTEXT-PACKING-STUDY.md](../../bench/CONTEXT-PACKING-STUDY.md)
 **Implementation:** [bench/cross-system/](../../bench/cross-system/)
 
-## Current Status (2026-05-25)
+## Current Status (2026-05-30)
 
 ### Implementation Progress
 
 | Component | Status | Notes |
 |-----------|--------|-------|
 | Benchmark harness | Done | `harness_test.go`, metrics, normalization, statistical tests |
-| Evaluation corpus (9 repos) | Done | kubernetes, VS Code, flask, cargo, django, spark-java, ocelot, kafka, next.js |
-| Task fixtures (167 total) | Done | 6 languages (Go, Python, TypeScript, Rust, Java, C#) |
-| Ground truth validation | Done | 95% match rate, validate-fixtures tool |
-| knowing adapter | Done | P@10=0.242 (Run 26), 38 edge types, embedding re-ranker |
+| Evaluation corpus (14 repos) | Done | kubernetes, VS Code, flask, cargo, django, spark-java, ocelot, kafka, caddy, fastapi, ripgrep, jekyll, terraform, homebrew |
+| Task fixtures (277 total) | Done | 8 languages (Go, Python, TypeScript, Rust, Java, C#, Ruby, TOML) |
+| Ground truth validation | Done | 99% match rate, validate-fixtures tool |
+| knowing adapter | Done | P@10=0.283 (session 21), 38 edge types, focused seed selection + cluster-aware gap-fill |
 | grep adapter | Done | P@10=0.013 (baseline) |
-| codegraph adapter | Done | P@10=0.135, 107/167 tasks (10 failed on unsupported repos) |
-| GitNexus adapter | Done | P@10=0.075, 66/167 tasks (killed on k8s: >60 min, 5.7GB RAM) |
-| Gortex adapter | Done | P@10=0.063, 66/167 tasks (14 min k8s indexing, 14GB RAM) |
+| codegraph adapter | Done | P@10=0.135, 107/277 tasks (10 failed on unsupported repos) |
+| GitNexus adapter | Done | P@10=0.075, 66/277 tasks (killed on k8s: >60 min, 5.7GB RAM) |
+| Gortex adapter | Done | P@10=0.063, 66/277 tasks (14 min k8s indexing, 14GB RAM) |
 | Aider adapter | Evaluated | Timed out on 30 min limit |
-| codebase-memory adapter | Evaluated | Timed out on 30 min limit |
+| codebase-memory adapter | Evaluated | P@10=0.137 (timed out on some repos) |
 | SCIP adapter | Not built | Requires per-language SCIP index generation |
-| Statistical analysis | Done | Wilcoxon, Cohen's d, bootstrap CI, 26 runs |
+| Statistical analysis | Done | Wilcoxon, Cohen's d, bootstrap CI, 58 experiments |
 | SWE-bench integration | Done | 10 fixtures; finding: fault localization != context retrieval |
 | Embedding re-ranker | Done | +17% P@10, +18.3% R@10 on full corpus (Run 26) |
 | Failure analysis | Done | 56% noise, 36% test symbols; RWR reach is bottleneck |
