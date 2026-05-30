@@ -107,7 +107,7 @@ Feedback from agents compounds across sessions. When code changes, feedback expi
 | Language coverage | 13/14 repos pass (Go, Python, TS, Rust, Java, C#, Ruby, multi) |
 | Edge types | 38 (including supply chain: reads_env, executes_process) |
 
-All benchmarks are reproducible: `GOWORK=off go test ./bench/... -timeout 5m`
+All benchmarks are reproducible. The cross-system benchmark (P@10=0.283) uses 15 repos pinned to exact commits with a [corpus manifest](bench/cross-system/corpus/MANIFEST.yaml) and [setup script](bench/cross-system/corpus/corpus-setup.sh) for full from-scratch reproduction. See [METHODOLOGY.md](bench/cross-system/METHODOLOGY.md) for protocol details.
 
 ---
 

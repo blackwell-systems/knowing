@@ -131,17 +131,17 @@ Merkle root based on the packages it spans. Results are written to
 
 ### cross-system
 
-Evaluates knowing's retrieval quality against 7 competitors across 9 repos spanning
-6 languages and scales from 14K to 3.5M LOC. Corpus: Flask (Python, 15K LOC),
-Django (Python, 400K LOC), Cargo (Rust, 150K LOC), VS Code (TypeScript, 1M LOC),
-Kubernetes (Go, 3.5M LOC), Spark (Java, 14K LOC, 184 files), Ocelot (C#, 30K LOC,
-392 files), Kafka (Java, 500K LOC), and Terraform (Go, 2M LOC). 167 task fixtures
-with hand-curated ground truth. Measures P@10, R@10, NDCG@10, MRR, token efficiency,
-and latency with full statistical testing (paired t-test, Cohen's d, confidence
-intervals).
+Evaluates knowing's retrieval quality against 7 competitors across 15 repos spanning
+8 languages and scales from 14K to 3.5M LOC. 297 task fixtures with hand-curated
+ground truth. Measures P@10, R@10, NDCG@10, MRR, token efficiency, and latency with
+full statistical testing (Wilcoxon signed-rank, Cohen's d, bootstrap confidence intervals).
 
-The Java and C# repos validate that cross-file import resolution (feature 112)
-produces usable call edges in those languages.
+**Reproducibility:** The corpus is fully reproducible from pinned commits. See
+[`corpus/MANIFEST.yaml`](cross-system/corpus/MANIFEST.yaml) for exact commit hashes
+and expected graph statistics. Run
+[`corpus/corpus-setup.sh`](cross-system/corpus/corpus-setup.sh) to clone, index,
+enrich, and embed from scratch. See
+[`METHODOLOGY.md`](cross-system/METHODOLOGY.md) for the full experimental protocol.
 
 ### community-detection
 
