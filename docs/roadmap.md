@@ -40,6 +40,7 @@ Embedding re-ranker: disabled (net negative on P@10, session 19). Gap-fill seeds
 | **Density-adaptive inherits weight** (1.0 on deep) | Neutral | 17 | Boosted implements/overrides/extends to 1.0 on repos >1.5% inherits edges. Django +0.009, kafka+flask -0.008. Net neutral. |
 | **Interface type hint propagation** (post-processing) | Neutral | 17 | Connect type_hint_of targets to sibling implementors. Edge structure mismatch: type_hint_of and implements share 0 target hashes on Java/Python. Go (k8s): 393 edges on 523K, P@10 neutral. Needs extractor-level fix. |
 | **Disconnection rate adaptive seeding** | Neutral | 20 | Measured disconnection rate (% zero-inbound nodes) across 12 repos: 0.2% (kafka) to 22.7% (caddy). Added seed bonus proportional to rate. Only flask/spark affected (+2 seeds). Django 0.261 (baseline 0.256), flask 0.337 (0.347), spark 0.260 (0.255). All within variance. Redundant with node count thresholds; confirms seed quantity doesn't move P@10. |
+| **Porter stemming in FTS5** | Neutral (-0.003) | 20 | Added `porter` tokenizer to FTS5 so "validates" matches "Validator". Django +0.006, cargo -0.009. Full corpus 0.264 vs 0.267 baseline. Stemming expands BM25 recall but brings in noisy seeds that dilute RWR on dense graphs. 42% of zero-scoring tasks have word-form gaps, but rescuing them requires both vocabulary bridging AND graph reachability. Stemming bridges vocabulary but the graph paths still don't exist. |
 
 ### Re-test Candidates (post-enrichment graph structure change)
 
