@@ -129,9 +129,9 @@ For implementation details, see [Retrieval Pipeline](../architecture/retrieval-p
 - Adjacency cache: 4,717x latency improvement (9s to 2ms on Kubernetes-scale graph)
 - Density-adaptive retrieval: auto-detects graph density, adjusts seed selection strategy
 - Embedding re-ranker: +17% P@10 improvement, fully local, on by default
-- P@10 = 0.264 cold start, 0.268 with compounding (277 tasks, 14 repos, 8 languages)
+- P@10 = 0.267 cold start, 0.272 with compounding (277 tasks, 14 repos, 8 languages)
 - Self-adapting compounding: +4.2% P@10 from passive task memory
-- Competitive: 1.96x codegraph, 3.52x GitNexus, 4.19x Gortex, 20.3x grep (cold start)
+- Competitive: 1.98x codegraph, 3.56x GitNexus, 4.24x Gortex, 20.5x grep (cold start)
 - MCP server interface with 28 tools for agent consumption
 
 ## The Problem
@@ -947,7 +947,7 @@ These numbers are reproducible via the benchmark suite (14 repos, 277 tasks, 8 l
 
 | Metric | Cold Start | With Compounding | Context |
 |---|---|---|---|
-| P@10 (precision at 10) | 0.264 | 0.268 (+4.2%) | 1.96x codegraph, 3.52x GitNexus, 4.19x Gortex, 20.3x grep |
+| P@10 (precision at 10) | 0.264 | 0.268 (+4.2%) | 1.98x codegraph, 3.56x GitNexus, 4.24x Gortex, 20.5x grep |
 | R@10 (recall at 10) | 0.414 | 0.424 (+6.4%) | 14 repos, 8 languages (Go, Python, TS, Rust, Java, C#, Ruby) |
 | NDCG@10 | 0.350 | 0.382 | Ranking quality improves with compounding |
 | MRR | 0.395 | 0.406 | First relevant result position |

@@ -4,9 +4,9 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 
 ## Current State (v0.12.0, 2026-05-29)
 
-**P@10 = 0.266 cold start, 0.271 with compounding** (277 tasks, 14 repos, 8 languages, nomic-embed-text-v1.5 model). 38 edge types. 23 extractors. 164 equivalence classes.
-1.97x codegraph, 1.94x codebase-memory, 3.55x GitNexus, 4.22x Gortex, 20.5x grep.
-Embedding re-ranker (nomic): +17% P@10. Gap-fill seeds: +11.2%. Equivalence classes (C#, FastAPI, Terraform, Rust): +4%. Task memory compounding: +5.0%. Ruby enrichment (ruby-lsp): Jekyll #1 in corpus at 0.370. Parallel benchmark: 5.5 min (was 80 min sequential) via PreloadVectors.
+**P@10 = 0.267 cold start, 0.272 with compounding** (277 tasks, 14 repos, 8 languages, nomic-embed-text-v1.5 model). 38 edge types. 23 extractors. 164 equivalence classes.
+1.98x codegraph, 1.95x codebase-memory, 3.56x GitNexus, 4.24x Gortex, 20.5x grep.
+Embedding re-ranker: disabled (net negative on P@10, session 19). Gap-fill seeds (embedding-based): +11.2%. Equivalence classes (C#, FastAPI, Terraform, Rust): +4%. Task memory compounding: +4.9%. Ruby enrichment (ruby-lsp): Jekyll #1 in corpus at 0.370. Parallel benchmark: 5.5 min (was 80 min sequential) via PreloadVectors.
 
 ## Immediate Priorities
 
@@ -57,7 +57,7 @@ Go enrichment fundamentally changed graph structure on k8s (268K -> 705K edges, 
 | Approach | Impact | Session | Details |
 |----------|--------|---------|---------|
 | **PreferTypeSeeds** (>40K nodes) | VS Code +44% | 14 | Types are better seeds: contains edges walk to methods |
-| **Embedding re-ranker** (pure, weight=0.0) | +17% full corpus | 15 | Architecture matters more than model. Three models neutral as seeds, all effective as re-ranker. |
+| ~~Embedding re-ranker~~ (pure, weight=0.0) | **REVERTED (session 19).** Per-repo A/B: 9/13 repos hurt, net -0.050. The +17% was from gap-fill seeds sharing the same env var. Disabling re-rank: 0.262 -> 0.267 cold. | 15, 19 | Graph-based ranking (RWR+HITS+blast radius) outperforms cosine re-ranking. General text embeddings don't understand code structure. |
 | **Vector cache** (SQLite) | 660ms -> 220ms | 16 | 3x latency reduction. No quality change. |
 | **Adaptive seed count** (>40K: 25, >10K: 20) | Django +14.2% | 16 | More seeds on large graphs compensates for disconnection. Full corpus 0.238 -> 0.242. |
 | **Embedding-filtered gap injection** (>40K, maxgap=3) | Django +3.2%, aggregate neutral | 16 | BM25 gap candidates filtered by cosine similarity. Helps Django but absorbed by run variance on other repos. Full corpus: 0.238 (same as without). **Reverted**: optimal state is 0.242 without gap injection. Concept is sound but needs a better candidate source than BM25. |
@@ -287,7 +287,7 @@ context retrieval. Full proposal: [docs/proposals/code-retrieval-eval-toolkit.md
 ## Retrieval Pipeline
 
 Current results: see [bench/cross-system/FINDINGS.md](../bench/cross-system/FINDINGS.md).
-P@10=0.266 cold, 0.271 warm (277 tasks, 14 repos, 8 languages). 1.97x vs codegraph, 3.55x vs GitNexus, 4.22x vs Gortex, 20.5x vs grep. Query latency 2ms on k8s (with adjacency cache). Embedding re-ranker adds 220ms (cached vectors). Equivalence classes: +4%. Task memory compounding: +5.0% P@10 from round 1 to round 2.
+P@10=0.267 cold, 0.272 warm (277 tasks, 14 repos, 8 languages). 1.97x vs codegraph, 3.55x vs GitNexus, 4.22x vs Gortex, 20.5x vs grep. Query latency 2ms on k8s (with adjacency cache). Embedding re-ranker adds 220ms (cached vectors). Equivalence classes: +4%. Task memory compounding: +5.0% P@10 from round 1 to round 2.
 
 **Key findings:** (1) 32-config parameter sweep proved P@10 is reachability-determined; ranking parameters are irrelevant. (2) Embedding re-ranker (+17% P@10) is the exception: it doesn't change reachability but reorders graph-surfaced candidates by semantic relevance. Architecture matters more than model.
 

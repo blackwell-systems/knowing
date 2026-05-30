@@ -127,12 +127,12 @@ Competitive ratios to recalculate from new P@10:
 
 ## Current State (session 18, 2026-05-28)
 
-- **P@10 = 0.264 cold start, 0.268 with compounding** (277 tasks, 14 repos, 8 languages, 38 edge types, 164 equivalence classes)
+- **P@10 = 0.267 cold start, 0.272 with compounding** (277 tasks, 14 repos, 8 languages, 38 edge types, 164 equivalence classes)
 - **Self-adapting compounding:** +4.2% P@10 from passive task memory (round 1 to round 2)
 - **Density-adaptive:** PreferTypeSeeds >40K nodes, adaptive seed count >10K nodes
 - **Embedding re-ranker:** +17% P@10, pure re-rank (weight=0.0), vector cache 220ms
 - **LSP enrichment:** strongly positive. Go: k8s 0.000->0.232, terraform ~0.095->0.275. Python: +0.040
-- **Competitive (cold):** 1.96x codegraph, 1.93x codebase-memory, 3.52x GitNexus, 4.19x Gortex, 20.3x grep
+- **Competitive (cold):** 1.98x codegraph, 1.95x codebase-memory, 3.56x GitNexus, 4.24x Gortex, 20.5x grep
 - **Competitive (warm):** 1.99x codegraph, 1.96x codebase-memory, 3.57x GitNexus, 4.25x Gortex, 20.6x grep
 - **Supply chain:** 1.0% FP on 200 clean packages (package-level verdict)
 - **Identity:** "self-adapting code intelligence engine that gets smarter with scale"
