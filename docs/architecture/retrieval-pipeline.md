@@ -199,7 +199,7 @@ seeds.
 
 ### Channel 2: Equivalence classes (weight 2.0)
 
-Four layers of equivalence classes are checked (115 curated concepts total):
+Four layers of equivalence classes are checked (164 curated concepts total):
 
 **Layer 1: Seed dictionary** (`equivalence.go`). 21 hand-curated concept classes mapping
 natural-language phrases to target symbols. Each concept has a canonical ID, a list of
@@ -946,8 +946,9 @@ point for embeddings. Re-ranker disabled (session 19, net negative on P@10).
    system.
 
 2. **Seed quality dominates everything.** RWR parameter tuning is a dead end when seeds
-   are wrong. Improving seed selection (equivalence classes, bigram compounds) produced
-   all meaningful gains.
+   are wrong. Improving seed selection (equivalence classes, bigram compounds, focused
+   seed selection by package cohesion) produced all meaningful gains. Session 21 confirmed:
+   seed structural cohesion matters more than seed count (+6.0% P@10).
 
 3. **RRF fusion weights depend on channel overlap.** Initially tiered >> BM25 was correct
    (experiment 7). Cross-system benchmark Runs 7-10 revealed tiered and BM25 find the
