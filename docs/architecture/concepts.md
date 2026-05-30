@@ -155,13 +155,14 @@ The bright-line rule: intelligence features never write edges, nodes, or snapsho
 
 Equivalence classes bridge the vocabulary gap between how developers describe tasks in natural language and the symbol names that live in the graph. An equivalence class maps a canonical concept (like `TRANSITIVE_IMPACT`) to a set of natural-language phrases ("blast radius," "downstream callers," "what breaks") and a set of code symbol targets that should be boosted when those phrases appear in a query.
 
-knowing ships **115 seed equivalence classes** organized into three tiers:
+knowing ships **164 equivalence classes** organized into four tiers:
 
 - **63 universal classes** (in `internal/context/universal_seeds.go`): software engineering concepts that appear in any codebase (entry points, error handling, caching, authentication, testing, concurrency, etc.). These are language-agnostic and shared across all projects.
 - **21 knowing-specific classes** (in `internal/context/equivalence.go`): concepts specific to knowing's own domain (transitive impact, snapshot management, wire format, community detection, feedback loop, etc.). These bootstrap the context engine for queries about knowing itself.
 - **31 language-specific classes** (in `internal/context/language_seeds.go`): vocabulary bridges for Python (`__init__`/constructor, Django/Flask patterns), TypeScript (React hooks, Express/Fastify), Rust (trait/impl, Result/Option), Java (Spring annotations), and Kubernetes (resource type aliases).
+- **49 framework-specific classes** (C#, FastAPI, Terraform): domain concepts for enriched repos.
 
-At runtime, matching a phrase from an equivalence class boosts the seed weight of the associated symbols before the retrieval walk begins. After the walk, graph-derived aliases (from `internal/context/graph_aliases.go`) and session feedback further adjust weights. The 115 seed classes provide the floor; graph learning builds on top.
+At runtime, matching a phrase from an equivalence class boosts the seed weight of the associated symbols before the retrieval walk begins. After the walk, graph-derived aliases (from `internal/context/graph_aliases.go`) and session feedback further adjust weights. The 164 classes provide the floor; graph learning builds on top.
 
 ## Density-Adaptive Retrieval
 
@@ -179,7 +180,9 @@ The retrieval pipeline uses 5 independent seed channels fused with Reciprocal Ra
 4. **Vector/embedding search** (weight 0.0, disabled as seed channel): three models tested neutral as seed sources (same symbols as BM25). The embedding infrastructure powers the post-scoring re-ranker instead (see below). Opt-in (`--embeddings`).
 5. **Path-context seeding** (weight 1.5): extracts package/directory-like terms from the task description and finds type/class nodes whose qualified name path contains those terms. Types are structural anchors: with `contains` edges, RWR walks from types to their methods.
 
-After RWR scoring, **embedding gap-fill seeds** bridge vocabulary gaps when BM25 returns fewer than 5 candidates. The embedding model (nomic-embed-text-v1.5) finds semantically similar symbols via brute-force cosine search (+11% P@10). The re-ranker (cosine reordering of top-50 candidates) was disabled in session 19 (net negative on P@10, 9/13 repos hurt). Pure Go ONNX inference. No API calls, no cloud dependencies.
+After RRF fusion, **focused seed selection** clusters candidates by package path and promotes the largest cluster to the front. This concentrates the RWR walk in the most structurally cohesive neighborhood instead of scattering seeds across the graph (+6.0% P@10).
+
+**Cluster-aware gap-fill seeds** bridge vocabulary gaps when BM25 returns fewer than 5 candidates. The embedding model (nomic-embed-text-v1.5) finds semantically similar symbols via brute-force cosine search (+11% P@10), filtered to the dominant package to avoid undoing focused seed concentration. The re-ranker (cosine reordering of top-50 candidates) was disabled in session 19 (net negative on P@10, 9/13 repos hurt). Pure Go ONNX inference. No API calls, no cloud dependencies.
 
 Symbols appearing in multiple channels accumulate scores, promoting multi-channel hits. See `docs/architecture/retrieval-pipeline.md` for the full specification.
 
