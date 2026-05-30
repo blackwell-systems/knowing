@@ -46,27 +46,10 @@ Go enrichment fundamentally changed graph structure on k8s (268K -> 705K edges, 
 
 | Approach | Original Result | Why it might flip | Priority |
 |----------|----------------|-------------------|----------|
-| ~~Hub dampening~~ | Neutral (session 14 + session 17 re-test) | Re-tested on enriched graphs with BENCH_HUB_DAMPEN=50. P@10 = 0.219 vs 0.220 baseline. Still neutral even with 169K phantom nodes. High-degree nodes aren't hurting RWR; edge weights already handle them (imports 0.5, references 0.4). **Rejected again.** | Done |
 | **Coherence-aware packing** | Harmful -1.8% (session 16) | Tested on sparse graphs where most symbols clustered in same files. 192K new cross-package reference edges create meaningful cross-package neighbors. Coherence bonus rewards packing graph-neighbors; more real neighbors = less noise. | Medium |
 | **BFS depth reduction** | Neutral (session 14) | 705K edges on k8s means RWR covers far more ground per step. Depth 4 may diffuse probability into phantom nodes. Shorter depth could keep the walk focused on real code. | Medium |
 
 **Not re-testing:** Bidirectional inheritance (directionality problem), blended re-rank (architecture), embeddings as Channel 3 (vocabulary/fusion), framework thesaurus (BM25 noise), seed count/gap parameter sweeps (parameter irrelevance confirmed). These were rejected for reasons unrelated to graph structure.
-
-### Tested Positive (sessions 14-17)
-
-| Approach | Impact | Session | Details |
-|----------|--------|---------|---------|
-| **PreferTypeSeeds** (>40K nodes) | VS Code +44% | 14 | Types are better seeds: contains edges walk to methods |
-| ~~Embedding re-ranker~~ (pure, weight=0.0) | **REVERTED (session 19).** Per-repo A/B: 9/13 repos hurt, net -0.050. The +17% was from gap-fill seeds sharing the same env var. Disabling re-rank: 0.262 -> 0.267 cold. | 15, 19 | Graph-based ranking (RWR+HITS+blast radius) outperforms cosine re-ranking. General text embeddings don't understand code structure. |
-| **Vector cache** (SQLite) | 660ms -> 220ms | 16 | 3x latency reduction. No quality change. |
-| **Adaptive seed count** (>40K: 25, >10K: 20) | Django +14.2% | 16 | More seeds on large graphs compensates for disconnection. Full corpus 0.238 -> 0.242. |
-| **Embedding-filtered gap injection** (>40K, maxgap=3) | Django +3.2%, aggregate neutral | 16 | BM25 gap candidates filtered by cosine similarity. Helps Django but absorbed by run variance on other repos. Full corpus: 0.238 (same as without). **Reverted**: optimal state is 0.242 without gap injection. Concept is sound but needs a better candidate source than BM25. |
-| **Go enrichment (two-phase warmup)** | k8s 0.000 -> 0.159 | 17 | Phantom nodes + type_hint_of edges create reachability paths. 192K new edges on k8s, 82K on terraform. |
-| **Dangling type_hint_of resolution** | 3,836 edges fixed | 17 | Post-processing fixes kind mismatch (type vs interface). Enables phase 2 propagation. |
-| **C# equivalence classes** | Ocelot +51%, corpus +6.1% | 18 | 15 ASP.NET/API gateway vocabulary classes bridge "middleware" -> Invoke, "claims auth" -> IClaimsAuthorizer, etc. |
-| **Embedding gap-fill seeds** | Django +43%, corpus +11.2% | 17 | When BM25 < 5 candidates, brute-force cosine from SQLite vectors. Zero regressions. |
-| **nomic-embed-text-v1.5 model swap** | +2% over jina-code | 17 | Faster inference (14 min vs 20 min). Drop-in swap, same architecture. |
-| **Pre-embed all nodes** | Infrastructure | 17 | `knowing enrich embeddings` command. Phantom skip (70% reduction). All 12 repos pre-embedded. |
 
 ## Enrichment Performance
 
@@ -315,11 +298,17 @@ P@10=0.267 cold, 0.272 warm (277 tasks, 14 repos, 8 languages). 1.97x vs codegra
 | 22a | **Homebrew corpus repo (blocked)** | 278K LOC Ruby, 8,476 nodes, density 15.2. Tree-sitter P@10 = 0.275 (no embeddings). 20 fixtures written. **Blocked on Ruby LSP enrichment.** Investigated extensively (session 19): (1) ruby-lsp's composed bundle uses `bundle exec` which fails when project has `BUNDLE_DISABLE_SHARED_GEMS`/`BUNDLE_PATH` in `.bundle/config` (Homebrew-specific). Even with gem in Gemfile + lockfile + vendor/bundle, bundler 4.0 can't find the executable. (2) `BUNDLE_GEMFILE=""` bypasses bundler but ruby-lsp produces zero semantic edges (syntax only). (3) solargraph too slow (9+ min on 23K LOC Jekyll, timeout on 278K LOC Homebrew). (4) `.bundle/config` rename: ruby-lsp caches composed bundle state. **Root cause:** ruby-lsp requires functioning bundler context for semantic resolution, Homebrew's bundler config is incompatible. **Unblock path:** try on a Ruby repo without custom bundler config (Discourse, Sidekiq), or wait for ruby-lsp `--use-launcher` flag to mature. | Blocked |
 | 23 | **Fixture quality review** | Manual review of 60 agent-created fixtures (caddy, ocelot, fastapi). Agent ground truth may include technically correct but practically unhelpful symbols. Tuning fixture quality is higher ROI than code changes. A wrong ground truth symbol penalizes the system unfairly. Will be partially obsoleted by AI-generated evaluation corpus (#5 in Immediate Priorities). | Quality |
 | 18 | **Feedback parameter sweep (warm-start)** | Session boost (0.20), task memory formula (0.5+score*0.4), decay (7-day linear), top-N (5) are untuned. Only affects real-user compounding. | When users exist |
-| 26 | **Continuous density-proportional seeding** | Replace threshold-based seed counts (15/20/25 at node count thresholds) with a smooth function: `seeds = f(density)`. Current thresholds were found by experiment; a continuous function adapts to every graph, not just the three we tested. | Research |
-| 27 | **Per-query confidence estimation** | Before running RWR, estimate seed quality: how many channels agree, BM25 top score strength, equiv class match count. Low confidence = more aggressive gap-fill, wider walk. High confidence = fewer seeds, tighter walk. The system adapts to query difficulty, not just graph structure. | Research |
-| 28 | **Learned edge weights from ground truth** | RWR edge weights are hand-tuned (calls=1.0, imports=0.5, etc.). Learn optimal weights from which edges lead to ground truth across the corpus. Train on the 277-task dataset. Risk: overfitting, but cross-validation across repos mitigates. | Research |
-| 29 | **Feedback-driven per-repo thresholds** | The system discovers its own optimal parameters per repo from task memory. "On this repo, type seeds worked better" leads to automatic PreferTypeSeeds without a hardcoded 40K threshold. The system adapts to itself, not just the graph. | Research (requires users) |
-| 30 | **Graph topology features for seed strategy** | Disconnection rate, average path length, clustering coefficient. Each shapes the optimal walk differently. A sparse disconnected graph needs many diverse seeds. A dense clustered graph needs few precise seeds. | Research |
+### Continuous Adaptation (moat: self-adapting retrieval)
+
+The adaptive infrastructure is knowing's core differentiator. Competitors use fixed strategies. knowing observes its own graph structure, query signals, and usage history, then adjusts retrieval strategy automatically. Each item compounds: the system gets better the more it's used and the more diverse the codebases it serves. Seven mechanisms ship today (PreferTypeSeeds, adaptive seed count, equiv classes, gap-fill, task memory, Merkleized feedback, LSP phantom nodes). These five extend the adaptive surface.
+
+| # | Item | What adapts | Priority |
+|---|------|-------------|----------|
+| 30 | **Graph topology features for seed strategy** | Disconnection rate, average path length, clustering coefficient. Each shapes the optimal walk differently. A sparse disconnected graph needs many diverse seeds. A dense clustered graph needs few precise seeds. The system reads the graph and picks the right strategy. | HIGH |
+| 27 | **Per-query confidence estimation** | Before running RWR, estimate seed quality: how many channels agree, BM25 top score strength, equiv class match count. Low confidence = more aggressive gap-fill, wider walk. High confidence = fewer seeds, tighter walk. The system adapts to query difficulty, not just graph structure. | HIGH |
+| 26 | **Continuous density-proportional seeding** | Replace threshold-based seed counts (15/20/25 at node count thresholds) with a smooth function: `seeds = f(density)`. Current thresholds were found by experiment; a continuous function adapts to every graph, not just the three we tested. | HIGH |
+| 28 | **Learned edge weights from ground truth** | RWR edge weights are hand-tuned (calls=1.0, imports=0.5, etc.). Learn optimal weights from which edges lead to ground truth across the corpus. Train on the 277-task dataset. Risk: overfitting, but cross-validation across repos mitigates. | HIGH |
+| 29 | **Feedback-driven per-repo thresholds** | The system discovers its own optimal parameters per repo from task memory. "On this repo, type seeds worked better" leads to automatic PreferTypeSeeds without a hardcoded 40K threshold. The system adapts to itself, not just the graph. | HIGH (requires users) |
 | 25 | **Co-change edges from git history** | Lateral edges between symbols whose files frequently change together in commits. Creates cross-package reachability that neither tree-sitter nor LSP discovers. First implementation attempted and reverted (session 18): connected arbitrary nodes across files, didn't filter already-reachable pairs, no tests, corpus repos are shallow clones. **Redesign requirements:** (1) verify git depth first, warn on shallow clones; (2) only connect file pairs with no existing path (reachability check); (3) one representative node per file (highest-degree non-test symbol); (4) unit tests with synthetic git repo; (5) robust git parsing (`--format=` with null separator); (6) `knowing enrich co-change` standalone command; (7) deepen corpus clones before benchmarking. | Redesign needed |
 
 ## Edge Type Expansion
