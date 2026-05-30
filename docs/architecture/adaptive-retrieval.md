@@ -243,8 +243,8 @@ the architecture, not an ad-hoc heuristic bolted on.
 
 | File | Mechanism |
 |------|-----------|
-| `internal/context/language_seeds.go` | Equivalence classes (152 concepts, 4 layers) |
-| `internal/context/context.go` | Gap-fill seeds (lines 711-745), PreferTypeSeeds (line 758) |
+| `internal/context/language_seeds.go` | Equivalence classes (164 concepts, 4 layers) |
+| `internal/context/context.go` | Focused seed selection (`focusedSeedSelect`, `dominantPkg`, `qualifiedNamePkg`), cluster-aware gap-fill, PreferTypeSeeds |
 | `internal/context/walk.go` | GraphNodeCount, adaptive seed count, PreferTypeSeeds flag |
 | `internal/context/task_memory.go` | Task memory recording and recall |
 | `internal/context/ranking.go` | Feedback boost integration |
