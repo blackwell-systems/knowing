@@ -1045,10 +1045,13 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	// Rank and pack into budget.
 	ranked := RankSymbols(inputs, hitsResult)
 
-	// Re-rank top candidates using embedding similarity if available.
-	if reranker, ok := e.vector.(VectorReRanker); ok && len(ranked) > 0 {
-		ranked = e.reRankWithEmbeddings(ctx, reranker, ranked, opts.TaskDescription)
-	}
+	// Re-rank disabled: per-repo A/B test (session 19) showed the embedding re-ranker
+	// is net negative on P@10 (9/13 repos hurt, net -0.050 vs +0.015). The "+17%"
+	// measured in session 15 was from gap-fill seeds, not re-rank. Gap-fill remains
+	// active via the vector searcher. Re-rank code preserved for future investigation.
+	// if reranker, ok := e.vector.(VectorReRanker); ok && len(ranked) > 0 {
+	// 	ranked = e.reRankWithEmbeddings(ctx, reranker, ranked, opts.TaskDescription)
+	// }
 
 	block := packIntoBudget(ranked, budget, opts.Format)
 
