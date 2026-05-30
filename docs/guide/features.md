@@ -1691,7 +1691,7 @@ Repo: github.com/blackwell-systems/knowing
 ### 175. Adaptive Retrieval Architecture Doc
 
 - **Package(s):** `docs/architecture/adaptive-retrieval.md`
-- **What it does:** Documents all 6 self-adapting mechanisms in the retrieval pipeline: (1) PreferTypeSeeds on dense graphs (>40K nodes), (2) adaptive seed count (>40K: 25, >10K: 20, default 15), (3) community-filtered RWR (1-3 seed communities), (4) cross-module edge attenuation (0.3x), (5) gap-fill vector search (BM25 < 5 candidates), (6) passive task memory (session compounding). Includes an ablation table showing the contribution of each mechanism.
+- **What it does:** Documents all 8 self-adapting mechanisms in the retrieval pipeline: (1) PreferTypeSeeds on dense graphs (>40K nodes), (2) adaptive seed count (>40K: 25, >10K: 20, default 15), (3) equivalence classes (vocabulary bridging), (4) focused seed selection (package-path clustering), (5) cluster-aware gap-fill (embedding seeds filtered to dominant package), (6) passive task memory (session compounding), (7) Merkleized feedback expiration, (8) LSP enrichment interaction. Includes an ablation table showing the contribution of each mechanism.
 - **Why it matters:** Central reference for how the engine adapts to different graph sizes and densities without manual configuration.
 
 ### GraphStore (`internal/types/interfaces.go`)
