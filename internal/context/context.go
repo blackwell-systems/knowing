@@ -842,6 +842,13 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	// Cap seeds at top-15 by RRF rank. On small graphs (< 3000 nodes), too many
 	// seeds cause RWR to converge to near-uniform (everything is 2 hops from
 	// everything). Limiting seeds keeps the walk focused on the best candidates.
+	//
+	// Focused seed selection (#36): cluster candidates by package path, pick seeds
+	// from the most cohesive cluster. Quality over quantity: 3-5 seeds in the same
+	// structural neighborhood vs 15-25 scattered across the graph.
+	if os.Getenv("BENCH_FOCUSED_SEEDS") == "1" && len(candidates) > 5 {
+		candidates = focusedSeedSelect(candidates)
+	}
 	maxSeeds := sweepMaxSeeds()
 	// Adaptive seed count: on large graphs, increase seeds to compensate for
 	// higher disconnection rates. More seeds = wider net = more symbols reachable.
@@ -2172,4 +2179,86 @@ func isPathMatch(qualifiedName, term string) bool {
 	// like "cache" matching "CacheHandler" (which would be in the symbol portion).
 
 	return true
+}
+
+// focusedSeedSelect reorders candidates so structurally cohesive seeds come first.
+// Instead of scattering 15-25 seeds across the graph, it clusters by package path
+// and promotes the largest cluster to the front. The maxSeeds cap downstream then
+// naturally selects from this focused set.
+func focusedSeedSelect(candidates []types.Node) []types.Node {
+	// Extract package path from QualifiedName.
+	// Format: "{repoURL}://{pkgPath}.{TypeName}.{SymbolName}"
+	pkgOf := func(qn string) string {
+		// Find the "://" separator first.
+		idx := strings.Index(qn, "://")
+		if idx < 0 {
+			return ""
+		}
+		path := qn[idx+3:]
+		// Package path is everything up to the last dot-separated symbol components.
+		// e.g. "github.com/foo/bar/pkg.Type.Method" -> "github.com/foo/bar/pkg"
+		// Find the first uppercase segment as a heuristic for where symbols start.
+		parts := strings.Split(path, ".")
+		var pkgParts []string
+		for _, p := range parts {
+			if len(p) == 0 {
+				continue
+			}
+			// Package components are lowercase; symbol components start with upper or are keywords.
+			if p[0] >= 'A' && p[0] <= 'Z' {
+				break
+			}
+			pkgParts = append(pkgParts, p)
+		}
+		if len(pkgParts) == 0 {
+			return path
+		}
+		return strings.Join(pkgParts, ".")
+	}
+
+	// Cluster candidates by package.
+	type cluster struct {
+		pkg     string
+		indices []int
+	}
+	clusterMap := make(map[string]*cluster)
+	var clusterOrder []string
+	for i, c := range candidates {
+		pkg := pkgOf(c.QualifiedName)
+		if cl, ok := clusterMap[pkg]; ok {
+			cl.indices = append(cl.indices, i)
+		} else {
+			clusterMap[pkg] = &cluster{pkg: pkg, indices: []int{i}}
+			clusterOrder = append(clusterOrder, pkg)
+		}
+	}
+
+	// Find the largest cluster.
+	bestPkg := ""
+	bestSize := 0
+	for _, pkg := range clusterOrder {
+		if len(clusterMap[pkg].indices) > bestSize {
+			bestSize = len(clusterMap[pkg].indices)
+			bestPkg = pkg
+		}
+	}
+
+	// If no dominant cluster (all singletons), return as-is.
+	if bestSize < 2 {
+		return candidates
+	}
+
+	// Reorder: largest cluster first (preserving RRF rank within), then rest.
+	result := make([]types.Node, 0, len(candidates))
+	inBest := make(map[int]bool, bestSize)
+	for _, idx := range clusterMap[bestPkg].indices {
+		result = append(result, candidates[idx])
+		inBest[idx] = true
+	}
+	for i, c := range candidates {
+		if !inBest[i] {
+			result = append(result, c)
+		}
+	}
+	return result
 }

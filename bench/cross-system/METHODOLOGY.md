@@ -252,15 +252,22 @@ Corpus DBs (`corpus/repos/<repo>/.knowing/graph.db`) are gitignored and cannot b
 recovered from git. Enrichment takes hours to rebuild. Never modify them in place
 for experiments.
 
-**Procedure for experiments that modify DBs:**
+**Full experiment workflow:**
 1. Keep a master backup set untouched (e.g., `cp *.db /tmp/corpus-backup/`)
 2. Copy FROM the master to a working path for the experiment
 3. Run enrichment/modifications on the working copy only
-4. Checkpoint WAL before swapping: `sqlite3 <copy>.db "PRAGMA wal_checkpoint(TRUNCATE);"`
-5. Swap the checkpointed copy into the benchmark path
-6. After the experiment, restore the original from the master backup
+4. Checkpoint WAL: `sqlite3 <copy>.db "PRAGMA wal_checkpoint(TRUNCATE);"`
+5. Delete stale SHM/WAL at destination: `rm -f <dest>.db-shm <dest>.db-wal`
+6. Swap the checkpointed copy into the benchmark path
+7. Clear test cache: `go clean -testcache` (stale binary causes phantom regressions)
+8. Test the problem repo first (saves 20+ min per iteration vs full corpus)
+9. If positive on problem repo, run full corpus
+10. After the experiment, restore the original from the master backup
+11. If experiment approved, working copy becomes the new master backup
 
-Skipping step 4 causes "database disk image is malformed" errors (WAL not flushed).
+Skipping step 4 causes "database disk image is malformed" (WAL not flushed).
+Skipping step 5 causes malformed errors even with a clean main file (stale SHM).
+Skipping step 7 causes phantom regressions from cached test binaries with old code.
 
 ### TestCrossSystemRound2
 
