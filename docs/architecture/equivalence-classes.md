@@ -112,15 +112,18 @@ multi-hop queries, demonstrating the value of universal classes.
 ### Layer 3: Language-specific classes (multi-language, weight 0.8)
 
 Defined in `languageEquivalenceClasses()` in `internal/context/language_seeds.go`.
-These are 31 equivalence classes that bridge language-specific vocabulary:
+These are 79 equivalence classes that bridge language-specific and framework-specific vocabulary:
 
-| Language | Concepts | Count |
+| Language/Framework | Concepts | Count |
 |----------|----------|-------|
 | Python | entry point, routing, middleware, ORM, serialization, auth, template, errors, config, testing | 10 |
 | TypeScript | components/React hooks, state/Redux, routing, API/fetch, validation/Zod, type system, compiler/AST, module resolution | 8 |
 | Rust | error/Result, async/Future/tokio, traits/impl, build/cargo, builder pattern, testing | 6 |
 | Java | Spring controllers, services/DI, JPA/data repositories | 3 |
 | Kubernetes | controller/reconcile, scheduler, API server/admission, workloads (Pod, Deployment) | 4 |
+| C# | middleware pipeline, DI/services, routing, config, EF Core, Ocelot gateway concepts | 15 |
+| FastAPI | dependency injection, Pydantic models, middleware, routing, OpenAPI, background tasks | 14 |
+| Terraform | providers, resources, state, plan/apply, modules, HCL config | 19 |
 
 Language-specific classes carry weight 0.8 (same as universal) because they are
 curated per-language mappings. They improve retrieval on non-Go repos by mapping
