@@ -139,6 +139,18 @@ func TestCrossSystem(t *testing.T) {
 					metric.PrecisionAt10, metric.RecallAt10,
 					metric.NDCGAt10, metric.MRR,
 					metric.TokensUsed, metric.LatencyMs))
+
+				// Debug: dump returned symbols for zero-scoring tasks
+				if os.Getenv("BENCH_DEBUG_ZEROS") == "1" && metric.PrecisionAt10 == 0 {
+					rr.logs = append(rr.logs, fmt.Sprintf("    GROUND TRUTH: %v", task.GroundTruth))
+					top := 10
+					if len(result.Symbols) < top {
+						top = len(result.Symbols)
+					}
+					for i := 0; i < top; i++ {
+						rr.logs = append(rr.logs, fmt.Sprintf("    RETURNED[%d]: %s", i+1, result.Symbols[i].QualifiedName))
+					}
+				}
 			}
 			return rr
 		}
