@@ -7,7 +7,7 @@
 - **Git-driven incremental**: commits are the unit of change; git diff provides the exact changed file set; no filesystem walking or content hashing for change detection
 - **Language-aware at boundaries**: Go calling Go is straightforward; Go calling a Python service via HTTP needs route mapping
 - **MCP-native**: exposed as MCP tools, consumed by agents directly
-- **Local-first, no paid LLM**: all indexing, retrieval, ranking, and embedding inference run locally without external API calls. Pure Go binary with no runtime dependencies beyond SQLite. The embedding re-ranker uses a local model via pure Go ONNX inference (no Python, no API keys, no charges)
+- **Local-first, no paid LLM**: all indexing, retrieval, ranking, and embedding inference run locally without external API calls. Pure Go binary with no runtime dependencies beyond SQLite. Embedding gap-fill seeds use a local model via pure Go ONNX inference (no Python, no API keys, no charges)
 - **Density-adaptive retrieval**: the system observes its own graph density at query time and adjusts seed selection strategy. On graphs exceeding 40K nodes, it automatically prefers type/interface nodes as RWR seeds (structural anchors walk down to methods via contains edges). This prevents the precision degradation that affects all static retrieval systems at scale. The system gets smarter with graph growth, not dumber.
 - **Fast**: optimized for interactive agent queries over large multi-repo graphs
 - **Deterministic**: same input at same commit always produces the same graph (verifiable via hash)
@@ -152,7 +152,7 @@ The context engine (`internal/context/`) implements task-based retrieval: given 
 
 After seed retrieval, Random Walk with Restart (RWR) expands the seed set through the graph, HITS reranking promotes authorities, and community-aware scoring prevents single-cluster dominance.
 
-**Embedding re-ranker (opt-in, `--embeddings`):** After RWR scoring, the top-50 candidates are re-ranked by cosine similarity between the task description and each symbol's text representation, using a local embedding model (nomic-embed-text-v1.5). This improves P@10 by +19% across the full corpus. The model runs via pure Go ONNX inference: no Python, no API keys, no charges. Key finding: embeddings as an independent retrieval channel (Channel 3) are neutral; the same models as a re-ranker on graph output produce a 17% improvement. Architecture matters more than model choice.
+**Embedding gap-fill seeds (on by default):* When BM25 returns fewer than 5 seed candidates, the embedding model finds semantically similar symbols via brute-force cosine search. This bridges vocabulary gaps that keyword matching cannot (+11% P@10). The re-ranker (cosine re-ordering of top-50 RWR results) was disabled in session 19 after per-repo A/B testing showed it was net negative (9/13 repos hurt). Gap-fill seeds remain active.
 
 **Benchmark results (fresh index, with embedding re-ranker):**
 
@@ -160,7 +160,7 @@ After seed retrieval, Random Walk with Restart (RWR) expands the seed set throug
 - Task memory compounding: +4.2% P@10 from passive learning (self-adapting claim, quantified)
 - Competitive advantage (cold): vs codegraph 1.96x, vs GitNexus 3.52x, vs Gortex 4.19x, vs grep 20.3x
 - Self-adapting type-seed preference: on dense graphs (>40K nodes), automatically prefers type/interface/class nodes as RWR seeds
-- Embedding re-ranker: +17% P@10 aggregate, zero regressions on any repo (session 16 confirmed)
+- Embedding re-ranker: REVERTED (session 19, net negative on P@10, 9/13 repos hurt). Gap-fill seeds remain (+11%).
 - Concept thesaurus: ~80 domain clusters expand BM25 queries with related code vocabulary.
 - Parameter sweep (RWR alpha, seed count, score cutoff, blast radius weight, distance weight, confidence weight, RRF k, test penalty): all 9 parameters produce identical P@10. Quality is determined entirely by graph reachability (binary: is the symbol connected to any seed?), not by continuous parameter tuning.
 - Implication: all P@10 improvements must target reachability (new edge types, new seed sources), not ranking (parameter adjustment).

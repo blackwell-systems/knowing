@@ -100,15 +100,17 @@ func NewServer(store types.GraphStore) *Server {
 		implicit:   knowingctx.NewImplicitFeedback(),
 		startTime:  time.Now(),
 	}
-	// Initialize embedding-based semantic re-ranker (on by default).
+	// Initialize embedding-based gap-fill seeds (on by default).
 	// Disable with: knowing mcp --no-embeddings (or KNOWING_EMBEDDINGS=0)
-	// Downloads ~30MB model on first use. Improves P@10 by +17%.
+	// Downloads ~30MB model on first use. Gap-fill seeds use embeddings to
+	// bridge vocabulary gaps when BM25 returns < 5 candidates (+11% P@10).
+	// Re-ranking is disabled (net negative on P@10, session 19 finding).
 	if os.Getenv("KNOWING_EMBEDDINGS") == "1" {
 		model := os.Getenv("KNOWING_EMBED_MODEL")
 		if model == "" {
 			model = "nomic-code"
 		}
-		log.Printf("[knowing] Embedding re-ranker: ON (model: %s, local inference, no API calls)", model)
+		log.Printf("[knowing] Embedding gap-fill: ON (model: %s, local inference, no API calls)", model)
 		if embedder, err := embedding.New(); err == nil {
 			s.vecSearch = embedding.NewSearcher(embedder)
 			// Attach persistent vector cache if SQLite store is available.
@@ -124,7 +126,7 @@ func NewServer(store types.GraphStore) *Server {
 			log.Printf("[knowing] Embedding re-ranker: FAILED (%v)", err)
 		}
 	} else {
-		log.Printf("[knowing] Embedding re-ranker: OFF (run without --no-embeddings for +17%% better retrieval)")
+		log.Printf("[knowing] Embedding gap-fill: OFF (run without --no-embeddings for +11%% better retrieval)")
 	}
 	// Try to get SQLiteStore for runtime queries and task memory.
 	if ss, ok := store.(*knowingstore.SQLiteStore); ok {

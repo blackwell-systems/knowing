@@ -289,7 +289,7 @@ context retrieval. Full proposal: [docs/proposals/code-retrieval-eval-toolkit.md
 Current results: see [bench/cross-system/FINDINGS.md](../bench/cross-system/FINDINGS.md).
 P@10=0.267 cold, 0.272 warm (277 tasks, 14 repos, 8 languages). 1.97x vs codegraph, 3.55x vs GitNexus, 4.22x vs Gortex, 20.5x vs grep. Query latency 2ms on k8s (with adjacency cache). Embedding re-ranker adds 220ms (cached vectors). Equivalence classes: +4%. Task memory compounding: +5.0% P@10 from round 1 to round 2.
 
-**Key findings:** (1) 32-config parameter sweep proved P@10 is reachability-determined; ranking parameters are irrelevant. (2) Embedding re-ranker (+17% P@10) is the exception: it doesn't change reachability but reorders graph-surfaced candidates by semantic relevance. Architecture matters more than model.
+**Key findings:** (1) 32-config parameter sweep proved P@10 is reachability-determined; ranking parameters are irrelevant. (2) Embedding re-ranker was initially measured at +17% but session 19 per-repo A/B test showed it was net negative (9/13 repos hurt). The +17% was from gap-fill seeds sharing the BENCH_EMBEDDINGS flag. Re-ranker disabled; gap-fill seeds remain (+11%).
 
 ### Retrieval Improvements
 

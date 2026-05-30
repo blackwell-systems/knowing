@@ -27,7 +27,7 @@ Add to your agent's MCP config (`.mcp.json` for Claude Code, `.cursor/mcp.json` 
 }
 ```
 
-The MCP server auto-indexes your repo on first launch (10-30 seconds). The embedding re-ranker is on by default (downloads a 30MB model once, runs locally, no API keys).
+The MCP server auto-indexes your repo on first launch (10-30 seconds). Embedding gap-fill is on by default (downloads a 30MB model once, runs locally, no API keys).
 
 ## First useful query
 
@@ -39,7 +39,7 @@ You should see ranked symbols with scores and file paths. If results are empty, 
 
 ## What it does
 
-knowing indexes code across 23 extractors (Go, TypeScript, Python, Rust, Java, C#, and more) into a content-addressed knowledge graph. 38 edge types, 28 MCP tools, 164 equivalence classes, local embedding re-ranker (+17% precision), gap-fill seeds (+11% precision).
+knowing indexes code across 23 extractors (Go, TypeScript, Python, Rust, Java, C#, and more) into a content-addressed knowledge graph. 38 edge types, 28 MCP tools, 164 equivalence classes, local embedding gap-fill (+17% precision), gap-fill seeds (+11% precision).
 
 P@10 = 0.267 across 277 tasks, 14 repos, 8 languages. 1.98x codegraph, 3.56x GitNexus.
 

@@ -1,3 +1,5 @@
+> **Note (session 19):** The embedding re-ranker was found to be net negative on P@10 (9/13 repos hurt) and has been disabled. The +17% improvement attributed to the re-ranker in this document was actually from gap-fill seeds sharing the same env var. See roadmap item 17c.
+
 # Context Packing Study: Benchmark Program
 
 A structured evaluation program proving that graph-based context retrieval

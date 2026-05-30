@@ -8,8 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- **Embeddings on by default**: embedding re-ranker (+17% P@10) now enabled without `--embeddings` flag. `--no-embeddings` to disable. New users get full quality out of the box.
-- **MCP startup summary**: server logs graph stats, feature status (embedding re-ranker, gap-fill, equivalence classes), and pre-embedded vector count on startup.
+- **Embeddings on by default**: embedding gap-fill seeds (+11% P@10) now enabled without `--embeddings` flag. `--no-embeddings` to disable. New users get full quality out of the box. Re-ranker disabled (net negative on P@10, session 19).
+- **MCP startup summary**: server logs graph stats, feature status (gap-fill, equivalence classes), and pre-embedded vector count on startup.
 - **Post-index guidance**: `knowing index` prints a tip to run `knowing enrich embeddings` when vectors are missing.
 - **C# equivalence classes** (15 concepts): CS_MIDDLEWARE, CS_DI, CS_CONFIG, CS_ROUTING, CS_AUTH, CS_LOADBALANCE, CS_CACHE, CS_RATELIMIT, CS_HTTP_CLIENT, CS_QUALITY_OF_SERVICE, CS_HEADER_TRANSFORM, CS_AGGREGATION, CS_WEBSOCKET, CS_SECURITY, CS_ERROR_HANDLING. Ocelot P@10: 0.175 -> 0.265 (+51%). Full corpus: +4%.
 - **FastAPI equivalence classes** (10 concepts): dependency injection, routers, background tasks, file uploads, validation, exception handlers, lifespan, security, WebSocket.

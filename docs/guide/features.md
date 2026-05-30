@@ -783,7 +783,7 @@ Repo: github.com/blackwell-systems/knowing
 
 - **Package(s):** `internal/embedding/`
 - **What it does:** Pure Go ONNX inference via hugot for embedding-based re-ranking and gap-fill search. The default model is nomic-embed-text-v1.5 (P@10 0.245 sequential, faster inference than jina-code: 14 min vs 20 min for full corpus). Previous models (BGE-small, jina-code) coexist via the `model` column in the embeddings table. Embedding vectors are cached in SQLite (migration 019) for 3x re-rank speedup (660ms to 220ms). Enable with `--embeddings` flag on `knowing mcp` or `BENCH_EMBEDDINGS=1` for benchmarks. Switchable via `KNOWING_EMBED_MODEL` env var.
-- **Why it matters:** The re-ranker architecture delivers +17% P@10. The model itself is less important than the integration point (re-ranker vs independent channel). All 12 benchmark repos are pre-embedded with both jina-code and nomic models.
+- **Why it matters:** The gap-fill architecture delivers +11% P@10. The re-ranker was found net negative (session 19, 9/13 repos hurt) and disabled. Gap-fill seeds (vocabulary bridging) are the real embedding value. All 12 benchmark repos are pre-embedded with both jina-code and nomic models.
 
 ### 63. BFS Depth Limit on RWR Walk
 

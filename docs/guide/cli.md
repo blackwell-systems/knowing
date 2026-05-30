@@ -575,7 +575,7 @@ data without needing a separate `knowing watch` or `knowing serve` process.
 | `-url` | string | *(auto-detected)* | Repository URL (auto-detected from git remote if empty) |
 | `-no-enrich` | bool | `false` | Skip LSP enrichment after reindex (only with `-watch`) |
 | `-debounce` | int | `500` | Debounce interval in milliseconds (only with `-watch`) |
-| `-no-embeddings` | bool | `false` | Disable local embedding re-ranker (on by default, +17% retrieval). |
+| `-no-embeddings` | bool | `false` | Disable local embedding gap-fill (on by default, +17% retrieval). |
 | `-embed-model` | string | `nomic-code` | Embedding model: `nomic-code` (default), `jina-code`, `bge-small`. All models run locally. |
 
 **Examples:**
@@ -587,7 +587,7 @@ knowing mcp
 # Start with file watching enabled (re-indexes on save)
 knowing mcp --watch
 
-# Disable embedding re-ranker (on by default)
+# Disable embedding gap-fill (on by default)
 knowing mcp --watch --no-embeddings
 
 # Use a specific embedding model
@@ -1649,9 +1649,9 @@ symbol names in your code. Compare:
 
 Backtick-quoted identifiers in the task get the highest search priority.
 
-**Step 4: Verify the embedding re-ranker is active.**
+**Step 4: Verify embedding gap-fill is active.**
 
-The embedding re-ranker (+17% in benchmarks) is on by default. Verify it is
+Embedding gap-fill (+11% in benchmarks) is on by default. Verify it is
 running by checking the MCP server startup log for:
 
 ```

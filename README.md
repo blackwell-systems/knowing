@@ -12,7 +12,7 @@
 
 ---
 
-Self-adapting code intelligence engine. Observes its own graph density and adjusts retrieval strategy automatically. 38 edge types, 28 MCP tools, local embedding re-ranker, cryptographic proofs. Gets smarter with scale, not dumber.
+Self-adapting code intelligence engine. Observes its own graph density and adjusts retrieval strategy automatically. 38 edge types, 28 MCP tools, local embedding gap-fill, cryptographic proofs. Gets smarter with scale, not dumber.
 
 ---
 
@@ -53,7 +53,7 @@ That's it. The MCP server auto-indexes your repo on first launch and downloads a
 knowing is three products built on one foundation (content-addressed graph with hierarchical Merkle trees):
 
 **1. Context engine for AI agents**
-One call returns the most relevant symbols for a task, ranked by graph centrality, recency, and learned usefulness, packed to fit your token budget. An optional local embedding re-ranker (+17% precision) reorders graph-surfaced candidates by semantic similarity, using pure Go inference with no API calls. 47% fewer tool calls. 84% fewer tokens. Results improve with feedback.
+One call returns the most relevant symbols for a task, ranked by graph centrality, recency, and learned usefulness, packed to fit your token budget. Embedding gap-fill seeds bridge vocabulary gaps when keywords fail (+11% precision), using pure Go inference with no API calls. 47% fewer tool calls. 84% fewer tokens. Results improve with feedback.
 
 **2. Audit primitive for compliance**
 Every graph state is a Merkle root tied to a git commit. `knowing prove` generates a cryptographic proof that a relationship existed. `knowing verify` checks it offline. `knowing fsck` verifies the entire graph in 98ms. Supply chain detection extracts credential access, process spawning, and network exfiltration edges to flag structurally suspicious code.
@@ -90,7 +90,7 @@ Feedback from agents compounds across sessions. When code changes, feedback expi
 |---|---:|
 | Cross-system retrieval | **P@10=0.267 cold, 0.272 warm** (277 tasks, 14 repos, 8 languages) |
 | vs competitors | 1.98x codegraph (19K stars), 1.95x codebase-memory (2.7K stars), 3.56x GitNexus, 4.24x Gortex, 20.5x grep |
-| Embedding re-ranker | +17% P@10 (local inference, no API, no charges, on by default) |
+| Embedding gap-fill | +11% P@10 (local inference, no API, no charges, on by default) |
 | Gap-fill seeds | +11% P@10 (embedding-based fallback when keywords fail) |
 | Equivalence classes | 152 concepts bridging task vocabulary to code symbols |
 | Re-rank latency | 220ms cached (vector cache in SQLite) |
@@ -225,7 +225,7 @@ Add the MCP server to your agent. The config is the same everywhere; only the fi
 
 The `--watch` flag re-indexes on file changes. Your agent always queries fresh data. No manual `knowing index` or database path needed: the MCP server auto-indexes the git repository on first launch and registers it in the roster for future sessions.
 
-The embedding re-ranker is on by default (+17% precision, fully offline, no API keys, no charges). The model auto-downloads on first use (~30MB). To disable it, add `--no-embeddings`.
+Embedding gap-fill is on by default (+17% precision, fully offline, no API keys, no charges). The model auto-downloads on first use (~30MB). To disable it, add `--no-embeddings`.
 
 **What your agent gets:** The key tool is `context_for_task`. When your agent calls it with a task description, knowing returns ranked, relevant code symbols packed into a token budget. This replaces grep-read loops. Other useful tools: `blast_radius` (what breaks if I change this?), `test_scope` (which tests to run?), `explain_symbol` (why did this rank here?). See [MCP Tools Reference](docs/guide/mcp-tools.md) for all 28 tools.
 

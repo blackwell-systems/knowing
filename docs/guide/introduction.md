@@ -4,7 +4,7 @@ This guide builds understanding from zero. No assumed background in content-addr
 
 ## System at a Glance
 
-knowing is a self-adapting code intelligence engine. It builds a content-addressed graph of code relationships, then observes the structural properties of that graph and adjusts its retrieval strategy accordingly. The full pipeline (keyword search, graph walk, scoring, fusion, packing) runs on every query, but how each step behaves adapts to the graph: on dense, enterprise-scale graphs (40K+ symbols) the system automatically prefers type hierarchies as entry points and increases the number of starting points to compensate for keyword flooding. An optional local embedding re-ranker uses semantic similarity to promote the most relevant symbols from the graph walk's output. No configuration. No mode switches. The system detects its own operating regime and adapts.
+knowing is a self-adapting code intelligence engine. It builds a content-addressed graph of code relationships, then observes the structural properties of that graph and adjusts its retrieval strategy accordingly. The full pipeline (keyword search, graph walk, scoring, fusion, packing) runs on every query, but how each step behaves adapts to the graph: on dense, enterprise-scale graphs (40K+ symbols) the system automatically prefers type hierarchies as entry points and increases the number of starting points to compensate for keyword flooding. An optional local embedding gap-fill uses semantic similarity to promote the most relevant symbols from the graph walk's output. No configuration. No mode switches. The system detects its own operating regime and adapts.
 
 It runs entirely on a developer laptop with no paid LLM calls and no cloud API dependencies. The embedding model runs locally via pure Go inference (no Python, no API keys, no charges).
 
@@ -105,7 +105,7 @@ In our example, `AuthMiddleware` tops all three lists so it stays #1. `validateT
 
 Gives the ranking a final adjustment using semantic understanding (on by default). Everything up to this point used structural signals (keyword matching, graph proximity, link analysis), but none of those understand what words mean.
 
-The re-ranker uses a local neural model (nomic-embed-text-v1.5, pure Go ONNX inference, no API calls, no charges) to compute how semantically similar each symbol is to the original task description. In our example, the task mentions "timeout" and `TimeoutConfig` is semantically close to that concept even though the graph walk ranked it #8 (it's two hops away from `AuthMiddleware`). The re-ranker promotes it to #3. Meanwhile `SessionTimeout` (a class for HTTP session expiry, not auth timeouts) gets demoted because the re-ranker understands the semantic difference. This step adds +17% P@10 on the benchmark corpus. The model auto-downloads on first use (~30MB). Disable with `--no-embeddings`.
+Gap-fill seeds use the same embedding model to find semantically similar symbols when keyword matching fails. The re-ranker step (cosine reordering of top-50 candidates) was disabled after per-repo testing showed it hurt 9 of 13 repos. The model auto-downloads on first use (~30MB). Disable with `--no-embeddings`.
 
 **Input:** top 50 from merged ranking + task `"fix the auth middleware timeout"`
 **Output:** `AuthMiddleware` (0.049), `TimeoutConfig` (0.031), `validateToken` (0.028), `SessionTimeout` (0.024), `AuthConfig` (0.022), ... (re-ordered: `TimeoutConfig` promoted from #4 to #2, `SessionTimeout` demoted from #7 to #12)
@@ -128,7 +128,7 @@ For implementation details, see [Retrieval Pipeline](../architecture/retrieval-p
 - Time-to-consistency: 167ms (edit a file, reindex, query finds the new symbol)
 - Adjacency cache: 4,717x latency improvement (9s to 2ms on Kubernetes-scale graph)
 - Density-adaptive retrieval: auto-detects graph density, adjusts seed selection strategy
-- Embedding re-ranker: +17% P@10 improvement, fully local, on by default
+- Embedding gap-fill seeds: +11% P@10 improvement, fully local, on by default. Re-ranker disabled (net negative).
 - P@10 = 0.267 cold start, 0.272 with compounding (277 tasks, 14 repos, 8 languages)
 - Self-adapting compounding: +4.2% P@10 from passive task memory
 - Competitive: 1.98x codegraph, 3.56x GitNexus, 4.24x Gortex, 20.5x grep (cold start)
@@ -1001,7 +1001,7 @@ knowing why -task "add rate limiting" -symbol "APIHandler"
 
 # 8. (Optional) Pre-cache embedding vectors for faster gap-fill (+11%)
 knowing enrich embeddings
-# The embedding re-ranker is already on by default (+17%).
+# Embedding gap-fill is on by default (+11%). Re-ranker disabled.
 ```
 
 **Tips for good results:**

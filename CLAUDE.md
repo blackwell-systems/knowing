@@ -111,7 +111,7 @@ Competitive ratios to recalculate from new P@10:
 
 ## Key Architecture
 
-- `internal/context/` — retrieval pipeline (RWR, HITS, RRF, density-adaptive seeding, concept thesaurus, embedding re-ranker)
+- `internal/context/` — retrieval pipeline (RWR, HITS, RRF, density-adaptive seeding, concept thesaurus, embedding gap-fill)
 - `internal/context/walk.go` — RWR, adjacency map, PreferTypeSeeds, GraphNodeCount, ReRankOriginalWeight, CoherenceBonus, adaptive seed count
 - `internal/context/context.go` — ForTask pipeline, VectorReRanker interface, reRankWithEmbeddings, packIntoBudget
 - `internal/embedding/` — jina-code via hugot (pure Go ONNX), vector cache in SQLite, ReRankByHashes
@@ -130,7 +130,7 @@ Competitive ratios to recalculate from new P@10:
 - **P@10 = 0.267 cold start, 0.272 with compounding** (277 tasks, 14 repos, 8 languages, 38 edge types, 164 equivalence classes)
 - **Self-adapting compounding:** +4.2% P@10 from passive task memory (round 1 to round 2)
 - **Density-adaptive:** PreferTypeSeeds >40K nodes, adaptive seed count >10K nodes
-- **Embedding re-ranker:** +17% P@10, pure re-rank (weight=0.0), vector cache 220ms
+- **Embedding gap-fill seeds:** +11% P@10, vocabulary gap bridging, vector cache 220ms. Re-ranker disabled (net negative, session 19).
 - **LSP enrichment:** strongly positive. Go: k8s 0.000->0.232, terraform ~0.095->0.275. Python: +0.040
 - **Competitive (cold):** 1.98x codegraph, 1.95x codebase-memory, 3.56x GitNexus, 4.24x Gortex, 20.5x grep
 - **Competitive (warm):** 1.99x codegraph, 1.96x codebase-memory, 3.57x GitNexus, 4.25x Gortex, 20.6x grep
@@ -141,7 +141,7 @@ Competitive ratios to recalculate from new P@10:
 
 1. **P@10 is reachability-determined.** 32-config parameter sweep + seed count sweep (10-50) proved zero variance. Only new edges or new seed sources move the metric. Don't tune weights.
 2. **Dense graph dilution is a seed selection problem.** Edge exclusion, BFS depth, hub dampening all tested neutral. Fix: density-adaptive seed selection (PreferTypeSeeds + adaptive seed count).
-3. **Embedding architecture > model.** Three models neutral as Channel 3 (independent search). Same models +17% as re-ranker. The integration point matters, not the model.
+3. **Embedding architecture: gap-fill works, re-rank hurts.** Three models neutral as Channel 3. Same models +17% as re-ranker (session 15), but per-repo A/B (session 19) showed re-rank is net negative (9/13 repos hurt). Gap-fill seeds are the real value.
 4. **Enrichment is strongly positive for retrieval.** Session 13 found neutral (tested confidence upgrades only). Session 17 revised: Go enrichment k8s 0.000->0.232, terraform ~0.095->0.275. Python +0.040. Phantom nodes + type_hint_of edges create shared-type reachability paths. Neither works alone.
 5. **42% of Django tasks score zero.** Vocabulary gaps: ground truth symbols share no keywords with task. No parameter tuning fixes this. Need new candidate sources.
 6. **Gap injection concept is sound but BM25 is too noisy.** Embedding-filtered BM25 gap candidates: Django +3.2% but aggregate neutral. Need higher-precision candidate source.
@@ -153,7 +153,7 @@ Competitive ratios to recalculate from new P@10:
 | Experiment | Impact | Session |
 |-----------|--------|---------|
 | Inheritance propagation | +29% | 13 |
-| Embedding re-ranker (pure, weight=0.0) | +17% | 15 |
+| ~~Embedding re-ranker~~ (pure, weight=0.0) | REVERTED: net negative (session 19, 9/13 repos hurt) | 15, 19 |
 | Adaptive seed count (>40K: 25, >10K: 20) | Django +14.2%, corpus +1.7% | 16 |
 | PreferTypeSeeds (>40K nodes) | VS Code +44% | 14 |
 | Docstring FTS indexing | +12.2% | 13 |
@@ -206,7 +206,7 @@ Embeddings as Channel 3, blended re-rank, call-chain seeding, hub dampening, BFS
 ## Common Pitfalls
 
 - **Persistent pack cache masks experiments.** `DisablePersistentCache()` is required in benchmark adapter or results are stale. The notes-table cache returns previous run's output.
-- **BENCH_EMBEDDINGS=1 required for re-ranker.** Without it, embeddings don't load and P@10 stays at ~0.207 (no re-ranker). With it, P@10=0.242.
+- **BENCH_EMBEDDINGS=1 required for gap-fill.** Without it, embeddings don't load and gap-fill seeds are unavailable.
 - **Django has 33 tasks in bench.** Consistently 33 fixtures on disk.
 - **Kubernetes P@10 varies +-0.05 between runs.** High variance from 19-22 task subset loading and embedding non-determinism. Don't chase k8s fluctuations.
 - **`knowing index` runs LSP enrichment by default.** Use `-no-enrich` when you only need tree-sitter edges (supply chain scanning, quick benchmarks). Saves ~14s per package.
