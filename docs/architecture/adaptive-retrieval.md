@@ -26,7 +26,7 @@ This works at small scale. At large scale, it fails:
 The result: fixed-strategy systems get less precise as codebases grow. knowing
 gets more precise because it detects these conditions and compensates.
 
-## Seven Self-Adapting Mechanisms
+## Eight Self-Adapting Mechanisms
 
 ### 1. PreferTypeSeeds (density-adaptive seed selection)
 
@@ -96,19 +96,42 @@ Full corpus +4% (0.247 -> 0.257). Hard tier +8pp from equivalence classes
 overall. Cross-language classes provide the baseline vocabulary bridge;
 framework-specific classes provide the precision lift.
 
-### 4. Embedding Gap-Fill Seeds (vocabulary-adaptive fallback)
+### 4. Focused Seed Selection (cohesion-adaptive seeding)
+
+**Trigger:** Always active (more than 5 candidates after RRF fusion)
+
+**What it does:** After RRF fusion produces candidates, clusters them by package
+path and promotes the largest cluster to the front of the seed list. The maxSeeds
+cap downstream then naturally selects from this focused set. Instead of scattering
+15-25 seeds across the graph, the walk concentrates in the dominant structural
+neighborhood.
+
+**Why it's needed:** 57 experiments proved seed count doesn't matter, but seed
+structural cohesion does. Scattered seeds dilute the RWR walk across unrelated
+areas of the graph; cohesive seeds focus it on the right neighborhood.
+
+**Why it can't regress:** If no dominant cluster exists (all singletons), the
+candidates pass through unchanged. The mechanism only reorders when there is
+genuine structural signal.
+
+**Measured impact:** Full corpus P@10 0.267 -> 0.283 (+6.0%). Django +8.7%.
+First experiment to break through the session 20 ceiling.
+
+### 5. Cluster-Aware Gap-Fill Seeds (vocabulary-adaptive fallback)
 
 **Trigger:** `len(candidates) < 5` after BM25/tiered/equivalence seed selection
 
 **What it does:** When primary keyword-based channels return fewer than 5 seed
 candidates, queries the embedding vector store for semantically similar symbols.
-Embedding-based seeds can bridge vocabulary gaps that BM25 structurally cannot
-(task says "validate the request body", ground truth is `FormValidator.clean()`).
+When focused seed selection is active, gap-fill only injects seeds from the same
+package as the dominant cluster, preventing scattered seeds from undoing the
+structural concentration.
 
 **Why it's needed:** 42% of Django tasks scored zero because ground truth symbols
 share no keywords with the task description. BM25 cannot find what it cannot
 match lexically. Embeddings find symbols by semantic similarity regardless of
-keyword overlap.
+keyword overlap. Cluster-aware filtering ensures gap-fill reinforces (rather than
+fights) focused seed selection.
 
 **Why it can't regress:** Gap-fill only fires when primary channels are weak
 (< 5 candidates). On repos where BM25 already works (kafka 0.342, terraform
@@ -117,8 +140,9 @@ it intervenes only where the existing pipeline is already failing.
 
 **Measured impact:** Django +43% (0.176 -> 0.252). Flask +22% (0.263 -> 0.321).
 Full corpus +11.2% (0.223 -> 0.247 with nomic model). Zero regressions across all 12 repos.
+Cluster-aware filtering recovered 0.016 P@10 that scattered gap-fill was losing.
 
-### 5. Task Memory Compounding (learning-adaptive boosting)
+### 6. Task Memory Compounding (learning-adaptive boosting)
 
 **Trigger:** Any repeated or similar query within or across sessions
 
@@ -141,7 +165,7 @@ On round 2, they get boosted alongside BM25-found symbols. The compounding
 surface area grows because there's more to compound. Gap-fill + compounding
 interact multiplicatively: neither achieves the combined effect alone.
 
-### 6. Merkleized Feedback Expiration (staleness-adaptive validity)
+### 7. Merkleized Feedback Expiration (staleness-adaptive validity)
 
 **Trigger:** Code change in the symbol's package (SubgraphRoot mismatch)
 
@@ -159,7 +183,7 @@ valid if and only if the code hasn't changed.
 **Measured overhead:** 11% (255us -> 284us for 100 symbols). The Merkle root
 comparison is a single hash equality check.
 
-### 7. LSP Enrichment Interaction (enrichment-adaptive reachability)
+### 8. LSP Enrichment Interaction (enrichment-adaptive reachability)
 
 **Trigger:** LSP enrichment creates phantom nodes + type_hint_of edges exist
 
@@ -189,6 +213,8 @@ Each mechanism measured independently on the full corpus:
 | PreferTypeSeeds | 0.202 | 0.207 | +2.5% | Node count > 40K |
 | Adaptive seed count | 0.238 | 0.247 | +3.8% | Node count > 10K/40K |
 | Equivalence classes | 0.247 | 0.257 | +4.0% | Language/framework detected |
+| Focused seed selection | 0.267 | 0.283 | +6.0% | Always (>5 candidates) |
+| Cluster-aware gap-fill | 0.272 | 0.283 | +4.1% | Candidates < 5 + focused seeds |
 | Gap-fill seeds | 0.223 | 0.247 | +10.8% | Candidates < 5 |
 | Task memory | 0.248 (cold) | 0.253 (warm) | +3.8% | Any repeated query |
 | Feedback expiration | N/A | N/A | correctness | Code change |
@@ -199,12 +225,13 @@ Without any adaptation: ~0.180 (estimated from pre-enrichment, pre-gap-fill base
 
 ## Why Fixed-Strategy Systems Can't Compete
 
-Competitors would need to implement all seven mechanisms to match knowing's
+Competitors would need to implement all eight mechanisms to match knowing's
 adaptive behavior. But the mechanisms interact: PreferTypeSeeds benefits from
-phantom density (mechanism 7). Gap-fill benefits from pre-embedded vectors
-(infrastructure). Task memory benefits from gap-fill (more symbols to remember).
-Equivalence classes feed better seeds into RWR, which produces better symbols
-for task memory to compound. The system is greater than the sum of its parts.
+phantom density (mechanism 8). Focused seeds + cluster-aware gap-fill reinforce
+each other (mechanisms 4-5). Task memory benefits from gap-fill (more symbols
+to remember). Equivalence classes feed better seeds into RWR, which produces
+better symbols for task memory to compound. The system is greater than the sum
+of its parts.
 
 More importantly, the adaptive approach is structural: it follows from
 content-addressed storage (feedback expiration via Merkle roots), graph-native

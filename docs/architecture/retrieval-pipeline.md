@@ -543,6 +543,21 @@ re-ranker, the full corpus aggregate improved from 0.238 to 0.247 (with nomic mo
 
 Available as manual override via `BENCH_MAX_SEEDS=N` for parameter sweep experiments.
 
+### Focused seed selection (session 21)
+
+After RRF fusion produces candidates, the pipeline clusters them by package path and
+promotes the largest cluster to the front of the seed list. The maxSeeds cap downstream
+then naturally selects from this focused set. The insight: 57 experiments proved seed
+count doesn't matter, but seed structural cohesion does. 3-5 seeds in the same package
+produce a more focused RWR walk than 15-25 seeds scattered across the graph.
+
+Combined with **cluster-aware gap-fill**: when gap-fill fires (BM25 < 5 candidates), it
+only injects embedding seeds from the same package as the dominant cluster. This prevents
+gap-fill from scattering seeds that focused selection concentrated.
+
+Impact: full corpus P@10 0.267 -> 0.283 (+6.0%). Django P@10 0.253 -> 0.275 (+8.7%).
+On by default; disable with `BENCH_FOCUSED_SEEDS=0`.
+
 ### Critical finding: RWR is the primary differentiator
 
 Cross-system benchmark Runs 7-10 demonstrated that RWR (graph traversal) is the
