@@ -160,15 +160,24 @@ methods for the same RWR probability. Types walk DOWN (to their methods via `con
 edges), reaching an entire class's API surface from a single seed. The walk from a type
 is more productive because it covers a coherent set of related symbols.
 
-### Implications (updated)
+### Implications (updated session 21)
 
 1. Local embeddings still the biggest lever (bypasses keyword competition entirely)
 2. ~~Node-kind-aware seed selection may help~~ CONFIRMED and shipped as self-adapting
-3. Per-file or per-package BM25 (smaller index per scope) would restore IDF discrimination (not needed now, PreferTypeSeeds is sufficient)
+3. ~~Per-file or per-package BM25~~ Superseded by focused seed selection (session 21): clustering RRF candidates by package path and promoting the largest cluster achieves the same effect (scoping to a coherent neighborhood) without modifying the BM25 index.
 4. The parameter sweep finding still holds: P@10 is reachability-determined. But now we
    know that "reachability" starts at seed selection, not just graph structure.
-5. **New finding:** the system should adapt its retrieval strategy based on observed graph
-   density. This is now a core design principle (density-adaptive retrieval).
+5. **Density-adaptive retrieval** is now a core design principle with 8 self-adapting mechanisms.
+6. **Focused seed selection** (session 21): the definitive answer to dense graph dilution. Instead of scattering 15-25 seeds across the graph, cluster by package path and concentrate the walk in the dominant structural neighborhood. Combined with cluster-aware gap-fill (embedding seeds filtered to the same package), this produced +6.0% P@10 (0.267 -> 0.283). Dense graph dilution is a seed cohesion problem, not a graph structure problem.
+
+### Open questions
+
+- Can focused seed selection be made density-adaptive (only activate on dense graphs)?
+  Session 21 tested: it helps across all densities, not just dense graphs. Currently always-on.
+- Two-phase retrieval (walk, then re-search within neighborhood) was tested neutral/harmful
+  on Django and dense repos. Focused seeds may already capture the benefit.
+- Would per-community BM25 indices help further? Communities are very small (avg 8 nodes
+  in Django) so the constraint may be too tight.
 
 ## Experiment Protocol
 

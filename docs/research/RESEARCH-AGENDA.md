@@ -120,22 +120,35 @@ RWR seeds on graphs exceeding a density threshold.
    graph exceeds 40K nodes. +44% P@10 on VS Code, zero regression elsewhere.
 4. Finding: "correct extraction hurts precision" is a general phenomenon in graph-based
    retrieval (observed independently on 3 repos with 3 different triggers)
+5. **Focused seed selection (session 21):** seed structural cohesion matters more than
+   seed count. Clustering RRF candidates by package path and promoting the largest
+   cluster produces +6.0% P@10 (0.267 -> 0.283). Combined with cluster-aware gap-fill
+   (embedding seeds filtered to dominant package). This is the definitive answer to
+   dense graph dilution: concentrate the walk instead of scattering it.
 
 **Empirical evidence:**
 - VS Code: 43K nodes (broken extraction) P@10=0.163 -> 87K nodes (correct) P@10=0.084
 - Same pattern: k8s staging (+136K nodes, -20%), LSP enrichment (+42K edges, negative)
 - Fix: PreferTypeSeeds recovers 0.084 -> 0.137 (+44%), aggregate 0.202 -> 0.207
 - Ablation: exclude similar_to (0.095), exclude type_hint_of (0.095), BFS depth=2 (0.100), hub dampening (0.095). None recovers. Only seed selection change works.
+- **Session 21:** 57 experiments proved seed count irrelevant, but seed package cohesion
+  produced the largest single-experiment gain since session 13 (inheritance propagation).
+  Two-phase retrieval (community-constrained and RWR-neighborhood) tested neutral/harmful,
+  confirming focused seeds already captures the benefit of neighborhood-scoped retrieval.
 
 **What's novel:** The "correct extraction paradox" (doing the right thing makes results
-worse) and the density-adaptive fix are not in existing literature. Prior work on
-personalized PageRank/RWR assumes the graph is fixed; nobody has studied what happens
-when correct extraction fundamentally changes the competition landscape for seed selection.
+worse), the density-adaptive fix, and the seed cohesion finding are not in existing
+literature. Prior work on personalized PageRank/RWR assumes the graph is fixed; nobody
+has studied what happens when correct extraction fundamentally changes the competition
+landscape for seed selection. The seed cohesion finding challenges the common assumption
+that more diverse seeds improve recall; on code graphs, structural concentration
+outperforms diversity.
 
-**Existing material:** `docs/research/dense-graph-dilution-analysis.md`, session 14 benchmark data
+**Existing material:** `docs/research/dense-graph-dilution-analysis.md`, sessions 14 and 21 benchmark data
 
 **What's needed:**
 - Formalize the "keyword competition" model (why IDF degrades with node count)
+- Formalize the "seed cohesion" model (why package-clustered seeds outperform scattered)
 - Test on additional dense codebases (chromium, linux kernel)
 - Compare against dense passage retrieval approaches (DPR, ColBERT) on same corpus
 
