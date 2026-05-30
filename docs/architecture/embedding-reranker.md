@@ -1,6 +1,14 @@
-# Embedding Re-ranker
+# Embedding Architecture (Re-ranker Disabled, Gap-Fill Active)
 
-The embedding re-ranker is a post-RWR stage that reorders the top-50 candidates
+> **Status (session 19):** The embedding re-ranker has been disabled after per-repo
+> A/B testing showed it is net negative on P@10 (9/13 repos hurt, net -0.050).
+> The +17% improvement previously attributed to re-ranking was actually from gap-fill
+> seeds sharing the same `BENCH_EMBEDDINGS=1` flag. Gap-fill seeds remain active
+> and provide +11% P@10 by bridging vocabulary gaps. The embedding infrastructure
+> (model download, vector cache, PreloadVectors) is still used for gap-fill.
+> Code is preserved for future investigation with code-tuned models.
+
+The embedding re-ranker was a post-RWR stage that reordered the top-50 candidates
 by cosine similarity to the task description. It uses a pre-trained code embedding
 model (nomic-embed-text-v1.5, default) running locally via pure-Go ONNX inference.
 No API calls, no cloud services, no charges.

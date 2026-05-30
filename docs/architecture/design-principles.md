@@ -154,7 +154,7 @@ After seed retrieval, Random Walk with Restart (RWR) expands the seed set throug
 
 **Embedding gap-fill seeds (on by default):* When BM25 returns fewer than 5 seed candidates, the embedding model finds semantically similar symbols via brute-force cosine search. This bridges vocabulary gaps that keyword matching cannot (+11% P@10). The re-ranker (cosine re-ordering of top-50 RWR results) was disabled in session 19 after per-repo A/B testing showed it was net negative (9/13 repos hurt). Gap-fill seeds remain active.
 
-**Benchmark results (fresh index, with embedding re-ranker):**
+**Benchmark results (fresh index, gap-fill seeds active, re-ranker disabled):**
 
 - P@10 = 0.267 cold start, 0.272 with compounding across 277 tasks, 14 repos, 8 languages (Go, Python, TypeScript, Rust, Java, C#, Ruby), 14K to 3.5M LOC
 - Task memory compounding: +4.2% P@10 from passive learning (self-adapting claim, quantified)

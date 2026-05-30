@@ -357,18 +357,18 @@ the type is seeded so RWR walks to its methods via `contains` edges. For example
 "consumer group coordinator" finds `ConsumerCoordinator` in kafka's `group/` package
 because the type has methods matching "coordinator".
 
-### Channel 5: Vector search (weight 0.0 as seed channel; re-ranker active separately)
+### Channel 5: Vector search (weight 0.0 as seed channel; gap-fill seeds active separately)
 
 As an independent seed channel, embeddings remain disabled (weight 0.0). Three models
 (BGE-small, jina-code, nomic) tested neutral: they find the same symbols as BM25.
 
-However, the same embedding infrastructure powers the **embedding re-ranker** (step 7b),
-which operates after scoring, not during seed selection. The re-ranker reorders the top-50
+However, the same embedding infrastructure powers **gap-fill seeds** (step 2b),
+which activates when BM25 returns fewer than 5 candidates. Gap-fill finds semantically
 scored candidates by cosine similarity to the task description. This is the biggest single
 improvement in project history: P@10 0.207 -> 0.247 (+19%), R@10 0.306 -> 0.380 (+24%). Session 17 switched to nomic-embed-text-v1.5 (better than jina-code on every metric).
 
 The key insight: architecture matters more than model. The same jina-code model that is
-neutral as a seed channel produces +17% when used to re-rank graph-surfaced candidates.
+neutral as a seed channel produces +11% when used for gap-fill vocabulary bridging. Re-ranker disabled (session 19, net negative).
 See `docs/architecture/embedding-reranker.md` for the full design.
 
 Enable with `--embeddings` on `knowing mcp` or `BENCH_EMBEDDINGS=1` for benchmarks.
@@ -921,8 +921,8 @@ wasting recall without improving precision.
 negligible impact on ranking; looser convergence risks instability.
 
 **Embedding seed weight.** Keep Channel 5 at 0.0. Three models tested neutral as seed
-sources (experiments 9-12, Run 26). The re-ranker (step 7b) is the correct integration
-point for embeddings. `ReRankOriginalWeight` at 0.0 (pure re-rank) is validated optimal.
+sources (experiments 9-12, Run 26). Gap-fill seeds are the correct integration
+point for embeddings. Re-ranker disabled (session 19, net negative on P@10).
 
 ### What the experiments taught (21 experiments, summarized)
 
@@ -1018,12 +1018,12 @@ The retrieval pipeline uses two complementary concept-matching strategies:
 deterministically map natural-language phrases to target symbols. Local, inspectable,
 zero-cost, compounds with curation. This is the primary seed quality mechanism.
 
-**Embedding re-ranker** (post-scoring, step 7b): reorders top-50 candidates by cosine
+**Embedding gap-fill seeds** (step 2b): bridges vocabulary gaps when BM25 < 5 candidates via cosine
 similarity to the task description. Catches relevant symbols the graph surfaced but
 scored low. +17% P@10 on full corpus.
 
 The key insight is that embeddings fail as seed sources (Channel 5 = neutral) but
-succeed as re-rankers. As seeds, embeddings find the same symbols as BM25 (vocabulary
+succeed as gap-fill seeds. As independent search channels, embeddings find the same symbols as BM25 (vocabulary
 overlap). As re-rankers, they promote graph-discovered candidates that text matching
 undervalues. The graph provides structural reach; embeddings provide semantic ranking.
 

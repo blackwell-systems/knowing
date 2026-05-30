@@ -768,7 +768,7 @@ Repo: github.com/blackwell-systems/knowing
 
 - **Package(s):** `internal/context/`
 - **Entry point:** `rrfFuseMulti` in `internal/context/context.go`
-- **What it does:** N-channel Reciprocal Rank Fusion combining five retrieval channels: (1) tiered keywords (weight 2.0), (2) BM25 FTS5 (weight 2.0), (3) embedding re-ranker (pure re-rank, weight 0.0 original + full embedding score), (4) equivalence class matching (weight 2.0), and (5) gap-fill vector search (activates when BM25 returns fewer than 5 candidates, using brute-force cosine from cached vectors). Each channel produces an independent ranked list; `rrfFuseMulti` merges them with per-channel weights. Channel weights were equalized after cross-system benchmark showed BM25 and tiered find the same symbols.
+- **What it does:** N-channel Reciprocal Rank Fusion combining five retrieval channels: (1) tiered keywords (weight 2.0), (2) BM25 FTS5 (weight 2.0), (3) vector search (weight 0.0, disabled as seed channel), (4) equivalence class matching (weight 2.0), and (5) gap-fill vector search (activates when BM25 returns fewer than 5 candidates, using brute-force cosine from cached vectors). Each channel produces an independent ranked list; `rrfFuseMulti` merges them with per-channel weights. Channel weights were equalized after cross-system benchmark showed BM25 and tiered find the same symbols.
 - **Why it matters:** Enables systematic combination of heterogeneous retrieval signals. Symbols appearing in multiple channels get promoted. The gap-fill channel addresses vocabulary gaps where keyword-based channels return too few candidates. New retrieval methods can be added as channels without disrupting existing ones.
 
 ### 61. Doc Comment Extraction (Node.Doc Field)

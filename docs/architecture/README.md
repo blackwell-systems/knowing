@@ -12,7 +12,7 @@ If you are new to knowing, read these in order:
 2. **System Overview** (component map, two-tier extraction, edge types)
 3. **Extraction Pipeline** (tree-sitter, 23 extractors, post-processing)
 4. **Enrichment Pipeline** (LSP enrichment, phantom nodes, gopls warmup)
-5. **Retrieval Pipeline** (seeds, RWR, HITS, scoring, embedding re-ranker)
+5. **Retrieval Pipeline** (seeds, RWR, HITS, scoring, gap-fill seeds)
 6. **Data Flow** (end-to-end trace of a single commit)
 7. **Edge Types** (38 edge types with RWR weights)
 8. **Embedding Re-ranker** (+17% P@10, vector cache, architecture)
@@ -46,8 +46,8 @@ If you are new to knowing, read these in order:
 | [semantic-pr-diff.md](semantic-pr-diff.md) | Relationship-level PR diff: design, output format, implementation (`internal/diff/`), MCP tools (`snapshot_diff`, `semantic_diff`, `pr_impact`), CLI (`knowing audit-diff`), GitHub Actions workflow. |
 | [extraction-pipeline.md](extraction-pipeline.md) | Tree-sitter extraction: 23 extractors, multi-dispatch, post-processing (9 steps), producer-consumer pipeline, content-addressed hashing, incremental indexing, CLI usage. |
 | [enrichment-pipeline.md](enrichment-pipeline.md) | LSP enrichment: three phases (readiness, upgrade, discovery), phantom nodes, two-phase gopls warmup, multi-module Go support, per-symbol timeout, performance characteristics. |
-| [retrieval-pipeline.md](retrieval-pipeline.md) | Full retrieval reference: keyword extraction, 5-channel RRF seed fusion, RWR (parameters, edge weights, adjacency cache), HITS, scoring formula, embedding re-ranker, budget packing, session/task memory. |
-| [embedding-reranker.md](embedding-reranker.md) | Embedding re-ranker: +19% P@10, nomic-embed-text model (default), pure Go ONNX, SQLite vector cache (220ms), ReRankByHashes, gap-fill seeds. |
+| [retrieval-pipeline.md](retrieval-pipeline.md) | Full retrieval reference: keyword extraction, 5-channel RRF seed fusion, RWR (parameters, edge weights, adjacency cache), HITS, scoring formula, gap-fill seeds, budget packing, session/task memory. |
+| [embedding-reranker.md](embedding-reranker.md) | Embedding architecture: gap-fill seeds (+11% P@10), re-ranker disabled (net negative session 19). nomic-embed-text model, pure Go ONNX, SQLite vector cache, PreloadVectors. |
 | [edge-types.md](edge-types.md) | Full catalog of 38 edge types with RWR weights, categories, and provenance. |
 | [equivalence-classes.md](equivalence-classes.md) | Equivalence class system: 115 concepts across 4 layers (seed, universal, language-specific, graph-derived). |
 | [context-packing.md](context-packing.md) | Context packing: density-ranked greedy knapsack, token estimation, persistent pack cache, staleness detection. |
