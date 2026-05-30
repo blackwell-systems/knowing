@@ -46,15 +46,31 @@ Fixtures with unresolvable symbols are flagged and corrected or removed.
 
 ## Corpus Selection
 
+### Selection policy
+
+**No cherry-picking.** Every repository attempted has been included in the corpus.
+The only exclusion is Homebrew (Ruby), where fixture validation is incomplete
+(tasks exist in `tasks-pending/` but ground truth symbols have not been verified
+against the graph). Homebrew is indexed and will be activated when fixtures are
+validated. No repository has ever been excluded based on knowing's performance
+on it.
+
+Repos are selected for language diversity and community recognition, not for
+any property that would favor knowing's architecture. Several repos where knowing
+performs poorly remain in the corpus: VS Code (P@10=0.163, dense graph seed
+competition), spark-java (P@10=0.215, small fixture set), and Django
+(P@10=0.258, 42% vocabulary gap zero rate).
+
 ### Criteria
 
 - Public, well-known repositories (reproducible by anyone)
-- Multiple languages (Go, Python, TypeScript, Rust, Java, C#)
+- Multiple languages (Go, Python, TypeScript, Rust, Java, C#, Ruby)
 - Range of sizes (14K LOC Flask to 3.5M LOC Kubernetes)
-- Pinned to specific versions (deterministic indexing)
+- Pinned to specific versions (deterministic indexing, see `corpus/MANIFEST.yaml`)
 - No knowing's own repository (avoids self-measurement bias)
+- No exclusions based on performance (all attempted repos are included)
 
-### Current Corpus (12 repos, 237 tasks, 7 languages)
+### Current Corpus (15 repos, 297 tasks, 8 languages)
 
 | Repo | Language | LOC | Nodes (real) | Nodes (with phantoms) | Edges | Tasks | Why |
 |------|----------|-----|-------------|----------------------|-------|-------|-----|
