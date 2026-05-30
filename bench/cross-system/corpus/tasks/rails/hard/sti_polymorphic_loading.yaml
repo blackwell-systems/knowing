@@ -1,0 +1,13 @@
+id: rails-hard-004
+repo: rails
+tier: hard
+description: "Implement single table inheritance with polymorphic associations and understand how Active Record resolves the correct subclass during loading"
+source: manual
+ground_truth:
+  - ActiveRecord::Inheritance::ClassMethods.sti_name
+  - ActiveRecord::Inheritance::ClassMethods.find_sti_class
+  - ActiveRecord::Associations::ClassMethods.has_many
+  - ActiveRecord::Associations::Builder::Association.create_reflection
+  - ActiveRecord::Reflection::AbstractReflection
+tags: [inheritance, polymorphic, activerecord, cross-file]
+notes: "Requires understanding STI class resolution (find_sti_class, sti_name), how instantiate picks the right class, and how polymorphic reflections interact with STI."

@@ -1,0 +1,15 @@
+id: rails-hard-001
+repo: rails
+tier: hard
+description: "Trace the full lifecycle of an HTTP request from Rack entry through routing, controller dispatch, and response rendering"
+source: manual
+ground_truth:
+  - ActionDispatch::Routing::RouteSet.call
+  - ActionDispatch::Journey::Router.serve
+  - ActionController::Metal.dispatch
+  - ActionController::Metal.action
+  - ActionController::Rendering.render
+  - AbstractController::Rendering.render
+  - ActionDispatch::Response
+tags: [request-lifecycle, routing, controller, cross-component]
+notes: "Requires tracing from Rack through routing (RouteSet, Journey::Router), controller dispatch (Metal), and rendering. Spans actionpack internals."

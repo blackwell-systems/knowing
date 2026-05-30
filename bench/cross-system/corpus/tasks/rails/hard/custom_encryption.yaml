@@ -1,0 +1,14 @@
+id: rails-hard-006
+repo: rails
+tier: hard
+description: "Add encrypted attributes to a model using Active Record Encryption and understand the key provider, encryptor, and deterministic query flow"
+source: manual
+ground_truth:
+  - ActiveRecord::Encryption::EncryptableRecord.encrypts
+  - ActiveRecord::Encryption::Encryptor
+  - ActiveRecord::Encryption::Encryptor.encrypt
+  - ActiveRecord::Encryption::Encryptor.decrypt
+  - ActiveRecord::Encryption::KeyProvider
+  - ActiveRecord::Encryption::ExtendedDeterministicQueries
+tags: [encryption, activerecord, security, cross-file]
+notes: "Requires the encrypts macro, the Encryptor for encrypt/decrypt operations, KeyProvider for key management, and ExtendedDeterministicQueries for querying encrypted columns."

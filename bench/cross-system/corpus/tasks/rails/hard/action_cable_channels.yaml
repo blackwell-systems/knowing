@@ -1,0 +1,14 @@
+id: rails-hard-005
+repo: rails
+tier: hard
+description: "Build a real-time notification system using Action Cable with channel authorization, broadcasting, and subscription lifecycle management"
+source: manual
+ground_truth:
+  - ActionCable::Channel::Base
+  - ActionCable::Channel::Base.subscribed
+  - ActionCable::Channel::Base.unsubscribed
+  - ActionCable::Channel::Broadcasting::ClassMethods.broadcast_to
+  - ActionCable::Connection::Base
+  - ActionCable::Server::Broadcasting.broadcast
+tags: [actioncable, websockets, real-time, cross-component]
+notes: "Requires Channel::Base for subscription lifecycle, Broadcasting for sending messages, and Connection::Base for authentication. Spans the full Action Cable stack."

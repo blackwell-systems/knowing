@@ -1,0 +1,13 @@
+id: rails-medium-001
+repo: rails
+tier: medium
+description: "Implement strong parameters for a nested form that accepts attributes for a parent model and its associated children"
+source: manual
+ground_truth:
+  - ActionController::Parameters.permit
+  - ActionController::Parameters.require
+  - ActionController::Parameters.permit_any_in_array
+  - ActionController::StrongParameters.params
+  - ActiveRecord::NestedAttributes::ClassMethods.accepts_nested_attributes_for
+tags: [strong-parameters, nested-attributes, controller]
+notes: "Requires permit/require for whitelisting, accepts_nested_attributes_for on the model side, and understanding how nested hashes flow through Parameters."

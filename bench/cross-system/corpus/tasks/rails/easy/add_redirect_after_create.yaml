@@ -1,0 +1,12 @@
+id: rails-easy-005
+repo: rails
+tier: easy
+description: "Add a redirect to the show page after successfully creating a resource in a controller"
+source: manual
+ground_truth:
+  - ActionController::Redirecting.redirect_to
+  - ActionController::Redirecting._compute_redirect_to_location
+  - ActionController::Rendering.render
+  - ActionController::Flash.redirect_to
+tags: [controller, redirecting, feature-addition]
+notes: "Requires redirect_to for the redirect, render for error case fallback, and Flash integration for notice messages."

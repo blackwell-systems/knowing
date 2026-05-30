@@ -1,0 +1,13 @@
+id: rails-easy-001
+repo: rails
+tier: easy
+description: "Add a custom validation to a model that checks the format of an email field and returns a descriptive error message"
+source: manual
+ground_truth:
+  - ActiveModel::Validations::ClassMethods.validates
+  - ActiveModel::Validations::ClassMethods.validates_each
+  - ActiveModel::Validations::ClassMethods.validators_on
+  - ActiveModel::EachValidator.validate_each
+  - ActiveModel::Errors.add
+tags: [validation, activemodel, feature-addition]
+notes: "Requires understanding the validates macro, EachValidator pattern for custom validators, and how Errors collects messages."

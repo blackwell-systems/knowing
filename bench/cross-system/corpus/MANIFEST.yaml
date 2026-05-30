@@ -1,0 +1,201 @@
+# Corpus Manifest: Pinned Repository Versions
+#
+# This file records the exact state of every repository in the benchmark corpus.
+# Reproducibility requires cloning each repo at the specified commit. The graph
+# databases (.knowing/graph.db) are derived artifacts: they can be rebuilt from
+# the source repos using the commands in corpus-setup.sh.
+#
+# To verify your local corpus matches this manifest:
+#   ./corpus-setup.sh verify
+#
+# To rebuild from scratch:
+#   ./corpus-setup.sh clone     # clone all repos at pinned commits
+#   ./corpus-setup.sh index     # build graph databases (tree-sitter only, ~5 min)
+#   ./corpus-setup.sh enrich    # LSP enrichment (requires language servers, ~2 hours)
+#   ./corpus-setup.sh embed     # pre-embed vectors (requires ONNX model, ~30 min)
+
+format_version: 1
+last_updated: "2026-05-30"
+task_count: 297
+language_count: 8
+
+repos:
+  - name: caddy
+    url: https://github.com/caddyserver/caddy.git
+    commit: 4d60d936edce2ab49cb36c47d0d1bdc0029a0ed2
+    commit_date: "2026-05-27"
+    language: Go
+    tasks: 20
+    enrichment: gopls
+    nodes: 17881
+    edges: 46218
+    embeddings: 23759
+
+  - name: cargo
+    url: https://github.com/rust-lang/cargo
+    commit: 2dbb1af80a2914475ba76827a312e29cedfa6b2f
+    commit_date: "2024-08-20"
+    language: Rust
+    tasks: 19
+    enrichment: rust-analyzer
+    nodes: 81434
+    edges: 136779
+    embeddings: 18372
+
+  - name: django
+    url: https://github.com/django/django
+    commit: 373cb3037fe4e67adbac9ac43340391e859aa957
+    commit_date: "2024-08-07"
+    language: Python
+    tasks: 36
+    enrichment: pyright
+    nodes: 128482
+    edges: 370498
+    embeddings: 97230
+
+  - name: fastapi
+    url: https://github.com/fastapi/fastapi.git
+    commit: 2bd97a6013cf29b0f1ecd8850e8ba4b89d00b89c
+    commit_date: "2026-05-27"
+    language: Python
+    tasks: 20
+    enrichment: pyright
+    nodes: 18035
+    edges: 38601
+    embeddings: 19776
+
+  - name: flask
+    url: https://github.com/pallets/flask
+    commit: ab8149664182b662453a563161aa89013c806dc9
+    commit_date: "2024-11-13"
+    language: Python
+    tasks: 19
+    enrichment: pyright
+    nodes: 4679
+    edges: 11003
+    embeddings: 6264
+
+  - name: jekyll
+    url: https://github.com/jekyll/jekyll.git
+    commit: 202df571314ba1d18e9fccd81d12aaad4a703c38
+    commit_date: "2026-04-22"
+    language: Ruby
+    tasks: 20
+    enrichment: ruby-lsp
+    nodes: 14594
+    edges: 34479
+    embeddings: 1586
+
+  - name: kafka
+    url: https://github.com/apache/kafka.git
+    commit: fa097fa593a2a3da17bd1c234bf140565561a1b8
+    commit_date: "2026-05-24"
+    language: Java
+    tasks: 19
+    enrichment: jdtls
+    nodes: 105032
+    edges: 957073
+    embeddings: 32923
+
+  - name: kubernetes
+    url: https://github.com/kubernetes/kubernetes
+    commit: 7c48c2bd72b9bf5c44d21d7338cc7bea77d0ad2a
+    commit_date: "2024-04-17"
+    language: Go
+    tasks: 19
+    enrichment: gopls
+    nodes: 241909
+    edges: 706349
+    embeddings: 144842
+
+  - name: ocelot
+    url: https://github.com/ThreeMammals/Ocelot.git
+    commit: a5efd3cc913883de017c9afaf9637402ce965606
+    commit_date: "2026-05-21"
+    language: "C#"
+    tasks: 20
+    enrichment: csharp-ls
+    nodes: 17105
+    edges: 52576
+    embeddings: 13746
+
+  - name: rails
+    url: https://github.com/rails/rails.git
+    commit: d2a0d991762d3aafafc28f7f6bd114ef33c21adf
+    commit_date: "2026-05-29"
+    language: Ruby
+    tasks: 20
+    enrichment: none
+    nodes: 46428
+    edges: 502729
+    embeddings: 0
+
+  - name: ripgrep
+    url: https://github.com/BurntSushi/ripgrep.git
+    commit: 4857d6fa67db69a95cd4b6f2adda5d807d4d0119
+    commit_date: "2026-05-26"
+    language: Rust
+    tasks: 20
+    enrichment: rust-analyzer
+    nodes: 10881
+    edges: 21742
+    embeddings: 2234
+
+  - name: spark-java
+    url: https://github.com/perwendel/spark.git
+    commit: 1973e402f5d4c1442ad34a1d38ed0758079f7773
+    commit_date: "2022-07-10"
+    language: Java
+    tasks: 20
+    enrichment: jdtls
+    nodes: 4460
+    edges: 13238
+    embeddings: 6143
+
+  - name: terraform
+    url: https://github.com/hashicorp/terraform.git
+    commit: a2ad11c4f14ceea1e81c81a56c44428fc4110f20
+    commit_date: "2026-05-23"
+    language: Go
+    tasks: 20
+    enrichment: gopls
+    nodes: 98915
+    edges: 332394
+    embeddings: 51676
+
+  - name: vscode
+    url: https://github.com/microsoft/vscode.git
+    commit: 89de5a8d4d6205e5b11647eb6a74844ca23d2573
+    commit_date: "2024-06-03"
+    language: TypeScript
+    tasks: 19
+    enrichment: tsserver
+    nodes: 552184
+    edges: 4425658
+    embeddings: 167380
+
+# Cross-cutting tasks (multi-repo) use symbols from multiple repos above.
+# No separate repo entry needed.
+cross_cutting:
+  tasks: 9
+  note: "Tasks that span multiple repos or test cross-language retrieval"
+
+competitors:
+  - name: codegraph
+    version: "latest via npm (2026-05-24)"
+    install: "npm install -g @nicolo-ribaudo/codegraph"
+  - name: codebase-memory
+    version: "latest via npm (2026-05-24)"
+    install: "npm install -g codebase-memory"
+  - name: GitNexus
+    version: "latest via npm (2026-05-24)"
+    install: "npm install -g gitnexus"
+  - name: Gortex
+    version: "latest via go install (2026-05-24)"
+    install: "go install github.com/gortex-ai/gortex@latest"
+  - name: Aider
+    version: "latest via pip (2026-05-24)"
+    install: "pip install aider-chat"
+  - name: grep
+    version: "system grep (BSD/GNU)"
+    install: "built-in"

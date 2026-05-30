@@ -1,0 +1,14 @@
+id: rails-medium-007
+repo: rails
+tier: medium
+description: "Build a complex query using Active Record's query interface with joins, eager loading, group, and having clauses"
+source: manual
+ground_truth:
+  - ActiveRecord::QueryMethods.where
+  - ActiveRecord::QueryMethods.joins
+  - ActiveRecord::QueryMethods.includes
+  - ActiveRecord::QueryMethods.group
+  - ActiveRecord::QueryMethods.having
+  - ActiveRecord::Relation
+tags: [query, activerecord, relation]
+notes: "Requires the QueryMethods module for chainable query DSL and Relation as the underlying lazy evaluation object."

@@ -1,0 +1,11 @@
+id: rails-easy-007
+repo: rails
+tier: easy
+description: "Add an enum field to a model for tracking order status with scopes and query methods"
+source: manual
+ground_truth:
+  - ActiveRecord::Enum.enum
+  - ActiveRecord::Enum.detect_enum_conflict!
+  - ActiveRecord::Enum._enum_methods_module
+tags: [enum, activerecord, feature-addition]
+notes: "Requires the enum macro which auto-generates scopes, predicate methods, and bang methods for state transitions."

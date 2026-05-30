@@ -1,0 +1,14 @@
+id: rails-hard-003
+repo: rails
+tier: hard
+description: "Understand how Active Record callback chains execute during a save operation, including before/after/around callbacks and their interaction with transactions"
+source: manual
+ground_truth:
+  - ActiveRecord::Callbacks
+  - ActiveRecord::ConnectionAdapters::SavepointTransaction
+  - ActiveSupport::Callbacks::ClassMethods.set_callback
+  - ActiveSupport::Callbacks.run_callbacks
+  - ActiveRecord::Persistence.create_or_update
+  - ActiveRecord::Persistence.save
+tags: [callbacks, transactions, activerecord, cross-module]
+notes: "Requires understanding the full save path: Persistence.save -> create_or_update -> save_within_transaction -> run_callbacks. Spans ActiveRecord and ActiveSupport."

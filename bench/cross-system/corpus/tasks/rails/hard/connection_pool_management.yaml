@@ -1,0 +1,14 @@
+id: rails-hard-002
+repo: rails
+tier: hard
+description: "Debug a connection pool exhaustion issue by understanding how Active Record manages database connection checkout, checkin, and reaping"
+source: manual
+ground_truth:
+  - ActiveRecord::ConnectionAdapters::ConnectionPool
+  - ActiveRecord::ConnectionAdapters::ConnectionPool.checkout
+  - ActiveRecord::ConnectionAdapters::ConnectionPool.checkin
+  - ActiveRecord::ConnectionAdapters::ConnectionPool.reap
+  - ActiveRecord::ConnectionAdapters::ConnectionHandler
+  - ActiveRecord::ConnectionAdapters::ConnectionHandler.establish_connection
+tags: [connection-pool, activerecord, debugging, cross-file]
+notes: "Requires understanding the full connection lifecycle: ConnectionHandler manages pools, ConnectionPool manages checkout/checkin/reaping of individual connections."

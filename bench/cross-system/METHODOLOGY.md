@@ -341,21 +341,61 @@ The corpus covers both.
 
 ## Reproducing Results
 
+### From scratch (external reproducer)
+
+The corpus is fully reproducible from pinned commit hashes. No pre-built
+artifacts are required.
+
+```bash
+# 1. Build knowing
+GOWORK=off go build -o /usr/local/bin/knowing ./cmd/knowing/
+
+# 2. Set up the corpus (clone repos at exact commits, build graph DBs)
+cd bench/cross-system/corpus
+./corpus-setup.sh clone     # ~5 min, clones 15 repos at pinned commits
+./corpus-setup.sh index     # ~5 min, tree-sitter extraction only
+./corpus-setup.sh enrich    # ~2 hours, requires language servers (optional)
+./corpus-setup.sh embed     # ~30 min, pre-embeds vectors (optional)
+
+# 3. Verify corpus matches manifest
+./corpus-setup.sh verify
+
+# 4. Run the benchmark
+cd ../../..
+BENCH_EMBEDDINGS=1 BENCH_ADAPTERS=knowing GOWORK=off \
+  go test ./bench/cross-system/ -run TestCrossSystem -v -timeout 0
+```
+
+**Without enrichment or embeddings:** The benchmark runs with tree-sitter-only
+graph databases. P@10 will be lower (~0.200 vs 0.283) because LSP enrichment
+and embedding gap-fill contribute significantly. The relative ranking of repos
+and the competitive comparison with other systems remain valid.
+
+**Corpus manifest:** `corpus/MANIFEST.yaml` records the exact commit hash,
+repository URL, expected node/edge/embedding counts, and enrichment server
+for every repo. The `corpus-setup.sh verify` command checks that the local
+corpus matches the manifest.
+
+### Quick run (already have corpus)
+
 ```bash
 # Full benchmark (all systems, all repos)
-GOWORK=off go test ./bench/cross-system/ -run TestCrossSystem -v -timeout 30m
+BENCH_EMBEDDINGS=1 BENCH_ADAPTERS=knowing GOWORK=off \
+  go test ./bench/cross-system/ -run TestCrossSystem -v -timeout 0
 
 # Single system, single repo
-GOWORK=off go test ./bench/cross-system/ -run TestCrossSystem -v -timeout 5m \
-  -bench.adapters=knowing -bench.repos=flask
+BENCH_REPOS=flask BENCH_ADAPTERS=knowing GOWORK=off \
+  go test ./bench/cross-system/ -run TestCrossSystem -v -timeout 5m
 
-# With Aider
+# With competitors
 uv venv /tmp/aider-bench --python 3.11
 source /tmp/aider-bench/bin/activate
 uv pip install aider-chat
 GOWORK=off go test ./bench/cross-system/ -run TestCrossSystem -v -timeout 30m \
   -bench.adapters=knowing,aider
 ```
+
+### Determinism
 
 Results are deterministic for a given index state. Clear context caches before
 re-running if testing pipeline changes:
@@ -365,3 +405,14 @@ for db in bench/cross-system/corpus/repos/*/.knowing/graph.db; do
   sqlite3 "$db" "DELETE FROM graph_notes WHERE key = 'context_pack'"
 done
 ```
+
+### What affects reproducibility
+
+| Factor | Impact | How to control |
+|--------|--------|----------------|
+| Repo commit | High | Pinned in MANIFEST.yaml, enforced by corpus-setup.sh |
+| LSP enrichment | High | Same language server version produces same edges |
+| Embedding model | Medium | nomic-embed-text-v1.5 pinned, auto-downloads |
+| ONNX runtime | Low | Float32 determinism across platforms |
+| SQLite FTS5 | Low | BM25 ranking is deterministic for same index |
+| Go version | None | No floating-point dependence in tree-sitter extraction |

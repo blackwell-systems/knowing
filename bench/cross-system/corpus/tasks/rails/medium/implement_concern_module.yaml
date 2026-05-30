@@ -1,0 +1,13 @@
+id: rails-medium-003
+repo: rails
+tier: medium
+description: "Create a shared concern module that adds soft-delete functionality to multiple Active Record models"
+source: manual
+ground_truth:
+  - ActiveSupport::Concern
+  - ActiveSupport::Concern.append_features
+  - ActiveSupport::Concern.class_methods
+  - ActiveRecord::Scoping::Named::ClassMethods.scope
+  - ActiveSupport::Callbacks::ClassMethods.set_callback
+tags: [concern, activesupport, activerecord, pattern]
+notes: "Requires Concern for the module pattern, class_methods for ClassMethods block, scope for query interface, and callbacks for soft-delete hooks."

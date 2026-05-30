@@ -1,0 +1,12 @@
+id: rails-easy-003
+repo: rails
+tier: easy
+description: "Define a named scope on a model that filters records by a date range and chains with other scopes"
+source: manual
+ground_truth:
+  - ActiveRecord::Scoping::Named::ClassMethods.scope
+  - ActiveRecord::Scoping::Named::ClassMethods.default_scoped
+  - ActiveRecord::QueryMethods.where
+  - ActiveRecord::SpawnMethods.merge
+tags: [scoping, activerecord, feature-addition]
+notes: "Requires the scope DSL, understanding how scopes become chainable Relation objects via where/merge."

@@ -1,0 +1,12 @@
+id: rails-easy-002
+repo: rails
+tier: easy
+description: "Add a has_many association between two models with dependent destroy and a custom scope"
+source: manual
+ground_truth:
+  - ActiveRecord::Associations::ClassMethods.has_many
+  - ActiveRecord::Associations::ClassMethods.belongs_to
+  - ActiveRecord::Associations::Builder::Association.define_callbacks
+  - ActiveRecord::Associations::Builder::Association.add_destroy_callbacks
+tags: [associations, activerecord, feature-addition]
+notes: "Requires has_many macro, understanding of dependent option callbacks, and the Builder pattern for association setup."

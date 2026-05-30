@@ -1,0 +1,13 @@
+id: rails-medium-002
+repo: rails
+tier: medium
+description: "Add a custom Rack middleware to the Rails middleware stack that logs request timing and headers"
+source: manual
+ground_truth:
+  - ActionDispatch::MiddlewareStack.use
+  - ActionDispatch::MiddlewareStack.build
+  - ActionDispatch::MiddlewareStack.insert
+  - ActionDispatch::MiddlewareStack::Middleware
+  - Rails::Configuration::MiddlewareStackProxy
+tags: [middleware, rack, actiondispatch]
+notes: "Requires MiddlewareStack for insertion, Middleware wrapper class, and the Configuration proxy for app-level middleware setup."

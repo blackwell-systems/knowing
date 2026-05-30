@@ -1,0 +1,12 @@
+id: rails-easy-004
+repo: rails
+tier: easy
+description: "Send a welcome email to a user after account creation using Action Mailer"
+source: manual
+ground_truth:
+  - ActionMailer::Base
+  - ActionMailer::Base.mail
+  - ActionMailer::MessageDelivery.deliver_later
+  - ActionMailer::Parameterized::ClassMethods.with
+tags: [mailer, actionmailer, feature-addition]
+notes: "Requires the Base mailer class, mail method for composing, deliver_later for async, and with for parameterized mailers."

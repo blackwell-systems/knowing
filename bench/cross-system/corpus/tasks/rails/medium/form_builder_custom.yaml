@@ -1,0 +1,13 @@
+id: rails-medium-004
+repo: rails
+tier: medium
+description: "Build a custom form builder that renders Bootstrap-styled form fields with validation error display"
+source: manual
+ground_truth:
+  - ActionView::Helpers::FormHelper
+  - ActionView::Helpers::FormHelper.form_for
+  - ActionView::Helpers::FormBuilder
+  - ActionView::Helpers::FormBuilder.rich_textarea
+  - ActionView::Helpers::FormBuilder.label
+tags: [forms, actionview, helpers]
+notes: "Requires FormHelper for form_for, FormBuilder as the base class to subclass, and individual field helpers to override."

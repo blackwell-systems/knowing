@@ -1,0 +1,12 @@
+id: rails-easy-006
+repo: rails
+tier: easy
+description: "Create a background job that processes uploaded files asynchronously using Active Job"
+source: manual
+ground_truth:
+  - ActiveJob::Base
+  - ActiveJob::Execution.perform_now
+  - ActiveJob::Enqueuing.enqueue
+  - ActiveJob::Core::ClassMethods.set
+tags: [activejob, background-processing, feature-addition]
+notes: "Requires Base for job definition, perform_now for inline execution, enqueue for queue submission, set for scheduling options."

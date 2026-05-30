@@ -1,0 +1,13 @@
+id: rails-medium-006
+repo: rails
+tier: medium
+description: "Implement file upload with Active Storage including image variants and direct upload support"
+source: manual
+ground_truth:
+  - ActiveStorage::Attached::Model.has_one_attached
+  - ActiveStorage::Attached::One
+  - ActiveStorage::Attached::Changes::CreateOne
+  - ActiveStorage::Variant
+  - ActiveStorage::Service
+tags: [active-storage, uploads, feature-addition]
+notes: "Requires has_one_attached macro, Blob for storage, Variant for image processing, and Service for backend abstraction."
