@@ -751,6 +751,13 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 			gapThreshold = n
 		}
 	}
+	// When focused seeds is enabled, compute the dominant package from
+	// pre-gap-fill candidates so gap-fill can prefer the same neighborhood.
+	focusedSeeds := os.Getenv("BENCH_FOCUSED_SEEDS") == "1"
+	var focusPkg string
+	if focusedSeeds {
+		focusPkg = dominantPkg(candidates)
+	}
 	if len(candidates) < gapThreshold && e.vector != nil {
 		gapHashes, gapErr := e.vector.EmbedAndSearch(ctx, opts.TaskDescription, 20)
 		// If HNSW returned nothing (empty index), try brute-force from store.
@@ -770,6 +777,11 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 				}
 				// Skip phantom/external nodes
 				if n.Kind == "external" {
+					continue
+				}
+				// Cluster-aware gap-fill: when focused seeds is active,
+				// only accept gap-fill nodes from the dominant package.
+				if focusPkg != "" && qualifiedNamePkg(n.QualifiedName) != focusPkg {
 					continue
 				}
 				seen[h] = true
@@ -2181,41 +2193,56 @@ func isPathMatch(qualifiedName, term string) bool {
 	return true
 }
 
+// qualifiedNamePkg extracts the package path from a QualifiedName.
+// Format: "{repoURL}://{pkgPath}.{TypeName}.{SymbolName}"
+// e.g. "github.com/foo/bar/pkg.Type.Method" -> "github.com/foo/bar/pkg"
+func qualifiedNamePkg(qn string) string {
+	idx := strings.Index(qn, "://")
+	if idx < 0 {
+		return ""
+	}
+	path := qn[idx+3:]
+	parts := strings.Split(path, ".")
+	var pkgParts []string
+	for _, p := range parts {
+		if len(p) == 0 {
+			continue
+		}
+		// Package components are lowercase; symbol components start with upper or are keywords.
+		if p[0] >= 'A' && p[0] <= 'Z' {
+			break
+		}
+		pkgParts = append(pkgParts, p)
+	}
+	if len(pkgParts) == 0 {
+		return path
+	}
+	return strings.Join(pkgParts, ".")
+}
+
+// dominantPkg returns the package path that appears most among candidates.
+func dominantPkg(candidates []types.Node) string {
+	counts := make(map[string]int)
+	best, bestN := "", 0
+	for _, c := range candidates {
+		pkg := qualifiedNamePkg(c.QualifiedName)
+		counts[pkg]++
+		if counts[pkg] > bestN {
+			bestN = counts[pkg]
+			best = pkg
+		}
+	}
+	if bestN < 2 {
+		return ""
+	}
+	return best
+}
+
 // focusedSeedSelect reorders candidates so structurally cohesive seeds come first.
 // Instead of scattering 15-25 seeds across the graph, it clusters by package path
 // and promotes the largest cluster to the front. The maxSeeds cap downstream then
 // naturally selects from this focused set.
 func focusedSeedSelect(candidates []types.Node) []types.Node {
-	// Extract package path from QualifiedName.
-	// Format: "{repoURL}://{pkgPath}.{TypeName}.{SymbolName}"
-	pkgOf := func(qn string) string {
-		// Find the "://" separator first.
-		idx := strings.Index(qn, "://")
-		if idx < 0 {
-			return ""
-		}
-		path := qn[idx+3:]
-		// Package path is everything up to the last dot-separated symbol components.
-		// e.g. "github.com/foo/bar/pkg.Type.Method" -> "github.com/foo/bar/pkg"
-		// Find the first uppercase segment as a heuristic for where symbols start.
-		parts := strings.Split(path, ".")
-		var pkgParts []string
-		for _, p := range parts {
-			if len(p) == 0 {
-				continue
-			}
-			// Package components are lowercase; symbol components start with upper or are keywords.
-			if p[0] >= 'A' && p[0] <= 'Z' {
-				break
-			}
-			pkgParts = append(pkgParts, p)
-		}
-		if len(pkgParts) == 0 {
-			return path
-		}
-		return strings.Join(pkgParts, ".")
-	}
-
 	// Cluster candidates by package.
 	type cluster struct {
 		pkg     string
@@ -2224,7 +2251,7 @@ func focusedSeedSelect(candidates []types.Node) []types.Node {
 	clusterMap := make(map[string]*cluster)
 	var clusterOrder []string
 	for i, c := range candidates {
-		pkg := pkgOf(c.QualifiedName)
+		pkg := qualifiedNamePkg(c.QualifiedName)
 		if cl, ok := clusterMap[pkg]; ok {
 			cl.indices = append(cl.indices, i)
 		} else {
