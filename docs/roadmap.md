@@ -2,17 +2,18 @@
 
 What's shipped is in the [changelog](CHANGELOG.md). This document covers what's next.
 
-## Current State (v0.12.0, 2026-05-29)
+## Current State (v0.12.0, 2026-05-30)
 
-**P@10 = 0.267 cold start, 0.272 with compounding** (277 tasks, 14 repos, 8 languages, nomic-embed-text-v1.5 model). 38 edge types. 23 extractors. 164 equivalence classes.
+**P@10 = 0.267 cold start, 0.272 with compounding** (277 tasks, 14 repos, 8 languages, nomic-embed-text-v1.5 model). 38 edge types. 23 extractors. 164 equivalence classes. 55 experiments across 13 sessions.
 1.98x codegraph, 1.95x codebase-memory, 3.56x GitNexus, 4.24x Gortex, 20.5x grep.
-Embedding re-ranker: disabled (net negative on P@10, session 19). Gap-fill seeds (embedding-based): +11.2%. Equivalence classes (C#, FastAPI, Terraform, Rust): +4%. Task memory compounding: +4.9%. Ruby enrichment (ruby-lsp): Jekyll #1 in corpus at 0.370. Parallel benchmark: 5.5 min (was 80 min sequential) via PreloadVectors.
+Embedding re-ranker: disabled (3 models tested, all net negative, architecture closed). Gap-fill seeds (embedding-based): +11.2%. Equivalence classes (C#, FastAPI, Terraform, Rust): +4%. Task memory compounding: +4.9%. Ruby enrichment (ruby-lsp): Jekyll #1 in corpus at 0.370. Parallel benchmark: 5.5 min (was 80 min sequential) via PreloadVectors.
+**Structural ceiling reached (session 20):** 55 experiments confirm P@10 is reachability-determined. Incremental path exhausted. Next-generation approaches needed (see below).
 
 ## Immediate Priorities
 
 | # | Item | Why | Effort | Expected Impact |
 |---|------|-----|--------|-----------------|
-| 2 | **Deploy platform API** | api.blackwell-systems.com. DigitalOcean Droplet, Cloudflare Tunnel, bare metal. DEPLOY.md + deploy.sh ready. Just need GitHub deploy key. | 15 min | Live product |
+| 2 | **Deploy platform API** | api.blackwell-systems.com. DigitalOcean Droplet, Cloudflare Tunnel, bare metal. DEPLOY.md + deploy.sh committed. Server provisioned (142.93.52.251). Go building on 1GB Droplet is slow; upgrade to 2GB or cross-compile. | In progress | Live product |
 | 3 | **AI-generated evaluation corpus** | LLM generates tasks + ground truth, DB-validated before use: all symbols must exist in nodes table, >= 3 symbols, span >= 2 files. Auto-difficulty from graph properties. Run 1000, keep ~600. Weekly CI. Hybrid: hand-curated for regression, AI-generated for statistical coverage. | Medium | Eval credibility |
 | 4 | **Blog post** | Numbers are publishable: 14 repos, 8 languages, 277 tasks. LinkedIn audience is warm (11K views on mcp-assert). | 2 hours | Visibility |
 | 5 | **Add more corpus repos** | Candidates: celery (Python, 80K LOC), Spring Boot (Java/Kotlin). Homebrew blocked on Ruby LSP (22a). Target: 16+ repos, 300 tasks. | 2 hours each | Corpus credibility |
@@ -43,6 +44,7 @@ Embedding re-ranker: disabled (net negative on P@10, session 19). Gap-fill seeds
 | **Porter stemming in FTS5** | Neutral (-0.003) | 20 | Added `porter` tokenizer to FTS5 so "validates" matches "Validator". Django +0.006, cargo -0.009. Full corpus 0.264 vs 0.267 baseline. Stemming expands BM25 recall but brings in noisy seeds that dilute RWR on dense graphs. |
 | **Django framework equiv classes** | Harmful (-0.011) | 20 | Two versions tested. V1 (broad phrases): +0.008 (variance). V2 (targeted phrases matching task descriptions): -0.011. Equiv class targets duplicated symbols BM25 already finds, adding noise. Equiv classes only help when targets are NOT findable by BM25. |
 | **SCIP ingestion for Rust** | Rejected | 20 | rust-analyzer SCIP on cargo: 124K edges, all connecting project code to external types (stdlib, serde, dependencies). Zero project-internal edges that tree-sitter didn't already find. Unfiltered: P@10 = 0.150 (-0.127). Filtered (project-only): +0 edges, identical to baseline. SCIP's value is cross-crate resolution, but those targets are always external. Macro-expanded edges (derive Serialize) create impl edges TO external types, not between project symbols. Dead end for P@10. |
+| **Graph pruning / ghost edges** | Neutral | 20 | Three configs on cargo: (1) exclude similar_to: 0.245 (-0.014, reachability lost). (2) exclude references: 0.268 (+0.009, noise removed). (3) ghost references at 0.05 weight: 0.264 (+0.005). Full corpus ghost: 0.264 (-0.003). Density-adaptive ghost (threshold 5.0): 0.264 (-0.003). Per-repo wins cancel losses. Pruning/ghosting is edge weight tuning, which 57 experiments confirm doesn't move aggregate P@10. |
 
 ### Re-test Candidates (post-enrichment graph structure change)
 
@@ -60,7 +62,7 @@ Go enrichment fundamentally changed graph structure on k8s (268K -> 705K edges, 
 gopls on-demand package loading dominates enrichment time on large Go repos. The two-phase warmup (didOpen + retry) solved the "zero upgrades" problem. Both Go repos are now fully enriched:
 
 - **Terraform**: 82K new edges discovered, 73K phantom nodes, 12 min total
-- **Kubernetes**: 192K new edges discovered, 169K phantom nodes, 58 min gopls (root module covers all 30 sub-modules)
+- **Kubernetes**: 192K new edges discovered, 169K phantom nodes, 58 min gopls (root module only). Sub-modules (30 staging packages) are intentionally excluded from indexing: staging code is dependency code that dilutes RWR (-20% P@10 when included). Multi-module enrichment infrastructure works but has nothing to enrich since staging files aren't indexed.
 
 The persistent daemon (#3) is the real fix for repeat runs; everything else works around the cold start.
 
@@ -316,6 +318,18 @@ The adaptive infrastructure is knowing's core differentiator. Competitors use fi
 | 28 | **Learned edge weights from ground truth** | Train optimal RWR weights from 277-task corpus. But 32-config parameter sweep was zero variance. | Moat (won't move P@10) |
 | 29 | **Feedback-driven per-repo thresholds** | System discovers own parameters from task memory. Parameters don't matter, but UX improves. | Moat (requires users) |
 | 25 | ~~Co-change edges from git history~~ | Tested session 20: full redesign with proper concurrency (writeMu, atomic stats, producer-consumer). Deepened all 12 corpus clones to 200+ commits. Three configs tested: (1) min=1 cap=50: Django +0.013, k8s +0.042, but cargo -0.066. Full corpus 0.263 (-0.004). (2) min=1 cap=5: cargo -0.018. (3) min=2 cap=5: cargo -0.004, full corpus 0.267 (exactly baseline). Per-repo wins and losses cancel out. Bulk refactor commits create O(n^2) noisy pairs that dilute RWR on dense graphs; filtering the noise also filters the signal. | **Neutral** |
+
+### Next-generation retrieval (beyond incremental experiments)
+
+55 experiments across sessions 8-20 exhausted the incremental path. Every variation on "add more to the graph" (edges, seeds, parameters, models) either helps sparse repos while hurting dense ones, or washes out in aggregate. P@10 = 0.267 is the structural ceiling for the current approach (BM25 seeds -> RWR walk -> rank). Breaking through requires fundamentally different retrieval strategies.
+
+| # | Item | Approach | Why it might work |
+|---|------|----------|-------------------|
+| 31 | **Query-time LLM symbol prediction** | Ask an LLM to predict likely symbol names from the task description before retrieval. "In Django, a field validator would be `clean`, `BaseValidator.__call__`." Inject predictions as high-confidence seeds. | Solves the vocabulary gap with intelligence instead of string matching. The "find" half done by reasoning, not BM25. Trade-off: adds LLM latency and cost. Could be optional (local model or API). |
+| 32 | **Per-repo graph pruning** | Instead of adding edges, remove low-confidence ones. Hypothesis: the bottom 30% of edges by confidence are noise that dilute the walk. Selective removal sharpens RWR focus. | Inverse of everything we've tried (adding). Dense repos (cargo 13.5) might improve if noisy edges are pruned. Test: ablate edges below confidence threshold, measure P@10. |
+| 33 | **Two-phase focused walk** | Phase 1: BM25 finds a neighborhood. Phase 2: filter to top-5 highest-confidence seeds, run a tighter RWR from only those. Current approach walks from 15-25 seeds simultaneously, diluting across starting points. | Addresses the "too many seeds" problem on dense graphs. The 32-config sweep showed seed count doesn't matter for WHICH seeds, but it might matter for HOW MANY walk simultaneously. Focused walk = less dilution. |
+| 34 | **Ground truth expansion** | Current 277 tasks may have incomplete ground truth. If the system finds useful symbols that aren't in the ground truth, it's penalized unfairly. Systematic review: for each zero-scoring task, examine what the system actually returns and judge relevance independently. | Free P@10 if ground truth is wrong. Session 20 confirmed fixtures are valid (symbols exist, are connected), but relevance of returned symbols was not reviewed. The system might be returning contextually useful symbols that aren't in the curated ground truth. |
+| 35 | **Alternative walk algorithm** | Replace RWR with Personalized PageRank with topic-sensitive seeds, heat diffusion kernel, or graph attention network. RWR distributes probability uniformly along edges; a learned walk could weight edges by query context. | RWR is a general-purpose algorithm. A query-aware walk that weighs edges differently per query could be more precise. Risk: overfitting. Requires the 277-task corpus for training/validation. |
 
 ## Edge Type Expansion
 
