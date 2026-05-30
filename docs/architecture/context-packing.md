@@ -269,7 +269,7 @@ merges ranked lists from all channels into a single seed set:
 | 1. Tiered keyword matching | 2.0 | 4-tier exact/prefix/substring/path matching (compound-first) |
 | 2. BM25 FTS5 | 2.0 | SQLite FTS5 over 6 columns: symbol_name (10x), concepts (5x), file_path (4x), qualified_name (3x), doc (3x), signature (1x). Includes concept thesaurus expansion (~80 domain clusters) for keyword broadening. |
 | 3. Vector/embedding search | 0.0 | BGE-small-en-v1.5 via HNSW (disabled pending code-tuned model) |
-| 4. Equivalence class matching | 2.0 | 115 equivalence classes (63 universal + 21 knowing-specific + 31 language-specific) with 1000+ phrases mapped to target symbols |
+| 4. Equivalence class matching | 2.0 | 164 equivalence classes (63 universal + 21 knowing-specific + 79 language/framework-specific) with 1000+ phrases mapped to target symbols |
 | 5. Path-context seeding | 1.5 | Extracts package/directory terms from task, finds type nodes in matching packages, injects as supplemental RWR seeds at weight 0.3 |
 
 ### BM25 Full-Text Search (Channel 2)
@@ -557,7 +557,7 @@ for that symbol, it replaces it.
 ## Limitations
 
 1. **Limited semantic understanding of task descriptions.** The system uses substring matching,
-   BM25, and equivalence classes for seed selection. The 115 equivalence classes bridge common
+   BM25, and equivalence classes for seed selection. The 164 equivalence classes bridge common
    vocabulary gaps (e.g., "blast radius" to `TransitiveCallers`), but concepts not covered
    by the curated classes still rely on lexical matching. The system cannot understand
    that "optimize database queries" relates to functions that issue SQL, unless those
