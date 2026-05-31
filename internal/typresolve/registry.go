@@ -138,6 +138,22 @@ func (r *Registry) ResolveAlias(typeQN string) *RegisteredType {
 	return nil
 }
 
+// IterFuncsByShortName calls fn for every registered function whose ShortName
+// matches shortName. Searches this registry and all fallbacks. Used as a
+// last-resort resolution strategy when qualified-name lookup fails.
+func (r *Registry) IterFuncsByShortName(shortName string, fn func(*RegisteredFunc) bool) {
+	for _, f := range r.funcs {
+		if f.ShortName == shortName {
+			if !fn(f) {
+				return
+			}
+		}
+	}
+	if r.fallback != nil {
+		r.fallback.IterFuncsByShortName(shortName, fn)
+	}
+}
+
 // FuncCount returns the number of functions registered locally (not including
 // fallback).
 func (r *Registry) FuncCount() int {

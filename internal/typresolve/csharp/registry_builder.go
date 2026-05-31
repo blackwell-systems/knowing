@@ -10,8 +10,13 @@ import (
 // Registers classes, interfaces, structs, enums, methods (with receiver type),
 // constructors, and properties (as methods). Handles partial class merging by
 // accumulating methods and fields from multiple definitions of the same type QN.
+// Pre-seeds with C# stdlib types (System.String, Console, List, etc.) via
+// RegisterCSharpStdlib so that resolution works without LSP enrichment.
 func BuildRegistry(defs []typresolve.ResolverDef) *typresolve.Registry {
 	reg := typresolve.NewRegistry()
+
+	// Pre-seed stdlib types and methods.
+	RegisterCSharpStdlib(reg)
 
 	// Track seen types for partial class merging.
 	seenTypes := make(map[string]bool)

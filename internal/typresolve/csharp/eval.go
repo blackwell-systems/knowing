@@ -23,6 +23,13 @@ type ResolveContext struct {
 	EnclosingBaseQN  string
 	ModuleQN         string
 	EvalDepth        int
+	// TypeParamNames holds the type parameter names for the current generic
+	// context (class or method). Parallel array with TypeParamArgs.
+	TypeParamNames []string
+	// TypeParamArgs holds the concrete type arguments substituted for
+	// TypeParamNames. When resolving inside a generic type/method, bare
+	// identifiers matching TypeParamNames[i] resolve to TypeParamArgs[i].
+	TypeParamArgs []*typresolve.Type
 }
 
 // nodeContent extracts the source text for a tree-sitter node.
@@ -212,8 +219,11 @@ func EvalExprType(ctx *ResolveContext, node *sitter.Node) *typresolve.Type {
 
 // evalIdentifier resolves an identifier expression.
 // 1. Scope lookup
-// 2. Implicit this member lookup
-// 3. Type name resolution (registry lookup)
+// 2. Type parameter substitution
+// 3. Implicit this member lookup
+// 4. Type name resolution (registry lookup)
+// 5. using static resolution
+// 6. Short-name fallback
 func evalIdentifier(ctx *ResolveContext, node *sitter.Node) *typresolve.Type {
 	name := nodeContent(node, ctx.Content)
 
@@ -222,7 +232,12 @@ func evalIdentifier(ctx *ResolveContext, node *sitter.Node) *typresolve.Type {
 		return t
 	}
 
-	// 2. Implicit this member: look up as method/field on enclosing class.
+	// 2. Type parameter substitution.
+	if t := substituteTypeParam(ctx, name); t != nil {
+		return t
+	}
+
+	// 3. Implicit this member: look up as method/field on enclosing class.
 	if ctx.EnclosingClassQN != "" {
 		if m := lookupMethodStub(ctx.Registry, ctx.EnclosingClassQN, name); m != nil {
 			if m.Signature != nil {
@@ -235,13 +250,15 @@ func evalIdentifier(ctx *ResolveContext, node *sitter.Node) *typresolve.Type {
 		}
 	}
 
-	// 3. Check if it is a registered type name.
-	if t := ctx.Registry.LookupType(name); t != nil {
-		return typresolve.Named(name)
+	// 4. Check if it is a registered type name.
+	if ctx.Registry != nil {
+		if t := ctx.Registry.LookupType(name); t != nil {
+			return typresolve.Named(name)
+		}
 	}
 
-	// 4. Check as function in the module.
-	if ctx.ModuleQN != "" {
+	// 5. Check as function in the module.
+	if ctx.ModuleQN != "" && ctx.Registry != nil {
 		if f := ctx.Registry.LookupSymbol(ctx.ModuleQN, name); f != nil {
 			if f.Signature != nil {
 				return f.Signature
@@ -249,7 +266,94 @@ func evalIdentifier(ctx *ResolveContext, node *sitter.Node) *typresolve.Type {
 		}
 	}
 
+	// 6. Check using static imports.
+	for _, u := range ctx.Usings {
+		if u.Kind == UsingStatic && ctx.Registry != nil {
+			if m := LookupMethod(ctx.Registry, u.TargetQN, name); m != nil {
+				if m.Signature != nil {
+					return m.Signature
+				}
+			}
+		}
+	}
+
 	return typresolve.Unknown()
+}
+
+// substituteTypeParam checks if name matches one of the current type parameter
+// names and returns the corresponding argument type. Returns nil if no match.
+func substituteTypeParam(ctx *ResolveContext, name string) *typresolve.Type {
+	for i, pName := range ctx.TypeParamNames {
+		if pName == name {
+			if i < len(ctx.TypeParamArgs) && ctx.TypeParamArgs[i] != nil {
+				return ctx.TypeParamArgs[i]
+			}
+			return typresolve.TypeParamType(name)
+		}
+	}
+	return nil
+}
+
+// SubstituteTypeParams substitutes type parameters in a type using the given
+// parallel name/arg arrays. Port of cs_substitute_type_params from cs_lsp.c.
+func SubstituteTypeParams(t *typresolve.Type, paramNames []string, paramArgs []*typresolve.Type) *typresolve.Type {
+	if t == nil || len(paramNames) == 0 || len(paramArgs) == 0 {
+		return t
+	}
+
+	switch t.Kind {
+	case typresolve.KindNamed:
+		// If the type name matches a type parameter, substitute.
+		for i, name := range paramNames {
+			if name == t.Name && i < len(paramArgs) && paramArgs[i] != nil {
+				return paramArgs[i]
+			}
+		}
+		return t
+
+	case typresolve.KindTypeParam:
+		// Direct type parameter reference.
+		for i, name := range paramNames {
+			if name == t.Name && i < len(paramArgs) && paramArgs[i] != nil {
+				return paramArgs[i]
+			}
+		}
+		return t
+
+	case typresolve.KindSlice:
+		if t.Elem != nil {
+			newElem := SubstituteTypeParams(t.Elem, paramNames, paramArgs)
+			if newElem != t.Elem {
+				return typresolve.Slice(newElem)
+			}
+		}
+		return t
+
+	case typresolve.KindMap:
+		newKey := SubstituteTypeParams(t.Key, paramNames, paramArgs)
+		newVal := SubstituteTypeParams(t.Value, paramNames, paramArgs)
+		if newKey != t.Key || newVal != t.Value {
+			return typresolve.Map(newKey, newVal)
+		}
+		return t
+
+	case typresolve.KindFunc:
+		changed := false
+		var newReturns []*typresolve.Type
+		for _, r := range t.Returns {
+			nr := SubstituteTypeParams(r, paramNames, paramArgs)
+			newReturns = append(newReturns, nr)
+			if nr != r {
+				changed = true
+			}
+		}
+		if changed {
+			return typresolve.Func(nil, newReturns)
+		}
+		return t
+	}
+
+	return t
 }
 
 // evalInvocation resolves an invocation_expression.
@@ -332,17 +436,27 @@ func evalMemberAccess(ctx *ResolveContext, node *sitter.Node) *typresolve.Type {
 
 	// Evaluate the receiver expression.
 	base := EvalExprType(ctx, exprNode)
+
+	// Unwrap nullable (T? -> T) before member lookup.
+	base = unwrapNullableType(base)
+
 	if base == nil || base.Kind == typresolve.KindUnknown {
 		// If the expression is an identifier, try it as a type name for static access.
 		if exprNode.Type() == "identifier" {
 			typeName := nodeContent(exprNode, ctx.Content)
-			if m := lookupMethodStub(ctx.Registry, typeName, memberName); m != nil {
+			// Resolve through usings for static access (e.g., Console.WriteLine).
+			ns := ""
+			if len(ctx.NamespaceStack) > 0 {
+				ns = strings.Join(ctx.NamespaceStack, ".")
+			}
+			resolvedType := ResolveTypeName(typeName, ns, ctx.Usings, ctx.Registry, ctx.EnclosingClassQN, ctx.ModuleQN)
+			if m := lookupMethodStub(ctx.Registry, resolvedType, memberName); m != nil {
 				if m.Signature != nil {
-					return m.Signature
+					return substituteReturnType(m.Signature, ctx, resolvedType)
 				}
 			}
-			if ft := lookupFieldStub(ctx.Registry, typeName, memberName); ft != nil {
-				return ft
+			if ft := lookupFieldStub(ctx.Registry, resolvedType, memberName); ft != nil {
+				return substituteFieldType(ft, ctx, resolvedType)
 			}
 		}
 		return typresolve.Unknown()
@@ -353,16 +467,72 @@ func evalMemberAccess(ctx *ResolveContext, node *sitter.Node) *typresolve.Type {
 		// Look up method on the type.
 		if m := lookupMethodStub(ctx.Registry, typeQN, memberName); m != nil {
 			if m.Signature != nil {
-				return m.Signature
+				return substituteReturnType(m.Signature, ctx, typeQN)
 			}
 		}
 		// Look up field on the type.
 		if ft := lookupFieldStub(ctx.Registry, typeQN, memberName); ft != nil {
-			return ft
+			return substituteFieldType(ft, ctx, typeQN)
 		}
 	}
 
 	return typresolve.Unknown()
+}
+
+// unwrapNullableType unwraps a nullable type for member lookup purposes.
+// Handles both System.Nullable named types and TypeParam-based nullable hints.
+func unwrapNullableType(t *typresolve.Type) *typresolve.Type {
+	if t == nil {
+		return t
+	}
+	if t.Kind == typresolve.KindNamed {
+		// Unwrap System.Nullable -> underlying type (approximated as Unknown
+		// since we don't track generic args on Named; the caller resolves via
+		// field lookup on the unwrapped type).
+		if t.Name == "System.Nullable" || strings.HasPrefix(t.Name, "System.Nullable<") {
+			return typresolve.Unknown()
+		}
+	}
+	return t
+}
+
+// substituteReturnType extracts the return type from a function signature and
+// applies type parameter substitution if the type has type params in the registry.
+func substituteReturnType(sig *typresolve.Type, ctx *ResolveContext, typeQN string) *typresolve.Type {
+	if sig == nil {
+		return typresolve.Unknown()
+	}
+	// If sig is a Func type, extract return type.
+	if sig.Kind == typresolve.KindFunc {
+		if len(sig.Returns) == 0 {
+			return typresolve.Unknown()
+		}
+		ret := sig.Returns[0]
+		// Try type param substitution from the type's registered TypeParams
+		// against the context's TypeParamArgs.
+		if ctx.Registry != nil {
+			rt := ctx.Registry.LookupType(typeQN)
+			if rt != nil && len(rt.TypeParams) > 0 && len(ctx.TypeParamArgs) > 0 {
+				ret = SubstituteTypeParams(ret, rt.TypeParams, ctx.TypeParamArgs)
+			}
+		}
+		return ret
+	}
+	return sig
+}
+
+// substituteFieldType applies type parameter substitution to a field type.
+func substituteFieldType(ft *typresolve.Type, ctx *ResolveContext, typeQN string) *typresolve.Type {
+	if ft == nil {
+		return ft
+	}
+	if ctx.Registry != nil {
+		rt := ctx.Registry.LookupType(typeQN)
+		if rt != nil && len(rt.TypeParams) > 0 && len(ctx.TypeParamArgs) > 0 {
+			return SubstituteTypeParams(ft, rt.TypeParams, ctx.TypeParamArgs)
+		}
+	}
+	return ft
 }
 
 // evalConditionalAccess resolves x?.Member conditional access.

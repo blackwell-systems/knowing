@@ -42,6 +42,14 @@ func resolveNode(ctx *ResolveContext, node *sitter.Node, edges *[]types.Edge, fi
 		processMethodDecl(ctx, node, edges, fileHash, repoURL, filePath)
 		return
 
+	case "property_declaration":
+		processPropertyDecl(ctx, node, edges, fileHash, repoURL, filePath)
+		return
+
+	case "global_statement":
+		processTopLevelStatement(ctx, node, edges, fileHash, repoURL, filePath)
+		return
+
 	case "invocation_expression":
 		if rc := resolveInvocation(ctx, node); rc != nil {
 			edge := buildCSharpCallEdge(ctx, node, rc, fileHash, repoURL, filePath)
@@ -167,8 +175,31 @@ func processTypeDecl(ctx *ResolveContext, node *sitter.Node, edges *[]types.Edge
 	// Save and set enclosing class context.
 	origClassQN := ctx.EnclosingClassQN
 	origBaseQN := ctx.EnclosingBaseQN
+	origTypeParamNames := ctx.TypeParamNames
+	origTypeParamArgs := ctx.TypeParamArgs
 	ctx.EnclosingClassQN = classQN
 	ctx.EnclosingBaseQN = baseQN
+
+	// Collect type parameters from the type declaration.
+	typeParamNames := collectTypeParamNames(node, ctx.Content)
+	if len(typeParamNames) > 0 {
+		ctx.TypeParamNames = typeParamNames
+		// Type args are identity-mapped (TypeParam("T") for param "T")
+		// until concrete instantiation context is known.
+		args := make([]*typresolve.Type, len(typeParamNames))
+		for i, name := range typeParamNames {
+			args[i] = typresolve.TypeParamType(name)
+		}
+		ctx.TypeParamArgs = args
+	}
+
+	// Populate field/property types from the declaration body before walking calls.
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		child := node.NamedChild(i)
+		if child != nil && child.Type() == "declaration_list" {
+			populateFieldTypes(ctx, child)
+		}
+	}
 
 	// Process declaration body.
 	for i := 0; i < int(node.NamedChildCount()); i++ {
@@ -183,6 +214,8 @@ func processTypeDecl(ctx *ResolveContext, node *sitter.Node, edges *[]types.Edge
 	// Restore enclosing class context.
 	ctx.EnclosingClassQN = origClassQN
 	ctx.EnclosingBaseQN = origBaseQN
+	ctx.TypeParamNames = origTypeParamNames
+	ctx.TypeParamArgs = origTypeParamArgs
 }
 
 // processMethodDecl handles method_declaration and constructor_declaration nodes.
@@ -207,6 +240,25 @@ func processMethodDecl(ctx *ResolveContext, node *sitter.Node, edges *[]types.Ed
 		} else {
 			ctx.EnclosingFuncQN = methodName
 		}
+	}
+
+	// Extract and patch method return type into the registry.
+	extractMethodReturnType(ctx, node)
+
+	// Collect method-level type parameters.
+	origTypeParamNames := ctx.TypeParamNames
+	origTypeParamArgs := ctx.TypeParamArgs
+	methodTypeParams := collectTypeParamNames(node, ctx.Content)
+	if len(methodTypeParams) > 0 {
+		// Merge with class-level type params (method params take priority).
+		allNames := append(append([]string{}, ctx.TypeParamNames...), methodTypeParams...)
+		allArgs := make([]*typresolve.Type, len(allNames))
+		copy(allArgs, ctx.TypeParamArgs)
+		for i := len(ctx.TypeParamNames); i < len(allNames); i++ {
+			allArgs[i] = typresolve.TypeParamType(allNames[i])
+		}
+		ctx.TypeParamNames = allNames
+		ctx.TypeParamArgs = allArgs
 	}
 
 	// Push method scope.
@@ -241,9 +293,11 @@ func processMethodDecl(ctx *ResolveContext, node *sitter.Node, edges *[]types.Ed
 		resolveMethodBody(ctx, exprBody, edges, fileHash, repoURL, filePath)
 	}
 
-	// Pop scope.
+	// Pop scope and restore type params.
 	ctx.Scope = origScope
 	ctx.EnclosingFuncQN = origFuncQN
+	ctx.TypeParamNames = origTypeParamNames
+	ctx.TypeParamArgs = origTypeParamArgs
 }
 
 // resolveMethodBody resolves calls within a method body node.
@@ -309,7 +363,13 @@ func resolveInvocation(ctx *ResolveContext, node *sitter.Node) *csResolvedCall {
 				return &csResolvedCall{calleeQN: m.QualifiedName}
 			}
 		}
-		// Try as function in module.
+		// Try base class.
+		if ctx.EnclosingBaseQN != "" {
+			if m := LookupMethod(ctx.Registry, ctx.EnclosingBaseQN, name); m != nil {
+				return &csResolvedCall{calleeQN: m.QualifiedName}
+			}
+		}
+		// Try as function in namespace.
 		ns := currentNamespace(ctx.NamespaceStack)
 		if ns != "" {
 			candidate := ns + "." + name
@@ -317,7 +377,23 @@ func resolveInvocation(ctx *ResolveContext, node *sitter.Node) *csResolvedCall {
 				return &csResolvedCall{calleeQN: candidate}
 			}
 		}
-		// Try scope lookup for delegate invocations.
+		// Try using static imports.
+		for _, u := range ctx.Usings {
+			if u.Kind == UsingStatic {
+				if m := LookupMethod(ctx.Registry, u.TargetQN, name); m != nil {
+					return &csResolvedCall{calleeQN: m.QualifiedName}
+				}
+				// Also try as QualifiedName directly.
+				candidate := u.TargetQN + "." + name
+				if ctx.Registry.LookupFunc(candidate) != nil {
+					return &csResolvedCall{calleeQN: candidate}
+				}
+			}
+		}
+		// Short-name fallback: find any free function with this short name.
+		if rc := resolveByShortName(ctx, name); rc != nil {
+			return rc
+		}
 		return nil
 
 	case "member_access_expression":
@@ -544,4 +620,342 @@ func stripGenericSuffix(name string) string {
 		return name[:idx]
 	}
 	return name
+}
+
+// collectTypeParamNames extracts type parameter names from a type_parameter_list
+// child of the given node. Returns nil if no type parameters found.
+func collectTypeParamNames(node *sitter.Node, content []byte) []string {
+	if node == nil {
+		return nil
+	}
+	// Find type_parameter_list child.
+	var tpList *sitter.Node
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		child := node.NamedChild(i)
+		if child != nil && child.Type() == "type_parameter_list" {
+			tpList = child
+			break
+		}
+	}
+	if tpList == nil {
+		return nil
+	}
+	var names []string
+	for i := 0; i < int(tpList.NamedChildCount()); i++ {
+		child := tpList.NamedChild(i)
+		if child != nil && child.Type() == "type_parameter" {
+			name := nodeContent(child, content)
+			if name != "" {
+				names = append(names, name)
+			}
+		}
+	}
+	return names
+}
+
+// extractMethodReturnType extracts the return type from a method_declaration
+// node and patches it into the registry's function signature. This enables
+// type inference through method call chains.
+func extractMethodReturnType(ctx *ResolveContext, node *sitter.Node) {
+	if node.Type() != "method_declaration" {
+		return
+	}
+	// Get the return type node.
+	retTypeNode := node.ChildByFieldName("type")
+	if retTypeNode == nil {
+		// Try the first named child that is a type.
+		for i := 0; i < int(node.NamedChildCount()); i++ {
+			child := node.NamedChild(i)
+			if child == nil {
+				continue
+			}
+			switch child.Type() {
+			case "predefined_type", "identifier", "qualified_name",
+				"generic_name", "nullable_type", "array_type",
+				"tuple_type":
+				retTypeNode = child
+			}
+			if retTypeNode != nil {
+				break
+			}
+		}
+	}
+	if retTypeNode == nil {
+		return
+	}
+
+	// Parse the return type.
+	ns := currentNamespace(ctx.NamespaceStack)
+	retType := ParseTypeNode(retTypeNode, ctx.Content, ns, ctx.Usings, ctx.Registry)
+	if retType == nil || retType.Kind == typresolve.KindUnknown {
+		return
+	}
+
+	// Build the function QN.
+	nameNode := node.ChildByFieldName("name")
+	if nameNode == nil {
+		return
+	}
+	methodName := nodeContent(nameNode, ctx.Content)
+	var funcQN string
+	if ctx.EnclosingClassQN != "" {
+		funcQN = ctx.EnclosingClassQN + "." + methodName
+	} else if ns != "" {
+		funcQN = ns + "." + methodName
+	} else {
+		funcQN = methodName
+	}
+
+	// Patch the registry entry with the return type.
+	if f := ctx.Registry.LookupFunc(funcQN); f != nil {
+		if f.Signature == nil {
+			f.Signature = typresolve.Func(nil, []*typresolve.Type{retType})
+		}
+	} else {
+		// Also try as method lookup.
+		if ctx.EnclosingClassQN != "" {
+			if f := ctx.Registry.LookupMethod(ctx.EnclosingClassQN, methodName); f != nil {
+				if f.Signature == nil {
+					f.Signature = typresolve.Func(nil, []*typresolve.Type{retType})
+				}
+			}
+		}
+	}
+}
+
+// populateFieldTypes walks property_declaration and field_declaration nodes
+// inside a type's declaration_list and populates the RegisteredType.Fields
+// in the registry. Called during processTypeDecl before walking the body.
+func populateFieldTypes(ctx *ResolveContext, node *sitter.Node) {
+	if ctx.Registry == nil || ctx.EnclosingClassQN == "" {
+		return
+	}
+	rt := ctx.Registry.LookupType(ctx.EnclosingClassQN)
+	if rt == nil {
+		return
+	}
+
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		child := node.NamedChild(i)
+		if child == nil {
+			continue
+		}
+		switch child.Type() {
+		case "property_declaration":
+			nameNode := child.ChildByFieldName("name")
+			typeNode := child.ChildByFieldName("type")
+			if nameNode == nil || typeNode == nil {
+				continue
+			}
+			name := nodeContent(nameNode, ctx.Content)
+			if name == "" {
+				continue
+			}
+			ns := currentNamespace(ctx.NamespaceStack)
+			fieldType := ParseTypeNode(typeNode, ctx.Content, ns, ctx.Usings, ctx.Registry)
+			if fieldType == nil {
+				continue
+			}
+			// Add field if not already present.
+			found := false
+			for _, f := range rt.Fields {
+				if f.Name == name {
+					found = true
+					break
+				}
+			}
+			if !found {
+				rt.Fields = append(rt.Fields, typresolve.Field{Name: name, Type: fieldType})
+			}
+			// Also patch the method entry signature (properties are registered
+			// as methods with no signature).
+			if m := ctx.Registry.LookupMethod(ctx.EnclosingClassQN, name); m != nil {
+				if m.Signature == nil {
+					m.Signature = typresolve.Func(nil, []*typresolve.Type{fieldType})
+				}
+			}
+
+		case "field_declaration":
+			// field_declaration has a variable_declaration child with type + declarators.
+			for j := 0; j < int(child.NamedChildCount()); j++ {
+				varDecl := child.NamedChild(j)
+				if varDecl == nil || varDecl.Type() != "variable_declaration" {
+					continue
+				}
+				typeNode := varDecl.ChildByFieldName("type")
+				if typeNode == nil {
+					// Try first named child that isn't a variable_declarator.
+					for k := 0; k < int(varDecl.NamedChildCount()); k++ {
+						c := varDecl.NamedChild(k)
+						if c != nil && c.Type() != "variable_declarator" {
+							typeNode = c
+							break
+						}
+					}
+				}
+				if typeNode == nil {
+					continue
+				}
+				ns := currentNamespace(ctx.NamespaceStack)
+				fieldType := ParseTypeNode(typeNode, ctx.Content, ns, ctx.Usings, ctx.Registry)
+				if fieldType == nil {
+					continue
+				}
+				// Find each variable_declarator to get field names.
+				for k := 0; k < int(varDecl.NamedChildCount()); k++ {
+					decl := varDecl.NamedChild(k)
+					if decl == nil || decl.Type() != "variable_declarator" {
+						continue
+					}
+					// First identifier child is the name.
+					for m := 0; m < int(decl.NamedChildCount()); m++ {
+						nameNode := decl.NamedChild(m)
+						if nameNode != nil && nameNode.Type() == "identifier" {
+							name := nodeContent(nameNode, ctx.Content)
+							if name == "" {
+								break
+							}
+							found := false
+							for _, f := range rt.Fields {
+								if f.Name == name {
+									found = true
+									break
+								}
+							}
+							if !found {
+								rt.Fields = append(rt.Fields, typresolve.Field{Name: name, Type: fieldType})
+							}
+							break
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// resolveByShortName uses Registry.IterFuncsByShortName as a last-resort
+// fallback for bare identifier calls. Picks the best match by namespace
+// prefix overlap with the current module. Port of the last-resort scan
+// from cs_lsp.c lines 1559-1583.
+func resolveByShortName(ctx *ResolveContext, name string) *csResolvedCall {
+	if ctx.Registry == nil {
+		return nil
+	}
+	var best *typresolve.RegisteredFunc
+	bestScore := -1
+	ctx.Registry.IterFuncsByShortName(name, func(f *typresolve.RegisteredFunc) bool {
+		// Skip methods (only match free functions for bare calls).
+		if f.ReceiverType != "" {
+			return true
+		}
+		score := 0
+		if f.QualifiedName != "" && ctx.ModuleQN != "" {
+			m := ctx.ModuleQN
+			q := f.QualifiedName
+			i := 0
+			for i < len(m) && i < len(q) && m[i] == q[i] {
+				if m[i] == '.' {
+					score++
+				}
+				i++
+			}
+		}
+		if score > bestScore {
+			bestScore = score
+			best = f
+		}
+		return true
+	})
+	if best != nil {
+		return &csResolvedCall{calleeQN: best.QualifiedName}
+	}
+	return nil
+}
+
+// processPropertyDecl handles property_declaration nodes, walking accessor
+// bodies (get/set) for call resolution. Port of the property accessor body
+// resolution from cs_lsp.c lines 1831-1851.
+func processPropertyDecl(ctx *ResolveContext, node *sitter.Node, edges *[]types.Edge, fileHash types.Hash, repoURL string, filePath string) {
+	nameNode := node.ChildByFieldName("name")
+	var propName string
+	if nameNode != nil {
+		propName = nodeContent(nameNode, ctx.Content)
+	}
+
+	// Build enclosing function QN for the property.
+	origFuncQN := ctx.EnclosingFuncQN
+	if ctx.EnclosingClassQN != "" && propName != "" {
+		ctx.EnclosingFuncQN = ctx.EnclosingClassQN + "." + propName
+	}
+
+	// Push scope for property.
+	origScope := ctx.Scope
+	ctx.Scope = typresolve.NewScope(origScope)
+
+	// Walk accessor_list for get/set bodies.
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		child := node.NamedChild(i)
+		if child == nil {
+			continue
+		}
+		if child.Type() == "accessor_list" {
+			for j := 0; j < int(child.NamedChildCount()); j++ {
+				accessor := child.NamedChild(j)
+				if accessor == nil || accessor.Type() != "accessor_declaration" {
+					continue
+				}
+				// Walk body or arrow expression.
+				body := accessor.ChildByFieldName("body")
+				if body != nil {
+					resolveMethodBody(ctx, body, edges, fileHash, repoURL, filePath)
+				} else {
+					// Check for arrow_expression_clause.
+					for k := 0; k < int(accessor.NamedChildCount()); k++ {
+						ac := accessor.NamedChild(k)
+						if ac != nil && ac.Type() == "arrow_expression_clause" {
+							resolveMethodBody(ctx, ac, edges, fileHash, repoURL, filePath)
+						}
+					}
+				}
+			}
+		}
+		// Also handle expression-bodied property (=> expr).
+		if child.Type() == "arrow_expression_clause" {
+			resolveMethodBody(ctx, child, edges, fileHash, repoURL, filePath)
+		}
+	}
+
+	// Pop scope.
+	ctx.Scope = origScope
+	ctx.EnclosingFuncQN = origFuncQN
+}
+
+// processTopLevelStatement handles global_statement and other top-level
+// statement nodes (C# 9 top-level statements / Program.cs without explicit
+// Main). Port of cs_lsp.c lines 2195-2211.
+func processTopLevelStatement(ctx *ResolveContext, node *sitter.Node, edges *[]types.Edge, fileHash types.Hash, repoURL string, filePath string) {
+	// Set synthetic enclosing function if none exists.
+	origFuncQN := ctx.EnclosingFuncQN
+	if ctx.EnclosingFuncQN == "" {
+		if ctx.ModuleQN != "" {
+			ctx.EnclosingFuncQN = ctx.ModuleQN + ".<Main>$"
+		} else {
+			ctx.EnclosingFuncQN = "<Main>$"
+		}
+	}
+
+	// Walk into the statement's children (global_statement wraps an inner statement).
+	if node.Type() == "global_statement" {
+		for i := 0; i < int(node.NamedChildCount()); i++ {
+			child := node.NamedChild(i)
+			if child != nil {
+				resolveMethodBody(ctx, child, edges, fileHash, repoURL, filePath)
+			}
+		}
+	} else {
+		resolveMethodBody(ctx, node, edges, fileHash, repoURL, filePath)
+	}
+
+	ctx.EnclosingFuncQN = origFuncQN
 }
