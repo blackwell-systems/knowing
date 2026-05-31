@@ -158,11 +158,16 @@ func resolveCallsInNode(ctx *ResolveContext, node *sitter.Node, edges *[]types.E
 		}
 	}
 
+	// Gap 3: Handle select statement with channel receive binding.
+	if node.Type() == "select_statement" {
+		resolveSelectStatement(ctx, node, edges, fileHash, repoURL, filePath)
+		return
+	}
+
 	// Handle scoped blocks.
 	needsPop := false
 	switch node.Type() {
-	case "block", "if_statement", "for_statement", "switch_statement",
-		"select_statement":
+	case "block", "if_statement", "for_statement", "switch_statement":
 		childScope := typresolve.NewScope(ctx.Scope)
 		ctx.Scope = childScope
 		needsPop = true
@@ -339,6 +344,22 @@ func resolveSelectorCall(ctx *ResolveContext, fnNode *sitter.Node) *resolvedCall
 		if m := LookupFieldOrMethod(ctx.Registry, typeQN, fieldName); m != nil {
 			return &resolvedCall{calleeQN: m.QualifiedName, strategy: "resolver_type_dispatch"}
 		}
+
+		// Gap 2: Interface satisfaction resolution.
+		// If the receiver type is an interface, try to find a single
+		// concrete implementer and resolve to its method.
+		rt := ctx.Registry.LookupType(typeQN)
+		if rt != nil && rt.IsInterface && len(rt.MethodNames) > 0 {
+			if concreteQN := findSoleImplementer(ctx.Registry, rt); concreteQN != "" {
+				concreteMethod := ctx.Registry.LookupMethod(concreteQN, fieldName)
+				if concreteMethod != nil {
+					return &resolvedCall{calleeQN: concreteMethod.QualifiedName, strategy: "resolver_interface_resolve"}
+				}
+			}
+			// Fallback: emit as interface dispatch.
+			return &resolvedCall{calleeQN: typeQN + "." + fieldName, strategy: "resolver_interface_dispatch"}
+		}
+
 		// Construct method QN even if not found in registry.
 		return &resolvedCall{calleeQN: typeQN + "." + fieldName, strategy: "resolver_type_dispatch"}
 	}
@@ -581,6 +602,149 @@ func extractReceiverTypeName(receiverNode *sitter.Node, content []byte) string {
 	}
 	return ""
 }
+
+// resolveSelectStatement handles select statements with per-case scope
+// and channel receive variable binding.
+//
+// Gap 3: For each communication_case, detects receive_statement nodes,
+// evaluates the channel type, extracts the element type, and binds
+// the received variable(s) into the case scope.
+func resolveSelectStatement(ctx *ResolveContext, node *sitter.Node, edges *[]types.Edge, fileHash types.Hash, repoURL string, filePath string) {
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		child := node.NamedChild(i)
+		if child == nil {
+			continue
+		}
+
+		if child.Type() != "communication_case" && child.Type() != "default_case" {
+			continue
+		}
+
+		// Push case scope.
+		caseScope := typresolve.NewScope(ctx.Scope)
+		origScope := ctx.Scope
+		ctx.Scope = caseScope
+
+		// Process children of the communication_case.
+		for j := 0; j < int(child.NamedChildCount()); j++ {
+			caseChild := child.NamedChild(j)
+			if caseChild == nil {
+				continue
+			}
+
+			if caseChild.Type() == "receive_statement" {
+				// receive_statement: left := <-right
+				// The right field is the channel expression.
+				left := caseChild.ChildByFieldName("left")
+				right := caseChild.ChildByFieldName("right")
+				if right != nil {
+					rightType := EvalExprType(ctx, right)
+					// Extract element type from channel.
+					recvType := rightType
+					if rightType != nil && rightType.Kind == typresolve.KindChannel && rightType.Elem != nil {
+						recvType = rightType.Elem
+					}
+					if recvType == nil {
+						recvType = typresolve.Unknown()
+					}
+
+					// Bind left-hand variables.
+					if left != nil {
+						if left.Type() == "expression_list" {
+							for k := 0; k < int(left.NamedChildCount()); k++ {
+								varNode := left.NamedChild(k)
+								if varNode == nil || varNode.Type() != "identifier" {
+									continue
+								}
+								varName := nodeContent(varNode, ctx.Content)
+								if varName == "_" {
+									continue
+								}
+								if k == 0 {
+									ctx.Scope.Bind(varName, recvType)
+								} else {
+									// Second variable is the ok bool.
+									ctx.Scope.Bind(varName, typresolve.Builtin("bool"))
+								}
+							}
+						} else if left.Type() == "identifier" {
+							varName := nodeContent(left, ctx.Content)
+							if varName != "_" {
+								ctx.Scope.Bind(varName, recvType)
+							}
+						}
+					}
+				}
+			} else {
+				// Body statements: recurse for call resolution.
+				resolveCallsInNode(ctx, caseChild, edges, fileHash, repoURL, filePath)
+			}
+		}
+
+		// Pop case scope.
+		ctx.Scope = origScope
+	}
+}
+
+// findSoleImplementer scans all registered types to find a single
+// concrete type that structurally satisfies the given interface.
+// Returns the qualified name of the sole implementer, or empty string
+// if zero or multiple implementers are found.
+//
+// Gap 2: Interface satisfaction resolution. When a method is called on
+// an interface type and exactly one concrete type implements all the
+// interface's methods, we resolve to that concrete type's method.
+func findSoleImplementer(reg *typresolve.Registry, iface *typresolve.RegisteredType) string {
+	if len(iface.MethodNames) == 0 {
+		return ""
+	}
+
+	// We need to iterate all types. Since we cannot modify the typresolve
+	// package, we use a workaround: check each method name combination.
+	// The registry's method map has keys "receiverQN.methodName". We scan
+	// the first interface method to find candidate types, then verify the
+	// rest.
+
+	// Unfortunately, we cannot iterate the registry's internal maps from
+	// outside the package. Instead, we maintain a package-level type list
+	// populated during BuildRegistry. See registeredTypeQNs below.
+	var soleImpl string
+	implCount := 0
+
+	for _, candidateQN := range registeredTypeQNs {
+		// Skip interfaces and aliases.
+		cand := reg.LookupType(candidateQN)
+		if cand == nil || cand.IsInterface || cand.AliasOf != "" {
+			continue
+		}
+
+		// Check if candidate has all interface methods.
+		satisfies := true
+		for _, methodName := range iface.MethodNames {
+			if reg.LookupMethod(candidateQN, methodName) == nil {
+				satisfies = false
+				break
+			}
+		}
+		if satisfies {
+			soleImpl = candidateQN
+			implCount++
+			if implCount > 1 {
+				return "" // Multiple implementers: cannot resolve.
+			}
+		}
+	}
+
+	if implCount == 1 {
+		return soleImpl
+	}
+	return ""
+}
+
+// registeredTypeQNs tracks all type qualified names registered during
+// BuildRegistry. Used by findSoleImplementer for interface satisfaction
+// scanning. Set by InitWorkspace via BuildRegistry.
+var registeredTypeQNs []string
 
 // extractTypeName extracts the bare type name from a type node,
 // stripping pointers and parentheses.

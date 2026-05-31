@@ -218,6 +218,16 @@ func evalCall(ctx *ResolveContext, node *sitter.Node) *typresolve.Type {
 	// If function type is KindFunc with returns, return first return type
 	// (or Tuple for multi-return).
 	if fnType.Kind == typresolve.KindFunc {
+		// Gap 1: Generic type parameter unification.
+		// If return types contain TypeParam kinds, try to infer concrete
+		// types from call arguments.
+		if hasTypeParam(fnType.Returns) {
+			resolved := tryUnifyGenerics(ctx, fnNode, fnType, argsNode)
+			if resolved != nil {
+				return resolved
+			}
+		}
+
 		switch len(fnType.Returns) {
 		case 0:
 			return typresolve.Unknown()
@@ -234,6 +244,193 @@ func evalCall(ctx *ResolveContext, node *sitter.Node) *typresolve.Type {
 	}
 
 	return typresolve.Unknown()
+}
+
+// hasTypeParam checks if any type in the list contains a KindTypeParam.
+func hasTypeParam(types []*typresolve.Type) bool {
+	for _, t := range types {
+		if containsTypeParam(t) {
+			return true
+		}
+	}
+	return false
+}
+
+// containsTypeParam recursively checks if a type contains any TypeParam.
+func containsTypeParam(t *typresolve.Type) bool {
+	if t == nil {
+		return false
+	}
+	if t.Kind == typresolve.KindTypeParam {
+		return true
+	}
+	if containsTypeParam(t.Elem) {
+		return true
+	}
+	if containsTypeParam(t.Key) {
+		return true
+	}
+	if containsTypeParam(t.Value) {
+		return true
+	}
+	for _, r := range t.Returns {
+		if containsTypeParam(r) {
+			return true
+		}
+	}
+	return false
+}
+
+// tryUnifyGenerics attempts to infer generic type parameters from call
+// arguments. If all type params can be inferred, substitutes them in
+// the return types.
+//
+// Gap 1: This implements implicit generic type parameter inference
+// by unifying parameter types (containing TypeParam) against concrete
+// argument types.
+func tryUnifyGenerics(ctx *ResolveContext, fnNode *sitter.Node, fnType *typresolve.Type, argsNode *sitter.Node) *typresolve.Type {
+	// Look up the registered function to get type param names.
+	var rf *typresolve.RegisteredFunc
+	switch fnNode.Type() {
+	case "identifier":
+		name := nodeContent(fnNode, ctx.Content)
+		rf = ctx.Registry.LookupSymbol(ctx.PkgQN, name)
+	case "selector_expression":
+		operand := fnNode.ChildByFieldName("operand")
+		field := fnNode.ChildByFieldName("field")
+		if operand != nil && field != nil && operand.Type() == "identifier" {
+			alias := nodeContent(operand, ctx.Content)
+			fieldName := nodeContent(field, ctx.Content)
+			if pkgQN, ok := ResolveImport(ctx.Imports, alias); ok {
+				rf = ctx.Registry.LookupSymbol(pkgQN, fieldName)
+			}
+		}
+	}
+
+	if rf == nil || len(rf.TypeParams) == 0 {
+		return nil
+	}
+
+	// Build inferred type map.
+	inferred := make(map[string]*typresolve.Type, len(rf.TypeParams))
+
+	// Unify parameter types against argument types.
+	if argsNode != nil && len(fnType.Params) > 0 {
+		argIdx := 0
+		for pi := 0; pi < len(fnType.Params) && argIdx < int(argsNode.NamedChildCount()); pi++ {
+			argNode := argsNode.NamedChild(argIdx)
+			if argNode == nil {
+				argIdx++
+				continue
+			}
+			argType := EvalExprType(ctx, argNode)
+			unifyType(fnType.Params[pi].Type, argType, inferred)
+			argIdx++
+		}
+	}
+
+	// Check if all type params were inferred.
+	allInferred := true
+	for _, tpName := range rf.TypeParams {
+		if _, ok := inferred[tpName]; !ok {
+			allInferred = false
+			break
+		}
+	}
+
+	if !allInferred {
+		return nil
+	}
+
+	// Substitute type params in return types.
+	var substituted []*typresolve.Type
+	for _, ret := range fnType.Returns {
+		substituted = append(substituted, substituteTypeParams(ret, inferred))
+	}
+
+	switch len(substituted) {
+	case 0:
+		return typresolve.Unknown()
+	case 1:
+		return substituted[0]
+	default:
+		return typresolve.Tuple(substituted)
+	}
+}
+
+// unifyType unifies a parameter type pattern against a concrete argument
+// type, filling in the inferred map for any TypeParam nodes found.
+func unifyType(paramType, argType *typresolve.Type, inferred map[string]*typresolve.Type) {
+	if paramType == nil || argType == nil || argType.Kind == typresolve.KindUnknown {
+		return
+	}
+
+	if paramType.Kind == typresolve.KindTypeParam {
+		if _, exists := inferred[paramType.Name]; !exists {
+			inferred[paramType.Name] = argType
+		}
+		return
+	}
+
+	// Structural matching: recurse into composite types.
+	if paramType.Kind == typresolve.KindSlice && argType.Kind == typresolve.KindSlice {
+		unifyType(paramType.Elem, argType.Elem, inferred)
+	}
+	if paramType.Kind == typresolve.KindPointer && argType.Kind == typresolve.KindPointer {
+		unifyType(paramType.Elem, argType.Elem, inferred)
+	}
+	if paramType.Kind == typresolve.KindMap && argType.Kind == typresolve.KindMap {
+		unifyType(paramType.Key, argType.Key, inferred)
+		unifyType(paramType.Value, argType.Value, inferred)
+	}
+	if paramType.Kind == typresolve.KindChannel && argType.Kind == typresolve.KindChannel {
+		unifyType(paramType.Elem, argType.Elem, inferred)
+	}
+}
+
+// substituteTypeParams replaces all KindTypeParam nodes in a type tree
+// with their inferred concrete types.
+func substituteTypeParams(t *typresolve.Type, inferred map[string]*typresolve.Type) *typresolve.Type {
+	if t == nil {
+		return nil
+	}
+
+	if t.Kind == typresolve.KindTypeParam {
+		if concrete, ok := inferred[t.Name]; ok {
+			return concrete
+		}
+		return t
+	}
+
+	switch t.Kind {
+	case typresolve.KindPointer:
+		inner := substituteTypeParams(t.Elem, inferred)
+		if inner == t.Elem {
+			return t
+		}
+		return typresolve.Pointer(inner)
+	case typresolve.KindSlice:
+		inner := substituteTypeParams(t.Elem, inferred)
+		if inner == t.Elem {
+			return t
+		}
+		return typresolve.Slice(inner)
+	case typresolve.KindMap:
+		key := substituteTypeParams(t.Key, inferred)
+		val := substituteTypeParams(t.Value, inferred)
+		if key == t.Key && val == t.Value {
+			return t
+		}
+		return typresolve.Map(key, val)
+	case typresolve.KindChannel:
+		inner := substituteTypeParams(t.Elem, inferred)
+		if inner == t.Elem {
+			return t
+		}
+		return typresolve.Channel(inner, t.ChanDir)
+	}
+
+	return t
 }
 
 // evalCompositeLiteral resolves a composite literal (e.g. MyType{...}).
