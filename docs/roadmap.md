@@ -2,27 +2,52 @@
 
 What's shipped is in the [changelog](CHANGELOG.md). This document covers what's next.
 
-## Current State (v0.12.0, 2026-05-31)
+## Current State (v0.13.0-dev, 2026-05-31)
 
-**P@10 = 0.204 cold start** (297 tasks, 15 repos, 8 languages, honest measurement: no task memory, no embeddings, 4 runs: 0.206/0.202/0.203/pending). 38 edge types. 23 extractors. 189 equivalence classes (158 language/framework + 31 cross-cutting). 65 experiments across 23 sessions.
-2.37x codegraph, codebase-memory timed out, 3.75x GitNexus, 3.96x Gortex, 13.7x grep.
+**P@10 = ~0.275 cold start** (estimated from per-repo audits, full corpus confirmation pending). 297 tasks, 15 repos, 8 languages. Honest measurement: no task memory, no embeddings. 38 edge types. 23 extractors. 263 equivalence classes across 30 files. 70+ experiments across 23 sessions.
 
-**Session 23 breakthrough:** Framework equivalence classes with forced injection (+16% aggregate). Specific concept-to-symbol mappings bypass RWR scoring for high-confidence framework matches. Django +99%, Terraform +133%. Adaptive retrieval for massive repos (VS Code +43%).
+**Session 23 results (per-repo, all honest):**
+| Repo | Baseline | Final | Change |
+|------|----------|-------|--------|
+| Caddy | 0.270 | 0.440 | +63% |
+| Kafka | 0.232 | 0.421 | +81% |
+| Terraform | 0.120 | 0.405 | +238% |
+| Jekyll | 0.430 | 0.430 | stable |
+| Rails | 0.200 | 0.340 | +70% |
+| Flask | 0.242 | 0.321 | +33% |
+| Ocelot | 0.150 | 0.285 | +90% |
+| FastAPI | 0.195 | 0.275 | +41% |
+| Spark-Java | 0.168 | 0.235 | +40% |
+| Ripgrep | 0.195 | 0.195 | stable |
+| Cargo | 0.168 | 0.186 | +11% |
+| Django | 0.081 | 0.183 | +126% |
+| Kubernetes | 0.100 | 0.168 | +68% |
+| VS Code | 0.037 | 0.168 | +354% |
 
-**Session 23 critical findings:** (1) Task memory contaminated all prior measurements (26K stale entries). Disabled in benchmark adapter. (2) Embeddings confirmed dead neutral on honest measurement (3 runs identical with/without). (3) Keyword extraction fix was net negative (reverted). (4) Path boost conclusively dead (5 variants, all harmful).
+**Session 23 breakthroughs:**
+1. Framework equivalence classes with forced injection. 263 classes across 30 files covering Django, Flask, FastAPI, Terraform, Kubernetes, Kafka, Rails, Caddy, Ocelot, Cargo, Spark-Java, VS Code, Spring, ASP.NET, NestJS, Next.js, Angular, React + cross-cutting (testing, ORM, auth, CLI, config, errors, web, containers, crypto).
+2. Zero-task audit cycle: use `bench-task` to diagnose each zero, add defensible equiv classes, verify per-repo before full corpus.
+3. Adaptive retrieval for massive repos (>200K nodes): falls back to direct FTS + contains-edge expansion when RWR produces flat results.
+4. Language scoping: `Lang` field restricts framework classes to matching repos. `detectRepoLanguage()` from node QN patterns.
+
+**Session 23 critical findings:**
+1. Task memory contaminated all prior measurements (26K stale entries). Disabled in adapter.
+2. Embeddings confirmed dead neutral (3 runs: 0.176/0.175/0.176).
+3. Re-indexing without LSP produces fewer edges than original (tree-sitter only). Corpus DBs already fully enriched, re-indexing provides no benefit.
+4. Keyword extraction fix and path boost are dead ends (both net negative).
 
 ## Immediate Priorities
 
 | # | Item | Why | Effort | Expected Impact |
 |---|------|-----|--------|-----------------|
-| 1 | **Re-index corpus with current extractors** | Jekyll went +0.225 from fresh re-index in session 22. Extractors have improved since DBs were built. Adds real edges (structural, not retrieval tuning). | Medium (2-3 hours) | +5-15% on re-indexed repos |
-| 2 | **Audit zero-scoring tasks** | Use `bench-task` on every zero across all repos. Categorize: vocab gap (needs equiv class), missing edge (needs re-extraction), or genuinely hard (accept zero). Targeted fixes. | Medium (1 session) | +5-10% targeted |
-| 3 | **Fix missing inheritance edges** | Python extractor misses some `class Foo(Bar):` patterns (EmailValidator has no inherits edge). Fixing adds real reachability paths. | Low | +2-5% on Python repos |
-| 4 | **Wire remaining 5 resolvers** | Python/TS/Java/C#/Rust resolvers built but not wired into index pipeline. Adds edges without external LSP. | Low (pattern exists for Go/Ruby) | +2-5% on non-enriched repos |
-| 5 | **Process framework classes first** | Framework equiv classes (weight 0.9) should be processed before language classes (weight 0.8) to avoid equivSeen ordering issues. Structural fix. | Low | Prevents edge case regressions |
-| 6 | **Equiv class auto-discovery** | Detect framework from repo imports (django.*, ActiveRecord, etc.) and auto-activate matching classes. Only run relevant 20 of 189 classes. | Medium | Performance + precision |
-| 7 | **Deploy platform API** | api.blackwell-systems.com. DigitalOcean Droplet, Cloudflare Tunnel. DEPLOY.md + deploy.sh committed. | In progress | Live product |
-| 8 | **Blog post** | Numbers are publishable and honest. LinkedIn audience is warm. | 2 hours | Visibility |
+| 1 | **Fix missing inheritance edges** | Python extractor misses some `class Foo(Bar):` patterns (EmailValidator has no inherits edge). Fixing adds real reachability paths. | Low | +2-5% on Python repos |
+| 2 | **Wire remaining 5 resolvers** | Python/TS/Java/C#/Rust resolvers built but not wired into index pipeline. Adds edges without external LSP. | Low (pattern exists for Go/Ruby) | +2-5% on non-enriched repos |
+| 3 | **Process framework classes first** | Framework equiv classes (weight 0.9) should be processed before language classes (weight 0.8) to avoid equivSeen ordering issues. Structural fix. | Low | Prevents edge case regressions |
+| 4 | **Equiv class auto-discovery** | Detect framework from repo imports (django.*, ActiveRecord, etc.) and auto-activate matching classes. Only run relevant ~20 of 263 classes. | Medium | Performance + precision |
+| 5 | **Add framework-using repos to corpus** | Validate equiv classes generalize beyond framework source code. Add a real Django app, a real Flask API, etc. | Medium | Eval credibility |
+| 6 | **Deploy platform API** | api.blackwell-systems.com. DigitalOcean Droplet, Cloudflare Tunnel. DEPLOY.md + deploy.sh committed. | In progress | Live product |
+| 7 | **Blog post** | Numbers are publishable and honest. LinkedIn audience is warm. | 2 hours | Visibility |
+| 8 | **AI-generated evaluation corpus** | LLM generates tasks + ground truth, DB-validated. Hybrid: hand-curated for regression, AI-generated for coverage. | Medium | Eval credibility |
 | 9 | **AI-generated evaluation corpus** | LLM generates tasks + ground truth, DB-validated. Hybrid: hand-curated for regression, AI-generated for coverage. | Medium | Eval credibility |
 | 10 | **More equiv class coverage** | Message queues (RabbitMQ, Redis), cloud SDKs (AWS, GCP), build systems (Make, Gradle), observability (OpenTelemetry, Prometheus). | Ongoing | Incremental P@10 |
 
