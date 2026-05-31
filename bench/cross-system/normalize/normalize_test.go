@@ -61,12 +61,16 @@ func TestMatchesGroundTruth(t *testing.T) {
 		// Exact match after normalization
 		{"pkg.FuncName", "pkg.FuncName", true},
 
-		// knowing vs Python-style ground truth (the critical case)
+		// knowing vs Python-style ground truth: different class (Scaffold vs Flask).
+		// With tightened matching, these are different symbols. Ground truth should
+		// list Scaffold.before_request if that's what the system needs to find.
 		{"github.com/pallets/flask://src/flask/sansio/scaffold.py.Scaffold.before_request",
-			"flask.app.Flask.before_request", true}, // terminal "before_request" matches
+			"flask.app.Flask.before_request", false},
 
-		// Different class but same method (base class vs subclass)
-		{"Scaffold.before_request", "Flask.before_request", true}, // terminal match, both have qualifiers
+		// Different class, same method: no match (tightened in session 21).
+		// Ground truth should list both Scaffold.before_request and Flask.before_request
+		// if both are relevant, not rely on fuzzy matching.
+		{"Scaffold.before_request", "Flask.before_request", false},
 
 		// Simple terminal match
 		{"HandleLogin", "auth.HandleLogin", true},
