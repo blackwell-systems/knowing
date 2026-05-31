@@ -352,6 +352,16 @@ orchestrator should support running both paths:
    languages). TypeScript and C# follow after the shared infrastructure proves stable.
    External LSP remains the fallback for languages without resolvers until those
    resolvers are built.
+6. **Layered enrichment with deduplication:** The resolver and external LSP run as
+   stacked layers, not alternatives. The resolver runs first (fast, <1s), producing
+   `resolver_resolved` edges. Then external LSP runs and fills gaps. Once the resolver
+   reaches 80%+ coverage, the external LSP's `upgradeCallEdges` phase should skip
+   source nodes that already have a `resolver_resolved` edge for the same call site.
+   This avoids redundant GetDefinition calls for edges the resolver already resolved.
+   Implementation: filter the LSP work queue to exclude edges where a resolver edge
+   with the same source_hash and callsite_line already exists. Saves ~80% of LSP
+   round-trips once the resolver is mature. Do not implement this optimization until
+   resolver coverage is validated at 80%+ on the benchmark corpus.
 
 ### Endgame: full replacement
 
