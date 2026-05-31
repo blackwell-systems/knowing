@@ -1130,7 +1130,7 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	// Adaptive strategy: if RWR produced flat results (low confidence), fall back
 	// to direct FTS + contains-edge expansion. This helps massive repos (vscode 552K
 	// nodes) where RWR always diffuses to near-uniform and the top-10 is noise.
-	if len(ranked) >= 10 && resultConfidence(ranked) < 0.3 {
+	if len(ranked) >= 10 && e.effectiveNodeCount() > 200000 && resultConfidence(ranked) < 0.3 {
 		// RWR didn't converge. Try direct symbol name search + 1-hop expansion.
 		directResults := directFTSExpansion(ctx, e.store, e.bm25, ks, 10)
 		if len(directResults) > 0 {
