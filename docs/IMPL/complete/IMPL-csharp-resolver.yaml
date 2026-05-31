@@ -1,3 +1,4 @@
+completion_date: "2026-05-30"
 title: C# In-Process Type Resolver
 feature_slug: csharp-resolver
 verdict: SUITABLE
@@ -999,6 +1000,7 @@ waves:
             - Do NOT modify the csharpextractor package.
             - Do NOT modify any shared infrastructure files (typresolve/*.go).
           files: []
+      base_commit: 4d3c269fe5847f4d677db5055babef14efa63468
 quality_gates:
     level: standard
     gates:
@@ -1017,6 +1019,7 @@ post_merge_checklist:
           items:
             - description: Verify if types_test.go needs initialization in Server constructor
             - description: Verify if eval_test.go needs initialization in Server constructor
+            - description: Verify if resolver_test.go needs initialization in Server constructor
 completion_reports:
     A:
         status: complete
@@ -1112,6 +1115,39 @@ completion_reports:
             - TestProcessStatement_ForEach
         verification: PASS
         notes: All 12 tests passing. Tree-sitter C# grammar uses unnamed 'this'/'base' tokens (not this_expression), handled with dual case match. Stubs for LookupMethod, LookupField, ParseTypeNode, IsBuiltinFunc, and UnwrapTask ready for Agent D to wire in wave 2. Test helper named parseCSharp (not parseCS) per known_issues to avoid merge conflict with Agent A.
+    D:
+        status: complete
+        branch: polywave/csharp-resolver/wave2-agent-D
+        commit: b6643e8
+        files_changed:
+            - internal/typresolve/csharp/eval.go
+            - internal/typresolve/csharp/resolver.go
+            - internal/typresolve/csharp/registry_builder.go
+            - internal/typresolve/csharp/resolve.go
+            - internal/typresolve/csharp/resolver_test.go
+        files_created:
+            - internal/typresolve/csharp/resolver.go
+            - internal/typresolve/csharp/registry_builder.go
+            - internal/typresolve/csharp/resolve.go
+            - internal/typresolve/csharp/resolver_test.go
+        tests_added:
+            - TestCSharpResolver_Language
+            - TestCSharpResolver_InitWorkspace
+            - TestCSharpResolver_ResolveFile_SimpleClass
+            - TestCSharpResolver_ResolveFile_UsingDirective
+            - TestCSharpResolver_ResolveFile_FullyQualifiedCall
+            - TestCSharpResolver_ResolveFile_VarInference
+            - TestCSharpResolver_ResolveFile_AsyncAwait
+            - TestCSharpResolver_ResolveFile_PropertyAccess
+            - TestCSharpResolver_ResolveFile_BaseClassMethod
+            - TestCSharpResolver_ResolveFile_ExtensionMethod
+            - TestCSharpResolver_NotInitialized
+            - TestBuildRegistry_PartialClass
+            - TestBuildRegistry_Constructor
+            - TestBuildRegistry_Property
+            - TestBuildRegistry_Interface
+        verification: PASS
+        notes: All wave 1 stubs replaced with real implementations. ResolveContext extended with Usings and NamespaceStack. 14 new integration tests passing. 47 pre-existing tests still passing.
 pre_mortem:
     overall_risk: low
     rows:
@@ -1174,4 +1210,4 @@ critic_report:
     summary: Skipped by operator (--skip-critic)
     reviewed_at: "2026-05-31T08:11:07Z"
     issue_count: 0
-state: REVIEWED
+state: COMPLETE

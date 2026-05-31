@@ -37,3 +37,5 @@
   - IMPL doc: docs/IMPL/complete/IMPL-ruby-resolver.yaml
 - **java-resolver**: completed 2026-05-31, 2 waves, 4 agents
   - IMPL doc: docs/IMPL/complete/IMPL-java-resolver.yaml
+- **csharp-resolver**: completed 2026-05-31, 2 waves, 4 agents
+  - IMPL doc: docs/IMPL/complete/IMPL-csharp-resolver.yaml
