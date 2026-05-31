@@ -102,12 +102,14 @@ per-repo breakdown, and competitive ratios. This is a standard procedure:
 15. **CLAUDE.md** — this file, Current State section
 16. **README.md** — Numbers table
 
-Competitive ratios to recalculate from new P@10:
-- vs codegraph: P@10 / 0.135
-- vs codebase-memory: P@10 / 0.137
-- vs GitNexus: P@10 / 0.075
-- vs Gortex: P@10 / 0.063
-- vs grep: P@10 / 0.013
+Competitive ratios (honest matching, session 21):
+- vs codegraph: 0.184 / 0.087 = 2.11x
+- vs GitNexus: 0.184 / 0.055 = 3.35x
+- vs Gortex: 0.184 / 0.052 = 3.54x
+- vs Aider: 0.184 / 0.023 = 8.0x
+- vs grep: 0.184 / 0.015 = 12.3x
+- codebase-memory: timed out (22/297 tasks in 60 min)
+Note: old ratios used inflated P@10 from raw substring matching. See `docs/research/session-21-measurement-calibration.md`.
 
 ## Key Architecture
 
@@ -127,14 +129,15 @@ Competitive ratios to recalculate from new P@10:
 
 ## Current State (session 21, 2026-05-30)
 
-- **P@10 = 0.283 cold start, 0.284 with compounding** (277 tasks, 14 repos, 8 languages, 38 edge types, 164 equivalence classes)
-- **Focused seed selection:** cluster seeds by package path, concentrate walk in dominant neighborhood (+6.0% over previous high)
+- **P@10 = 0.184 cold start** (297 tasks, 15 repos, 8 languages, 38 edge types, 164 equivalence classes, dot-bounded matching)
+- **Measurement calibration (session 21):** old P@10 was 0.283 with inflated substring matching. Fixed with `dotBoundedContains()`. See `docs/research/session-21-measurement-calibration.md` for full details. All experiment deltas remain valid. Competitive ratios stable.
+- **Focused seed selection:** cluster seeds by package path, concentrate walk in dominant neighborhood (+6% relative)
 - **Cluster-aware gap-fill:** embedding seeds filtered to dominant package, prevents scattering
 - **Self-adapting compounding:** +4.2% P@10 from passive task memory (round 1 to round 2)
 - **Density-adaptive:** PreferTypeSeeds >40K nodes, adaptive seed count >10K nodes
-- **Embedding gap-fill seeds:** +11% P@10, vocabulary gap bridging, vector cache 220ms. Re-ranker disabled (net negative, session 19).
+- **Embedding gap-fill seeds:** vocabulary gap bridging, vector cache 220ms. Re-ranker disabled (net negative, session 19).
 - **LSP enrichment:** strongly positive. Go: k8s 0.000->0.232, terraform ~0.095->0.275. Python: +0.040
-- **Competitive (cold):** 2.10x codegraph, 2.07x codebase-memory, 3.77x GitNexus, 4.49x Gortex, 21.8x grep
+- **Competitive (cold, honest matching):** 2.11x codegraph, 3.35x GitNexus, 3.54x Gortex, 8.0x Aider, 12.3x grep. codebase-memory timed out.
 - **Supply chain:** 1.0% FP on 200 clean packages (package-level verdict)
 - **Identity:** "self-adapting code intelligence engine that gets smarter with scale"
 
@@ -148,12 +151,12 @@ Competitive ratios to recalculate from new P@10:
 6. **Gap injection concept is sound but BM25 is too noisy.** Embedding-filtered BM25 gap candidates: Django +3.2% but aggregate neutral. Need higher-precision candidate source.
 7. **Coherence packing, bidirectional inheritance: both harmful.** Greedy density packing is near-optimal. Reverse inherits edges add noise without reachability.
 
-## Experiment Summary (58 total across sessions 8-21)
+## Experiment Summary (59 total across sessions 8-21)
 
 ### What works
 | Experiment | Impact | Session |
 |-----------|--------|---------|
-| Focused seed selection + cluster-aware gap-fill | +6.0% P@10 (0.267->0.283), new all-time high | 21 |
+| Focused seed selection + cluster-aware gap-fill | +6% relative P@10 (structural cohesion over quantity) | 21 |
 | Inheritance propagation | +29% | 13 |
 | ~~Embedding re-ranker~~ (pure, weight=0.0) | REVERTED: net negative (session 19, 9/13 repos hurt) | 15, 19 |
 | Adaptive seed count (>40K: 25, >10K: 20) | Django +14.2%, corpus +1.7% | 16 |
@@ -198,6 +201,8 @@ Embeddings as Channel 3, blended re-rank, call-chain seeding, hub dampening, BFS
 | Benchmark paper | `docs/research/whitepapers/code-context-retrieval-benchmark.md` |
 | Benchmark results | `bench/cross-system/FINDINGS.md` |
 | Benchmark methodology | `bench/cross-system/METHODOLOGY.md` |
+| Corpus manifest (reproducibility) | `bench/cross-system/corpus/MANIFEST.yaml` |
+| Corpus setup script | `bench/cross-system/corpus/corpus-setup.sh` |
 | Embedding eval log | `bench/cross-system/EMBEDDING-EVAL.md` |
 | Dense graph analysis | `docs/research/dense-graph-dilution-analysis.md` |
 | Roadmap + experiment log | `docs/roadmap.md` |
@@ -216,7 +221,7 @@ Embeddings as Channel 3, blended re-rank, call-chain seeding, hub dampening, BFS
 - **`command npm` not `npm`.** nvm shell hook interferes. Always use `command npm`.
 - **Don't use `timeout` on long-running commands.** Let indexing, enrichment, and benchmarks run until they finish. Kill manually if they go too long. `timeout` causes premature kills on processes that are legitimately slow (gopls loading, tsserver type-checking, kafka authorship).
 - **Never delete benchmark corpus DBs.** The DBs at `bench/cross-system/corpus/repos/<repo>/.knowing/graph.db` are gitignored and can't be restored from git. Enrichment status: Python (django, flask, fastapi) enriched with pyright. Java (spark-java, kafka) enriched with jdtls. TypeScript (vscode) enriched with tsserver. Go (terraform, kubernetes, caddy) enriched with gopls (two-phase warmup). Rust (cargo) enriched with rust-analyzer. C# (ocelot) enriched with csharp-ls. All 12 repos are enriched. If you need to test with modified indexing, copy the DB first.
-- **DB experiment procedure.** Never modify corpus DBs in place. Keep a master backup set untouched. Copy from master to a working path, enrich the copy, checkpoint WAL (`PRAGMA wal_checkpoint(TRUNCATE)`), remove stale SHM/WAL files at destination (`rm -f *.db-shm *.db-wal`), then swap. Restore from master after. Stale SHM files cause "database disk image is malformed" even with a clean main file. See `bench/cross-system/METHODOLOGY.md` for full procedure.
+- **DB experiment procedure.** Never modify corpus DBs in place. Master backups at `~/code/knowing-corpus-backup/` (15 repos, 5.6GB, all enriched). Copy from master to a working path, enrich the copy, checkpoint WAL (`PRAGMA wal_checkpoint(TRUNCATE)`), remove stale SHM/WAL files at destination (`rm -f *.db-shm *.db-wal`), then swap. Restore from master after. Stale SHM files cause "database disk image is malformed" even with a clean main file. See `bench/cross-system/METHODOLOGY.md` for full procedure.
 - **`go clean -testcache` after code reverts.** After reverting code with `git checkout -- *.go`, `go test` may use a cached binary compiled from the pre-revert code. Always run `go clean -testcache` before the next benchmark. Session 20: cargo showed phantom regression (0.277 -> 0.150) from stale test binary.
 - **Test the problem repo first.** When an experiment regresses a specific repo, test that repo in isolation before running full corpus. Saves 20+ minutes per iteration.
 - **Experiment workflow.** (1) Copy master backup -> working copy. (2) Modify working copy. (3) Checkpoint WAL, delete SHM/WAL at destination. (4) Swap. (5) `go clean -testcache`. (6) Test problem repo first. (7) If positive, full corpus. (8) Restore from master after.

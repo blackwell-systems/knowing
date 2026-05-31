@@ -59,11 +59,11 @@ knowing is a content-addressed graph retrieval engine evaluated against 6 compet
 
 ### Competitive Advantages (cold start)
 
-- **vs codegraph (19K stars):** 2.10x more precise (P@10 0.283 vs 0.135), all 277 tasks vs 107
-- **vs codebase-memory (2.7K stars):** 2.07x more precise (P@10 0.283 vs 0.137)
-- **vs GitNexus:** 3.77x more precise (P@10 0.283 vs 0.075), 277 tasks vs 66, 18s index vs >60 min
-- **vs Gortex:** 4.49x more precise (P@10 0.283 vs 0.063), 200MB RAM vs 14GB, 18s index vs 14 min
-- **vs grep:** 21.8x more precise (P@10 0.283 vs 0.013)
+- **vs codegraph (19K stars):** 2.17x more precise (P@10 0.189 vs 0.087), all 277 tasks vs 107
+- **vs codebase-memory (2.7K stars):** codebase-memory timed out (22/297 tasks)
+- **vs GitNexus:** 3.44x more precise (P@10 0.189 vs 0.055), 277 tasks vs 66, 18s index vs >60 min
+- **vs Gortex:** 3.63x more precise (P@10 0.189 vs 0.052), 200MB RAM vs 14GB, 18s index vs 14 min
+- **vs grep:** 12.6x more precise (P@10 0.189 vs 0.015)
 - **vs Repomix:** 48x more token-efficient (4K tokens vs 300K for same task)
 
 ### Competitive Advantages (with compounding, estimated)

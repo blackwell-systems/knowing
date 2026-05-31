@@ -16,7 +16,7 @@
 | Evaluation corpus (14 repos) | Done | kubernetes, VS Code, flask, cargo, django, spark-java, ocelot, kafka, caddy, fastapi, ripgrep, jekyll, terraform, homebrew |
 | Task fixtures (277 total) | Done | 8 languages (Go, Python, TypeScript, Rust, Java, C#, Ruby, TOML) |
 | Ground truth validation | Done | 99% match rate, validate-fixtures tool |
-| knowing adapter | Done | P@10=0.283 (session 21), 38 edge types, focused seed selection + cluster-aware gap-fill |
+| knowing adapter | Done | P@10=0.189 (session 21), 38 edge types, focused seed selection + cluster-aware gap-fill |
 | grep adapter | Done | P@10=0.013 (baseline) |
 | codegraph adapter | Done | P@10=0.135, 107/277 tasks (10 failed on unsupported repos) |
 | GitNexus adapter | Done | P@10=0.075, 66/277 tasks (killed on k8s: >60 min, 5.7GB RAM) |

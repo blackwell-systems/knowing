@@ -88,8 +88,8 @@ Feedback from agents compounds across sessions. When code changes, feedback expi
 
 | What | Result |
 |---|---:|
-| Cross-system retrieval | **P@10=0.283 cold, 0.284 warm** (277 tasks, 14 repos, 8 languages) |
-| vs competitors | 2.10x codegraph (19K stars), 2.07x codebase-memory (2.7K stars), 3.77x GitNexus, 4.49x Gortex, 21.8x grep |
+| Cross-system retrieval | **P@10=0.189 cold, 0.284 warm** (277 tasks, 14 repos, 8 languages) |
+| vs competitors | 2.17x codegraph (19K stars), codebase-memory timed out (2.7K stars), 3.44x GitNexus, 3.63x Gortex, 12.6x grep |
 | Embedding gap-fill | +11% P@10 (local inference, no API, no charges, on by default) |
 | Gap-fill seeds | +11% P@10 (embedding-based fallback when keywords fail) |
 | Equivalence classes | 152 concepts bridging task vocabulary to code symbols |
@@ -107,7 +107,7 @@ Feedback from agents compounds across sessions. When code changes, feedback expi
 | Language coverage | 13/14 repos pass (Go, Python, TS, Rust, Java, C#, Ruby, multi) |
 | Edge types | 38 (including supply chain: reads_env, executes_process) |
 
-All benchmarks are reproducible. The cross-system benchmark (P@10=0.283) uses 15 repos pinned to exact commits with a [corpus manifest](bench/cross-system/corpus/MANIFEST.yaml) and [setup script](bench/cross-system/corpus/corpus-setup.sh) for full from-scratch reproduction. See [METHODOLOGY.md](bench/cross-system/METHODOLOGY.md) for protocol details.
+All benchmarks are reproducible. The cross-system benchmark (P@10=0.189) uses 15 repos pinned to exact commits with a [corpus manifest](bench/cross-system/corpus/MANIFEST.yaml) and [setup script](bench/cross-system/corpus/corpus-setup.sh) for full from-scratch reproduction. See [METHODOLOGY.md](bench/cross-system/METHODOLOGY.md) for protocol details.
 
 ---
 

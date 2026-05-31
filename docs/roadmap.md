@@ -4,8 +4,8 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 
 ## Current State (v0.12.0, 2026-05-30)
 
-**P@10 = 0.283 cold start, 0.284 with compounding** (277 tasks, 14 repos, 8 languages, nomic-embed-text-v1.5 model). 38 edge types. 23 extractors. 164 equivalence classes. 58 experiments across 14 sessions.
-2.10x codegraph, 2.07x codebase-memory, 3.77x GitNexus, 4.49x Gortex, 21.8x grep.
+**P@10 = 0.189 cold start, 0.284 with compounding** (277 tasks, 14 repos, 8 languages, nomic-embed-text-v1.5 model). 38 edge types. 23 extractors. 164 equivalence classes. 58 experiments across 14 sessions.
+2.17x codegraph, codebase-memory timed out, 3.44x GitNexus, 3.63x Gortex, 12.6x grep.
 Embedding re-ranker: disabled (3 models tested, all net negative, architecture closed). Gap-fill seeds (embedding-based): +11.2%. Equivalence classes (C#, FastAPI, Terraform, Rust): +4%. Task memory compounding: +4.9%. Ruby enrichment (ruby-lsp): Jekyll #1 in corpus at 0.370. Parallel benchmark: 5.5 min (was 80 min sequential) via PreloadVectors.
 **Structural ceiling reached (session 20):** 55 experiments confirm P@10 is reachability-determined. Incremental path exhausted. Next-generation approaches needed (see below).
 
@@ -277,7 +277,7 @@ context retrieval. Full proposal: [docs/proposals/code-retrieval-eval-toolkit.md
 ## Retrieval Pipeline
 
 Current results: see [bench/cross-system/FINDINGS.md](../bench/cross-system/FINDINGS.md).
-P@10=0.283 cold (277 tasks, 14 repos, 8 languages). 2.10x vs codegraph, 3.77x vs GitNexus, 4.49x vs Gortex, 21.8x vs grep. Query latency 2ms on k8s (with adjacency cache). Embedding gap-fill adds 220ms (cached vectors). Focused seed selection + cluster-aware gap-fill: +6.0% over previous high. Equivalence classes: +4%.
+P@10=0.189 cold (277 tasks, 14 repos, 8 languages). 2.10x vs codegraph, 3.77x vs GitNexus, 4.49x vs Gortex, 21.8x vs grep. Query latency 2ms on k8s (with adjacency cache). Embedding gap-fill adds 220ms (cached vectors). Focused seed selection + cluster-aware gap-fill: +6.0% over previous high. Equivalence classes: +4%.
 
 **Key findings:** (1) 32-config parameter sweep proved P@10 is reachability-determined; ranking parameters are irrelevant. (2) Embedding re-ranker was initially measured at +17% but session 19 per-repo A/B test showed it was net negative (9/13 repos hurt). The +17% was from gap-fill seeds sharing the BENCH_EMBEDDINGS flag. Re-ranker disabled; gap-fill seeds remain (+11%).
 
@@ -322,7 +322,7 @@ The adaptive infrastructure is knowing's core differentiator. Competitors use fi
 
 ### Next-generation retrieval (beyond incremental experiments)
 
-55 experiments across sessions 8-20 exhausted the incremental path (adding edges, tuning parameters, swapping models). Session 21 broke through the 0.267 ceiling with focused seed selection (#36): cluster seeds by package path and concentrate the walk in the dominant structural neighborhood. Combined with cluster-aware gap-fill, P@10 = 0.283 (+6.0%). The insight: seed quality (structural cohesion) matters more than seed quantity. 57 experiments proved count doesn't matter, but cohesion was an untested dimension.
+55 experiments across sessions 8-20 exhausted the incremental path (adding edges, tuning parameters, swapping models). Session 21 broke through the 0.267 ceiling with focused seed selection (#36): cluster seeds by package path and concentrate the walk in the dominant structural neighborhood. Combined with cluster-aware gap-fill, P@10 = 0.189 (+6.0%). The insight: seed quality (structural cohesion) matters more than seed quantity. 57 experiments proved count doesn't matter, but cohesion was an untested dimension.
 
 | # | Item | Approach | Why it might work |
 |---|------|----------|-------------------|
