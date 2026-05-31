@@ -1,0 +1,1493 @@
+title: TypeScript In-Process Type Resolver
+feature_slug: typescript-resolver
+verdict: SUITABLE
+suitability_assessment: |
+    1. File decomposition: All new files in internal/typresolve/typescript/ (14 files).
+       No existing files modified. Agents have fully disjoint file ownership.
+       Follows the exact same pattern as the Go resolver (IMPL-go-resolver.yaml)
+       and Python resolver (IMPL-python-resolver.yaml).
+
+    2. Investigation-first: No unknowns. The C reference implementation (ts_lsp.c,
+       4,733 lines) documents the complete TypeScript resolution algorithm. The shared
+       infrastructure (typresolve package) is completed and defines the exact interface
+       contracts. The Go and Python resolvers establish the structural pattern.
+
+    3. Interface discoverability: All interfaces are defined. The typresolve.Resolver
+       interface, Registry, Scope, and Type are implemented and tested. Cross-agent
+       contracts are limited to Go function signatures within the new typescript/
+       subpackage.
+
+    4. Pre-implementation: The shared infrastructure (in-process-resolver-infra) was
+       completed previously. The Go and Python resolver IMPLs show the exact structural
+       pattern. No overlap with existing code.
+
+    5. Parallelization value: High. Build/test cycle is ~30s with GOWORK=off.
+       4 agents in wave 1 with 2-4 files each. Wave 2 integrates. TypeScript's
+       module resolution, type annotation parsing, builtins, and expression evaluation
+       are independent components that parallelize well.
+
+    Estimated times:
+    - Scout phase: ~15 min
+    - Agent execution: ~20 min (5 agents, 2 waves, ~6 min avg per agent)
+    - Merge and verification: ~5 min
+    Total Polywave time: ~40 min
+
+    Sequential baseline: ~60 min (5 agents x 12 min avg)
+    Time savings: ~20 min (33% faster)
+
+    Recommendation: Clear speedup. Wave 1 agents are fully independent (type annotation
+    parsing + imports, builtins + member lookup, expression evaluator + scope binding,
+    module resolution + dialect handling). Wave 2 integrates them into the resolver.
+
+    TypeScript is the most complex of the three resolvers due to its type system
+    (union, intersection, generics, conditional types). The Tier 1 resolver focuses
+    on the practical subset: import resolution, call dispatch, property access,
+    async/await unwrapping, and JSX element resolution. Advanced type-level features
+    (conditional types, mapped types, infer, keyof) are deferred to Tier 2.
+test_command: GOWORK=off go test -short ./... -timeout 5m
+lint_command: GOWORK=off go vet ./...
+file_ownership:
+    - file: internal/typresolve/typescript/doc.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/typresolve/typescript/types.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/typresolve/typescript/imports.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/typresolve/typescript/types_test.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/typresolve/typescript/builtins.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/typresolve/typescript/methods.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/typresolve/typescript/builtins_test.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/typresolve/typescript/eval.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/typresolve/typescript/scope_bind.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/typresolve/typescript/eval_test.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/typresolve/typescript/resolver.go
+      agent: D
+      wave: 2
+      action: new
+      depends_on:
+        - A
+        - B
+        - C
+    - file: internal/typresolve/typescript/registry_builder.go
+      agent: D
+      wave: 2
+      action: new
+      depends_on:
+        - A
+        - B
+        - C
+    - file: internal/typresolve/typescript/resolve.go
+      agent: D
+      wave: 2
+      action: new
+      depends_on:
+        - A
+        - B
+        - C
+    - file: internal/typresolve/typescript/resolver_test.go
+      agent: D
+      wave: 2
+      action: new
+      depends_on:
+        - A
+        - B
+        - C
+interface_contracts:
+    - name: ParseTypeText
+      description: |
+        Parses a TypeScript type annotation text string into a typresolve.Type.
+        This is the TS equivalent of Go's ParseTypeNode and Python's ParseAnnotation.
+        Works on textual annotations because TS type annotations are extracted as
+        text from type_annotation AST nodes. Handles: builtin primitives (string,
+        number, boolean, void, any, unknown, never, null, undefined, object, symbol,
+        bigint), generic instantiation (Array<T>, Promise<T>, Map<K,V>), array
+        shorthand (T[]), union (A | B), intersection (A & B), tuple ([A, B]),
+        function types ((a: T) => R), optional (?), quoted forward references,
+        and qualified names (module.Type).
+      definition: |
+        func ParseTypeText(text string, moduleQN string) *typresolve.Type
+      location: internal/typresolve/typescript/types.go
+    - name: ParseTypeNode
+      description: |
+        Parses a tree-sitter TypeScript type AST node into a typresolve.Type.
+        Handles type_annotation nodes by extracting text and delegating to
+        ParseTypeText, plus direct AST node types: type_identifier, generic_type,
+        union_type, intersection_type, array_type, tuple_type, parenthesized_type,
+        function_type, predefined_type. Falls back to ParseTypeText for complex
+        cases where text extraction is more reliable than AST traversal.
+      definition: |
+        func ParseTypeNode(node *sitter.Node, content []byte, moduleQN string, imports map[string]ImportInfo) *typresolve.Type
+      location: internal/typresolve/typescript/types.go
+    - name: ImportInfo
+      description: |
+        Describes a single TypeScript import binding. Captures the source module
+        path and the style of import (named, default, namespace, or require).
+      definition: |
+        type ImportInfo struct {
+            ModulePath   string // source module path (e.g. "./utils", "express")
+            OriginalName string // original name before aliasing (e.g. "Flask" in "import { Flask as F }")
+            IsNamespace  bool   // true for "import * as X from ..."
+            IsDefault    bool   // true for "import X from ..."
+        }
+      location: internal/typresolve/typescript/imports.go
+    - name: BuildImportMap
+      description: |
+        Builds per-file import map from the TypeScript AST root. Returns a map
+        from local binding name to ImportInfo. Handles ES6 imports (named, default,
+        namespace), CommonJS require(), re-exports, and dynamic imports.
+        Mirrors the existing buildTSImportMap in internal/indexer/tsextractor/extractor.go
+        but returns richer ImportInfo instead of bare module path strings.
+      definition: |
+        func BuildImportMap(root *sitter.Node, content []byte) map[string]ImportInfo
+      location: internal/typresolve/typescript/imports.go
+    - name: ResolveImport
+      description: |
+        Resolves an import local name to its ImportInfo. Simple map lookup.
+      definition: |
+        func ResolveImport(imports map[string]ImportInfo, name string) (ImportInfo, bool)
+      location: internal/typresolve/typescript/imports.go
+    - name: ResolveModulePath
+      description: |
+        Resolves a TypeScript import source path to a qualified name prefix.
+        Handles relative imports (./foo, ../utils), bare module specifiers
+        (express, typescript), and index file resolution.
+      definition: |
+        func ResolveModulePath(importSource string, currentFile string) string
+      location: internal/typresolve/typescript/imports.go
+    - name: IsBuiltinType
+      description: |
+        Returns true if the given name is a TypeScript/JavaScript builtin type
+        (string, number, boolean, void, any, unknown, never, null, undefined,
+        object, symbol, bigint, String, Number, Boolean, Object, Array, Promise,
+        Map, Set, etc.).
+      definition: |
+        func IsBuiltinType(name string) bool
+      location: internal/typresolve/typescript/builtins.go
+    - name: ResolveBuiltinType
+      description: |
+        Returns a typresolve.Builtin type if the name is a TS builtin primitive
+        type (string, number, boolean, void, any, unknown, never, null, undefined,
+        object, symbol, bigint), nil otherwise.
+      definition: |
+        func ResolveBuiltinType(name string) *typresolve.Type
+      location: internal/typresolve/typescript/builtins.go
+    - name: BuiltinWrapperClass
+      description: |
+        Maps builtin primitive type names to their wrapper class for method dispatch.
+        "string" -> "String", "number" -> "Number", "boolean" -> "Boolean",
+        "bigint" -> "BigInt", "symbol" -> "Symbol". Returns empty string if not
+        a primitive with a wrapper.
+      definition: |
+        func BuiltinWrapperClass(builtinName string) string
+      location: internal/typresolve/typescript/builtins.go
+    - name: LiteralType
+      description: |
+        Maps TypeScript tree-sitter literal node types to builtin types.
+        "string" / "template_string" -> Builtin("string"),
+        "number" -> Builtin("number"),
+        "true" / "false" -> Builtin("boolean"),
+        "null" -> Builtin("null"),
+        "undefined" -> Builtin("undefined"),
+        "regex" -> Named("RegExp").
+        Returns nil if not a literal type.
+      definition: |
+        func LiteralType(nodeType string) *typresolve.Type
+      location: internal/typresolve/typescript/builtins.go
+    - name: UnwrapPromise
+      description: |
+        If the type is Named("Promise") or a generic Promise<T> (represented as
+        a Named type with name "Promise" and type params), returns the inner type T.
+        Otherwise returns the type unchanged. Used for async/await unwrapping.
+      definition: |
+        func UnwrapPromise(t *typresolve.Type) *typresolve.Type
+      location: internal/typresolve/typescript/builtins.go
+    - name: LookupMember
+      description: |
+        Looks up a method or property on a named type, following the prototype
+        chain (stored as EmbeddedTypes) up to 5 levels deep. For builtin primitive
+        types (string, number), delegates to the wrapper class (String, Number).
+        Returns the registered function if found as a method, nil otherwise.
+      definition: |
+        func LookupMember(reg *typresolve.Registry, typeQN string, memberName string) *typresolve.RegisteredFunc
+      location: internal/typresolve/typescript/methods.go
+    - name: LookupField
+      description: |
+        Looks up a field/property on a named type, following the prototype chain.
+        Returns the field's type if found.
+      definition: |
+        func LookupField(reg *typresolve.Registry, typeQN string, fieldName string) *typresolve.Type
+      location: internal/typresolve/typescript/methods.go
+    - name: ResolveContext
+      description: |
+        Per-file resolution context for TypeScript. Holds the registry, scope,
+        imports, module QN, content bytes, enclosing function/class QN, and
+        dialect info.
+      definition: |
+        type ResolveContext struct {
+            Registry         *typresolve.Registry
+            Scope            *typresolve.Scope
+            Imports          map[string]ImportInfo
+            ModuleQN         string
+            Content          []byte
+            EnclosingFuncQN  string
+            EnclosingClassQN string
+        }
+      location: internal/typresolve/typescript/eval.go
+    - name: EvalExprType
+      description: |
+        Recursive expression type evaluator for TypeScript. Evaluates the type of
+        a TS expression AST node using scope lookup, registry lookup, import
+        resolution, member dispatch, and async unwrapping.
+      definition: |
+        func EvalExprType(ctx *ResolveContext, node *sitter.Node) *typresolve.Type
+      location: internal/typresolve/typescript/eval.go
+    - name: ProcessStatement
+      description: |
+        Processes a TypeScript statement node to bind variables into the current
+        scope. Handles variable_declarator (const/let/var with type annotations
+        or initializer inference), for_in_statement, for_of_statement,
+        destructuring patterns (object and array), and catch_clause bindings.
+      definition: |
+        func ProcessStatement(ctx *ResolveContext, node *sitter.Node)
+      location: internal/typresolve/typescript/scope_bind.go
+    - name: TypeScriptResolver
+      description: |
+        Implements typresolve.Resolver for TypeScript/JavaScript.
+        Language() returns "typescript".
+        InitWorkspace builds a Registry from TS definitions.
+        ResolveFile walks the TypeScript AST and resolves calls and references.
+      definition: |
+        type TypeScriptResolver struct {
+            registry *typresolve.Registry
+        }
+        func NewTypeScriptResolver() *TypeScriptResolver
+        func (r *TypeScriptResolver) Language() string
+        func (r *TypeScriptResolver) InitWorkspace(ctx context.Context, defs []typresolve.ResolverDef) error
+        func (r *TypeScriptResolver) ResolveFile(ctx context.Context, opts typresolve.ResolveFileOpts) ([]types.Edge, error)
+      location: internal/typresolve/typescript/resolver.go
+    - name: BuildRegistry
+      description: |
+        Builds a typresolve.Registry from ResolverDef entries. Registers functions,
+        methods (with receiver type extracted from QN), classes, interfaces, and
+        type aliases. TS methods have QN format: "repoURL://module/path.ClassName.MethodName".
+      definition: |
+        func BuildRegistry(defs []typresolve.ResolverDef) *typresolve.Registry
+      location: internal/typresolve/typescript/registry_builder.go
+    - name: ResolveCallsInFile
+      description: |
+        Walks a TypeScript file's AST resolving call expressions, new expressions,
+        and JSX elements, emitting edges. Uses the shared registry, per-file scope
+        chain, and import map.
+      definition: |
+        func ResolveCallsInFile(ctx *ResolveContext, root *sitter.Node, fileHash types.Hash, repoURL string, filePath string) []types.Edge
+      location: internal/typresolve/typescript/resolve.go
+waves:
+    - number: 1
+      agents:
+        - id: A
+          task: |
+            ## Agent A: TypeScript Type Annotation Parsing and Import Resolution
+
+            Build the foundational type annotation parsing and import resolution for
+            the TypeScript resolver. This mirrors Agent A from the Go resolver
+            (types.go + imports.go) and Python resolver (annotations.go + imports.go),
+            adapted for TypeScript's type annotation syntax and ES module system.
+
+            ### What to implement
+
+            **File 1: `internal/typresolve/typescript/doc.go`**
+            Package doc comment for the `typescript` subpackage:
+            ```go
+            // Package tsresolve implements the TypeScript/JavaScript in-process type
+            // resolver. It implements the typresolve.Resolver interface, resolving
+            // TypeScript and JavaScript call expressions, property access, JSX elements,
+            // and type references using tree-sitter AST walking and a shared type
+            // registry built from extracted definitions.
+            //
+            // Supported dialects: .ts, .tsx, .js, .jsx
+            package tsresolve
+            ```
+
+            **File 2: `internal/typresolve/typescript/types.go`**
+            Port the `parse_ts_type_text` function from the C reference at
+            `~/code/codebase-memory/internal/cbm/lsp/ts_lsp.c` (lines 133-472).
+            This function converts TypeScript type annotation text into `*typresolve.Type`.
+
+            Implement `ParseTypeText(text string, moduleQN string) *typresolve.Type`
+
+            Handle these annotation forms (in order from the C reference):
+
+            1. **Trim whitespace and leading ":"**: strip leading/trailing whitespace,
+               leading ":" (from type_annotation nodes), trailing ";", ","
+
+            2. **Function type** `(params) => returnType`:
+               - Find balanced `(...)` then ` => ` arrow
+               - Parse params: split by top-level commas, each `name: type` or bare `type`
+               - Parse return type recursively
+               - Return `typresolve.Func(params, [returnType])`
+
+            3. **Object literal type** `{...}`: return `typresolve.Unknown()` (Tier 2)
+
+            4. **Tuple** `[T, U]`: when text starts with `[` and ends with `]`:
+               - Split inner by top-level commas
+               - Parse each element recursively
+               - Return `typresolve.Tuple(elements)`
+
+            5. **Union** `A | B` (top-level `|` at depth 0):
+               - Split by top-level `|` (outside `<>`, `[]`)
+               - If exactly 2 members and one is "null" or "undefined", return
+                 `typresolve.Optional(otherMember)` (TypeScript's nullable pattern)
+               - Otherwise return the first non-null/undefined member (best-effort,
+                 typresolve has no Union kind)
+
+            6. **Intersection** `A & B`: split by top-level `&`, return first member
+               (best-effort, typresolve has no Intersection kind)
+
+            7. **Builtin primitives**: string, number, boolean, bigint, any, unknown,
+               void, never, null, undefined, object, symbol
+               -> `typresolve.Builtin(name)`
+
+            8. **Array shorthand** `T[]`: strip trailing `[]`, parse inner, return
+               `typresolve.Slice(elem)` (Slice represents Array<T>)
+
+            9. **Generic instantiation** `Foo<A, B>`:
+               - Find balanced `<...>` at the end
+               - Extract base name and type arguments
+               - Special cases:
+                 - `Array<T>` -> `typresolve.Slice(T)`
+                 - `Promise<T>` -> `typresolve.Named("Promise")` with TypeParams
+                   (keep as Named for method dispatch; await unwraps it)
+                 - `Map<K, V>` -> `typresolve.Map(K, V)`
+                 - `Set<T>` -> `typresolve.Named("Set")` (no Set kind)
+                 - `Record<K, V>` -> `typresolve.Map(K, V)` (structural equivalent)
+                 - `Partial<T>`, `Required<T>`, `Readonly<T>`, `NonNullable<T>` -> unwrap to T
+                   (for method dispatch, these pass through to T's surface)
+                 - `ReturnType<F>` -> return Unknown (Tier 2)
+               - For project-local types (not stdlib names), qualify: moduleQN.BaseName
+               - Return `typresolve.Named(qualifiedBase)` (type args stored in TypeParams)
+
+            10. **Qualified name** `a.b.c`: return `typresolve.Named(text)` as-is
+
+            11. **Bare identifier**: if uppercase and moduleQN is provided, qualify as
+                `moduleQN.name`. Stdlib names (Array, Promise, Map, Set, Object, String,
+                Number, Boolean, Error, Date, RegExp, Element, HTMLElement, etc.) stay bare.
+                Return `typresolve.Named(qualifiedName)`.
+
+            Internal helper: `splitAtDepthZero(text string, sep byte) []string`
+            Split a string at the given separator at depth 0 (ignoring separators inside
+            `<>`, `[]`, `()`). Trims whitespace from each part.
+
+            Also implement `ParseTypeNode(node *sitter.Node, content []byte, moduleQN string, imports map[string]ImportInfo) *typresolve.Type`:
+            - For `type_annotation` nodes: extract child text, call ParseTypeText
+            - For `type_identifier` / `predefined_type`: extract text, call ParseTypeText
+            - For `generic_type`: extract base type identifier + type_arguments, build accordingly
+            - For `union_type`: collect children separated by `|`, handle as union
+            - For `intersection_type`: similar to union
+            - For `array_type`: wrap element with Slice
+            - For `tuple_type`: collect elements into Tuple
+            - For `parenthesized_type`: unwrap
+            - For `function_type`: extract parameters and return_type children
+            - Default: extract full text, call ParseTypeText as fallback
+
+            TS stdlib names that should NOT be module-qualified (keep these bare for
+            registry matching):
+            ```go
+            var tsStdlibNames = map[string]bool{
+                "Array": true, "Promise": true, "Map": true, "Set": true,
+                "WeakMap": true, "WeakSet": true, "Object": true, "String": true,
+                "Number": true, "Boolean": true, "BigInt": true, "Symbol": true,
+                "Function": true, "Date": true, "RegExp": true, "Error": true,
+                "Math": true, "JSON": true, "console": true,
+                "Element": true, "HTMLElement": true, "Document": true,
+                "Window": true, "Node": true, "EventTarget": true, "Event": true,
+                "Response": true, "Request": true, "Headers": true, "URL": true,
+                "URLSearchParams": true, "FormData": true, "Blob": true, "File": true,
+                "NodeList": true, "HTMLCollection": true,
+                "Iterable": true, "Iterator": true, "Generator": true,
+                "AsyncIterable": true, "AsyncIterator": true, "AsyncGenerator": true,
+                "ReadonlyArray": true, "Partial": true, "Required": true,
+                "Readonly": true, "Pick": true, "Omit": true, "Record": true,
+                "Exclude": true, "Extract": true, "NonNullable": true,
+                "Parameters": true, "ReturnType": true, "Awaited": true,
+                "InstanceType": true, "ConstructorParameters": true,
+                "Uppercase": true, "Lowercase": true, "Capitalize": true,
+                "Uncapitalize": true, "ThisType": true,
+            }
+            ```
+
+            **File 3: `internal/typresolve/typescript/imports.go`**
+            Port import resolution, using the existing `buildTSImportMap` in
+            `internal/indexer/tsextractor/extractor.go` (lines 919-990) as a
+            reference for tree-sitter field names and node types. Do NOT import
+            that package; reimplement locally with richer ImportInfo.
+
+            Define:
+            ```go
+            type ImportInfo struct {
+                ModulePath   string // source module path (e.g. "./utils", "express")
+                OriginalName string // original name before aliasing
+                IsNamespace  bool   // true for "import * as X from ..."
+                IsDefault    bool   // true for "import X from ..."
+            }
+            ```
+
+            Implement:
+            - `BuildImportMap(root *sitter.Node, content []byte) map[string]ImportInfo`
+              Walk the AST for `import_statement` nodes.
+
+              For each import_statement:
+              - Get "source" field child -> module path (strip quotes)
+              - Walk children for `import_clause`
+              - Within import_clause, handle:
+                - `identifier` child: default import -> bind name with IsDefault=true
+                - `named_imports` child: walk for `import_specifier` children
+                  - Each has "name" and optional "alias" field children
+                  - Bind alias (or name if no alias) -> ImportInfo with OriginalName=name
+                - `namespace_import` child: `import * as X` -> bind X with IsNamespace=true
+
+              Also handle CommonJS require():
+              Walk `lexical_declaration` / `variable_declaration` for `variable_declarator`
+              where value is a `call_expression` with function `require`.
+
+              Reference the existing tsextractor code for the exact tree-sitter field names:
+              ```
+              import_statement -> source (string)
+              import_clause -> identifier | named_imports | namespace_import
+              import_specifier -> name, alias
+              ```
+
+            - `ResolveImport(imports map[string]ImportInfo, name string) (ImportInfo, bool)`
+              Simple map lookup.
+
+            - `ResolveModulePath(importSource string, currentFile string) string`
+              Resolve relative import paths. Mirror the `resolveTSModulePath` function in
+              the existing tsextractor (lines 893-913):
+              - Only resolve relative imports (starting with "." or "..")
+              - Join with current file's directory
+              - Normalize to forward slashes
+              - Strip .ts/.tsx/.js/.jsx extensions
+              - Return "" for bare module specifiers (non-relative)
+
+            **File 4: `internal/typresolve/typescript/types_test.go`**
+            Test ParseTypeText with TypeScript type annotation strings.
+            Test cases:
+            - Builtin: `"string"` -> Builtin("string")
+            - Builtin: `"number"` -> Builtin("number")
+            - Builtin: `"boolean"` -> Builtin("boolean")
+            - Builtin: `"void"` -> Builtin("void")
+            - Builtin: `"any"` -> Builtin("any")
+            - Builtin: `"never"` -> Builtin("never")
+            - Leading colon: `": string"` -> Builtin("string") (stripped)
+            - Array shorthand: `"string[]"` -> Slice(Builtin("string"))
+            - Generic Array: `"Array<number>"` -> Slice(Builtin("number"))
+            - Generic Map: `"Map<string, number>"` -> Map(Builtin("string"), Builtin("number"))
+            - Promise: `"Promise<string>"` -> Named("Promise") (with TypeParams)
+            - Union: `"string | number"` -> returns first member Builtin("string")
+            - Nullable union: `"string | null"` -> Optional(Builtin("string"))
+            - Nullable union: `"null | string"` -> Optional(Builtin("string"))
+            - Tuple: `"[string, number]"` -> Tuple([Builtin("string"), Builtin("number")])
+            - Function type: `"(x: string) => number"` -> Func with params and returns
+            - Bare name qualified: `"MyClass"` with moduleQN="src/app" -> Named("src/app.MyClass")
+            - Stdlib name bare: `"Promise"` with moduleQN="src/app" -> Named("Promise") (not qualified)
+            - Qualified name: `"express.Request"` -> Named("express.Request")
+            - Nested generic: `"Array<Map<string, number>>"` -> Slice(Map(Builtin("string"), Builtin("number")))
+            - Record utility: `"Record<string, number>"` -> Map(Builtin("string"), Builtin("number"))
+            - Partial unwrap: `"Partial<MyType>"` -> Named("src/app.MyType") with moduleQN
+
+            Test ParseTypeNode with parsed TypeScript AST.
+            Test BuildImportMap and ResolveImport with parsed TypeScript source.
+            Test cases:
+            - `import { readFile } from 'fs'` -> {"readFile": ImportInfo{ModulePath: "fs", OriginalName: "readFile"}}
+            - `import * as path from 'path'` -> {"path": ImportInfo{ModulePath: "path", IsNamespace: true}}
+            - `import express from 'express'` -> {"express": ImportInfo{ModulePath: "express", IsDefault: true}}
+            - `import { Component as Comp } from 'react'` -> {"Comp": ImportInfo{ModulePath: "react", OriginalName: "Component"}}
+
+            ### Interfaces consumed
+            - `typresolve.Type`, `typresolve.Named()`, `typresolve.Builtin()`,
+              `typresolve.Slice()`, `typresolve.Map()`, `typresolve.Tuple()`,
+              `typresolve.Optional()`, `typresolve.Func()`, `typresolve.Param` from
+              `github.com/blackwell-systems/knowing/internal/typresolve`
+            - `sitter.Node` from `github.com/smacker/go-tree-sitter`
+            - `typescript.GetLanguage()` from `github.com/smacker/go-tree-sitter/typescript/typescript`
+
+            ### Constraints
+            - Package name MUST be `tsresolve`
+            - Do NOT import or depend on builtins.go or methods.go from Agent B.
+            - Do NOT modify any files outside your ownership list.
+            - Do NOT import from `internal/indexer/tsextractor` (circular dependency risk).
+              Reimplement import map logic locally.
+            - Since typresolve has no Union or Intersection kind, use this mapping:
+              - `T | null` or `T | undefined` -> typresolve.Optional(T)
+              - `A | B` (no null) -> return first member as best-effort
+              - `A & B` -> return first member as best-effort
+              This is a deliberate simplification matching the Python resolver pattern.
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/typresolve/typescript/...
+            GOWORK=off go vet ./internal/typresolve/typescript/...
+            GOWORK=off go test ./internal/typresolve/typescript/... -run TestParseTypeText -v
+            GOWORK=off go test ./internal/typresolve/typescript/... -run TestBuildImportMap -v
+            ```
+
+            Postconditions:
+            ```bash
+            # ParseTypeText function exists
+            grep -c "func ParseTypeText" internal/typresolve/typescript/types.go  # expect: 1
+            # ParseTypeNode function exists
+            grep -c "func ParseTypeNode" internal/typresolve/typescript/types.go  # expect: 1
+            # BuildImportMap function exists
+            grep -c "func BuildImportMap" internal/typresolve/typescript/imports.go  # expect: 1
+            # Package declaration is tsresolve
+            grep -c "package tsresolve" internal/typresolve/typescript/doc.go  # expect: 1
+            ```
+          files:
+            - internal/typresolve/typescript/doc.go
+            - internal/typresolve/typescript/types.go
+            - internal/typresolve/typescript/imports.go
+            - internal/typresolve/typescript/types_test.go
+        - id: B
+          task: |
+            ## Agent B: Builtins, Member Lookup, and Async Unwrapping
+
+            Build the builtin type/function handling, member/property lookup with
+            prototype chain traversal, and async/await unwrapping for the TypeScript
+            resolver.
+
+            ### What to implement
+
+            **File 1: `internal/typresolve/typescript/builtins.go`**
+            Package: `tsresolve`
+
+            Port builtin handling from the C reference at
+            `~/code/codebase-memory/internal/cbm/lsp/ts_lsp.c`.
+
+            Implement:
+
+            - `IsBuiltinType(name string) bool`
+              Return true for TypeScript primitive types and their wrapper classes:
+              string, number, boolean, bigint, any, unknown, void, never, null,
+              undefined, object, symbol, String, Number, Boolean, BigInt, Symbol,
+              Object, Array, Promise, Map, Set, WeakMap, WeakSet, Date, RegExp,
+              Error, Function, Math, JSON, console.
+
+            - `ResolveBuiltinType(name string) *typresolve.Type`
+              Return `typresolve.Builtin(name)` for primitive types:
+              string, number, boolean, bigint, any, unknown, void, never, null,
+              undefined, object, symbol.
+              Return nil for non-primitive builtins (they are Named types with methods).
+
+            - `BuiltinWrapperClass(builtinName string) string`
+              Port from `builtin_wrapper_class` (lines 1075-1083):
+              - "string" -> "String"
+              - "number" -> "Number"
+              - "boolean" -> "Boolean"
+              - "bigint" -> "BigInt"
+              - "symbol" -> "Symbol"
+              - anything else -> "" (no wrapper)
+
+            - `LiteralType(nodeType string) *typresolve.Type`
+              Map tree-sitter literal node types to builtin types:
+              - "string" / "template_string" -> Builtin("string")
+              - "number" -> Builtin("number")
+              - "true" / "false" -> Builtin("boolean")
+              - "null" -> Builtin("null")
+              - "undefined" -> Builtin("undefined")
+              - "regex" -> Named("RegExp")
+              Return nil if not a literal type.
+
+            - `UnwrapPromise(t *typresolve.Type) *typresolve.Type`
+              If t is Named with name "Promise" and has TypeParams with at least one
+              entry, return the first type param (the inner type T in Promise<T>).
+              If t is Named("Promise") without type params, return Unknown.
+              Otherwise return t unchanged.
+              Used for `await expr` unwrapping: `await promise` yields T.
+
+              Implementation detail: since we represent Promise<T> as a Named type with
+              TypeParams, check:
+              ```go
+              if t.Kind == typresolve.KindNamed && t.Name == "Promise" && len(t.TypeParams) > 0 {
+                  // TypeParams[0].Constraint holds the type argument in our representation
+                  // OR we store Promise<T> as Named("Promise") with Elem = T
+              }
+              ```
+              Actually, since typresolve.Type uses TypeParams for generic type params (with
+              Name and Constraint), and we need to store type arguments, the simplest approach
+              is to store Promise<T> as:
+              - `&typresolve.Type{Kind: KindNamed, Name: "Promise", Elem: T}`
+              Using the Elem field (which is for Pointer/Slice/etc.) to also carry the
+              primary type argument for generic types. This is a pragmatic shortcut that
+              works because we only need the first type arg for method dispatch and await
+              unwrapping. Agent A's ParseTypeText should use this same convention for
+              Promise, Array (which maps to Slice), Map, Set.
+
+              So UnwrapPromise becomes:
+              ```go
+              func UnwrapPromise(t *typresolve.Type) *typresolve.Type {
+                  if t != nil && t.Kind == typresolve.KindNamed && t.Name == "Promise" {
+                      if t.Elem != nil {
+                          return t.Elem
+                      }
+                      return typresolve.Unknown()
+                  }
+                  return t
+              }
+              ```
+
+            - `IsPassthroughUtility(name string) bool`
+              Return true for TS utility types that pass through to the inner type for
+              method dispatch: Partial, Required, Readonly, NonNullable, Pick, Omit, Awaited.
+              (Reference: unwrap_passthrough_template, lines 1210-1239)
+
+            **File 2: `internal/typresolve/typescript/methods.go`**
+            Package: `tsresolve`
+
+            Port member/property lookup with prototype chain traversal from the C reference
+            (lines 1086-1205 of ts_lsp.c).
+
+            Implement:
+
+            - `LookupMember(reg *typresolve.Registry, typeQN string, memberName string) *typresolve.RegisteredFunc`
+              Internal helper with depth limit (max 5):
+              1. Direct method lookup: `reg.LookupMethod(typeQN, memberName)` -- if found, return
+              2. Get type: `reg.LookupType(typeQN)` -- if nil, return nil
+              3. Follow alias: if `type.AliasOf != ""`, recurse with alias target
+              4. Check prototype chain (stored as EmbeddedTypes): for each parent, recurse
+              5. For builtin types, look up via wrapper class:
+                 if typeQN is a builtin primitive, get wrapper class name and recurse
+              6. Return nil if not found
+
+            - `LookupField(reg *typresolve.Registry, typeQN string, fieldName string) *typresolve.Type`
+              Internal helper with depth limit (max 5):
+              1. Get type: `reg.LookupType(typeQN)` -- if nil, return nil
+              2. Follow alias: if `type.AliasOf != ""`, recurse with alias target
+              3. Direct field lookup: scan `type.Fields` for matching name, return field type
+              4. Check prototype chain: for each `type.EmbeddedTypes[i]`, recurse
+              5. Return nil if not found
+
+            - `LookupMemberType(reg *typresolve.Registry, typeQN string, memberName string) *typresolve.Type`
+              Combines field and method lookup: first check fields (returns type directly),
+              then check methods (returns method signature type). This is the Go equivalent
+              of `lookup_member_type` in the C reference.
+
+            **File 3: `internal/typresolve/typescript/builtins_test.go`**
+            Package: `tsresolve`
+
+            Test cases:
+            - IsBuiltinType: true for "string", "number", "boolean", "any", "Promise", "Array"
+            - IsBuiltinType: false for "MyClass", "express"
+            - ResolveBuiltinType: returns Builtin for "string", "number"; nil for "Array" (not primitive)
+            - BuiltinWrapperClass: "string" -> "String", "number" -> "Number", "foo" -> ""
+            - LiteralType: "string" -> Builtin("string"), "number" -> Builtin("number"),
+              "true" -> Builtin("boolean"), "null" -> Builtin("null"), "foo" -> nil
+            - UnwrapPromise: Named("Promise") with Elem=Builtin("string") -> Builtin("string")
+            - UnwrapPromise: Named("MyType") -> Named("MyType") (unchanged)
+            - UnwrapPromise: Named("Promise") without Elem -> Unknown
+            - IsPassthroughUtility: true for "Partial", "Required"; false for "Promise", "Array"
+            - LookupMember: direct method found
+            - LookupMember: method found via prototype chain (1 level)
+            - LookupMember: method found via prototype chain (2 levels)
+            - LookupField: direct field found
+            - LookupField: field found via prototype chain
+            - LookupMemberType: returns field type, then method signature
+
+            ### Interfaces consumed
+            - `typresolve.Registry`, `typresolve.RegisteredFunc`, `typresolve.RegisteredType`
+            - `typresolve.Type`, `typresolve.Builtin()`, `typresolve.Named()`, etc.
+
+            ### Constraints
+            - Package name MUST be `tsresolve`
+            - Do NOT modify any files outside your ownership list.
+            - Do NOT import from `internal/indexer/tsextractor`.
+            - Promise<T> is represented as `&Type{Kind: KindNamed, Name: "Promise", Elem: T}`.
+              Agent A's ParseTypeText must use the same convention. This is documented in
+              the interface contract and both agents implement it independently.
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/typresolve/typescript/...
+            GOWORK=off go vet ./internal/typresolve/typescript/...
+            GOWORK=off go test ./internal/typresolve/typescript/... -run TestIsBuiltinType -v
+            GOWORK=off go test ./internal/typresolve/typescript/... -run TestLookupMember -v
+            ```
+
+            Postconditions:
+            ```bash
+            grep -c "func IsBuiltinType" internal/typresolve/typescript/builtins.go  # expect: 1
+            grep -c "func LookupMember" internal/typresolve/typescript/methods.go  # expect: 1
+            grep -c "func LookupField" internal/typresolve/typescript/methods.go  # expect: 1
+            grep -c "func UnwrapPromise" internal/typresolve/typescript/builtins.go  # expect: 1
+            ```
+          files:
+            - internal/typresolve/typescript/builtins.go
+            - internal/typresolve/typescript/methods.go
+            - internal/typresolve/typescript/builtins_test.go
+        - id: C
+          task: |
+            ## Agent C: Expression Evaluator and Scope Binding
+
+            Build the expression type evaluator and statement-level scope binding
+            for the TypeScript resolver. This mirrors Agent C from the Go and Python
+            resolvers, adapted for TypeScript's property access patterns, async/await,
+            optional chaining, JSX, and destructuring.
+
+            ### What to implement
+
+            **File 1: `internal/typresolve/typescript/eval.go`**
+            Package: `tsresolve`
+
+            Port `ts_eval_expr_type` from the C reference at
+            `~/code/codebase-memory/internal/cbm/lsp/ts_lsp.c` (lines 1359-1619).
+
+            Define the resolution context:
+            ```go
+            // ResolveContext holds per-file state for TypeScript type resolution.
+            type ResolveContext struct {
+                Registry         *typresolve.Registry
+                Scope            *typresolve.Scope
+                Imports          map[string]ImportInfo // from imports.go (Agent A)
+                ModuleQN         string                // current module qualified name
+                Content          []byte                // source file content
+                EnclosingFuncQN  string                // QN of enclosing function
+                EnclosingClassQN string                // QN of enclosing class (for this/super)
+            }
+            ```
+
+            NOTE: ImportInfo is defined in imports.go (Agent A). Since both files are
+            in the same `tsresolve` package, the type is visible after merge.
+
+            Implement `EvalExprType(ctx *ResolveContext, node *sitter.Node) *typresolve.Type`
+
+            Add a depth counter to prevent infinite recursion (max 64, matching C reference).
+            Use an internal recursive helper:
+            ```go
+            func evalExprTypeInner(ctx *ResolveContext, node *sitter.Node, depth int) *typresolve.Type
+            ```
+
+            Handle these expression node types (from the C reference):
+
+            1. **`identifier`** (C lines 1370-1425):
+               - Scope lookup: `ctx.Scope.Lookup(name)`
+               - If not found, check special values: "true"/"false" -> Builtin("boolean"),
+                 "null" -> Builtin("null"), "undefined" -> Builtin("undefined"),
+                 "NaN"/"Infinity" -> Builtin("number")
+               - Imports: check `ResolveImport(ctx.Imports, name)` (from imports.go, same
+                 package). If found:
+                 - Look up full symbol QN in registry: `ctx.Registry.LookupFunc(modulePath + "." + name)`
+                   or LookupFunc using OriginalName if different
+                 - If registered func with signature, return signature
+                 - If registered type, return Named(fullQN)
+                 - For namespace imports (IsNamespace=true), return Named(modulePath)
+               - Module-local: `ctx.Registry.LookupSymbol(ctx.ModuleQN, name)` and
+                 `ctx.Registry.LookupType(ctx.ModuleQN + "." + name)`
+               - Global/stdlib bare name: `ctx.Registry.LookupType(name)` and
+                 `ctx.Registry.LookupFunc(name)`
+               - Default: Unknown
+
+            2. **`member_expression`** (C lines 1428-1476, maps to `selector_expression` in Go):
+               - Get "object" and "property" field children
+               - If object is `identifier` and matches an import with IsNamespace=true:
+                 Treat as module property access: look up `modulePath.propertyName` in registry
+               - Otherwise evaluate object type recursively
+               - If object type is Named: look up member via
+                 `LookupMemberType(ctx.Registry, typeQN, propertyName)` (from methods.go,
+                 Agent B, same package)
+               - If object type is Builtin: get wrapper class via
+                 `BuiltinWrapperClass(builtinName)` (from builtins.go, Agent B),
+                 look up method on wrapper
+               - Optional chaining (`?.`): tree-sitter uses "optional_chain" or the
+                 property access still works through member_expression. Treat identically
+                 to regular member access for type resolution.
+               - Default: Unknown
+
+            3. **`call_expression`** (C lines 1479-1550):
+               - Get "function" and "arguments" field children
+               - Evaluate function type recursively
+               - If function type is KindFunc with Returns: return first return type
+               - If function is identifier:
+                 - Builtin type constructor: `Number("42")` -> Builtin("number"),
+                   `String(x)` -> Builtin("string"), `Boolean(x)` -> Builtin("boolean")
+                 - Check if it's a class name (Named type): constructor call, return Named type
+               - If function type is KindNamed: type conversion/constructor, return that type
+
+            4. **`new_expression`** (C lines 1553-1570):
+               - Get "constructor" field child
+               - Evaluate constructor type
+               - If constructor type is Named or text is an identifier:
+                 Return Named(classQN) (new creates an instance)
+
+            5. **`await_expression`** (C lines 1573-1580):
+               - Evaluate operand type recursively
+               - Call `UnwrapPromise(operandType)` (from builtins.go, Agent B, same package)
+               - Return unwrapped type
+
+            6. **`member_expression` with optional chain** (`obj?.prop`):
+               - Same as regular member_expression
+
+            7. **`as_expression`** / **`satisfies_expression`** (TS type assertions):
+               - Parse the type from the "type" field child via ParseTypeNode
+                 (from types.go, Agent A, same package)
+               - Return the asserted type
+
+            8. **`non_null_expression`** (`x!`):
+               - Evaluate operand, return it (strips null/undefined conceptually)
+
+            9. **`parenthesized_expression`**: unwrap
+
+            10. **`template_string`** / **`template_substitution`**:
+                - Return Builtin("string")
+
+            11. **Literals** (using LiteralType from builtins.go, Agent B):
+                - "string", "template_string" -> Builtin("string")
+                - "number" -> Builtin("number")
+                - "true", "false" -> Builtin("boolean")
+                - "null" -> Builtin("null")
+                - "undefined" -> Builtin("undefined")
+                - "regex" -> Named("RegExp")
+
+            12. **`array`** (array literal `[1, 2, 3]`):
+                - If has children, evaluate first element, return Slice(elemType)
+                - If empty, return Builtin("Array") / Slice(Unknown)
+
+            13. **`object`** (object literal `{a: 1, b: "x"}`):
+                - Return Unknown (Tier 2 for object literal typing)
+
+            14. **`binary_expression`**:
+                - Comparison operators (`==`, `!=`, `<`, `>`, `<=`, `>=`, `===`, `!==`,
+                  `instanceof`, `in`): return Builtin("boolean")
+                - `+`: if either operand is string, return Builtin("string"),
+                  otherwise return left operand type
+                - Other arithmetic: return left operand type
+
+            15. **`unary_expression`**:
+                - `typeof`: return Builtin("string")
+                - `!`: return Builtin("boolean")
+                - `-`, `+`, `~`: return Builtin("number")
+                - `void`: return Builtin("undefined")
+
+            16. **`ternary_expression`** / **`conditional_expression`** (`a ? b : c`):
+                - Evaluate consequence (b), return it
+
+            17. **`arrow_function`**:
+                - If has return type annotation, parse it
+                - Otherwise evaluate body expression
+                - Build Func type from parameters and return type
+                - Push scope, bind params (do NOT walk body here; resolve.go handles it)
+
+            18. **`subscript_expression`** (`arr[0]`, `map["key"]`):
+                - Evaluate object type
+                - If Slice: return element type
+                - If Map: return value type
+                - If Tuple with numeric index: return corresponding element
+                - Default: Unknown
+
+            19. **`type_assertion`** (`<Type>expr` syntax, legacy TS):
+                - Parse the type child, return it
+
+            20. **`this`**:
+                - If EnclosingClassQN is set, return Named(EnclosingClassQN)
+                - Default: Unknown
+
+            21. **`super`**:
+                - If EnclosingClassQN is set, look up EmbeddedTypes[0] (parent class)
+                - Return Named(parentClassQN) if found
+                - Default: Unknown
+
+            Helper: `nodeText(node *sitter.Node, content []byte) string`
+            Extract the text of a node from the source content.
+
+            **File 2: `internal/typresolve/typescript/scope_bind.go`**
+            Package: `tsresolve`
+
+            Port `ts_process_statement` from the C reference (lines 1694-1927).
+
+            Implement `ProcessStatement(ctx *ResolveContext, node *sitter.Node)`
+
+            Handle these statement/declaration types:
+
+            1. **`variable_declarator`** (within `lexical_declaration` or `variable_declaration`)
+               (C reference `bind_variable_declarator`, lines 1697-1759):
+               - Get "name", "value", and "type" (type_annotation) field children
+               - If has type annotation: parse it with `ParseTypeNode(typeNode, ctx.Content, ctx.ModuleQN, ctx.Imports)`
+                 (from types.go, Agent A, same package); annotation wins over RHS type
+               - Else if has value: evaluate RHS with EvalExprType
+               - If name is simple identifier: bind name to type in scope
+               - If name is `object_pattern` (destructuring `const {a, b} = obj`):
+                 For each shorthand_property_identifier / pair_pattern in the pattern,
+                 bind the variable name. If RHS type is known with fields, bind to field type.
+                 Otherwise bind to Unknown.
+               - If name is `array_pattern` (destructuring `const [a, b] = arr`):
+                 If RHS is Tuple, bind each var to corresponding element.
+                 If RHS is Slice, bind each var to element type.
+                 Otherwise bind to Unknown.
+
+            2. **`for_in_statement`** / **`for_of_statement`**:
+               - Get "left" and "right" field children
+               - For `for...in`: bind left var to Builtin("string") (keys are strings)
+               - For `for...of`: evaluate right (iterable), extract element type:
+                 - If Slice/Array: element type
+                 - If Map: Tuple of [key, value] (simplified: bind to Unknown)
+                 - Default: Unknown
+               - Bind left target identifier
+
+            3. **`catch_clause`** (within `try_statement`):
+               - Get "parameter" field child (catch variable)
+               - Bind parameter to Named("Error") or Unknown (TS catch parameter is `unknown` by default)
+
+            4. **`lexical_declaration`** / **`variable_declaration`**:
+               - Walk children for `variable_declarator` nodes
+               - Process each declarator per rule 1 above
+
+            5. **`assignment_expression`** (for existing variables):
+               - Get "left" and "right"
+               - Evaluate RHS, bind LHS if it's an identifier already in scope
+
+            **File 3: `internal/typresolve/typescript/eval_test.go`**
+            Package: `tsresolve`
+
+            Test helper to parse TypeScript:
+            ```go
+            func parseTS(t *testing.T, src string) *sitter.Node {
+                content := []byte(src)
+                parser := sitter.NewParser()
+                parser.SetLanguage(typescript.GetLanguage())
+                tree, err := parser.ParseCtx(context.Background(), nil, content)
+                require.NoError(t, err)
+                t.Cleanup(func() { tree.Close() })
+                return tree.RootNode()
+            }
+            ```
+
+            Test cases for EvalExprType:
+            - Identifier resolves from scope: `x` bound to Named("mod.MyType") -> Named
+            - Identifier resolves true/false -> Builtin("boolean")
+            - Identifier resolves null -> Builtin("null")
+            - Identifier resolves undefined -> Builtin("undefined")
+            - Member expression resolves import: `path.join` with namespace import
+            - Call returns function return type
+            - New expression returns Named type: `new MyClass()` -> Named("mod.MyClass")
+            - Await unwraps Promise: `await promise` where promise is Promise -> inner type
+            - String literal -> Builtin("string")
+            - Number literal -> Builtin("number")
+            - Template string -> Builtin("string")
+            - Array literal `[1, 2]` -> Slice(Builtin("number"))
+            - Binary comparison `a === b` -> Builtin("boolean")
+            - Typeof operator -> Builtin("string")
+            - this inside class -> Named(classQN)
+            - Subscript on array -> element type
+
+            Test cases for ProcessStatement:
+            - Variable declarator with type: `const x: number = 42` binds x to Builtin("number")
+            - Variable declarator without type: `const x = "hello"` binds x to Builtin("string")
+            - Destructuring object: `const {a, b} = obj` binds a, b
+            - Destructuring array: `const [a, b] = arr` binds a, b
+            - For...of loop: `for (const x of items)` binds x to element type
+            - For...in loop: `for (const k in obj)` binds k to Builtin("string")
+
+            ### Interfaces consumed
+            - `typresolve.Registry`, `typresolve.Scope`, `typresolve.NewScope()`
+            - `typresolve.Type` and all constructors
+            - `ParseTypeText`, `ParseTypeNode` from types.go (Agent A, same package)
+            - `ImportInfo`, `ResolveImport` from imports.go (Agent A, same package)
+            - `ResolveBuiltinType`, `LiteralType`, `BuiltinWrapperClass`, `UnwrapPromise`
+              from builtins.go (Agent B, same package)
+            - `LookupMember`, `LookupField`, `LookupMemberType` from methods.go (Agent B, same package)
+            - `sitter.Node` from `github.com/smacker/go-tree-sitter`
+            - `typescript.GetLanguage()` from `github.com/smacker/go-tree-sitter/typescript/typescript`
+
+            ### Constraints
+            - Package name MUST be `tsresolve`
+            - Do NOT modify any files outside your ownership list.
+            - This file depends on Agent A's types.go and imports.go, and Agent B's
+              builtins.go and methods.go. Since all are in the same Go package
+              (`tsresolve`), they compile together after wave 1 merge.
+            - Depth limit of 64 for recursive evaluation (matching C reference
+              TS_LSP_MAX_EVAL_DEPTH).
+            - For `this` resolution: requires EnclosingClassQN to be set by the
+              enclosing class/method processing in resolve.go (Agent D, wave 2).
+              In eval.go, just check if EnclosingClassQN is non-empty and return
+              Named(EnclosingClassQN).
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/typresolve/typescript/...
+            GOWORK=off go vet ./internal/typresolve/typescript/...
+            GOWORK=off go test ./internal/typresolve/typescript/... -run TestEvalExprType -v
+            GOWORK=off go test ./internal/typresolve/typescript/... -run TestProcessStatement -v
+            ```
+
+            Postconditions:
+            ```bash
+            grep -c "func EvalExprType" internal/typresolve/typescript/eval.go  # expect: 1
+            grep -c "func ProcessStatement" internal/typresolve/typescript/scope_bind.go  # expect: 1
+            grep -c "type ResolveContext struct" internal/typresolve/typescript/eval.go  # expect: 1
+            ```
+          files:
+            - internal/typresolve/typescript/eval.go
+            - internal/typresolve/typescript/scope_bind.go
+            - internal/typresolve/typescript/eval_test.go
+    - number: 2
+      agents:
+        - id: D
+          task: |
+            ## Agent D: Resolver Integration, Registry Builder, and Call Resolution
+
+            Integrate all wave 1 components into the TypeScriptResolver that implements
+            typresolve.Resolver, build the registry builder, and implement call
+            resolution with edge emission. Also handle JSX element resolution and
+            class/function body walking.
+
+            ### What to implement
+
+            **File 1: `internal/typresolve/typescript/resolver.go`**
+            Package: `tsresolve`
+
+            The main TypeScriptResolver struct implementing `typresolve.Resolver`:
+
+            ```go
+            type TypeScriptResolver struct {
+                registry *typresolve.Registry
+            }
+
+            func NewTypeScriptResolver() *TypeScriptResolver {
+                return &TypeScriptResolver{}
+            }
+
+            func (r *TypeScriptResolver) Language() string { return "typescript" }
+            ```
+
+            `InitWorkspace(ctx context.Context, defs []typresolve.ResolverDef) error`:
+            - Call BuildRegistry with the defs
+            - Store the resulting registry in r.registry
+
+            `ResolveFile(ctx context.Context, opts typresolve.ResolveFileOpts) ([]types.Edge, error)`:
+            1. Get the tree-sitter root node from opts.ParsedTree:
+               ```go
+               var root *sitter.Node
+               switch v := opts.ParsedTree.(type) {
+               case *sitter.Node:
+                   root = v
+               default:
+                   // Re-parse the content as fallback
+                   parser := sitter.NewParser()
+                   parser.SetLanguage(typescript.GetLanguage())
+                   tree, err := parser.ParseCtx(ctx, nil, opts.Content)
+                   if err != nil {
+                       return nil, fmt.Errorf("parse: %w", err)
+                   }
+                   defer tree.Close()
+                   root = tree.RootNode()
+               }
+               ```
+
+            2. Build per-file import map: `imports := BuildImportMap(root, opts.Content)`
+
+            3. Determine module QN from the file path. TypeScript convention:
+               Convert file path to forward-slash module path, strip extension:
+               `src/compiler/checker.ts` -> `src/compiler/checker`
+               Use the first edge's QualifiedName prefix if available.
+               ```go
+               func inferModuleQN(filePath string, edges []types.Edge) string
+               ```
+               Implementation: mirror `computeQNamePrefix` from the existing tsextractor
+               (extractor.go lines 183-195).
+
+            4. Create ResolveContext with the registry, a new root scope, imports,
+               moduleQN, content, and empty EnclosingFuncQN/EnclosingClassQN.
+
+            5. Bind imports into scope: for each import entry:
+               - Named import (not namespace, not default): bind name to the resolved type
+                 from the registry (look up modulePath.OriginalName or modulePath.name)
+               - Default import: bind name to Named(modulePath) (module type)
+               - Namespace import: bind name to Named(modulePath) (module type for property access)
+
+            6. Call `ResolveCallsInFile(rctx, root, opts.FileHash, repoURL, opts.FilePath)`
+
+            7. Return the edges.
+
+            **File 2: `internal/typresolve/typescript/registry_builder.go`**
+            Package: `tsresolve`
+
+            Implement `BuildRegistry(defs []typresolve.ResolverDef) *typresolve.Registry`:
+            1. Create a new registry via `typresolve.NewRegistry()`
+            2. For each def:
+               - If Kind is "function": register as RegisteredFunc with
+                 QualifiedName=def.QualifiedName, ShortName=last segment after "."
+               - If Kind is "method": register as RegisteredFunc with
+                 ReceiverType extracted from QualifiedName. TS methods have QN
+                 format: "repoURL://modulePath.ClassName.MethodName"
+                 -> ReceiverType = everything up to last "." before method name
+               - If Kind is "type" or "class": register as RegisteredType
+               - If Kind is "interface": register as RegisteredType with IsInterface=true
+            3. Return the registry
+
+            **File 3: `internal/typresolve/typescript/resolve.go`**
+            Package: `tsresolve`
+
+            Port the call resolution logic from the C reference (lines 1930-2670,
+            resolve_call_at + process_node + process_function_body).
+
+            Implement `ResolveCallsInFile(ctx *ResolveContext, root *sitter.Node, fileHash types.Hash, repoURL string, filePath string) []types.Edge`:
+
+            This walks the file's AST and resolves call expressions, new expressions,
+            and JSX elements to edges.
+
+            Structure (following ts_lsp_process_file, lines 2737-2793):
+            1. Walk top-level children of root (program node)
+            2. Pass 1: Process top-level variable declarations into root scope
+            3. Pass 2: For each function_declaration, class_declaration, or
+               lexical_declaration (with arrow functions):
+               a. For function_declaration:
+                  - Set ctx.EnclosingFuncQN
+                  - Push function scope
+                  - Bind parameters into scope (with type annotations if present):
+                    Walk "parameters" field children for required_parameter,
+                    optional_parameter, rest_parameter. For each:
+                    - If has "type" field child (type_annotation): parse type
+                    - Bind parameter name to type
+                  - Walk function body with resolveCallsInNode
+                  - Pop function scope
+
+               b. For class_declaration:
+                  - Set ctx.EnclosingClassQN
+                  - Push class scope
+                  - Bind `this` to Named(classQN) in scope
+                  - Walk class_body for method_definition nodes:
+                    - Set EnclosingFuncQN to className.methodName
+                    - Push method scope
+                    - Bind `this` to Named(classQN)
+                    - Bind parameters (skip first if it's explicitly `this: Type`)
+                    - Walk method body
+                    - Pop method scope
+                  - Pop class scope, restore EnclosingClassQN
+
+               c. For export_statement: unwrap to inner declaration, process recursively
+
+            Internal function `resolveCallsInNode(ctx *ResolveContext, node *sitter.Node, edges *[]types.Edge, fileHash types.Hash, repoURL string, filePath string)`:
+            (Port of process_node, lines 2362-2670)
+
+            1. Call `ProcessStatement(ctx, node)` to bind variables
+            2. If node is `call_expression`:
+               - Get "function" field child
+               - If `member_expression`:
+                 a. Get object and property
+                 b. Check if object is namespace import: look up module.method in registry
+                 c. Else: evaluate object type, look up method on receiver type
+               - If `identifier` (not builtin):
+                 a. Check scope for Named type (constructor call): emit edge
+                 b. Module-local function: look up in registry, emit edge
+               - Emit edge with:
+                 - SourceHash: compute from enclosing function
+                 - TargetHash: compute from callee's qualified name
+                 - EdgeType: edgetype.Calls
+                 - Confidence: typresolve.ResolverConfidence (0.9)
+                 - Provenance: typresolve.ProvenanceResolverResolved
+
+            3. If node is `new_expression`:
+               - Get "constructor" field child
+               - Resolve constructor to class qualified name
+               - Emit edge with EdgeType: edgetype.Calls (constructor call)
+
+            4. If node is `jsx_element` or `jsx_self_closing_element`:
+               (Port of resolve_jsx_element, lines 2322-2361)
+               - Get opening element's name
+               - If name starts with uppercase: component reference
+               - Look up component in registry (imports or module-local)
+               - Emit edge with EdgeType: edgetype.Calls
+
+            5. Push scope for blocks (statement_block, if_statement, for_statement,
+               while_statement, switch_case, etc.)
+            6. Skip recursion into nested function_declaration, class_declaration,
+               arrow_function (these are processed by top-level pass or as expression
+               contexts)
+            7. Recurse into children
+            8. Pop scope if pushed
+
+            Edge hash computation (matching the existing tsextractor conventions):
+            - Source: `types.ComputeNodeHash(repoURL, moduleQN, types.EmptyHash, funcName, types.KindFunction)`
+            - Target: `types.ComputeNodeHash(targetRepoURL, targetModulePath, types.EmptyHash, targetName, types.KindFunction)`
+
+            For cross-module targets (resolved via imports):
+            - Use `ResolveModulePath(importSource, filePath)` to compute target module path
+            - Use the import's module path as the target qualified name prefix
+
+            Import these:
+            - `github.com/blackwell-systems/knowing/internal/types`
+            - `github.com/blackwell-systems/knowing/internal/edgetype`
+            - `github.com/blackwell-systems/knowing/internal/typresolve`
+
+            **File 4: `internal/typresolve/typescript/resolver_test.go`**
+            Package: `tsresolve`
+
+            Integration tests for the full resolver pipeline.
+
+            Test 1: `TestTypeScriptResolverLanguage`
+            - NewTypeScriptResolver().Language() == "typescript"
+
+            Test 2: `TestTypeScriptResolverInitWorkspace`
+            - Create defs with function and type entries
+            - Call InitWorkspace
+            - Verify registry contains the registered entries
+
+            Test 3: `TestTypeScriptResolverResolveFile_ImportCall`
+            - Source:
+              ```typescript
+              import { readFileSync } from 'fs';
+
+              function loadConfig() {
+                  const data = readFileSync('config.json');
+              }
+              ```
+            - InitWorkspace with a def for fs.readFileSync
+            - ResolveFile should produce a "calls" edge from loadConfig to fs.readFileSync
+            - Verify edge has provenance "resolver_resolved" and confidence 0.9
+
+            Test 4: `TestTypeScriptResolverResolveFile_LocalCalls`
+            - Source with local function calls:
+              ```typescript
+              function helper() {}
+              function main() { helper(); }
+              ```
+            - Register helper in workspace
+            - Verify edges are produced
+
+            Test 5: `TestTypeScriptResolverResolveFile_MethodCalls`
+            - Source with method calls on typed variables:
+              ```typescript
+              class MyService {
+                  getData(): string { return ""; }
+              }
+              function use(svc: MyService) {
+                  svc.getData();
+              }
+              ```
+            - Register type and method in workspace
+            - Verify method dispatch edge is produced
+
+            Test 6: `TestTypeScriptResolverResolveFile_NewExpression`
+            - Source with `new MyClass()` constructor calls
+            - Verify constructor edge is produced
+
+            Test 7: `TestTypeScriptResolverResolveFile_JSXElement`
+            - Source with JSX:
+              ```tsx
+              import React from 'react';
+              function App() { return <Header />; }
+              ```
+            - Register Header component
+            - Verify JSX element edge is produced
+            - NOTE: JSX parsing requires the TSX grammar. If the tree-sitter
+              TypeScript grammar doesn't parse JSX, use the TSX variant
+              (`github.com/smacker/go-tree-sitter/typescript/tsx`). Check if
+              the vendored grammar handles both. If not, skip this test case
+              with `t.Skip("TSX grammar not available")`.
+
+            Test 8: `TestResolveCallsInFile_AwaitUnwrap`
+            - Source:
+              ```typescript
+              async function fetch() {
+                  const resp = await getResponse();
+                  resp.json();
+              }
+              ```
+            - Register getResponse returning Promise<Response> and Response.json
+            - Verify method call on unwrapped type is resolved
+
+            ### Interfaces consumed
+            - All wave 1 functions: ParseTypeText, ParseTypeNode, BuildImportMap,
+              ResolveImport, ResolveModulePath, ImportInfo, IsBuiltinType,
+              ResolveBuiltinType, BuiltinWrapperClass, LiteralType, UnwrapPromise,
+              LookupMember, LookupField, LookupMemberType, EvalExprType,
+              ProcessStatement, ResolveContext
+            - `typresolve.Resolver`, `typresolve.ResolverDef`, `typresolve.ResolveFileOpts`
+            - `typresolve.Registry`, `typresolve.Scope`, `typresolve.NewScope`
+            - `types.Edge`, `types.Hash`, `types.ComputeEdgeHash`, `types.ComputeNodeHash`
+            - `types.KindFunction`, `types.KindMethod`, `types.KindType`
+            - `edgetype.Calls`
+            - `sitter.Node`, `sitter.NewParser`
+            - `typescript.GetLanguage()` from `github.com/smacker/go-tree-sitter/typescript/typescript`
+
+            ### Constraints
+            - Package name MUST be `tsresolve`
+            - Do NOT modify any files outside your ownership list.
+            - Do NOT modify the typresolve package (shared infrastructure is frozen).
+            - Do NOT import `internal/indexer/tsextractor` directly. If you need to
+              handle the tree from the extractor, re-parse the content as a fallback.
+            - Edge provenance MUST be `typresolve.ProvenanceResolverResolved`
+              ("resolver_resolved"), NOT "lsp_resolved" or "ast_inferred".
+            - Edge confidence MUST be `typresolve.ResolverConfidence` (0.9).
+            - Module QN uses forward slashes (not dots like Python): "src/compiler/checker"
+            - For JSX element resolution, only resolve uppercase component names
+              (lowercase tags like `<div>` are HTML intrinsics, not component references).
+            - The existing tsextractor uses `typescript.GetLanguage()` for both .ts and .tsx
+              files. Check if JSX nodes are parsed correctly; if not, the TSX variant may
+              be needed for test 7.
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/typresolve/typescript/...
+            GOWORK=off go vet ./internal/typresolve/typescript/...
+            GOWORK=off go test ./internal/typresolve/typescript/... -v
+            GOWORK=off go build ./...
+            GOWORK=off go test -short ./... -timeout 5m
+            ```
+
+            Postconditions:
+            ```bash
+            grep -c "func NewTypeScriptResolver" internal/typresolve/typescript/resolver.go  # expect: 1
+            grep -c "func BuildRegistry" internal/typresolve/typescript/registry_builder.go  # expect: 1
+            grep -c "func ResolveCallsInFile" internal/typresolve/typescript/resolve.go  # expect: 1
+            # Verify it implements the Resolver interface
+            grep -c "typresolve.Resolver" internal/typresolve/typescript/resolver.go  # expect: >= 1
+            ```
+          files:
+            - internal/typresolve/typescript/resolver.go
+            - internal/typresolve/typescript/registry_builder.go
+            - internal/typresolve/typescript/resolve.go
+            - internal/typresolve/typescript/resolver_test.go
+          dependencies:
+            - A
+            - B
+            - C
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: GOWORK=off go build ./...
+          required: true
+        - type: lint
+          command: GOWORK=off go vet ./...
+          required: true
+        - type: test
+          command: GOWORK=off go test -short ./... -timeout 5m
+          required: true
+post_merge_checklist:
+    groups:
+        - title: Build Verification
+          items:
+            - description: 'Full test suite passes: GOWORK=off go build ./... && GOWORK=off go test -short ./... -timeout 5m'
+            - description: Verify TypeScriptResolver implements typresolve.Resolver interface (compile check)
+        - title: Integration Verification
+          items:
+            - description: Verify resolver can be registered with ResolverEnricher
+            - description: Verify resolver_test.go integration tests pass end-to-end
+        - title: Benchmark Validation
+          items:
+            - description: Register TypeScriptResolver in enrichment pipeline and run vscode benchmark
+            - description: Compare edges produced vs current tsserver enrichment for vscode corpus
+pre_mortem:
+    overall_risk: medium
+    rows:
+        - scenario: |
+            Wave 1 agents call cross-file functions that don't exist yet in their
+            isolated worktrees (Agent C calls ParseTypeText from Agent A's types.go,
+            LiteralType from Agent B's builtins.go).
+          likelihood: high
+          impact: low
+          mitigation: |
+            All wave 1 agents are in the same Go package (tsresolve). Their files
+            compile together only after merge. The build gate runs post-merge.
+            Individual agent worktrees will not compile in isolation, which is
+            expected and acceptable. This is identical to the Go and Python resolver
+            patterns.
+        - scenario: |
+            Promise<T> type representation convention differs between Agent A (types.go)
+            and Agent B (builtins.go). Agent A stores Promise<T> one way, Agent B's
+            UnwrapPromise expects it a different way.
+          likelihood: medium
+          impact: high
+          mitigation: |
+            The interface contract specifies the exact convention: Promise<T> is
+            represented as &Type{Kind: KindNamed, Name: "Promise", Elem: T}. Both
+            agents implement against this specification. The Elem field is the designated
+            carrier for the primary type argument. Post-merge tests in wave 2 validate
+            the convention end-to-end (TestResolveCallsInFile_AwaitUnwrap).
+        - scenario: |
+            TypeScript tree-sitter node type names differ from what the C reference uses.
+            The C reference uses ts_node_type() which returns C grammar names, while the
+            Go bindings may use slightly different names.
+          likelihood: medium
+          impact: medium
+          mitigation: |
+            The existing TypeScript extractor at internal/indexer/tsextractor/extractor.go
+            already uses the Go tree-sitter TypeScript bindings and demonstrates the correct
+            node type names (call_expression, member_expression, import_statement, identifier,
+            variable_declarator, etc.). Agents should cross-reference that file for node
+            type names. Guard all ChildByFieldName calls with nil checks.
+        - scenario: |
+            JSX element resolution requires the TSX grammar, not the TypeScript grammar.
+            The existing tsextractor uses typescript.GetLanguage() which may not parse
+            JSX/TSX syntax correctly.
+          likelihood: medium
+          impact: low
+          mitigation: |
+            The existing tsextractor uses typescript.GetLanguage() for all TS/JS/TSX/JSX
+            files and appears to work. If JSX nodes are not parsed, Agent D should skip
+            JSX test cases with t.Skip and document that TSX grammar support is a Tier 2
+            enhancement. The core value is call/property resolution, not JSX.
+        - scenario: |
+            The module QN inference from file paths produces incorrect qualified names
+            that don't match the registry entries from the existing tsextractor.
+          likelihood: medium
+          impact: high
+          mitigation: |
+            Agent D must use the same QN convention as the existing tsextractor:
+            computeQNamePrefix (extractor.go lines 183-195) uses directory/basename
+            without extension. Agent D should extract module QN from existing edges
+            in opts.Edges when available, falling back to the path-based computation.
+        - scenario: |
+            Wave 1 agents cannot run go build or go test individually because the
+            package has missing function references across files.
+          likelihood: high
+          impact: low
+          mitigation: |
+            Expected behavior, identical to Go and Python resolvers. Wave 1 agents
+            verify their code via go vet (syntax-level) and defer full compilation
+            to the post-merge gate.
+        - scenario: |
+            TypeScript's complex type system features (conditional types, mapped types,
+            infer, keyof) are referenced in the C implementation but not implemented in
+            Tier 1, causing test failures on codebases that use advanced types.
+          likelihood: low
+          impact: low
+          mitigation: |
+            Tier 1 deliberately omits advanced type-level features. ParseTypeText returns
+            Unknown for unrecognized type constructs. This is safe because the resolver
+            still resolves calls where the receiver type is known through simpler means
+            (direct assignment, import resolution, type annotations with simple types).
+            Advanced type support is Tier 2 work.
+critic_report:
+    verdict: PASS
+    agent_reviews: {}
+    summary: Skipped by operator (--skip-critic)
+    reviewed_at: "2026-05-31T06:09:27Z"
+    issue_count: 0
+state: REVIEWED
+injection_method: hook

@@ -1,0 +1,1429 @@
+title: Ruby In-Process Type Resolver
+feature_slug: ruby-resolver
+verdict: SUITABLE
+suitability_assessment: |
+    1. File decomposition: All new files in internal/typresolve/ruby/ (10+ files).
+       No existing files modified. Agents have fully disjoint file ownership.
+       Follows the exact same pattern as the Go resolver (IMPL-go-resolver.yaml)
+       and Python resolver (IMPL-python-resolver.yaml).
+
+    2. Investigation-first: No unknowns. There is no C reference implementation
+       for Ruby, but the Python resolver (py_lsp.c, 3,248 lines) is structurally
+       similar since Ruby and Python share many OOP patterns (classes, modules/mixins,
+       method dispatch, duck typing). The Go resolver establishes the structural
+       template. The existing Ruby extractor (internal/indexer/rubyextractor/)
+       documents the tree-sitter node types and qualified name conventions.
+
+    3. Interface discoverability: All interfaces are defined. The typresolve.Resolver
+       interface, Registry, Scope, and Type are implemented and tested. Cross-agent
+       contracts are limited to Go function signatures within the new ruby/ subpackage.
+
+    4. Pre-implementation: The shared infrastructure (in-process-resolver-infra) was
+       completed previously. The Go resolver IMPL shows the exact structural pattern.
+       No overlap with existing code.
+
+    5. Parallelization value: High. Build/test cycle is ~30s with GOWORK=off.
+       3 agents in wave 1 with 2-4 files each. Wave 2 integrates and tests.
+       Independent type system components (require resolution, builtins/mixin lookup,
+       scope binding/expression eval) can be built in parallel, matching the Go and
+       Python resolver decomposition.
+
+    Estimated times:
+    - Scout phase: ~10 min
+    - Agent execution: ~15 min (4 agents, 2 waves, ~5 min avg per agent)
+    - Merge and verification: ~5 min
+    Total Polywave time: ~30 min
+
+    Sequential baseline: ~40 min (4 agents x 10 min avg)
+    Time savings: ~10 min (25% faster)
+
+    Recommendation: Clear speedup. Wave 1 agents are fully independent (require/constant
+    resolution, builtins/mixin attribute lookup, scope binding/expression eval). Wave 2
+    integrates them into the resolver.
+test_command: GOWORK=off go test -short ./... -timeout 5m
+lint_command: GOWORK=off go vet ./...
+file_ownership:
+    - file: internal/typresolve/ruby/doc.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/typresolve/ruby/requires.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/typresolve/ruby/constants.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/typresolve/ruby/requires_test.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/typresolve/ruby/builtins.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/typresolve/ruby/methods.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/typresolve/ruby/builtins_test.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/typresolve/ruby/eval.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/typresolve/ruby/scope_bind.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/typresolve/ruby/eval_test.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/typresolve/ruby/resolver.go
+      agent: D
+      wave: 2
+      action: new
+      depends_on:
+        - A
+        - B
+        - C
+    - file: internal/typresolve/ruby/registry_builder.go
+      agent: D
+      wave: 2
+      action: new
+      depends_on:
+        - A
+        - B
+        - C
+    - file: internal/typresolve/ruby/resolve.go
+      agent: D
+      wave: 2
+      action: new
+      depends_on:
+        - A
+        - B
+        - C
+    - file: internal/typresolve/ruby/resolver_test.go
+      agent: D
+      wave: 2
+      action: new
+      depends_on:
+        - A
+        - B
+        - C
+interface_contracts:
+    - name: ResolveRequire
+      description: |
+        Resolves a require or require_relative path to a file-level qualified
+        name. For require, maps gem paths (e.g. "active_record") to module
+        paths. For require_relative, resolves relative to the current file.
+        Returns the resolved module path and whether resolution succeeded.
+      definition: |
+        func ResolveRequire(requirePath string, currentFile string, isRelative bool) (string, bool)
+      location: internal/typresolve/ruby/requires.go
+    - name: BuildRequireMap
+      description: |
+        Builds a per-file require map from the Ruby AST root. Walks top-level
+        call nodes for require/require_relative, extracts string arguments,
+        and resolves paths. Returns map[localBinding]modulePath.
+      definition: |
+        func BuildRequireMap(root *sitter.Node, content []byte, currentFile string) map[string]string
+      location: internal/typresolve/ruby/requires.go
+    - name: ResolveConstant
+      description: |
+        Resolves a Ruby constant path (Module::Class::CONST) relative to the
+        current nesting context. Walks the nesting chain outward, then checks
+        top-level. Returns the fully qualified constant name.
+      definition: |
+        func ResolveConstant(constPath string, nesting []string) string
+      location: internal/typresolve/ruby/constants.go
+    - name: ParseScopeResolution
+      description: |
+        Parses a scope_resolution tree-sitter node into its component parts.
+        Handles nested scope resolution (A::B::C) by walking the tree
+        recursively. Returns the fully qualified constant string.
+      definition: |
+        func ParseScopeResolution(node *sitter.Node, content []byte) string
+      location: internal/typresolve/ruby/constants.go
+    - name: IsBuiltinFunc
+      description: |
+        Returns true if the given name is a Ruby builtin method/function
+        (puts, print, p, require, require_relative, raise, lambda, proc,
+        attr_reader, attr_writer, attr_accessor, include, extend, prepend,
+        freeze, dup, clone, respond_to?, send, method, is_a?, kind_of?,
+        instance_of?, class, nil?, etc.).
+      definition: |
+        func IsBuiltinFunc(name string) bool
+      location: internal/typresolve/ruby/builtins.go
+    - name: IsBuiltinType
+      description: |
+        Returns true if the given name is a Ruby builtin class/module
+        (Object, String, Integer, Float, Array, Hash, Symbol, NilClass,
+        TrueClass, FalseClass, Numeric, Comparable, Enumerable, Kernel,
+        IO, File, Regexp, Range, Proc, Method, Module, Class, BasicObject,
+        Struct, Exception, StandardError, etc.).
+      definition: |
+        func IsBuiltinType(name string) bool
+      location: internal/typresolve/ruby/builtins.go
+    - name: ResolveBuiltinType
+      description: |
+        Returns a typresolve.Named type if the name is a Ruby builtin class,
+        nil otherwise. Uses "Ruby::" prefix for builtin qualified names
+        (e.g. "Ruby::String", "Ruby::Array").
+      definition: |
+        func ResolveBuiltinType(name string) *typresolve.Type
+      location: internal/typresolve/ruby/builtins.go
+    - name: LookupAttribute
+      description: |
+        Looks up a method or attribute on a named type, following the Ruby
+        ancestor chain (include/extend/prepend stored as EmbeddedTypes)
+        up to 8 levels deep. Returns the registered function if found.
+        This is the Ruby equivalent of Go's LookupFieldOrMethod, following
+        Ruby's MRO (method resolution order).
+      definition: |
+        func LookupAttribute(reg *typresolve.Registry, typeQN string, memberName string) *typresolve.RegisteredFunc
+      location: internal/typresolve/ruby/methods.go
+    - name: LookupAttrAccessor
+      description: |
+        Checks if a member name corresponds to an attr_reader/attr_writer/
+        attr_accessor-generated method on the type. These are stored as
+        methods with synthetic signatures in the registry. Returns the
+        registered function if found, nil otherwise.
+      definition: |
+        func LookupAttrAccessor(reg *typresolve.Registry, typeQN string, memberName string) *typresolve.RegisteredFunc
+      location: internal/typresolve/ruby/methods.go
+    - name: ResolveContext
+      description: |
+        Per-file resolution context holding the registry, scope, require
+        map, current module/class nesting, content bytes, and enclosing
+        method qualified name.
+      definition: |
+        type ResolveContext struct {
+            Registry        *typresolve.Registry
+            Scope           *typresolve.Scope
+            Requires        map[string]string  // local binding -> module path
+            Nesting         []string           // current module/class nesting stack
+            CurrentFile     string             // current file path
+            Content         []byte             // source file content
+            EnclosingFuncQN string             // QN of the current method being resolved
+        }
+      location: internal/typresolve/ruby/eval.go
+    - name: EvalExprType
+      description: |
+        Recursive expression type evaluator for Ruby. Evaluates the type of
+        a Ruby expression AST node using scope lookup, registry lookup,
+        constant resolution, and method dispatch.
+      definition: |
+        func EvalExprType(ctx *ResolveContext, node *sitter.Node) *typresolve.Type
+      location: internal/typresolve/ruby/eval.go
+    - name: ProcessStatement
+      description: |
+        Processes a Ruby statement node to bind variables into the current
+        scope. Handles assignment (=), multiple assignment, for-in, and
+        rescue clauses with exception variable binding.
+      definition: |
+        func ProcessStatement(ctx *ResolveContext, node *sitter.Node)
+      location: internal/typresolve/ruby/scope_bind.go
+    - name: RubyResolver
+      description: |
+        Implements typresolve.Resolver for Ruby. Language() returns "ruby".
+        InitWorkspace builds a Registry from Ruby definitions (classes,
+        modules, methods, constants). ResolveFile walks the Ruby AST and
+        resolves calls and references.
+      definition: |
+        type RubyResolver struct {
+            registry *typresolve.Registry
+        }
+        func NewRubyResolver() *RubyResolver
+        func (r *RubyResolver) Language() string
+        func (r *RubyResolver) InitWorkspace(ctx context.Context, defs []typresolve.ResolverDef) error
+        func (r *RubyResolver) ResolveFile(ctx context.Context, opts typresolve.ResolveFileOpts) ([]types.Edge, error)
+      location: internal/typresolve/ruby/resolver.go
+    - name: BuildRegistry
+      description: |
+        Builds a typresolve.Registry from ResolverDef entries. Registers
+        classes, modules, methods (instance and singleton), and constants.
+        Processes include/extend/prepend edges to populate EmbeddedTypes
+        for MRO-based attribute lookup.
+      definition: |
+        func BuildRegistry(defs []typresolve.ResolverDef) *typresolve.Registry
+      location: internal/typresolve/ruby/registry_builder.go
+    - name: ResolveCallsInFile
+      description: |
+        Walks a Ruby file's AST resolving call expressions and emitting
+        edges. Uses the shared registry, per-file scope chain, require map,
+        and constant resolution.
+      definition: |
+        func ResolveCallsInFile(ctx *ResolveContext, root *sitter.Node, fileHash types.Hash, repoURL string, filePath string) []types.Edge
+      location: internal/typresolve/ruby/resolve.go
+waves:
+    - number: 1
+      agents:
+        - id: A
+          task: |
+            ## Agent A: Require Resolution and Constant Namespacing
+
+            Build the foundational require/require_relative resolution and Ruby
+            constant (module/class) namespacing for the Ruby resolver.
+
+            ### What to implement
+
+            **File 1: `internal/typresolve/ruby/doc.go`**
+            Package doc comment for the `ruby` subpackage:
+            ```go
+            // Package rubyresolve implements the Ruby language in-process type resolver.
+            // It implements the typresolve.Resolver interface, resolving Ruby method
+            // calls and constant references using tree-sitter AST walking and a
+            // shared type registry built from extracted definitions.
+            package rubyresolve
+            ```
+
+            **File 2: `internal/typresolve/ruby/requires.go`**
+            Package: `rubyresolve`
+
+            Implement require/require_relative resolution for Ruby files. Ruby's
+            require system maps gem/library names to file paths. For in-process
+            resolution, we resolve require paths to module-level qualified names
+            that match the registry's namespace convention.
+
+            Implement:
+
+            - `ResolveRequire(requirePath string, currentFile string, isRelative bool) (string, bool)`
+              For require_relative: resolve relative to currentFile's directory.
+              Strip ".rb" extension if present, normalize path separators.
+              For require: return the path as-is (gem paths are already qualified).
+              Returns (resolvedModulePath, true) on success, ("", false) on failure.
+
+            - `BuildRequireMap(root *sitter.Node, content []byte, currentFile string) map[string]string`
+              Walk top-level children of the AST root looking for `call` nodes where
+              the method is "require" or "require_relative".
+
+              For each require call:
+              1. Get the `method` field child, check if it's "require" or "require_relative"
+              2. Get the `arguments` field child
+              3. Extract the first string argument (walk arguments children, find "string"
+                 node type, get content, trim quotes)
+              4. Call ResolveRequire with isRelative=(method == "require_relative")
+              5. Map the last path segment (or full path) as the local binding
+
+              The Ruby tree-sitter grammar represents `require "foo"` as:
+              ```
+              (call
+                method: (identifier) "require"
+                arguments: (argument_list
+                  (string (string_content) "foo")))
+              ```
+
+              Note: tree-sitter Ruby uses `string_content` as a child of `string`.
+              To get the actual string value, find the `string_content` child inside
+              the `string` node. The existing Ruby extractor at
+              `internal/indexer/rubyextractor/extractor.go` (function extractFirstStringArg,
+              lines 792-805) demonstrates the pattern: it walks `arguments` children
+              looking for `string` type and trims quotes from the full `string` node content.
+              However, the more reliable approach is to find the `string_content` child:
+              ```go
+              func extractStringContent(strNode *sitter.Node, content []byte) string {
+                  for i := 0; i < int(strNode.ChildCount()); i++ {
+                      child := strNode.Child(i)
+                      if child.Type() == "string_content" {
+                          return child.Content(content)
+                      }
+                  }
+                  // Fallback: trim quotes from full node content.
+                  val := strNode.Content(content)
+                  return strings.Trim(val, `"'`)
+              }
+              ```
+
+              Return map: last segment of require path -> full resolved module path.
+              E.g., `require "active_record/base"` -> map["base"] = "active_record/base"
+              Also map the full path: map["active_record/base"] = "active_record/base"
+
+            **File 3: `internal/typresolve/ruby/constants.go`**
+            Package: `rubyresolve`
+
+            Implement Ruby constant and namespace resolution. Ruby constants use
+            the `::` separator for namespacing (Module::Class::CONST).
+
+            Implement:
+
+            - `ParseScopeResolution(node *sitter.Node, content []byte) string`
+              Parse a `scope_resolution` tree-sitter node into its fully qualified
+              string. The node has children: `scope` (left side) and `name` (right side).
+
+              Tree-sitter Ruby represents `A::B::C` as nested scope_resolution:
+              ```
+              (scope_resolution
+                scope: (scope_resolution
+                  scope: (constant) "A"
+                  name: (constant) "B")
+                name: (constant) "C")
+              ```
+
+              Algorithm:
+              1. Get `scope` field child and `name` field child
+              2. If scope is nil (top-level `::Foo`), return "::" + name content
+              3. If scope is `scope_resolution`, recurse on scope, then append "::" + name
+              4. If scope is `constant`, return scope content + "::" + name content
+              5. Otherwise, return node.Content(content) as fallback
+
+            - `ResolveConstant(constPath string, nesting []string) string`
+              Resolve a constant path relative to the current nesting context.
+              Ruby constant lookup walks outward from the current nesting:
+              1. If constPath starts with "::", it's absolute: return constPath[2:]
+              2. Try each nesting level from innermost to outermost:
+                 - Join nesting[0:i] + constPath with "::"
+              3. Fall back to constPath itself (top-level)
+
+              Example: with nesting ["MyApp", "Models"], looking up "Base":
+              - Try "MyApp::Models::Base"
+              - Try "MyApp::Base"
+              - Try "Base"
+              Return the most specific match. Since we don't have a way to check
+              existence at this stage (registry is used later), return the innermost
+              candidate: nesting[0:len(nesting)] + constPath. The resolver in wave 2
+              will check registry existence.
+
+              Actually, for practical resolution: return the fully qualified name
+              by joining the full nesting with the constant path. The registry
+              builder will register types under their full nesting path, so lookups
+              match. If the constant is not found with full nesting, the resolver
+              falls back to progressively shorter prefixes.
+
+            **File 4: `internal/typresolve/ruby/requires_test.go`**
+            Package: `rubyresolve`
+
+            Test cases:
+
+            - `TestResolveRequire_Standard`: require "json" -> ("json", true)
+            - `TestResolveRequire_Nested`: require "active_record/base" -> ("active_record/base", true)
+            - `TestResolveRequire_Relative`: require_relative "../lib/helper" with
+              currentFile="app/models/user.rb" -> ("app/lib/helper", true)
+            - `TestResolveRequire_RelativeWithExtension`: require_relative "./foo.rb" strips .rb
+            - `TestBuildRequireMap`: parse Ruby source with `require "json"` and
+              `require_relative "../helper"`, verify map contents
+            - `TestParseScopeResolution_Simple`: A::B -> "A::B"
+            - `TestParseScopeResolution_Nested`: A::B::C -> "A::B::C"
+            - `TestParseScopeResolution_TopLevel`: ::TopLevel -> "::TopLevel"
+            - `TestResolveConstant_WithNesting`: nesting ["MyApp", "Models"], const "Base"
+              -> "MyApp::Models::Base"
+            - `TestResolveConstant_Absolute`: "::ActiveRecord::Base" -> "ActiveRecord::Base"
+            - `TestResolveConstant_TopLevel`: no nesting, const "String" -> "String"
+
+            For testing BuildRequireMap, parse Ruby source with tree-sitter:
+            ```go
+            func parseRuby(t *testing.T, src string) *sitter.Node {
+                parser := sitter.NewParser()
+                parser.SetLanguage(ruby.GetLanguage())
+                tree, err := parser.ParseCtx(context.Background(), nil, []byte(src))
+                require.NoError(t, err)
+                t.Cleanup(func() { tree.Close() })
+                return tree.RootNode()
+            }
+            ```
+
+            ### Interfaces consumed
+            - `sitter.Node` from `github.com/smacker/go-tree-sitter`
+            - `ruby.GetLanguage()` from `github.com/smacker/go-tree-sitter/ruby`
+
+            ### Constraints
+            - Package name MUST be `rubyresolve`
+            - Do NOT modify any files outside your ownership list.
+            - Do NOT import from `internal/indexer/rubyextractor` (would create circular
+              dependency risk). Reimplement require map and string extraction logic locally.
+            - Do NOT define any types from builtins.go or eval.go (Agent B and C scope).
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/typresolve/ruby/...
+            GOWORK=off go vet ./internal/typresolve/ruby/...
+            GOWORK=off go test ./internal/typresolve/ruby/... -run TestResolveRequire -v
+            GOWORK=off go test ./internal/typresolve/ruby/... -run TestParseScopeResolution -v
+            GOWORK=off go test ./internal/typresolve/ruby/... -run TestResolveConstant -v
+            ```
+
+            Postconditions:
+            ```bash
+            # ResolveRequire function exists
+            grep -c "func ResolveRequire" internal/typresolve/ruby/requires.go  # expect: 1
+            # BuildRequireMap function exists
+            grep -c "func BuildRequireMap" internal/typresolve/ruby/requires.go  # expect: 1
+            # ParseScopeResolution function exists
+            grep -c "func ParseScopeResolution" internal/typresolve/ruby/constants.go  # expect: 1
+            # ResolveConstant function exists
+            grep -c "func ResolveConstant" internal/typresolve/ruby/constants.go  # expect: 1
+            # Package declaration is rubyresolve
+            grep -c "package rubyresolve" internal/typresolve/ruby/doc.go  # expect: 1
+            ```
+          files:
+            - internal/typresolve/ruby/doc.go
+            - internal/typresolve/ruby/requires.go
+            - internal/typresolve/ruby/constants.go
+            - internal/typresolve/ruby/requires_test.go
+        - id: B
+          task: |
+            ## Agent B: Builtins and Mixin/Method Lookup
+
+            Build the builtin function/type handling, attr_accessor method
+            generation recognition, and MRO-based method/attribute lookup for
+            the Ruby resolver.
+
+            ### What to implement
+
+            **File 1: `internal/typresolve/ruby/builtins.go`**
+            Package: `rubyresolve`
+
+            Implement Ruby builtin recognition. Unlike Go, Ruby has no static
+            type system, so builtins are recognized by name for method dispatch.
+
+            Implement:
+
+            - `IsBuiltinFunc(name string) bool`
+              Return true for Ruby builtin methods and Kernel methods that are
+              available everywhere:
+              puts, print, p, pp, printf, sprintf, gets, warn,
+              raise, fail, throw, catch,
+              require, require_relative, load, autoload,
+              lambda, proc, block_given?, iterator?,
+              loop, sleep, exit, abort, at_exit,
+              rand, srand,
+              open, select,
+              freeze, frozen?, dup, clone, taint, untaint, tainted?,
+              respond_to?, send, public_send, method, __send__, __method__,
+              is_a?, kind_of?, instance_of?, nil?, class, object_id, hash, equal?,
+              define_method, alias_method, method_defined?,
+              attr_reader, attr_writer, attr_accessor,
+              include, extend, prepend,
+              public, private, protected, module_function,
+              Array, Hash, String, Integer, Float, Rational, Complex
+
+            - `IsBuiltinType(name string) bool`
+              Return true for Ruby core classes and modules:
+              Object, BasicObject, Kernel, Module, Class,
+              String, Integer, Float, Numeric, Complex, Rational,
+              Array, Hash, Set, Range, Regexp, MatchData,
+              Symbol, NilClass, TrueClass, FalseClass,
+              IO, File, Dir, Pathname,
+              Proc, Method, UnboundMethod,
+              Thread, Mutex, Fiber, Ractor,
+              Enumerable, Comparable, Enumerator,
+              Exception, StandardError, RuntimeError, TypeError, ArgumentError,
+              NameError, NoMethodError, ZeroDivisionError, IOError, Errno,
+              Struct, OpenStruct, Data,
+              Time, Date, DateTime,
+              Encoding, Marshal, ObjectSpace, GC
+
+            - `ResolveBuiltinType(name string) *typresolve.Type`
+              If IsBuiltinType(name), return typresolve.Named("Ruby::" + name).
+              Otherwise return nil.
+              The "Ruby::" prefix distinguishes Ruby builtins from user types
+              in the registry namespace.
+
+            - `EvalBuiltinCall(name string, args *sitter.Node, content []byte, ctx interface{}) *typresolve.Type`
+              Evaluate return types of common Ruby builtin methods:
+              - `puts`, `print`, `p`, `warn`: return typresolve.Named("Ruby::NilClass")
+              - `gets`: return typresolve.Named("Ruby::String")
+              - `rand`: return typresolve.Named("Ruby::Float")
+              - `lambda`, `proc`: return typresolve.Named("Ruby::Proc")
+              - `Array(x)`: return typresolve.Named("Ruby::Array")
+              - `Hash(x)`: return typresolve.Named("Ruby::Hash")
+              - `String(x)`: return typresolve.Named("Ruby::String")
+              - `Integer(x)`: return typresolve.Named("Ruby::Integer")
+              - `Float(x)`: return typresolve.Named("Ruby::Float")
+              - `freeze`, `dup`, `clone`: return typresolve.Unknown() (returns self)
+              - `is_a?`, `kind_of?`, `instance_of?`, `nil?`, `respond_to?`,
+                `frozen?`, `tainted?`, `equal?`, `block_given?`, `iterator?`:
+                return typresolve.Named("Ruby::TrueClass") (boolean approximation)
+              - `class`: return typresolve.Named("Ruby::Class")
+              - `object_id`, `hash`: return typresolve.Named("Ruby::Integer")
+              - `method`: return typresolve.Named("Ruby::Method")
+              - `__method__`: return typresolve.Named("Ruby::Symbol")
+              - Default: return typresolve.Unknown()
+
+              The `ctx interface{}` parameter is unused for now but allows future
+              extension to pass the ResolveContext for richer inference.
+
+            **File 2: `internal/typresolve/ruby/methods.go`**
+            Package: `rubyresolve`
+
+            Implement method and attribute lookup following Ruby's method resolution
+            order (MRO). Ruby's MRO for a class C with `include M1, M2` is:
+            C -> M2 -> M1 -> superclass -> ... -> Object -> Kernel -> BasicObject
+
+            In the registry, included/extended modules are stored as EmbeddedTypes
+            on RegisteredType, similar to Go's embedded fields.
+
+            Implement:
+
+            - `LookupAttribute(reg *typresolve.Registry, typeQN string, memberName string) *typresolve.RegisteredFunc`
+              Internal helper with depth limit (max 8, Ruby MRO can be deeper than Go):
+              1. Direct method lookup: `reg.LookupMethod(typeQN, memberName)` - if found, return
+              2. Get type: `reg.LookupType(typeQN)` - if nil, return nil
+              3. Follow alias: if `type.AliasOf != ""`, recurse with alias target
+              4. Check embedded types (included modules + superclass): for each
+                 `type.EmbeddedTypes[i]`, recurse with depth+1
+              5. Return nil if not found
+
+            - `LookupAttrAccessor(reg *typresolve.Registry, typeQN string, memberName string) *typresolve.RegisteredFunc`
+              Check if memberName is an accessor method:
+              1. Try exact method lookup (attr_reader generates a getter with the
+                 attribute name, attr_writer generates "name=", attr_accessor generates both)
+              2. For reader: look up memberName as a method on typeQN
+              3. For writer: look up memberName + "=" as a method on typeQN
+              4. If not found directly, delegate to LookupAttribute for MRO traversal
+              5. Return nil if not found
+
+              Note: The registry builder (wave 2, Agent D) will register
+              attr_reader/attr_writer/attr_accessor generated methods as synthetic
+              RegisteredFunc entries during InitWorkspace. This function just looks
+              them up.
+
+            - `ResolveNew(reg *typresolve.Registry, typeQN string) *typresolve.RegisteredFunc`
+              When `ClassName.new` is called, Ruby dispatches to `initialize`.
+              Look up the `initialize` method on typeQN via LookupAttribute.
+              Return it if found, nil otherwise.
+
+            **File 3: `internal/typresolve/ruby/builtins_test.go`**
+            Package: `rubyresolve`
+
+            Test cases:
+
+            - `TestIsBuiltinFunc`: true for "puts", "lambda", "attr_reader", "include";
+              false for "my_method", "calculate"
+            - `TestIsBuiltinType`: true for "String", "Array", "Hash", "Enumerable",
+              "Kernel"; false for "User", "ApplicationController"
+            - `TestResolveBuiltinType`: returns Named("Ruby::String") for "String";
+              nil for "User"
+            - `TestEvalBuiltinCall_Puts`: returns Named("Ruby::NilClass")
+            - `TestEvalBuiltinCall_Lambda`: returns Named("Ruby::Proc")
+            - `TestEvalBuiltinCall_ArrayConversion`: `Array(x)` returns Named("Ruby::Array")
+            - `TestEvalBuiltinCall_IsA`: returns Named("Ruby::TrueClass")
+            - `TestLookupAttribute_DirectMethod`: register type with method, find it
+            - `TestLookupAttribute_ViaInclude`: register class including module,
+              module has method, find method on class
+            - `TestLookupAttribute_ViaInheritance`: register class with superclass
+              (in EmbeddedTypes[0]), superclass has method, find method on subclass
+            - `TestLookupAttribute_DepthLimit`: chain of 10 includes, stops at depth 8
+            - `TestLookupAttribute_NotFound`: returns nil for missing method
+            - `TestLookupAttrAccessor_Reader`: register getter method, find it
+            - `TestLookupAttrAccessor_Writer`: register "name=" method, look up
+              write accessor
+            - `TestResolveNew`: register type with initialize method, ResolveNew
+              returns it
+
+            For testing, build Registry manually with AddFunc and AddType.
+
+            ### Interfaces consumed
+            - `typresolve.Registry`, `typresolve.RegisteredFunc`, `typresolve.RegisteredType`
+            - `typresolve.Type`, `typresolve.Named()`, `typresolve.Unknown()`
+            - `sitter.Node` from `github.com/smacker/go-tree-sitter`
+
+            ### Constraints
+            - Package name MUST be `rubyresolve`
+            - Do NOT modify any files outside your ownership list.
+            - Do NOT define ResolveContext, EvalExprType, or ProcessStatement
+              (Agent C scope).
+            - Do NOT define require resolution or constant resolution (Agent A scope).
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/typresolve/ruby/...
+            GOWORK=off go vet ./internal/typresolve/ruby/...
+            GOWORK=off go test ./internal/typresolve/ruby/... -run TestIsBuiltinFunc -v
+            GOWORK=off go test ./internal/typresolve/ruby/... -run TestLookupAttribute -v
+            GOWORK=off go test ./internal/typresolve/ruby/... -run TestResolveNew -v
+            ```
+
+            Postconditions:
+            ```bash
+            grep -c "func IsBuiltinFunc" internal/typresolve/ruby/builtins.go  # expect: 1
+            grep -c "func LookupAttribute" internal/typresolve/ruby/methods.go  # expect: 1
+            grep -c "func LookupAttrAccessor" internal/typresolve/ruby/methods.go  # expect: 1
+            grep -c "func ResolveNew" internal/typresolve/ruby/methods.go  # expect: 1
+            ```
+          files:
+            - internal/typresolve/ruby/builtins.go
+            - internal/typresolve/ruby/methods.go
+            - internal/typresolve/ruby/builtins_test.go
+        - id: C
+          task: |
+            ## Agent C: Expression Evaluator and Scope Binding
+
+            Build the expression type evaluator and statement-level scope binding
+            for the Ruby resolver.
+
+            ### What to implement
+
+            **File 1: `internal/typresolve/ruby/eval.go`**
+            Package: `rubyresolve`
+
+            Define the resolution context and expression evaluator for Ruby.
+            Ruby is dynamically typed, so type inference relies on:
+            - Literal types (string, integer, symbol, array, hash)
+            - Constructor calls (ClassName.new)
+            - Scope tracking through assignments
+            - Method return types from the registry
+
+            Define the resolution context:
+            ```go
+            // ResolveContext holds per-file state for type resolution.
+            type ResolveContext struct {
+                Registry        *typresolve.Registry
+                Scope           *typresolve.Scope
+                Requires        map[string]string  // local binding -> module path
+                Nesting         []string           // current module/class nesting stack
+                CurrentFile     string             // current file path
+                Content         []byte             // source file content
+                EnclosingFuncQN string             // QN of the current method being resolved
+            }
+            ```
+
+            Implement `EvalExprType(ctx *ResolveContext, node *sitter.Node) *typresolve.Type`
+
+            Handle these Ruby expression node types:
+
+            1. `identifier`:
+               - Scope lookup: `ctx.Scope.Lookup(name)`
+               - If found and not Unknown, return it
+               - Check if it's a builtin: `IsBuiltinFunc(name)` (from builtins.go,
+                 same package). If so, return Unknown (bare method reference).
+               - Check if it's a local method in current class/module: look up in
+                 registry using nesting. If nesting is non-empty, try
+                 `ctx.Registry.LookupMethod(currentClassQN, name)` where
+                 currentClassQN = last element of ctx.Nesting.
+               - Default: return Unknown
+
+            2. `constant`:
+               - This is a Ruby constant reference (ClassName, ModuleName, CONSTANT).
+               - Get name text from node
+               - Check builtin type: `ResolveBuiltinType(name)` (from builtins.go)
+               - If builtin, return it
+               - Resolve constant in current nesting context:
+                 `ResolveConstant(name, ctx.Nesting)` (from constants.go, Agent A)
+               - Look up in registry: `ctx.Registry.LookupType(resolved)`
+               - If found, return typresolve.Named(resolved)
+               - Default: return typresolve.Named(name)
+
+            3. `scope_resolution`:
+               - Parse into qualified name: `ParseScopeResolution(node, ctx.Content)`
+                 (from constants.go, Agent A)
+               - Look up in registry as type
+               - Return Named(qualifiedName)
+
+            4. `call`:
+               Ruby tree-sitter "call" node has: receiver, method, arguments, block.
+               - Get `method` field child for the method name
+               - Get `receiver` field child (may be nil for bare method calls)
+
+               If receiver is nil (bare method call):
+               - Check if builtin: `IsBuiltinFunc(methodName)`. If so, call
+                 `EvalBuiltinCall(methodName, args, ctx.Content, nil)` (from builtins.go)
+               - Look up as method in current class: if nesting non-empty,
+                 `LookupAttribute(ctx.Registry, currentClassQN, methodName)`
+                 (from methods.go, Agent B)
+               - If found and has signature with returns, return first return type
+               - Look up as package function: `ctx.Registry.LookupFunc(methodName)`
+               - Default: return Unknown
+
+               If receiver is present:
+               - If receiver is `constant` and method is "new":
+                 This is class instantiation: `ClassName.new(...)`
+                 Resolve the constant to a type QN. Return Named(typeQN).
+                 The edge should target the `initialize` method.
+               - Evaluate receiver type recursively
+               - If receiver type is Named, look up method:
+                 `LookupAttribute(ctx.Registry, typeQN, methodName)` (from methods.go)
+               - If found and has signature with returns, return first return type
+               - Handle common Ruby method return types by name:
+                 - `to_s`, `inspect`, `to_str`: return Named("Ruby::String")
+                 - `to_i`, `to_int`: return Named("Ruby::Integer")
+                 - `to_f`: return Named("Ruby::Float")
+                 - `to_a`, `to_ary`, `entries`: return Named("Ruby::Array")
+                 - `to_h`: return Named("Ruby::Hash")
+                 - `to_sym`: return Named("Ruby::Symbol")
+                 - `to_r`: return Named("Ruby::Rational")
+                 - `to_c`: return Named("Ruby::Complex")
+                 - `nil?`, `empty?`, `include?`, `respond_to?`, `is_a?`, `kind_of?`,
+                   `instance_of?`, `frozen?`, `equal?`, `eql?`, `==`, `!=`, `===`:
+                   return Named("Ruby::TrueClass") (boolean approximation)
+                 - `size`, `length`, `count`, `index`, `rindex`, `object_id`, `hash`:
+                   return Named("Ruby::Integer")
+                 - `class`: return Named("Ruby::Class")
+                 - `freeze`, `dup`, `clone`, `tap`, `then`, `yield_self`:
+                   return receiver type (returns self)
+                 - `map`, `collect`, `select`, `filter`, `reject`, `flat_map`,
+                   `sort`, `sort_by`, `min_by`, `max_by`, `group_by`, `each_with_object`:
+                   return Named("Ruby::Array")
+                 - `each`, `each_with_index`, `each_slice`, `each_cons`:
+                   return receiver type (returns self for chaining)
+                 - `first`, `last`, `min`, `max`, `sample`, `find`, `detect`:
+                   return Unknown (element type unknown without generics)
+                 - `keys`: return Named("Ruby::Array")
+                 - `values`: return Named("Ruby::Array")
+                 - `merge`, `update`: return receiver type
+               - Default: return Unknown
+
+            5. `string`, `string_array`, `heredoc_body`:
+               return Named("Ruby::String")
+
+            6. `integer`:
+               return Named("Ruby::Integer")
+
+            7. `float`:
+               return Named("Ruby::Float")
+
+            8. `symbol`, `simple_symbol`:
+               return Named("Ruby::Symbol")
+
+            9. `true`, `false`:
+               return Named("Ruby::TrueClass") / Named("Ruby::FalseClass")
+
+            10. `nil`:
+                return Named("Ruby::NilClass")
+
+            11. `array`:
+                return Named("Ruby::Array")
+
+            12. `hash`:
+                return Named("Ruby::Hash")
+
+            13. `regex`:
+                return Named("Ruby::Regexp")
+
+            14. `range`:
+                return Named("Ruby::Range")
+
+            15. `lambda`, `proc`:
+                If node type is `lambda`: return Named("Ruby::Proc")
+
+            16. `parenthesized_statements`:
+                Evaluate last child expression (Ruby returns last expression value)
+
+            17. `conditional`, `if`, `unless`:
+                Evaluate the consequence branch, return its type
+
+            18. `binary`:
+                - Comparison operators (==, !=, <, >, <=, >=, ===, <=>):
+                  return Named("Ruby::TrueClass") for boolean, Named("Ruby::Integer") for <=>
+                - Arithmetic (+, -, *, /, %, **): evaluate left operand, return its type
+                - String operators: if left is String, return String
+                - Logical (&&, ||, and, or): return Unknown (could be either branch)
+
+            19. `unary`:
+                - `!`, `not`: return Named("Ruby::TrueClass")
+                - `-`, `+`: evaluate operand, return its type
+
+            20. `element_reference` (array/hash indexing `obj[key]`):
+                Evaluate receiver type. If Array, return Unknown (element type).
+                If Hash, return Unknown. If String, return Named("Ruby::String").
+
+            21. `assignment`:
+                Evaluate right side, return its type (for chained assignments)
+
+            22. `method` (method definition as expression, Ruby returns symbol):
+                return Named("Ruby::Symbol")
+
+            **File 2: `internal/typresolve/ruby/scope_bind.go`**
+            Package: `rubyresolve`
+
+            Implement `ProcessStatement(ctx *ResolveContext, node *sitter.Node)`
+
+            Handle these Ruby statement types:
+
+            1. `assignment`:
+               - Get left (target) and right (value) children
+               - Left is at index 0, operator at index 1, right at index 2
+               - Or use field names: node children are: left, "=", right
+               - Actually, Ruby tree-sitter assignment has children:
+                 child(0) = left, child(1) = "=", child(2) = right
+                 Use node.NamedChild(0) for left, node.NamedChild(1) for right
+               - Evaluate right side type via EvalExprType
+               - If left is `identifier`, bind name to type in scope
+               - If left is `instance_variable` (@name), bind "@name" in scope
+               - If left is `class_variable` (@@name), bind "@@name" in scope
+
+            2. `operator_assignment` (+=, -=, ||=, &&=, etc.):
+               - Get left child, evaluate its current type
+               - For ||=, the type is the existing type or the right side type
+               - For numeric operators, keep the existing type
+               - Bind left to type
+
+            3. `left_assignment_list` / `right_assignment_list` (multiple assignment):
+               `a, b, c = 1, "two", :three`
+               - Get left side children (identifiers)
+               - Get right side children (values)
+               - Pair up: bind each left identifier to the type of the
+                 corresponding right value
+               - If right side is a single expression (not a list), and it has
+                 Array type, bind each left to Unknown
+
+            4. `for` statement:
+               - Get pattern (loop variable) and value (iterable)
+               - Evaluate iterable type
+               - Bind loop variable to Unknown (element type not inferrable
+                 without generics)
+
+            5. `rescue`:
+               - If rescue has an exception variable (the `variable` field child
+                 after `=>` in `rescue TypeError => e`), bind it to the
+                 exception class type
+               - Get the exception class from the `exceptions` field child
+               - If the exceptions child is a constant, resolve it
+
+            6. `block_parameters` and `method_parameters`:
+               - When entering a block (do |x, y| ... end), bind block parameters
+               - These are handled during resolve (wave 2), but ProcessStatement
+                 should recognize `block_parameters` nodes and bind each parameter
+                 to Unknown
+               - For method parameters, bind each parameter name to Unknown
+                 (Ruby has no type annotations in method signatures by default)
+               - Note: ProcessStatement is called on individual nodes, not full
+                 method bodies. Block parameters and method parameters will be
+                 handled by the resolve.go walker when it enters blocks/methods.
+                 ProcessStatement focuses on assignment-based bindings.
+
+            **File 3: `internal/typresolve/ruby/eval_test.go`**
+            Package: `rubyresolve`
+
+            Test helper to parse Ruby and find specific expression nodes:
+            ```go
+            func parseRuby(t *testing.T, src string) *sitter.Node {
+                parser := sitter.NewParser()
+                parser.SetLanguage(ruby.GetLanguage())
+                tree, err := parser.ParseCtx(context.Background(), nil, []byte(src))
+                require.NoError(t, err)
+                t.Cleanup(func() { tree.Close() })
+                return tree.RootNode()
+            }
+
+            func findNode(root *sitter.Node, nodeType string) *sitter.Node {
+                if root.Type() == nodeType {
+                    return root
+                }
+                for i := 0; i < int(root.ChildCount()); i++ {
+                    if found := findNode(root.Child(i), nodeType); found != nil {
+                        return found
+                    }
+                }
+                return nil
+            }
+            ```
+
+            Test cases for EvalExprType:
+            - `TestEvalExprType_IdentifierFromScope`: bind "x" to Named("MyType") in scope,
+              evaluate identifier "x" -> Named("MyType")
+            - `TestEvalExprType_Constant`: "String" -> Named("Ruby::String")
+            - `TestEvalExprType_ScopeResolution`: "ActiveRecord::Base" -> Named("ActiveRecord::Base")
+            - `TestEvalExprType_CallNew`: `User.new` with "User" registered as type ->
+              Named("User")
+            - `TestEvalExprType_CallMethod`: `user.name` where user is Named("User") and
+              User has method "name" with String return -> Named("Ruby::String")
+            - `TestEvalExprType_CallToS`: `x.to_s` -> Named("Ruby::String")
+            - `TestEvalExprType_CallNilQ`: `x.nil?` -> Named("Ruby::TrueClass")
+            - `TestEvalExprType_BuiltinPuts`: `puts("hello")` -> Named("Ruby::NilClass")
+            - `TestEvalExprType_StringLiteral`: `"hello"` -> Named("Ruby::String")
+            - `TestEvalExprType_IntegerLiteral`: `42` -> Named("Ruby::Integer")
+            - `TestEvalExprType_FloatLiteral`: `3.14` -> Named("Ruby::Float")
+            - `TestEvalExprType_SymbolLiteral`: `:foo` -> Named("Ruby::Symbol")
+            - `TestEvalExprType_ArrayLiteral`: `[1, 2, 3]` -> Named("Ruby::Array")
+            - `TestEvalExprType_HashLiteral`: `{a: 1}` -> Named("Ruby::Hash")
+            - `TestEvalExprType_NilLiteral`: `nil` -> Named("Ruby::NilClass")
+            - `TestEvalExprType_BinaryComparison`: `x == y` -> Named("Ruby::TrueClass")
+            - `TestEvalExprType_Regex`: `/pattern/` -> Named("Ruby::Regexp")
+            - `TestEvalExprType_Range`: `1..10` -> Named("Ruby::Range")
+
+            Test cases for ProcessStatement:
+            - `TestProcessStatement_Assignment`: `x = 42` binds x to Named("Ruby::Integer")
+            - `TestProcessStatement_InstanceVar`: `@name = "foo"` binds "@name" to Named("Ruby::String")
+            - `TestProcessStatement_ClassVar`: `@@count = 0` binds "@@count" to Named("Ruby::Integer")
+            - `TestProcessStatement_MultiAssignment`: `a, b = 1, "two"` binds a to Integer, b to String
+
+            ### Interfaces consumed
+            - `typresolve.Registry`, `typresolve.Scope`, `typresolve.NewScope()`
+            - `typresolve.Type` and constructors (Named, Unknown)
+            - `IsBuiltinFunc`, `IsBuiltinType`, `ResolveBuiltinType`, `EvalBuiltinCall`
+              from builtins.go (Agent B, same package)
+            - `LookupAttribute`, `LookupAttrAccessor`, `ResolveNew` from methods.go
+              (Agent B, same package)
+            - `ResolveConstant`, `ParseScopeResolution` from constants.go (Agent A, same package)
+            - `sitter.Node` from `github.com/smacker/go-tree-sitter`
+            - `ruby.GetLanguage()` from `github.com/smacker/go-tree-sitter/ruby`
+
+            ### Constraints
+            - Package name MUST be `rubyresolve`
+            - Do NOT modify any files outside your ownership list.
+            - This file depends on Agent A's constants.go and requires.go, and Agent B's
+              builtins.go and methods.go. Since all are in the same Go package
+              (`rubyresolve`), they compile together after wave 1 merge. Your code
+              should call those functions directly.
+            - For the common Ruby method return types (to_s, nil?, etc.), hardcode
+              the known return types. Do NOT try to look them up in the registry;
+              these are conventions that every Ruby object responds to.
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/typresolve/ruby/...
+            GOWORK=off go vet ./internal/typresolve/ruby/...
+            GOWORK=off go test ./internal/typresolve/ruby/... -run TestEvalExprType -v
+            GOWORK=off go test ./internal/typresolve/ruby/... -run TestProcessStatement -v
+            ```
+
+            Postconditions:
+            ```bash
+            grep -c "func EvalExprType" internal/typresolve/ruby/eval.go  # expect: 1
+            grep -c "func ProcessStatement" internal/typresolve/ruby/scope_bind.go  # expect: 1
+            grep -c "type ResolveContext struct" internal/typresolve/ruby/eval.go  # expect: 1
+            ```
+          files:
+            - internal/typresolve/ruby/eval.go
+            - internal/typresolve/ruby/scope_bind.go
+            - internal/typresolve/ruby/eval_test.go
+    - number: 2
+      agents:
+        - id: D
+          task: |
+            ## Agent D: Resolver Integration, Registry Builder, and Call Resolution
+
+            Integrate all wave 1 components into the RubyResolver that implements
+            typresolve.Resolver, build the registry builder, and implement call
+            resolution with edge emission.
+
+            ### What to implement
+
+            **File 1: `internal/typresolve/ruby/resolver.go`**
+            Package: `rubyresolve`
+
+            The main RubyResolver struct implementing `typresolve.Resolver`:
+
+            ```go
+            type RubyResolver struct {
+                registry *typresolve.Registry
+            }
+
+            func NewRubyResolver() *RubyResolver {
+                return &RubyResolver{}
+            }
+
+            func (r *RubyResolver) Language() string { return "ruby" }
+            ```
+
+            `InitWorkspace(ctx context.Context, defs []typresolve.ResolverDef) error`:
+            - Call BuildRegistry(defs) to populate r.registry
+            - Return nil on success
+
+            `ResolveFile(ctx context.Context, opts typresolve.ResolveFileOpts) ([]types.Edge, error)`:
+            1. Get tree-sitter root node from opts.ParsedTree:
+               ```go
+               var root *sitter.Node
+               switch v := opts.ParsedTree.(type) {
+               case *sitter.Node:
+                   root = v
+               default:
+                   // Re-parse the content as fallback
+                   parser := sitter.NewParser()
+                   parser.SetLanguage(ruby.GetLanguage())
+                   tree, err := parser.ParseCtx(ctx, nil, opts.Content)
+                   if err != nil {
+                       return nil, fmt.Errorf("parse: %w", err)
+                   }
+                   defer tree.Close()
+                   root = tree.RootNode()
+               }
+               ```
+
+            2. Build per-file require map:
+               `requires := BuildRequireMap(root, opts.Content, opts.FilePath)`
+
+            3. Determine the file-level qualified name prefix. Use the same convention
+               as the Ruby extractor: file path without extension.
+               ```go
+               qnPrefix := strings.TrimSuffix(filepath.ToSlash(opts.FilePath), filepath.Ext(opts.FilePath))
+               ```
+
+            4. Extract the repo URL from existing edges in opts.Edges (if available):
+               ```go
+               repoURL := ""
+               for _, e := range opts.Edges {
+                   // Extract from edge metadata if available
+               }
+               ```
+
+            5. Create ResolveContext:
+               ```go
+               rctx := &ResolveContext{
+                   Registry:    r.registry,
+                   Scope:       typresolve.NewScope(nil),
+                   Requires:    requires,
+                   Nesting:     nil,
+                   CurrentFile: opts.FilePath,
+                   Content:     opts.Content,
+               }
+               ```
+
+            6. Call `ResolveCallsInFile(rctx, root, opts.FileHash, repoURL, opts.FilePath)`
+
+            7. Set provenance and confidence on all returned edges:
+               - Provenance: `typresolve.ProvenanceResolverResolved` ("resolver_resolved")
+               - Confidence: `typresolve.ResolverConfidence` (0.9)
+
+            8. Return the edges.
+
+            **File 2: `internal/typresolve/ruby/registry_builder.go`**
+            Package: `rubyresolve`
+
+            Implement `BuildRegistry(defs []typresolve.ResolverDef) *typresolve.Registry`:
+
+            1. Create a new registry via `typresolve.NewRegistry()`
+            2. For each def, register based on Kind:
+               - If Kind is "function": register as RegisteredFunc with
+                 QualifiedName=def.QualifiedName,
+                 ShortName=extract last segment after "."
+               - If Kind is "method": register as RegisteredFunc with
+                 ReceiverType extracted from QualifiedName.
+                 Ruby QualifiedName format from the extractor:
+                 "repoURL://filePath.ClassName.methodName"
+                 ReceiverType is the part between the last filePath segment and methodName.
+                 ShortName is the methodName.
+               - If Kind is "type": register as RegisteredType with
+                 QualifiedName, IsInterface=false
+                 Parse the Signature field (e.g. "class User", "module Helpers")
+                 to determine if it's a class or module.
+
+            3. Process edges from defs to populate type relationships:
+               - For defs with Kind "implements" (include/extend edges from extractor):
+                 find the source type and add the target to its EmbeddedTypes
+               - For defs with Kind "extends" (class inheritance):
+                 find the source type and add the superclass to EmbeddedTypes[0]
+
+               Note: The collectDefs function in resolver.go (typresolve package)
+               produces minimal defs from edges. For richer registry population,
+               scan the edges in the file results for "implements" and "extends"
+               edge types and use them to populate EmbeddedTypes on RegisteredType.
+
+            4. Register attr_accessor/attr_reader/attr_writer generated methods:
+               For each "decorates" edge where the decorator name is attr_reader,
+               attr_writer, or attr_accessor:
+               - Extract the attribute name from the decorator arguments
+               - For attr_reader/attr_accessor: register a getter method with
+                 ShortName=attrName on the class
+               - For attr_writer/attr_accessor: register a setter method with
+                 ShortName=attrName + "=" on the class
+
+               Note: This may not be directly available from ResolverDef entries.
+               If decorator info is not in defs, skip this step; it can be
+               added as a Tier 2 enhancement.
+
+            5. Return the registry
+
+            **File 3: `internal/typresolve/ruby/resolve.go`**
+            Package: `rubyresolve`
+
+            Implement `ResolveCallsInFile(ctx *ResolveContext, root *sitter.Node, fileHash types.Hash, repoURL string, filePath string) []types.Edge`:
+
+            This function walks the file's AST and resolves call expressions to edges.
+
+            Structure:
+            1. Walk top-level children of root
+            2. For each `class` node:
+               a. Push class name onto ctx.Nesting
+               b. Extract class name for enclosing context
+               c. Walk class body via resolveCallsInNode
+               d. Pop class from ctx.Nesting
+            3. For each `module` node:
+               a. Push module name onto ctx.Nesting
+               b. Walk module body via resolveCallsInNode
+               c. Pop module from ctx.Nesting
+            4. For each `method` (def) node:
+               a. Set ctx.EnclosingFuncQN based on nesting + method name
+               b. Push method scope
+               c. Bind method parameters into scope (as Unknown types)
+               d. Walk method body via resolveCallsInNode
+               e. Pop method scope
+            5. For top-level `call` nodes: resolve directly
+
+            Internal function `resolveCallsInNode(ctx *ResolveContext, node *sitter.Node, edges *[]types.Edge, fileHash types.Hash, repoURL string, filePath string, qnPrefix string)`:
+
+            1. Call `ProcessStatement(ctx, node)` to bind variables from assignments
+            2. If node is `call`:
+               - Get method and receiver field children
+               - If receiver is present:
+                 a. If receiver is `constant` and method is "new":
+                    Resolve constant to type QN.
+                    Emit edge from enclosing method to "TypeQN.initialize"
+                 b. Else: evaluate receiver type, look up method on that type
+                    If found, emit edge to the resolved method's QN
+                 c. If not resolved: emit edge using receiver text + "." + method
+                    as target (heuristic, same as extractor but with higher confidence)
+               - If receiver is nil (bare method call):
+                 a. Skip builtin functions (IsBuiltinFunc check)
+                 b. Look up in current class context (implicit self)
+                 c. Look up as top-level function
+                 d. Emit edge to resolved QN or fall back to method name
+
+               Edge construction:
+               - SourceHash: compute from enclosing function/method QN
+                 `types.ComputeNodeHash(repoURL, qnPrefix, types.EmptyHash, enclosingQN, kind)`
+               - TargetHash: compute from callee's qualified name
+               - EdgeType: edgetype.Calls
+               - Confidence: typresolve.ResolverConfidence (0.9)
+               - Provenance: typresolve.ProvenanceResolverResolved
+               - CallSiteLine, CallSiteCol, CallSiteFile from node position
+
+            3. If node is `method` (nested method definition):
+               Push new scope, bind parameters, recurse into body, pop scope
+
+            4. If node is `class` or `module` (nested):
+               Push nesting, recurse, pop nesting
+
+            5. If node is `do_block` or `block`:
+               Push new scope
+               If block has `block_parameters`, bind parameter names to Unknown
+               Recurse into block body
+               Pop scope
+
+            6. If node is `if`, `unless`, `while`, `until`, `case`, `begin`:
+               Push scope for the body, recurse, pop scope
+
+            7. For `case` with `when` clauses:
+               Each `when` body gets its own scope
+
+            8. Recurse into children for all other node types
+
+            Use these imports:
+            - `github.com/blackwell-systems/knowing/internal/types`
+            - `github.com/blackwell-systems/knowing/internal/edgetype`
+            - `github.com/blackwell-systems/knowing/internal/typresolve`
+            - `sitter "github.com/smacker/go-tree-sitter"`
+            - `"github.com/smacker/go-tree-sitter/ruby"`
+
+            **File 4: `internal/typresolve/ruby/resolver_test.go`**
+            Package: `rubyresolve`
+
+            Integration tests for the full resolver pipeline.
+
+            Test 1: `TestRubyResolverLanguage`
+            - NewRubyResolver().Language() == "ruby"
+
+            Test 2: `TestRubyResolverInitWorkspace`
+            - Create defs with function and type entries
+            - Call InitWorkspace
+            - Verify no error returned
+
+            Test 3: `TestRubyResolverResolveFile_SimpleMethodCall`
+            - Source:
+              ```ruby
+              require "json"
+
+              def process
+                JSON.parse('{}')
+              end
+              ```
+            - InitWorkspace with a def for JSON.parse
+            - ResolveFile should produce a "calls" edge from process to JSON.parse
+            - Verify edge has provenance "resolver_resolved" and confidence 0.9
+
+            Test 4: `TestRubyResolverResolveFile_ClassMethod`
+            - Source:
+              ```ruby
+              class User
+                def initialize(name)
+                  @name = name
+                end
+
+                def greet
+                  puts @name
+                end
+              end
+
+              user = User.new("Alice")
+              user.greet
+              ```
+            - Register User type and User.initialize, User.greet methods
+            - Verify edges: top-level -> User.initialize (via .new), top-level -> User.greet
+
+            Test 5: `TestRubyResolverResolveFile_ModuleInclude`
+            - Source:
+              ```ruby
+              module Greetable
+                def greet
+                  "hello"
+                end
+              end
+
+              class Person
+                include Greetable
+
+                def say_hi
+                  greet
+                end
+              end
+              ```
+            - Register Greetable module with greet method
+            - Register Person class with Greetable in EmbeddedTypes
+            - Verify: Person#say_hi -> Greetable#greet edge
+
+            Test 6: `TestRubyResolverResolveFile_ScopeTracking`
+            - Source with assignment followed by method call on the variable:
+              ```ruby
+              class Example
+                def run
+                  result = compute
+                  result.to_s
+                end
+
+                def compute
+                  42
+                end
+              end
+              ```
+            - Verify scope correctly tracks `result` and method calls are resolved
+
+            Test 7: `TestBuildRegistry_ClassesAndMethods`
+            - Create defs for a class with methods
+            - Build registry
+            - Verify type and methods are registered correctly
+            - Verify LookupMethod finds methods
+
+            ### Interfaces consumed
+            - All wave 1 functions: BuildRequireMap, ResolveRequire, ParseScopeResolution,
+              ResolveConstant, IsBuiltinFunc, IsBuiltinType, ResolveBuiltinType,
+              EvalBuiltinCall, LookupAttribute, LookupAttrAccessor, ResolveNew,
+              EvalExprType, ProcessStatement, ResolveContext
+            - `typresolve.Resolver`, `typresolve.ResolverDef`, `typresolve.ResolveFileOpts`
+            - `typresolve.Registry`, `typresolve.Scope`, `typresolve.NewScope`
+            - `types.Edge`, `types.Hash`, `types.ComputeEdgeHash`, `types.ComputeNodeHash`
+            - `types.KindFunction`, `types.KindMethod`, `types.KindType`
+            - `edgetype.Calls`
+            - `sitter.Node`, `sitter.NewParser`, `ruby.GetLanguage`
+
+            ### Constraints
+            - Package name MUST be `rubyresolve`
+            - Do NOT modify any files outside your ownership list.
+            - Do NOT modify the typresolve package (shared infrastructure is frozen).
+            - Edge provenance MUST be `typresolve.ProvenanceResolverResolved`
+              ("resolver_resolved"), NOT "lsp_resolved" or "ast_inferred".
+            - Edge confidence MUST be `typresolve.ResolverConfidence` (0.9).
+            - For computing source node hashes: use the same convention as the
+              Ruby extractor. The qnamePrefix is the file path without extension:
+              `strings.TrimSuffix(filepath.ToSlash(filePath), filepath.Ext(filePath))`
+              The source hash for a call edge uses:
+              `types.ComputeNodeHash(repoURL, qnPrefix, types.EmptyHash, enclosingFuncName, kind)`
+            - For computing target node hashes: use the callee's qualified name
+              components with the same hash computation as the Ruby extractor.
+            - Use the qualified name format from the Ruby extractor:
+              `repoURL://filePath.ClassName.methodName` for methods,
+              `repoURL://filePath.functionName` for top-level functions.
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/typresolve/ruby/...
+            GOWORK=off go vet ./internal/typresolve/ruby/...
+            GOWORK=off go test ./internal/typresolve/ruby/... -v
+            GOWORK=off go build ./...
+            GOWORK=off go test -short ./... -timeout 5m
+            ```
+
+            Postconditions:
+            ```bash
+            grep -c "func NewRubyResolver" internal/typresolve/ruby/resolver.go  # expect: 1
+            grep -c "func BuildRegistry" internal/typresolve/ruby/registry_builder.go  # expect: 1
+            grep -c "func ResolveCallsInFile" internal/typresolve/ruby/resolve.go  # expect: 1
+            # Verify it implements the Resolver interface
+            grep -c "typresolve.Resolver" internal/typresolve/ruby/resolver.go  # expect: >= 1
+            ```
+          files:
+            - internal/typresolve/ruby/resolver.go
+            - internal/typresolve/ruby/registry_builder.go
+            - internal/typresolve/ruby/resolve.go
+            - internal/typresolve/ruby/resolver_test.go
+          dependencies:
+            - A
+            - B
+            - C
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: GOWORK=off go build ./...
+          required: true
+        - type: lint
+          command: GOWORK=off go vet ./...
+          required: true
+        - type: test
+          command: GOWORK=off go test -short ./... -timeout 5m
+          required: true
+pre_mortem:
+    overall_risk: medium
+    rows:
+        - scenario: |
+            Wave 1 agents call cross-file functions that don't exist yet in their
+            isolated worktrees (Agent C calls IsBuiltinFunc from Agent B's builtins.go).
+          likelihood: high
+          impact: low
+          mitigation: |
+            All wave 1 agents are in the same Go package (rubyresolve). Their files
+            compile together only after merge. The build gate runs post-merge.
+            Individual agent worktrees will not compile in isolation, which is
+            expected and acceptable. Agent verification gates should focus on
+            go vet (per-file syntax) and defer full compilation to post-merge.
+        - scenario: |
+            Tree-sitter Ruby AST node types differ from expectations. Ruby's
+            tree-sitter grammar may use different field names or node structures
+            than assumed (e.g., "call" node might not have "method" field in all cases).
+          likelihood: medium
+          impact: medium
+          mitigation: |
+            The existing Ruby extractor (internal/indexer/rubyextractor/extractor.go)
+            demonstrates the correct tree-sitter Ruby patterns. Agents should
+            reference the extractor for node type names and field access patterns.
+            Guard all ChildByFieldName calls with nil checks.
+        - scenario: |
+            Ruby's open classes cause duplicate type registrations. The same class
+            can be reopened across multiple files, leading to multiple RegisteredType
+            entries for the same qualified name.
+          likelihood: medium
+          impact: low
+          mitigation: |
+            The registry uses a map, so later registrations overwrite earlier ones.
+            This is acceptable for Tier 1: the last-seen definition wins. For Tier 2,
+            we could merge definitions, but that's a future enhancement.
+        - scenario: |
+            Method resolution order (MRO) via EmbeddedTypes may not perfectly match
+            Ruby's C3 linearization algorithm, causing incorrect method dispatch for
+            complex mixin chains.
+          likelihood: low
+          impact: low
+          mitigation: |
+            Ruby's MRO (C3 linearization) is complex. Our implementation uses a
+            simpler depth-first traversal of EmbeddedTypes, which handles the common
+            cases (single include, single inheritance). Complex diamond inheritance
+            patterns may resolve to a different method than Ruby's runtime, but this
+            is acceptable for static analysis with 0.9 confidence. Document as a
+            known limitation.
+        - scenario: |
+            Agent A and Agent C both define string extraction helpers with the same
+            name, causing a duplicate function error at merge.
+          likelihood: low
+          impact: medium
+          mitigation: |
+            Agent A is instructed to define extractStringContent in requires.go.
+            Agent C does not need string extraction (it operates on typed nodes).
+            If a naming conflict occurs, Agent D resolves it in wave 2.
+        - scenario: |
+            Bare method calls (method without receiver) in Ruby are ambiguous:
+            they could be local method calls (implicit self) or local variable
+            references. The resolver may over-emit call edges for what are actually
+            variable references.
+          likelihood: medium
+          impact: low
+          mitigation: |
+            The scope chain helps disambiguate: if a name is in scope as a variable,
+            it's a variable reference, not a method call. The expression evaluator
+            checks scope first. Remaining ambiguity is inherent to Ruby's semantics
+            and is acceptable for static analysis.
+state: REVIEWED
+injection_method: manual-fallback
