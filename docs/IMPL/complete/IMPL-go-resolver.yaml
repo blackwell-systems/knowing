@@ -1,3 +1,4 @@
+completion_date: "2026-05-30"
 title: Go In-Process Type Resolver
 feature_slug: go-resolver
 verdict: SUITABLE
@@ -1037,6 +1038,7 @@ waves:
             - A
             - B
             - C
+      base_commit: 952b17b66fbf2a122f1a48aaa8c00aa6ca305669
 quality_gates:
     level: standard
     gates:
@@ -1064,6 +1066,7 @@ post_merge_checklist:
             - description: Verify if types_test.go needs initialization in Server constructor
             - description: Verify if builtins_test.go needs initialization in Server constructor
             - description: Verify if eval_test.go needs initialization in Server constructor
+            - description: Verify if resolver_test.go needs initialization in Server constructor
 completion_reports:
     A:
         status: complete
@@ -1148,6 +1151,32 @@ completion_reports:
             - TestProcessStatement_RangeOverSlice
         verification: PASS
         notes: 'All 3 files implemented. Build fails only on undefined symbols from Agent A (ParseTypeNode, ResolveImport) and Agent B (IsBuiltinFunc, EvalBuiltinCall, LookupFieldOrMethod, LookupField). These are expected parallel-wave dependencies that resolve after merge. Postconditions verified: exactly 1 EvalExprType, 1 ProcessStatement, 1 ResolveContext struct. Base typresolve tests still pass.'
+    D:
+        status: complete
+        branch: polywave/go-resolver/wave2-agent-D
+        commit: 91eb24e
+        files_changed:
+            - internal/typresolve/go/resolver.go
+            - internal/typresolve/go/registry_builder.go
+            - internal/typresolve/go/resolve.go
+            - internal/typresolve/go/resolver_test.go
+        files_created:
+            - internal/typresolve/go/resolver.go
+            - internal/typresolve/go/registry_builder.go
+            - internal/typresolve/go/resolve.go
+            - internal/typresolve/go/resolver_test.go
+        tests_added:
+            - TestGoResolverLanguage
+            - TestGoResolverInitWorkspace
+            - TestGoResolverResolveFile_SimpleCalls
+            - TestGoResolverResolveFile_LocalCalls
+            - TestGoResolverResolveFile_MethodCalls
+            - TestResolveCallsInFile_ScopeTracking
+            - TestResolveCallsInFile_RangeLoop
+            - TestBuildRegistry
+            - TestResolveFile_NoParsedTree_FallbackParse
+        verification: PASS
+        notes: 'GoResolver implements typresolve.Resolver with Tier 1 resolution: import-based call resolution, local function calls, and scope-tracked method dispatch via type registry. All 9 new tests pass. Full build/vet/test suite clean.'
 pre_mortem:
     overall_risk: medium
     rows:
@@ -1221,5 +1250,5 @@ critic_report:
     summary: Skipped by operator (--skip-critic)
     reviewed_at: "2026-05-31T05:38:46Z"
     issue_count: 0
-state: REVIEWED
+state: COMPLETE
 injection_method: hook
