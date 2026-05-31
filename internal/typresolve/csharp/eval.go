@@ -12,12 +12,11 @@ import (
 const csEvalMaxDepth = 64
 
 // ResolveContext holds per-file state for C# type resolution.
-// In wave 1, the Usings and NamespaceStack fields are omitted because
-// UsingInfo is defined by Agent A (usings.go). Agent D adds these fields
-// in wave 2 integration.
 type ResolveContext struct {
 	Registry         *typresolve.Registry
 	Scope            *typresolve.Scope
+	Usings           []UsingInfo
+	NamespaceStack   []string
 	Content          []byte
 	EnclosingFuncQN  string
 	EnclosingClassQN string
@@ -576,104 +575,53 @@ func lookupMemberOnType(ctx *ResolveContext, typeQN, memberName string) *typreso
 	return typresolve.Unknown()
 }
 
-// --- Stub functions for wave 1 compile-time independence ---
-// These are placeholders for functions defined by Agent A (types.go) and
-// Agent B (builtins.go, methods.go). Agent D replaces them in wave 2.
+// --- Integration wiring (wave 2) ---
+// These functions delegate to the real implementations in methods.go,
+// types.go, and builtins.go.
 
-// lookupMethodStub is a placeholder for LookupMethod (methods.go, Agent B).
-// Uses the shared infrastructure's direct method lookup (no inheritance walking).
+// lookupMethodStub delegates to LookupMethod (methods.go) with inheritance walking.
 func lookupMethodStub(reg *typresolve.Registry, typeQN, methodName string) *typresolve.RegisteredFunc {
-	return reg.LookupMethod(typeQN, methodName)
+	return LookupMethod(reg, typeQN, methodName)
 }
 
-// lookupFieldStub is a placeholder for LookupField (methods.go, Agent B).
-// Looks up a field directly on the registered type (no inheritance walking).
+// lookupFieldStub delegates to LookupField (methods.go) with inheritance walking.
 func lookupFieldStub(reg *typresolve.Registry, typeQN, fieldName string) *typresolve.Type {
-	t := reg.LookupType(typeQN)
-	if t == nil {
-		return nil
-	}
-	for _, f := range t.Fields {
-		if f.Name == fieldName {
-			return f.Type
-		}
-	}
-	return nil
+	return LookupField(reg, typeQN, fieldName)
 }
 
-// parseTypeStub is a placeholder for ParseTypeNode (types.go, Agent A).
-// In wave 1, explicit type declarations return a Named type based on the
-// node text content. Agent D wires the real ParseTypeNode in wave 2.
+// parseTypeStub delegates to ParseTypeNode (types.go) with full type resolution.
+// When called without a ResolveContext (from eval functions that only have
+// node + content), uses empty namespace/usings and nil registry for basic parsing.
 func parseTypeStub(node *sitter.Node, content []byte) *typresolve.Type {
 	if node == nil {
 		return typresolve.Unknown()
 	}
-
-	text := nodeContent(node, content)
-	if text == "" {
+	result := ParseTypeNode(node, content, "", nil, nil)
+	if result == nil {
 		return typresolve.Unknown()
 	}
+	return result
+}
 
-	// Handle predefined types for basic cases.
-	if qn, ok := predefinedStub[text]; ok {
-		return typresolve.Named(qn)
-	}
-
-	// Handle array types
-	if strings.HasSuffix(text, "[]") {
-		base := strings.TrimSuffix(text, "[]")
-		if qn, ok := predefinedStub[base]; ok {
-			return typresolve.Slice(typresolve.Named(qn))
-		}
-		return typresolve.Slice(typresolve.Named(base))
-	}
-
-	// Handle nullable types (strip ?)
-	if strings.HasSuffix(text, "?") {
-		base := strings.TrimSuffix(text, "?")
-		if qn, ok := predefinedStub[base]; ok {
-			return typresolve.Named(qn)
-		}
-		return typresolve.Named(base)
-	}
-
-	// Handle var/implicit
-	if text == "var" {
+// parseTypeWithContext delegates to ParseTypeNode with full resolution context.
+func parseTypeWithContext(node *sitter.Node, ctx *ResolveContext) *typresolve.Type {
+	if node == nil {
 		return typresolve.Unknown()
 	}
-
-	return typresolve.Named(text)
+	ns := ""
+	if len(ctx.NamespaceStack) > 0 {
+		ns = strings.Join(ctx.NamespaceStack, ".")
+	}
+	result := ParseTypeNode(node, ctx.Content, ns, ctx.Usings, ctx.Registry)
+	if result == nil {
+		return typresolve.Unknown()
+	}
+	return result
 }
 
-// predefinedStub maps C# predefined type keywords to System.* names.
-// This is a local stub; the canonical version is in builtins.go (Agent B).
-var predefinedStub = map[string]string{
-	"int":     "System.Int32",
-	"uint":    "System.UInt32",
-	"long":    "System.Int64",
-	"ulong":   "System.UInt64",
-	"short":   "System.Int16",
-	"ushort":  "System.UInt16",
-	"byte":    "System.Byte",
-	"sbyte":   "System.SByte",
-	"float":   "System.Single",
-	"double":  "System.Double",
-	"decimal": "System.Decimal",
-	"bool":    "System.Boolean",
-	"char":    "System.Char",
-	"string":  "System.String",
-	"object":  "System.Object",
-	"void":    "System.Void",
-	"dynamic": "System.Object",
-}
-
-// isBuiltinFuncStub is a placeholder for IsBuiltinFunc (builtins.go, Agent B).
+// isBuiltinFuncStub delegates to IsBuiltinFunc (builtins.go).
 func isBuiltinFuncStub(name string) bool {
-	switch name {
-	case "typeof", "nameof", "sizeof", "default", "checked", "unchecked", "stackalloc":
-		return true
-	}
-	return false
+	return IsBuiltinFunc(name)
 }
 
 // evalBuiltinExprResult returns the result type for a C# builtin expression keyword.
@@ -695,18 +643,10 @@ func evalBuiltinExprResult(name string) *typresolve.Type {
 	return typresolve.Unknown()
 }
 
-// unwrapTaskStub is a placeholder for UnwrapTask (builtins.go, Agent B).
-// For bare Task/ValueTask, returns Unknown. Real implementation in wave 2.
+// unwrapTaskStub delegates to UnwrapTask (builtins.go).
 func unwrapTaskStub(t *typresolve.Type) *typresolve.Type {
 	if t == nil {
 		return typresolve.Unknown()
 	}
-	if t.Kind == typresolve.KindNamed {
-		name := t.Name
-		if name == "System.Threading.Tasks.Task" ||
-			name == "System.Threading.Tasks.ValueTask" {
-			return typresolve.Unknown()
-		}
-	}
-	return t
+	return UnwrapTask(t)
 }
