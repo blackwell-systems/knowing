@@ -17,6 +17,7 @@ type EquivalenceClass struct {
 	TargetType string   // "symbol", "mcp_tool", "edge_type", "workflow", "file"
 	Weight     float64  // source strength (seed: 1.0, graph: 0.7, feedback: 0.5)
 	Source     string   // "seed", "graph", "feedback", "generated"
+	Lang       string   // language scope: "go", "python", "typescript", "ruby", "java", "csharp", "rust", "" (universal)
 }
 
 // actionVerbs are common developer action words that combine with concept nouns
@@ -240,10 +241,21 @@ func expandWithVerbs(phrases []string) []string {
 // matchEquivalenceClasses finds equivalence classes whose phrases appear in the
 // query text. Returns matching classes with their targets for seed boosting.
 func matchEquivalenceClasses(query string, classes []EquivalenceClass) []equivalenceMatch {
+	return matchEquivalenceClassesLang(query, classes, "")
+}
+
+// matchEquivalenceClassesLang matches equivalence classes filtered by language.
+// Classes with a non-empty Lang field only match if lang matches (or lang is "").
+// Classes with empty Lang always match (universal).
+func matchEquivalenceClassesLang(query string, classes []EquivalenceClass, lang string) []equivalenceMatch {
 	queryLower := strings.ToLower(query)
 	var matches []equivalenceMatch
 
 	for _, cls := range classes {
+		// Language scoping: skip classes that don't match the repo's language.
+		if cls.Lang != "" && lang != "" && cls.Lang != lang {
+			continue
+		}
 		for _, phrase := range cls.Phrases {
 			if strings.Contains(queryLower, strings.ToLower(phrase)) {
 				matches = append(matches, equivalenceMatch{

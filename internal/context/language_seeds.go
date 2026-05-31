@@ -101,6 +101,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "python",
 		},
 		{
 			Concept:    "DJANGO_TEMPLATE_TAGS",
@@ -109,6 +110,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "python",
 		},
 		{
 			Concept:    "DJANGO_MIDDLEWARE",
@@ -117,6 +119,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "python",
 		},
 		{
 			Concept:    "DJANGO_CUSTOM_FIELD",
@@ -125,6 +128,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "python",
 		},
 		{
 			Concept:    "DJANGO_MANAGEMENT_CMD",
@@ -133,6 +137,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "python",
 		},
 		{
 			Concept:    "DJANGO_SIGNALS",
@@ -141,6 +146,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "python",
 		},
 		{
 			Concept:    "DJANGO_DB_BACKEND",
@@ -149,6 +155,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "python",
 		},
 		{
 			Concept:    "DJANGO_MIGRATIONS",
@@ -157,6 +164,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "python",
 		},
 
 		// ---- Flask Framework ----
@@ -167,6 +175,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "python",
 		},
 		{
 			Concept:    "FLASK_HOOKS",
@@ -175,6 +184,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "python",
 		},
 		{
 			Concept:    "FLASK_EXTENSION",
@@ -183,6 +193,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "python",
 		},
 		{
 			Concept:    "FLASK_SESSION",
@@ -191,6 +202,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "python",
 		},
 		{
 			Concept:    "FLASK_JINJA",
@@ -199,6 +211,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "python",
 		},
 		{
 			Concept:    "FLASK_ERROR",
@@ -207,6 +220,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "python",
 		},
 		{
 			Concept:    "FLASK_CLI",
@@ -215,6 +229,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "python",
 		},
 		{
 			Concept:    "FLASK_SIGNALS",
@@ -223,6 +238,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "python",
 		},
 
 		// ---- FastAPI Framework ----
@@ -233,6 +249,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "python",
 		},
 		{
 			Concept:    "FASTAPI_ROUTER",
@@ -241,6 +258,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "python",
 		},
 		{
 			Concept:    "FASTAPI_VALIDATION",
@@ -249,6 +267,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "python",
 		},
 		{
 			Concept:    "FASTAPI_OPENAPI",
@@ -257,6 +276,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "python",
 		},
 		{
 			Concept:    "FASTAPI_SECURITY",
@@ -265,6 +285,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "python",
 		},
 		{
 			Concept:    "FASTAPI_LIFESPAN",
@@ -273,6 +294,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "python",
 		},
 		{
 			Concept:    "FASTAPI_WEBSOCKET",
@@ -281,6 +303,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "python",
 		},
 
 		// ---- Terraform Framework ----
@@ -291,6 +314,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "go",
 		},
 		{
 			Concept:    "TF_STATE",
@@ -299,6 +323,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "go",
 		},
 		{
 			Concept:    "TF_GRAPH",
@@ -307,6 +332,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "go",
 		},
 		{
 			Concept:    "TF_PLAN",
@@ -315,6 +341,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "go",
 		},
 		{
 			Concept:    "TF_MODULE",
@@ -323,6 +350,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "go",
 		},
 		{
 			Concept:    "TF_CLI",
@@ -331,6 +359,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "go",
 		},
 
 		// ---- Kubernetes Framework ----
@@ -341,6 +370,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "go",
 		},
 		{
 			Concept:    "K8S_ADMISSION",
@@ -349,6 +379,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "go",
 		},
 		{
 			Concept:    "K8S_SCHEDULER",
@@ -357,6 +388,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "go",
 		},
 		{
 			Concept:    "K8S_INFORMER",
@@ -365,6 +397,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "go",
 		},
 		{
 			Concept:    "K8S_API_SERVER",
@@ -373,6 +406,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "go",
 		},
 
 		// ---- Go Web Frameworks (Gin, net/http, Chi, Echo) ----
@@ -383,6 +417,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "go",
 		},
 		{
 			Concept:    "GO_HTTP_MIDDLEWARE",
@@ -391,6 +426,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "go",
 		},
 		{
 			Concept:    "GO_HTTP_SERVER",
@@ -399,14 +435,16 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "go",
 		},
 		{
 			Concept:    "GO_ROUTER",
-			Phrases:    []string{"router", "route", "url routing", "path parameter", "route group"},
-			Targets:    []string{"Router", "Mux", "Route", "Group", "GET", "POST", "PUT", "DELETE", "Param", "Context"},
+			Phrases:    []string{"http router", "url routing", "path parameter", "route group", "mux router"},
+			Targets:    []string{"Router", "Mux", "Route", "Group", "Param"},
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "go",
 		},
 
 		// ---- TypeScript / JavaScript / React ----
@@ -985,6 +1023,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "ruby",
 		},
 		{
 			Concept:    "RAILS_CALLBACKS",
@@ -993,6 +1032,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "ruby",
 		},
 		{
 			Concept:    "RAILS_VALIDATION",
@@ -1001,6 +1041,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "ruby",
 		},
 		{
 			Concept:    "RAILS_SCOPE",
@@ -1009,6 +1050,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "ruby",
 		},
 		{
 			Concept:    "RAILS_CONTROLLER",
@@ -1017,6 +1059,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "ruby",
 		},
 		{
 			Concept:    "RAILS_ACTIVE_JOB",
@@ -1025,6 +1068,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "ruby",
 		},
 		{
 			Concept:    "RAILS_MAILER",
@@ -1033,6 +1077,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "ruby",
 		},
 		{
 			Concept:    "RAILS_ACTION_CABLE",
@@ -1041,6 +1086,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "ruby",
 		},
 		{
 			Concept:    "RAILS_CONNECTION_POOL",
@@ -1049,6 +1095,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "ruby",
 		},
 
 		// ---- Jekyll (Ruby static site generator) ----
@@ -1059,6 +1106,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "ruby",
 		},
 		{
 			Concept:    "JEKYLL_SITE",
@@ -1067,6 +1115,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "ruby",
 		},
 
 		// ---- NestJS Framework ----
@@ -1077,6 +1126,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "typescript",
 		},
 		{
 			Concept:    "NESTJS_GUARD",
@@ -1085,6 +1135,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "typescript",
 		},
 		{
 			Concept:    "NESTJS_PIPE",
@@ -1093,6 +1144,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "typescript",
 		},
 		{
 			Concept:    "NESTJS_INTERCEPTOR",
@@ -1101,6 +1153,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "typescript",
 		},
 
 		// ---- Next.js Framework ----
@@ -1111,6 +1164,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "typescript",
 		},
 		{
 			Concept:    "NEXTJS_MIDDLEWARE",
@@ -1119,6 +1173,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "typescript",
 		},
 		{
 			Concept:    "NEXTJS_API",
@@ -1127,6 +1182,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "typescript",
 		},
 
 		// ---- Angular Framework ----
@@ -1137,6 +1193,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "typescript",
 		},
 		{
 			Concept:    "ANGULAR_SERVICE",
@@ -1145,6 +1202,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "typescript",
 		},
 		{
 			Concept:    "ANGULAR_PIPE",
@@ -1153,6 +1211,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "typescript",
 		},
 		{
 			Concept:    "ANGULAR_ROUTING",
@@ -1161,6 +1220,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "typescript",
 		},
 
 		// ---- React Framework ----
@@ -1171,6 +1231,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "typescript",
 		},
 		{
 			Concept:    "REACT_CONTEXT",
@@ -1179,6 +1240,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "typescript",
 		},
 		{
 			Concept:    "REACT_SUSPENSE",
@@ -1187,6 +1249,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "typescript",
 		},
 
 		// ---- Java / Kafka Framework ----
@@ -1197,6 +1260,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "java",
 		},
 		{
 			Concept:    "KAFKA_CONSUMER",
@@ -1205,6 +1269,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "java",
 		},
 		{
 			Concept:    "KAFKA_STREAMS",
@@ -1213,6 +1278,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "java",
 		},
 		{
 			Concept:    "KAFKA_ADMIN",
@@ -1221,6 +1287,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "java",
 		},
 		{
 			Concept:    "KAFKA_CONNECT",
@@ -1229,6 +1296,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "java",
 		},
 		{
 			Concept:    "KAFKA_NETWORK",
@@ -1237,6 +1305,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "java",
 		},
 		{
 			Concept:    "KAFKA_PARTITIONER",
@@ -1245,6 +1314,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "java",
 		},
 
 		// ---- Java / Spring Boot ----
@@ -1255,6 +1325,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "java",
 		},
 		{
 			Concept:    "SPRING_SERVICE",
@@ -1263,6 +1334,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "java",
 		},
 		{
 			Concept:    "SPRING_DATA",
@@ -1271,6 +1343,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "java",
 		},
 		{
 			Concept:    "SPRING_SECURITY",
@@ -1279,6 +1352,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "java",
 		},
 
 		// ---- C# / ASP.NET Core / Ocelot ----
@@ -1289,6 +1363,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "csharp",
 		},
 		{
 			Concept:    "ASPNET_CONTROLLER",
@@ -1297,6 +1372,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "csharp",
 		},
 		{
 			Concept:    "ASPNET_DI",
@@ -1305,22 +1381,52 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "csharp",
 		},
 		{
 			Concept:    "OCELOT_GATEWAY",
-			Phrases:    []string{"api gateway", "ocelot", "route configuration", "downstream", "upstream"},
-			Targets:    []string{"DownstreamRoute", "UpstreamPathTemplate", "FileConfiguration", "ReRoute", "OcelotMiddleware", "DownstreamReRoute"},
+			Phrases:    []string{"ocelot configuration", "ocelot route", "ocelot pipeline"},
+			Targets:    []string{"DownstreamRoute", "UpstreamPathTemplate", "FileConfiguration", "OcelotMiddleware"},
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "csharp",
 		},
 		{
 			Concept:    "OCELOT_AUTH",
-			Phrases:    []string{"authentication middleware", "jwt token", "claims", "authorization policy"},
+			Phrases:    []string{"ocelot authentication", "jwt token middleware", "ocelot authorization"},
 			Targets:    []string{"AuthenticationMiddleware", "ClaimsToClaimsMiddleware", "AuthorisationMiddleware", "ScopesAuthoriser"},
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "csharp",
+		},
+		{
+			Concept:    "OCELOT_SECURITY",
+			Phrases:    []string{"security policy", "ip whitelist", "ip blacklist", "security middleware"},
+			Targets:    []string{"SecurityMiddleware", "ISecurityPolicy", "IPSecurityPolicy", "SecurityOptions"},
+			TargetType: "symbol",
+			Weight:     0.9,
+			Source:     "framework",
+			Lang:       "csharp",
+		},
+		{
+			Concept:    "OCELOT_RATELIMIT",
+			Phrases:    []string{"rate limiting", "rate limit", "throttle"},
+			Targets:    []string{"RateLimitingMiddleware", "RateLimitOptions", "RateLimitOptionsCreator"},
+			TargetType: "symbol",
+			Weight:     0.9,
+			Source:     "framework",
+			Lang:       "csharp",
+		},
+		{
+			Concept:    "OCELOT_QOS",
+			Phrases:    []string{"circuit breaker", "quality of service", "polly"},
+			Targets:    []string{"QoSMiddleware", "IQoSProvider", "PollyQoSProvider"},
+			TargetType: "symbol",
+			Weight:     0.9,
+			Source:     "framework",
+			Lang:       "csharp",
 		},
 		{
 			Concept:    "ENTITY_FRAMEWORK",
@@ -1329,6 +1435,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "csharp",
 		},
 
 		// ---- Rust / Tokio / Axum ----
@@ -1339,6 +1446,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "rust",
 		},
 		{
 			Concept:    "RUST_AXUM",
@@ -1347,6 +1455,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "rust",
 		},
 		{
 			Concept:    "RUST_SERDE",
@@ -1355,6 +1464,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "rust",
 		},
 		{
 			Concept:    "RUST_CARGO",
@@ -1363,6 +1473,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "rust",
 		},
 
 		// ---- VS Code Extension/Editor API ----
@@ -1373,6 +1484,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "typescript",
 		},
 		{
 			Concept:    "VSCODE_DECORATION",
@@ -1381,6 +1493,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "typescript",
 		},
 		{
 			Concept:    "VSCODE_DIFF",
@@ -1389,6 +1502,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "typescript",
 		},
 		{
 			Concept:    "VSCODE_DISPOSABLE",
@@ -1397,6 +1511,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "typescript",
 		},
 		{
 			Concept:    "VSCODE_EVENT",
@@ -1405,6 +1520,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "typescript",
 		},
 		{
 			Concept:    "VSCODE_COMMAND",
@@ -1413,6 +1529,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 			TargetType: "symbol",
 			Weight:     0.9,
 			Source:     "framework",
+			Lang:       "typescript",
 		},
 	}
 }

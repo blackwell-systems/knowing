@@ -513,7 +513,9 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	// differ from the name, which requires domain understanding.
 	allClasses := append(seedEquivalenceClasses(), universalEquivalenceClasses()...)
 	allClasses = append(allClasses, languageEquivalenceClasses()...)
-	eqMatches := matchEquivalenceClasses(opts.TaskDescription, allClasses)
+	// Detect repo language for scoping framework equiv classes.
+	repoLang := detectRepoLanguage(ctx, e.store)
+	eqMatches := matchEquivalenceClassesLang(opts.TaskDescription, allClasses, repoLang)
 
 	// Source 2: Graph-derived aliases from the candidates we already found.
 	// Uses tiered+BM25 results as input, generates targeted phrase mappings
@@ -553,24 +555,25 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 				continue
 			}
 			for _, n := range nodes {
-				if equivSeen[n.NodeHash] {
-					continue
-				}
 				lastDot := strings.LastIndex(n.QualifiedName, ".")
 				symName := n.QualifiedName
 				if lastDot >= 0 {
 					symName = n.QualifiedName[lastDot+1:]
 				}
-				if strings.EqualFold(symName, target) {
-					equivSeen[n.NodeHash] = true
-					equivResults = append(equivResults, n)
-					// High-confidence framework matches get injected into final
-					// results regardless of RWR score (they're specific enough to
-					// justify direct inclusion).
-					if m.weight >= 0.9 && m.class.Source == "framework" {
-						frameworkInjections = append(frameworkInjections, n)
-					}
+				if !strings.EqualFold(symName, target) {
+					continue
 				}
+				// Framework injection: always inject regardless of equivSeen.
+				// Earlier lower-weight classes may have already added this node
+				// to equivResults, but injection needs to happen separately.
+				if m.weight >= 0.9 && m.class.Source == "framework" {
+					frameworkInjections = append(frameworkInjections, n)
+				}
+				if equivSeen[n.NodeHash] {
+					continue
+				}
+				equivSeen[n.NodeHash] = true
+				equivResults = append(equivResults, n)
 			}
 		}
 	}
@@ -1731,6 +1734,53 @@ func buildFTSQuery(keywords []string) string {
 		}
 	}
 	return strings.Join(parts, " OR ")
+}
+
+// detectRepoLanguage determines the primary language of a repo by sampling node QNs.
+// Returns: "go", "python", "typescript", "ruby", "java", "csharp", "rust", or "" (unknown).
+// Uses a fast heuristic: samples 500 nodes and checks file extensions in QNs.
+func detectRepoLanguage(ctx stdctx.Context, store types.GraphStore) string {
+	// Sample nodes across the full range to catch all file types.
+	allNodes, err := store.NodesByName(ctx, "%")
+	if err != nil || len(allNodes) == 0 {
+		return ""
+	}
+	counts := map[string]int{}
+	// Sample evenly across the node list to avoid bias from alphabetical ordering.
+	step := len(allNodes) / 500
+	if step < 1 {
+		step = 1
+	}
+	start := 0
+	end := len(allNodes)
+	for i := start; i < end; i += step {
+		qn := allNodes[i].QualifiedName
+		switch {
+		case strings.Contains(qn, ".go."):
+			counts["go"]++
+		case strings.Contains(qn, ".py."):
+			counts["python"]++
+		case strings.Contains(qn, ".ts.") || strings.Contains(qn, ".tsx."):
+			counts["typescript"]++
+		case strings.Contains(qn, ".rb."):
+			counts["ruby"]++
+		case strings.Contains(qn, ".java."):
+			counts["java"]++
+		case strings.Contains(qn, ".cs."):
+			counts["csharp"]++
+		case strings.Contains(qn, ".rs."):
+			counts["rust"]++
+		}
+	}
+	best := ""
+	bestCount := 0
+	for lang, count := range counts {
+		if count > bestCount {
+			best = lang
+			bestCount = count
+		}
+	}
+	return best
 }
 
 // hasMixedCase returns true if the string has both uppercase and lowercase letters
