@@ -1,6 +1,7 @@
 package pyresolve
 
 import (
+	"context"
 	"testing"
 
 	sitter "github.com/smacker/go-tree-sitter"
@@ -189,7 +190,7 @@ func parsePython(t *testing.T, code string) *sitter.Node {
 	t.Helper()
 	parser := sitter.NewParser()
 	parser.SetLanguage(python.GetLanguage())
-	tree, err := parser.ParseCtx(nil, nil, []byte(code))
+	tree, err := parser.ParseCtx(context.Background(), nil, []byte(code))
 	if err != nil {
 		t.Fatalf("failed to parse Python: %v", err)
 	}
