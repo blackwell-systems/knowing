@@ -64,8 +64,8 @@ func processAssignment(ctx *ResolveContext, node *sitter.Node) {
 		}
 
 	case "attribute":
-		// self.x = expr or cls.x = expr: skip instance field registration
-		// for now (requires mutable registry; defer to wave 2).
+		// self.x = expr or cls.x = expr: register as field on enclosing class.
+		registerInstanceField(ctx, left, rhsType)
 
 	case "pattern_list", "tuple_pattern", "expression_list":
 		// Tuple unpacking.
@@ -316,6 +316,51 @@ func processExceptAsPattern(ctx *ResolveContext, node *sitter.Node) {
 			ctx.Scope.Bind(name, excType)
 		}
 	}
+}
+
+// registerInstanceField registers a self.x = expr assignment as a field on
+// the enclosing class. This enables attribute resolution on instances of the
+// class. The field is added to the RegisteredType in the registry.
+func registerInstanceField(ctx *ResolveContext, attrNode *sitter.Node, rhsType *typresolve.Type) {
+	if ctx.EnclosingClassQN == "" || ctx.Registry == nil {
+		return
+	}
+	objNode := attrNode.ChildByFieldName("object")
+	fieldNode := attrNode.ChildByFieldName("attribute")
+	if objNode == nil || fieldNode == nil {
+		return
+	}
+	if objNode.Type() != "identifier" {
+		return
+	}
+	objName := nodeText(objNode, ctx.Content)
+	if objName != "self" && objName != "cls" {
+		return
+	}
+	fieldName := nodeText(fieldNode, ctx.Content)
+	if fieldName == "" {
+		return
+	}
+
+	fieldType := rhsType
+	if fieldType == nil {
+		fieldType = typresolve.Unknown()
+	}
+
+	// Look up the type and add the field if not already present.
+	rt := ctx.Registry.LookupType(ctx.EnclosingClassQN)
+	if rt == nil {
+		return
+	}
+	for _, f := range rt.Fields {
+		if f.Name == fieldName {
+			return // already registered
+		}
+	}
+	rt.Fields = append(rt.Fields, typresolve.Field{
+		Name: fieldName,
+		Type: fieldType,
+	})
 }
 
 // bindTupleTargets binds tuple unpacking targets to their respective types.

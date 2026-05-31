@@ -55,6 +55,11 @@ func EvalExprType(ctx *ResolveContext, node *sitter.Node) *typresolve.Type {
 	case "call":
 		return evalCall(ctx, node)
 
+	case "named_expression":
+		// Walrus operator: (name := expr) evaluates to the expr's type
+		// and binds name in the enclosing scope.
+		return evalWalrus(ctx, node)
+
 	case "binary_operator":
 		// Best-effort: return left operand type.
 		left := node.ChildByFieldName("left")
@@ -265,7 +270,7 @@ func evalAttribute(ctx *ResolveContext, node *sitter.Node) *typresolve.Type {
 		// Look up method via LookupAttribute (follows MRO).
 		if m := LookupAttribute(ctx.Registry, typeQN, attrName); m != nil {
 			if m.Signature != nil {
-				return m.Signature
+				return substituteSelf(m.Signature, typeQN)
 			}
 		}
 
@@ -280,6 +285,20 @@ func evalAttribute(ctx *ResolveContext, node *sitter.Node) *typresolve.Type {
 		if m := LookupAttribute(ctx.Registry, builtinQN, attrName); m != nil {
 			if m.Signature != nil {
 				return m.Signature
+			}
+		}
+
+	case typresolve.KindOptional:
+		// Optional[T] union dispatch: try T for attribute access.
+		inner := objType.Elem
+		if inner != nil && inner.Kind == typresolve.KindNamed {
+			if m := LookupAttribute(ctx.Registry, inner.Name, attrName); m != nil {
+				if m.Signature != nil {
+					return substituteSelf(m.Signature, inner.Name)
+				}
+			}
+			if ft := LookupField(ctx.Registry, inner.Name, attrName); ft != nil {
+				return ft
 			}
 		}
 	}
@@ -381,17 +400,35 @@ func evalCallAttribute(ctx *ResolveContext, fnNode *sitter.Node) *typresolve.Typ
 		}
 	}
 
+	// super().method() resolution: resolve against the first base class.
+	if objNode.Type() == "call" {
+		if ret := evalSuperCall(ctx, objNode, attrName); ret != nil {
+			return ret
+		}
+	}
+
 	// Evaluate object type.
 	objType := EvalExprType(ctx, objNode)
 	if objType == nil {
 		return typresolve.Unknown()
 	}
 
+	// Container method special cases: dict.items/keys/values/get with
+	// parameterized types.
+	if objType.Kind == typresolve.KindMap {
+		if ret := evalDictMethodCall(objType, attrName); ret != nil {
+			return ret
+		}
+	}
+
 	if objType.Kind == typresolve.KindNamed {
 		typeQN := objType.Name
 		// Look up method via LookupAttribute.
 		if m := LookupAttribute(ctx.Registry, typeQN, attrName); m != nil {
-			return extractFuncReturnType(m)
+			ret := extractFuncReturnType(m)
+			// typing.Self substitution: if return type is "Self", substitute
+			// the receiver class.
+			return substituteSelf(ret, typeQN)
 		}
 	}
 
@@ -402,7 +439,112 @@ func evalCallAttribute(ctx *ResolveContext, fnNode *sitter.Node) *typresolve.Typ
 		}
 	}
 
+	// Union type dispatch: try each Named member; if exactly one resolves,
+	// use that result.
+	if objType.Kind == typresolve.KindOptional {
+		// Optional[T] is Union[T, None]; try T.
+		inner := objType.Elem
+		if inner != nil && inner.Kind == typresolve.KindNamed {
+			if m := LookupAttribute(ctx.Registry, inner.Name, attrName); m != nil {
+				ret := extractFuncReturnType(m)
+				return substituteSelf(ret, inner.Name)
+			}
+		}
+	}
+
 	return typresolve.Unknown()
+}
+
+// evalSuperCall resolves super().method() to the parent class method's return
+// type. Returns nil if this is not a super() call pattern.
+func evalSuperCall(ctx *ResolveContext, callNode *sitter.Node, attrName string) *typresolve.Type {
+	fnNode := callNode.ChildByFieldName("function")
+	if fnNode == nil || fnNode.Type() != "identifier" {
+		return nil
+	}
+	name := nodeText(fnNode, ctx.Content)
+	if name != "super" {
+		return nil
+	}
+	if ctx.EnclosingClassQN == "" {
+		return nil
+	}
+
+	// Find the enclosing class in the registry and walk its bases.
+	rt := ctx.Registry.LookupType(ctx.EnclosingClassQN)
+	if rt == nil || len(rt.EmbeddedTypes) == 0 {
+		return nil
+	}
+
+	for _, baseQN := range rt.EmbeddedTypes {
+		if m := LookupAttribute(ctx.Registry, baseQN, attrName); m != nil {
+			ret := extractFuncReturnType(m)
+			return substituteSelf(ret, ctx.EnclosingClassQN)
+		}
+		// Special case: super().__init__
+		if attrName == "__init__" {
+			initQN := baseQN + ".__init__"
+			if f := ctx.Registry.LookupFunc(initQN); f != nil {
+				return extractFuncReturnType(f)
+			}
+			// __init__ always returns None
+			return typresolve.Builtin("None")
+		}
+	}
+	return nil
+}
+
+// evalDictMethodCall handles dict.items/keys/values/get/pop returning
+// parameterized types based on the map's key/value types.
+func evalDictMethodCall(mapType *typresolve.Type, methodName string) *typresolve.Type {
+	keyType := mapType.Key
+	valType := mapType.Value
+	if keyType == nil {
+		keyType = typresolve.Unknown()
+	}
+	if valType == nil {
+		valType = typresolve.Unknown()
+	}
+
+	switch methodName {
+	case "items":
+		// Returns an iterable of (K, V) tuples.
+		return typresolve.Slice(typresolve.Tuple([]*typresolve.Type{keyType, valType}))
+	case "keys":
+		return typresolve.Slice(keyType)
+	case "values":
+		return typresolve.Slice(valType)
+	case "get":
+		// dict.get(k) -> Optional[V]
+		return typresolve.Optional(valType)
+	case "pop":
+		return valType
+	case "copy":
+		return mapType
+	case "setdefault":
+		return valType
+	}
+	return nil
+}
+
+// substituteSelf replaces a "Self" named type with the receiver's qualified
+// name. Handles direct Self, Optional[Self], etc.
+func substituteSelf(t *typresolve.Type, receiverQN string) *typresolve.Type {
+	if t == nil {
+		return t
+	}
+	if t.Kind == typresolve.KindNamed {
+		if t.Name == "Self" || t.Name == "typing.Self" || t.Name == "typing_extensions.Self" {
+			return typresolve.Named(receiverQN)
+		}
+	}
+	if t.Kind == typresolve.KindOptional && t.Elem != nil {
+		inner := substituteSelf(t.Elem, receiverQN)
+		if inner != t.Elem {
+			return typresolve.Optional(inner)
+		}
+	}
+	return t
 }
 
 // extractReturnType extracts the return type from a function type.
@@ -433,6 +575,35 @@ func extractFuncReturnType(f *typresolve.RegisteredFunc) *typresolve.Type {
 		return typresolve.Unknown()
 	}
 	return extractReturnType(f.Signature)
+}
+
+// evalWalrus evaluates a walrus operator (named_expression): name := expr.
+// Binds the name in the enclosing scope and returns the expression type.
+func evalWalrus(ctx *ResolveContext, node *sitter.Node) *typresolve.Type {
+	nameNode := node.ChildByFieldName("name")
+	if nameNode == nil {
+		// Try "left" field as alternative.
+		nameNode = node.ChildByFieldName("left")
+	}
+	valueNode := node.ChildByFieldName("value")
+	if valueNode == nil {
+		valueNode = node.ChildByFieldName("right")
+	}
+	if valueNode == nil {
+		return typresolve.Unknown()
+	}
+
+	valType := EvalExprType(ctx, valueNode)
+
+	// Bind in enclosing scope.
+	if nameNode != nil && nameNode.Type() == "identifier" {
+		name := nodeText(nameNode, ctx.Content)
+		if name != "" && name != "_" {
+			ctx.Scope.Bind(name, valType)
+		}
+	}
+
+	return valType
 }
 
 // evalSubscript resolves a subscript expression (e.g. x[0], d["key"]).

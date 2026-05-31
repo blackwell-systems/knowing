@@ -33,6 +33,8 @@ func (r *PythonResolver) Language() string { return "python" }
 // definitions. Called once before any ResolveFile calls.
 func (r *PythonResolver) InitWorkspace(ctx context.Context, defs []typresolve.ResolverDef) error {
 	r.registry = BuildRegistry(defs)
+	// Pre-register stdlib types and functions as a fallback layer.
+	RegisterStdlib(r.registry)
 	return nil
 }
 

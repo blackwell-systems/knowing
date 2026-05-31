@@ -183,6 +183,12 @@ func resolveCallsInNode(ctx *ResolveContext, node *sitter.Node, edges *[]types.E
 		}
 	}
 
+	// if_statement gets special-case narrowing.
+	if node.Type() == "if_statement" {
+		walkIfStatement(ctx, node, edges, fileHash, repoURL, filePath)
+		return
+	}
+
 	// Handle scope for comprehensions.
 	needsPop := false
 	switch node.Type() {
@@ -221,6 +227,229 @@ func resolveCallsInNode(ctx *ResolveContext, node *sitter.Node, edges *[]types.E
 
 	if needsPop {
 		ctx.Scope = ctx.Scope.Parent()
+	}
+}
+
+// walkIfStatement handles if_statement with type narrowing in the consequence
+// branch. Implements isinstance() and is-None/is-not-None guards.
+func walkIfStatement(ctx *ResolveContext, node *sitter.Node, edges *[]types.Edge, fileHash types.Hash, repoURL string, filePath string) {
+	condNode := node.ChildByFieldName("condition")
+	bodyNode := node.ChildByFieldName("consequence")
+	altNode := node.ChildByFieldName("alternative")
+
+	// Process walrus bindings in the condition (they leak to enclosing scope).
+	bindWalrusIn(ctx, condNode)
+
+	// Resolve calls in condition.
+	resolveCallsInNode(ctx, condNode, edges, fileHash, repoURL, filePath)
+
+	// Consequence branch: apply narrowing in a child scope.
+	if bodyNode != nil {
+		origScope := ctx.Scope
+		ctx.Scope = typresolve.NewScope(origScope)
+
+		// isinstance narrowing: if isinstance(x, T): -> bind x to T in body.
+		if condNode != nil {
+			if varName, narrowedType := matchIsinstance(ctx, condNode); varName != "" && narrowedType != nil {
+				ctx.Scope.Bind(varName, narrowedType)
+			}
+		}
+
+		// is-not-None narrowing: if x is not None: -> strip None from x's type.
+		if condNode != nil {
+			if varName, polarity := matchIsNone(ctx, condNode); varName != "" {
+				if polarity == 1 { // "x is not None"
+					current := ctx.Scope.Lookup(varName)
+					if current != nil {
+						ctx.Scope.Bind(varName, stripNone(current))
+					}
+				}
+			}
+		}
+
+		resolveCallsInNode(ctx, bodyNode, edges, fileHash, repoURL, filePath)
+		ctx.Scope = origScope
+	}
+
+	// Alternative branch (else/elif).
+	if altNode != nil {
+		resolveCallsInNode(ctx, altNode, edges, fileHash, repoURL, filePath)
+	}
+
+	// Early-return narrowing: if the body terminates and the condition is
+	// "x is None: return" then x is non-None after the if.
+	if bodyNode != nil && blockTerminates(bodyNode) {
+		if condNode != nil {
+			if varName, polarity := matchIsNone(ctx, condNode); varName != "" {
+				if polarity == -1 { // "x is None" with body that returns
+					current := ctx.Scope.Lookup(varName)
+					if current != nil {
+						ctx.Scope.Bind(varName, stripNone(current))
+					}
+				}
+			}
+		}
+	}
+}
+
+// matchIsinstance detects isinstance(x, T) in a condition node.
+// Returns (variable_name, narrowed_type) or ("", nil) if not matched.
+func matchIsinstance(ctx *ResolveContext, condNode *sitter.Node) (string, *typresolve.Type) {
+	if condNode.Type() != "call" {
+		return "", nil
+	}
+	fnNode := condNode.ChildByFieldName("function")
+	if fnNode == nil || fnNode.Type() != "identifier" {
+		return "", nil
+	}
+	fname := nodeText(fnNode, ctx.Content)
+	if fname != "isinstance" {
+		return "", nil
+	}
+	argsNode := condNode.ChildByFieldName("arguments")
+	if argsNode == nil || int(argsNode.NamedChildCount()) < 2 {
+		return "", nil
+	}
+	varNode := argsNode.NamedChild(0)
+	typeNode := argsNode.NamedChild(1)
+	if varNode == nil || varNode.Type() != "identifier" {
+		return "", nil
+	}
+	if typeNode == nil {
+		return "", nil
+	}
+	varName := nodeText(varNode, ctx.Content)
+	typeText := nodeText(typeNode, ctx.Content)
+	if varName == "" || typeText == "" {
+		return "", nil
+	}
+	narrowedType := ParseAnnotation(typeText, ctx.ModuleQN)
+	return varName, narrowedType
+}
+
+// matchIsNone detects "x is None" or "x is not None" in a comparison_operator.
+// Returns (variable_name, polarity):
+//   - polarity = 1 means "x is not None" (positive narrow)
+//   - polarity = -1 means "x is None" (negative narrow for early-return)
+//   - polarity = 0 means no match
+func matchIsNone(ctx *ResolveContext, condNode *sitter.Node) (string, int) {
+	if condNode.Type() != "comparison_operator" {
+		return "", 0
+	}
+
+	// Walk children to find the pattern "X is None" or "X is not None".
+	childCount := int(condNode.ChildCount())
+	var left, right *sitter.Node
+	isOp := false
+	isNotOp := false
+
+	for i := 0; i < childCount; i++ {
+		child := condNode.Child(i)
+		if child == nil {
+			continue
+		}
+		if child.IsNamed() {
+			if left == nil {
+				left = child
+			} else if right == nil {
+				right = child
+			}
+		} else {
+			// Anonymous token: "is" or "is not"
+			tok := nodeText(child, ctx.Content)
+			if tok == "is" {
+				isOp = true
+			} else if tok == "is not" {
+				isOp = true
+				isNotOp = true
+			}
+		}
+	}
+
+	if !isOp || left == nil || right == nil {
+		return "", 0
+	}
+
+	leftText := nodeText(left, ctx.Content)
+	rightText := nodeText(right, ctx.Content)
+
+	var varName string
+	if rightText == "None" && left.Type() == "identifier" {
+		varName = leftText
+	} else if leftText == "None" && right.Type() == "identifier" {
+		varName = rightText
+	}
+
+	if varName == "" {
+		return "", 0
+	}
+
+	if isNotOp {
+		return varName, 1 // x is not None
+	}
+	return varName, -1 // x is None
+}
+
+// stripNone removes None from an Optional type. If the type is Optional[T],
+// returns T. Otherwise returns the type unchanged.
+func stripNone(t *typresolve.Type) *typresolve.Type {
+	if t == nil {
+		return t
+	}
+	if t.Kind == typresolve.KindOptional && t.Elem != nil {
+		return t.Elem
+	}
+	return t
+}
+
+// blockTerminates checks if a block ends with return, raise, break, or continue.
+func blockTerminates(block *sitter.Node) bool {
+	if block == nil {
+		return false
+	}
+	count := int(block.NamedChildCount())
+	if count == 0 {
+		return false
+	}
+	last := block.NamedChild(count - 1)
+	if last == nil {
+		return false
+	}
+	switch last.Type() {
+	case "return_statement", "raise_statement", "break_statement", "continue_statement":
+		return true
+	}
+	return false
+}
+
+// bindWalrusIn walks a node tree looking for walrus expressions (named_expression)
+// and binds their targets in the current scope.
+func bindWalrusIn(ctx *ResolveContext, node *sitter.Node) {
+	if node == nil {
+		return
+	}
+	if node.Type() == "named_expression" {
+		nameNode := node.ChildByFieldName("name")
+		if nameNode == nil {
+			nameNode = node.ChildByFieldName("left")
+		}
+		valueNode := node.ChildByFieldName("value")
+		if valueNode == nil {
+			valueNode = node.ChildByFieldName("right")
+		}
+		if nameNode != nil && nameNode.Type() == "identifier" && valueNode != nil {
+			name := nodeText(nameNode, ctx.Content)
+			if name != "" && name != "_" {
+				valType := EvalExprType(ctx, valueNode)
+				ctx.Scope.Bind(name, valType)
+			}
+		}
+	}
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		child := node.NamedChild(i)
+		if child != nil {
+			bindWalrusIn(ctx, child)
+		}
 	}
 }
 
@@ -315,6 +544,28 @@ func resolveAttributeCall(ctx *ResolveContext, fnNode *sitter.Node) *resolvedCal
 		}
 	}
 
+	// super().method() resolution.
+	if objNode.Type() == "call" {
+		superFn := objNode.ChildByFieldName("function")
+		if superFn != nil && superFn.Type() == "identifier" {
+			superName := nodeText(superFn, ctx.Content)
+			if superName == "super" && ctx.EnclosingClassQN != "" {
+				rt := ctx.Registry.LookupType(ctx.EnclosingClassQN)
+				if rt != nil {
+					for _, baseQN := range rt.EmbeddedTypes {
+						if m := LookupAttribute(ctx.Registry, baseQN, attrName); m != nil {
+							return &resolvedCall{calleeQN: m.QualifiedName, strategy: "resolver_type_dispatch"}
+						}
+						// super().__init__ special case.
+						if attrName == "__init__" {
+							return &resolvedCall{calleeQN: baseQN + ".__init__", strategy: "resolver_type_dispatch"}
+						}
+					}
+				}
+			}
+		}
+	}
+
 	// Evaluate object type for method dispatch.
 	objType := EvalExprType(ctx, objNode)
 	if objType == nil || objType.Kind == typresolve.KindUnknown {
@@ -335,6 +586,17 @@ func resolveAttributeCall(ctx *ResolveContext, fnNode *sitter.Node) *resolvedCal
 		builtinQN := "builtins." + objType.Name
 		if m := LookupAttribute(ctx.Registry, builtinQN, attrName); m != nil {
 			return &resolvedCall{calleeQN: m.QualifiedName, strategy: "resolver_type_dispatch"}
+		}
+	}
+
+	// Union/Optional type dispatch: try each Named member.
+	if objType.Kind == typresolve.KindOptional && objType.Elem != nil {
+		inner := objType.Elem
+		if inner.Kind == typresolve.KindNamed {
+			if m := LookupAttribute(ctx.Registry, inner.Name, attrName); m != nil {
+				return &resolvedCall{calleeQN: m.QualifiedName, strategy: "resolver_type_dispatch"}
+			}
+			return &resolvedCall{calleeQN: inner.Name + "." + attrName, strategy: "resolver_type_dispatch"}
 		}
 	}
 
