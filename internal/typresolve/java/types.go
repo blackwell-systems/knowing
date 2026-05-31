@@ -55,20 +55,7 @@ var genericMapTypes = map[string]bool{
 	"ConcurrentHashMap": true,
 }
 
-// IsBuiltinType returns true if the given name is a Java primitive or
-// common builtin type.
-func IsBuiltinType(name string) bool {
-	return javaBuiltinTypes[name]
-}
-
-// ResolveBuiltinType returns a typresolve.Builtin type if the name is a
-// Java builtin type, nil otherwise.
-func ResolveBuiltinType(name string) *typresolve.Type {
-	if javaBuiltinTypes[name] {
-		return typresolve.Builtin(name)
-	}
-	return nil
-}
+// IsBuiltinType and ResolveBuiltinType are defined in builtins.go.
 
 // ParseTypeNode converts a tree-sitter Java type AST node to a
 // typresolve.Type. It handles type_identifier, generic_type, array_type,

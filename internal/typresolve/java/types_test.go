@@ -263,28 +263,7 @@ func TestResolveImport(t *testing.T) {
 	assert.False(t, ok)
 }
 
-func TestIsBuiltinType(t *testing.T) {
-	builtins := []string{
-		"int", "long", "short", "byte", "char", "boolean", "float", "double", "void",
-		"String", "Object", "Integer", "Long", "Boolean", "Double", "Float",
-		"Class", "Void", "Byte", "Short", "Character",
-	}
-	for _, b := range builtins {
-		assert.True(t, IsBuiltinType(b), "expected %s to be builtin", b)
-	}
-	assert.False(t, IsBuiltinType("MyClass"))
-	assert.False(t, IsBuiltinType("List"))
-}
-
-func TestResolveBuiltinType(t *testing.T) {
-	result := ResolveBuiltinType("int")
-	require.NotNil(t, result)
-	assert.Equal(t, typresolve.KindBuiltin, result.Kind)
-	assert.Equal(t, "int", result.Name)
-
-	result = ResolveBuiltinType("MyClass")
-	assert.Nil(t, result)
-}
+// TestIsBuiltinType and TestResolveBuiltinType are in builtins_test.go.
 
 func TestExtractBaseTypeName(t *testing.T) {
 	// Simple type
