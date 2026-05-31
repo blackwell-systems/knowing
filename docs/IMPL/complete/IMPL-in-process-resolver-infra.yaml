@@ -1,3 +1,4 @@
+completion_date: "2026-05-30"
 title: In-Process Resolver Shared Infrastructure
 feature_slug: in-process-resolver-infra
 verdict: SUITABLE
@@ -738,6 +739,7 @@ waves:
             - B
             - C
             - D
+      base_commit: 61c7f2d1ac23a5ba0b0bc44745ce7f489e31207c
 quality_gates:
     level: standard
     gates:
@@ -756,6 +758,7 @@ post_merge_checklist:
           items:
             - description: Verify if resolver.go needs initialization in Server constructor
             - description: Verify if resolver_test.go needs initialization in Server constructor
+            - description: Verify if router_test.go needs initialization in Server constructor
 completion_reports:
     A:
         status: complete
@@ -850,6 +853,28 @@ completion_reports:
             - TestResolverConstants
         verification: PASS
         notes: Resolver interface, ResolverDef/ResolveFileOpts/FileResult structs, ResolverEnricher orchestrator with concurrent dispatch and single DB-writer goroutine. All 11 tests passing. collectDefs uses simple edge-type+path dedup since Edge struct lacks qualified names; language-specific resolvers will build richer registries from parsed trees.
+    E:
+        status: complete
+        branch: polywave/in-process-resolver-infra/wave2-agent-E
+        commit: 858ac01
+        files_changed:
+            - internal/typresolve/router.go
+            - internal/typresolve/router_test.go
+        files_created:
+            - internal/typresolve/router.go
+            - internal/typresolve/router_test.go
+        tests_added:
+            - TestRouteEnrichment_AllResolvers
+            - TestRouteEnrichment_NoResolvers
+            - TestRouteEnrichment_Mixed
+            - TestRouteEnrichment_NilLspWithFallback
+            - TestRouteEnrichment_EmptyFiles
+            - TestRouteEnrichment_ResolverErrorDoesNotPreventLSP
+            - TestRouteEnrichment_LspError
+            - TestRouteStats
+            - TestRouteStats_Empty
+        verification: PASS
+        notes: Router implementation complete. LspEnricher interface decouples from enrichment package. RouteEnrichment partitions by language and dispatches to resolver or LSP. All 9 tests passing. Pre-commit hooks (vet + build) pass.
 pre_mortem:
     overall_risk: low
     rows:
@@ -917,5 +942,5 @@ critic_report:
     summary: All 5 agent briefs verified against codebase. All 11 files are action:new and the target directory internal/typresolve/ does not exist (no conflicts). Referenced types (Edge, Hash, GraphStore, ParsedTree) all exist in internal/types/. The Enricher.Run signature matches the LspEnricher interface contract exactly. Package name typresolve avoids conflict with existing internal/resolver/ and internal/resolve/. Existing MockGraphStore in internal/testutil/ satisfies Agent D's mock needs. No disjoint ownership violations. No complexity concerns (max 3 files per agent). Build/test/vet commands are correct.
     reviewed_at: "2026-05-31T05:02:10Z"
     issue_count: 0
-state: REVIEWED
+state: COMPLETE
 injection_method: hook
