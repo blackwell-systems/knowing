@@ -4,10 +4,10 @@ tier: easy
 description: "Configure request ID correlation to track requests across the API gateway and downstream services"
 source: manual
 ground_truth:
-  - Ocelot.RequestId.Middleware.RequestIdMiddleware.Invoke
-  - Ocelot.RequestId.Middleware.RequestIdMiddleware.SetOcelotRequestId
-  - Ocelot.RequestId.Middleware.RequestIdMiddleware.AddRequestIdHeader
-  - Ocelot.Configuration.Creator.RequestIdKeyCreator.Create
-  - Ocelot.Middleware.OcelotPipelineExtensions.BuildOcelotPipeline
+  - RequestIdMiddleware.Invoke
+  - RequestIdMiddleware.SetOcelotRequestId
+  - RequestIdMiddleware.AddRequestIdHeader
+  - RequestIdKeyCreator.Create
+  - OcelotPipelineExtensions.BuildOcelotPipeline
 tags: [request-id, correlation, tracing, single-namespace]
 notes: "Request ID tracking: RequestIdMiddleware checks for an existing correlation ID header, generates one if missing, and propagates it downstream. RequestIdKeyCreator configures which header key to use."

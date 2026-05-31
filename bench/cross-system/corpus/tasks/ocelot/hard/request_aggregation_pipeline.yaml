@@ -4,14 +4,14 @@ tier: hard
 description: "Implement a custom response aggregator that fans out a single upstream request to multiple downstream services and merges the responses"
 source: manual
 ground_truth:
-  - Ocelot.Multiplexer.MultiplexingMiddleware.Invoke
-  - Ocelot.Multiplexer.MultiplexingMiddleware.ProcessRoutesAsync
-  - Ocelot.Multiplexer.MultiplexingMiddleware.MapResponsesAsync
-  - Ocelot.Multiplexer.IDefinedAggregator
-  - Ocelot.Multiplexer.IDefinedAggregator.Aggregate
-  - Ocelot.Multiplexer.IResponseAggregatorFactory.Get
-  - Ocelot.Multiplexer.UserDefinedResponseAggregator.Aggregate
-  - Ocelot.Multiplexer.SimpleJsonResponseAggregator.Aggregate
-  - Ocelot.DependencyInjection.IOcelotBuilder.AddSingletonDefinedAggregator
+  - MultiplexingMiddleware.Invoke
+  - MultiplexingMiddleware.ProcessRoutesAsync
+  - MultiplexingMiddleware.MapResponsesAsync
+  - IDefinedAggregator
+  - IDefinedAggregator.Aggregate
+  - IResponseAggregatorFactory.Get
+  - UserDefinedResponseAggregator.Aggregate
+  - SimpleJsonResponseAggregator.Aggregate
+  - IOcelotBuilder.AddSingletonDefinedAggregator
 tags: [aggregation, multiplexing, cross-namespace, architectural]
 notes: "Request aggregation: MultiplexingMiddleware fans out to multiple downstream routes via ProcessRoutesAsync, collects responses via MapResponsesAsync. IResponseAggregatorFactory selects between SimpleJsonResponseAggregator (default) and UserDefinedResponseAggregator. Custom aggregators implement IDefinedAggregator and register via AddSingletonDefinedAggregator."

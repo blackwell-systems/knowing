@@ -4,11 +4,11 @@ tier: medium
 description: "Configure header find-and-replace transformations on both upstream and downstream requests"
 source: manual
 ground_truth:
-  - Ocelot.Headers.Middleware.HttpHeadersTransformationMiddleware.Invoke
-  - Ocelot.Configuration.Creator.IHeaderFindAndReplaceCreator
-  - Ocelot.Configuration.Creator.HeaderFindAndReplaceCreator.Create
-  - Ocelot.Configuration.Creator.UpstreamHeaderTemplatePatternCreator.Create
-  - Ocelot.Configuration.Builder.DownstreamRouteBuilder.WithDownstreamHeaderFindAndReplace
-  - Ocelot.Configuration.Builder.DownstreamRouteBuilder.WithUpstreamHeaderFindAndReplace
+  - HttpHeadersTransformationMiddleware.Invoke
+  - IHeaderFindAndReplaceCreator
+  - HeaderFindAndReplaceCreator.Create
+  - UpstreamHeaderTemplatePatternCreator.Create
+  - DownstreamRouteBuilder.WithDownstreamHeaderFindAndReplace
+  - DownstreamRouteBuilder.WithUpstreamHeaderFindAndReplace
 tags: [headers, transformation, cross-namespace]
 notes: "Header transformation flows from configuration through HeaderFindAndReplaceCreator to the HttpHeadersTransformationMiddleware. The DownstreamRouteBuilder wires up both directions. UpstreamHeaderTemplatePatternCreator handles regex-based matching."

@@ -6,9 +6,9 @@ source: manual
 ground_truth:
   - Ocelot.Configuration.DownstreamRoute.DownstreamRoute
   - Ocelot.Configuration.Builder.DownstreamRouteBuilder.Build
-  - Ocelot.Configuration.Creator.StaticRoutesCreator.Create
-  - Ocelot.DownstreamRouteFinder.DownstreamRouteFinderMiddleware.Invoke
-  - Ocelot.LoadBalancer.LoadBalancingMiddleware.Invoke
+  - StaticRoutesCreator.Create
+  - DownstreamRouteFinderMiddleware.Invoke
+  - LoadBalancingMiddleware.Invoke
   - Ocelot.Configuration.File.FileRoute.FileRoute
 tags: [routing, load-balancing, cross-namespace]
 notes: "Route configuration flows from File -> Creator -> Builder -> DownstreamRoute, then used by DownstreamRouteFinder and LoadBalancer middleware."

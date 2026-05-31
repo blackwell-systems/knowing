@@ -6,7 +6,7 @@ source: manual
 ground_truth:
   - Standard
   - StandardBuilder
-  - StandardBuilder.max_context
+  - Config.max_context
   - Sink
   - SinkContext
   - SinkMatch

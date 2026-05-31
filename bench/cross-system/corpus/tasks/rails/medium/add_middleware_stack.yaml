@@ -7,7 +7,7 @@ ground_truth:
   - ActionDispatch::MiddlewareStack.use
   - ActionDispatch::MiddlewareStack.build
   - ActionDispatch::MiddlewareStack.insert
-  - ActionDispatch::MiddlewareStack::Middleware
+  - ActionDispatch::ActionDispatch::MiddlewareStack::Middleware
   - Rails::Configuration::MiddlewareStackProxy
 tags: [middleware, rack, actiondispatch]
 notes: "Requires MiddlewareStack for insertion, Middleware wrapper class, and the Configuration proxy for app-level middleware setup."

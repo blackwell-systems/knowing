@@ -5,13 +5,13 @@ description: "Trace the full configuration pipeline from JSON file loading throu
 source: manual
 ground_truth:
   - Ocelot.DependencyInjection.ConfigurationBuilderExtensions.AddOcelot
-  - Ocelot.DependencyInjection.ConfigurationBuilderExtensions.GetMergedOcelotJson
+  - ConfigurationBuilderExtensions.GetMergedOcelotJson
   - Ocelot.Configuration.File.FileConfiguration.FileConfiguration
-  - Ocelot.Configuration.Validator.IConfigurationValidator.IsValid
-  - Ocelot.Configuration.Validator.FileConfigurationFluentValidator.IsValid
-  - Ocelot.Configuration.Creator.IInternalConfigurationCreator.Create
-  - Ocelot.Configuration.Repository.IInternalConfigurationRepository.AddOrReplace
-  - Ocelot.Configuration.Repository.IFileConfigurationRepository
-  - Ocelot.Middleware.OcelotMiddlewareExtensions.CreateConfiguration
+  - IConfigurationValidator.IsValid
+  - FileConfigurationFluentValidator.IsValid
+  - IInternalConfigurationCreator.Create
+  - IInternalConfigurationRepository.AddOrReplace
+  - IFileConfigurationRepository
+  - OcelotMiddlewareExtensions.CreateConfiguration
 tags: [configuration, validation, pipeline, cross-namespace, architectural]
 notes: "Config pipeline: ConfigurationBuilderExtensions.AddOcelot loads and merges JSON files. FileConfigurationFluentValidator validates routes, aggregates, and global config. IInternalConfigurationCreator.Create transforms FileConfiguration into the runtime InternalConfiguration. IInternalConfigurationRepository stores it. CreateConfiguration orchestrates the full flow at startup."

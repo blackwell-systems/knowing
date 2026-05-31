@@ -4,8 +4,8 @@ tier: easy
 description: "Register a custom error handler that returns JSON responses for 404 and 500 errors instead of the default HTML pages"
 source: manual
 ground_truth:
-  - Flask.errorhandler
-  - Flask.register_error_handler
+  - Scaffold.errorhandler
+  - Scaffold.register_error_handler
   - Flask.handle_exception
   - Flask.handle_http_exception
   - App.trap_http_exception

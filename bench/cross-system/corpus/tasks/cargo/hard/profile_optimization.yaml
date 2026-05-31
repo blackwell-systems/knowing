@@ -8,6 +8,6 @@ ground_truth:
   - TomlProfile.merge
   - TomlProfiles
   - BuildContext
-  - BuildContext.extra_args_for
+  - BuildContext<'a, 'gctx>.extra_args_for
 tags: [profiles, optimization, lto, cross-package, debugging]
 notes: "Profile debugging requires TomlProfile for settings, merge for inheritance, TomlProfiles collection, and BuildContext for flag generation."

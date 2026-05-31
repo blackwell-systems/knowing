@@ -6,11 +6,11 @@ description: TIME_ZONE value in DATABASES settings is not used when making dates
 source: swe-bench
 source_ref: django__django-11138
 ground_truth:
-- _convert_tznames_to_sql
+- DatabaseOperations._convert_tznames_to_sql
 - _sqlite_time_trunc
-- date_trunc_sql
+- DatabaseOperations.date_trunc_sql
 - _sqlite_datetime_parse
-- convert_query
+- SQLiteCursorWrapper.convert_query
 - get_new_connection
 - _sqlite_datetime_extract
 - _sqlite_datetime_cast_date

@@ -4,8 +4,8 @@ tier: easy
 description: "Add IP whitelist/blacklist security policy to restrict access to downstream routes"
 source: manual
 ground_truth:
-  - Ocelot.Security.Middleware.SecurityMiddleware.Invoke
-  - Ocelot.Security.ISecurityPolicy
+  - SecurityMiddleware.Invoke
+  - ISecurityPolicy
   - Ocelot.Security.ISecurityPolicy.Security
   - Ocelot.Security.IPSecurity.IPSecurityPolicy.Security
   - Ocelot.Configuration.SecurityOptions.SecurityOptions

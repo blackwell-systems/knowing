@@ -5,7 +5,7 @@ description: "Find the exact function that resolves feature unification conflict
 source: synthetic
 ground_truth:
   - FeatureResolver.do_resolve
-  - FeatureResolver.activate_dep_feature
-  - FeatureResolver.activate_fv
+  - FeatureResolver<'a, 'gctx>.activate_dep_feature
+  - FeatureResolver<'a, 'gctx>.activate_fv
 tags: [needle-in-haystack, resolver, features, single-symbol]
 notes: "Tests pinpointing a specific resolution decision in Cargo's resolver. Feature unification is mentioned in many places but the actual conflict resolution happens in one specific function."

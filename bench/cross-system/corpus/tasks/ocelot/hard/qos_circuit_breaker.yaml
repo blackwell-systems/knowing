@@ -4,14 +4,14 @@ tier: hard
 description: "Implement quality of service with circuit breaker protection that opens the circuit after downstream failures exceed a threshold"
 source: manual
 ground_truth:
-  - Ocelot.QualityOfService.IQualityOfServiceFactory
-  - Ocelot.QualityOfService.IQualityOfServiceFactory.Get
-  - Ocelot.QualityOfService.QualityOfServiceFactory.Get
-  - Ocelot.QualityOfService.CircuitBreakerDelegatingHandler.SendAsync
-  - Ocelot.QualityOfService.CircuitBreakerDelegatingHandler.SendAndTrackAsync
-  - Ocelot.QualityOfService.CircuitBreakerDelegatingHandler.GetFailureRatio
-  - Ocelot.QualityOfService.CircuitBreakerDelegatingHandler.GetBreakDuration
-  - Ocelot.Requester.MessageInvokerPool.CreateMessageInvoker
-  - Ocelot.DependencyInjection.IOcelotBuilder.AddQualityOfService
+  - IQualityOfServiceFactory
+  - IQualityOfServiceFactory.Get
+  - QualityOfServiceFactory.Get
+  - CircuitBreakerDelegatingHandler.SendAsync
+  - CircuitBreakerDelegatingHandler.SendAndTrackAsync
+  - CircuitBreakerDelegatingHandler.GetFailureRatio
+  - CircuitBreakerDelegatingHandler.GetBreakDuration
+  - MessageInvokerPool.CreateMessageInvoker
+  - IOcelotBuilder.AddQualityOfService
 tags: [qos, circuit-breaker, resilience, cross-namespace, architectural]
 notes: "QoS circuit breaker: QualityOfServiceFactory creates CircuitBreakerDelegatingHandler instances. The handler wraps downstream calls with circuit breaker logic (failure ratio, sampling duration, break duration). Registered via AddQualityOfService, injected into the HTTP pipeline via MessageInvokerPool.CreateMessageInvoker."

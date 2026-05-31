@@ -5,14 +5,14 @@ description: "Understand how Ocelot's dependency injection container wires toget
 source: manual
 ground_truth:
   - Ocelot.DependencyInjection.ServiceCollectionExtensions.AddOcelot
-  - Ocelot.DependencyInjection.ServiceCollectionExtensions.AddOcelotUsingBuilder
-  - Ocelot.DependencyInjection.IOcelotBuilder
-  - Ocelot.DependencyInjection.Features.AddOcelotCache
-  - Ocelot.DependencyInjection.Features.AddOcelotRateLimiting
-  - Ocelot.DependencyInjection.Features.AddOcelotQualityOfService
-  - Ocelot.DependencyInjection.Features.AddConfigurationValidators
+  - ServiceCollectionExtensions.AddOcelotUsingBuilder
+  - IOcelotBuilder
+  - Features.AddOcelotCache
+  - Features.AddOcelotRateLimiting
+  - Features.AddOcelotQualityOfService
+  - Features.AddConfigurationValidators
   - Ocelot.DependencyInjection.ConfigurationBuilderExtensions.AddOcelot
   - Ocelot.Middleware.OcelotMiddlewareExtensions.UseOcelot
-  - Ocelot.Middleware.OcelotMiddlewareExtensions.CreateConfiguration
+  - OcelotMiddlewareExtensions.CreateConfiguration
 tags: [dependency-injection, architectural, cross-namespace, bootstrap]
 notes: "Full DI bootstrap: AddOcelot registers all services via ServiceCollectionExtensions, Feature methods wire subsystems (cache, rate limiting, QoS, validation). ConfigurationBuilderExtensions loads JSON config. UseOcelot creates the pipeline. Requires understanding the entire startup path from IServiceCollection to running middleware."

@@ -7,7 +7,7 @@ ground_truth:
   - compile
   - BuildContext.new
   - rebuild_unit_graph_shared
-  - JobQueue.execute
+  - JobQueue<'gctx>.execute
   - Compilation.rustc_process
   - resolve
 tags: [cross-package, build-pipeline, resolver, compiler, multi-system]

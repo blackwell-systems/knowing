@@ -5,10 +5,10 @@ description: OuterRef in exclude() or ~Q() uses wrong model.
 source: swe-bench
 source_ref: django__django-11734
 ground_truth:
-- get_prep_value
-- get_db_prep_value
-- split_exclude
-- as_sql
+- BooleanField.get_prep_value
+- AutoFieldMixin.get_db_prep_value
+- Query.split_exclude
+- RelatedIn.as_sql
 tags:
 - swe-bench
 - verified

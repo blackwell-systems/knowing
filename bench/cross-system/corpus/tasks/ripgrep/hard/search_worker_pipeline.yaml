@@ -5,9 +5,9 @@ description: "Fix a bug where the search worker pipeline drops matches when a pr
 source: manual
 ground_truth:
   - SearchWorker
-  - SearchWorker.search_preprocessor
+  - SearchWorker<W>.search_preprocessor
   - SearchWorker.search_reader
-  - SearchWorker.should_preprocess
+  - SearchWorker<W>.should_preprocess
   - SearchWorkerBuilder
   - Printer
   - Standard

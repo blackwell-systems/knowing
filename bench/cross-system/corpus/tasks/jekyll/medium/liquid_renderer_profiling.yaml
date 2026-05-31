@@ -10,6 +10,6 @@ ground_truth:
   - Jekyll::LiquidRenderer.increment_time
   - Jekyll::LiquidRenderer.increment_count
   - Jekyll::LiquidRenderer.stats_table
-  - Jekyll::LiquidRenderer::File.render
+  - Jekyll::Jekyll::LiquidRenderer::File.render
 tags: [liquid, rendering, profiling, feature-addition]
 notes: "The LiquidRenderer delegates to File instances per template. Each File.render call is tracked via increment_bytes/time/count, and stats_table aggregates the results. Profiling data flows through these counters."

@@ -4,10 +4,10 @@ tier: easy
 description: "Configure downstream URL creation with path template placeholders for route parameters"
 source: manual
 ground_truth:
-  - Ocelot.DownstreamUrlCreator.DownstreamUrlCreatorMiddleware.Invoke
-  - Ocelot.DownstreamUrlCreator.DownstreamUrlCreatorMiddleware.GetPath
-  - Ocelot.DownstreamUrlCreator.IDownstreamPathPlaceholderReplacer.Replace
-  - Ocelot.DownstreamUrlCreator.DownstreamPathPlaceholderReplacer.Replace
-  - Ocelot.DownstreamUrlCreator.DownstreamUrlCreatorMiddleware.GetQueryString
+  - DownstreamUrlCreatorMiddleware.Invoke
+  - DownstreamUrlCreatorMiddleware.GetPath
+  - IDownstreamPathPlaceholderReplacer.Replace
+  - DownstreamPathPlaceholderReplacer.Replace
+  - DownstreamUrlCreatorMiddleware.GetQueryString
 tags: [url-creation, routing, placeholders, single-namespace]
 notes: "URL creation middleware replaces path template placeholders with actual values from the upstream request. DownstreamPathPlaceholderReplacer handles the substitution logic. GetQueryString merges query parameters."

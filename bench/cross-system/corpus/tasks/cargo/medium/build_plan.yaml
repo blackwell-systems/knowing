@@ -5,7 +5,7 @@ description: "Generate a build plan that shows compilation order and parallelism
 source: manual
 ground_truth:
   - JobQueue
-  - JobQueue.execute
+  - JobQueue<'gctx>.execute
   - JobQueue.enqueue
   - BuildContext
   - resolve_std

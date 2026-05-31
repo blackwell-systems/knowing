@@ -6,11 +6,11 @@ source: manual
 ground_truth:
   - Controller
   - Controller.syncService
-  - reconciler.reconcile
+  - RECONCILE
   - podToEndpoint
   - EndpointSlice
   - Endpoint
-  - TopologyCache
+  - Controller.topologyCache
   - Controller.addPod
 tags: [endpoints, service-discovery, controllers, cross-package, bug-fix]
 notes: "Debugging endpoint sync requires the EndpointSlice controller (syncService, addPod for event handling), the reconciler that computes desired state, the podToEndpoint conversion utility, EndpointSlice/Endpoint types, and the topology cache that can affect distribution."

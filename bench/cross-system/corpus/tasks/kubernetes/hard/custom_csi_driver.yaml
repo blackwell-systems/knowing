@@ -8,7 +8,7 @@ ground_truth:
   - PersistentVolumeController.syncClaim
   - PersistentVolumeController.syncVolume
   - csiPlugin
-  - csiPlugin.NewProvisioner
+  - newProvisioner
   - CSIDriver
   - PersistentVolumeClaim
   - NewController

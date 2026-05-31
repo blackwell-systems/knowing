@@ -7,8 +7,8 @@ ground_truth:
   - DeploymentController
   - DeploymentController.Run
   - DeploymentController.addDeployment
-  - Scheduler.addAllEventHandlers
-  - Core
+  - addAllEventHandlers
+  - FakeNodeHandler.Core
   - NewRateLimitingQueue
 tags: [controller, informers, cross-package, cross-cutting, feature-addition]
 notes: "Building a controller requires understanding the informer pattern (ConfigMapInformer, ResourceEventHandlerFuncs, Indexer), an existing controller as reference (DeploymentController and its syncDeployment), and the types being watched/modified."

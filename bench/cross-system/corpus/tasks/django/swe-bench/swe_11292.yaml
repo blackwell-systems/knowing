@@ -5,10 +5,10 @@ description: Add --skip-checks option to management commands.
 source: swe-bench
 source_ref: django__django-11292
 ground_truth:
-- create_parser
+- BaseCommand.create_parser
 - BaseCommand
 - DjangoHelpFormatter
-- execute
+- BaseCommand.execute
 tags:
 - swe-bench
 - verified

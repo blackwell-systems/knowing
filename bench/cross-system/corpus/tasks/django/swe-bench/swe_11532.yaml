@@ -9,8 +9,8 @@ ground_truth:
 - __call__
 - sanitize_address
 - unquote_quote
-- __str__
-- is_email_simple
+- CachedDnsName.__str__
+- Urlizer.is_email_simple
 - punycode
 tags:
 - swe-bench

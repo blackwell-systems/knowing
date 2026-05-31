@@ -106,10 +106,10 @@ in scope chain.
 
 | Language | Their LOC | Effort | Priority |
 |----------|----------|--------|----------|
-| Python | 3,386 | 2 weeks | HIGH (django, flask, fastapi) |
-| Go | 3,144 | 2 weeks | HIGH (k8s, terraform, caddy) |
-| TypeScript | 4,889 | 3 weeks | MEDIUM (vscode) |
-| C# | 3,200 | 2 weeks | MEDIUM (ocelot) |
+| Python | 3,248 | 2 weeks | HIGH (django, flask, fastapi) |
+| Go | 2,989 | 2 weeks | HIGH (k8s, terraform, caddy) |
+| TypeScript | 4,733 | 3 weeks | MEDIUM (vscode) |
+| C# | 3,021 | 2 weeks | MEDIUM (ocelot) |
 | Rust | N/A | 2 weeks | MEDIUM (cargo, ripgrep) |
 | Ruby | N/A | 2 weeks | MEDIUM (jekyll, rails) |
 | Java | N/A | 2 weeks | LOW (kafka, spark-java) |
@@ -145,3 +145,210 @@ external LSP, even in Go.
   handles this differently but the principle (scope type lifetime to file) applies.
 - **Registry fallback chaining**: TS overlays chain to shared base. Avoids per-file copy
   of the global registry while allowing file-local type refinement.
+
+## 7. Integration with knowing's Enrichment Pipeline
+
+### Current enrichment architecture
+
+The enrichment pipeline (`internal/enrichment/enricher.go`) runs as a post-extraction
+phase. The `Enricher` struct holds a `types.GraphStore`, a workspace root, and
+concurrency controls (a channel-based semaphore, `sync.WaitGroup`, `sync.Mutex` for
+serializing DB writes). It spawns external language servers (gopls, pyright, tsserver,
+etc.) via `lsp.LSPClient`, waits for workspace readiness with probe retries, then
+executes two phases:
+
+1. **Edge upgrade:** queries `GetDefinition` at call-site positions recorded during
+   tree-sitter extraction. Resolved edges are deleted and rewritten as `lsp_resolved`
+   with confidence 0.9. A single DB-writer goroutine consumes results from concurrent
+   LSP workers.
+2. **Edge discovery:** opens files in batches, queries `GetDocumentSymbols`,
+   `GetImplementation`, and `GetReferences` per symbol. New edges are written under
+   `writeMu` to avoid SQLite contention.
+
+The pipeline supports multi-module Go workspaces (spawning one gopls per module),
+progress persistence for resumable runs, and cross-repo definition resolution via the
+roster.
+
+### Where in-process resolvers plug in
+
+In-process resolvers replace the external LSP phase entirely for covered languages.
+The integration point is between tree-sitter extraction (`internal/indexer/worker.go`)
+and the current `Enricher.Run()` call. Instead of: extract -> store -> spawn LSP ->
+query LSP -> upgrade edges, the flow becomes: extract -> retain AST -> resolve
+in-process -> store resolved edges directly.
+
+The key is that tree-sitter parse trees are already retained across extractors.
+`ExtractResult.ParsedTree` returns the `*sitter.Node` root, and the indexer passes it
+to subsequent extractors via `ExtractOptions.ParsedTree`. The same mechanism extends
+naturally to in-process resolvers: after all extractors finish for a file, the still-live
+parse tree (and source bytes from `ExtractOptions.Content`) are passed to the resolver.
+No re-parse, no serialization, no IPC.
+
+### Interface contract
+
+A resolver must produce `[]types.Edge` compatible with the existing graph store. The
+minimal interface:
+
+```go
+// Resolver performs in-process type resolution for a single language.
+type Resolver interface {
+    // Language returns the language ID (e.g., "go", "python").
+    Language() string
+
+    // InitWorkspace builds the cross-file type registry from all extracted
+    // definitions. Called once before per-file resolution. The registry is
+    // read-only after this call and safe for concurrent access.
+    InitWorkspace(ctx context.Context, defs []ResolverDef) error
+
+    // ResolveFile takes a file's parse tree, source bytes, and the
+    // ast_inferred edges from extraction, and returns upgraded/new edges.
+    // Edges use provenance "resolver_resolved" and confidence 0.9.
+    // Thread-safe: called concurrently across files.
+    ResolveFile(ctx context.Context, opts ResolveFileOpts) ([]types.Edge, error)
+}
+
+type ResolveFileOpts struct {
+    FilePath   string
+    FileHash   types.Hash
+    Content    []byte
+    ParsedTree types.ParsedTree   // *sitter.Node root, still live
+    Edges      []types.Edge       // ast_inferred edges from extraction
+}
+```
+
+The `InitWorkspace` / `ResolveFile` split mirrors codebase-memory's Tier 1/Tier 2
+architecture: per-file resolution runs against a shared read-only registry built from
+all files' definitions.
+
+### Reusing existing parallel infrastructure
+
+The enricher's concurrency pattern (channel semaphore + WaitGroup + single DB-writer
+goroutine) transfers directly. `ResolveFile` is a pure function that returns edges;
+the caller dispatches it across goroutines bounded by the semaphore and feeds results
+to a writer goroutine that calls `store.PutEdge` / `store.DeleteEdge`. The `writeMu`
+mutex from `insertEdgesFromLocations` is unnecessary because the single-writer pattern
+already serializes mutations.
+
+The `enrichStats` atomic counters (`edgesProcessed`, `edgesUpgraded`, `newEdges`, etc.)
+carry over unchanged. Progress persistence (`EnrichProgress`) also reuses: modules
+are the natural checkpoint boundary, same as today.
+
+### What changes vs what stays
+
+**Reusable as-is:**
+- `enrichStats` and summary logging
+- `createPhantomNodes` (still needed for edges targeting external/stdlib symbols)
+- `upgradeEdge` helper (hash recomputation for provenance change)
+- `EnrichProgress` for multi-module resume
+- `isTestFile` filtering
+- `resolveDefinitionToNode` and roster-based cross-repo lookup
+
+**Replaced:**
+- `lsp.LSPClient` creation, initialization, warmup probes, shutdown
+- `upgradeCallEdges` (LSP round-trips replaced by in-process registry lookups)
+- `discoverNewEdgesBatched` (document symbol queries replaced by AST-driven discovery)
+- `processSymbolsWithSourceAndClient` (LSP GetImplementation/GetReferences replaced
+  by registry-based type matching)
+
+**New:**
+- `ResolverEnricher` struct: holds a `Resolver`, a `types.GraphStore`, and concurrency
+  controls. Implements the same edge-writing pattern but calls `ResolveFile` instead
+  of LSP JSON-RPC
+- Registry builder: collects `ResolverDef` entries from extraction results (node
+  qualified names, types, signatures) and passes them to `InitWorkspace`
+- AST lifetime extension: the indexer must keep parse trees alive until resolution
+  completes, then close them. Currently trees are closed after extraction; this
+  requires deferring cleanup to after the resolver pass
+
+### Concrete integration sketch
+
+```go
+type ResolverEnricher struct {
+    store       types.GraphStore
+    resolvers   map[string]Resolver  // language -> resolver
+    concurrency int
+    writeMu     sync.Mutex
+}
+
+func (re *ResolverEnricher) Run(ctx context.Context, repoHash types.Hash,
+    fileResults []indexer.FileResult) error {
+
+    // Group files by language.
+    byLang := groupByLanguage(fileResults)
+
+    for lang, resolver := range re.resolvers {
+        files := byLang[lang]
+        if len(files) == 0 {
+            continue
+        }
+
+        // Build cross-file registry from all definitions.
+        defs := collectDefs(files)
+        if err := resolver.InitWorkspace(ctx, defs); err != nil {
+            log.Printf("resolver %s: init workspace: %v", lang, err)
+            continue
+        }
+
+        // Resolve files concurrently, write edges through single writer.
+        results := make(chan []types.Edge, re.concurrency*2)
+        var writerWg sync.WaitGroup
+        writerWg.Add(1)
+        go func() {
+            defer writerWg.Done()
+            for edges := range results {
+                for _, edge := range edges {
+                    _ = re.store.PutEdge(ctx, edge)
+                }
+            }
+        }()
+
+        sem := make(chan struct{}, re.concurrency)
+        var wg sync.WaitGroup
+        for _, fr := range files {
+            wg.Add(1)
+            sem <- struct{}{}
+            go func(fr indexer.FileResult) {
+                defer wg.Done()
+                defer func() { <-sem }()
+                edges, err := resolver.ResolveFile(ctx, ResolveFileOpts{
+                    FilePath:   fr.Path,
+                    FileHash:   fr.FileHash,
+                    Content:    fr.Content,
+                    ParsedTree: fr.ParsedTree,
+                    Edges:      fr.Edges,
+                })
+                if err == nil && len(edges) > 0 {
+                    results <- edges
+                }
+            }(fr)
+        }
+        wg.Wait()
+        close(results)
+        writerWg.Wait()
+    }
+    return nil
+}
+```
+
+### Migration path: hybrid mode
+
+Not all languages will have in-process resolvers on day one. The enrichment
+orchestrator should support running both paths:
+
+1. **Router:** after extraction, check which languages have registered `Resolver`
+   implementations. Route those languages to `ResolverEnricher`. Route remaining
+   languages to the existing `Enricher` (external LSP).
+2. **Shared provenance:** in-process resolvers write edges with provenance
+   `"resolver_resolved"` (distinct from `"lsp_resolved"`). This allows A/B comparison
+   during validation without conflicting with existing enriched edges.
+3. **Fallback:** if a resolver's `InitWorkspace` fails (e.g., missing stdlib data),
+   fall back to external LSP for that language. Log the fallback so it surfaces in
+   benchmark diagnostics.
+4. **Validation gate:** before switching a language from external LSP to in-process,
+   run both paths on the benchmark corpus and compare edge counts, edge targets, and
+   P@10 impact. The resolver must match or exceed external LSP edge quality; speed
+   alone is not sufficient justification.
+5. **Phased rollout:** Go and Python first (highest benchmark impact, best-understood
+   languages). TypeScript and C# follow after the shared infrastructure proves stable.
+   External LSP remains the permanent path for languages without resolvers (Java via
+   jdtls, Ruby via ruby-lsp) until those resolvers are built.

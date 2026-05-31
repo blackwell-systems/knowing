@@ -4,11 +4,11 @@ tier: easy
 description: "Add authentication middleware that validates JWT tokens on incoming requests"
 source: manual
 ground_truth:
-  - Ocelot.Authentication.AuthenticationMiddleware.Invoke
-  - Ocelot.Authentication.AuthenticationMiddleware.AuthenticateAsync
+  - AuthenticationMiddleware.Invoke
+  - AuthenticationMiddleware.AuthenticateAsync
   - Ocelot.Authentication.AuthenticationMiddleware.AuthenticationMiddleware
-  - Ocelot.Middleware.OcelotPipelineExtensions.BuildOcelotPipeline
-  - Ocelot.Configuration.AuthenticationOptions.Merge
+  - OcelotPipelineExtensions.BuildOcelotPipeline
+  - AuthenticationOptions.Merge
   - Ocelot.Middleware.UnauthenticatedError.UnauthenticatedError
 tags: [auth, middleware, single-namespace]
 notes: "Developer wants to understand how authentication works. Needs AuthenticationMiddleware, its pipeline registration, and the config options."

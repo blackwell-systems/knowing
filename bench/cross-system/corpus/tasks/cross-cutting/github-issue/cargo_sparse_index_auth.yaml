@@ -5,7 +5,7 @@ description: "Fix authentication failing for sparse HTTP registries when credent
 source: swe-bench
 ground_truth:
   - HttpRegistry
-  - HttpRegistry.start_fetch
+  - HttpRegistry<'gctx>.start_fetch
   - auth_token
   - RegistryConfig
   - Retry

@@ -4,10 +4,10 @@ tier: medium
 description: "Write a database migration that adds a polymorphic association column with an index and default value"
 source: manual
 ground_truth:
-  - ActiveRecord::Migration::Current.create_table
+  - ActiveRecord::ActiveRecord::Migration::Current.create_table
   - ActiveRecord::ConnectionAdapters::SchemaStatements.add_column
   - ActiveRecord::ConnectionAdapters::SchemaStatements.add_index
   - ActiveRecord::ConnectionAdapters::SchemaStatements.add_reference
-  - ActiveRecord::Migration::Compatibility
+  - ActiveRecord::Compatibility
 tags: [migration, activerecord, schema]
 notes: "Requires Migration for the DSL, SchemaStatements for column/index manipulation, and Compatibility for version-specific behavior."

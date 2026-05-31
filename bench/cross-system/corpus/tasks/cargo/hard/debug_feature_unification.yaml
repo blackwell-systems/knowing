@@ -7,7 +7,7 @@ ground_truth:
   - FeatureResolver
   - FeatureResolver.do_resolve
   - RequestedFeatures
-  - RegistryQueryer.build_deps
+  - RegistryQueryer<'a>.build_deps
   - Features.activated
   - Summary
   - resolve_std

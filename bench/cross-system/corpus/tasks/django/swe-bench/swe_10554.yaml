@@ -5,9 +5,9 @@ description: Union queryset with ordering breaks on ordering with derived querys
 source: swe-bench
 source_ref: django__django-10554
 ground_truth:
-- add_select_col
-- get_order_by
-- clear_select_fields
+- Query.add_select_col
+- SQLCompiler.get_order_by
+- Query.clear_select_fields
 tags:
 - swe-bench
 - verified
