@@ -409,6 +409,11 @@ func cmdIndex(args []string) error {
 	}
 
 	if !*full && !*noEnrich {
+		// Run in-process Go resolver (fast, no external dependencies).
+		if err := runInProcessResolver(ctx, st, repoPath, repoHash); err != nil {
+			fmt.Fprintf(os.Stderr, "  in-process resolver warning: %v\n", err)
+		}
+
 		fmt.Println("Running LSP enrichment...")
 		enricher := enrichment.NewEnricher(st, repoPath)
 		enricher.SetConcurrency(*enrichConcurrency)
