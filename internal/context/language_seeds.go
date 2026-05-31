@@ -25,6 +25,8 @@ func languageEquivalenceClasses() []EquivalenceClass {
 	all = append(all, caddyEquivalenceClasses()...)
 	all = append(all, cargoEquivalenceClasses()...)
 	// Cross-cutting patterns (framework-agnostic).
+	all = append(all, containersEquivalenceClasses()...)
+	all = append(all, cryptoEquivalenceClasses()...)
 	all = append(all, testingEquivalenceClasses()...)
 	all = append(all, ormEquivalenceClasses()...)
 	all = append(all, authEquivalenceClasses()...)
