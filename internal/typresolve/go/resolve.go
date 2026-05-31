@@ -330,6 +330,15 @@ func resolveSelectorCall(ctx *ResolveContext, fnNode *sitter.Node) *resolvedCall
 	// Evaluate operand type for method dispatch.
 	base := EvalExprType(ctx, operand)
 	if base == nil || base.Kind == typresolve.KindUnknown {
+		// Heuristic fallback: use operand text as type name for the edge.
+		// This produces edges like "varName.MethodName" which create phantom
+		// nodes but maintain graph connectivity. Lower precision than typed
+		// resolution, but critical for coverage.
+		operandText := nodeContent(operand, ctx.Content)
+		if operandText != "" && operandText != "_" {
+			heuristicQN := operandText + "." + fieldName
+			return &resolvedCall{calleeQN: heuristicQN, strategy: "resolver_heuristic"}
+		}
 		return nil
 	}
 
@@ -399,12 +408,17 @@ func buildCallEdge(ctx *ResolveContext, callNode *sitter.Node, rc *resolvedCall,
 
 	edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, edgetype.Calls, typresolve.ProvenanceResolverResolved)
 
+	confidence := typresolve.ResolverConfidence
+	if rc.strategy == "resolver_heuristic" {
+		confidence = 0.6 // lower confidence for heuristic edges
+	}
+
 	return types.Edge{
 		EdgeHash:     edgeHash,
 		SourceHash:   sourceHash,
 		TargetHash:   targetHash,
 		EdgeType:     edgetype.Calls,
-		Confidence:   typresolve.ResolverConfidence,
+		Confidence:   confidence,
 		Provenance:   typresolve.ProvenanceResolverResolved,
 		CallSiteLine: int(callNode.StartPoint().Row) + 1, // 1-indexed
 		CallSiteCol:  int(callNode.StartPoint().Column),   // 0-indexed
