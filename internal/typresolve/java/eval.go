@@ -12,6 +12,7 @@ type ResolveContext struct {
 	Registry         *typresolve.Registry
 	Scope            *typresolve.Scope
 	Imports          map[string]string // className -> packagePath
+	ImportInfo       *ImportInfo       // full import context (wildcards, static)
 	PkgQN            string           // current package qualified name (e.g., "org.apache.kafka.clients")
 	Content          []byte           // source file content
 	EnclosingFuncQN  string           // QN of enclosing method
@@ -264,12 +265,82 @@ func evalMethodInvocation(ctx *ResolveContext, node *sitter.Node) *typresolve.Ty
 }
 
 // evalObjectCreation handles object_creation_expression nodes (new ClassName()).
+// When diamond inference is used (new ArrayList<>()), infers the type parameter
+// from the LHS variable declaration type.
 func evalObjectCreation(ctx *ResolveContext, node *sitter.Node) *typresolve.Type {
 	typeNode := node.ChildByFieldName("type")
 	if typeNode == nil {
 		return typresolve.Unknown()
 	}
-	return ParseTypeNode(typeNode, ctx.Content, ctx.PkgQN, ctx.Imports)
+
+	result := ParseTypeNode(typeNode, ctx.Content, ctx.PkgQN, ctx.Imports)
+
+	// Diamond inference: if type_arguments is empty (<>), infer from LHS.
+	if hasDiamondOperator(typeNode, ctx.Content) {
+		if lhsType := inferDiamondType(ctx, node); lhsType != nil {
+			return lhsType
+		}
+	}
+
+	return result
+}
+
+// hasDiamondOperator checks if a type node has empty type arguments (<>).
+func hasDiamondOperator(typeNode *sitter.Node, content []byte) bool {
+	if typeNode == nil {
+		return false
+	}
+	// For generic_type nodes, check if type_arguments has no type children.
+	if typeNode.Type() == "generic_type" {
+		for i := 0; i < int(typeNode.ChildCount()); i++ {
+			child := typeNode.Child(i)
+			if child != nil && child.Type() == "type_arguments" {
+				// Count actual type children (not punctuation).
+				typeCount := 0
+				for j := 0; j < int(child.ChildCount()); j++ {
+					arg := child.Child(j)
+					if arg != nil && arg.Type() != "<" && arg.Type() != ">" && arg.Type() != "," {
+						typeCount++
+					}
+				}
+				return typeCount == 0
+			}
+		}
+	}
+	return false
+}
+
+// inferDiamondType walks up to find the enclosing variable declaration and
+// returns the declared type when diamond inference (<>) is used.
+func inferDiamondType(ctx *ResolveContext, node *sitter.Node) *typresolve.Type {
+	// Walk up to find the enclosing variable_declarator -> local_variable_declaration
+	// or field_declaration.
+	parent := node.Parent()
+	if parent == nil {
+		return nil
+	}
+
+	// The object_creation_expression is typically the "value" of a variable_declarator.
+	if parent.Type() == "variable_declarator" {
+		grandparent := parent.Parent()
+		if grandparent == nil {
+			return nil
+		}
+		// Get the type from the declaration.
+		var typeNode *sitter.Node
+		switch grandparent.Type() {
+		case "local_variable_declaration", "field_declaration":
+			typeNode = grandparent.ChildByFieldName("type")
+		}
+		if typeNode != nil {
+			typeText := nodeContent(typeNode, ctx.Content)
+			if typeText != "var" {
+				return ParseTypeNode(typeNode, ctx.Content, ctx.PkgQN, ctx.Imports)
+			}
+		}
+	}
+
+	return nil
 }
 
 // evalCast handles cast_expression nodes ((Type) expr).

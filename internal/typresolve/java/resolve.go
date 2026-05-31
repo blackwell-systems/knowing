@@ -235,6 +235,16 @@ func resolveCallsInNode(ctx *ResolveContext, node *sitter.Node, edges *[]types.E
 		if edge, ok := resolveObjectCreation(ctx, node, fileHash, repoURL, filePath); ok {
 			*edges = append(*edges, edge)
 		}
+		// Process anonymous class body if present.
+		processAnonymousClassBody(ctx, node, edges, fileHash, repoURL, filePath)
+
+	case "method_reference":
+		if edge, ok := resolveMethodReference(ctx, node, fileHash, repoURL, filePath); ok {
+			*edges = append(*edges, edge)
+		}
+
+	case "lambda_expression":
+		processLambdaExpression(ctx, node, edges, fileHash, repoURL, filePath)
 	}
 
 	// Handle scoped blocks: push scope, recurse, pop.
@@ -281,10 +291,28 @@ func resolveMethodInvocation(ctx *ResolveContext, node *sitter.Node, fileHash ty
 	var calleeQN string
 
 	if objectNode == nil {
-		// No receiver: look up on enclosing class first, then package-local.
+		// No receiver: look up on enclosing class first, then static imports, then package-local.
 		if ctx.EnclosingClassQN != "" {
 			if f := LookupFieldOrMethod(ctx.Registry, ctx.EnclosingClassQN, methodName); f != nil {
 				calleeQN = f.QualifiedName
+			}
+		}
+		// Static import resolution: check single static imports and wildcard static imports.
+		if calleeQN == "" && ctx.ImportInfo != nil {
+			if classQN, ok := ctx.ImportInfo.StaticMethods[methodName]; ok {
+				if f := LookupFieldOrMethod(ctx.Registry, classQN, methodName); f != nil {
+					calleeQN = f.QualifiedName
+				} else {
+					calleeQN = classQN + "." + methodName
+				}
+			}
+			if calleeQN == "" {
+				for _, classQN := range ctx.ImportInfo.StaticWildcardClasses {
+					if f := LookupFieldOrMethod(ctx.Registry, classQN, methodName); f != nil {
+						calleeQN = f.QualifiedName
+						break
+					}
+				}
 			}
 		}
 		if calleeQN == "" {
@@ -414,6 +442,253 @@ func splitEnclosingFunc(funcQN string, pkgQN string) (pkgPath string, funcName s
 		return pkgQN, rest, types.KindFunction
 	}
 	return pkgQN, funcQN, types.KindFunction
+}
+
+// processAnonymousClassBody detects an anonymous class body in an
+// object_creation_expression and recursively processes its methods.
+// Anonymous classes in Java look like: new Interface() { void method() { ... } }
+func processAnonymousClassBody(ctx *ResolveContext, node *sitter.Node, edges *[]types.Edge, fileHash types.Hash, repoURL string, filePath string) {
+	// Look for a class_body child (tree-sitter uses "class_body" for anonymous class bodies).
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		child := node.NamedChild(i)
+		if child == nil {
+			continue
+		}
+		if child.Type() == "class_body" {
+			// Process methods inside the anonymous class body.
+			for j := 0; j < int(child.NamedChildCount()); j++ {
+				member := child.NamedChild(j)
+				if member == nil {
+					continue
+				}
+				switch member.Type() {
+				case "method_declaration":
+					processMethodDecl(ctx, member, edges, fileHash, repoURL, filePath)
+				case "constructor_declaration":
+					processConstructorDecl(ctx, member, edges, fileHash, repoURL, filePath)
+				case "field_declaration":
+					processFieldDecl(ctx, member)
+				}
+			}
+		}
+	}
+}
+
+// resolveMethodReference resolves a method_reference node (e.g., String::valueOf,
+// this::process) and returns a call edge.
+func resolveMethodReference(ctx *ResolveContext, node *sitter.Node, fileHash types.Hash, repoURL string, filePath string) (types.Edge, bool) {
+	// tree-sitter-java method_reference has children: object "::" name
+	// The structure is: type_identifier/identifier "::" identifier
+	var objectText string
+	var methodName string
+
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		if child == nil {
+			continue
+		}
+		switch child.Type() {
+		case "identifier", "type_identifier":
+			if methodName == "" && objectText != "" {
+				// This is the method name (after ::).
+				methodName = nodeContent(child, ctx.Content)
+			} else if objectText == "" {
+				objectText = nodeContent(child, ctx.Content)
+			}
+		case "::":
+			// Next identifier will be the method name.
+			continue
+		}
+	}
+
+	// tree-sitter may structure it differently; try field-based access.
+	if objectText == "" || methodName == "" {
+		// Try ChildByFieldName which some grammars use.
+		nameNode := node.ChildByFieldName("name")
+		if nameNode != nil {
+			methodName = nodeContent(nameNode, ctx.Content)
+		}
+		// The first named child that's not the name is the object.
+		for i := 0; i < int(node.NamedChildCount()); i++ {
+			child := node.NamedChild(i)
+			if child != nil && child != nameNode {
+				objectText = nodeContent(child, ctx.Content)
+				break
+			}
+		}
+	}
+
+	if objectText == "" || methodName == "" {
+		return types.Edge{}, false
+	}
+
+	// Skip builtin methods.
+	if IsBuiltinFunc(methodName) {
+		return types.Edge{}, false
+	}
+
+	var calleeQN string
+
+	// Resolve the class/object part.
+	if objectText == "this" {
+		if ctx.EnclosingClassQN != "" {
+			if f := LookupFieldOrMethod(ctx.Registry, ctx.EnclosingClassQN, methodName); f != nil {
+				calleeQN = f.QualifiedName
+			} else {
+				calleeQN = ctx.EnclosingClassQN + "." + methodName
+			}
+		}
+	} else if objectText == "super" {
+		rt := ctx.Registry.LookupType(ctx.EnclosingClassQN)
+		if rt != nil && len(rt.EmbeddedTypes) > 0 {
+			parent := rt.EmbeddedTypes[0]
+			if f := LookupFieldOrMethod(ctx.Registry, parent, methodName); f != nil {
+				calleeQN = f.QualifiedName
+			} else {
+				calleeQN = parent + "." + methodName
+			}
+		}
+	} else if len(objectText) > 0 && unicode.IsUpper(rune(objectText[0])) {
+		// Class reference: ClassName::method
+		classQN := qualifyTypeName(objectText, ctx.PkgQN, ctx.Imports)
+		if f := LookupFieldOrMethod(ctx.Registry, classQN, methodName); f != nil {
+			calleeQN = f.QualifiedName
+		} else {
+			calleeQN = classQN + "." + methodName
+		}
+	} else {
+		// Instance variable reference: try scope lookup.
+		if t := ctx.Scope.Lookup(objectText); t != nil && t.Kind == typresolve.KindNamed {
+			if f := LookupFieldOrMethod(ctx.Registry, t.Name, methodName); f != nil {
+				calleeQN = f.QualifiedName
+			} else {
+				calleeQN = t.Name + "." + methodName
+			}
+		}
+	}
+
+	if calleeQN == "" {
+		return types.Edge{}, false
+	}
+
+	edge := buildJavaCallEdge(ctx, node, calleeQN, fileHash, repoURL, filePath)
+	return edge, true
+}
+
+// processLambdaExpression processes a lambda_expression node, binding
+// parameters if their types can be inferred from context (functional interface).
+func processLambdaExpression(ctx *ResolveContext, node *sitter.Node, edges *[]types.Edge, fileHash types.Hash, repoURL string, filePath string) {
+	// Push a lambda scope.
+	lambdaScope := typresolve.NewScope(ctx.Scope)
+	origScope := ctx.Scope
+	ctx.Scope = lambdaScope
+
+	// Try to bind lambda parameters. Java lambdas can have:
+	// (Type param) -> body   (typed parameters)
+	// (param) -> body        (inferred parameters)
+	// param -> body          (single inferred parameter)
+	paramsNode := node.ChildByFieldName("parameters")
+	if paramsNode != nil {
+		bindLambdaParams(ctx, paramsNode, node)
+	} else {
+		// Single parameter without parens: the first identifier child is the param.
+		for i := 0; i < int(node.NamedChildCount()); i++ {
+			child := node.NamedChild(i)
+			if child != nil && child.Type() == "identifier" {
+				name := nodeContent(child, ctx.Content)
+				// Infer type from context (best-effort: bind as Unknown).
+				paramType := inferLambdaParamType(ctx, node, 0)
+				ctx.Scope.Bind(name, paramType)
+				break
+			}
+		}
+	}
+
+	// Resolve calls in the lambda body.
+	bodyNode := node.ChildByFieldName("body")
+	if bodyNode != nil {
+		resolveCallsInNode(ctx, bodyNode, edges, fileHash, repoURL, filePath)
+	}
+
+	ctx.Scope = origScope
+}
+
+// bindLambdaParams binds lambda parameters, attempting to infer types from
+// the target functional interface context.
+func bindLambdaParams(ctx *ResolveContext, paramsNode *sitter.Node, lambdaNode *sitter.Node) {
+	// Check if parameters are typed (formal_parameter) or inferred (inferred_parameters).
+	switch paramsNode.Type() {
+	case "formal_parameters":
+		// Typed lambda parameters: (String s, int x) -> ...
+		bindJavaParams(ctx, paramsNode)
+	case "inferred_parameters":
+		// Inferred: (a, b) -> ...; try to infer from context.
+		for i := 0; i < int(paramsNode.NamedChildCount()); i++ {
+			child := paramsNode.NamedChild(i)
+			if child == nil || child.Type() != "identifier" {
+				continue
+			}
+			name := nodeContent(child, ctx.Content)
+			paramType := inferLambdaParamType(ctx, lambdaNode, i)
+			ctx.Scope.Bind(name, paramType)
+		}
+	default:
+		// Might be a single identifier or other structure.
+		for i := 0; i < int(paramsNode.NamedChildCount()); i++ {
+			child := paramsNode.NamedChild(i)
+			if child == nil {
+				continue
+			}
+			if child.Type() == "formal_parameter" {
+				typeNode := child.ChildByFieldName("type")
+				nameNode := child.ChildByFieldName("name")
+				if typeNode != nil && nameNode != nil {
+					paramType := ParseTypeNode(typeNode, ctx.Content, ctx.PkgQN, ctx.Imports)
+					name := nodeContent(nameNode, ctx.Content)
+					ctx.Scope.Bind(name, paramType)
+				}
+			} else if child.Type() == "identifier" {
+				name := nodeContent(child, ctx.Content)
+				paramType := inferLambdaParamType(ctx, lambdaNode, i)
+				ctx.Scope.Bind(name, paramType)
+			}
+		}
+	}
+}
+
+// inferLambdaParamType infers the type of a lambda parameter at the given
+// index by looking at the parent context (e.g., method argument position)
+// to determine the target functional interface.
+func inferLambdaParamType(ctx *ResolveContext, lambdaNode *sitter.Node, paramIdx int) *typresolve.Type {
+	// Walk up to find the argument list context.
+	parent := lambdaNode.Parent()
+	if parent == nil {
+		return typresolve.Unknown()
+	}
+
+	// If the lambda is an argument to a method, we could look up the method's
+	// parameter type to find the functional interface. For now, use common
+	// patterns.
+	if parent.Type() == "argument_list" {
+		grandparent := parent.Parent()
+		if grandparent != nil && grandparent.Type() == "method_invocation" {
+			nameNode := grandparent.ChildByFieldName("name")
+			objectNode := grandparent.ChildByFieldName("object")
+			if nameNode != nil {
+				methodName := nodeContent(nameNode, ctx.Content)
+				// Common stream operations that take Function<T,R> or Predicate<T>.
+				switch methodName {
+				case "map", "flatMap", "filter", "forEach", "peek",
+					"reduce", "collect", "anyMatch", "allMatch", "noneMatch":
+					// If the object is known to be a Stream or Collection,
+					// we could infer element type. For now return Unknown.
+					_ = objectNode
+				}
+			}
+		}
+	}
+
+	return typresolve.Unknown()
 }
 
 // splitQualifiedName splits a callee qualified name into package path,

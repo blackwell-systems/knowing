@@ -171,6 +171,10 @@ func resolveCallsInNode(ctx *ResolveContext, node *sitter.Node, edges *[]types.E
 		resolveCallNode(ctx, node, edges, fileHash, repoURL, filePath, qnPrefix)
 		return
 
+	case "super", "zsuper":
+		resolveSuperCall(ctx, node, edges, fileHash, repoURL, filePath, qnPrefix)
+		return
+
 	case "identifier":
 		// In Ruby, bare identifiers without parens can be method calls.
 		// If the identifier is not a local variable and not a builtin,
@@ -364,7 +368,7 @@ func resolveReceiverCall(ctx *ResolveContext, receiver *sitter.Node, methodName 
 	// Class.new -> resolve to Class#initialize.
 	if receiver.Type() == "constant" && methodName == "new" {
 		constName := nodeText(receiver, ctx.Content)
-		resolved := ResolveConstant(constName, ctx.Nesting)
+		resolved := ResolveConstantInRegistry(ctx.Registry, constName, ctx.Nesting)
 
 		// Look up initialize method.
 		if f := ResolveNew(ctx.Registry, resolved); f != nil {
@@ -407,7 +411,7 @@ func resolveBareCall(ctx *ResolveContext, methodName string, qnPrefix string) (s
 		return "", false
 	}
 
-	// Look up in current class context (implicit self).
+	// Look up in current class context (implicit self) via full MRO.
 	if len(ctx.Nesting) > 0 {
 		currentClassQN := strings.Join(ctx.Nesting, "::")
 
@@ -419,6 +423,16 @@ func resolveBareCall(ctx *ResolveContext, methodName string, qnPrefix string) (s
 		fullClassQN := qnPrefix + "." + strings.Join(ctx.Nesting, ".")
 		if f := LookupAttribute(ctx.Registry, fullClassQN, methodName); f != nil {
 			return f.QualifiedName, true
+		}
+	}
+
+	// Check required modules: scope lookup to definitions from required files.
+	if len(ctx.Requires) > 0 {
+		for _, modulePath := range ctx.Requires {
+			candidate := modulePath + "." + methodName
+			if f := ctx.Registry.LookupFunc(candidate); f != nil {
+				return f.QualifiedName, true
+			}
 		}
 	}
 

@@ -49,7 +49,10 @@ func BuildRegistry(defs []typresolve.ResolverDef) *typresolve.Registry {
 				QualifiedName: def.QualifiedName,
 				ShortName:     shortName(def.QualifiedName),
 				IsInterface:   false,
+				EmbeddedTypes: []string{"java.lang.Enum"},
 			})
+			// Register synthetic enum methods: values(), valueOf(), name(), ordinal().
+			registerEnumSynthetics(reg, def.QualifiedName)
 		}
 	}
 
@@ -74,4 +77,49 @@ func extractReceiverType(methodQN string) string {
 		return methodQN[:idx]
 	}
 	return ""
+}
+
+// registerEnumSynthetics registers the compiler-generated methods for an enum type:
+// values() returns an array of the enum type, valueOf(String) returns the enum type,
+// name() returns String, ordinal() returns int.
+func registerEnumSynthetics(reg *typresolve.Registry, enumQN string) {
+	// values() - returns EnumType[]
+	valuesQN := enumQN + ".values"
+	reg.AddFunc(typresolve.RegisteredFunc{
+		QualifiedName: valuesQN,
+		ShortName:     "values",
+		ReceiverType:  enumQN,
+		Signature:     typresolve.Func(nil, []*typresolve.Type{typresolve.Slice(typresolve.Named(enumQN))}),
+		MinParams:     0,
+	})
+
+	// valueOf(String) - returns EnumType
+	valueOfQN := enumQN + ".valueOf"
+	reg.AddFunc(typresolve.RegisteredFunc{
+		QualifiedName: valueOfQN,
+		ShortName:     "valueOf",
+		ReceiverType:  enumQN,
+		Signature:     typresolve.Func(nil, []*typresolve.Type{typresolve.Named(enumQN)}),
+		MinParams:     1,
+	})
+
+	// name() - returns String
+	nameQN := enumQN + ".name"
+	reg.AddFunc(typresolve.RegisteredFunc{
+		QualifiedName: nameQN,
+		ShortName:     "name",
+		ReceiverType:  enumQN,
+		Signature:     typresolve.Func(nil, []*typresolve.Type{typresolve.Builtin("String")}),
+		MinParams:     0,
+	})
+
+	// ordinal() - returns int
+	ordinalQN := enumQN + ".ordinal"
+	reg.AddFunc(typresolve.RegisteredFunc{
+		QualifiedName: ordinalQN,
+		ShortName:     "ordinal",
+		ReceiverType:  enumQN,
+		Signature:     typresolve.Func(nil, []*typresolve.Type{typresolve.Builtin("int")}),
+		MinParams:     0,
+	})
 }

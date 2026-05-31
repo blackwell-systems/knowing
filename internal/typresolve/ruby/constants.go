@@ -3,6 +3,7 @@ package rubyresolve
 import (
 	"strings"
 
+	"github.com/blackwell-systems/knowing/internal/typresolve"
 	sitter "github.com/smacker/go-tree-sitter"
 )
 
@@ -54,8 +55,8 @@ func ParseScopeResolution(node *sitter.Node, content []byte) string {
 // Rules:
 //   - If constPath starts with "::", it is absolute: return constPath[2:].
 //   - Otherwise, return the fully qualified name by joining the full nesting
-//     with the constant path. The resolver will check registry existence and
-//     fall back to progressively shorter prefixes.
+//     with the constant path. This is the innermost candidate; callers that
+//     need the outward walk should use ResolveConstantInRegistry instead.
 func ResolveConstant(constPath string, nesting []string) string {
 	// Absolute constant reference.
 	if strings.HasPrefix(constPath, "::") {
@@ -68,5 +69,35 @@ func ResolveConstant(constPath string, nesting []string) string {
 	}
 
 	// Join the full nesting with the constant path.
+	return strings.Join(nesting, "::") + "::" + constPath
+}
+
+// ResolveConstantInRegistry resolves a Ruby constant using lexical scoping:
+// try A::B::C::X, then A::B::X, then A::X, then X. Returns the first
+// qualified name that exists in the registry. Falls back to the innermost
+// candidate (full nesting + constPath) if nothing is found.
+func ResolveConstantInRegistry(reg *typresolve.Registry, constPath string, nesting []string) string {
+	// Absolute reference.
+	if strings.HasPrefix(constPath, "::") {
+		return constPath[2:]
+	}
+
+	// Walk outward: try each nesting prefix from deepest to shallowest.
+	for i := len(nesting); i >= 0; i-- {
+		var candidate string
+		if i == 0 {
+			candidate = constPath
+		} else {
+			candidate = strings.Join(nesting[:i], "::") + "::" + constPath
+		}
+		if reg.LookupType(candidate) != nil {
+			return candidate
+		}
+	}
+
+	// Nothing found; return innermost candidate for heuristic resolution.
+	if len(nesting) == 0 {
+		return constPath
+	}
 	return strings.Join(nesting, "::") + "::" + constPath
 }

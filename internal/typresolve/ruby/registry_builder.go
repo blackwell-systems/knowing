@@ -38,11 +38,20 @@ func BuildRegistry(defs []typresolve.ResolverDef) *typresolve.Registry {
 				// Modules can act like interfaces (mixins).
 				isIface = true
 			}
-			reg.AddType(typresolve.RegisteredType{
-				QualifiedName: def.QualifiedName,
-				ShortName:     rubyShortName(def.QualifiedName),
-				IsInterface:   isIface,
-			})
+			// Open class merging: if the type already exists, preserve its
+			// accumulated state (EmbeddedTypes, methods) rather than overwriting.
+			if existing := reg.LookupType(def.QualifiedName); existing != nil {
+				// Merge: upgrade to interface if any definition is a module.
+				if isIface {
+					existing.IsInterface = true
+				}
+			} else {
+				reg.AddType(typresolve.RegisteredType{
+					QualifiedName: def.QualifiedName,
+					ShortName:     rubyShortName(def.QualifiedName),
+					IsInterface:   isIface,
+				})
+			}
 		}
 	}
 

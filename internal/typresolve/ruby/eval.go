@@ -1,6 +1,8 @@
 package rubyresolve
 
 import (
+	"strings"
+
 	"github.com/blackwell-systems/knowing/internal/typresolve"
 	sitter "github.com/smacker/go-tree-sitter"
 )
@@ -31,6 +33,13 @@ func EvalExprType(ctx *ResolveContext, node *sitter.Node) *typresolve.Type {
 	nodeType := node.Type()
 
 	switch nodeType {
+	// Self keyword returns current nesting type.
+	case "self":
+		if len(ctx.Nesting) > 0 {
+			return typresolve.Named(ctx.Nesting[len(ctx.Nesting)-1])
+		}
+		return typresolve.Unknown()
+
 	// Literals
 	case "string", "string_array", "heredoc_body":
 		return typresolve.Named("Ruby::String")
@@ -65,6 +74,9 @@ func EvalExprType(ctx *ResolveContext, node *sitter.Node) *typresolve.Type {
 
 	case "scope_resolution":
 		return evalScopeResolution(ctx, node)
+
+	case "super", "zsuper":
+		return evalSuper(ctx)
 
 	case "call":
 		return evalCall(ctx, node)
@@ -134,8 +146,8 @@ func evalConstant(ctx *ResolveContext, node *sitter.Node) *typresolve.Type {
 		return bt
 	}
 
-	// Resolve constant in nesting context.
-	resolved := ResolveConstant(name, ctx.Nesting)
+	// Resolve constant with lexical outward walk through registry.
+	resolved := ResolveConstantInRegistry(ctx.Registry, name, ctx.Nesting)
 
 	// Look up in registry.
 	if ctx.Registry.LookupType(resolved) != nil {
@@ -181,14 +193,25 @@ func evalBareCall(ctx *ResolveContext, methodName string, args *sitter.Node) *ty
 		return EvalBuiltinCall(methodName, args, ctx.Content, nil)
 	}
 
-	// Check method in current class.
+	// Check method in current class via full MRO (implicit self).
 	if len(ctx.Nesting) > 0 {
-		currentClassQN := ctx.Nesting[len(ctx.Nesting)-1]
-		if f := LookupAttribute(ctx.Registry, currentClassQN, methodName); f != nil {
+		// Try fully-qualified nesting path (e.g. "A::B::C").
+		fullClassQN := strings.Join(ctx.Nesting, "::")
+		if f := LookupAttribute(ctx.Registry, fullClassQN, methodName); f != nil {
 			if f.Signature != nil && len(f.Signature.Returns) > 0 {
 				return f.Signature.Returns[0]
 			}
 			return typresolve.Unknown()
+		}
+		// Also try just the innermost class name for short-QN registrations.
+		currentClassQN := ctx.Nesting[len(ctx.Nesting)-1]
+		if currentClassQN != fullClassQN {
+			if f := LookupAttribute(ctx.Registry, currentClassQN, methodName); f != nil {
+				if f.Signature != nil && len(f.Signature.Returns) > 0 {
+					return f.Signature.Returns[0]
+				}
+				return typresolve.Unknown()
+			}
 		}
 	}
 
@@ -305,6 +328,39 @@ func rubyMethodReturnType(methodName string, recvType *typresolve.Type) *typreso
 	default:
 		return typresolve.Unknown()
 	}
+}
+
+// evalSuper resolves the `super` keyword. In Ruby, super calls the same-named
+// method on the parent class (first entry in EmbeddedTypes from an "extends" def).
+// Returns the return type of the parent method if found.
+func evalSuper(ctx *ResolveContext) *typresolve.Type {
+	if len(ctx.Nesting) == 0 || ctx.EnclosingFuncQN == "" {
+		return typresolve.Unknown()
+	}
+
+	// Extract method name from EnclosingFuncQN (last dot-segment).
+	methodName := ctx.EnclosingFuncQN
+	if idx := strings.LastIndex(methodName, "."); idx >= 0 {
+		methodName = methodName[idx+1:]
+	}
+
+	// Walk the MRO of the current class looking for the method on a parent.
+	currentClassQN := ctx.Nesting[len(ctx.Nesting)-1]
+	t := ctx.Registry.LookupType(currentClassQN)
+	if t == nil {
+		return typresolve.Unknown()
+	}
+
+	for _, embedded := range t.EmbeddedTypes {
+		if f := LookupAttribute(ctx.Registry, embedded, methodName); f != nil {
+			if f.Signature != nil && len(f.Signature.Returns) > 0 {
+				return f.Signature.Returns[0]
+			}
+			return typresolve.Unknown()
+		}
+	}
+
+	return typresolve.Unknown()
 }
 
 // evalParenthesized evaluates a parenthesized expression by returning

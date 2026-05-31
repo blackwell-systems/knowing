@@ -30,9 +30,12 @@ func NewJavaResolver() *JavaResolver {
 func (r *JavaResolver) Language() string { return "java" }
 
 // InitWorkspace builds the cross-file type registry from extracted
-// definitions. Called once before any ResolveFile calls.
+// definitions. Called once before any ResolveFile calls. Sets the stdlib
+// registry as fallback so java.lang, java.util, java.io types resolve
+// without explicit definitions.
 func (r *JavaResolver) InitWorkspace(ctx context.Context, defs []typresolve.ResolverDef) error {
 	r.registry = BuildRegistry(defs)
+	r.registry.SetFallback(GetStdlibRegistry())
 	return nil
 }
 
@@ -56,19 +59,20 @@ func (r *JavaResolver) ResolveFile(ctx context.Context, opts typresolve.ResolveF
 		pkgQN = inferPkgQNFromPath(opts.FilePath)
 	}
 
-	// Build per-file import map.
-	imports := BuildImportMap(root, opts.Content)
+	// Build per-file import info (includes wildcards and static imports).
+	importInfo := BuildImportInfo(root, opts.Content)
 
 	// Determine repoURL from existing edges.
 	repoURL := inferRepoURL(opts.Edges)
 
 	// Create per-file resolve context.
 	rctx := &ResolveContext{
-		Registry: r.registry,
-		Scope:    typresolve.NewScope(nil),
-		Imports:  imports,
-		PkgQN:    pkgQN,
-		Content:  opts.Content,
+		Registry:   r.registry,
+		Scope:      typresolve.NewScope(nil),
+		Imports:    importInfo.Regular,
+		ImportInfo: importInfo,
+		PkgQN:      pkgQN,
+		Content:    opts.Content,
 	}
 
 	// Resolve calls.

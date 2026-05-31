@@ -271,6 +271,38 @@ func qualifyTypeName(name string, pkgQN string, imports map[string]string) strin
 	if pkg, ok := imports[name]; ok {
 		return pkg + "." + name
 	}
+	// Check if this type is known via stdlib (java.lang is always implicitly imported).
+	if javaLangTypes := StdlibPackageTypes("java.lang"); javaLangTypes != nil {
+		if javaLangTypes[name] {
+			return "java.lang." + name
+		}
+	}
+	if pkgQN != "" {
+		return pkgQN + "." + name
+	}
+	return name
+}
+
+// qualifyTypeNameWithWildcards qualifies a simple class name using the import map,
+// wildcard imports, and stdlib package types. Used when full ImportInfo is available.
+func qualifyTypeNameWithWildcards(name string, pkgQN string, imports map[string]string, wildcardPkgs []string) string {
+	if pkg, ok := imports[name]; ok {
+		return pkg + "." + name
+	}
+	// Check wildcard imports.
+	for _, pkg := range wildcardPkgs {
+		if types := StdlibPackageTypes(pkg); types != nil {
+			if types[name] {
+				return pkg + "." + name
+			}
+		}
+	}
+	// java.lang is always implicitly imported.
+	if javaLangTypes := StdlibPackageTypes("java.lang"); javaLangTypes != nil {
+		if javaLangTypes[name] {
+			return "java.lang." + name
+		}
+	}
 	if pkgQN != "" {
 		return pkgQN + "." + name
 	}
