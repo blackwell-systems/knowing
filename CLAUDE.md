@@ -151,12 +151,11 @@ Note: old ratios used inflated P@10 from raw substring matching. See `docs/resea
 6. **Gap injection concept is sound but BM25 is too noisy.** Embedding-filtered BM25 gap candidates: Django +3.2% but aggregate neutral. Need higher-precision candidate source.
 7. **Coherence packing, bidirectional inheritance: both harmful.** Greedy density packing is near-optimal. Reverse inherits edges add noise without reachability.
 
-## Experiment Summary (65 total across sessions 8-23)
+## Experiment Summary (59 total across sessions 8-21)
 
 ### What works
 | Experiment | Impact | Session |
 |-----------|--------|---------|
-| Sentence-style keyword extraction + FTS stemming | Terraform +72% (0.125->0.215), Django +10% | 23 |
 | Focused seed selection + cluster-aware gap-fill | +6% relative P@10 (structural cohesion over quantity) | 21 |
 | Inheritance propagation | +29% | 13 |
 | ~~Embedding re-ranker~~ (pure, weight=0.0) | REVERTED: net negative (session 19, 9/13 repos hurt) | 15, 19 |
@@ -172,7 +171,7 @@ Note: old ratios used inflated P@10 from raw substring matching. See `docs/resea
 | Dangling type_hint_of resolution | 3,836 edges fixed across 4 repos | 17 |
 
 ### What doesn't work
-Embeddings as Channel 3, blended re-rank, call-chain seeding, hub dampening, BFS depth reduction, framework thesaurus, coherence packing, bidirectional inheritance, raw BM25 gap injection, seed count tuning (10-50), gap parameter sweep (15 configs), density-adaptive RWR alpha, density-adaptive inherits weight, interface type hint propagation (edge structure mismatch), GraphNodeCount excluding phantoms (phantoms are valid density signal), entry point seed channel (Django +10% without embeddings, neutral on full corpus with embeddings), path boosting (5 variants: hard reorder 0.140, soft +3 positions 0.115, selective soft 0.120, selective +1 0.095, post-RWR 5% score bonus 0.095; all regress from 0.215 baseline; root cause: path terms are core domain vocabulary matching most symbols). All neutral or harmful. See docs/roadmap.md for details.
+Embeddings as Channel 3, blended re-rank, call-chain seeding, hub dampening, BFS depth reduction, framework thesaurus, coherence packing, bidirectional inheritance, raw BM25 gap injection, seed count tuning (10-50), gap parameter sweep (15 configs), density-adaptive RWR alpha, density-adaptive inherits weight, interface type hint propagation (edge structure mismatch), GraphNodeCount excluding phantoms (phantoms are valid density signal), entry point seed channel (Django +10% without embeddings, neutral on full corpus with embeddings). All neutral or harmful. See docs/roadmap.md for details.
 
 ## Repos
 
@@ -231,9 +230,6 @@ Embeddings as Channel 3, blended re-rank, call-chain seeding, hub dampening, BFS
 
 ### Retrieval debugging
 - **`knowing debug-seeds -task "description" -db <path> <repo>`**: shows the full seed selection pipeline: keywords extracted, path terms, BM25 results, path boost annotations, final ForTask top 10 with scores. Use to diagnose why a task returns wrong symbols.
-- **`knowing debug-fts -query "term1 OR term2" -db <path> [-limit N]`**: runs a raw FTS5 query against the node index. Use to test query formulations and see what BM25 returns for different term combinations. Supports prefix (`term*`), column targets (`symbol_name:"term"`), and OR/AND operators.
-- **`knowing debug-walk -seed "SymbolName" -db <path> [-top N] [-alpha 0.2]`**: shows RWR walk from specific seed nodes: edge types on seeds (1-hop), nodes reached, score distribution, and top-N ranking. Use to diagnose why seeds don't propagate to expected targets.
-- **`knowing bench-task -task <task-id> [-corpus path] [-budget N]`**: runs a single benchmark task and shows P@10 with per-symbol HIT/MISS analysis. Shows where each ground truth symbol ranks (or if it's missing entirely). Much faster than running the full benchmark for iterating on one task.
 - **`go run ./bench/cross-system/cmd/failure-analysis --repo <name> [--task <id>]`**: categorizes P@10 misses into: same_package, related_name, test_symbol, noise. Shows ground truth vs returned for each task.
 - **`go run ./bench/cross-system/cmd/validate-fixtures`**: verifies ground truth symbols exist in the graph DB.
 - **`BENCH_DEBUG_ZEROS=1`**: env var for the benchmark. Logs ground truth + returned top 10 for every zero-scoring task.
