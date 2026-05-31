@@ -193,3 +193,57 @@ func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
 }
+
+// SuggestLSPInstalls checks which languages are present in the workspace
+// but lack their language server, and returns install suggestions.
+func SuggestLSPInstalls(workspaceRoot string) []string {
+	var suggestions []string
+
+	if _, err := os.Stat(filepath.Join(workspaceRoot, "go.mod")); err == nil {
+		if _, err := lookPath("gopls"); err != nil {
+			suggestions = append(suggestions, "Go:    go install golang.org/x/tools/gopls@latest")
+		}
+	}
+
+	if hasAny(workspaceRoot, "tsconfig.json", "package.json") {
+		if _, err := lookPath("typescript-language-server"); err != nil {
+			suggestions = append(suggestions, "TS/JS: npm install -g typescript-language-server typescript")
+		}
+	}
+
+	if hasAny(workspaceRoot, "pyproject.toml", "setup.py", "requirements.txt") {
+		if _, err := lookPath("pyright"); err != nil {
+			if _, err := lookPath("pylsp"); err != nil {
+				suggestions = append(suggestions, "Python: pip install pyright")
+			}
+		}
+	}
+
+	if _, err := os.Stat(filepath.Join(workspaceRoot, "Cargo.toml")); err == nil {
+		if _, err := lookPath("rust-analyzer"); err != nil {
+			suggestions = append(suggestions, "Rust:  rustup component add rust-analyzer")
+		}
+	}
+
+	if _, err := os.Stat(filepath.Join(workspaceRoot, "Gemfile")); err == nil {
+		if _, err := lookPath("ruby-lsp"); err != nil {
+			suggestions = append(suggestions, "Ruby:  gem install ruby-lsp")
+		}
+	}
+
+	if hasAny(workspaceRoot, "pom.xml", "build.gradle", "build.gradle.kts") {
+		if _, err := lookPath("jdtls"); err != nil {
+			suggestions = append(suggestions, "Java:  install eclipse.jdt.ls (jdtls)")
+		}
+	}
+
+	if hasGlob(workspaceRoot, "*.csproj", "*.sln") {
+		if _, err := lookPath("csharp-ls"); err != nil {
+			if _, err := lookPath("OmniSharp"); err != nil {
+				suggestions = append(suggestions, "C#:    dotnet tool install -g csharp-ls")
+			}
+		}
+	}
+
+	return suggestions
+}

@@ -144,7 +144,16 @@ func (e *Enricher) runFiltered(ctx context.Context, repoHash types.Hash, fileFil
 		cfg = DetectLSPServers(e.workspaceRoot)
 	}
 	if len(cfg.Servers) == 0 {
-		log.Printf("enrichment: no language servers detected for %s", e.workspaceRoot)
+		suggestions := SuggestLSPInstalls(e.workspaceRoot)
+		if len(suggestions) > 0 {
+			fmt.Fprintf(os.Stderr, "\n  LSP enrichment skipped (no language servers found).\n")
+			fmt.Fprintf(os.Stderr, "  In-process resolver ran, but external LSP adds 3-5x more edges.\n")
+			fmt.Fprintf(os.Stderr, "  Install language servers for full enrichment:\n\n")
+			for _, s := range suggestions {
+				fmt.Fprintf(os.Stderr, "    %s\n", s)
+			}
+			fmt.Fprintf(os.Stderr, "\n  Then re-run: knowing enrich lsp <repo-path>\n\n")
+		}
 		return nil
 	}
 

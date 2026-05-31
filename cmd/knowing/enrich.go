@@ -34,8 +34,10 @@ func cmdEnrich(args []string) error {
 		return cmdEnrichLSP(args[1:])
 	case "embeddings":
 		return cmdEnrichEmbeddings(args[1:])
+	case "resolver":
+		return cmdEnrichResolver(args[1:])
 	default:
-		return fmt.Errorf("unknown enrichment pass: %s (available: blame, coverage, lsp, embeddings)", args[0])
+		return fmt.Errorf("unknown enrichment pass: %s (available: blame, coverage, lsp, embeddings, resolver)", args[0])
 	}
 }
 
@@ -520,5 +522,46 @@ func cmdEnrichLSP(args []string) error {
 	enricher.Close(ctx)
 
 	fmt.Fprintf(os.Stderr, "LSP enrichment complete\n")
+	return nil
+}
+
+// cmdEnrichResolver runs in-process type resolvers against an existing DB.
+// Adds resolver_resolved edges without re-extracting or running external LSPs.
+// Usage: knowing enrich resolver [-db path] <repo-path>
+func cmdEnrichResolver(args []string) error {
+	fs := flag.NewFlagSet("enrich resolver", flag.ExitOnError)
+	dbPath := fs.String("db", defaultDB(), "Path to SQLite database (env: KNOWING_DB)")
+	repoURL := fs.String("url", "", "Repository URL (auto-detected if empty)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	if fs.NArg() < 1 {
+		return fmt.Errorf("usage: knowing enrich resolver [flags] <repo-path>")
+	}
+	repoPath, err := filepath.Abs(fs.Arg(0))
+	if err != nil {
+		return fmt.Errorf("resolving path: %w", err)
+	}
+
+	if *repoURL == "" {
+		*repoURL = detectRepoURL(repoPath)
+	}
+
+	st, err := store.NewSQLiteStore(*dbPath)
+	if err != nil {
+		return fmt.Errorf("opening store: %w", err)
+	}
+	defer st.Close()
+
+	ctx := context.Background()
+	repoHash := types.NewHash([]byte(*repoURL))
+
+	fmt.Fprintf(os.Stderr, "In-process resolver enrichment: %s\n", repoPath)
+	if err := runInProcessResolver(ctx, st, repoPath, repoHash); err != nil {
+		return fmt.Errorf("resolver enrichment failed: %w", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "Resolver enrichment complete\n")
 	return nil
 }
