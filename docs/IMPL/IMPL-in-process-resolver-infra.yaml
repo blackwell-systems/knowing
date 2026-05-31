@@ -1,0 +1,820 @@
+title: In-Process Resolver Shared Infrastructure
+feature_slug: in-process-resolver-infra
+verdict: SUITABLE
+suitability_assessment: |
+    1. File decomposition: Yes. Work decomposes into 10 new files in a new package
+       (internal/typresolve/). Files are naturally disjoint: type system, registry,
+       scope chain, resolver interface, and routing are independent components.
+
+    2. Investigation-first items: None. The architecture is fully specified in
+       docs/research/in-process-resolver-analysis.md with a reference C implementation
+       available at ~/code/codebase-memory/internal/cbm/lsp/.
+
+    3. Interface discoverability: Yes. The Resolver interface, ResolveFileOpts, ResolverDef,
+       and TypeRegistry APIs are all defined in the analysis doc section 7. Type representation
+       kinds are enumerated in the C reference (type_rep.h, 31 kinds, ~15 needed for Go).
+
+    4. Pre-implementation status: internal/resolver/ exists but is the cross-repo edge
+       resolver (different concern). internal/resolve/ is the external URL resolver.
+       No existing in-process type resolution infrastructure exists. All work is new.
+
+    5. Parallelization value: High. 5 agents across 2 waves. Build/test cycle ~30s
+       (GOWORK=off go test). Each agent owns 2-3 files with non-trivial logic.
+       Wave 1 agents are fully independent (4 parallel agents creating new files).
+       Wave 2 agent depends on wave 1 for the Resolver interface.
+
+    Note: Modifications to internal/indexer/indexer.go (AST lifetime extension) and
+    internal/enrichment/enricher.go (routing hook) are deferred to a follow-up IMPL.
+    This IMPL creates all shared infrastructure in a new package. The integration
+    points can be wired in after this infrastructure is proven stable. Resolvers that
+    need ASTs can re-parse until the lifetime extension is implemented.
+
+    Estimated times:
+    - Scout phase: ~10 min
+    - Agent execution: ~15 min (5 agents, ~8 min avg, 2 waves)
+    - Merge and verification: ~5 min
+    Total Polywave time: ~30 min
+
+    Sequential baseline: ~40 min (5 agents x 8 min avg)
+    Time savings: ~10 min (25% faster)
+
+    Recommendation: Clear speedup. Wave 1 has 4 independent agents.
+test_command: GOWORK=off go test -short ./... -timeout 5m
+lint_command: GOWORK=off go vet ./...
+file_ownership:
+    - file: internal/typresolve/doc.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/typresolve/types.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/typresolve/types_test.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/typresolve/registry.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/typresolve/registry_test.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/typresolve/scope.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/typresolve/scope_test.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/typresolve/resolver.go
+      agent: D
+      wave: 1
+      action: new
+    - file: internal/typresolve/resolver_test.go
+      agent: D
+      wave: 1
+      action: new
+    - file: internal/typresolve/router.go
+      agent: E
+      wave: 2
+      action: new
+    - file: internal/typresolve/router_test.go
+      agent: E
+      wave: 2
+      action: new
+interface_contracts:
+    - name: TypeKind
+      description: Enumeration of type representation kinds for the resolver type system
+      definition: |
+        type TypeKind int
+
+        const (
+            KindUnknown   TypeKind = iota
+            KindNamed              // named type: "Database", "http.Request"
+            KindPointer            // *T
+            KindSlice              // []T
+            KindMap                // map[K]V
+            KindChannel            // chan T (with direction)
+            KindFunc               // func(params) returns
+            KindInterface          // interface{...}
+            KindStruct             // struct{...}
+            KindBuiltin            // int, string, bool, error, etc.
+            KindTuple              // multi-return (T1, T2)
+            KindTypeParam          // generic type parameter: T, K, V
+            KindArray              // [N]T
+            KindOptional           // *T or Option<T> language-agnostic optional
+            KindReference          // &T (Rust/C++ reference)
+            KindAlias              // type alias
+        )
+      location: internal/typresolve/types.go
+    - name: Type
+      description: Core type representation struct with kind discrimination
+      definition: |
+        type Type struct {
+            Kind       TypeKind
+            Name       string    // qualified name for Named/Builtin/TypeParam/Alias
+            Elem       *Type     // element for Pointer/Slice/Array/Channel/Optional/Reference
+            Key        *Type     // key for Map
+            Value      *Type     // value for Map
+            Params     []Param   // parameters for Func
+            Returns    []*Type   // return types for Func
+            Fields     []Field   // fields for Struct
+            Methods    []Method  // methods for Interface
+            Elements   []*Type   // elements for Tuple
+            TypeParams []TypeParam // generic type parameters
+            Underlying *Type     // underlying type for Alias
+            ChanDir    ChanDir   // direction for Channel
+        }
+
+        type Param struct {
+            Name string
+            Type *Type
+        }
+
+        type Field struct {
+            Name string
+            Type *Type
+        }
+
+        type Method struct {
+            Name      string
+            Signature *Type // KindFunc
+        }
+
+        type TypeParam struct {
+            Name       string
+            Constraint *Type // nil means "any"
+        }
+
+        type ChanDir int
+        const (
+            ChanBidi ChanDir = iota
+            ChanSend
+            ChanRecv
+        )
+      location: internal/typresolve/types.go
+    - name: Registry
+      description: Hash-indexed lookup tables for functions and types by qualified name
+      definition: |
+        type RegisteredFunc struct {
+            QualifiedName string
+            ReceiverType  string   // empty for free functions
+            ShortName     string
+            Signature     *Type    // KindFunc
+            TypeParams    []string // generic type param names
+            MinParams     int      // -1 = unknown
+        }
+
+        type RegisteredType struct {
+            QualifiedName string
+            ShortName     string
+            Fields        []Field
+            MethodNames   []string
+            MethodQNs     []string
+            EmbeddedTypes []string
+            AliasOf       string   // empty if not alias
+            TypeParams    []string
+            IsInterface   bool
+        }
+
+        type Registry struct {
+            funcs    map[string]*RegisteredFunc   // qualified name -> func
+            types    map[string]*RegisteredType   // qualified name -> type
+            methods  map[string]*RegisteredFunc   // "receiver.method" -> func
+            fallback *Registry                    // chained parent registry
+        }
+
+        func NewRegistry() *Registry
+        func (r *Registry) SetFallback(parent *Registry)
+        func (r *Registry) AddFunc(f RegisteredFunc)
+        func (r *Registry) AddType(t RegisteredType)
+        func (r *Registry) LookupFunc(qualifiedName string) *RegisteredFunc
+        func (r *Registry) LookupType(qualifiedName string) *RegisteredType
+        func (r *Registry) LookupMethod(receiverQN, methodName string) *RegisteredFunc
+        func (r *Registry) LookupSymbol(packageQN, name string) *RegisteredFunc
+        func (r *Registry) ResolveAlias(typeQN string) *RegisteredType
+      location: internal/typresolve/registry.go
+    - name: Scope
+      description: Linked-list scope chain for variable-to-type bindings during AST walk
+      definition: |
+        type Scope struct {
+            bindings map[string]*Type
+            parent   *Scope
+        }
+
+        func NewScope(parent *Scope) *Scope
+        func (s *Scope) Bind(name string, typ *Type)
+        func (s *Scope) Lookup(name string) *Type
+        func (s *Scope) Parent() *Scope
+      location: internal/typresolve/scope.go
+    - name: Resolver
+      description: Interface for per-language in-process type resolution
+      definition: |
+        type Resolver interface {
+            Language() string
+            InitWorkspace(ctx context.Context, defs []ResolverDef) error
+            ResolveFile(ctx context.Context, opts ResolveFileOpts) ([]types.Edge, error)
+        }
+
+        type ResolverDef struct {
+            QualifiedName string
+            Kind          string // "function", "type", "method", etc.
+            Signature     string
+            FilePath      string
+            PackagePath   string
+        }
+
+        type ResolveFileOpts struct {
+            FilePath   string
+            FileHash   types.Hash
+            Content    []byte
+            ParsedTree types.ParsedTree
+            Edges      []types.Edge
+        }
+      location: internal/typresolve/resolver.go
+    - name: ResolverEnricher
+      description: Orchestrator that dispatches per-language resolution concurrently
+      definition: |
+        type ResolverEnricher struct {
+            store       types.GraphStore
+            resolvers   map[string]Resolver
+            concurrency int
+        }
+
+        func NewResolverEnricher(store types.GraphStore, concurrency int) *ResolverEnricher
+        func (re *ResolverEnricher) Register(r Resolver)
+        func (re *ResolverEnricher) Run(ctx context.Context, repoHash types.Hash,
+            fileResults []FileResult) error
+        func (re *ResolverEnricher) HasResolver(language string) bool
+
+        type FileResult struct {
+            Path       string
+            FileHash   types.Hash
+            Content    []byte
+            ParsedTree types.ParsedTree
+            Edges      []types.Edge
+            Language   string
+        }
+      location: internal/typresolve/resolver.go
+    - name: RouteEnrichment
+      description: Hybrid routing function that dispatches to resolver or external LSP
+      definition: |
+        func RouteEnrichment(ctx context.Context, store types.GraphStore,
+            workspaceRoot string, repoHash types.Hash,
+            resolverEnricher *ResolverEnricher,
+            lspEnricher LspEnricher,
+            fileResults []FileResult) error
+
+        // LspEnricher is the interface the existing Enricher satisfies.
+        type LspEnricher interface {
+            Run(ctx context.Context, repoHash types.Hash) error
+        }
+      location: internal/typresolve/router.go
+waves:
+    - number: 1
+      agents:
+        - id: A
+          task: |
+            ## Agent A: Type Representation System
+
+            ### What to implement
+            Create the type representation system for the in-process resolver in a new
+            package `internal/typresolve/`. This is the Go equivalent of CBMType from the
+            reference C implementation at ~/code/codebase-memory/internal/cbm/lsp/type_rep.h.
+
+            **Files to create:**
+
+            1. `internal/typresolve/doc.go`: Package documentation.
+               ```go
+               // Package typresolve provides shared infrastructure for in-process
+               // language-specific type resolution. It includes type representation,
+               // a type registry, scope chains, and the Resolver interface that
+               // per-language resolvers implement.
+               //
+               // This package replaces external LSP servers for type resolution,
+               // running inside the same process as tree-sitter extraction and
+               // sharing the parsed AST directly.
+               package typresolve
+               ```
+
+            2. `internal/typresolve/types.go`: Core type system.
+
+            Define the following (see interface_contracts for exact signatures):
+
+            - `TypeKind` enum with ~15 language-agnostic kinds: Unknown, Named, Pointer,
+              Slice, Map, Channel, Func, Interface, Struct, Builtin, Tuple, TypeParam,
+              Array, Optional, Reference, Alias.
+
+            - `Type` struct with kind discrimination. Use a flat struct with kind field,
+              not an interface hierarchy. The C reference uses a tagged union; in Go this
+              is a struct where different fields are populated based on Kind.
+
+            - Helper types: `Param`, `Field`, `Method`, `TypeParam`, `ChanDir`.
+
+            - Constructor functions for each kind:
+              `Unknown()`, `Named(qn string)`, `Pointer(elem)`, `Slice(elem)`,
+              `Map(key, value)`, `Channel(elem, dir)`, `Func(params, returns)`,
+              `Builtin(name)`, `Tuple(elems)`, `TypeParamType(name)`,
+              `Array(elem)`, `Optional(elem)`, `Ref(elem)`,
+              `Alias(name, underlying)`, `Interface(methods)`, `Struct(fields)`.
+
+            - `String()` method on TypeKind for debugging.
+
+            - `Type.IsUnknown()`, `Type.IsInterface()`, `Type.IsPointer()` convenience methods.
+
+            - `Type.Elem()` method: returns element type for Pointer/Slice/Array/Channel/Optional/Reference.
+              Returns nil for other kinds.
+
+            - `Type.Deref()` method: removes one pointer level (returns elem if Pointer, self otherwise).
+
+            - `TypesEqual(a, b *Type) bool`: Structural equality, recursive. Two types are
+              equal if kinds match and structural members match recursively. Both nil returns true.
+              One nil returns false. Used by scope dedup and protocol matching.
+
+            3. `internal/typresolve/types_test.go`: Tests covering:
+            - Constructor correctness (each kind produces correct Kind field)
+            - TypesEqual: equal types, different kinds, nested types (pointer to named),
+              nil handling (both nil, one nil)
+            - Deref/Elem: pointer deref, non-pointer passthrough, slice elem
+            - String() on TypeKind returns human-readable names
+
+            ### Constraints
+            - Do NOT import any other internal/ package. types.go is self-contained.
+            - Do NOT define Registry, Scope, or Resolver types (those are other agents' files).
+            - Use the package name `typresolve` (not `resolver`, which is already taken by
+              internal/resolver/ for cross-repo edge resolution).
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/typresolve/
+            GOWORK=off go test ./internal/typresolve/ -run TestType -v
+            GOWORK=off go vet ./internal/typresolve/
+            ```
+          files:
+            - internal/typresolve/doc.go
+            - internal/typresolve/types.go
+            - internal/typresolve/types_test.go
+        - id: B
+          task: |
+            ## Agent B: Type Registry
+
+            ### What to implement
+            Create the type registry for the in-process resolver in
+            `internal/typresolve/registry.go`. This is the Go equivalent of
+            CBMTypeRegistry from the reference C implementation at
+            ~/code/codebase-memory/internal/cbm/lsp/type_registry.h.
+
+            The C reference uses parallel arrays with hash indexes built lazily.
+            In Go, use maps directly (hash tables are built-in). No finalize step needed.
+
+            **File: `internal/typresolve/registry.go`**
+
+            Define the following (see interface_contracts for exact signatures):
+
+            - `RegisteredFunc` struct: QualifiedName, ReceiverType (empty for free funcs),
+              ShortName, Signature (*Type, KindFunc), TypeParams ([]string), MinParams (int, -1=unknown).
+
+            - `RegisteredType` struct: QualifiedName, ShortName, Fields ([]Field),
+              MethodNames, MethodQNs ([]string parallel arrays), EmbeddedTypes ([]string),
+              AliasOf (string, empty if not alias), TypeParams ([]string), IsInterface (bool).
+
+            - `Registry` struct with:
+              - `funcs map[string]*RegisteredFunc` (key: qualified name)
+              - `types map[string]*RegisteredType` (key: qualified name)
+              - `methods map[string]*RegisteredFunc` (key: "receiverQN.methodName")
+              - `fallback *Registry` (chained parent for two-level lookup)
+
+            - `NewRegistry() *Registry`: creates empty registry with initialized maps.
+
+            - `SetFallback(parent *Registry)`: sets the fallback chain.
+
+            - `AddFunc(f RegisteredFunc)`: registers by qualified name. If it has a
+              ReceiverType, also indexes under "ReceiverType.ShortName" in methods map.
+
+            - `AddType(t RegisteredType)`: registers by qualified name.
+
+            - `LookupFunc(qualifiedName string) *RegisteredFunc`: O(1) map lookup.
+              Falls back to fallback registry if not found locally.
+
+            - `LookupType(qualifiedName string) *RegisteredType`: same pattern.
+
+            - `LookupMethod(receiverQN, methodName string) *RegisteredFunc`:
+              looks up "receiverQN.methodName" in methods map. Falls back.
+
+            - `LookupSymbol(packageQN, name string) *RegisteredFunc`:
+              constructs "packageQN.name" and looks up in funcs map. Falls back.
+
+            - `ResolveAlias(typeQN string) *RegisteredType`: follows alias_of chain
+              up to 16 levels (cycle detection). Returns the concrete type, or nil
+              if the type is not found or the chain is too deep.
+
+            - `FuncCount() int`, `TypeCount() int`: return counts of local entries only
+              (not including fallback).
+
+            **File: `internal/typresolve/registry_test.go`**
+
+            Tests covering:
+            - AddFunc + LookupFunc: register and retrieve by qualified name
+            - AddType + LookupType: register and retrieve
+            - LookupMethod: register method with receiver, look up by receiver+name
+            - LookupSymbol: look up by package+name
+            - Fallback chaining: item in fallback found, local overrides fallback
+            - ResolveAlias: single alias, chain of 2, cycle detection (max 16)
+            - Empty registry returns nil for all lookups
+            - FuncCount and TypeCount
+
+            ### Constraints
+            - The Registry is NOT thread-safe for writes. InitWorkspace builds it
+              single-threaded, then it becomes read-only for concurrent ResolveFile calls.
+              Do NOT add mutex synchronization.
+            - Do NOT modify types.go (Agent A owns it). Use the Type/Field types
+              from the same package since you are in the same package.
+            - Do NOT define the Resolver interface or scope chain.
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/typresolve/
+            GOWORK=off go test ./internal/typresolve/ -run TestRegistry -v
+            GOWORK=off go vet ./internal/typresolve/
+            ```
+          files:
+            - internal/typresolve/registry.go
+            - internal/typresolve/registry_test.go
+        - id: C
+          task: |
+            ## Agent C: Scope Chain
+
+            ### What to implement
+            Create the scope chain for variable-to-type bindings in
+            `internal/typresolve/scope.go`. This is the Go equivalent of
+            CBMScope from ~/code/codebase-memory/internal/cbm/lsp/scope.c (110 lines).
+
+            The C reference uses a linked list of chunks (16 bindings per chunk) with
+            arena allocation. In Go, use `map[string]*Type` per scope level (simpler,
+            adequate performance since scope chains are shallow, typically <20 levels).
+
+            **File: `internal/typresolve/scope.go`**
+
+            Define (see interface_contracts for exact signatures):
+
+            - `Scope` struct: `bindings map[string]*Type`, `parent *Scope`.
+
+            - `NewScope(parent *Scope) *Scope`: creates a new scope level. Pass nil
+              for the root scope.
+
+            - `Bind(name string, typ *Type)`: binds a variable name to a type in the
+              current scope. If the name already exists in the current scope, overwrites
+              it (like the C reference: rebind in same scope updates the existing entry).
+
+            - `Lookup(name string) *Type`: walks up the scope chain looking for the
+              name. Returns the first match. Returns nil if not found (the C reference
+              returns cbm_type_unknown(); we return nil and let the caller decide).
+
+            - `Parent() *Scope`: returns the parent scope (nil for root).
+
+            **File: `internal/typresolve/scope_test.go`**
+
+            Tests covering:
+            - NewScope with nil parent (root scope)
+            - Bind + Lookup in same scope
+            - Nested scopes: inner shadows outer
+            - Lookup walks up chain to find binding in parent
+            - Rebind in same scope overwrites
+            - Lookup returns nil for unbound name
+            - Deep nesting (5+ levels)
+
+            ### Constraints
+            - Scope is NOT thread-safe. It is used within a single ResolveFile call
+              (one goroutine per file). Do NOT add synchronization.
+            - Do NOT modify types.go (Agent A owns it). Use the Type from same package.
+            - Do NOT define Registry, Resolver, or any other infrastructure types.
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/typresolve/
+            GOWORK=off go test ./internal/typresolve/ -run TestScope -v
+            GOWORK=off go vet ./internal/typresolve/
+            ```
+          files:
+            - internal/typresolve/scope.go
+            - internal/typresolve/scope_test.go
+        - id: D
+          task: |
+            ## Agent D: Resolver Interface and ResolverEnricher
+
+            ### What to implement
+            Create the Resolver interface and the ResolverEnricher orchestrator in
+            `internal/typresolve/resolver.go`. This defines the contract that all
+            per-language resolvers will implement and the concurrent dispatch
+            mechanism that runs them.
+
+            Reference: Section 7 of docs/research/in-process-resolver-analysis.md,
+            specifically the "Interface contract" and "Concrete integration sketch"
+            subsections.
+
+            **File: `internal/typresolve/resolver.go`**
+
+            Define (see interface_contracts for exact signatures):
+
+            1. `Resolver` interface:
+               - `Language() string`: returns language ID ("go", "python", etc.)
+               - `InitWorkspace(ctx context.Context, defs []ResolverDef) error`: builds
+                 cross-file type registry from all extracted definitions. Called once.
+                 The registry is read-only after this call.
+               - `ResolveFile(ctx context.Context, opts ResolveFileOpts) ([]types.Edge, error)`:
+                 resolves a single file. Thread-safe, called concurrently across files.
+                 Returns edges with provenance "resolver_resolved" and confidence 0.9.
+
+            2. `ResolverDef` struct: contains definition metadata collected from extraction.
+               Fields: QualifiedName, Kind, Signature, FilePath, PackagePath.
+
+            3. `ResolveFileOpts` struct: all inputs for resolving one file.
+               Fields: FilePath, FileHash (types.Hash), Content ([]byte),
+               ParsedTree (types.ParsedTree), Edges ([]types.Edge).
+
+            4. `FileResult` struct: wraps extraction output for the enricher.
+               Fields: Path, FileHash (types.Hash), Content ([]byte),
+               ParsedTree (types.ParsedTree), Edges ([]types.Edge), Language (string).
+
+            5. `ResolverEnricher` struct and methods:
+               - Fields: store (types.GraphStore), resolvers (map[string]Resolver), concurrency (int)
+               - `NewResolverEnricher(store types.GraphStore, concurrency int) *ResolverEnricher`:
+                 initializes with default concurrency of 8 if 0 is passed.
+               - `Register(r Resolver)`: registers a resolver by its Language()
+               - `HasResolver(language string) bool`: checks if a resolver is registered
+               - `Run(ctx context.Context, repoHash types.Hash, fileResults []FileResult) error`:
+                 Groups files by language. For each language with a registered resolver:
+                 (a) Collects ResolverDef entries from fileResults (extract from Edge metadata
+                     and node qualified names; for now, use a simple conversion from FileResult)
+                 (b) Calls InitWorkspace with collected defs
+                 (c) Resolves files concurrently using a channel semaphore (bounded by concurrency)
+                 (d) Writes edges through a single writer goroutine that calls store.PutEdge
+                 (e) Logs summary: files resolved, edges produced, errors
+                 Uses the same concurrent pattern as the existing enricher
+                 (internal/enrichment/enricher.go): channel semaphore + WaitGroup + single
+                 DB-writer goroutine consuming from a results channel.
+
+            6. Constants:
+               - `ProvenanceResolverResolved = "resolver_resolved"` (distinct from "lsp_resolved")
+               - `ResolverConfidence = 0.9`
+
+            **File: `internal/typresolve/resolver_test.go`**
+
+            Tests covering:
+            - NewResolverEnricher creates with correct defaults
+            - Register + HasResolver: register a mock resolver, confirm HasResolver returns true
+            - HasResolver returns false for unregistered language
+            - Run with a mock resolver that returns known edges: verify edges are written
+              to a mock store via PutEdge calls
+            - Run with no matching language files: no-op, no error
+            - Run with InitWorkspace failure: logs error, skips that language, continues
+            - Run with ResolveFile error on one file: other files still processed
+            - Context cancellation stops processing
+
+            Create a minimal mock resolver for testing:
+            ```go
+            type mockResolver struct {
+                lang    string
+                edges   []types.Edge
+                initErr error
+                fileErr error
+            }
+            func (m *mockResolver) Language() string { return m.lang }
+            func (m *mockResolver) InitWorkspace(ctx context.Context, defs []ResolverDef) error {
+                return m.initErr
+            }
+            func (m *mockResolver) ResolveFile(ctx context.Context, opts ResolveFileOpts) ([]types.Edge, error) {
+                if m.fileErr != nil {
+                    return nil, m.fileErr
+                }
+                return m.edges, nil
+            }
+            ```
+
+            Create a minimal mock store that tracks PutEdge calls. Check
+            `internal/testutil/` for existing test helpers first. If a mock store
+            exists there, use it. Otherwise create a local mock:
+            ```go
+            type mockStore struct {
+                types.GraphStore // embed to satisfy interface
+                edges []types.Edge
+                mu    sync.Mutex
+            }
+            func (m *mockStore) PutEdge(ctx context.Context, e types.Edge) error {
+                m.mu.Lock()
+                defer m.mu.Unlock()
+                m.edges = append(m.edges, e)
+                return nil
+            }
+            ```
+
+            ### Constraints
+            - Do NOT implement any language-specific resolver (no Go/Python/TS resolver code).
+            - Do NOT modify types.go, registry.go, or scope.go (other agents own those).
+            - Do NOT modify indexer.go or enricher.go (deferred to follow-up IMPL).
+            - The ResolverEnricher.Run method must handle errors gracefully: log and continue,
+              never panic or abort the entire run for a single file/language failure.
+            - Import `github.com/blackwell-systems/knowing/internal/types` for Edge, Hash,
+              GraphStore, ParsedTree.
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/typresolve/
+            GOWORK=off go test ./internal/typresolve/ -run TestResolver -v
+            GOWORK=off go vet ./internal/typresolve/
+            ```
+          files:
+            - internal/typresolve/resolver.go
+            - internal/typresolve/resolver_test.go
+    - number: 2
+      agents:
+        - id: E
+          task: |
+            ## Agent E: Language Router
+
+            ### What to implement
+            Create the hybrid language routing that checks which languages have
+            registered Resolver implementations and routes to either in-process
+            resolution or external LSP fallback.
+
+            **File: `internal/typresolve/router.go`** (new)
+
+            1. `LspEnricher` interface:
+               ```go
+               type LspEnricher interface {
+                   Run(ctx context.Context, repoHash types.Hash) error
+               }
+               ```
+               The existing `enrichment.Enricher` already satisfies this interface
+               (its Run method has signature `Run(ctx context.Context, repoHash types.Hash) error`).
+               We define the interface here rather than importing enrichment to avoid
+               circular dependencies.
+
+            2. `RouteEnrichment` function:
+               ```go
+               func RouteEnrichment(ctx context.Context, store types.GraphStore,
+                   workspaceRoot string, repoHash types.Hash,
+                   resolverEnricher *ResolverEnricher,
+                   lspEnricher LspEnricher,
+                   fileResults []FileResult) error
+               ```
+
+               Logic:
+               - If fileResults is empty, return nil immediately
+               - Partition fileResults by Language field
+               - For each language, check resolverEnricher.HasResolver(language)
+               - If resolver exists: add files to resolver batch
+               - If no resolver: mark language for LSP fallback
+               - Log which languages are using resolver vs LSP (e.g.,
+                 "typresolve: routing go to in-process resolver (15 files)")
+               - Run resolverEnricher.Run() with the resolver batch
+               - If any languages need LSP fallback:
+                 - If lspEnricher is nil: log warning and skip
+                 - Otherwise: call lspEnricher.Run(ctx, repoHash)
+               - Return first error encountered (resolver errors do not prevent LSP fallback)
+
+            3. `LanguageStats` struct and `RouteStats` function (optional but useful):
+               ```go
+               type LanguageStats struct {
+                   Language   string
+                   FileCount  int
+                   UseResolver bool
+               }
+
+               func RouteStats(resolverEnricher *ResolverEnricher,
+                   fileResults []FileResult) []LanguageStats
+               ```
+               Returns per-language routing decisions without executing.
+               Useful for logging and testing.
+
+            **File: `internal/typresolve/router_test.go`** (new)
+
+            Tests covering:
+            - All languages have resolvers: only resolver path runs, LSP not called.
+              Use a mock LspEnricher that records whether Run was called:
+              ```go
+              type mockLspEnricher struct {
+                  called bool
+                  err    error
+              }
+              func (m *mockLspEnricher) Run(ctx context.Context, repoHash types.Hash) error {
+                  m.called = true
+                  return m.err
+              }
+              ```
+            - No languages have resolvers: only LSP path runs (mockLspEnricher.called == true)
+            - Mixed: some resolved, some fall back to LSP (both paths execute)
+            - Nil lspEnricher with fallback languages: no panic, logs warning, returns nil
+            - Empty fileResults: no-op, returns nil
+            - Resolver error does not prevent LSP fallback for other languages
+            - RouteStats returns correct routing decisions
+
+            Use the same mockResolver and mockStore from resolver_test.go (same package,
+            accessible directly).
+
+            ### Constraints
+            - Do NOT import internal/enrichment. The LspEnricher interface decouples
+              the router from the concrete enricher implementation.
+            - Do NOT modify types.go, registry.go, scope.go, or resolver.go
+              (wave 1 agents own those).
+            - Do NOT modify any files outside internal/typresolve/.
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/typresolve/
+            GOWORK=off go test ./internal/typresolve/ -run TestRoute -v
+            GOWORK=off go vet ./internal/typresolve/
+            ```
+          files:
+            - internal/typresolve/router.go
+            - internal/typresolve/router_test.go
+          dependencies:
+            - A
+            - B
+            - C
+            - D
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: GOWORK=off go build ./...
+          required: true
+        - type: lint
+          command: GOWORK=off go vet ./...
+          required: true
+        - type: test
+          command: GOWORK=off go test -short ./... -timeout 5m
+          required: true
+pre_mortem:
+    overall_risk: low
+    rows:
+        - scenario: Wave 1 agents in same package cannot compile independently
+          likelihood: medium
+          impact: medium
+          mitigation: |
+            All wave 1 agents create files in internal/typresolve/. They share a
+            package and must compile together. Each agent's file is self-contained
+            in its declarations (no cross-references within wave 1 except Type,
+            which A defines). If A fails, B/C/D cannot compile. This is inherent
+            to Go packages. Mitigation: A's task is the simplest (pure data types),
+            lowest risk of failure.
+        - scenario: Agent A and B both define Type struct causing compilation conflict
+          likelihood: low
+          impact: high
+          mitigation: |
+            Agent A owns types.go exclusively. Agent B uses Type from same package
+            without redefining it. Agent B's task explicitly states not to define
+            Type. Package-level visibility ensures no collision.
+        - scenario: Agent D imports types package but types.go not yet compiled (wave 1 parallel)
+          likelihood: low
+          impact: medium
+          mitigation: |
+            Agent D imports internal/types (the existing types package for Hash,
+            Edge, etc.), not internal/typresolve/types.go. The Type struct from
+            typresolve is in the same package as resolver.go, so no cross-package
+            dependency within wave 1. However, agent D's resolver_test.go may fail
+            to compile if types.go has syntax errors. This is mitigated by the
+            build gate running after all agents merge.
+        - scenario: Existing internal/resolver package name conflicts with new package
+          likelihood: low
+          impact: low
+          mitigation: |
+            The new package is named typresolve (not resolver) specifically to
+            avoid this conflict. The existing internal/resolver/ package handles
+            cross-repo edge resolution, a completely different concern.
+        - scenario: Mock store in resolver_test.go panics on unimplemented GraphStore methods
+          likelihood: medium
+          impact: low
+          mitigation: |
+            Agent D's mock store embeds types.GraphStore interface and only
+            implements PutEdge. If Run calls any other store method, the test
+            panics. The task explicitly limits Run to PutEdge for edge writing.
+            If additional methods are needed, the panic surfaces immediately
+            in testing.
+critic_report:
+    verdict: PASS
+    agent_reviews:
+        A:
+            agent_id: A
+            verdict: PASS
+        B:
+            agent_id: B
+            verdict: PASS
+        C:
+            agent_id: C
+            verdict: PASS
+        D:
+            agent_id: D
+            verdict: PASS
+        E:
+            agent_id: E
+            verdict: PASS
+    summary: All 5 agent briefs verified against codebase. All 11 files are action:new and the target directory internal/typresolve/ does not exist (no conflicts). Referenced types (Edge, Hash, GraphStore, ParsedTree) all exist in internal/types/. The Enricher.Run signature matches the LspEnricher interface contract exactly. Package name typresolve avoids conflict with existing internal/resolver/ and internal/resolve/. Existing MockGraphStore in internal/testutil/ satisfies Agent D's mock needs. No disjoint ownership violations. No complexity concerns (max 3 files per agent). Build/test/vet commands are correct.
+    reviewed_at: "2026-05-31T05:02:10Z"
+    issue_count: 0
+state: SCOUT_PENDING
+injection_method: hook
