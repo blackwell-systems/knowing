@@ -324,6 +324,38 @@ func resolveCallNode(ctx *ResolveContext, node *sitter.Node, edges *[]types.Edge
 	}
 }
 
+// resolveSuperCall resolves a super/zsuper call to the same-named method on the parent class.
+func resolveSuperCall(ctx *ResolveContext, node *sitter.Node, edges *[]types.Edge, fileHash types.Hash, repoURL string, filePath string, qnPrefix string) {
+	if ctx.EnclosingFuncQN == "" || len(ctx.Nesting) == 0 {
+		return
+	}
+
+	// Extract method name from enclosing func QN (last dot-segment).
+	methodName := ctx.EnclosingFuncQN
+	if idx := strings.LastIndex(methodName, "."); idx >= 0 {
+		methodName = methodName[idx+1:]
+	}
+
+	// Current class is the last element in nesting.
+	classQN := strings.Join(ctx.Nesting, "::")
+	rt := ctx.Registry.LookupType(classQN)
+	if rt == nil || len(rt.EmbeddedTypes) == 0 {
+		return
+	}
+
+	// Resolve to same method on first parent class.
+	parentQN := rt.EmbeddedTypes[0]
+	parentMethod := ctx.Registry.LookupMethod(parentQN, methodName)
+	if parentMethod != nil {
+		edge := buildRubyCallEdge(ctx, node, parentMethod.QualifiedName, fileHash, repoURL, filePath, qnPrefix)
+		*edges = append(*edges, edge)
+	} else {
+		calleeQN := parentQN + "." + methodName
+		edge := buildRubyCallEdge(ctx, node, calleeQN, fileHash, repoURL, filePath, qnPrefix)
+		*edges = append(*edges, edge)
+	}
+}
+
 // resolveBareIdentifier handles a bare identifier that might be a no-arg method call.
 // In Ruby, `greet` without parens is syntactically identical to a variable reference.
 // We check: if it's not in scope and not a builtin, try resolving as a method call.
