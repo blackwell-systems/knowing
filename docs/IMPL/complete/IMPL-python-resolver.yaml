@@ -1,3 +1,4 @@
+completion_date: "2026-05-30"
 title: Python In-Process Type Resolver
 feature_slug: python-resolver
 verdict: SUITABLE
@@ -1085,6 +1086,7 @@ waves:
             - A
             - B
             - C
+      base_commit: 11f1f1d3673872894dece88aef548bb54332ad92
 quality_gates:
     level: standard
     gates:
@@ -1115,6 +1117,7 @@ post_merge_checklist:
           items:
             - description: Verify if annotations_test.go needs initialization in Server constructor
             - description: Verify if eval_test.go needs initialization in Server constructor
+            - description: Verify if resolver_test.go needs initialization in Server constructor
 completion_reports:
     A:
         status: complete
@@ -1197,6 +1200,32 @@ completion_reports:
             - TestProcessStatement_ForLoop
         verification: PASS
         notes: All three files implemented. Build requires Agent A (imports.go, annotations.go) and Agent B (builtins.go, methods.go) files to compile. All interface calls match contracts exactly. Committed with --no-verify per parallel wave protocol.
+    D:
+        status: complete
+        branch: polywave/python-resolver/wave2-agent-D
+        commit: 5000a1c
+        files_changed:
+            - internal/typresolve/python/resolver.go
+            - internal/typresolve/python/registry_builder.go
+            - internal/typresolve/python/resolve.go
+            - internal/typresolve/python/resolver_test.go
+        files_created:
+            - internal/typresolve/python/resolver.go
+            - internal/typresolve/python/registry_builder.go
+            - internal/typresolve/python/resolve.go
+            - internal/typresolve/python/resolver_test.go
+        tests_added:
+            - TestPythonResolverLanguage
+            - TestPythonResolverInitWorkspace
+            - TestPythonResolverResolveFile_ImportCall
+            - TestPythonResolverResolveFile_LocalCalls
+            - TestPythonResolverResolveFile_MethodCalls
+            - TestResolveCallsInFile_ScopeTracking
+            - TestResolveCallsInFile_ForLoop
+            - TestBuildRegistry
+            - TestInferModuleQNFromPath
+        verification: PASS
+        notes: All 4 files implemented. 47 total tests passing (9 new + 38 from wave 1). PythonResolver implements typresolve.Resolver with compile-time check. Handles import resolution, local calls, method dispatch via MRO, typed parameter binding with annotations, self/cls inference, decorated function detection. Full build and test suite pass.
 pre_mortem:
     overall_risk: medium
     rows:
@@ -1269,5 +1298,5 @@ critic_report:
     summary: Skipped by operator (--skip-critic)
     reviewed_at: "2026-05-31T06:30:44Z"
     issue_count: 0
-state: REVIEWED
+state: COMPLETE
 injection_method: hook
