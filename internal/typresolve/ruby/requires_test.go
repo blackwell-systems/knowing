@@ -1,24 +1,14 @@
 package rubyresolve
 
 import (
-	"context"
 	"testing"
 
 	sitter "github.com/smacker/go-tree-sitter"
-	"github.com/smacker/go-tree-sitter/ruby"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func parseRuby(t *testing.T, src string) *sitter.Node {
-	t.Helper()
-	parser := sitter.NewParser()
-	parser.SetLanguage(ruby.GetLanguage())
-	tree, err := parser.ParseCtx(context.Background(), nil, []byte(src))
-	require.NoError(t, err)
-	t.Cleanup(func() { tree.Close() })
-	return tree.RootNode()
-}
+// parseRuby is defined in eval_test.go (same package).
 
 func TestResolveRequire_Standard(t *testing.T) {
 	resolved, ok := ResolveRequire("json", "", false)
