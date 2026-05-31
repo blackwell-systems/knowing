@@ -1,4 +1,4 @@
-title: "C# In-Process Type Resolver"
+title: C# In-Process Type Resolver
 feature_slug: csharp-resolver
 verdict: SUITABLE
 suitability_assessment: |
@@ -45,33 +45,9 @@ suitability_assessment: |
     using/namespace resolution, builtins + member lookup with inheritance, expression
     evaluator + scope binding). Wave 2 integrates them into the resolver and adds
     integration tests.
-
 test_command: GOWORK=off go test -short ./... -timeout 5m
 lint_command: GOWORK=off go vet ./...
-state: REVIEWED
-
-quality_gates:
-  level: standard
-  gates:
-    - type: build
-      command: GOWORK=off go build ./...
-      required: true
-    - type: lint
-      command: GOWORK=off go vet ./...
-      required: true
-    - type: test
-      command: GOWORK=off go test ./internal/typresolve/csharp/ -timeout 2m
-      required: true
-
-scaffolds: []
-# No scaffolds needed. All new files are in internal/typresolve/csharp/ (package
-# csresolve). No types cross agent boundaries at compile time; wave 1 agents
-# define independent functions consumed by wave 2's resolver/resolve integration.
-# The shared infrastructure (typresolve.Registry, typresolve.Scope, typresolve.Type)
-# is already built and available to all agents.
-
 file_ownership:
-    # Wave 1, Agent A: Type parsing + using/namespace resolution
     - file: internal/typresolve/csharp/doc.go
       agent: A
       wave: 1
@@ -88,8 +64,6 @@ file_ownership:
       agent: A
       wave: 1
       action: new
-
-    # Wave 1, Agent B: Builtins + member/extension method lookup
     - file: internal/typresolve/csharp/builtins.go
       agent: B
       wave: 1
@@ -102,8 +76,6 @@ file_ownership:
       agent: B
       wave: 1
       action: new
-
-    # Wave 1, Agent C: Expression evaluator + scope binding
     - file: internal/typresolve/csharp/eval.go
       agent: C
       wave: 1
@@ -116,8 +88,6 @@ file_ownership:
       agent: C
       wave: 1
       action: new
-
-    # Wave 2, Agent D: Resolver integration + resolve + registry builder + tests
     - file: internal/typresolve/csharp/resolver.go
       agent: D
       wave: 2
@@ -150,7 +120,6 @@ file_ownership:
         - A
         - B
         - C
-
 interface_contracts:
     - name: ParseTypeNode
       description: |
@@ -162,7 +131,6 @@ interface_contracts:
       definition: |
         func ParseTypeNode(node *sitter.Node, content []byte, ctx *ResolveContext) *typresolve.Type
       location: internal/typresolve/csharp/types.go
-
     - name: ResolveTypeName
       description: |
         Resolves a bare type name through the C# resolution chain:
@@ -178,7 +146,6 @@ interface_contracts:
       definition: |
         func ResolveTypeName(ctx *ResolveContext, raw string) string
       location: internal/typresolve/csharp/usings.go
-
     - name: UsingInfo
       description: |
         Represents a single using directive with its kind (namespace, static, alias),
@@ -197,7 +164,6 @@ interface_contracts:
             IsGlobal  bool
         }
       location: internal/typresolve/csharp/usings.go
-
     - name: BuildUsingMap
       description: |
         Extracts all using directives from the C# AST root and returns a slice
@@ -206,7 +172,6 @@ interface_contracts:
       definition: |
         func BuildUsingMap(root *sitter.Node, content []byte) []UsingInfo
       location: internal/typresolve/csharp/usings.go
-
     - name: PredefinedAlias
       description: |
         Returns the System.* fully qualified name for C# predefined type aliases.
@@ -217,7 +182,6 @@ interface_contracts:
       definition: |
         func PredefinedAlias(name string) string
       location: internal/typresolve/csharp/builtins.go
-
     - name: IsBuiltinFunc
       description: |
         Returns true if the given name is a C# expression keyword that should not
@@ -225,7 +189,6 @@ interface_contracts:
       definition: |
         func IsBuiltinFunc(name string) bool
       location: internal/typresolve/csharp/builtins.go
-
     - name: LookupMethod
       description: |
         Looks up a method on a named type, walking the inheritance chain (base classes
@@ -235,7 +198,6 @@ interface_contracts:
       definition: |
         func LookupMethod(reg *typresolve.Registry, typeQN string, methodName string) *typresolve.RegisteredFunc
       location: internal/typresolve/csharp/methods.go
-
     - name: LookupField
       description: |
         Looks up a field on a named type, walking the inheritance chain.
@@ -243,7 +205,6 @@ interface_contracts:
       definition: |
         func LookupField(reg *typresolve.Registry, typeQN string, fieldName string) *typresolve.Type
       location: internal/typresolve/csharp/methods.go
-
     - name: LookupExtensionMethod
       description: |
         Searches for a static extension method accessible via using-imported namespaces.
@@ -253,7 +214,6 @@ interface_contracts:
       definition: |
         func LookupExtensionMethod(reg *typresolve.Registry, receiverQN string, methodName string) *typresolve.RegisteredFunc
       location: internal/typresolve/csharp/methods.go
-
     - name: ResolveContext
       description: |
         Per-file resolution context holding the registry, scope, usings,
@@ -273,7 +233,6 @@ interface_contracts:
             EvalDepth        int
         }
       location: internal/typresolve/csharp/eval.go
-
     - name: EvalExprType
       description: |
         Recursive expression type evaluator for C#. Evaluates the type of a C# expression
@@ -284,7 +243,6 @@ interface_contracts:
       definition: |
         func EvalExprType(ctx *ResolveContext, node *sitter.Node) *typresolve.Type
       location: internal/typresolve/csharp/eval.go
-
     - name: ProcessStatement
       description: |
         Processes a C# statement node to bind variables into the current scope.
@@ -294,7 +252,6 @@ interface_contracts:
       definition: |
         func ProcessStatement(ctx *ResolveContext, node *sitter.Node)
       location: internal/typresolve/csharp/scope_bind.go
-
     - name: CSharpResolver
       description: |
         Implements typresolve.Resolver for C#. Language() returns "csharp".
@@ -310,7 +267,6 @@ interface_contracts:
         func (r *CSharpResolver) InitWorkspace(ctx context.Context, defs []typresolve.ResolverDef) error
         func (r *CSharpResolver) ResolveFile(ctx context.Context, opts typresolve.ResolveFileOpts) ([]types.Edge, error)
       location: internal/typresolve/csharp/resolver.go
-
     - name: BuildRegistry
       description: |
         Builds a typresolve.Registry from ResolverDef entries. Registers classes,
@@ -320,7 +276,6 @@ interface_contracts:
       definition: |
         func BuildRegistry(defs []typresolve.ResolverDef) *typresolve.Registry
       location: internal/typresolve/csharp/registry_builder.go
-
     - name: ResolveCallsInFile
       description: |
         Walks a C# file's AST resolving call expressions and emitting edges.
@@ -332,7 +287,6 @@ interface_contracts:
       definition: |
         func ResolveCallsInFile(ctx *ResolveContext, root *sitter.Node, fileHash types.Hash, repoURL string, filePath string) []types.Edge
       location: internal/typresolve/csharp/resolve.go
-
 waves:
     - number: 1
       agents:
@@ -536,7 +490,7 @@ waves:
               by Agent C (eval.go). Use explicit parameters instead.
             - Do NOT modify files outside your ownership list.
             - Do NOT import the csharpextractor package. This resolver is independent.
-
+          files: []
         - id: B
           task: |
             ## Agent B: C# Builtins and Member/Extension Method Lookup
@@ -664,7 +618,7 @@ waves:
             - Do NOT define ResolveContext. That struct is owned by Agent C (eval.go).
             - Do NOT define ParseTypeNode or UsingInfo. Those are owned by Agent A.
             - Do NOT modify files outside your ownership list.
-
+          files: []
         - id: C
           task: |
             ## Agent C: C# Expression Evaluator and Scope Binding
@@ -881,7 +835,7 @@ waves:
             - Do NOT define ParseTypeNode. That is owned by Agent A (types.go). Use a
               stub that returns Unknown for explicit types.
             - Do NOT modify files outside your ownership list.
-
+          files: []
     - number: 2
       agents:
         - id: D
@@ -1044,55 +998,66 @@ waves:
               pipeline (Register call in the indexer) is a future task.
             - Do NOT modify the csharpextractor package.
             - Do NOT modify any shared infrastructure files (typresolve/*.go).
-
+          files: []
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: GOWORK=off go build ./...
+          required: true
+        - type: lint
+          command: GOWORK=off go vet ./...
+          required: true
+        - type: test
+          command: GOWORK=off go test ./internal/typresolve/csharp/ -timeout 2m
+          required: true
 pre_mortem:
-  overall_risk: low
-  rows:
-    - scenario: |
-        Wave 1 agents define duplicate symbols in the same Go package (csresolve),
-        causing merge-time compile errors (e.g., two definitions of parseCS helper
-        in test files, or duplicate UsingInfo struct).
-      likelihood: medium
-      impact: medium
-      mitigation: |
-        Agent C explicitly omits UsingInfo (owned by Agent A) and uses a reduced
-        ResolveContext without Usings field. Agent D adds the field in wave 2.
-        Test helpers (parseCS) are defined in each agent's own test file, which is
-        fine since Go allows duplicate function names across test files in the same
-        package. Actually, Go does NOT allow duplicate function names in the same
-        package even across test files. Solution: Agents A and C should use different
-        helper names (parseCSA, parseCSC) or Agent A's types_test.go defines parseCS
-        and Agent C's eval_test.go defines a local parseCSForEval. Agent D consolidates.
-    - scenario: |
-        Agent C's EvalExprType for member_access_expression uses a stub that only does
-        direct registry lookup (no inheritance walking), causing incorrect type inference
-        for inherited methods in wave 1 tests.
-      likelihood: low
-      impact: low
-      mitigation: |
-        Wave 1 tests for Agent C should only test direct method/field access, not
-        inherited members. Inheritance-dependent tests go in Agent D's resolver_test.go.
-    - scenario: |
-        The tree-sitter C# grammar uses different node type names than expected
-        (e.g., "identifier_name" vs "identifier"), causing AST walking misses.
-      likelihood: low
-      impact: medium
-      mitigation: |
-        The existing csharpextractor already uses tree-sitter C# grammar and documents
-        the node types. Agents should reference internal/indexer/csharpextractor/extractor.go
-        for the correct node type strings. The C reference (cs_lsp.c) also documents the
-        grammar reference in its header comment (lines 24-39).
-    - scenario: |
-        C# namespace resolution is more complex than Go imports. Files may have deeply
-        nested namespaces, file-scoped namespaces (C# 10), or no namespace at all
-        (top-level statements). ResolveTypeName may miss some resolution paths.
-      likelihood: medium
-      impact: low
-      mitigation: |
-        The C reference implements a 10-step resolution chain. Agent A ports all 10 steps.
-        Missing edge cases will surface during ocelot benchmark validation (post-merge)
-        and can be fixed incrementally.
-
+    overall_risk: low
+    rows:
+        - scenario: |
+            Wave 1 agents define duplicate symbols in the same Go package (csresolve),
+            causing merge-time compile errors (e.g., two definitions of parseCS helper
+            in test files, or duplicate UsingInfo struct).
+          likelihood: medium
+          impact: medium
+          mitigation: |
+            Agent C explicitly omits UsingInfo (owned by Agent A) and uses a reduced
+            ResolveContext without Usings field. Agent D adds the field in wave 2.
+            Test helpers (parseCS) are defined in each agent's own test file, which is
+            fine since Go allows duplicate function names across test files in the same
+            package. Actually, Go does NOT allow duplicate function names in the same
+            package even across test files. Solution: Agents A and C should use different
+            helper names (parseCSA, parseCSC) or Agent A's types_test.go defines parseCS
+            and Agent C's eval_test.go defines a local parseCSForEval. Agent D consolidates.
+        - scenario: |
+            Agent C's EvalExprType for member_access_expression uses a stub that only does
+            direct registry lookup (no inheritance walking), causing incorrect type inference
+            for inherited methods in wave 1 tests.
+          likelihood: low
+          impact: low
+          mitigation: |
+            Wave 1 tests for Agent C should only test direct method/field access, not
+            inherited members. Inheritance-dependent tests go in Agent D's resolver_test.go.
+        - scenario: |
+            The tree-sitter C# grammar uses different node type names than expected
+            (e.g., "identifier_name" vs "identifier"), causing AST walking misses.
+          likelihood: low
+          impact: medium
+          mitigation: |
+            The existing csharpextractor already uses tree-sitter C# grammar and documents
+            the node types. Agents should reference internal/indexer/csharpextractor/extractor.go
+            for the correct node type strings. The C reference (cs_lsp.c) also documents the
+            grammar reference in its header comment (lines 24-39).
+        - scenario: |
+            C# namespace resolution is more complex than Go imports. Files may have deeply
+            nested namespaces, file-scoped namespaces (C# 10), or no namespace at all
+            (top-level statements). ResolveTypeName may miss some resolution paths.
+          likelihood: medium
+          impact: low
+          mitigation: |
+            The C reference implements a 10-step resolution chain. Agent A ports all 10 steps.
+            Missing edge cases will surface during ocelot benchmark validation (post-merge)
+            and can be fixed incrementally.
 known_issues:
     - title: Duplicate parseCS test helper across wave 1 agents
       description: |
@@ -1102,3 +1067,10 @@ known_issues:
       workaround: |
         Agent A uses parseCS in types_test.go. Agent C uses parseCSharp in eval_test.go.
         Agent D consolidates to a single parseCS in resolver_test.go and removes duplicates.
+critic_report:
+    verdict: PASS
+    agent_reviews: {}
+    summary: Skipped by operator (--skip-critic)
+    reviewed_at: "2026-05-31T08:11:07Z"
+    issue_count: 0
+state: REVIEWED

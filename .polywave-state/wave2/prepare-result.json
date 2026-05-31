@@ -3,18 +3,18 @@
   "worktrees": [
     {
       "agent": "D",
-      "path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/ruby-resolver/wave2-agent-D",
-      "branch": "polywave/ruby-resolver/wave2-agent-D"
+      "path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/java-resolver/wave2-agent-D",
+      "branch": "polywave/java-resolver/wave2-agent-D"
     }
   ],
   "agent_briefs": [
     {
       "agent": "D",
-      "brief_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/ruby-resolver/wave2-agent-D/.polywave-agent-brief.md",
-      "brief_length": 18467,
+      "brief_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/java-resolver/wave2-agent-D/.polywave-agent-brief.md",
+      "brief_length": 17360,
       "journal_dir": "/Users/dayna.blackwell/code/knowing/.polywave-state/wave2/agent-D",
       "files_owned": 4,
-      "worktree_env_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/ruby-resolver/wave2-agent-D/.polywave-worktree-env"
+      "worktree_env_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/java-resolver/wave2-agent-D/.polywave-worktree-env"
     }
   ],
   "steps": [
