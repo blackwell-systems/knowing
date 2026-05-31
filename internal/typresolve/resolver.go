@@ -181,14 +181,13 @@ func (re *ResolverEnricher) runLanguage(ctx context.Context, resolver Resolver, 
 	var mu sync.Mutex
 
 	for _, fr := range files {
-		select {
-		case <-ctx.Done():
-			break
-		case sem <- struct{}{}:
-		}
-
 		if ctx.Err() != nil {
 			break
+		}
+
+		select {
+		case <-ctx.Done():
+		case sem <- struct{}{}:
 		}
 
 		wg.Add(1)
