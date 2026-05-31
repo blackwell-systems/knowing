@@ -55,16 +55,18 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 | **SCIP ingestion for Rust** | Rejected | 20 | rust-analyzer SCIP on cargo: 124K edges, all connecting project code to external types (stdlib, serde, dependencies). Zero project-internal edges that tree-sitter didn't already find. Unfiltered: P@10 = 0.150 (-0.127). Filtered (project-only): +0 edges, identical to baseline. SCIP's value is cross-crate resolution, but those targets are always external. Macro-expanded edges (derive Serialize) create impl edges TO external types, not between project symbols. Dead end for P@10. |
 | **Graph pruning / ghost edges** | Neutral | 20 | Three configs on cargo: (1) exclude similar_to: 0.245 (-0.014, reachability lost). (2) exclude references: 0.268 (+0.009, noise removed). (3) ghost references at 0.05 weight: 0.264 (+0.005). Full corpus ghost: 0.264 (-0.003). Density-adaptive ghost (threshold 5.0): 0.264 (-0.003). Per-repo wins cancel losses. Pruning/ghosting is edge weight tuning, which 57 experiments confirm doesn't move aggregate P@10. |
 
-### Re-test Candidates (post-enrichment graph structure change)
+### What Works (session 23)
 
-Go enrichment fundamentally changed graph structure on k8s (268K -> 705K edges, 72K -> 242K nodes, 169K phantom nodes) and terraform (similar). Three previously-neutral experiments were tested on pre-enrichment graphs and rejected for graph-structural reasons. With the new graph density, the structural premises that led to their rejection may no longer hold.
+| Approach | Result | Session | Details |
+|----------|--------|---------|---------|
+| **Framework equiv classes + forced injection** | +16% aggregate | 23 | 189 classes across 25 files. High-confidence framework matches (weight >= 0.9) bypass RWR and inject directly into ranked results. Django +99%, Terraform +133%. |
+| **Language scoping** | Prevents regressions | 23 | `Lang` field restricts framework classes to matching repos. `detectRepoLanguage()` from node QN file extensions. |
+| **Adaptive retrieval (>200K nodes)** | VS Code +43% | 23 | When RWR produces flat results on massive repos, falls back to direct FTS + contains-edge expansion. |
+| **equivSeen injection bypass** | Fixes silent failures | 23 | Framework injection checks happen before dedup, so lower-weight classes can't block framework targets. |
 
-| Approach | Original Result | Why it might flip | Priority |
-|----------|----------------|-------------------|----------|
-| **Coherence-aware packing** | Harmful -1.8% (session 16) | Tested on sparse graphs where most symbols clustered in same files. 192K new cross-package reference edges create meaningful cross-package neighbors. Coherence bonus rewards packing graph-neighbors; more real neighbors = less noise. | Medium |
-| **BFS depth reduction** | Neutral (session 14) | 705K edges on k8s means RWR covers far more ground per step. Depth 4 may diffuse probability into phantom nodes. Shorter depth could keep the walk focused on real code. | Medium |
+### Closed Paths (session 23, honest measurement)
 
-**Not re-testing:** Bidirectional inheritance (directionality problem), blended re-rank (architecture), embeddings as Channel 3 (vocabulary/fusion), framework thesaurus (BM25 noise), seed count/gap parameter sweeps (parameter irrelevance confirmed). These were rejected for reasons unrelated to graph structure.
+**Not re-testing:** Embeddings (dead neutral, 3 runs confirmed), keyword extraction (net negative on large repos), path boost (5 variants all harmful), BM25 query broadening (floods results with noise). These were rejected with clean measurement (no task memory contamination).
 
 ## Enrichment Performance
 
@@ -85,7 +87,7 @@ The persistent daemon (#3) is the real fix for repeat runs; everything else work
 | 6 | **Node.js heap size for tsserver** | Set `NODE_OPTIONS="--max-old-space-size=8192"` when spawning tsserver. Default heap (~4GB) causes GC thrashing on large TypeScript repos (vscode: 34 min enrichment, majority in GC). More heap = less GC = faster enrichment. | 2-3x faster TS enrichment on large repos | Low |
 | 7 | **Deno LSP for TypeScript** | Use `deno lsp` (Rust-based) instead of tsserver for TypeScript enrichment. No GC, no Node.js heap limits. Add as alternative in enrichment config detection (check for `deno` on PATH, prefer over tsserver). Test on vscode to compare enrichment time and edge quality. | Potentially 5-10x faster TS enrichment | Low |
 | 8 | **Import-based phantom nodes for Go (skip gopls)** | Parse Go import statements and generate phantom stub nodes for stdlib/dependency types without running gopls. Now that gopls enrichment works (k8s: +0.159 P@10), the value proposition changed: this is a fast fallback for environments without gopls, not the primary path. gopls discovers 192K edges + 169K phantoms on k8s; import parsing would get only the phantoms. | Fast fallback for Go enrichment without gopls | Low (deprioritized) |
-| 9 | **In-process language resolvers (eliminate external LSP)** | Replace external language server IPC (gopls, pyright, ruby-lsp, etc.) with Go-native resolvers that run inside the knowing binary. The tree-sitter parse tree is already in memory from extraction. A second pass over the same AST resolves method calls to definitions by tracking scopes, following imports, and propagating types. No JSON-RPC serialization, no external process startup, no IPC round-trips. Per-language resolvers handle different dispatch semantics: static types (Go, Rust, Java, C#) are straightforward; dynamic languages (Python, Ruby) need heuristics for method_missing, decorators, and convention-based dispatch. Start with Python (largest corpus: django, flask, fastapi), then Go, then the rest. | 100x enrichment speedup (Rails: 3 hours -> ~2 minutes). Eliminates language server install requirement. Zero-dependency enrichment. | High (one language at a time) |
+| 9 | **Wire remaining in-process resolvers** | 7 language resolvers built in session 22 (`internal/typresolve/`): Go, Python, TypeScript, Ruby, Java, C#, Rust. Go + Ruby wired into index pipeline. Remaining 5 need wiring (same pattern as Go/Ruby). Adds resolver_resolved edges (0.6-0.9 confidence) without external LSP. | Low (pattern exists) | +2-5% on non-enriched repos |
 
 ## Storage Backend (P0 Performance)
 
