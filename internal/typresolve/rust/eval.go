@@ -34,6 +34,13 @@ func EvalExprType(ctx *ResolveContext, node *sitter.Node) *typresolve.Type {
 	case "identifier":
 		return evalIdentifier(ctx, node)
 
+	case "self":
+		// self keyword: look up in scope
+		if t := ctx.Scope.Lookup("self"); t != nil && !t.IsUnknown() {
+			return t
+		}
+		return typresolve.Unknown()
+
 	case "scoped_identifier":
 		return evalScopedIdentifier(ctx, node)
 
