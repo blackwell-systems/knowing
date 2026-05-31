@@ -396,6 +396,18 @@
         "cached_at": "2026-05-20T10:31:19.491955-07:00"
       }
     },
+    "171d0f63c1b91b4d1f9d647e31fac6cb": {
+      "lint": {
+        "gate_type": "lint",
+        "command": "GOWORK=off go vet ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-30T22:23:06.525487-07:00"
+      }
+    },
     "187831861344f5a67481791a273c737c": {
       "lint": {
         "gate_type": "lint",
@@ -1680,6 +1692,18 @@
         "cached_at": "2026-05-15T21:16:10.996814-07:00"
       }
     },
+    "5bda179bd25e596a9be14d4715d7ea94": {
+      "test": {
+        "gate_type": "test",
+        "command": "GOWORK=off go test -short ./... -timeout 5m",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "ok  \tgithub.com/blackwell-systems/knowing/bench/agent-efficiency\t0.351s\nok  \tgithub.com/blackwell-systems/knowing/bench/community-detection\t23.774s\nok  \tgithub.com/blackwell-systems/knowing/bench/context-relevance\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/bench/cross-system\t(cached)\n?   \tgithub.com/blackwell-systems/knowing/bench/cross-system/adapters\t[no test files]\n?   \tgithub.com/blackwell-systems/knowing/bench/cross-system/benchtype\t[no test files]\n?   \tgithub.com/blackwell-systems/knowing/bench/cross-system/cmd/failure-analysis\t[no test files]\n?   \tgithub.com/blackwell-systems/knowing/bench/cross-system/cmd/session-bench\t[no test files]\n?   \tgithub.com/blackwell-systems/knowing/bench/cross-system/cmd/validate-fixtures\t[no test files]\nok  \tgithub.com/blackwell-systems/knowing/bench/cross-system/metrics\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/bench/cross-system/normalize\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/bench/edge-accuracy\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/bench/feedback-loop\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/bench/incremental-reindex\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/bench/merkle-diff\t88.558s\nok  \tgithub.com/blackwell-systems/knowing/bench/test-scope-accuracy\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/bench/time-to-consistency\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/bench/token-savings\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/bench/wire-format\t0.222s\nok  \tgithub.com/blackwell-systems/knowing/cmd/knowing\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/eval\t71.517s\nok  \tgithub.com/blackwell-systems/knowing/internal/cache\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/community\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/context\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/daemon\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/diff\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/edgetype\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/embedding\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/enrichment\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/authorship\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/cloudextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/csharpextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/cssextractor\t(cached)\n?   \tgithub.com/blackwell-systems/knowing/internal/indexer/docextract\t[no test files]\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/dockerfileextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/envextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/eventextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/gitlabciextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/goextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/gotsextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/graphqlextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/helmextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/javaextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/k8sextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/makefileextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/ownership\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/packagejsonextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/protoextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/rubyextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/rustextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/schemaextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/scipingest\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/sqlextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/terraformextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/treesitter\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/tsextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/mcp\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/resolve\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/resolver\t(cached)\n?   \tgithub.com/blackwell-systems/knowing/internal/roster\t[no test files]\nok  \tgithub.com/blackwell-systems/knowing/internal/snapshot\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/store\t(cached)\n?   \tgithub.com/blackwell-systems/knowing/internal/testutil\t[no test files]\nok  \tgithub.com/blackwell-systems/knowing/internal/trace\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/types\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/typresolve\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/wire\t(cached)\n?   \tgithub.com/blackwell-systems/knowing/test/demo\t[no test files]\n",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-30T22:19:40.527665-07:00"
+      }
+    },
     "5cc4b487842a96d2e4b0a22f4823de78": {
       "lint": {
         "gate_type": "lint",
@@ -1872,6 +1896,18 @@
         "cached_at": "2026-05-15T08:52:41.344556-07:00"
       }
     },
+    "6b3bddb6bfbb7af8784769d063c4fe85": {
+      "build": {
+        "gate_type": "build",
+        "command": "GOWORK=off go build ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-30T22:23:02.926141-07:00"
+      }
+    },
     "6b63d861cc622e69e7a60f15fbbd67e0": {
       "build": {
         "gate_type": "build",
@@ -2052,6 +2088,18 @@
         "cached_at": "2026-05-25T15:52:37.14656-07:00"
       }
     },
+    "76a371bc58948348e4f367f3c71b1f91": {
+      "build": {
+        "gate_type": "build",
+        "command": "GOWORK=off go build ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-30T22:18:00.319484-07:00"
+      }
+    },
     "78b2fdede28d1be3534b98341800cf5a": {
       "test": {
         "gate_type": "test",
@@ -2146,6 +2194,18 @@
         "stderr": "",
         "from_cache": true,
         "cached_at": "2026-05-30T22:15:30.433601-07:00"
+      }
+    },
+    "7cf35824203c2bec5f325aa8ff66cc39": {
+      "test": {
+        "gate_type": "test",
+        "command": "GOWORK=off go test -short ./... -timeout 5m",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "ok  \tgithub.com/blackwell-systems/knowing/bench/agent-efficiency\t0.468s\nok  \tgithub.com/blackwell-systems/knowing/bench/community-detection\t26.915s\nok  \tgithub.com/blackwell-systems/knowing/bench/context-relevance\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/bench/cross-system\t(cached)\n?   \tgithub.com/blackwell-systems/knowing/bench/cross-system/adapters\t[no test files]\n?   \tgithub.com/blackwell-systems/knowing/bench/cross-system/benchtype\t[no test files]\n?   \tgithub.com/blackwell-systems/knowing/bench/cross-system/cmd/failure-analysis\t[no test files]\n?   \tgithub.com/blackwell-systems/knowing/bench/cross-system/cmd/session-bench\t[no test files]\n?   \tgithub.com/blackwell-systems/knowing/bench/cross-system/cmd/validate-fixtures\t[no test files]\nok  \tgithub.com/blackwell-systems/knowing/bench/cross-system/metrics\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/bench/cross-system/normalize\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/bench/edge-accuracy\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/bench/feedback-loop\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/bench/incremental-reindex\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/bench/merkle-diff\t97.389s\nok  \tgithub.com/blackwell-systems/knowing/bench/test-scope-accuracy\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/bench/time-to-consistency\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/bench/token-savings\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/bench/wire-format\t0.281s\nok  \tgithub.com/blackwell-systems/knowing/cmd/knowing\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/eval\t77.077s\nok  \tgithub.com/blackwell-systems/knowing/internal/cache\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/community\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/context\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/daemon\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/diff\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/edgetype\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/embedding\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/enrichment\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/authorship\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/cloudextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/csharpextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/cssextractor\t(cached)\n?   \tgithub.com/blackwell-systems/knowing/internal/indexer/docextract\t[no test files]\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/dockerfileextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/envextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/eventextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/gitlabciextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/goextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/gotsextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/graphqlextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/helmextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/javaextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/k8sextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/makefileextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/ownership\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/packagejsonextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/protoextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/rubyextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/rustextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/schemaextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/scipingest\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/sqlextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/terraformextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/treesitter\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/indexer/tsextractor\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/mcp\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/resolve\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/resolver\t(cached)\n?   \tgithub.com/blackwell-systems/knowing/internal/roster\t[no test files]\nok  \tgithub.com/blackwell-systems/knowing/internal/snapshot\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/store\t(cached)\n?   \tgithub.com/blackwell-systems/knowing/internal/testutil\t[no test files]\nok  \tgithub.com/blackwell-systems/knowing/internal/trace\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/types\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/typresolve\t(cached)\nok  \tgithub.com/blackwell-systems/knowing/internal/wire\t(cached)\n?   \tgithub.com/blackwell-systems/knowing/test/demo\t[no test files]\n",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-30T22:24:52.360806-07:00"
       }
     },
     "7e87860c9e57db37344b323bce7ef86d": {
@@ -2806,6 +2866,18 @@
         "stderr": "",
         "from_cache": true,
         "cached_at": "2026-05-22T12:10:50.952959-07:00"
+      }
+    },
+    "b5b8c0689fd26cf4a04b20f31ea3c97c": {
+      "lint": {
+        "gate_type": "lint",
+        "command": "GOWORK=off go vet ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-30T22:18:03.019142-07:00"
       }
     },
     "b5ecea3e9dbc0a842cf571e0060b6059": {

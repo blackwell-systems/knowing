@@ -1,0 +1,1135 @@
+title: Go In-Process Type Resolver
+feature_slug: go-resolver
+verdict: SUITABLE
+suitability_assessment: |
+    1. File decomposition: All new files in internal/typresolve/go/ (10+ files). No
+       existing files modified. Agents have fully disjoint file ownership.
+    2. Investigation-first: No unknowns. The C reference implementation (go_lsp.c,
+       2989 lines) documents the complete resolution algorithm. The shared
+       infrastructure (typresolve package) was just completed and defines the
+       exact interface contracts.
+    3. Interface discoverability: All interfaces are defined. The typresolve.Resolver
+       interface, Registry, Scope, and Type are already implemented and tested.
+       Cross-agent contracts are limited to Go function signatures within the new
+       go/ subpackage.
+    4. Pre-implementation: The shared infrastructure (in-process-resolver-infra) was
+       completed in the prior IMPL. No overlap with existing code.
+    5. Parallelization value: High. Build/test cycle is ~30s. 3 agents in wave 1
+       with 2-4 files each. Wave 2 integrates and tests. Independent type system
+       components (type parsing, builtins, scope binding) can be built in parallel.
+
+    Estimated times:
+    - Scout phase: ~10 min
+    - Agent execution: ~15 min (5 agents, 2 waves, ~5 min avg per agent)
+    - Merge and verification: ~5 min
+    Total Polywave time: ~30 min
+
+    Sequential baseline: ~50 min (5 agents x 10 min avg)
+    Time savings: ~20 min (40% faster)
+
+    Recommendation: Clear speedup. Wave 1 agents are fully independent (type parsing,
+    builtins, scope binding). Wave 2 integrates them into the resolver.
+test_command: GOWORK=off go test -short ./... -timeout 5m
+lint_command: GOWORK=off go vet ./...
+file_ownership:
+    - file: internal/typresolve/go/doc.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/typresolve/go/types.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/typresolve/go/imports.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/typresolve/go/types_test.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/typresolve/go/builtins.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/typresolve/go/methods.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/typresolve/go/builtins_test.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/typresolve/go/scope_bind.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/typresolve/go/eval.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/typresolve/go/eval_test.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/typresolve/go/resolver.go
+      agent: D
+      wave: 2
+      action: new
+      depends_on:
+        - A
+        - B
+        - C
+    - file: internal/typresolve/go/registry_builder.go
+      agent: D
+      wave: 2
+      action: new
+      depends_on:
+        - A
+        - B
+        - C
+    - file: internal/typresolve/go/resolve.go
+      agent: D
+      wave: 2
+      action: new
+      depends_on:
+        - A
+        - B
+        - C
+    - file: internal/typresolve/go/resolver_test.go
+      agent: D
+      wave: 2
+      action: new
+      depends_on:
+        - A
+        - B
+        - C
+interface_contracts:
+    - name: ParseTypeNode
+      description: |
+        Converts a tree-sitter Go type AST node to a typresolve.Type.
+        Handles: type_identifier, qualified_type, pointer_type, slice_type,
+        array_type, map_type, channel_type, function_type, interface_type,
+        struct_type, parenthesized_type, generic_type, parameter_list (multi-return).
+      definition: |
+        func ParseTypeNode(node *sitter.Node, content []byte, pkgQN string, imports map[string]string) *typresolve.Type
+      location: internal/typresolve/go/types.go
+    - name: BuildImportMap
+      description: |
+        Builds per-file import alias to package path mapping from the AST root.
+        Returns map[alias]packagePath. For imports without explicit alias, uses
+        the last path segment as the alias.
+      definition: |
+        func BuildImportMap(root *sitter.Node, content []byte) map[string]string
+      location: internal/typresolve/go/imports.go
+    - name: ResolveImport
+      description: |
+        Resolves an import alias to its full package path.
+      definition: |
+        func ResolveImport(imports map[string]string, alias string) (string, bool)
+      location: internal/typresolve/go/imports.go
+    - name: IsBuiltinFunc
+      description: |
+        Returns true if the given name is a Go builtin function
+        (make, new, append, len, cap, delete, close, copy, panic, recover, etc.).
+      definition: |
+        func IsBuiltinFunc(name string) bool
+      location: internal/typresolve/go/builtins.go
+    - name: EvalBuiltinCall
+      description: |
+        Evaluates the return type of a Go builtin function call.
+        Handles make (returns type arg), new (returns *type arg), append (returns
+        slice arg type), len/cap (returns int), etc.
+      definition: |
+        func EvalBuiltinCall(name string, args *sitter.Node, content []byte, pkgQN string, imports map[string]string, evalExpr ExprEvaluator) *typresolve.Type
+      location: internal/typresolve/go/builtins.go
+    - name: ResolveBuiltinType
+      description: |
+        Returns a typresolve.Builtin type if the name is a Go builtin type
+        (int, string, bool, error, etc.), nil otherwise.
+      definition: |
+        func ResolveBuiltinType(name string) *typresolve.Type
+      location: internal/typresolve/go/builtins.go
+    - name: LookupFieldOrMethod
+      description: |
+        Looks up a method or field on a named type, following embedded type
+        promotion up to 5 levels deep. Returns the registered function if found.
+      definition: |
+        func LookupFieldOrMethod(reg *typresolve.Registry, typeQN string, memberName string) *typresolve.RegisteredFunc
+      location: internal/typresolve/go/methods.go
+    - name: LookupField
+      description: |
+        Looks up a struct field on a named type, following embedded type
+        promotion. Returns the field's type if found.
+      definition: |
+        func LookupField(reg *typresolve.Registry, typeQN string, fieldName string) *typresolve.Type
+      location: internal/typresolve/go/methods.go
+    - name: ExprEvaluator
+      description: |
+        Function type used as a callback for recursive expression evaluation.
+        Allows builtins.go and scope_bind.go to call into eval.go without
+        circular imports (all in same package, but enables testability).
+      definition: |
+        type ExprEvaluator func(node *sitter.Node) *typresolve.Type
+      location: internal/typresolve/go/eval.go
+    - name: EvalExprType
+      description: |
+        Recursive expression type evaluator. Evaluates the type of a Go
+        expression AST node using scope lookup, registry lookup, import
+        resolution, and method dispatch.
+      definition: |
+        func EvalExprType(ctx *ResolveContext, node *sitter.Node) *typresolve.Type
+      location: internal/typresolve/go/eval.go
+    - name: ProcessStatement
+      description: |
+        Processes a statement node to bind variables into the current scope.
+        Handles short_var_declaration, var_spec, const_spec, range_clause.
+      definition: |
+        func ProcessStatement(ctx *ResolveContext, node *sitter.Node)
+      location: internal/typresolve/go/scope_bind.go
+    - name: ResolveContext
+      description: |
+        Per-file resolution context holding the registry, scope, imports,
+        package QN, content bytes, and enclosing function QN.
+      definition: |
+        type ResolveContext struct {
+            Registry       *typresolve.Registry
+            Scope          *typresolve.Scope
+            Imports        map[string]string
+            PkgQN          string
+            Content        []byte
+            EnclosingFuncQN string
+        }
+      location: internal/typresolve/go/eval.go
+    - name: GoResolver
+      description: |
+        Implements typresolve.Resolver for Go. Language() returns "go".
+        InitWorkspace builds a Registry from Go definitions.
+        ResolveFile walks the Go AST and resolves calls and references.
+      definition: |
+        type GoResolver struct {
+            registry *typresolve.Registry
+        }
+        func NewGoResolver() *GoResolver
+        func (r *GoResolver) Language() string
+        func (r *GoResolver) InitWorkspace(ctx context.Context, defs []typresolve.ResolverDef) error
+        func (r *GoResolver) ResolveFile(ctx context.Context, opts typresolve.ResolveFileOpts) ([]types.Edge, error)
+      location: internal/typresolve/go/resolver.go
+    - name: BuildRegistry
+      description: |
+        Builds a typresolve.Registry from ResolverDef entries and parsed trees.
+        Extracts function signatures, method receivers, type fields, embedded types,
+        and interface methods from the AST of each file's definitions.
+      definition: |
+        func BuildRegistry(defs []typresolve.ResolverDef, fileContents map[string][]byte, fileTrees map[string]*sitter.Node) *typresolve.Registry
+      location: internal/typresolve/go/registry_builder.go
+    - name: ResolveCallsInFile
+      description: |
+        Walks a Go file's AST resolving call expressions and emitting edges.
+        Uses the shared registry, per-file scope chain, and import map.
+      definition: |
+        func ResolveCallsInFile(ctx *ResolveContext, root *sitter.Node, fileHash types.Hash, repoURL string, filePath string) []types.Edge
+      location: internal/typresolve/go/resolve.go
+waves:
+    - number: 1
+      agents:
+        - id: A
+          task: |
+            ## Agent A: Go Type Parsing and Import Resolution
+
+            Build the foundational type parsing and import resolution for the Go resolver.
+
+            ### What to implement
+
+            **File 1: `internal/typresolve/go/doc.go`**
+            Package doc comment for the `go` subpackage:
+            ```go
+            // Package goresolve implements the Go language in-process type resolver.
+            // It implements the typresolve.Resolver interface, resolving Go call
+            // expressions and type references using tree-sitter AST walking and a
+            // shared type registry built from extracted definitions.
+            package goresolve
+            ```
+
+            **File 2: `internal/typresolve/go/types.go`**
+            Port the `go_parse_type_node` function from the C reference at
+            `~/code/codebase-memory/internal/cbm/lsp/go_lsp.c` (lines 106-253).
+            This function converts tree-sitter Go type AST nodes to `*typresolve.Type`.
+
+            Implement `ParseTypeNode(node *sitter.Node, content []byte, pkgQN string, imports map[string]string) *typresolve.Type`
+
+            Handle these tree-sitter node types:
+            - `type_identifier`: resolve builtins via `ResolveBuiltinType` (from builtins.go,
+              wave 1 Agent B). For non-builtins, return `typresolve.Named(pkgQN + "." + name)`.
+              NOTE: Since builtins.go is built by Agent B in the same wave, define a local
+              `isBuiltinType` helper that checks the same set of Go builtin type names
+              (int, int8, ..., string, bool, byte, rune, error, any, uintptr). Agent D
+              will wire the final integration in wave 2.
+            - `qualified_type`: resolve `pkg.Type` using imports map to get package QN,
+              return `typresolve.Named(pkgQN + "." + typeName)`
+            - `pointer_type`: wrap inner type with `typresolve.Pointer(inner)`
+            - `slice_type`: wrap element with `typresolve.Slice(elem)`
+            - `array_type`: treat same as slice for resolution purposes
+            - `map_type`: `typresolve.Map(key, value)` from "key" and "value" field children
+            - `channel_type`: `typresolve.Channel(elem, dir)` with direction from text
+            - `function_type`: return simplified `typresolve.Func(nil, nil)`
+            - `interface_type`: return `&typresolve.Type{Kind: typresolve.KindInterface}`
+            - `struct_type`: return `&typresolve.Type{Kind: typresolve.KindStruct}`
+            - `parenthesized_type`: unwrap to inner type
+            - `type_elem`: unwrap to inner type
+            - `generic_type`: resolve the "type" field child (strip type args)
+            - `parameter_list` (multi-return): collect parameter_declaration types into
+              `typresolve.Tuple(elems)`. If exactly 1 element, return it directly.
+
+            Use `node.ChildByFieldName("field_name")` for tree-sitter field access.
+            Use `node.Content(content)` to get text.
+            Use `node.Type()` to get the node type string.
+            Use `node.ChildCount()` / `node.Child(i)` for iteration.
+            Use `node.NamedChildCount()` / `node.NamedChild(i)` for named children only.
+
+            **File 3: `internal/typresolve/go/imports.go`**
+            Port import resolution from the C reference (lines 34-68).
+
+            Implement:
+            - `BuildImportMap(root *sitter.Node, content []byte) map[string]string`
+              Walk import_declaration children, extract import_spec entries.
+              For each: get "path" field (trim quotes), get "name" field (explicit alias).
+              If no explicit alias, use last path segment. Skip "." and "_" aliases.
+              This mirrors the existing `buildImportMap` in `internal/indexer/gotsextractor/extractor.go`
+              (lines 317-341). Reuse the same logic.
+
+            - `ResolveImport(imports map[string]string, alias string) (string, bool)`
+              Simple map lookup returning (packageQN, found).
+
+            **File 4: `internal/typresolve/go/types_test.go`**
+            Test ParseTypeNode with Go source snippets parsed by tree-sitter.
+            Test cases:
+            - Simple type_identifier: `var x MyType` -> Named("pkg.MyType")
+            - Builtin type: `var x int` -> Builtin("int")
+            - Pointer type: `var x *MyType` -> Pointer(Named("pkg.MyType"))
+            - Slice type: `var x []string` -> Slice(Builtin("string"))
+            - Map type: `var x map[string]int` -> Map(Builtin("string"), Builtin("int"))
+            - Qualified type: `var x http.Request` with imports map -> Named("net/http.Request")
+            - Multi-return parameter_list: `(int, error)` -> Tuple([Builtin("int"), Builtin("error")])
+            Test BuildImportMap and ResolveImport with sample import declarations.
+
+            ### Interfaces consumed
+            - `typresolve.Type`, `typresolve.Named()`, `typresolve.Pointer()`, etc. from
+              `github.com/blackwell-systems/knowing/internal/typresolve`
+            - `sitter.Node` from `github.com/smacker/go-tree-sitter`
+            - `golang.GetLanguage()` from `github.com/smacker/go-tree-sitter/golang`
+
+            ### Constraints
+            - Package name MUST be `goresolve` (not `go`, which is a reserved keyword)
+            - Do NOT import or depend on builtins.go or methods.go from Agent B.
+              Define a local `isBuiltinType(name string) bool` helper for the builtin
+              type check needed in type_identifier handling.
+            - Do NOT modify any files outside your ownership list.
+            - Do NOT import from `internal/indexer/gotsextractor` (would create circular
+              dependency risk). Reimplement the import map logic locally.
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/typresolve/go/...
+            GOWORK=off go vet ./internal/typresolve/go/...
+            GOWORK=off go test ./internal/typresolve/go/... -run TestParseTypeNode -v
+            GOWORK=off go test ./internal/typresolve/go/... -run TestBuildImportMap -v
+            ```
+
+            Postconditions:
+            ```bash
+            # ParseTypeNode function exists
+            grep -c "func ParseTypeNode" internal/typresolve/go/types.go  # expect: 1
+            # BuildImportMap function exists
+            grep -c "func BuildImportMap" internal/typresolve/go/imports.go  # expect: 1
+            # Package declaration is goresolve
+            grep -c "package goresolve" internal/typresolve/go/doc.go  # expect: 1
+            ```
+          files:
+            - internal/typresolve/go/doc.go
+            - internal/typresolve/go/types.go
+            - internal/typresolve/go/imports.go
+            - internal/typresolve/go/types_test.go
+        - id: B
+          task: |
+            ## Agent B: Builtins and Method/Field Lookup
+
+            Build the builtin function/type handling and method/field lookup with
+            embedded field promotion for the Go resolver.
+
+            ### What to implement
+
+            **File 1: `internal/typresolve/go/builtins.go`**
+            Package: `goresolve`
+
+            Port builtin handling from the C reference at
+            `~/code/codebase-memory/internal/cbm/lsp/go_lsp.c`.
+
+            Implement:
+
+            - `IsBuiltinFunc(name string) bool`
+              Return true for: make, new, append, len, cap, delete, close, copy,
+              panic, recover, print, println, complex, real, imag, min, max, clear.
+              (Reference: lines 72-83 of go_lsp.c)
+
+            - `ResolveBuiltinType(name string) *typresolve.Type`
+              Return `typresolve.Builtin(name)` for: int, int8, int16, int32, int64,
+              uint, uint8, uint16, uint32, uint64, float32, float64, complex64,
+              complex128, string, bool, byte, rune, error, uintptr, any.
+              Return nil if not a builtin type.
+              (Reference: lines 87-102 of go_lsp.c)
+
+            - `ExprEvaluator` type definition:
+              ```go
+              // ExprEvaluator is a callback for recursive expression evaluation.
+              type ExprEvaluator func(node *sitter.Node) *typresolve.Type
+              ```
+
+            - `EvalBuiltinCall(name string, args *sitter.Node, content []byte, pkgQN string, imports map[string]string, evalExpr ExprEvaluator) *typresolve.Type`
+              Port from go_eval_builtin_call (lines 809-847 of go_lsp.c):
+              - `make(Type, ...)`: parse first arg as type node via ParseTypeNode, return that type.
+                NOTE: ParseTypeNode is in types.go (Agent A, same wave). Since both are
+                in package goresolve, you can call it directly. However, to avoid compile
+                issues if Agent A's file isn't present in your worktree, use a package-level
+                var that Agent D will wire in wave 2:
+                ```go
+                // parseTypeNodeFunc is set during resolver initialization.
+                // Avoids compile-time dependency on types.go file presence.
+                var parseTypeNodeFunc func(node *sitter.Node, content []byte, pkgQN string, imports map[string]string) *typresolve.Type
+                ```
+                Actually, since both files are in the same package and will be merged
+                before compilation, just call `ParseTypeNode` directly. The build gate
+                runs after merge.
+              - `new(Type)`: parse first arg as type, return `typresolve.Pointer(type)`
+              - `append(slice, ...)`: evaluate first arg type via evalExpr callback, return it
+              - `len`, `cap`: return `typresolve.Builtin("int")`
+              - `delete`, `close`, `copy`: return `typresolve.Unknown()`
+              - `complex`: return `typresolve.Builtin("complex128")`
+              - `real`, `imag`: return `typresolve.Builtin("float64")`
+              - `min`, `max`: evaluate first arg type via evalExpr, return it
+              - Default: return `typresolve.Unknown()`
+
+              For `make` and `new`, get the first named child of args:
+              ```go
+              if args != nil && args.NamedChildCount() > 0 {
+                  firstArg := args.NamedChild(0)
+                  // parse as type node
+              }
+              ```
+
+            **File 2: `internal/typresolve/go/methods.go`**
+            Package: `goresolve`
+
+            Port method/field lookup with embedded field promotion from the C reference
+            (lines 851-915 of go_lsp.c).
+
+            Implement:
+
+            - `LookupFieldOrMethod(reg *typresolve.Registry, typeQN string, memberName string) *typresolve.RegisteredFunc`
+              Internal helper with depth limit (max 5):
+              1. Direct method lookup: `reg.LookupMethod(typeQN, memberName)` -- if found, return
+              2. Get type: `reg.LookupType(typeQN)` -- if nil, return nil
+              3. Follow alias: if `type.AliasOf != ""`, recurse with alias target
+              4. Check embedded types: for each `type.EmbeddedTypes[i]`, recurse
+              5. Return nil if not found
+
+            - `LookupField(reg *typresolve.Registry, typeQN string, fieldName string) *typresolve.Type`
+              Internal helper with depth limit (max 5):
+              1. Get type: `reg.LookupType(typeQN)` -- if nil, return nil
+              2. Follow alias: if `type.AliasOf != ""`, recurse with alias target
+              3. Direct field lookup: scan `type.Fields` for matching name, return field type
+              4. Check embedded types: for each `type.EmbeddedTypes[i]`, recurse
+              5. Return nil if not found
+
+            **File 3: `internal/typresolve/go/builtins_test.go`**
+            Package: `goresolve`
+
+            Test cases:
+            - IsBuiltinFunc: true for "make", "len", "append"; false for "fmt", "MyFunc"
+            - ResolveBuiltinType: returns Builtin for "int", "string", "error"; nil for "MyType"
+            - EvalBuiltinCall "make" with a slice_type arg: returns Slice type
+            - EvalBuiltinCall "new" with a type_identifier arg: returns Pointer type
+            - EvalBuiltinCall "len": returns Builtin("int")
+            - EvalBuiltinCall "append" with slice arg: returns same slice type
+            - LookupFieldOrMethod: direct method found
+            - LookupFieldOrMethod: method found via embedding (1 level)
+            - LookupFieldOrMethod: method found via embedding (2 levels)
+            - LookupField: direct field found
+            - LookupField: field found via embedding
+
+            For testing EvalBuiltinCall, parse Go source with tree-sitter to get
+            AST nodes. For testing LookupFieldOrMethod, build a Registry with
+            registered types and methods.
+
+            ### Interfaces consumed
+            - `typresolve.Registry`, `typresolve.RegisteredFunc`, `typresolve.RegisteredType`
+            - `typresolve.Type`, `typresolve.Builtin()`, `typresolve.Pointer()`, etc.
+            - `sitter.Node` from `github.com/smacker/go-tree-sitter`
+
+            ### Constraints
+            - Package name MUST be `goresolve`
+            - Do NOT modify any files outside your ownership list.
+            - `EvalBuiltinCall` calls `ParseTypeNode` from types.go (Agent A). Since both
+              are in the same package, this compiles after merge. Do NOT stub ParseTypeNode.
+            - For tests that need tree-sitter parsing, create a helper:
+              ```go
+              func parseGoExpr(t *testing.T, src string) *sitter.Node {
+                  parser := sitter.NewParser()
+                  parser.SetLanguage(golang.GetLanguage())
+                  tree, err := parser.ParseCtx(context.Background(), nil, []byte(src))
+                  require.NoError(t, err)
+                  t.Cleanup(func() { tree.Close() })
+                  return tree.RootNode()
+              }
+              ```
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/typresolve/go/...
+            GOWORK=off go vet ./internal/typresolve/go/...
+            GOWORK=off go test ./internal/typresolve/go/... -run TestIsBuiltinFunc -v
+            GOWORK=off go test ./internal/typresolve/go/... -run TestLookupFieldOrMethod -v
+            ```
+
+            Postconditions:
+            ```bash
+            grep -c "func IsBuiltinFunc" internal/typresolve/go/builtins.go  # expect: 1
+            grep -c "func LookupFieldOrMethod" internal/typresolve/go/methods.go  # expect: 1
+            grep -c "func LookupField" internal/typresolve/go/methods.go  # expect: 1
+            ```
+          files:
+            - internal/typresolve/go/builtins.go
+            - internal/typresolve/go/methods.go
+            - internal/typresolve/go/builtins_test.go
+        - id: C
+          task: |
+            ## Agent C: Expression Evaluator and Scope Binding
+
+            Build the expression type evaluator and statement-level scope binding
+            for the Go resolver.
+
+            ### What to implement
+
+            **File 1: `internal/typresolve/go/eval.go`**
+            Package: `goresolve`
+
+            Port the `go_eval_expr_type` function from the C reference at
+            `~/code/codebase-memory/internal/cbm/lsp/go_lsp.c` (lines 312-805).
+
+            Define the resolution context:
+            ```go
+            // ResolveContext holds per-file state for type resolution.
+            type ResolveContext struct {
+                Registry        *typresolve.Registry
+                Scope           *typresolve.Scope
+                Imports         map[string]string  // alias -> package path
+                PkgQN           string             // current package qualified name
+                Content         []byte             // source file content
+                EnclosingFuncQN string             // QN of the current function being resolved
+            }
+            ```
+
+            Implement `EvalExprType(ctx *ResolveContext, node *sitter.Node) *typresolve.Type`
+
+            Handle these expression node types (in order from the C reference):
+
+            1. `identifier` (lines 318-340):
+               - Scope lookup: `ctx.Scope.Lookup(name)`
+               - If unknown, package-level function: `ctx.Registry.LookupSymbol(ctx.PkgQN, name)`
+               - If found and has signature, return signature
+               - Check builtin type: call `ResolveBuiltinType(name)` (from builtins.go, same package)
+               - Check registered type: `ctx.Registry.LookupType(ctx.PkgQN + "." + name)`
+               - If found, return `typresolve.Named(typeQN)`
+               - Default: return `typresolve.Unknown()`
+
+            2. `selector_expression` (lines 343-392):
+               - Get operand and field children by field name
+               - If operand is `identifier`, check if it's an import alias via `ResolveImport`
+                 (from imports.go, same package). If import found:
+                 - Look up `pkg.Symbol` as function: `ctx.Registry.LookupSymbol(pkgQN, fieldName)`
+                 - Look up as type: `ctx.Registry.LookupType(pkgQN + "." + fieldName)`
+               - Otherwise, evaluate operand type recursively
+               - Auto-deref pointers: if base is Pointer, deref it
+               - If base is Named, look up method via `LookupFieldOrMethod(ctx.Registry, typeQN, fieldName)`
+                 (from methods.go, same package)
+               - If method found and has signature, return signature
+               - Look up field via `LookupField(ctx.Registry, typeQN, fieldName)` (from methods.go)
+               - Default: return Unknown
+
+            3. `call_expression` (lines 395-608):
+               - Get function and arguments children
+               - If function is identifier and is builtin: call `EvalBuiltinCall`
+                 (from builtins.go, same package), passing a closure that calls
+                 EvalExprType as the evalExpr callback
+               - Evaluate function type recursively
+               - If function type is KindFunc with returns: return first return type
+                 (or Tuple for multi-return)
+               - If function type is KindNamed: type conversion, return the named type
+               - If function node is a type node (slice_type, map_type, etc.): type
+                 conversion, call ParseTypeNode (from types.go, same package)
+               - NOTE: Skip generic type unification for now (Tier 1 focus).
+                 Agent D may add it in wave 2 if needed.
+
+            4. `composite_literal` (lines 612-618):
+               - Get "type" field child, parse via ParseTypeNode
+
+            5. `unary_expression` (lines 621-651):
+               - `&x`: return Pointer(operand type)
+               - `*x`: return Deref(operand type)
+               - `<-ch`: if channel, return element type
+               - `!x`: return Builtin("bool")
+
+            6. `index_expression` (lines 654-662):
+               - If operand is Map, return value type
+               - If operand is Slice, return element type
+
+            7. `type_assertion_expression` (lines 665-671):
+               - Parse "type" field child via ParseTypeNode
+
+            8. `parenthesized_expression` (lines 674-676): unwrap
+
+            9. `binary_expression` (lines 679-698):
+               - Comparison/logical operators: return Builtin("bool")
+               - Arithmetic: return left operand type
+
+            10. `slice_expression` (lines 700-705): return operand type
+
+            11. Literals (lines 708-723):
+                - string literals: Builtin("string")
+                - int_literal: Builtin("int")
+                - float_literal: Builtin("float64")
+                - true/false: Builtin("bool")
+                - nil: Unknown
+
+            12. `func_literal` (lines 726-802):
+                - Push child scope
+                - Bind closure parameters into scope
+                - Walk closure body to resolve calls (recursive)
+                - Build Func type from parameter/return types
+                - Pop scope
+
+            **File 2: `internal/typresolve/go/scope_bind.go`**
+            Package: `goresolve`
+
+            Port `go_process_statement` from the C reference (lines 919-1080).
+
+            Implement `ProcessStatement(ctx *ResolveContext, node *sitter.Node)`
+
+            Handle these statement types:
+
+            1. `short_var_declaration` (lines 924-968):
+               - Get "left" and "right" field children
+               - If right is expression_list with 1 element, evaluate the single expression
+               - Otherwise evaluate right directly
+               - Bind left-hand identifiers:
+                 - If RHS is Tuple, bind each LHS var to corresponding tuple element
+                 - If RHS is single value, bind first var to it
+               - Skip `_` identifiers
+
+            2. `var_spec` (lines 971-999):
+               - If has "type" field: parse type via ParseTypeNode
+               - Else if has "value" field: evaluate value expression
+               - Bind all identifier children to the type
+
+            3. `const_spec` (lines 1002-1028):
+               - If has "type" field: parse type
+               - Else if has "value" field: evaluate value
+               - Bind name identifier
+
+            4. `range_clause` (lines 1031-1076):
+               - Evaluate "right" (container) expression
+               - Determine key/value types based on container type:
+                 - Slice: key=int, value=element type
+                 - Map: key=key type, value=value type
+                 - Channel: value=element type
+                 - string: key=int, value=rune
+               - Bind left-hand identifiers (first=key, second=value)
+
+            **File 3: `internal/typresolve/go/eval_test.go`**
+            Package: `goresolve`
+
+            Test EvalExprType and ProcessStatement with parsed Go source snippets.
+
+            Test helper to parse Go and get specific expression nodes:
+            ```go
+            func parseAndFindExpr(t *testing.T, src string, exprType string) (*sitter.Node, []byte) {
+                content := []byte(src)
+                parser := sitter.NewParser()
+                parser.SetLanguage(golang.GetLanguage())
+                tree, err := parser.ParseCtx(context.Background(), nil, content)
+                require.NoError(t, err)
+                t.Cleanup(func() { tree.Close() })
+                // Walk tree to find first node of exprType
+                var found *sitter.Node
+                var walk func(n *sitter.Node)
+                walk = func(n *sitter.Node) {
+                    if found != nil { return }
+                    if n.Type() == exprType { found = n; return }
+                    for i := 0; i < int(n.ChildCount()); i++ { walk(n.Child(i)) }
+                }
+                walk(tree.RootNode())
+                require.NotNil(t, found, "no %s found in source", exprType)
+                return found, content
+            }
+            ```
+
+            Test cases for EvalExprType:
+            - Identifier resolves from scope: `x` bound to Named("pkg.MyType") -> Named
+            - Identifier resolves package function from registry
+            - Selector resolves import: `http.Get` with import map -> Func type from registry
+            - Selector resolves method on receiver: `s.Method()` where s is Named type
+            - Call returns function return type
+            - Builtin call: `len(x)` -> Builtin("int")
+            - Composite literal: `MyType{...}` -> Named("pkg.MyType")
+            - Unary &: `&x` -> Pointer
+            - Index on slice: `xs[0]` -> element type
+            - String literal -> Builtin("string")
+            - Int literal -> Builtin("int")
+            - Binary comparison -> Builtin("bool")
+
+            Test cases for ProcessStatement:
+            - Short var decl: `x := 42` binds x to Builtin("int")
+            - Short var decl multi-return: `a, err := foo()` with foo returning Tuple
+            - Var spec with type: `var x int` binds x to Builtin("int")
+            - Range over slice: binds key to int, value to element type
+
+            ### Interfaces consumed
+            - `typresolve.Registry`, `typresolve.Scope`, `typresolve.NewScope()`
+            - `typresolve.Type` and all constructors
+            - `ParseTypeNode` from types.go (Agent A, same package)
+            - `IsBuiltinFunc`, `EvalBuiltinCall`, `ResolveBuiltinType` from builtins.go (Agent B, same package)
+            - `LookupFieldOrMethod`, `LookupField` from methods.go (Agent B, same package)
+            - `ResolveImport` from imports.go (Agent A, same package)
+
+            ### Constraints
+            - Package name MUST be `goresolve`
+            - Do NOT modify any files outside your ownership list.
+            - This file depends on Agent A's types.go and imports.go, and Agent B's
+              builtins.go and methods.go. Since all are in the same Go package
+              (`goresolve`), they compile together after wave 1 merge. Your code
+              should call those functions directly (e.g., `ParseTypeNode(...)`,
+              `IsBuiltinFunc(...)`, `LookupFieldOrMethod(...)`).
+            - Skip generic type unification in EvalExprType for now. The C reference
+              handles it (lines 415-579) but it's Tier 2 complexity. Return the
+              non-substituted return type for generic function calls.
+            - For func_literal handling: push a new scope via
+              `typresolve.NewScope(ctx.Scope)`, process the closure body, then
+              restore the original scope. Do NOT use defer for scope restoration
+              (the scope must be restored before the function type is returned).
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/typresolve/go/...
+            GOWORK=off go vet ./internal/typresolve/go/...
+            GOWORK=off go test ./internal/typresolve/go/... -run TestEvalExprType -v
+            GOWORK=off go test ./internal/typresolve/go/... -run TestProcessStatement -v
+            ```
+
+            Postconditions:
+            ```bash
+            grep -c "func EvalExprType" internal/typresolve/go/eval.go  # expect: 1
+            grep -c "func ProcessStatement" internal/typresolve/go/scope_bind.go  # expect: 1
+            grep -c "type ResolveContext struct" internal/typresolve/go/eval.go  # expect: 1
+            ```
+          files:
+            - internal/typresolve/go/eval.go
+            - internal/typresolve/go/scope_bind.go
+            - internal/typresolve/go/eval_test.go
+    - number: 2
+      agents:
+        - id: D
+          task: |
+            ## Agent D: Resolver Integration, Registry Builder, and Call Resolution
+
+            Integrate all wave 1 components into the GoResolver that implements
+            typresolve.Resolver, build the registry builder, and implement call
+            resolution with edge emission.
+
+            ### What to implement
+
+            **File 1: `internal/typresolve/go/resolver.go`**
+            Package: `goresolve`
+
+            The main GoResolver struct implementing `typresolve.Resolver`:
+
+            ```go
+            type GoResolver struct {
+                registry *typresolve.Registry
+            }
+
+            func NewGoResolver() *GoResolver {
+                return &GoResolver{}
+            }
+
+            func (r *GoResolver) Language() string { return "go" }
+            ```
+
+            `InitWorkspace(ctx context.Context, defs []typresolve.ResolverDef) error`:
+            - Group defs by FilePath
+            - For defs that have Content and ParsedTree (from FileResult), extract
+              richer type information. For now, call BuildRegistry with the defs.
+            - Store the resulting registry in r.registry
+
+            NOTE: The current ResolverDef struct has QualifiedName, Kind, Signature,
+            FilePath, PackagePath fields. The ResolverEnricher in resolver.go calls
+            collectDefs which populates these from edges. For the Go resolver, we need
+            richer information (struct fields, embedded types, method receivers). The
+            approach:
+            1. InitWorkspace receives defs from collectDefs (basic metadata)
+            2. But we also need the parsed trees and file contents to extract type
+               details. Since ResolverDef doesn't carry these, we need to either:
+               a. Accept that InitWorkspace gets limited info and do more work in ResolveFile
+               b. Extend the interface (not allowed, shared infra is frozen)
+
+            Strategy: In InitWorkspace, build a registry from the ResolverDef entries
+            (function names, types by kind). The registry will have qualified names but
+            limited type information (no fields, no embeddings). This gives us Tier 1
+            resolution: import-based call resolution and scope-tracked variable types.
+
+            For Tier 2 (cross-file method dispatch with embeddings), we would need to
+            re-parse files during InitWorkspace. For now, focus on Tier 1 which already
+            matches the value of the current AST-inferred edges but with higher confidence.
+
+            `ResolveFile(ctx context.Context, opts typresolve.ResolveFileOpts) ([]types.Edge, error)`:
+            1. Get the tree-sitter root node from opts.ParsedTree:
+               ```go
+               root, ok := opts.ParsedTree.(*sitter.Node)
+               if !ok {
+                   // Try SharedTree from gotsextractor
+                   if st, ok2 := opts.ParsedTree.(*gotsextractor.SharedTree); ok2 {
+                       root = st.Root
+                   }
+               }
+               ```
+               NOTE: importing gotsextractor creates a dependency. Instead, use type
+               assertion on an interface:
+               ```go
+               type rootProvider interface {
+                   GetRoot() *sitter.Node
+               }
+               ```
+               Or just try `*sitter.Node` first, then check for a struct with a Root field.
+               Simplest approach: opts.ParsedTree is `any`. Try `*sitter.Node` assertion.
+               If that fails, use reflection or a type switch. The SharedTree struct has
+               a `Root *sitter.Node` field. Use:
+               ```go
+               switch v := opts.ParsedTree.(type) {
+               case *sitter.Node:
+                   root = v
+               default:
+                   // Try to get Root field via reflection or re-parse
+                   // For safety, re-parse the content
+                   parser := sitter.NewParser()
+                   parser.SetLanguage(golang.GetLanguage())
+                   tree, err := parser.ParseCtx(ctx, nil, opts.Content)
+                   if err != nil {
+                       return nil, fmt.Errorf("parse: %w", err)
+                   }
+                   defer tree.Close()
+                   root = tree.RootNode()
+               }
+               ```
+
+            2. Build per-file import map: `imports := BuildImportMap(root, opts.Content)`
+
+            3. Determine package QN from the file path. Use the first edge's
+               QualifiedName prefix, or compute from the file path:
+               ```go
+               pkgQN := inferPackageQN(opts.FilePath, opts.Edges)
+               ```
+
+            4. Create ResolveContext with the registry, a new root scope, imports,
+               pkgQN, and content.
+
+            5. Call `ResolveCallsInFile(rctx, root, opts.FileHash, repoURL, opts.FilePath)`
+
+            6. Return the edges with provenance `typresolve.ProvenanceResolverResolved`
+               and confidence `typresolve.ResolverConfidence` (0.9).
+
+            Helper function:
+            ```go
+            func inferPackageQN(filePath string, edges []types.Edge) string
+            ```
+            Extract from the first edge's source QualifiedName if available (format:
+            "repoURL://pkgPath.symbolName"), or fall back to directory path.
+
+            **File 2: `internal/typresolve/go/registry_builder.go`**
+            Package: `goresolve`
+
+            Implement `BuildRegistry(defs []typresolve.ResolverDef) *typresolve.Registry`:
+            1. Create a new registry via `typresolve.NewRegistry()`
+            2. For each def:
+               - If Kind is "function": register as RegisteredFunc with
+                 QualifiedName=def.QualifiedName, ShortName=last segment after "."
+               - If Kind is "method": register as RegisteredFunc with
+                 ReceiverType extracted from QualifiedName (format:
+                 "repoURL://pkg.ReceiverType.MethodName")
+               - If Kind is "type" or "interface": register as RegisteredType with
+                 QualifiedName, IsInterface=(Kind=="interface")
+            3. Return the registry
+
+            This gives Tier 1 resolution: the registry knows which functions and types
+            exist and their qualified names. It does NOT have full type signatures,
+            struct fields, or embeddings (that requires Tier 2 re-parsing in a future
+            enhancement).
+
+            **File 3: `internal/typresolve/go/resolve.go`**
+            Package: `goresolve`
+
+            Port the call resolution logic from the C reference (lines 1111-1631).
+
+            Implement `ResolveCallsInFile(ctx *ResolveContext, root *sitter.Node, fileHash types.Hash, repoURL string, filePath string) []types.Edge`:
+
+            This function walks the file's AST and resolves call expressions to edges.
+
+            Structure (following go_lsp_process_file, lines 1597-1630):
+            1. Walk top-level children of root
+            2. Pass 1: Process package-level var/const declarations into root scope
+            3. Pass 2: For each function_declaration or method_declaration:
+               a. Set ctx.EnclosingFuncQN
+               b. Push function scope
+               c. Bind parameters into scope (including variadic: ...T becomes []T)
+               d. Bind named return values into scope
+               e. Bind method receiver into scope
+               f. Call resolveCallsInNode recursively on the function body
+               g. Pop function scope
+
+            Internal function `resolveCallsInNode(ctx *ResolveContext, node *sitter.Node, edges *[]types.Edge, fileHash types.Hash, repoURL string, filePath string)`:
+            (Port of resolve_calls_in_node, lines 1111-1472)
+
+            1. Call `ProcessStatement(ctx, node)` to bind variables
+            2. If node is `call_expression`:
+               - Get function child
+               - If selector_expression:
+                 a. Check if operand is import alias: look up pkg.Symbol in registry
+                 b. Else: evaluate operand type, auto-deref pointer, look up method
+               - If identifier (not builtin): look up in registry as package-local function
+               - Emit edge with:
+                 - SourceHash: compute from (repoURL, pkgPath, enclosingFuncQN, kind)
+                 - TargetHash: compute from callee's qualified name
+                 - EdgeType: edgetype.Calls
+                 - Confidence: typresolve.ResolverConfidence (0.9)
+                 - Provenance: typresolve.ProvenanceResolverResolved
+                 - CallSiteLine, CallSiteCol, CallSiteFile from node position
+            3. Push scope for blocks, if, for, switch statements
+            4. Process initializer for if/for/switch
+            5. Process range_clause for for statements
+            6. Handle type_switch_statement: per-case scope narrowing
+               (Port lines 1312-1384: bind switch variable to case type in each case)
+            7. Recurse into children
+            8. Pop scope if pushed
+
+            For edge hash computation, use `types.ComputeEdgeHash(sourceHash, targetHash, edgeType, provenance)`.
+            For node hash computation, use `types.ComputeNodeHash(repoURL, pkgPath, types.EmptyHash, name, kind)`.
+
+            Import these:
+            - `github.com/blackwell-systems/knowing/internal/types`
+            - `github.com/blackwell-systems/knowing/internal/edgetype`
+            - `github.com/blackwell-systems/knowing/internal/typresolve`
+
+            Helper to extract callee info from a resolved call:
+            ```go
+            type resolvedCall struct {
+                calleeQN string
+                strategy string  // "resolver_direct", "resolver_type_dispatch", etc.
+            }
+            ```
+
+            **File 4: `internal/typresolve/go/resolver_test.go`**
+            Package: `goresolve`
+
+            Integration tests for the full resolver pipeline.
+
+            Test 1: `TestGoResolverLanguage`
+            - NewGoResolver().Language() == "go"
+
+            Test 2: `TestGoResolverInitWorkspace`
+            - Create defs with function and type entries
+            - Call InitWorkspace
+            - Verify registry contains the registered entries
+
+            Test 3: `TestGoResolverResolveFile_SimpleCalls`
+            - Source:
+              ```go
+              package main
+
+              import "fmt"
+
+              func hello() {
+                  fmt.Println("hello")
+              }
+              ```
+            - InitWorkspace with a def for fmt.Println
+            - ResolveFile should produce a "calls" edge from hello to fmt.Println
+            - Verify edge has provenance "resolver_resolved" and confidence 0.9
+
+            Test 4: `TestGoResolverResolveFile_LocalCalls`
+            - Source with local function calls (no imports)
+            - Verify edges are produced
+
+            Test 5: `TestGoResolverResolveFile_MethodCalls`
+            - Source with method calls on typed variables
+            - Register type and method in workspace
+            - Verify method dispatch edge is produced
+
+            Test 6: `TestResolveCallsInFile_ScopeTracking`
+            - Source with short_var_declaration followed by method call on the variable
+            - Verify the scope correctly tracks the variable type and the method
+              call is resolved
+
+            Test 7: `TestResolveCallsInFile_RangeLoop`
+            - Source with `for k, v := range mySlice { v.Method() }`
+            - Register slice element type's method
+            - Verify method call on range variable is resolved
+
+            ### Interfaces consumed
+            - All wave 1 functions: ParseTypeNode, BuildImportMap, ResolveImport,
+              IsBuiltinFunc, EvalBuiltinCall, ResolveBuiltinType, LookupFieldOrMethod,
+              LookupField, EvalExprType, ProcessStatement, ResolveContext
+            - `typresolve.Resolver`, `typresolve.ResolverDef`, `typresolve.ResolveFileOpts`
+            - `typresolve.Registry`, `typresolve.Scope`, `typresolve.NewScope`
+            - `types.Edge`, `types.Hash`, `types.ComputeEdgeHash`, `types.ComputeNodeHash`
+            - `edgetype.Calls`
+            - `sitter.Node`, `sitter.NewParser`, `golang.GetLanguage`
+
+            ### Constraints
+            - Package name MUST be `goresolve`
+            - Do NOT modify any files outside your ownership list.
+            - Do NOT modify the typresolve package (shared infrastructure is frozen).
+            - Do NOT import `internal/indexer/gotsextractor` directly. If you need to
+              handle SharedTree from the extractor, use a type switch with reflection
+              or re-parse the content as a fallback.
+            - Edge provenance MUST be `typresolve.ProvenanceResolverResolved`
+              ("resolver_resolved"), NOT "lsp_resolved".
+            - Edge confidence MUST be `typresolve.ResolverConfidence` (0.9).
+            - For computing source node hashes: extract repoURL and pkgPath from the
+              existing edges in opts.Edges if available. The source hash for a call edge
+              should match the hash of the function/method node that contains the call.
+              Use the same hash computation as the extractor:
+              `types.ComputeNodeHash(repoURL, pkgPath, types.EmptyHash, funcName, kind)`.
+            - For computing target node hashes: use the callee's qualified name components.
+              For pkg.Func calls: `types.ComputeNodeHash(repoURL, pkgPath, types.EmptyHash, funcName, types.KindFunction)`.
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/typresolve/go/...
+            GOWORK=off go vet ./internal/typresolve/go/...
+            GOWORK=off go test ./internal/typresolve/go/... -v
+            GOWORK=off go build ./...
+            GOWORK=off go test -short ./... -timeout 5m
+            ```
+
+            Postconditions:
+            ```bash
+            grep -c "func NewGoResolver" internal/typresolve/go/resolver.go  # expect: 1
+            grep -c "func BuildRegistry" internal/typresolve/go/registry_builder.go  # expect: 1
+            grep -c "func ResolveCallsInFile" internal/typresolve/go/resolve.go  # expect: 1
+            # Verify it implements the Resolver interface
+            grep -c "typresolve.Resolver" internal/typresolve/go/resolver.go  # expect: >= 1
+            ```
+          files:
+            - internal/typresolve/go/resolver.go
+            - internal/typresolve/go/registry_builder.go
+            - internal/typresolve/go/resolve.go
+            - internal/typresolve/go/resolver_test.go
+          dependencies:
+            - A
+            - B
+            - C
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: GOWORK=off go build ./...
+          required: true
+        - type: lint
+          command: GOWORK=off go vet ./...
+          required: true
+        - type: test
+          command: GOWORK=off go test -short ./... -timeout 5m
+          required: true
+post_merge_checklist:
+    groups:
+        - title: Build Verification
+          items:
+            - description: 'Full test suite passes: GOWORK=off go build ./... && GOWORK=off go test -short ./... -timeout 5m'
+            - description: Verify GoResolver implements typresolve.Resolver interface (compile check)
+        - title: Integration Verification
+          items:
+            - description: Verify resolver can be registered with ResolverEnricher
+            - description: Verify resolver_test.go integration tests pass end-to-end
+pre_mortem:
+    overall_risk: medium
+    rows:
+        - scenario: |
+            Wave 1 agents call cross-file functions that don't exist yet in their
+            isolated worktrees (Agent C calls ParseTypeNode from Agent A's types.go).
+          likelihood: high
+          impact: low
+          mitigation: |
+            All wave 1 agents are in the same Go package (goresolve). Their files
+            compile together only after merge. The build gate runs post-merge.
+            Individual agent worktrees will not compile in isolation, which is
+            expected and acceptable. Agent verification gates should test only
+            their own logic via test helpers that don't require the missing files.
+            NOTE: Since go build runs on the full package after merge, individual
+            agents should focus on go vet (which works per-file) and defer full
+            compilation to the post-merge gate.
+        - scenario: |
+            Agent A and Agent B both define isBuiltinType with different type sets,
+            causing a duplicate function error at merge.
+          likelihood: medium
+          impact: medium
+          mitigation: |
+            Agent A is instructed to define a local isBuiltinType helper. Agent B
+            defines the canonical ResolveBuiltinType function. The names are different
+            (isBuiltinType vs ResolveBuiltinType). If Agent A's local helper conflicts,
+            Agent D removes the duplicate in wave 2 integration.
+        - scenario: |
+            tree-sitter Node field name mismatches between the C reference and the Go
+            tree-sitter bindings cause nil pointer panics at runtime.
+          likelihood: medium
+          impact: medium
+          mitigation: |
+            The Go tree-sitter bindings use the same field names as the C API
+            (ChildByFieldName is the Go equivalent of ts_node_child_by_field_name).
+            Agents should guard against nil returns from ChildByFieldName with nil
+            checks. The existing gotsextractor code demonstrates the correct patterns.
+        - scenario: |
+            ResolveContext is defined by Agent C but Agent D needs to extend it
+            with additional fields (e.g., repoURL for edge emission).
+          likelihood: medium
+          impact: low
+          mitigation: |
+            Agent D can add fields to ResolveContext since both files are in the
+            same package. The struct is not exported. Agent D's task explicitly
+            includes the freedom to extend it.
+        - scenario: |
+            Package-level var/const binding in resolve.go (Agent D) conflicts with
+            scope_bind.go (Agent C) if both define ProcessStatement behavior.
+          likelihood: low
+          impact: medium
+          mitigation: |
+            Agent C owns ProcessStatement exclusively. Agent D calls it but does
+            not redefine it. Agent D handles the file-level walk structure
+            (function binding, parameter binding, receiver binding) separately
+            in resolve.go. No overlap.
+        - scenario: |
+            Wave 1 agents cannot run go build or go test individually because the
+            package has missing function references across files.
+          likelihood: high
+          impact: low
+          mitigation: |
+            Expected behavior. Wave 1 agents verify their code compiles by running
+            go vet on individual files (which checks syntax without full type
+            checking) and write standalone test helpers. The full go build and
+            go test run post-merge after all wave 1 files are combined. Agent
+            verification gates are adjusted to tolerate this.
+critic_report:
+    verdict: PASS
+    agent_reviews: {}
+    summary: Skipped by operator (--skip-critic)
+    reviewed_at: "2026-05-31T05:38:46Z"
+    issue_count: 0
+state: REVIEWED
+injection_method: hook

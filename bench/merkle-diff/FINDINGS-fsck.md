@@ -7,8 +7,8 @@ statistics report min, median, p95, mean, and stddev.
 ## Setup
 
 - Repository: knowing (live codebase)
-- Nodes verified: 10782
-- Edges verified: 51276
+- Nodes verified: 10814
+- Edges verified: 51477
 - Snapshots in chain: checked for parent continuity
 
 ## Checks Performed by Verify
@@ -24,7 +24,7 @@ statistics report min, median, p95, mean, and stddev.
 
 ## Performance Contract
 
-- Verify on the knowing repo (10782 nodes, 51276 edges) must complete in under 30
+- Verify on the knowing repo (10814 nodes, 51477 edges) must complete in under 30
   seconds (median). Test fails if violated.
 
 ## Corruption Detection
