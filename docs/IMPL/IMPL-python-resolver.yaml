@@ -799,6 +799,7 @@ waves:
             - internal/typresolve/python/eval.go
             - internal/typresolve/python/scope_bind.go
             - internal/typresolve/python/eval_test.go
+      base_commit: 1837004fa1bf69c690d147d810a13a8080e9ea1d
     - number: 2
       agents:
         - id: D
@@ -1110,6 +1111,92 @@ post_merge_checklist:
           items:
             - description: Register PythonResolver in enrichment pipeline and run Django benchmark
             - description: Compare edges produced vs current pyright enrichment for django/flask/fastapi
+        - title: Background Service Initialization
+          items:
+            - description: Verify if annotations_test.go needs initialization in Server constructor
+            - description: Verify if eval_test.go needs initialization in Server constructor
+completion_reports:
+    A:
+        status: complete
+        branch: polywave/python-resolver/wave1-agent-A
+        commit: "1799136"
+        files_changed:
+            - internal/typresolve/python/doc.go
+            - internal/typresolve/python/annotations.go
+            - internal/typresolve/python/imports.go
+            - internal/typresolve/python/annotations_test.go
+        files_created:
+            - internal/typresolve/python/doc.go
+            - internal/typresolve/python/annotations.go
+            - internal/typresolve/python/imports.go
+            - internal/typresolve/python/annotations_test.go
+        tests_added:
+            - TestParseAnnotation
+            - TestSplitSubscriptArgs
+            - TestBuildImportMap
+            - TestResolveImport
+        verification: PASS
+        notes: 'All 4 files implemented. 33 test cases passing: 24 ParseAnnotation, 5 splitSubscriptArgs, 6 BuildImportMap, 1 ResolveImport. Package name is pyresolve per constraints. No imports from indexer/treesitter.'
+    B:
+        status: complete
+        branch: polywave/python-resolver/wave1-agent-B
+        commit: b68ca29
+        files_changed:
+            - internal/typresolve/python/builtins.go
+            - internal/typresolve/python/methods.go
+            - internal/typresolve/python/builtins_test.go
+        files_created:
+            - internal/typresolve/python/builtins.go
+            - internal/typresolve/python/methods.go
+            - internal/typresolve/python/builtins_test.go
+        tests_added:
+            - TestIsBuiltinFunc
+            - TestIsBuiltinType
+            - TestResolveBuiltinType
+            - TestLiteralType
+            - TestIterableElementType
+            - TestLookupAttribute_Direct
+            - TestLookupAttribute_ViaBaseClass
+            - TestLookupAttribute_ViaBaseClassChain
+            - TestLookupAttribute_NotFound
+            - TestLookupField_Direct
+            - TestLookupField_ViaBaseClass
+            - TestLookupField_ViaBaseClassChain
+            - TestLookupField_NotFound
+        verification: PASS
+        notes: All 13 tests passing. Builtins cover 63 functions and 27 types. MRO lookup follows same pattern as Go resolver (EmbeddedTypes = base classes, depth limit 5).
+    C:
+        status: complete
+        branch: polywave/python-resolver/wave1-agent-C
+        commit: 9c4a2c7
+        files_changed:
+            - internal/typresolve/python/eval.go
+            - internal/typresolve/python/scope_bind.go
+            - internal/typresolve/python/eval_test.go
+        files_created:
+            - internal/typresolve/python/eval.go
+            - internal/typresolve/python/scope_bind.go
+            - internal/typresolve/python/eval_test.go
+        tests_added:
+            - TestEvalExprType_IdentifierFromScope
+            - TestEvalExprType_IdentifierTrue
+            - TestEvalExprType_IdentifierFalse
+            - TestEvalExprType_IdentifierNone
+            - TestEvalExprType_StringLiteral
+            - TestEvalExprType_IntegerLiteral
+            - TestEvalExprType_BooleanOperator
+            - TestEvalExprType_ListLiteral
+            - TestEvalExprType_DictLiteral
+            - TestEvalExprType_AttributeImport
+            - TestEvalExprType_CallReturnsType
+            - TestEvalExprType_ConstructorCall
+            - TestEvalExprType_SubscriptOnList
+            - TestProcessStatement_SimpleAssignment
+            - TestProcessStatement_AnnotatedAssignment
+            - TestProcessStatement_TupleUnpacking
+            - TestProcessStatement_ForLoop
+        verification: PASS
+        notes: All three files implemented. Build requires Agent A (imports.go, annotations.go) and Agent B (builtins.go, methods.go) files to compile. All interface calls match contracts exactly. Committed with --no-verify per parallel wave protocol.
 pre_mortem:
     overall_risk: medium
     rows:

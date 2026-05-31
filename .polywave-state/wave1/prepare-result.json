@@ -3,51 +3,51 @@
   "worktrees": [
     {
       "agent": "A",
-      "path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/typescript-resolver/wave1-agent-A",
-      "branch": "polywave/typescript-resolver/wave1-agent-A"
+      "path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/python-resolver/wave1-agent-A",
+      "branch": "polywave/python-resolver/wave1-agent-A"
     },
     {
       "agent": "B",
-      "path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/typescript-resolver/wave1-agent-B",
-      "branch": "polywave/typescript-resolver/wave1-agent-B"
+      "path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/python-resolver/wave1-agent-B",
+      "branch": "polywave/python-resolver/wave1-agent-B"
     },
     {
       "agent": "C",
-      "path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/typescript-resolver/wave1-agent-C",
-      "branch": "polywave/typescript-resolver/wave1-agent-C"
+      "path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/python-resolver/wave1-agent-C",
+      "branch": "polywave/python-resolver/wave1-agent-C"
     }
   ],
   "agent_briefs": [
     {
       "agent": "A",
-      "brief_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/typescript-resolver/wave1-agent-A/.polywave-agent-brief.md",
-      "brief_length": 20475,
+      "brief_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/python-resolver/wave1-agent-A/.polywave-agent-brief.md",
+      "brief_length": 13902,
       "journal_dir": "/Users/dayna.blackwell/code/knowing/.polywave-state/wave1/agent-A",
       "files_owned": 4,
-      "worktree_env_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/typescript-resolver/wave1-agent-A/.polywave-worktree-env"
+      "worktree_env_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/python-resolver/wave1-agent-A/.polywave-worktree-env"
     },
     {
       "agent": "B",
-      "brief_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/typescript-resolver/wave1-agent-B/.polywave-agent-brief.md",
-      "brief_length": 15618,
+      "brief_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/python-resolver/wave1-agent-B/.polywave-agent-brief.md",
+      "brief_length": 11008,
       "journal_dir": "/Users/dayna.blackwell/code/knowing/.polywave-state/wave1/agent-B",
       "files_owned": 3,
-      "worktree_env_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/typescript-resolver/wave1-agent-B/.polywave-worktree-env"
+      "worktree_env_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/python-resolver/wave1-agent-B/.polywave-worktree-env"
     },
     {
       "agent": "C",
-      "brief_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/typescript-resolver/wave1-agent-C/.polywave-agent-brief.md",
-      "brief_length": 21047,
+      "brief_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/python-resolver/wave1-agent-C/.polywave-agent-brief.md",
+      "brief_length": 16150,
       "journal_dir": "/Users/dayna.blackwell/code/knowing/.polywave-state/wave1/agent-C",
       "files_owned": 3,
-      "worktree_env_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/typescript-resolver/wave1-agent-C/.polywave-worktree-env"
+      "worktree_env_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/python-resolver/wave1-agent-C/.polywave-worktree-env"
     }
   ],
   "steps": [
     {
       "step": "resume_detection",
-      "status": "success",
-      "detail": "no orphaned worktrees"
+      "status": "warning",
+      "detail": "1 orphaned worktree(s) for typescript-resolver (wave 1)"
     },
     {
       "step": "dep_check",
