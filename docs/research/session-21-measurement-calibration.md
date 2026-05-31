@@ -184,11 +184,89 @@ every competitor is confirmed with honest measurement.
 | Matching | exact + case-insensitive + suffix + qualified terminal + dot-bounded |
 | Measurement disclosed | raw substring was 0.283, honest is 0.184 |
 
+## Secondary Issue: Normalization Depth Mismatch
+
+The strict match ablation (0.077) was lower than expected because `Symbol()`
+normalizes the two sides of a match to different depths:
+
+- **Ground truth** `django.template.library.Library.filter` normalizes to
+  `Library.filter` (Case 3: first uppercase component)
+- **Knowing's output** `...library.py.Library.filter` normalizes to
+  `Library.filter` (Case 1: strip at `.py.`)
+- These match. But some cases don't:
+
+- **C# ground truth** `Ocelot.Authentication.AuthenticationMiddleware.Invoke`
+  normalizes to full string (Case 3: first uppercase at index 0, returns all)
+- **Knowing's output** `...AuthenticationMiddleware.cs.AuthenticationMiddleware.Invoke`
+  normalizes to `AuthenticationMiddleware.Invoke` (Case 1: strip at `.cs.`)
+- These DON'T exact-match. Suffix match catches it. Dot-bounded catches it.
+
+- **All-lowercase Python** `django.template.defaultfilters.floatformat`
+  had no uppercase marker, returned full string. Fixed with Case 4 (return
+  last component: `floatformat`).
+
+The proper fix (not yet completed): query each repo's `graph.db` for every
+ground truth symbol and store knowing's actual `qualified_name` in the fixture.
+Then `Symbol(returned) == Symbol(ground_truth)` every time. A
+`groundtruth_rewrite_test.go` utility was written but needs refinement
+(NodesByName search too strict, needs LIKE queries).
+
+## Key File Locations
+
+| File | What changed |
+|------|-------------|
+| `internal/context/context.go` | `focusedSeedSelect()`, `dominantPkg()`, `qualifiedNamePkg()`, cluster-aware gap-fill (lines ~754-862) |
+| `bench/cross-system/normalize/normalize.go` | `dotBoundedContains()`, tightened `qualifierOverlap()`, Case 4 in `stripFilePath()` |
+| `bench/cross-system/normalize/normalize_test.go` | Updated test expectations for tightened matching |
+| `bench/cross-system/harness_test.go` | `BENCH_DEBUG_ZEROS=1` debug logging |
+| `bench/cross-system/groundtruth_rewrite_test.go` | Ground truth validation utility (new) |
+| `bench/cross-system/ADVERSARIAL-AUDIT.md` | Full adversarial review (new) |
+| `bench/cross-system/corpus/MANIFEST.yaml` | Pinned commits for 15 repos (new) |
+| `bench/cross-system/corpus/corpus-setup.sh` | Reproducibility script (new) |
+| `bench/cross-system/METHODOLOGY.md` | Corpus selection policy, reproducibility section |
+| `docs/research/in-process-resolver-analysis.md` | Competitor extraction architecture analysis (new) |
+
+## Documents Needing P@10 Update (currently show 0.283, should show 0.184)
+
+Use `grep -r "0\.283" docs/ bench/ README.md npm/ pypi/` to find all instances.
+Key files:
+
+1. `README.md` (headline numbers table)
+2. `CLAUDE.md` (Current State section, competitive ratios, experiment summary)
+3. `docs/roadmap.md` (header, retrieval pipeline section)
+4. `docs/index.md` (one-liner)
+5. `docs/guide/introduction.md` (operational characteristics, measured performance table)
+6. `docs/architecture/retrieval-pipeline.md` (eval baseline)
+7. `docs/architecture/system-overview.md` (benchmark section)
+8. `docs/architecture/design-principles.md` (benchmark results)
+9. `docs/architecture/context-engine.md` (current performance)
+10. `docs/architecture/adaptive-retrieval.md` (current result, ablation table)
+11. `bench/cross-system/FINDINGS.md` (executive summary, per-repo, competitive)
+12. `bench/README.md` (cross-system row)
+13. `npm/knowing/README.md` (package description)
+14. `pypi/README.md` (package description)
+15. `docs/research/whitepapers/code-context-retrieval-benchmark.md` (abstract, results, conclusion)
+16. Blog post (`/Users/dayna.blackwell/code/blog/content/posts/ai-code-context-tools-benchmark.md`)
+
+New competitive ratios to use: 2.11x codegraph, 3.35x GitNexus, 3.54x Gortex,
+8.0x Aider, 12.3x grep.
+
+## Rails Enrichment Status
+
+- **Enrichment DB:** `/tmp/rails-enrich3.db`
+- **LSP edges:** 1.94M+ (still running as of end of session, ~4 hours elapsed)
+- **ruby-lsp process:** PID 60175, CPU ~80-90%, 230+ min CPU time
+- **Pre-enrichment baseline:** P@10 = 0.220 (20 tasks, no embeddings, old matcher)
+- **Expected:** swap enriched DB into `corpus/repos/rails/.knowing/graph.db`,
+  checkpoint WAL, delete SHM/WAL at destination, run benchmark with honest matcher
+- **Gemfile note:** Rails Gemfile was modified (mysql2, pg, trilogy commented out)
+  to allow `bundle install` for ruby-lsp. Restore original after enrichment.
+
 ## Open Items
 
-1. **Update all docs** with honest P@10=0.184 and new ratios (currently show 0.283)
-2. **Rails enrichment benchmark** (1.9M+ LSP edges, swap DB, re-test)
-3. **Ground truth rewrite** using graph.db qualified names (could push P@10 higher)
-4. **Fix Wilcoxon tied-rank handling** (audit finding MEDIUM-4)
+1. **Update all docs** with honest P@10=0.184 and new ratios (see file list above)
+2. **Rails enrichment benchmark** (swap enriched DB, test with honest matcher)
+3. **Ground truth rewrite** using graph.db qualified names (could push P@10 to ~0.20-0.25)
+4. **Fix Wilcoxon tied-rank handling** (audit finding MEDIUM-4, `bench/cross-system/metrics/stats.go`)
 5. **Blog post** update with honest numbers
-6. **In-process language resolvers** (roadmap #9, 100x enrichment speedup)
+6. **In-process language resolvers** (roadmap #9, see `docs/research/in-process-resolver-analysis.md`)
