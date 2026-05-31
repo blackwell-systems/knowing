@@ -44,7 +44,7 @@ suitability_assessment: |
     integrates them into the resolver.
 test_command: GOWORK=off go test -short ./... -timeout 5m
 lint_command: GOWORK=off go vet ./...
-state: SCOUT_PENDING
+state: REVIEWED
 file_ownership:
     - file: internal/typresolve/rust/doc.go
       agent: A

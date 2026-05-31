@@ -1278,5 +1278,5 @@ pre_mortem:
             function reads the package_declaration node using the same approach as
             extractJavaPackage (line 151). If no package declaration exists, fall
             back to directory-path inference.
-state: SCOUT_PENDING
+state: REVIEWED
 injection_method: manual-fallback

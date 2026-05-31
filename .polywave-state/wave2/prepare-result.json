@@ -3,18 +3,18 @@
   "worktrees": [
     {
       "agent": "D",
-      "path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/go-resolver/wave2-agent-D",
-      "branch": "polywave/go-resolver/wave2-agent-D"
+      "path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/typescript-resolver/wave2-agent-D",
+      "branch": "polywave/typescript-resolver/wave2-agent-D"
     }
   ],
   "agent_briefs": [
     {
       "agent": "D",
-      "brief_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/go-resolver/wave2-agent-D/.polywave-agent-brief.md",
-      "brief_length": 16705,
+      "brief_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/typescript-resolver/wave2-agent-D/.polywave-agent-brief.md",
+      "brief_length": 20454,
       "journal_dir": "/Users/dayna.blackwell/code/knowing/.polywave-state/wave2/agent-D",
       "files_owned": 4,
-      "worktree_env_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/go-resolver/wave2-agent-D/.polywave-worktree-env"
+      "worktree_env_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/typescript-resolver/wave2-agent-D/.polywave-worktree-env"
     }
   ],
   "steps": [
@@ -65,8 +65,8 @@
     },
     {
       "step": "ownership_coverage",
-      "status": "warning",
-      "detail": "agent B modified unowned files: [go.mod]"
+      "status": "success",
+      "detail": "coverage valid"
     },
     {
       "step": "file_existence",
@@ -76,7 +76,7 @@
     {
       "step": "commit_baseline",
       "status": "success",
-      "detail": "committed 12 file(s)"
+      "detail": "committed 14 file(s)"
     },
     {
       "step": "baseline_gates",

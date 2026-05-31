@@ -1176,5 +1176,11 @@ pre_mortem:
             their code via go vet (syntax-level) and defer full compilation to
             the post-merge gate. Agent verification gates are adjusted to
             tolerate this.
+critic_report:
+    verdict: PASS
+    agent_reviews: {}
+    summary: Skipped by operator (--skip-critic)
+    reviewed_at: "2026-05-31T06:30:44Z"
+    issue_count: 0
 state: REVIEWED
 injection_method: hook
