@@ -350,5 +350,40 @@ orchestrator should support running both paths:
    alone is not sufficient justification.
 5. **Phased rollout:** Go and Python first (highest benchmark impact, best-understood
    languages). TypeScript and C# follow after the shared infrastructure proves stable.
-   External LSP remains the permanent path for languages without resolvers (Java via
-   jdtls, Ruby via ruby-lsp) until those resolvers are built.
+   External LSP remains the fallback for languages without resolvers until those
+   resolvers are built.
+
+### Endgame: full replacement
+
+Once every supported language has an in-process resolver, the external LSP path
+becomes dead code and can be removed entirely. The dependency chain that goes away:
+
+- `lsp.LSPClient` and all JSON-RPC protocol handling
+- External process spawning, warmup probes, health checks, timeout management
+- Multi-module gopls coordination (the problem that motivated this analysis)
+- Language server installation requirements (gopls, pyright, tsserver, ruby-lsp,
+  jdtls, rust-analyzer, csharp-ls)
+
+**Coverage to full replacement:**
+
+| Resolvers built | Corpus coverage | External LSP still needed for |
+|----------------|----------------|-------------------------------|
+| Go, Python | 9/15 repos | TS, C#, Rust, Ruby, Java |
+| + TypeScript, Ruby | 13/15 repos | C#, Java |
+| + C#, Rust | 15/15 repos | Java only |
+| + Java | 15/15 repos | Nothing (remove external LSP) |
+
+**What full replacement means for the product:**
+- **True single binary.** No language servers to install, configure, or update.
+  `knowing add .` works on a fresh machine with zero setup.
+- **Enrichment in seconds, not minutes.** No process spawning, no warmup, no IPC.
+  A repo that takes 90s to enrich with gopls takes <2s with in-process resolution.
+- **No more enrichment failures.** External LSP servers crash, time out, refuse to
+  start on certain project layouts (go.work with 30+ modules). In-process resolution
+  has no external failure modes.
+- **Simpler codebase.** The enricher drops from ~1,500 lines of LSP lifecycle
+  management to ~200 lines of resolver dispatch.
+
+The multi-module gopls scout (currently in progress) is a near-term fix for the
+immediate go.work problem. In-process Go resolution is the long-term answer that
+makes the problem structurally impossible.
