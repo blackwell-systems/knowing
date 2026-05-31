@@ -595,9 +595,9 @@ func (e *Enricher) upgradeCallEdges(
 			if fileFilter != nil && !fileFilter(edge.CallSiteFile) {
 				continue
 			}
-			// Skip test files and generated code: these edges are low-value
-			// for enrichment and can represent 30-50% of edges on large repos.
-			if isTestFile(edge.CallSiteFile) || strings.Contains(edge.CallSiteFile, "zz_generated") {
+			// Skip generated code only. Test files ARE enriched because test
+			// edges create reachability paths to ground truth symbols.
+			if strings.Contains(edge.CallSiteFile, "zz_generated") {
 				stats.edgesSkipped.Add(1)
 				continue
 			}
@@ -675,7 +675,6 @@ func (e *Enricher) upgradeCallEdges(
 		log.Printf("enrichment: warming up server (opening file + retrying, up to 300s)...")
 		warmStart := time.Now()
 		warmDeadline := warmStart.Add(300 * time.Second)
-		item := workItems[0]
 
 		// Open one file per unique directory to force gopls to load ALL packages.
 		// gopls uses lazy loading: it won't load a package until a file from that
@@ -696,20 +695,48 @@ func (e *Enricher) upgradeCallEdges(
 		log.Printf("enrichment: opened %d files across %d packages to trigger full workspace loading",
 			len(openedDirs), len(openedDirs))
 
-		warmPos := lsptypes.Position{Line: 5, Character: 0} // safe position near top of file
+		// Probe multiple packages to ensure ALL are loaded, not just the first one.
+		// gopls loads packages lazily even after didOpen. We need to verify that
+		// GetDefinition succeeds on files from different packages before blasting.
+		warmPos := lsptypes.Position{Line: 5, Character: 0}
+
+		// Collect a sample of URIs from different packages to probe.
+		var probeURIs []string
+		probeDirs := make(map[string]bool)
+		for _, wi := range workItems {
+			dir := filepath.Dir(strings.TrimPrefix(wi.uri, "file://"))
+			if probeDirs[dir] {
+				continue
+			}
+			probeDirs[dir] = true
+			probeURIs = append(probeURIs, wi.uri)
+			if len(probeURIs) >= 20 { // probe up to 20 different packages
+				break
+			}
+		}
+
+		// Wait until ALL probed packages respond (not just the first one).
 		for time.Now().Before(warmDeadline) {
-			warmCtx, warmCancel := context.WithTimeout(ctx, 30*time.Second)
-			_, warmErr := client.GetDefinition(warmCtx, item.uri, warmPos)
-			warmCancel()
-			if warmErr == nil {
-				log.Printf("enrichment: server warmed up in %s, switching to 64 concurrent workers",
-					time.Since(warmStart).Truncate(time.Millisecond))
+			allReady := true
+			for _, uri := range probeURIs {
+				warmCtx, warmCancel := context.WithTimeout(ctx, 10*time.Second)
+				_, warmErr := client.GetDefinition(warmCtx, uri, warmPos)
+				warmCancel()
+				if warmErr != nil {
+					allReady = false
+					break
+				}
+			}
+			if allReady {
+				log.Printf("enrichment: all %d probe packages responding after %s, switching to 64 concurrent workers",
+					len(probeURIs), time.Since(warmStart).Truncate(time.Millisecond))
 				break
 			}
 			if ctx.Err() != nil {
 				break
 			}
-			log.Printf("enrichment: server loading (%v), retrying in 5s...", warmErr)
+			log.Printf("enrichment: waiting for packages to load (%s elapsed), retrying in 5s...",
+				time.Since(warmStart).Truncate(time.Millisecond))
 			time.Sleep(5 * time.Second)
 		}
 	}
