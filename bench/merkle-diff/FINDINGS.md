@@ -5,21 +5,21 @@ Compares flat vs hierarchical Merkle tree operations on the live knowing graph.
 ## Setup
 
 - **Repository:** knowing (live codebase)
-- **Nodes:** 7104
-- **Edges:** 57922 unique
-- **Packages:** 74
-- **Edge types:** 16 (accesses_field:744, authored_by:7103, calls:19281, co_tested_with:1240, contains:2105, documents:1669, executes_process:38, implements:18, imports:2133, member_of:2105, overrides:20, reads_env:35, similar_to:7542, tests:9767, throws:175, type_hint_of:3947)
-- **Mutation target:** github.com/blackwell-systems/knowing/internal/mcp (5834 edges mutated, 10.1% of total)
+- **Nodes:** 7238
+- **Edges:** 59250 unique
+- **Packages:** 75
+- **Edge types:** 16 (accesses_field:744, authored_by:7237, calls:19800, co_tested_with:1280, contains:2111, documents:1710, executes_process:38, implements:18, imports:2162, member_of:2111, overrides:20, reads_env:35, similar_to:7724, tests:10039, throws:175, type_hint_of:4046)
+- **Mutation target:** github.com/blackwell-systems/knowing/internal/mcp (5830 edges mutated, 9.8% of total)
 
 ## Build Cost
 
 | Tree type | Build time | Overhead |
 |-----------|-----------|----------|
-| Flat | 16.095792ms | baseline |
-| Hierarchical | 25.34575ms | +57.5% |
+| Flat | 15.69775ms | baseline |
+| Hierarchical | 26.298084ms | +67.5% |
 
-The hierarchical tree costs roughly the same to build. It produces 74 package roots
-and 765 edge-type roots as intermediate nodes.
+The hierarchical tree costs roughly the same to build. It produces 75 package roots
+and 775 edge-type roots as intermediate nodes.
 
 ## Diff Performance
 
@@ -27,16 +27,16 @@ Scenario: one package changed, all others unchanged.
 
 | Operation | Avg latency | Memory |
 |-----------|------------|--------|
-| Flat diff (compare all 57922 edges) | 3.79321ms | O(edges) |
-| Hierarchical diff (compare 74 package roots) | 18.854µs | O(packages) |
-| **Speedup** | **201x** | |
+| Flat diff (compare all 59250 edges) | 3.901901ms | O(edges) |
+| Hierarchical diff (compare 75 package roots) | 18.361µs | O(packages) |
+| **Speedup** | **213x** | |
 
 ## Lookup Performance
 
 | Operation | Avg latency | What it answers |
 |-----------|------------|-----------------|
 | SubgraphRoot (1 package) | 163ns | Cache key for queries scoped to one package |
-| EdgeTypeRoot ("calls") | 30.893µs | "Did any call edges change?" |
+| EdgeTypeRoot ("calls") | 31.329µs | "Did any call edges change?" |
 
 ## Correctness
 
@@ -50,8 +50,8 @@ The hierarchical diff correctly identified:
 The hierarchical tree structures the Merkle tree by semantic boundaries (package,
 edge type) instead of treating all edges as an undifferentiated set. This means:
 
-1. **Diff is O(packages) not O(edges).** Comparing 74 package roots instead of
-   57922 edge leaves produces a 201x speedup.
+1. **Diff is O(packages) not O(edges).** Comparing 75 package roots instead of
+   59250 edge leaves produces a 213x speedup.
 
 2. **Subgraph cache keys are O(1).** A query scoped to packages A and B can check
    if its cached result is still valid by comparing two package roots, regardless
@@ -66,8 +66,8 @@ edge type) instead of treating all edges as an undifferentiated set. This means:
 
 The speedup grows with graph size because the ratio of packages to edges increases.
 A 100K-edge graph with 100 packages gets 517x speedup (benchmarked). A 10K-edge
-graph with 20 packages gets 283x. The knowing repo (57922 edges, 74 packages) gets
-201x.
+graph with 20 packages gets 283x. The knowing repo (59250 edges, 75 packages) gets
+213x.
 
 ## Reproducing
 

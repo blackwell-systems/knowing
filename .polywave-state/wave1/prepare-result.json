@@ -3,57 +3,44 @@
   "worktrees": [
     {
       "agent": "A",
-      "path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/in-process-resolver-infra/wave1-agent-A",
-      "branch": "polywave/in-process-resolver-infra/wave1-agent-A"
+      "path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/go-resolver/wave1-agent-A",
+      "branch": "polywave/go-resolver/wave1-agent-A"
     },
     {
       "agent": "B",
-      "path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/in-process-resolver-infra/wave1-agent-B",
-      "branch": "polywave/in-process-resolver-infra/wave1-agent-B"
+      "path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/go-resolver/wave1-agent-B",
+      "branch": "polywave/go-resolver/wave1-agent-B"
     },
     {
       "agent": "C",
-      "path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/in-process-resolver-infra/wave1-agent-C",
-      "branch": "polywave/in-process-resolver-infra/wave1-agent-C"
-    },
-    {
-      "agent": "D",
-      "path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/in-process-resolver-infra/wave1-agent-D",
-      "branch": "polywave/in-process-resolver-infra/wave1-agent-D"
+      "path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/go-resolver/wave1-agent-C",
+      "branch": "polywave/go-resolver/wave1-agent-C"
     }
   ],
   "agent_briefs": [
     {
       "agent": "A",
-      "brief_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/in-process-resolver-infra/wave1-agent-A/.polywave-agent-brief.md",
-      "brief_length": 9478,
+      "brief_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/go-resolver/wave1-agent-A/.polywave-agent-brief.md",
+      "brief_length": 10612,
       "journal_dir": "/Users/dayna.blackwell/code/knowing/.polywave-state/wave1/agent-A",
-      "files_owned": 3,
-      "worktree_env_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/in-process-resolver-infra/wave1-agent-A/.polywave-worktree-env"
+      "files_owned": 4,
+      "worktree_env_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/go-resolver/wave1-agent-A/.polywave-worktree-env"
     },
     {
       "agent": "B",
-      "brief_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/in-process-resolver-infra/wave1-agent-B/.polywave-agent-brief.md",
-      "brief_length": 9615,
+      "brief_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/go-resolver/wave1-agent-B/.polywave-agent-brief.md",
+      "brief_length": 11430,
       "journal_dir": "/Users/dayna.blackwell/code/knowing/.polywave-state/wave1/agent-B",
-      "files_owned": 2,
-      "worktree_env_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/in-process-resolver-infra/wave1-agent-B/.polywave-worktree-env"
+      "files_owned": 3,
+      "worktree_env_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/go-resolver/wave1-agent-B/.polywave-worktree-env"
     },
     {
       "agent": "C",
-      "brief_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/in-process-resolver-infra/wave1-agent-C/.polywave-agent-brief.md",
-      "brief_length": 8231,
+      "brief_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/go-resolver/wave1-agent-C/.polywave-agent-brief.md",
+      "brief_length": 14433,
       "journal_dir": "/Users/dayna.blackwell/code/knowing/.polywave-state/wave1/agent-C",
-      "files_owned": 2,
-      "worktree_env_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/in-process-resolver-infra/wave1-agent-C/.polywave-worktree-env"
-    },
-    {
-      "agent": "D",
-      "brief_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/in-process-resolver-infra/wave1-agent-D/.polywave-agent-brief.md",
-      "brief_length": 11524,
-      "journal_dir": "/Users/dayna.blackwell/code/knowing/.polywave-state/wave1/agent-D",
-      "files_owned": 2,
-      "worktree_env_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/in-process-resolver-infra/wave1-agent-D/.polywave-worktree-env"
+      "files_owned": 3,
+      "worktree_env_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/go-resolver/wave1-agent-C/.polywave-worktree-env"
     }
   ],
   "steps": [
@@ -100,7 +87,7 @@
     {
       "step": "commit_baseline",
       "status": "success",
-      "detail": "committed 7 file(s)"
+      "detail": "committed 11 file(s)"
     },
     {
       "step": "baseline_gates",
@@ -143,14 +130,9 @@
       "detail": "pre-wave gate passed"
     },
     {
-      "step": "advance_state",
-      "status": "success",
-      "detail": "IMPL state advanced to REVIEWED"
-    },
-    {
       "step": "create_worktrees",
       "status": "success",
-      "detail": "created 4 worktree(s)"
+      "detail": "created 3 worktree(s)"
     },
     {
       "step": "workspace_setup",
@@ -165,7 +147,7 @@
     {
       "step": "extract_briefs",
       "status": "success",
-      "detail": "prepared 4 agent(s)"
+      "detail": "prepared 3 agent(s)"
     }
   ],
   "success": false,

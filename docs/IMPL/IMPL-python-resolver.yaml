@@ -1,0 +1,1180 @@
+title: Python In-Process Type Resolver
+feature_slug: python-resolver
+verdict: SUITABLE
+suitability_assessment: |
+    1. File decomposition: All new files in internal/typresolve/python/ (10+ files).
+       No existing files modified. Agents have fully disjoint file ownership.
+       Follows the exact same pattern as the Go resolver (IMPL-go-resolver.yaml).
+
+    2. Investigation-first: No unknowns. The C reference implementation (py_lsp.c,
+       3,248 lines) documents the complete Python resolution algorithm. The shared
+       infrastructure (typresolve package) is completed and defines the exact
+       interface contracts. The Go resolver establishes the structural pattern.
+
+    3. Interface discoverability: All interfaces are defined. The typresolve.Resolver
+       interface, Registry, Scope, and Type are implemented and tested. Cross-agent
+       contracts are limited to Go function signatures within the new python/ subpackage.
+
+    4. Pre-implementation: The shared infrastructure (in-process-resolver-infra) was
+       completed previously. The Go resolver IMPL shows the exact structural pattern.
+       No overlap with existing code.
+
+    5. Parallelization value: High. Build/test cycle is ~30s with GOWORK=off.
+       3 agents in wave 1 with 2-4 files each. Wave 2 integrates and tests.
+       Independent type system components (annotation parsing, builtins, scope binding)
+       can be built in parallel, matching the Go resolver decomposition.
+
+    Estimated times:
+    - Scout phase: ~10 min
+    - Agent execution: ~15 min (5 agents, 2 waves, ~5 min avg per agent)
+    - Merge and verification: ~5 min
+    Total Polywave time: ~30 min
+
+    Sequential baseline: ~50 min (5 agents x 10 min avg)
+    Time savings: ~20 min (40% faster)
+
+    Recommendation: Clear speedup. Wave 1 agents are fully independent (annotation
+    parsing, builtins/attribute lookup, scope binding/expression eval). Wave 2
+    integrates them into the resolver.
+test_command: GOWORK=off go test -short ./... -timeout 5m
+lint_command: GOWORK=off go vet ./...
+file_ownership:
+    - file: internal/typresolve/python/doc.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/typresolve/python/annotations.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/typresolve/python/imports.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/typresolve/python/annotations_test.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/typresolve/python/builtins.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/typresolve/python/methods.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/typresolve/python/builtins_test.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/typresolve/python/eval.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/typresolve/python/scope_bind.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/typresolve/python/eval_test.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/typresolve/python/resolver.go
+      agent: D
+      wave: 2
+      action: new
+      depends_on:
+        - A
+        - B
+        - C
+    - file: internal/typresolve/python/registry_builder.go
+      agent: D
+      wave: 2
+      action: new
+      depends_on:
+        - A
+        - B
+        - C
+    - file: internal/typresolve/python/resolve.go
+      agent: D
+      wave: 2
+      action: new
+      depends_on:
+        - A
+        - B
+        - C
+    - file: internal/typresolve/python/resolver_test.go
+      agent: D
+      wave: 2
+      action: new
+      depends_on:
+        - A
+        - B
+        - C
+interface_contracts:
+    - name: ParseAnnotation
+      description: |
+        Parses a Python type annotation text into a typresolve.Type. Handles
+        Optional[T], Union[A, B], X | Y (PEP 604), generic containers
+        (list[T] -> Slice, dict[K, V] -> Map), forward reference quotes,
+        Callable[[Args], Return], typing wrappers (ClassVar, Final, Annotated),
+        and builtin scalar names.
+      definition: |
+        func ParseAnnotation(ann string, moduleQN string) *typresolve.Type
+      location: internal/typresolve/python/annotations.go
+    - name: BuildImportMap
+      description: |
+        Builds per-file import map from the Python AST root. Returns a map from
+        local name to ImportInfo containing module path and import style. Handles:
+        - import X (binds X as module)
+        - import X as Y (binds Y as module X)
+        - from X import Y (binds Y as symbol from X)
+        - from X import Y as Z (binds Z as symbol Y from X)
+        - import X.Y.Z (binds X, X.Y, X.Y.Z as modules)
+      definition: |
+        type ImportInfo struct {
+            ModulePath string  // full module path (e.g. "django.db.models")
+            IsFromStyle bool   // true for "from X import Y", false for "import X"
+        }
+        func BuildImportMap(root *sitter.Node, content []byte) map[string]ImportInfo
+      location: internal/typresolve/python/imports.go
+    - name: ResolveImport
+      description: |
+        Resolves an import local name to its ImportInfo. Simple map lookup.
+      definition: |
+        func ResolveImport(imports map[string]ImportInfo, name string) (ImportInfo, bool)
+      location: internal/typresolve/python/imports.go
+    - name: IsBuiltinFunc
+      description: |
+        Returns true if the given name is a Python builtin function
+        (print, len, range, type, isinstance, hasattr, getattr, setattr,
+        super, iter, next, enumerate, zip, map, filter, sorted, reversed, etc.).
+      definition: |
+        func IsBuiltinFunc(name string) bool
+      location: internal/typresolve/python/builtins.go
+    - name: IsBuiltinType
+      description: |
+        Returns true if the given name is a Python builtin type
+        (int, str, float, bool, bytes, list, dict, set, tuple, frozenset,
+        object, type, None, complex, bytearray, memoryview, range, etc.).
+      definition: |
+        func IsBuiltinType(name string) bool
+      location: internal/typresolve/python/builtins.go
+    - name: ResolveBuiltinType
+      description: |
+        Returns a typresolve.Builtin type if the name is a Python builtin type,
+        nil otherwise.
+      definition: |
+        func ResolveBuiltinType(name string) *typresolve.Type
+      location: internal/typresolve/python/builtins.go
+    - name: LookupAttribute
+      description: |
+        Looks up a method or attribute on a named type, following MRO (embedded
+        types / base classes) up to 5 levels deep. Returns the registered
+        function if found. This is the Python equivalent of Go's
+        LookupFieldOrMethod, using the same registry traversal pattern but
+        following Python's MRO order (base classes stored as EmbeddedTypes).
+      definition: |
+        func LookupAttribute(reg *typresolve.Registry, typeQN string, memberName string) *typresolve.RegisteredFunc
+      location: internal/typresolve/python/methods.go
+    - name: LookupField
+      description: |
+        Looks up an instance field on a named type, following MRO chain.
+        Returns the field's type if found.
+      definition: |
+        func LookupField(reg *typresolve.Registry, typeQN string, fieldName string) *typresolve.Type
+      location: internal/typresolve/python/methods.go
+    - name: ResolveContext
+      description: |
+        Per-file resolution context holding the registry, scope, imports,
+        module QN, content bytes, enclosing function/class QN, and decorator info.
+      definition: |
+        type ResolveContext struct {
+            Registry         *typresolve.Registry
+            Scope            *typresolve.Scope
+            Imports          map[string]ImportInfo
+            ModuleQN         string
+            Content          []byte
+            EnclosingFuncQN  string
+            EnclosingClassQN string
+        }
+      location: internal/typresolve/python/eval.go
+    - name: EvalExprType
+      description: |
+        Recursive expression type evaluator for Python. Evaluates the type of
+        a Python expression AST node using scope lookup, registry lookup,
+        import resolution, and attribute dispatch.
+      definition: |
+        func EvalExprType(ctx *ResolveContext, node *sitter.Node) *typresolve.Type
+      location: internal/typresolve/python/eval.go
+    - name: ProcessStatement
+      description: |
+        Processes a Python statement node to bind variables into the current scope.
+        Handles assignment, for_statement, with_statement, try_statement (except
+        clause binding).
+      definition: |
+        func ProcessStatement(ctx *ResolveContext, node *sitter.Node)
+      location: internal/typresolve/python/scope_bind.go
+    - name: PythonResolver
+      description: |
+        Implements typresolve.Resolver for Python. Language() returns "python".
+        InitWorkspace builds a Registry from Python definitions.
+        ResolveFile walks the Python AST and resolves calls and references.
+      definition: |
+        type PythonResolver struct {
+            registry *typresolve.Registry
+        }
+        func NewPythonResolver() *PythonResolver
+        func (r *PythonResolver) Language() string
+        func (r *PythonResolver) InitWorkspace(ctx context.Context, defs []typresolve.ResolverDef) error
+        func (r *PythonResolver) ResolveFile(ctx context.Context, opts typresolve.ResolveFileOpts) ([]types.Edge, error)
+      location: internal/typresolve/python/resolver.go
+    - name: BuildRegistry
+      description: |
+        Builds a typresolve.Registry from ResolverDef entries. Registers
+        functions, methods (with receiver type extracted from QN), classes,
+        and module-level variables.
+      definition: |
+        func BuildRegistry(defs []typresolve.ResolverDef) *typresolve.Registry
+      location: internal/typresolve/python/registry_builder.go
+    - name: ResolveCallsInFile
+      description: |
+        Walks a Python file's AST resolving call expressions and emitting edges.
+        Uses the shared registry, per-file scope chain, and import map.
+      definition: |
+        func ResolveCallsInFile(ctx *ResolveContext, root *sitter.Node, fileHash types.Hash, repoURL string, filePath string) []types.Edge
+      location: internal/typresolve/python/resolve.go
+waves:
+    - number: 1
+      agents:
+        - id: A
+          task: |
+            ## Agent A: Python Annotation Parsing and Import Resolution
+
+            Build the foundational type annotation parsing and import resolution
+            for the Python resolver. This mirrors Agent A from the Go resolver
+            (types.go + imports.go), adapted for Python's type annotation system
+            and import styles.
+
+            ### What to implement
+
+            **File 1: `internal/typresolve/python/doc.go`**
+            Package doc comment for the `python` subpackage:
+            ```go
+            // Package pyresolve implements the Python language in-process type resolver.
+            // It implements the typresolve.Resolver interface, resolving Python call
+            // expressions and type references using tree-sitter AST walking and a
+            // shared type registry built from extracted definitions.
+            package pyresolve
+            ```
+
+            **File 2: `internal/typresolve/python/annotations.go`**
+            Port the `py_parse_type_text_qn` and `py_resolve_annotation` functions from
+            the C reference at `~/code/codebase-memory/internal/cbm/lsp/py_lsp.c`
+            (lines 2150-2470). This is the Python equivalent of the Go resolver's
+            `ParseTypeNode`, but works on annotation text strings rather than AST nodes,
+            because Python type annotations are textual (e.g., `list[int]`, `Optional[str]`,
+            `Union[A, B]`).
+
+            Implement `ParseAnnotation(ann string, moduleQN string) *typresolve.Type`
+
+            Handle these annotation forms:
+            - **Quoted forward references**: `"Foo"` or `'Foo'` -> strip quotes, recurse
+            - **Generic subscript**: `list[T]` -> `typresolve.Slice(T)`;
+              `dict[K, V]` -> `typresolve.Map(K, V)`;
+              `set[T]` -> `typresolve.Named("builtins.set")` (no Set kind in typresolve);
+              `tuple[A, B]` -> `typresolve.Tuple([A, B])`
+            - **Optional[T]** / **typing.Optional[T]**: `typresolve.Optional(T)`
+            - **Union[A, B]** / **typing.Union[A, B]**: for 2+ members, create a Tuple
+              (typresolve has no Union kind; use Tuple as a simplification, or use Named
+              with a synthetic union name). Actually, since the shared infrastructure
+              does not have a Union kind, represent Union as Optional when there are
+              exactly 2 members and one is None, otherwise return the first non-None member
+              for resolution purposes. The C reference uses UNION kind which typresolve
+              lacks. Simplify: for `Optional[T]`, return `typresolve.Optional(T)`. For
+              `Union[A, B]`, return `typresolve.Named(A)` (first member) as best-effort.
+            - **PEP 604 pipe syntax**: `X | Y` -> same as Union[X, Y]
+            - **Callable[[Args], Return]** / **typing.Callable**: parse as
+              `typresolve.Func(params, [returnType])`
+            - **Type wrappers** (ClassVar, Final, InitVar, ReadOnly, Required,
+              NotRequired, Annotated, Mapped): unwrap to inner type T.
+              Also handle typing.ClassVar, typing.Final, etc.
+            - **Type[T]** / **type[T]** / **typing.Type[T]**: return T itself
+              (for resolution, the class object is treated as the class type)
+            - **Builtin scalars**: int, str, bool, float, bytes, None, complex,
+              bytearray, object -> `typresolve.Builtin(name)`
+            - **Bare unqualified name**: if moduleQN is provided and name has no dot,
+              qualify as `moduleQN.name` (skip typing-module names like Self, Any,
+              Iterator, etc.). Return `typresolve.Named(qualifiedName)`.
+
+            Internal helper: `splitSubscriptArgs(s string) []string`
+            Split a comma-separated string at depth 0 (ignoring commas inside `[]`, `()`,
+            `{}`). Trims whitespace from each part.
+
+            **File 3: `internal/typresolve/python/imports.go`**
+            Port import resolution from the C reference (lines 57-160).
+
+            Define:
+            ```go
+            // ImportInfo describes a single Python import binding.
+            type ImportInfo struct {
+                ModulePath  string // full dotted module path
+                IsFromStyle bool   // true for "from X import Y"
+            }
+            ```
+
+            Implement:
+            - `BuildImportMap(root *sitter.Node, content []byte) map[string]ImportInfo`
+              Walk the AST for `import_statement` and `import_from_statement` nodes.
+
+              For `import_statement` (e.g., `import os`, `import os.path`, `import X as Y`):
+              - Get each `dotted_name` child or `aliased_import` child
+              - For `import X`: bind X -> ImportInfo{ModulePath: "X", IsFromStyle: false}
+              - For `import X as Y`: bind Y -> ImportInfo{ModulePath: "X", IsFromStyle: false}
+              - For `import X.Y.Z`: also bind intermediate prefixes X, X.Y as modules
+
+              For `import_from_statement` (e.g., `from flask import Flask`, `from X import Y as Z`):
+              - Get module name from the `module_name` field child
+              - Get imported names from `name` field children or aliased_import children
+              - For `from X import Y`: bind Y -> ImportInfo{ModulePath: "X.Y", IsFromStyle: true}
+              - For `from X import Y as Z`: bind Z -> ImportInfo{ModulePath: "X.Y", IsFromStyle: true}
+              - Skip wildcard imports (`from X import *`)
+
+              Python tree-sitter node types:
+              - `import_statement`: children are `dotted_name` or `aliased_import`
+              - `import_from_statement`: has `module_name` field + imported names
+              - `aliased_import`: has `name` and `alias` field children
+              - `dotted_name`: text is the full dotted module path
+
+              Reference the existing extractor at
+              `internal/indexer/treesitter/extractor.go` function `buildPythonImportMap`
+              (line ~540) for the tree-sitter field names used. Do NOT import that package.
+              Reimplement the logic locally.
+
+            - `ResolveImport(imports map[string]ImportInfo, name string) (ImportInfo, bool)`
+              Simple map lookup.
+
+            **File 4: `internal/typresolve/python/annotations_test.go`**
+            Test ParseAnnotation with Python type annotation strings.
+            Test cases:
+            - Builtin: `"int"` -> Builtin("int")
+            - Builtin: `"str"` -> Builtin("str")
+            - Builtin: `"None"` -> Builtin("None")
+            - Quoted forward ref: `'"MyClass"'` -> Named("mymodule.MyClass") with moduleQN="mymodule"
+            - Generic list: `"list[int]"` -> Slice(Builtin("int"))
+            - Generic dict: `"dict[str, int]"` -> Map(Builtin("str"), Builtin("int"))
+            - Tuple: `"tuple[int, str]"` -> Tuple([Builtin("int"), Builtin("str")])
+            - Optional: `"Optional[str]"` -> Optional(Builtin("str"))
+            - Pipe union: `"int | str"` -> returns first non-None (Builtin("int"))
+            - Pipe optional: `"str | None"` -> Optional(Builtin("str"))
+            - Callable: `"Callable[[int, str], bool]"` -> Func with params and returns
+            - ClassVar wrapper: `"ClassVar[int]"` -> Builtin("int") (unwrapped)
+            - Bare name: `"MyClass"` with moduleQN="mymod" -> Named("mymod.MyClass")
+            - Typing name: `"Iterator"` -> Named("Iterator") (not qualified to module)
+            - Nested generic: `"dict[str, list[int]]"` -> Map(Builtin("str"), Slice(Builtin("int")))
+
+            Test BuildImportMap and ResolveImport with parsed Python source.
+            Test cases:
+            - `import os` -> {"os": ImportInfo{ModulePath: "os", IsFromStyle: false}}
+            - `import os.path` -> binds "os" and "os.path"
+            - `from flask import Flask` -> {"Flask": ImportInfo{ModulePath: "flask.Flask", IsFromStyle: true}}
+            - `from flask import Flask as F` -> {"F": ImportInfo{ModulePath: "flask.Flask", IsFromStyle: true}}
+            - `import numpy as np` -> {"np": ImportInfo{ModulePath: "numpy", IsFromStyle: false}}
+
+            ### Interfaces consumed
+            - `typresolve.Type`, `typresolve.Named()`, `typresolve.Builtin()`,
+              `typresolve.Slice()`, `typresolve.Map()`, `typresolve.Tuple()`,
+              `typresolve.Optional()`, `typresolve.Func()` from
+              `github.com/blackwell-systems/knowing/internal/typresolve`
+            - `sitter.Node` from `github.com/smacker/go-tree-sitter`
+            - `python.GetLanguage()` from `github.com/smacker/go-tree-sitter/python`
+
+            ### Constraints
+            - Package name MUST be `pyresolve` (not `python`, which shadows the stdlib)
+            - Do NOT import or depend on builtins.go or methods.go from Agent B.
+            - Do NOT modify any files outside your ownership list.
+            - Do NOT import from `internal/indexer/treesitter` (circular dependency risk).
+              Reimplement import map logic locally.
+            - Since typresolve has no Union kind, use this mapping for union types:
+              - Optional[T] or T | None -> typresolve.Optional(T)
+              - Union[A, B] or A | B (no None) -> return first member as best-effort
+              This is a deliberate simplification; the resolver cares about resolving
+              the primary type for method dispatch, not full type algebra.
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/typresolve/python/...
+            GOWORK=off go vet ./internal/typresolve/python/...
+            GOWORK=off go test ./internal/typresolve/python/... -run TestParseAnnotation -v
+            GOWORK=off go test ./internal/typresolve/python/... -run TestBuildImportMap -v
+            ```
+
+            Postconditions:
+            ```bash
+            # ParseAnnotation function exists
+            grep -c "func ParseAnnotation" internal/typresolve/python/annotations.go  # expect: 1
+            # BuildImportMap function exists
+            grep -c "func BuildImportMap" internal/typresolve/python/imports.go  # expect: 1
+            # Package declaration is pyresolve
+            grep -c "package pyresolve" internal/typresolve/python/doc.go  # expect: 1
+            ```
+          files:
+            - internal/typresolve/python/doc.go
+            - internal/typresolve/python/annotations.go
+            - internal/typresolve/python/imports.go
+            - internal/typresolve/python/annotations_test.go
+        - id: B
+          task: |
+            ## Agent B: Builtins and Attribute/Field Lookup (MRO-based)
+
+            Build the builtin function/type handling and MRO-based attribute/field
+            lookup for the Python resolver.
+
+            ### What to implement
+
+            **File 1: `internal/typresolve/python/builtins.go`**
+            Package: `pyresolve`
+
+            Port builtin handling from the C reference at
+            `~/code/codebase-memory/internal/cbm/lsp/py_lsp.c`.
+
+            Implement:
+
+            - `IsBuiltinFunc(name string) bool`
+              Return true for Python builtins: print, len, range, type, isinstance,
+              issubclass, hasattr, getattr, setattr, delattr, super, iter, next,
+              enumerate, zip, map, filter, sorted, reversed, min, max, sum, abs,
+              round, hash, id, repr, str, int, float, bool, list, dict, set, tuple,
+              frozenset, bytes, bytearray, memoryview, object, chr, ord, hex, oct,
+              bin, pow, divmod, all, any, input, open, vars, dir, globals, locals,
+              callable, classmethod, staticmethod, property, breakpoint, compile, eval, exec.
+              (Reference: Python builtins module)
+
+            - `IsBuiltinType(name string) bool`
+              Return true for: int, str, float, bool, bytes, list, dict, set, tuple,
+              frozenset, object, type, None, complex, bytearray, memoryview, range,
+              slice, property, classmethod, staticmethod, super, enumerate, filter,
+              map, reversed, zip.
+
+            - `ResolveBuiltinType(name string) *typresolve.Type`
+              Return `typresolve.Builtin(name)` for builtin types, nil otherwise.
+
+            - `LiteralType(nodeType string) *typresolve.Type`
+              Map Python tree-sitter literal node types to builtin types:
+              - "integer" -> Builtin("int")
+              - "float" -> Builtin("float")
+              - "string" / "concatenated_string" -> Builtin("str")
+              - "true" / "false" -> Builtin("bool")
+              - "none" -> Builtin("None")
+              - "list_comprehension" -> Builtin("list")
+              - "dictionary_comprehension" -> Builtin("dict")
+              - "set_comprehension" -> Builtin("set")
+              - "generator_expression" -> Builtin("generator")
+              Return nil if not a literal type.
+              (Reference: py_literal_type, lines 449-466)
+
+            - `IterableElementType(iterType *typresolve.Type) *typresolve.Type`
+              Given a container type, return the element type when iterating:
+              - Slice -> element type
+              - Map -> key type (iterating dict yields keys)
+              - Tuple -> if 1 element return it, otherwise return Unknown
+              - Otherwise -> Unknown
+              This is a simplified version of py_iterable_element_type (lines 572-613).
+              The C reference handles TEMPLATE types; we map list[T] to Slice(T),
+              dict[K,V] to Map(K,V), so our version works on typresolve kinds directly.
+
+            **File 2: `internal/typresolve/python/methods.go`**
+            Package: `pyresolve`
+
+            Port attribute/field lookup with MRO traversal from the C reference
+            (lines 328-391 of py_lsp.c).
+
+            Implement:
+
+            - `LookupAttribute(reg *typresolve.Registry, typeQN string, memberName string) *typresolve.RegisteredFunc`
+              Internal helper with depth limit (max 5):
+              1. Direct method lookup: `reg.LookupMethod(typeQN, memberName)` -- if found, return
+              2. Get type: `reg.LookupType(typeQN)` -- if nil, return nil
+              3. Follow alias: if `type.AliasOf != ""`, recurse with alias target
+              4. Check base classes (stored as EmbeddedTypes): for each base, recurse
+              5. Return nil if not found
+
+              This is identical in structure to Go's LookupFieldOrMethod. In Python,
+              base classes serve the role of Go's embedded types. The Registry stores
+              Python base classes in RegisteredType.EmbeddedTypes.
+
+            - `LookupField(reg *typresolve.Registry, typeQN string, fieldName string) *typresolve.Type`
+              Internal helper with depth limit (max 5):
+              1. Get type: `reg.LookupType(typeQN)` -- if nil, return nil
+              2. Follow alias: if `type.AliasOf != ""`, recurse with alias target
+              3. Direct field lookup: scan `type.Fields` for matching name, return field type
+              4. Check base classes: for each `type.EmbeddedTypes[i]`, recurse
+              5. Return nil if not found
+
+            **File 3: `internal/typresolve/python/builtins_test.go`**
+            Package: `pyresolve`
+
+            Test cases:
+            - IsBuiltinFunc: true for "print", "len", "range", "isinstance"; false for "MyFunc", "flask"
+            - IsBuiltinType: true for "int", "str", "list", "dict"; false for "MyClass"
+            - ResolveBuiltinType: returns Builtin for "int", "str"; nil for "MyType"
+            - LiteralType: "integer" -> Builtin("int"), "string" -> Builtin("str"),
+              "none" -> Builtin("None"), "some_other" -> nil
+            - IterableElementType: Slice(Builtin("int")) -> Builtin("int");
+              Map(Builtin("str"), Builtin("int")) -> Builtin("str") (keys);
+              Unknown -> Unknown
+            - LookupAttribute: direct method found
+            - LookupAttribute: method found via base class (1 level)
+            - LookupAttribute: method found via base class chain (2 levels)
+            - LookupField: direct field found
+            - LookupField: field found via base class
+
+            For LookupAttribute/LookupField tests, build a Registry with registered
+            types and methods simulating Python class hierarchies.
+
+            ### Interfaces consumed
+            - `typresolve.Registry`, `typresolve.RegisteredFunc`, `typresolve.RegisteredType`
+            - `typresolve.Type`, `typresolve.Builtin()`, `typresolve.Slice()`, etc.
+
+            ### Constraints
+            - Package name MUST be `pyresolve`
+            - Do NOT modify any files outside your ownership list.
+            - Do NOT import from `internal/indexer/treesitter`.
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/typresolve/python/...
+            GOWORK=off go vet ./internal/typresolve/python/...
+            GOWORK=off go test ./internal/typresolve/python/... -run TestIsBuiltinFunc -v
+            GOWORK=off go test ./internal/typresolve/python/... -run TestLookupAttribute -v
+            ```
+
+            Postconditions:
+            ```bash
+            grep -c "func IsBuiltinFunc" internal/typresolve/python/builtins.go  # expect: 1
+            grep -c "func LookupAttribute" internal/typresolve/python/methods.go  # expect: 1
+            grep -c "func LookupField" internal/typresolve/python/methods.go  # expect: 1
+            ```
+          files:
+            - internal/typresolve/python/builtins.go
+            - internal/typresolve/python/methods.go
+            - internal/typresolve/python/builtins_test.go
+        - id: C
+          task: |
+            ## Agent C: Expression Evaluator and Scope Binding
+
+            Build the expression type evaluator and statement-level scope binding
+            for the Python resolver. This mirrors Agent C from the Go resolver,
+            adapted for Python's LEGB scoping, self/cls inference, and dynamic typing.
+
+            ### What to implement
+
+            **File 1: `internal/typresolve/python/eval.go`**
+            Package: `pyresolve`
+
+            Port the `py_eval_expr_type` function from the C reference at
+            `~/code/codebase-memory/internal/cbm/lsp/py_lsp.c` (lines 615-1154).
+
+            Define the resolution context:
+            ```go
+            // ResolveContext holds per-file state for Python type resolution.
+            type ResolveContext struct {
+                Registry         *typresolve.Registry
+                Scope            *typresolve.Scope
+                Imports          map[string]ImportInfo  // from imports.go (Agent A)
+                ModuleQN         string                 // current module qualified name
+                Content          []byte                 // source file content
+                EnclosingFuncQN  string                 // QN of enclosing function
+                EnclosingClassQN string                 // QN of enclosing class (for self/cls)
+            }
+            ```
+
+            NOTE: ImportInfo is defined in imports.go (Agent A). Since both files are
+            in the same `pyresolve` package, the type is visible after merge. Use it
+            directly in ResolveContext.
+
+            Implement `EvalExprType(ctx *ResolveContext, node *sitter.Node) *typresolve.Type`
+
+            Handle these expression node types (from the C reference):
+
+            1. **Literals** (lines 449-466, 615-670):
+               - Check via `LiteralType(node.Type())` (from builtins.go, Agent B, same package)
+               - `tuple` literal: if >0 named children, evaluate each element, return
+                 `typresolve.Tuple(elems)`. If 0 children, return Builtin("tuple").
+               - `list` literal: if >0 named children, evaluate first element, return
+                 `typresolve.Slice(firstElemType)`. If 0, return Builtin("list").
+               - `dictionary` literal: evaluate first pair's key and value, return
+                 `typresolve.Map(keyType, valueType)`. If 0 pairs, return Builtin("dict").
+               - `set` literal: evaluate first element, return Named("builtins.set").
+                 If 0 elements, return Builtin("set").
+
+            2. **`identifier`** (lines 672-694):
+               - Scope lookup: `ctx.Scope.Lookup(name)`
+               - If not found, check True/False -> Builtin("bool"), None -> Builtin("None")
+               - Module-local function: `ctx.Registry.LookupSymbol(ctx.ModuleQN, name)`
+               - Builtins fallback: `ctx.Registry.LookupSymbol("builtins", name)`
+               - Builtin type check: `ctx.Registry.LookupType("builtins." + name)`
+               - Default: Unknown
+
+            3. **`attribute`** (lines 696-796):
+               - Get "object" and "attribute" field children
+               - Evaluate object type recursively
+               - If object is Named with a module path in imports (IsFromStyle=false),
+                 treat as module attribute access:
+                 - Look up symbol in registry: `ctx.Registry.LookupSymbol(modulePath, attrName)`
+                 - Look up as type: `ctx.Registry.LookupType(modulePath + "." + attrName)`
+               - If object is Named (instance type):
+                 - Look up method via `LookupAttribute(ctx.Registry, typeQN, attrName)`
+                   (from methods.go, Agent B, same package)
+                 - Look up field via `LookupField(ctx.Registry, typeQN, attrName)`
+               - If object is Builtin:
+                 - Look up method on "builtins.<typename>"
+               - Default: Unknown
+
+               For detecting module types: in Python, `import os` binds `os` in scope
+               as a module. When resolving `os.path.join`, the object `os` resolves to
+               the import's module path. Check imports map: if the object identifier
+               matches an import with IsFromStyle=false, treat the object as a module.
+
+            4. **`call`** (lines 798-1002):
+               - Get "function" and "arguments" field children
+               - If function is `identifier`:
+                 a. Check if name is in scope as Named type (constructor call):
+                    return the Named type itself (instance creation)
+                 b. Module-local function: look up in registry, return its return type
+                 c. Builtins: look up "builtins.name", return return type
+                 d. Builtin type constructor: `int()`, `str()`, etc. -> Builtin(name)
+               - If function is `attribute`:
+                 a. Evaluate object type
+                 b. If module: look up module.method in registry, return return type
+                 c. If Named: look up via LookupAttribute, return method's return type
+               - For return type extraction from a registered function:
+                 If the function has a KindFunc signature with Returns, return the first
+                 return type. For Python, functions typically have a single return type.
+
+            5. **`binary_operator`** (lines 1004-1038):
+               - Evaluate left operand type, return it as best-effort
+
+            6. **`comparison_operator`** / **`boolean_operator`** / **`not_operator`** (lines 1041-1045):
+               - Return Builtin("bool")
+
+            7. **`conditional_expression`** (lines 1047-1056):
+               - `a if cond else b`: evaluate a, return it (simplified)
+
+            8. **`parenthesized_expression`** (lines 1058-1062): unwrap
+
+            9. **`await`** / **`await_expression`** (lines 1067-1071): unwrap (treat as identity)
+
+            10. **`subscript`** (lines 1078-1151):
+                - Evaluate "value" (container)
+                - If container is Map, return value type
+                - If container is Slice, return element type
+                - If container is Tuple with index, return corresponding element type
+
+            Helper: `nodeText(node *sitter.Node, content []byte) string`
+            Extract the text of a node from the source content.
+
+            **File 2: `internal/typresolve/python/scope_bind.go`**
+            Package: `pyresolve`
+
+            Port `py_process_statement` from the C reference (lines 1158-1436).
+
+            Implement `ProcessStatement(ctx *ResolveContext, node *sitter.Node)`
+
+            Handle these statement types:
+
+            1. **`assignment`** (simple assignment `x = expr` and annotated `x: T = expr`)
+               (lines 1162-1274):
+               - Get "left", "right", and "type" (annotation) field children
+               - If has annotation: parse it with `ParseAnnotation(annText, ctx.ModuleQN)`
+                 (from annotations.go, Agent A, same package); annotation wins over RHS type
+               - Otherwise: evaluate RHS with EvalExprType
+               - If LHS is `identifier`: bind name to type in scope
+               - If LHS is `attribute` with "self" or "cls" as object:
+                 This is `self.x = expr` -- record as instance field. For now, skip
+                 instance field registration (requires mutable registry; defer to wave 2).
+               - If LHS is `pattern_list` / `tuple_pattern` / `expression_list`:
+                 Tuple unpacking. If RHS is Tuple, bind each LHS var to corresponding
+                 element. Otherwise bind all to Unknown.
+
+            2. **`for_statement`** (lines 1277-1301):
+               - Get "left" and "right" field children
+               - Evaluate RHS (iterable) type via EvalExprType
+               - Get element type via `IterableElementType(iterType)` (from builtins.go,
+                 Agent B, same package)
+               - Bind LHS target:
+                 - If identifier: bind directly to element type
+                 - If pattern_list/tuple_pattern: destructure Tuple element types
+
+            3. **`with_statement`** (lines 1307-1386):
+               - Walk `with_clause` children for `with_item` nodes
+               - For each with_item: get value and alias
+               - Evaluate value type, look up `__enter__` method on the type
+               - If `__enter__` found, bind alias to its return type
+               - Otherwise bind alias to value type
+               - Handle `as_pattern` wrapping of the with_item
+
+            4. **`try_statement`** (lines 1388-1436):
+               - Walk `except_clause` children
+               - For `except E as e`: bind e to Named(E) by resolving E through
+                 `ParseAnnotation(typeName, ctx.ModuleQN)`
+
+            **File 3: `internal/typresolve/python/eval_test.go`**
+            Package: `pyresolve`
+
+            Test helper to parse Python and find specific expression nodes:
+            ```go
+            func parsePython(t *testing.T, src string) *sitter.Node {
+                content := []byte(src)
+                parser := sitter.NewParser()
+                parser.SetLanguage(python.GetLanguage())
+                tree, err := parser.ParseCtx(context.Background(), nil, content)
+                require.NoError(t, err)
+                t.Cleanup(func() { tree.Close() })
+                return tree.RootNode()
+            }
+            ```
+
+            Test cases for EvalExprType:
+            - Identifier resolves from scope: `x` bound to Named("mymod.MyType") -> Named
+            - Identifier resolves True/False -> Builtin("bool")
+            - Identifier resolves None -> Builtin("None")
+            - Attribute resolves import: `os.path` with import map -> module type from registry
+            - Call returns function return type: `foo()` where foo returns Builtin("int")
+            - Constructor call: `MyClass()` where MyClass is Named type in scope -> Named("mymod.MyClass")
+            - String literal -> Builtin("str")
+            - Integer literal -> Builtin("int")
+            - Boolean operator -> Builtin("bool")
+            - List literal `[1, 2]` -> Slice(Builtin("int"))
+            - Dict literal `{"a": 1}` -> Map(Builtin("str"), Builtin("int"))
+            - Subscript on list -> element type
+
+            Test cases for ProcessStatement:
+            - Simple assignment: `x = 42` binds x to Builtin("int") (via literal eval)
+            - Annotated assignment: `x: int = 42` binds x to Builtin("int") (via annotation)
+            - Tuple unpacking: `a, b = (1, "s")` binds a to Builtin("int"), b to Builtin("str")
+            - For loop: `for x in [1, 2]: ...` binds x to Builtin("int")
+
+            ### Interfaces consumed
+            - `typresolve.Registry`, `typresolve.Scope`, `typresolve.NewScope()`
+            - `typresolve.Type` and all constructors
+            - `ParseAnnotation` from annotations.go (Agent A, same package)
+            - `ImportInfo`, `ResolveImport` from imports.go (Agent A, same package)
+            - `IsBuiltinFunc`, `ResolveBuiltinType`, `LiteralType`, `IterableElementType`
+              from builtins.go (Agent B, same package)
+            - `LookupAttribute`, `LookupField` from methods.go (Agent B, same package)
+            - `sitter.Node` from `github.com/smacker/go-tree-sitter`
+            - `python.GetLanguage()` from `github.com/smacker/go-tree-sitter/python`
+
+            ### Constraints
+            - Package name MUST be `pyresolve`
+            - Do NOT modify any files outside your ownership list.
+            - This file depends on Agent A's annotations.go and imports.go, and Agent B's
+              builtins.go and methods.go. Since all are in the same Go package
+              (`pyresolve`), they compile together after wave 1 merge. Call those
+              functions directly (e.g., `ParseAnnotation(...)`, `LiteralType(...)`,
+              `LookupAttribute(...)`).
+            - For module type detection: when an identifier matches an import with
+              IsFromStyle=false, the object represents a module. Access on it resolves
+              to module.symbol in the registry.
+            - For self/cls inference: when inside a method (EnclosingClassQN is set),
+              the first parameter is self/cls. Bind it to Named(EnclosingClassQN)
+              during parameter binding (this happens in resolve.go, Agent D).
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/typresolve/python/...
+            GOWORK=off go vet ./internal/typresolve/python/...
+            GOWORK=off go test ./internal/typresolve/python/... -run TestEvalExprType -v
+            GOWORK=off go test ./internal/typresolve/python/... -run TestProcessStatement -v
+            ```
+
+            Postconditions:
+            ```bash
+            grep -c "func EvalExprType" internal/typresolve/python/eval.go  # expect: 1
+            grep -c "func ProcessStatement" internal/typresolve/python/scope_bind.go  # expect: 1
+            grep -c "type ResolveContext struct" internal/typresolve/python/eval.go  # expect: 1
+            ```
+          files:
+            - internal/typresolve/python/eval.go
+            - internal/typresolve/python/scope_bind.go
+            - internal/typresolve/python/eval_test.go
+    - number: 2
+      agents:
+        - id: D
+          task: |
+            ## Agent D: Resolver Integration, Registry Builder, and Call Resolution
+
+            Integrate all wave 1 components into the PythonResolver that implements
+            typresolve.Resolver, build the registry builder, and implement call
+            resolution with edge emission.
+
+            ### What to implement
+
+            **File 1: `internal/typresolve/python/resolver.go`**
+            Package: `pyresolve`
+
+            The main PythonResolver struct implementing `typresolve.Resolver`:
+
+            ```go
+            type PythonResolver struct {
+                registry *typresolve.Registry
+            }
+
+            func NewPythonResolver() *PythonResolver {
+                return &PythonResolver{}
+            }
+
+            func (r *PythonResolver) Language() string { return "python" }
+            ```
+
+            `InitWorkspace(ctx context.Context, defs []typresolve.ResolverDef) error`:
+            - Call BuildRegistry with the defs
+            - Store the resulting registry in r.registry
+
+            `ResolveFile(ctx context.Context, opts typresolve.ResolveFileOpts) ([]types.Edge, error)`:
+            1. Get the tree-sitter root node from opts.ParsedTree:
+               ```go
+               switch v := opts.ParsedTree.(type) {
+               case *sitter.Node:
+                   root = v
+               default:
+                   // Re-parse the content as fallback
+                   parser := sitter.NewParser()
+                   parser.SetLanguage(python.GetLanguage())
+                   tree, err := parser.ParseCtx(ctx, nil, opts.Content)
+                   if err != nil {
+                       return nil, fmt.Errorf("parse: %w", err)
+                   }
+                   defer tree.Close()
+                   root = tree.RootNode()
+               }
+               ```
+
+            2. Build per-file import map: `imports := BuildImportMap(root, opts.Content)`
+
+            3. Determine module QN from the file path. Python convention:
+               Convert file path to dotted module path:
+               `foo/bar/baz.py` -> `foo.bar.baz`
+               `foo/bar/__init__.py` -> `foo.bar`
+               Use the first edge's QualifiedName prefix if available, else compute
+               from path.
+               ```go
+               func inferModuleQN(filePath string, edges []types.Edge) string
+               ```
+
+            4. Create ResolveContext with the registry, a new root scope, imports,
+               moduleQN, and content. Set EnclosingClassQN to "".
+
+            5. Bind imports into scope. For each import entry:
+               - If IsFromStyle: bind name to Named(modulePath)
+               - If not IsFromStyle: bind name with a marker that it's a module
+                 (since typresolve has no Module kind, use Named with the module path;
+                 attribute access on it will check the registry for module.symbol)
+
+            6. Call `ResolveCallsInFile(rctx, root, opts.FileHash, repoURL, opts.FilePath)`
+
+            7. Return the edges with provenance `typresolve.ProvenanceResolverResolved`
+               and confidence `typresolve.ResolverConfidence` (0.9).
+
+            **File 2: `internal/typresolve/python/registry_builder.go`**
+            Package: `pyresolve`
+
+            Implement `BuildRegistry(defs []typresolve.ResolverDef) *typresolve.Registry`:
+            1. Create a new registry via `typresolve.NewRegistry()`
+            2. For each def:
+               - If Kind is "function": register as RegisteredFunc with
+                 QualifiedName=def.QualifiedName, ShortName=last segment after "."
+               - If Kind is "method": register as RegisteredFunc with
+                 ReceiverType extracted from QualifiedName. Python methods have QN
+                 format: "repoURL://module.ClassName.MethodName"
+                 -> ReceiverType = everything up to last "." before method name
+               - If Kind is "type" or "class": register as RegisteredType
+               - If Kind is "interface": register as RegisteredType with IsInterface=true
+            3. Return the registry
+
+            **File 3: `internal/typresolve/python/resolve.go`**
+            Package: `pyresolve`
+
+            Port the call resolution logic from the C reference (lines 1440-2145).
+
+            Implement `ResolveCallsInFile(ctx *ResolveContext, root *sitter.Node, fileHash types.Hash, repoURL string, filePath string) []types.Edge`:
+
+            This walks the file's AST and resolves call expressions to edges.
+
+            Structure (following py_lsp's top-level process):
+            1. Walk top-level children of the module root
+            2. Pass 1: Process module-level assignments into root scope
+            3. Pass 2: For each `function_definition` or `class_definition`:
+               a. For function_definition:
+                  - Set ctx.EnclosingFuncQN to the function's qualified name
+                  - Push function scope
+                  - Bind parameters into scope. For each parameter:
+                    - If has type annotation, parse it with ParseAnnotation
+                    - If first param is "self" and EnclosingClassQN is set:
+                      bind to Named(EnclosingClassQN)
+                    - If first param is "cls" and EnclosingClassQN is set:
+                      bind to Named(EnclosingClassQN) (class-level access)
+                  - Walk function body with resolveCallsInNode
+                  - Pop function scope
+
+               b. For class_definition:
+                  - Set ctx.EnclosingClassQN to the class's qualified name
+                  - Push class scope
+                  - Process nested function_definitions (methods) recursively:
+                    Set EnclosingFuncQN, bind self/cls, walk body
+                  - Pop class scope, restore EnclosingClassQN
+
+            Internal function `resolveCallsInNode(ctx *ResolveContext, node *sitter.Node, edges *[]types.Edge, fileHash types.Hash, repoURL string, filePath string)`:
+            (Port of py_resolve_calls_in, lines 1922-2145)
+
+            1. Call `ProcessStatement(ctx, node)` to bind variables
+            2. If node is `call`:
+               - Get "function" field child
+               - If `identifier` (not builtin):
+                 a. Check scope for Named type (constructor): emit edge
+                 b. Module-local function: look up in registry, emit edge
+                 c. Builtins: look up "builtins.name", emit edge
+               - If `attribute`:
+                 a. Evaluate object type
+                 b. If module: look up module.method in registry, emit edge
+                 c. If Named instance: look up via LookupAttribute, emit edge
+                 d. If Builtin type: look up on "builtins.<typename>", emit edge
+               - Emit edge with:
+                 - SourceHash: compute from enclosing function
+                 - TargetHash: compute from callee's qualified name
+                 - EdgeType: edgetype.Calls
+                 - Confidence: typresolve.ResolverConfidence (0.9)
+                 - Provenance: typresolve.ProvenanceResolverResolved
+            3. Handle scope for comprehensions (list_comprehension, dict_comprehension,
+               set_comprehension, generator_expression): push scope, bind for_in_clause
+               vars, walk children, pop scope
+            4. Skip recursion into nested function_definition / class_definition / lambda
+               (processed by top-level pass)
+            5. Recurse into children
+
+            Edge hash computation:
+            - Source: `types.ComputeNodeHash(repoURL, modulePath, types.EmptyHash, funcName, kind)`
+            - Target: `types.ComputeNodeHash(repoURL, targetModulePath, types.EmptyHash, targetName, targetKind)`
+
+            Import these:
+            - `github.com/blackwell-systems/knowing/internal/types`
+            - `github.com/blackwell-systems/knowing/internal/edgetype`
+            - `github.com/blackwell-systems/knowing/internal/typresolve`
+
+            **File 4: `internal/typresolve/python/resolver_test.go`**
+            Package: `pyresolve`
+
+            Integration tests for the full resolver pipeline.
+
+            Test 1: `TestPythonResolverLanguage`
+            - NewPythonResolver().Language() == "python"
+
+            Test 2: `TestPythonResolverInitWorkspace`
+            - Create defs with function and type entries
+            - Call InitWorkspace
+            - Verify registry contains the registered entries
+
+            Test 3: `TestPythonResolverResolveFile_ImportCall`
+            - Source:
+              ```python
+              from os.path import join
+
+              def process():
+                  result = join("a", "b")
+              ```
+            - InitWorkspace with a def for os.path.join
+            - ResolveFile should produce a "calls" edge from process to os.path.join
+            - Verify edge has provenance "resolver_resolved" and confidence 0.9
+
+            Test 4: `TestPythonResolverResolveFile_LocalCalls`
+            - Source with local function calls (no imports):
+              ```python
+              def helper():
+                  pass
+
+              def main():
+                  helper()
+              ```
+            - Register helper in workspace
+            - Verify edges are produced
+
+            Test 5: `TestPythonResolverResolveFile_MethodCalls`
+            - Source with method calls on typed variables:
+              ```python
+              class MyClass:
+                  def method(self):
+                      pass
+
+              def use_it(obj: MyClass):
+                  obj.method()
+              ```
+            - Register type and method in workspace
+            - Verify method dispatch edge is produced
+
+            Test 6: `TestResolveCallsInFile_ScopeTracking`
+            - Source with assignment followed by method call:
+              ```python
+              def process():
+                  items = get_items()
+                  items.sort()
+              ```
+            - Register get_items (returning Named list type) and list.sort
+            - Verify method call on variable is resolved
+
+            Test 7: `TestResolveCallsInFile_ForLoop`
+            - Source:
+              ```python
+              def process(items):
+                  for item in items:
+                      item.validate()
+              ```
+            - With type annotation on items parameter
+
+            ### Interfaces consumed
+            - All wave 1 functions: ParseAnnotation, BuildImportMap, ResolveImport,
+              ImportInfo, IsBuiltinFunc, ResolveBuiltinType, LiteralType,
+              IterableElementType, LookupAttribute, LookupField,
+              EvalExprType, ProcessStatement, ResolveContext
+            - `typresolve.Resolver`, `typresolve.ResolverDef`, `typresolve.ResolveFileOpts`
+            - `typresolve.Registry`, `typresolve.Scope`, `typresolve.NewScope`
+            - `types.Edge`, `types.Hash`, `types.ComputeEdgeHash`, `types.ComputeNodeHash`
+            - `edgetype.Calls`
+            - `sitter.Node`, `sitter.NewParser`, `python.GetLanguage`
+
+            ### Constraints
+            - Package name MUST be `pyresolve`
+            - Do NOT modify any files outside your ownership list.
+            - Do NOT modify the typresolve package (shared infrastructure is frozen).
+            - Do NOT import `internal/indexer/treesitter` directly. If you need to
+              handle the tree from the extractor, re-parse the content as a fallback.
+            - Edge provenance MUST be `typresolve.ProvenanceResolverResolved`
+              ("resolver_resolved"), NOT "lsp_resolved".
+            - Edge confidence MUST be `typresolve.ResolverConfidence` (0.9).
+            - Python modules are NOT the same as Go packages. Module QN uses dots:
+              "django.db.models" not "django/db/models". Convert file paths accordingly.
+            - For self/cls binding: check if the function is inside a class_definition.
+              If so, bind the first parameter to Named(classQN). For @classmethod,
+              the first param is cls (same type binding). For @staticmethod, no
+              implicit first param.
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/typresolve/python/...
+            GOWORK=off go vet ./internal/typresolve/python/...
+            GOWORK=off go test ./internal/typresolve/python/... -v
+            GOWORK=off go build ./...
+            GOWORK=off go test -short ./... -timeout 5m
+            ```
+
+            Postconditions:
+            ```bash
+            grep -c "func NewPythonResolver" internal/typresolve/python/resolver.go  # expect: 1
+            grep -c "func BuildRegistry" internal/typresolve/python/registry_builder.go  # expect: 1
+            grep -c "func ResolveCallsInFile" internal/typresolve/python/resolve.go  # expect: 1
+            # Verify it implements the Resolver interface
+            grep -c "typresolve.Resolver" internal/typresolve/python/resolver.go  # expect: >= 1
+            ```
+          files:
+            - internal/typresolve/python/resolver.go
+            - internal/typresolve/python/registry_builder.go
+            - internal/typresolve/python/resolve.go
+            - internal/typresolve/python/resolver_test.go
+          dependencies:
+            - A
+            - B
+            - C
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: GOWORK=off go build ./...
+          required: true
+        - type: lint
+          command: GOWORK=off go vet ./...
+          required: true
+        - type: test
+          command: GOWORK=off go test -short ./... -timeout 5m
+          required: true
+post_merge_checklist:
+    groups:
+        - title: Build Verification
+          items:
+            - description: 'Full test suite passes: GOWORK=off go build ./... && GOWORK=off go test -short ./... -timeout 5m'
+            - description: Verify PythonResolver implements typresolve.Resolver interface (compile check)
+        - title: Integration Verification
+          items:
+            - description: Verify resolver can be registered with ResolverEnricher
+            - description: Verify resolver_test.go integration tests pass end-to-end
+        - title: Benchmark Validation
+          items:
+            - description: Register PythonResolver in enrichment pipeline and run Django benchmark
+            - description: Compare edges produced vs current pyright enrichment for django/flask/fastapi
+pre_mortem:
+    overall_risk: medium
+    rows:
+        - scenario: |
+            Wave 1 agents call cross-file functions that don't exist yet in their
+            isolated worktrees (Agent C calls ParseAnnotation from Agent A's annotations.go).
+          likelihood: high
+          impact: low
+          mitigation: |
+            All wave 1 agents are in the same Go package (pyresolve). Their files
+            compile together only after merge. The build gate runs post-merge.
+            Individual agent worktrees will not compile in isolation, which is
+            expected and acceptable. This is identical to the Go resolver pattern.
+        - scenario: |
+            Python tree-sitter node type names differ from what the C reference uses,
+            causing nil returns and incorrect resolution.
+          likelihood: medium
+          impact: medium
+          mitigation: |
+            The existing Python extractor at internal/indexer/treesitter/extractor.go
+            already uses the Go tree-sitter Python bindings and demonstrates the correct
+            node type names (function_definition, class_definition, import_statement,
+            import_from_statement, call, attribute, identifier, etc.). Agents should
+            cross-reference that file for node type names. Guard all ChildByFieldName
+            calls with nil checks.
+        - scenario: |
+            ImportInfo type defined by Agent A conflicts with a different import
+            handling approach chosen by Agent C or Agent D.
+          likelihood: low
+          impact: medium
+          mitigation: |
+            The ImportInfo struct and its fields are defined in the interface contracts.
+            All agents must use the exact definition. Agent A owns the type definition;
+            Agents C and D consume it.
+        - scenario: |
+            typresolve has no Union kind, causing loss of type information for
+            Optional[T] and Union[A, B] patterns that are extremely common in Python.
+          likelihood: high
+          impact: medium
+          mitigation: |
+            Use typresolve.Optional for Optional[T] and T | None patterns. For
+            Union[A, B] with no None, return the first member as best-effort. This
+            is a deliberate simplification that covers the most common case
+            (Optional narrowing). Full Union support would require extending the
+            shared infrastructure, which is frozen for this IMPL.
+        - scenario: |
+            The module QN inference from file paths produces incorrect qualified names
+            that don't match the registry entries from the existing extractor.
+          likelihood: medium
+          impact: high
+          mitigation: |
+            Agent D must extract the module QN from existing edges in opts.Edges
+            (which come from the tree-sitter extractor). The existing extractor
+            uses the convention "repoURL://modulePath.SymbolName". Parse the QN
+            prefix from existing edges rather than computing from file path alone.
+            The file path is a fallback only when no edges exist.
+        - scenario: |
+            Wave 1 agents cannot run go build or go test individually because the
+            package has missing function references across files.
+          likelihood: high
+          impact: low
+          mitigation: |
+            Expected behavior, identical to Go resolver. Wave 1 agents verify
+            their code via go vet (syntax-level) and defer full compilation to
+            the post-merge gate. Agent verification gates are adjusted to
+            tolerate this.
+state: REVIEWED
+injection_method: hook
