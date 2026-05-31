@@ -143,6 +143,8 @@ func run(args []string) error {
 		return cmdVacuum(args[1:])
 	case "stale":
 		return cmdStale(args[1:])
+	case "debug-seeds":
+		return cmdDebugSeeds(args[1:])
 	default:
 		printUsage()
 		return fmt.Errorf("unknown subcommand: %s", args[0])

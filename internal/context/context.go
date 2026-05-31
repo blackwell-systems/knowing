@@ -859,6 +859,16 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	// Focused seed selection (#36): cluster candidates by package path, pick seeds
 	// from the most cohesive cluster. Quality over quantity: 3-5 seeds in the same
 	// structural neighborhood vs 15-25 scattered across the graph.
+	// Package-path boosting: on large graphs (50K+ nodes), boost candidates
+	// whose file path contains words from the task description. This helps
+	// terraform-scale repos where generic keywords ("command", "validate")
+	// match hundreds of symbols across many packages. A candidate from
+	// "internal/command/validate.go" should rank above one from "internal/rpcapi/cli.go"
+	// when the task mentions "validate" and "command".
+	if e.effectiveNodeCount() > 10000 && len(pathTerms) > 0 && len(candidates) > 10 {
+		candidates = boostByPathMatch(candidates, pathTerms)
+	}
+
 	if focusedSeeds && len(candidates) > 5 {
 		candidates = focusedSeedSelect(candidates)
 	}
@@ -2237,6 +2247,46 @@ func dominantPkg(candidates []types.Node) string {
 		return ""
 	}
 	return best
+}
+
+// boostByPathMatch reorders candidates so those whose file path contains task keywords
+// are promoted. On large repos (terraform 76K nodes), BM25 returns symbols from many
+// packages. A candidate from "internal/command/validate.go" should rank above one from
+// "internal/rpcapi/cli.go" when the task mentions "validate" and "command".
+func boostByPathMatch(candidates []types.Node, pathTerms []string) []types.Node {
+	if len(pathTerms) == 0 {
+		return candidates
+	}
+
+	type scored struct {
+		node  types.Node
+		score int
+		idx   int
+	}
+
+	items := make([]scored, len(candidates))
+	for i, c := range candidates {
+		// Extract file path from QualifiedName (between "://" and the last file extension dot)
+		pathScore := 0
+		qn := strings.ToLower(c.QualifiedName)
+		for _, term := range pathTerms {
+			if strings.Contains(qn, strings.ToLower(term)) {
+				pathScore++
+			}
+		}
+		items[i] = scored{node: c, score: pathScore, idx: i}
+	}
+
+	// Stable sort: higher path score first, preserve original order within same score.
+	sort.SliceStable(items, func(a, b int) bool {
+		return items[a].score > items[b].score
+	})
+
+	result := make([]types.Node, len(candidates))
+	for i, item := range items {
+		result[i] = item.node
+	}
+	return result
 }
 
 // focusedSeedSelect reorders candidates so structurally cohesive seeds come first.
