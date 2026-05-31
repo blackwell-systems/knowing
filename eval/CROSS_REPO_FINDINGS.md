@@ -6,7 +6,7 @@ on an external Go codebase with no hand-curated seed dictionary.
 
 | Tier | R@10 | N |
 |------|------|---|
-| exact | 40.0% | 10 |
-| concept | 10.0% | 10 |
-| multi_hop | 10.0% | 10 |
-| **Overall** | **20.0%** | **30** |
+| exact | 80.0% | 10 |
+| concept | 50.0% | 10 |
+| multi_hop | 60.0% | 10 |
+| **Overall** | **63.3%** | **30** |
