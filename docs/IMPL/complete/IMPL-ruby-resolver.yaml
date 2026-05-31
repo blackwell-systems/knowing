@@ -1,3 +1,4 @@
+completion_date: "2026-05-30"
 title: Ruby In-Process Type Resolver
 feature_slug: ruby-resolver
 verdict: SUITABLE
@@ -1345,6 +1346,7 @@ waves:
             - A
             - B
             - C
+      base_commit: e3793488365b4bac3a1f26ba13c119c7e0a31faf
 quality_gates:
     level: standard
     gates:
@@ -1363,6 +1365,7 @@ post_merge_checklist:
           items:
             - description: Verify if requires_test.go needs initialization in Server constructor
             - description: Verify if eval_test.go needs initialization in Server constructor
+            - description: Verify if resolver_test.go needs initialization in Server constructor
 completion_reports:
     A:
         status: complete
@@ -1464,6 +1467,31 @@ completion_reports:
             - TestProcessStatement_MultiAssignment
         verification: PASS
         notes: 'All three files implemented. Build fails only due to cross-agent dependencies (Agent A: ResolveConstant, ParseScopeResolution; Agent B: IsBuiltinFunc, EvalBuiltinCall, LookupAttribute, ResolveBuiltinType). These are expected parallel wave compile errors that resolve after merge. Postconditions all pass (1 EvalExprType, 1 ProcessStatement, 1 ResolveContext struct).'
+    D:
+        status: complete
+        branch: polywave/ruby-resolver/wave2-agent-D
+        commit: b4b253f
+        files_changed:
+            - internal/typresolve/ruby/resolver.go
+            - internal/typresolve/ruby/registry_builder.go
+            - internal/typresolve/ruby/resolve.go
+            - internal/typresolve/ruby/resolver_test.go
+        files_created:
+            - internal/typresolve/ruby/resolver.go
+            - internal/typresolve/ruby/registry_builder.go
+            - internal/typresolve/ruby/resolve.go
+            - internal/typresolve/ruby/resolver_test.go
+        tests_added:
+            - TestRubyResolverLanguage
+            - TestRubyResolverInitWorkspace
+            - TestRubyResolverResolveFile_SimpleMethodCall
+            - TestRubyResolverResolveFile_ClassMethod
+            - TestRubyResolverResolveFile_ModuleInclude
+            - TestRubyResolverResolveFile_ScopeTracking
+            - TestBuildRegistry_ClassesAndMethods
+            - TestBuildRegistry_ModuleInclusion
+        verification: PASS
+        notes: All 4 files implemented. RubyResolver implements typresolve.Resolver. BuildRegistry handles functions, methods, types, implements, extends. ResolveCallsInFile walks AST for calls, classes, modules, methods, blocks, and bare identifiers (Ruby no-parens method calls). 59 tests pass (8 new + 51 wave 1). Full build+vet+test suite clean.
 pre_mortem:
     overall_risk: medium
     rows:
@@ -1539,5 +1567,5 @@ critic_report:
     summary: Skipped by operator (--skip-critic)
     reviewed_at: "2026-05-31T07:07:59Z"
     issue_count: 0
-state: REVIEWED
+state: COMPLETE
 injection_method: manual-fallback

@@ -33,3 +33,5 @@
   - IMPL doc: docs/IMPL/complete/IMPL-typescript-resolver.yaml
 - **python-resolver**: completed 2026-05-31, 2 waves, 4 agents
   - IMPL doc: docs/IMPL/complete/IMPL-python-resolver.yaml
+- **ruby-resolver**: completed 2026-05-31, 2 waves, 4 agents
+  - IMPL doc: docs/IMPL/complete/IMPL-ruby-resolver.yaml
