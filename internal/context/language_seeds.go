@@ -24,6 +24,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 	all = append(all, vscodeEquivalenceClasses()...)
 	all = append(all, caddyEquivalenceClasses()...)
 	all = append(all, cargoEquivalenceClasses()...)
+	all = append(all, sparkjavaEquivalenceClasses()...)
 	// Cross-cutting patterns (framework-agnostic).
 	all = append(all, containersEquivalenceClasses()...)
 	all = append(all, cryptoEquivalenceClasses()...)
