@@ -1,26 +1,14 @@
 package pyresolve
 
 import (
-	"context"
 	"testing"
 
 	"github.com/blackwell-systems/knowing/internal/typresolve"
 	sitter "github.com/smacker/go-tree-sitter"
-	"github.com/smacker/go-tree-sitter/python"
 	"github.com/stretchr/testify/require"
 )
 
-// parsePython parses Python source and returns the root node.
-func parsePython(t *testing.T, src string) *sitter.Node {
-	t.Helper()
-	content := []byte(src)
-	parser := sitter.NewParser()
-	parser.SetLanguage(python.GetLanguage())
-	tree, err := parser.ParseCtx(context.Background(), nil, content)
-	require.NoError(t, err)
-	t.Cleanup(func() { tree.Close() })
-	return tree.RootNode()
-}
+// parsePython is defined in annotations_test.go (same package).
 
 // findNode walks the tree and returns the first node matching the given type.
 func findNode(root *sitter.Node, nodeType string) *sitter.Node {
