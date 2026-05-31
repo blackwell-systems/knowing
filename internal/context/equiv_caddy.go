@@ -1,0 +1,88 @@
+package context
+
+// caddyEquivalenceClasses returns equivalence classes for the Caddy web server.
+func caddyEquivalenceClasses() []EquivalenceClass {
+	return []EquivalenceClass{
+		{
+		Concept:    "CADDY_FILE_SERVER",
+		Phrases:    []string{"file server", "serve files", "static file", "directory listing", "browse directory"},
+		Targets:    []string{"FileServer", "FileServer.ServeHTTP", "FileServer.openFile", "FileServer.serveBrowse", "FileServer.directoryListing", "Browse"},
+		TargetType: "symbol",
+		Weight:     0.9,
+		Source:     "framework",
+		Lang:       "go",
+		},
+		{
+		Concept:    "CADDY_TLS",
+		Phrases:    []string{"automatic https", "tls certificate", "tls config", "connection policy", "client authentication", "cipher suite"},
+		Targets:    []string{"App.automaticHTTPSPhase1", "App.automaticHTTPSPhase2", "App.createAutomationPolicies", "AutoHTTPSConfig", "TLS.Manage", "ConnectionPolicies", "ConnectionPolicy", "ClientAuthentication"},
+		TargetType: "symbol",
+		Weight:     0.9,
+		Source:     "framework",
+		Lang:       "go",
+		},
+		{
+		Concept:    "CADDY_MODULE",
+		Phrases:    []string{"caddy module", "module registration", "module lifecycle", "register module", "provision module"},
+		Targets:    []string{"RegisterModule", "GetModule", "Module", "ModuleInfo", "Context.LoadModule", "Context.LoadModuleByID", "Provisioner"},
+		TargetType: "symbol",
+		Weight:     0.9,
+		Source:     "framework",
+		Lang:       "go",
+		},
+		{
+		Concept:    "CADDY_CADDYFILE",
+		Phrases:    []string{"caddyfile", "caddyfile adapter", "caddyfile parsing", "server block", "json config"},
+		Targets:    []string{"Adapter", "Adapter.Adapt", "ServerType", "ServerType.Setup", "ServerType.serversFromPairings", "ServerType.buildTLSApp"},
+		TargetType: "symbol",
+		Weight:     0.9,
+		Source:     "framework",
+		Lang:       "go",
+		},
+		{
+		Concept:    "CADDY_HEALTH",
+		Phrases:    []string{"health check", "active health", "passive health", "backend health", "upstream healthy"},
+		Targets:    []string{"Handler.activeHealthChecker", "Handler.doActiveHealthCheck", "ActiveHealthChecks", "PassiveHealthChecks", "Upstream.Healthy", "Upstream.setHealthy"},
+		TargetType: "symbol",
+		Weight:     0.9,
+		Source:     "framework",
+		Lang:       "go",
+		},
+		{
+		Concept:    "CADDY_ENCODE",
+		Phrases:    []string{"compress response", "gzip", "zstd", "encoding", "response compression"},
+		Targets:    []string{"Encode", "Encode.ServeHTTP", "Encoding", "Encoder"},
+		TargetType: "symbol",
+		Weight:     0.9,
+		Source:     "framework",
+		Lang:       "go",
+		},
+		{
+		Concept:    "CADDY_MATCHER",
+		Phrases:    []string{"request matcher", "path matcher", "match request", "url pattern"},
+		Targets:    []string{"MatchPath", "RequestMatcher", "MatchPath.matchPatternWithEscapeSequence"},
+		TargetType: "symbol",
+		Weight:     0.9,
+		Source:     "framework",
+		Lang:       "go",
+		},
+		{
+		Concept:    "CADDY_PLACEHOLDER",
+		Phrases:    []string{"placeholder", "replacer", "runtime value", "substitution"},
+		Targets:    []string{"Replacer", "Replacer.ReplaceAll", "Replacer.ReplaceKnown", "NewReplacer", "Replacer.Map"},
+		TargetType: "symbol",
+		Weight:     0.9,
+		Source:     "framework",
+		Lang:       "go",
+		},
+		{
+		Concept:    "CADDY_LOGGING",
+		Phrases:    []string{"structured logging", "custom log", "log output", "log filtering"},
+		Targets:    []string{"Logging", "Logging.openLogs", "CustomLog", "BaseLog"},
+		TargetType: "symbol",
+		Weight:     0.9,
+		Source:     "framework",
+		Lang:       "go",
+		},
+	}
+}
