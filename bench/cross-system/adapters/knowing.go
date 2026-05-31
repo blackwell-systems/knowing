@@ -122,8 +122,11 @@ func (a *Knowing) Index(repoPath string) (int64, error) {
 		return 0, err
 	}
 	a.stores[repoPath] = s
-	// Initialize task memory for this repo (enables compounding across queries).
-	a.memories[repoPath] = knowingctx.NewTaskMemory(s.DB())
+	// Task memory DISABLED for benchmarks. Task memory persists in the DB across
+	// runs, causing accumulated boosts that inflate P@10 over time. Session 23
+	// found 26K stale entries in terraform alone. For honest cold-start measurement,
+	// each task must be evaluated independently without memory from prior runs.
+	// a.memories[repoPath] = knowingctx.NewTaskMemory(s.DB())
 
 	ctx := stdctx.Background()
 
