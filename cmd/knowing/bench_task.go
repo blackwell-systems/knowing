@@ -62,6 +62,7 @@ func cmdBenchTask(args []string) error {
 
 	// Run ForTask.
 	engine := knowingctx.NewContextEngine(st)
+	engine.DisablePersistentCache()
 	block, err := engine.ForTask(ctx, knowingctx.TaskOptions{
 		TaskDescription: task.Description,
 		TokenBudget:     *budget,
