@@ -3,44 +3,44 @@
   "worktrees": [
     {
       "agent": "A",
-      "path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/java-resolver/wave1-agent-A",
-      "branch": "polywave/java-resolver/wave1-agent-A"
+      "path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/rust-resolver/wave1-agent-A",
+      "branch": "polywave/rust-resolver/wave1-agent-A"
     },
     {
       "agent": "B",
-      "path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/java-resolver/wave1-agent-B",
-      "branch": "polywave/java-resolver/wave1-agent-B"
+      "path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/rust-resolver/wave1-agent-B",
+      "branch": "polywave/rust-resolver/wave1-agent-B"
     },
     {
       "agent": "C",
-      "path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/java-resolver/wave1-agent-C",
-      "branch": "polywave/java-resolver/wave1-agent-C"
+      "path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/rust-resolver/wave1-agent-C",
+      "branch": "polywave/rust-resolver/wave1-agent-C"
     }
   ],
   "agent_briefs": [
     {
       "agent": "A",
-      "brief_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/java-resolver/wave1-agent-A/.polywave-agent-brief.md",
-      "brief_length": 14187,
+      "brief_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/rust-resolver/wave1-agent-A/.polywave-agent-brief.md",
+      "brief_length": 15188,
       "journal_dir": "/Users/dayna.blackwell/code/knowing/.polywave-state/wave1/agent-A",
       "files_owned": 4,
-      "worktree_env_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/java-resolver/wave1-agent-A/.polywave-worktree-env"
+      "worktree_env_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/rust-resolver/wave1-agent-A/.polywave-worktree-env"
     },
     {
       "agent": "B",
-      "brief_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/java-resolver/wave1-agent-B/.polywave-agent-brief.md",
-      "brief_length": 11242,
+      "brief_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/rust-resolver/wave1-agent-B/.polywave-agent-brief.md",
+      "brief_length": 15396,
       "journal_dir": "/Users/dayna.blackwell/code/knowing/.polywave-state/wave1/agent-B",
       "files_owned": 3,
-      "worktree_env_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/java-resolver/wave1-agent-B/.polywave-worktree-env"
+      "worktree_env_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/rust-resolver/wave1-agent-B/.polywave-worktree-env"
     },
     {
       "agent": "C",
-      "brief_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/java-resolver/wave1-agent-C/.polywave-agent-brief.md",
-      "brief_length": 15191,
+      "brief_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/rust-resolver/wave1-agent-C/.polywave-agent-brief.md",
+      "brief_length": 24309,
       "journal_dir": "/Users/dayna.blackwell/code/knowing/.polywave-state/wave1/agent-C",
-      "files_owned": 3,
-      "worktree_env_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/java-resolver/wave1-agent-C/.polywave-worktree-env"
+      "files_owned": 4,
+      "worktree_env_path": "/Users/dayna.blackwell/code/knowing/.claude/worktrees/polywave/rust-resolver/wave1-agent-C/.polywave-worktree-env"
     }
   ],
   "steps": [
@@ -87,7 +87,7 @@
     {
       "step": "commit_baseline",
       "status": "success",
-      "detail": "committed 11 file(s)"
+      "detail": "committed 6 file(s)"
     },
     {
       "step": "baseline_gates",

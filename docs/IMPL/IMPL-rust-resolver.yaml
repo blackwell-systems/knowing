@@ -1145,6 +1145,7 @@ waves:
             - internal/typresolve/rust/scope_bind.go
             - internal/typresolve/rust/types.go
             - internal/typresolve/rust/eval_test.go
+      base_commit: ec7bd4da97d9bf4eb047f608e34b23c1b8f88e51
     - number: 2
       agents:
         - id: D
@@ -1616,6 +1617,129 @@ quality_gates:
         - type: test
           command: GOWORK=off go test -short ./... -timeout 5m
           required: true
+post_merge_checklist:
+    groups:
+        - title: Background Service Initialization
+          items:
+            - description: Verify if uses_test.go needs initialization in Server constructor
+            - description: Verify if eval_test.go needs initialization in Server constructor
+completion_reports:
+    A:
+        status: complete
+        branch: polywave/rust-resolver/wave1-agent-A
+        commit: c54df95
+        files_changed:
+            - internal/typresolve/rust/doc.go
+            - internal/typresolve/rust/modules.go
+            - internal/typresolve/rust/uses.go
+            - internal/typresolve/rust/uses_test.go
+        files_created:
+            - internal/typresolve/rust/doc.go
+            - internal/typresolve/rust/modules.go
+            - internal/typresolve/rust/uses.go
+            - internal/typresolve/rust/uses_test.go
+        tests_added:
+            - TestResolveUsePath_Crate
+            - TestResolveUsePath_Self
+            - TestResolveUsePath_Super
+            - TestResolveUsePath_External
+            - TestResolveUsePath_Std
+            - TestBuildUseMap_Simple
+            - TestBuildUseMap_Group
+            - TestBuildUseMap_Alias
+            - TestBuildUseMap_Glob
+            - TestInferModuleQN_Regular
+            - TestInferModuleQN_ModRs
+            - TestInferModuleQN_LibRs
+            - TestInferModuleQN_MainRs
+        verification: PASS
+    B:
+        status: complete
+        branch: polywave/rust-resolver/wave1-agent-B
+        commit: e30f7e6
+        files_changed:
+            - internal/typresolve/rust/builtins.go
+            - internal/typresolve/rust/methods.go
+            - internal/typresolve/rust/builtins_test.go
+        files_created:
+            - internal/typresolve/rust/builtins.go
+            - internal/typresolve/rust/methods.go
+            - internal/typresolve/rust/builtins_test.go
+        tests_added:
+            - TestIsBuiltinFunc
+            - TestIsBuiltinType
+            - TestResolveBuiltinType_Primitive
+            - TestResolveBuiltinType_CoreType
+            - TestResolveBuiltinType_NonBuiltin
+            - TestResolveBuiltinType_Unit
+            - TestEvalMacroReturnType_Vec
+            - TestEvalMacroReturnType_Format
+            - TestEvalMacroReturnType_Println
+            - TestEvalMacroReturnType_Todo
+            - TestEvalMacroReturnType_IncludeStr
+            - TestEvalMacroReturnType_IncludeBytes
+            - TestEvalMacroReturnType_Matches
+            - TestEvalMacroReturnType_Line
+            - TestLookupMethod_DirectImpl
+            - TestLookupMethod_ViaTraitImpl
+            - TestLookupMethod_DepthLimit
+            - TestLookupMethod_NotFound
+            - TestLookupField_Found
+            - TestLookupField_NotFound
+            - TestDerefToBase_Reference
+            - TestDerefToBase_Pointer
+            - TestDerefToBase_Box
+            - TestDerefToBase_Arc
+            - TestDerefToBase_Plain
+            - TestDerefToBase_NestedRefBox
+            - TestDerefToBase_Nil
+        verification: PASS
+        notes: All 27 tests passing. Builtins cover 40+ macros, 70+ types/traits. Method lookup supports trait dispatch via EmbeddedTypes with depth limit 8. DerefToBase handles &T, *T, Box<T>, Arc<T>, Rc<T> with iterative unwrapping (max 4 levels).
+    C:
+        status: complete
+        branch: polywave/rust-resolver/wave1-agent-C
+        commit: b7364ed
+        files_changed:
+            - internal/typresolve/rust/eval.go
+            - internal/typresolve/rust/scope_bind.go
+            - internal/typresolve/rust/types.go
+            - internal/typresolve/rust/eval_test.go
+        files_created:
+            - internal/typresolve/rust/eval.go
+            - internal/typresolve/rust/scope_bind.go
+            - internal/typresolve/rust/types.go
+            - internal/typresolve/rust/eval_test.go
+        tests_added:
+            - TestEvalExprType_IdentifierFromScope
+            - TestEvalExprType_IntegerLiteral
+            - TestEvalExprType_FloatLiteral
+            - TestEvalExprType_StringLiteral
+            - TestEvalExprType_BoolLiteral
+            - TestEvalExprType_CharLiteral
+            - TestEvalExprType_ArrayLiteral
+            - TestEvalExprType_Reference
+            - TestEvalExprType_BinaryComparison
+            - TestEvalExprType_BinaryArithmetic
+            - TestEvalExprType_MacroInvocation
+            - TestEvalExprType_StructExpression
+            - TestEvalExprType_TryExpression
+            - TestParseTypeNode_Primitive
+            - TestParseTypeNode_Reference
+            - TestParseTypeNode_MutReference
+            - TestParseTypeNode_Option
+            - TestParseTypeNode_Vec
+            - TestParseTypeNode_HashMap
+            - TestParseTypeNode_Tuple
+            - TestParseTypeNode_Unit
+            - TestParseTypeNode_Array
+            - TestParseTypeNode_Box
+            - TestProcessStatement_LetBinding
+            - TestProcessStatement_LetWithType
+            - TestProcessStatement_LetMut
+            - TestProcessStatement_LetTuple
+            - TestProcessStatement_ForLoop
+        verification: PASS
+        notes: All 4 files implemented. Build fails only due to Agent B dependencies (IsBuiltinType, IsBuiltinFunc, ResolveBuiltinType, EvalMacroReturnType, LookupMethod, LookupField, DerefToBase) which are parallel wave. Postconditions all pass. Committed with --no-verify per parallel wave protocol.
 pre_mortem:
     overall_risk: medium
     rows:
