@@ -253,109 +253,8 @@ func TestParseTypeText_EmptyInput(t *testing.T) {
 	}
 }
 
-func TestIsBuiltinType(t *testing.T) {
-	// Primitives
-	for _, name := range []string{"string", "number", "boolean", "void", "any", "never", "null", "undefined"} {
-		if !IsBuiltinType(name) {
-			t.Errorf("IsBuiltinType(%q) = false, want true", name)
-		}
-	}
-	// Stdlib names
-	for _, name := range []string{"Array", "Promise", "Map", "Set", "Error", "Date"} {
-		if !IsBuiltinType(name) {
-			t.Errorf("IsBuiltinType(%q) = false, want true", name)
-		}
-	}
-	// Non-builtin
-	if IsBuiltinType("MyClass") {
-		t.Error("IsBuiltinType(MyClass) = true, want false")
-	}
-}
-
-func TestResolveBuiltinType(t *testing.T) {
-	got := ResolveBuiltinType("string")
-	if got == nil || got.Kind != typresolve.KindBuiltin || got.Name != "string" {
-		t.Errorf("ResolveBuiltinType(string) = %+v, want Builtin(string)", got)
-	}
-	if ResolveBuiltinType("MyClass") != nil {
-		t.Error("ResolveBuiltinType(MyClass) should return nil")
-	}
-}
-
-func TestBuiltinWrapperClass(t *testing.T) {
-	tests := []struct {
-		input string
-		want  string
-	}{
-		{"string", "String"},
-		{"number", "Number"},
-		{"boolean", "Boolean"},
-		{"bigint", "BigInt"},
-		{"symbol", "Symbol"},
-		{"object", ""},
-		{"void", ""},
-	}
-	for _, tt := range tests {
-		got := BuiltinWrapperClass(tt.input)
-		if got != tt.want {
-			t.Errorf("BuiltinWrapperClass(%q) = %q, want %q", tt.input, got, tt.want)
-		}
-	}
-}
-
-func TestLiteralType(t *testing.T) {
-	tests := []struct {
-		nodeType string
-		wantKind typresolve.TypeKind
-		wantName string
-	}{
-		{"string", typresolve.KindBuiltin, "string"},
-		{"template_string", typresolve.KindBuiltin, "string"},
-		{"number", typresolve.KindBuiltin, "number"},
-		{"true", typresolve.KindBuiltin, "boolean"},
-		{"false", typresolve.KindBuiltin, "boolean"},
-		{"null", typresolve.KindBuiltin, "null"},
-		{"undefined", typresolve.KindBuiltin, "undefined"},
-		{"regex", typresolve.KindNamed, "RegExp"},
-	}
-	for _, tt := range tests {
-		got := LiteralType(tt.nodeType)
-		if got == nil {
-			t.Errorf("LiteralType(%q) = nil, want non-nil", tt.nodeType)
-			continue
-		}
-		if got.Kind != tt.wantKind || got.Name != tt.wantName {
-			t.Errorf("LiteralType(%q) = {Kind:%v, Name:%q}, want {Kind:%v, Name:%q}",
-				tt.nodeType, got.Kind, got.Name, tt.wantKind, tt.wantName)
-		}
-	}
-	if LiteralType("identifier") != nil {
-		t.Error("LiteralType(identifier) should return nil")
-	}
-}
-
-func TestUnwrapPromise(t *testing.T) {
-	// Promise with type param unwraps.
-	promise := typresolve.Named("Promise")
-	promise.TypeParams = []typresolve.TypeParam{
-		{Name: "string", Constraint: typresolve.Builtin("string")},
-	}
-	got := UnwrapPromise(promise)
-	if got.Kind != typresolve.KindBuiltin || got.Name != "string" {
-		t.Errorf("UnwrapPromise(Promise<string>) = %+v, want Builtin(string)", got)
-	}
-
-	// Non-promise passes through.
-	num := typresolve.Builtin("number")
-	if UnwrapPromise(num) != num {
-		t.Error("UnwrapPromise should pass through non-Promise types")
-	}
-
-	// Nil passes through.
-	if UnwrapPromise(nil) != nil {
-		t.Error("UnwrapPromise(nil) should return nil")
-	}
-}
+// TestIsBuiltinType, TestResolveBuiltinType, TestBuiltinWrapperClass,
+// TestLiteralType, TestUnwrapPromise are defined in builtins_test.go.
 
 func TestSplitAtDepthZero(t *testing.T) {
 	tests := []struct {
@@ -384,7 +283,7 @@ func TestSplitAtDepthZero(t *testing.T) {
 	}
 }
 
-func parseTS(t *testing.T, code string) (*sitter.Node, []byte) {
+func parseTSWithContent(t *testing.T, code string) (*sitter.Node, []byte) {
 	t.Helper()
 	parser := sitter.NewParser()
 	parser.SetLanguage(typescript.GetLanguage())
@@ -397,7 +296,7 @@ func parseTS(t *testing.T, code string) (*sitter.Node, []byte) {
 
 func TestParseTypeNode_TypeAnnotation(t *testing.T) {
 	code := `const x: string = "hello";`
-	root, content := parseTS(t, code)
+	root, content := parseTSWithContent(t, code)
 
 	// Navigate to the type_annotation node.
 	// lexical_declaration -> variable_declarator -> type_annotation
@@ -472,7 +371,7 @@ func TestBuildImportMap(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			root, content := parseTS(t, tt.code)
+			root, content := parseTSWithContent(t, tt.code)
 			got := BuildImportMap(root, content)
 			if len(got) != tt.wantLen {
 				t.Errorf("BuildImportMap: got %d entries, want %d: %+v", len(got), tt.wantLen, got)

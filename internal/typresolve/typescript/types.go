@@ -39,76 +39,8 @@ var tsBuiltinPrimitives = map[string]bool{
 	"null": true, "undefined": true, "object": true, "symbol": true,
 }
 
-// IsBuiltinType returns true if the given name is a TypeScript/JavaScript
-// builtin type (primitive or standard library name).
-func IsBuiltinType(name string) bool {
-	return tsBuiltinPrimitives[name] || tsStdlibNames[name]
-}
-
-// ResolveBuiltinType returns a typresolve.Builtin type if the name is a TS
-// builtin primitive type, nil otherwise.
-func ResolveBuiltinType(name string) *typresolve.Type {
-	if tsBuiltinPrimitives[name] {
-		return typresolve.Builtin(name)
-	}
-	return nil
-}
-
-// BuiltinWrapperClass maps builtin primitive type names to their wrapper
-// class for method dispatch. Returns empty string if not a primitive with
-// a wrapper.
-func BuiltinWrapperClass(builtinName string) string {
-	switch builtinName {
-	case "string":
-		return "String"
-	case "number":
-		return "Number"
-	case "boolean":
-		return "Boolean"
-	case "bigint":
-		return "BigInt"
-	case "symbol":
-		return "Symbol"
-	default:
-		return ""
-	}
-}
-
-// LiteralType maps TypeScript tree-sitter literal node types to builtin types.
-// Returns nil if not a literal type.
-func LiteralType(nodeType string) *typresolve.Type {
-	switch nodeType {
-	case "string", "template_string":
-		return typresolve.Builtin("string")
-	case "number":
-		return typresolve.Builtin("number")
-	case "true", "false":
-		return typresolve.Builtin("boolean")
-	case "null":
-		return typresolve.Builtin("null")
-	case "undefined":
-		return typresolve.Builtin("undefined")
-	case "regex":
-		return typresolve.Named("RegExp")
-	default:
-		return nil
-	}
-}
-
-// UnwrapPromise returns the inner type T if the type is Named("Promise")
-// with type params, or the type unchanged otherwise. Used for async/await
-// unwrapping.
-func UnwrapPromise(t *typresolve.Type) *typresolve.Type {
-	if t == nil {
-		return t
-	}
-	if t.Kind == typresolve.KindNamed && t.Name == "Promise" && len(t.TypeParams) > 0 {
-		if t.TypeParams[0].Constraint != nil {
-			return t.TypeParams[0].Constraint
-		}
-	}
-	return t
-}
+// IsBuiltinType, ResolveBuiltinType, BuiltinWrapperClass, LiteralType,
+// and UnwrapPromise are defined in builtins.go.
 
 // ParseTypeText parses a TypeScript type annotation text string into a
 // typresolve.Type. This is the TS equivalent of Go's ParseTypeNode and
