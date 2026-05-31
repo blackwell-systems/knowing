@@ -22,22 +22,7 @@ func parseCS(t *testing.T, src string) *sitter.Node {
 	return tree.RootNode()
 }
 
-// findFirstNodeOfType does a depth-first search for a node with the given type.
-func findFirstNodeOfType(node *sitter.Node, nodeType string) *sitter.Node {
-	if node == nil {
-		return nil
-	}
-	if node.Type() == nodeType {
-		return node
-	}
-	for i := 0; i < int(node.ChildCount()); i++ {
-		found := findFirstNodeOfType(node.Child(i), nodeType)
-		if found != nil {
-			return found
-		}
-	}
-	return nil
-}
+// findFirstNodeOfType is defined in eval_test.go (same package).
 
 // findTypeNodeInVarDecl finds the type node from a variable declaration.
 func findTypeNodeInVarDecl(t *testing.T, root *sitter.Node) *sitter.Node {
