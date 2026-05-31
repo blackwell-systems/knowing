@@ -1,0 +1,51 @@
+title: Enterprise-Scale Multi-Module LSP Enrichment
+feature_slug: enterprise-multimodule-enrichment
+verdict: NOT_SUITABLE
+state: NOT_SUITABLE
+suitability_assessment: |
+  All four requirements described in the feature request are already fully
+  implemented in the codebase. The previous IMPL (multi-module-enrichment,
+  completed 2026-05-24, 2 waves, 4 agents) delivered this exact feature.
+
+  Evidence of completion:
+
+  1. go.work parsing and per-module gopls spawning:
+     - internal/enrichment/multimodule.go: DiscoverModules() parses go.work
+       via golang.org/x/mod/modfile, returns []ModuleInfo with Dir and Name.
+     - internal/enrichment/enricher.go: runForServer() checks for go.work,
+       delegates to runMultiModule() which spawns one gopls per module.
+       Root module processed solo first; sub-modules processed in parallel
+       (4 concurrent gopls instances via channel semaphore + WaitGroup).
+
+  2. Graceful degradation:
+     - enrichModule() catches gopls initialization failures, logs them,
+       marks the module as errored via progress.MarkModule(name, err),
+       increments errored counter, and continues to next module.
+
+  3. Progress persistence:
+     - internal/enrichment/progress.go: EnrichProgress struct with
+       LoadProgress/SaveProgress (atomic write via tmp+rename) stored at
+       .knowing/enrich-progress.json. Thread-safe (sync.Mutex).
+     - enrichModule() calls progress.IsComplete() to skip already-done
+       modules, enabling interrupted runs to resume.
+
+  4. Per-symbol timeout:
+     - internal/enrichment/timeout.go: WithSymbolTimeout() wraps LSP calls
+       with context.WithTimeout, returns ErrSymbolTimeout on expiry.
+       DefaultSymbolTimeout = 10s. Used in processSymbolsWithSourceAndClient()
+       and upgradeCallEdges().
+
+  For non-Go repos or repos without go.work, the single-server fallback
+  is active (runForServer checks len(modules) > 1 before entering
+  multi-module path).
+
+  docs/CONTEXT.md lists multi-module-enrichment as completed on 2026-05-24.
+  docs/research/in-process-resolver-analysis.md Section 7 references the
+  existing multi-module enrichment as current architecture.
+
+  Recommendation: No implementation work needed. If there are specific gaps
+  or enhancements beyond what was described (e.g., scaling to 100+ modules,
+  memory budgeting, cross-module edge resolution), file a new feature request
+  with those specific requirements.
+test_command: GOWORK=off go test ./internal/enrichment/... -timeout 5m
+lint_command: GOWORK=off go vet ./internal/enrichment/...
