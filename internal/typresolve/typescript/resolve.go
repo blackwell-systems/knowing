@@ -256,6 +256,9 @@ func resolveCallsInNode(ctx *ResolveContext, node *sitter.Node, edges *[]types.E
 	switch node.Type() {
 	case "call_expression":
 		resolveCallExpression(ctx, node, edges, fileHash, repoURL, filePath)
+		// Fix #2: Contextual callback typing. After resolving the call, check
+		// if any arguments are arrow functions and propagate expected param types.
+		processCallbackArgs(ctx, node, edges, fileHash, repoURL, filePath)
 
 	case "new_expression":
 		resolveNewExpression(ctx, node, edges, fileHash, repoURL, filePath)
@@ -274,6 +277,15 @@ func resolveCallsInNode(ctx *ResolveContext, node *sitter.Node, edges *[]types.E
 		childScope := typresolve.NewScope(ctx.Scope)
 		oldScope = ctx.Scope
 		ctx.Scope = childScope
+	}
+
+	// Fix #3: Flow-sensitive type narrowing for if_statement.
+	if node.Type() == "if_statement" {
+		resolveIfWithNarrowing(ctx, node, edges, fileHash, repoURL, filePath)
+		if pushScope {
+			ctx.Scope = oldScope
+		}
+		return
 	}
 
 	// Recurse into children, skipping nested function/class declarations
@@ -668,6 +680,253 @@ func isBlockNode(nodeType string) bool {
 		return true
 	}
 	return false
+}
+
+// processCallbackArgs implements contextual callback typing (fix #2).
+// When calling a method like arr.map(x => ...), it resolves the method's
+// signature, finds callback parameters, substitutes type params (T) with
+// the receiver's element type, and walks the callback body with those
+// contextual types bound.
+func processCallbackArgs(ctx *ResolveContext, callNode *sitter.Node, edges *[]types.Edge, fileHash types.Hash, repoURL string, filePath string) {
+	fnNode := callNode.ChildByFieldName("function")
+	if fnNode == nil {
+		return
+	}
+
+	// Evaluate the function's type to get its signature.
+	fnType := EvalExprType(ctx, fnNode)
+	if fnType == nil || fnType.Kind != typresolve.KindFunc {
+		return
+	}
+	if len(fnType.Params) == 0 {
+		return
+	}
+
+	argsNode := callNode.ChildByFieldName("arguments")
+	if argsNode == nil {
+		return
+	}
+
+	// For each argument position, if it's an arrow function and the
+	// corresponding param is a Func type, propagate param types.
+	argIdx := 0
+	for i := 0; i < int(argsNode.NamedChildCount()); i++ {
+		arg := argsNode.NamedChild(i)
+		if arg == nil {
+			continue
+		}
+		argType := arg.Type()
+		if argType != "arrow_function" && argType != "function" {
+			argIdx++
+			continue
+		}
+		if argIdx >= len(fnType.Params) {
+			break
+		}
+		expectedParam := fnType.Params[argIdx].Type
+		if expectedParam == nil || expectedParam.Kind != typresolve.KindFunc {
+			argIdx++
+			continue
+		}
+
+		// Push scope, bind arrow params with contextual types.
+		arrowScope := typresolve.NewScope(ctx.Scope)
+		origScope := ctx.Scope
+		ctx.Scope = arrowScope
+
+		// Bind each parameter from the expected callback type.
+		bindCallbackParams(ctx, arg, expectedParam)
+
+		// Walk arrow body for call resolution.
+		body := arg.ChildByFieldName("body")
+		if body != nil {
+			resolveCallsInNode(ctx, body, edges, fileHash, repoURL, filePath)
+		}
+
+		ctx.Scope = origScope
+		argIdx++
+	}
+}
+
+// bindCallbackParams binds the parameters of an arrow/function callback
+// using types from the expected callback signature. If the arrow already has
+// type annotations, those win; otherwise the expected types are used.
+func bindCallbackParams(ctx *ResolveContext, arrowNode *sitter.Node, expectedFn *typresolve.Type) {
+	params := arrowNode.ChildByFieldName("parameters")
+	if params != nil {
+		idx := 0
+		for i := 0; i < int(params.NamedChildCount()); i++ {
+			child := params.NamedChild(i)
+			if child == nil {
+				continue
+			}
+			var paramName string
+			var hasAnnotation bool
+
+			switch child.Type() {
+			case "required_parameter", "optional_parameter":
+				nameNode := child.ChildByFieldName("pattern")
+				if nameNode == nil {
+					nameNode = child.ChildByFieldName("name")
+				}
+				if nameNode != nil {
+					paramName = nodeText(nameNode, ctx.Content)
+				}
+				typeNode := child.ChildByFieldName("type")
+				if typeNode != nil {
+					annotated := ParseTypeNode(typeNode, ctx.Content, ctx.ModuleQN, ctx.Imports)
+					if annotated != nil && annotated.Kind != typresolve.KindUnknown {
+						hasAnnotation = true
+						if paramName != "" {
+							ctx.Scope.Bind(paramName, annotated)
+						}
+					}
+				}
+			case "identifier":
+				paramName = nodeText(child, ctx.Content)
+			}
+
+			if paramName != "" && !hasAnnotation {
+				// Use expected type from callback signature.
+				var expectedType *typresolve.Type
+				if idx < len(expectedFn.Params) {
+					expectedType = expectedFn.Params[idx].Type
+				}
+				if expectedType == nil {
+					expectedType = typresolve.Unknown()
+				}
+				ctx.Scope.Bind(paramName, expectedType)
+			}
+			idx++
+		}
+	} else {
+		// Single bare param: `x => ...`
+		param := arrowNode.ChildByFieldName("parameter")
+		if param != nil && param.Type() == "identifier" {
+			name := nodeText(param, ctx.Content)
+			var expectedType *typresolve.Type
+			if len(expectedFn.Params) > 0 {
+				expectedType = expectedFn.Params[0].Type
+			}
+			if expectedType == nil {
+				expectedType = typresolve.Unknown()
+			}
+			ctx.Scope.Bind(name, expectedType)
+		}
+	}
+}
+
+// resolveIfWithNarrowing processes an if_statement with flow-sensitive type
+// narrowing (fix #3). Extracts narrowing facts from the condition (instanceof,
+// typeof ===) and applies them in the consequence branch.
+func resolveIfWithNarrowing(ctx *ResolveContext, node *sitter.Node, edges *[]types.Edge, fileHash types.Hash, repoURL string, filePath string) {
+	condition := node.ChildByFieldName("condition")
+	consequence := node.ChildByFieldName("consequence")
+	alternative := node.ChildByFieldName("alternative")
+
+	// Try to extract narrowing from condition.
+	varName, narrowedType := extractNarrowing(ctx, condition)
+
+	// Process consequence with narrowed type.
+	if consequence != nil {
+		narrowScope := typresolve.NewScope(ctx.Scope)
+		origScope := ctx.Scope
+		ctx.Scope = narrowScope
+		if varName != "" && narrowedType != nil {
+			ctx.Scope.Bind(varName, narrowedType)
+		}
+		resolveCallsInNode(ctx, consequence, edges, fileHash, repoURL, filePath)
+		ctx.Scope = origScope
+	}
+
+	// Process alternative (else branch) without narrowing.
+	if alternative != nil {
+		altScope := typresolve.NewScope(ctx.Scope)
+		origScope := ctx.Scope
+		ctx.Scope = altScope
+		resolveCallsInNode(ctx, alternative, edges, fileHash, repoURL, filePath)
+		ctx.Scope = origScope
+	}
+}
+
+// extractNarrowing extracts type narrowing from an if-condition.
+// Supports: `x instanceof Foo`, `typeof x === 'string'`.
+// Returns the variable name and the narrowed type, or ("", nil) if no
+// narrowing applies.
+func extractNarrowing(ctx *ResolveContext, condition *sitter.Node) (string, *typresolve.Type) {
+	if condition == nil {
+		return "", nil
+	}
+
+	// Strip parenthesized_expression wrapper.
+	for condition.Type() == "parenthesized_expression" && condition.NamedChildCount() > 0 {
+		condition = condition.NamedChild(0)
+		if condition == nil {
+			return "", nil
+		}
+	}
+
+	if condition.Type() != "binary_expression" {
+		return "", nil
+	}
+
+	// Look for operator among unnamed children.
+	var op string
+	for i := 0; i < int(condition.ChildCount()); i++ {
+		child := condition.Child(i)
+		if child != nil && !child.IsNamed() {
+			text := nodeText(child, ctx.Content)
+			switch text {
+			case "instanceof", "===", "!==", "==", "!=":
+				op = text
+			}
+		}
+	}
+
+	left := condition.ChildByFieldName("left")
+	right := condition.ChildByFieldName("right")
+	if left == nil || right == nil {
+		return "", nil
+	}
+
+	// Case 1: `x instanceof Foo`
+	if op == "instanceof" {
+		if left.Type() == "identifier" && right.Type() == "identifier" {
+			varName := nodeText(left, ctx.Content)
+			className := nodeText(right, ctx.Content)
+			classType := ParseTypeText(className, ctx.ModuleQN)
+			return varName, classType
+		}
+		return "", nil
+	}
+
+	// Case 2: `typeof x === 'string'`
+	if op == "===" || op == "==" {
+		if left.Type() == "unary_expression" && right.Type() == "string" {
+			// Check if left is `typeof identifier`.
+			var typeofOp string
+			var argName string
+			for i := 0; i < int(left.ChildCount()); i++ {
+				child := left.Child(i)
+				if child == nil {
+					continue
+				}
+				if !child.IsNamed() {
+					typeofOp = nodeText(child, ctx.Content)
+				} else if child.Type() == "identifier" {
+					argName = nodeText(child, ctx.Content)
+				}
+			}
+			if typeofOp == "typeof" && argName != "" {
+				// Extract the string literal value.
+				litText := nodeText(right, ctx.Content)
+				litText = strings.Trim(litText, `"'`)
+				return argName, typresolve.Builtin(litText)
+			}
+		}
+	}
+
+	return "", nil
 }
 
 // isBuiltinFunction returns true for JavaScript builtins that should not

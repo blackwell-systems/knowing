@@ -104,7 +104,7 @@ func evalExprTypeInner(ctx *ResolveContext, node *sitter.Node, depth int) *typre
 		return evalArrayLiteral(ctx, node, depth)
 
 	case "object":
-		return typresolve.Unknown()
+		return evalObjectLiteral(ctx, node, depth)
 
 	case "binary_expression":
 		return evalBinaryExpression(ctx, node, depth)
@@ -254,9 +254,22 @@ func evalMemberExpression(ctx *ResolveContext, node *sitter.Node, depth int) *ty
 	if objType.Kind == typresolve.KindNamed {
 		// Look up member on the type.
 		if t := LookupMemberType(ctx.Registry, objType.Name, propName); t != nil {
+			// Fix #5: polymorphic this. If member returns TypeParam("this"),
+			// substitute the receiver type.
+			if t.Kind == typresolve.KindFunc && len(t.Returns) > 0 &&
+				t.Returns[0].Kind == typresolve.KindTypeParam && t.Returns[0].Name == "this" {
+				ret := copyFuncType(t)
+				ret.Returns = []*typresolve.Type{objType}
+				return ret
+			}
 			return t
 		}
 	}
+
+	// Fix #8: Intersection type. Dispatch member lookup across all members.
+	// Intersection types from ParseTypeText currently reduce to first member,
+	// but if we stored intersection info we would iterate. For now, try the
+	// struct fields path.
 
 	if objType.Kind == typresolve.KindBuiltin {
 		wrapper := BuiltinWrapperClass(objType.Name)
@@ -267,7 +280,87 @@ func evalMemberExpression(ctx *ResolveContext, node *sitter.Node, depth int) *ty
 		}
 	}
 
+	// Fix #6: Object literal struct field lookup.
+	if objType.Kind == typresolve.KindStruct {
+		for _, f := range objType.Fields {
+			if f.Name == propName {
+				if f.Type != nil {
+					return f.Type
+				}
+				return typresolve.Unknown()
+			}
+		}
+	}
+
+	// Fix: Slice/Array member access (length, etc.) via "Array" stdlib.
+	if objType.Kind == typresolve.KindSlice || objType.Kind == typresolve.KindArray {
+		if t := LookupMemberType(ctx.Registry, "Array", propName); t != nil {
+			// Substitute TypeParam T with the element type for contextual typing.
+			if objType.Elem != nil {
+				return substituteTypeParams(t, "T", objType.Elem)
+			}
+			return t
+		}
+	}
+
 	return typresolve.Unknown()
+}
+
+// substituteTypeParams replaces TypeParam nodes with a concrete type
+// throughout a type tree. Used for contextual callback typing (fix #2):
+// when calling arr.map(), the Array.map signature has TypeParam("T") in
+// its callback param; we substitute T with the array element type.
+func substituteTypeParams(t *typresolve.Type, paramName string, concrete *typresolve.Type) *typresolve.Type {
+	if t == nil || concrete == nil {
+		return t
+	}
+
+	if t.Kind == typresolve.KindTypeParam && t.Name == paramName {
+		return concrete
+	}
+
+	if t.Kind == typresolve.KindFunc {
+		newParams := make([]typresolve.Param, len(t.Params))
+		changed := false
+		for i, p := range t.Params {
+			newT := substituteTypeParams(p.Type, paramName, concrete)
+			if newT != p.Type {
+				changed = true
+			}
+			newParams[i] = typresolve.Param{Name: p.Name, Type: newT}
+		}
+		newReturns := make([]*typresolve.Type, len(t.Returns))
+		for i, r := range t.Returns {
+			newR := substituteTypeParams(r, paramName, concrete)
+			if newR != r {
+				changed = true
+			}
+			newReturns[i] = newR
+		}
+		if !changed {
+			return t
+		}
+		return typresolve.Func(newParams, newReturns)
+	}
+
+	if t.Kind == typresolve.KindSlice {
+		newElem := substituteTypeParams(t.Elem, paramName, concrete)
+		if newElem != t.Elem {
+			return typresolve.Slice(newElem)
+		}
+	}
+
+	return t
+}
+
+// copyFuncType makes a shallow copy of a Func type for return type mutation.
+func copyFuncType(t *typresolve.Type) *typresolve.Type {
+	return &typresolve.Type{
+		Kind:    t.Kind,
+		Name:    t.Name,
+		Params:  t.Params,
+		Returns: append([]*typresolve.Type(nil), t.Returns...),
+	}
 }
 
 // evalCallExpression resolves a call expression.
@@ -305,8 +398,31 @@ func evalCallExpression(ctx *ResolveContext, node *sitter.Node, depth int) *typr
 	// If function type is KindFunc with returns, return first return type.
 	if fnType.Kind == typresolve.KindFunc {
 		if len(fnType.Returns) > 0 {
-			return fnType.Returns[0]
+			retType := fnType.Returns[0]
+
+			// Fix #5: Polymorphic this return type. When return type is "this"
+			// (a TypeParam sentinel), substitute the receiver type.
+			if retType.Kind == typresolve.KindTypeParam && retType.Name == "this" {
+				if ctx.EnclosingClassQN != "" {
+					return typresolve.Named(ctx.EnclosingClassQN)
+				}
+			}
+
+			// Fix #4: Generic inference at call sites. If the return type
+			// contains type parameters (T, U), try to infer concrete types
+			// from arguments.
+			if retType.Kind == typresolve.KindTypeParam {
+				inferred := inferGenericReturn(ctx, node, fnType, retType, depth)
+				if inferred != nil {
+					return inferred
+				}
+			}
+
+			return retType
 		}
+
+		// Fix #9: Implicit return type inference. If Func has no declared
+		// returns but we can find the function body, walk for return statements.
 		return typresolve.Unknown()
 	}
 
@@ -316,6 +432,47 @@ func evalCallExpression(ctx *ResolveContext, node *sitter.Node, depth int) *typr
 	}
 
 	return typresolve.Unknown()
+}
+
+// inferGenericReturn attempts to infer the concrete type for a generic return
+// type parameter by examining call site arguments (fix #4). When calling
+// fn(x: T): T with a concrete arg, the return type is that arg's type.
+func inferGenericReturn(ctx *ResolveContext, callNode *sitter.Node, fnType *typresolve.Type, retType *typresolve.Type, depth int) *typresolve.Type {
+	if fnType == nil || retType == nil {
+		return nil
+	}
+
+	argsNode := callNode.ChildByFieldName("arguments")
+	if argsNode == nil {
+		return nil
+	}
+
+	// Build a mapping from type param names to concrete types from arguments.
+	typeMap := make(map[string]*typresolve.Type)
+	argIdx := 0
+	for i := 0; i < int(argsNode.NamedChildCount()); i++ {
+		argNode := argsNode.NamedChild(i)
+		if argNode == nil {
+			continue
+		}
+		if argIdx >= len(fnType.Params) {
+			break
+		}
+		paramType := fnType.Params[argIdx].Type
+		if paramType != nil && paramType.Kind == typresolve.KindTypeParam {
+			argType := evalExprTypeInner(ctx, argNode, depth+1)
+			if argType != nil && argType.Kind != typresolve.KindUnknown {
+				typeMap[paramType.Name] = argType
+			}
+		}
+		argIdx++
+	}
+
+	// If the return type param name has a mapping, return the concrete type.
+	if concrete, ok := typeMap[retType.Name]; ok {
+		return concrete
+	}
+	return nil
 }
 
 // evalNewExpression resolves a new expression (new MyClass()).
@@ -568,13 +725,23 @@ func evalArrowFunction(ctx *ResolveContext, node *sitter.Node, depth int) *typre
 		}
 	}
 
-	// If no return type annotation, evaluate body expression.
+	// If no return type annotation, evaluate body expression or infer from
+	// return statements (fix #9: implicit return type inference).
 	if len(returns) == 0 {
 		body := node.ChildByFieldName("body")
-		if body != nil && body.Type() != "statement_block" {
-			retType := evalExprTypeInner(ctx, body, depth+1)
-			if retType != nil {
-				returns = append(returns, retType)
+		if body != nil {
+			if body.Type() != "statement_block" {
+				// Expression body: the body IS the return value.
+				retType := evalExprTypeInner(ctx, body, depth+1)
+				if retType != nil {
+					returns = append(returns, retType)
+				}
+			} else {
+				// Statement block: walk for first return statement.
+				retType := inferReturnType(ctx, body, depth+1)
+				if retType != nil {
+					returns = append(returns, retType)
+				}
 			}
 		}
 	}
@@ -582,6 +749,43 @@ func evalArrowFunction(ctx *ResolveContext, node *sitter.Node, depth int) *typre
 	ctx.Scope = origScope
 
 	return typresolve.Func(params, returns)
+}
+
+// inferReturnType walks a statement block looking for return statements
+// and infers the return type from the first one found (fix #9: implicit
+// return type inference).
+func inferReturnType(ctx *ResolveContext, body *sitter.Node, depth int) *typresolve.Type {
+	if body == nil || depth >= maxEvalDepth {
+		return nil
+	}
+	for i := 0; i < int(body.NamedChildCount()); i++ {
+		child := body.NamedChild(i)
+		if child == nil {
+			continue
+		}
+		if child.Type() == "return_statement" {
+			// Return statement's value is first named child (the expression).
+			for j := 0; j < int(child.NamedChildCount()); j++ {
+				expr := child.NamedChild(j)
+				if expr != nil {
+					return evalExprTypeInner(ctx, expr, depth+1)
+				}
+			}
+			// Bare `return;` has void return.
+			return typresolve.Builtin("void")
+		}
+		// Recurse into if/else blocks, but not nested functions.
+		ct := child.Type()
+		if ct == "function_declaration" || ct == "arrow_function" || ct == "class_declaration" {
+			continue
+		}
+		if ct == "if_statement" || ct == "statement_block" || ct == "else_clause" {
+			if ret := inferReturnType(ctx, child, depth+1); ret != nil {
+				return ret
+			}
+		}
+	}
+	return nil
 }
 
 // parseArrowParams extracts parameters from an arrow function's formal_parameters node.
@@ -673,6 +877,61 @@ func parseSimpleInt(s string) int {
 		n = n*10 + int(c-'0')
 	}
 	return n
+}
+
+// evalObjectLiteral evaluates an object literal { key: value, ... } into a
+// Struct type with fields. This enables downstream member access on object
+// literals (fix #6: object literal type tracking).
+func evalObjectLiteral(ctx *ResolveContext, node *sitter.Node, depth int) *typresolve.Type {
+	if node == nil || depth >= maxEvalDepth {
+		return typresolve.Unknown()
+	}
+
+	var fields []typresolve.Field
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		child := node.NamedChild(i)
+		if child == nil {
+			continue
+		}
+		switch child.Type() {
+		case "pair":
+			keyNode := child.ChildByFieldName("key")
+			valueNode := child.ChildByFieldName("value")
+			if keyNode == nil || valueNode == nil {
+				continue
+			}
+			keyName := nodeText(keyNode, ctx.Content)
+			valType := evalExprTypeInner(ctx, valueNode, depth+1)
+			if valType == nil {
+				valType = typresolve.Unknown()
+			}
+			fields = append(fields, typresolve.Field{Name: keyName, Type: valType})
+
+		case "shorthand_property_identifier":
+			name := nodeText(child, ctx.Content)
+			varType := ctx.Scope.Lookup(name)
+			if varType == nil {
+				varType = typresolve.Unknown()
+			}
+			fields = append(fields, typresolve.Field{Name: name, Type: varType})
+
+		case "method_definition":
+			nameNode := child.ChildByFieldName("name")
+			if nameNode != nil {
+				name := nodeText(nameNode, ctx.Content)
+				fields = append(fields, typresolve.Field{Name: name, Type: typresolve.Func(nil, nil)})
+			}
+
+		case "spread_element":
+			// Best-effort: skip spread elements.
+			continue
+		}
+	}
+
+	if len(fields) == 0 {
+		return typresolve.Unknown()
+	}
+	return typresolve.Struct(fields)
 }
 
 // evalSuper resolves the super keyword.

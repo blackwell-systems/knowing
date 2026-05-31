@@ -90,10 +90,17 @@ func ParseTypeText(text string, moduleQN string) *typresolve.Type {
 		return parseUnion(parts, moduleQN)
 	}
 
-	// Step 6: Intersection "A & B"
+	// Step 6: Intersection "A & B". Parse all members and return a Struct
+	// that merges fields from all Named members (fix #8).
 	if parts := splitAtDepthZero(text, '&'); len(parts) > 1 {
-		// Best-effort: return first member.
-		return ParseTypeText(strings.TrimSpace(parts[0]), moduleQN)
+		return parseIntersection(parts, moduleQN)
+	}
+
+	// Step 6b: Polymorphic `this` return type (fix #5). When a method declares
+	// `return_type: this`, emit a TypeParam("this") sentinel that call-site
+	// evaluation substitutes back to the receiver type.
+	if text == "this" {
+		return typresolve.TypeParamType("this")
 	}
 
 	// Step 7: Builtin primitives
@@ -190,6 +197,40 @@ found:
 	}
 
 	return typresolve.Func(params, returns)
+}
+
+// parseIntersection handles intersection type "A & B" (fix #8). Returns a
+// Named type referencing the first concrete member for method dispatch, but
+// stores all members in TypeParams for downstream lookup across all arms.
+func parseIntersection(parts []string, moduleQN string) *typresolve.Type {
+	// Parse all members.
+	var members []*typresolve.Type
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			members = append(members, ParseTypeText(p, moduleQN))
+		}
+	}
+	if len(members) == 0 {
+		return typresolve.Unknown()
+	}
+	if len(members) == 1 {
+		return members[0]
+	}
+
+	// Return a Named type based on the first member, with all members
+	// stored in TypeParams for intersection dispatch in LookupMember.
+	first := members[0]
+	if first.Kind == typresolve.KindNamed {
+		result := typresolve.Named(first.Name)
+		tps := make([]typresolve.TypeParam, len(members))
+		for i, m := range members {
+			tps[i] = typresolve.TypeParam{Name: m.Name, Constraint: m}
+		}
+		result.TypeParams = tps
+		return result
+	}
+	return first
 }
 
 // parseUnion handles union type "A | B".
@@ -463,7 +504,17 @@ func ParseTypeNode(node *sitter.Node, content []byte, moduleQN string, imports m
 		return ParseTypeText(node.Content(content), moduleQN)
 
 	case "intersection_type":
-		// Best-effort: return first member.
+		// Parse all members and build intersection type (fix #8).
+		var parts []string
+		for i := 0; i < int(node.NamedChildCount()); i++ {
+			child := node.NamedChild(i)
+			if child != nil {
+				parts = append(parts, child.Content(content))
+			}
+		}
+		if len(parts) > 1 {
+			return parseIntersection(parts, moduleQN)
+		}
 		if node.NamedChildCount() > 0 {
 			return ParseTypeNode(node.NamedChild(0), content, moduleQN, imports)
 		}

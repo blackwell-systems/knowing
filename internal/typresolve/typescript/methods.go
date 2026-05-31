@@ -98,6 +98,10 @@ func lookupField(reg *typresolve.Registry, typeQN string, fieldName string, dept
 // (returns the field type directly), then checks methods (returns the
 // method's signature type). This is the Go equivalent of lookup_member_type
 // in the C reference.
+//
+// Fix #7: Resolves type aliases before member lookup.
+// Fix #8: For intersection types (stored as Named with TypeParams containing
+// multiple members), dispatches lookup across all intersection members.
 func LookupMemberType(reg *typresolve.Registry, typeQN string, memberName string) *typresolve.Type {
 	// Try fields first.
 	if ft := LookupField(reg, typeQN, memberName); ft != nil {
@@ -107,5 +111,47 @@ func LookupMemberType(reg *typresolve.Registry, typeQN string, memberName string
 	if f := LookupMember(reg, typeQN, memberName); f != nil {
 		return f.Signature
 	}
+	return nil
+}
+
+// LookupMemberTypeOnType performs member lookup on an arbitrary Type value,
+// handling intersection types (Struct merging), struct fields, Named dispatch,
+// and builtin wrapper classes. Used by evalMemberExpression for compound types.
+func LookupMemberTypeOnType(reg *typresolve.Registry, t *typresolve.Type, memberName string) *typresolve.Type {
+	if t == nil || reg == nil {
+		return nil
+	}
+
+	switch t.Kind {
+	case typresolve.KindNamed:
+		// Fix #8: Check if this is an intersection type (TypeParams hold members).
+		if len(t.TypeParams) > 1 {
+			for _, tp := range t.TypeParams {
+				if tp.Constraint != nil {
+					if result := LookupMemberTypeOnType(reg, tp.Constraint, memberName); result != nil {
+						return result
+					}
+				}
+			}
+		}
+		return LookupMemberType(reg, t.Name, memberName)
+
+	case typresolve.KindStruct:
+		for _, f := range t.Fields {
+			if f.Name == memberName {
+				return f.Type
+			}
+		}
+
+	case typresolve.KindBuiltin:
+		wrapper := BuiltinWrapperClass(t.Name)
+		if wrapper != "" {
+			return LookupMemberType(reg, wrapper, memberName)
+		}
+
+	case typresolve.KindSlice, typresolve.KindArray:
+		return LookupMemberType(reg, "Array", memberName)
+	}
+
 	return nil
 }

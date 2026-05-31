@@ -183,11 +183,19 @@ func TestParseTypeText(t *testing.T) {
 			want: typresolve.Unknown(),
 		},
 
-		// Intersection
+		// Intersection: returns Named based on first member with TypeParams
+		// carrying all intersection members for dispatch.
 		{
 			name: "intersection first member",
 			text: "Foo & Bar",
-			want: typresolve.Named("Foo"),
+			want: func() *typresolve.Type {
+				t := typresolve.Named("Foo")
+				t.TypeParams = []typresolve.TypeParam{
+					{Name: "Foo", Constraint: typresolve.Named("Foo")},
+					{Name: "Bar", Constraint: typresolve.Named("Bar")},
+				}
+				return t
+			}(),
 		},
 
 		// Trailing semicolon

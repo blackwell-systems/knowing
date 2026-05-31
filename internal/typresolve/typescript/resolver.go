@@ -29,9 +29,11 @@ func NewTypeScriptResolver() *TypeScriptResolver {
 // Language returns "typescript".
 func (r *TypeScriptResolver) Language() string { return "typescript" }
 
-// InitWorkspace builds a Registry from TS definitions.
+// InitWorkspace builds a Registry from TS definitions and registers the
+// TypeScript standard library (Array, Promise, Map, Set, String, Number, etc.).
 func (r *TypeScriptResolver) InitWorkspace(ctx context.Context, defs []typresolve.ResolverDef) error {
 	r.registry = BuildRegistry(defs)
+	RegisterStdlib(r.registry)
 	return nil
 }
 
