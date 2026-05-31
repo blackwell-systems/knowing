@@ -1,0 +1,88 @@
+package context
+
+// railsEquivalenceClasses returns equivalence classes for rails.
+func railsEquivalenceClasses() []EquivalenceClass {
+	return []EquivalenceClass{
+		{
+		Concept:    "RAILS_ACTIVE_RECORD",
+		Phrases:    []string{"active record", "model association", "has_many", "belongs_to", "has_one", "association"},
+		Targets:    []string{"HasManyAssociation", "BelongsToAssociation", "HasOneAssociation", "CollectionProxy", "AssociationScope", "JoinDependency"},
+		TargetType: "symbol",
+		Weight:     0.9,
+		Source:     "framework",
+		Lang:       "ruby",
+		},
+		{
+		Concept:    "RAILS_CALLBACKS",
+		Phrases:    []string{"callback", "before_save", "after_save", "callback chain", "around callback"},
+		Targets:    []string{"Callbacks", "CallbackChain", "before_save", "after_save", "before_create", "after_create", "around_save"},
+		TargetType: "symbol",
+		Weight:     0.9,
+		Source:     "framework",
+		Lang:       "ruby",
+		},
+		{
+		Concept:    "RAILS_VALIDATION",
+		Phrases:    []string{"rails validation", "custom validation", "validates", "model validation"},
+		Targets:    []string{"EachValidator", "ActiveModel::Validations", "validates", "validate", "Validator", "PresenceValidator", "FormatValidator"},
+		TargetType: "symbol",
+		Weight:     0.9,
+		Source:     "framework",
+		Lang:       "ruby",
+		},
+		{
+		Concept:    "RAILS_SCOPE",
+		Phrases:    []string{"named scope", "scope", "query scope", "default scope", "chain scope"},
+		Targets:    []string{"scope", "default_scope", "Relation", "QueryMethods", "WhereChain", "SpawnMethods"},
+		TargetType: "symbol",
+		Weight:     0.9,
+		Source:     "framework",
+		Lang:       "ruby",
+		},
+		{
+		Concept:    "RAILS_CONTROLLER",
+		Phrases:    []string{"controller action", "before_action", "controller filter", "action controller"},
+		Targets:    []string{"ActionController", "BaseController", "before_action", "after_action", "around_action", "AbstractController"},
+		TargetType: "symbol",
+		Weight:     0.9,
+		Source:     "framework",
+		Lang:       "ruby",
+		},
+		{
+		Concept:    "RAILS_ACTIVE_JOB",
+		Phrases:    []string{"background job", "active job", "async job", "job queue", "enqueue"},
+		Targets:    []string{"ActiveJob", "ApplicationJob", "perform_later", "perform_now", "QueueAdapter", "Enqueuing"},
+		TargetType: "symbol",
+		Weight:     0.9,
+		Source:     "framework",
+		Lang:       "ruby",
+		},
+		{
+		Concept:    "RAILS_MAILER",
+		Phrases:    []string{"action mailer", "send email", "mailer", "email notification"},
+		Targets:    []string{"ActionMailer", "ApplicationMailer", "MessageDelivery", "deliver_now", "deliver_later", "mail"},
+		TargetType: "symbol",
+		Weight:     0.9,
+		Source:     "framework",
+		Lang:       "ruby",
+		},
+		{
+		Concept:    "RAILS_ACTION_CABLE",
+		Phrases:    []string{"action cable", "websocket", "channel", "broadcast", "subscription", "real-time"},
+		Targets:    []string{"ActionCable", "Channel", "Connection", "broadcast", "stream_from", "stream_for", "Subscription"},
+		TargetType: "symbol",
+		Weight:     0.9,
+		Source:     "framework",
+		Lang:       "ruby",
+		},
+		{
+		Concept:    "RAILS_CONNECTION_POOL",
+		Phrases:    []string{"connection pool", "database connection", "connection checkout", "connection reaping"},
+		Targets:    []string{"ConnectionPool", "ConnectionHandler", "checkout", "checkin", "reap", "ConnectionAdapter"},
+		TargetType: "symbol",
+		Weight:     0.9,
+		Source:     "framework",
+		Lang:       "ruby",
+		},
+	}
+}
