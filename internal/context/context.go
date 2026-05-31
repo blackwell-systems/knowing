@@ -1922,6 +1922,9 @@ func detectRepoLanguage(ctx stdctx.Context, store types.GraphStore) string {
 			counts["csharp"]++
 		case strings.Contains(qn, ".rs."):
 			counts["rust"]++
+		// Java fallback: dotted package names (org.apache.kafka, com.example)
+		case strings.Contains(qn, "://org.") || strings.Contains(qn, "://com.") || strings.Contains(qn, "://io.") || strings.Contains(qn, "://net."):
+			counts["java"]++
 		}
 	}
 	best := ""
