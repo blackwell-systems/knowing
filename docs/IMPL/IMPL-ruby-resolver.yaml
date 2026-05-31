@@ -1425,5 +1425,11 @@ pre_mortem:
             it's a variable reference, not a method call. The expression evaluator
             checks scope first. Remaining ambiguity is inherent to Ruby's semantics
             and is acceptable for static analysis.
+critic_report:
+    verdict: PASS
+    agent_reviews: {}
+    summary: Skipped by operator (--skip-critic)
+    reviewed_at: "2026-05-31T07:07:59Z"
+    issue_count: 0
 state: REVIEWED
 injection_method: manual-fallback
