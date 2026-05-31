@@ -677,11 +677,24 @@ func (e *Enricher) upgradeCallEdges(
 		warmDeadline := warmStart.Add(300 * time.Second)
 		item := workItems[0]
 
-		// Open the file to trigger package loading.
-		if content, err := os.ReadFile(strings.TrimPrefix(item.uri, "file://")); err == nil {
-			_ = client.OpenDocument(ctx, item.uri, string(content), "go")
-			log.Printf("enrichment: opened %s to trigger package loading", item.uri)
+		// Open one file per unique directory to force gopls to load ALL packages.
+		// gopls uses lazy loading: it won't load a package until a file from that
+		// package is opened via textDocument/didOpen. Opening just one file leaves
+		// most packages unloaded, causing "no package metadata" on cross-package calls.
+		openedDirs := make(map[string]bool)
+		for _, wi := range workItems {
+			dir := filepath.Dir(strings.TrimPrefix(wi.uri, "file://"))
+			if openedDirs[dir] {
+				continue
+			}
+			openedDirs[dir] = true
+			filePath := strings.TrimPrefix(wi.uri, "file://")
+			if content, err := os.ReadFile(filePath); err == nil {
+				_ = client.OpenDocument(ctx, wi.uri, string(content), "go")
+			}
 		}
+		log.Printf("enrichment: opened %d files across %d packages to trigger full workspace loading",
+			len(openedDirs), len(openedDirs))
 
 		warmPos := lsptypes.Position{Line: 5, Character: 0} // safe position near top of file
 		for time.Now().Before(warmDeadline) {
