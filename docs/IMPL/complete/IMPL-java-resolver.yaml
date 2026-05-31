@@ -1,3 +1,4 @@
+completion_date: "2026-05-30"
 title: Java In-Process Type Resolver
 feature_slug: java-resolver
 verdict: SUITABLE
@@ -1178,6 +1179,7 @@ waves:
             - A
             - B
             - C
+      base_commit: 8d114f6707fd4b7ec88194532e001b0a94f814a7
 quality_gates:
     level: standard
     gates:
@@ -1208,6 +1210,7 @@ post_merge_checklist:
           items:
             - description: Verify if types_test.go needs initialization in Server constructor
             - description: Verify if eval_test.go needs initialization in Server constructor
+            - description: Verify if resolver_test.go needs initialization in Server constructor
 completion_reports:
     A:
         status: complete
@@ -1307,6 +1310,31 @@ completion_reports:
             - TestProcessStatement_Nil
         verification: PASS
         notes: 'All 3 files implemented. Build fails only on undefined symbols from Agent A (ParseTypeNode) and Agent B (LiteralType, ResolveBuiltinType, LookupFieldOrMethod, LookupField, IsBuiltinFunc), which are same-package dependencies that will compile after wave merge. Postconditions all pass: 1 EvalExprType, 1 ProcessStatement, 1 ResolveContext struct.'
+    D:
+        status: complete
+        branch: polywave/java-resolver/wave2-agent-D
+        commit: 3b1d002
+        files_changed:
+            - internal/typresolve/java/resolver.go
+            - internal/typresolve/java/registry_builder.go
+            - internal/typresolve/java/resolve.go
+            - internal/typresolve/java/resolver_test.go
+        files_created:
+            - internal/typresolve/java/resolver.go
+            - internal/typresolve/java/registry_builder.go
+            - internal/typresolve/java/resolve.go
+            - internal/typresolve/java/resolver_test.go
+        tests_added:
+            - TestJavaResolverLanguage
+            - TestJavaResolverInitWorkspace
+            - TestJavaResolverResolveFile_ImportCall
+            - TestJavaResolverResolveFile_LocalCalls
+            - TestJavaResolverResolveFile_MethodCalls
+            - TestJavaResolverResolveFile_ConstructorCall
+            - TestJavaResolverResolveFile_StaticMethodCall
+            - TestResolveFile_NoParsedTree_FallbackParse
+        verification: PASS
+        notes: All 4 files implemented. 56 tests passing (8 new + 48 wave 1). Full repo build and test suite pass. JavaResolver registered as typresolve.Resolver with compile-time check.
 pre_mortem:
     overall_risk: medium
     rows:
@@ -1388,5 +1416,5 @@ critic_report:
     summary: Skipped by operator (--skip-critic)
     reviewed_at: "2026-05-31T07:40:54Z"
     issue_count: 0
-state: REVIEWED
+state: COMPLETE
 injection_method: manual-fallback
