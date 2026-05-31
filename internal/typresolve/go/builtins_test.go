@@ -1,26 +1,15 @@
 package goresolve
 
 import (
-	"context"
 	"testing"
 
 	"github.com/blackwell-systems/knowing/internal/typresolve"
 	sitter "github.com/smacker/go-tree-sitter"
-	"github.com/smacker/go-tree-sitter/golang"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// parseGoSource parses a Go source string and returns the root AST node.
-func parseGoSource(t *testing.T, src string) *sitter.Node {
-	t.Helper()
-	parser := sitter.NewParser()
-	parser.SetLanguage(golang.GetLanguage())
-	tree, err := parser.ParseCtx(context.Background(), nil, []byte(src))
-	require.NoError(t, err)
-	t.Cleanup(func() { tree.Close() })
-	return tree.RootNode()
-}
+// parseGoSource is defined in types_test.go (same package).
 
 // --- IsBuiltinFunc tests ---
 
