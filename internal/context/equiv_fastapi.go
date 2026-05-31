@@ -98,5 +98,32 @@ func fastapiEquivalenceClasses() []EquivalenceClass {
 		Weight:     0.8,
 		Source:     "language",
 		},
+		{
+		Concept:    "FASTAPI_BACKGROUND",
+		Phrases:    []string{"background task", "background job", "after response", "async task"},
+		Targets:    []string{"BackgroundTasks", "BackgroundTasks.add_task", "run_endpoint_function"},
+		TargetType: "symbol",
+		Weight:     0.9,
+		Source:     "framework",
+		Lang:       "python",
+		},
+		{
+		Concept:    "FASTAPI_REQUEST_LIFECYCLE",
+		Phrases:    []string{"request lifecycle", "route handler", "request response cycle", "response serialization"},
+		Targets:    []string{"APIRoute.get_route_handler", "get_request_handler", "request_response", "solve_dependencies", "serialize_response", "jsonable_encoder"},
+		TargetType: "symbol",
+		Weight:     0.9,
+		Source:     "framework",
+		Lang:       "python",
+		},
+		{
+		Concept:    "FASTAPI_PARAM_EXTRACT",
+		Phrases:    []string{"parameter extraction", "body field", "query parameter", "path parameter", "analyze param"},
+		Targets:    []string{"analyze_param", "add_param_to_fields", "request_body_to_args", "get_body_field", "create_body_model"},
+		TargetType: "symbol",
+		Weight:     0.9,
+		Source:     "framework",
+		Lang:       "python",
+		},
 	}
 }

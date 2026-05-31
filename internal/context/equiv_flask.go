@@ -75,5 +75,32 @@ func flaskEquivalenceClasses() []EquivalenceClass {
 		Source:     "framework",
 		Lang:       "python",
 		},
+		{
+		Concept:    "FLASK_TEST_CLIENT",
+		Phrases:    []string{"flask test client", "test client", "integration test", "test request"},
+		Targets:    []string{"FlaskClient", "FlaskCliRunner", "Flask.test_client", "Flask.test_cli_runner", "RequestContext"},
+		TargetType: "symbol",
+		Weight:     0.9,
+		Source:     "framework",
+		Lang:       "python",
+		},
+		{
+		Concept:    "FLASK_URL",
+		Phrases:    []string{"url converter", "url rule", "route path", "url adapter"},
+		Targets:    []string{"App.add_url_rule", "Flask.create_url_adapter", "Scaffold.route"},
+		TargetType: "symbol",
+		Weight:     0.9,
+		Source:     "framework",
+		Lang:       "python",
+		},
+		{
+		Concept:    "FLASK_REQUEST_DISPATCH",
+		Phrases:    []string{"request dispatch", "request lifecycle", "full dispatch", "preprocess request"},
+		Targets:    []string{"Flask.full_dispatch_request", "Flask.preprocess_request", "Flask.dispatch_request", "Flask.finalize_request"},
+		TargetType: "symbol",
+		Weight:     0.9,
+		Source:     "framework",
+		Lang:       "python",
+		},
 	}
 }
