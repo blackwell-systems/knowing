@@ -127,17 +127,16 @@ Note: old ratios used inflated P@10 from raw substring matching. See `docs/resea
 - `bench/cross-system/` — competitive benchmark (277 tasks, 14 repos, 7 competitors)
 - `cmd/knowing/audit_supply_chain.go` — supply chain CLI (package-level verdict)
 
-## Current State (session 21, 2026-05-30)
+## Current State (session 23, 2026-05-31)
 
-- **P@10 = 0.184 cold start** (297 tasks, 15 repos, 8 languages, 38 edge types, 164 equivalence classes, dot-bounded matching)
-- **Measurement calibration (session 21):** old P@10 was 0.283 with inflated substring matching. Fixed with `dotBoundedContains()`. See `docs/research/session-21-measurement-calibration.md` for full details. All experiment deltas remain valid. Competitive ratios stable.
+- **P@10 = 0.176 cold start** (297 tasks, 15 repos, no task memory, no embeddings, honest measurement)
+- **Embeddings: confirmed neutral.** Three runs: 0.176, 0.175, 0.176. Gap-fill seeds add nothing on cold start. Previous "gap-fill works" finding (session 17) was task memory contamination. Embedding infrastructure is dead weight for retrieval accuracy.
+- **Task memory contamination (session 23):** all P@10 measurements from sessions 8-22 were inflated by accumulated task memory in corpus DBs. True cold-start is ~0.014 lower than reported. Within-session A/B deltas remain valid.
+- **Measurement calibration (session 21):** old P@10 was 0.283 with inflated substring matching. Fixed with `dotBoundedContains()`. See `docs/research/session-21-measurement-calibration.md`.
 - **Focused seed selection:** cluster seeds by package path, concentrate walk in dominant neighborhood (+6% relative)
-- **Cluster-aware gap-fill:** embedding seeds filtered to dominant package, prevents scattering
-- **Self-adapting compounding:** +4.2% P@10 from passive task memory (round 1 to round 2)
 - **Density-adaptive:** PreferTypeSeeds >40K nodes, adaptive seed count >10K nodes
-- **Embedding gap-fill seeds:** vocabulary gap bridging, vector cache 220ms. Re-ranker disabled (net negative, session 19).
 - **LSP enrichment:** strongly positive. Go: k8s 0.000->0.232, terraform ~0.095->0.275. Python: +0.040
-- **Competitive (cold, honest matching):** 2.11x codegraph, 3.35x GitNexus, 3.54x Gortex, 8.0x Aider, 12.3x grep. codebase-memory timed out.
+- **Competitive (cold, honest):** 2.02x codegraph, 3.20x GitNexus, 3.38x Gortex, 7.65x Aider, 11.7x grep. codebase-memory timed out.
 - **Supply chain:** 1.0% FP on 200 clean packages (package-level verdict)
 - **Identity:** "self-adapting code intelligence engine that gets smarter with scale"
 
@@ -145,7 +144,7 @@ Note: old ratios used inflated P@10 from raw substring matching. See `docs/resea
 
 1. **P@10 is reachability-determined.** 32-config parameter sweep + seed count sweep (10-50) proved zero variance. Only new edges or new seed sources move the metric. Don't tune weights.
 2. **Dense graph dilution is a seed selection problem.** Edge exclusion, BFS depth, hub dampening all tested neutral. Fix: density-adaptive seed selection (PreferTypeSeeds + adaptive seed count).
-3. **Embedding architecture: gap-fill works, re-rank hurts.** Three models neutral as Channel 3. Same models +17% as re-ranker (session 15), but per-repo A/B (session 19) showed re-rank is net negative (9/13 repos hurt). Gap-fill seeds are the real value.
+3. **Embedding architecture: entirely neutral on cold start.** Session 23 confirmed with clean measurement (no task memory): P@10 = 0.176 with and without embeddings (3 runs). Previous "gap-fill works" was task memory contamination. Re-rank also net negative (session 19). The graph structure and BM25 carry everything.
 4. **Enrichment is strongly positive for retrieval.** Session 13 found neutral (tested confidence upgrades only). Session 17 revised: Go enrichment k8s 0.000->0.232, terraform ~0.095->0.275. Python +0.040. Phantom nodes + type_hint_of edges create shared-type reachability paths. Neither works alone.
 5. **42% of Django tasks score zero.** Vocabulary gaps: ground truth symbols share no keywords with task. No parameter tuning fixes this. Need new candidate sources.
 6. **Gap injection concept is sound but BM25 is too noisy.** Embedding-filtered BM25 gap candidates: Django +3.2% but aggregate neutral. Need higher-precision candidate source.
