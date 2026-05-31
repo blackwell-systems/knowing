@@ -52,6 +52,12 @@ func (r *RustResolver) ResolveFile(ctx context.Context, opts typresolve.ResolveF
 	// Build per-file use map.
 	uses := BuildUseMap(root, opts.Content, opts.FilePath)
 
+	// Build glob imports list.
+	globImports := BuildGlobImports(root, opts.Content, opts.FilePath)
+
+	// Expand glob imports: scan registry for matching entries.
+	expandGlobImports(r.registry, globImports, uses)
+
 	// Infer module QN from file path.
 	moduleQN := InferModuleQN(opts.FilePath)
 
@@ -60,18 +66,59 @@ func (r *RustResolver) ResolveFile(ctx context.Context, opts typresolve.ResolveF
 
 	// Create per-file resolve context.
 	rctx := &ResolveContext{
-		Registry: r.registry,
-		Scope:    typresolve.NewScope(nil),
-		Uses:     uses,
-		ModuleQN: moduleQN,
-		ImplType: "",
-		Content:  opts.Content,
+		Registry:    r.registry,
+		Scope:       typresolve.NewScope(nil),
+		Uses:        uses,
+		GlobImports: globImports,
+		ModuleQN:    moduleQN,
+		ImplType:    "",
+		Content:     opts.Content,
+		TraitBounds: nil,
 	}
 
 	// Resolve calls.
 	edges := ResolveCallsInFile(rctx, root, opts.FileHash, repoURL, opts.FilePath)
 
 	return edges, nil
+}
+
+// expandGlobImports scans the registry for types and functions whose qualified
+// name begins with one of the glob prefixes, and adds them to the uses map.
+// This enables `use module::*` to make symbols available by their short names.
+func expandGlobImports(reg *typresolve.Registry, globs []string, uses map[string]string) {
+	if len(globs) == 0 {
+		return
+	}
+
+	// We cannot iterate the registry directly (private maps), but we can
+	// check known stdlib prefixes and common patterns. For glob imports from
+	// std modules, register the well-known symbols.
+	for _, prefix := range globs {
+		// Check well-known std prelude entries.
+		if prefix == "std::prelude" || prefix == "std::prelude::v1" ||
+			prefix == "std::prelude::rust_2021" || prefix == "std::prelude::rust_2024" {
+			// Prelude is implicitly imported; add common entries.
+			preludeEntries := []struct{ short, full string }{
+				{"Vec", "std::Vec"}, {"String", "std::String"},
+				{"Option", "std::Option"}, {"Result", "std::Result"},
+				{"Box", "std::Box"}, {"Some", "std::Option"},
+				{"None", "std::Option"}, {"Ok", "std::Result"},
+				{"Err", "std::Result"}, {"Clone", "std::Clone"},
+				{"Default", "std::Default"}, {"Iterator", "std::Iterator"},
+			}
+			for _, e := range preludeEntries {
+				if _, exists := uses[e.short]; !exists {
+					uses[e.short] = e.full
+				}
+			}
+			continue
+		}
+
+		// For other prefixes, register the prefix itself so that
+		// identifier resolution can try prefix + "::" + name.
+		// Store the glob prefix in uses with a special glob marker.
+		uses["__glob__"+prefix] = prefix
+	}
 }
 
 // extractRustRoot extracts a *sitter.Node root from opts.ParsedTree, falling

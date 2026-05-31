@@ -9,9 +9,15 @@ import (
 // BuildRegistry builds a typresolve.Registry from ResolverDef entries.
 // Registers structs, enums, traits (as IsInterface=true), functions, and
 // methods (with ReceiverType from impl block). Processes "implements" edges
-// to populate EmbeddedTypes for trait-based method dispatch.
+// to populate EmbeddedTypes for trait-based method dispatch. Also registers
+// stdlib types/methods as a fallback and processes derive macro annotations.
 func BuildRegistry(defs []typresolve.ResolverDef) *typresolve.Registry {
+	// Create stdlib registry as fallback.
+	stdlibReg := typresolve.NewRegistry()
+	RegisterStdlib(stdlibReg)
+
 	reg := typresolve.NewRegistry()
+	reg.SetFallback(stdlibReg)
 
 	for _, def := range defs {
 		switch def.Kind {
@@ -68,6 +74,38 @@ func BuildRegistry(defs []typresolve.ResolverDef) *typresolve.Registry {
 
 		// Add the trait to the type's EmbeddedTypes for method dispatch.
 		t.EmbeddedTypes = append(t.EmbeddedTypes, traitQN)
+	}
+
+	// Third pass: process "derives" entries to register synthetic trait implementations.
+	for _, def := range defs {
+		if def.Kind != "derives" {
+			continue
+		}
+		// For "derives" defs, QualifiedName is the type and Signature is the
+		// comma-separated list of derive macro names.
+		typeQN := def.QualifiedName
+		t := reg.LookupType(typeQN)
+		if t == nil {
+			continue
+		}
+		derives := strings.Split(def.Signature, ",")
+		for _, d := range derives {
+			d = strings.TrimSpace(d)
+			traitQN := KnownDeriveTraitQN(d)
+			if traitQN != "" {
+				// Add trait to EmbeddedTypes if not already present.
+				found := false
+				for _, existing := range t.EmbeddedTypes {
+					if existing == traitQN {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.EmbeddedTypes = append(t.EmbeddedTypes, traitQN)
+				}
+			}
+		}
 	}
 
 	return reg

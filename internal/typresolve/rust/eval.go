@@ -13,10 +13,12 @@ type ResolveContext struct {
 	Registry        *typresolve.Registry
 	Scope           *typresolve.Scope
 	Uses            map[string]string // short name -> module path
+	GlobImports     []string          // module prefixes from `use module::*`
 	ModuleQN        string            // current module qualified name
 	ImplType        string            // current impl block type QN (empty if not in impl)
 	Content         []byte            // source file content
 	EnclosingFuncQN string            // QN of the current function being resolved
+	TraitBounds     map[string]string // type param name -> trait QN (for generic trait bounds)
 }
 
 // nodeContent extracts the source text for a tree-sitter node.
@@ -225,6 +227,24 @@ func EvalExprType(ctx *ResolveContext, node *sitter.Node) *typresolve.Type {
 		return typresolve.Unknown()
 
 	case "await_expression":
+		// .await unwraps Future<Output=T> to T.
+		// The inner expression is the async call whose return type is Future-wrapped.
+		for i := 0; i < int(node.ChildCount()); i++ {
+			child := node.Child(i)
+			if child.Type() != "." && child.Type() != "await" {
+				inner := EvalExprType(ctx, child)
+				// If the inner type is a Named type with Elem (our representation
+				// of Future<Output=T>), unwrap to the inner type.
+				if inner.Kind == typresolve.KindNamed && inner.Elem != nil {
+					return inner.Elem
+				}
+				// If it is already a concrete type from an async fn, return it directly.
+				if !inner.IsUnknown() {
+					return inner
+				}
+				return typresolve.Unknown()
+			}
+		}
 		return typresolve.Unknown()
 
 	case "range_expression":
@@ -329,6 +349,8 @@ func evalCallExpression(ctx *ResolveContext, node *sitter.Node) *typresolve.Type
 
 	case "scoped_identifier":
 		fullPath := nodeContent(funcNode, ctx.Content)
+		// Strip turbofish type arguments from the path for resolution.
+		fullPath = stripTurbofish(fullPath)
 		parts := strings.Split(fullPath, "::")
 		if len(parts) >= 2 {
 			lastPart := parts[len(parts)-1]
@@ -471,4 +493,35 @@ func evalBlockLastExpr(ctx *ResolveContext, block *sitter.Node) *typresolve.Type
 		return EvalExprType(ctx, lastExpr)
 	}
 	return typresolve.Unknown()
+}
+
+// stripTurbofish removes turbofish type arguments from a path string.
+// E.g., "collect::<Vec<String>>" -> "collect", "parse::<i32>" -> "parse".
+func stripTurbofish(path string) string {
+	// Find "::<" which is the turbofish syntax marker.
+	idx := strings.Index(path, "::<")
+	if idx < 0 {
+		return path
+	}
+	return path[:idx]
+}
+
+// parseTurbofishTypeArgs extracts turbofish type arguments from a call_expression
+// or scoped_identifier node. Returns the type arguments if present.
+func parseTurbofishTypeArgs(node *sitter.Node, content []byte, moduleQN string, uses map[string]string) []*typresolve.Type {
+	// Look for type_arguments child node (tree-sitter parses turbofish into this).
+	for i := 0; i < int(node.ChildCount()); i++ {
+		child := node.Child(i)
+		if child != nil && child.Type() == "type_arguments" {
+			var args []*typresolve.Type
+			for j := 0; j < int(child.ChildCount()); j++ {
+				arg := child.Child(j)
+				if arg.Type() != "<" && arg.Type() != ">" && arg.Type() != "," && arg.Type() != "::" {
+					args = append(args, ParseTypeNode(arg, content, moduleQN, uses))
+				}
+			}
+			return args
+		}
+	}
+	return nil
 }

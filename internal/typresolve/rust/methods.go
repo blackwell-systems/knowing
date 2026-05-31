@@ -33,9 +33,19 @@ func lookupMethodDepth(reg *typresolve.Registry, typeQN string, methodName strin
 		return lookupMethodDepth(reg, t.AliasOf, methodName, depth+1)
 	}
 
-	// Check trait impls (EmbeddedTypes stores trait QNs for Rust)
+	// Check trait impls (EmbeddedTypes stores trait QNs for Rust).
+	// This also handles trait method default implementations: if the method
+	// is not found on the impl, we look it up on the trait definition itself.
 	for _, traitQN := range t.EmbeddedTypes {
 		if f := lookupMethodDepth(reg, traitQN, methodName, depth+1); f != nil {
+			return f
+		}
+	}
+
+	// If this type itself is a trait (interface), check its own method set
+	// in the registry. This handles default implementations on traits.
+	if t.IsInterface {
+		if f := reg.LookupMethod(typeQN, methodName); f != nil {
 			return f
 		}
 	}

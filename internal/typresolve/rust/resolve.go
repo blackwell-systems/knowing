@@ -67,7 +67,11 @@ func processFunctionItem(ctx *ResolveContext, node *sitter.Node, edges *[]types.
 	origScope := ctx.Scope
 	ctx.Scope = funcScope
 
-	// Bind function parameters.
+	// Extract and bind generic trait bounds.
+	origBounds := ctx.TraitBounds
+	ctx.TraitBounds = extractTraitBounds(ctx, node)
+
+	// Bind function parameters (including trait-bounded params).
 	paramsNode := node.ChildByFieldName("parameters")
 	if paramsNode != nil {
 		bindRustParams(ctx, paramsNode)
@@ -79,9 +83,126 @@ func processFunctionItem(ctx *ResolveContext, node *sitter.Node, edges *[]types.
 		resolveCallsInNode(ctx, body, edges, fileHash, repoURL, filePath)
 	}
 
-	// Pop scope.
+	// Pop scope and trait bounds.
+	ctx.TraitBounds = origBounds
 	ctx.Scope = origScope
 	ctx.EnclosingFuncQN = ""
+}
+
+// extractTraitBounds parses type_parameters on a function_item to extract
+// trait bounds like T: Handler. Returns a map from type param name to trait QN.
+func extractTraitBounds(ctx *ResolveContext, funcNode *sitter.Node) map[string]string {
+	bounds := make(map[string]string)
+
+	// Look for type_parameters child node.
+	var typeParamsNode *sitter.Node
+	for i := 0; i < int(funcNode.ChildCount()); i++ {
+		child := funcNode.Child(i)
+		if child != nil && child.Type() == "type_parameters" {
+			typeParamsNode = child
+			break
+		}
+	}
+	if typeParamsNode == nil {
+		return bounds
+	}
+
+	// Walk type_parameters looking for constrained_type_parameter nodes.
+	for i := 0; i < int(typeParamsNode.ChildCount()); i++ {
+		child := typeParamsNode.Child(i)
+		if child == nil {
+			continue
+		}
+		if child.Type() == "constrained_type_parameter" {
+			// constrained_type_parameter has a "left" (the type param name)
+			// and bounds (the trait(s)).
+			leftNode := child.ChildByFieldName("left")
+			boundsNode := child.ChildByFieldName("bounds")
+			if leftNode == nil {
+				continue
+			}
+			paramName := nodeContent(leftNode, ctx.Content)
+			if boundsNode != nil {
+				// Get the first trait bound.
+				traitName := extractFirstTraitBound(ctx, boundsNode)
+				if traitName != "" {
+					bounds[paramName] = traitName
+				}
+			}
+		}
+	}
+
+	// Also check where_clause for bounds.
+	var whereNode *sitter.Node
+	for i := 0; i < int(funcNode.ChildCount()); i++ {
+		child := funcNode.Child(i)
+		if child != nil && child.Type() == "where_clause" {
+			whereNode = child
+			break
+		}
+	}
+	if whereNode != nil {
+		for i := 0; i < int(whereNode.ChildCount()); i++ {
+			child := whereNode.Child(i)
+			if child != nil && child.Type() == "where_predicate" {
+				leftNode := child.ChildByFieldName("left")
+				boundsNode := child.ChildByFieldName("bounds")
+				if leftNode == nil || boundsNode == nil {
+					continue
+				}
+				paramName := nodeContent(leftNode, ctx.Content)
+				traitName := extractFirstTraitBound(ctx, boundsNode)
+				if traitName != "" {
+					bounds[paramName] = traitName
+				}
+			}
+		}
+	}
+
+	return bounds
+}
+
+// extractFirstTraitBound extracts the first trait name from a trait_bounds node.
+func extractFirstTraitBound(ctx *ResolveContext, boundsNode *sitter.Node) string {
+	for i := 0; i < int(boundsNode.ChildCount()); i++ {
+		child := boundsNode.Child(i)
+		if child == nil {
+			continue
+		}
+		switch child.Type() {
+		case "type_identifier":
+			name := nodeContent(child, ctx.Content)
+			// Resolve through uses map.
+			if path, ok := ctx.Uses[name]; ok {
+				return convertToQN(path + "::" + name)
+			}
+			return ctx.ModuleQN + "." + name
+		case "scoped_type_identifier":
+			fullPath := nodeContent(child, ctx.Content)
+			parts := strings.Split(fullPath, "::")
+			if len(parts) > 0 {
+				if resolved, ok := ctx.Uses[parts[0]]; ok {
+					parts[0] = resolved
+					return convertToQN(strings.Join(parts, "::"))
+				}
+			}
+			return convertToQN(fullPath)
+		case "generic_type":
+			// e.g., Iterator<Item = String>
+			baseNode := child.ChildByFieldName("type")
+			if baseNode == nil && child.ChildCount() > 0 {
+				baseNode = child.Child(0)
+			}
+			if baseNode != nil {
+				name := nodeContent(baseNode, ctx.Content)
+				if path, ok := ctx.Uses[name]; ok {
+					return convertToQN(path + "::" + name)
+				}
+				return ctx.ModuleQN + "." + name
+			}
+		}
+	}
+	return ""
 }
 
 // processImplItem handles an impl_item node (impl Type { ... } or impl Trait for Type { ... }).
@@ -133,6 +254,10 @@ func processMethodInImpl(ctx *ResolveContext, node *sitter.Node, implTypeQN stri
 	origScope := ctx.Scope
 	ctx.Scope = funcScope
 
+	// Extract and bind generic trait bounds for this method.
+	origBounds := ctx.TraitBounds
+	ctx.TraitBounds = extractTraitBounds(ctx, node)
+
 	// Bind self parameter to Named(implTypeQN).
 	ctx.Scope.Bind("self", typresolve.Named(implTypeQN))
 
@@ -148,7 +273,8 @@ func processMethodInImpl(ctx *ResolveContext, node *sitter.Node, implTypeQN stri
 		resolveCallsInNode(ctx, body, edges, fileHash, repoURL, filePath)
 	}
 
-	// Pop scope.
+	// Pop scope and trait bounds.
+	ctx.TraitBounds = origBounds
 	ctx.Scope = origScope
 	ctx.EnclosingFuncQN = ""
 }
@@ -305,8 +431,11 @@ func resolveCallExpression(ctx *ResolveContext, node *sitter.Node, edges *[]type
 }
 
 // resolveScopedCall resolves a scoped_identifier call like Type::method() or module::func().
+// Also handles turbofish: collect::<Vec<String>>() by stripping type_arguments.
 func resolveScopedCall(ctx *ResolveContext, funcNode *sitter.Node) string {
 	fullPath := nodeContent(funcNode, ctx.Content)
+	// Strip turbofish type arguments for resolution.
+	fullPath = stripTurbofish(fullPath)
 	parts := strings.Split(fullPath, "::")
 
 	if len(parts) == 0 {
@@ -363,6 +492,19 @@ func resolveIdentCall(ctx *ResolveContext, name string) string {
 		return convertToQN(path) + "." + name
 	}
 
+	// Try glob import prefixes: check if any glob module has this function.
+	for _, prefix := range ctx.GlobImports {
+		globQN := convertToQN(prefix+"::"+name) + "." + name
+		if ctx.Registry.LookupFunc(globQN) != nil {
+			return globQN
+		}
+		// Try simpler form: prefix.name
+		simpleQN := convertToQN(prefix) + "." + name
+		if ctx.Registry.LookupFunc(simpleQN) != nil {
+			return simpleQN
+		}
+	}
+
 	// Emit with local QN as best effort.
 	return localQN
 }
@@ -383,6 +525,24 @@ func resolveMethodCall(ctx *ResolveContext, callNode *sitter.Node, funcNode *sit
 
 	if baseType != nil && baseType.Kind == typresolve.KindNamed {
 		typeQN := baseType.Name
+
+		// Check if the type is a trait-bounded type parameter.
+		if ctx.TraitBounds != nil {
+			if traitQN, ok := ctx.TraitBounds[typeQN]; ok {
+				// Look up method on the bound trait.
+				if m := LookupMethod(ctx.Registry, traitQN, methodName); m != nil {
+					edge := buildCallEdge(ctx, callNode, m.QualifiedName, "resolver_trait_bound", fileHash, repoURL, filePath)
+					*edges = append(*edges, edge)
+					return
+				}
+				// Heuristic: use trait + method.
+				calleeQN := traitQN + "." + methodName
+				edge := buildCallEdge(ctx, callNode, calleeQN, "resolver_trait_bound", fileHash, repoURL, filePath)
+				*edges = append(*edges, edge)
+				return
+			}
+		}
+
 		// Look up method via registry (including trait dispatch).
 		if m := LookupMethod(ctx.Registry, typeQN, methodName); m != nil {
 			edge := buildCallEdge(ctx, callNode, m.QualifiedName, "resolver_type_dispatch", fileHash, repoURL, filePath)
@@ -394,6 +554,21 @@ func resolveMethodCall(ctx *ResolveContext, callNode *sitter.Node, funcNode *sit
 		edge := buildCallEdge(ctx, callNode, calleeQN, "resolver_type_dispatch", fileHash, repoURL, filePath)
 		*edges = append(*edges, edge)
 		return
+	}
+
+	// Check if the receiver is a type parameter with trait bounds (KindTypeParam).
+	if baseType != nil && baseType.Kind == typresolve.KindTypeParam && ctx.TraitBounds != nil {
+		if traitQN, ok := ctx.TraitBounds[baseType.Name]; ok {
+			if m := LookupMethod(ctx.Registry, traitQN, methodName); m != nil {
+				edge := buildCallEdge(ctx, callNode, m.QualifiedName, "resolver_trait_bound", fileHash, repoURL, filePath)
+				*edges = append(*edges, edge)
+				return
+			}
+			calleeQN := traitQN + "." + methodName
+			edge := buildCallEdge(ctx, callNode, calleeQN, "resolver_trait_bound", fileHash, repoURL, filePath)
+			*edges = append(*edges, edge)
+			return
+		}
 	}
 
 	// Cannot resolve receiver type; skip.
@@ -445,6 +620,10 @@ func processNestedFunction(ctx *ResolveContext, node *sitter.Node, edges *[]type
 	origScope := ctx.Scope
 	ctx.Scope = funcScope
 
+	// Extract trait bounds for nested function.
+	origBounds := ctx.TraitBounds
+	ctx.TraitBounds = extractTraitBounds(ctx, node)
+
 	paramsNode := node.ChildByFieldName("parameters")
 	if paramsNode != nil {
 		bindRustParams(ctx, paramsNode)
@@ -455,6 +634,7 @@ func processNestedFunction(ctx *ResolveContext, node *sitter.Node, edges *[]type
 		resolveCallsInNode(ctx, body, edges, fileHash, repoURL, filePath)
 	}
 
+	ctx.TraitBounds = origBounds
 	ctx.Scope = origScope
 	ctx.EnclosingFuncQN = origFuncQN
 }
@@ -541,6 +721,14 @@ func bindRustParams(ctx *ResolveContext, paramsNode *sitter.Node) {
 				var paramType *typresolve.Type
 				if typeNode != nil {
 					paramType = ParseTypeNode(typeNode, ctx.Content, ctx.ModuleQN, ctx.Uses)
+					// If the type is a type param with a known trait bound,
+					// bind it as Named(paramName) so trait-bound dispatch works.
+					if paramType.Kind == typresolve.KindNamed && ctx.TraitBounds != nil {
+						if _, hasBound := ctx.TraitBounds[paramType.Name]; hasBound {
+							// Keep as Named with the type param name.
+							// resolveMethodCall will look up the trait bound.
+						}
+					}
 				} else {
 					paramType = typresolve.Unknown()
 				}

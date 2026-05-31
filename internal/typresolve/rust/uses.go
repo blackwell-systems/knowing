@@ -70,6 +70,49 @@ func BuildUseMap(root *sitter.Node, content []byte, filePath string) map[string]
 	return uses
 }
 
+// BuildGlobImports walks top-level use_declaration nodes and collects glob
+// import prefixes (use module::*). Returns module path prefixes that should
+// be expanded during resolution.
+func BuildGlobImports(root *sitter.Node, content []byte, filePath string) []string {
+	var globs []string
+
+	for i := 0; i < int(root.ChildCount()); i++ {
+		child := root.Child(i)
+		if child.Type() != "use_declaration" {
+			continue
+		}
+
+		argNode := child.ChildByFieldName("argument")
+		if argNode == nil {
+			for j := 0; j < int(child.ChildCount()); j++ {
+				c := child.Child(j)
+				t := c.Type()
+				if t == "scoped_identifier" || t == "use_wildcard" {
+					argNode = c
+					break
+				}
+			}
+			if argNode == nil {
+				continue
+			}
+		}
+
+		argText := argNode.Content(content)
+		if strings.HasSuffix(argText, "::*") {
+			prefix := argText[:len(argText)-3] // strip ::*
+			// Resolve the prefix.
+			modulePath, _ := ResolveUsePath(prefix+"::_placeholder", filePath)
+			if modulePath != "" {
+				globs = append(globs, modulePath)
+			} else {
+				globs = append(globs, prefix)
+			}
+		}
+	}
+
+	return globs
+}
+
 // processUseDeclaration handles a single use_declaration node.
 func processUseDeclaration(node *sitter.Node, content []byte, filePath string, uses map[string]string) {
 	// The argument field contains the use path/tree.

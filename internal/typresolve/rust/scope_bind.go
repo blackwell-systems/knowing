@@ -80,9 +80,46 @@ func processForExpression(ctx *ResolveContext, node *sitter.Node) {
 		return
 	}
 
-	// Bind loop variable to Unknown (element type not inferrable without
-	// generics/iterator resolution)
-	bindPattern(ctx, patternNode, typresolve.Unknown())
+	// Infer element type from the iterable expression.
+	valueNode := node.ChildByFieldName("value")
+	elemType := typresolve.Unknown()
+	if valueNode != nil {
+		iterType := EvalExprType(ctx, valueNode)
+		elemType = inferIteratorElementType(iterType)
+	}
+
+	bindPattern(ctx, patternNode, elemType)
+}
+
+// inferIteratorElementType extracts the element type T from iterable types:
+// Vec<T> (KindSlice) -> T, &[T] (Ref(Slice(T))) -> T, Array(T) -> T,
+// Named Iterator -> Unknown.
+func inferIteratorElementType(t *typresolve.Type) *typresolve.Type {
+	if t == nil {
+		return typresolve.Unknown()
+	}
+	switch t.Kind {
+	case typresolve.KindSlice, typresolve.KindArray:
+		if t.Elem != nil {
+			return t.Elem
+		}
+	case typresolve.KindReference:
+		// &[T] or &Vec<T>
+		if t.Elem != nil {
+			return inferIteratorElementType(t.Elem)
+		}
+	case typresolve.KindMap:
+		// Iterating a map yields (K, V) tuples.
+		if t.Key != nil && t.Value != nil {
+			return typresolve.Tuple([]*typresolve.Type{t.Key, t.Value})
+		}
+	case typresolve.KindNamed:
+		// Named types: check if Vec-like (has Elem)
+		if t.Elem != nil && (t.Name == "std::Vec" || t.Name == "Vec") {
+			return t.Elem
+		}
+	}
+	return typresolve.Unknown()
 }
 
 func processIfLetExpression(ctx *ResolveContext, node *sitter.Node) {
@@ -127,9 +164,83 @@ func processMatchArm(ctx *ResolveContext, node *sitter.Node) {
 		return
 	}
 
-	// For match arms, bind pattern identifiers to Unknown since we don't
-	// track the scrutinee type through the match expression here
-	bindPattern(ctx, patternNode, typresolve.Unknown())
+	// Try to get the scrutinee type from the parent match_expression.
+	scrutineeType := getMatchScrutineeType(ctx, node)
+
+	// For tuple_struct_pattern like Ok(val) or Some(val), propagate inner type.
+	if patternNode.Type() == "tuple_struct_pattern" {
+		bindMatchArmTupleStruct(ctx, patternNode, scrutineeType)
+		return
+	}
+
+	bindPattern(ctx, patternNode, scrutineeType)
+}
+
+// getMatchScrutineeType walks up to the parent match_expression and evaluates
+// the scrutinee type.
+func getMatchScrutineeType(ctx *ResolveContext, armNode *sitter.Node) *typresolve.Type {
+	// The arm's parent is match_block, and match_block's parent is match_expression.
+	parent := armNode.Parent()
+	if parent == nil {
+		return typresolve.Unknown()
+	}
+	matchExpr := parent.Parent()
+	if matchExpr == nil || matchExpr.Type() != "match_expression" {
+		return typresolve.Unknown()
+	}
+	scrutinee := matchExpr.ChildByFieldName("value")
+	if scrutinee == nil {
+		return typresolve.Unknown()
+	}
+	return EvalExprType(ctx, scrutinee)
+}
+
+// bindMatchArmTupleStruct binds variables in a tuple_struct_pattern (e.g. Ok(val),
+// Some(x), Err(e)) using the scrutinee type to infer inner types.
+func bindMatchArmTupleStruct(ctx *ResolveContext, pattern *sitter.Node, scrutineeType *typresolve.Type) {
+	// Determine the inner type based on the constructor and scrutinee.
+	innerType := typresolve.Unknown()
+
+	// Get the constructor name (first identifier child).
+	var constructorName string
+	for i := 0; i < int(pattern.ChildCount()); i++ {
+		child := pattern.Child(i)
+		if child.Type() == "identifier" {
+			constructorName = nodeContent(child, ctx.Content)
+			break
+		}
+	}
+
+	switch constructorName {
+	case "Some":
+		// scrutinee is Option<T>, inner type is T
+		if scrutineeType.Kind == typresolve.KindOptional && scrutineeType.Elem != nil {
+			innerType = scrutineeType.Elem
+		} else if scrutineeType.Kind == typresolve.KindNamed && scrutineeType.Elem != nil {
+			innerType = scrutineeType.Elem
+		}
+	case "Ok":
+		// scrutinee is Result<T, E>, inner type is T (stored in Elem)
+		if scrutineeType.Kind == typresolve.KindNamed && scrutineeType.Elem != nil {
+			innerType = scrutineeType.Elem
+		}
+	case "Err":
+		// scrutinee is Result<T, E>, inner type is E (stored in Value)
+		if scrutineeType.Kind == typresolve.KindNamed && scrutineeType.Value != nil {
+			innerType = scrutineeType.Value
+		}
+	}
+
+	// Bind all non-constructor identifiers to the inner type.
+	for i := 0; i < int(pattern.ChildCount()); i++ {
+		child := pattern.Child(i)
+		if child.Type() == "identifier" {
+			name := nodeContent(child, ctx.Content)
+			if name != constructorName && name != "_" {
+				ctx.Scope.Bind(name, innerType)
+			}
+		}
+	}
 }
 
 // bindPattern binds identifiers in a pattern to the given type.
