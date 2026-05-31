@@ -1,0 +1,1691 @@
+title: Rust In-Process Type Resolver
+feature_slug: rust-resolver
+verdict: SUITABLE
+suitability_assessment: |
+    1. File decomposition: All new files in internal/typresolve/rust/ (10+ files).
+       No existing files modified. Agents have fully disjoint file ownership.
+       Follows the exact same pattern as the Go resolver (internal/typresolve/go/)
+       and the Ruby resolver IMPL (IMPL-ruby-resolver.yaml).
+
+    2. Investigation-first: No unknowns. There is no C reference implementation
+       for Rust, but the Go resolver establishes the structural template. The
+       existing Rust extractor (internal/indexer/rustextractor/) documents the
+       tree-sitter node types (function_item, struct_item, enum_item, trait_item,
+       impl_item, use_declaration, macro_invocation, call_expression, scoped_identifier,
+       field_expression) and qualified name conventions. Rust's trait-based polymorphism
+       maps to the existing interface/implements model in the type system.
+
+    3. Interface discoverability: All interfaces defined. The typresolve.Resolver
+       interface, Registry, Scope, and Type are implemented and tested. Cross-agent
+       contracts are limited to Go function signatures within the new rust/ subpackage.
+       KindReference and KindOptional already exist in the shared Type system for &T
+       and Option<T>.
+
+    4. Pre-implementation: The shared infrastructure (in-process-resolver-infra) was
+       completed previously. The Go resolver and Ruby resolver IMPLs show the exact
+       structural pattern. No overlap with existing code.
+
+    5. Parallelization value: High. Build/test cycle is ~30s with GOWORK=off.
+       3 agents in wave 1 with 2-4 files each. Wave 2 integrates and tests.
+       Independent components (use/mod resolution, builtins/trait-based method lookup,
+       scope binding/expression eval) can be built in parallel.
+
+    Estimated times:
+    - Scout phase: ~10 min
+    - Agent execution: ~15 min (4 agents, 2 waves, ~5 min avg per agent)
+    - Merge and verification: ~5 min
+    Total Polywave time: ~30 min
+
+    Sequential baseline: ~40 min (4 agents x 10 min avg)
+    Time savings: ~10 min (25% faster)
+
+    Recommendation: Clear speedup. Wave 1 agents are fully independent (use/mod
+    resolution, builtins/trait dispatch, scope binding/expression eval). Wave 2
+    integrates them into the resolver.
+test_command: GOWORK=off go test -short ./... -timeout 5m
+lint_command: GOWORK=off go vet ./...
+state: SCOUT_PENDING
+file_ownership:
+    - file: internal/typresolve/rust/doc.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/typresolve/rust/uses.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/typresolve/rust/modules.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/typresolve/rust/uses_test.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/typresolve/rust/builtins.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/typresolve/rust/methods.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/typresolve/rust/builtins_test.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/typresolve/rust/eval.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/typresolve/rust/scope_bind.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/typresolve/rust/types.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/typresolve/rust/eval_test.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/typresolve/rust/resolver.go
+      agent: D
+      wave: 2
+      action: new
+      depends_on:
+        - A
+        - B
+        - C
+    - file: internal/typresolve/rust/registry_builder.go
+      agent: D
+      wave: 2
+      action: new
+      depends_on:
+        - A
+        - B
+        - C
+    - file: internal/typresolve/rust/resolve.go
+      agent: D
+      wave: 2
+      action: new
+      depends_on:
+        - A
+        - B
+        - C
+    - file: internal/typresolve/rust/resolver_test.go
+      agent: D
+      wave: 2
+      action: new
+      depends_on:
+        - A
+        - B
+        - C
+interface_contracts:
+    - name: BuildUseMap
+      description: |
+        Builds a per-file use map from Rust AST root. Walks use_declaration
+        nodes and resolves them to module-qualified paths. Returns a map
+        from imported short name to fully qualified module path.
+      definition: |
+        func BuildUseMap(root *sitter.Node, content []byte, filePath string) map[string]string
+      location: internal/typresolve/rust/uses.go
+    - name: ResolveUsePath
+      description: |
+        Resolves a Rust use path (crate::module::Type, super::module::func,
+        std::collections::HashMap) to a module-qualified path. Handles crate,
+        self, super, and external crate prefixes.
+      definition: |
+        func ResolveUsePath(usePath string, currentFile string) (modulePath string, isExternal bool)
+      location: internal/typresolve/rust/uses.go
+    - name: ResolveModulePath
+      description: |
+        Converts a Rust module path prefix to a file-system relative path.
+        Handles crate::, self::, super::, and external crate resolution.
+      definition: |
+        func ResolveModulePath(prefix string, currentFile string) string
+      location: internal/typresolve/rust/modules.go
+    - name: InferModuleQN
+      description: |
+        Infers the module qualified name from a file path. Converts
+        src/foo/bar.rs to crate::foo::bar. Handles mod.rs -> parent module.
+      definition: |
+        func InferModuleQN(filePath string) string
+      location: internal/typresolve/rust/modules.go
+    - name: IsBuiltinFunc
+      description: |
+        Returns true if the name is a Rust builtin macro or function
+        (println, eprintln, format, vec, todo, unimplemented, unreachable,
+        assert, assert_eq, assert_ne, debug_assert, dbg, panic, write,
+        writeln, cfg, include, include_str, include_bytes, concat, stringify,
+        env, option_env, file, line, column, module_path, compile_error).
+      definition: |
+        func IsBuiltinFunc(name string) bool
+      location: internal/typresolve/rust/builtins.go
+    - name: IsBuiltinType
+      description: |
+        Returns true if the name is a Rust primitive or core type (i8, i16,
+        i32, i64, i128, isize, u8, u16, u32, u64, u128, usize, f32, f64,
+        bool, char, str, String, Vec, HashMap, HashSet, BTreeMap, BTreeSet,
+        Option, Result, Box, Rc, Arc, Cell, RefCell, Mutex, RwLock, Pin,
+        PhantomData, Iterator, IntoIterator, Display, Debug, Clone, Copy,
+        Default, Drop, Fn, FnMut, FnOnce, Send, Sync, Sized, Unpin, From,
+        Into, TryFrom, TryInto, AsRef, AsMut, Deref, DerefMut, Borrow).
+      definition: |
+        func IsBuiltinType(name string) bool
+      location: internal/typresolve/rust/builtins.go
+    - name: ResolveBuiltinType
+      description: |
+        Returns a typresolve type for a Rust builtin/primitive type.
+        Primitives (i32, bool, char, str) return Builtin. Core types
+        (String, Vec, HashMap, Option, Result, Box, Arc, Rc) return Named
+        with "std::" prefix. Returns nil for non-builtins.
+      definition: |
+        func ResolveBuiltinType(name string) *typresolve.Type
+      location: internal/typresolve/rust/builtins.go
+    - name: EvalMacroReturnType
+      description: |
+        Returns the known return type of common Rust macros.
+        vec![] -> Named("std::Vec"), format!/format_args! -> Builtin("str"),
+        println!/eprintln!/print!/eprint! -> Builtin("()"),
+        todo!/unimplemented!/unreachable! -> Unknown (diverges),
+        assert!/assert_eq!/assert_ne!/debug_assert! -> Builtin("()"),
+        dbg! -> evaluator returns inner expr type.
+      definition: |
+        func EvalMacroReturnType(macroName string) *typresolve.Type
+      location: internal/typresolve/rust/builtins.go
+    - name: LookupMethod
+      description: |
+        Looks up a method on a named type, following impl block resolution
+        and trait implementations. Searches: direct methods on type, then
+        methods from trait impls (via EmbeddedTypes which stores trait QNs),
+        up to 8 levels deep.
+      definition: |
+        func LookupMethod(reg *typresolve.Registry, typeQN string, methodName string) *typresolve.RegisteredFunc
+      location: internal/typresolve/rust/methods.go
+    - name: LookupField
+      description: |
+        Looks up a struct field on a named type. Returns the field's type
+        if found, nil otherwise.
+      definition: |
+        func LookupField(reg *typresolve.Registry, typeQN string, fieldName string) *typresolve.Type
+      location: internal/typresolve/rust/methods.go
+    - name: DerefToBase
+      description: |
+        Strips ownership/reference wrappers to find the base type for method
+        resolution. &T -> T, &mut T -> T, Box<T> -> T, Arc<T> -> T,
+        Rc<T> -> T, *const T -> T, *mut T -> T.
+      definition: |
+        func DerefToBase(t *typresolve.Type) *typresolve.Type
+      location: internal/typresolve/rust/methods.go
+    - name: ResolveContext
+      description: |
+        Per-file resolution context holding the registry, scope, use map,
+        current module path, impl type context, content bytes, and
+        enclosing function qualified name.
+      definition: |
+        type ResolveContext struct {
+            Registry        *typresolve.Registry
+            Scope           *typresolve.Scope
+            Uses            map[string]string  // short name -> module path
+            ModuleQN        string             // current module qualified name
+            ImplType        string             // current impl block type (empty if not in impl)
+            Content         []byte             // source file content
+            EnclosingFuncQN string             // QN of the current function being resolved
+        }
+      location: internal/typresolve/rust/eval.go
+    - name: EvalExprType
+      description: |
+        Recursive expression type evaluator for Rust. Evaluates the type of
+        a Rust expression AST node using scope lookup, registry lookup,
+        path resolution, and method dispatch.
+      definition: |
+        func EvalExprType(ctx *ResolveContext, node *sitter.Node) *typresolve.Type
+      location: internal/typresolve/rust/eval.go
+    - name: ProcessStatement
+      description: |
+        Processes a Rust statement node to bind variables into the current
+        scope. Handles let bindings (with optional type annotation and
+        pattern destructuring), for-in loops, if-let, while-let, and
+        match arm bindings.
+      definition: |
+        func ProcessStatement(ctx *ResolveContext, node *sitter.Node)
+      location: internal/typresolve/rust/scope_bind.go
+    - name: ParseTypeNode
+      description: |
+        Converts a tree-sitter Rust type AST node to a typresolve.Type.
+        Handles: type_identifier, scoped_type_identifier, reference_type,
+        generic_type, array_type, tuple_type, function_type, unit_type,
+        pointer_type, primitive_type.
+      definition: |
+        func ParseTypeNode(node *sitter.Node, content []byte, moduleQN string, uses map[string]string) *typresolve.Type
+      location: internal/typresolve/rust/types.go
+    - name: RustResolver
+      description: |
+        Implements typresolve.Resolver for Rust. Language() returns "rust".
+        InitWorkspace builds a Registry from Rust definitions (functions,
+        structs, enums, traits, impls, methods). ResolveFile walks the Rust
+        AST and resolves calls and references.
+      definition: |
+        type RustResolver struct {
+            registry *typresolve.Registry
+        }
+        func NewRustResolver() *RustResolver
+        func (r *RustResolver) Language() string
+        func (r *RustResolver) InitWorkspace(ctx context.Context, defs []typresolve.ResolverDef) error
+        func (r *RustResolver) ResolveFile(ctx context.Context, opts typresolve.ResolveFileOpts) ([]types.Edge, error)
+      location: internal/typresolve/rust/resolver.go
+    - name: BuildRegistry
+      description: |
+        Builds a typresolve.Registry from ResolverDef entries. Registers
+        structs, enums, traits (as IsInterface=true), functions, and methods
+        (with ReceiverType from impl block). Processes "implements" edges
+        to populate EmbeddedTypes for trait-based method dispatch.
+      definition: |
+        func BuildRegistry(defs []typresolve.ResolverDef) *typresolve.Registry
+      location: internal/typresolve/rust/registry_builder.go
+    - name: ResolveCallsInFile
+      description: |
+        Walks a Rust file's AST resolving call expressions, method calls,
+        macro invocations, and path expressions, then emitting call edges.
+      definition: |
+        func ResolveCallsInFile(ctx *ResolveContext, root *sitter.Node, fileHash types.Hash, repoURL string, filePath string) []types.Edge
+      location: internal/typresolve/rust/resolve.go
+scaffolds: []
+waves:
+    - number: 1
+      agents:
+        - id: A
+          task: |
+            ## Agent A: Use Declaration Resolution and Module System
+
+            Build the foundational use-statement resolution and module path
+            inference for the Rust resolver.
+
+            ### What to implement
+
+            **File 1: `internal/typresolve/rust/doc.go`**
+            Package doc comment for the `rustresolve` subpackage:
+            ```go
+            // Package rustresolve implements the Rust language in-process type resolver.
+            // It implements the typresolve.Resolver interface, resolving Rust call
+            // expressions, method calls, and type references using tree-sitter AST
+            // walking and a shared type registry built from extracted definitions.
+            package rustresolve
+            ```
+
+            **File 2: `internal/typresolve/rust/uses.go`**
+            Package: `rustresolve`
+
+            Implement use-declaration resolution for Rust files. Rust's `use` system
+            maps paths like `crate::module::Type` and `std::collections::HashMap`
+            to short names. The existing Rust extractor at
+            `internal/indexer/rustextractor/extractor.go` has `buildRustImportMap`
+            (lines 807-826) and `parseRustUsePath` (lines 837-892) which demonstrate
+            the parsing pattern. Reimplement locally to avoid circular dependencies.
+
+            Implement:
+
+            - `ResolveUsePath(usePath string, currentFile string) (modulePath string, isExternal bool)`
+              Break the use path into segments on `::`.
+              - If first segment is `crate`: resolve relative to crate root.
+                modulePath = remaining segments joined with `::`.
+                isExternal = false.
+              - If first segment is `self`: resolve relative to current module.
+                Use `ResolveModulePath` from modules.go (same package).
+                isExternal = false.
+              - If first segment is `super`: resolve relative to parent module.
+                Use `ResolveModulePath` from modules.go (same package).
+                isExternal = false.
+              - Otherwise (std, tokio, serde, etc.): external crate.
+                modulePath = full path.
+                isExternal = true.
+
+            - `BuildUseMap(root *sitter.Node, content []byte, filePath string) map[string]string`
+              Walk top-level children of the AST root looking for `use_declaration` nodes.
+
+              For each use_declaration:
+              1. Get the `argument` field child
+              2. Get the full text of the argument node
+              3. Handle three patterns:
+                 a. Glob: `use crate::module::*` - skip (cannot resolve individual names)
+                 b. Group: `use crate::module::{A, B, C}` - extract names from braces,
+                    map each name to the resolved module path of the prefix
+                 c. Simple: `use crate::module::Type` - map the last segment to the
+                    resolved prefix path
+              4. Handle `as` aliases: `use std::io::Read as IoRead` - use the alias
+                 as the map key
+
+              The tree-sitter Rust grammar represents `use crate::foo::Bar;` as:
+              ```
+              (use_declaration
+                argument: (scoped_identifier
+                  path: (scoped_identifier
+                    path: (identifier) "crate"
+                    name: (identifier) "foo")
+                  name: (identifier) "Bar"))
+              ```
+
+              However, reading the full argument node content as a string and parsing
+              with string operations (as the extractor does) is more reliable than
+              walking the nested tree-sitter nodes. Use `argNode.Content(content)` to
+              get the full path string, then parse with string splitting on `::`.
+
+              For group imports `use crate::module::{A, B}`:
+              ```
+              (use_declaration
+                argument: (scoped_use_list
+                  path: (scoped_identifier ...)
+                  list: (use_list
+                    (identifier) "A"
+                    (identifier) "B")))
+              ```
+
+              Parse these by detecting `::{` in the text and extracting names from
+              within the braces.
+
+              Return map: shortName -> modulePath (e.g., "HashMap" -> "std::collections")
+
+            **File 3: `internal/typresolve/rust/modules.go`**
+            Package: `rustresolve`
+
+            Implement Rust module path resolution. Rust's module system maps
+            file paths to module paths: `src/foo/bar.rs` -> `crate::foo::bar`,
+            `src/foo/mod.rs` -> `crate::foo`.
+
+            Implement:
+
+            - `ResolveModulePath(prefix string, currentFile string) string`
+              Convert a Rust module path prefix to a resolved module path.
+              Split prefix on `::`.
+              - `crate`: resolve from crate root. Return remaining segments
+                joined with `::`.
+              - `self`: resolve from current module. Get current module path
+                from currentFile, append remaining segments.
+              - `super`: resolve from parent module. Go up one directory from
+                currentFile, append remaining segments.
+              - External: return empty string (can't resolve to local path).
+
+            - `InferModuleQN(filePath string) string`
+              Convert a file path to a Rust module qualified name.
+              - Normalize path separators to `/`
+              - Strip `src/` prefix if present (standard Rust layout)
+              - Strip `.rs` extension
+              - Handle `mod.rs`: use the directory name instead
+              - Handle `lib.rs` and `main.rs`: use `crate` or the crate name
+              - Replace `/` with `::`
+              - Prefix with `crate::`
+
+              Examples:
+              - `src/foo/bar.rs` -> `crate::foo::bar`
+              - `src/foo/mod.rs` -> `crate::foo`
+              - `src/lib.rs` -> `crate`
+              - `src/main.rs` -> `crate`
+              - `src/resolver/types.rs` -> `crate::resolver::types`
+
+            **File 4: `internal/typresolve/rust/uses_test.go`**
+            Package: `rustresolve`
+
+            Test cases:
+
+            - `TestResolveUsePath_Crate`: `crate::core::resolver::FeatureResolver`
+              -> modulePath="crate::core::resolver", isExternal=false
+            - `TestResolveUsePath_Self`: `self::helpers::resolve` with
+              currentFile="src/core/mod.rs" -> modulePath contains current module, isExternal=false
+            - `TestResolveUsePath_Super`: `super::utils` with
+              currentFile="src/core/resolver.rs" -> modulePath contains parent, isExternal=false
+            - `TestResolveUsePath_External`: `tokio::runtime::Runtime`
+              -> modulePath="tokio::runtime", isExternal=true
+            - `TestResolveUsePath_Std`: `std::collections::HashMap`
+              -> modulePath="std::collections", isExternal=true
+            - `TestBuildUseMap_Simple`: parse Rust source with
+              `use crate::core::Config;` -> map["Config"] = "crate::core"
+            - `TestBuildUseMap_Group`: parse Rust source with
+              `use crate::core::{Config, Workspace};`
+              -> map["Config"] = "crate::core", map["Workspace"] = "crate::core"
+            - `TestBuildUseMap_Alias`: parse Rust source with
+              `use std::io::Read as IoRead;` -> map["IoRead"] = "std::io"
+            - `TestBuildUseMap_Glob`: `use crate::prelude::*` -> no entries (skipped)
+            - `TestInferModuleQN_Regular`: `src/foo/bar.rs` -> `crate::foo::bar`
+            - `TestInferModuleQN_ModRs`: `src/foo/mod.rs` -> `crate::foo`
+            - `TestInferModuleQN_LibRs`: `src/lib.rs` -> `crate`
+            - `TestInferModuleQN_MainRs`: `src/main.rs` -> `crate`
+
+            For testing BuildUseMap, parse Rust source with tree-sitter:
+            ```go
+            func parseRust(t *testing.T, src string) *sitter.Node {
+                parser := sitter.NewParser()
+                parser.SetLanguage(rust.GetLanguage())
+                tree, err := parser.ParseCtx(context.Background(), nil, []byte(src))
+                if err != nil {
+                    t.Fatalf("parse: %v", err)
+                }
+                t.Cleanup(func() { tree.Close() })
+                return tree.RootNode()
+            }
+            ```
+
+            ### Interfaces consumed
+            - `sitter.Node` from `github.com/smacker/go-tree-sitter`
+            - `rust.GetLanguage()` from `github.com/smacker/go-tree-sitter/rust`
+
+            ### Constraints
+            - Package name MUST be `rustresolve`
+            - Do NOT modify any files outside your ownership list.
+            - Do NOT import from `internal/indexer/rustextractor` (would create circular
+              dependency risk). Reimplement use resolution and path logic locally.
+            - Do NOT define any types from builtins.go or eval.go (Agent B and C scope).
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/typresolve/rust/...
+            GOWORK=off go vet ./internal/typresolve/rust/...
+            GOWORK=off go test ./internal/typresolve/rust/... -run TestResolveUsePath -v
+            GOWORK=off go test ./internal/typresolve/rust/... -run TestBuildUseMap -v
+            GOWORK=off go test ./internal/typresolve/rust/... -run TestInferModuleQN -v
+            ```
+
+            Postconditions:
+            ```bash
+            # ResolveUsePath function exists
+            grep -c "func ResolveUsePath" internal/typresolve/rust/uses.go  # expect: 1
+            # BuildUseMap function exists
+            grep -c "func BuildUseMap" internal/typresolve/rust/uses.go  # expect: 1
+            # InferModuleQN function exists
+            grep -c "func InferModuleQN" internal/typresolve/rust/modules.go  # expect: 1
+            # ResolveModulePath function exists
+            grep -c "func ResolveModulePath" internal/typresolve/rust/modules.go  # expect: 1
+            # Package declaration is rustresolve
+            grep -c "package rustresolve" internal/typresolve/rust/doc.go  # expect: 1
+            ```
+          files:
+            - internal/typresolve/rust/doc.go
+            - internal/typresolve/rust/uses.go
+            - internal/typresolve/rust/modules.go
+            - internal/typresolve/rust/uses_test.go
+        - id: B
+          task: |
+            ## Agent B: Builtins and Trait-Based Method Lookup
+
+            Build the builtin function/type handling, macro return type inference,
+            and trait-based method lookup for the Rust resolver.
+
+            ### What to implement
+
+            **File 1: `internal/typresolve/rust/builtins.go`**
+            Package: `rustresolve`
+
+            Implement Rust builtin and macro recognition. Rust has primitive types,
+            standard library types, and macros that look like function calls with `!`.
+
+            Implement:
+
+            - `IsBuiltinFunc(name string) bool`
+              Return true for Rust standard macros and functions:
+              println, eprintln, print, eprint,
+              format, format_args,
+              vec,
+              todo, unimplemented, unreachable,
+              assert, assert_eq, assert_ne, debug_assert, debug_assert_eq, debug_assert_ne,
+              dbg,
+              panic,
+              write, writeln,
+              cfg, env, option_env,
+              include, include_str, include_bytes,
+              concat, stringify,
+              file, line, column, module_path,
+              compile_error,
+              matches,
+              thread_local,
+              Box::new (as "Box"),
+              Some, None, Ok, Err (enum variant constructors, treated as builtins)
+
+            - `IsBuiltinType(name string) bool`
+              Return true for Rust primitives and core types:
+              Primitives: i8, i16, i32, i64, i128, isize, u8, u16, u32, u64,
+                u128, usize, f32, f64, bool, char, str
+              Core types: String, Vec, HashMap, HashSet, BTreeMap, BTreeSet,
+                Option, Result, Box, Rc, Arc, Cell, RefCell, Mutex, RwLock,
+                Pin, PhantomData, Cow
+              Core traits: Iterator, IntoIterator, Display, Debug, Clone, Copy,
+                Default, Drop, Fn, FnMut, FnOnce, Send, Sync, Sized, Unpin,
+                From, Into, TryFrom, TryInto, AsRef, AsMut, Deref, DerefMut,
+                Borrow, BorrowMut, ToOwned, ToString, PartialEq, Eq,
+                PartialOrd, Ord, Hash, Add, Sub, Mul, Div, Rem, Neg, Not,
+                Index, IndexMut, Read, Write, Seek, BufRead
+              IO: stdin, stdout, stderr
+
+            - `ResolveBuiltinType(name string) *typresolve.Type`
+              - For primitives (i32, bool, char, str, f64, etc.): return
+                `typresolve.Builtin(name)`
+              - For core types (String, Vec, HashMap, Option, Result, Box, Arc, Rc):
+                return `typresolve.Named("std::" + name)`
+              - For unit type "()": return `typresolve.Builtin("()")`
+              - Return nil for non-builtins
+
+            - `EvalMacroReturnType(macroName string) *typresolve.Type`
+              Return known return types for common Rust macros:
+              - `vec`: return Named("std::Vec")
+              - `format`, `format_args`: return Builtin("str") (actually String, but
+                for resolution purposes str is sufficient)
+              - `println`, `eprintln`, `print`, `eprint`, `write`, `writeln`:
+                return Builtin("()")
+              - `todo`, `unimplemented`, `unreachable`: return Unknown() (diverges, never returns)
+              - `assert`, `assert_eq`, `assert_ne`, `debug_assert`, `debug_assert_eq`,
+                `debug_assert_ne`: return Builtin("()")
+              - `panic`: return Unknown() (diverges)
+              - `dbg`: return Unknown() (returns inner expression type, can't infer here)
+              - `include_str`: return Builtin("str")
+              - `include_bytes`: return typresolve.Slice(typresolve.Builtin("u8"))
+              - `concat`, `stringify`: return Builtin("str")
+              - `env`, `option_env`: return Builtin("str")
+              - `matches`: return Builtin("bool")
+              - `cfg`: return Builtin("bool")
+              - `file`, `module_path`: return Builtin("str")
+              - `line`, `column`: return Builtin("u32")
+              - Default: return Unknown()
+
+            **File 2: `internal/typresolve/rust/methods.go`**
+            Package: `rustresolve`
+
+            Implement method and field lookup following Rust's impl-based dispatch.
+            In Rust, methods live in `impl` blocks, not on the type directly.
+            Multiple `impl` blocks can exist per type (inherent impls + trait impls).
+            The registry stores methods with ReceiverType pointing to the type QN,
+            and trait impl relationships as EmbeddedTypes on the RegisteredType.
+
+            Implement:
+
+            - `LookupMethod(reg *typresolve.Registry, typeQN string, methodName string) *typresolve.RegisteredFunc`
+              Internal helper with depth limit (max 8):
+              1. Direct method lookup: `reg.LookupMethod(typeQN, methodName)` - if found, return
+              2. Get type: `reg.LookupType(typeQN)` - if nil, return nil
+              3. Follow alias: if `type.AliasOf != ""`, recurse with alias target
+              4. Check EmbeddedTypes (trait impls): for each `type.EmbeddedTypes[i]`,
+                 look up method on the trait type (this handles `impl Trait for Type`)
+              5. Return nil if not found
+
+            - `LookupField(reg *typresolve.Registry, typeQN string, fieldName string) *typresolve.Type`
+              Look up a struct field:
+              1. Get type: `reg.LookupType(typeQN)` - if nil, return nil
+              2. Follow alias: if `type.AliasOf != ""`, recurse
+              3. Search type.Fields for matching field name
+              4. Return field type if found, nil otherwise
+
+            - `DerefToBase(t *typresolve.Type) *typresolve.Type`
+              Strip ownership/reference wrappers for method resolution:
+              - KindReference: return Elem (strips &T -> T)
+              - KindPointer: return Elem (strips *T -> T)
+              - KindOptional: keep as-is (Option<T> has its own methods)
+              - KindNamed with name starting with "std::Box", "std::Arc", "std::Rc":
+                if type has Elem, return Elem (auto-deref). Otherwise return as-is.
+              - All other kinds: return the type unchanged.
+              Apply iteratively (max 4 levels) to handle things like &Box<T>.
+
+            **File 3: `internal/typresolve/rust/builtins_test.go`**
+            Package: `rustresolve`
+
+            Test cases:
+
+            - `TestIsBuiltinFunc`: true for "println", "vec", "format", "assert_eq",
+              "todo", "panic"; false for "my_function", "process_data"
+            - `TestIsBuiltinType`: true for "i32", "String", "Vec", "HashMap",
+              "Option", "Result", "Iterator", "Clone"; false for "MyStruct", "Config"
+            - `TestResolveBuiltinType_Primitive`: "i32" -> Builtin("i32"),
+              "bool" -> Builtin("bool"), "str" -> Builtin("str")
+            - `TestResolveBuiltinType_CoreType`: "String" -> Named("std::String"),
+              "Vec" -> Named("std::Vec"), "HashMap" -> Named("std::HashMap")
+            - `TestResolveBuiltinType_NonBuiltin`: "MyStruct" -> nil
+            - `TestEvalMacroReturnType_Vec`: returns Named("std::Vec")
+            - `TestEvalMacroReturnType_Format`: returns Builtin("str")
+            - `TestEvalMacroReturnType_Println`: returns Builtin("()")
+            - `TestEvalMacroReturnType_Todo`: returns Unknown()
+            - `TestEvalMacroReturnType_IncludeStr`: returns Builtin("str")
+            - `TestEvalMacroReturnType_Matches`: returns Builtin("bool")
+            - `TestLookupMethod_DirectImpl`: register type with method, find it
+            - `TestLookupMethod_ViaTraitImpl`: register type with trait in
+              EmbeddedTypes, trait has method, find method on type
+            - `TestLookupMethod_DepthLimit`: chain of 10 trait impls, stops at depth 8
+            - `TestLookupMethod_NotFound`: returns nil for missing method
+            - `TestLookupField_Found`: register type with field, find it
+            - `TestLookupField_NotFound`: returns nil for missing field
+            - `TestDerefToBase_Reference`: Reference(Named("Foo")) -> Named("Foo")
+            - `TestDerefToBase_Pointer`: Pointer(Named("Foo")) -> Named("Foo")
+            - `TestDerefToBase_Box`: Named("std::Box") with Elem -> returns Elem
+            - `TestDerefToBase_Plain`: Named("Foo") -> Named("Foo") (no change)
+
+            For testing, build Registry manually with AddFunc and AddType.
+
+            ### Interfaces consumed
+            - `typresolve.Registry`, `typresolve.RegisteredFunc`, `typresolve.RegisteredType`
+            - `typresolve.Type`, `typresolve.Named()`, `typresolve.Unknown()`,
+              `typresolve.Builtin()`, `typresolve.Ref()`, `typresolve.Pointer()`,
+              `typresolve.Slice()`
+
+            ### Constraints
+            - Package name MUST be `rustresolve`
+            - Do NOT modify any files outside your ownership list.
+            - Do NOT define ResolveContext, EvalExprType, or ProcessStatement
+              (Agent C scope).
+            - Do NOT define use resolution or module path resolution (Agent A scope).
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/typresolve/rust/...
+            GOWORK=off go vet ./internal/typresolve/rust/...
+            GOWORK=off go test ./internal/typresolve/rust/... -run TestIsBuiltinFunc -v
+            GOWORK=off go test ./internal/typresolve/rust/... -run TestLookupMethod -v
+            GOWORK=off go test ./internal/typresolve/rust/... -run TestDerefToBase -v
+            ```
+
+            Postconditions:
+            ```bash
+            grep -c "func IsBuiltinFunc" internal/typresolve/rust/builtins.go  # expect: 1
+            grep -c "func IsBuiltinType" internal/typresolve/rust/builtins.go  # expect: 1
+            grep -c "func ResolveBuiltinType" internal/typresolve/rust/builtins.go  # expect: 1
+            grep -c "func EvalMacroReturnType" internal/typresolve/rust/builtins.go  # expect: 1
+            grep -c "func LookupMethod" internal/typresolve/rust/methods.go  # expect: 1
+            grep -c "func LookupField" internal/typresolve/rust/methods.go  # expect: 1
+            grep -c "func DerefToBase" internal/typresolve/rust/methods.go  # expect: 1
+            ```
+          files:
+            - internal/typresolve/rust/builtins.go
+            - internal/typresolve/rust/methods.go
+            - internal/typresolve/rust/builtins_test.go
+        - id: C
+          task: |
+            ## Agent C: Expression Evaluator, Type Parser, and Scope Binding
+
+            Build the expression type evaluator, Rust type node parser, and
+            statement-level scope binding for the Rust resolver.
+
+            ### What to implement
+
+            **File 1: `internal/typresolve/rust/eval.go`**
+            Package: `rustresolve`
+
+            Define the resolution context and expression evaluator for Rust.
+            Rust has a strong static type system, but the resolver operates without
+            full type inference. It relies on: explicit type annotations in let
+            bindings, literal types, constructor patterns, scope tracking through
+            assignments, and method return types from the registry.
+
+            Define the resolution context:
+            ```go
+            // ResolveContext holds per-file state for type resolution.
+            type ResolveContext struct {
+                Registry        *typresolve.Registry
+                Scope           *typresolve.Scope
+                Uses            map[string]string  // short name -> module path
+                ModuleQN        string             // current module qualified name
+                ImplType        string             // current impl block type QN (empty if not in impl)
+                Content         []byte             // source file content
+                EnclosingFuncQN string             // QN of the current function being resolved
+            }
+            ```
+
+            Also define a helper:
+            ```go
+            // nodeContent extracts the source text for a tree-sitter node.
+            func nodeContent(node *sitter.Node, content []byte) string {
+                return node.Content(content)
+            }
+            ```
+
+            Implement `EvalExprType(ctx *ResolveContext, node *sitter.Node) *typresolve.Type`
+
+            Handle these Rust expression node types:
+
+            1. `identifier`:
+               - Scope lookup: `ctx.Scope.Lookup(name)`
+               - If found and not Unknown, return it
+               - Check if it's a builtin type: `IsBuiltinType(name)` (from builtins.go,
+                 same package). If so, return `ResolveBuiltinType(name)`.
+               - Check if it's an enum variant constructor: "Some", "None", "Ok", "Err"
+                 - "Some": return Named("std::Option") (wraps a value into Option)
+                 - "None": return Named("std::Option")
+                 - "Ok": return Named("std::Result")
+                 - "Err": return Named("std::Result")
+               - Check in uses map for imported type
+               - Default: return Unknown
+
+            2. `scoped_identifier`:
+               Path expressions like `module::Type`, `std::collections::HashMap`,
+               `Type::method`, `Enum::Variant`.
+               - Get full path text from node
+               - Split on `::`
+               - If first segment is in uses map, resolve through import
+               - If first segment is a known type and second is a method/variant:
+                 return Named(resolved type QN)
+               - Look up full path in registry as type
+               - If found, return Named(typeQN)
+               - Default: return Named(fullPath) (best effort)
+
+            3. `call_expression`:
+               - Get `function` field child
+               - Get `arguments` field child
+               - If function is `identifier`:
+                 Check builtins: `IsBuiltinFunc(name)`. If builtin macro-like
+                 (this won't catch actual macros, which are macro_invocation nodes,
+                 but handles `Box::new` etc.)
+               - If function is `scoped_identifier`:
+                 Resolve the path. Common patterns:
+                 - `Type::new(...)`: return Named(Type)
+                 - `Type::from(...)`: return Named(Type)
+                 - `Type::default()`: return Named(Type)
+                 - `module::func(...)`: look up in registry, return signature's return type
+               - If function is `field_expression`:
+                 This is a method call: `obj.method(args)`
+                 Evaluate receiver type, deref to base, look up method
+               - Evaluate function type recursively
+               - If KindFunc with returns, return first return type
+               - If KindNamed, this is a type conversion / constructor: return the type
+               - Default: return Unknown
+
+            4. `macro_invocation`:
+               - Get `macro` field child for the macro name
+               - Call `EvalMacroReturnType(macroName)` (from builtins.go)
+               - Return its result
+
+            5. `field_expression`:
+               `expr.field` - could be field access or method (without call parens).
+               - Get operand and field children
+               - Evaluate operand type
+               - Deref to base: `DerefToBase(baseType)` (from methods.go, Agent B)
+               - If base is Named, look up field: `LookupField(ctx.Registry, typeQN, fieldName)`
+               - If found, return field type
+               - Default: return Unknown
+
+            6. `reference_expression`:
+               `&expr` or `&mut expr` - creates a reference.
+               - Evaluate inner expression
+               - Return typresolve.Ref(innerType)
+
+            7. `dereference_expression`:
+               `*expr` - dereferences a reference/pointer.
+               - Evaluate inner expression
+               - If KindReference or KindPointer, return Elem
+               - Default: return Unknown
+
+            8. `try_expression`:
+               `expr?` - unwraps Result<T, E> or Option<T>.
+               - Evaluate inner expression
+               - If Named with name containing "Result" or "Option" and has Elem,
+                 return Elem (the success/some type)
+               - Default: return Unknown
+
+            9. Literals:
+               - `string_literal`, `raw_string_literal`: return Builtin("str")
+               - `char_literal`: return Builtin("char")
+               - `integer_literal`: return Builtin("i32") (default integer type)
+               - `float_literal`: return Builtin("f64") (default float type)
+               - `boolean_literal`, `true`, `false`: return Builtin("bool")
+
+            10. `array_expression`:
+                return typresolve.Slice(typresolve.Unknown()) (array/vec literal)
+
+            11. `tuple_expression`:
+                Evaluate children, return Tuple of their types
+
+            12. `struct_expression`:
+                Struct literal `MyStruct { field: value }`.
+                - Get `name` field child
+                - Resolve the type name through uses/registry
+                - Return Named(typeQN)
+
+            13. `unary_expression`:
+                - `!expr`: if operand is bool, return Builtin("bool")
+                - `-expr`: return operand type
+
+            14. `binary_expression`:
+                - Comparison (==, !=, <, >, <=, >=): return Builtin("bool")
+                - Logical (&&, ||): return Builtin("bool")
+                - Arithmetic (+, -, *, /, %): return left operand type
+                - Bitwise (&, |, ^, <<, >>): return left operand type
+
+            15. `index_expression`:
+                `expr[index]` - array/vec/map indexing.
+                - Evaluate operand type
+                - If slice/array with Elem, return Elem
+                - Default: return Unknown
+
+            16. `type_cast_expression`:
+                `expr as Type` - type cast.
+                - Parse the target type node via `ParseTypeNode` (from types.go, same package)
+                - Return the target type
+
+            17. `closure_expression`:
+                `|params| body` or `|params| -> RetType { body }`.
+                - Return typresolve.Func(nil, nil) (opaque closure type)
+
+            18. `if_expression`:
+                Evaluate consequence block's last expression type
+
+            19. `match_expression`:
+                Evaluate first arm's body type
+
+            20. `block`:
+                Evaluate last statement/expression in the block
+
+            21. `parenthesized_expression`:
+                Unwrap and evaluate inner expression
+
+            22. `await_expression`:
+                `expr.await` - unwrap Future. Return Unknown (future output type
+                not inferrable without full type info)
+
+            23. `range_expression`:
+                Return Named("std::ops::Range") or just Unknown
+
+            **File 2: `internal/typresolve/rust/types.go`**
+            Package: `rustresolve`
+
+            Implement `ParseTypeNode(node *sitter.Node, content []byte, moduleQN string, uses map[string]string) *typresolve.Type`
+
+            Convert a tree-sitter Rust type AST node to a typresolve.Type. Handle:
+
+            1. `type_identifier` (simple type name):
+               - Check primitives: IsBuiltinType(name). If primitive, return
+                 Builtin(name).
+               - Check uses map for imported type
+               - Return Named(moduleQN + "::" + name) for local types
+
+            2. `primitive_type` (i32, bool, etc.):
+               return Builtin(name)
+
+            3. `scoped_type_identifier` (qualified type like `std::io::Result`):
+               - Get `path` and `name` field children
+               - Resolve through uses map
+               - Return Named(resolved path)
+
+            4. `reference_type` (`&T` or `&mut T`):
+               - Find the inner type child
+               - Parse recursively
+               - Return typresolve.Ref(inner)
+
+            5. `generic_type` (`Vec<T>`, `HashMap<K, V>`, `Option<T>`, `Result<T, E>`):
+               - Get the base type name
+               - Parse type arguments
+               - For Option<T>: return typresolve.Optional(inner)
+               - For Box<T>, Arc<T>, Rc<T>: return Named("std::Box") with Elem set
+               - For Vec<T>: return typresolve.Slice(inner)
+               - For Result<T, E>: return Named("std::Result") with Elem set to T
+               - For HashMap<K, V>: return typresolve.Map(K, V)
+               - For other generics: return Named(baseName) (ignore type params)
+
+            6. `array_type` (`[T; N]`):
+               - Parse element type
+               - Return typresolve.Array(elem)
+
+            7. `slice_type` (`[T]`):
+               - Parse element type
+               - Return typresolve.Slice(elem)
+
+            8. `tuple_type` (`(T1, T2, T3)`):
+               - Parse each element type
+               - Return typresolve.Tuple(elements)
+
+            9. `function_type` (`fn(A) -> B`):
+               - Parse parameter types and return type
+               - Return typresolve.Func(params, returns)
+
+            10. `unit_type` (`()`):
+                return typresolve.Builtin("()")
+
+            11. `pointer_type` (`*const T` or `*mut T`):
+                - Parse inner type
+                - Return typresolve.Pointer(inner)
+
+            12. `never_type` (`!`):
+                return typresolve.Unknown()
+
+            13. `dynamic_type` (`dyn Trait`):
+                - Parse trait name
+                - Return Named(traitName) with KindInterface
+
+            14. `bounded_type` (`T + Trait`):
+                Parse first type, return it
+
+            15. `macro_invocation` (in type position):
+                return Unknown()
+
+            Also implement a helper for Rust-specific builtin type detection:
+            ```go
+            var rustPrimitives = map[string]bool{
+                "i8": true, "i16": true, "i32": true, "i64": true, "i128": true,
+                "isize": true, "u8": true, "u16": true, "u32": true, "u64": true,
+                "u128": true, "usize": true, "f32": true, "f64": true,
+                "bool": true, "char": true, "str": true,
+            }
+
+            func isRustPrimitive(name string) bool {
+                return rustPrimitives[name]
+            }
+            ```
+
+            **File 3: `internal/typresolve/rust/scope_bind.go`**
+            Package: `rustresolve`
+
+            Implement `ProcessStatement(ctx *ResolveContext, node *sitter.Node)`
+
+            Handle these Rust statement types:
+
+            1. `let_declaration`:
+               Rust's primary variable binding: `let x: Type = expr;`
+               or `let x = expr;` or `let mut x = expr;`
+               - Get `pattern` field child (the variable name/pattern)
+               - Get `type` field child (optional type annotation)
+               - Get `value` field child (optional initializer expression)
+               - If type annotation present: parse it via ParseTypeNode, bind
+                 pattern identifier to that type
+               - If no type annotation but value present: evaluate value type
+                 via EvalExprType, bind pattern identifier to result
+               - If neither: bind to Unknown
+
+               Handle pattern types:
+               - `identifier`: bind directly (most common: `let x = ...`)
+               - `mutable_specifier` + `identifier`: `let mut x = ...` - find the
+                 identifier child and bind it
+               - `tuple_pattern` (`let (a, b) = ...`): if value is Tuple, bind each
+                 element. Otherwise bind all to Unknown.
+               - `struct_pattern` (`let Foo { x, y } = ...`): bind each field
+                 identifier to Unknown (field types require struct knowledge)
+               - `ref_pattern` (`let ref x = ...`): bind x to Ref(valueType)
+               - `_` (wildcard): skip
+
+            2. `assignment_expression`:
+               `x = expr;` or `x.field = expr;`
+               - Evaluate right side
+               - If left side is identifier, bind in scope
+               - If left side is field_expression, skip (field mutation, doesn't
+                 create new binding)
+
+            3. `compound_assignment_expr`:
+               `x += expr;`, `x -= expr;`, etc.
+               - No new bindings created; skip or keep existing binding
+
+            4. `for_expression`:
+               `for item in iter { ... }`
+               - Get `pattern` field child (loop variable)
+               - Get `value` field child (iterable expression)
+               - Evaluate iterable type
+               - Bind loop variable to Unknown (element type not inferrable without
+                 generics/iterator resolution)
+
+            5. `if_let_expression`:
+               `if let Some(x) = expr { ... }`
+               - Get `pattern` field child
+               - Get `value` field child
+               - Evaluate value type
+               - If pattern is `tuple_struct_pattern` (e.g., `Some(x)`):
+                 - If value type is Optional (Option), bind inner identifier to
+                   the Optional's Elem type
+                 - If value type is Named("std::Result"), bind to Elem
+               - Otherwise bind pattern identifiers to Unknown
+
+            6. `while_let_expression`:
+               Same pattern as if_let_expression.
+
+            7. `match_expression`:
+               Each match arm can introduce bindings in its pattern.
+               ProcessStatement is called on individual nodes, not full match bodies.
+               When called on a `match_arm`, extract pattern bindings:
+               - `identifier` pattern: bind to the match scrutinee type (if known)
+               - `tuple_struct_pattern`: destructure similarly to if-let
+               - `struct_pattern`: bind field names to Unknown
+               - Literal patterns: no bindings
+
+            **File 4: `internal/typresolve/rust/eval_test.go`**
+            Package: `rustresolve`
+
+            Test helper to parse Rust and find specific expression nodes:
+            ```go
+            func parseRust(t *testing.T, src string) *sitter.Node {
+                parser := sitter.NewParser()
+                parser.SetLanguage(rust.GetLanguage())
+                tree, err := parser.ParseCtx(context.Background(), nil, []byte(src))
+                if err != nil {
+                    t.Fatalf("parse: %v", err)
+                }
+                t.Cleanup(func() { tree.Close() })
+                return tree.RootNode()
+            }
+
+            func findNode(root *sitter.Node, nodeType string) *sitter.Node {
+                if root.Type() == nodeType {
+                    return root
+                }
+                for i := 0; i < int(root.ChildCount()); i++ {
+                    if found := findNode(root.Child(i), nodeType); found != nil {
+                        return found
+                    }
+                }
+                return nil
+            }
+            ```
+
+            Test cases for EvalExprType:
+            - `TestEvalExprType_IdentifierFromScope`: bind "x" to Named("MyType") in scope,
+              evaluate identifier "x" -> Named("MyType")
+            - `TestEvalExprType_IntegerLiteral`: `42` -> Builtin("i32")
+            - `TestEvalExprType_FloatLiteral`: `3.14` -> Builtin("f64")
+            - `TestEvalExprType_StringLiteral`: `"hello"` -> Builtin("str")
+            - `TestEvalExprType_BoolLiteral`: `true` -> Builtin("bool")
+            - `TestEvalExprType_CharLiteral`: `'a'` -> Builtin("char")
+            - `TestEvalExprType_ArrayLiteral`: `[1, 2, 3]` -> Slice(Unknown())
+            - `TestEvalExprType_Reference`: `&x` where x is Named("Foo") -> Ref(Named("Foo"))
+            - `TestEvalExprType_BinaryComparison`: `x == y` -> Builtin("bool")
+            - `TestEvalExprType_BinaryArithmetic`: `x + y` where x is Builtin("i32") -> Builtin("i32")
+            - `TestEvalExprType_MacroInvocation`: `vec![1, 2]` -> Named("std::Vec")
+            - `TestEvalExprType_StructExpression`: `Config { port: 8080 }` with Config
+              registered -> Named("crate::Config") or similar
+            - `TestEvalExprType_TryExpression`: `foo()?` where foo returns
+              Named("std::Result") with Elem=Builtin("i32") -> Builtin("i32")
+
+            Test cases for ParseTypeNode:
+            - `TestParseTypeNode_Primitive`: parse `i32` type node -> Builtin("i32")
+            - `TestParseTypeNode_Reference`: parse `&str` -> Ref(Builtin("str"))
+            - `TestParseTypeNode_MutReference`: parse `&mut String` -> Ref(Named("std::String"))
+            - `TestParseTypeNode_Option`: parse `Option<i32>` -> Optional(Builtin("i32"))
+            - `TestParseTypeNode_Vec`: parse `Vec<String>` -> Slice(Named("std::String"))
+            - `TestParseTypeNode_HashMap`: parse `HashMap<String, i32>` -> Map(Named("std::String"), Builtin("i32"))
+            - `TestParseTypeNode_Tuple`: parse `(i32, String)` -> Tuple([Builtin("i32"), Named("std::String")])
+            - `TestParseTypeNode_Unit`: parse `()` -> Builtin("()")
+            - `TestParseTypeNode_Array`: parse `[u8; 32]` -> Array(Builtin("u8"))
+            - `TestParseTypeNode_Box`: parse `Box<dyn Error>` -> Named("std::Box") with Elem
+
+            Test cases for ProcessStatement:
+            - `TestProcessStatement_LetBinding`: `let x = 42;` binds x to Builtin("i32")
+            - `TestProcessStatement_LetWithType`: `let x: String = ...;` binds x to Named("std::String")
+            - `TestProcessStatement_LetMut`: `let mut x = "hello";` binds x to Builtin("str")
+            - `TestProcessStatement_LetTuple`: `let (a, b) = (1, "two");` binds a and b
+            - `TestProcessStatement_ForLoop`: `for item in items { }` binds item to Unknown
+
+            ### Interfaces consumed
+            - `typresolve.Registry`, `typresolve.Scope`, `typresolve.NewScope()`
+            - `typresolve.Type` and all constructors (Named, Unknown, Builtin, Ref,
+              Pointer, Slice, Map, Array, Tuple, Func, Optional)
+            - `IsBuiltinFunc`, `IsBuiltinType`, `ResolveBuiltinType`, `EvalMacroReturnType`
+              from builtins.go (Agent B, same package)
+            - `LookupMethod`, `LookupField`, `DerefToBase` from methods.go
+              (Agent B, same package)
+            - `sitter.Node` from `github.com/smacker/go-tree-sitter`
+            - `rust.GetLanguage()` from `github.com/smacker/go-tree-sitter/rust`
+
+            ### Constraints
+            - Package name MUST be `rustresolve`
+            - Do NOT modify any files outside your ownership list.
+            - This file depends on Agent A's modules.go and uses.go, and Agent B's
+              builtins.go and methods.go. Since all are in the same Go package
+              (`rustresolve`), they compile together after wave 1 merge. Your code
+              should call those functions directly.
+            - For common Rust method return types, use the LookupMethod function
+              from Agent B rather than hardcoding. The resolver will populate the
+              registry with method signatures.
+            - Use `isRustPrimitive` (defined in types.go, your own file) for
+              primitive type detection in ParseTypeNode.
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/typresolve/rust/...
+            GOWORK=off go vet ./internal/typresolve/rust/...
+            GOWORK=off go test ./internal/typresolve/rust/... -run TestEvalExprType -v
+            GOWORK=off go test ./internal/typresolve/rust/... -run TestParseTypeNode -v
+            GOWORK=off go test ./internal/typresolve/rust/... -run TestProcessStatement -v
+            ```
+
+            Postconditions:
+            ```bash
+            grep -c "func EvalExprType" internal/typresolve/rust/eval.go  # expect: 1
+            grep -c "func ProcessStatement" internal/typresolve/rust/scope_bind.go  # expect: 1
+            grep -c "type ResolveContext struct" internal/typresolve/rust/eval.go  # expect: 1
+            grep -c "func ParseTypeNode" internal/typresolve/rust/types.go  # expect: 1
+            ```
+          files:
+            - internal/typresolve/rust/eval.go
+            - internal/typresolve/rust/scope_bind.go
+            - internal/typresolve/rust/types.go
+            - internal/typresolve/rust/eval_test.go
+    - number: 2
+      agents:
+        - id: D
+          task: |
+            ## Agent D: Resolver Integration, Registry Builder, and Call Resolution
+
+            Integrate all wave 1 components into the RustResolver that implements
+            typresolve.Resolver, build the registry builder, and implement call
+            resolution with edge emission.
+
+            ### What to implement
+
+            **File 1: `internal/typresolve/rust/resolver.go`**
+            Package: `rustresolve`
+
+            The main RustResolver struct implementing `typresolve.Resolver`.
+            Follow the exact pattern from the Go resolver at
+            `internal/typresolve/go/resolver.go`.
+
+            ```go
+            // Compile-time check that RustResolver implements typresolve.Resolver.
+            var _ typresolve.Resolver = (*RustResolver)(nil)
+
+            type RustResolver struct {
+                registry *typresolve.Registry
+            }
+
+            func NewRustResolver() *RustResolver {
+                return &RustResolver{}
+            }
+
+            func (r *RustResolver) Language() string { return "rust" }
+            ```
+
+            `InitWorkspace(ctx context.Context, defs []typresolve.ResolverDef) error`:
+            - Call BuildRegistry(defs) to populate r.registry
+            - Return nil on success
+
+            `ResolveFile(ctx context.Context, opts typresolve.ResolveFileOpts) ([]types.Edge, error)`:
+            1. Get tree-sitter root node from opts.ParsedTree:
+               ```go
+               var root *sitter.Node
+               switch v := opts.ParsedTree.(type) {
+               case *sitter.Node:
+                   root = v
+               default:
+                   // Try rootProvider interface (same as Go resolver).
+                   type rootProvider interface {
+                       GetRoot() *sitter.Node
+                   }
+                   if rp, ok := opts.ParsedTree.(rootProvider); ok {
+                       if r := rp.GetRoot(); r != nil {
+                           root = r
+                       }
+                   }
+               }
+               if root == nil {
+                   // Re-parse the content as fallback.
+                   if len(opts.Content) == 0 {
+                       return nil, fmt.Errorf("no parsed tree and no content for %s", opts.FilePath)
+                   }
+                   parser := sitter.NewParser()
+                   parser.SetLanguage(rust.GetLanguage())
+                   tree, err := parser.ParseCtx(ctx, nil, opts.Content)
+                   if err != nil {
+                       return nil, fmt.Errorf("parse %s: %w", opts.FilePath, err)
+                   }
+                   root = tree.RootNode()
+               }
+               ```
+
+            2. Build per-file use map:
+               `uses := BuildUseMap(root, opts.Content, opts.FilePath)`
+
+            3. Infer module QN from file path:
+               `moduleQN := InferModuleQN(opts.FilePath)`
+
+            4. Extract the repo URL from existing edges (if available):
+               ```go
+               repoURL := ""
+               // Edges may not contain repo URL directly; use empty string as fallback
+               ```
+
+            5. Create ResolveContext:
+               ```go
+               rctx := &ResolveContext{
+                   Registry:    r.registry,
+                   Scope:       typresolve.NewScope(nil),
+                   Uses:        uses,
+                   ModuleQN:    moduleQN,
+                   ImplType:    "",
+                   Content:     opts.Content,
+               }
+               ```
+
+            6. Call `ResolveCallsInFile(rctx, root, opts.FileHash, repoURL, opts.FilePath)`
+
+            7. Return the edges.
+
+            **File 2: `internal/typresolve/rust/registry_builder.go`**
+            Package: `rustresolve`
+
+            Implement `BuildRegistry(defs []typresolve.ResolverDef) *typresolve.Registry`:
+
+            1. Create a new registry via `typresolve.NewRegistry()`
+            2. For each def, register based on Kind:
+               - "function": register as RegisteredFunc with
+                 QualifiedName=def.QualifiedName,
+                 ShortName=last segment after "."
+               - "method": register as RegisteredFunc with
+                 ReceiverType extracted from QualifiedName.
+                 Rust QualifiedName format from the extractor:
+                 `repoURL://moduleRoot/basePath.ImplType.methodName`
+                 ReceiverType is the part between the last basePath segment and methodName.
+                 ShortName is the methodName.
+               - "type": register as RegisteredType with
+                 QualifiedName, IsInterface=false.
+                 Parse Signature field (e.g. "struct Config", "enum Option") to determine
+                 the declaration kind.
+               - "interface": register as RegisteredType with
+                 QualifiedName, IsInterface=true (traits map to interfaces).
+
+            3. Process edges from defs to populate type relationships:
+               For defs with Kind "implements" (trait impl edges from extractor):
+               find the source type (the implementing struct/enum) and add the
+               target (the trait) to its EmbeddedTypes. This enables trait-based
+               method dispatch in LookupMethod.
+
+            4. Return the registry
+
+            Helper functions:
+            ```go
+            // shortName extracts the last segment after "." from a qualified name.
+            func shortName(qn string) string {
+                if idx := strings.LastIndex(qn, "."); idx >= 0 {
+                    return qn[idx+1:]
+                }
+                return qn
+            }
+
+            // extractReceiverType extracts the receiver type QN from a method's
+            // qualified name. Format: "repoURL://pkg.ReceiverType.MethodName"
+            // Returns "repoURL://pkg.ReceiverType".
+            func extractReceiverType(methodQN string) string {
+                if idx := strings.LastIndex(methodQN, "."); idx >= 0 {
+                    return methodQN[:idx]
+                }
+                return ""
+            }
+            ```
+
+            **File 3: `internal/typresolve/rust/resolve.go`**
+            Package: `rustresolve`
+
+            Implement `ResolveCallsInFile(ctx *ResolveContext, root *sitter.Node, fileHash types.Hash, repoURL string, filePath string) []types.Edge`:
+
+            This function walks the file's AST and resolves call expressions to edges.
+
+            Structure:
+            1. Walk top-level children of root
+            2. For each `function_item` (top-level function):
+               a. Extract function name for enclosing context
+               b. Set ctx.EnclosingFuncQN = moduleQN + "::" + funcName
+               c. Push function scope
+               d. Bind function parameters into scope (parse parameter types)
+               e. Walk function body via resolveCallsInNode
+               f. Pop scope and clear enclosing QN
+            3. For each `impl_item`:
+               a. Get the impl target type (the `type` field child)
+               b. Set ctx.ImplType = resolved type QN
+               c. Check for trait name (the `trait` field child for `impl Trait for Type`)
+               d. Walk the body's function_item children:
+                  - For each method: set enclosing QN to implType + "." + methodName
+                  - Push method scope, bind `self` parameter to Named(implType)
+                  - Bind other parameters
+                  - Walk method body
+                  - Pop scope
+               e. Clear ctx.ImplType
+            4. For top-level `macro_invocation` nodes: resolve and emit edges
+
+            Internal function `resolveCallsInNode(ctx *ResolveContext, node *sitter.Node, edges *[]types.Edge, fileHash types.Hash, repoURL string, filePath string)`:
+
+            1. Call `ProcessStatement(ctx, node)` to bind variables from let bindings
+            2. If node is `call_expression`:
+               - Get `function` field child and `arguments` field child
+               - If function is `scoped_identifier` (e.g., `Type::method()`):
+                 a. Get the full path text
+                 b. Try to resolve through uses map
+                 c. Look up in registry as function
+                 d. Emit call edge to resolved QN
+               - If function is `identifier` (bare function call):
+                 a. Skip builtin functions (IsBuiltinFunc check)
+                 b. Look up in current module context
+                 c. Look up in uses map
+                 d. Emit call edge
+               - If function is `field_expression` (method call: `obj.method()`):
+                 a. Evaluate receiver type
+                 b. Deref to base via DerefToBase
+                 c. If base is Named, look up method via LookupMethod
+                 d. Emit call edge to resolved method QN
+                 e. If not resolved: emit edge using receiver type + "." + method
+                    as target (heuristic)
+
+            3. If node is `macro_invocation`:
+               - Get macro name from `macro` field child
+               - Skip standard macros (println!, etc.) that don't produce meaningful edges
+               - For user-defined macros: emit call edge
+
+            4. If node is `function_item` (nested function):
+               Push new scope, set enclosing QN, bind parameters, recurse, pop
+
+            5. If node is `block`:
+               Push scope, recurse into children, pop scope
+
+            6. If node is `if_expression`, `while_expression`, `loop_expression`,
+               `for_expression`: push scope for body, recurse, pop
+
+            7. If node is `if_let_expression` or `while_let_expression`:
+               Push scope, process let pattern binding, recurse, pop
+
+            8. If node is `match_expression`:
+               For each `match_arm`: push scope, process arm pattern, recurse, pop
+
+            9. If node is `closure_expression`:
+               Push scope, bind parameters, recurse, pop
+
+            10. Recurse into children for all other node types
+
+            Edge construction (follow the Go resolver pattern exactly):
+            ```go
+            func buildCallEdge(ctx *ResolveContext, callNode *sitter.Node, calleeQN string, strategy string, fileHash types.Hash, repoURL string, filePath string) types.Edge {
+                // Source: enclosing function
+                srcPkgPath, srcFuncName, srcKind := splitQualifiedName(ctx.EnclosingFuncQN)
+                sourceHash := types.ComputeNodeHash(repoURL, srcPkgPath, types.EmptyHash, srcFuncName, srcKind)
+
+                // Target: callee
+                tgtPkgPath, tgtFuncName, tgtKind := splitQualifiedName(calleeQN)
+                targetHash := types.ComputeNodeHash(repoURL, tgtPkgPath, types.EmptyHash, tgtFuncName, tgtKind)
+
+                edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, edgetype.Calls, typresolve.ProvenanceResolverResolved)
+
+                return types.Edge{
+                    EdgeHash:     edgeHash,
+                    SourceHash:   sourceHash,
+                    TargetHash:   targetHash,
+                    EdgeType:     edgetype.Calls,
+                    Confidence:   typresolve.ResolverConfidence,
+                    Provenance:   typresolve.ProvenanceResolverResolved,
+                    CallSiteLine: int(callNode.StartPoint().Row) + 1,
+                    CallSiteCol:  int(callNode.StartPoint().Column),
+                    CallSiteFile: filePath,
+                }
+            }
+            ```
+
+            The `splitQualifiedName` function should handle Rust QN formats.
+            Rust uses `::` as namespace separator in source code but the extractor
+            uses `.` in qualified names (matching the Go resolver convention):
+            `repoURL://moduleRoot/basePath.ImplType.methodName`
+
+            ```go
+            // splitQualifiedName splits a qualified name into module path,
+            // symbol name, and kind.
+            func splitQualifiedName(qn string) (modulePath string, symbolName string, kind string) {
+                lastDot := strings.LastIndex(qn, ".")
+                if lastDot == -1 {
+                    return "", qn, types.KindFunction
+                }
+                secondLastDot := strings.LastIndex(qn[:lastDot], ".")
+                if secondLastDot >= 0 {
+                    // Two dots: module.Type.Method
+                    return qn[:secondLastDot], qn[secondLastDot+1:], types.KindMethod
+                }
+                // One dot: module.Function
+                return qn[:lastDot], qn[lastDot+1:], types.KindFunction
+            }
+            ```
+
+            Use these imports:
+            - `github.com/blackwell-systems/knowing/internal/types`
+            - `github.com/blackwell-systems/knowing/internal/edgetype`
+            - `github.com/blackwell-systems/knowing/internal/typresolve`
+            - `sitter "github.com/smacker/go-tree-sitter"`
+            - `"github.com/smacker/go-tree-sitter/rust"`
+
+            **File 4: `internal/typresolve/rust/resolver_test.go`**
+            Package: `rustresolve`
+
+            Integration tests for the full resolver pipeline.
+
+            Test 1: `TestRustResolverLanguage`
+            - `NewRustResolver().Language() == "rust"`
+
+            Test 2: `TestRustResolverInitWorkspace`
+            - Create defs with function, type, method, and interface entries
+            - Call InitWorkspace
+            - Verify no error returned
+            - Verify registry is populated (check a few lookups)
+
+            Test 3: `TestRustResolverResolveFile_FunctionCall`
+            - Source:
+              ```rust
+              use crate::config::Config;
+
+              fn process() {
+                  Config::new();
+              }
+              ```
+            - InitWorkspace with a def for config.Config.new
+            - ResolveFile should produce a "calls" edge
+            - Verify edge has provenance "resolver_resolved" and confidence 0.9
+
+            Test 4: `TestRustResolverResolveFile_MethodCall`
+            - Source:
+              ```rust
+              struct Server {
+                  port: u16,
+              }
+
+              impl Server {
+                  fn new(port: u16) -> Self {
+                      Server { port }
+                  }
+
+                  fn start(&self) {
+                      self.listen();
+                  }
+
+                  fn listen(&self) {}
+              }
+              ```
+            - Register Server type and Server.new, Server.start, Server.listen methods
+            - Verify edges: Server.start -> Server.listen (via self.listen())
+
+            Test 5: `TestRustResolverResolveFile_TraitMethod`
+            - Source:
+              ```rust
+              trait Greetable {
+                  fn greet(&self) -> String;
+              }
+
+              struct Person {
+                  name: String,
+              }
+
+              impl Greetable for Person {
+                  fn greet(&self) -> String {
+                      format!("Hello, {}", self.name)
+                  }
+              }
+
+              fn say_hello(p: &Person) {
+                  p.greet();
+              }
+              ```
+            - Register Person type, Greetable trait (as interface), Greetable.greet method
+            - Register Person with Greetable in EmbeddedTypes (via "implements" def)
+            - Verify: say_hello -> greet edge via trait dispatch
+
+            Test 6: `TestRustResolverResolveFile_ScopeTracking`
+            - Source with let binding followed by method call:
+              ```rust
+              struct Config {
+                  port: u16,
+              }
+
+              impl Config {
+                  fn new() -> Self {
+                      Config { port: 8080 }
+                  }
+
+                  fn port(&self) -> u16 {
+                      self.port
+                  }
+              }
+
+              fn run() {
+                  let config = Config::new();
+                  config.port();
+              }
+              ```
+            - Verify scope tracks `config` as Named(Config) and resolves method call
+
+            Test 7: `TestBuildRegistry_StructsAndMethods`
+            - Create defs for a struct with methods
+            - Build registry
+            - Verify type and methods are registered correctly
+            - Verify LookupMethod finds methods on the type
+
+            Test 8: `TestRustResolverResolveFile_MacroInvocation`
+            - Source with macro calls:
+              ```rust
+              fn process() {
+                  let items = vec![1, 2, 3];
+                  println!("items: {:?}", items);
+              }
+              ```
+            - Verify macro_invocation edges are produced (or skipped for std macros)
+
+            Test 9: `TestResolveFile_NoParsedTree_FallbackParse`
+            - Pass nil ParsedTree with valid Content
+            - Verify fallback parsing works (no error)
+
+            ### Interfaces consumed
+            - All wave 1 functions: BuildUseMap, ResolveUsePath, ResolveModulePath,
+              InferModuleQN, IsBuiltinFunc, IsBuiltinType, ResolveBuiltinType,
+              EvalMacroReturnType, LookupMethod, LookupField, DerefToBase,
+              EvalExprType, ProcessStatement, ParseTypeNode, ResolveContext
+            - `typresolve.Resolver`, `typresolve.ResolverDef`, `typresolve.ResolveFileOpts`
+            - `typresolve.Registry`, `typresolve.Scope`, `typresolve.NewScope`
+            - `types.Edge`, `types.Hash`, `types.ComputeEdgeHash`, `types.ComputeNodeHash`
+            - `types.KindFunction`, `types.KindMethod`, `types.KindType`, `types.KindInterface`
+            - `edgetype.Calls`
+            - `sitter.Node`, `sitter.NewParser`, `rust.GetLanguage`
+
+            ### Constraints
+            - Package name MUST be `rustresolve`
+            - Do NOT modify any files outside your ownership list.
+            - Do NOT modify the typresolve package (shared infrastructure is frozen).
+            - Edge provenance MUST be `typresolve.ProvenanceResolverResolved`
+              ("resolver_resolved"), NOT "lsp_resolved" or "ast_inferred".
+            - Edge confidence MUST be `typresolve.ResolverConfidence` (0.9).
+            - For computing node hashes: use the same convention as the Rust extractor.
+              The basePath is computed from the file path. The Rust extractor at
+              `internal/indexer/rustextractor/extractor.go` uses
+              `computeBasePath(opts)` which combines moduleRoot with the file directory.
+              For the resolver, use InferModuleQN to get the module path.
+            - For computing target node hashes: use the callee's qualified name
+              components with the same hash computation as the Rust extractor.
+            - Use the qualified name format from the Rust extractor:
+              `repoURL://moduleRoot/basePath.ImplType.methodName` for methods,
+              `repoURL://moduleRoot/basePath.functionName` for top-level functions.
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/typresolve/rust/...
+            GOWORK=off go vet ./internal/typresolve/rust/...
+            GOWORK=off go test ./internal/typresolve/rust/... -v
+            GOWORK=off go build ./...
+            GOWORK=off go test -short ./... -timeout 5m
+            ```
+
+            Postconditions:
+            ```bash
+            grep -c "func NewRustResolver" internal/typresolve/rust/resolver.go  # expect: 1
+            grep -c "func BuildRegistry" internal/typresolve/rust/registry_builder.go  # expect: 1
+            grep -c "func ResolveCallsInFile" internal/typresolve/rust/resolve.go  # expect: 1
+            # Verify it implements the Resolver interface
+            grep -c "typresolve.Resolver" internal/typresolve/rust/resolver.go  # expect: >= 1
+            ```
+          files:
+            - internal/typresolve/rust/resolver.go
+            - internal/typresolve/rust/registry_builder.go
+            - internal/typresolve/rust/resolve.go
+            - internal/typresolve/rust/resolver_test.go
+          dependencies:
+            - A
+            - B
+            - C
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: GOWORK=off go build ./...
+          required: true
+        - type: lint
+          command: GOWORK=off go vet ./...
+          required: true
+        - type: test
+          command: GOWORK=off go test -short ./... -timeout 5m
+          required: true
+pre_mortem:
+    overall_risk: medium
+    rows:
+        - scenario: |
+            Wave 1 agents call cross-file functions that don't exist yet in their
+            isolated worktrees (Agent C calls IsBuiltinFunc from Agent B's builtins.go).
+          likelihood: high
+          impact: low
+          mitigation: |
+            All wave 1 agents are in the same Go package (rustresolve). Their files
+            compile together only after merge. The build gate runs post-merge.
+            Individual agent worktrees will not compile in isolation, which is
+            expected and acceptable. Agent verification gates should focus on
+            go vet (per-file syntax) and defer full compilation to post-merge.
+        - scenario: |
+            Tree-sitter Rust AST node types differ from expectations. The Rust
+            grammar may use different field names or node structures than assumed
+            (e.g., let_declaration pattern/value field names).
+          likelihood: medium
+          impact: medium
+          mitigation: |
+            The existing Rust extractor (internal/indexer/rustextractor/extractor.go)
+            demonstrates the correct tree-sitter Rust patterns for function_item,
+            impl_item, struct_item, enum_item, trait_item, use_declaration,
+            call_expression, scoped_identifier, and field_expression. Agents should
+            reference the extractor for node type names and field access patterns.
+            Guard all ChildByFieldName calls with nil checks.
+        - scenario: |
+            Rust's multiple impl blocks per type cause method registration conflicts.
+            A type can have inherent impl blocks and trait impl blocks, potentially
+            with methods of the same name (trait method vs inherent method).
+          likelihood: medium
+          impact: low
+          mitigation: |
+            The registry uses a map keyed by receiverType.methodName. Later
+            registrations overwrite earlier ones. For Tier 1, inherent impl methods
+            take priority (registered last since they appear after trait impls in
+            typical Rust code). This matches Rust's actual method resolution order
+            where inherent methods shadow trait methods.
+        - scenario: |
+            Rust's ownership types (&T, &mut T, Box<T>, Arc<T>) cause method
+            resolution failures because the base type is wrapped in a reference
+            or smart pointer layer.
+          likelihood: medium
+          impact: medium
+          mitigation: |
+            Agent B implements DerefToBase which strips reference and smart pointer
+            wrappers before method lookup. Agent C's EvalExprType and Agent D's
+            resolve.go both use DerefToBase before calling LookupMethod. This
+            handles the common case. Deep nesting (e.g., &Arc<Box<T>>) is handled
+            by DerefToBase's iterative stripping (max 4 levels).
+        - scenario: |
+            Agent A and Agent C both define nodeContent helper with the same
+            signature, causing a duplicate function error at merge.
+          likelihood: medium
+          impact: medium
+          mitigation: |
+            Agent C is instructed to define nodeContent in eval.go. Agent A should
+            NOT define nodeContent. If a conflict occurs, Agent D resolves it in
+            wave 2 by removing the duplicate.
+        - scenario: |
+            Macro invocations in Rust look syntactically different from function
+            calls (they use `!` and can have different delimiters: (), [], {}).
+            The resolver may miss macro calls or misidentify them.
+          likelihood: low
+          impact: low
+          mitigation: |
+            Tree-sitter Rust grammar has a dedicated `macro_invocation` node type
+            distinct from `call_expression`. The resolver handles both node types
+            separately. The extractor already demonstrates this pattern with
+            `walkForCalls` handling both `call_expression` and `macro_invocation`.

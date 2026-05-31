@@ -1,0 +1,1282 @@
+title: Java In-Process Type Resolver
+feature_slug: java-resolver
+verdict: SUITABLE
+suitability_assessment: |
+    1. File decomposition: All new files in internal/typresolve/java/ (10+ files).
+       No existing files modified. Agents have fully disjoint file ownership.
+       Follows the exact same pattern as the Go resolver (IMPL-go-resolver.yaml)
+       and Python resolver (IMPL-python-resolver.yaml).
+
+    2. Investigation-first: No unknowns. The C# resolver in codebase-memory
+       (cs_lsp.c, 3,021 lines) provides the closest OOP analog. The shared
+       infrastructure (typresolve package) is completed and defines the exact
+       interface contracts. The Go resolver establishes the structural pattern.
+       The existing Java tree-sitter extractor (internal/indexer/javaextractor/)
+       documents all Java AST node types and their field names.
+
+    3. Interface discoverability: All interfaces are defined. The typresolve.Resolver
+       interface, Registry, Scope, and Type are implemented and tested. Cross-agent
+       contracts are limited to Go function signatures within the new java/ subpackage.
+
+    4. Pre-implementation: The shared infrastructure (in-process-resolver-infra) was
+       completed previously. The Go resolver IMPL shows the exact structural pattern.
+       No overlap with existing code. The Java extractor already uses the
+       go-tree-sitter/java grammar that the resolver will share.
+
+    5. Parallelization value: High. Build/test cycle is ~30s with GOWORK=off.
+       3 agents in wave 1 with 2-4 files each. Wave 2 integrates and tests.
+       Independent type system components (type parsing, builtins, scope binding)
+       can be built in parallel, matching the Go/Python resolver decomposition.
+
+    Estimated times:
+    - Scout phase: ~10 min
+    - Agent execution: ~15 min (4 agents, 2 waves, ~5 min avg per agent)
+    - Merge and verification: ~5 min
+    Total Polywave time: ~30 min
+
+    Sequential baseline: ~50 min (4 agents x 12 min avg)
+    Time savings: ~20 min (40% faster)
+
+    Recommendation: Clear speedup. Wave 1 agents are fully independent (type
+    parsing + imports, builtins + method lookup, scope binding + expression eval).
+    Wave 2 integrates them into the resolver. Identical pattern to Go and Python
+    resolver IMPLs that completed successfully.
+test_command: GOWORK=off go test -short ./... -timeout 5m
+lint_command: GOWORK=off go vet ./...
+file_ownership:
+    - file: internal/typresolve/java/doc.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/typresolve/java/types.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/typresolve/java/imports.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/typresolve/java/types_test.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/typresolve/java/builtins.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/typresolve/java/methods.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/typresolve/java/builtins_test.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/typresolve/java/eval.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/typresolve/java/scope_bind.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/typresolve/java/eval_test.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/typresolve/java/resolver.go
+      agent: D
+      wave: 2
+      action: new
+      depends_on:
+        - A
+        - B
+        - C
+    - file: internal/typresolve/java/registry_builder.go
+      agent: D
+      wave: 2
+      action: new
+      depends_on:
+        - A
+        - B
+        - C
+    - file: internal/typresolve/java/resolve.go
+      agent: D
+      wave: 2
+      action: new
+      depends_on:
+        - A
+        - B
+        - C
+    - file: internal/typresolve/java/resolver_test.go
+      agent: D
+      wave: 2
+      action: new
+      depends_on:
+        - A
+        - B
+        - C
+interface_contracts:
+    - name: ParseTypeNode
+      description: |
+        Parses a Java tree-sitter type AST node into a typresolve.Type. Handles
+        type_identifier, generic_type, array_type, scoped_type_identifier,
+        void_type, integral_type, floating_point_type, boolean_type, and
+        wildcard patterns (? extends T, ? super T).
+      definition: |
+        func ParseTypeNode(node *sitter.Node, content []byte, pkgQN string, imports map[string]string) *typresolve.Type
+      location: internal/typresolve/java/types.go
+    - name: BuildImportMap
+      description: |
+        Builds per-file import map from the Java AST root. Returns a map from
+        simple class name to fully-qualified package path. Handles:
+        - import com.pkg.Class (maps "Class" -> "com.pkg")
+        - import static com.pkg.Class.method (maps "Class" -> "com.pkg")
+        - Skips wildcard imports (import com.pkg.*)
+      definition: |
+        func BuildImportMap(root *sitter.Node, content []byte) map[string]string
+      location: internal/typresolve/java/imports.go
+    - name: ResolveImport
+      description: |
+        Resolves an import class name to its package path. Simple map lookup.
+      definition: |
+        func ResolveImport(imports map[string]string, className string) (string, bool)
+      location: internal/typresolve/java/imports.go
+    - name: ExtractPackage
+      description: |
+        Extracts the package declaration from the Java AST root.
+        Returns the dotted package name (e.g., "org.apache.kafka.clients").
+      definition: |
+        func ExtractPackage(root *sitter.Node, content []byte) string
+      location: internal/typresolve/java/imports.go
+    - name: IsBuiltinFunc
+      description: |
+        Returns true if the given name is a Java method that should be skipped
+        during resolution (Object methods: toString, hashCode, equals, getClass,
+        notify, notifyAll, wait, clone, finalize).
+      definition: |
+        func IsBuiltinFunc(name string) bool
+      location: internal/typresolve/java/builtins.go
+    - name: IsBuiltinType
+      description: |
+        Returns true if the given name is a Java primitive or common builtin type
+        (int, long, short, byte, char, boolean, float, double, void, String,
+        Object, Integer, Long, Boolean, Double, Float, Class, etc.).
+      definition: |
+        func IsBuiltinType(name string) bool
+      location: internal/typresolve/java/builtins.go
+    - name: ResolveBuiltinType
+      description: |
+        Returns a typresolve.Builtin type if the name is a Java builtin type,
+        nil otherwise. Maps boxed types to their primitives for resolution
+        (Integer -> int, etc.).
+      definition: |
+        func ResolveBuiltinType(name string) *typresolve.Type
+      location: internal/typresolve/java/builtins.go
+    - name: LookupFieldOrMethod
+      description: |
+        Looks up a method on a named type, following superclass and interface
+        chains up to 5 levels deep. Returns the registered function if found.
+        This is the Java equivalent of Go's LookupFieldOrMethod, using
+        EmbeddedTypes to store superclass and implemented interfaces.
+      definition: |
+        func LookupFieldOrMethod(reg *typresolve.Registry, typeQN string, memberName string) *typresolve.RegisteredFunc
+      location: internal/typresolve/java/methods.go
+    - name: LookupField
+      description: |
+        Looks up a field on a named type, following superclass chain up to
+        5 levels deep. Returns the field's type if found.
+      definition: |
+        func LookupField(reg *typresolve.Registry, typeQN string, fieldName string) *typresolve.Type
+      location: internal/typresolve/java/methods.go
+    - name: ResolveContext
+      description: |
+        Per-file resolution context holding the registry, scope, imports,
+        package QN, content bytes, enclosing function/class QN.
+      definition: |
+        type ResolveContext struct {
+            Registry         *typresolve.Registry
+            Scope            *typresolve.Scope
+            Imports          map[string]string  // className -> packagePath
+            PkgQN            string             // current package qualified name
+            Content          []byte             // source file content
+            EnclosingFuncQN  string             // QN of enclosing method
+            EnclosingClassQN string             // QN of enclosing class
+        }
+      location: internal/typresolve/java/eval.go
+    - name: EvalExprType
+      description: |
+        Recursive expression type evaluator for Java. Evaluates the type of
+        a Java expression AST node using scope lookup, registry lookup,
+        import resolution, and method dispatch.
+      definition: |
+        func EvalExprType(ctx *ResolveContext, node *sitter.Node) *typresolve.Type
+      location: internal/typresolve/java/eval.go
+    - name: ProcessStatement
+      description: |
+        Processes a Java statement node to bind variables into the current scope.
+        Handles local_variable_declaration, enhanced_for_statement, try_with_resources,
+        catch_clause binding.
+      definition: |
+        func ProcessStatement(ctx *ResolveContext, node *sitter.Node)
+      location: internal/typresolve/java/scope_bind.go
+    - name: JavaResolver
+      description: |
+        Implements typresolve.Resolver for Java. Language() returns "java".
+        InitWorkspace builds a Registry from Java definitions.
+        ResolveFile walks the Java AST and resolves calls and references.
+      definition: |
+        type JavaResolver struct {
+            registry *typresolve.Registry
+        }
+        func NewJavaResolver() *JavaResolver
+        func (r *JavaResolver) Language() string
+        func (r *JavaResolver) InitWorkspace(ctx context.Context, defs []typresolve.ResolverDef) error
+        func (r *JavaResolver) ResolveFile(ctx context.Context, opts typresolve.ResolveFileOpts) ([]types.Edge, error)
+      location: internal/typresolve/java/resolver.go
+    - name: BuildRegistry
+      description: |
+        Builds a typresolve.Registry from ResolverDef entries. Registers
+        functions, methods (with receiver type extracted from QN), classes,
+        interfaces, and enums.
+      definition: |
+        func BuildRegistry(defs []typresolve.ResolverDef) *typresolve.Registry
+      location: internal/typresolve/java/registry_builder.go
+    - name: ResolveCallsInFile
+      description: |
+        Walks a Java file's AST resolving call expressions and emitting edges.
+        Uses the shared registry, per-file scope chain, and import map.
+      definition: |
+        func ResolveCallsInFile(ctx *ResolveContext, root *sitter.Node, fileHash types.Hash, repoURL string, filePath string) []types.Edge
+      location: internal/typresolve/java/resolve.go
+waves:
+    - number: 1
+      agents:
+        - id: A
+          task: |
+            ## Agent A: Java Type Parsing and Import Resolution
+
+            Build the foundational type node parsing and import resolution for the
+            Java resolver. This mirrors the Go resolver's types.go + imports.go,
+            adapted for Java's type system (primitives, generics, arrays, wildcards).
+
+            ### What to implement
+
+            **File 1: `internal/typresolve/java/doc.go`**
+            Package doc comment for the `javaresolve` subpackage:
+            ```go
+            // Package javaresolve implements the Java language in-process type resolver.
+            // It implements the typresolve.Resolver interface, resolving Java call
+            // expressions and type references using tree-sitter AST walking and a
+            // shared type registry built from extracted definitions.
+            package javaresolve
+            ```
+
+            **File 2: `internal/typresolve/java/types.go`**
+            Package: `javaresolve`
+
+            Implement `ParseTypeNode(node *sitter.Node, content []byte, pkgQN string, imports map[string]string) *typresolve.Type`
+
+            This converts a tree-sitter Java type AST node to a typresolve.Type.
+            The existing Java extractor at `internal/indexer/javaextractor/extractor.go`
+            function `extractJavaTypeName` (lines 573-603) shows the node types.
+            Do NOT import that package; reimplement locally.
+
+            Handle these Java type AST node kinds:
+
+            - **`type_identifier`**: Simple class name (e.g., `String`, `MyClass`).
+              If it is a Java primitive wrapper or common type, return Builtin.
+              Check imports map: if the name maps to a package path, qualify as
+              `packagePath.ClassName`. Otherwise qualify with pkgQN:
+              `pkgQN + "." + name`. Java builtins to check:
+              int, long, short, byte, char, boolean, float, double, void,
+              String, Object, Integer, Long, Boolean, Double, Float, Byte,
+              Short, Character, Class, Void.
+
+            - **`integral_type`**: `int`, `long`, `short`, `byte`, `char` ->
+              `typresolve.Builtin(name)`
+
+            - **`floating_point_type`**: `float`, `double` -> `typresolve.Builtin(name)`
+
+            - **`boolean_type`**: `boolean` -> `typresolve.Builtin("boolean")`
+
+            - **`void_type`**: `void` -> `typresolve.Builtin("void")`
+
+            - **`generic_type`**: e.g., `List<String>`, `Map<K, V>`.
+              Get the base type from the first child (type_identifier or
+              scoped_type_identifier). Get type arguments from `type_arguments` child.
+              Map known generic containers:
+              - `List`, `ArrayList`, `LinkedList`, `Collection`, `Iterable`,
+                `Set`, `HashSet`, `TreeSet`, `Queue`, `Deque` -> `typresolve.Slice(firstTypeArg)`
+              - `Map`, `HashMap`, `TreeMap`, `LinkedHashMap`, `ConcurrentHashMap` ->
+                `typresolve.Map(firstTypeArg, secondTypeArg)`
+              - `Optional` -> `typresolve.Optional(firstTypeArg)`
+              - Others: return `typresolve.Named(qualifiedBaseName)` with TypeParams set
+
+            - **`array_type`**: `String[]` -> `typresolve.Slice(elementType)`.
+              Get "element" field child and recurse.
+
+            - **`scoped_type_identifier`**: `pkg.ClassName` or `Outer.Inner`.
+              Get "name" field for the terminal class name, and "scope" for prefix.
+              If scope matches an import, qualify from the import. Otherwise
+              concatenate scope + "." + name.
+
+            - **`wildcard`**: `?`, `? extends T`, `? super T`.
+              For `? extends T`: parse the bound type and return it (best-effort
+              upper bound). For `? super T`: return `typresolve.Unknown()`.
+              For bare `?`: return `typresolve.Unknown()`.
+
+            Helper: `extractBaseTypeName(node *sitter.Node, content []byte) string`
+            Extracts the base class name from a type node, stripping generics
+            and array suffixes. Used for import qualification.
+
+            Helper: `qualifyTypeName(name string, pkgQN string, imports map[string]string) string`
+            Qualifies a simple class name using the import map or current package.
+
+            **File 3: `internal/typresolve/java/imports.go`**
+            Package: `javaresolve`
+
+            Port import resolution from the existing Java extractor's
+            `buildJavaImportMap` (lines 177-231 of extractor.go). Do NOT import
+            that package; reimplement the logic.
+
+            Implement:
+
+            - `BuildImportMap(root *sitter.Node, content []byte) map[string]string`
+              Walk the AST for `import_declaration` nodes.
+              For each import:
+              - Parse the import text: strip "import ", "static ", and ";"
+              - Skip wildcard imports ending with ".*"
+              - For regular imports "com.example.service.UserService":
+                map "UserService" -> "com.example.service"
+              - For static imports "com.example.util.MathHelper.calculate":
+                map "MathHelper" -> "com.example.util" (class name is second-to-last segment)
+
+            - `ResolveImport(imports map[string]string, className string) (string, bool)`
+              Simple map lookup. Returns the package path and true if found.
+
+            - `ExtractPackage(root *sitter.Node, content []byte) string`
+              Walk AST for `package_declaration` node. Extract the scoped_identifier
+              or identifier child text. Returns the dotted package name.
+              Reference: `extractJavaPackage` in the existing extractor (lines 151-170).
+
+            **File 4: `internal/typresolve/java/types_test.go`**
+            Package: `javaresolve`
+
+            Test ParseTypeNode by building tree-sitter nodes from Java source fragments.
+            Use a helper that parses a Java field declaration to get a type node:
+            ```go
+            func parseJavaType(t *testing.T, typeStr string) (*sitter.Node, []byte) {
+                // Wrap in a class with a field to get a parseable type node
+                src := fmt.Sprintf("class X { %s x; }", typeStr)
+                content := []byte(src)
+                parser := sitter.NewParser()
+                parser.SetLanguage(java.GetLanguage())
+                tree, err := parser.ParseCtx(context.Background(), nil, content)
+                require.NoError(t, err)
+                t.Cleanup(func() { tree.Close() })
+                // Navigate: program -> class_declaration -> class_body -> field_declaration -> type
+                root := tree.RootNode()
+                classDecl := root.NamedChild(0)
+                body := classDecl.ChildByFieldName("body")
+                for i := 0; i < int(body.ChildCount()); i++ {
+                    child := body.Child(i)
+                    if child.Type() == "field_declaration" {
+                        typeNode := child.ChildByFieldName("type")
+                        return typeNode, content
+                    }
+                }
+                t.Fatal("no field_declaration found")
+                return nil, nil
+            }
+            ```
+
+            Test cases:
+            - Primitive int: `"int"` -> Builtin("int")
+            - Primitive boolean: `"boolean"` -> Builtin("boolean")
+            - Void: parse from method return type -> Builtin("void")
+            - Simple class: `"String"` -> Builtin("String") (builtin)
+            - User class: `"MyClass"` with pkgQN="com.example" -> Named("com.example.MyClass")
+            - Imported class: `"UserService"` with imports={"UserService": "com.example.service"}
+              -> Named("com.example.service.UserService")
+            - Generic List: `"List<String>"` -> Slice(Builtin("String"))
+            - Generic Map: `"Map<String, Integer>"` -> Map(Builtin("String"), Builtin("Integer"))
+            - Generic Optional: `"Optional<String>"` -> Optional(Builtin("String"))
+            - Array: `"String[]"` -> Slice(Builtin("String"))
+            - Nested generic: `"List<Map<String, Integer>>"` -> Slice(Map(...))
+
+            Test BuildImportMap:
+            - `import java.util.List;` -> {"List": "java.util"}
+            - `import static org.junit.Assert.assertEquals;` -> {"Assert": "org.junit"}
+            - `import java.util.*;` -> skipped (wildcard)
+
+            Test ExtractPackage:
+            - `package com.example.service;` -> "com.example.service"
+
+            ### Interfaces consumed
+            - `typresolve.Type`, `typresolve.Named()`, `typresolve.Builtin()`,
+              `typresolve.Slice()`, `typresolve.Map()`, `typresolve.Optional()`,
+              `typresolve.Unknown()` from
+              `github.com/blackwell-systems/knowing/internal/typresolve`
+            - `sitter.Node` from `github.com/smacker/go-tree-sitter`
+            - `java.GetLanguage()` from `github.com/smacker/go-tree-sitter/java`
+
+            ### Constraints
+            - Package name MUST be `javaresolve` (not `java`, which shadows the tree-sitter import)
+            - Do NOT import or depend on builtins.go or methods.go from Agent B.
+            - Do NOT modify any files outside your ownership list.
+            - Do NOT import from `internal/indexer/javaextractor` (circular dependency risk).
+              Reimplement import map logic locally.
+            - The existing extractor's `isJavaBuiltin` function (lines 606-614) has the
+              canonical list of Java builtins. Use the same list but implement independently.
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/typresolve/java/...
+            GOWORK=off go vet ./internal/typresolve/java/...
+            GOWORK=off go test ./internal/typresolve/java/... -run TestParseTypeNode -v
+            GOWORK=off go test ./internal/typresolve/java/... -run TestBuildImportMap -v
+            GOWORK=off go test ./internal/typresolve/java/... -run TestExtractPackage -v
+            ```
+
+            Postconditions:
+            ```bash
+            # ParseTypeNode function exists
+            grep -c "func ParseTypeNode" internal/typresolve/java/types.go  # expect: 1
+            # BuildImportMap function exists
+            grep -c "func BuildImportMap" internal/typresolve/java/imports.go  # expect: 1
+            # ExtractPackage function exists
+            grep -c "func ExtractPackage" internal/typresolve/java/imports.go  # expect: 1
+            # Package declaration is javaresolve
+            grep -c "package javaresolve" internal/typresolve/java/doc.go  # expect: 1
+            ```
+          files:
+            - internal/typresolve/java/doc.go
+            - internal/typresolve/java/types.go
+            - internal/typresolve/java/imports.go
+            - internal/typresolve/java/types_test.go
+        - id: B
+          task: |
+            ## Agent B: Builtins and Method/Field Lookup (Inheritance-based)
+
+            Build the builtin function/type handling and inheritance-based
+            method/field lookup for the Java resolver.
+
+            ### What to implement
+
+            **File 1: `internal/typresolve/java/builtins.go`**
+            Package: `javaresolve`
+
+            Implement:
+
+            - `IsBuiltinFunc(name string) bool`
+              Return true for Java Object methods that should be skipped during
+              resolution to avoid noise edges: toString, hashCode, equals,
+              getClass, notify, notifyAll, wait, clone, finalize.
+              Also skip: System.out.println, System.err.println (handled as
+              special cases in resolution).
+
+            - `IsBuiltinType(name string) bool`
+              Return true for Java primitives and common types:
+              int, long, short, byte, char, boolean, float, double, void,
+              String, Object, Integer, Long, Boolean, Double, Float,
+              Class, Void, Byte, Short, Character, Number, Comparable,
+              Serializable, Iterable, AutoCloseable, Throwable, Exception,
+              RuntimeException, Error.
+              Reference: `isJavaBuiltin` in the existing extractor (lines 606-614).
+
+            - `ResolveBuiltinType(name string) *typresolve.Type`
+              Return `typresolve.Builtin(name)` for builtin types, nil otherwise.
+
+            - `LiteralType(nodeType string) *typresolve.Type`
+              Map Java tree-sitter literal node types to builtin types:
+              - "decimal_integer_literal", "hex_integer_literal",
+                "octal_integer_literal", "binary_integer_literal" -> Builtin("int")
+              - "decimal_floating_point_literal",
+                "hex_floating_point_literal" -> Builtin("double")
+              - "character_literal" -> Builtin("char")
+              - "string_literal" -> Builtin("String")
+              - "true", "false" -> Builtin("boolean")
+              - "null_literal" -> Unknown()
+              Return nil if not a literal type.
+
+            **File 2: `internal/typresolve/java/methods.go`**
+            Package: `javaresolve`
+
+            Port method/field lookup with inheritance traversal, following the
+            same pattern as the Go resolver's methods.go.
+
+            Implement:
+
+            - `LookupFieldOrMethod(reg *typresolve.Registry, typeQN string, memberName string) *typresolve.RegisteredFunc`
+              Internal helper with depth limit (max 5):
+              1. Direct method lookup: `reg.LookupMethod(typeQN, memberName)` -- if found, return
+              2. Get type: `reg.LookupType(typeQN)` -- if nil, return nil
+              3. Follow alias: if `type.AliasOf != ""`, recurse with alias target
+              4. Check superclass and interfaces (stored as EmbeddedTypes): for each, recurse
+              5. Return nil if not found
+
+              In Java, `extends` creates a single superclass chain and `implements`
+              adds interface methods. Both are stored in RegisteredType.EmbeddedTypes.
+              The registry builder (Agent D, wave 2) will populate EmbeddedTypes
+              from extends/implements relationships.
+
+            - `LookupField(reg *typresolve.Registry, typeQN string, fieldName string) *typresolve.Type`
+              Internal helper with depth limit (max 5):
+              1. Get type: `reg.LookupType(typeQN)` -- if nil, return nil
+              2. Follow alias: if `type.AliasOf != ""`, recurse with alias target
+              3. Direct field lookup: scan `type.Fields` for matching name, return field type
+              4. Check superclass chain (EmbeddedTypes): for each, recurse
+              5. Return nil if not found
+
+            **File 3: `internal/typresolve/java/builtins_test.go`**
+            Package: `javaresolve`
+
+            Test cases:
+            - IsBuiltinFunc: true for "toString", "hashCode", "equals"; false for "processData"
+            - IsBuiltinType: true for "int", "String", "Object", "Integer"; false for "MyService"
+            - ResolveBuiltinType: returns Builtin for "int", "String"; nil for "MyService"
+            - LiteralType: "decimal_integer_literal" -> Builtin("int"),
+              "string_literal" -> Builtin("String"),
+              "true" -> Builtin("boolean"),
+              "null_literal" -> Unknown,
+              "some_other" -> nil
+            - LookupFieldOrMethod: direct method found
+            - LookupFieldOrMethod: method found via superclass (1 level)
+            - LookupFieldOrMethod: method found via superclass chain (2 levels)
+            - LookupFieldOrMethod: method found via interface
+            - LookupField: direct field found
+            - LookupField: field found via superclass
+
+            For LookupFieldOrMethod/LookupField tests, build a Registry simulating
+            Java class hierarchies:
+            ```go
+            // Register: Animal (base) -> Dog (subclass) -> GoldenRetriever (sub-subclass)
+            reg := typresolve.NewRegistry()
+            reg.AddType(typresolve.RegisteredType{
+                QualifiedName: "com.example.Animal",
+                ShortName:     "Animal",
+            })
+            reg.AddFunc(typresolve.RegisteredFunc{
+                QualifiedName: "com.example.Animal.speak",
+                ShortName:     "speak",
+                ReceiverType:  "com.example.Animal",
+                MinParams:     -1,
+            })
+            reg.AddType(typresolve.RegisteredType{
+                QualifiedName: "com.example.Dog",
+                ShortName:     "Dog",
+                EmbeddedTypes: []string{"com.example.Animal"},
+            })
+            // Dog.speak() should resolve via Animal
+            ```
+
+            ### Interfaces consumed
+            - `typresolve.Registry`, `typresolve.RegisteredFunc`, `typresolve.RegisteredType`
+            - `typresolve.Type`, `typresolve.Builtin()`, `typresolve.Unknown()`
+
+            ### Constraints
+            - Package name MUST be `javaresolve`
+            - Do NOT modify any files outside your ownership list.
+            - Do NOT import from `internal/indexer/javaextractor`.
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/typresolve/java/...
+            GOWORK=off go vet ./internal/typresolve/java/...
+            GOWORK=off go test ./internal/typresolve/java/... -run TestIsBuiltinFunc -v
+            GOWORK=off go test ./internal/typresolve/java/... -run TestIsBuiltinType -v
+            GOWORK=off go test ./internal/typresolve/java/... -run TestLookupFieldOrMethod -v
+            GOWORK=off go test ./internal/typresolve/java/... -run TestLookupField -v
+            ```
+
+            Postconditions:
+            ```bash
+            grep -c "func IsBuiltinFunc" internal/typresolve/java/builtins.go  # expect: 1
+            grep -c "func IsBuiltinType" internal/typresolve/java/builtins.go  # expect: 1
+            grep -c "func LookupFieldOrMethod" internal/typresolve/java/methods.go  # expect: 1
+            grep -c "func LookupField" internal/typresolve/java/methods.go  # expect: 1
+            ```
+          files:
+            - internal/typresolve/java/builtins.go
+            - internal/typresolve/java/methods.go
+            - internal/typresolve/java/builtins_test.go
+        - id: C
+          task: |
+            ## Agent C: Expression Evaluator and Scope Binding
+
+            Build the expression type evaluator and statement-level scope binding
+            for the Java resolver. This mirrors Agent C from the Go/Python resolvers,
+            adapted for Java's static typing, variable declarations, enhanced for
+            loops, try-with-resources, and cast expressions.
+
+            ### What to implement
+
+            **File 1: `internal/typresolve/java/eval.go`**
+            Package: `javaresolve`
+
+            Define the resolution context:
+            ```go
+            // ResolveContext holds per-file state for Java type resolution.
+            type ResolveContext struct {
+                Registry         *typresolve.Registry
+                Scope            *typresolve.Scope
+                Imports          map[string]string  // className -> packagePath
+                PkgQN            string             // current package qualified name (e.g., "org.apache.kafka.clients")
+                Content          []byte             // source file content
+                EnclosingFuncQN  string             // QN of enclosing method
+                EnclosingClassQN string             // QN of enclosing class (for this/super resolution)
+            }
+            ```
+
+            Helper: `nodeContent(node *sitter.Node, content []byte) string`
+            Extract text of a node from source content.
+
+            Implement `EvalExprType(ctx *ResolveContext, node *sitter.Node) *typresolve.Type`
+
+            Handle these expression node types:
+
+            1. **Literals**:
+               - Check via `LiteralType(node.Type())` (from builtins.go, Agent B, same package)
+               - Return the literal type directly.
+
+            2. **`identifier`**:
+               - Scope lookup: `ctx.Scope.Lookup(name)`
+               - If not found, check as package-local type: `ctx.Registry.LookupType(ctx.PkgQN + "." + name)`
+                 If found, return `typresolve.Named(ctx.PkgQN + "." + name)` (class reference for static calls)
+               - Check imports: if name matches an import, look up the imported type in registry
+               - Builtin type check: `ResolveBuiltinType(name)` (from builtins.go, Agent B)
+               - Default: Unknown
+
+            3. **`this`**:
+               - If EnclosingClassQN is set, return `typresolve.Named(ctx.EnclosingClassQN)`
+               - Otherwise Unknown
+
+            4. **`super`** (for super.method() calls):
+               - If EnclosingClassQN is set, look up the type in registry and return
+                 Named of the first EmbeddedType (superclass)
+               - Otherwise Unknown
+
+            5. **`field_access`** (e.g., `obj.field`, `ClassName.CONSTANT`):
+               - Get "object" and "field" field children
+               - If object is `identifier`:
+                 a. Check if it matches an import (static class reference):
+                    Look up symbol in registry: `ctx.Registry.LookupSymbol(importPkg + "." + objectName, fieldName)`
+                 b. Check if it is a class name (starts with uppercase):
+                    Look up as static field: `LookupField(ctx.Registry, qualifiedClassName, fieldName)`
+               - Evaluate object type recursively
+               - If object is Named type:
+                 - Look up method via `LookupFieldOrMethod(ctx.Registry, typeQN, fieldName)`
+                   (from methods.go, Agent B, same package)
+                 - Look up field via `LookupField(ctx.Registry, typeQN, fieldName)`
+               - Default: Unknown
+
+            6. **`method_invocation`** (e.g., `obj.method()`, `method()`, `ClassName.staticMethod()`):
+               - Get "name" and "object" field children, plus "arguments"
+               - If no object (simple method call):
+                 a. If EnclosingClassQN is set, look up as method on current class
+                 b. Package-local function lookup
+               - If object is present:
+                 a. Evaluate object type
+                 b. If Named: look up method via LookupFieldOrMethod, return method's return type
+                 c. If object is an import alias: resolve via registry
+               - For return type extraction: if the function has a KindFunc signature
+                 with Returns, return the first return type.
+               - Skip builtin methods (IsBuiltinFunc check)
+
+            7. **`object_creation_expression`** (e.g., `new ClassName()`, `new ClassName<T>()`):
+               - Get "type" field child
+               - Parse via `ParseTypeNode` (from types.go, Agent A, same package)
+               - Return the constructed type (instance creation)
+
+            8. **`cast_expression`** (e.g., `(String) obj`):
+               - Get "type" field child
+               - Parse via `ParseTypeNode`
+               - Return the cast target type
+
+            9. **`ternary_expression`** / **`conditional_expression`** (e.g., `cond ? a : b`):
+               - Evaluate the "consequence" (true branch), return its type
+
+            10. **`parenthesized_expression`**: unwrap
+
+            11. **`array_creation_expression`** (e.g., `new int[10]`):
+                - Get "type" field child, parse it
+                - Return `typresolve.Slice(elementType)`
+
+            12. **`array_access`** (e.g., `arr[0]`):
+                - Evaluate "array" field child
+                - If Slice, return element type
+                - If Map, return value type
+
+            13. **`binary_expression`**:
+                - If comparison/logical operator (==, !=, <, >, <=, >=, &&, ||, instanceof):
+                  return Builtin("boolean")
+                - Otherwise return left operand type
+
+            14. **`unary_expression`**: evaluate operand, return its type
+
+            15. **`instanceof_expression`**: return Builtin("boolean")
+
+            16. **`lambda_expression`**: return Unknown (simplified; full lambda
+                inference requires target-type analysis which is beyond scope)
+
+            17. **`method_reference`** (e.g., `ClassName::method`):
+                return Unknown (simplified)
+
+            **File 2: `internal/typresolve/java/scope_bind.go`**
+            Package: `javaresolve`
+
+            Implement `ProcessStatement(ctx *ResolveContext, node *sitter.Node)`
+
+            Handle these statement types:
+
+            1. **`local_variable_declaration`** (e.g., `int x = 42;`, `var x = obj.method();`):
+               - Get type node from the declaration
+               - If type is `var` (Java 10+ local variable type inference):
+                 evaluate the initializer expression to infer the type
+               - Otherwise parse the type via `ParseTypeNode` (Agent A, same package)
+               - Walk `variable_declarator` children:
+                 - Get "name" field (identifier) and optional "value" (initializer)
+                 - Bind name to the declared type in scope
+                 - If no explicit type and has initializer, evaluate initializer
+
+            2. **`enhanced_for_statement`** (e.g., `for (Item item : items)`):
+               - Get "type" and "name" field children for the loop variable
+               - Parse the type via ParseTypeNode
+               - Bind the loop variable name to the parsed type
+               - Note: the tree-sitter Java grammar uses "type" and "name" fields
+                 on enhanced_for_statement for the loop variable declaration.
+
+            3. **`for_statement`** (traditional for loop):
+               - Process the "init" field child for variable declarations
+
+            4. **`try_with_resources_statement`**:
+               - Walk the "resources" field for resource declarations
+               - Each resource has a type and name; bind in scope
+
+            5. **`catch_clause`** (e.g., `catch (IOException e)`):
+               - Get the "catch_formal_parameter" child
+               - Get type and name from catch parameter
+               - Bind the exception variable to the caught exception type
+
+            6. **`expression_statement`**:
+               - If contains assignment_expression: process the assignment
+               - For `assignment_expression`: evaluate RHS type, bind LHS if identifier
+
+            **File 3: `internal/typresolve/java/eval_test.go`**
+            Package: `javaresolve`
+
+            Test helper to parse Java and find expression nodes:
+            ```go
+            func parseJava(t *testing.T, src string) (*sitter.Node, []byte) {
+                content := []byte(src)
+                parser := sitter.NewParser()
+                parser.SetLanguage(java.GetLanguage())
+                tree, err := parser.ParseCtx(context.Background(), nil, content)
+                require.NoError(t, err)
+                t.Cleanup(func() { tree.Close() })
+                return tree.RootNode(), content
+            }
+            ```
+
+            Test cases for EvalExprType:
+            - Identifier resolves from scope: bind "x" to Named("com.example.MyType"),
+              evaluate "x" -> Named("com.example.MyType")
+            - `this` resolves to enclosing class
+            - String literal -> Builtin("String")
+            - Integer literal -> Builtin("int")
+            - Boolean literal `true` -> Builtin("boolean")
+            - Binary comparison -> Builtin("boolean")
+            - Object creation `new MyClass()` -> Named("com.example.MyClass")
+            - Cast expression -> target type
+            - Array access on Slice -> element type
+
+            Test cases for ProcessStatement:
+            - Local variable declaration: `int x = 42;` binds x to Builtin("int")
+            - Var inference: `var x = "hello";` binds x to Builtin("String")
+              (via literal evaluation)
+            - Enhanced for: `for (String s : list)` binds s to Builtin("String")
+
+            ### Interfaces consumed
+            - `typresolve.Registry`, `typresolve.Scope`, `typresolve.NewScope()`
+            - `typresolve.Type` and all constructors
+            - `ParseTypeNode` from types.go (Agent A, same package)
+            - `IsBuiltinFunc`, `ResolveBuiltinType`, `LiteralType`
+              from builtins.go (Agent B, same package)
+            - `LookupFieldOrMethod`, `LookupField` from methods.go (Agent B, same package)
+            - `sitter.Node` from `github.com/smacker/go-tree-sitter`
+            - `java.GetLanguage()` from `github.com/smacker/go-tree-sitter/java`
+
+            ### Constraints
+            - Package name MUST be `javaresolve`
+            - Do NOT modify any files outside your ownership list.
+            - This file depends on Agent A's types.go and imports.go, and Agent B's
+              builtins.go and methods.go. Since all are in the same Go package
+              (`javaresolve`), they compile together after wave 1 merge. Call those
+              functions directly (e.g., `ParseTypeNode(...)`, `LiteralType(...)`,
+              `LookupFieldOrMethod(...)`).
+            - Java's `var` keyword (type inference) requires evaluating the
+              initializer expression. If no initializer, bind to Unknown.
+            - For `this` resolution: when EnclosingClassQN is set, `this` evaluates
+              to Named(EnclosingClassQN). When not set, return Unknown.
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/typresolve/java/...
+            GOWORK=off go vet ./internal/typresolve/java/...
+            GOWORK=off go test ./internal/typresolve/java/... -run TestEvalExprType -v
+            GOWORK=off go test ./internal/typresolve/java/... -run TestProcessStatement -v
+            ```
+
+            Postconditions:
+            ```bash
+            grep -c "func EvalExprType" internal/typresolve/java/eval.go  # expect: 1
+            grep -c "func ProcessStatement" internal/typresolve/java/scope_bind.go  # expect: 1
+            grep -c "type ResolveContext struct" internal/typresolve/java/eval.go  # expect: 1
+            ```
+          files:
+            - internal/typresolve/java/eval.go
+            - internal/typresolve/java/scope_bind.go
+            - internal/typresolve/java/eval_test.go
+    - number: 2
+      agents:
+        - id: D
+          task: |
+            ## Agent D: Resolver Integration, Registry Builder, and Call Resolution
+
+            Integrate all wave 1 components into the JavaResolver that implements
+            typresolve.Resolver, build the registry builder, and implement call
+            resolution with edge emission.
+
+            ### What to implement
+
+            **File 1: `internal/typresolve/java/resolver.go`**
+            Package: `javaresolve`
+
+            The main JavaResolver struct implementing `typresolve.Resolver`:
+
+            ```go
+            // Compile-time check that JavaResolver implements typresolve.Resolver.
+            var _ typresolve.Resolver = (*JavaResolver)(nil)
+
+            type JavaResolver struct {
+                registry *typresolve.Registry
+            }
+
+            func NewJavaResolver() *JavaResolver {
+                return &JavaResolver{}
+            }
+
+            func (r *JavaResolver) Language() string { return "java" }
+            ```
+
+            `InitWorkspace(ctx context.Context, defs []typresolve.ResolverDef) error`:
+            - Call BuildRegistry with the defs
+            - Store the resulting registry in r.registry
+
+            `ResolveFile(ctx context.Context, opts typresolve.ResolveFileOpts) ([]types.Edge, error)`:
+            1. Get the tree-sitter root node from opts.ParsedTree:
+               Try direct `*sitter.Node` assertion. Try interface with GetRoot method.
+               Fallback: re-parse from content using `java.GetLanguage()`.
+               Reference: the Go resolver's extractRoot function at
+               `internal/typresolve/go/resolver.go` lines 76-108 (exact same pattern,
+               just swap `golang.GetLanguage()` for `java.GetLanguage()`).
+
+            2. Extract package: `pkgQN := ExtractPackage(root, opts.Content)`
+               If empty, infer from file path (convert `/` to `.`, strip `.java`).
+
+            3. Build per-file import map: `imports := BuildImportMap(root, opts.Content)`
+
+            4. Determine repoURL from existing edges (same pattern as Go resolver's
+               inferPackageInfo).
+
+            5. Create ResolveContext:
+               ```go
+               rctx := &ResolveContext{
+                   Registry: r.registry,
+                   Scope:    typresolve.NewScope(nil),
+                   Imports:  imports,
+                   PkgQN:    pkgQN,
+                   Content:  opts.Content,
+               }
+               ```
+
+            6. Call `ResolveCallsInFile(rctx, root, opts.FileHash, repoURL, opts.FilePath)`
+
+            7. Return the edges.
+
+            **File 2: `internal/typresolve/java/registry_builder.go`**
+            Package: `javaresolve`
+
+            Implement `BuildRegistry(defs []typresolve.ResolverDef) *typresolve.Registry`:
+            1. Create a new registry via `typresolve.NewRegistry()`
+            2. For each def:
+               - If Kind is "function": register as RegisteredFunc with
+                 QualifiedName=def.QualifiedName, ShortName=last segment after "."
+               - If Kind is "method": register as RegisteredFunc with
+                 ReceiverType extracted from QualifiedName. Java methods have QN
+                 format: "repoURL://pkgPath.ClassName.MethodName"
+                 -> ReceiverType = everything up to last "." before method name
+               - If Kind is "type" or "class": register as RegisteredType
+               - If Kind is "interface": register as RegisteredType with IsInterface=true
+               - If Kind is "enum": register as RegisteredType
+            3. Return the registry
+
+            Helper: `shortName(qn string) string` -- extracts last segment after "."
+            Helper: `extractReceiverType(methodQN string) string` -- extracts everything
+            before the last "." (same logic as Go resolver's extractReceiverType).
+
+            **File 3: `internal/typresolve/java/resolve.go`**
+            Package: `javaresolve`
+
+            Implement `ResolveCallsInFile(ctx *ResolveContext, root *sitter.Node, fileHash types.Hash, repoURL string, filePath string) []types.Edge`:
+
+            This walks the file's AST and resolves call expressions to edges.
+
+            Structure (following the Java extractor's walkForCallsWithImports pattern
+            at lines 300-322 but with full type resolution):
+
+            1. Walk top-level children of the root for class/interface/enum declarations
+            2. For each `class_declaration`:
+               - Set ctx.EnclosingClassQN to qualified class name
+               - Push class scope
+               - Walk the class body for:
+                 a. `field_declaration`: process field types into scope (for `this.field` resolution)
+                 b. `method_declaration`: call processMethodDecl
+                 c. `constructor_declaration`: call processConstructorDecl
+                 d. Nested `class_declaration`: recurse
+               - Pop class scope
+               - Restore EnclosingClassQN
+
+            3. processMethodDecl:
+               - Set ctx.EnclosingFuncQN to "ClassName.methodName"
+               - Push method scope
+               - Bind parameters into scope:
+                 - Get "parameters" field -> walk "formal_parameter" children
+                 - For each: get "type" and "name" fields
+                 - Parse type via ParseTypeNode, bind name to type in scope
+               - Walk method body with resolveCallsInNode
+               - Pop scope
+
+            4. processConstructorDecl: same as processMethodDecl but with
+               EnclosingFuncQN = "ClassName.<init>"
+
+            5. resolveCallsInNode(ctx, node, edges, fileHash, repoURL, filePath):
+               - Call ProcessStatement(ctx, node) to bind variables
+               - If node is `method_invocation`:
+                 Resolve the call target:
+                 a. Get "name" field (method name) and "object" field (receiver)
+                 b. If no object:
+                    - Skip builtins (IsBuiltinFunc check)
+                    - Look up as method on enclosing class:
+                      `LookupFieldOrMethod(ctx.Registry, ctx.EnclosingClassQN, methodName)`
+                    - If found, emit edge with callee QN = method's QualifiedName
+                    - Otherwise, look up as package-local function
+                 c. If object present:
+                    - Evaluate object type via EvalExprType
+                    - If Named: look up via LookupFieldOrMethod on the type
+                    - If identifier matching an import (uppercase first letter):
+                      resolve as static method call via registry
+                    - Emit edge with resolved callee QN
+                 d. Build edge with:
+                    - SourceHash: ComputeNodeHash from enclosing function
+                    - TargetHash: ComputeNodeHash from callee QN
+                    - EdgeType: edgetype.Calls
+                    - Confidence: typresolve.ResolverConfidence (0.9)
+                    - Provenance: typresolve.ProvenanceResolverResolved
+                    - CallSiteLine: node.StartPoint().Row + 1
+                    - CallSiteCol: node.StartPoint().Column
+                    - CallSiteFile: filePath
+
+               - If node is `object_creation_expression`:
+                 Resolve constructor call:
+                 a. Get "type" field, extract type name
+                 b. Callee QN = qualifiedTypeName + ".<init>"
+                 c. Emit edge as above
+
+               - Handle scope for blocks:
+                 `block`, `if_statement`, `for_statement`, `enhanced_for_statement`,
+                 `while_statement`, `do_statement`, `switch_expression`,
+                 `try_statement`, `try_with_resources_statement`:
+                 push new scope, recurse into children, pop scope
+
+               - Recurse into children
+
+            Import these:
+            - `github.com/blackwell-systems/knowing/internal/types`
+            - `github.com/blackwell-systems/knowing/internal/edgetype`
+            - `github.com/blackwell-systems/knowing/internal/typresolve`
+
+            Edge hash computation uses the same pattern as the Go resolver:
+            ```go
+            sourceHash := types.ComputeNodeHash(repoURL, srcPkgPath, types.EmptyHash, srcFuncName, srcKind)
+            targetHash := types.ComputeNodeHash(repoURL, tgtPkgPath, types.EmptyHash, tgtFuncName, tgtKind)
+            edgeHash := types.ComputeEdgeHash(sourceHash, targetHash, edgetype.Calls, typresolve.ProvenanceResolverResolved)
+            ```
+
+            For splitting qualified names: Java QNs use the format
+            "com.example.service.UserService.processData". Use dot-separated
+            splitting. The package path is everything before the class name.
+            Method QNs are "pkgPath.ClassName.MethodName".
+
+            Helper: `splitQualifiedName(qn string) (pkgPath string, symbolName string, kind string)`
+            Helper: `splitEnclosingFunc(funcQN string, pkgQN string) (pkgPath string, funcName string, kind string)`
+
+            **File 4: `internal/typresolve/java/resolver_test.go`**
+            Package: `javaresolve`
+
+            Integration tests for the full resolver pipeline.
+
+            Helper:
+            ```go
+            func parseJavaFile(t *testing.T, src string) *sitter.Node {
+                t.Helper()
+                parser := sitter.NewParser()
+                parser.SetLanguage(java.GetLanguage())
+                tree, err := parser.ParseCtx(context.Background(), nil, []byte(src))
+                if err != nil {
+                    t.Fatalf("parse: %v", err)
+                }
+                return tree.RootNode()
+            }
+            ```
+
+            Test 1: `TestJavaResolverLanguage`
+            - NewJavaResolver().Language() == "java"
+
+            Test 2: `TestJavaResolverInitWorkspace`
+            - Create defs with function, method, type, interface entries
+            - Call InitWorkspace
+            - Verify registry contains the registered entries
+
+            Test 3: `TestJavaResolverResolveFile_ImportCall`
+            - Source:
+              ```java
+              package com.example;
+              import java.util.ArrayList;
+              class Main {
+                  void process() {
+                      ArrayList list = new ArrayList();
+                      list.add("item");
+                  }
+              }
+              ```
+            - InitWorkspace with defs for ArrayList and ArrayList.add
+            - ResolveFile should produce call edges
+            - Verify edge has provenance "resolver_resolved" and confidence 0.9
+
+            Test 4: `TestJavaResolverResolveFile_LocalCalls`
+            - Source with local method calls:
+              ```java
+              package com.example;
+              class Service {
+                  void helper() {}
+                  void main() {
+                      helper();
+                  }
+              }
+              ```
+            - Register helper method in workspace
+            - Verify edges are produced
+
+            Test 5: `TestJavaResolverResolveFile_MethodCalls`
+            - Source with method calls on typed variables:
+              ```java
+              package com.example;
+              class UserService {
+                  void process() {}
+              }
+              class Main {
+                  void run(UserService svc) {
+                      svc.process();
+                  }
+              }
+              ```
+            - Register type and method in workspace
+            - Verify method dispatch edge is produced
+
+            Test 6: `TestJavaResolverResolveFile_ConstructorCall`
+            - Source with `new ClassName()`:
+              ```java
+              package com.example;
+              class Item {}
+              class Main {
+                  void create() {
+                      Item item = new Item();
+                  }
+              }
+              ```
+            - Verify edge targets ClassName.<init>
+
+            Test 7: `TestJavaResolverResolveFile_StaticMethodCall`
+            - Source with static method call via class name:
+              ```java
+              package com.example;
+              import java.util.Collections;
+              class Main {
+                  void sort() {
+                      Collections.sort(null);
+                  }
+              }
+              ```
+            - Register Collections.sort in workspace
+            - Verify static dispatch edge
+
+            Test 8: `TestResolveFile_NoParsedTree_FallbackParse`
+            - Pass nil ParsedTree; should fall back to re-parsing from Content.
+
+            ### Interfaces consumed
+            - All wave 1 functions: ParseTypeNode, BuildImportMap, ExtractPackage,
+              ResolveImport, IsBuiltinFunc, ResolveBuiltinType, LiteralType,
+              LookupFieldOrMethod, LookupField,
+              EvalExprType, ProcessStatement, ResolveContext
+            - `typresolve.Resolver`, `typresolve.ResolverDef`, `typresolve.ResolveFileOpts`
+            - `typresolve.Registry`, `typresolve.Scope`, `typresolve.NewScope`
+            - `types.Edge`, `types.Hash`, `types.ComputeEdgeHash`, `types.ComputeNodeHash`
+            - `edgetype.Calls`
+            - `sitter.Node`, `sitter.NewParser`, `java.GetLanguage`
+
+            ### Constraints
+            - Package name MUST be `javaresolve`
+            - Do NOT modify any files outside your ownership list.
+            - Do NOT modify the typresolve package (shared infrastructure is frozen).
+            - Do NOT import `internal/indexer/javaextractor` directly.
+            - Edge provenance MUST be `typresolve.ProvenanceResolverResolved`
+              ("resolver_resolved"), NOT "lsp_resolved" or "ast_inferred".
+            - Edge confidence MUST be `typresolve.ResolverConfidence` (0.9).
+            - Java packages use dots: "com.example.service" not "com/example/service".
+              The existing extractor's `extractJavaPackage` reads the package_declaration
+              AST node. Use the same approach.
+            - Constructor calls target "ClassName.<init>" following the existing extractor's
+              convention (see `extractConstructorDecl` at line 627 and
+              `extractObjectCreation` at line 975 in the Java extractor).
+
+            ### Verification
+            ```bash
+            GOWORK=off go build ./internal/typresolve/java/...
+            GOWORK=off go vet ./internal/typresolve/java/...
+            GOWORK=off go test ./internal/typresolve/java/... -v
+            GOWORK=off go build ./...
+            GOWORK=off go test -short ./... -timeout 5m
+            ```
+
+            Postconditions:
+            ```bash
+            grep -c "func NewJavaResolver" internal/typresolve/java/resolver.go  # expect: 1
+            grep -c "func BuildRegistry" internal/typresolve/java/registry_builder.go  # expect: 1
+            grep -c "func ResolveCallsInFile" internal/typresolve/java/resolve.go  # expect: 1
+            # Verify it implements the Resolver interface
+            grep -c "typresolve.Resolver" internal/typresolve/java/resolver.go  # expect: >= 1
+            ```
+          files:
+            - internal/typresolve/java/resolver.go
+            - internal/typresolve/java/registry_builder.go
+            - internal/typresolve/java/resolve.go
+            - internal/typresolve/java/resolver_test.go
+          dependencies:
+            - A
+            - B
+            - C
+quality_gates:
+    level: standard
+    gates:
+        - type: build
+          command: GOWORK=off go build ./...
+          required: true
+        - type: lint
+          command: GOWORK=off go vet ./...
+          required: true
+        - type: test
+          command: GOWORK=off go test -short ./... -timeout 5m
+          required: true
+post_merge_checklist:
+    groups:
+        - title: Build Verification
+          items:
+            - description: 'Full test suite passes: GOWORK=off go build ./... && GOWORK=off go test -short ./... -timeout 5m'
+            - description: Verify JavaResolver implements typresolve.Resolver interface (compile check)
+        - title: Integration Verification
+          items:
+            - description: Verify resolver can be registered with ResolverEnricher
+            - description: Verify resolver_test.go integration tests pass end-to-end
+        - title: Benchmark Validation
+          items:
+            - description: Register JavaResolver in enrichment pipeline and run kafka benchmark
+            - description: Compare edges produced vs current jdtls enrichment for kafka/spark-java
+pre_mortem:
+    overall_risk: medium
+    rows:
+        - scenario: |
+            Wave 1 agents call cross-file functions that don't exist yet in their
+            isolated worktrees (Agent C calls ParseTypeNode from Agent A's types.go).
+          likelihood: high
+          impact: low
+          mitigation: |
+            All wave 1 agents are in the same Go package (javaresolve). Their files
+            compile together only after merge. The build gate runs post-merge.
+            Individual agent worktrees will not compile in isolation, which is
+            expected and acceptable. Identical to the Go and Python resolver patterns.
+        - scenario: |
+            Java tree-sitter node type names differ from what the agent task
+            descriptions use, causing nil returns and incorrect resolution.
+          likelihood: medium
+          impact: medium
+          mitigation: |
+            The existing Java extractor at internal/indexer/javaextractor/extractor.go
+            already uses the Go tree-sitter Java bindings and demonstrates the correct
+            node type names (class_declaration, method_declaration, method_invocation,
+            object_creation_expression, field_access, identifier, etc.). Agents should
+            cross-reference that file for node type names. Guard all ChildByFieldName
+            calls with nil checks.
+        - scenario: |
+            Java's overloading (multiple methods with same name) causes incorrect
+            method resolution when the registry only stores one entry per
+            "ReceiverType.MethodName" key.
+          likelihood: medium
+          impact: medium
+          mitigation: |
+            The shared typresolve.Registry uses LookupMethod(receiverQN, methodName)
+            which returns the first match. For overloaded methods, only one entry is
+            stored. This is a known limitation (same as Go resolver where methods
+            don't overload). The resolved edge will point to one of the overloads,
+            which is still correct for reachability (the edge establishes that a call
+            relationship exists). Full overload resolution would require parameter
+            type matching, which is deferred to a future enhancement.
+        - scenario: |
+            Java's static imports (import static com.example.Utils.helper) cause
+            unresolved calls because the import map only tracks class-level imports.
+          likelihood: medium
+          impact: low
+          mitigation: |
+            The BuildImportMap implementation handles static imports by extracting
+            the class name (second-to-last segment). The class is registered in the
+            import map, so static method calls on the class will resolve. Direct
+            calls to statically imported methods (without class prefix) require
+            additional handling in resolveCallsInNode: check the import map for
+            static imports and try resolving bare method names against imported classes.
+        - scenario: |
+            Generics type erasure causes type information loss. List<String>.get()
+            should return String, but if generics are erased, it returns Unknown.
+          likelihood: high
+          impact: medium
+          mitigation: |
+            ParseTypeNode maps generic containers (List, Map, Set, etc.) to
+            typresolve Slice/Map/Optional types that preserve element type info.
+            For user-defined generics, the type parameter is stored in TypeParams
+            but not substituted during method dispatch. This is a deliberate
+            simplification. The resolver handles the common cases (collections)
+            and falls back to Unknown for complex generic scenarios.
+        - scenario: |
+            The module QN inference from package declarations produces qualified names
+            that don't match the registry entries from the existing Java extractor.
+          likelihood: medium
+          impact: high
+          mitigation: |
+            Agent D must use the same package QN format as the existing Java extractor.
+            The extractor uses the convention "repoURL://packagePath.ClassName" (see
+            extractClassDeclWithImports at line 353). The resolver's ExtractPackage
+            function reads the package_declaration node using the same approach as
+            extractJavaPackage (line 151). If no package declaration exists, fall
+            back to directory-path inference.
+state: SCOUT_PENDING
+injection_method: manual-fallback

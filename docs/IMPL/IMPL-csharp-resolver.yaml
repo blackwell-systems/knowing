@@ -1,0 +1,1104 @@
+title: "C# In-Process Type Resolver"
+feature_slug: csharp-resolver
+verdict: SUITABLE
+suitability_assessment: |
+    1. File decomposition: All new files in internal/typresolve/csharp/ (12+ files).
+       No existing files modified. Agents have fully disjoint file ownership.
+       Follows the exact same pattern as the Go resolver (IMPL-go-resolver.yaml),
+       Python resolver (IMPL-python-resolver.yaml), and TypeScript resolver
+       (IMPL-typescript-resolver.yaml).
+
+    2. Investigation-first: No unknowns. The C reference implementation (cs_lsp.c,
+       3,021 lines) documents the complete C# resolution algorithm including namespace
+       resolution, partial classes, using directives, extension methods, async/await
+       unwrapping, properties, indexers, and target-typed new. The shared infrastructure
+       (typresolve package) is completed and defines the exact interface contracts. The
+       Go resolver establishes the structural pattern.
+
+    3. Interface discoverability: All interfaces are defined. The typresolve.Resolver
+       interface, Registry, Scope, and Type are implemented and tested. Cross-agent
+       contracts are limited to Go function signatures within the new csharp/ subpackage.
+
+    4. Pre-implementation: The shared infrastructure (in-process-resolver-infra) was
+       completed previously. The Go/Python/TypeScript/Ruby resolver IMPLs show the exact
+       structural pattern. The existing C# extractor (internal/indexer/csharpextractor/)
+       handles class/struct/interface/enum declarations, method extraction, using
+       directives, and invocation edges, providing the definition data the resolver
+       will consume. No overlap with existing code.
+
+    5. Parallelization value: High. Build/test cycle is ~30s with GOWORK=off.
+       3 agents in wave 1 with 3-4 files each. Wave 2 integrates and tests.
+       Independent type system components (type parsing + using/namespace resolution,
+       builtins + member lookup, expression evaluator + scope binding) can be built
+       in parallel, matching the Go/Python/TS/Ruby resolver decomposition.
+
+    Estimated times:
+    - Scout phase: ~10 min
+    - Agent execution: ~15 min (4 agents, 2 waves, ~5 min avg per agent)
+    - Merge and verification: ~5 min
+    Total Polywave time: ~30 min
+
+    Sequential baseline: ~40 min (4 agents x 10 min avg)
+    Time savings: ~10 min (25% faster)
+
+    Recommendation: Clear speedup. Wave 1 agents are fully independent (type parsing +
+    using/namespace resolution, builtins + member lookup with inheritance, expression
+    evaluator + scope binding). Wave 2 integrates them into the resolver and adds
+    integration tests.
+
+test_command: GOWORK=off go test -short ./... -timeout 5m
+lint_command: GOWORK=off go vet ./...
+state: REVIEWED
+
+quality_gates:
+  level: standard
+  gates:
+    - type: build
+      command: GOWORK=off go build ./...
+      required: true
+    - type: lint
+      command: GOWORK=off go vet ./...
+      required: true
+    - type: test
+      command: GOWORK=off go test ./internal/typresolve/csharp/ -timeout 2m
+      required: true
+
+scaffolds: []
+# No scaffolds needed. All new files are in internal/typresolve/csharp/ (package
+# csresolve). No types cross agent boundaries at compile time; wave 1 agents
+# define independent functions consumed by wave 2's resolver/resolve integration.
+# The shared infrastructure (typresolve.Registry, typresolve.Scope, typresolve.Type)
+# is already built and available to all agents.
+
+file_ownership:
+    # Wave 1, Agent A: Type parsing + using/namespace resolution
+    - file: internal/typresolve/csharp/doc.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/typresolve/csharp/types.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/typresolve/csharp/usings.go
+      agent: A
+      wave: 1
+      action: new
+    - file: internal/typresolve/csharp/types_test.go
+      agent: A
+      wave: 1
+      action: new
+
+    # Wave 1, Agent B: Builtins + member/extension method lookup
+    - file: internal/typresolve/csharp/builtins.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/typresolve/csharp/methods.go
+      agent: B
+      wave: 1
+      action: new
+    - file: internal/typresolve/csharp/builtins_test.go
+      agent: B
+      wave: 1
+      action: new
+
+    # Wave 1, Agent C: Expression evaluator + scope binding
+    - file: internal/typresolve/csharp/eval.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/typresolve/csharp/scope_bind.go
+      agent: C
+      wave: 1
+      action: new
+    - file: internal/typresolve/csharp/eval_test.go
+      agent: C
+      wave: 1
+      action: new
+
+    # Wave 2, Agent D: Resolver integration + resolve + registry builder + tests
+    - file: internal/typresolve/csharp/resolver.go
+      agent: D
+      wave: 2
+      action: new
+      depends_on:
+        - A
+        - B
+        - C
+    - file: internal/typresolve/csharp/registry_builder.go
+      agent: D
+      wave: 2
+      action: new
+      depends_on:
+        - A
+        - B
+        - C
+    - file: internal/typresolve/csharp/resolve.go
+      agent: D
+      wave: 2
+      action: new
+      depends_on:
+        - A
+        - B
+        - C
+    - file: internal/typresolve/csharp/resolver_test.go
+      agent: D
+      wave: 2
+      action: new
+      depends_on:
+        - A
+        - B
+        - C
+
+interface_contracts:
+    - name: ParseTypeNode
+      description: |
+        Converts a tree-sitter C# type AST node to a typresolve.Type. Handles
+        predefined_type, nullable_type, array_type, pointer_type, tuple_type,
+        generic_name, qualified_name, identifier, ref_type, implicit_type.
+        Uses cs_resolve_type_name logic to resolve type names through the namespace
+        stack, using directives, and predefined aliases (int -> System.Int32, etc.).
+      definition: |
+        func ParseTypeNode(node *sitter.Node, content []byte, ctx *ResolveContext) *typresolve.Type
+      location: internal/typresolve/csharp/types.go
+
+    - name: ResolveTypeName
+      description: |
+        Resolves a bare type name through the C# resolution chain:
+        1. Predefined alias (int -> System.Int32)
+        2. Exact registry hit
+        3. Nested type / enclosing class
+        4. Each namespace prefix from innermost outward
+        5. Module-prefixed (file-local QN)
+        6. using namespace X -> try X.bare
+        7. using A = X alias substitution
+        8. Short-name fallback (best match by namespace prefix)
+        Port of cs_resolve_type_name from cs_lsp.c lines 317-442.
+      definition: |
+        func ResolveTypeName(ctx *ResolveContext, raw string) string
+      location: internal/typresolve/csharp/usings.go
+
+    - name: UsingInfo
+      description: |
+        Represents a single using directive with its kind (namespace, static, alias),
+        local name (for aliases), target qualified name, and global flag.
+      definition: |
+        type UsingKind int
+        const (
+            UsingNamespace UsingKind = iota
+            UsingStatic
+            UsingAlias
+        )
+        type UsingInfo struct {
+            Kind      UsingKind
+            LocalName string
+            TargetQN  string
+            IsGlobal  bool
+        }
+      location: internal/typresolve/csharp/usings.go
+
+    - name: BuildUsingMap
+      description: |
+        Extracts all using directives from the C# AST root and returns a slice
+        of UsingInfo. Handles: using Namespace, using static Class, using Alias = Type,
+        global using. Always includes implicit "using System".
+      definition: |
+        func BuildUsingMap(root *sitter.Node, content []byte) []UsingInfo
+      location: internal/typresolve/csharp/usings.go
+
+    - name: PredefinedAlias
+      description: |
+        Returns the System.* fully qualified name for C# predefined type aliases.
+        Maps: int -> System.Int32, string -> System.String, bool -> System.Boolean,
+        float -> System.Single, double -> System.Double, decimal -> System.Decimal,
+        object -> System.Object, void -> System.Void, dynamic -> System.Object, etc.
+        Returns empty string if name is not a predefined alias.
+      definition: |
+        func PredefinedAlias(name string) string
+      location: internal/typresolve/csharp/builtins.go
+
+    - name: IsBuiltinFunc
+      description: |
+        Returns true if the given name is a C# expression keyword that should not
+        be resolved as a call (typeof, nameof, sizeof, default, checked, unchecked).
+      definition: |
+        func IsBuiltinFunc(name string) bool
+      location: internal/typresolve/csharp/builtins.go
+
+    - name: LookupMethod
+      description: |
+        Looks up a method on a named type, walking the inheritance chain (base classes
+        and interfaces via EmbeddedTypes) up to 32 levels deep with cycle detection.
+        Falls back to System.Object methods (ToString, Equals, GetHashCode).
+        Port of cs_lookup_method from cs_lsp.c lines 445-499.
+      definition: |
+        func LookupMethod(reg *typresolve.Registry, typeQN string, methodName string) *typresolve.RegisteredFunc
+      location: internal/typresolve/csharp/methods.go
+
+    - name: LookupField
+      description: |
+        Looks up a field on a named type, walking the inheritance chain.
+        Returns the field's type if found.
+      definition: |
+        func LookupField(reg *typresolve.Registry, typeQN string, fieldName string) *typresolve.Type
+      location: internal/typresolve/csharp/methods.go
+
+    - name: LookupExtensionMethod
+      description: |
+        Searches for a static extension method accessible via using-imported namespaces.
+        An extension method is a static method whose first parameter is prefixed with
+        "this". Checks receiver compatibility via type match or base class match.
+        Port of cs_lookup_extension from cs_lsp.c lines 506-569.
+      definition: |
+        func LookupExtensionMethod(reg *typresolve.Registry, receiverQN string, methodName string) *typresolve.RegisteredFunc
+      location: internal/typresolve/csharp/methods.go
+
+    - name: ResolveContext
+      description: |
+        Per-file resolution context holding the registry, scope, usings,
+        namespace stack, content bytes, enclosing function/class/base QN,
+        module QN, and eval depth counter.
+      definition: |
+        type ResolveContext struct {
+            Registry         *typresolve.Registry
+            Scope            *typresolve.Scope
+            Usings           []UsingInfo
+            NamespaceStack   []string
+            Content          []byte
+            EnclosingFuncQN  string
+            EnclosingClassQN string
+            EnclosingBaseQN  string
+            ModuleQN         string
+            EvalDepth        int
+        }
+      location: internal/typresolve/csharp/eval.go
+
+    - name: EvalExprType
+      description: |
+        Recursive expression type evaluator for C#. Evaluates the type of a C# expression
+        AST node using scope lookup, registry lookup, using resolution, member access,
+        invocation, object creation, cast, as, await unwrapping, tuple expressions,
+        element access, and literal types.
+        Port of cs_eval_expr_type from cs_lsp.c lines 716-884.
+      definition: |
+        func EvalExprType(ctx *ResolveContext, node *sitter.Node) *typresolve.Type
+      location: internal/typresolve/csharp/eval.go
+
+    - name: ProcessStatement
+      description: |
+        Processes a C# statement node to bind variables into the current scope.
+        Handles local_declaration_statement (var x = ..., Type x = ...),
+        foreach_statement (foreach var x in collection), using_statement,
+        for_statement, variable_declaration, and pattern matching bindings.
+      definition: |
+        func ProcessStatement(ctx *ResolveContext, node *sitter.Node)
+      location: internal/typresolve/csharp/scope_bind.go
+
+    - name: CSharpResolver
+      description: |
+        Implements typresolve.Resolver for C#. Language() returns "csharp".
+        InitWorkspace builds a Registry from C# definitions (classes, interfaces,
+        structs, enums, methods, properties, constructors).
+        ResolveFile walks the C# AST and resolves calls and references.
+      definition: |
+        type CSharpResolver struct {
+            registry *typresolve.Registry
+        }
+        func NewCSharpResolver() *CSharpResolver
+        func (r *CSharpResolver) Language() string
+        func (r *CSharpResolver) InitWorkspace(ctx context.Context, defs []typresolve.ResolverDef) error
+        func (r *CSharpResolver) ResolveFile(ctx context.Context, opts typresolve.ResolveFileOpts) ([]types.Edge, error)
+      location: internal/typresolve/csharp/resolver.go
+
+    - name: BuildRegistry
+      description: |
+        Builds a typresolve.Registry from ResolverDef entries. Registers classes,
+        interfaces, structs, enums, methods (with receiver type), constructors,
+        and properties (as methods). Handles partial class merging by accumulating
+        methods and fields from multiple definitions of the same type QN.
+      definition: |
+        func BuildRegistry(defs []typresolve.ResolverDef) *typresolve.Registry
+      location: internal/typresolve/csharp/registry_builder.go
+
+    - name: ResolveCallsInFile
+      description: |
+        Walks a C# file's AST resolving call expressions and emitting edges.
+        Uses the shared registry, per-file scope chain, using map, and namespace stack.
+        Processes: namespace_declaration, file_scoped_namespace_declaration,
+        class/struct/interface/enum declarations (for enclosing type tracking),
+        method/constructor declarations (scope + call resolution), invocation_expression,
+        object_creation_expression, implicit_object_creation_expression.
+      definition: |
+        func ResolveCallsInFile(ctx *ResolveContext, root *sitter.Node, fileHash types.Hash, repoURL string, filePath string) []types.Edge
+      location: internal/typresolve/csharp/resolve.go
+
+waves:
+    - number: 1
+      agents:
+        - id: A
+          task: |
+            ## Agent A: C# Type Parsing and Using/Namespace Resolution
+
+            Build the foundational type AST parsing and using/namespace resolution
+            for the C# resolver. This mirrors the Go resolver's types.go + imports.go,
+            adapted for C#'s namespace system, using directives, and predefined type aliases.
+
+            ### What to implement
+
+            **File 1: `internal/typresolve/csharp/doc.go`**
+            Package doc comment for the `csharp` subpackage:
+            ```go
+            // Package csresolve implements the C# language in-process type resolver.
+            // It implements the typresolve.Resolver interface, resolving C# call
+            // expressions and type references using tree-sitter AST walking and a
+            // shared type registry built from extracted definitions.
+            package csresolve
+            ```
+
+            **File 2: `internal/typresolve/csharp/types.go`**
+            Port the `cs_parse_type_node` function from the C reference at
+            `~/code/codebase-memory/internal/cbm/lsp/cs_lsp.c` (lines 573-677).
+
+            Implement `ParseTypeNode(node *sitter.Node, content []byte, ctx *ResolveContext) *typresolve.Type`
+
+            Handle these C# type AST node kinds:
+            - **`predefined_type`**: Map via `PredefinedAlias()` from builtins.go (Agent B).
+              Since Agent B builds builtins in parallel, define a local `predefinedAlias()`
+              stub in types.go that returns the System.* mapping. Agent D will wire the
+              final version. Actually, to avoid duplicate declarations at merge: call
+              `PredefinedAlias()` from builtins.go directly. The function is in the same
+              package (csresolve), so it compiles. Agent B defines it, Agent A calls it.
+              BUT: Agent A's worktree won't have Agent B's builtins.go. Solution: Agent A
+              must define a minimal `predefinedAlias()` (lowercase, unexported) local to
+              types.go. Agent D in wave 2 will replace the call with the canonical version.
+              REVISED: Use a simpler approach. ParseTypeNode should accept the ResolveContext
+              which will have a method or the registry available. For predefined types, just
+              use typresolve.Named("System.Int32") directly in the predefined_type handler
+              with a local map. No cross-agent dependency needed.
+            - **`nullable_type`**: Unwrap to inner type (C# nullable is value-type wrapper;
+              for resolution purposes, treat T? as T)
+            - **`array_type`**: `typresolve.Slice(elemType)`
+            - **`pointer_type`**: `typresolve.Pointer(elemType)` (unsafe pointer)
+            - **`tuple_type`**: Parse tuple_element children -> `typresolve.Tuple(elems)`
+            - **`generic_name`**: Extract base name + type_argument_list. Resolve base name.
+              For well-known generics (List<T> -> Slice, Dictionary<K,V> -> Map,
+              Task<T>/ValueTask<T> -> unwrap for async), produce appropriate types.
+              Otherwise produce `typresolve.Named(resolvedBase)`
+            - **`qualified_name`**, **`identifier`**, **`alias_qualified_name`**: Resolve
+              through `ResolveTypeName()` and produce `typresolve.Named(resolved)`
+            - **`ref_type`**: `typresolve.Ref(innerType)` (reference parameter)
+            - **`implicit_type`** / **`var`**: `typresolve.Unknown()` (inferred at usage)
+
+            Include a local predefined type alias map (duplicated from builtins.go for
+            compile-time independence):
+            ```go
+            var csPredefTypes = map[string]string{
+                "int": "System.Int32", "uint": "System.UInt32",
+                "long": "System.Int64", "ulong": "System.UInt64",
+                "short": "System.Int16", "ushort": "System.UInt16",
+                "byte": "System.Byte", "sbyte": "System.SByte",
+                "float": "System.Single", "double": "System.Double",
+                "decimal": "System.Decimal", "bool": "System.Boolean",
+                "char": "System.Char", "string": "System.String",
+                "object": "System.Object", "void": "System.Void",
+                "nint": "System.IntPtr", "nuint": "System.UIntPtr",
+                "dynamic": "System.Object",
+            }
+            ```
+
+            Forward-declare the ResolveContext type that Agent C will define (eval.go).
+            Since all files are in the same package (csresolve), Agent A can reference
+            the type without importing it. However, Agent A's isolated worktree won't
+            have eval.go. Solution: Agent A should define a minimal forward-compatible
+            struct in types.go that ParseTypeNode uses. Agent D will consolidate in wave 2.
+
+            REVISED approach: ParseTypeNode should NOT depend on ResolveContext. Instead,
+            take explicit parameters:
+            ```go
+            func ParseTypeNode(node *sitter.Node, content []byte, namespaceQN string,
+                usings []UsingInfo, registry *typresolve.Registry) *typresolve.Type
+            ```
+            This way Agent A only depends on UsingInfo (defined in usings.go, same agent)
+            and typresolve.Registry (shared infrastructure). No cross-agent compile dependency.
+
+            **File 3: `internal/typresolve/csharp/usings.go`**
+            Port the using directive handling from cs_lsp.c (lines 220-442).
+
+            Define the UsingInfo type and UsingKind enum:
+            ```go
+            type UsingKind int
+            const (
+                UsingNamespace UsingKind = iota
+                UsingStatic
+                UsingAlias
+            )
+            type UsingInfo struct {
+                Kind      UsingKind
+                LocalName string  // for aliases: the local alias name
+                TargetQN  string  // the target namespace/class/type
+                IsGlobal  bool
+            }
+            ```
+
+            Implement `BuildUsingMap(root *sitter.Node, content []byte) []UsingInfo`:
+            - Walk root children for `using_directive` nodes
+            - Detect `static` modifier for UsingStatic
+            - Detect `=` for UsingAlias (using Alias = Target)
+            - Extract namespace/type name from the directive
+            - Always include implicit `using System` (UsingNamespace, TargetQN: "System")
+            - Handle `global using` (IsGlobal: true)
+
+            Implement `ResolveTypeName(raw string, namespaceQN string, usings []UsingInfo,
+            registry *typresolve.Registry, enclosingClassQN string, moduleQN string) string`:
+            - Follow the 9-step resolution chain from cs_lsp.c:
+              1. Strip global:: prefix, normalize :: to .
+              2. Strip generic args for lookup
+              3. Check predefined alias (use local csPredefTypes map)
+              4. Exact registry hit
+              5. Nested type under enclosing class
+              6. Each namespace prefix from innermost outward
+              7. Module-prefixed
+              8. using namespace X -> try X.bare
+              9. using A = X alias substitution
+              10. Short-name fallback
+              11. Return bare name as last resort
+
+            Also implement helper functions:
+            ```go
+            func stripGlobalPrefix(name string) string
+            func stripGenericArgs(name string) string
+            func normalizeCSName(name string) string
+            ```
+
+            **File 4: `internal/typresolve/csharp/types_test.go`**
+            Tests for ParseTypeNode and usings:
+            - Test predefined_type parsing (int -> System.Int32, string -> System.String)
+            - Test nullable_type unwrapping
+            - Test array_type -> Slice
+            - Test tuple_type parsing
+            - Test generic_name with type arguments
+            - Test qualified_name resolution
+            - Test BuildUsingMap extraction
+            - Test ResolveTypeName through namespace/using chain
+            - Test using alias resolution
+
+            Use the tree-sitter C# parser:
+            ```go
+            import (
+                sitter "github.com/smacker/go-tree-sitter"
+                "github.com/smacker/go-tree-sitter/csharp"
+            )
+            func parseCS(t *testing.T, src string) *sitter.Node {
+                t.Helper()
+                parser := sitter.NewParser()
+                parser.SetLanguage(csharp.GetLanguage())
+                tree, err := parser.ParseCtx(context.Background(), nil, []byte(src))
+                if err != nil { t.Fatalf("parse: %v", err) }
+                return tree.RootNode()
+            }
+            ```
+
+            ### Interfaces this agent produces (consumed by Agent D in wave 2)
+            - `ParseTypeNode(node, content, namespaceQN, usings, registry) *typresolve.Type`
+            - `UsingInfo` struct and `UsingKind` enum
+            - `BuildUsingMap(root, content) []UsingInfo`
+            - `ResolveTypeName(raw, namespaceQN, usings, registry, enclosingClassQN, moduleQN) string`
+            - `stripGlobalPrefix(name) string`
+            - `stripGenericArgs(name) string`
+            - `normalizeCSName(name) string`
+            - `csPredefTypes` map (local predefined alias table)
+
+            ### Verification gate
+            ```bash
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go build ./internal/typresolve/csharp/
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go vet ./internal/typresolve/csharp/
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go test ./internal/typresolve/csharp/ -run TestParseTypeNode -v -timeout 30s
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go test ./internal/typresolve/csharp/ -run TestBuildUsingMap -v -timeout 30s
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go test ./internal/typresolve/csharp/ -run TestResolveTypeName -v -timeout 30s
+            ```
+
+            Postcondition checks:
+            ```bash
+            # ParseTypeNode function exists
+            grep -c 'func ParseTypeNode' /Users/dayna.blackwell/code/knowing/internal/typresolve/csharp/types.go
+            # Expected: 1
+            # UsingInfo struct exists
+            grep -c 'type UsingInfo struct' /Users/dayna.blackwell/code/knowing/internal/typresolve/csharp/usings.go
+            # Expected: 1
+            # ResolveTypeName function exists
+            grep -c 'func ResolveTypeName' /Users/dayna.blackwell/code/knowing/internal/typresolve/csharp/usings.go
+            # Expected: 1
+            ```
+
+            ### Constraints
+            - Do NOT define ResolveContext in types.go or usings.go. That struct is owned
+              by Agent C (eval.go). Use explicit parameters instead.
+            - Do NOT modify files outside your ownership list.
+            - Do NOT import the csharpextractor package. This resolver is independent.
+
+        - id: B
+          task: |
+            ## Agent B: C# Builtins and Member/Extension Method Lookup
+
+            Build the C# builtin type/function handling and the member lookup system
+            with inheritance chain walking and extension method dispatch.
+
+            ### What to implement
+
+            **File 1: `internal/typresolve/csharp/builtins.go`**
+            C# predefined type aliases and builtin function detection.
+
+            Implement `PredefinedAlias(name string) string`:
+            Map C# keyword types to their System.* equivalents:
+            ```
+            int -> System.Int32, uint -> System.UInt32, long -> System.Int64,
+            ulong -> System.UInt64, short -> System.Int16, ushort -> System.UInt16,
+            byte -> System.Byte, sbyte -> System.SByte, float -> System.Single,
+            double -> System.Double, decimal -> System.Decimal, bool -> System.Boolean,
+            char -> System.Char, string -> System.String, object -> System.Object,
+            nint -> System.IntPtr, nuint -> System.UIntPtr, void -> System.Void,
+            dynamic -> System.Object
+            ```
+            Return empty string if not a predefined alias.
+
+            Implement `IsBuiltinFunc(name string) bool`:
+            Returns true for C# expression keywords that should not be resolved as
+            user-defined calls: typeof, nameof, sizeof, default, checked, unchecked,
+            stackalloc.
+
+            Implement `IsKeywordSelf(name string) bool`:
+            Returns true for "this" and "base".
+
+            Implement `UnwrapTask(t *typresolve.Type) *typresolve.Type`:
+            If the type is Named "System.Threading.Tasks.Task" or
+            "System.Threading.Tasks.ValueTask" with a generic type argument,
+            return the type argument (unwrap async). Since typresolve.Type doesn't
+            have a template/generic wrapper, use a heuristic: if the type name starts
+            with "System.Threading.Tasks.Task" or "System.Threading.Tasks.ValueTask",
+            check TypeParams or use the Name convention. For simplicity, if the name
+            contains generic info, strip and return inner. Otherwise, for bare Task/ValueTask,
+            return Unknown (void-returning async).
+
+            Actually, typresolve.Type has no generic argument storage at the Named level.
+            Use this approach: store generic types as Named with the base name, and track
+            generic args separately in the resolve context. For UnwrapTask, accept a
+            *typresolve.Type and if it is Named with name matching Task/ValueTask patterns,
+            return Unknown (the caller should handle generic unwrapping at the call site
+            using the registry's return type signature). This matches how the Go resolver
+            handles generics: through registry lookup, not type-level generic tracking.
+
+            Implement `UnwrapNullable(t *typresolve.Type) *typresolve.Type`:
+            If the type is Named "System.Nullable" (or Nullable<T>), return the inner type.
+            Same heuristic as UnwrapTask.
+
+            **File 2: `internal/typresolve/csharp/methods.go`**
+            Member lookup with inheritance chain walking and extension method search.
+            Port of cs_lookup_method (cs_lsp.c lines 445-499) and cs_lookup_extension
+            (cs_lsp.c lines 506-569).
+
+            Implement `LookupMethod(reg *typresolve.Registry, typeQN string, methodName string) *typresolve.RegisteredFunc`:
+            - Direct method lookup via `reg.LookupMethod(typeQN, methodName)`
+            - If not found, get the RegisteredType and walk its EmbeddedTypes (base classes
+              and interfaces) using BFS with visited set, up to 32 levels deep
+            - Fall back to System.Object methods (ToString, Equals, GetHashCode, GetType)
+            - Use cycle detection via visited array to prevent infinite loops
+
+            Implement `LookupField(reg *typresolve.Registry, typeQN string, fieldName string) *typresolve.Type`:
+            - Direct field lookup on RegisteredType.Fields
+            - Walk inheritance chain (EmbeddedTypes) with BFS
+            - Same cycle detection as LookupMethod
+
+            Implement `LookupExtensionMethod(reg *typresolve.Registry, receiverQN string, methodName string) *typresolve.RegisteredFunc`:
+            - Scan all registered functions for a static method with matching short name
+            - Check if the method's first parameter name starts with "this" (extension
+              method convention)
+            - Check receiver compatibility: first param type must match receiverQN or
+              one of its base types
+            - This is a linear scan (O(N) over all funcs), acceptable for Tier 1
+
+            **File 3: `internal/typresolve/csharp/builtins_test.go`**
+            Tests for builtins and methods:
+            - Test PredefinedAlias for all C# keyword types
+            - Test IsBuiltinFunc for typeof, nameof, sizeof, etc.
+            - Test IsKeywordSelf for this, base
+            - Test LookupMethod with direct and inherited methods
+            - Test LookupMethod falls back to System.Object
+            - Test LookupField with direct and inherited fields
+            - Test LookupExtensionMethod finds extension methods
+            - Test cycle detection in inheritance chain
+
+            ### Interfaces this agent produces (consumed by Agent D in wave 2)
+            - `PredefinedAlias(name) string`
+            - `IsBuiltinFunc(name) bool`
+            - `IsKeywordSelf(name) bool`
+            - `UnwrapTask(t) *typresolve.Type`
+            - `UnwrapNullable(t) *typresolve.Type`
+            - `LookupMethod(reg, typeQN, methodName) *typresolve.RegisteredFunc`
+            - `LookupField(reg, typeQN, fieldName) *typresolve.Type`
+            - `LookupExtensionMethod(reg, receiverQN, methodName) *typresolve.RegisteredFunc`
+
+            ### Verification gate
+            ```bash
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go build ./internal/typresolve/csharp/
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go vet ./internal/typresolve/csharp/
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go test ./internal/typresolve/csharp/ -run TestPredefinedAlias -v -timeout 30s
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go test ./internal/typresolve/csharp/ -run TestLookupMethod -v -timeout 30s
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go test ./internal/typresolve/csharp/ -run TestLookupExtension -v -timeout 30s
+            ```
+
+            Postcondition checks:
+            ```bash
+            # PredefinedAlias function exists
+            grep -c 'func PredefinedAlias' /Users/dayna.blackwell/code/knowing/internal/typresolve/csharp/builtins.go
+            # Expected: 1
+            # LookupMethod function exists
+            grep -c 'func LookupMethod' /Users/dayna.blackwell/code/knowing/internal/typresolve/csharp/methods.go
+            # Expected: 1
+            # LookupExtensionMethod function exists
+            grep -c 'func LookupExtensionMethod' /Users/dayna.blackwell/code/knowing/internal/typresolve/csharp/methods.go
+            # Expected: 1
+            ```
+
+            ### Constraints
+            - Do NOT define ResolveContext. That struct is owned by Agent C (eval.go).
+            - Do NOT define ParseTypeNode or UsingInfo. Those are owned by Agent A.
+            - Do NOT modify files outside your ownership list.
+
+        - id: C
+          task: |
+            ## Agent C: C# Expression Evaluator and Scope Binding
+
+            Build the C# expression type evaluator and statement-level scope binding.
+            Port of cs_eval_expr_type (cs_lsp.c lines 716-884) and the process_statement
+            logic for C# local variable declarations.
+
+            ### What to implement
+
+            **File 1: `internal/typresolve/csharp/eval.go`**
+            Define ResolveContext and the expression type evaluator.
+
+            Define the ResolveContext struct:
+            ```go
+            type ResolveContext struct {
+                Registry         *typresolve.Registry
+                Scope            *typresolve.Scope
+                Usings           []UsingInfo
+                NamespaceStack   []string
+                Content          []byte
+                EnclosingFuncQN  string
+                EnclosingClassQN string
+                EnclosingBaseQN  string
+                ModuleQN         string
+                EvalDepth        int
+            }
+            ```
+
+            Note: This file references UsingInfo from Agent A's usings.go. Since Agent A
+            and Agent C are in the same wave with isolated worktrees, Agent C's branch
+            won't have usings.go. Solution: Agent C should define a minimal UsingInfo
+            stub sufficient for ResolveContext to compile:
+            ```go
+            // UsingInfo is defined in usings.go (Agent A). Stub here for compile-time
+            // independence. Agent D will consolidate in wave 2.
+            // ACTUALLY: since both agents are in the same package, the merge will
+            // produce a duplicate declaration error. Agent C should NOT define UsingInfo.
+            // Instead, use a generic type in ResolveContext that doesn't require UsingInfo:
+            ```
+
+            REVISED: To avoid cross-agent compile dependency, Agent C should use
+            `interface{}` or `any` for the Usings field, or define ResolveContext with
+            the Usings field typed as `[]any`. Agent D will change it to `[]UsingInfo` in
+            wave 2 after merge.
+
+            REVISED AGAIN (simplest approach): Agent C should define UsingInfo identically
+            to Agent A. After merge, one definition will be in usings.go and the other in
+            eval.go, causing a compile error. Agent D in wave 2 will remove the duplicate
+            from eval.go.
+
+            FINAL APPROACH: Agent C should NOT define UsingInfo at all. Instead, keep the
+            Usings field as `[]any` and document that Agent D will type it properly. This
+            avoids duplicate declarations at merge time. The eval.go functions that need
+            to pass usings to ResolveTypeName can cast at runtime or accept the data
+            through the ResolveContext without type-checking usings content.
+
+            Actually, the cleanest solution for wave 1 independence: Agent C does not
+            reference UsingInfo at all. The Usings field is omitted from ResolveContext
+            in wave 1. Agent D adds it in wave 2 when integrating. ResolveContext in
+            wave 1 has only the fields Agent C needs:
+
+            ```go
+            type ResolveContext struct {
+                Registry         *typresolve.Registry
+                Scope            *typresolve.Scope
+                Content          []byte
+                EnclosingFuncQN  string
+                EnclosingClassQN string
+                EnclosingBaseQN  string
+                ModuleQN         string
+                EvalDepth        int
+            }
+            ```
+
+            Agent D will add the Usings and NamespaceStack fields in wave 2.
+
+            Also define `nodeContent(node *sitter.Node, content []byte) string` helper.
+
+            Implement `EvalExprType(ctx *ResolveContext, node *sitter.Node) *typresolve.Type`:
+            Handle these C# expression node kinds (from cs_lsp.c lines 716-884):
+            - **`identifier`**: scope lookup -> implicit this member -> type name resolution
+            - **`this_expression`**: Named(enclosingClassQN)
+            - **`base_expression`**: Named(enclosingBaseQN)
+            - **`invocation_expression`**: evaluate function node, get return type from registry
+            - **`member_access_expression`**, **`conditional_access_expression`**: evaluate
+              receiver type, look up member on receiver type via LookupMethod/LookupField
+            - **`object_creation_expression`**: parse type node -> Named(type)
+            - **`implicit_object_creation_expression`**: target-typed new -> Unknown (needs
+              context from declaration, handled in scope_bind)
+            - String/char/int/real/bool literals -> System.String/Char/Int32/Double/Boolean
+            - **`null_literal`**: Unknown
+            - **`parenthesized_expression`**: unwrap, recurse
+            - **`cast_expression`**: parse type node
+            - **`as_expression`**: parse right-hand type
+            - **`is_expression`**: System.Boolean
+            - **`await_expression`**: evaluate inner, unwrap Task<T> -> T
+            - **`binary_expression`**: comparison ops -> Boolean, arithmetic -> left type
+            - **`assignment_expression`**: evaluate RHS
+            - **`conditional_expression`**: evaluate consequence branch
+            - **`tuple_expression`**: Tuple of element types
+            - **`typeof_expression`**: System.Type
+            - **`nameof_expression`**: System.String
+            - **`default_expression`**: parse type argument
+            - **`element_access_expression`**: evaluate receiver, get element type
+            - **`array_creation_expression`**: Slice(elemType)
+
+            For member_access_expression and invocation_expression, Agent C needs
+            LookupMethod from Agent B's methods.go. Same worktree isolation problem.
+            Solution: Agent C should define stub functions that Agent D will replace:
+            ```go
+            // lookupMethodStub is a placeholder for LookupMethod (methods.go, Agent B).
+            // Agent D will replace with the real LookupMethod in wave 2.
+            func lookupMethodStub(reg *typresolve.Registry, typeQN, methodName string) *typresolve.RegisteredFunc {
+                return reg.LookupMethod(typeQN, methodName)
+            }
+            ```
+            This uses the shared infrastructure's LookupMethod (no embedded type walking),
+            which is sufficient for wave 1 compilation and basic tests. Agent D will wire
+            the full LookupMethod with inheritance in wave 2.
+
+            Max eval depth: 64 (matching cs_lsp.c CS_EVAL_MAX_DEPTH).
+
+            **File 2: `internal/typresolve/csharp/scope_bind.go`**
+            Port the statement processing logic for C# variable binding.
+
+            Implement `ProcessStatement(ctx *ResolveContext, node *sitter.Node)`:
+            Handle these C# statement node kinds:
+            - **`local_declaration_statement`**: Contains variable_declaration with
+              variable_declarators. Bind each declarator's name to its type.
+              If type is `var` (implicit_type), evaluate initializer expression.
+              If type is explicit, parse the type node.
+            - **`variable_declaration`**: Same as above (can appear at class level too)
+            - **`foreach_statement`**: `foreach (Type x in collection)` -> bind x to Type.
+              If type is `var`, evaluate collection type and extract element type.
+            - **`for_statement`**: Process initializer declarations
+            - **`using_statement`**: `using (var x = expr)` or `using var x = expr` -> bind x
+            - **`expression_statement`**: Evaluate for side effects (e.g., assignment)
+            - **`pattern matching`**: When `is` patterns bind variables (e.g.,
+              `if (obj is MyType x)`), bind x to MyType
+
+            For `var` declarations, call EvalExprType on the initializer to infer type.
+            For explicit type declarations, use ParseTypeNode. Since Agent A owns
+            ParseTypeNode (types.go), Agent C's worktree won't have it. Solution: define
+            a minimal `parseTypeStub` that returns Unknown for explicit types. Agent D
+            will wire the real ParseTypeNode in wave 2.
+
+            ```go
+            // parseTypeStub is a placeholder for ParseTypeNode (types.go, Agent A).
+            func parseTypeStub(node *sitter.Node, content []byte) *typresolve.Type {
+                // In wave 1, we can only infer types from var declarations.
+                // Explicit type declarations return Unknown until wave 2 integration.
+                return typresolve.Unknown()
+            }
+            ```
+
+            **File 3: `internal/typresolve/csharp/eval_test.go`**
+            Tests for EvalExprType and ProcessStatement:
+            - Test literal type evaluation (string -> System.String, int -> System.Int32)
+            - Test this_expression resolves to enclosing class
+            - Test scope variable lookup
+            - Test var declaration binding from initializer
+            - Test foreach binding
+            - Test binary expression -> Boolean for comparisons
+            - Test await expression (basic, without full Task unwrapping)
+            - Test cast expression
+            - Test tuple expression
+            - Test eval depth limit (64)
+
+            Use the tree-sitter C# parser (same parseCS helper as Agent A's tests):
+            ```go
+            func parseCS(t *testing.T, src string) *sitter.Node {
+                t.Helper()
+                parser := sitter.NewParser()
+                parser.SetLanguage(csharp.GetLanguage())
+                tree, err := parser.ParseCtx(context.Background(), nil, []byte(src))
+                if err != nil { t.Fatalf("parse: %v", err) }
+                return tree.RootNode()
+            }
+            ```
+
+            ### Interfaces this agent produces (consumed by Agent D in wave 2)
+            - `ResolveContext` struct
+            - `EvalExprType(ctx, node) *typresolve.Type`
+            - `ProcessStatement(ctx, node)`
+            - `nodeContent(node, content) string`
+
+            ### Verification gate
+            ```bash
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go build ./internal/typresolve/csharp/
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go vet ./internal/typresolve/csharp/
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go test ./internal/typresolve/csharp/ -run TestEvalExprType -v -timeout 30s
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go test ./internal/typresolve/csharp/ -run TestProcessStatement -v -timeout 30s
+            ```
+
+            Postcondition checks:
+            ```bash
+            # ResolveContext struct exists
+            grep -c 'type ResolveContext struct' /Users/dayna.blackwell/code/knowing/internal/typresolve/csharp/eval.go
+            # Expected: 1
+            # EvalExprType function exists
+            grep -c 'func EvalExprType' /Users/dayna.blackwell/code/knowing/internal/typresolve/csharp/eval.go
+            # Expected: 1
+            # ProcessStatement function exists
+            grep -c 'func ProcessStatement' /Users/dayna.blackwell/code/knowing/internal/typresolve/csharp/scope_bind.go
+            # Expected: 1
+            ```
+
+            ### Constraints
+            - Do NOT define UsingInfo or UsingKind. Those are owned by Agent A (usings.go).
+              Use `any` or omit the Usings field from ResolveContext for wave 1.
+            - Do NOT define PredefinedAlias, LookupMethod, or LookupField. Those are
+              owned by Agent B. Use stub functions with basic registry lookups.
+            - Do NOT define ParseTypeNode. That is owned by Agent A (types.go). Use a
+              stub that returns Unknown for explicit types.
+            - Do NOT modify files outside your ownership list.
+
+    - number: 2
+      agents:
+        - id: D
+          task: |
+            ## Agent D: C# Resolver Integration
+
+            Integrate all wave 1 components (type parsing, builtins, member lookup,
+            expression evaluation, scope binding) into the final CSharpResolver that
+            implements typresolve.Resolver. Wire the stubs from wave 1 to the real
+            implementations, add the resolver entrypoint, registry builder, and call
+            resolution walker.
+
+            ### What to implement
+
+            **File 1: `internal/typresolve/csharp/resolver.go`**
+            The main resolver struct implementing typresolve.Resolver.
+
+            ```go
+            var _ typresolve.Resolver = (*CSharpResolver)(nil)
+
+            type CSharpResolver struct {
+                registry *typresolve.Registry
+            }
+
+            func NewCSharpResolver() *CSharpResolver {
+                return &CSharpResolver{}
+            }
+
+            func (r *CSharpResolver) Language() string { return "csharp" }
+
+            func (r *CSharpResolver) InitWorkspace(ctx context.Context, defs []typresolve.ResolverDef) error {
+                r.registry = BuildRegistry(defs)
+                return nil
+            }
+
+            func (r *CSharpResolver) ResolveFile(ctx context.Context, opts typresolve.ResolveFileOpts) ([]types.Edge, error) {
+                // 1. Extract root from opts.ParsedTree or re-parse
+                // 2. Build per-file using map
+                // 3. Create ResolveContext with full fields (add Usings, NamespaceStack)
+                // 4. Call ResolveCallsInFile
+                // 5. Return edges
+            }
+            ```
+
+            For extractRoot: follow the same pattern as the Go resolver
+            (internal/typresolve/go/resolver.go lines 76-108), using
+            `csharp.GetLanguage()` instead of `golang.GetLanguage()`.
+
+            For inferPackageInfo: extract namespace/package info from existing edges.
+
+            **File 2: `internal/typresolve/csharp/registry_builder.go`**
+            Build registry from ResolverDef entries.
+
+            Implement `BuildRegistry(defs []typresolve.ResolverDef) *typresolve.Registry`:
+            - Register functions, methods (extract receiver from QN), constructors
+            - Register types: classes, interfaces, structs, enums
+            - Handle partial class merging: if the same type QN appears multiple times,
+              accumulate methods and fields from all defs (C# partial classes split a
+              class across multiple files)
+            - Register properties as methods (C# properties have get/set accessors)
+            - Follow the Go resolver's registry_builder.go pattern
+
+            **File 3: `internal/typresolve/csharp/resolve.go`**
+            The AST walker that resolves calls and emits edges.
+
+            Implement `ResolveCallsInFile(ctx *ResolveContext, root *sitter.Node,
+            fileHash types.Hash, repoURL string, filePath string) []types.Edge`:
+
+            Walk the C# AST top-down:
+            1. Process using_directive nodes (already in Usings from BuildUsingMap)
+            2. Enter namespace_declaration / file_scoped_namespace_declaration: push
+               namespace onto NamespaceStack
+            3. Enter class/struct/interface/enum declarations: set EnclosingClassQN,
+               extract base class for EnclosingBaseQN
+            4. Enter method/constructor declarations: push scope, bind parameters,
+               set EnclosingFuncQN
+            5. Walk method bodies resolving:
+               - invocation_expression: resolve via member access or identifier
+               - object_creation_expression: resolve constructor call
+               - implicit_object_creation_expression: target-typed new (infer from
+                 declaration context)
+            6. Pop scope on method/namespace exit
+
+            For each resolved call, build an edge using:
+            - `edgetype.Calls` edge type
+            - `typresolve.ProvenanceResolverResolved` provenance
+            - `typresolve.ResolverConfidence` (0.9) confidence
+            - Call site line/col from the AST node
+
+            Follow the same edge construction pattern as the Go resolver's
+            resolve.go (buildCallEdge function).
+
+            **Integration tasks (fix wave 1 stubs):**
+            1. Update ResolveContext in eval.go to add Usings []UsingInfo and
+               NamespaceStack []string fields
+            2. Replace lookupMethodStub calls in eval.go with LookupMethod from methods.go
+            3. Replace parseTypeStub calls in scope_bind.go with ParseTypeNode from types.go
+            4. Wire ParseTypeNode to use ResolveTypeName through the ResolveContext
+            5. Verify that the csPredefTypes local map in types.go is consistent with
+               PredefinedAlias in builtins.go (remove the local map if possible, or keep
+               both for compile-time independence)
+
+            **File 4: `internal/typresolve/csharp/resolver_test.go`**
+            Integration tests for the full resolver:
+
+            - Test Language() returns "csharp"
+            - Test InitWorkspace registers types and methods
+            - Test ResolveFile on simple C# code:
+              ```csharp
+              using System;
+              namespace MyApp {
+                  class MyService {
+                      public void Run() {
+                          Console.WriteLine("hello");
+                          var x = new MyHelper();
+                          x.DoWork();
+                      }
+                  }
+                  class MyHelper {
+                      public void DoWork() { }
+                  }
+              }
+              ```
+              Verify edges: MyService.Run -> Console.WriteLine, MyService.Run -> MyHelper (ctor),
+              MyService.Run -> MyHelper.DoWork
+            - Test using directive resolution (using System.IO -> File.ReadAllText resolves)
+            - Test namespace resolution (fully qualified calls)
+            - Test var inference (var x = new MyType() -> x typed as MyType)
+            - Test async/await (await FetchAsync() -> unwrap Task<T>)
+            - Test property access resolution
+            - Test base class method resolution via inheritance
+            - Test extension method dispatch
+
+            ### Verification gate
+            ```bash
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go build ./internal/typresolve/csharp/
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go vet ./internal/typresolve/csharp/
+            cd /Users/dayna.blackwell/code/knowing && GOWORK=off go test ./internal/typresolve/csharp/ -v -timeout 60s
+            ```
+
+            Postcondition checks:
+            ```bash
+            # CSharpResolver struct exists
+            grep -c 'type CSharpResolver struct' /Users/dayna.blackwell/code/knowing/internal/typresolve/csharp/resolver.go
+            # Expected: 1
+            # Implements Resolver interface
+            grep -c 'typresolve.Resolver' /Users/dayna.blackwell/code/knowing/internal/typresolve/csharp/resolver.go
+            # Expected: 1 (compile-time check)
+            # BuildRegistry function exists
+            grep -c 'func BuildRegistry' /Users/dayna.blackwell/code/knowing/internal/typresolve/csharp/registry_builder.go
+            # Expected: 1
+            # ResolveCallsInFile function exists
+            grep -c 'func ResolveCallsInFile' /Users/dayna.blackwell/code/knowing/internal/typresolve/csharp/resolve.go
+            # Expected: 1
+            ```
+
+            ### Constraints
+            - Do NOT create a separate integration wave or modify files outside
+              internal/typresolve/csharp/. Wiring the resolver into the main enrichment
+              pipeline (Register call in the indexer) is a future task.
+            - Do NOT modify the csharpextractor package.
+            - Do NOT modify any shared infrastructure files (typresolve/*.go).
+
+pre_mortem:
+  overall_risk: low
+  rows:
+    - scenario: |
+        Wave 1 agents define duplicate symbols in the same Go package (csresolve),
+        causing merge-time compile errors (e.g., two definitions of parseCS helper
+        in test files, or duplicate UsingInfo struct).
+      likelihood: medium
+      impact: medium
+      mitigation: |
+        Agent C explicitly omits UsingInfo (owned by Agent A) and uses a reduced
+        ResolveContext without Usings field. Agent D adds the field in wave 2.
+        Test helpers (parseCS) are defined in each agent's own test file, which is
+        fine since Go allows duplicate function names across test files in the same
+        package. Actually, Go does NOT allow duplicate function names in the same
+        package even across test files. Solution: Agents A and C should use different
+        helper names (parseCSA, parseCSC) or Agent A's types_test.go defines parseCS
+        and Agent C's eval_test.go defines a local parseCSForEval. Agent D consolidates.
+    - scenario: |
+        Agent C's EvalExprType for member_access_expression uses a stub that only does
+        direct registry lookup (no inheritance walking), causing incorrect type inference
+        for inherited methods in wave 1 tests.
+      likelihood: low
+      impact: low
+      mitigation: |
+        Wave 1 tests for Agent C should only test direct method/field access, not
+        inherited members. Inheritance-dependent tests go in Agent D's resolver_test.go.
+    - scenario: |
+        The tree-sitter C# grammar uses different node type names than expected
+        (e.g., "identifier_name" vs "identifier"), causing AST walking misses.
+      likelihood: low
+      impact: medium
+      mitigation: |
+        The existing csharpextractor already uses tree-sitter C# grammar and documents
+        the node types. Agents should reference internal/indexer/csharpextractor/extractor.go
+        for the correct node type strings. The C reference (cs_lsp.c) also documents the
+        grammar reference in its header comment (lines 24-39).
+    - scenario: |
+        C# namespace resolution is more complex than Go imports. Files may have deeply
+        nested namespaces, file-scoped namespaces (C# 10), or no namespace at all
+        (top-level statements). ResolveTypeName may miss some resolution paths.
+      likelihood: medium
+      impact: low
+      mitigation: |
+        The C reference implements a 10-step resolution chain. Agent A ports all 10 steps.
+        Missing edge cases will surface during ocelot benchmark validation (post-merge)
+        and can be fixed incrementally.
+
+known_issues:
+    - title: Duplicate parseCS test helper across wave 1 agents
+      description: |
+        Agents A and C both need a parseCS helper function in their test files.
+        Go does not allow duplicate function definitions across files in the same
+        package. Each agent must use a unique helper name or Agent D must consolidate.
+      workaround: |
+        Agent A uses parseCS in types_test.go. Agent C uses parseCSharp in eval_test.go.
+        Agent D consolidates to a single parseCS in resolver_test.go and removes duplicates.
