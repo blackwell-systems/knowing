@@ -226,6 +226,25 @@ Embeddings as Channel 3, blended re-rank, call-chain seeding, hub dampening, BFS
 - **Test the problem repo first.** When an experiment regresses a specific repo, test that repo in isolation before running full corpus. Saves 20+ minutes per iteration.
 - **Experiment workflow.** (1) Copy master backup -> working copy. (2) Modify working copy. (3) Checkpoint WAL, delete SHM/WAL at destination. (4) Swap. (5) `go clean -testcache`. (6) Test problem repo first. (7) If positive, full corpus. (8) Restore from master after.
 
+## Debugging & Analysis Tools
+
+### Retrieval debugging
+- **`knowing debug-seeds -task "description" -db <path> <repo>`**: shows the full seed selection pipeline: keywords extracted, path terms, BM25 results, path boost annotations, final ForTask top 10 with scores. Use to diagnose why a task returns wrong symbols.
+- **`go run ./bench/cross-system/cmd/failure-analysis --repo <name> [--task <id>]`**: categorizes P@10 misses into: same_package, related_name, test_symbol, noise. Shows ground truth vs returned for each task.
+- **`go run ./bench/cross-system/cmd/validate-fixtures`**: verifies ground truth symbols exist in the graph DB.
+- **`BENCH_DEBUG_ZEROS=1`**: env var for the benchmark. Logs ground truth + returned top 10 for every zero-scoring task.
+
+### Enrichment debugging
+- **`knowing enrich resolver [-db path] <repo>`**: runs in-process resolvers retroactively on an existing DB. Adds resolver_resolved edges without re-extracting.
+- **`knowing enrich lsp [-db path] <repo>`**: runs external LSP enrichment standalone.
+- Enricher logs: "X edges processed, Y upgraded, Z skipped, W errors" shows enrichment completeness.
+
+### Benchmark tools
+- **`BENCH_REPOS=django`**: filter to single repo for fast iteration.
+- **`BENCH_ADAPTERS=knowing`**: skip competitors.
+- **`BENCH_EMBEDDINGS=1`**: enable embedding gap-fill (slower but more accurate).
+- **`BENCH_FOCUSED_SEEDS=0`**: disable focused seed selection (for A/B testing).
+
 ## Debugging Hung Processes
 
 When a process appears stuck, use these tools to diagnose instead of guessing:

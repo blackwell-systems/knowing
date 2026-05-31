@@ -859,15 +859,15 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	// Focused seed selection (#36): cluster candidates by package path, pick seeds
 	// from the most cohesive cluster. Quality over quantity: 3-5 seeds in the same
 	// structural neighborhood vs 15-25 scattered across the graph.
-	// Package-path boosting: on large graphs (50K+ nodes), boost candidates
-	// whose file path contains words from the task description. This helps
-	// terraform-scale repos where generic keywords ("command", "validate")
-	// match hundreds of symbols across many packages. A candidate from
-	// "internal/command/validate.go" should rank above one from "internal/rpcapi/cli.go"
-	// when the task mentions "validate" and "command".
-	if e.effectiveNodeCount() > 10000 && len(pathTerms) > 0 && len(candidates) > 10 {
-		candidates = boostByPathMatch(candidates, pathTerms)
-	}
+	// Package-path boosting: DISABLED (experiment showed regression on terraform).
+	// The issue: when Primary keywords are empty, BM25 doesn't fire, so there are
+	// no good candidates to boost. The path boost reorders tiered results which are
+	// already in the wrong neighborhood. Fix needed: improve keyword extraction
+	// for long task descriptions so BM25 always fires.
+	// TODO: re-enable after fixing extractKeywordSet for sentence-style tasks.
+	// if e.effectiveNodeCount() > 10000 && len(pathTerms) > 0 && len(candidates) > 10 {
+	// 	candidates = boostByPathMatch(candidates, pathTerms)
+	// }
 
 	if focusedSeeds && len(candidates) > 5 {
 		candidates = focusedSeedSelect(candidates)
