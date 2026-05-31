@@ -387,3 +387,41 @@ becomes dead code and can be removed entirely. The dependency chain that goes aw
 The multi-module gopls scout (currently in progress) is a near-term fix for the
 immediate go.work problem. In-process Go resolution is the long-term answer that
 makes the problem structurally impossible.
+
+### Accuracy tiers: retrieval vs supply chain
+
+In-process resolvers and external LSP enrichment serve different accuracy
+requirements. This distinction is load-bearing for the product architecture.
+
+**Retrieval (P@10, MCP context queries):** Tolerates incomplete edges. If the
+resolver produces 85% of the edges gopls would, the graph still has sufficient
+connectivity for RWR to reach correct symbols. Missing edges reduce reachability
+but don't produce wrong answers. False positive edges (wrong targets) wash out
+in ranking: one incorrect edge among 200K correct ones doesn't move P@10.
+
+**Supply chain detection (proof of absence):** Requires near-100% precision AND
+high recall. The supply chain detector proves "this package does NOT call
+os.Exec" by exhaustively walking all reachable paths. If the resolver misses
+edges, a malicious call path could exist through unresolved connections, and the
+package would be declared safe when it isn't. False positive edges are equally
+dangerous: phantom connections mask real malicious paths, invalidating the
+proof-of-absence guarantee.
+
+| Use case | Precision required | Recall required | Resolver viable? |
+|----------|-------------------|-----------------|-----------------|
+| Retrieval (MCP queries) | 80%+ | 85%+ | Yes |
+| Supply chain detection | ~100% | 95%+ | No |
+
+**Architecture rule:** The resolver is the **fast path** for interactive use
+(MCP server, `knowing context`, `knowing test-scope`). External LSP enrichment
+is the **secure path** for supply chain analysis (`knowing audit-supply-chain`).
+The routing decision is made at the call site:
+
+- `knowing add .` (default): resolver only (fast, no dependencies)
+- `knowing add . --enrich`: resolver + external LSP (full quality)
+- `knowing audit-supply-chain`: external LSP required (security claims demand it)
+
+External LSP enrichment is NOT removed from the codebase even after all
+resolvers are built. It remains as the high-assurance path for security
+analysis. The "true single binary" claim applies to the default interactive
+mode, not to security auditing mode which may require language servers.
