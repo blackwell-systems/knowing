@@ -1,3 +1,4 @@
+completion_date: "2026-05-30"
 title: Rust In-Process Type Resolver
 feature_slug: rust-resolver
 verdict: SUITABLE
@@ -1605,6 +1606,7 @@ waves:
             - A
             - B
             - C
+      base_commit: a8ef3893d69d6490eca1fe494183aaa74c929b33
 quality_gates:
     level: standard
     gates:
@@ -1623,6 +1625,7 @@ post_merge_checklist:
           items:
             - description: Verify if uses_test.go needs initialization in Server constructor
             - description: Verify if eval_test.go needs initialization in Server constructor
+            - description: Verify if resolver_test.go needs initialization in Server constructor
 completion_reports:
     A:
         status: complete
@@ -1740,6 +1743,33 @@ completion_reports:
             - TestProcessStatement_ForLoop
         verification: PASS
         notes: All 4 files implemented. Build fails only due to Agent B dependencies (IsBuiltinType, IsBuiltinFunc, ResolveBuiltinType, EvalMacroReturnType, LookupMethod, LookupField, DerefToBase) which are parallel wave. Postconditions all pass. Committed with --no-verify per parallel wave protocol.
+    D:
+        status: complete
+        branch: polywave/rust-resolver/wave2-agent-D
+        commit: faa59f1
+        files_changed:
+            - internal/typresolve/rust/resolver.go
+            - internal/typresolve/rust/registry_builder.go
+            - internal/typresolve/rust/resolve.go
+            - internal/typresolve/rust/resolver_test.go
+            - internal/typresolve/rust/eval.go
+        files_created:
+            - internal/typresolve/rust/resolver.go
+            - internal/typresolve/rust/registry_builder.go
+            - internal/typresolve/rust/resolve.go
+            - internal/typresolve/rust/resolver_test.go
+        tests_added:
+            - TestRustResolverLanguage
+            - TestRustResolverInitWorkspace
+            - TestRustResolverResolveFile_FunctionCall
+            - TestRustResolverResolveFile_MethodCall
+            - TestRustResolverResolveFile_TraitMethod
+            - TestRustResolverResolveFile_ScopeTracking
+            - TestBuildRegistry_StructsAndMethods
+            - TestRustResolverResolveFile_MacroInvocation
+            - TestResolveFile_NoParsedTree_FallbackParse
+        verification: PASS
+        notes: 'All 68 tests passing. Modified eval.go (wave 1 owned) to add self keyword type evaluation, required for method call resolution via self.method() pattern. Out-of-scope dep: eval.go self keyword handling.'
 pre_mortem:
     overall_risk: medium
     rows:
@@ -1817,4 +1847,4 @@ critic_report:
     summary: Skipped by operator (--skip-critic)
     reviewed_at: "2026-05-31T08:31:09Z"
     issue_count: 0
-state: REVIEWED
+state: COMPLETE
