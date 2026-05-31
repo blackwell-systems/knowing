@@ -982,6 +982,7 @@ waves:
             - internal/typresolve/ruby/eval.go
             - internal/typresolve/ruby/scope_bind.go
             - internal/typresolve/ruby/eval_test.go
+      base_commit: 5cb39027f79d158eaa702ac95184fa7fc93de523
     - number: 2
       agents:
         - id: D
@@ -1356,6 +1357,113 @@ quality_gates:
         - type: test
           command: GOWORK=off go test -short ./... -timeout 5m
           required: true
+post_merge_checklist:
+    groups:
+        - title: Background Service Initialization
+          items:
+            - description: Verify if requires_test.go needs initialization in Server constructor
+            - description: Verify if eval_test.go needs initialization in Server constructor
+completion_reports:
+    A:
+        status: complete
+        branch: polywave/ruby-resolver/wave1-agent-A
+        commit: 4209bdf
+        files_changed:
+            - internal/typresolve/ruby/doc.go
+            - internal/typresolve/ruby/requires.go
+            - internal/typresolve/ruby/constants.go
+            - internal/typresolve/ruby/requires_test.go
+        files_created:
+            - internal/typresolve/ruby/doc.go
+            - internal/typresolve/ruby/requires.go
+            - internal/typresolve/ruby/constants.go
+            - internal/typresolve/ruby/requires_test.go
+        tests_added:
+            - TestResolveRequire_Standard
+            - TestResolveRequire_Nested
+            - TestResolveRequire_Relative
+            - TestResolveRequire_RelativeWithExtension
+            - TestResolveRequire_Empty
+            - TestBuildRequireMap
+            - TestBuildRequireMap_NestedRequire
+            - TestParseScopeResolution_Simple
+            - TestParseScopeResolution_Nested
+            - TestParseScopeResolution_TopLevel
+            - TestParseScopeResolution_Nil
+            - TestResolveConstant_WithNesting
+            - TestResolveConstant_Absolute
+            - TestResolveConstant_TopLevel
+            - TestResolveConstant_SingleNesting
+        verification: PASS
+        notes: All 4 files implemented. 15 tests passing. Build and vet clean. All postconditions verified.
+    B:
+        status: complete
+        branch: polywave/ruby-resolver/wave1-agent-B
+        commit: ec55c27
+        files_changed:
+            - internal/typresolve/ruby/builtins.go
+            - internal/typresolve/ruby/methods.go
+            - internal/typresolve/ruby/builtins_test.go
+        files_created:
+            - internal/typresolve/ruby/builtins.go
+            - internal/typresolve/ruby/methods.go
+            - internal/typresolve/ruby/builtins_test.go
+        tests_added:
+            - TestIsBuiltinFunc
+            - TestIsBuiltinType
+            - TestResolveBuiltinType
+            - TestEvalBuiltinCall_Puts
+            - TestEvalBuiltinCall_Lambda
+            - TestEvalBuiltinCall_ArrayConversion
+            - TestEvalBuiltinCall_IsA
+            - TestEvalBuiltinCall_Unknown
+            - TestLookupAttribute_DirectMethod
+            - TestLookupAttribute_ViaInclude
+            - TestLookupAttribute_ViaInheritance
+            - TestLookupAttribute_DepthLimit
+            - TestLookupAttribute_NotFound
+            - TestLookupAttrAccessor_Reader
+            - TestLookupAttrAccessor_Writer
+            - TestResolveNew
+        verification: PASS
+        notes: 'All 16 tests passing. Three files implemented: builtins.go (builtin func/type recognition + call eval), methods.go (MRO lookup, attr accessor, new->initialize), builtins_test.go (comprehensive coverage).'
+    C:
+        status: complete
+        branch: polywave/ruby-resolver/wave1-agent-C
+        commit: 9945d8a
+        files_changed:
+            - internal/typresolve/ruby/eval.go
+            - internal/typresolve/ruby/scope_bind.go
+            - internal/typresolve/ruby/eval_test.go
+        files_created:
+            - internal/typresolve/ruby/eval.go
+            - internal/typresolve/ruby/scope_bind.go
+            - internal/typresolve/ruby/eval_test.go
+        tests_added:
+            - TestEvalExprType_IdentifierFromScope
+            - TestEvalExprType_Constant
+            - TestEvalExprType_ScopeResolution
+            - TestEvalExprType_CallNew
+            - TestEvalExprType_CallMethod
+            - TestEvalExprType_CallToS
+            - TestEvalExprType_CallNilQ
+            - TestEvalExprType_BuiltinPuts
+            - TestEvalExprType_StringLiteral
+            - TestEvalExprType_IntegerLiteral
+            - TestEvalExprType_FloatLiteral
+            - TestEvalExprType_SymbolLiteral
+            - TestEvalExprType_ArrayLiteral
+            - TestEvalExprType_HashLiteral
+            - TestEvalExprType_NilLiteral
+            - TestEvalExprType_BinaryComparison
+            - TestEvalExprType_Regex
+            - TestEvalExprType_Range
+            - TestProcessStatement_Assignment
+            - TestProcessStatement_InstanceVar
+            - TestProcessStatement_ClassVar
+            - TestProcessStatement_MultiAssignment
+        verification: PASS
+        notes: 'All three files implemented. Build fails only due to cross-agent dependencies (Agent A: ResolveConstant, ParseScopeResolution; Agent B: IsBuiltinFunc, EvalBuiltinCall, LookupAttribute, ResolveBuiltinType). These are expected parallel wave compile errors that resolve after merge. Postconditions all pass (1 EvalExprType, 1 ProcessStatement, 1 ResolveContext struct).'
 pre_mortem:
     overall_risk: medium
     rows:
