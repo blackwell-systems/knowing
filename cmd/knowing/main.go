@@ -145,6 +145,12 @@ func run(args []string) error {
 		return cmdStale(args[1:])
 	case "debug-seeds":
 		return cmdDebugSeeds(args[1:])
+	case "debug-fts":
+		return cmdDebugFTS(args[1:])
+	case "debug-walk":
+		return cmdDebugWalk(args[1:])
+	case "bench-task":
+		return cmdBenchTask(args[1:])
 	default:
 		printUsage()
 		return fmt.Errorf("unknown subcommand: %s", args[0])

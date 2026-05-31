@@ -859,15 +859,14 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	// Focused seed selection (#36): cluster candidates by package path, pick seeds
 	// from the most cohesive cluster. Quality over quantity: 3-5 seeds in the same
 	// structural neighborhood vs 15-25 scattered across the graph.
-	// Package-path boosting: DISABLED (experiment showed regression on terraform).
-	// The issue: when Primary keywords are empty, BM25 doesn't fire, so there are
-	// no good candidates to boost. The path boost reorders tiered results which are
-	// already in the wrong neighborhood. Fix needed: improve keyword extraction
-	// for long task descriptions so BM25 always fires.
-	// TODO: re-enable after fixing extractKeywordSet for sentence-style tasks.
-	// if e.effectiveNodeCount() > 10000 && len(pathTerms) > 0 && len(candidates) > 10 {
-	// 	candidates = boostByPathMatch(candidates, pathTerms)
-	// }
+	// Path boosting: DISABLED after 5 experiment variants, all regressed from 0.215.
+	// Pre-seed: hard reorder (0.140), soft +3 (0.115), selective +3 (0.120),
+	//           selective +1 (0.095).
+	// Post-RWR: selective 5% score bonus (0.095).
+	// Root cause: extractPathTerms returns core domain vocabulary ("resource",
+	// "dependency", "provider") that matches most symbols in the repo. Even with
+	// selectivity filtering, these terms promote noise over signal. Path boosting
+	// would require path terms that map to specific packages, not domain concepts.
 
 	if focusedSeeds && len(candidates) > 5 {
 		candidates = focusedSeedSelect(candidates)
@@ -1450,12 +1449,53 @@ func (ks KeywordSet) All() []string {
 	return result
 }
 
-// Primary returns the highest-priority keywords (exact + compounds).
-// These should be queried first by tiered search.
+// Primary returns the highest-priority keywords for BM25 and tiered search.
+// When sufficient explicit identifiers exist (3+ Exact/Compounds), returns those.
+// When too few explicit identifiers exist (sentence-style task descriptions),
+// promotes the top domain nouns from Components so BM25 has enough to query.
+// Promoted words are filtered: no synthetic bigrams (contain uppercase mid-word
+// or underscore), no short words, capped at 8 total terms.
 func (ks KeywordSet) Primary() []string {
 	result := make([]string, 0, len(ks.Exact)+len(ks.Compounds))
 	result = append(result, ks.Exact...)
 	result = append(result, ks.Compounds...)
+	// If we have 3+ explicit identifiers, that's enough signal for BM25.
+	if len(result) >= 3 {
+		return result
+	}
+	// Too few explicit identifiers: promote top domain nouns from Components.
+	// Components are already priority-ordered (verb-target first, then by length).
+	// Skip synthetic bigrams (CamelCase or snake_case that were generated, not found).
+	const maxPromoted = 8
+	for _, c := range ks.Components {
+		if len(result) >= maxPromoted {
+			break
+		}
+		// Skip generated bigrams: they contain underscore.
+		if strings.Contains(c, "_") {
+			continue
+		}
+		// Skip CamelCase bigrams like "ProviderSchema".
+		if len(c) > 1 && c[0] >= 'A' && c[0] <= 'Z' {
+			hasLower := false
+			for i := 1; i < len(c); i++ {
+				if c[i] >= 'a' && c[i] <= 'z' {
+					hasLower = true
+				}
+				if hasLower && c[i] >= 'A' && c[i] <= 'Z' {
+					goto skipBigram
+				}
+			}
+		}
+		// Skip short words (stop-word-ish).
+		if len(c) < 4 {
+			continue
+		}
+		result = append(result, c)
+		continue
+	skipBigram:
+		continue
+	}
 	return result
 }
 
@@ -1579,6 +1619,10 @@ func extractKeywordSet(desc string) KeywordSet {
 		if w == "" {
 			continue
 		}
+		// Strip possessive suffixes ("module's" -> "module").
+		if strings.HasSuffix(w, "'s") || strings.HasSuffix(w, "\u2019s") {
+			w = w[:len(w)-2]
+		}
 
 		parts := splitIdentifier(w)
 
@@ -1686,10 +1730,71 @@ func buildFTSQuery(keywords []string) string {
 			escaped := strings.ReplaceAll(kw, "\"", "")
 			parts = append(parts, fmt.Sprintf("symbol_name:\"%s\"", escaped))
 		} else {
-			parts = append(parts, kw)
+			// Sanitize for FTS5: strip characters that break query syntax
+			// (apostrophes, quotes, parens, etc.). Keep only alphanumeric.
+			sanitized := sanitizeFTSToken(kw)
+			if sanitized == "" || len(sanitized) < 2 {
+				continue
+			}
+			parts = append(parts, sanitized)
+			// Add a stemmed prefix variant for natural language words.
+			// "transformers" -> "transform*" matches "Transformer", "Transform", etc.
+			// Only stem words 6+ chars to avoid over-generalizing short words.
+			if len(sanitized) >= 6 {
+				stem := stemForFTS(sanitized)
+				if stem != sanitized && len(stem) >= 4 {
+					parts = append(parts, stem+"*")
+				}
+			}
 		}
 	}
 	return strings.Join(parts, " OR ")
+}
+
+// sanitizeFTSToken removes characters that break FTS5 query syntax.
+// Keeps only ASCII letters and digits. Returns empty string if nothing remains.
+func sanitizeFTSToken(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// stemForFTS strips common English suffixes to produce a stem for prefix matching.
+// "transformers" -> "transform", "configurations" -> "configur", "destroyed" -> "destroy".
+// This is intentionally conservative: only strips suffixes where the stem is likely
+// to be a valid prefix of code identifiers (e.g., "Transform" from "transformers").
+func stemForFTS(s string) string {
+	s = strings.ToLower(s)
+	// Order matters: try longest suffixes first.
+	suffixes := []string{
+		"ations", "itions", // configuration -> configur (too short, but transform* helps)
+		"ation", "ition",
+		"ments", "ness",
+		"ment",
+		"ings", "ting",
+		"ers", "ors",
+		"ing", "ied",
+		"ed", "es", "er",
+		"ly", "al",
+		"s", // plural: only if result >= 5 chars
+	}
+	for _, suf := range suffixes {
+		if strings.HasSuffix(s, suf) {
+			stem := s[:len(s)-len(suf)]
+			// Ensure stem is long enough to be meaningful.
+			if suf == "s" && len(stem) < 5 {
+				continue
+			}
+			if len(stem) >= 4 {
+				return stem
+			}
+		}
+	}
+	return s
 }
 
 // hasMixedCase returns true if the string has both uppercase and lowercase letters
@@ -2249,10 +2354,138 @@ func dominantPkg(candidates []types.Node) string {
 	return best
 }
 
+// filterSelectiveRankedTerms returns only path terms that appear in fewer than maxRatio
+// of ranked symbols. Operates on the post-RWR RankedSymbol list.
+func filterSelectiveRankedTerms(ranked []RankedSymbol, pathTerms []string, maxRatio float64) []string {
+	n := len(ranked)
+	if n == 0 {
+		return nil
+	}
+	var selective []string
+	for _, term := range pathTerms {
+		termLower := strings.ToLower(term)
+		matches := 0
+		for _, r := range ranked {
+			if strings.Contains(strings.ToLower(r.Node.QualifiedName), termLower) {
+				matches++
+			}
+		}
+		if float64(matches)/float64(n) < maxRatio {
+			selective = append(selective, term)
+		}
+	}
+	return selective
+}
+
+// boostRankedByPath applies a small additive score bonus to ranked symbols whose QN
+// contains selective path terms. A 5% bonus per match nudges path-relevant symbols
+// up by a few positions without dominating the RWR-based ranking.
+func boostRankedByPath(ranked []RankedSymbol, pathTerms []string) []RankedSymbol {
+	if len(pathTerms) == 0 {
+		return ranked
+	}
+	// Find max score to scale the bonus relative to the score distribution.
+	maxScore := 0.0
+	for _, r := range ranked {
+		if r.Score > maxScore {
+			maxScore = r.Score
+		}
+	}
+	if maxScore <= 0 {
+		return ranked
+	}
+	// Apply bonus: 5% of max score per path term match.
+	bonusPer := maxScore * 0.05
+	boosted := make([]RankedSymbol, len(ranked))
+	copy(boosted, ranked)
+	for i := range boosted {
+		qnLower := strings.ToLower(boosted[i].Node.QualifiedName)
+		for _, term := range pathTerms {
+			if strings.Contains(qnLower, strings.ToLower(term)) {
+				boosted[i].Score += bonusPer
+			}
+		}
+	}
+	sort.SliceStable(boosted, func(a, b int) bool {
+		return boosted[a].Score > boosted[b].Score
+	})
+	return boosted
+}
+
+// filterSelectivePathTerms returns only path terms that appear in fewer than maxRatio
+// of candidates. Terms matching most candidates are generic (e.g., "resource" in terraform)
+// and harm ranking when used for boosting.
+func filterSelectivePathTerms(candidates []types.Node, pathTerms []string, maxRatio float64) []string {
+	n := len(candidates)
+	if n == 0 {
+		return nil
+	}
+	var selective []string
+	for _, term := range pathTerms {
+		termLower := strings.ToLower(term)
+		matches := 0
+		for _, c := range candidates {
+			if strings.Contains(strings.ToLower(c.QualifiedName), termLower) {
+				matches++
+			}
+		}
+		if float64(matches)/float64(n) < maxRatio {
+			selective = append(selective, term)
+		}
+	}
+	return selective
+}
+
+// softPathBoost applies a small scoring bonus to candidates whose QN contains path terms,
+// then re-sorts. Unlike boostByPathMatch (hard reorder), this preserves relative ordering
+// for candidates without path matches and only promotes path-relevant symbols by a small
+// amount (0.005 per match). This breaks ties in favor of structurally-relevant symbols
+// without overriding strong BM25/tiered ranking.
+func softPathBoost(candidates []types.Node, pathTerms []string) []types.Node {
+	if len(pathTerms) == 0 || len(candidates) == 0 {
+		return candidates
+	}
+
+	type scored struct {
+		node  types.Node
+		bonus float64
+		idx   int // original position for stable sort
+	}
+
+	items := make([]scored, len(candidates))
+	for i, c := range candidates {
+		qnLower := strings.ToLower(c.QualifiedName)
+		matches := 0
+		for _, term := range pathTerms {
+			if strings.Contains(qnLower, strings.ToLower(term)) {
+				matches++
+			}
+		}
+		// Small bonus per match: enough to promote within ~3 positions,
+		// not enough to jump from bottom to top.
+		items[i] = scored{node: c, bonus: float64(matches) * 0.005, idx: i}
+	}
+
+	// Stable sort by (original_position - bonus_equivalent_ranks).
+	// Each path match shifts up by 1 position (conservative: won't jump far).
+	sort.SliceStable(items, func(a, b int) bool {
+		effA := float64(items[a].idx) - items[a].bonus*200 // 0.005*200 = 1 position per match
+		effB := float64(items[b].idx) - items[b].bonus*200
+		return effA < effB
+	})
+
+	result := make([]types.Node, len(candidates))
+	for i, item := range items {
+		result[i] = item.node
+	}
+	return result
+}
+
 // boostByPathMatch reorders candidates so those whose file path contains task keywords
 // are promoted. On large repos (terraform 76K nodes), BM25 returns symbols from many
 // packages. A candidate from "internal/command/validate.go" should rank above one from
 // "internal/rpcapi/cli.go" when the task mentions "validate" and "command".
+// DEPRECATED: too aggressive, use softPathBoost instead.
 func boostByPathMatch(candidates []types.Node, pathTerms []string) []types.Node {
 	if len(pathTerms) == 0 {
 		return candidates
