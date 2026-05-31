@@ -540,6 +540,8 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 		"get": true, "set": true, "do": true, "new": true, "run": true,
 		"put": true, "post": true, "call": true, "add": true, "pop": true,
 	}
+	// Track high-confidence framework matches for forced injection post-RWR.
+	var frameworkInjections []types.Node
 	for _, m := range eqMatches {
 		for _, target := range m.targets {
 			targetLower := strings.ToLower(target)
@@ -562,6 +564,12 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 				if strings.EqualFold(symName, target) {
 					equivSeen[n.NodeHash] = true
 					equivResults = append(equivResults, n)
+					// High-confidence framework matches get injected into final
+					// results regardless of RWR score (they're specific enough to
+					// justify direct inclusion).
+					if m.weight >= 0.9 && m.class.Source == "framework" {
+						frameworkInjections = append(frameworkInjections, n)
+					}
 				}
 			}
 		}
@@ -1082,6 +1090,39 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	// if reranker, ok := e.vector.(VectorReRanker); ok && len(ranked) > 0 {
 	// 	ranked = e.reRankWithEmbeddings(ctx, reranker, ranked, opts.TaskDescription)
 	// }
+
+	// Framework injection: high-confidence framework equiv matches get inserted
+	// at the front of the ranked list. These are specific class names from
+	// domain-specific concept mappings (e.g., "email validation" -> EmailValidator).
+	// They bypass RWR scoring because they're semantically certain matches that
+	// the graph structure can't discover (no inheritance edges, no keyword overlap).
+	if len(frameworkInjections) > 0 {
+		injectedSeen := make(map[types.Hash]bool)
+		var injected []RankedSymbol
+		for _, n := range frameworkInjections {
+			if injectedSeen[n.NodeHash] {
+				continue
+			}
+			injectedSeen[n.NodeHash] = true
+			// Give injected symbols a score just above the current max.
+			topScore := 0.0
+			if len(ranked) > 0 {
+				topScore = ranked[0].Score
+			}
+			injected = append(injected, RankedSymbol{
+				Node:  n,
+				Score: topScore + 0.1,
+			})
+		}
+		// Remove duplicates from ranked (if already present from RWR).
+		var deduped []RankedSymbol
+		for _, r := range ranked {
+			if !injectedSeen[r.Node.NodeHash] {
+				deduped = append(deduped, r)
+			}
+		}
+		ranked = append(injected, deduped...)
+	}
 
 	block := packIntoBudget(ranked, budget, opts.Format)
 
