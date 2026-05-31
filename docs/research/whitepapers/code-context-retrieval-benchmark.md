@@ -23,7 +23,7 @@ Ground truth is derived from actual code changes (PR diffs, SWE-bench instances)
 not synthetic queries. We measure P@10, R@10, NDCG@10, and MRR with statistical
 significance via Wilcoxon signed-rank tests.
 
-Key findings: (1) graph-based retrieval (knowing) achieves P@10=0.189, 2.10x
+Key findings: (1) graph-based retrieval (knowing) achieves P@10=0.189, 2.17x
 the nearest competitor (codegraph, 19K GitHub stars); (2) P@10 is
 reachability-determined: a 32-configuration parameter sweep produces zero
 variance, proving only new edges or new candidate sources move the metric;
@@ -408,7 +408,7 @@ a single parameter adaptation. The aggregate corpus improved from 0.207 to 0.242
 
 ### 7.1 Why Graph Beats Text
 
-The 21.8x advantage over grep and 2.10x over codegraph comes from structural
+The 12.6x advantage over grep and 2.17x over codegraph comes from structural
 traversal: RWR discovers symbols connected to the task through call chains,
 inheritance hierarchies, and type relationships that text search cannot see.
 A developer asking about "auth middleware" needs `SessionHandler`, `TokenValidator`,

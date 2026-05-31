@@ -243,7 +243,7 @@ knowing's differentiator is graph-native retrieval: RWR (Random Walk with Restar
 
 **Context packers** (Aider, Repo Map, etc) analyze your repo and produce a condensed map for the agent's context window. They run at query time, produce text, and are stateless: they don't remember what was useful last time. They don't version their output or prove anything about it.
 
-**Code graphs / indexers** (Sourcegraph, codegraph, GitNexus, Stack Graphs) build a queryable index of code relationships. Most use mutable state (database rows with auto-increment IDs). They can answer "who calls X?" but can't answer "who called X last Tuesday?" or "prove no one calls X." They don't learn from feedback. In head-to-head benchmark (14 repos, 277 tasks, 8 languages): knowing achieves 2.10x the precision of codegraph (19K stars), 3.77x vs GitNexus, and 4.49x vs Gortex.
+**Code graphs / indexers** (Sourcegraph, codegraph, GitNexus, Stack Graphs) build a queryable index of code relationships. Most use mutable state (database rows with auto-increment IDs). They can answer "who calls X?" but can't answer "who called X last Tuesday?" or "prove no one calls X." They don't learn from feedback. In head-to-head benchmark (14 repos, 277 tasks, 8 languages): knowing achieves 2.17x the precision of codegraph (19K stars), 3.44x vs GitNexus, and 3.63x vs Gortex.
 
 **Agent memory systems** (MemGPT, various RAG frameworks) persist information across sessions. They remember conversations but not code structure. They can recall "you asked about auth last time" but can't tell you "auth's blast radius grew by 3 callers since then."
 
@@ -947,7 +947,7 @@ These numbers are reproducible via the benchmark suite (14 repos, 277 tasks, 8 l
 
 | Metric | Cold Start | With Compounding | Context |
 |---|---|---|---|
-| P@10 (precision at 10) | 0.283 | 0.288 (+1.8%) | 2.17x codegraph, 3.44x GitNexus, 3.63x Gortex, 12.6x grep |
+| P@10 (precision at 10) | 0.189 | 0.194 (+2.6%) | 2.17x codegraph, 3.44x GitNexus, 3.63x Gortex, 12.6x grep |
 | R@10 (recall at 10) | 0.414 | 0.424 (+6.4%) | 14 repos, 8 languages (Go, Python, TS, Rust, Java, C#, Ruby) |
 | NDCG@10 | 0.350 | 0.382 | Ranking quality improves with compounding |
 | MRR | 0.395 | 0.406 | First relevant result position |

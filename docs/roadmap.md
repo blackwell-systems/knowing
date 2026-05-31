@@ -277,7 +277,7 @@ context retrieval. Full proposal: [docs/proposals/code-retrieval-eval-toolkit.md
 ## Retrieval Pipeline
 
 Current results: see [bench/cross-system/FINDINGS.md](../bench/cross-system/FINDINGS.md).
-P@10=0.189 cold (277 tasks, 14 repos, 8 languages). 2.10x vs codegraph, 3.77x vs GitNexus, 4.49x vs Gortex, 21.8x vs grep. Query latency 2ms on k8s (with adjacency cache). Embedding gap-fill adds 220ms (cached vectors). Focused seed selection + cluster-aware gap-fill: +6.0% over previous high. Equivalence classes: +4%.
+P@10=0.189 cold (277 tasks, 14 repos, 8 languages). 2.17x vs codegraph, 3.44x vs GitNexus, 3.63x vs Gortex, 12.6x vs grep. Query latency 2ms on k8s (with adjacency cache). Embedding gap-fill adds 220ms (cached vectors). Focused seed selection + cluster-aware gap-fill: +6.0% over previous high. Equivalence classes: +4%.
 
 **Key findings:** (1) 32-config parameter sweep proved P@10 is reachability-determined; ranking parameters are irrelevant. (2) Embedding re-ranker was initially measured at +17% but session 19 per-repo A/B test showed it was net negative (9/13 repos hurt). The +17% was from gap-fill seeds sharing the BENCH_EMBEDDINGS flag. Re-ranker disabled; gap-fill seeds remain (+11%).
 
