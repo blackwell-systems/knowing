@@ -4,9 +4,9 @@ tier: medium
 description: "Implement a custom metrics reporter that exports Kafka client metrics to an external monitoring system"
 source: manual
 ground_truth:
-  - common.metrics.MetricsReporter
-  - common.metrics.KafkaMetric
-  - common.metrics.Metrics
-  - common.metrics.MetricConfig
+  - MetricsReporter
+  - KafkaMetric
+  - Metrics
+  - MetricConfig
 tags: [metrics, monitoring, reporting, cross-package]
 notes: "Custom metrics reporter requires MetricsReporter interface, KafkaMetric for individual measurements, Metrics registry, and MetricConfig for sampling/windowing."

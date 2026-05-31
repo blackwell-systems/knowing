@@ -4,11 +4,11 @@ tier: hard
 description: "Trace the full application factory pattern: from create_app through blueprint registration, extension initialization, config loading, and how the app becomes ready to serve requests"
 source: synthetic
 ground_truth:
-  - flask.app.Flask.__init__
-  - flask.sansio.app.App.register_blueprint
-  - flask.sansio.blueprints.Blueprint.register
-  - flask.config.Config.from_object
-  - flask.app.Flask.ensure_sync
-  - flask.app.Flask.run
+  - Flask.__init__
+  - App.register_blueprint
+  - Blueprint.register
+  - Config.from_object
+  - Flask.ensure_sync
+  - Flask.run
 tags: [broad-scope, architecture, app-factory, initialization]
 notes: "Tests understanding of Flask's initialization sequence. Requires linking the app constructor, configuration system, blueprint registration machinery, and the WSGI server startup path."

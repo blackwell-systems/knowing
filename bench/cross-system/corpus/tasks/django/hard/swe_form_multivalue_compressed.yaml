@@ -4,11 +4,11 @@ tier: hard
 description: "MultiValueField with SplitDateTimeWidget reports incorrect field index in ValidationError when compress() raises, causing the error to highlight the wrong sub-widget"
 source: swe-bench
 ground_truth:
-  - django.forms.fields.MultiValueField.clean
-  - django.forms.fields.MultiValueField.compress
-  - django.forms.fields.SplitDateTimeField.compress
-  - django.forms.widgets.MultiWidget.decompress
-  - django.forms.widgets.SplitDateTimeWidget
-  - django.core.exceptions.ValidationError
+  - MultiValueField.clean
+  - MultiValueField.compress
+  - SplitDateTimeField.compress
+  - MultiWidget.decompress
+  - SplitDateTimeWidget
+  - ValidationError
 tags: [forms, validation, multivalue, swe-bench, bug-fix]
 notes: "Based on Django ticket #31122. The field index tracking in MultiValueField.clean doesn't account for the field ordering when compress raises a ValidationError with a params dict."

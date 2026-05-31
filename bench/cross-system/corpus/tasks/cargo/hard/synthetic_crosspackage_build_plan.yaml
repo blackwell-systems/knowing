@@ -4,11 +4,11 @@ tier: hard
 description: "Trace how a 'cargo build' command resolves dependencies, generates the unit graph, schedules compilation jobs, and invokes rustc with the correct flags"
 source: synthetic
 ground_truth:
-  - cargo.ops.cargo_compile.compile
-  - cargo.core.compiler.build_context.BuildContext.new
-  - cargo.ops.cargo_compile.rebuild_unit_graph_shared
-  - cargo.core.compiler.job_queue.JobQueue.execute
-  - cargo.core.compiler.compilation.Compilation.rustc_process
-  - cargo.core.resolver.resolve.resolve
+  - compile
+  - BuildContext.new
+  - rebuild_unit_graph_shared
+  - JobQueue.execute
+  - Compilation.rustc_process
+  - resolve
 tags: [cross-package, build-pipeline, resolver, compiler, multi-system]
 notes: "Tests understanding of Cargo's full build pipeline spanning the ops layer, core resolver, unit graph builder, job scheduler, and rustc invocation."

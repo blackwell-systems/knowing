@@ -4,10 +4,10 @@ tier: medium
 description: "Fix JSONField lookups on SQLite returning incorrect results when the JSON contains integer keys that should be treated as array indices vs object keys"
 source: swe-bench
 ground_truth:
-  - django.db.models.fields.json.JSONField
-  - django.db.models.fields.json.KeyTransform
-  - django.db.backends.sqlite3.operations.DatabaseOperations
-  - django.db.models.lookups.Lookup
-  - django.db.backends.sqlite3.features.DatabaseFeatures
+  - JSONField
+  - KeyTransform
+  - DatabaseOperations
+  - Lookup
+  - DatabaseFeatures
 tags: [json, sqlite, orm, lookups, cross-package, bug-fix]
 notes: "Based on Django ticket #33728. JSONField SQLite lookups require understanding the KeyTransform chain, SQLite-specific JSON casting (json_cast_text_sql), the Lookup base class, and DatabaseFeatures for capability detection."

@@ -4,9 +4,9 @@ tier: medium
 description: "How does Kubernetes handle errors?"
 source: synthetic
 ground_truth:
-  - k8s.io/apimachinery/pkg/api/errors.IsNotFound
-  - k8s.io/apimachinery/pkg/api/errors.NewNotFound
-  - k8s.io/apimachinery/pkg/util/errors.NewAggregate
-  - k8s.io/apimachinery/pkg/util/errors.Flatten
+  - IsNotFound
+  - NewNotFound
+  - NewAggregate
+  - Flatten
 tags: [error-handling, understanding, broad-query, cross-package]
 notes: "Edge case: intentionally vague query. Tests whether retrieval can surface the core error handling infrastructure despite an underspecified description. A good system should identify the StatusError type hierarchy and common error patterns."

@@ -4,13 +4,13 @@ tier: hard
 description: "Debug why EndpointSlices are not being updated when a pod transitions from NotReady to Ready, tracing through the endpoint slice controller reconciliation"
 source: manual
 ground_truth:
-  - pkg/controller/endpointslice/endpointslice_controller.Controller
-  - pkg/controller/endpointslice/endpointslice_controller.Controller.syncService
-  - pkg/controller/endpointslice/reconciler.reconciler.reconcile
-  - pkg/controller/endpointslice/utils.podToEndpoint
-  - staging/src/k8s.io/api/discovery/v1/types.EndpointSlice
-  - staging/src/k8s.io/api/discovery/v1/types.Endpoint
-  - pkg/controller/endpointslice/topologycache/topologycache.TopologyCache
-  - pkg/controller/endpointslice/endpointslice_controller.Controller.addPod
+  - Controller
+  - Controller.syncService
+  - reconciler.reconcile
+  - podToEndpoint
+  - EndpointSlice
+  - Endpoint
+  - TopologyCache
+  - Controller.addPod
 tags: [endpoints, service-discovery, controllers, cross-package, bug-fix]
 notes: "Debugging endpoint sync requires the EndpointSlice controller (syncService, addPod for event handling), the reconciler that computes desired state, the podToEndpoint conversion utility, EndpointSlice/Endpoint types, and the topology cache that can affect distribution."

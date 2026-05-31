@@ -4,10 +4,10 @@ tier: easy
 description: "Register a custom error handler that returns JSON responses for 404 and 500 errors instead of the default HTML pages"
 source: manual
 ground_truth:
-  - flask.app.Flask.errorhandler
-  - flask.app.Flask.register_error_handler
-  - flask.app.Flask.handle_exception
-  - flask.app.Flask.handle_http_exception
-  - flask.sansio.app.App.trap_http_exception
+  - Flask.errorhandler
+  - Flask.register_error_handler
+  - Flask.handle_exception
+  - Flask.handle_http_exception
+  - App.trap_http_exception
 tags: [error-handling, single-package, feature-addition]
 notes: "A developer wants custom JSON error pages. They need the errorhandler decorator, the internal dispatch (handle_exception/handle_http_exception), and the trap mechanism that controls whether errors are re-raised."

@@ -4,8 +4,8 @@ tier: easy
 description: "Add formatting options to terraform fmt that support custom indentation and line width settings"
 source: manual
 ground_truth:
-  - command.FmtCommand
-  - command.FmtCommand.Run
-  - command.FmtCommand.fmt
+  - FmtCommand
+  - FmtCommand.Run
+  - FmtCommand.fmt
 tags: [cli, formatting, single-package]
 notes: "Format command requires FmtCommand struct, its Run method, and the internal fmt helper that processes files."

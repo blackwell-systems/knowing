@@ -4,10 +4,10 @@ tier: easy
 description: "Add a new well-known annotation to Pods that the kubelet reads during container startup to configure resource limits"
 source: manual
 ground_truth:
-  - pkg/apis/core/types.Pod
-  - pkg/apis/core/types.ObjectMeta
-  - pkg/apis/core/annotation_key_constants.go
-  - staging/src/k8s.io/api/core/v1/types.Pod
-  - staging/src/k8s.io/api/core/v1/types.ObjectMeta
+  - Pod
+  - ObjectMeta
+  - go
+  - Pod
+  - ObjectMeta
 tags: [api-types, annotations, single-package, feature-addition]
 notes: "Adding a well-known annotation requires knowing the Pod type definition, where annotations live (ObjectMeta), and the annotation key constants file where well-known annotations are declared."

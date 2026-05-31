@@ -4,11 +4,11 @@ tier: hard
 description: "Implement a new controller that watches for changes to ConfigMaps and triggers rolling restarts of Deployments that reference them"
 source: manual
 ground_truth:
-  - k8s.io/kubernetes/pkg/controller/deployment.DeploymentController
-  - k8s.io/kubernetes/pkg/controller/deployment.DeploymentController.Run
-  - k8s.io/kubernetes/pkg/controller/deployment.DeploymentController.addDeployment
-  - k8s.io/kubernetes/pkg/scheduler.Scheduler.addAllEventHandlers
-  - k8s.io/client-go/informers.Core
-  - k8s.io/client-go/util/workqueue.NewRateLimitingQueue
+  - DeploymentController
+  - DeploymentController.Run
+  - DeploymentController.addDeployment
+  - Scheduler.addAllEventHandlers
+  - Core
+  - NewRateLimitingQueue
 tags: [controller, informers, cross-package, cross-cutting, feature-addition]
 notes: "Building a controller requires understanding the informer pattern (ConfigMapInformer, ResourceEventHandlerFuncs, Indexer), an existing controller as reference (DeploymentController and its syncDeployment), and the types being watched/modified."

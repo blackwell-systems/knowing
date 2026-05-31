@@ -4,10 +4,10 @@ tier: medium
 description: "Implement workspace selection and switching to manage multiple environment states from a single configuration"
 source: manual
 ground_truth:
-  - command.WorkspaceCommand
-  - command.WorkspaceSelectCommand
-  - command.WorkspaceNewCommand
-  - backend.Enhanced
-  - command.Meta.Workspace
+  - WorkspaceCommand
+  - WorkspaceSelectCommand
+  - WorkspaceNewCommand
+  - Enhanced
+  - Meta.Workspace
 tags: [workspace, environment, state, cross-package]
 notes: "Workspace management requires the WorkspaceCommand family, Enhanced backend interface for workspace support, and Meta.Workspace for current workspace detection."

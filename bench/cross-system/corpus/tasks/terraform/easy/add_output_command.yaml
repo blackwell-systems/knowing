@@ -4,9 +4,9 @@ tier: easy
 description: "Add a new output format to the terraform output command that renders values as a table"
 source: manual
 ground_truth:
-  - command.OutputCommand
-  - command.OutputCommand.Run
-  - command/views.NewPlan
-  - command/format.OutputChanges
+  - OutputCommand
+  - OutputCommand.Run
+  - NewPlan
+  - OutputChanges
 tags: [cli, output, formatting, single-package]
 notes: "Adding output format requires the OutputCommand and its Run method, plus the views/format layer for rendering."

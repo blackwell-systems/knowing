@@ -4,10 +4,10 @@ tier: medium
 description: "Create a custom response transformer to automatically serialize route return values as JSON"
 source: manual
 ground_truth:
-  - spark.ResponseTransformer
-  - spark.ResponseTransformer.render
-  - spark.ResponseTransformerRouteImpl
-  - spark.ResponseTransformerRouteImpl.create
-  - spark.Routable.defaultResponseTransformer
+  - ResponseTransformer
+  - ResponseTransformer.render
+  - ResponseTransformerRouteImpl
+  - ResponseTransformerRouteImpl.create
+  - Routable.defaultResponseTransformer
 tags: [serialization, response, cross-package]
 notes: "Cross-package: ResponseTransformer interface -> ResponseTransformerRouteImpl wrapping -> Routable.defaultResponseTransformer for global application."

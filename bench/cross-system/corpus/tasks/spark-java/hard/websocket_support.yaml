@@ -4,11 +4,11 @@ tier: hard
 description: "Add WebSocket endpoints with connection lifecycle handling alongside HTTP routes"
 source: manual
 ground_truth:
-  - spark.Service.webSocket
-  - spark.Service.addWebSocketHandler
-  - spark.embeddedserver.jetty.websocket.WebSocketHandlerWrapper
-  - spark.embeddedserver.jetty.websocket.WebSocketCreatorFactory.create
-  - spark.embeddedserver.jetty.websocket.WebSocketServletContextHandlerFactory.create
-  - spark.embeddedserver.jetty.EmbeddedJettyServer.configureWebSockets
+  - Service.webSocket
+  - Service.addWebSocketHandler
+  - WebSocketHandlerWrapper
+  - WebSocketCreatorFactory.create
+  - WebSocketServletContextHandlerFactory.create
+  - EmbeddedJettyServer.configureWebSockets
 tags: [websocket, real-time, cross-package]
 notes: "Deep cross-package: Service.webSocket -> WebSocketHandlerWrapper validates handler -> CreatorFactory creates Jetty creator -> ServletContextHandlerFactory builds context -> EmbeddedJettyServer configures."

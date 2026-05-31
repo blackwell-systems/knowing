@@ -4,8 +4,8 @@ tier: easy
 description: "Add a custom Jinja2 template filter that formats dates in a human-readable relative format"
 source: manual
 ground_truth:
-  - flask.sansio.app.App.add_template_filter
-  - flask.sansio.app.App.template_filter
-  - flask.templating.Environment
+  - App.add_template_filter
+  - App.template_filter
+  - Environment
 tags: [templates, jinja2, filters, single-package]
 notes: "Template filters require the add_template_filter registration method, the template_filter decorator, and the Environment where filters are registered."

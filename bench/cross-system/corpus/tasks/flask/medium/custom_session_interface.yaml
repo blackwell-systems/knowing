@@ -4,11 +4,11 @@ tier: medium
 description: "Implement a server-side session backend using Redis instead of Flask's default signed cookie sessions"
 source: manual
 ground_truth:
-  - flask.sessions.SessionInterface
-  - flask.sessions.SessionInterface.open_session
-  - flask.sessions.SessionInterface.save_session
-  - flask.sessions.SecureCookieSessionInterface
-  - flask.sessions.SecureCookieSession
-  - flask.sessions.SessionInterface.is_null_session
+  - SessionInterface
+  - SessionInterface.open_session
+  - SessionInterface.save_session
+  - SecureCookieSessionInterface
+  - SecureCookieSession
+  - SessionInterface.is_null_session
 tags: [sessions, storage, cross-package, feature-addition]
 notes: "Replacing the session backend requires understanding the SessionInterface abstract class (open_session/save_session), the default implementation (SecureCookieSessionInterface) as a pattern, the session data model (SecureCookieSession), and how the app dispatches to the interface."

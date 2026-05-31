@@ -4,11 +4,11 @@ tier: medium
 description: "Render HTML pages using a template engine with model data"
 source: manual
 ground_truth:
-  - spark.TemplateEngine
-  - spark.TemplateEngine.render
-  - spark.TemplateViewRoute
-  - spark.TemplateViewRoute.handle
-  - spark.ModelAndView
-  - spark.ModelAndView.getViewName
+  - TemplateEngine
+  - TemplateEngine.render
+  - TemplateViewRoute
+  - TemplateViewRoute.handle
+  - ModelAndView
+  - ModelAndView.getViewName
 tags: [templates, views, cross-package]
 notes: "Requires understanding TemplateEngine abstraction, TemplateViewRoute interface for template-based routes, and ModelAndView for passing data to templates."

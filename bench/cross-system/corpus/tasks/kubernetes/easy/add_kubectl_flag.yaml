@@ -4,10 +4,10 @@ tier: easy
 description: "Add a --dry-run=server flag to kubectl apply that sends the request with the dryRun query parameter so the API server validates without persisting"
 source: manual
 ground_truth:
-  - k8s.io/kubectl/pkg/cmd.NewDefaultKubectlCommand
-  - k8s.io/kubectl/pkg/cmd.NewKubectlCommand
-  - k8s.io/kubectl/pkg/cmd/util.AddValidateFlags
-  - k8s.io/kubectl/pkg/cmd/util.NewFactory
-  - k8s.io/kubectl/pkg/cmd/util.CheckErr
+  - NewDefaultKubectlCommand
+  - NewKubectlCommand
+  - AddValidateFlags
+  - NewFactory
+  - CheckErr
 tags: [kubectl, cli, dry-run, single-package, feature-addition]
 notes: "Adding a kubectl flag requires the ApplyOptions struct for command state, the Run method where logic executes, AddDryRunFlag for flag registration patterns, CreateOptions for the API-level dry-run parameter, and NewCmdApply for cobra command setup."

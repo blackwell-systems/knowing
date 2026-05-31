@@ -4,10 +4,10 @@ tier: easy
 description: "Add a custom field validator to a Django model that validates email format and checks against a blocklist"
 source: manual
 ground_truth:
-  - django.core.validators.EmailValidator
-  - django.core.validators.EmailValidator.__call__
-  - django.core.validators.BaseValidator
-  - django.core.validators.BaseValidator.__call__
-  - django.core.exceptions.ValidationError
+  - EmailValidator
+  - EmailValidator.__call__
+  - BaseValidator
+  - BaseValidator.__call__
+  - ValidationError
 tags: [validation, models, single-package, feature-addition]
 notes: "Developer needs the existing EmailValidator as a reference for writing validators, the validators field attribute on model fields, and ValidationError for the exception type to raise."

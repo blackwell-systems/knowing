@@ -105,6 +105,14 @@ func stripFilePath(s string) string {
 		}
 	}
 
+	// Case 4: All-lowercase Python path like "django.template.defaultfilters.floatformat".
+	// No uppercase marker, so the last component is the function name.
+	// This matches knowing's normalization which strips via file extension
+	// (e.g., "defaultfilters.py.floatformat" -> "floatformat").
+	if len(parts) > 1 {
+		return parts[len(parts)-1]
+	}
+
 	return s
 }
 
@@ -132,15 +140,32 @@ func MatchesGroundTruth(retrieved, groundTruth string) bool {
 		return true
 	}
 
-	// Terminal name match: compare the last dot-separated component.
-	// "Scaffold.before_request" matches "Flask.before_request" because
-	// the terminal name "before_request" is the same.
+	// Suffix match: bridges different qualification depths.
+	// "AuthenticationMiddleware.Invoke" matches "Ocelot.Authentication.AuthenticationMiddleware.Invoke"
+	// because they are the same symbol at different namespace depths. This is not
+	// permissive: it handles the structural fact that knowing strips file paths
+	// (producing "ClassName.Method") while ground truth may retain namespace prefixes
+	// (producing "Namespace.ClassName.Method").
+	if strings.HasSuffix(r, "."+g) || strings.HasSuffix(g, "."+r) {
+		return true
+	}
+	if strings.EqualFold(r, g) {
+		return true
+	}
+	// Also check case-insensitive suffix for Ruby (module::Class vs class)
+	rLower := strings.ToLower(r)
+	gLower := strings.ToLower(g)
+	if strings.HasSuffix(rLower, "."+gLower) || strings.HasSuffix(gLower, "."+rLower) {
+		return true
+	}
+
+	// Qualified terminal match: terminal name must match AND at least one
+	// qualifier component must overlap. Library.filter matches
+	// template.Library.filter (shared "Library"). Library.filter does NOT
+	// match QuerySet.filter (no shared qualifier).
 	rTerminal := terminalName(r)
 	gTerminal := terminalName(g)
 	if rTerminal != "" && gTerminal != "" && strings.EqualFold(rTerminal, gTerminal) {
-		// Terminal names match. Also check that at least one qualifier overlaps
-		// to avoid false positives (e.g., "User.save" matching "File.save").
-		// If the ground truth has a qualifier (Type.method), check if ANY component matches.
 		if qualifierOverlap(r, g) {
 			return true
 		}
@@ -150,13 +175,13 @@ func MatchesGroundTruth(retrieved, groundTruth string) bool {
 		}
 	}
 
-	// Substring match (handles different qualification levels)
-	if strings.Contains(r, g) || strings.Contains(g, r) {
-		return true
-	}
-
-	// Suffix match: "pkg.Type.Method" matches "Type.Method"
-	if strings.HasSuffix(r, "."+g) || strings.HasSuffix(g, "."+r) {
+	// Dot-bounded containment: one symbol is a complete dot-component of the other.
+	// "QuerySet" matches "QuerySet.query" (complete component at dot boundary).
+	// "Base" does NOT match "DatabaseBase" (mid-word, not dot-bounded).
+	// This handles parent-child relationships (returning a method when ground
+	// truth is the class, or vice versa) without false positives from
+	// coincidental name containment.
+	if dotBoundedContains(r, g) || dotBoundedContains(g, r) {
 		return true
 	}
 
@@ -199,23 +224,11 @@ func qualifierOverlap(a, b string) bool {
 		}
 	}
 
-	// For class methods: if terminal is the same and qualifier looks like a class
-	// name (capitalized), accept it. This handles inheritance (Flask.method vs
-	// Scaffold.method where Flask subclasses Scaffold).
-	// Only reject if terminal is a very common name that's likely coincidental.
-	terminal := strings.ToLower(aParts[len(aParts)-1])
-	commonNames := map[string]bool{
-		"get": true, "set": true, "run": true, "save": true, "load": true,
-		"init": true, "close": true, "open": true, "read": true, "write": true,
-		"start": true, "stop": true, "new": true, "delete": true, "update": true,
-	}
-	if commonNames[terminal] {
-		return false // too generic, require qualifier match
-	}
-
-	// Non-generic terminal name: accept the match even without qualifier overlap.
-	// This handles Flask.before_request vs Scaffold.before_request.
-	return true
+	// Require qualifier overlap for all terminal names. No fallback.
+	// QuerySet.filter does NOT match Library.filter (no shared qualifier).
+	// Flask.before_request matches Scaffold.before_request only if "Flask" or
+	// "Scaffold" appears in both sides.
+	return false
 }
 
 func stripRepoURL(s string) string {
@@ -270,5 +283,36 @@ func isNumeric(s string) bool {
 			return false
 		}
 	}
+	return true
+}
+
+// dotBoundedContains checks if inner appears as a complete dot-separated
+// component (or sequence of components) within outer.
+// "QuerySet" in "QuerySet.query" -> true (starts at dot boundary)
+// "Library" in "Library.filter" -> true
+// "Base" in "DatabaseBase" -> false (mid-word)
+// "filter" in "EmptyFieldListFilter" -> false (mid-word)
+// "Concern" in "ActiveSupport::Concern" -> true (:: boundary treated as dot)
+func dotBoundedContains(outer, inner string) bool {
+	// Normalize :: to . for Ruby module separators
+	o := strings.ReplaceAll(outer, "::", ".")
+	n := strings.ReplaceAll(inner, "::", ".")
+
+	idx := strings.Index(o, n)
+	if idx < 0 {
+		return false
+	}
+
+	// Check left boundary: must be at start or preceded by a dot
+	if idx > 0 && o[idx-1] != '.' {
+		return false
+	}
+
+	// Check right boundary: must be at end or followed by a dot
+	end := idx + len(n)
+	if end < len(o) && o[end] != '.' {
+		return false
+	}
+
 	return true
 }

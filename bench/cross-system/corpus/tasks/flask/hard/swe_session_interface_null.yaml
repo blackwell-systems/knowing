@@ -4,9 +4,9 @@ tier: hard
 description: "NullSession raises AttributeError instead of proper error message when session.modified is accessed in after_request handler after session was invalidated"
 source: swe-bench
 ground_truth:
-  - flask.sessions.NullSession
-  - flask.sessions.SecureCookieSessionInterface.save_session
-  - flask.sessions.SessionInterface.is_null_session
-  - flask.app.Flask.process_response
+  - NullSession
+  - SecureCookieSessionInterface.save_session
+  - SessionInterface.is_null_session
+  - Flask.process_response
 tags: [sessions, null-session, swe-bench, bug-fix]
 notes: "Based on Flask issue #3948. NullSession doesn't implement the modified property, so accessing it in after_request handlers raises an unexpected AttributeError instead of the helpful 'sessions not available' message."

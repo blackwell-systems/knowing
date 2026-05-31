@@ -4,9 +4,9 @@ tier: easy
 description: "Set up URL redirects from old paths to new paths"
 source: manual
 ground_truth:
-  - spark.Redirect
-  - spark.Redirect.get
-  - spark.Redirect.any
-  - spark.Response.redirect
+  - Redirect
+  - Redirect.get
+  - Redirect.any
+  - Response.redirect
 tags: [redirect, routing, single-package]
 notes: "Developer wants to redirect old URLs. Needs the Redirect utility class and Response.redirect for manual redirects."

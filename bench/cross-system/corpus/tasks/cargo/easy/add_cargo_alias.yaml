@@ -4,10 +4,10 @@ tier: easy
 description: "Add support for defining command aliases in .cargo/config.toml so that 'cargo t' expands to 'cargo test --release'"
 source: manual
 ground_truth:
-  - src/cargo/util/config/mod.rs.GlobalContext
-  - src/cargo/util/config/mod.rs.GlobalContext.get_list
-  - src/bin/cargo/cli.rs.expand_aliases
-  - src/bin/cargo/main.rs.main
-  - src/bin/cargo/commands/mod.rs.builtin_exec
+  - GlobalContext
+  - GlobalContext.get_list
+  - expand_aliases
+  - main
+  - builtin_exec
 tags: [config, cli, aliases, single-package, feature-addition]
 notes: "Command aliases require the GlobalContext for config access, get_list for reading the alias definitions, expand_aliases for the alias resolution logic, and understanding the CLI entry points (main, builtin_exec) to see where aliases are resolved before dispatch."

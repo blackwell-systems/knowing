@@ -4,11 +4,11 @@ tier: hard
 description: "Implement a tiered cache backend that chains an in-process LRU cache with a Redis backend, handles cache stampede prevention, and integrates with Django's cache framework signals"
 source: manual
 ground_truth:
-  - django.core.cache.backends.base.BaseCache
-  - django.core.cache.backends.base.BaseCache.get
-  - django.core.cache.backends.base.BaseCache.set
-  - django.core.cache.backends.base.BaseCache.get_or_set
-  - django.core.cache.backends.redis.RedisCache
-  - django.core.cache.CacheHandler
+  - BaseCache
+  - BaseCache.get
+  - BaseCache.set
+  - BaseCache.get_or_set
+  - RedisCache
+  - CacheHandler
 tags: [cache, backends, signals, cross-package, cross-cutting, feature-addition]
 notes: "A tiered cache backend requires the BaseCache interface (get/set/get_or_set), the existing RedisCache as a reference, CacheHandler for understanding how backends are instantiated and accessed, the cache proxy for default access patterns, and request_finished signal for cleanup coordination."

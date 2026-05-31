@@ -4,10 +4,10 @@ tier: hard
 description: "Trace how a Kafka Streams stateful processor persists state to a local RocksDB store and handles changelog topic recovery after a rebalance"
 source: manual
 ground_truth:
-  - streams.state.KeyValueStore
-  - streams.state.StateStore
-  - streams.processor.internals.ProcessorStateManager
-  - streams.processor.internals.StoreChangelogReader
-  - streams.state.internals.RocksDBStore
+  - KeyValueStore
+  - StateStore
+  - ProcessorStateManager
+  - StoreChangelogReader
+  - RocksDBStore
 tags: [streams, state-store, recovery, cross-package, understanding]
 notes: "State store recovery requires KeyValueStore/StateStore interfaces, ProcessorStateManager for lifecycle, StoreChangelogReader for replay, and RocksDBStore as concrete implementation."

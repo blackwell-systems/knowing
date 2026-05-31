@@ -4,8 +4,8 @@ tier: easy
 description: "Add a new provisioner that executes a script on a resource after creation using SSH"
 source: manual
 ground_truth:
-  - provisioners.Interface
-  - communicator.Communicator
-  - command.Meta.provisionerFactories
+  - Interface
+  - Communicator
+  - Meta.provisionerFactories
 tags: [provisioner, ssh, execution, single-package]
 notes: "Adding a provisioner requires the Interface contract, Communicator for SSH/WinRM, and the factory registration in Meta."

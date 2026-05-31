@@ -4,12 +4,12 @@ tier: hard
 description: "Prefetch with nested Prefetch objects using queryset slicing ([:5]) produces incorrect results when the outer queryset returns multiple objects with overlapping related sets"
 source: swe-bench
 ground_truth:
-  - django.db.models.query.QuerySet.prefetch_related
-  - django.db.models.query.prefetch_related_objects
-  - django.db.models.query.get_prefetcher
-  - django.db.models.query.Prefetch
-  - django.db.models.query.Prefetch.get_current_queryset
-  - django.db.models.sql.query.Query.set_limits
-  - django.db.models.sql.compiler.SQLCompiler.as_sql
+  - QuerySet.prefetch_related
+  - prefetch_related_objects
+  - get_prefetcher
+  - Prefetch
+  - Prefetch.get_current_queryset
+  - Query.set_limits
+  - SQLCompiler.as_sql
 tags: [orm, prefetch, nested, slicing, swe-bench, bug-fix]
 notes: "Based on Django ticket #32819. The prefetch machinery doesn't properly partition sliced nested querysets per-parent, causing results from one parent's slice to bleed into another's."

@@ -4,11 +4,11 @@ tier: medium
 description: "Add a new scheduling predicate that filters nodes based on a custom resource availability check during pod scheduling"
 source: manual
 ground_truth:
-  - pkg/scheduler/framework/interface.FilterPlugin
-  - pkg/scheduler/framework/interface.PreFilterPlugin
-  - pkg/scheduler/framework/runtime.frameworkImpl.RunFilterPlugins
-  - pkg/scheduler/framework/plugins/noderesources/fit.Fit
-  - pkg/scheduler/framework/plugins/noderesources/fit.Fit.Filter
-  - pkg/scheduler/framework/interface.NodeInfo
+  - FilterPlugin
+  - PreFilterPlugin
+  - frameworkImpl.RunFilterPlugins
+  - Fit
+  - Fit.Filter
+  - NodeInfo
 tags: [scheduler, plugins, cross-package, feature-addition]
 notes: "Adding a scheduling predicate requires understanding the scheduler plugin framework: the FilterPlugin/PreFilterPlugin interfaces, how RunFilterPlugins dispatches to plugins, and a concrete example (noderesources/fit) showing the implementation pattern."

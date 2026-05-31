@@ -4,10 +4,10 @@ tier: easy
 description: "Use halt() to immediately stop request processing and return a specific HTTP status code"
 source: manual
 ground_truth:
-  - spark.Service.halt
-  - spark.HaltException
-  - spark.HaltException.getStatusCode
-  - spark.HaltException.getBody
-  - spark.http.matching.Halt.modify
+  - Service.halt
+  - HaltException
+  - HaltException.getStatusCode
+  - HaltException.getBody
+  - Halt.modify
 tags: [halt, error-handling, single-package]
 notes: "Developer wants to short-circuit a request handler. Needs halt() method, HaltException class, and how Halt.modify processes it in the matching pipeline."

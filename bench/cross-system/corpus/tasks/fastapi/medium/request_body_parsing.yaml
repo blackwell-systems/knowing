@@ -4,11 +4,11 @@ tier: medium
 description: "How does FastAPI determine whether a parameter should be extracted from the request body vs query string vs path, and how are body fields validated?"
 source: manual
 ground_truth:
-  - fastapi.dependencies.utils.analyze_param
-  - fastapi.dependencies.utils.add_param_to_fields
-  - fastapi.dependencies.utils.request_body_to_args
-  - fastapi.dependencies.utils.get_body_field
-  - fastapi._compat.v2.ModelField.validate
-  - fastapi._compat.v2.create_body_model
+  - analyze_param
+  - add_param_to_fields
+  - request_body_to_args
+  - get_body_field
+  - ModelField.validate
+  - create_body_model
 tags: [parameter-resolution, body-parsing, cross-module, architecture]
 notes: "Requires understanding the parameter classification pipeline: analyze_param determines location, add_param_to_fields categorizes, request_body_to_args extracts body data, get_body_field creates the unified body parameter, and ModelField.validate runs Pydantic validation."

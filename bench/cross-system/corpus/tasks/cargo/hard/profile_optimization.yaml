@@ -4,10 +4,10 @@ tier: hard
 description: "Debug why a custom build profile with LTO produces larger binaries by tracing through profile resolution and rustc flag generation"
 source: manual
 ground_truth:
-  - manifest.TomlProfile
-  - manifest.TomlProfile.merge
-  - manifest.TomlProfiles
-  - build_context.BuildContext
-  - build_context.BuildContext.extra_args_for
+  - TomlProfile
+  - TomlProfile.merge
+  - TomlProfiles
+  - BuildContext
+  - BuildContext.extra_args_for
 tags: [profiles, optimization, lto, cross-package, debugging]
 notes: "Profile debugging requires TomlProfile for settings, merge for inheritance, TomlProfiles collection, and BuildContext for flag generation."

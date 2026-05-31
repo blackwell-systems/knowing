@@ -4,8 +4,8 @@ tier: medium
 description: "Extend cargo test to support filtering tests by custom attributes and module path patterns"
 source: manual
 ground_truth:
-  - ops.TestOptions
-  - compiler.BuildConfig
-  - build_context.BuildContext
+  - TestOptions
+  - BuildConfig
+  - BuildContext
 tags: [testing, filtering, compilation, cross-package]
 notes: "Test filtering requires TestOptions for filter configuration, BuildConfig for compilation settings, and BuildContext for test binary generation."

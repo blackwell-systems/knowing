@@ -4,11 +4,11 @@ tier: medium
 description: "Customize the auto-generated OpenAPI schema to add security schemes, modify operation descriptions, and configure the Swagger UI documentation page"
 source: manual
 ground_truth:
-  - fastapi.applications.FastAPI.openapi
-  - fastapi.openapi.utils.get_openapi
-  - fastapi.openapi.utils.get_openapi_path
-  - fastapi.openapi.docs.get_swagger_ui_html
-  - fastapi.openapi.docs.get_redoc_html
-  - fastapi.applications.FastAPI.setup
+  - FastAPI.openapi
+  - get_openapi
+  - get_openapi_path
+  - get_swagger_ui_html
+  - get_redoc_html
+  - FastAPI.setup
 tags: [openapi, documentation, cross-module, customization]
 notes: "Developer needs the FastAPI.openapi method that generates the schema, get_openapi which assembles the full spec, get_openapi_path for per-route schema, the docs HTML generators, and setup which wires the docs endpoints."

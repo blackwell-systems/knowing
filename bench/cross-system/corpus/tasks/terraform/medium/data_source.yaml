@@ -4,10 +4,10 @@ tier: medium
 description: "Implement a data source that reads external state and makes it available to other resources through interpolation"
 source: manual
 ground_truth:
-  - providers.ReadDataSourceResponse
-  - providers.Interface
-  - configs.Resource
-  - terraform.NodeAbstractResourceInstance
-  - terraform.EvalContext
+  - ReadDataSourceResponse
+  - Interface
+  - Resource
+  - NodeAbstractResourceInstance
+  - EvalContext
 tags: [data-source, providers, interpolation, cross-package]
 notes: "Data sources require ReadDataSourceResponse from the provider, the Interface contract, Resource config, the abstract instance node for graph placement, and EvalContext for expression evaluation."

@@ -4,11 +4,11 @@ tier: medium
 description: "Implement a custom partitioner that routes messages to specific partitions based on a key prefix extracted from the message headers"
 source: manual
 ground_truth:
-  - clients.producer.Partitioner
-  - clients.producer.internals.DefaultPartitioner
-  - clients.producer.KafkaProducer.partition
-  - clients.producer.ProducerRecord
-  - common.header.Headers
-  - common.header.Header
+  - Partitioner
+  - DefaultPartitioner
+  - KafkaProducer.partition
+  - ProducerRecord
+  - Headers
+  - Header
 tags: [producer, partitioning, cross-package, feature-addition]
 notes: "Custom partitioner requires the Partitioner interface, DefaultPartitioner as a pattern, the partition method that invokes it, ProducerRecord carrying the data, and Headers API for header-based routing."

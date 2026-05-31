@@ -4,9 +4,9 @@ tier: easy
 description: "Configure a consumer to join a consumer group with auto-commit disabled and earliest offset reset policy"
 source: manual
 ground_truth:
-  - clients.consumer.KafkaConsumer
-  - clients.consumer.ConsumerConfig
-  - clients.consumer.KafkaConsumer.subscribe
-  - clients.consumer.KafkaConsumer.poll
+  - KafkaConsumer
+  - ConsumerConfig
+  - KafkaConsumer.subscribe
+  - KafkaConsumer.poll
 tags: [consumer, configuration, consumer-group, single-package]
 notes: "Consumer group configuration requires KafkaConsumer, ConsumerConfig for properties, subscribe for topic assignment, and poll for the fetch loop."

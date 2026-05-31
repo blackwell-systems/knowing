@@ -4,11 +4,11 @@ tier: hard
 description: "Window function with expression in partition_by crashes when the expression contains a transform lookup (e.g. ExtractYear) and the query also uses .values() grouping"
 source: swe-bench
 ground_truth:
-  - django.db.models.expressions.Window
-  - django.db.models.expressions.Window.resolve_expression
-  - django.db.models.functions.window.Rank
-  - django.db.models.sql.compiler.SQLCompiler.get_group_by
-  - django.db.models.sql.query.Query.resolve_ref
-  - django.db.models.functions.datetime.ExtractYear
+  - Window
+  - Window.resolve_expression
+  - Rank
+  - SQLCompiler.get_group_by
+  - Query.resolve_ref
+  - ExtractYear
 tags: [orm, window-functions, expressions, swe-bench, bug-fix]
 notes: "Based on Django ticket #33106. Window partition_by with a transform expression does not properly resolve through resolve_expression when combined with values grouping, causing a column reference mismatch."

@@ -4,8 +4,8 @@ tier: easy
 description: "Add support for a new environment variable that cargo sets during build scripts to expose the target architecture"
 source: manual
 ground_truth:
-  - src/cargo/core/compiler/custom_build.rs.BuildOutput
-  - src/cargo/core/compiler/custom_build.rs.BuildOutput.parse
-  - src/cargo/core/compiler/build_context/target_info.rs.TargetInfo
+  - BuildOutput
+  - BuildOutput.parse
+  - TargetInfo
 tags: [build-scripts, environment, configuration, single-package]
 notes: "Build script environment requires BuildOutput for parsing stdout directives, and TargetInfo for architecture details."

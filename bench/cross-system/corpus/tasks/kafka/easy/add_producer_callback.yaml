@@ -4,9 +4,9 @@ tier: easy
 description: "Add a callback that logs delivery acknowledgments when the producer successfully sends a message to a partition"
 source: manual
 ground_truth:
-  - clients.producer.Callback
-  - clients.producer.KafkaProducer.send
-  - clients.producer.RecordMetadata
-  - clients.producer.ProducerRecord
+  - Callback
+  - KafkaProducer.send
+  - RecordMetadata
+  - ProducerRecord
 tags: [producer, callback, acknowledgment, single-package]
 notes: "Producer callback requires the Callback interface, the send method that accepts it, RecordMetadata returned on success, and ProducerRecord being sent."

@@ -4,10 +4,10 @@ tier: medium
 description: "Configure static file serving from both classpath and external directory"
 source: manual
 ground_truth:
-  - spark.Service.staticFiles
-  - spark.Service.externalStaticFileLocation
-  - spark.staticfiles.StaticFilesConfiguration.configure
-  - spark.staticfiles.StaticFilesConfiguration.consume
-  - spark.http.matching.StaticFiles.execute
+  - Service.staticFiles
+  - Service.externalStaticFileLocation
+  - StaticFilesConfiguration.configure
+  - StaticFilesConfiguration.consume
+  - StaticFiles.execute
 tags: [static-files, configuration, cross-package]
 notes: "Cross-package: Service.staticFiles -> StaticFilesConfiguration -> StaticFiles execution in the matching pipeline."

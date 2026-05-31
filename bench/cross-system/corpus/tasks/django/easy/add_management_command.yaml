@@ -4,10 +4,10 @@ tier: easy
 description: "Write a management command that exports user data to CSV with progress reporting and handles keyboard interrupts gracefully"
 source: manual
 ground_truth:
-  - django.core.management.base.BaseCommand
-  - django.core.management.base.BaseCommand.handle
-  - django.core.management.base.BaseCommand.add_arguments
-  - django.core.management.base.OutputWrapper
-  - django.core.management.call_command
+  - BaseCommand
+  - BaseCommand.handle
+  - BaseCommand.add_arguments
+  - OutputWrapper
+  - call_command
 tags: [management-commands, cli, single-package, feature-addition]
 notes: "Writing a management command requires the BaseCommand class and its handle/add_arguments methods, OutputWrapper for styled output, and call_command for understanding how commands are invoked programmatically."

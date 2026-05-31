@@ -4,14 +4,14 @@ tier: hard
 description: "Trace how an HTTP request flows through the Spark framework from Jetty handler to route execution"
 source: manual
 ground_truth:
-  - spark.embeddedserver.jetty.JettyHandler.doHandle
-  - spark.http.matching.MatcherFilter.doFilter
-  - spark.http.matching.BeforeFilters.execute
-  - spark.http.matching.Routes.execute
-  - spark.http.matching.AfterFilters.execute
-  - spark.http.matching.AfterAfterFilters.execute
-  - spark.http.matching.Body.serializeTo
-  - spark.route.Routes.find
-  - spark.routematch.RouteMatch.getMatchUri
+  - JettyHandler.doHandle
+  - MatcherFilter.doFilter
+  - BeforeFilters.execute
+  - Routes.execute
+  - AfterFilters.execute
+  - AfterAfterFilters.execute
+  - Body.serializeTo
+  - Routes.find
+  - RouteMatch.getMatchUri
 tags: [request-lifecycle, architectural, cross-package]
 notes: "Full request lifecycle: JettyHandler -> MatcherFilter -> Before -> Routes -> After -> AfterAfter. Requires understanding the entire matching pipeline."

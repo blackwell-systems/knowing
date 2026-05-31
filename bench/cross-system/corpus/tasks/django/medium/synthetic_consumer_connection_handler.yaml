@@ -4,10 +4,10 @@ tier: medium
 description: "Find all places that call ConnectionHandler.__getitem__ to get a database connection, to understand what would break if we changed the connection pooling behavior"
 source: synthetic
 ground_truth:
-  - django.utils.connection.BaseConnectionHandler.__getitem__
-  - django.db.models.sql.compiler.SQLCompiler.execute_sql
-  - django.db.models.base.Model.save_base
-  - django.db.backends.base.base.BaseDatabaseWrapper.connect
-  - django.db.utils.ConnectionHandler
+  - BaseConnectionHandler.__getitem__
+  - SQLCompiler.execute_sql
+  - Model.save_base
+  - BaseDatabaseWrapper.connect
+  - ConnectionHandler
 tags: [api-consumer, callers, connection-pooling, impact-analysis]
 notes: "Tests finding consumers of an API rather than the API itself. The retrieval system must find call sites of ConnectionHandler.__getitem__ (typically accessed as connections['default']) across the ORM, test utils, and management commands."

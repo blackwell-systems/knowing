@@ -4,15 +4,15 @@ tier: hard
 description: "How does FastAPI's type annotation system determine whether a parameter is a path param, query param, header, cookie, body field, or a dependency, and how does this interact with Pydantic field info?"
 source: manual
 ground_truth:
-  - fastapi.dependencies.utils.analyze_param
-  - fastapi.dependencies.utils.add_param_to_fields
-  - fastapi.dependencies.utils.get_typed_signature
-  - fastapi.dependencies.utils.get_dependant
-  - fastapi.params.Param
-  - fastapi.params.Query
-  - fastapi.params.Body
-  - fastapi._compat.shared.field_annotation_is_scalar
-  - fastapi._compat.shared.field_annotation_is_complex
-  - fastapi.utils.create_model_field
+  - analyze_param
+  - add_param_to_fields
+  - get_typed_signature
+  - get_dependant
+  - Param
+  - Query
+  - Body
+  - field_annotation_is_scalar
+  - field_annotation_is_complex
+  - create_model_field
 tags: [type-system, parameter-resolution, pydantic, cross-package, architecture]
 notes: "Deep architectural question spanning the dependency utils, params module, and Pydantic compat layer. analyze_param is the central dispatcher that checks annotation type and default value. The Param hierarchy defines parameter locations. The compat layer classifies scalar vs complex types. create_model_field bridges to Pydantic."

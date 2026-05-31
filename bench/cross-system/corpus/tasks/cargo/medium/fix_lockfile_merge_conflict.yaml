@@ -4,8 +4,8 @@ tier: medium
 description: "Fix a Cargo.lock merge conflict by understanding how the lockfile format encodes resolved dependencies"
 source: manual
 ground_truth:
-  - ops.generate_lockfile
-  - ops.are_equal_lockfiles
-  - core.Package.include_lockfile
+  - generate_lockfile
+  - are_equal_lockfiles
+  - Package.include_lockfile
 tags: [lockfile, merge, dependencies, cross-package]
 notes: "Lockfile conflicts require generate_lockfile for regeneration, are_equal_lockfiles for comparison, and Package.include_lockfile for inclusion logic."

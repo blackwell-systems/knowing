@@ -4,8 +4,8 @@ tier: easy
 description: "Fix the sync function in the endpoint slice controller that reconciles endpoints when a service's selector changes"
 source: synthetic
 ground_truth:
-  - k8s.io/kubernetes/pkg/controller/endpointslice.Controller.syncService
-  - k8s.io/kubernetes/pkg/controller/endpointslice.Controller.reconcile
-  - k8s.io/kubernetes/pkg/controller/endpointslice.Controller.Run
+  - Controller.syncService
+  - Controller.reconcile
+  - Controller.Run
 tags: [naming-collision, disambiguation, controller, sync]
 notes: "Tests disambiguation. Nearly every controller in kubernetes has a 'sync' or 'syncFoo' function. The description specifies endpoint slice + service selector change to disambiguate from dozens of other sync functions."

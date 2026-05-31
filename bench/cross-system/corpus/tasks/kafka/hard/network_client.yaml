@@ -4,11 +4,11 @@ tier: hard
 description: "Debug network timeout issues by tracing through the NetworkClient, Selector, and connection state machine that manages broker connections"
 source: manual
 ground_truth:
-  - clients.NetworkClient
-  - clients.NetworkClient.poll
-  - clients.NetworkClient.ready
-  - common.network.Selector
-  - common.network.KafkaChannel
-  - clients.ClusterConnectionStates
+  - NetworkClient
+  - NetworkClient.poll
+  - NetworkClient.ready
+  - Selector
+  - KafkaChannel
+  - ClusterConnectionStates
 tags: [networking, connections, timeout, cross-package, debugging]
 notes: "Network debugging requires NetworkClient (protocol layer), its poll loop, ready check for connection state, Selector for NIO, KafkaChannel for per-broker streams, and ClusterConnectionStates for tracking."

@@ -4,13 +4,13 @@ tier: hard
 description: "Implement a custom registry source that fetches crates from a private S3 bucket with authentication, following the same protocol as crates.io"
 source: manual
 ground_truth:
-  - src/cargo/sources/registry/mod.rs.RegistrySource
-  - src/cargo/sources/registry/mod.rs.RegistryData
-  - src/cargo/sources/registry/remote.rs.RemoteRegistry
-  - src/cargo/sources/registry/http_remote.rs.HttpRegistry
-  - src/cargo/core/source/source_id.rs.SourceId
-  - src/cargo/sources/config.rs.SourceConfigMap
-  - src/cargo/util/auth/mod.rs.RegistryConfig
-  - src/cargo/core/source/mod.rs.Source
+  - RegistrySource
+  - RegistryData
+  - RemoteRegistry
+  - HttpRegistry
+  - SourceId
+  - SourceConfigMap
+  - RegistryConfig
+  - Source
 tags: [sources, registry, auth, cross-package, cross-cutting, feature-addition]
 notes: "Implementing a custom source requires understanding the Source trait, RegistrySource/RegistryData abstractions, existing remote implementations (RemoteRegistry, HttpRegistry) as patterns, source identification (SourceId), source configuration (SourceConfigMap), and authentication (RegistryConfig)."

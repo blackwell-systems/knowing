@@ -4,8 +4,8 @@ tier: easy
 description: "Define a Pydantic response model and use it to serialize and validate the response from an endpoint"
 source: manual
 ground_truth:
-  - fastapi.routing.serialize_response
-  - fastapi.encoders.jsonable_encoder
-  - fastapi.routing.APIRoute.__init__
+  - serialize_response
+  - jsonable_encoder
+  - APIRoute.__init__
 tags: [response-model, serialization, single-package, feature-addition]
 notes: "Developer needs serialize_response to understand how responses are validated, jsonable_encoder for the serialization utility, and APIRoute.__init__ where response_model is configured."

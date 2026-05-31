@@ -4,11 +4,11 @@ tier: medium
 description: "Implement a custom provider that exposes resources with schema validation and CRUD lifecycle methods"
 source: manual
 ground_truth:
-  - internal/providers/providers.Interface
-  - internal/providers/providers.GetProviderSchemaResponse
-  - internal/providers/providers.ReadResourceResponse
-  - internal/providers/providers.PlanResourceChangeResponse
-  - internal/providers/providers.ApplyResourceChangeResponse
-  - internal/configs/configschema.Block
+  - Interface
+  - GetProviderSchemaResponse
+  - ReadResourceResponse
+  - PlanResourceChangeResponse
+  - ApplyResourceChangeResponse
+  - Block
 tags: [provider, schema, lifecycle, cross-package, feature-addition]
 notes: "Implementing a provider requires the Interface contract, the schema response types for resource CRUD, and the configschema.Block that defines attribute structure."

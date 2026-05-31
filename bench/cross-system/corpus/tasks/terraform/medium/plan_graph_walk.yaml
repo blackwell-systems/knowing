@@ -4,11 +4,11 @@ tier: medium
 description: "Trace how terraform plan builds and walks the resource dependency graph to determine execution order"
 source: manual
 ground_truth:
-  - internal/terraform/context_plan.Context.PlanAndEval
-  - internal/terraform/context_plan.Context.planWalk
-  - internal/terraform/context_walk.Context.walk
-  - internal/terraform/context_walk.Context.graphWalker
-  - internal/terraform/graph.Graph
-  - internal/dag/dag.AcyclicGraph
+  - Context.PlanAndEval
+  - Context.planWalk
+  - Context.walk
+  - Context.graphWalker
+  - Graph
+  - AcyclicGraph
 tags: [plan, graph, walk, cross-package, understanding]
 notes: "Understanding the plan graph walk requires the PlanAndEval entry point, planWalk which builds the graph, the walk function that executes it, the graphWalker that processes nodes, the Graph type, and the underlying DAG implementation."

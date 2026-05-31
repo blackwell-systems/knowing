@@ -4,9 +4,9 @@ tier: medium
 description: "Template rendering raises VariableDoesNotExist in DEBUG mode when accessing a property that raises AttributeError, instead of silently failing as documented"
 source: swe-bench
 ground_truth:
-  - django.template.base.Variable.resolve
-  - django.template.base.Variable._resolve_lookup
-  - django.template.base.FilterExpression.resolve
-  - django.template.defaulttags.IfNode.render
+  - Variable.resolve
+  - Variable._resolve_lookup
+  - FilterExpression.resolve
+  - IfNode.render
 tags: [templates, rendering, swe-bench, bug-fix]
 notes: "Based on Django ticket #33471. The Variable._resolve_lookup treats AttributeError from a property getter as a missing attribute, but in DEBUG mode the exception propagation path differs."

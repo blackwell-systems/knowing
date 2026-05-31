@@ -4,14 +4,14 @@ tier: hard
 description: "Trace the full OpenAPI schema generation pipeline from registered routes to the final JSON schema, including how Pydantic models are converted to JSON Schema definitions and how security schemes are collected"
 source: synthetic
 ground_truth:
-  - fastapi.applications.FastAPI.openapi
-  - fastapi.openapi.utils.get_openapi
-  - fastapi.openapi.utils.get_openapi_path
-  - fastapi.openapi.utils.get_fields_from_routes
-  - fastapi.openapi.utils._get_openapi_operation_parameters
-  - fastapi.openapi.utils.get_openapi_security_definitions
-  - fastapi._compat.v2.get_flat_models_from_fields
-  - fastapi._compat.v2.get_definitions
-  - fastapi._compat.v2.get_schema_from_model_field
+  - FastAPI.openapi
+  - get_openapi
+  - get_openapi_path
+  - get_fields_from_routes
+  - _get_openapi_operation_parameters
+  - get_openapi_security_definitions
+  - get_flat_models_from_fields
+  - get_definitions
+  - get_schema_from_model_field
 tags: [openapi, schema-generation, pydantic, cross-package, architecture]
 notes: "Requires tracing across three modules: FastAPI.openapi triggers get_openapi, which calls get_openapi_path per route and get_fields_from_routes to collect all models. The Pydantic compat layer converts models to JSON Schema via get_flat_models_from_fields and get_definitions. Security definitions are assembled separately."

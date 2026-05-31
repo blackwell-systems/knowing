@@ -4,12 +4,12 @@ tier: medium
 description: "Add a custom QuerySet method that performs a complex aggregation with annotation and filtering, similar to how Django's ORM handles Count with filter"
 source: manual
 ground_truth:
-  - django.db.models.query.QuerySet
-  - django.db.models.query.QuerySet._clone
-  - django.db.models.query.QuerySet.annotate
-  - django.db.models.query.QuerySet.filter
-  - django.db.models.manager.BaseManager.from_queryset
-  - django.db.models.aggregates.Count
-  - django.db.models.expressions.F.__init__
+  - QuerySet
+  - QuerySet._clone
+  - QuerySet.annotate
+  - QuerySet.filter
+  - BaseManager.from_queryset
+  - Count
+  - F.__init__
 tags: [orm, queryset, cross-package, feature-addition]
 notes: "Developer building custom QuerySet methods needs to understand the clone pattern (_clone), how annotate/filter chain internally, how managers connect to querysets (from_queryset), and the expression API (F, Count)."

@@ -4,11 +4,11 @@ tier: hard
 description: "Trace how terraform resolves implicit dependencies between resources by analyzing configuration references and building the dependency graph"
 source: manual
 ground_truth:
-  - terraform.ReferenceTransformer
-  - terraform.ReferenceMap
-  - terraform.Graph.Walk
-  - configs.Resource
-  - addrs.Reference
-  - addrs.Referenceable
+  - ReferenceTransformer
+  - ReferenceMap
+  - Graph.Walk
+  - Resource
+  - Reference
+  - Referenceable
 tags: [dependencies, references, graph, cross-package, understanding]
 notes: "Dependency resolution requires ReferenceTransformer for injecting edges, ReferenceMap for lookup, Graph.Walk for execution, Resource for declarations, and Reference/Referenceable for the address system."

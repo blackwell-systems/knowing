@@ -4,9 +4,9 @@ tier: medium
 description: "Implement a new build script output directive that passes custom metadata from build.rs to dependent crates"
 source: manual
 ground_truth:
-  - compiler.BuildOutput
-  - compiler.BuildOutput.parse
-  - compiler.BuildOutput.parse_file
-  - job_queue.JobQueue
+  - BuildOutput
+  - BuildOutput.parse
+  - BuildOutput.parse_file
+  - JobQueue
 tags: [build-scripts, metadata, compilation, cross-package]
 notes: "Build script output requires BuildOutput for parsing stdout directives, its parse methods for directive handling, and JobQueue for execution ordering."

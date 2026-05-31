@@ -4,9 +4,9 @@ tier: easy
 description: "Add a custom CLI command to the flask application using click integration"
 source: manual
 ground_truth:
-  - flask.cli.FlaskGroup
-  - flask.cli.AppGroup
-  - flask.cli.with_appcontext
-  - flask.app.Flask.cli
+  - FlaskGroup
+  - AppGroup
+  - with_appcontext
+  - Flask.cli
 tags: [cli, click, commands, single-package]
 notes: "Flask CLI requires FlaskGroup/AppGroup for command registration, with_appcontext decorator for app access, and Flask.cli property."

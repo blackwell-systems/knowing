@@ -4,8 +4,8 @@ tier: easy
 description: "Add support for a new registry protocol that authenticates with OAuth tokens"
 source: manual
 ground_truth:
-  - crates-io.Registry
-  - crates-io.Registry.add_owners
-  - crates-io.Registry.get
+  - Registry
+  - Registry.add_owners
+  - Registry.get
 tags: [registry, authentication, protocol, single-package]
 notes: "Registry protocol requires the Registry type and its methods for interacting with crates.io."

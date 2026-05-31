@@ -4,11 +4,11 @@ tier: medium
 description: "Add custom exception handling for API errors with JSON error responses"
 source: manual
 ground_truth:
-  - spark.ExceptionHandler.handle
-  - spark.ExceptionHandlerImpl.<init>
-  - spark.ExceptionMapper.map
-  - spark.Routable.exception
-  - spark.Service.exception
-  - spark.http.matching.GeneralError.execute
+  - ExceptionHandler.handle
+  - ExceptionHandlerImpl.<init>
+  - ExceptionMapper.map
+  - Routable.exception
+  - Service.exception
+  - GeneralError.execute
 tags: [error-handling, cross-package]
 notes: "Requires understanding the exception handling pipeline from Service.exception() through ExceptionMapper to GeneralError execution."

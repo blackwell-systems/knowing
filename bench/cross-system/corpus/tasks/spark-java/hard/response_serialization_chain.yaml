@@ -4,12 +4,12 @@ tier: hard
 description: "Trace how route return values are serialized to the HTTP response body through the serializer chain"
 source: manual
 ground_truth:
-  - spark.serialization.SerializerChain
-  - spark.serialization.Serializer
-  - spark.serialization.Serializer.processElement
-  - spark.serialization.BytesSerializer
-  - spark.serialization.InputStreamSerializer
-  - spark.serialization.DefaultSerializer
-  - spark.http.matching.Body.serializeTo
+  - SerializerChain
+  - Serializer
+  - Serializer.processElement
+  - BytesSerializer
+  - InputStreamSerializer
+  - DefaultSerializer
+  - Body.serializeTo
 tags: [serialization, response, architectural]
 notes: "Chain of responsibility: Body.serializeTo calls SerializerChain.process -> Serializer.processElement checks canProcess in order: BytesSerializer -> InputStreamSerializer -> DefaultSerializer."

@@ -4,9 +4,9 @@ tier: easy
 description: "Configure SSL/TLS encryption for a Kafka producer connecting to a secured broker cluster"
 source: manual
 ground_truth:
-  - common.security.ssl.SslFactory
-  - common.config.SslConfigs
-  - common.network.ChannelBuilders
-  - clients.CommonClientConfigs
+  - SslFactory
+  - SslConfigs
+  - ChannelBuilders
+  - CommonClientConfigs
 tags: [security, ssl, configuration, single-package]
 notes: "SSL configuration requires SslFactory for context creation, SslConfigs for property names, ChannelBuilders for socket setup, and CommonClientConfigs for shared config keys."

@@ -4,9 +4,9 @@ tier: easy
 description: "How does caddy rewrite incoming request URIs before they reach handlers?"
 source: manual
 ground_truth:
-  - caddyhttp/rewrite.Rewrite
-  - caddyhttp/rewrite.Rewrite.ServeHTTP
-  - caddyhttp/rewrite.Rewrite.Rewrite
-  - caddyhttp/rewrite.changePath
+  - Rewrite
+  - Rewrite.ServeHTTP
+  - Rewrite.Rewrite
+  - changePath
 tags: [rewrite, uri, middleware, single-package]
 notes: "Rewrite type implements MiddlewareHandler; ServeHTTP invokes the Rewrite method which delegates to changePath for path mutations."

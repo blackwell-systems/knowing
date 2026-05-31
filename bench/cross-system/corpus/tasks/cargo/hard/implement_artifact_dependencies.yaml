@@ -4,13 +4,13 @@ tier: hard
 description: "Implement artifact dependencies (RFC 3028) where a crate can depend on the binary output of another crate as a build input, requiring changes to resolution, compilation, and fingerprinting"
 source: manual
 ground_truth:
-  - src/cargo/core/compiler/artifact.rs
-  - src/cargo/core/resolver/mod.rs.resolve
-  - src/cargo/core/compiler/unit_dependencies.rs.compute_deps
-  - src/cargo/core/compiler/fingerprint/mod.rs.calculate
-  - src/cargo/core/dependency.rs.Dependency
-  - src/cargo/core/dependency.rs.Dependency.set_artifact
-  - src/cargo/core/manifest.rs.Target
-  - src/cargo/core/compiler/build_context/target_info.rs.TargetInfo
+  - rs
+  - resolve
+  - compute_deps
+  - calculate
+  - Dependency
+  - Dependency.set_artifact
+  - Target
+  - TargetInfo
 tags: [artifact-deps, resolver, compiler, cross-package, cross-cutting, feature-addition]
 notes: "Artifact dependencies span multiple subsystems: resolution (resolver/mod.rs), dependency graph computation (unit_dependencies), fingerprinting for incremental builds, the dependency type itself (set_artifact), target metadata (Target, TargetInfo), and the dedicated artifact module."

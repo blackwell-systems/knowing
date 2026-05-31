@@ -4,10 +4,10 @@ tier: easy
 description: "Create a custom template filter that formats currency values with locale-aware thousand separators and currency symbols"
 source: manual
 ground_truth:
-  - django.template.library.Library.filter
-  - django.template.library.Library
-  - django.template.defaultfilters.floatformat
-  - django.utils.formats.number_format
-  - django.template.base.FilterExpression
+  - Library.filter
+  - Library
+  - floatformat
+  - number_format
+  - FilterExpression
 tags: [templates, filters, single-package, feature-addition]
 notes: "Adding a custom template filter requires the Library.filter decorator for registration, an existing filter (floatformat) as a pattern, the formatting utility (number_format), and FilterExpression to understand how filters are resolved in templates."

@@ -4,10 +4,10 @@ tier: medium
 description: "Generate a build plan that shows compilation order and parallelism for all crates in the dependency graph"
 source: manual
 ground_truth:
-  - job_queue.JobQueue
-  - job_queue.JobQueue.execute
-  - job_queue.JobQueue.enqueue
-  - build_context.BuildContext
-  - compiler.resolve_std
+  - JobQueue
+  - JobQueue.execute
+  - JobQueue.enqueue
+  - BuildContext
+  - resolve_std
 tags: [compilation, parallelism, dependency-graph, cross-package]
 notes: "Build plan requires JobQueue for scheduling and execution, BuildContext for configuration, and resolve_std for standard library handling."

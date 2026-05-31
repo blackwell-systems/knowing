@@ -4,13 +4,13 @@ tier: hard
 description: "Understand and customize the embedded Jetty server lifecycle from ignition to shutdown"
 source: manual
 ground_truth:
-  - spark.embeddedserver.EmbeddedServer
-  - spark.embeddedserver.EmbeddedServerFactory
-  - spark.embeddedserver.EmbeddedServers
-  - spark.embeddedserver.jetty.EmbeddedJettyFactory
-  - spark.embeddedserver.jetty.EmbeddedJettyServer.ignite
-  - spark.embeddedserver.jetty.EmbeddedJettyServer.extinguish
-  - spark.Service.init
-  - spark.Service.stop
+  - EmbeddedServer
+  - EmbeddedServerFactory
+  - EmbeddedServers
+  - EmbeddedJettyFactory
+  - EmbeddedJettyServer.ignite
+  - EmbeddedJettyServer.extinguish
+  - Service.init
+  - Service.stop
 tags: [server, lifecycle, architectural]
 notes: "Full server architecture: EmbeddedServer interface -> EmbeddedServerFactory creates -> EmbeddedServers registry -> EmbeddedJettyFactory/Server implements -> Service.init/stop orchestrates."

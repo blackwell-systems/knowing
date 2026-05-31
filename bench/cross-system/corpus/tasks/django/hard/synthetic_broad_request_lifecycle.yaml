@@ -4,13 +4,13 @@ tier: hard
 description: "I want to understand the full request lifecycle from when a URL is matched to when the response is sent, including all middleware hooks and exception handling paths"
 source: synthetic
 ground_truth:
-  - django.core.handlers.base.BaseHandler.get_response
-  - django.core.handlers.base.BaseHandler._get_response
-  - django.urls.resolvers.URLResolver.resolve
-  - django.middleware.common.CommonMiddleware.process_request
-  - django.core.handlers.exception.convert_exception_to_response
-  - django.utils.deprecation.MiddlewareMixin.__call__
-  - django.core.handlers.base.BaseHandler.resolve_request
-  - django.views.generic.base.View.dispatch
+  - BaseHandler.get_response
+  - BaseHandler._get_response
+  - URLResolver.resolve
+  - CommonMiddleware.process_request
+  - convert_exception_to_response
+  - MiddlewareMixin.__call__
+  - BaseHandler.resolve_request
+  - View.dispatch
 tags: [broad-scope, architecture, request-lifecycle, cross-package]
 notes: "Tests retrieval breadth. A vague architectural question that requires understanding the handler, URL resolver, middleware system, exception handling, and view dispatch working together."

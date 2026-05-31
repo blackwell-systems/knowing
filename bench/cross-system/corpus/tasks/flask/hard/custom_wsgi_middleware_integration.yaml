@@ -4,11 +4,11 @@ tier: hard
 description: "Integrate a custom WSGI middleware that intercepts streaming responses, adds gzip compression, and preserves Flask's context locals across the middleware boundary"
 source: manual
 ground_truth:
-  - flask.app.Flask.wsgi_app
-  - flask.app.Flask.__call__
-  - flask.ctx.RequestContext.copy
-  - flask.ctx.AppContext.push
-  - flask.wrappers.Response
-  - flask.app.Flask.make_response
+  - Flask.wsgi_app
+  - Flask.__call__
+  - RequestContext.copy
+  - AppContext.push
+  - Response
+  - Flask.make_response
 tags: [wsgi, middleware, streaming, context-management, cross-package, cross-cutting]
 notes: "Integrating WSGI middleware with Flask's context system requires understanding the WSGI entry point (wsgi_app/__call__), how context locals are preserved across boundaries (RequestContext.copy, _cv_request), how responses are streamed at the WSGI level (iter_encoded, get_wsgi_response), and the AppContext lifecycle."
