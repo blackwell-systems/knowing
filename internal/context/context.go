@@ -1127,6 +1127,49 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 		ranked = append(injected, deduped...)
 	}
 
+	// Adaptive strategy: if RWR produced flat results (low confidence), fall back
+	// to direct FTS + contains-edge expansion. This helps massive repos (vscode 552K
+	// nodes) where RWR always diffuses to near-uniform and the top-10 is noise.
+	if len(ranked) >= 10 && resultConfidence(ranked) < 0.3 {
+		// RWR didn't converge. Try direct symbol name search + 1-hop expansion.
+		directResults := directFTSExpansion(ctx, e.store, e.bm25, ks, 10)
+		if len(directResults) > 0 {
+			// Merge: keep framework injections at top, add direct results, then RWR.
+			var merged []RankedSymbol
+			mergedSeen := make(map[types.Hash]bool)
+			// Framework injections stay at top.
+			for _, r := range ranked {
+				if r.Score > ranked[0].Score-0.05 { // top cluster (injections)
+					merged = append(merged, r)
+					mergedSeen[r.Node.NodeHash] = true
+				}
+			}
+			// Add direct FTS results with high score.
+			baseScore := 0.7
+			if len(merged) > 0 {
+				baseScore = merged[len(merged)-1].Score - 0.01
+			}
+			for i, n := range directResults {
+				if mergedSeen[n.NodeHash] {
+					continue
+				}
+				mergedSeen[n.NodeHash] = true
+				merged = append(merged, RankedSymbol{
+					Node:  n,
+					Score: baseScore - float64(i)*0.01,
+				})
+			}
+			// Fill rest from RWR.
+			for _, r := range ranked {
+				if mergedSeen[r.Node.NodeHash] {
+					continue
+				}
+				merged = append(merged, r)
+			}
+			ranked = merged
+		}
+	}
+
 	block := packIntoBudget(ranked, budget, opts.Format)
 
 	// Record returned symbols in session tracker for future query boosts.
@@ -1734,6 +1777,115 @@ func buildFTSQuery(keywords []string) string {
 		}
 	}
 	return strings.Join(parts, " OR ")
+}
+
+// resultConfidence measures how concentrated the RWR scores are.
+// Returns 0.0 (completely flat, no signal) to 1.0 (strongly peaked).
+// A flat distribution means RWR didn't converge on anything meaningful.
+func resultConfidence(ranked []RankedSymbol) float64 {
+	if len(ranked) < 10 {
+		return 1.0 // too few results to judge
+	}
+	top := ranked[0].Score
+	tenth := ranked[9].Score
+	if top <= 0 {
+		return 0.0
+	}
+	// Ratio: how much does #1 stand out from #10?
+	// High ratio (>3x) = strong convergence. Low ratio (<1.5x) = flat.
+	ratio := top / tenth
+	if ratio > 3.0 {
+		return 1.0
+	}
+	if ratio < 1.2 {
+		return 0.0
+	}
+	// Linear interpolation between 1.2 and 3.0.
+	return (ratio - 1.2) / 1.8
+}
+
+// directFTSExpansion finds symbols by direct FTS name matching and expands
+// via contains edges (1-hop). Used as fallback when RWR produces flat results
+// on massive repos. Returns up to limit nodes.
+func directFTSExpansion(ctx stdctx.Context, store types.GraphStore, bm25 BM25Searcher, ks KeywordSet, limit int) []types.Node {
+	if bm25 == nil {
+		return nil
+	}
+	// Build a targeted query from the most specific keywords.
+	// Use Compounds first (most specific), then longest Components.
+	var queryTerms []string
+	for _, c := range ks.Compounds {
+		queryTerms = append(queryTerms, fmt.Sprintf("symbol_name:\"%s\"", c))
+		if len(queryTerms) >= 3 {
+			break
+		}
+	}
+	if len(queryTerms) < 3 {
+		for _, c := range ks.Components {
+			if len(c) >= 6 && !strings.Contains(c, "_") {
+				// Skip CamelCase bigrams.
+				if len(c) > 1 && c[0] >= 'A' && c[0] <= 'Z' {
+					hasLower := false
+					skip := false
+					for i := 1; i < len(c); i++ {
+						if c[i] >= 'a' && c[i] <= 'z' {
+							hasLower = true
+						}
+						if hasLower && c[i] >= 'A' && c[i] <= 'Z' {
+							skip = true
+							break
+						}
+					}
+					if skip {
+						continue
+					}
+				}
+				queryTerms = append(queryTerms, fmt.Sprintf("symbol_name:\"%s\"", strings.ToLower(c)))
+				if len(queryTerms) >= 5 {
+					break
+				}
+			}
+		}
+	}
+	if len(queryTerms) == 0 {
+		return nil
+	}
+	query := strings.Join(queryTerms, " OR ")
+	ftsResults, err := bm25.SearchBM25Nodes(ctx, query, limit)
+	if err != nil || len(ftsResults) == 0 {
+		return nil
+	}
+
+	// Expand: for each FTS result that's a type/class, add its members via contains edges.
+	var expanded []types.Node
+	seen := make(map[types.Hash]bool)
+	for _, n := range ftsResults {
+		if seen[n.NodeHash] {
+			continue
+		}
+		seen[n.NodeHash] = true
+		expanded = append(expanded, n)
+		// If it's a type, add its contained methods/fields.
+		if n.Kind == "type" || n.Kind == "class" || n.Kind == "interface" {
+			members, _ := store.EdgesFrom(ctx, n.NodeHash, "contains")
+			for _, e := range members {
+				if seen[e.TargetHash] {
+					continue
+				}
+				if member, err := store.GetNode(ctx, e.TargetHash); err == nil && member != nil {
+					seen[member.NodeHash] = true
+					expanded = append(expanded, *member)
+				}
+				if len(expanded) >= limit*2 {
+					break
+				}
+			}
+		}
+	}
+	if len(expanded) > limit {
+		expanded = expanded[:limit]
+	}
+	return expanded
 }
 
 // detectRepoLanguage determines the primary language of a repo by sampling node QNs.
