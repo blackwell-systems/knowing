@@ -129,14 +129,14 @@ Note: old ratios used inflated P@10 from raw substring matching. See `docs/resea
 
 ## Current State (session 23, 2026-05-31)
 
-- **P@10 = 0.176 cold start** (297 tasks, 15 repos, no task memory, no embeddings, honest measurement)
+- **P@10 = 0.206 cold start** (297 tasks, 15 repos, no task memory, no embeddings, honest measurement, confirmed 2 runs)
 - **Embeddings: confirmed neutral.** Three runs: 0.176, 0.175, 0.176. Gap-fill seeds add nothing on cold start. Previous "gap-fill works" finding (session 17) was task memory contamination. Embedding infrastructure is dead weight for retrieval accuracy.
 - **Task memory contamination (session 23):** all P@10 measurements from sessions 8-22 were inflated by accumulated task memory in corpus DBs. True cold-start is ~0.014 lower than reported. Within-session A/B deltas remain valid.
 - **Measurement calibration (session 21):** old P@10 was 0.283 with inflated substring matching. Fixed with `dotBoundedContains()`. See `docs/research/session-21-measurement-calibration.md`.
 - **Focused seed selection:** cluster seeds by package path, concentrate walk in dominant neighborhood (+6% relative)
 - **Density-adaptive:** PreferTypeSeeds >40K nodes, adaptive seed count >10K nodes
 - **LSP enrichment:** strongly positive. Go: k8s 0.000->0.232, terraform ~0.095->0.275. Python: +0.040
-- **Competitive (cold, honest):** 2.02x codegraph, 3.20x GitNexus, 3.38x Gortex, 7.65x Aider, 11.7x grep. codebase-memory timed out.
+- **Competitive (cold, honest):** 2.37x codegraph, 3.75x GitNexus, 3.96x Gortex, 8.96x Aider, 13.7x grep. codebase-memory timed out.
 - **Supply chain:** 1.0% FP on 200 clean packages (package-level verdict)
 - **Identity:** "self-adapting code intelligence engine that gets smarter with scale"
 
