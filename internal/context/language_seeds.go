@@ -22,5 +22,13 @@ func languageEquivalenceClasses() []EquivalenceClass {
 	all = append(all, terraformEquivalenceClasses()...)
 	all = append(all, typescriptEquivalenceClasses()...)
 	all = append(all, vscodeEquivalenceClasses()...)
+	// Cross-cutting patterns (framework-agnostic).
+	all = append(all, testingEquivalenceClasses()...)
+	all = append(all, ormEquivalenceClasses()...)
+	all = append(all, authEquivalenceClasses()...)
+	all = append(all, cliEquivalenceClasses()...)
+	all = append(all, configEquivalenceClasses()...)
+	all = append(all, errorsEquivalenceClasses()...)
+	all = append(all, webEquivalenceClasses()...)
 	return all
 }
