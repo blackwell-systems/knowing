@@ -44,7 +44,6 @@ suitability_assessment: |
     integrates them into the resolver.
 test_command: GOWORK=off go test -short ./... -timeout 5m
 lint_command: GOWORK=off go vet ./...
-state: REVIEWED
 file_ownership:
     - file: internal/typresolve/rust/doc.go
       agent: A
@@ -292,7 +291,6 @@ interface_contracts:
       definition: |
         func ResolveCallsInFile(ctx *ResolveContext, root *sitter.Node, fileHash types.Hash, repoURL string, filePath string) []types.Edge
       location: internal/typresolve/rust/resolve.go
-scaffolds: []
 waves:
     - number: 1
       agents:
@@ -1689,3 +1687,10 @@ pre_mortem:
             distinct from `call_expression`. The resolver handles both node types
             separately. The extractor already demonstrates this pattern with
             `walkForCalls` handling both `call_expression` and `macro_invocation`.
+critic_report:
+    verdict: PASS
+    agent_reviews: {}
+    summary: Skipped by operator (--skip-critic)
+    reviewed_at: "2026-05-31T08:31:09Z"
+    issue_count: 0
+state: REVIEWED

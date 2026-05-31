@@ -1308,6 +1308,18 @@
         "cached_at": "2026-05-15T21:08:00.801999-07:00"
       }
     },
+    "392b905dc05bc39f717b0fe3c57c96b6": {
+      "lint": {
+        "gate_type": "lint",
+        "command": "GOWORK=off go vet ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-31T01:30:20.124992-07:00"
+      }
+    },
     "3a121d949eb0082b8c66f6f099b81158": {
       "lint": {
         "gate_type": "lint",
@@ -2556,6 +2568,18 @@
         "cached_at": "2026-05-20T10:44:28.459961-07:00"
       }
     },
+    "7f697fc98d47a91c87aa3763e6c4c964": {
+      "test": {
+        "gate_type": "test",
+        "command": "GOWORK=off go test ./internal/typresolve/csharp/ -timeout 2m",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "ok  \tgithub.com/blackwell-systems/knowing/internal/typresolve/csharp\t(cached)\n",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-31T01:22:17.24722-07:00"
+      }
+    },
     "7feca3777c14b5e75be2110f835a0512": {
       "build": {
         "gate_type": "build",
@@ -3156,6 +3180,18 @@
         "cached_at": "2026-05-31T01:11:19.87326-07:00"
       }
     },
+    "a1fb42e96f5b804f3c3bf9f0b496bd70": {
+      "build": {
+        "gate_type": "build",
+        "command": "GOWORK=off go build ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-31T01:30:17.337431-07:00"
+      }
+    },
     "a28fb50c3509a9e5941d182757db1a96": {
       "test": {
         "gate_type": "test",
@@ -3564,6 +3600,18 @@
         "cached_at": "2026-05-15T11:03:43.623389-07:00"
       }
     },
+    "be06c5102171f67868360e511dc15d5a": {
+      "lint": {
+        "gate_type": "lint",
+        "command": "GOWORK=off go vet ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-31T01:22:16.960945-07:00"
+      }
+    },
     "be459a02af3def1bb18f0e71cbfb7b9c": {
       "build": {
         "gate_type": "build",
@@ -3924,6 +3972,18 @@
         "cached_at": "2026-05-25T13:40:40.780319-07:00"
       }
     },
+    "d404dd944ec061958fcd34a6b633836b": {
+      "test": {
+        "gate_type": "test",
+        "command": "GOWORK=off go test ./internal/typresolve/csharp/ -timeout 2m",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "ok  \tgithub.com/blackwell-systems/knowing/internal/typresolve/csharp\t(cached)\n",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-31T01:30:20.440528-07:00"
+      }
+    },
     "d41029b8f805faa4e6e3a3a5cc625cec": {
       "test": {
         "gate_type": "test",
@@ -3994,6 +4054,18 @@
         "stderr": "",
         "from_cache": true,
         "cached_at": "2026-05-31T00:10:05.057794-07:00"
+      }
+    },
+    "dd04a852e531c1be2d3f72cf53370da2": {
+      "build": {
+        "gate_type": "build",
+        "command": "GOWORK=off go build ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-31T01:22:14.172493-07:00"
       }
     },
     "df34ebdc5e6a369c63d69d14092dcb31": {
