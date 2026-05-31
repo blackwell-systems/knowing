@@ -171,6 +171,13 @@ func resolveCallsInNode(ctx *ResolveContext, node *sitter.Node, edges *[]types.E
 		resolveCallNode(ctx, node, edges, fileHash, repoURL, filePath, qnPrefix)
 		return
 
+	case "identifier":
+		// In Ruby, bare identifiers without parens can be method calls.
+		// If the identifier is not a local variable and not a builtin,
+		// try to resolve it as a method call.
+		resolveBareIdentifier(ctx, node, edges, fileHash, repoURL, filePath, qnPrefix)
+		return
+
 	case "method":
 		// Nested method definition.
 		resolveMethodDecl(ctx, node, edges, fileHash, repoURL, filePath, qnPrefix)
@@ -310,6 +317,45 @@ func resolveCallNode(ctx *ResolveContext, node *sitter.Node, edges *[]types.Edge
 		if child != nil && (child.Type() == "do_block" || child.Type() == "block") {
 			resolveCallsInNode(ctx, child, edges, fileHash, repoURL, filePath, qnPrefix)
 		}
+	}
+}
+
+// resolveBareIdentifier handles a bare identifier that might be a no-arg method call.
+// In Ruby, `greet` without parens is syntactically identical to a variable reference.
+// We check: if it's not in scope and not a builtin, try resolving as a method call.
+func resolveBareIdentifier(ctx *ResolveContext, node *sitter.Node, edges *[]types.Edge, fileHash types.Hash, repoURL string, filePath string, qnPrefix string) {
+	name := nodeText(node, ctx.Content)
+
+	// If it's in scope as a local variable, it's not a method call.
+	if t := ctx.Scope.Lookup(name); t != nil {
+		return
+	}
+
+	// Skip builtins.
+	if IsBuiltinFunc(name) {
+		return
+	}
+
+	// Try to resolve as a method call.
+	calleeQN, _ := resolveBareCall(ctx, name, qnPrefix)
+	if calleeQN == "" {
+		return
+	}
+
+	// Only emit if we found something in the registry (avoid noise from
+	// truly unknown identifiers).
+	if len(ctx.Nesting) > 0 {
+		fullClassQN := qnPrefix + "." + strings.Join(ctx.Nesting, ".")
+		if LookupAttribute(ctx.Registry, fullClassQN, name) != nil {
+			edge := buildRubyCallEdge(ctx, node, calleeQN, fileHash, repoURL, filePath, qnPrefix)
+			*edges = append(*edges, edge)
+			return
+		}
+	}
+
+	if ctx.Registry.LookupFunc(calleeQN) != nil || ctx.Registry.LookupFunc(name) != nil {
+		edge := buildRubyCallEdge(ctx, node, calleeQN, fileHash, repoURL, filePath, qnPrefix)
+		*edges = append(*edges, edge)
 	}
 }
 
