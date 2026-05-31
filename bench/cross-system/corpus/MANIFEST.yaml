@@ -16,7 +16,7 @@
 
 format_version: 1
 last_updated: "2026-05-30"
-task_count: 297
+task_count: 317
 language_count: 8
 
 repos:
@@ -125,9 +125,9 @@ repos:
     commit_date: "2026-05-29"
     language: Ruby
     tasks: 20
-    enrichment: none
-    nodes: 46428
-    edges: 502729
+    enrichment: ruby-lsp
+    nodes: 386186
+    edges: 2429521
     embeddings: 0
 
   - name: ripgrep
