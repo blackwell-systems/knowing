@@ -2,24 +2,29 @@
 
 What's shipped is in the [changelog](CHANGELOG.md). This document covers what's next.
 
-## Current State (v0.12.0, 2026-05-30)
+## Current State (v0.12.0, 2026-05-31)
 
-**P@10 = 0.189 cold start, 0.284 with compounding** (277 tasks, 14 repos, 8 languages, nomic-embed-text-v1.5 model). 38 edge types. 23 extractors. 164 equivalence classes. 58 experiments across 14 sessions.
-2.17x codegraph, codebase-memory timed out, 3.44x GitNexus, 3.63x Gortex, 12.6x grep.
-Embedding re-ranker: disabled (3 models tested, all net negative, architecture closed). Gap-fill seeds (embedding-based): +11.2%. Equivalence classes (C#, FastAPI, Terraform, Rust): +4%. Task memory compounding: +4.9%. Ruby enrichment (ruby-lsp): Jekyll #1 in corpus at 0.370. Parallel benchmark: 5.5 min (was 80 min sequential) via PreloadVectors.
-**Structural ceiling reached (session 20):** 55 experiments confirm P@10 is reachability-determined. Incremental path exhausted. Next-generation approaches needed (see below).
+**P@10 = 0.204 cold start** (297 tasks, 15 repos, 8 languages, honest measurement: no task memory, no embeddings, 4 runs: 0.206/0.202/0.203/pending). 38 edge types. 23 extractors. 189 equivalence classes (158 language/framework + 31 cross-cutting). 65 experiments across 23 sessions.
+2.37x codegraph, codebase-memory timed out, 3.75x GitNexus, 3.96x Gortex, 13.7x grep.
+
+**Session 23 breakthrough:** Framework equivalence classes with forced injection (+16% aggregate). Specific concept-to-symbol mappings bypass RWR scoring for high-confidence framework matches. Django +99%, Terraform +133%. Adaptive retrieval for massive repos (VS Code +43%).
+
+**Session 23 critical findings:** (1) Task memory contaminated all prior measurements (26K stale entries). Disabled in benchmark adapter. (2) Embeddings confirmed dead neutral on honest measurement (3 runs identical with/without). (3) Keyword extraction fix was net negative (reverted). (4) Path boost conclusively dead (5 variants, all harmful).
 
 ## Immediate Priorities
 
 | # | Item | Why | Effort | Expected Impact |
 |---|------|-----|--------|-----------------|
-| 1 | **Large-repo seed selection** | On repos with 50K+ nodes (terraform, kubernetes), generic keywords match hundreds of symbols. BM25 seeds land in wrong package neighborhood. Failure analysis shows 99% "noise" misses (completely unrelated symbols). Root cause: no package-level disambiguation before graph walk. Approaches: (a) task-aware package scoping (filter seeds to packages matching task keywords), (b) multi-query decomposition (split task into sub-queries, intersect), (c) community-constrained seeding (identify target community first, then seed within it). Directly explains terraform's 0.125 P@10 and kubernetes's similar issues. | High (2-3 sessions) | +30-50% on large repos |
-| 2 | **Deploy platform API** | api.blackwell-systems.com. DigitalOcean Droplet, Cloudflare Tunnel, bare metal. DEPLOY.md + deploy.sh committed. Server provisioned (142.93.52.251). Go building on 1GB Droplet is slow; upgrade to 2GB or cross-compile. | In progress | Live product |
-| 3 | **AI-generated evaluation corpus** | LLM generates tasks + ground truth, DB-validated before use: all symbols must exist in nodes table, >= 3 symbols, span >= 2 files. Auto-difficulty from graph properties. Run 1000, keep ~600. Weekly CI. Hybrid: hand-curated for regression, AI-generated for statistical coverage. | Medium | Eval credibility |
-| 4 | **Blog post** | Numbers are publishable: 14 repos, 8 languages, 277 tasks. LinkedIn audience is warm (11K views on mcp-assert). | 2 hours | Visibility |
-| 5 | **Add more corpus repos** | Candidates: celery (Python, 80K LOC), Spring Boot (Java/Kotlin). Homebrew blocked on Ruby LSP (22a). Target: 16+ repos, 300 tasks. | 2 hours each | Corpus credibility |
-| 6 | **Supply chain whitepaper** | False positive evaluation done (1.0% on 200 packages). Draft has TanStack + event-stream case studies. | Medium | Publication |
-| 8 | **GHA Marketplace action** | Package supply chain scanner for paid distribution. Free tier for public repos. | Medium | Commercial |
+| 1 | **Re-index corpus with current extractors** | Jekyll went +0.225 from fresh re-index in session 22. Extractors have improved since DBs were built. Adds real edges (structural, not retrieval tuning). | Medium (2-3 hours) | +5-15% on re-indexed repos |
+| 2 | **Audit zero-scoring tasks** | Use `bench-task` on every zero across all repos. Categorize: vocab gap (needs equiv class), missing edge (needs re-extraction), or genuinely hard (accept zero). Targeted fixes. | Medium (1 session) | +5-10% targeted |
+| 3 | **Fix missing inheritance edges** | Python extractor misses some `class Foo(Bar):` patterns (EmailValidator has no inherits edge). Fixing adds real reachability paths. | Low | +2-5% on Python repos |
+| 4 | **Wire remaining 5 resolvers** | Python/TS/Java/C#/Rust resolvers built but not wired into index pipeline. Adds edges without external LSP. | Low (pattern exists for Go/Ruby) | +2-5% on non-enriched repos |
+| 5 | **Process framework classes first** | Framework equiv classes (weight 0.9) should be processed before language classes (weight 0.8) to avoid equivSeen ordering issues. Structural fix. | Low | Prevents edge case regressions |
+| 6 | **Equiv class auto-discovery** | Detect framework from repo imports (django.*, ActiveRecord, etc.) and auto-activate matching classes. Only run relevant 20 of 189 classes. | Medium | Performance + precision |
+| 7 | **Deploy platform API** | api.blackwell-systems.com. DigitalOcean Droplet, Cloudflare Tunnel. DEPLOY.md + deploy.sh committed. | In progress | Live product |
+| 8 | **Blog post** | Numbers are publishable and honest. LinkedIn audience is warm. | 2 hours | Visibility |
+| 9 | **AI-generated evaluation corpus** | LLM generates tasks + ground truth, DB-validated. Hybrid: hand-curated for regression, AI-generated for coverage. | Medium | Eval credibility |
+| 10 | **More equiv class coverage** | Message queues (RabbitMQ, Redis), cloud SDKs (AWS, GCP), build systems (Make, Gradle), observability (OpenTelemetry, Prometheus). | Ongoing | Incremental P@10 |
 
 ### Tested Neutral or Harmful (sessions 14-19)
 
@@ -43,7 +48,10 @@ Embedding re-ranker: disabled (3 models tested, all net negative, architecture c
 | **Interface type hint propagation** (post-processing) | Neutral | 17 | Connect type_hint_of targets to sibling implementors. Edge structure mismatch: type_hint_of and implements share 0 target hashes on Java/Python. Go (k8s): 393 edges on 523K, P@10 neutral. Needs extractor-level fix. |
 | **Disconnection rate adaptive seeding** | Neutral | 20 | Measured disconnection rate (% zero-inbound nodes) across 12 repos: 0.2% (kafka) to 22.7% (caddy). Added seed bonus proportional to rate. Only flask/spark affected (+2 seeds). Django 0.261 (baseline 0.256), flask 0.337 (0.347), spark 0.260 (0.255). All within variance. Redundant with node count thresholds; confirms seed quantity doesn't move P@10. |
 | **Porter stemming in FTS5** | Neutral (-0.003) | 20 | Added `porter` tokenizer to FTS5 so "validates" matches "Validator". Django +0.006, cargo -0.009. Full corpus 0.264 vs 0.267 baseline. Stemming expands BM25 recall but brings in noisy seeds that dilute RWR on dense graphs. |
-| **Django framework equiv classes** | Harmful (-0.011) | 20 | Two versions tested. V1 (broad phrases): +0.008 (variance). V2 (targeted phrases matching task descriptions): -0.011. Equiv class targets duplicated symbols BM25 already finds, adding noise. Equiv classes only help when targets are NOT findable by BM25. |
+| **Django framework equiv classes (session 20)** | Harmful (-0.011) | 20 | SUPERSEDED by session 23 approach. Session 20 used broad phrases without forced injection. Session 23 uses specific framework concepts + forced injection bypassing RWR: Django +99%, Terraform +133%. Key difference: weight 0.9 + source "framework" triggers direct ranked-list injection. |
+| **Keyword extraction (promote Components)** | Harmful (terraform 0.120->0.035) | 23 | Promoting generic nouns from task descriptions into BM25 floods large repos with irrelevant matches. |
+| **Path boost (5 variants)** | All harmful | 23 | Hard reorder (0.140), soft +3 (0.115), selective (0.120), selective +1 (0.095), post-RWR (0.095). Path terms are core domain vocabulary matching most symbols. |
+| **Embeddings gap-fill** | Dead neutral | 23 | 3 runs: 0.176/0.175/0.176 with and without. Previous "gap-fill works" was task memory contamination. |
 | **SCIP ingestion for Rust** | Rejected | 20 | rust-analyzer SCIP on cargo: 124K edges, all connecting project code to external types (stdlib, serde, dependencies). Zero project-internal edges that tree-sitter didn't already find. Unfiltered: P@10 = 0.150 (-0.127). Filtered (project-only): +0 edges, identical to baseline. SCIP's value is cross-crate resolution, but those targets are always external. Macro-expanded edges (derive Serialize) create impl edges TO external types, not between project symbols. Dead end for P@10. |
 | **Graph pruning / ghost edges** | Neutral | 20 | Three configs on cargo: (1) exclude similar_to: 0.245 (-0.014, reachability lost). (2) exclude references: 0.268 (+0.009, noise removed). (3) ghost references at 0.05 weight: 0.264 (+0.005). Full corpus ghost: 0.264 (-0.003). Density-adaptive ghost (threshold 5.0): 0.264 (-0.003). Per-repo wins cancel losses. Pruning/ghosting is edge weight tuning, which 57 experiments confirm doesn't move aggregate P@10. |
 
