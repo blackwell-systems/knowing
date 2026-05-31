@@ -1011,6 +1011,107 @@ quality_gates:
         - type: test
           command: GOWORK=off go test ./internal/typresolve/csharp/ -timeout 2m
           required: true
+post_merge_checklist:
+    groups:
+        - title: Background Service Initialization
+          items:
+            - description: Verify if types_test.go needs initialization in Server constructor
+            - description: Verify if eval_test.go needs initialization in Server constructor
+completion_reports:
+    A:
+        status: complete
+        branch: polywave/csharp-resolver/wave1-agent-A
+        commit: 667136e
+        files_changed:
+            - internal/typresolve/csharp/doc.go
+            - internal/typresolve/csharp/usings.go
+            - internal/typresolve/csharp/types.go
+            - internal/typresolve/csharp/types_test.go
+        files_created:
+            - internal/typresolve/csharp/doc.go
+            - internal/typresolve/csharp/usings.go
+            - internal/typresolve/csharp/types.go
+            - internal/typresolve/csharp/types_test.go
+        tests_added:
+            - TestParseTypeNode_PredefinedTypes
+            - TestParseTypeNode_NullableType
+            - TestParseTypeNode_ArrayType
+            - TestParseTypeNode_TupleType
+            - TestParseTypeNode_GenericName
+            - TestParseTypeNode_GenericDictionary
+            - TestParseTypeNode_QualifiedName
+            - TestParseTypeNode_ImplicitType
+            - TestBuildUsingMap
+            - TestResolveTypeName_PredefinedAlias
+            - TestResolveTypeName_ExactRegistryHit
+            - TestResolveTypeName_NamespaceResolution
+            - TestResolveTypeName_UsingNamespace
+            - TestResolveTypeName_UsingAlias
+            - TestResolveTypeName_GlobalPrefix
+            - TestResolveTypeName_NestedType
+            - TestStripGenericArgs
+            - TestNormalizeCSName
+        verification: PASS
+        notes: All 4 files implemented. 17 tests passing. ParseTypeNode handles all major C# type node kinds. ResolveTypeName implements full 10-step resolution chain. parseCS test helper defined here (Agent C should use parseCSharp per known_issues).
+    B:
+        status: complete
+        branch: polywave/csharp-resolver/wave1-agent-B
+        commit: 1ca189d
+        files_changed:
+            - internal/typresolve/csharp/builtins.go
+            - internal/typresolve/csharp/methods.go
+            - internal/typresolve/csharp/builtins_test.go
+        files_created:
+            - internal/typresolve/csharp/builtins.go
+            - internal/typresolve/csharp/methods.go
+            - internal/typresolve/csharp/builtins_test.go
+        tests_added:
+            - TestPredefinedAlias
+            - TestIsBuiltinFunc
+            - TestIsKeywordSelf
+            - TestUnwrapTask
+            - TestUnwrapNullable
+            - TestLookupMethod_Direct
+            - TestLookupMethod_Inherited
+            - TestLookupMethod_DeepInheritance
+            - TestLookupMethod_SystemObjectFallback
+            - TestLookupMethod_NotFound
+            - TestLookupMethod_CycleDetection
+            - TestLookupField_Direct
+            - TestLookupField_Inherited
+            - TestLookupField_NotFound
+            - TestLookupExtensionMethod_Found
+            - TestLookupExtensionMethod_ViaBaseType
+            - TestLookupExtensionMethod_NotFound
+        verification: PASS
+        notes: All 16 tests passing. LookupExtensionMethod uses best-effort registry lookup since Registry does not expose an iterator API; Agent D may enhance with full scan if needed.
+    C:
+        status: complete
+        branch: polywave/csharp-resolver/wave1-agent-C
+        commit: 16276a5
+        files_changed:
+            - internal/typresolve/csharp/eval.go
+            - internal/typresolve/csharp/scope_bind.go
+            - internal/typresolve/csharp/eval_test.go
+        files_created:
+            - internal/typresolve/csharp/eval.go
+            - internal/typresolve/csharp/scope_bind.go
+            - internal/typresolve/csharp/eval_test.go
+        tests_added:
+            - TestEvalExprType_Literals
+            - TestEvalExprType_ThisMemberAccess
+            - TestEvalExprType_ScopeVariable
+            - TestEvalExprType_BinaryComparison
+            - TestEvalExprType_CastExpression
+            - TestEvalExprType_TupleExpression
+            - TestEvalExprType_DepthLimit
+            - TestEvalExprType_ObjectCreation
+            - TestEvalExprType_IsExpression
+            - TestProcessStatement_VarDeclaration
+            - TestProcessStatement_ExplicitType
+            - TestProcessStatement_ForEach
+        verification: PASS
+        notes: All 12 tests passing. Tree-sitter C# grammar uses unnamed 'this'/'base' tokens (not this_expression), handled with dual case match. Stubs for LookupMethod, LookupField, ParseTypeNode, IsBuiltinFunc, and UnwrapTask ready for Agent D to wire in wave 2. Test helper named parseCSharp (not parseCS) per known_issues to avoid merge conflict with Agent A.
 pre_mortem:
     overall_risk: low
     rows:

@@ -360,6 +360,18 @@
         "cached_at": "2026-05-22T17:38:26.403065-07:00"
       }
     },
+    "1090ec936234b9497ddb6493fc809e02": {
+      "test": {
+        "gate_type": "test",
+        "command": "GOWORK=off go test ./internal/typresolve/csharp/ -timeout 2m",
+        "passed": false,
+        "exit_code": 1,
+        "stdout": "FAIL\t./internal/typresolve/csharp [setup failed]\nFAIL\n",
+        "stderr": "# ./internal/typresolve/csharp\nstat /Users/dayna.blackwell/code/knowing/internal/typresolve/csharp: directory not found\n",
+        "from_cache": true,
+        "cached_at": "2026-05-31T01:20:16.54185-07:00"
+      }
+    },
     "11d10f2b16647702669a1222919c3ec4": {
       "build": {
         "gate_type": "build",
@@ -730,6 +742,18 @@
         "stderr": "",
         "from_cache": true,
         "cached_at": "2026-05-15T02:57:30.050597-07:00"
+      }
+    },
+    "225656ad58bb011863406f1624ebd20a": {
+      "build": {
+        "gate_type": "build",
+        "command": "GOWORK=off go build ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-31T01:11:16.195241-07:00"
       }
     },
     "2457aad6f73bcbf69a9842b58172343d": {
@@ -3120,6 +3144,18 @@
         "cached_at": "2026-05-16T14:00:28.05319-07:00"
       }
     },
+    "a1ad7bd94c7bdf237137387ce21e8518": {
+      "test": {
+        "gate_type": "test",
+        "command": "GOWORK=off go test ./internal/typresolve/csharp/ -timeout 2m",
+        "passed": false,
+        "exit_code": 1,
+        "stdout": "FAIL\t./internal/typresolve/csharp [setup failed]\nFAIL\n",
+        "stderr": "# ./internal/typresolve/csharp\nstat /Users/dayna.blackwell/code/knowing/internal/typresolve/csharp: directory not found\n",
+        "from_cache": true,
+        "cached_at": "2026-05-31T01:11:19.87326-07:00"
+      }
+    },
     "a28fb50c3509a9e5941d182757db1a96": {
       "test": {
         "gate_type": "test",
@@ -3646,6 +3682,30 @@
         "stderr": "",
         "from_cache": true,
         "cached_at": "2026-05-31T00:24:59.526638-07:00"
+      }
+    },
+    "c8685fb7e3da3116f29dda57344f361f": {
+      "build": {
+        "gate_type": "build",
+        "command": "GOWORK=off go build ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-31T01:20:13.524638-07:00"
+      }
+    },
+    "c8b81e16996e216e2c191f815e19fdd7": {
+      "lint": {
+        "gate_type": "lint",
+        "command": "GOWORK=off go vet ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-31T01:11:19.763376-07:00"
       }
     },
     "cabcf855b40bc57fe9cdf0785f8db3d1": {
@@ -4318,6 +4378,18 @@
         "stderr": "",
         "from_cache": true,
         "cached_at": "2026-05-17T11:00:55.672021-07:00"
+      }
+    },
+    "f4fee94e5e34447f1c01163bbbbb5cae": {
+      "lint": {
+        "gate_type": "lint",
+        "command": "GOWORK=off go vet ./...",
+        "passed": true,
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "from_cache": true,
+        "cached_at": "2026-05-31T01:20:16.426874-07:00"
       }
     },
     "f51c8429a43cb2d229ce158809d01e9c": {
