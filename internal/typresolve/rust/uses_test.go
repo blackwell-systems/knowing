@@ -1,24 +1,10 @@
 package rustresolve
 
 import (
-	"context"
 	"testing"
-
-	sitter "github.com/smacker/go-tree-sitter"
-	"github.com/smacker/go-tree-sitter/rust"
 )
 
-func parseRust(t *testing.T, src string) *sitter.Node {
-	t.Helper()
-	parser := sitter.NewParser()
-	parser.SetLanguage(rust.GetLanguage())
-	tree, err := parser.ParseCtx(context.Background(), nil, []byte(src))
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	t.Cleanup(func() { tree.Close() })
-	return tree.RootNode()
-}
+// parseRust is defined in eval_test.go (same package).
 
 func TestResolveUsePath_Crate(t *testing.T) {
 	modulePath, isExternal := ResolveUsePath("crate::core::resolver::FeatureResolver", "src/main.rs")
