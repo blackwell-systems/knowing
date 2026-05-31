@@ -29,3 +29,5 @@
   - IMPL doc: docs/IMPL/complete/IMPL-in-process-resolver-infra.yaml
 - **go-resolver**: completed 2026-05-30, 2 waves, 4 agents
   - IMPL doc: docs/IMPL/complete/IMPL-go-resolver.yaml
+- **typescript-resolver**: completed 2026-05-30, 2 waves, 4 agents
+  - IMPL doc: docs/IMPL/complete/IMPL-typescript-resolver.yaml
