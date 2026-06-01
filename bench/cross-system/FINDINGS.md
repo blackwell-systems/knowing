@@ -38,24 +38,24 @@ knowing is a content-addressed graph retrieval engine evaluated against 6 compet
 | grep | 0.015 | - | 297 | Baseline, honest matching |
 | codebase-memory (2.6K stars) | - | - | 22 | Timed out on large repos |
 
-### Per-Repo Breakdown (Session 21, cold start, focused seeds + cluster-aware gap-fill)
+### Per-Repo Breakdown (Session 23, honest cold start, no task memory, no embeddings)
 
 | Repo | Language | P@10 | Tasks | Notes |
 |------|----------|------|-------|-------|
-| jekyll | Ruby | 0.500 | 20 | Best in corpus, tree-sitter only (no LSP enrichment) |
-| kafka | Java | 0.358 | 19 | Enriched with jdtls |
-| caddy | Go | 0.340 | 20 | Enriched with gopls |
-| flask | Python | 0.305 | 19 | Enriched with pyright |
-| cargo | Rust | 0.300 | 19 | Enriched with rust-analyzer |
-| cross-cutting | multi | 0.278 | 9 | Multi-repo tasks |
-| kubernetes | Go | 0.274 | 19 | Enriched with gopls |
-| fastapi | Python | 0.270 | 20 | Enriched with pyright |
-| django | Python | 0.258 | 33 | 42% zero-rate (vocabulary gaps) |
-| terraform | Go | 0.245 | 20 | Enriched with gopls |
-| ocelot | C# | 0.235 | 20 | Enriched with csharp-ls |
-| ripgrep | Rust | 0.230 | 20 | Enriched with rust-analyzer |
-| spark-java | Java | 0.215 | 20 | Enriched with jdtls |
-| vscode | TypeScript | 0.163 | 19 | Enriched with tsserver |
+| caddy | Go | 0.440 | 20 | Caddy framework equiv classes |
+| jekyll | Ruby | 0.430 | 20 | Jekyll + Ruby enrichment |
+| kafka | Java | 0.421 | 19 | Kafka equiv classes + Java lang detection fix |
+| terraform | Go | 0.405 | 20 | Terraform equiv classes (+238% from baseline) |
+| rails | Ruby | 0.340 | 20 | Rails equiv classes |
+| flask | Python | 0.321 | 19 | Flask equiv classes |
+| ocelot | C# | 0.285 | 20 | Ocelot equiv classes + equivSeen fix |
+| fastapi | Python | 0.275 | 20 | FastAPI equiv classes |
+| spark-java | Java | 0.235 | 20 | Spark-Java equiv classes |
+| ripgrep | Rust | 0.195 | 20 | No framework classes (curve-fit risk) |
+| cargo | Rust | 0.186 | 22 | Cargo equiv classes |
+| django | Python | 0.183 | 33 | Django equiv classes (+126% from baseline) |
+| kubernetes | Go | 0.168 | 19 | K8S equiv classes (k8s variance +-0.05) |
+| vscode | TypeScript | 0.168 | 19 | VS Code equiv classes + adaptive retrieval |
 
 ### Competitive Advantages (cold start)
 

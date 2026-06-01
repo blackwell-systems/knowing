@@ -357,21 +357,23 @@ the type is seeded so RWR walks to its methods via `contains` edges. For example
 "consumer group coordinator" finds `ConsumerCoordinator` in kafka's `group/` package
 because the type has methods matching "coordinator".
 
-### Channel 5: Vector search (weight 0.0 as seed channel; gap-fill seeds active separately)
+### Channel 5: Vector search (weight 0.0, disabled)
 
-As an independent seed channel, embeddings remain disabled (weight 0.0). Three models
-(BGE-small, jina-code, nomic) tested neutral: they find the same symbols as BM25.
+Embeddings are disabled as both a seed channel (weight 0.0) and as gap-fill seeds.
+Session 23 confirmed both are dead neutral on honest cold-start measurement: three
+runs produced identical P@10 (0.176, 0.175, 0.176) with and without embeddings.
 
-However, the same embedding infrastructure powers **gap-fill seeds** (step 2b),
-which activates when BM25 returns fewer than 5 candidates. Gap-fill finds semantically
-scored candidates by cosine similarity to the task description. This is the biggest single
-improvement in project history: P@10 0.207 -> 0.247 (+19%), R@10 0.306 -> 0.380 (+24%). Session 17 switched to nomic-embed-text-v1.5 (better than jina-code on every metric).
+The previous "+11% gap-fill" finding (sessions 17-22) was caused by task memory
+contamination: gap-fill kept injecting symbols that accumulated task memory was
+boosting, creating a feedback loop that appeared as improvement.
 
-The key insight: architecture matters more than model. The same jina-code model that is
-neutral as a seed channel produces +11% when used for gap-fill vocabulary bridging. Re-ranker disabled (session 19, net negative).
-See `docs/architecture/embedding-reranker.md` for the full design.
+**Framework equivalence classes** (session 23) now solve the vocabulary gap that
+gap-fill was designed for. Direct concept-to-symbol mappings ("custom validator" ->
+EmailValidator) are more precise than cosine similarity and require no model
+inference. See `docs/architecture/equivalence-classes.md`.
 
-Enable with `--embeddings` on `knowing mcp` or `BENCH_EMBEDDINGS=1` for benchmarks.
+Infrastructure preserved for future investigation with code-tuned models.
+Enable with `BENCH_EMBEDDINGS=1` for benchmarks (confirmed neutral).
 
 ### Gap-Fill Seeds (step 2b)
 
@@ -391,15 +393,13 @@ BM25/tiered/equivalence already produce sufficient candidates.
    from SQLite and performs linear scan. Works with any repo that has been indexed with
    embeddings, without rebuilding the HNSW index at query time.
 
-**Threshold:** configurable via `BENCH_GAP_THRESHOLD` environment variable (default 5).
-When the combined candidate count from channels 1-5 is below this threshold, gap-fill
-activates.
+**Status (session 23):** Gap-fill confirmed neutral on honest measurement. The
+vocabulary gap is now solved by framework equivalence classes (263 classes, forced
+injection) which are more precise and require no model inference. Gap-fill
+infrastructure preserved but inactive.
 
-**Impact:** Django P@10 +43% (0.176 to 0.252), flask +22%. Zero regressions on any
-repo. Full corpus +11.2%. The mechanism is effective precisely because it only fires
-on tasks where lexical seed selection fails entirely (the 42% zero-score tier in Django).
-
-See `docs/architecture/adaptive-retrieval.md` for the full mechanism description.
+See `docs/architecture/adaptive-retrieval.md` for the full mechanism description
+and `docs/architecture/equivalence-classes.md` for the framework injection system.
 
 ---
 
@@ -538,8 +538,7 @@ auto-increases seed count based on `GraphNodeCount`:
 | <10K nodes | 15 (default) | Small graphs don't need more seeds |
 
 Impact: Django (57K nodes) P@10 improved from 0.197 to 0.225 (+14.2%) with 25 seeds.
-Flask (1.4K nodes) is unaffected (threshold not triggered). Combined with the embedding
-re-ranker, the full corpus aggregate improved from 0.238 to 0.247 (with nomic model and gap-fill seeds).
+Flask (1.4K nodes) is unaffected (threshold not triggered).
 
 Available as manual override via `BENCH_MAX_SEEDS=N` for parameter sweep experiments.
 
@@ -551,11 +550,14 @@ then naturally selects from this focused set. The insight: 57 experiments proved
 count doesn't matter, but seed structural cohesion does. 3-5 seeds in the same package
 produce a more focused RWR walk than 15-25 seeds scattered across the graph.
 
-Combined with **cluster-aware gap-fill**: when gap-fill fires (BM25 < 5 candidates), it
-only injects embedding seeds from the same package as the dominant cluster. This prevents
-gap-fill from scattering seeds that focused selection concentrated.
+Impact: full corpus P@10 +6.0% relative. Django P@10 +8.7%.
 
-Impact: full corpus P@10 0.267 -> 0.283 (+6.0%). Django P@10 0.253 -> 0.275 (+8.7%).
+**Session 23 addition: framework injection.** After RWR scoring, high-confidence
+framework equivalence class matches (weight >= 0.9, source "framework") inject
+directly at the top of the ranked results, bypassing RWR scores. This solves the
+vocabulary gap for framework concepts where BM25 and graph walks can't bridge
+natural language to symbol names. 263 classes across 30 per-framework files.
+Impact: P@10 0.176 -> 0.278 (+57%).
 On by default; disable with `BENCH_FOCUSED_SEEDS=0`.
 
 ### Critical finding: RWR is the primary differentiator
@@ -1028,20 +1030,22 @@ blast-radius symbols deserve attention when making changes.
 
 ## Design Position: Equivalence Classes + Embedding Re-ranker
 
-The retrieval pipeline uses two complementary concept-matching strategies:
+The retrieval pipeline bridges the vocabulary gap through two mechanisms:
 
-**Equivalence classes** (seed selection, step 2): 115 curated concept classes that
-deterministically map natural-language phrases to target symbols. Local, inspectable,
-zero-cost, compounds with curation. This is the primary seed quality mechanism.
+**Framework equivalence classes** (263 classes, 30 files): deterministically map
+natural-language framework concepts to specific symbol names. "Custom validator" maps
+to EmailValidator. "Consumer group" maps to KafkaConsumer. High-confidence matches
+(weight >= 0.9) bypass RWR scoring and inject directly into ranked results. Language-scoped
+to prevent cross-language false positives. This is the primary vocabulary bridging mechanism
+(+57% P@10 in session 23).
 
-**Embedding gap-fill seeds** (step 2b): bridges vocabulary gaps when BM25 < 5 candidates via cosine
-similarity to the task description. Catches relevant symbols the graph surfaced but
-scored low. +17% P@10 on full corpus.
+**Seed + universal equivalence classes** (seed selection, step 2): broader concept
+classes that enter the RRF pipeline as a normal channel. Local, inspectable, zero-cost.
 
-The key insight is that embeddings fail as seed sources (Channel 5 = neutral) but
-succeed as gap-fill seeds. As independent search channels, embeddings find the same symbols as BM25 (vocabulary
-overlap). As re-rankers, they promote graph-discovered candidates that text matching
-undervalues. The graph provides structural reach; embeddings provide semantic ranking.
+**Embeddings** (confirmed neutral, session 23): both gap-fill seeds and re-ranker
+produce identical P@10 to no-embeddings. The vocabulary gap is now solved by
+framework equiv classes, making embeddings redundant. Previous "+11% gap-fill"
+was task memory contamination. Infrastructure preserved.
 
 **What this means for the architecture:** equivalence classes remain the core seed
 strategy (deterministic, inspectable, compounds with curation). The re-ranker is an
