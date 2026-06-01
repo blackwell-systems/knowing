@@ -107,6 +107,13 @@ func TestCompounding(t *testing.T) {
 			sumR10 += m.RecallAt10
 			sumMRR += m.MRR
 			taskCount++
+
+			// Simulate agent usage: tell the implicit feedback tracker that
+			// the ground truth symbols were "used" by the agent. This provides
+			// the positive counterbalance to FlushUnused's negative signal.
+			// Without this, all returned symbols get demoted (round 5 regression).
+			// In real MCP usage, this happens when agents open files/edit code.
+			adapter.SimulateAgentUsage(task.GroundTruth)
 		}
 
 		if taskCount == 0 {

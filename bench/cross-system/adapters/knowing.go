@@ -125,11 +125,46 @@ func (a *Knowing) EnableMemory() {
 	a.implicit = knowingctx.NewImplicitFeedback()
 }
 
-// ClearAllMemory deletes all task_memory entries across all indexed repos.
+// ClearAllMemory deletes all task_memory and feedback entries across all indexed repos.
 func (a *Knowing) ClearAllMemory() {
 	for _, s := range a.stores {
 		s.DB().Exec("DELETE FROM task_memory") //nolint:errcheck
+		s.DB().Exec("DELETE FROM feedback")    //nolint:errcheck
 	}
+}
+
+// SimulateAgentUsage feeds symbol names into the implicit feedback tracker's
+// DetectUsed, simulating an agent that opens/references the given symbols.
+// Call after Retrieve to provide the positive counterbalance to FlushUnused's
+// negative signal. In real MCP usage, this happens automatically when agents
+// make Edit/Read tool calls that reference returned symbols.
+func (a *Knowing) SimulateAgentUsage(symbolNames []string) {
+	if a.implicit == nil || len(symbolNames) == 0 {
+		return
+	}
+	// Build content string that DetectUsed can scan for identifiers.
+	content := strings.Join(symbolNames, " ")
+	used := a.implicit.DetectUsed(content)
+	// Record positive feedback for used symbols.
+	for _, repoPath := range a.repoPathList() {
+		s, ok := a.stores[repoPath]
+		if !ok {
+			continue
+		}
+		ctx := stdctx.Background()
+		for _, h := range used {
+			_ = s.RecordFeedback(ctx, h, "implicit", true, types.EmptyHash)
+		}
+	}
+}
+
+// repoPathList returns all indexed repo paths.
+func (a *Knowing) repoPathList() []string {
+	paths := make([]string, 0, len(a.stores))
+	for p := range a.stores {
+		paths = append(paths, p)
+	}
+	return paths
 }
 
 func (a *Knowing) Index(repoPath string) (int64, error) {
