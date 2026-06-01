@@ -15,8 +15,9 @@
 #   ./corpus-setup.sh embed     # pre-embed vectors (requires ONNX model, ~30 min)
 
 format_version: 1
-last_updated: "2026-05-30"
-task_count: 317
+last_updated: "2026-06-01"
+task_count: 328
+repo_count: 16
 language_count: 8
 
 repos:
@@ -173,6 +174,18 @@ repos:
     nodes: 552184
     edges: 4425658
     embeddings: 167380
+
+  - name: saleor
+    url: https://github.com/saleor/saleor.git
+    commit: 8dc4b0baa32796b5e77b65cfe4a032abdf0b82fe
+    commit_date: "2026-05-26"
+    language: Python
+    tasks: 11
+    enrichment: none (unenriched, framework-using validation repo)
+    nodes: 33676
+    edges: 285408
+    embeddings: 0
+    note: "First framework-USING repo (Django e-commerce app). Validates equiv classes generalize to application code."
 
 # Cross-cutting tasks (multi-repo) use symbols from multiple repos above.
 # No separate repo entry needed.
