@@ -103,6 +103,36 @@ BENCH_ADAPTERS=knowing GOWORK=off go test ./bench/cross-system/ \
 Task memory is disabled in the benchmark adapter since session 23.
 The clearing step is a safety net for any accumulated state.
 
+## Benchmark-Only Tools (bench/cross-system/cmd/)
+
+These are developer-only utilities not shipped in the knowing binary.
+
+### failure-analysis: categorize P@10 misses
+
+```bash
+go run ./bench/cross-system/cmd/failure-analysis --repo <name> [--task <id>]
+```
+
+Categorizes every ground truth miss into: `same_package`, `related_name`,
+`test_symbol`, `noise`. Shows ground truth vs returned for each task.
+
+### validate-fixtures: verify ground truth exists in graph
+
+```bash
+go run ./bench/cross-system/cmd/validate-fixtures
+```
+
+Checks that all ground truth symbols in task fixtures exist in the
+corresponding repo's graph DB. Catches stale fixtures after re-indexing.
+
+### session-bench: session-level benchmark runner
+
+```bash
+go run ./bench/cross-system/cmd/session-bench
+```
+
+Runs benchmarks with session-specific configuration.
+
 ## Query-Time Edge Exclusion
 
 Exclude specific edge types from the RWR walk without reindexing. Filters
