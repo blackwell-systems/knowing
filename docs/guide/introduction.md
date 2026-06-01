@@ -31,9 +31,9 @@ flowchart TD
     E --> F["5. RRF fusion
     merges BM25 + walk + HITS rankings
     single merged ranking"]
-    F --> G["6. Embedding re-ranker
-    TimeoutConfig promoted (semantic match)
-    SessionTimeout demoted"]
+    F --> G["6. Framework injection
+    High-confidence concept-to-symbol matches
+    bypass RWR for framework conventions"]
     G --> H["7. Knapsack packing
     47 symbols, 4,812 tokens
     fits the 5,000-token budget"]
@@ -101,14 +101,16 @@ In our example, `AuthMiddleware` tops all three lists so it stays #1. `validateT
 **Input:** three ranked lists: BM25 (`AuthMiddleware` #1, `SessionTimeout` #2, ...), graph walk (`AuthMiddleware` #1, `validateToken` #2, ...), HITS (`AuthMiddleware` #1, `validateToken` #2, `AuthConfig` #3, ...)
 **Output:** `AuthMiddleware` (RRF 0.049), `validateToken` (0.032), `AuthConfig` (0.028), `TimeoutConfig` (0.025), `HandleRequest` (0.019), ... (single merged ranking)
 
-### Step 6: Embedding re-ranker
+### Step 6: Framework injection
 
-Gives the ranking a final adjustment using semantic understanding (on by default). Everything up to this point used structural signals (keyword matching, graph proximity, link analysis), but none of those understand what words mean.
+Injects high-confidence symbols from framework equivalence classes directly into the ranking. Everything up to this point used structural signals (keyword matching, graph proximity, link analysis), but those miss symbols where natural language doesn't share keywords with code names: "validates email format" needs `EmailValidator`, but neither "email" nor "format" appears in the symbol name at the right specificity.
 
-Gap-fill seeds use the same embedding model to find semantically similar symbols when keyword matching fails. The re-ranker step (cosine reordering of top-50 candidates) was disabled after per-repo testing showed it hurt 9 of 13 repos. The model auto-downloads on first use (~30MB). Disable with `--no-embeddings`.
+Framework equivalence classes encode the mapping between developer concepts and framework-specific symbols: "custom validator" maps to `EmailValidator`, `BaseValidator`, `ValidationError` in Django. "consumer group" maps to `KafkaConsumer`, `ConsumerRecord` in Kafka. 263 such mappings across 30 framework-specific files cover Django, Flask, FastAPI, Terraform, Kubernetes, Kafka, Rails, Spring, ASP.NET, and more.
 
-**Input:** top 50 from merged ranking + task `"fix the auth middleware timeout"`
-**Output:** `AuthMiddleware` (0.049), `TimeoutConfig` (0.031), `validateToken` (0.028), `SessionTimeout` (0.024), `AuthConfig` (0.022), ... (re-ordered: `TimeoutConfig` promoted from #4 to #2, `SessionTimeout` demoted from #7 to #12)
+When a phrase matches with high confidence (weight >= 0.9, source "framework"), the matched symbols bypass RWR scoring and inject directly at the top of the ranked list. This solves the vocabulary gap without broadening BM25 (which floods results with noise on large repos). Language scoping ensures framework classes only fire on repos using that framework.
+
+**Input:** top 50 from merged ranking + task `"fix the auth middleware timeout"` + matched equiv classes
+**Output:** `AuthMiddleware` (0.049), `TimeoutConfig` (0.025), `validateToken` (0.028), `SessionTimeout` (0.024), ... (framework matches already present from BM25, no injection needed for this task)
 
 ### Step 7: Knapsack packing
 
@@ -128,10 +130,11 @@ For implementation details, see [Retrieval Pipeline](../architecture/retrieval-p
 - Time-to-consistency: 167ms (edit a file, reindex, query finds the new symbol)
 - Adjacency cache: 4,717x latency improvement (9s to 2ms on Kubernetes-scale graph)
 - Density-adaptive retrieval: auto-detects graph density, adjusts seed selection strategy
-- Embedding gap-fill seeds: +11% P@10 improvement, fully local, on by default. Re-ranker disabled (net negative).
-- P@10 = 0.189 cold start, 0.284 with compounding (277 tasks, 14 repos, 8 languages)
-- Self-adapting compounding: +4.2% P@10 from passive task memory
-- Competitive: 2.17x codegraph, 3.44x GitNexus, 3.63x Gortex, 12.6x grep (cold start)
+- Embeddings: confirmed neutral on cold start (session 23, 3 runs identical with/without). Gap-fill and re-ranker both disabled.
+- Framework equivalence classes: 263 concept-to-symbol mappings across 30 files, with forced injection for high-confidence matches
+- Adaptive retrieval: auto-detects flat RWR results on massive repos (>200K nodes), falls back to direct FTS + contains-edge expansion
+- P@10 = 0.278 cold start (297 tasks, 15 repos, 8 languages, honest measurement: no task memory, no embeddings)
+- Competitive: 3.20x codegraph, 5.05x GitNexus, 5.35x Gortex, 18.5x grep (cold start)
 - MCP server interface with 28 tools for agent consumption
 
 ## The Problem
@@ -239,11 +242,11 @@ Across all of these tools, recurring gaps appear:
 
 #### Where knowing sits
 
-knowing's differentiator is graph-native retrieval: RWR (Random Walk with Restart) + HITS authority scoring + BM25 fusion + embedding gap-fill seeds, producing a single deterministic ranking per query. The same input always yields the same output. The pipeline scales to 253K nodes (Kubernetes) without hanging. It runs locally with no LLM dependency (the embedding model is pure Go ONNX inference, not an LLM), completing in 2ms on cached graphs via the adjacency cache (220ms with embedding gap-fill). And because the graph is content-addressed and Merkle-versioned, every result is reproducible, cacheable, and provable.
+knowing's differentiator is graph-native retrieval with framework knowledge injection: RWR (Random Walk with Restart) + HITS authority scoring + BM25 fusion + 263 framework equivalence classes with forced injection, producing a single deterministic ranking per query. The same input always yields the same output. The pipeline scales to 552K nodes (VS Code) without hanging. It runs locally with no LLM dependency and no embedding dependency (embeddings confirmed neutral on cold start, session 23), completing in 2ms on cached graphs via the adjacency cache. And because the graph is content-addressed and Merkle-versioned, every result is reproducible, cacheable, and provable.
 
 **Context packers** (Aider, Repo Map, etc) analyze your repo and produce a condensed map for the agent's context window. They run at query time, produce text, and are stateless: they don't remember what was useful last time. They don't version their output or prove anything about it.
 
-**Code graphs / indexers** (Sourcegraph, codegraph, GitNexus, Stack Graphs) build a queryable index of code relationships. Most use mutable state (database rows with auto-increment IDs). They can answer "who calls X?" but can't answer "who called X last Tuesday?" or "prove no one calls X." They don't learn from feedback. In head-to-head benchmark (14 repos, 277 tasks, 8 languages): knowing achieves 2.17x the precision of codegraph (19K stars), 3.44x vs GitNexus, and 3.63x vs Gortex.
+**Code graphs / indexers** (Sourcegraph, codegraph, GitNexus, Stack Graphs) build a queryable index of code relationships. Most use mutable state (database rows with auto-increment IDs). They can answer "who calls X?" but can't answer "who called X last Tuesday?" or "prove no one calls X." They don't learn from feedback. In head-to-head benchmark (15 repos, 297 tasks, 8 languages): knowing achieves 3.20x the precision of codegraph (19K stars), 5.05x vs GitNexus, and 5.35x vs Gortex. All measurements use honest cold-start evaluation with no task memory and dot-bounded symbol matching.
 
 **Agent memory systems** (MemGPT, various RAG frameworks) persist information across sessions. They remember conversations but not code structure. They can recall "you asked about auth last time" but can't tell you "auth's blast radius grew by 3 callers since then."
 
@@ -943,18 +946,21 @@ knowing is unique in applying content-addressing to *relationships between code*
 
 ### Measured performance
 
-These numbers are reproducible via the benchmark suite (14 repos, 277 tasks, 8 languages):
+These numbers are reproducible via the benchmark suite (15 repos, 297 tasks, 8 languages). All measurements use honest cold-start measurement: no task memory, no embeddings, dot-bounded symbol matching.
 
-| Metric | Cold Start | With Compounding | Context |
-|---|---|---|---|
-| P@10 (precision at 10) | 0.189 | 0.194 (+2.6%) | 2.17x codegraph, 3.44x GitNexus, 3.63x Gortex, 12.6x grep |
-| R@10 (recall at 10) | 0.414 | 0.424 (+6.4%) | 14 repos, 8 languages (Go, Python, TS, Rust, Java, C#, Ruby) |
-| NDCG@10 | 0.350 | 0.382 | Ranking quality improves with compounding |
-| MRR | 0.395 | 0.406 | First relevant result position |
-| Embedding re-rank latency | 220ms | 220ms | Cached vectors; 660ms uncached (first run) |
+| Metric | Value | Context |
+|---|---|---|
+| P@10 (precision at 10) | 0.278 +/- 0.003 | 4 runs confirmed (0.281, 0.275, 0.276, 0.279) |
+| R@10 (recall at 10) | 0.405 | 15 repos, 8 languages (Go, Python, TS, Rust, Java, C#, Ruby) |
+| NDCG@10 | 0.425 | Ranking quality |
+| MRR | 0.465 | First relevant result position |
+| vs codegraph (19K stars) | 3.20x | Head-to-head on shared tasks |
+| vs GitNexus (40K stars) | 5.05x | Head-to-head on shared tasks |
+| vs Gortex | 5.35x | Head-to-head on shared tasks |
+| vs grep | 18.5x | All 297 tasks |
+| Equivalence classes | 263 | Across 30 framework-specific files |
 | Adjacency cache latency | 2ms | Down from 9s uncached on k8s (4,717x improvement) |
 | Time-to-consistency | 167ms | File edit to query returning new symbol |
-| Feedback impact | +34pp over 5 rounds | 16% baseline to 50% with feedback |
 | Index throughput | 494x incremental vs full | IndexFilesIncremental on warm graph |
 | Edge types | 38 | Including accesses_field, reads_env, executes_process (supply chain) |
 
@@ -999,9 +1005,10 @@ knowing context -task "add rate limiting to the API handler" -format gcf
 # 7. Understand why a symbol ranked where it did
 knowing why -task "add rate limiting" -symbol "APIHandler"
 
-# 8. (Optional) Pre-cache embedding vectors for faster gap-fill (+11%)
-knowing enrich embeddings
-# Embedding gap-fill is on by default (+11%). Re-ranker disabled.
+# 8. (Optional) Enrich with LSP for higher-confidence edges
+knowing enrich lsp
+# LSP enrichment upgrades ast_inferred edges to lsp_resolved (0.7 -> 0.9 confidence).
+# Requires language server installed (gopls, pyright, etc.).
 ```
 
 **Tips for good results:**
