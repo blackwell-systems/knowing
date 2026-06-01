@@ -14,7 +14,7 @@ and auto-generates a `FINDINGS.md` with results and interpretation.
 | Benchmark | What it proves | Key result |
 |-----------|---------------|------------|
 | [time-to-consistency](time-to-consistency/) | knowing reflects code changes faster than any competitor; query latency scales to 782K edges | Time-to-consistency: knowing 167ms vs codegraph 805ms vs Aider 3150ms. Adjacency cache: k8s queries 9.04s -> 1.9ms (4,717x speedup). 500x faster than codegraph on k8s. |
-| [cross-system](cross-system/) | Graph retrieval beats text search and all competitors across languages and scales | 14 repos, 277 tasks, 7 competitors. knowing P@10=0.189 vs codegraph 0.087 (2.17x) vs GitNexus 0.055 (3.44x) vs Gortex 0.052 (3.63x) vs grep 0.015 (12.6x). Focused seed selection + cluster-aware gap-fill + 38 edge types. |
+| [cross-system](cross-system/) | Graph retrieval beats text search and all competitors across languages and scales | 15 repos, 297 tasks, 7 competitors. knowing P@10=0.278 vs codegraph 0.087 (3.20x) vs GitNexus 0.055 (5.05x) vs Gortex 0.052 (5.35x) vs grep 0.015 (18.5x). Focused seed selection + cluster-aware gap-fill + 38 edge types. |
 | [agent-efficiency](agent-efficiency/) | When knowing helps and when it doesn't | Phase 1: grep wins on known/unique targets. Phase 2: on k8s (3.5M LOC), grep returns 10,840 matches per task; knowing returns 10 ranked results with 72% ground truth hit rate (99.9% noise elimination). |
 | [feedback-loop](feedback-loop/) | Feedback compounding improves precision over time | 34% -> 44% precision (+10pp) after one round (asymmetric weighting). Weight sweep: optimal at pos=0.25/neg=0.10. |
 | [context-relevance](context-relevance/) | Each engine layer adds measurable value | Feedback adds +9pp precision over baseline |
