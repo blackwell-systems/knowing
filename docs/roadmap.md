@@ -56,6 +56,7 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 | Approach | Result | Session | Details |
 |----------|--------|---------|---------|
 | **Proximity-weighted scoring** (BFS distance in ranking) | Neutral/Harmful | 24 | BFS hop distance from seeds as ranking component. P@10 0.278 on full corpus (neutral). On enriched saleor: 0.182 vs 0.200 without (slightly harmful). Problem is packing, not scoring. |
+| **Task memory compounding** (keyword -> symbol recall) | Neutral | 24 | Django 5 rounds: P@10 0.194, 0.189, 0.197, 0.194, 0.192 (-0.3%). Previous "+11.5% round-over-round" was stale accumulated entries. Memory records (keywords -> top-5 symbols) but pipeline already finds those symbols. Boost is redundant. |
 | **Embeddings as Channel 3** (seed source) | Neutral | 15 | Three models find same symbols as BM25. Architecture was wrong. |
 | **Blended re-rank** (weight > 0.0) | Harmful | 15 | Pure re-rank (weight=0.0) wins P@10/R@10. Blending preserves MRR but sacrifices recall. |
 | **Call-chain seeding** | Neutral | 14 | Callees already reachable via RWR traversal; diffuses probability mass |
