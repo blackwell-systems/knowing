@@ -3,6 +3,52 @@
 Analysis of codebase-memory-mcp (DeusData) in-process LSP resolver architecture.
 Objective: understand their approach to inform knowing's own Go-native resolvers.
 
+## Current State (session 22-23, 2026-05-31)
+
+### What was built
+
+All 7 language resolvers were implemented in session 22 (~36,000 LOC):
+
+| Component | Location | Status |
+|-----------|----------|--------|
+| Shared infrastructure | `internal/typresolve/` | Done (types, registry, scope, resolver interface, router) |
+| Go resolver | `internal/typresolve/go/` | Done + wired into index pipeline |
+| Python resolver | `internal/typresolve/python/` | Done (not wired) |
+| TypeScript resolver | `internal/typresolve/typescript/` | Done (not wired) |
+| Ruby resolver | `internal/typresolve/ruby/` | Done + wired into index pipeline |
+| Java resolver | `internal/typresolve/java/` | Done (not wired) |
+| C# resolver | `internal/typresolve/csharp/` | Done (not wired) |
+| Rust resolver | `internal/typresolve/rust/` | Done (not wired) |
+| CLI command | `knowing enrich resolver` | Done (retroactive on existing DBs) |
+
+### Key findings
+
+1. **Resolvers produce real edges:** 31.5K on terraform (Go), 36K on Jekyll (Ruby).
+   Free, instant, no external dependencies.
+2. **Redundant with external LSP on enriched corpus:** on repos already enriched
+   with gopls/pyright/etc., resolver edges duplicate what LSP already provides.
+   P@10 impact: neutral on already-enriched DBs.
+3. **Value for users without LSP servers:** resolver edges provide the three-layer
+   enrichment model (tree-sitter 0.5 -> resolver 0.6-0.9 -> external LSP 0.9)
+   without requiring language server installation.
+4. **Session 23 finding:** 69% of Python `extends` edges (5,581/8,074 on Django)
+   point to phantom nodes because `resolveBaseClassQName` can't handle dotted
+   module paths (`validators.RegexValidator`). Fix committed but needs testing
+   with proper incremental approach (full reindex clears all edges).
+
+### Remaining work
+
+- Wire Python, TypeScript, Java, C#, Rust resolvers into index pipeline
+- Fix `resolveBaseClassQName` for dotted Python imports (5,581 broken edges)
+- Validate resolver edge quality vs external LSP on benchmark corpus
+- Test re-indexing with resolvers on a copy (not the enriched corpus DBs)
+
+---
+
+*The remainder of this document is the original analysis from session 22.*
+
+---
+
 ## 1. Architecture Overview
 
 The extraction pipeline has two layers:
