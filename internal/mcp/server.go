@@ -129,10 +129,12 @@ func NewServer(store types.GraphStore) *Server {
 	} else {
 		log.Printf("[knowing] Embeddings: OFF (use --embeddings to enable, currently neutral on benchmarks)")
 	}
-	// Try to get SQLiteStore for runtime queries and task memory.
+	// Try to get SQLiteStore for runtime queries.
 	if ss, ok := store.(*knowingstore.SQLiteStore); ok {
 		s.sqlStore = ss
-		s.taskMemory = knowingctx.NewTaskMemory(ss.DB())
+		// Task memory disabled (session 24, confirmed neutral on honest measurement).
+		// Implicit feedback (noise demotion) is the active learning mechanism.
+		// s.taskMemory = knowingctx.NewTaskMemory(ss.DB())
 	}
 
 	// Startup summary: show the user what features are active.
