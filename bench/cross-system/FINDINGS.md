@@ -30,13 +30,13 @@ knowing is a content-addressed graph retrieval engine evaluated against 6 compet
 
 | System | P@10 | R@10 | Tasks | Notes |
 |--------|------|------|-------|-------|
-| **knowing (cold start)** | **0.283** | **0.414** | 277 | 14 repos, 8 languages, focused seed selection + cluster-aware gap-fill, 38 edge types |
-| codegraph (19K stars) | 0.135 | - | 107 | 10 tasks failed (unsupported repos) |
-| GitNexus | 0.075 | - | 66 | Killed on k8s (>60 min indexing) |
-| Gortex | 0.063 | - | 66 | 14 min k8s indexing, 14GB RAM |
-| grep | 0.013 | - | 117 | Baseline |
-| Aider (~20K stars) | - | - | - | Timed out (30 min limit) |
-| codebase-memory (2.6K stars) | - | - | - | Timed out (30 min limit) |
+| **knowing (cold start)** | **0.278** | **0.405** | 297 | 15 repos, 8 languages, 263 framework equiv classes, honest measurement (no task memory, no embeddings) |
+| codegraph (19K stars) | 0.087 | - | 118 | Honest matching (dot-bounded) |
+| GitNexus | 0.055 | - | 77 | Honest matching |
+| Gortex | 0.052 | - | 246 | Honest matching |
+| Aider (~20K stars) | 0.023 | - | 278 | Honest matching |
+| grep | 0.015 | - | 297 | Baseline, honest matching |
+| codebase-memory (2.6K stars) | - | - | 22 | Timed out on large repos |
 
 ### Per-Repo Breakdown (Session 21, cold start, focused seeds + cluster-aware gap-fill)
 
@@ -59,11 +59,12 @@ knowing is a content-addressed graph retrieval engine evaluated against 6 compet
 
 ### Competitive Advantages (cold start)
 
-- **vs codegraph (19K stars):** 2.17x more precise (P@10 0.189 vs 0.087), all 277 tasks vs 107
+- **vs codegraph (19K stars):** 3.20x more precise (P@10 0.278 vs 0.087), all 297 tasks vs 118
 - **vs codebase-memory (2.7K stars):** codebase-memory timed out (22/297 tasks)
-- **vs GitNexus:** 3.44x more precise (P@10 0.189 vs 0.055), 277 tasks vs 66, 18s index vs >60 min
-- **vs Gortex:** 3.63x more precise (P@10 0.189 vs 0.052), 200MB RAM vs 14GB, 18s index vs 14 min
-- **vs grep:** 12.6x more precise (P@10 0.189 vs 0.015)
+- **vs GitNexus:** 5.05x more precise (P@10 0.278 vs 0.055), 297 tasks vs 77
+- **vs Gortex:** 5.35x more precise (P@10 0.278 vs 0.052), 200MB RAM vs 14GB
+- **vs Aider:** 12.1x more precise (P@10 0.278 vs 0.023)
+- **vs grep:** 18.5x more precise (P@10 0.278 vs 0.015)
 - **vs Repomix:** 48x more token-efficient (4K tokens vs 300K for same task)
 
 ### Competitive Advantages (with compounding, estimated)

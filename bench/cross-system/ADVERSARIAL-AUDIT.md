@@ -1,8 +1,14 @@
-# Adversarial Audit: knowing Cross-System Benchmark (P@10 = 0.283)
+# Adversarial Audit: knowing Cross-System Benchmark
+
+> **Update (session 23):** This audit was conducted against the original P@10=0.283
+> (inflated by permissive matching + task memory). The audit's HIGH-1 finding
+> (permissive matching) was fixed in session 21 (dot-bounded containment). Task
+> memory contamination was discovered and fixed in session 23. Current honest
+> P@10 = 0.278 (no task memory, no embeddings, dot-bounded matching).
 
 **Auditor perspective:** Senior researcher at a competing code intelligence company.
-knowing claims P@10=0.283 across 277 tasks, 14 repos, 8 languages, beating
-competitors 2.10x. This audit evaluates the methodology, corpus, and
+knowing claimed P@10=0.283 across 277 tasks, 14 repos, 8 languages, beating
+competitors 2.10x. This audit evaluated the methodology, corpus, and
 reproducibility for weaknesses.
 
 **Date:** 2026-05-30
@@ -189,7 +195,7 @@ sweep honesty and self-critical limitations section show scientific integrity.
 With fixes (tighter matching, external ground truth validation, fair competitor
 adapters), this could become a credible evaluation.
 
-**Bottom line:** The P@10 = 0.283 headline number is likely inflated by matching
+**Bottom line (original):** The P@10 = 0.283 headline number was inflated by matching
 leniency, and the 2.10x competitive ratio is inflated by comparing different task
 sets. The true advantage over codegraph is probably real but smaller than claimed.
 The engineering is solid; the experimental methodology needs tightening before

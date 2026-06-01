@@ -390,10 +390,10 @@ BENCH_EMBEDDINGS=1 BENCH_ADAPTERS=knowing GOWORK=off \
   go test ./bench/cross-system/ -run TestCrossSystem -v -timeout 0
 ```
 
-**Without enrichment or embeddings:** The benchmark runs with tree-sitter-only
-graph databases. P@10 will be lower (~0.200 vs 0.283) because LSP enrichment
-and embedding gap-fill contribute significantly. The relative ranking of repos
-and the competitive comparison with other systems remain valid.
+**Without enrichment or embeddings:** The corpus DBs are pre-enriched with LSP.
+Embeddings are confirmed neutral on cold start (session 23). Task memory is
+disabled in the benchmark adapter (session 23, was contaminating measurements).
+Official P@10 = 0.278 (honest cold-start, no task memory, no embeddings).
 
 **Corpus manifest:** `corpus/MANIFEST.yaml` records the exact commit hash,
 repository URL, expected node/edge/embedding counts, and enrichment server
