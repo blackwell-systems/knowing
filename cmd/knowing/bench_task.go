@@ -46,11 +46,17 @@ func cmdBenchTask(args []string) error {
 	}
 	defer st.Close()
 
-	// Detect repo URL.
+	// Get repo URL from the DB (matches what the benchmark adapter uses).
+	// Previously used detectRepoURL (git remote) which produces a different
+	// hash than the local path stored during indexing, causing mismatched results.
 	repoPath := filepath.Join(*corpusDir, "repos", task.Repo)
-	repoURL := detectRepoURL(repoPath)
-
 	ctx := context.Background()
+	var repoURL string
+	if repos, err := st.AllRepos(ctx); err == nil && len(repos) > 0 {
+		repoURL = repos[0].RepoURL
+	} else {
+		repoURL = detectRepoURL(repoPath)
+	}
 
 	fmt.Printf("=== BENCH TASK: %s ===\n", task.ID)
 	fmt.Printf("Repo: %s (%s)\n", task.Repo, repoURL)
