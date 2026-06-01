@@ -107,8 +107,8 @@ Developer commits code
 │    ├── Add vectors to in-memory HNSW index            │
 │    ├── Persist vectors to SQLite embeddings table     │
 │    │   (keyed by node_hash + model for cache reuse)   │
-│    └── Subsequent re-rank calls read cached vectors   │
-│        (~220ms vs ~660ms uncached)                    │
+│    └── Subsequent queries read cached vectors          │
+│        (re-rank disabled; gap-fill neutral, session 23)│
 └───────────────────────────────────────────────────────┘
 ```
 
