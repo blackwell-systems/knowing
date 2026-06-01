@@ -21,7 +21,8 @@ type ScoringInput struct {
 	CallerCount        int     // number of transitive callers (blast radius)
 	Confidence         float64 // provenance tier confidence (0.0-1.0)
 	LastObserved       int64   // unix timestamp of last runtime observation (0 = static only)
-	DistanceFromTarget int     // hops from the task target symbol
+	DistanceFromTarget int     // hops from the task target symbol (binary 0/1 for scoring)
+	BFSDistance        int     // actual BFS hop count from nearest seed (for packing proximity)
 	FeedbackBoost      float64 // 0.0 = no feedback, >0 = positive signal (0.0-1.0)
 	SessionBoost       float64 // 0.0 = not seen this session, >0 = recently accessed (0.0-2.0)
 	IsTestFile         bool    // true if the symbol is from a test file (deprioritized unless task is about testing)
@@ -132,8 +133,9 @@ func RankSymbols(symbols []ScoringInput, hitsScores ...map[types.Hash]HITSScores
 				Feedback:    feedback,
 				Session:     session,
 			},
-			Provenance: "",
-			Distance:   s.DistanceFromTarget,
+			Provenance:   "",
+			Distance:     s.DistanceFromTarget,
+			BFSDistance:  s.BFSDistance,
 		})
 	}
 

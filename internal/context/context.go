@@ -149,11 +149,12 @@ type ContextEdge struct {
 // RankedSymbol is a graph node paired with its computed relevance score
 // and score breakdown.
 type RankedSymbol struct {
-	Node       types.Node
-	Score      float64
-	Components ScoreComponents
-	Provenance string
-	Distance   int
+	Node        types.Node
+	Score       float64
+	Components  ScoreComponents
+	Provenance  string
+	Distance    int // binary 0/1 for scoring
+	BFSDistance int // actual BFS hop count for proximity-weighted packing
 }
 
 // ScoreComponents breaks down a symbol's score into its weighted components.
@@ -975,15 +976,18 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 			continue
 		}
 
-		// Distance: 0 if seed, 1 otherwise.
-		// BFS proximity scoring tested in session 24: neutral on unenriched,
-		// slightly harmful on enriched (0.200 -> 0.182 on saleor). The
-		// enrichment dilution problem is in packing, not scoring. BFS
-		// infrastructure preserved in walk.go for future packing experiments.
+		// Scoring distance: binary 0/1 (BFS proximity in scoring confirmed
+		// neutral/harmful in session 24; the enrichment dilution problem is
+		// in packing, not scoring).
 		distance := 1
 		if seedSet[nodeHash] {
 			distance = 0
 		}
+
+		// BFS distance for proximity-weighted packing (not yet active).
+		// Session 24: full BFS too expensive (2x latency, 25% memory).
+		// TODO: lazy BFS on top-100 candidates only, or RWR score as proxy.
+		bfsDist := 0
 
 		// Get edge metadata for confidence and recency.
 		edges, err := e.store.EdgesTo(ctx, nodeHash, "")
@@ -1025,6 +1029,7 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 			Confidence:         confidence,
 			LastObserved:       lastObserved,
 			DistanceFromTarget: distance,
+			BFSDistance:        bfsDist,
 			IsTestFile:         isTestFilePath(node.QualifiedName),
 		})
 	}
@@ -2056,6 +2061,10 @@ func packIntoBudget(ranked []RankedSymbol, budget int, format string) *ContextBl
 	}
 
 	// Compute density (score per token) for each symbol.
+	// Proximity-weighted packing tested in session 24: correct approach but
+	// BFS distance computation too expensive (2x slower, 25% memory on Django).
+	// TODO: revisit with lazy BFS (only compute for top-100 candidates) or
+	// use RWR score as distance proxy.
 	type densityItem struct {
 		index   int
 		density float64
