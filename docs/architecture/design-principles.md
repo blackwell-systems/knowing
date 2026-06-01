@@ -7,7 +7,7 @@
 - **Git-driven incremental**: commits are the unit of change; git diff provides the exact changed file set; no filesystem walking or content hashing for change detection
 - **Language-aware at boundaries**: Go calling Go is straightforward; Go calling a Python service via HTTP needs route mapping
 - **MCP-native**: exposed as MCP tools, consumed by agents directly
-- **Local-first, no paid LLM**: all indexing, retrieval, ranking, and embedding inference run locally without external API calls. Pure Go binary with no runtime dependencies beyond SQLite. Embedding gap-fill seeds use a local model via pure Go ONNX inference (no Python, no API keys, no charges)
+- **Local-first, no paid LLM**: all indexing, retrieval, ranking, and framework equivalence class matching run locally without external API calls. Pure Go binary with no runtime dependencies beyond SQLite. Embeddings confirmed neutral on cold start (session 23); the graph structure, BM25, and 263 framework equiv classes carry everything
 - **Density-adaptive retrieval**: the system observes its own graph density at query time and adjusts seed selection strategy. On graphs exceeding 40K nodes, it automatically prefers type/interface nodes as RWR seeds (structural anchors walk down to methods via contains edges). This prevents the precision degradation that affects all static retrieval systems at scale. The system gets smarter with graph growth, not dumber.
 - **Fast**: optimized for interactive agent queries over large multi-repo graphs
 - **Deterministic**: same input at same commit always produces the same graph (verifiable via hash)
@@ -152,15 +152,17 @@ The context engine (`internal/context/`) implements task-based retrieval: given 
 
 After seed retrieval, Random Walk with Restart (RWR) expands the seed set through the graph, HITS reranking promotes authorities, and community-aware scoring prevents single-cluster dominance.
 
-**Embedding gap-fill seeds (on by default):* When BM25 returns fewer than 5 seed candidates, the embedding model finds semantically similar symbols via brute-force cosine search. This bridges vocabulary gaps that keyword matching cannot (+11% P@10). The re-ranker (cosine re-ordering of top-50 RWR results) was disabled in session 19 after per-repo A/B testing showed it was net negative (9/13 repos hurt). Gap-fill seeds remain active.
+**Framework equivalence classes with forced injection (session 23):** 263 concept-to-symbol mappings across 30 per-framework files. High-confidence matches (weight >= 0.9, source "framework") bypass RWR scoring and inject directly into ranked results. Language-scoped via `Lang` field to prevent cross-language false positives. This is the primary mechanism for bridging the vocabulary gap (+57% P@10).
 
-**Benchmark results (fresh index, gap-fill seeds active, re-ranker disabled):**
+**Embedding gap-fill and re-ranker:** Both confirmed neutral on honest cold-start measurement (session 23, 3 runs identical with/without). Previous "+11% gap-fill" was task memory contamination. Infrastructure preserved but not used.
 
-- P@10 = 0.189 cold start, 0.284 with compounding across 277 tasks, 14 repos, 8 languages (Go, Python, TypeScript, Rust, Java, C#, Ruby), 14K to 3.5M LOC
-- Task memory compounding: +4.2% P@10 from passive learning (self-adapting claim, quantified)
+**Benchmark results (honest measurement, no task memory, no embeddings):**
+
+- P@10 = 0.278 +/- 0.003 cold start across 297 tasks, 15 repos, 8 languages (Go, Python, TypeScript, Rust, Java, C#, Ruby), 14K to 3.5M LOC
 - Competitive advantage (cold): vs codegraph 2.17x, vs GitNexus 3.44x, vs Gortex 3.63x, vs grep 12.6x
 - Self-adapting type-seed preference: on dense graphs (>40K nodes), automatically prefers type/interface/class nodes as RWR seeds
-- Embedding re-ranker: REVERTED (session 19, net negative on P@10, 9/13 repos hurt). Gap-fill seeds remain (+11%).
+- Embedding re-ranker: REVERTED (session 19). Gap-fill seeds: NEUTRAL (session 23, task memory contamination).
 - Concept thesaurus: ~80 domain clusters expand BM25 queries with related code vocabulary.
 - Parameter sweep (RWR alpha, seed count, score cutoff, blast radius weight, distance weight, confidence weight, RRF k, test penalty): all 9 parameters produce identical P@10. Quality is determined entirely by graph reachability (binary: is the symbol connected to any seed?), not by continuous parameter tuning.
-- Implication: all P@10 improvements must target reachability (new edge types, new seed sources), not ranking (parameter adjustment).
+- Implication: P@10 improvements come from reachability (new edges) and vocabulary bridging (framework equiv classes), not ranking parameter adjustment.
+- Framework equivalence classes (session 23): +57% P@10 by encoding documented framework concepts as concept-to-symbol mappings with forced injection. 263 classes across 30 files.
