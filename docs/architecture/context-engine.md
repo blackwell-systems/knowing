@@ -2,7 +2,7 @@
 
 The context packing subsystem (`internal/context/`) produces token-budgeted, graph-ranked context blocks for agent consumption. It answers: "given a task or a set of changed files, which symbols from the knowledge graph should an agent see?" Three entry points exist: task-based (`ForTask`, keyword search from a description), file-based (`ForFiles`, blast-radius expansion from changed files), and PR-based (`ForPR`, RWR from all symbols in changed files). A fourth entry point, `ExplainSymbol`, runs the full retrieval pipeline and returns a detailed scoring breakdown for a specific symbol.
 
-**Current performance:** P@10 = 0.189 cold start (14 repos, 277 tasks, 8 languages). 2.17x vs codegraph, 3.44x vs GitNexus, 3.63x vs Gortex, 12.6x vs grep. Focused seed selection + cluster-aware gap-fill (re-ranker disabled) + 164 equivalence classes. Query latency 2ms on k8s (with adjacency cache). Parameter sweep proved all RWR/ranking parameters are irrelevant (identical P@10 across 26 configs); P@10 is reachability-determined, not ranking-determined.
+**Current performance:** P@10 = 0.278 cold start (15 repos, 297 tasks, 8 languages, honest: no task memory, no embeddings). 3.20x vs codegraph, 5.05x vs GitNexus, 5.35x vs Gortex, 18.5x vs grep. 263 framework equivalence classes with forced injection + adaptive retrieval for massive repos. Embeddings confirmed neutral (session 23). Task memory disabled in benchmarks (session 23, was contaminating measurements). Query latency 2ms on k8s (with adjacency cache). P@10 is reachability-determined (parameter sweep confirmed) + vocabulary-determined (framework equiv classes bridge the gap).
 
 ## Architecture
 
@@ -10,9 +10,10 @@ The context packing subsystem (`internal/context/`) produces token-budgeted, gra
 internal/context/
 ├── context.go          ContextEngine: ForTask, ForFiles, ForPR entry points, 5-channel RRF fusion, knapsack packing
 ├── explain.go          ExplainSymbol: full pipeline + detailed scoring breakdown; tieredSearchSet (unified method)
-├── equivalence.go      Equivalence class seed retrieval: 115 equivalence classes (63 universal + 21 knowing-specific + 31 language-specific) -> target symbols
+├── equivalence.go      EquivalenceClass type, matching logic, language scoping (matchEquivalenceClassesLang)
 ├── universal_seeds.go  63 universal software concepts (weight 0.8), cross-repo retrieval
-├── language_seeds.go   31 language-specific equivalence classes (Python, TS, Rust, Java, K8s)
+├── language_seeds.go   Aggregator: collects all equiv_*.go files (263 classes, 30 files)
+├── equiv_*.go (30 files) Framework-specific equivalence classes with forced injection
 ├── graph_aliases.go    Auto-generated equivalence classes from caller/callee names (weight 0.7)
 ├── task_memory.go      Passive task memory: records top-5 symbols per call, 7-day decay recall
 ├── ranking.go          RankSymbols: weighted scoring formula with HITS authority + session boost
@@ -100,15 +101,15 @@ Seed selection uses Reciprocal Rank Fusion (`rrfFuseMulti`) across five channels
 |---------|--------|--------|
 | 1. Tiered keyword matching | 2.0 | 4-tier compound-first: exact > prefix > substring > path (interface seeding is a separate post-RRF step) |
 | 2. BM25 FTS5 | 2.0 | SQLite FTS5 over 6 columns: symbol_name (10x), concepts (5x), file_path (4x), qualified_name (3x), doc (3x), signature (1x) |
-| 3. Vector/embedding search | 0.0 | nomic-code via HNSW (neutral as seed channel; powers gap-fill seeds when BM25 < 5 candidates) |
-| 4. Equivalence class matching | 2.0 | 115 equivalence classes (63 universal + 21 knowing-specific + 31 language-specific) mapped to target symbols |
+| 3. Vector/embedding search | 0.0 | Confirmed neutral on cold start (session 23, 3 runs identical). Disabled. |
+| 4. Equivalence class matching | 2.0 | 263 equivalence classes (30 framework files + universal + seed). Framework classes (weight 0.9) also trigger forced injection post-RWR. |
 | 5. Path-context seeding | 1.5 | Extracts package/directory terms from task, finds type nodes in matching packages, injects as supplemental RWR seeds at weight 0.3 |
 
 The `rrfFuseMulti` function handles N channels with per-channel weights, producing a single ranked seed set. When the fused set contains fewer than 5 candidates (threshold configurable via `BENCH_GAP_THRESHOLD`), gap-fill seeds supplement the channels by querying the embedding vector store for semantically similar symbols. This targets vocabulary gaps where ground truth shares no keywords with the task description. Impact: Django +43%, flask +22%, zero regressions. After RRF fusion (and gap-fill if triggered), interface-aware seeding adds all implementors of any interface/type in the candidate set as additional seeds. The path channel receives lower weight (1.5x) because it is valuable for bridging concepts to packages but less precise than name-matching channels.
 
 ## Equivalence Class Seed Retrieval
 
-The equivalence class system (`internal/context/equivalence.go` + `language_seeds.go`) bridges the vocabulary gap between natural-language task descriptions and code symbol names. It contains 115 equivalence classes (63 universal + 21 knowing-specific + 31 language-specific), each mapping concept names and phrases to target symbols. Cross-product expansion with action verbs generates additional phrase variants.
+The equivalence class system (`internal/context/equivalence.go` + 30 `equiv_*.go` files) bridges the vocabulary gap between natural-language task descriptions and code symbol names. It contains 263 equivalence classes organized by framework (Django, Flask, FastAPI, Terraform, Kubernetes, Kafka, Rails, etc.) plus universal and cross-cutting patterns. Framework classes with weight >= 0.9 and source "framework" trigger **forced injection**: matched symbols bypass RWR scoring and inject directly at the top of ranked results. Language scoping via the `Lang` field prevents cross-language false positives.
 
 This was the biggest single-feature improvement: hard tier P@10 rose from 10% to 18% (+8pp). It is fused as RRF Channel 4 with weight 2.0.
 
