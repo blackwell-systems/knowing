@@ -33,7 +33,7 @@ brew install blackwell-systems/tap/knowing
 { "mcpServers": { "knowing": { "command": "knowing", "args": ["mcp", "--watch"] } } }
 ```
 
-That's it. The MCP server auto-indexes your repo on first launch and downloads a 30MB embedding model once. Your agent now has ranked context, blast radius, test scope, and memory that compounds.
+That's it. The MCP server auto-indexes your repo on first launch. No model downloads, no API keys. Your agent now has ranked context, blast radius, test scope, and implicit noise demotion that improves results during active sessions.
 
 **Verify it works:** Ask your agent: *"Use the context_for_task tool to find symbols related to [something you know exists in your code]."* You should see ranked symbols with scores and file paths from your codebase. If results are empty, the repo is still indexing (10-30 seconds on first launch). If results seem unrelated, see [Troubleshooting](docs/guide/cli.md#troubleshooting).
 
@@ -58,8 +58,8 @@ One call returns the most relevant symbols for a task, ranked by graph centralit
 **2. Audit primitive for compliance**
 Every graph state is a Merkle root tied to a git commit. `knowing prove` generates a cryptographic proof that a relationship existed. `knowing verify` checks it offline. `knowing fsck` verifies the entire graph in 98ms. Supply chain detection extracts credential access, process spawning, and network exfiltration edges to flag structurally suspicious code.
 
-**3. Memory layer that learns**
-Feedback from agents compounds across sessions. When code changes, feedback expires automatically (verified via package Merkle roots). The system gets smarter over time, not noisier. That is the property knowing is built around.
+**3. Noise demotion that learns**
+Symbols returned but never used by the agent get demoted on future queries. When code changes, feedback expires automatically (verified via package Merkle roots). The system gets more precise during active sessions. That is the property knowing is built around.
 
 **These aren't separate features.** They're structural consequences of content-addressing: the same hash that makes context cacheable also makes it provable, and the same Merkle root that detects staleness also expires stale feedback.
 
@@ -88,10 +88,10 @@ Feedback from agents compounds across sessions. When code changes, feedback expi
 
 | What | Result |
 |---|---:|
-| Cross-system retrieval | **P@10=0.278 cold, 0.284 warm** (297 tasks, 15 repos, 8 languages) |
-| vs competitors | 3.20x codegraph (19K stars), codebase-memory timed out (2.7K stars), 5.05x GitNexus, 5.35x Gortex, 18.5x grep |
+| Cross-system retrieval | **P@10=0.278 cold start** (308 tasks, 16 repos, 8 languages) |
+| vs competitors | 3.20x codegraph (19K stars), 5.05x GitNexus, 5.35x Gortex, 18.5x grep |
 | Equivalence classes | 263 concepts bridging task vocabulary to code symbols (+57% P@10) |
-| Agent context precision | +20pp after 1 round, +34pp after 5 |
+| Noise demotion | +5.9% P@10 after 3 rounds of implicit feedback (Django) |
 | Tool calls saved | 47% fewer (one context call replaces repeated grep+read) |
 | Token savings | 84% fewer tokens (GCF wire format) |
 | Repeat query speed | 93x faster (Merkle-keyed subgraph cache) |
@@ -104,7 +104,7 @@ Feedback from agents compounds across sessions. When code changes, feedback expi
 | Language coverage | 13/15 repos pass (Go, Python, TS, Rust, Java, C#, Ruby, multi) |
 | Edge types | 38 (including supply chain: reads_env, executes_process) |
 
-All benchmarks are reproducible. The cross-system benchmark (P@10=0.278) uses 15 repos pinned to exact commits with a [corpus manifest](bench/cross-system/corpus/MANIFEST.yaml) and [setup script](bench/cross-system/corpus/corpus-setup.sh) for full from-scratch reproduction. See [METHODOLOGY.md](bench/cross-system/METHODOLOGY.md) for protocol details.
+All benchmarks are reproducible. The cross-system benchmark (P@10=0.278) uses 16 repos pinned to exact commits with a [corpus manifest](bench/cross-system/corpus/MANIFEST.yaml) and [setup script](bench/cross-system/corpus/corpus-setup.sh) for full from-scratch reproduction. See [METHODOLOGY.md](bench/cross-system/METHODOLOGY.md) for protocol details.
 
 ---
 

@@ -39,7 +39,7 @@ You should see ranked symbols with scores and file paths. If results are empty, 
 
 knowing indexes code across 23 extractors (Go, TypeScript, Python, Rust, Java, C#, and more) into a content-addressed knowledge graph. 38 edge types, 28 MCP tools, 263 equivalence classes bridging task vocabulary to code symbols.
 
-P@10 = 0.278 across 297 tasks, 15 repos, 8 languages. 3.20x codegraph, 5.05x GitNexus.
+P@10 = 0.278 across 308 tasks, 16 repos, 8 languages. 3.20x codegraph, 5.05x GitNexus.
 
 ## CLI usage
 
@@ -48,7 +48,7 @@ knowing add .                                          # index a repo
 knowing context -task "refactor auth" -format gcf      # ranked context
 knowing test-scope -files internal/auth/handler.go     # affected tests
 knowing why -task "refactor auth" -symbol "SessionHandler"  # explain ranking
-knowing enrich embeddings                              # pre-cache vectors for faster queries
+knowing enrich lsp                                     # LSP enrichment for higher-quality edges
 ```
 
 ## Documentation
