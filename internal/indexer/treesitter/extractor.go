@@ -1270,15 +1270,26 @@ func resolveBaseClassQName(className string, opts types.ExtractOptions, pyImport
 		return fmt.Sprintf("%s://%s/%s.%s", opts.RepoURL, opts.ModuleRoot, opts.FilePath, className)
 	}
 
+	// Direct match: className is imported directly (e.g., "from x import MyClass").
 	srcModule, ok := pyImports[className]
-	if !ok {
-		// Not imported: assume defined in same file.
-		return fmt.Sprintf("%s://%s/%s.%s", opts.RepoURL, opts.ModuleRoot, opts.FilePath, className)
+	if ok {
+		modulePath := resolveModuleToPath(srcModule, opts.ModuleRoot)
+		return fmt.Sprintf("%s://%s/%s.%s", opts.RepoURL, opts.ModuleRoot, modulePath, className)
 	}
 
-	// Resolve module to file path.
-	modulePath := resolveModuleToPath(srcModule, opts.ModuleRoot)
-	return fmt.Sprintf("%s://%s/%s.%s", opts.RepoURL, opts.ModuleRoot, modulePath, className)
+	// Dotted path: className is "module.ClassName" (e.g., "validators.RegexValidator").
+	// Split into module alias and class name, look up the module alias.
+	if dotIdx := strings.Index(className, "."); dotIdx > 0 {
+		moduleAlias := className[:dotIdx]
+		actualClass := className[dotIdx+1:]
+		if srcModule, ok := pyImports[moduleAlias]; ok {
+			modulePath := resolveModuleToPath(srcModule, opts.ModuleRoot)
+			return fmt.Sprintf("%s://%s/%s.%s", opts.RepoURL, opts.ModuleRoot, modulePath, actualClass)
+		}
+	}
+
+	// Not imported: assume defined in same file.
+	return fmt.Sprintf("%s://%s/%s.%s", opts.RepoURL, opts.ModuleRoot, opts.FilePath, className)
 }
 
 // extractPythonDecoratorEdges checks for decorator nodes that precede a
