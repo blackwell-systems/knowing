@@ -168,7 +168,7 @@ is more productive because it covers a coherent set of related symbols.
 4. The parameter sweep finding still holds: P@10 is reachability-determined. But now we
    know that "reachability" starts at seed selection, not just graph structure.
 5. **Density-adaptive retrieval** is now a core design principle with 8 self-adapting mechanisms.
-6. **Focused seed selection** (session 21): the definitive answer to dense graph dilution. Instead of scattering 15-25 seeds across the graph, cluster by package path and concentrate the walk in the dominant structural neighborhood. Combined with cluster-aware gap-fill (embedding seeds filtered to the same package), this produced +6.0% P@10 (0.267 -> 0.283). Dense graph dilution is a seed cohesion problem, not a graph structure problem.
+6. **Focused seed selection** (session 21): concentrates the walk in the dominant structural neighborhood (+6.0% relative). Session 23 added **framework equivalence classes** (263 classes with forced injection, +57% P@10) which bypass the dilution problem entirely by injecting known-good symbols directly. Embeddings (gap-fill) confirmed neutral (session 23). Dense graph dilution is solved by a combination of seed cohesion and vocabulary bridging via framework knowledge.
 
 ### Open questions
 
