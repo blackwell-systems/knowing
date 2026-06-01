@@ -140,11 +140,17 @@ func (a *Knowing) Index(repoPath string) (int64, error) {
 		return 0, err
 	}
 	a.stores[repoPath] = s
-	// Task memory DISABLED for benchmarks. Task memory persists in the DB across
-	// runs, causing accumulated boosts that inflate P@10 over time. Session 23
-	// found 26K stale entries in terraform alone. For honest cold-start measurement,
-	// each task must be evaluated independently without memory from prior runs.
-	// a.memories[repoPath] = knowingctx.NewTaskMemory(s.DB())
+	// Task memory DISABLED for benchmarks by default. Task memory persists in
+	// the DB across runs, causing accumulated boosts that inflate P@10 over time.
+	// Session 23 found 26K stale entries in terraform alone.
+	// Enable with: BENCH_IMPLICIT_FEEDBACK=1 (also enables noise demotion).
+	// Or call EnableMemory() after indexing (used by TestCompounding).
+	if os.Getenv("BENCH_IMPLICIT_FEEDBACK") == "1" {
+		a.memories[repoPath] = knowingctx.NewTaskMemory(s.DB())
+		if a.implicit == nil {
+			a.implicit = knowingctx.NewImplicitFeedback()
+		}
+	}
 
 	ctx := stdctx.Background()
 

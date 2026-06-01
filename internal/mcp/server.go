@@ -189,6 +189,12 @@ func (s *Server) SetSnapshotManager(sm *snapshot.SnapshotManager) {
 	s.snapMgr = sm
 }
 
+// DisableImplicitFeedback turns off the implicit feedback tracker (noise demotion).
+// Use --no-feedback flag or KNOWING_NO_FEEDBACK=1 for A/B testing.
+func (s *Server) DisableImplicitFeedback() {
+	s.implicit = nil
+}
+
 // SetResultCache attaches a SubgraphCache for memoizing blast_radius and
 // test_scope results. When set, handlers check the cache before computing
 // and store results after a miss. Pass nil to disable caching.

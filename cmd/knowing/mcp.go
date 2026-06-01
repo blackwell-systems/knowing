@@ -37,6 +37,7 @@ func cmdMCP(args []string) error {
 	noEnrich := fs.Bool("no-enrich", false, "Skip LSP enrichment after reindex (only with --watch)")
 	debounceMs := fs.Int("debounce", 500, "Debounce interval in ms (only with --watch)")
 	useEmbeddings := fs.Bool("embeddings", false, "Enable local embedding gap-fill (off by default, confirmed neutral on cold-start benchmarks)")
+	noFeedback := fs.Bool("no-feedback", false, "Disable implicit feedback (noise demotion). Useful for A/B testing.")
 	embedModel := fs.String("embed-model", "", "Embedding model: nomic-code (default), jina-code, bge-small. All models run locally.")
 	// Legacy flag: --no-embeddings is accepted but ignored (embeddings are now off by default).
 	fs.Bool("no-embeddings", false, "Deprecated: embeddings are now off by default. Use --embeddings to enable.")
@@ -69,6 +70,10 @@ func cmdMCP(args []string) error {
 	defer st.Close()
 
 	mcpServer := knowingmcp.NewServer(st)
+	if *noFeedback || os.Getenv("KNOWING_NO_FEEDBACK") == "1" {
+		mcpServer.DisableImplicitFeedback()
+		log.Printf("[knowing] Implicit feedback: OFF")
+	}
 
 	// Always create snapshot manager so prove/prove_absent MCP tools work.
 	snapMgr := snapshot.NewSnapshotManager(st)
