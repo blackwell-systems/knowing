@@ -1,12 +1,13 @@
-# Embedding Architecture (Re-ranker Disabled, Gap-Fill Active)
+# Embedding Architecture (Re-ranker Disabled, Gap-Fill Neutral)
 
-> **Status (session 19):** The embedding re-ranker has been disabled after per-repo
-> A/B testing showed it is net negative on P@10 (9/13 repos hurt, net -0.050).
-> The +17% improvement previously attributed to re-ranking was actually from gap-fill
-> seeds sharing the same `BENCH_EMBEDDINGS=1` flag. Gap-fill seeds remain active
-> and provide +11% P@10 by bridging vocabulary gaps. The embedding infrastructure
-> (model download, vector cache, PreloadVectors) is still used for gap-fill.
-> Code is preserved for future investigation with code-tuned models.
+> **Status (session 23):** Both the embedding re-ranker AND gap-fill seeds are
+> confirmed neutral on honest cold-start measurement. Three runs with and without
+> embeddings produced identical P@10 (0.176, 0.175, 0.176). The previous "+11%
+> gap-fill" finding was task memory contamination: gap-fill kept injecting symbols
+> that accumulated task memory was boosting, creating a feedback loop.
+> Framework equivalence classes (263 classes, session 23) now solve the vocabulary
+> gap that gap-fill was designed for, making embeddings redundant.
+> Infrastructure preserved for future investigation with code-tuned models.
 
 The embedding re-ranker was a post-RWR stage that reordered the top-50 candidates
 by cosine similarity to the task description. It uses a pre-trained code embedding
