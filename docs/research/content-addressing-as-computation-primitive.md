@@ -2,18 +2,15 @@
 
 **Dayna Blackwell, Blackwell Systems**
 
-May 2026, v1.0
+May 2026, v1.1
 
-> **Errata (session 23, 2026-05-31):** The retrieval numbers in Section 6
-> (P@10=0.209, 2.75x vs GitNexus) were measured before two measurement bugs
-> were discovered: (1) permissive substring matching inflated P@10 by ~35%
-> (fixed session 21 with dot-bounded containment), (2) task memory accumulated
-> across benchmark runs inflating absolute numbers (fixed session 23). The
-> paper's competitive RATIOS remain valid (both systems were affected equally
-> by the matching bug). Current honest P@10 = 0.278 (297 tasks, 15 repos,
-> dot-bounded matching, no task memory). The paper's architectural
-> contributions (content-addressing, hierarchical Merkle trees, O(packages)
-> diff) are unaffected by the retrieval measurement correction.
+> **v1.1 changes (2026-05-31):** Section 6 (Competitive Validation) updated
+> with corrected retrieval measurements. Two measurement bugs fixed since v1.0:
+> (1) permissive substring matching inflated P@10 by ~35% (fixed with
+> dot-bounded containment), (2) task memory accumulated across benchmark runs
+> (fixed by disabling in benchmark adapter). Corpus expanded from 5 repos/107
+> tasks to 15 repos/297 tasks. Competitor coverage expanded from 2 to 5
+> systems. All architectural contributions unchanged.
 
 ---
 
@@ -25,7 +22,7 @@ A flat Merkle tree proves state. A hierarchical Merkle tree organizes computatio
 
 By organizing a Merkle tree around semantic boundaries (package and relationship type rather than flat sorted hash), the identity structure itself becomes the query optimization layer. Diffs become O(packages) instead of O(edges) with semantically meaningful output (281x faster than naive linear scan; 517x at 100K edges). Cache keys become O(1) subgraph root lookups. Invalidation is scoped to packages that actually changed. Feedback anchored to content-addressed symbols expires structurally when code changes.
 
-This paper presents both contributions together: the original argument (content-addressing solves six structural problems with mutable graphs) and the hierarchical structure (organizing the Merkle tree by semantic boundaries turns identity into a query engine). Validated on five benchmark codebases: kubernetes (268K edges, 3.5M LOC), VS Code (93K edges, 1M LOC), Django (185K edges, 400K LOC), Cargo (79K edges, 150K LOC), and Flask (9K edges, 15K LOC). Competitive evaluation against GitNexus (knowledge graph competitor): 2.75x more precise (p=0.0003), 193x faster indexing on enterprise repos, 28x less RAM.
+This paper presents both contributions together: the original argument (content-addressing solves six structural problems with mutable graphs) and the hierarchical structure (organizing the Merkle tree by semantic boundaries turns identity into a query engine). Validated on 15 benchmark codebases (297 tasks, 8 languages, 14K to 3.5M LOC). Competitive evaluation against 5 code intelligence systems: 3.20x more precise than codegraph, 5.05x vs GitNexus, 5.35x vs Gortex. Honest measurement: dot-bounded symbol matching, no task memory, no embeddings.
 
 ---
 
@@ -484,18 +481,28 @@ The 281x and 517x figures compare hierarchical diff against flat linear scan of 
 
 ### 7.3 Context Retrieval
 
-#### Cross-System Benchmark (7 repos, ~117 tasks, 23 iterative runs)
+#### Cross-System Benchmark (v1.1: 15 repos, 297 tasks, honest measurement)
+
+> **v1.1 update:** Results below replace the v1.0 numbers (7 repos, 107 tasks)
+> which were inflated by permissive matching and task memory accumulation.
+> All v1.1 numbers use dot-bounded symbol matching (no mid-word false
+> positives) and disabled task memory (no cross-run contamination).
 
 | System | P@10 | R@10 | NDCG@10 | MRR | Tasks scored |
 |--------|------|------|---------|-----|-------------|
-| knowing | 0.209 | 0.262 | 0.305 | 0.350 | 107 |
-| GitNexus (competitor) | 0.076 | 0.159 | 0.122 | 0.189 | 66 |
-| grep (baseline) | 0.015 | 0.029 | 0.031 | 0.063 | 107 |
+| knowing | 0.278 | 0.405 | 0.425 | 0.465 | 297 |
+| codegraph (19K stars) | 0.087 | - | - | - | 118 |
+| GitNexus (40K stars) | 0.055 | - | - | - | 77 |
+| Gortex | 0.052 | - | - | - | 246 |
+| Aider (~20K stars) | 0.023 | - | - | - | 278 |
+| grep (baseline) | 0.015 | - | - | - | 297 |
 
-knowing vs GitNexus: **2.75x more precise** (p=0.0003, d=0.50, CI=[0.089, 0.248]).
-knowing vs grep: 14x more precise (p<0.0001, d=0.71).
+knowing vs codegraph: **3.20x more precise**. knowing vs GitNexus: **5.05x**.
+knowing vs Gortex: **5.35x**. knowing vs grep: **18.5x**.
 
-Evaluation corpus: kubernetes (3.5M LOC Go), VS Code (1M LOC TypeScript), Django (400K LOC Python), Cargo (150K LOC Rust), Flask (15K LOC Python). 97 hand-curated task fixtures with verified ground truth (95% match rate against indexed symbols) plus 10 SWE-bench derived fixtures.
+Evaluation corpus: 15 repos across 8 languages (Go, Python, TypeScript, Rust,
+Java, C#, Ruby, TOML), 14K to 3.5M LOC. 297 hand-curated task fixtures with
+99% ground truth match rate against indexed symbols.
 
 GitNexus cannot index kubernetes (>60 min, killed at 5.7GB RAM) or VS Code (>22 min, killed at 2.8GB RAM). knowing indexes both in under 20s at 200MB RAM.
 
