@@ -1,0 +1,13 @@
+id: saleor-medium-004
+repo: saleor
+tier: medium
+description: "Implement the GraphQL mutation that completes a checkout and creates an order"
+source: manual
+ground_truth:
+  - CheckoutComplete
+  - OrderCreate
+  - Checkout
+  - Order
+  - Checkout.get_last_active_payment
+tags: [graphql, mutation, checkout, order, multi-package]
+notes: "Tests GraphQL mutation resolution: task describes a mutation operation, ground truth includes mutation classes and the domain models they operate on."

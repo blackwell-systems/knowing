@@ -1,0 +1,13 @@
+id: saleor-medium-002
+repo: saleor
+tier: medium
+description: "Configure shipping zones with method-specific pricing per sales channel"
+source: manual
+ground_truth:
+  - ShippingZone
+  - ShippingMethod
+  - ShippingMethodChannelListing
+  - Checkout.is_shipping_required
+  - Checkout.get_country
+tags: [shipping, channel, multi-package]
+notes: "Tests cross-domain resolution: shipping zone configuration touches shipping models and checkout integration."

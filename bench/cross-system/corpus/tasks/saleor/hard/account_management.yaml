@@ -1,0 +1,15 @@
+id: saleor-hard-002
+repo: saleor
+tier: hard
+description: "Build account management mutations for user registration, deletion, and bulk operations"
+source: manual
+ground_truth:
+  - AccountRegister
+  - AccountDelete
+  - CustomerBulkDelete
+  - AccountAddressCreate
+  - AccountAddressUpdate
+  - AccountAddressDelete
+  - AccountRequestDeletion
+tags: [account, graphql, mutation, multi-package]
+notes: "Tests mutation discovery across account module: task describes high-level operations, ground truth is specific GraphQL mutation classes spread across multiple files."

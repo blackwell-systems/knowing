@@ -1,0 +1,14 @@
+id: saleor-hard-003
+repo: saleor
+tier: hard
+description: "Configure Celery background tasks for order processing, CSV export, and async operations"
+source: manual
+ground_truth:
+  - ExportTask
+  - RestrictWriterDBTask
+  - JsonCeleryFormatter
+  - JsonCeleryTaskFormatter
+  - send_order_confirmation
+  - send_fulfillment_confirmation
+tags: [celery, tasks, async, multi-package]
+notes: "Tests cross-cutting concern: Celery tasks are scattered across order, csv, core modules. Task vocabulary (background tasks, async) must bridge to concrete task classes and formatters."

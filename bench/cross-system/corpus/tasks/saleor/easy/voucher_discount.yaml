@@ -1,0 +1,13 @@
+id: saleor-easy-004
+repo: saleor
+tier: easy
+description: "Calculate the discount amount for a voucher applied to a checkout, considering channel-specific pricing"
+source: manual
+ground_truth:
+  - Voucher
+  - Voucher.get_discount
+  - Voucher.get_discount_amount_for
+  - VoucherCode
+  - VoucherChannelListing
+tags: [discount, voucher, multi-package]
+notes: "Tests cross-file resolution: Voucher model + VoucherCode + channel listing are in the same module but involve multiple concepts."

@@ -1,0 +1,13 @@
+id: saleor-easy-002
+repo: saleor
+tier: easy
+description: "Implement a checkout validation step that checks if shipping is required and verifies the delivery address"
+source: manual
+ground_truth:
+  - Checkout
+  - Checkout.is_shipping_required
+  - Checkout.get_country
+  - Checkout.set_country
+  - CheckoutLine
+tags: [checkout, validation, single-package]
+notes: "Tests vocabulary bridging: task says 'checkout validation' and 'shipping required', ground truth is Checkout model methods."

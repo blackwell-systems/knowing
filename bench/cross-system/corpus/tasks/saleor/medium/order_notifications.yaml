@@ -1,0 +1,13 @@
+id: saleor-medium-003
+repo: saleor
+tier: medium
+description: "Send email notifications when an order is confirmed and when fulfillment ships"
+source: manual
+ground_truth:
+  - send_order_confirmation
+  - send_fulfillment_confirmation
+  - Order
+  - Fulfillment
+  - Order.get_customer_email
+tags: [notifications, email, order, multi-package]
+notes: "Tests task-to-function bridging: task describes business events (order confirmed, fulfillment ships), ground truth includes notification functions and domain models."

@@ -1,0 +1,15 @@
+id: saleor-hard-001
+repo: saleor
+tier: hard
+description: "Implement an authentication backend that checks user permissions across groups and apps"
+source: manual
+ground_truth:
+  - PluginBackend
+  - JSONWebTokenBackend
+  - JSONWebTokenBackend.get_all_permissions
+  - JSONWebTokenBackend._get_permissions
+  - App.get_permissions
+  - User.effective_permissions
+  - get_user_groups_permissions
+tags: [auth, permissions, multi-package, security]
+notes: "Tests deep cross-module resolution: authentication backend touches auth, account, app, and core modules. Vocabulary gap between 'authentication backend' and specific class names."

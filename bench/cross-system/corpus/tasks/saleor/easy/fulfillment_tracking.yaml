@@ -1,0 +1,13 @@
+id: saleor-easy-003
+repo: saleor
+tier: easy
+description: "Add tracking number validation to the fulfillment flow and calculate total fulfilled quantity"
+source: manual
+ground_truth:
+  - Fulfillment
+  - Fulfillment.is_tracking_number_url
+  - Fulfillment.get_total_quantity
+  - FulfillmentLine
+  - Fulfillment.save
+tags: [fulfillment, tracking, single-package]
+notes: "Tests framework-using patterns: Fulfillment extends Django Model, has business methods. Equiv classes should bridge 'fulfillment' to Fulfillment class."

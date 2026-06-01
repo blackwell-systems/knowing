@@ -1,0 +1,15 @@
+id: saleor-medium-001
+repo: saleor
+tier: medium
+description: "Build a promotion engine that applies discount rules to orders and checkout lines based on conditions"
+source: manual
+ground_truth:
+  - Promotion
+  - PromotionRule
+  - BaseDiscount
+  - OrderDiscount
+  - CheckoutDiscount
+  - CheckoutLineDiscount
+  - OrderLineDiscount
+tags: [discount, promotion, multi-package, feature-addition]
+notes: "Tests vocabulary gap: task says 'promotion engine' and 'discount rules', ground truth spans Promotion, PromotionRule, and several Discount types across the discount module."

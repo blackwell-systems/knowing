@@ -1,0 +1,13 @@
+id: saleor-easy-001
+repo: saleor
+tier: easy
+description: "Add a feature to check whether an order can be cancelled and display the cancellation reason"
+source: manual
+ground_truth:
+  - Order
+  - Order.can_cancel
+  - Order.get_last_payment
+  - Order.get_subtotal
+  - Order.__str__
+tags: [order, model-methods, single-package]
+notes: "Tests whether the engine finds Order model methods when the task describes a business operation (cancellation) rather than naming the symbols directly."
