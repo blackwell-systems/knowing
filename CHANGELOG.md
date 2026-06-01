@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [v0.13.0-dev] - 2026-05-31
+## [v0.13.0] - 2026-06-01
 
 ### Added
 
@@ -16,8 +16,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Dotted Python base class resolution**: `resolveBaseClassQName` now handles dotted module paths (`validators.RegexValidator`). Fix committed, pending testing.
 - **Java language detection fallback**: `detectRepoLanguage` recognizes dotted package name patterns (`org.*/com.*/io.*/net.*`) for repos like Kafka that don't use `.java.` in QNs.
 - **Containers and cryptography equiv classes**: cross-cutting patterns for Docker, container registries, encryption, hashing, signatures, TLS.
+- **All 7 in-process resolvers wired** (session 24): Python, TypeScript, Java, C#, Rust added alongside Go and Ruby. Generic `runLanguageResolver` dispatch via `resolverSpec` table. Produces `resolver_resolved` edges (confidence 0.9) without external LSP. Validated: Kafka/Java 596K edges, Django/Python 58K, Cargo/Rust 27K, VS Code/TS 19K, Ocelot/C# 1.3K.
+- **Saleor benchmark corpus** (session 24): first framework-USING repo (vs framework source code). saleor/saleor Django e-commerce app. 11 tasks. P@10=0.236 unenriched, proving equiv classes generalize to app code.
+- **Proximity-weighted BFS scoring** (session 24): actual graph distance from seeds replaces binary 0/1. BFS distances computed from RWR adjacency maps (zero extra queries). P@10 neutral on current corpus; infrastructure for handling enrichment-induced density.
 
 ### Fixed
+
+- **Phantom Python extends edges eliminated** (session 24): skip 50+ Python builtins (Exception, object, dict, etc.), return empty for unresolvable module paths, skip dotted paths through unknown modules. Django: 5,581 phantom extends edges removed, 2,493 real targets preserved.
 
 - **CRITICAL: Task memory contamination** (session 23): discovered 26,096 stale task memory entries in terraform corpus DB, inflating all P@10 measurements since session 8. Task memory disabled in benchmark adapter. Protocol: clear `task_memory` table before A/B comparisons. Within-session deltas remain valid; absolute cross-session numbers were unreliable.
 - **Embeddings confirmed neutral**: three runs with and without embeddings produced identical P@10 (0.176, 0.175, 0.176). Previous "+11% gap-fill" was task memory contamination feedback loop. Gap-fill and re-ranker both disabled.
