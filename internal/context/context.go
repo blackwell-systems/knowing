@@ -60,11 +60,20 @@ type VectorReRanker interface {
 	ReRankByHashes(ctx stdctx.Context, query string, hashes []types.Hash, fallbackTexts []string) ([]float64, error)
 }
 
+// FeedbackRecorder writes feedback to persistent storage.
+// Separated from FeedbackProvider (reads) so engines can record implicit
+// feedback without depending on the full store interface.
+type FeedbackRecorder interface {
+	RecordFeedback(ctx stdctx.Context, symbolHash types.Hash, sessionID string, useful bool, neighborhoodRoot types.Hash) error
+}
+
 // ContextEngine queries the knowing knowledge graph to produce task-specific,
 // token-budgeted context blocks ranked by graph relationships and runtime traffic.
 type ContextEngine struct {
 	store    types.GraphStore
 	feedback FeedbackProvider    // nil if store doesn't support feedback
+	recorder FeedbackRecorder    // nil if store doesn't support recording
+	implicit *ImplicitFeedback   // nil disables implicit feedback (noise demotion)
 	bm25     BM25Searcher        // nil if store doesn't support BM25
 	vector   VectorSearcher      // nil if embeddings not available
 	session  *SessionTracker     // nil disables session-aware boosting
@@ -164,10 +173,22 @@ func NewContextEngine(store types.GraphStore) *ContextEngine {
 	if fp, ok := store.(FeedbackProvider); ok {
 		e.feedback = fp
 	}
+	if fr, ok := store.(FeedbackRecorder); ok {
+		e.recorder = fr
+	}
 	if bs, ok := store.(BM25Searcher); ok {
 		e.bm25 = bs
 	}
 	return e
+}
+
+// SetImplicitFeedback attaches an implicit feedback tracker to the engine.
+// When set, ForTask automatically flushes unused symbols from the previous
+// call (recording negative feedback) and registers new returned symbols
+// for attribution. This enables noise demotion: symbols returned but never
+// used by the agent get penalized on future queries.
+func (e *ContextEngine) SetImplicitFeedback(f *ImplicitFeedback) {
+	e.implicit = f
 }
 
 // SetSession attaches a session tracker to the engine. When set, symbols
@@ -1393,7 +1414,32 @@ func (e *ContextEngine) ForFiles(ctx stdctx.Context, opts FileOptions) (*Context
 	}
 
 	ranked := RankSymbols(inputs, hitsResult)
-	return packIntoBudget(ranked, budget, opts.Format), nil
+	block := packIntoBudget(ranked, budget, opts.Format)
+	e.recordImplicitFeedback(ctx, block)
+	return block, nil
+}
+
+// recordImplicitFeedback flushes unused symbols from the previous ForTask call
+// (recording negative feedback for noise demotion) and registers newly returned
+// symbols for attribution. This moves implicit feedback from MCP-only to the
+// engine level, making it available to all consumers (MCP, benchmark, CLI).
+func (e *ContextEngine) recordImplicitFeedback(ctx stdctx.Context, block *ContextBlock) {
+	if e.implicit == nil || block == nil {
+		return
+	}
+
+	// Flush previous: symbols returned by last ForTask but never used = negative.
+	if e.recorder != nil {
+		unused := e.implicit.FlushUnused()
+		for _, h := range unused {
+			_ = e.recorder.RecordFeedback(ctx, h, "implicit", false, types.EmptyHash)
+		}
+	}
+
+	// Register new returned symbols for attribution tracking.
+	if len(block.Symbols) > 0 {
+		e.implicit.RegisterReturned(block.Symbols)
+	}
 }
 
 // ForPR produces relationship-aware context for a pull request. It identifies
@@ -1511,7 +1557,9 @@ func (e *ContextEngine) ForPR(ctx stdctx.Context, opts PROptions) (*ContextBlock
 	}
 
 	ranked := RankSymbols(inputs, hitsResult)
-	return packIntoBudget(ranked, budget, opts.Format), nil
+	block := packIntoBudget(ranked, budget, opts.Format)
+	e.recordImplicitFeedback(ctx, block)
+	return block, nil
 }
 
 // KeywordSet separates extracted keywords by specificity tier.

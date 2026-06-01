@@ -36,6 +36,9 @@ func (s *Server) handleContextForTask(ctx context.Context, req mcp.CallToolReque
 	if s.resultCache != nil {
 		engine.SetCache(s.resultCache)
 	}
+	if s.implicit != nil {
+		engine.SetImplicitFeedback(s.implicit)
+	}
 	block, err := engine.ForTask(ctx, knowingctx.TaskOptions{
 		TaskDescription: taskDesc,
 		TokenBudget:     tokenBudget,
@@ -59,23 +62,11 @@ func (s *Server) handleContextForTask(ctx context.Context, req mcp.CallToolReque
 	s.contextCalls.Add(1)
 	s.symbolsServed.Add(int64(len(block.Symbols)))
 
-	// Implicit feedback: flush previous pending symbols (record negative feedback
-	// for those never used), then register new returned symbols for attribution.
-	if s.implicit != nil {
-		// A new context_for_task call means the agent's focus has shifted.
-		// Symbols from the previous call that were never referenced are
-		// implicitly "not useful" for that task.
-		if s.sqlStore != nil {
-			unused := s.implicit.FlushUnused()
-			for _, h := range unused {
-				_ = s.sqlStore.RecordFeedback(ctx, h, "implicit", false, types.EmptyHash)
-			}
-		}
-
-		if len(block.Symbols) > 0 {
-			s.implicit.RegisterReturned(block.Symbols)
-		}
-	}
+	// Implicit feedback (flush/register) is now handled by the context engine
+	// in ForTask via recordImplicitFeedback. The engine calls FlushUnused on
+	// previous symbols and RegisterReturned on new ones. DetectUsed is still
+	// called from the MCP server's tool call handler (server.go:detectImplicitUsage)
+	// since it needs tool call content that only the MCP layer has.
 
 	// Passive task memory: record which symbols were returned for this task
 	// so future similar tasks get boosted. Uses top-5 symbols (most relevant)

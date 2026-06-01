@@ -87,10 +87,11 @@ func init() {
 // Knowing implements benchtype.Adapter for knowing's context engine.
 type Knowing struct {
 	stores     map[string]*store.SQLiteStore
-	memories   map[string]*knowingctx.TaskMemory // per-repo task memory for compounding tests
-	nodeCounts map[string]int                    // cached node count per repo for adaptive density
-	searchers  map[string]*embedding.Searcher    // per-repo vector searcher (nil if embeddings disabled)
-	embedder   *embedding.Embedder               // shared ONNX session (serializes inference via internal mutex)
+	memories   map[string]*knowingctx.TaskMemory    // per-repo task memory for compounding tests
+	implicit   *knowingctx.ImplicitFeedback         // shared implicit feedback tracker (nil unless EnableMemory called)
+	nodeCounts map[string]int                       // cached node count per repo for adaptive density
+	searchers  map[string]*embedding.Searcher       // per-repo vector searcher (nil if embeddings disabled)
+	embedder   *embedding.Embedder                  // shared ONNX session (serializes inference via internal mutex)
 }
 
 func NewKnowing() *Knowing {
@@ -114,13 +115,14 @@ func (a *Knowing) MemoryFor(repoPath string) *knowingctx.TaskMemory {
 	return a.memories[repoPath]
 }
 
-// EnableMemory activates task memory for all indexed repos.
-// Call after Index() to enable compounding. Not used in standard
+// EnableMemory activates task memory and implicit feedback for all indexed repos.
+// Call after Index() to enable compounding and noise demotion. Not used in standard
 // benchmarks (cold-start measurement requires no memory).
 func (a *Knowing) EnableMemory() {
 	for repoPath, s := range a.stores {
 		a.memories[repoPath] = knowingctx.NewTaskMemory(s.DB())
 	}
+	a.implicit = knowingctx.NewImplicitFeedback()
 }
 
 // ClearAllMemory deletes all task_memory entries across all indexed repos.
@@ -258,6 +260,11 @@ func (a *Knowing) Retrieve(repoPath string, task benchtype.Task, tokenBudget int
 	// Attach task memory if available (enables compounding across queries).
 	if tm, ok := a.memories[repoPath]; ok && tm != nil {
 		engine.SetTaskMemory(tm)
+	}
+
+	// Attach implicit feedback if available (enables noise demotion).
+	if a.implicit != nil {
+		engine.SetImplicitFeedback(a.implicit)
 	}
 
 	// Determine primary repo URL for scoping (prevents cross-repo dilution

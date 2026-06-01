@@ -65,9 +65,10 @@ on it.
 
 Repos are selected for language diversity and community recognition, not for
 any property that would favor knowing's architecture. Several repos where knowing
-performs poorly remain in the corpus: VS Code (P@10=0.163, dense graph seed
-competition), spark-java (P@10=0.215, small fixture set), and Django
-(P@10=0.258, 42% vocabulary gap zero rate).
+performs poorly remain in the corpus: VS Code (P@10=0.168, dense graph seed
+competition), Django (P@10=0.183, 42% vocabulary gap zero rate), and Kubernetes
+(P@10=0.168, massive graph). Saleor (a Django app, not the framework itself) was
+added in v0.13.0 to validate that equivalence classes generalize to application code.
 
 ### Criteria
 
@@ -78,22 +79,26 @@ competition), spark-java (P@10=0.215, small fixture set), and Django
 - No knowing's own repository (avoids self-measurement bias)
 - No exclusions based on performance (all attempted repos are included)
 
-### Current Corpus (15 repos, 297 tasks, 8 languages)
+### Current Corpus (16 repos, 308 tasks, 8 languages)
 
-| Repo | Language | LOC | Nodes (real) | Nodes (with phantoms) | Edges | Tasks | Why |
-|------|----------|-----|-------------|----------------------|-------|-------|-----|
-| Kubernetes | Go | 3.5M | 72K | 242K | 705K | 19 | Massive Go monorepo, enriched with gopls |
-| VS Code | TypeScript | 1M | 84K | 552K | ~50K | 19 | Large TS, extension architecture |
-| Django | Python | 300K | 49K | 128K | ~376K | 33 | Large Python, deep inheritance (ORM) |
-| Terraform | Go | 500K | 26K | 99K | ~184K | 20 | Go, provider plugin architecture, enriched with gopls |
-| Kafka | Java | 800K | ~8K | ~20K | ~20K | 19 | Enterprise Java, deep class hierarchies |
-| Cargo | Rust | 150K | 9K | 81K | ~79K | 19 | Rust, complex module system |
-| Caddy | Go | 75K | 11K | 23K | 47K | 20 | Go web server, enriched with gopls (NEW) |
-| FastAPI | Python | 30K | 9K | 18K | 51K | 20 | Modern Python, type-annotated, enriched with pyright (NEW) |
-| Ocelot | C# | 50K | 17K | ~17K | 53K | 20 | C# API gateway, enriched with csharp-ls (NEW) |
-| Flask | Python | 15K | ~1400 | ~6K | ~9K | 19 | Small, well-structured, dense class hierarchy |
-| Spark Java | Java | 14K | ~366 | ~1.4K | ~1.4K | 5 | Small Java web framework |
-| Cross-cutting | Mixed | - | - | - | - | 9 | Multi-repo/multi-language tasks |
+| Repo | Language | LOC | Nodes | Edges | Tasks | Why |
+|------|----------|-----|-------|-------|-------|-----|
+| Kubernetes | Go | 3.5M | 242K | 705K | 19 | Massive Go monorepo, enriched with gopls |
+| VS Code | TypeScript | 1M | 552K | ~4.4M | 19 | Large TS, extension architecture |
+| Django | Python | 300K | 55K | ~370K | 33 | Large Python, deep inheritance (ORM) |
+| Terraform | Go | 500K | 99K | ~184K | 20 | Go, provider plugin architecture, enriched with gopls |
+| Kafka | Java | 800K | ~105K | ~1.3M | 19 | Enterprise Java, deep class hierarchies |
+| Cargo | Rust | 150K | 81K | ~137K | 19 | Rust, complex module system |
+| Caddy | Go | 75K | 23K | 47K | 20 | Go web server, enriched with gopls |
+| FastAPI | Python | 30K | 18K | 51K | 20 | Modern Python, type-annotated, enriched with pyright |
+| Ocelot | C# | 50K | 17K | 53K | 20 | C# API gateway, enriched with csharp-ls |
+| Saleor | Python | 180K | 34K | 285K | 11 | Django e-commerce app (framework-USING validation) |
+| Flask | Python | 15K | ~6K | ~9K | 19 | Small, well-structured, dense class hierarchy |
+| Rails | Ruby | 200K | ~40K | ~200K | 20 | Ruby on Rails framework, enriched with ruby-lsp |
+| Ripgrep | Rust | 50K | ~15K | ~40K | 20 | Rust CLI tool, regex engine |
+| Spark Java | Java | 14K | ~1.4K | ~1.4K | 20 | Small Java web framework |
+| Jekyll | Ruby | 30K | ~14K | ~35K | 20 | Ruby static site generator |
+| Cross-cutting | Mixed | - | - | - | 9 | Multi-repo/multi-language tasks |
 
 ## Adapter Interface
 
