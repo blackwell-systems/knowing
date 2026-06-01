@@ -235,13 +235,16 @@ The `ContextEngine.ForTask` pipeline is fully sequential within a single request
 2. Cache lookup (SubgraphCache.Get, takes RLock briefly)
 3. Tiered keyword search (sequential DB queries)
 4. BM25 full-text search (single SQLite query)
-5. Vector search (if enabled; single call)
-6. Equivalence class matching (sequential)
+5. Vector search (if enabled; single call, currently disabled)
+6. Equivalence class matching (sequential, language-scoped via detectRepoLanguage)
 7. Reciprocal Rank Fusion (CPU, in-memory)
 8. Random Walk with Restart (in-memory iteration over pre-loaded adjacency map)
-9. HITS computation (in-memory iteration)
-10. Symbol ranking and knapsack packing (CPU, in-memory)
-11. Cache store (SubgraphCache.Put, takes Lock briefly)
+9. Adaptive fallback (if >200K nodes and flat RWR: direct FTS + contains expansion)
+10. HITS computation (in-memory iteration)
+11. Symbol ranking (CPU, in-memory)
+12. Framework injection (high-confidence equiv matches injected at top of ranked list)
+13. Knapsack packing (CPU, in-memory)
+14. Cache store (SubgraphCache.Put, takes Lock briefly)
 
 No goroutines are spawned within `ForTask`. The RWR's `buildAdjacencyMap` does a BFS pre-load of edges (4 hops from seeds) into in-memory maps, then the iteration loop operates entirely on those maps with zero concurrent access.
 
