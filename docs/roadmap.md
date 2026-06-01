@@ -55,6 +55,7 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 | 9 | ~~Blog post~~ | **SHIPPED session 24.** Updated with v0.13.0 numbers, methodology, framework intelligence, honest embeddings finding. Committed and pushed. | **Shipped** | Visibility |
 | 10 | **AI-generated evaluation corpus** | LLM generates tasks + ground truth, DB-validated. Hybrid: hand-curated for regression, AI-generated for coverage. | Medium | Eval credibility |
 | 11 | **More equiv class coverage** | Message queues (RabbitMQ, Redis), cloud SDKs (AWS, GCP), build systems (Make, Gradle), observability (OpenTelemetry, Prometheus). | Ongoing | Incremental P@10 |
+| 12 | **Documentation sweep for learning subsystems** | Session 24 made major changes: task memory disabled, implicit feedback moved to engine, noise demotion is sole learning mechanism. Docs that need updating: context-engine.md (remove task memory from pipeline), features.md (update task memory feature, add implicit feedback feature), architecture/retrieval-pipeline.md (learning section), README.md (remove "compounds across sessions" if present), introduction.md (learning claims). Blog already updated. | Low | Accuracy |
 
 ### Tested Neutral or Harmful (sessions 14-24)
 
