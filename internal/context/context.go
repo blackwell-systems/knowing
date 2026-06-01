@@ -153,8 +153,9 @@ type RankedSymbol struct {
 	Score       float64
 	Components  ScoreComponents
 	Provenance  string
-	Distance    int // binary 0/1 for scoring
-	BFSDistance int // actual BFS hop count for proximity-weighted packing
+	Distance    int     // binary 0/1 for scoring
+	BFSDistance  int     // actual BFS hop count for proximity-weighted packing
+	RWRScore    float64 // raw normalized RWR score (0-1), proxy for seed proximity in packing
 }
 
 // ScoreComponents breaks down a symbol's score into its weighted components.
@@ -984,10 +985,9 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 			distance = 0
 		}
 
-		// BFS distance for proximity-weighted packing (not yet active).
-		// Session 24: full BFS too expensive (2x latency, 25% memory).
-		// TODO: lazy BFS on top-100 candidates only, or RWR score as proxy.
-		bfsDist := 0
+		// Raw RWR score for proximity-weighted packing. Already computed,
+		// zero extra cost. Higher score = closer to seeds.
+		rawRWR := rwrScores[nodeHash]
 
 		// Get edge metadata for confidence and recency.
 		edges, err := e.store.EdgesTo(ctx, nodeHash, "")
@@ -1029,7 +1029,7 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 			Confidence:         confidence,
 			LastObserved:       lastObserved,
 			DistanceFromTarget: distance,
-			BFSDistance:        bfsDist,
+			RWRScore:           rawRWR,
 			IsTestFile:         isTestFilePath(node.QualifiedName),
 		})
 	}
@@ -2060,11 +2060,11 @@ func packIntoBudget(ranked []RankedSymbol, budget int, format string) *ContextBl
 		return block
 	}
 
-	// Compute density (score per token) for each symbol.
-	// Proximity-weighted packing tested in session 24: correct approach but
-	// BFS distance computation too expensive (2x slower, 25% memory on Django).
-	// TODO: revisit with lazy BFS (only compute for top-100 candidates) or
-	// use RWR score as distance proxy.
+	// Compute density (score per token) with RWR proximity boost.
+	// Symbols with higher raw RWR scores are closer to seeds in the graph.
+	// Boosting their packing density ensures structurally proximate symbols
+	// fill budget slots before distant high-centrality noise. Zero extra
+	// computation: RWR scores are already available from the walk.
 	type densityItem struct {
 		index   int
 		density float64
@@ -2076,9 +2076,16 @@ func packIntoBudget(ranked []RankedSymbol, budget int, format string) *ContextBl
 		if cost < 1 {
 			cost = 1
 		}
+		baseDensity := sym.Score / float64(cost)
+		// RWR proximity boost: sqrt(rwrScore) smooths the decay curve.
+		// Seeds (~1.0) get full density, distant nodes (~0.01) get ~10% density.
+		proximityFactor := 1.0
+		if sym.RWRScore > 0 {
+			proximityFactor = math.Sqrt(sym.RWRScore)
+		}
 		items[i] = densityItem{
 			index:   i,
-			density: sym.Score / float64(cost),
+			density: baseDensity * proximityFactor,
 			cost:    cost,
 		}
 	}
