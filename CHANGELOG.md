@@ -27,6 +27,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **Embeddings off by default**: reversed v0.12.0 decision. Embeddings confirmed neutral on cold-start benchmarks (session 23). No 30MB model download for new users. Use `--embeddings` to opt in. The `--no-embeddings` flag is now a no-op (accepted for backward compatibility).
 - **Equivalence classes refactored**: split from single 1500-line `language_seeds.go` into 30 per-framework files with 30-line aggregator. Each file is self-contained and independently reviewable.
 - **Measurement protocol**: CLAUDE.md updated with mandatory task memory clearing step in experiment workflow. All benchmark runs now start from clean state.
 - **P@10 official number**: 0.278 +/- 0.003 (4 runs confirmed). Honest cold-start, no task memory, no embeddings.
@@ -62,7 +63,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- **Embeddings on by default**: embedding gap-fill seeds (+11% P@10) now enabled without `--embeddings` flag. `--no-embeddings` to disable. New users get full quality out of the box. Re-ranker disabled (net negative on P@10, session 19).
+- **Embeddings on by default**: embedding gap-fill seeds enabled without `--embeddings` flag. `--no-embeddings` to disable. Re-ranker disabled (net negative on P@10, session 19). **Note:** v0.13.0 reverses this default; embeddings confirmed neutral on cold start (session 23).
 - **MCP startup summary**: server logs graph stats, feature status (gap-fill, equivalence classes), and pre-embedded vector count on startup.
 - **Post-index guidance**: `knowing index` prints a tip to run `knowing enrich embeddings` when vectors are missing.
 - **C# equivalence classes** (15 concepts): CS_MIDDLEWARE, CS_DI, CS_CONFIG, CS_ROUTING, CS_AUTH, CS_LOADBALANCE, CS_CACHE, CS_RATELIMIT, CS_HTTP_CLIENT, CS_QUALITY_OF_SERVICE, CS_HEADER_TRANSFORM, CS_AGGREGATION, CS_WEBSOCKET, CS_SECURITY, CS_ERROR_HANDLING. Ocelot P@10: 0.175 -> 0.265 (+51%). Full corpus: +4%.

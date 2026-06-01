@@ -100,11 +100,12 @@ func NewServer(store types.GraphStore) *Server {
 		implicit:   knowingctx.NewImplicitFeedback(),
 		startTime:  time.Now(),
 	}
-	// Initialize embedding-based gap-fill seeds (on by default).
-	// Disable with: knowing mcp --no-embeddings (or KNOWING_EMBEDDINGS=0)
+	// Initialize embedding-based gap-fill seeds (off by default).
+	// Enable with: knowing mcp --embeddings (or KNOWING_EMBEDDINGS=1)
 	// Downloads ~30MB model on first use. Gap-fill seeds use embeddings to
-	// bridge vocabulary gaps when BM25 returns < 5 candidates (+11% P@10).
-	// Re-ranking is disabled (net negative on P@10, session 19 finding).
+	// bridge vocabulary gaps when BM25 returns < 5 candidates.
+	// Session 23: confirmed neutral on cold-start benchmarks (P@10 identical
+	// with and without, 3 runs). Kept as opt-in for future model improvements.
 	if os.Getenv("KNOWING_EMBEDDINGS") == "1" {
 		model := os.Getenv("KNOWING_EMBED_MODEL")
 		if model == "" {
@@ -123,10 +124,10 @@ func NewServer(store types.GraphStore) *Server {
 			}
 			go s.buildVectorIndex()
 		} else {
-			log.Printf("[knowing] Embedding re-ranker: FAILED (%v)", err)
+			log.Printf("[knowing] Embedding init: FAILED (%v)", err)
 		}
 	} else {
-		log.Printf("[knowing] Embedding gap-fill: OFF (run without --no-embeddings for +11%% better retrieval)")
+		log.Printf("[knowing] Embeddings: OFF (use --embeddings to enable, currently neutral on benchmarks)")
 	}
 	// Try to get SQLiteStore for runtime queries and task memory.
 	if ss, ok := store.(*knowingstore.SQLiteStore); ok {
@@ -178,10 +179,7 @@ func (s *Server) logStartupSummary(store types.GraphStore) {
 	}
 
 	log.Printf("[knowing] Graph: %d nodes, %d edges", nodes, edges)
-	log.Printf("[knowing] Embedding re-ranker: %s | Gap-fill seeds: %s | Equivalence classes: 152", embeddingStatus, gapFillStatus)
-	if vectors == 0 && nodes > 0 {
-		log.Printf("[knowing] Tip: run 'knowing enrich embeddings' to pre-cache vectors for faster gap-fill (+11%% retrieval)")
-	}
+	log.Printf("[knowing] Embeddings: %s | Gap-fill seeds: %s | Equivalence classes: 263", embeddingStatus, gapFillStatus)
 }
 
 // SetSnapshotManager attaches a SnapshotManager so MCP handlers can access

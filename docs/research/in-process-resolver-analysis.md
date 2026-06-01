@@ -3,27 +3,46 @@
 Analysis of codebase-memory-mcp (DeusData) in-process LSP resolver architecture.
 Objective: understand their approach to inform knowing's own Go-native resolvers.
 
-## Current State (session 22-23, 2026-05-31)
+## Current State (session 24, 2026-05-31)
 
 ### What was built
 
-All 7 language resolvers were implemented in session 22 (~36,000 LOC):
+All 7 language resolvers were implemented in session 22 (~36,000 LOC) and all
+wired into the index pipeline in session 24:
 
 | Component | Location | Status |
 |-----------|----------|--------|
 | Shared infrastructure | `internal/typresolve/` | Done (types, registry, scope, resolver interface, router) |
-| Go resolver | `internal/typresolve/go/` | Done + wired into index pipeline |
-| Python resolver | `internal/typresolve/python/` | Done (not wired) |
-| TypeScript resolver | `internal/typresolve/typescript/` | Done (not wired) |
-| Ruby resolver | `internal/typresolve/ruby/` | Done + wired into index pipeline |
-| Java resolver | `internal/typresolve/java/` | Done (not wired) |
-| C# resolver | `internal/typresolve/csharp/` | Done (not wired) |
-| Rust resolver | `internal/typresolve/rust/` | Done (not wired) |
+| Go resolver | `internal/typresolve/go/` | Done + wired |
+| Python resolver | `internal/typresolve/python/` | Done + wired (session 24) |
+| TypeScript resolver | `internal/typresolve/typescript/` | Done + wired (session 24) |
+| Ruby resolver | `internal/typresolve/ruby/` | Done + wired |
+| Java resolver | `internal/typresolve/java/` | Done + wired (session 24) |
+| C# resolver | `internal/typresolve/csharp/` | Done + wired (session 24) |
+| Rust resolver | `internal/typresolve/rust/` | Done + wired (session 24) |
 | CLI command | `knowing enrich resolver` | Done (retroactive on existing DBs) |
+| Pipeline integration | `cmd/knowing/resolve.go` | Generic dispatch via `resolverSpec` table |
+
+### Session 24: wiring and validation
+
+All 5 remaining resolvers (Python, TypeScript, Java, C#, Rust) wired into
+`runInProcessResolver` via a generic `runLanguageResolver` helper. Validated on
+corpus repos:
+
+| Repo | Language | Resolver Edges | Files |
+|------|----------|---------------|-------|
+| Kafka | Java | 595,973 | 5,921 |
+| Django | Python | 57,843 | 2,780 |
+| Cargo | Rust | 26,989 | 952 |
+| VS Code | TypeScript | 18,541 | 4,718 |
+| Kafka | Python | 2,801 | 177 |
+| VS Code | Rust | 2,103 | 71 |
+| Ocelot | C# | 1,285 | 768 |
 
 ### Key findings
 
-1. **Resolvers produce real edges:** 31.5K on terraform (Go), 36K on Jekyll (Ruby).
+1. **Resolvers produce real edges:** 31.5K on terraform (Go), 36K on Jekyll (Ruby),
+   596K on Kafka (Java), 58K on Django (Python), 27K on Cargo (Rust).
    Free, instant, no external dependencies.
 2. **Redundant with external LSP on enriched corpus:** on repos already enriched
    with gopls/pyright/etc., resolver edges duplicate what LSP already provides.
@@ -38,10 +57,10 @@ All 7 language resolvers were implemented in session 22 (~36,000 LOC):
 
 ### Remaining work
 
-- Wire Python, TypeScript, Java, C#, Rust resolvers into index pipeline
 - Fix `resolveBaseClassQName` for dotted Python imports (5,581 broken edges)
 - Validate resolver edge quality vs external LSP on benchmark corpus
 - Test re-indexing with resolvers on a copy (not the enriched corpus DBs)
+- Benchmark P@10 impact of resolver edges on unenriched DBs
 
 ---
 
@@ -424,10 +443,11 @@ becomes dead code and can be removed entirely. The dependency chain that goes aw
 
 | Resolvers built | Corpus coverage | External LSP still needed for |
 |----------------|----------------|-------------------------------|
-| Go, Python | 9/15 repos | TS, C#, Rust, Ruby, Java |
-| + TypeScript, Ruby | 13/15 repos | C#, Java |
-| + C#, Rust | 15/15 repos | Java only |
-| + Java | 15/15 repos | Nothing (remove external LSP) |
+| Go, Ruby (session 22) | 5/15 repos | Python, TS, C#, Rust, Java |
+| + Python, TS, Java, C#, Rust (session 24) | **15/15 repos** | **None for retrieval** |
+
+All 7 resolvers are built and wired. External LSP enrichment remains for the
+security path (supply chain analysis requires near-100% precision).
 
 **What full replacement means for the product:**
 - **True single binary.** No language servers to install, configure, or update.

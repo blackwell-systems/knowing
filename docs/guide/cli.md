@@ -575,8 +575,8 @@ data without needing a separate `knowing watch` or `knowing serve` process.
 | `-url` | string | *(auto-detected)* | Repository URL (auto-detected from git remote if empty) |
 | `-no-enrich` | bool | `false` | Skip LSP enrichment after reindex (only with `-watch`) |
 | `-debounce` | int | `500` | Debounce interval in milliseconds (only with `-watch`) |
-| `-no-embeddings` | bool | `false` | Disable local embedding gap-fill (on by default, +17% retrieval). |
-| `-embed-model` | string | `nomic-code` | Embedding model: `nomic-code` (default), `jina-code`, `bge-small`. All models run locally. |
+| `-embeddings` | bool | `false` | Enable local embedding gap-fill (off by default, confirmed neutral on cold-start benchmarks). |
+| `-embed-model` | string | `nomic-code` | Embedding model: `nomic-code` (default), `jina-code`, `bge-small`. All models run locally. Only used with `-embeddings`. |
 
 **Examples:**
 
@@ -587,11 +587,11 @@ knowing mcp
 # Start with file watching enabled (re-indexes on save)
 knowing mcp --watch
 
-# Disable embedding gap-fill (on by default)
-knowing mcp --watch --no-embeddings
+# Enable embeddings (off by default, currently neutral on benchmarks)
+knowing mcp --watch --embeddings
 
-# Use a specific embedding model
-knowing mcp --watch --embed-model jina-code
+# Use a specific embedding model (requires --embeddings)
+knowing mcp --watch --embeddings --embed-model jina-code
 
 # Watch a specific repo path with custom debounce
 knowing mcp --watch -repo ./my-repo -debounce 1000
@@ -1725,26 +1725,18 @@ symbol names in your code. Compare:
 
 Backtick-quoted identifiers in the task get the highest search priority.
 
-**Step 4: Verify embedding gap-fill is active.**
+**Step 4: Verify equivalence classes are active.**
 
-Embedding gap-fill (+11% in benchmarks) is on by default. Verify it is
-running by checking the MCP server startup log for:
+The MCP server startup log should show:
 
 ```
-[knowing] Embedding re-ranker: ON (model: nomic-code, local inference, no API calls)
+[knowing] Embeddings: OFF | Gap-fill seeds: OFF | Equivalence classes: 263
 ```
 
-If you see "Embedding re-ranker: OFF" or "FAILED", the model may not have
-downloaded correctly. Delete `~/.cache/knowing/models/` and restart.
-
-For even better results, pre-cache embedding vectors:
-
-```bash
-knowing enrich embeddings
-```
-
-This enables gap-fill seeds (+11% retrieval) which find relevant symbols even
-when keywords fail to match.
+The 263 framework equivalence classes bridge vocabulary gaps between task
+descriptions and code symbols. They are always active and require no
+configuration. Embeddings are off by default (confirmed neutral on cold-start
+benchmarks). Use `--embeddings` to opt in if experimenting.
 
 **Step 5: Re-index with a clean slate.**
 

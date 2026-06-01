@@ -783,7 +783,7 @@ Repo: github.com/blackwell-systems/knowing
 
 - **Package(s):** `internal/embedding/`
 - **What it does:** Pure Go ONNX inference via hugot for embedding-based re-ranking and gap-fill search. The default model is nomic-embed-text-v1.5 (P@10 0.245 sequential, faster inference than jina-code: 14 min vs 20 min for full corpus). Previous models (BGE-small, jina-code) coexist via the `model` column in the embeddings table. Embedding vectors are cached in SQLite (migration 019) for 3x re-rank speedup (660ms to 220ms). Enable with `--embeddings` flag on `knowing mcp` or `BENCH_EMBEDDINGS=1` for benchmarks. Switchable via `KNOWING_EMBED_MODEL` env var.
-- **Why it matters:** The gap-fill architecture delivers +11% P@10. The re-ranker was found net negative (session 19, 9/13 repos hurt) and disabled. Gap-fill seeds (vocabulary bridging) are the real embedding value. All 12 benchmark repos are pre-embedded with both jina-code and nomic models.
+- **Why it matters:** Both the re-ranker and gap-fill seeds are confirmed neutral on cold-start measurement (session 23, P@10 identical with/without, 3 runs). Previous "+11% gap-fill" was task memory contamination. Infrastructure preserved but disabled by default. The graph structure, BM25, and equivalence classes carry all retrieval quality.
 
 ### 63. BFS Depth Limit on RWR Walk
 
@@ -1542,8 +1542,8 @@ Repo: github.com/blackwell-systems/knowing
 - **Package(s):** `internal/context`
 - **Entry point:** Gap-fill logic in `internal/context/context.go`, `LoadAndSearchFromStore` in `internal/embedding/searcher.go`
 - **What it does:** When BM25 returns fewer than 5 candidates for a task, vector search fills the gap by finding supplemental seeds via brute-force cosine similarity from cached embedding vectors. The threshold is configurable via `BENCH_GAP_THRESHOLD` environment variable. Gap-fill uses `LoadAndSearchFromStore`, which does O(n) cosine search from the SQLite embeddings table without requiring an HNSW index rebuild.
-- **Results:** Django +43% (0.176 to 0.252), Flask +22%. Zero regressions across the full corpus. 20 lines of code.
-- **Why it matters:** Addresses the vocabulary gap problem where keyword-based channels cannot find candidates because ground truth symbols share no keywords with the task description. Vector search bridges this gap by matching on semantic similarity rather than exact tokens.
+- **Results:** Confirmed neutral on cold-start measurement (session 23). Previous "+43% Django" was task memory contamination.
+- **Why it matters:** Infrastructure preserved for future model improvements. The vocabulary gap problem is now addressed by framework equivalence classes (263 concepts, +57% P@10) which proved far more effective than embedding-based bridging.
 - **Dependencies:** `internal/embedding` (ONNX inference), `internal/store` (embeddings table).
 
 ### 154. `knowing enrich embeddings` Command

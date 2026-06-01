@@ -12,7 +12,7 @@
 
 ---
 
-Self-adapting code intelligence engine. Observes its own graph density and adjusts retrieval strategy automatically. 38 edge types, 28 MCP tools, local embedding gap-fill, cryptographic proofs. Gets smarter with scale, not dumber.
+Self-adapting code intelligence engine. Observes its own graph density and adjusts retrieval strategy automatically. 38 edge types, 28 MCP tools, 263 equivalence classes, cryptographic proofs. Gets smarter with scale, not dumber.
 
 ---
 
@@ -53,7 +53,7 @@ That's it. The MCP server auto-indexes your repo on first launch and downloads a
 knowing is three products built on one foundation (content-addressed graph with hierarchical Merkle trees):
 
 **1. Context engine for AI agents**
-One call returns the most relevant symbols for a task, ranked by graph centrality, recency, and learned usefulness, packed to fit your token budget. Embedding gap-fill seeds bridge vocabulary gaps when keywords fail (+11% precision), using pure Go inference with no API calls. 47% fewer tool calls. 84% fewer tokens. Results improve with feedback.
+One call returns the most relevant symbols for a task, ranked by graph centrality, recency, and learned usefulness, packed to fit your token budget. 263 framework equivalence classes bridge vocabulary gaps when keywords fail. 47% fewer tool calls. 84% fewer tokens. Results improve with feedback.
 
 **2. Audit primitive for compliance**
 Every graph state is a Merkle root tied to a git commit. `knowing prove` generates a cryptographic proof that a relationship existed. `knowing verify` checks it offline. `knowing fsck` verifies the entire graph in 98ms. Supply chain detection extracts credential access, process spawning, and network exfiltration edges to flag structurally suspicious code.
@@ -90,10 +90,7 @@ Feedback from agents compounds across sessions. When code changes, feedback expi
 |---|---:|
 | Cross-system retrieval | **P@10=0.278 cold, 0.284 warm** (297 tasks, 15 repos, 8 languages) |
 | vs competitors | 3.20x codegraph (19K stars), codebase-memory timed out (2.7K stars), 5.05x GitNexus, 5.35x Gortex, 18.5x grep |
-| Embedding gap-fill | +11% P@10 (local inference, no API, no charges, on by default) |
-| Gap-fill seeds | +11% P@10 (embedding-based fallback when keywords fail) |
-| Equivalence classes | 152 concepts bridging task vocabulary to code symbols |
-| Re-rank latency | 220ms cached (vector cache in SQLite) |
+| Equivalence classes | 263 concepts bridging task vocabulary to code symbols (+57% P@10) |
 | Agent context precision | +20pp after 1 round, +34pp after 5 |
 | Tool calls saved | 47% fewer (one context call replaces repeated grep+read) |
 | Token savings | 84% fewer tokens (GCF wire format) |
@@ -225,7 +222,7 @@ Add the MCP server to your agent. The config is the same everywhere; only the fi
 
 The `--watch` flag re-indexes on file changes. Your agent always queries fresh data. No manual `knowing index` or database path needed: the MCP server auto-indexes the git repository on first launch and registers it in the roster for future sessions.
 
-Embedding gap-fill is on by default (+17% precision, fully offline, no API keys, no charges). The model auto-downloads on first use (~30MB). To disable it, add `--no-embeddings`.
+Embeddings are off by default (confirmed neutral on cold-start benchmarks). Use `--embeddings` to enable if experimenting. The graph structure and equivalence classes carry retrieval quality.
 
 **What your agent gets:** The key tool is `context_for_task`. When your agent calls it with a task description, knowing returns ranked, relevant code symbols packed into a token budget. This replaces grep-read loops. Other useful tools: `blast_radius` (what breaks if I change this?), `test_scope` (which tests to run?), `explain_symbol` (why did this rank here?). See [MCP Tools Reference](docs/guide/mcp-tools.md) for all 28 tools.
 
@@ -393,7 +390,7 @@ GCF uses `|`-separated fields and local IDs (`$1 -> $3`) instead of repeated qua
 - Static blast radius follows `calls` edges; other edge types provide context, not traversal.
 - Runtime tools require OpenTelemetry trace ingestion; without traces they have no observations.
 - LSP enrichment: Go, TypeScript, Python, Rust, Java, C#. Auto-detected from project markers. Others fall back to tree-sitter.
-- Embedding re-ranker is on by default. Adds ~220ms to query time (cached vectors). Disable with `--no-embeddings`. Downloads a 30MB model on first use.
+- Embeddings are off by default (confirmed neutral on cold-start benchmarks, session 23). Use `--embeddings` to opt in.
 
 ---
 

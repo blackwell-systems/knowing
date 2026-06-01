@@ -4,9 +4,9 @@ This guide builds understanding from zero. No assumed background in content-addr
 
 ## System at a Glance
 
-knowing is a self-adapting code intelligence engine. It builds a content-addressed graph of code relationships, then observes the structural properties of that graph and adjusts its retrieval strategy accordingly. The full pipeline (keyword search, graph walk, scoring, fusion, packing) runs on every query, but how each step behaves adapts to the graph: on dense, enterprise-scale graphs (40K+ symbols) the system automatically prefers type hierarchies as entry points and increases the number of starting points to compensate for keyword flooding. An optional local embedding gap-fill uses semantic similarity to promote the most relevant symbols from the graph walk's output. No configuration. No mode switches. The system detects its own operating regime and adapts.
+knowing is a self-adapting code intelligence engine. It builds a content-addressed graph of code relationships, then observes the structural properties of that graph and adjusts its retrieval strategy accordingly. The full pipeline (keyword search, graph walk, scoring, fusion, packing) runs on every query, but how each step behaves adapts to the graph: on dense, enterprise-scale graphs (40K+ symbols) the system automatically prefers type hierarchies as entry points and increases the number of starting points to compensate for keyword flooding. 263 framework equivalence classes bridge vocabulary gaps between task descriptions and code symbols. No configuration. No mode switches. The system detects its own operating regime and adapts.
 
-It runs entirely on a developer laptop with no paid LLM calls and no cloud API dependencies. The embedding model runs locally via pure Go inference (no Python, no API keys, no charges).
+It runs entirely on a developer laptop with no paid LLM calls, no model downloads, and no cloud API dependencies.
 
 **Coverage:** 23 extractors spanning Go, TypeScript, Python, Rust, Java, C#, Ruby, SQL, Proto, GraphQL, Helm, Kubernetes YAML, Dockerfile, Makefile, CloudFormation, GitLab CI, and .env files. 38 edge types including calls, imports, implements, references, contains, member_of, similar_to, type_hint_of, co_tested_with, accesses_field, reads_env, executes_process, consumes_endpoint, authored_by, handles_route, publishes, subscribes, and more.
 

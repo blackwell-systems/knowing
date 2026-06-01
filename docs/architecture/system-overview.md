@@ -486,7 +486,7 @@ Task Description
 [7. Scoring]                   6-component formula with feedback boosts + session memory
     |
     v
-[7b. Embedding Re-rank]        (opt-in) re-rank top-50 by cosine similarity to task (+17% P@10)
+[7b. Embedding Re-rank]        (disabled, confirmed neutral on cold-start benchmarks)
     |
     v
 [8. Budget Packing]            density-ranked greedy knapsack (score/cost ratio)

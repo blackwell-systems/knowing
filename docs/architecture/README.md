@@ -15,7 +15,7 @@ If you are new to knowing, read these in order:
 5. **Retrieval Pipeline** (seeds, RWR, HITS, scoring, gap-fill seeds)
 6. **Data Flow** (end-to-end trace of a single commit)
 7. **Edge Types** (38 edge types with RWR weights)
-8. **Embedding Re-ranker** (+17% P@10, vector cache, architecture)
+8. **Embedding Re-ranker** (disabled, confirmed neutral, vector cache architecture)
 9. **Context Engine** (ForTask/ForFiles/ForPR entry points, scoring formula)
 10. **Wire Formats** (GCF, binary, JSON codec system)
 11. **Design Principles** (goals, architectural planes, MCP tool split)
@@ -47,9 +47,9 @@ If you are new to knowing, read these in order:
 | [extraction-pipeline.md](extraction-pipeline.md) | Tree-sitter extraction: 23 extractors, multi-dispatch, post-processing (9 steps), producer-consumer pipeline, content-addressed hashing, incremental indexing, CLI usage. |
 | [enrichment-pipeline.md](enrichment-pipeline.md) | LSP enrichment: three phases (readiness, upgrade, discovery), phantom nodes, two-phase gopls warmup, multi-module Go support, per-symbol timeout, performance characteristics. |
 | [retrieval-pipeline.md](retrieval-pipeline.md) | Full retrieval reference: keyword extraction, 5-channel RRF seed fusion, RWR (parameters, edge weights, adjacency cache), HITS, scoring formula, gap-fill seeds, budget packing, session/task memory. |
-| [embedding-reranker.md](embedding-reranker.md) | Embedding architecture: gap-fill seeds (+11% P@10), re-ranker disabled (net negative session 19). nomic-embed-text model, pure Go ONNX, SQLite vector cache, PreloadVectors. |
+| [embedding-reranker.md](embedding-reranker.md) | Embedding architecture: both re-ranker and gap-fill confirmed neutral on cold start (session 23). nomic-embed-text model, pure Go ONNX, SQLite vector cache. Infrastructure preserved, disabled by default. |
 | [edge-types.md](edge-types.md) | Full catalog of 38 edge types with RWR weights, categories, and provenance. |
-| [equivalence-classes.md](equivalence-classes.md) | Equivalence class system: 115 concepts across 4 layers (seed, universal, language-specific, graph-derived). |
+| [equivalence-classes.md](equivalence-classes.md) | Equivalence class system: 263 concepts across 4 layers (seed, universal, language-specific, framework). |
 | [context-packing.md](context-packing.md) | Context packing: density-ranked greedy knapsack, token estimation, persistent pack cache, staleness detection. |
 | [hooks-integration.md](hooks-integration.md) | Git hooks integration: post-commit, post-checkout, pre-push hooks for daemon change detection. |
 | [wire-formats-guide.md](wire-formats-guide.md) | Practical guide to wire format usage and integration. |

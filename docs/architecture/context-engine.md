@@ -141,22 +141,20 @@ The FTS5 tokenizer uses `tokenchars '_'` so that snake_case identifiers (e.g., `
 
 Tokenization uses CamelCase-aware splitting (`splitForFTS`, `splitCamelCase`) so that a query for "Store" matches "SQLiteStore" or "NewSQLiteStore". `RebuildFTS` runs synchronously after snapshot computation (previously deferred to a background goroutine that was killed on CLI process exit, leaving FTS empty). Adds ~500ms to index time. BM25 is fused as RRF Channel 2 with weight 2.0.
 
-## Embedding Re-ranker (Shipped, +17% P@10)
+## Embedding Re-ranker (Disabled)
+
+> **Status (session 23):** Both the embedding re-ranker AND gap-fill seeds are
+> confirmed neutral on cold-start measurement. Three runs with and without
+> embeddings produced identical P@10 (0.176, 0.175, 0.176). The previous "+11%
+> gap-fill" and "+17% re-ranker" findings were caused by task memory contamination.
 
 The embedding model is nomic-embed-text-v1.5 (768 dimensions, code-tuned) via hugot
-pure-Go ONNX runtime. As an independent seed channel (Channel 3), embeddings are neutral
-(three models tested identical to BM25). As **gap-fill seeds** (step 2b in
-ForTask), they produce the biggest single improvement in project history: P@10 0.207 -> 0.247
-(+17%), R@10 0.306 -> 0.362 (+18.3%).
+pure-Go ONNX runtime. Infrastructure is preserved but disabled by default.
+The graph structure, BM25, and equivalence classes carry all retrieval quality.
 
-**How gap-fill works:** When BM25 returns < 5 candidates, embedding vectors find semantically similar symbols via brute-force cosine
-similarity between the task description and each candidate's embedding. `ReRankByHashes`
-looks up pre-computed vectors from SQLite (populated at index time), only embedding the
-query text (~120ms). Cache misses fall back to on-the-fly embedding and auto-persist.
-Gap-fill latency: ~220ms cached vectors, ~120ms query embedding.
-
-**Note:** Re-ranker disabled (session 19, net negative on P@10). Gap-fill seeds remain active.
-Enable with `--embeddings` on `knowing mcp` or `BENCH_EMBEDDINGS=1` for benchmarks.
+**History:** Re-ranker disabled (session 19, net negative on P@10). Gap-fill seeds
+disabled by default (session 23, confirmed neutral). Enable with `--embeddings`
+on `knowing mcp` or `BENCH_EMBEDDINGS=1` for benchmarks.
 See `docs/architecture/embedding-reranker.md` for the full design.
 
 ## Docstring Extraction and FTS Indexing

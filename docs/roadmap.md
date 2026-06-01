@@ -41,7 +41,7 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 | # | Item | Why | Effort | Expected Impact |
 |---|------|-----|--------|-----------------|
 | 1 | **Fix missing inheritance edges** | Python extractor misses some `class Foo(Bar):` patterns (EmailValidator has no inherits edge). Fixing adds real reachability paths. | Low | +2-5% on Python repos |
-| 2 | **Wire remaining 5 resolvers** | Python/TS/Java/C#/Rust resolvers built but not wired into index pipeline. Adds edges without external LSP. | Low (pattern exists for Go/Ruby) | +2-5% on non-enriched repos |
+| 2 | ~~Wire remaining 5 resolvers~~ | **SHIPPED session 24.** All 7 resolvers wired via generic `runLanguageResolver` dispatch. Validated: Kafka/Java 596K edges, Django/Python 58K, Cargo/Rust 27K, VS Code/TS 19K, Ocelot/C# 1.3K. Neutral on already-enriched DBs (Cargo P@10 0.186 = baseline). | **Shipped** | Neutral on enriched, +value on unenriched |
 | 3 | **Process framework classes first** | Framework equiv classes (weight 0.9) should be processed before language classes (weight 0.8) to avoid equivSeen ordering issues. Structural fix. | Low | Prevents edge case regressions |
 | 4 | **Equiv class auto-discovery** | Detect framework from repo imports (django.*, ActiveRecord, etc.) and auto-activate matching classes. Only run relevant ~20 of 263 classes. | Medium | Performance + precision |
 | 5 | **Add framework-using repos to corpus** | Validate equiv classes generalize beyond framework source code. Add a real Django app, a real Flask API, etc. | Medium | Eval credibility |
@@ -112,7 +112,7 @@ The persistent daemon (#3) is the real fix for repeat runs; everything else work
 | 6 | **Node.js heap size for tsserver** | Set `NODE_OPTIONS="--max-old-space-size=8192"` when spawning tsserver. Default heap (~4GB) causes GC thrashing on large TypeScript repos (vscode: 34 min enrichment, majority in GC). More heap = less GC = faster enrichment. | 2-3x faster TS enrichment on large repos | Low |
 | 7 | **Deno LSP for TypeScript** | Use `deno lsp` (Rust-based) instead of tsserver for TypeScript enrichment. No GC, no Node.js heap limits. Add as alternative in enrichment config detection (check for `deno` on PATH, prefer over tsserver). Test on vscode to compare enrichment time and edge quality. | Potentially 5-10x faster TS enrichment | Low |
 | 8 | **Import-based phantom nodes for Go (skip gopls)** | Parse Go import statements and generate phantom stub nodes for stdlib/dependency types without running gopls. Now that gopls enrichment works (k8s: +0.159 P@10), the value proposition changed: this is a fast fallback for environments without gopls, not the primary path. gopls discovers 192K edges + 169K phantoms on k8s; import parsing would get only the phantoms. | Fast fallback for Go enrichment without gopls | Low (deprioritized) |
-| 9 | **Wire remaining in-process resolvers** | 7 language resolvers built in session 22 (`internal/typresolve/`): Go, Python, TypeScript, Ruby, Java, C#, Rust. Go + Ruby wired into index pipeline. Remaining 5 need wiring (same pattern as Go/Ruby). Adds resolver_resolved edges (0.6-0.9 confidence) without external LSP. | Low (pattern exists) | +2-5% on non-enriched repos |
+| 9 | ~~Wire remaining in-process resolvers~~ | **SHIPPED session 24.** See item 2 above. | **Shipped** | See item 2 |
 
 ## Storage Backend (P0 Performance)
 
@@ -315,7 +315,7 @@ context retrieval. Full proposal: [docs/proposals/code-retrieval-eval-toolkit.md
 Current results: see [bench/cross-system/FINDINGS.md](../bench/cross-system/FINDINGS.md).
 P@10=0.189 cold (277 tasks, 14 repos, 8 languages). 2.17x vs codegraph, 3.44x vs GitNexus, 3.63x vs Gortex, 12.6x vs grep. Query latency 2ms on k8s (with adjacency cache). Embedding gap-fill adds 220ms (cached vectors). Focused seed selection + cluster-aware gap-fill: +6.0% over previous high. Equivalence classes: +4%.
 
-**Key findings:** (1) 32-config parameter sweep proved P@10 is reachability-determined; ranking parameters are irrelevant. (2) Embedding re-ranker was initially measured at +17% but session 19 per-repo A/B test showed it was net negative (9/13 repos hurt). The +17% was from gap-fill seeds sharing the BENCH_EMBEDDINGS flag. Re-ranker disabled; gap-fill seeds remain (+11%).
+**Key findings:** (1) 32-config parameter sweep proved P@10 is reachability-determined; ranking parameters are irrelevant. (2) Embedding re-ranker was initially measured at +17% but session 19 per-repo A/B test showed it was net negative (9/13 repos hurt). (3) Session 23 confirmed both re-ranker AND gap-fill seeds are neutral on cold start (P@10 identical with/without, 3 runs). Previous "+11% gap-fill" was task memory contamination. Embeddings disabled by default.
 
 ### Retrieval Improvements
 
