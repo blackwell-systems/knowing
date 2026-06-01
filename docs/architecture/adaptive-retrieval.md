@@ -7,8 +7,9 @@ automatically. This is the project's central thesis: a code retrieval system tha
 adapts to its graph outperforms any fixed-strategy system, and the gap widens with
 scale.
 
-**Current result:** P@10 = 0.189 cold start, 0.284 with compounding (277 tasks,
-14 repos, 8 languages). 2.17x codegraph, 3.44x GitNexus, 3.63x Gortex.
+**Current result:** P@10 = 0.278 cold start (297 tasks, 15 repos, 8 languages,
+honest measurement: no task memory, no embeddings). 3.20x codegraph, 5.05x
+GitNexus, 5.35x Gortex.
 
 ## The Problem with Fixed-Strategy Retrieval
 
@@ -66,35 +67,47 @@ unreachable. More seeds = broader coverage = more ground truth found.
 
 **Measured impact:** Django +14.2% (0.197 -> 0.225). Full corpus +3.8% (0.238 -> 0.247).
 
-### 3. Equivalence Classes / Concept Thesaurus (vocabulary-adaptive bridging)
+### 3. Framework Equivalence Classes with Forced Injection (vocabulary-adaptive bridging)
 
-**Trigger:** Always active; language-detected from graph content
+**Trigger:** Always active; language-scoped via `Lang` field + `detectRepoLanguage()`
 
-**What it does:** Maps framework-specific terminology to generic task vocabulary
-across 152 hand-curated equivalence classes in 4 layers: cross-language (35),
-Python (37), Go (13), and framework-specific (C# 15, FastAPI 10, Terraform 11,
-plus others). When a task says "dependency injection", the thesaurus expands
-the query to match `IServiceCollection.AddScoped`, `services.AddSingleton`,
-`Depends()`, `inject.Provide`. When a task says "routing", it matches
-`app.MapGet`, `HandleFunc`, `@app.route`, `Router`.
+**What it does:** Maps framework-specific concepts to specific symbol names
+across 263 equivalence classes in 30 per-framework files. When a task says
+"custom validator", the system finds `EmailValidator`, `BaseValidator`,
+`ValidationError` in Django. When a task says "consumer group", it finds
+`KafkaConsumer`, `ConsumerRecord` in Kafka.
 
-**Why it's needed:** Framework code uses highly specialized vocabulary that
-shares no keywords with natural-language task descriptions. BM25 cannot
-bridge "validate the request body" to `[FromBody]` or `Pydantic.BaseModel`.
-Equivalence classes provide exact, curated bridges where statistical methods
-(BM25, embeddings) fail due to the vocabulary chasm between human intent and
-framework API surfaces.
+High-confidence matches (weight >= 0.9, source "framework") bypass RWR
+scoring and inject directly at the top of the ranked results. This solves
+the vocabulary gap for framework concepts where BM25 and graph walks fail.
 
-**Why it's adaptive:** Classes activate based on detected language and
-framework presence in the graph. A Python repo gets Python + FastAPI/Flask
-classes. A C# repo gets C# + ASP.NET classes. A Go repo gets Go classes.
-The system never applies irrelevant classes; language detection is automatic
-from node qualified names.
+**Coverage:** Django, Flask, FastAPI, Terraform, Kubernetes, Kafka, Rails,
+Spring, ASP.NET, Ocelot, Caddy, Cargo, Spark-Java, VS Code, NestJS, Next.js,
+Angular, React, Jekyll + cross-cutting (testing, ORM, auth, CLI, config,
+errors, web, containers, cryptography).
 
-**Measured impact:** C# equivalence classes: ocelot P@10 0.175 -> 0.265 (+51%).
-Full corpus +4% (0.247 -> 0.257). Hard tier +8pp from equivalence classes
-overall. Cross-language classes provide the baseline vocabulary bridge;
-framework-specific classes provide the precision lift.
+**Why it's adaptive:** Each class has a `Lang` field (go, python, typescript,
+ruby, java, csharp, rust) restricting it to matching repos.
+`detectRepoLanguage()` samples node QNs to determine the primary language.
+Go router classes never fire on C# repos. Django classes never fire on
+Terraform repos.
+
+**Why it works where BM25 fails:** The task says "validates email format" but
+the symbol is `EmailValidator`. BM25 can't find it because "email format"
+doesn't match "EmailValidator" (different token structure). But the equiv
+class maps "email validation" -> "EmailValidator" directly.
+
+**Measured impact (session 23, honest measurement):**
+- Django: 0.081 -> 0.183 (+126%)
+- Terraform: 0.120 -> 0.405 (+238%)
+- Kafka: 0.232 -> 0.421 (+81%)
+- VS Code: 0.037 -> 0.168 (+354%)
+- Full corpus: 0.176 -> 0.278 (+57%)
+
+**Defensibility criterion:** Every equiv class must pass the test: "would this
+mapping appear in the framework's official documentation or tutorials?" Classes
+mapping application internals (e.g., ripgrep's `DecompressionMatcher`) are
+rejected as curve-fitting.
 
 ### 4. Focused Seed Selection (cohesion-adaptive seeding)
 
@@ -117,30 +130,28 @@ genuine structural signal.
 **Measured impact:** Full corpus P@10 0.267 -> 0.283 (+6.0%). Django +8.7%.
 First experiment to break through the session 20 ceiling.
 
-### 5. Cluster-Aware Gap-Fill Seeds (vocabulary-adaptive fallback)
+### 5. ~~Cluster-Aware Gap-Fill Seeds~~ (NEUTRAL, session 23)
 
-**Trigger:** `len(candidates) < 5` after BM25/tiered/equivalence seed selection
+**Status:** Confirmed neutral on honest measurement. Three runs with and without
+embeddings produced identical P@10 (0.176, 0.175, 0.176). The previous "+11%"
+finding was task memory contamination: gap-fill kept injecting the same symbols
+that accumulated task memory was boosting, creating a feedback loop that looked
+like improvement.
 
 **What it does:** When primary keyword-based channels return fewer than 5 seed
 candidates, queries the embedding vector store for semantically similar symbols.
-When focused seed selection is active, gap-fill only injects seeds from the same
-package as the dominant cluster, preventing scattered seeds from undoing the
-structural concentration.
+Infrastructure preserved but embeddings not loaded in the benchmark.
 
-**Why it's needed:** 42% of Django tasks scored zero because ground truth symbols
-share no keywords with the task description. BM25 cannot find what it cannot
-match lexically. Embeddings find symbols by semantic similarity regardless of
-keyword overlap. Cluster-aware filtering ensures gap-fill reinforces (rather than
-fights) focused seed selection.
+**Why it's neutral:** Framework equivalence classes (mechanism 3) now solve the
+vocabulary gap that gap-fill was designed for. "Custom validator" -> EmailValidator
+is a direct, precise mapping. Embedding cosine similarity produces weaker,
+noisier candidates for the same problem. With equiv classes active, gap-fill
+has nothing left to contribute.
 
-**Why it can't regress:** Gap-fill only fires when primary channels are weak
-(< 5 candidates). On repos where BM25 already works (kafka 0.342, terraform
-0.295), the threshold is never reached. The mechanism is self-selecting:
-it intervenes only where the existing pipeline is already failing.
-
-**Measured impact:** Django +43% (0.176 -> 0.252). Flask +22% (0.263 -> 0.321).
-Full corpus +11.2% (0.223 -> 0.247 with nomic model). Zero regressions across all 12 repos.
-Cluster-aware filtering recovered 0.016 P@10 that scattered gap-fill was losing.
+**Historical note:** Previous measurements (sessions 15-22) showed gap-fill as
++11% because task memory accumulated across benchmark runs. Session 23
+discovered 26,096 stale task memory entries in terraform alone. After disabling
+task memory in the benchmark adapter, gap-fill measured dead neutral.
 
 ### 6. Task Memory Compounding (learning-adaptive boosting)
 
@@ -204,24 +215,48 @@ whatever enrichment is available without configuration.
 (before type_hint_of existed). Session 17 revised: enrichment is strongly positive
 when combined with type_hint_of edges.
 
+### 9. Adaptive Retrieval for Massive Repos (scale-adaptive fallback)
+
+**Trigger:** `effectiveNodeCount() > 200,000` AND `resultConfidence(ranked) < 0.3`
+
+**What it does:** After RWR, measures whether the score distribution is flat
+(top-10 scores within 20% of each other). Flat distribution means RWR didn't
+converge on anything meaningful. Falls back to direct FTS + contains-edge
+expansion: find symbols by name, then expand types via `contains` edges to
+get their methods/fields.
+
+**Why it's needed:** On VS Code (552K nodes), RWR always diffuses to
+near-uniform regardless of seed quality. The walk visits so many nodes that
+score differences become negligible. Direct FTS bypasses the walk entirely,
+finding symbols by name match and expanding structurally.
+
+**Guard:** Only triggers on repos > 200K nodes. Mid-size repos (cargo 81K,
+kafka 105K) have effective RWR convergence; triggering the fallback on them
+regresses P@10 because their flat-looking scores are actually correct rankings.
+
+**Measured impact:** VS Code 0.037 -> 0.053 (+43%) without equiv classes.
+With equiv classes: 0.053 -> 0.168 (equiv classes dominate).
+
 ## Ablation Summary
 
-Each mechanism measured independently on the full corpus:
+**Note (session 23):** All pre-session-23 ablation numbers were measured with
+accumulated task memory, which inflated absolute values. The relative ordering
+and within-session deltas remain valid. The numbers below reflect the best
+available measurement at each session.
 
-| Mechanism | Without | With | Delta | Trigger |
-|-----------|---------|------|-------|---------|
-| PreferTypeSeeds | 0.202 | 0.207 | +2.5% | Node count > 40K |
-| Adaptive seed count | 0.238 | 0.247 | +3.8% | Node count > 10K/40K |
-| Equivalence classes | 0.247 | 0.257 | +4.0% | Language/framework detected |
-| Focused seed selection | 0.267 | 0.283 | +6.0% | Always (>5 candidates) |
-| Cluster-aware gap-fill | 0.272 | 0.283 | +4.1% | Candidates < 5 + focused seeds |
-| Gap-fill seeds | 0.223 | 0.247 | +10.8% | Candidates < 5 |
-| Task memory | 0.248 (cold) | 0.253 (warm) | +3.8% | Any repeated query |
-| Feedback expiration | N/A | N/A | correctness | Code change |
-| Enrichment + type_hint | 0.200 (no enrich) | 0.248 (enriched) | +24% | LSP available |
+| Mechanism | Impact | Trigger | Session |
+|-----------|--------|---------|---------|
+| Framework equiv classes + forced injection | +57% (0.176 -> 0.278) | Language/framework detected | 23 |
+| Enrichment + type_hint | +24% estimated | LSP available | 17 |
+| Focused seed selection | +6% | Always (>5 candidates) | 21 |
+| PreferTypeSeeds | VS Code +44% | Node count > 40K | 14 |
+| Adaptive seed count | Django +14.2% | Node count > 10K/40K | 16 |
+| Task memory compounding | +3.8% round-over-round | Repeated queries | 17 |
+| Adaptive retrieval fallback | VS Code +43% | Node count > 200K + flat RWR | 23 |
+| Gap-fill seeds | **NEUTRAL** (was +11%) | Candidates < 5 | 23 (revised) |
+| Feedback expiration | correctness (no P@10 delta) | Code change | 17 |
 
-Combined: P@10 = 0.189 cold (277 tasks, 14 repos).
-Without any adaptation: ~0.180 (estimated from pre-enrichment, pre-gap-fill baseline).
+Combined: P@10 = 0.278 cold start (297 tasks, 15 repos, honest measurement).
 
 ## Why Fixed-Strategy Systems Can't Compete
 
@@ -243,14 +278,19 @@ the architecture, not an ad-hoc heuristic bolted on.
 
 | File | Mechanism |
 |------|-----------|
-| `internal/context/language_seeds.go` | Equivalence classes (164 concepts, 4 layers) |
-| `internal/context/context.go` | Focused seed selection (`focusedSeedSelect`, `dominantPkg`, `qualifiedNamePkg`), cluster-aware gap-fill, PreferTypeSeeds |
+| `internal/context/equiv_*.go` (30 files) | Framework equivalence classes (263 concepts) |
+| `internal/context/language_seeds.go` | Aggregator that collects all equiv class files |
+| `internal/context/equivalence.go` | EquivalenceClass type, matching logic, language scoping |
+| `internal/context/context.go` | Framework injection, adaptive retrieval fallback, focused seed selection, detectRepoLanguage, resultConfidence, directFTSExpansion |
 | `internal/context/walk.go` | GraphNodeCount, adaptive seed count, PreferTypeSeeds flag |
 | `internal/context/task_memory.go` | Task memory recording and recall |
 | `internal/context/ranking.go` | Feedback boost integration |
-| `internal/store/sqlite.go` | Merkleized feedback (neighborhood_root), GetAllEmbeddings |
-| `internal/embedding/searcher.go` | LoadAndSearchFromStore (brute-force gap-fill) |
+| `internal/store/sqlite.go` | Merkleized feedback (neighborhood_root) |
 | `internal/enrichment/enricher.go` | LSP enrichment (phantom nodes, edge discovery) |
+| `cmd/knowing/debug_seeds.go` | Seed pipeline diagnostic tool |
+| `cmd/knowing/debug_fts.go` | FTS5 query probe tool |
+| `cmd/knowing/debug_walk.go` | RWR walk visualization tool |
+| `cmd/knowing/bench_task.go` | Single-task benchmark tool |
 
 ## Related Documents
 
