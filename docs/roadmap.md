@@ -44,17 +44,18 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 | 2 | ~~Wire remaining 5 resolvers~~ | **SHIPPED session 24.** All 7 resolvers wired via generic `runLanguageResolver` dispatch. Validated: Kafka/Java 596K edges, Django/Python 58K, Cargo/Rust 27K, VS Code/TS 19K, Ocelot/C# 1.3K. Neutral on already-enriched DBs (Cargo P@10 0.186 = baseline). | **Shipped** | Neutral on enriched, +value on unenriched |
 | 3 | ~~Process framework classes first~~ | **Already solved (session 23).** Framework injection bypasses `equivSeen` entirely (lines 566-571 in context.go): framework matches (weight >= 0.9, source "framework") are collected into `frameworkInjections` regardless of dedup. Ordering is irrelevant. | **Done** | N/A |
 | 4 | **Equiv class auto-discovery** | Deferred. Language scoping already prevents cross-language false positives. Within-language framework scoping (e.g. skip Flask classes on Django repo) is unnecessary: non-matching frameworks return empty from `NodesByName` instantly. No measurable performance or precision issue. Revisit if corpus grows to 50+ frameworks per language. | **Deferred** | Not needed |
-| 5 | **Add framework-using repos to corpus** | Validate equiv classes generalize beyond framework source code. Add a real Django app, a real Flask API, etc. | Medium | Eval credibility |
-| 6 | **Deploy platform API** | api.blackwell-systems.com. DigitalOcean Droplet, Cloudflare Tunnel. DEPLOY.md + deploy.sh committed. | In progress | Live product |
-| 7 | **Blog post** | Numbers are publishable and honest. LinkedIn audience is warm. | 2 hours | Visibility |
-| 8 | **AI-generated evaluation corpus** | LLM generates tasks + ground truth, DB-validated. Hybrid: hand-curated for regression, AI-generated for coverage. | Medium | Eval credibility |
+| 5 | ~~Add framework-using repos to corpus~~ | **SHIPPED session 24.** saleor/saleor (Django e-commerce, 4,255 Python files). 11 tasks, P@10=0.236 unenriched. Checkout flow 1.00. Proves equiv classes generalize to app code. Enrichment regresses to 0.182 (packing dilution from 115K phantom nodes). | **Shipped** | Eval credibility |
+| 6 | **Proximity-weighted packing** | Scoring-layer proximity (BFS distance) confirmed neutral (session 24). The enrichment regression (0.236->0.182 on saleor) is a packing problem: noise fills budget slots despite ground truth being found (R@10=1.00). Fix: weight `packIntoBudget` density by seed proximity so nearby symbols pack before distant high-centrality noise. | Medium | Fix enrichment regression |
+| 7 | **Deploy platform API** | api.blackwell-systems.com. DigitalOcean Droplet, Cloudflare Tunnel. DEPLOY.md + deploy.sh committed. | In progress | Live product |
+| 8 | **Blog post** | Numbers are publishable and honest. LinkedIn audience is warm. v0.13.0 released. | 2 hours | Visibility |
 | 9 | **AI-generated evaluation corpus** | LLM generates tasks + ground truth, DB-validated. Hybrid: hand-curated for regression, AI-generated for coverage. | Medium | Eval credibility |
 | 10 | **More equiv class coverage** | Message queues (RabbitMQ, Redis), cloud SDKs (AWS, GCP), build systems (Make, Gradle), observability (OpenTelemetry, Prometheus). | Ongoing | Incremental P@10 |
 
-### Tested Neutral or Harmful (sessions 14-19)
+### Tested Neutral or Harmful (sessions 14-24)
 
 | Approach | Result | Session | Details |
 |----------|--------|---------|---------|
+| **Proximity-weighted scoring** (BFS distance in ranking) | Neutral/Harmful | 24 | BFS hop distance from seeds as ranking component. P@10 0.278 on full corpus (neutral). On enriched saleor: 0.182 vs 0.200 without (slightly harmful). Problem is packing, not scoring. |
 | **Embeddings as Channel 3** (seed source) | Neutral | 15 | Three models find same symbols as BM25. Architecture was wrong. |
 | **Blended re-rank** (weight > 0.0) | Harmful | 15 | Pure re-rank (weight=0.0) wins P@10/R@10. Blending preserves MRR but sacrifices recall. |
 | **Call-chain seeding** | Neutral | 14 | Callees already reachable via RWR traversal; diffuses probability mass |
