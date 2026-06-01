@@ -3,6 +3,106 @@
 Tools for investigating retrieval quality issues, running ablation studies,
 and understanding how the pipeline behaves on different graph densities.
 
+## Interactive Debugging Tools (session 23)
+
+Three CLI tools for diagnosing individual task failures. These are the
+fastest path to understanding why a task scores zero.
+
+### debug-seeds: seed pipeline visibility
+
+Shows the full seed selection pipeline for a task: keywords extracted,
+path terms, BM25 results, and final ForTask top 10 with scores.
+
+```bash
+knowing debug-seeds -task "add a custom validator" -db <path> <repo>
+```
+
+**Output sections:**
+1. Keywords (Primary, Components, Compounds)
+2. Path terms
+3. BM25 results (FTS query + top 15 matches)
+4. Path boost analysis (if active)
+5. Final ForTask top 10 with scores
+
+**Use when:** A task scores zero and you want to see WHERE the pipeline
+fails: empty keywords? BM25 returning wrong symbols? Right seeds but
+wrong walk results?
+
+### debug-fts: raw FTS5 query probe
+
+Runs a raw FTS5 query against the node index. Test query formulations
+without running the full pipeline.
+
+```bash
+knowing debug-fts -query "transform* OR destroy*" -db <path> [-limit N]
+```
+
+**Supports:** prefix matching (`term*`), column targets (`symbol_name:"term"`),
+OR/AND operators, quoted phrases (`"email validator"`).
+
+**Use when:** You want to verify what BM25 actually returns for specific
+query terms, or test whether a symbol is findable by FTS at all.
+
+### debug-walk: RWR walk visualization
+
+Shows the RWR walk from specific seed nodes: edge types on seeds (1-hop),
+nodes reached, score distribution, and top-N ranking.
+
+```bash
+knowing debug-walk -seed "DestroyEdgeTransformer" -db <path> [-top N] [-alpha 0.2]
+```
+
+**Output sections:**
+1. Matched seed nodes
+2. Edge type breakdown per seed (outgoing/incoming by type)
+3. RWR walk results (nodes reached, top-N by score)
+4. Score distribution (max, min, top-10 mass, total mass)
+
+**Use when:** Seeds are correct but the walk doesn't reach the expected
+targets. Shows whether the graph structure supports propagation.
+
+### bench-task: single-task benchmark
+
+Runs a single benchmark task and shows P@10 with per-symbol HIT/MISS
+analysis. Shows where each ground truth symbol ranks.
+
+```bash
+knowing bench-task -task "terraform-hard-004" [-corpus path] [-budget N]
+```
+
+**Output sections:**
+1. Task metadata (repo, tier, description, ground truth)
+2. Top 10 retrieved with HIT/MISS markers
+3. P@10 score
+4. Ground truth analysis: FOUND (rank N) or MISSING for each symbol
+5. Recall over the full result set
+
+**Use when:** You want to understand a specific task's performance without
+running the full benchmark. Essential for the zero-task audit cycle:
+audit zeros -> add equiv classes -> verify with bench-task -> run repo.
+
+## Measurement Protocol (session 23)
+
+**CRITICAL:** Clear task memory before any A/B comparison. Task memory
+persists in corpus DBs and inflates measurements over time.
+
+```bash
+# Clear task memory from all corpus DBs
+for db in bench/cross-system/corpus/repos/*/.knowing/graph.db; do
+  sqlite3 "$db" "DELETE FROM task_memory;"
+done
+
+# Clear test cache (stale binaries cause phantom results)
+go clean -testcache
+
+# Run benchmark
+BENCH_ADAPTERS=knowing GOWORK=off go test ./bench/cross-system/ \
+  -run "^TestCrossSystem$" -v -timeout 0
+```
+
+Task memory is disabled in the benchmark adapter since session 23.
+The clearing step is a safety net for any accumulated state.
+
 ## Query-Time Edge Exclusion
 
 Exclude specific edge types from the RWR walk without reindexing. Filters
