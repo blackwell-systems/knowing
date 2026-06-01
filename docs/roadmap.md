@@ -40,22 +40,27 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 
 | # | Item | Why | Effort | Expected Impact |
 |---|------|-----|--------|-----------------|
-| 1 | ~~Fix missing inheritance edges~~ | **SHIPPED session 24.** Eliminated 5,581 phantom extends edges on Django (69% were pointing to single `external://extends.target` phantom). Skip Python builtins (50+ classes), return empty for unresolvable module paths, skip dotted paths through unknown modules. 2,493 real-target extends preserved. Remaining dangling edges (module re-export resolution) handled by Python in-process resolver. | **Shipped** | Cleaner graph, no phantom pollution |
-| 2 | ~~Wire remaining 5 resolvers~~ | **SHIPPED session 24.** All 7 resolvers wired via generic `runLanguageResolver` dispatch. Validated: Kafka/Java 596K edges, Django/Python 58K, Cargo/Rust 27K, VS Code/TS 19K, Ocelot/C# 1.3K. Neutral on already-enriched DBs (Cargo P@10 0.186 = baseline). | **Shipped** | Neutral on enriched, +value on unenriched |
-| 3 | ~~Process framework classes first~~ | **Already solved (session 23).** Framework injection bypasses `equivSeen` entirely (lines 566-571 in context.go): framework matches (weight >= 0.9, source "framework") are collected into `frameworkInjections` regardless of dedup. Ordering is irrelevant. | **Done** | N/A |
-| 4 | **Equiv class auto-discovery** | Deferred. Language scoping already prevents cross-language false positives. Within-language framework scoping (e.g. skip Flask classes on Django repo) is unnecessary: non-matching frameworks return empty from `NodesByName` instantly. No measurable performance or precision issue. Revisit if corpus grows to 50+ frameworks per language. | **Deferred** | Not needed |
-| 5 | ~~Add framework-using repos to corpus~~ | **SHIPPED session 24.** saleor/saleor (Django e-commerce, 4,255 Python files). 11 tasks, P@10=0.236 unenriched. Checkout flow 1.00. Proves equiv classes generalize to app code. Enrichment regresses to 0.182 (packing dilution from 115K phantom nodes). | **Shipped** | Eval credibility |
-| 6 | **Proximity-weighted packing** | Scoring-layer proximity (BFS distance) confirmed neutral (session 24). The enrichment regression (0.236->0.182 on saleor) is a packing problem: noise fills budget slots despite ground truth being found (R@10=1.00). Fix: weight `packIntoBudget` density by seed proximity so nearby symbols pack before distant high-centrality noise. | Medium | Fix enrichment regression |
-| 7 | **Task-noise correlation system** | Reframe "task memory" as noise suppression, not recall. Implicit feedback moved from MCP-only to context engine (session 24). Django 5 rounds: P@10 0.186 -> 0.197 peak at round 3 (+5.9%), R@10 0.333 -> 0.376 (+12.6%). **First mechanism to show real compounding on honest measurement.** Round 5 regresses (0.192) because benchmark never calls DetectUsed, so negatives accumulate unchecked. In real MCP usage, agents open files triggering positive attribution that stabilizes the curve. Next: simulate agent usage in benchmark, implement per-cluster tracking (7a). Env vars: `BENCH_IMPLICIT_FEEDBACK=1`, `KNOWING_NO_FEEDBACK=1`, `--no-feedback` flag. | In progress | +5.9% P@10 |
-| 7a | *Per-keyword-cluster noise tracking* | Track noise per keyword cluster, not globally. Symbols that are noise for "checkout" tasks might be essential for "order" tasks. Current system records negatives globally. Cluster-scoped demotion prevents cross-task interference. | Medium | Precision |
-| 7b | *Weighted negative signals* | Weight the negative signal by how many times a symbol was returned but ignored. One miss is noise, five misses is confirmed noise. Current system treats every miss equally. Graduated confidence prevents premature demotion from a single bad query. | Low | Robustness |
-| 7c | *Vocabulary expansion from usage* | When agent asks "how does checkout work" then opens `Order.can_cancel`, record "checkout" -> `Order.can_cancel`. Automatic equiv class generation from observed usage. Most powerful: covers gaps hand-curated classes can't anticipate. | Medium | Learned equiv classes |
-| 7d | *Merkleized noise expiration* | Decay negative signals when code changes. A symbol demoted as noise might become relevant after a refactor. The Merkleized feedback expiration infrastructure already handles this for positive feedback; extend to negatives. | Low | Already built |
-| 8 | **Deploy platform API** | api.blackwell-systems.com. DigitalOcean Droplet, Cloudflare Tunnel. DEPLOY.md + deploy.sh committed. | In progress | Live product |
-| 9 | ~~Blog post~~ | **SHIPPED session 24.** Updated with v0.13.0 numbers, methodology, framework intelligence, honest embeddings finding. Committed and pushed. | **Shipped** | Visibility |
-| 10 | **AI-generated evaluation corpus** | LLM generates tasks + ground truth, DB-validated. Hybrid: hand-curated for regression, AI-generated for coverage. | Medium | Eval credibility |
-| 11 | **More equiv class coverage** | Message queues (RabbitMQ, Redis), cloud SDKs (AWS, GCP), build systems (Make, Gradle), observability (OpenTelemetry, Prometheus). | Ongoing | Incremental P@10 |
-| 12 | **Documentation sweep for learning subsystems** | Session 24 made major changes: task memory disabled, implicit feedback moved to engine, noise demotion is sole learning mechanism. Docs that need updating: context-engine.md (remove task memory from pipeline), features.md (update task memory feature, add implicit feedback feature), architecture/retrieval-pipeline.md (learning section), README.md (remove "compounds across sessions" if present), introduction.md (learning claims). Blog already updated. | Low | Accuracy |
+| 1 | **Task-noise correlation: per-cluster tracking** | Current implicit feedback records negatives globally. Symbols that are noise for "checkout" tasks might be essential for "order" tasks. Cluster-scoped demotion prevents cross-task interference. | Medium | Precision |
+| 2 | **Task-noise correlation: weighted negatives** | Weight the negative signal by repetition count. One miss is noise, five misses is confirmed. Current system treats every miss equally. Graduated confidence prevents premature demotion. | Low | Robustness |
+| 3 | **Vocabulary expansion from usage** | When agent asks "how does checkout work" then opens `Order.can_cancel`, record "checkout" -> `Order.can_cancel`. Automatic equiv class generation from observed usage. Covers gaps hand-curated classes can't anticipate. | Medium | Learned equiv classes |
+| 4 | **Proximity-weighted packing** | Enrichment regression (0.236->0.182 on saleor) is a packing problem: noise fills budget slots despite ground truth found (R@10=1.00). Weight `packIntoBudget` density by seed proximity. Scoring-layer proximity confirmed neutral (session 24). | Medium | Fix enrichment regression |
+| 5 | **Deploy platform API** | api.blackwell-systems.com. DigitalOcean Droplet, Cloudflare Tunnel. DEPLOY.md + deploy.sh committed. | Low | Live product |
+| 6 | **Documentation sweep** | Session 24 changes: task memory disabled, implicit feedback moved to engine, noise demotion is sole learning mechanism. Update: context-engine.md, features.md, retrieval-pipeline.md, README.md, introduction.md. Blog already done. | Low | Accuracy |
+| 7 | **AI-generated evaluation corpus** | LLM generates tasks + ground truth, DB-validated. Hybrid: hand-curated for regression, AI-generated for coverage. | Medium | Eval credibility |
+| 8 | **More equiv class coverage** | Message queues (RabbitMQ, Redis), cloud SDKs (AWS, GCP), build systems (Make, Gradle), observability (OpenTelemetry, Prometheus). | Ongoing | Incremental P@10 |
+
+### Shipped (sessions 23-24)
+
+| Item | Session | Result |
+|------|---------|--------|
+| Fix missing inheritance edges | 24 | 5,581 phantom extends edges eliminated on Django |
+| Wire remaining 5 resolvers | 24 | All 7 wired. Kafka/Java 596K, Django/Python 58K, Cargo/Rust 27K edges |
+| Process framework classes first | 23 | Already solved via equivSeen bypass |
+| Add framework-using repos | 24 | saleor/saleor added, P@10=0.236, equiv classes validated on app code |
+| Blog post | 24 | Updated with v0.13.0 numbers, methodology, honest findings |
+| v0.13.0 release | 24 | P@10=0.278, 308 tasks, 16 repos, 8 languages |
+| Task-noise correlation (implicit feedback) | 24 | Moved to engine, +5.9% P@10 on Django. Task memory disabled (neutral). Sole learning mechanism. |
+| Equiv class auto-discovery | 24 | Deferred (language scoping sufficient) |
 
 ### Tested Neutral or Harmful (sessions 14-24)
 
