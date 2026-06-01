@@ -832,10 +832,10 @@ func resolveModuleToPath(modulePath, moduleRoot string) string {
 		}
 	}
 
-	// If no file found, still return the best guess (the .py variant).
-	// The target hash may not match an actual node, but it creates an edge
-	// that could be resolved later by the cross-repo resolver.
-	return "src/" + relPath + ".py"
+	// No matching file found. Return empty to signal unresolvable.
+	// The in-process Python resolver handles these cases with full
+	// cross-file type resolution.
+	return ""
 }
 
 // buildPythonImportMap extracts all import statements from a Python AST and
@@ -1233,11 +1233,20 @@ func (e *TreeSitterExtractor) extractPythonBaseClasses(classNode *sitter.Node, o
 			continue
 		}
 
+		// Skip Python builtins: they don't add reachability within a repo
+		// and produce dangling edges (no corresponding node in the graph).
+		if isPythonBuiltinClass(baseName) {
+			continue
+		}
+
 		// Resolve base class through import map to compute the SAME hash
 		// that makeNode produces when the target class is indexed.
 		// makeNode uses: ComputeNodeHash(repoURL, moduleRoot, _, qualifiedName, kind)
 		// where qualifiedName is "repoURL://moduleRoot/filepath.ClassName"
 		targetQName := resolveBaseClassQName(baseName, opts, pyImports)
+		if targetQName == "" {
+			continue // unresolvable (dotted path through unresolved module)
+		}
 		targetHash := types.ComputeNodeHash(opts.RepoURL, opts.ModuleRoot, types.EmptyHash, targetQName, types.KindType)
 
 		provenance := "ast_inferred"
@@ -1274,6 +1283,9 @@ func resolveBaseClassQName(className string, opts types.ExtractOptions, pyImport
 	srcModule, ok := pyImports[className]
 	if ok {
 		modulePath := resolveModuleToPath(srcModule, opts.ModuleRoot)
+		if modulePath == "" {
+			return "" // module path unresolvable
+		}
 		return fmt.Sprintf("%s://%s/%s.%s", opts.RepoURL, opts.ModuleRoot, modulePath, className)
 	}
 
@@ -1284,12 +1296,53 @@ func resolveBaseClassQName(className string, opts types.ExtractOptions, pyImport
 		actualClass := className[dotIdx+1:]
 		if srcModule, ok := pyImports[moduleAlias]; ok {
 			modulePath := resolveModuleToPath(srcModule, opts.ModuleRoot)
+			if modulePath == "" {
+				return "" // module path unresolvable
+			}
 			return fmt.Sprintf("%s://%s/%s.%s", opts.RepoURL, opts.ModuleRoot, modulePath, actualClass)
 		}
+		// Dotted path but module alias not in imports: unresolvable.
+		return ""
 	}
 
-	// Not imported: assume defined in same file.
+	// Not imported and not a dotted path: assume defined in same file.
+	// This is correct for same-file inheritance (e.g. class FooError(BarError):
+	// where both are in the same file). May produce dangling edges for
+	// star-imported classes, but those are handled by the Python resolver.
 	return fmt.Sprintf("%s://%s/%s.%s", opts.RepoURL, opts.ModuleRoot, opts.FilePath, className)
+}
+
+// isPythonBuiltinClass returns true for Python builtin types that should not
+// produce extends edges (they have no corresponding node in the graph).
+func isPythonBuiltinClass(name string) bool {
+	switch name {
+	case "object", "type",
+		"Exception", "BaseException",
+		"ValueError", "TypeError", "KeyError", "IndexError", "AttributeError",
+		"RuntimeError", "NotImplementedError", "StopIteration", "StopAsyncIteration",
+		"OSError", "IOError", "FileNotFoundError", "PermissionError",
+		"ImportError", "ModuleNotFoundError",
+		"LookupError", "ArithmeticError", "BufferError",
+		"EOFError", "MemoryError", "NameError", "ReferenceError",
+		"SyntaxError", "SystemError", "UnicodeError", "UnicodeDecodeError", "UnicodeEncodeError",
+		"ConnectionError", "TimeoutError", "BrokenPipeError",
+		"OverflowError", "ZeroDivisionError", "FloatingPointError",
+		"AssertionError", "RecursionError", "BlockingIOError",
+		"ChildProcessError", "ConnectionAbortedError", "ConnectionRefusedError", "ConnectionResetError",
+		"FileExistsError", "InterruptedError", "IsADirectoryError", "NotADirectoryError",
+		"ProcessLookupError", "UnboundLocalError",
+		"Warning", "UserWarning", "DeprecationWarning", "PendingDeprecationWarning",
+		"RuntimeWarning", "SyntaxWarning", "ResourceWarning", "FutureWarning",
+		"UnicodeWarning", "BytesWarning",
+		"dict", "list", "set", "frozenset", "tuple",
+		"str", "bytes", "bytearray", "memoryview",
+		"int", "float", "complex", "bool",
+		"property", "staticmethod", "classmethod",
+		"super", "enumerate", "filter", "map", "zip", "range", "reversed",
+		"ABC":
+		return true
+	}
+	return false
 }
 
 // extractPythonDecoratorEdges checks for decorator nodes that precede a
