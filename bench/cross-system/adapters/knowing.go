@@ -114,6 +114,22 @@ func (a *Knowing) MemoryFor(repoPath string) *knowingctx.TaskMemory {
 	return a.memories[repoPath]
 }
 
+// EnableMemory activates task memory for all indexed repos.
+// Call after Index() to enable compounding. Not used in standard
+// benchmarks (cold-start measurement requires no memory).
+func (a *Knowing) EnableMemory() {
+	for repoPath, s := range a.stores {
+		a.memories[repoPath] = knowingctx.NewTaskMemory(s.DB())
+	}
+}
+
+// ClearAllMemory deletes all task_memory entries across all indexed repos.
+func (a *Knowing) ClearAllMemory() {
+	for _, s := range a.stores {
+		s.DB().Exec("DELETE FROM task_memory") //nolint:errcheck
+	}
+}
+
 func (a *Knowing) Index(repoPath string) (int64, error) {
 	start := time.Now()
 	dbPath := repoPath + "/.knowing/graph.db"
