@@ -133,7 +133,7 @@ For implementation details, see [Retrieval Pipeline](../architecture/retrieval-p
 - Embeddings: confirmed neutral on cold start (session 23, 3 runs identical with/without). Gap-fill and re-ranker both disabled.
 - Framework equivalence classes: 263 concept-to-symbol mappings across 30 files, with forced injection for high-confidence matches
 - Adaptive retrieval: auto-detects flat RWR results on massive repos (>200K nodes), falls back to direct FTS + contains-edge expansion
-- P@10 = 0.278 cold start (297 tasks, 15 repos, 8 languages, honest measurement: no task memory, no embeddings)
+- P@10 = 0.278 cold start (308 tasks, 16 repos, 8 languages, honest measurement: no task memory, no embeddings)
 - Competitive: 3.20x codegraph, 5.05x GitNexus, 5.35x Gortex, 18.5x grep (cold start)
 - MCP server interface with 28 tools for agent consumption
 
@@ -784,14 +784,14 @@ Intuition: symbols that are close to many seeds (reachable by short paths) get h
 On the top-K results from RWR, run the HITS algorithm (Hyperlink-Induced Topic Search). This separates "hubs" (symbols that call many things) from "authorities" (symbols that are called by many things). For a refactoring task, authorities matter more (the things being called). For a wiring task, hubs matter more (the connectors).
 
 **Step 5: Feedback boost.**
-Feedback boost is computed as `0.5 + recall_score * 0.4`, where recall_score comes from task memory (top-5 symbols stored per query). Feedback automatically expires when the package's SubgraphRoot changes (code was modified). This is how the system learns over time without accumulating stale signals.
+Implicit feedback tracks which symbols were returned but never used by the agent (negative signal) and which the agent subsequently referenced in tool calls (positive signal). Feedback automatically expires when the package's SubgraphRoot changes (code was modified). This is how the system learns during active sessions without accumulating stale signals.
 
 **Step 6: Token budget packing.**
 The ranked symbols are packed into the token budget (default 50,000 tokens) using a knapsack algorithm: maximize total relevance score within the budget constraint. Larger symbols (more edges, longer signatures) cost more tokens. The packer selects the combination that maximizes information density.
 
 **Result:** 85-200 symbols, ranked by graph relevance, packed into a budget. One call. No grep loops.
 
-The results improve with use: feedback records which symbols were actually useful, and that signal compounds across sessions while automatically expiring when code changes.
+The results improve during active sessions: implicit feedback demotes symbols that are returned but never used by the agent, while boosting symbols the agent actually references. Feedback automatically expires when code changes.
 
 ### 2. Audit Primitive (for compliance)
 
@@ -946,7 +946,7 @@ knowing is unique in applying content-addressing to *relationships between code*
 
 ### Measured performance
 
-These numbers are reproducible via the benchmark suite (15 repos, 297 tasks, 8 languages). All measurements use honest cold-start measurement: no task memory, no embeddings, dot-bounded symbol matching.
+These numbers are reproducible via the benchmark suite (16 repos, 308 tasks, 8 languages). All measurements use honest cold-start measurement: no task memory, no embeddings, dot-bounded symbol matching.
 
 | Metric | Value | Context |
 |---|---|---|

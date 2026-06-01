@@ -1,6 +1,10 @@
 package context
 
-import "sync"
+import (
+	"os"
+	"strconv"
+	"sync"
+)
 
 // SweepParams holds tunable parameters for the retrieval pipeline.
 // Used by the parameter sweep benchmark to test different configurations.
@@ -120,4 +124,15 @@ func sweepTestPenalty() float64 {
 		return p.TestPenalty
 	}
 	return 0.3
+}
+
+// proximityExponent returns the exponent for RWR proximity packing.
+// Default 0.5 (sqrt). Override with BENCH_PROXIMITY_EXP for sweep.
+func proximityExponent() float64 {
+	if v := os.Getenv("BENCH_PROXIMITY_EXP"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
+			return f
+		}
+	}
+	return 0.5
 }

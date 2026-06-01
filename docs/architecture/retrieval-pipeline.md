@@ -804,54 +804,40 @@ creating a useful recency bias within a working session.
 
 ---
 
-## 8. Task Memory (Passive Learning)
+## 8. Implicit Feedback (Noise Demotion)
 
-`TaskMemory` (`task_memory.go`) persists which symbols were useful for which tasks,
-enabling the pipeline to learn from past interactions. Over time, the system develops
-per-repo vocabulary: "when a developer asks about X, these symbols tend to be what they
-actually need." Task memory persists across process restarts via the SQLite `task_memory`
-table, so quality compounds with usage even across MCP server restarts.
+> **Status (session 24):** Task memory (keyword -> symbol) disabled (confirmed neutral
+> on honest measurement). Implicit feedback is the sole active learning mechanism.
+> Django: +5.9% P@10 peak at round 3.
 
-### Recording
+The implicit feedback system (`internal/context/implicit.go`) observes which symbols
+the agent actually uses and demotes symbols that are consistently returned but ignored.
 
-After packing, the top 5 symbols (by score) are stored alongside normalized keywords
-from the task description. Keywords are produced by `NormalizeKeywords` (the 10 longest
-terms from keyword extraction, joined with spaces). The association is stored in the
-`task_memory` SQLite table with a timestamp and a boost score of 1.0. The boost score
-is transformed during recall (see "Integration with scoring" below) via the formula
-`0.5 + recallScore * 0.4` (range [0.5, 0.9]).
+### How it works
 
-### Recall
-
-On each query, `Recall` searches the task_memory table for rows where any query keyword
-(3+ chars) appears in the stored keywords (via SQL `LIKE %keyword%`). Each matching row
-contributes its stored score, decayed by age.
-
-**Decay model:**
-
-- Memories less than 7 days old: full weight (decay = 1.0)
-- Memories older than 7 days: linear decay (`7 / age_in_days`)
-
-A memory from 14 days ago has half the weight of a fresh one. A memory from 70 days ago
-has 1/10 the weight.
+1. **ForTask call:** `recordImplicitFeedback` flushes symbols from the previous call
+   that were never attributed (negative feedback via `RecordFeedback(useful=false)`),
+   then registers newly returned symbols for attribution tracking.
+2. **Agent tool calls:** When the agent makes Edit/Read calls, `DetectUsed` scans the
+   content for references to pending symbols. Matches are recorded as positive feedback
+   (`RecordFeedback(useful=true)`) and marked as attributed.
+3. **Next ForTask call:** The flush in step 1 only penalizes unattributed symbols.
+   Symbols the agent used (step 2) are protected from demotion.
 
 ### Integration with scoring
 
-Memory boosts are integrated into the feedback channel via replacement (not addition).
-The memory recall score is transformed to a boost value:
+Implicit feedback integrates via the `FeedbackBoost` field in `ScoringInput`:
 
-```
-memoryBoost = 0.5 + (recallScore * 0.4)    // range [0.5, 0.9]
-if FeedbackBoost < memoryBoost {
-    FeedbackBoost = memoryBoost             // replace only if memory is stronger
-}
-```
+- `FeedbackBoost > 0.5`: positive signal (used by agent) -> `FeedbackPosWeight * signal` boost
+- `FeedbackBoost < 0.5`: negative signal (returned but unused) -> `-FeedbackNegWeight * signal` penalty
+- `FeedbackPosWeight = 0.25`, `FeedbackNegWeight = 0.05` (asymmetric: boost stronger than penalty)
 
-This ensures memory always produces a positive boost (range [0.5, 0.9]) without
-overwhelming explicit feedback (which can reach 1.0). The positive feedback weight
-is 0.25, so memory's effective maximum contribution is `0.9 * 0.25 = 0.225`
-when centered around the neutral point (where 0.5 maps to zero contribution), giving
-an effective range of 0 to +0.10 (about 10% of total score).
+### Historical: Task Memory (disabled)
+
+Migration 008 creates the `task_memory` table. The system recorded top-5 symbols per
+call with keyword matching and 7-day decay. Session 24 proved this redundant: the pipeline
+(BM25 + equiv classes) already finds the same symbols. Five rounds on Django showed P@10
+flat (0.194 +/- 0.003). Infrastructure preserved in `task_memory.go` for future redesign.
 
 ---
 

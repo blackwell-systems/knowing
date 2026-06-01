@@ -2077,11 +2077,13 @@ func packIntoBudget(ranked []RankedSymbol, budget int, format string) *ContextBl
 			cost = 1
 		}
 		baseDensity := sym.Score / float64(cost)
-		// RWR proximity boost: sqrt(rwrScore) smooths the decay curve.
-		// Seeds (~1.0) get full density, distant nodes (~0.01) get ~10% density.
+		// RWR proximity boost: rwrScore^exponent smooths the decay curve.
+		// Seeds (~1.0) get full density, distant nodes (~0.01) get reduced density.
+		// Exponent controls aggressiveness: 0.5=sqrt (default), 0.3=gentle, 0.7=aggressive, 1.0=linear.
+		// Sweep via BENCH_PROXIMITY_EXP env var.
 		proximityFactor := 1.0
 		if sym.RWRScore > 0 {
-			proximityFactor = math.Sqrt(sym.RWRScore)
+			proximityFactor = math.Pow(sym.RWRScore, proximityExponent())
 		}
 		items[i] = densityItem{
 			index:   i,

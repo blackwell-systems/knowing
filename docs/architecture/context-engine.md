@@ -15,7 +15,8 @@ internal/context/
 ├── language_seeds.go   Aggregator: collects all equiv_*.go files (263 classes, 30 files)
 ├── equiv_*.go (30 files) Framework-specific equivalence classes with forced injection
 ├── graph_aliases.go    Auto-generated equivalence classes from caller/callee names (weight 0.7)
-├── task_memory.go      Passive task memory: records top-5 symbols per call, 7-day decay recall
+├── task_memory.go      Task memory infrastructure (disabled, session 24: confirmed neutral)
+├── implicit.go         Implicit feedback: noise demotion via FlushUnused/DetectUsed
 ├── ranking.go          RankSymbols: weighted scoring formula with HITS authority + session boost
 ├── hits.go             ComputeHITS: hub/authority scores for subgraph reranking (top 200 nodes, 10 iterations)
 ├── session.go          SessionTracker: exponential-decay recency boost for symbols accessed in-session
@@ -121,9 +122,20 @@ The universal seeds system (`internal/context/universal_seeds.go`) provides 63 d
 
 The graph alias system (`internal/context/graph_aliases.go`) auto-generates equivalence classes by analyzing caller/callee symbol names in the graph. It selects the top-10 tiered candidates and assigns weight 0.7. This provides a zero-configuration fallback for repos that lack hand-curated seed mappings, deriving vocabulary from actual code relationships rather than static lists.
 
-## Passive Task Memory
+## Implicit Feedback (Noise Demotion)
 
-Migration 008 creates the `task_memory` table (columns: keywords, symbol_hash, score, timestamp). The task memory system (`internal/context/task_memory.go`) records the top-5 symbols from each `context_for_task` call with a raw score of 1.0. On subsequent calls, it matches keywords against stored entries with a 7-day linear decay. At recall time, matched symbols are boosted via the formula `0.5 + recall_score * 0.4` (range [0.5, 0.9], always positive), applied as a max against existing `FeedbackBoost` so memory never overrides stronger explicit feedback signals. Task memory persists across process restarts (stored in SQLite), so quality compounds with usage over time. This provides passive learning from agent behavior without requiring explicit feedback.
+> **Status (session 24):** Task memory (keyword -> symbol recording) disabled. Confirmed
+> neutral on honest measurement (5 rounds, P@10 flat). Implicit feedback (noise demotion
+> via FlushUnused/DetectUsed) is the sole active learning mechanism. Django: +5.9% P@10
+> peak at round 3. Infrastructure: `internal/context/implicit.go`.
+
+The implicit feedback system tracks which symbols were returned by `context_for_task` and detects when the agent subsequently uses them (via `DetectUsed` scanning Edit/Read tool call content). Symbols returned but never used receive negative feedback (`RecordFeedback` with `useful=false`). Symbols the agent references receive positive feedback.
+
+This is wired into the context engine (`recordImplicitFeedback` in ForTask): each `ForTask` call flushes unused symbols from the previous call (negative feedback) and registers new returned symbols for attribution. Any consumer (MCP, benchmark, CLI) gets noise demotion automatically.
+
+The `FeedbackBoost` field in ranking uses `FeedbackPosWeight=0.25` for positive and `FeedbackNegWeight=0.05` for negative (asymmetric: boost is stronger than penalty). Scores above 0.5 = net positive, below 0.5 = net negative.
+
+**Historical note:** Migration 008 creates the `task_memory` table. The task memory system (`internal/context/task_memory.go`) recorded top-5 symbols per call with keyword matching and 7-day decay. Session 24 proved this mechanism is redundant with the pipeline (BM25 and equiv classes already find the same symbols). Task memory creation and recording are disabled in the MCP server. Infrastructure preserved for future task-noise correlation redesign (roadmap 7a-d).
 
 ## Merkleized Feedback Validity (v0.5.0)
 
@@ -216,13 +228,13 @@ Bigram generation joins adjacent non-stop-words into both CamelCase and snake_ca
 9. Build scoring inputs from all nodes with RWR score >= 0.02 (phantom external and stdlib nodes excluded).
 10. Apply feedback boosts (from FeedbackProvider with merkleized validity).
 11. Apply session boosts (from SessionTracker, 3-minute half-life, cap 2.0).
-12. Apply task memory boosts: recall matching keywords (7-day linear decay), boost formula `0.5 + recall_score * 0.4` (range [0.5, 0.9]), applied as max against existing FeedbackBoost.
+12. Apply implicit feedback boosts: symbols with positive feedback (used by agent) get `FeedbackPosWeight * signal`, negative (returned but unused) get `-FeedbackNegWeight * signal`. Task memory disabled (session 24, confirmed neutral).
 13. If task is about testing (detected by keyword), disable test file penalty.
 14. Run HITS on the top-200 candidates (10 iterations) to compute authority/hub scores.
 15. Score all candidates via `RankSymbols` (blast_radius, confidence, recency, distance, feedback, session, HITS adjustments).
 15b. ~~Embedding re-rank:~~ **Disabled (session 19).** Per-repo A/B test showed net negative on P@10 (9/13 repos hurt). Code preserved but not called. Gap-fill seeds (step 2b) provide the embedding value.
 16. Pack into token budget via density-ranked knapsack (score/cost ratio ordering).
-17. Record returned symbols in session tracker; record top-5 symbols to task memory for future recall.
+17. Record returned symbols in session tracker; flush unused symbols from previous call as negative implicit feedback; register new returned symbols for attribution tracking.
 18. Compute content-addressed PackRoot; persist to both in-memory SubgraphCache and persistent notes table (with snapshot hash for staleness detection).
 19. Format output as GCF, GCB, TOON, JSON, XML, or Markdown.
 
