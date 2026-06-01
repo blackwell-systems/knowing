@@ -922,7 +922,7 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 		}
 	}
 
-	rwrScores, err := RandomWalkWithRestartWeighted(ctx, e.store, seedHashes, seedWeights, sweepAlpha(), sweepMaxIter())
+	rwrScores, bfsDistances, err := RandomWalkWithRestartWeighted(ctx, e.store, seedHashes, seedWeights, sweepAlpha(), sweepMaxIter())
 	if err != nil {
 		return nil, err
 	}
@@ -954,10 +954,15 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 			continue
 		}
 
-		// Determine distance: 0 if seed (direct keyword match), 1 otherwise.
-		distance := 1
+		// Determine distance: 0 if seed, actual BFS hop count otherwise.
+		// Proximity-weighted scoring: symbols closer to seeds score higher
+		// on the distance component, preventing enrichment-induced density
+		// from promoting distant high-centrality noise over nearby relevant symbols.
+		distance := 4 // max BFS depth as fallback
 		if seedSet[nodeHash] {
 			distance = 0
+		} else if d, ok := bfsDistances[nodeHash]; ok {
+			distance = d
 		}
 
 		// Get edge metadata for confidence and recency.

@@ -377,7 +377,8 @@ func RandomWalkWithRestart(ctx stdctx.Context, store types.GraphStore, seeds []t
 	for _, s := range seeds {
 		weights[s] = w
 	}
-	return RandomWalkWithRestartWeighted(ctx, store, seeds, weights, alpha, maxIter)
+	scores, _, err := RandomWalkWithRestartWeighted(ctx, store, seeds, weights, alpha, maxIter)
+	return scores, err
 }
 
 // RandomWalkWithRestartWeighted runs RWR with per-seed restart weights.
@@ -386,9 +387,9 @@ func RandomWalkWithRestart(ctx stdctx.Context, store types.GraphStore, seeds []t
 // specific seeds (high weight) from generic ones (low weight).
 //
 // Weights are normalized to sum to 1.0 internally.
-func RandomWalkWithRestartWeighted(ctx stdctx.Context, store types.GraphStore, seeds []types.Hash, seedWeights map[types.Hash]float64, alpha float64, maxIter int) (map[types.Hash]float64, error) {
+func RandomWalkWithRestartWeighted(ctx stdctx.Context, store types.GraphStore, seeds []types.Hash, seedWeights map[types.Hash]float64, alpha float64, maxIter int) (map[types.Hash]float64, map[types.Hash]int, error) {
 	if len(seeds) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	if alpha <= 0 || alpha >= 1 {
 		alpha = 0.2
@@ -397,13 +398,16 @@ func RandomWalkWithRestartWeighted(ctx stdctx.Context, store types.GraphStore, s
 		maxIter = 20
 	}
 
-	// Pre-load edges for the reachable subgraph (seeds + 2-hop neighbors)
+	// Pre-load edges for the reachable subgraph (BFS from seeds, depth-limited)
 	// into an in-memory adjacency map. This avoids per-node DB queries during
 	// the iteration loop.
 	adjFrom, adjTo, err := buildAdjacencyMap(ctx, store, seeds)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+
+	// Compute BFS distances from seeds using the adjacency maps (zero extra DB queries).
+	bfsDistances := bfsDistancesFromAdj(seeds, adjFrom, adjTo)
 
 	// Build module map for cross-module attenuation.
 	allNodes := collectNodeHashes(adjFrom, adjTo)
@@ -426,7 +430,8 @@ func RandomWalkWithRestartWeighted(ctx stdctx.Context, store types.GraphStore, s
 		seedVec[s] = w / totalWeight
 	}
 
-	return rwrIterate(seedVec, alpha, maxIter, adjFrom, adjTo, modMap), nil
+	scores := rwrIterate(seedVec, alpha, maxIter, adjFrom, adjTo, modMap)
+	return scores, bfsDistances, nil
 }
 
 // CommunityFilteredRWR is like RandomWalkWithRestart but constrains the BFS
@@ -627,6 +632,88 @@ func rwrIterate(seedVec map[types.Hash]float64, alpha float64, maxIter int, adjF
 	}
 
 	return prob
+}
+
+// bfsDistancesFromAdj computes minimum BFS distances from seeds using pre-loaded
+// adjacency maps. Zero extra DB queries: reuses the maps built by buildAdjacencyMap.
+func bfsDistancesFromAdj(seeds []types.Hash, adjFrom, adjTo map[types.Hash][]types.Edge) map[types.Hash]int {
+	distances := make(map[types.Hash]int, len(seeds)*8)
+	for _, s := range seeds {
+		distances[s] = 0
+	}
+
+	frontier := make([]types.Hash, len(seeds))
+	copy(frontier, seeds)
+
+	const maxDepth = 4
+	for depth := 1; depth <= maxDepth && len(frontier) > 0; depth++ {
+		var next []types.Hash
+		for _, node := range frontier {
+			for _, e := range adjFrom[node] {
+				if _, seen := distances[e.TargetHash]; !seen {
+					distances[e.TargetHash] = depth
+					next = append(next, e.TargetHash)
+				}
+			}
+			for _, e := range adjTo[node] {
+				if _, seen := distances[e.SourceHash]; !seen {
+					distances[e.SourceHash] = depth
+					next = append(next, e.SourceHash)
+				}
+			}
+		}
+		frontier = next
+	}
+
+	return distances
+}
+
+// computeBFSDistances runs a lightweight BFS from seeds and returns the minimum
+// hop distance from any seed to each reachable node. Seeds have distance 0.
+// Used by ForTask to provide actual graph distance for proximity-weighted scoring,
+// replacing the previous binary 0/1 distance. Excludes phantom external nodes.
+func computeBFSDistances(ctx stdctx.Context, store types.GraphStore, seeds []types.Hash) map[types.Hash]int {
+	distances := make(map[types.Hash]int, len(seeds)*8)
+	externals := loadExternalHashes(ctx, store)
+
+	for _, s := range seeds {
+		distances[s] = 0
+	}
+
+	frontier := make([]types.Hash, len(seeds))
+	copy(frontier, seeds)
+
+	const maxDepth = 4
+	for depth := 1; depth <= maxDepth && len(frontier) > 0; depth++ {
+		var next []types.Hash
+		for _, node := range frontier {
+			// Outgoing edges.
+			from, err := store.EdgesFrom(ctx, node, "")
+			if err != nil {
+				continue
+			}
+			for _, e := range from {
+				if _, seen := distances[e.TargetHash]; !seen && !externals[e.TargetHash] {
+					distances[e.TargetHash] = depth
+					next = append(next, e.TargetHash)
+				}
+			}
+			// Incoming edges.
+			to, err := store.EdgesTo(ctx, node, "")
+			if err != nil {
+				continue
+			}
+			for _, e := range to {
+				if _, seen := distances[e.SourceHash]; !seen && !externals[e.SourceHash] {
+					distances[e.SourceHash] = depth
+					next = append(next, e.SourceHash)
+				}
+			}
+		}
+		frontier = next
+	}
+
+	return distances
 }
 
 // buildAdjacencyMap pre-loads edges for the reachable subgraph (BFS from seeds,
