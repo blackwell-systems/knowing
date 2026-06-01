@@ -40,7 +40,7 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 
 | # | Item | Why | Effort | Expected Impact |
 |---|------|-----|--------|-----------------|
-| 1 | **Fix missing inheritance edges** | Python extractor misses some `class Foo(Bar):` patterns (EmailValidator has no inherits edge). Fixing adds real reachability paths. | Low | +2-5% on Python repos |
+| 1 | ~~Fix missing inheritance edges~~ | **SHIPPED session 24.** Eliminated 5,581 phantom extends edges on Django (69% were pointing to single `external://extends.target` phantom). Skip Python builtins (50+ classes), return empty for unresolvable module paths, skip dotted paths through unknown modules. 2,493 real-target extends preserved. Remaining dangling edges (module re-export resolution) handled by Python in-process resolver. | **Shipped** | Cleaner graph, no phantom pollution |
 | 2 | ~~Wire remaining 5 resolvers~~ | **SHIPPED session 24.** All 7 resolvers wired via generic `runLanguageResolver` dispatch. Validated: Kafka/Java 596K edges, Django/Python 58K, Cargo/Rust 27K, VS Code/TS 19K, Ocelot/C# 1.3K. Neutral on already-enriched DBs (Cargo P@10 0.186 = baseline). | **Shipped** | Neutral on enriched, +value on unenriched |
 | 3 | **Process framework classes first** | Framework equiv classes (weight 0.9) should be processed before language classes (weight 0.8) to avoid equivSeen ordering issues. Structural fix. | Low | Prevents edge case regressions |
 | 4 | **Equiv class auto-discovery** | Detect framework from repo imports (django.*, ActiveRecord, etc.) and auto-activate matching classes. Only run relevant ~20 of 263 classes. | Medium | Performance + precision |
