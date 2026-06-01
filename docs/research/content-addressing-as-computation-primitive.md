@@ -4,6 +4,17 @@
 
 May 2026, v1.0
 
+> **Errata (session 23, 2026-05-31):** The retrieval numbers in Section 6
+> (P@10=0.209, 2.75x vs GitNexus) were measured before two measurement bugs
+> were discovered: (1) permissive substring matching inflated P@10 by ~35%
+> (fixed session 21 with dot-bounded containment), (2) task memory accumulated
+> across benchmark runs inflating absolute numbers (fixed session 23). The
+> paper's competitive RATIOS remain valid (both systems were affected equally
+> by the matching bug). Current honest P@10 = 0.278 (297 tasks, 15 repos,
+> dot-bounded matching, no task memory). The paper's architectural
+> contributions (content-addressing, hierarchical Merkle trees, O(packages)
+> diff) are unaffected by the retrieval measurement correction.
+
 ---
 
 ## Abstract
