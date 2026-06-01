@@ -36,12 +36,13 @@ Defined in `internal/context/equivalence.go`:
 
 ```go
 type EquivalenceClass struct {
-    Concept    string   // canonical concept ID (e.g., "TRANSITIVE_IMPACT")
+    Concept    string   // canonical concept ID (e.g., "DJANGO_VALIDATORS")
     Phrases    []string // natural-language phrases that refer to this concept
     Targets    []string // symbol/tool identifiers to boost when phrases match
     TargetType string   // "symbol", "mcp_tool", "edge_type", "workflow", "file"
-    Weight     float64  // source strength (seed: 1.0, universal: 0.8, language: 0.8, graph: 0.7)
-    Source     string   // "seed", "universal", "language", "graph", "feedback", "generated"
+    Weight     float64  // source strength (seed: 1.0, framework: 0.9, universal: 0.8, graph: 0.7)
+    Source     string   // "seed", "framework", "universal", "language", "graph", "feedback"
+    Lang       string   // language scope: "go", "python", "typescript", "ruby", "java", "csharp", "rust", "" (universal)
 }
 ```
 
@@ -56,15 +57,20 @@ Each field serves a distinct purpose:
 - **TargetType**: Categorizes what the targets represent. Currently all seed
   classes use `"symbol"`.
 - **Weight**: Controls the confidence of the source. Seed classes carry 1.0,
-  universal and language-specific carry 0.8, graph-derived carry 0.7.
-- **Source**: Tracks provenance for debugging and potential future decay.
-  Values: `"seed"`, `"universal"`, `"language"`, `"graph"`, `"feedback"`,
-  `"generated"`.
+  framework-specific carry 0.9 (triggers forced injection), universal and
+  language-specific carry 0.8, graph-derived carry 0.7.
+- **Source**: Tracks provenance and determines injection behavior.
+  Values: `"seed"`, `"framework"`, `"universal"`, `"language"`, `"graph"`,
+  `"feedback"`. Classes with `Source == "framework"` AND `Weight >= 0.9`
+  bypass RWR scoring and inject directly into ranked results.
+- **Lang**: Language scope. When non-empty, the class only fires on repos
+  where `detectRepoLanguage()` returns a matching language. Prevents
+  cross-language false positives (Go router classes on C# repos).
 
-## Four layers
+## Five layers
 
-The equivalence class system operates in four layers, each with different
-confidence levels and generation methods.
+The equivalence class system operates in five layers, each with different
+confidence levels, generation methods, and injection behaviors.
 
 ### Layer 1: Seed classes (repo-specific, weight 1.0)
 
@@ -109,27 +115,65 @@ The cross-repo eval on gortex (an external Go codebase with no knowing-specific
 seeds) achieved 46.7% R@10 overall, with 60% on exact-match queries and 60% on
 multi-hop queries, demonstrating the value of universal classes.
 
-### Layer 3: Language-specific classes (multi-language, weight 0.8)
+### Layer 3: Framework-specific classes (forced injection, weight 0.9)
 
-Defined in `languageEquivalenceClasses()` in `internal/context/language_seeds.go`.
-These are 79 equivalence classes that bridge language-specific and framework-specific vocabulary:
+Defined in 30 per-framework files (`internal/context/equiv_*.go`), aggregated
+by `languageEquivalenceClasses()` in `internal/context/language_seeds.go`.
+There are currently **263 framework-specific classes** covering:
 
-| Language/Framework | Concepts | Count |
-|----------|----------|-------|
+| Framework | File | Classes | Example |
+|-----------|------|---------|---------|
+| Django | `equiv_django.go` | 13 | "custom validator" -> EmailValidator, BaseValidator |
+| Flask | `equiv_flask.go` | 11 | "flask blueprint" -> Blueprint, register_blueprint |
+| FastAPI | `equiv_fastapi.go` | 14 | "dependency injection" -> Depends, solve_dependencies |
+| Terraform | `equiv_terraform.go` | 18 | "graph transformer" -> GraphTransformer, AcyclicGraph |
+| Kubernetes | `equiv_kubernetes.go` | 14 | "deployment controller" -> DeploymentController |
+| Kafka | `equiv_java.go` | 11 | "consumer group" -> KafkaConsumer, ConsumerRecord |
+| Rails | `equiv_rails.go` | 16 | "active storage" -> has_one_attached, Variant |
+| Spring | `equiv_java.go` | 4 | "spring controller" -> RestController, GetMapping |
+| ASP.NET/Ocelot | `equiv_csharp.go` | 30 | "security policy" -> SecurityMiddleware, ISecurityPolicy |
+| Caddy | `equiv_caddy.go` | 9 | "automatic https" -> App.automaticHTTPSPhase1 |
+| VS Code | `equiv_vscode.go` | 14 | "code action" -> CodeActionOracle, ManagedCodeActionSet |
+| Cargo | `equiv_cargo.go` | 9 | "dependency resolution" -> FeatureResolver, resolve |
+| Spark-Java | `equiv_sparkjava.go` | 8 | "route handler" -> Routes.find, RouteEntry |
+| NestJS | `equiv_nestjs.go` | 4 | "guard" -> CanActivate, AuthGuard |
+| Next.js | `equiv_nextjs.go` | 3 | "server-side rendering" -> getServerSideProps |
+| Angular | `equiv_angular.go` | 4 | "angular component" -> Component, OnInit |
+| React | `equiv_react.go` | 3 | "custom hook" -> useState, useEffect |
+| Jekyll | `equiv_jekyll.go` | 2 | "jekyll plugin" -> Generator, Converter |
+| Cross-cutting | `equiv_testing.go` etc. | 40 | "unit test" -> TestCase; "jwt token" -> JWT, Claims |
+
+Framework classes carry weight 0.9 and source `"framework"`. This triggers
+**forced injection**: matched symbols bypass RWR scoring and inject directly
+at the top of the ranked results. This is the mechanism that solves the
+vocabulary gap: when the task says "custom validator" but the symbol is
+`EmailValidator`, BM25 can't find it, but the equiv class maps directly.
+
+Each class has a `Lang` field restricting it to matching repos.
+`detectRepoLanguage()` samples node QNs to determine the primary language.
+This prevents Go router classes from firing on C# repos.
+
+**Defensibility criterion:** Every framework class must pass: "would this
+mapping appear in the framework's official documentation or tutorials?"
+Application-specific internals are rejected as curve-fitting.
+
+**Measured impact (session 23):** P@10 0.176 -> 0.278 (+57%).
+
+### Layer 4: Language-specific classes (vocabulary bridging, weight 0.8)
+
+Also defined in the `equiv_*.go` files and aggregated by
+`languageEquivalenceClasses()`. These are broader language-level vocabulary
+bridges (not framework-specific) with weight 0.8. They enter the RRF pipeline
+as a normal channel, not through forced injection.
+
+| Language | Concepts | Examples |
+|----------|----------|---------|
 | Python | entry point, routing, middleware, ORM, serialization, auth, template, errors, config, testing | 10 |
-| TypeScript | components/React hooks, state/Redux, routing, API/fetch, validation/Zod, type system, compiler/AST, module resolution | 8 |
-| Rust | error/Result, async/Future/tokio, traits/impl, build/cargo, builder pattern, testing | 6 |
-| Java | Spring controllers, services/DI, JPA/data repositories | 3 |
-| Kubernetes | controller/reconcile, scheduler, API server/admission, workloads (Pod, Deployment) | 4 |
-| C# | middleware pipeline, DI/services, routing, config, EF Core, Ocelot gateway concepts | 15 |
-| FastAPI | dependency injection, Pydantic models, middleware, routing, OpenAPI, background tasks | 14 |
-| Terraform | providers, resources, state, plan/apply, modules, HCL config | 19 |
+| TypeScript | components, state, routing, API, validation, type system, compiler, modules | 8 |
+| Rust | error/Result, async/tokio, traits/impl, build/cargo, builder pattern, testing | 6 |
+| Go | HTTP handler, router, middleware, server | 4 |
 
-Language-specific classes carry weight 0.8 (same as universal) because they are
-curated per-language mappings. They improve retrieval on non-Go repos by mapping
-language idioms to the qualified name patterns stored in the graph.
-
-### Layer 4: Graph-derived aliases (auto-generated, weight 0.7)
+### Layer 5: Graph-derived aliases (auto-generated, weight 0.7)
 
 Defined in `graphDerivedAliases()` in `internal/context/graph_aliases.go`.
 These are generated automatically from the graph structure at query time. For
@@ -326,37 +370,48 @@ makes symbol names searchable via BM25, so auto-concepts only add value when
 they generate conceptual aliases that differ from the name, which requires
 domain understanding.
 
-## How to add new seed concepts
+## How to add framework equivalence classes
 
-To add a new seed concept to the knowing-specific dictionary, edit
-`seedEquivalenceClasses()` in `internal/context/equivalence.go`.
+To add a new framework class, create or edit the appropriate file in
+`internal/context/equiv_<framework>.go`, then add it to the aggregator
+in `internal/context/language_seeds.go`.
 
-Example: adding a concept for the ownership/CODEOWNERS system:
+Example: adding Django cache support:
 
 ```go
+// in internal/context/equiv_django.go
 {
-    Concept:    "OWNERSHIP",
-    Phrases:    []string{"code owner", "ownership", "who owns", "maintainer", "responsible for"},
-    Targets:    []string{"OwnershipTool", "handleOwnership", "ownershipTool"},
+    Concept:    "DJANGO_CACHE",
+    Phrases:    []string{"cache backend", "cache framework", "django cache", "cache stampede"},
+    Targets:    []string{"BaseCache", "BaseCache.get", "BaseCache.set", "RedisCache", "CacheHandler"},
     TargetType: "symbol",
-    Weight:     1.0,
-    Source:     "seed",
+    Weight:     0.9,
+    Source:     "framework",
+    Lang:       "python",
 },
 ```
 
-Guidelines for writing good seed concepts:
+Then add to the aggregator in `language_seeds.go`:
+```go
+all = append(all, djangoEquivalenceClasses()...)
+```
 
-1. **Phrases should be what developers actually type.** Look at real task
-   descriptions and agent prompts. "blast radius" is good; "compute the set of
-   transitively reachable callers" is not.
-2. **Targets should be the actual symbol names in the codebase.** Check that
-   each target exists as a symbol; misspelled targets silently fail.
-3. **Include both noun forms and common misspellings.** "reindex" and
-   "re-indexing" are both valid phrases for the INDEXING concept.
-4. **Do not include verb prefixes in phrases.** The `expandWithVerbs()` function
-   adds "find X", "get X", etc. automatically. Write noun phrases only.
-5. **Keep targets focused.** 3-8 targets per concept is typical. Too many
-   targets dilutes the boost.
+Guidelines for writing framework classes:
+
+1. **Phrases must be what developers actually type.** "custom validator" is
+   good; "instantiate a BaseValidator subclass" is not. The test: would this
+   phrase appear in a Stack Overflow question title?
+2. **Targets must be documented framework symbols.** Check the framework's
+   official docs. `EmailValidator` appears in Django docs. `_internal_helper`
+   does not.
+3. **Set `Lang` to scope by language.** Prevents cross-language false positives.
+4. **Use `Weight: 0.9` and `Source: "framework"`.** This triggers forced
+   injection (bypass RWR).
+5. **Defensibility test:** "Would this mapping appear in the framework's
+   official documentation or tutorials?" If no, it's curve-fitting.
+6. **Keep targets focused.** 3-8 targets per concept. Too many floods results.
+7. **Use `bench-task` to verify.** Run the specific task before and after
+   adding the class to confirm improvement.
 
 Adding phrases to existing concepts is cheap and safe. Near-zero risk of
 regression, consistent returns (experiment 19).
