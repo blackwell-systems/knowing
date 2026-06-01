@@ -45,6 +45,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Research agenda: Paper 6 added (framework knowledge injection)
 - Diagnostic tools documented in cli.md and diagnostic-tools.md
 
+## [v0.12.1] - 2026-05-31
+
+### Added
+
+- **In-process language resolvers** (session 22): 7 Go-native resolvers in `internal/typresolve/` (~36,000 LOC). Go, Python, TypeScript, Ruby, Java, C#, Rust. Shared infrastructure: type representation (16 type kinds), registry with fallback chaining, scope chain, resolver interface, router. Go + Ruby wired into index pipeline. Produces `resolver_resolved` edges (0.6-0.9 confidence) without external LSP servers.
+- **`knowing enrich resolver` CLI command**: runs in-process resolvers retroactively on existing DBs. Adds resolver edges without re-extracting.
+- **`knowing debug-seeds` CLI command**: shows seed selection pipeline (keywords, BM25, path boost, ForTask top 10).
+- **Three-layer enrichment model**: tree-sitter (ast_inferred, 0.5) -> resolver (resolver_resolved, 0.6-0.9) -> external LSP (lsp_resolved, 0.9). Each layer fills gaps left by the previous.
+- **Ground truth rewrite tool**: upgrades 175 bare symbol names to qualified names in benchmark fixtures.
+- **Multi-package gopls warmup**: opens 172 files across packages before blast to ensure full loading.
+- **LSP install suggestions**: `knowing index` suggests installing language servers when none detected.
+- **Test file enrichment**: removed test file skip in enricher (was causing 49K edge loss on terraform).
+
 ## [v0.12.0] - 2026-05-28
 
 ### Added
