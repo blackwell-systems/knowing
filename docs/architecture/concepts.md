@@ -155,14 +155,20 @@ The bright-line rule: intelligence features never write edges, nodes, or snapsho
 
 Equivalence classes bridge the vocabulary gap between how developers describe tasks in natural language and the symbol names that live in the graph. An equivalence class maps a canonical concept (like `TRANSITIVE_IMPACT`) to a set of natural-language phrases ("blast radius," "downstream callers," "what breaks") and a set of code symbol targets that should be boosted when those phrases appear in a query.
 
-knowing ships **164 equivalence classes** organized into four tiers:
+knowing ships **263 equivalence classes** organized across 30 per-framework files plus universal and seed layers:
 
-- **63 universal classes** (in `internal/context/universal_seeds.go`): software engineering concepts that appear in any codebase (entry points, error handling, caching, authentication, testing, concurrency, etc.). These are language-agnostic and shared across all projects.
-- **21 knowing-specific classes** (in `internal/context/equivalence.go`): concepts specific to knowing's own domain (transitive impact, snapshot management, wire format, community detection, feedback loop, etc.). These bootstrap the context engine for queries about knowing itself.
-- **31 language-specific classes** (in `internal/context/language_seeds.go`): vocabulary bridges for Python (`__init__`/constructor, Django/Flask patterns), TypeScript (React hooks, Express/Fastify), Rust (trait/impl, Result/Option), Java (Spring annotations), and Kubernetes (resource type aliases).
-- **49 framework-specific classes** (C#, FastAPI, Terraform): domain concepts for enriched repos.
+- **Universal classes** (in `internal/context/universal_seeds.go`): software engineering concepts that appear in any codebase (entry points, error handling, caching, authentication, testing, concurrency, etc.).
+- **Knowing-specific classes** (in `internal/context/equivalence.go`): concepts specific to knowing's own domain (transitive impact, snapshot management, wire format, community detection, etc.).
+- **Framework-specific classes** (in `internal/context/equiv_*.go`, 30 files): concept-to-symbol mappings for Django, Flask, FastAPI, Terraform, Kubernetes, Kafka, Rails, Spring, ASP.NET, Ocelot, Caddy, Cargo, Spark-Java, VS Code, NestJS, Next.js, Angular, React, Jekyll.
+- **Cross-cutting classes** (testing, ORM, auth, CLI, config, errors, web, containers, cryptography): framework-agnostic developer concepts.
 
-At runtime, matching a phrase from an equivalence class boosts the seed weight of the associated symbols before the retrieval walk begins. After the walk, graph-derived aliases (from `internal/context/graph_aliases.go`) and session feedback further adjust weights. The 164 classes provide the floor; graph learning builds on top.
+Each class has a `Lang` field that restricts it to repos of that language, preventing cross-language false positives (e.g., Go router classes won't fire on C# repos). `detectRepoLanguage()` determines the primary language from node QN patterns.
+
+At runtime, framework-specific classes with high confidence (weight >= 0.9, source "framework") bypass RWR scoring entirely and inject directly into the ranked results. This is the **forced injection** mechanism that solves the vocabulary gap: when the task says "custom validator" but the symbol is `EmailValidator`, BM25 can't bridge the gap but the equiv class maps the concept directly to the symbol. The injection happens post-RWR, pre-packing, ensuring framework-relevant symbols appear in the output regardless of graph walk results.
+
+**Defensibility criterion:** Every framework equiv class must pass: "would this mapping appear in the framework's official documentation or tutorials?" Classes for application-specific internals are rejected as curve-fitting.
+
+**Measured impact (session 23):** P@10 0.176 -> 0.278 (+57%). Terraform +238%, Django +126%, Kafka +81%, VS Code +354%.
 
 ## Density-Adaptive Retrieval
 
@@ -177,12 +183,14 @@ The retrieval pipeline uses 5 independent seed channels fused with Reciprocal Ra
 1. **Tiered keyword matching** (weight 2.0): compound-first exact > prefix > substring > path matching on symbol names.
 2. **BM25 FTS5** (weight 2.0): lexical recall over a 6-column FTS5 index (symbol_name, concepts, qualified_name, signature, file_path, doc). The `doc` column indexes docstrings for natural-language BM25 retrieval, bridging the vocabulary gap between task descriptions and symbol names.
 3. **Equivalence classes** (weight 2.0): concept-level vocabulary bridging (see above).
-4. **Vector/embedding search** (weight 0.0, disabled as seed channel): three models tested neutral as seed sources (same symbols as BM25). The embedding infrastructure powers the post-scoring re-ranker instead (see below). Opt-in (`--embeddings`).
-5. **Path-context seeding** (weight 1.5): extracts package/directory-like terms from the task description and finds type/class nodes whose qualified name path contains those terms. Types are structural anchors: with `contains` edges, RWR walks from types to their methods.
+4. **Vector/embedding search** (weight 0.0, disabled): confirmed neutral on cold start (session 23, 3 runs identical with/without). Gap-fill and re-ranker both disabled. Infrastructure preserved.
+5. **Path-context seeding** (weight 1.5): extracts package/directory-like terms from the task description and finds type/class nodes whose qualified name path contains those terms.
 
-After RRF fusion, **focused seed selection** clusters candidates by package path and promotes the largest cluster to the front. This concentrates the RWR walk in the most structurally cohesive neighborhood instead of scattering seeds across the graph (+6.0% P@10).
+After RRF fusion, **focused seed selection** clusters candidates by package path and promotes the largest cluster to the front (+6.0% P@10).
 
-**Cluster-aware gap-fill seeds** bridge vocabulary gaps when BM25 returns fewer than 5 candidates. The embedding model (nomic-embed-text-v1.5) finds semantically similar symbols via brute-force cosine search (+11% P@10), filtered to the dominant package to avoid undoing focused seed concentration. The re-ranker (cosine reordering of top-50 candidates) was disabled in session 19 (net negative on P@10, 9/13 repos hurt). Pure Go ONNX inference. No API calls, no cloud dependencies.
+After RWR scoring, **framework injection** inserts high-confidence equivalence class matches directly into the ranked results, bypassing RWR scores. This solves the vocabulary gap where BM25 and graph walks can't bridge natural language to symbol names.
+
+On massive repos (>200K nodes), **adaptive retrieval** detects flat RWR results and falls back to direct FTS + contains-edge expansion.
 
 Symbols appearing in multiple channels accumulate scores, promoting multi-channel hits. See `docs/architecture/retrieval-pipeline.md` for the full specification.
 
