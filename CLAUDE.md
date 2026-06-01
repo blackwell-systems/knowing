@@ -245,8 +245,15 @@ Embeddings as Channel 3, blended re-rank, call-chain seeding, hub dampening, BFS
 ### Benchmark tools
 - **`BENCH_REPOS=django`**: filter to single repo for fast iteration.
 - **`BENCH_ADAPTERS=knowing`**: skip competitors.
-- **`BENCH_EMBEDDINGS=1`**: enable embedding gap-fill (slower but more accurate).
+- **`BENCH_EMBEDDINGS=1`**: enable embedding gap-fill (off by default, confirmed neutral).
 - **`BENCH_FOCUSED_SEEDS=0`**: disable focused seed selection (for A/B testing).
+- **`BENCH_IMPLICIT_FEEDBACK=1`**: enable task memory + implicit feedback (noise demotion) in benchmarks. Django: +5.9% P@10 peak at round 3.
+- **`BENCH_COMPOUND_ROUNDS=5`**: number of rounds for `TestCompounding` (default 5).
+
+### MCP server flags
+- **`--no-feedback`** or **`KNOWING_NO_FEEDBACK=1`**: disable implicit feedback (noise demotion) in MCP server. Useful for A/B testing.
+- **`--embeddings`** or **`KNOWING_EMBEDDINGS=1`**: enable embedding gap-fill (off by default).
+- **`--no-enrich`**: skip LSP enrichment during `--watch` reindex.
 
 ## Debugging Hung Processes
 
