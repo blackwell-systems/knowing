@@ -1250,6 +1250,82 @@ knowing enrich coverage -profile /tmp/cover.out -db /var/lib/knowing/data.db ./m
 
 ---
 
+### debug-seeds
+
+Show the full seed selection pipeline for a task description.
+
+```bash
+knowing debug-seeds -task "description" [-db path] [repo-path]
+```
+
+**Flags:**
+- `-task` (required): task description to debug
+- `-db`: path to SQLite database (default: `.knowing/graph.db`)
+- `-url`: repository URL (auto-detected if empty)
+
+**Output:** keywords (Primary, Components, Compounds), path terms, BM25 query
+and results, path boost analysis, final ForTask top 10 with scores.
+
+---
+
+### debug-fts
+
+Run a raw FTS5 query against the node index.
+
+```bash
+knowing debug-fts -query "term1 OR term2" [-db path] [-limit N]
+```
+
+**Flags:**
+- `-query` (required): FTS5 query string
+- `-db`: path to SQLite database
+- `-limit`: max results (default 30)
+
+**Supports:** prefix (`term*`), column targets (`symbol_name:"term"`),
+OR/AND, quoted phrases (`"email validator"`).
+
+---
+
+### debug-walk
+
+Show the RWR walk from a specific seed node.
+
+```bash
+knowing debug-walk -seed "SymbolName" [-db path] [-top N] [-alpha 0.2]
+```
+
+**Flags:**
+- `-seed` (required): symbol name or prefix to use as seed
+- `-db`: path to SQLite database
+- `-top`: number of top results to show (default 20)
+- `-alpha`: RWR restart probability (default 0.2)
+- `-iter`: max RWR iterations (default 20)
+
+**Output:** matched seeds, edge type breakdown per seed, RWR top-N ranking,
+score distribution statistics.
+
+---
+
+### bench-task
+
+Run a single benchmark task with detailed hit/miss analysis.
+
+```bash
+knowing bench-task -task <task-id> [-corpus path] [-budget N]
+```
+
+**Flags:**
+- `-task` (required): task ID (e.g., `terraform-hard-004`)
+- `-corpus`: path to corpus directory (default `bench/cross-system/corpus`)
+- `-budget`: token budget (default 5000)
+
+**Output:** task metadata, top 10 with HIT/MISS markers, P@10 score,
+ground truth analysis (FOUND with rank or MISSING), recall.
+
+Persistent cache is automatically disabled for fresh results.
+
+---
+
 ### fsck
 
 Check the integrity of the knowledge graph database.
