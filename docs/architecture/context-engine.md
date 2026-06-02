@@ -231,7 +231,7 @@ Bigram generation joins adjacent non-stop-words into both CamelCase and snake_ca
 12. Apply implicit feedback boosts: symbols with positive feedback (used by agent) get `FeedbackPosWeight * signal`, negative (returned but unused) get `-FeedbackNegWeight * signal`. Task memory disabled (session 24, confirmed neutral).
 13. If task is about testing (detected by keyword), disable test file penalty.
 14. Run HITS on the top-200 candidates (10 iterations) to compute authority/hub scores.
-15. Score all candidates via `RankSymbols` (blast_radius, confidence, recency, distance, feedback, session, HITS adjustments).
+15. Score all candidates via `RankSymbols` (blast_radius, confidence, recency, distance, feedback, session, commit_recency, HITS adjustments).
 15b. ~~Embedding re-rank:~~ **Disabled (session 19).** Per-repo A/B test showed net negative on P@10 (9/13 repos hurt). Code preserved but not called. Gap-fill seeds (step 2b) provide the embedding value.
 16. Pack into token budget via density-ranked knapsack (score/cost ratio ordering).
 17. Record returned symbols in session tracker; flush unused symbols from previous call as negative implicit feedback; register new returned symbols for attribution tracking.

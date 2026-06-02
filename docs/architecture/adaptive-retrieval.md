@@ -27,7 +27,7 @@ This works at small scale. At large scale, it fails:
 The result: fixed-strategy systems get less precise as codebases grow. knowing
 gets more precise because it detects these conditions and compensates.
 
-## Ten Self-Adapting Mechanisms
+## Twelve Self-Adapting Mechanisms
 
 ### 1. PreferTypeSeeds (density-adaptive seed selection)
 
@@ -279,7 +279,29 @@ seed set, different RWR walk, different symbols returned).
 
 **Measured impact:** Django +5.9% P@10 after 3 rounds of implicit feedback (benchmark
 with noise demotion but no simulated agent usage). Real MCP usage with precise
-`DetectUsed` from agent tool calls expected to be stronger.
+`DetectUsed` from agent tool calls expected to be stronger. Per-cluster scoping
+(session 25) improved compounding: R@10 +5.2%, MRR +12.6% over 5 rounds.
+
+### 12. Change-Aware Scoring (commit recency boost)
+
+**Trigger:** Git blame data present on nodes (`Node.LastCommitAt > 0`)
+
+**What it does:** Symbols in recently-committed code get a mild ranking boost via
+`commitRecencyScore`: +0.05 (last day), +0.03 (last week), +0.01 (last month),
++0.00 (older or no blame data). Acts as a tiebreaker for structurally equivalent
+symbols that differ in how recently they were touched.
+
+**Why it's needed:** When RWR finds multiple symbols at similar graph distance from
+seeds, the developer more likely needs the one they or their team recently changed.
+This is different from runtime recency (mechanism 4, which uses OTLP trace timestamps):
+commit recency tracks authorship, not execution.
+
+**Why it's adaptive:** Returns 0 when blame data is absent (no overhead). Weight is
+intentionally low (max 0.05) so it never overrides structural signals. Activates
+automatically when `knowing enrich blame` populates the `last_commit_at` field.
+
+**Measured impact:** Neutral on benchmark (corpus repos have no blame data). Expected
+positive in production where repos have recent commit history.
 
 ## Ablation Summary
 
@@ -296,9 +318,10 @@ available measurement at each session.
 | PreferTypeSeeds | VS Code +44% | Node count > 40K | 14 |
 | Adaptive seed count | Django +14.2% | Node count > 10K/40K | 16 |
 | RWR proximity packing | +0.003 aggregate, enriched saleor regression halved | Always (zero cost) | 24 |
-| Implicit feedback (noise demotion) | Django +5.9% after 3 rounds | Active MCP session | 24 |
+| Implicit feedback (noise demotion) | Django +5.9% after 3 rounds; R@10 +5.2%, MRR +12.6% with cluster scoping | Active MCP session | 24, 25 |
 | Adaptive retrieval fallback | VS Code +43% | Node count > 200K + flat RWR | 23 |
 | Feedback expiration | correctness (no P@10 delta) | Code change | 17 |
+| Change-aware scoring (commit recency) | Neutral (no blame data in corpus) | Blame data present | 25 |
 | Task memory compounding | **NEUTRAL** (was +3.8%) | Disabled session 24 | 24 |
 | Gap-fill seeds | **NEUTRAL** (was +11%) | Candidates < 5 | 23 (revised) |
 
@@ -306,7 +329,7 @@ Combined: P@10 = 0.282 cold start (308 tasks, 16 repos, honest measurement, expo
 
 ## Why Fixed-Strategy Systems Can't Compete
 
-Competitors would need to implement all ten mechanisms to match knowing's
+Competitors would need to implement all twelve mechanisms to match knowing's
 adaptive behavior. But the mechanisms interact: PreferTypeSeeds benefits from
 phantom density (mechanism 8). Focused seeds reinforce equivalence classes
 (mechanisms 3-4). Proximity packing compensates for enrichment density
