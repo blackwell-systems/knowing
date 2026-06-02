@@ -444,7 +444,7 @@ becomes dead code and can be removed entirely. The dependency chain that goes aw
 | Resolvers built | Corpus coverage | External LSP still needed for |
 |----------------|----------------|-------------------------------|
 | Go, Ruby (session 22) | 5/15 repos | Python, TS, C#, Rust, Java |
-| + Python, TS, Java, C#, Rust (session 24) | **15/15 repos** | **None for retrieval** |
+| + Python, TS, Java, C#, Rust (session 24) | **16/16 repos** | **None for retrieval** |
 
 All 7 resolvers are built and wired. External LSP enrichment remains for the
 security path (supply chain analysis requires near-100% precision).
