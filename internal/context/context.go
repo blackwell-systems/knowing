@@ -67,6 +67,19 @@ type FeedbackRecorder interface {
 	RecordFeedback(ctx stdctx.Context, symbolHash types.Hash, sessionID string, useful bool, neighborhoodRoot types.Hash, cluster types.Hash) error
 }
 
+// VocabRecorder writes learned keyword -> symbol associations.
+type VocabRecorder interface {
+	RecordVocabAssociation(ctx stdctx.Context, keyword string, symbolName string, symbolHash types.Hash) error
+}
+
+// VocabProvider reads learned keyword -> symbol associations.
+type VocabProvider interface {
+	// LearnedVocabTargets returns symbol names associated with any of the given
+	// keywords where the association count >= minCount. Returns a map of
+	// keyword -> []symbolName for easy consumption.
+	LearnedVocabTargets(ctx stdctx.Context, keywords []string, minCount int) (map[string][]string, error)
+}
+
 // ContextEngine queries the knowing knowledge graph to produce task-specific,
 // token-budgeted context blocks ranked by graph relationships and runtime traffic.
 type ContextEngine struct {
@@ -79,9 +92,12 @@ type ContextEngine struct {
 	session  *SessionTracker     // nil disables session-aware boosting
 	memory   *TaskMemory         // nil disables passive task memory
 	cache    *cache.SubgraphCache // nil disables subgraph result caching
+	vocabRec VocabRecorder       // nil if store doesn't support vocab recording
+	vocabProv VocabProvider      // nil if store doesn't support vocab lookup
 	noPersistentCache bool       // skip notes-table pack cache (for benchmarks)
 	nodeCount int                // per-engine node count for density-adaptive retrieval (0 = use global)
 	taskCluster types.Hash       // keyword cluster from most recent ForTask (for scoped feedback)
+	taskKeywords []string        // primary keywords from most recent ForTask (for vocab recording)
 }
 
 // SetNodeCount sets the per-engine node count for density-adaptive retrieval.
@@ -181,6 +197,12 @@ func NewContextEngine(store types.GraphStore) *ContextEngine {
 	}
 	if bs, ok := store.(BM25Searcher); ok {
 		e.bm25 = bs
+	}
+	if vr, ok := store.(VocabRecorder); ok {
+		e.vocabRec = vr
+	}
+	if vp, ok := store.(VocabProvider); ok {
+		e.vocabProv = vp
 	}
 	return e
 }
@@ -385,6 +407,10 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	// Compute keyword cluster hash for scoped feedback. Sort primary keywords
 	// so the same task description always produces the same cluster.
 	e.taskCluster = keywordClusterHash(keywords)
+	// Store all keywords (not just Primary) for vocab associations.
+	// Primary is often empty for simple single-word tasks like "checkout".
+	// Components contain the actual content words.
+	e.taskKeywords = fallbackKeywords
 
 	// Cache lookup: if a SubgraphCache is attached, check for a cached result
 	// keyed by the normalized task description. On a hit, deserialize and return
@@ -584,6 +610,31 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	graphClasses := graphDerivedAliases(ctx, e.store, candidateHashes)
 	graphMatches := matchEquivalenceClasses(opts.TaskDescription, graphClasses)
 	eqMatches = append(eqMatches, graphMatches...)
+
+	// Source 3: Learned vocabulary associations from prior agent usage.
+	// Keywords from this task are matched against the vocab_associations table.
+	// Only associations with count >= 2 are used (confirmed, not one-off noise).
+	if e.vocabProv != nil && len(e.taskKeywords) > 0 {
+		lowerKeywords := make([]string, len(e.taskKeywords))
+		for i, kw := range e.taskKeywords {
+			lowerKeywords[i] = strings.ToLower(kw)
+		}
+		if byKeyword, err := e.vocabProv.LearnedVocabTargets(ctx, lowerKeywords, 2); err == nil && len(byKeyword) > 0 {
+			for kw, targets := range byKeyword {
+				eqMatches = append(eqMatches, equivalenceMatch{
+					class: EquivalenceClass{
+						Concept: "learned:" + kw,
+						Phrases: []string{kw},
+						Targets: targets,
+						Weight:  0.5,
+						Source:  "learned",
+					},
+					targets: targets,
+					weight:  0.5,
+				})
+			}
+		}
+	}
 
 	// Resolve all equivalence targets to actual nodes.
 	// Filter: skip generic targets (<=3 chars or common method names) that produce
@@ -1461,11 +1512,20 @@ func (e *ContextEngine) recordImplicitFeedback(ctx stdctx.Context, block *Contex
 		return
 	}
 
-	// Flush previous: symbols returned by last ForTask but never used = negative.
+	// Flush previous cycle: unused = negative feedback, used = vocab associations.
+	unused, used := e.implicit.FlushAll()
 	if e.recorder != nil {
-		unused := e.implicit.FlushUnused()
 		for _, h := range unused {
 			_ = e.recorder.RecordFeedback(ctx, h, "implicit", false, types.EmptyHash, e.taskCluster)
+		}
+	}
+	// Record vocabulary associations: keyword -> used symbol.
+	// These become learned equivalence classes after count >= 2.
+	if e.vocabRec != nil && len(used) > 0 && len(e.taskKeywords) > 0 {
+		for _, sym := range used {
+			for _, kw := range e.taskKeywords {
+				_ = e.vocabRec.RecordVocabAssociation(ctx, strings.ToLower(kw), sym.Name, sym.Hash)
+			}
 		}
 	}
 

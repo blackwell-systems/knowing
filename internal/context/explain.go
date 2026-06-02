@@ -553,6 +553,28 @@ func (e *ContextEngine) equivSearch(ctx stdctx.Context, task string, tieredResul
 	graphMatches := matchEquivalenceClasses(task, graphClasses)
 	eqMatches = append(eqMatches, graphMatches...)
 
+	// Learned vocab associations: keyword -> symbol mappings from prior usage.
+	if e.vocabProv != nil && len(e.taskKeywords) > 0 {
+		lowerKeywords := make([]string, len(e.taskKeywords))
+		for i, kw := range e.taskKeywords {
+			lowerKeywords[i] = strings.ToLower(kw)
+		}
+		if byKeyword, err := e.vocabProv.LearnedVocabTargets(ctx, lowerKeywords, 2); err == nil && len(byKeyword) > 0 {
+			for kw, targets := range byKeyword {
+				eqMatches = append(eqMatches, equivalenceMatch{
+					class: EquivalenceClass{
+						Concept: "learned:" + kw,
+						Phrases: []string{kw},
+						Targets: targets,
+						Weight:  0.5,
+						Source:  "learned",
+					},
+					targets: targets,
+				})
+			}
+		}
+	}
+
 	var results []types.Node
 	equivSeen := make(map[types.Hash]bool)
 	var matchNames []string

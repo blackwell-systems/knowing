@@ -234,6 +234,33 @@ func (f *ImplicitFeedback) FlushUnused() []types.Hash {
 	return unused
 }
 
+// UsedSymbol represents a symbol that was positively attributed (agent used it).
+type UsedSymbol struct {
+	Hash types.Hash
+	Name string // short symbol name for vocab association
+}
+
+// FlushAll returns both unused and used symbols, then clears state.
+// Used symbols include their short names for vocabulary association recording.
+func (f *ImplicitFeedback) FlushAll() (unused []types.Hash, used []UsedSymbol) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	for h, attr := range f.pending {
+		if f.attributed[h] {
+			used = append(used, UsedSymbol{Hash: h, Name: attr.Name})
+		} else {
+			unused = append(unused, h)
+		}
+	}
+
+	f.pending = make(map[types.Hash]*PendingAttribution)
+	f.nameIndex = make(map[string][]types.Hash)
+	f.attributed = make(map[types.Hash]bool)
+
+	return unused, used
+}
+
 // Reset clears all pending attributions and the attributed set.
 // Call when the session context shifts significantly.
 func (f *ImplicitFeedback) Reset() {
