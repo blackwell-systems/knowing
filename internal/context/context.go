@@ -22,7 +22,7 @@ import (
 
 // FeedbackProvider is implemented by stores that support feedback queries.
 type FeedbackProvider interface {
-	FeedbackBoosts(ctx stdctx.Context, hashes []types.Hash, neighborhoodRoots map[types.Hash]types.Hash) (map[types.Hash]float64, error)
+	FeedbackBoosts(ctx stdctx.Context, hashes []types.Hash, neighborhoodRoots map[types.Hash]types.Hash, cluster ...types.Hash) (map[types.Hash]float64, error)
 }
 
 // BM25Searcher is implemented by stores that support full-text BM25 search.
@@ -64,7 +64,7 @@ type VectorReRanker interface {
 // Separated from FeedbackProvider (reads) so engines can record implicit
 // feedback without depending on the full store interface.
 type FeedbackRecorder interface {
-	RecordFeedback(ctx stdctx.Context, symbolHash types.Hash, sessionID string, useful bool, neighborhoodRoot types.Hash) error
+	RecordFeedback(ctx stdctx.Context, symbolHash types.Hash, sessionID string, useful bool, neighborhoodRoot types.Hash, cluster types.Hash) error
 }
 
 // ContextEngine queries the knowing knowledge graph to produce task-specific,
@@ -81,6 +81,7 @@ type ContextEngine struct {
 	cache    *cache.SubgraphCache // nil disables subgraph result caching
 	noPersistentCache bool       // skip notes-table pack cache (for benchmarks)
 	nodeCount int                // per-engine node count for density-adaptive retrieval (0 = use global)
+	taskCluster types.Hash       // keyword cluster from most recent ForTask (for scoped feedback)
 }
 
 // SetNodeCount sets the per-engine node count for density-adaptive retrieval.
@@ -380,6 +381,10 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	// only if Primary yields too few results (<5 seeds after tiered matching).
 	keywords := ks.Primary()
 	fallbackKeywords := ks.All()
+
+	// Compute keyword cluster hash for scoped feedback. Sort primary keywords
+	// so the same task description always produces the same cluster.
+	e.taskCluster = keywordClusterHash(keywords)
 
 	// Cache lookup: if a SubgraphCache is attached, check for a cached result
 	// keyed by the normalized task description. On a hit, deserialize and return
@@ -1064,7 +1069,7 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 			hashes[i] = inp.Node.NodeHash
 		}
 		// TODO: Pass neighborhood roots for merkleized expiration once hierarchical tree is available.
-		if boosts, err := e.feedback.FeedbackBoosts(ctx, hashes, nil); err == nil && len(boosts) > 0 {
+		if boosts, err := e.feedback.FeedbackBoosts(ctx, hashes, nil, e.taskCluster); err == nil && len(boosts) > 0 {
 			for i := range inputs {
 				if boost, ok := boosts[inputs[i].Node.NodeHash]; ok {
 					inputs[i].FeedbackBoost = boost
@@ -1460,7 +1465,7 @@ func (e *ContextEngine) recordImplicitFeedback(ctx stdctx.Context, block *Contex
 	if e.recorder != nil {
 		unused := e.implicit.FlushUnused()
 		for _, h := range unused {
-			_ = e.recorder.RecordFeedback(ctx, h, "implicit", false, types.EmptyHash)
+			_ = e.recorder.RecordFeedback(ctx, h, "implicit", false, types.EmptyHash, e.taskCluster)
 		}
 	}
 
@@ -1857,6 +1862,19 @@ func buildFTSQuery(keywords []string) string {
 		}
 	}
 	return strings.Join(parts, " OR ")
+}
+
+// keywordClusterHash produces a stable hash from primary keywords for scoped
+// feedback. Sort + join + sha256 so the same keywords always produce the same
+// cluster regardless of extraction order.
+func keywordClusterHash(keywords []string) types.Hash {
+	if len(keywords) == 0 {
+		return types.EmptyHash
+	}
+	sorted := make([]string, len(keywords))
+	copy(sorted, keywords)
+	sort.Strings(sorted)
+	return types.NewHash([]byte("cluster\x00" + strings.Join(sorted, "\x00")))
 }
 
 // decomposeCompounds breaks compound keywords (dotted, snake_case, CamelCase)

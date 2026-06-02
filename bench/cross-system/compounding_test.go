@@ -23,6 +23,9 @@ import (
 //	BENCH_ADAPTERS=knowing BENCH_COMPOUND_ROUNDS=5 GOWORK=off go test ./bench/cross-system/ -run TestCompounding -v -timeout 0
 //	BENCH_REPOS=django BENCH_COMPOUND_ROUNDS=5 GOWORK=off go test ./bench/cross-system/ -run TestCompounding -v -timeout 0
 func TestCompounding(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping compounding test in short mode")
+	}
 	rounds := 5
 	if r := os.Getenv("BENCH_COMPOUND_ROUNDS"); r != "" {
 		fmt.Sscanf(r, "%d", &rounds)

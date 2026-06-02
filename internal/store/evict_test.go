@@ -60,12 +60,12 @@ func TestDeleteRepoData_RemovesAllAssociatedData(t *testing.T) {
 	}
 
 	// Record feedback for node in repo A.
-	if err := s.RecordFeedback(ctx, nodeA1.NodeHash, "session1", true, types.EmptyHash); err != nil {
+	if err := s.RecordFeedback(ctx, nodeA1.NodeHash, "session1", true, types.EmptyHash, types.EmptyHash); err != nil {
 		t.Fatalf("RecordFeedback: %v", err)
 	}
 
 	// Record feedback for node in repo B (should be preserved).
-	if err := s.RecordFeedback(ctx, nodeB1.NodeHash, "session2", false, types.EmptyHash); err != nil {
+	if err := s.RecordFeedback(ctx, nodeB1.NodeHash, "session2", false, types.EmptyHash, types.EmptyHash); err != nil {
 		t.Fatalf("RecordFeedback: %v", err)
 	}
 

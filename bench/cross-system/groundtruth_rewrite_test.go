@@ -41,6 +41,9 @@ type rewriteCandidate struct {
 }
 
 func TestRewriteGroundTruth(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping ground truth rewrite in short mode")
+	}
 	tasks := loadTasks(t, "corpus/tasks")
 	applyMode := os.Getenv("BENCH_REWRITE_APPLY") == "1"
 	repoFilter := os.Getenv("BENCH_REPOS")
@@ -434,6 +437,9 @@ func rewriteGroundTruthInFile(t *testing.T, path string, replacements []gtReplac
 
 // TestRewriteGroundTruthStats shows per-repo resolution stats without full detail.
 func TestRewriteGroundTruthStats(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping ground truth stats in short mode")
+	}
 	tasks := loadTasks(t, "corpus/tasks")
 	repoFilter := os.Getenv("BENCH_REPOS")
 

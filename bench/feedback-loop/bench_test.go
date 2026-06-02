@@ -279,16 +279,16 @@ func TestMultiRoundCompounding(t *testing.T) {
 			for i := 0; i < k; i++ {
 				sym := block.Symbols[i]
 				if isRelevant(sym.Node.QualifiedName, fix.GroundTruth) {
-					_ = st.RecordFeedback(ctx, sym.Node.NodeHash, sessionID, true, types.EmptyHash)
+					_ = st.RecordFeedback(ctx, sym.Node.NodeHash, sessionID, true, types.EmptyHash, types.EmptyHash)
 				} else if i < 5 {
-					_ = st.RecordFeedback(ctx, sym.Node.NodeHash, sessionID, false, types.EmptyHash)
+					_ = st.RecordFeedback(ctx, sym.Node.NodeHash, sessionID, false, types.EmptyHash, types.EmptyHash)
 				}
 			}
 
 			// Also boost ground-truth symbols found beyond top-10.
 			for _, sym := range block.Symbols[k:] {
 				if isRelevant(sym.Node.QualifiedName, fix.GroundTruth) {
-					_ = st.RecordFeedback(ctx, sym.Node.NodeHash, sessionID, true, types.EmptyHash)
+					_ = st.RecordFeedback(ctx, sym.Node.NodeHash, sessionID, true, types.EmptyHash, types.EmptyHash)
 				}
 			}
 		}
@@ -508,7 +508,7 @@ func TestNaturalExpiration(t *testing.T) {
 
 	// Record feedback for a symbol hash.
 	symbolHash := types.NewHash([]byte("github.com/blackwell-systems/knowing://internal/context.OldFunction/function"))
-	err = st.RecordFeedback(ctx, symbolHash, "session-1", true, types.EmptyHash)
+	err = st.RecordFeedback(ctx, symbolHash, "session-1", true, types.EmptyHash, types.EmptyHash)
 	if err != nil {
 		t.Fatalf("record feedback: %v", err)
 	}
@@ -619,7 +619,7 @@ func recordGroundTruthFeedback(t *testing.T, ctx context.Context, st *store.SQLi
 		}
 		for _, n := range nodes {
 			if strings.Contains(n.QualifiedName, gt) {
-				err := st.RecordFeedback(ctx, n.NodeHash, "bench-session", true, types.EmptyHash)
+				err := st.RecordFeedback(ctx, n.NodeHash, "bench-session", true, types.EmptyHash, types.EmptyHash)
 				if err != nil {
 					t.Logf("  failed to record feedback for %s: %v", gt, err)
 				}
@@ -690,8 +690,8 @@ func TestMerkleizedExpiration(t *testing.T) {
 			rootsMap[h] = pkgRoot
 
 			// Record 2 useful feedback entries per symbol.
-			_ = st.RecordFeedback(ctx, h, fmt.Sprintf("session-%d-%d-a", pkg, i), true, pkgRoot)
-			_ = st.RecordFeedback(ctx, h, fmt.Sprintf("session-%d-%d-b", pkg, i), true, pkgRoot)
+			_ = st.RecordFeedback(ctx, h, fmt.Sprintf("session-%d-%d-a", pkg, i), true, pkgRoot, types.EmptyHash)
+			_ = st.RecordFeedback(ctx, h, fmt.Sprintf("session-%d-%d-b", pkg, i), true, pkgRoot, types.EmptyHash)
 		}
 	}
 
@@ -833,7 +833,7 @@ func TestMerkleizedExpirationEndToEnd(t *testing.T) {
 	t.Logf("✓ Computed SubgraphRoot: %x (non-empty)", computedRoot[:8])
 
 	// Now record feedback WITH this computed root (simulating what the MCP handler does).
-	err = st.RecordFeedback(ctx, targetNode.NodeHash, "e2e-test", true, computedRoot)
+	err = st.RecordFeedback(ctx, targetNode.NodeHash, "e2e-test", true, computedRoot, types.EmptyHash)
 	if err != nil {
 		t.Fatalf("RecordFeedback: %v", err)
 	}
@@ -954,7 +954,7 @@ func TestImplicitFeedbackCompounding(t *testing.T) {
 			// previous call that were never used get negative feedback.
 			unused := implicit.FlushUnused()
 			for _, h := range unused {
-				_ = st.RecordFeedback(ctx, h, fmt.Sprintf("implicit-neg-round%d-%s", round, fix.Name), false, types.EmptyHash)
+				_ = st.RecordFeedback(ctx, h, fmt.Sprintf("implicit-neg-round%d-%s", round, fix.Name), false, types.EmptyHash, types.EmptyHash)
 			}
 
 			// Step 2: Query context_for_task.
@@ -1030,7 +1030,7 @@ func TestImplicitFeedbackCompounding(t *testing.T) {
 
 			// Step 8: Record positive feedback for detected symbols.
 			for _, h := range detected {
-				_ = st.RecordFeedback(ctx, h, fmt.Sprintf("implicit-round%d-%s", round, fix.Name), true, types.EmptyHash)
+				_ = st.RecordFeedback(ctx, h, fmt.Sprintf("implicit-round%d-%s", round, fix.Name), true, types.EmptyHash, types.EmptyHash)
 			}
 		}
 	}

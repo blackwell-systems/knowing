@@ -153,7 +153,7 @@ func (a *Knowing) SimulateAgentUsage(symbolNames []string) {
 		}
 		ctx := stdctx.Background()
 		for _, h := range used {
-			_ = s.RecordFeedback(ctx, h, "implicit", true, types.EmptyHash)
+			_ = s.RecordFeedback(ctx, h, "implicit", true, types.EmptyHash, types.EmptyHash)
 		}
 	}
 }
@@ -371,7 +371,7 @@ func (a *Knowing) RecordFeedback(repoPath string, task benchtype.Task, relevantS
 	ctx := stdctx.Background()
 	for _, sym := range relevantSymbols {
 		hash := types.NewHash([]byte(sym))
-		_ = s.RecordFeedback(ctx, hash, "benchmark", true, types.EmptyHash)
+		_ = s.RecordFeedback(ctx, hash, "benchmark", true, types.EmptyHash, types.EmptyHash)
 	}
 	return nil
 }

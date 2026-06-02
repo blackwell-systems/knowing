@@ -307,7 +307,7 @@ func (s *Server) ObserveToolUse(ctx context.Context, content string) int {
 	// Record positive feedback for each implicitly used symbol.
 	if s.sqlStore != nil {
 		for _, h := range used {
-			_ = s.sqlStore.RecordFeedback(ctx, h, "implicit", true, types.EmptyHash)
+			_ = s.sqlStore.RecordFeedback(ctx, h, "implicit", true, types.EmptyHash, types.EmptyHash)
 		}
 	}
 

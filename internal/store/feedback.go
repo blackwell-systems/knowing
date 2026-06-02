@@ -18,7 +18,9 @@ type FeedbackStats struct {
 // RecordFeedback inserts a feedback record for a symbol in a session.
 // If neighborhoodRoot is not EmptyHash, it is stored to enable merkleized expiration:
 // feedback becomes invalid when the symbol's package changes (detected via SubgraphRoot mismatch).
-func (s *SQLiteStore) RecordFeedback(ctx context.Context, symbolHash types.Hash, sessionID string, useful bool, neighborhoodRoot types.Hash) error {
+// If cluster is not EmptyHash, it scopes the feedback to a keyword cluster so that
+// noise demotion for "checkout" queries doesn't affect "order" queries.
+func (s *SQLiteStore) RecordFeedback(ctx context.Context, symbolHash types.Hash, sessionID string, useful bool, neighborhoodRoot types.Hash, cluster types.Hash) error {
 	usefulInt := 0
 	if useful {
 		usefulInt = 1
@@ -27,9 +29,13 @@ func (s *SQLiteStore) RecordFeedback(ctx context.Context, symbolHash types.Hash,
 	if neighborhoodRoot != types.EmptyHash {
 		rootBytes = neighborhoodRoot[:]
 	}
+	var clusterBytes []byte
+	if cluster != types.EmptyHash {
+		clusterBytes = cluster[:]
+	}
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO feedback (symbol_hash, session_id, useful, timestamp, neighborhood_root) VALUES (?, ?, ?, ?, ?)`,
-		symbolHash[:], sessionID, usefulInt, time.Now().Unix(), rootBytes,
+		`INSERT INTO feedback (symbol_hash, session_id, useful, timestamp, neighborhood_root, keyword_cluster) VALUES (?, ?, ?, ?, ?, ?)`,
+		symbolHash[:], sessionID, usefulInt, time.Now().Unix(), rootBytes, clusterBytes,
 	)
 	if err != nil {
 		return err
@@ -71,29 +77,44 @@ func (s *SQLiteStore) QueryFeedback(ctx context.Context, symbolHash types.Hash) 
 // neighborhoodRoots maps symbol hash to its current SubgraphRoot. If provided,
 // only feedback entries where neighborhood_root matches are counted (merkleized expiration).
 // When a symbol's package changes, its old feedback expires automatically.
-func (s *SQLiteStore) FeedbackBoosts(ctx context.Context, hashes []types.Hash, neighborhoodRoots map[types.Hash]types.Hash) (map[types.Hash]float64, error) {
+//
+// cluster scopes feedback to a keyword cluster. When not EmptyHash, only feedback
+// entries matching that cluster are counted, preventing cross-task interference
+// (noise for "checkout" queries doesn't demote symbols needed for "order" queries).
+func (s *SQLiteStore) FeedbackBoosts(ctx context.Context, hashes []types.Hash, neighborhoodRoots map[types.Hash]types.Hash, cluster ...types.Hash) (map[types.Hash]float64, error) {
 	if len(hashes) == 0 {
 		return nil, nil
 	}
 
+	// Extract optional cluster filter.
+	var clusterBytes []byte
+	if len(cluster) > 0 && cluster[0] != types.EmptyHash {
+		clusterBytes = cluster[0][:]
+	}
+
 	result := make(map[types.Hash]float64)
 
-	// Query each hash individually; for large batches a temp table would be more
-	// efficient, but typical context packing involves <100 symbols.
-
-	// If no neighborhood roots provided, use legacy query (no expiration).
+	// Build the WHERE clause based on what filters are active.
 	if len(neighborhoodRoots) == 0 {
-		stmt, err := s.db.PrepareContext(ctx,
-			`SELECT COALESCE(SUM(useful), 0), COUNT(*) FROM feedback WHERE symbol_hash = ?`,
-		)
+		query := `SELECT COALESCE(SUM(useful), 0), COUNT(*) FROM feedback WHERE symbol_hash = ?`
+		args := []any{}
+		if clusterBytes != nil {
+			query += ` AND keyword_cluster = ?`
+		}
+		stmt, err := s.db.PrepareContext(ctx, query)
 		if err != nil {
 			return nil, err
 		}
 		defer stmt.Close()
 
 		for _, h := range hashes {
+			args = args[:0]
+			args = append(args, h[:])
+			if clusterBytes != nil {
+				args = append(args, clusterBytes)
+			}
 			var usefulCount, total int
-			if err := stmt.QueryRowContext(ctx, h[:]).Scan(&usefulCount, &total); err != nil {
+			if err := stmt.QueryRowContext(ctx, args...).Scan(&usefulCount, &total); err != nil {
 				return nil, err
 			}
 			if total > 0 {
@@ -103,12 +124,14 @@ func (s *SQLiteStore) FeedbackBoosts(ctx context.Context, hashes []types.Hash, n
 		return result, nil
 	}
 
-	// Merkleized expiration: filter by neighborhood_root.
-	stmt, err := s.db.PrepareContext(ctx,
-		`SELECT COALESCE(SUM(useful), 0), COUNT(*)
+	// Merkleized expiration + optional cluster filter.
+	query := `SELECT COALESCE(SUM(useful), 0), COUNT(*)
 		 FROM feedback
-		 WHERE symbol_hash = ? AND (neighborhood_root IS NULL OR neighborhood_root = ?)`,
-	)
+		 WHERE symbol_hash = ? AND (neighborhood_root IS NULL OR neighborhood_root = ?)`
+	if clusterBytes != nil {
+		query += ` AND keyword_cluster = ?`
+	}
+	stmt, err := s.db.PrepareContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -121,8 +144,13 @@ func (s *SQLiteStore) FeedbackBoosts(ctx context.Context, hashes []types.Hash, n
 			rootBytes = root[:]
 		}
 
+		args := []any{h[:], rootBytes}
+		if clusterBytes != nil {
+			args = append(args, clusterBytes)
+		}
+
 		var usefulCount, total int
-		if err := stmt.QueryRowContext(ctx, h[:], rootBytes).Scan(&usefulCount, &total); err != nil && err != sql.ErrNoRows {
+		if err := stmt.QueryRowContext(ctx, args...).Scan(&usefulCount, &total); err != nil && err != sql.ErrNoRows {
 			return nil, err
 		}
 		if total > 0 {

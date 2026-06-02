@@ -50,7 +50,7 @@ jobs:
 
       - name: Run tests
         if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
-        run: GOWORK=off go test $(go list ./... | grep -v /bench/) -timeout 5m
+        run: GOWORK=off go test $(go list ./... | grep -v /bench/ | grep -v /eval) -timeout 5m
 
       - name: Build binary
         env:

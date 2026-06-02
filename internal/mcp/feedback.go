@@ -64,7 +64,7 @@ func (s *Server) handleFeedback(ctx context.Context, req mcp.CallToolRequest) (*
 		// Compute neighborhood_root for merkleized expiration (best-effort).
 		neighborhoodRoot := s.computeNeighborhoodRoot(ctx, symbolHash)
 
-		if err := s.sqlStore.RecordFeedback(ctx, symbolHash, sessionID, useful, neighborhoodRoot); err != nil {
+		if err := s.sqlStore.RecordFeedback(ctx, symbolHash, sessionID, useful, neighborhoodRoot, types.EmptyHash); err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("RecordFeedback failed: %v", err)), nil
 		}
 

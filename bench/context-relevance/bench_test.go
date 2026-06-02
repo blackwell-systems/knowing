@@ -377,7 +377,7 @@ func recordGroundTruthFeedback(t *testing.T, ctx context.Context, st *store.SQLi
 		}
 		for _, n := range nodes {
 			if strings.Contains(n.QualifiedName, gt) {
-				_ = st.RecordFeedback(ctx, n.NodeHash, "context-relevance-bench", true, [32]byte{})
+				_ = st.RecordFeedback(ctx, n.NodeHash, "context-relevance-bench", true, [32]byte{}, [32]byte{})
 				break
 			}
 		}

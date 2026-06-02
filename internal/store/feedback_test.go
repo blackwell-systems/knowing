@@ -24,13 +24,13 @@ func TestFeedback_RecordAndQuery(t *testing.T) {
 	}
 
 	// Record some feedback.
-	if err := s.RecordFeedback(ctx, hash, "session-1", true, types.EmptyHash); err != nil {
+	if err := s.RecordFeedback(ctx, hash, "session-1", true, types.EmptyHash, types.EmptyHash); err != nil {
 		t.Fatalf("RecordFeedback: %v", err)
 	}
-	if err := s.RecordFeedback(ctx, hash, "session-1", true, types.EmptyHash); err != nil {
+	if err := s.RecordFeedback(ctx, hash, "session-1", true, types.EmptyHash, types.EmptyHash); err != nil {
 		t.Fatalf("RecordFeedback: %v", err)
 	}
-	if err := s.RecordFeedback(ctx, hash, "session-2", false, types.EmptyHash); err != nil {
+	if err := s.RecordFeedback(ctx, hash, "session-2", false, types.EmptyHash, types.EmptyHash); err != nil {
 		t.Fatalf("RecordFeedback: %v", err)
 	}
 
@@ -61,18 +61,18 @@ func TestFeedback_Boosts(t *testing.T) {
 	hashC := types.NewHash([]byte("symbol-c")) // no feedback
 
 	// Record feedback for A (all useful).
-	if err := s.RecordFeedback(ctx, hashA, "s1", true, types.EmptyHash); err != nil {
+	if err := s.RecordFeedback(ctx, hashA, "s1", true, types.EmptyHash, types.EmptyHash); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RecordFeedback(ctx, hashA, "s2", true, types.EmptyHash); err != nil {
+	if err := s.RecordFeedback(ctx, hashA, "s2", true, types.EmptyHash, types.EmptyHash); err != nil {
 		t.Fatal(err)
 	}
 
 	// Record feedback for B (mixed).
-	if err := s.RecordFeedback(ctx, hashB, "s1", true, types.EmptyHash); err != nil {
+	if err := s.RecordFeedback(ctx, hashB, "s1", true, types.EmptyHash, types.EmptyHash); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RecordFeedback(ctx, hashB, "s2", false, types.EmptyHash); err != nil {
+	if err := s.RecordFeedback(ctx, hashB, "s2", false, types.EmptyHash, types.EmptyHash); err != nil {
 		t.Fatal(err)
 	}
 
@@ -119,10 +119,10 @@ func TestFeedbackExpiration(t *testing.T) {
 	rootV2 := types.NewHash([]byte("neighborhood-v2"))
 
 	// Record feedback with neighborhood root v1.
-	if err := s.RecordFeedback(ctx, hashA, "s1", true, rootV1); err != nil {
+	if err := s.RecordFeedback(ctx, hashA, "s1", true, rootV1, types.EmptyHash); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RecordFeedback(ctx, hashA, "s2", true, rootV1); err != nil {
+	if err := s.RecordFeedback(ctx, hashA, "s2", true, rootV1, types.EmptyHash); err != nil {
 		t.Fatal(err)
 	}
 
@@ -145,7 +145,7 @@ func TestFeedbackExpiration(t *testing.T) {
 	}
 
 	// Record new feedback with v2 root.
-	if err := s.RecordFeedback(ctx, hashA, "s3", false, rootV2); err != nil {
+	if err := s.RecordFeedback(ctx, hashA, "s3", false, rootV2, types.EmptyHash); err != nil {
 		t.Fatal(err)
 	}
 
@@ -182,8 +182,8 @@ func BenchmarkFeedbackBoosts(b *testing.B) {
 		roots[h] = root
 
 		// Record feedback with neighborhood root.
-		s.RecordFeedback(ctx, h, "session", true, root)
-		s.RecordFeedback(ctx, h, "session", true, root)
+		s.RecordFeedback(ctx, h, "session", true, root, types.EmptyHash)
+		s.RecordFeedback(ctx, h, "session", true, root, types.EmptyHash)
 	}
 
 	b.Run("WithoutExpiration", func(b *testing.B) {
