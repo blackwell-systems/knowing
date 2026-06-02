@@ -52,6 +52,8 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 | 10 | **AI-generated evaluation corpus** | LLM generates tasks + ground truth, DB-validated. Hybrid: hand-curated for regression, AI-generated for coverage. | Medium | Eval credibility |
 | 11 | **More equiv class coverage** | Message queues (RabbitMQ, Redis), cloud SDKs (AWS, GCP), build systems (Make, Gradle), observability (OpenTelemetry, Prometheus). | Ongoing | Incremental P@10 |
 
+| 12 | **Extract benchmark to standalone repo** | Remove "grading your own homework" objection. Harness, tasks, corpus manifest, and methodology are system-agnostic. `benchtype` package already has no knowing imports. Needs: clean adapter interface as a Go module, competitor adapters as separate packages, CI that runs without knowing source. Enables community task contributions and independent reproduction. Do before enterprise pitches or academic submissions. | Medium | Credibility |
+
 ### Shipped (sessions 23-24)
 
 | Item | Session | Result |
