@@ -65,8 +65,11 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 | 18 | ~~Action-verb symbol extraction~~ | **Tested session 25: Django 0.203 -> 0.194 (harmful).** Extracting method names from parens (`.delete()` -> `delete`) floods BM25 with common method names that match hundreds of symbols. The target task (swe-002) still scores 0 because `delete` doesn't connect to `Collector` in the graph. Generic method names are too noisy as seeds. | **Tested** | Negative |
 | 19 | ~~Test symbol seed deprioritization~~ | **Tested session 25: Django 0.203 -> 0.186 (harmful).** Demoting test symbols in BM25/tiered channels before RRF breaks graph connectivity. Test nodes serve as walk intermediaries to reach implementation symbols. The recall on target tasks improved (edge-003: 0% -> 87.5%) but the demotion hurt other tasks more. Test symbols provide important graph structure even if they aren't the final answer. | **Tested** | Negative |
 | 20 | ~~Package-path constrained seed selection~~ | **Tested session 25: Django 0.203 -> 0.197 (harmful).** Re-ranking tiered results by path-term overlap improves recall on target tasks (easy-200: 0% -> 100% recall, medium-102: 0% -> 50%) but over-promotes path-matching nodes that aren't relevant on other tasks. The existing path channel (weight 1.5) already captures path signal; adding a second path boost to tiered results is redundant and noisy. | **Tested** | Negative |
+| 21 | **`debug-feedback` CLI** | Show feedback records for a symbol: positive/negative counts, cluster breakdown, score. "Why is this symbol being demoted?" Complements debug-vocab for diagnosing the implicit feedback subsystem. | Low | Observability |
+| 22 | **`debug-equiv` CLI** | Show which equivalence classes matched for a task description: hand-curated, graph-derived, and learned vocab sources. What fired, what targets were resolved, what was injected. "Why did this equiv class inject these symbols?" | Low | Observability |
+| 23 | **`debug-pack` CLI** | Show packing decisions: density ranking, proximity boost, budget allocation, which symbols were included/excluded and why. "Why did symbol X get packed but Y didn't?" | Low | Observability |
 
-### Shipped (sessions 23-24)
+### Shipped (sessions 23-25)
 
 | Item | Session | Result |
 |------|---------|--------|
