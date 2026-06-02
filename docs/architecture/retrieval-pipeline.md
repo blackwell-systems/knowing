@@ -14,7 +14,7 @@ the precision degradation that affects every static retrieval system at scale.
 This document is the authoritative reference for how the context engine finds and ranks
 symbols. It supersedes `context-packing.md`.
 
-**Current eval baseline:** Cross-system benchmark (297 tasks, 15 repos, 8 languages): P@10=0.278 cold start. 3.20x vs codegraph (19K stars), 5.05x vs GitNexus, 5.35x vs Gortex, 18.5x vs grep. Focused seed selection + 263 framework equiv classes with forced injection (embeddings neutral, re-ranker disabled) + 263 equivalence classes. Parameter sweep (26 configs) proved P@10 is reachability-determined; all ranking parameters are irrelevant.
+**Current eval baseline:** Cross-system benchmark (308 tasks, 16 repos, 8 languages): P@10=0.281 cold start. 12 self-adapting mechanisms. LSP edge attenuation (0.3x for lsp_resolved). Per-cluster implicit feedback with vocabulary expansion from usage. FTS fallback decomposition for compound keywords. Adaptive proximity exponent. Change-aware scoring via git blame.
 
 ## Pipeline Overview
 
@@ -46,7 +46,7 @@ Task Description
 [6. HITS Reranking]            authority/hub scores on top-200 RWR nodes
     |
     v
-[7. Scoring]                   6-component formula with feedback + session boosts
+[7. Scoring]                   7-component formula (blast radius, confidence, recency, distance, feedback, session, commit recency)
     |
     v
 [7b. Embedding Re-rank]        cosine-sort top-50 by cached vectors (optional, --embeddings)
@@ -55,7 +55,7 @@ Task Description
 [8. Budget Packing]            density-ranked greedy knapsack (score/cost ratio)
     |
     v
-[9. Session + Memory Record]   track returned symbols for future boosts
+[9. Vocab Expansion]           record keyword->symbol associations from agent usage (learned equiv classes)
 ```
 
 Three entry points:
@@ -489,6 +489,17 @@ When a node has multiple outgoing edges, probability is distributed proportional
 edge weight. A node with one `calls` (1.0) and one `imports` (0.5) edge sends 2/3 of
 its flow along calls and 1/3 along imports.
 
+**LSP edge attenuation (session 25):** Edges with `lsp_resolved` provenance receive a
+0.3x weight multiplier. This prevents LSP enrichment from inflating the centrality of
+framework wiring symbols (webhook handlers, event dispatchers) above implementation
+symbols. Enriched saleor: 0.182 -> 0.218 (+19.8%). Full corpus: neutral. Override with
+`BENCH_LSP_EDGE_WEIGHT` env var.
+
+**FTS fallback decomposition (session 25):** When compound keywords (dotted names,
+CamelCase) return 0 FTS results, the pipeline decomposes them into leaf-segment
+symbol_name-targeted OR terms before augmentation. This prevents empty BM25 seeds for
+tasks referencing compound symbol names like `ModelAdmin.get_inlines`.
+
 ### Implementation
 
 `buildAdjacencyMap` pre-loads the reachable subgraph into in-memory adjacency maps before
@@ -849,10 +860,11 @@ using density-ranked packing.
 ### Algorithm
 
 1. Compute density for each symbol: `density = (score / estimated_tokens) * proximityFactor`.
-   The proximity factor is `rwrScore^0.3` (cube root of raw RWR score), which boosts
-   symbols structurally closer to the query seeds. Seeds (~1.0) get full density; distant
-   nodes (~0.01) get ~20% density. This prevents enrichment-induced packing dilution
-   where high-centrality noise from phantom nodes squeezes out nearby relevant symbols.
+   The proximity factor is `rwrScore^exponent` where the exponent adapts to the phantom
+   ratio in the candidate set: `clamp(0.3 + 0.2 * phantomRatio, 0.3, 0.7)`. Normal repos
+   (no phantoms): exponent 0.3 (cube root). Enriched repos with extreme phantom ratios:
+   up to 0.7 for more aggressive proximity preference. Seeds (~1.0) get full density;
+   distant nodes (~0.01) get reduced density proportional to the exponent.
 2. Sort by density descending (ties broken by raw score).
 3. Greedily pack: for each item in density order, include it if it fits within the
    remaining budget. Skip items that do not fit and continue trying smaller ones.
