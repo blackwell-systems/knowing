@@ -81,6 +81,37 @@ knowing bench-task -task "terraform-hard-004" [-corpus path] [-budget N]
 running the full benchmark. Essential for the zero-task audit cycle:
 audit zeros -> add equiv classes -> verify with bench-task -> run repo.
 
+### debug-vocab: vocabulary association inspector
+
+Shows learned keyword -> symbol associations from the `vocab_associations`
+table. These are recorded when agents use symbols after `context_for_task`
+queries, building automatic equivalence classes over time.
+
+```bash
+knowing debug-vocab -db <path>                    # show all associations
+knowing debug-vocab -db <path> -keyword checkout   # filter by keyword
+knowing debug-vocab -db <path> -min-count 2        # only confirmed (count >= 2)
+knowing debug-vocab -db <path> -top 100            # show more results
+```
+
+**Output:**
+```
+=== Learned Vocabulary Associations ===
+Filter: keyword=""  min-count=1
+
+KEYWORD               SYMBOL                          COUNT
+-------               ------                          -----
+checkout              can_cancel                          3
+checkout              Order                               2
+migration             MigrationLoader                     2
+
+Total: 3 associations across 2 keywords
+```
+
+**Use when:** Understanding what the system has learned from agent usage.
+Debugging false associations. Verifying that vocabulary expansion is
+recording the expected keyword -> symbol mappings.
+
 ## Measurement Protocol (session 23)
 
 **CRITICAL:** Clear task memory before any A/B comparison. Task memory

@@ -236,6 +236,7 @@ Embeddings as Channel 3, blended re-rank, call-chain seeding, hub dampening, BFS
 - **`go run ./bench/cross-system/cmd/failure-analysis --repo <name> [--task <id>]`**: categorizes P@10 misses into: same_package, related_name, test_symbol, noise. Shows ground truth vs returned for each task.
 - **`go run ./bench/cross-system/cmd/validate-fixtures`**: verifies ground truth symbols exist in the graph DB.
 - **`BENCH_DEBUG_ZEROS=1`**: env var for the benchmark. Logs ground truth + returned top 10 for every zero-scoring task.
+- **`knowing debug-vocab -db <path> [-keyword filter] [-min-count N] [-top N]`**: shows learned vocabulary associations from agent usage. Filter by keyword, minimum observation count. Use to inspect what the system has learned and debug false associations.
 
 ### Enrichment debugging
 - **`knowing enrich resolver [-db path] <repo>`**: runs in-process resolvers retroactively on an existing DB. Adds resolver_resolved edges without re-extracting.
