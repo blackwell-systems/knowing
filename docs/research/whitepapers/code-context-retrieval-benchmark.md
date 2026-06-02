@@ -1,4 +1,4 @@
-> **Note (session 21, 2026-05-30):** Numbers updated to reflect current state. P@10 = 0.189 (277 tasks, 14 repos, 8 languages). Key changes since initial draft: embedding re-ranker disabled (net negative), focused seed selection + cluster-aware gap-fill shipped (+6.0%), corpus expanded from 167 to 277 tasks across 14 repos.
+> **Note (session 25, 2026-06-02):** Numbers updated to reflect current state. P@10 = 0.281 (308 tasks, 16 repos, 8 languages, 12 self-adapting mechanisms). Key changes since v1.1: framework equivalence classes with forced injection (+57% P@10), per-cluster implicit feedback (R@10 +5.2%, MRR +12.6% compounding), vocabulary expansion from agent usage, FTS fallback decomposition, LSP edge attenuation (0.3x for lsp_resolved), change-aware scoring, adaptive proximity exponent. Corpus expanded from 277 to 308 tasks across 16 repos. Embeddings confirmed neutral. Task memory disabled (contamination found session 23).
 
 # Evaluating Code Context Retrieval for AI Agents: A Multi-Language Benchmark
 
@@ -17,24 +17,25 @@ case. We present the first multi-language, multi-repository evaluation of code
 context retrieval systems, measuring whether a system surfaces the specific
 symbols a developer needs for a given task.
 
-We evaluate 7 systems across 277 hand-curated tasks spanning 14 repositories
+We evaluate 7 systems across 308 hand-curated tasks spanning 16 repositories
 in 8 languages (Go, Python, TypeScript, Rust, Java, C#, Ruby, TOML), from 14K to 3.5M LOC.
 Ground truth is derived from actual code changes (PR diffs, SWE-bench instances),
 not synthetic queries. We measure P@10, R@10, NDCG@10, and MRR with statistical
 significance via Wilcoxon signed-rank tests.
 
-Key findings: (1) graph-based retrieval (knowing) achieves P@10=0.189, 2.17x
+Key findings: (1) graph-based retrieval (knowing) achieves P@10=0.281, 3.20x
 the nearest competitor (codegraph, 19K GitHub stars); (2) P@10 is
 reachability-determined: a 32-configuration parameter sweep produces zero
 variance, proving only new edges or new candidate sources move the metric;
-(3) seed structural cohesion matters more than seed count: clustering seeds
-by package path and concentrating the walk in the dominant neighborhood
-produces +6.0% P@10, while 57 experiments varying seed count showed zero effect;
-(4) embedding gap-fill seeds bridge vocabulary gaps (+11% P@10), but embedding
-re-ranking is net negative (9/13 repos hurt); (5) at least 42% of failures on
-large frameworks (Django) are unreachable symbols that no parameter tuning can
-address; (6) all tested systems fail on enterprise-scale repos (>1M LOC) except
-knowing and codegraph.
+(3) 263 framework equivalence classes with forced injection bridge the vocabulary
+gap between task descriptions and code symbols (+57% P@10); (4) per-cluster
+implicit feedback with vocabulary expansion from agent usage improves R@10 +5.2%
+and MRR +12.6% over 5 rounds without regression; (5) LSP edge attenuation (0.3x
+for lsp_resolved provenance) prevents enrichment from inflating framework wiring
+symbol centrality; (6) embeddings confirmed neutral on cold start (session 23);
+(7) at least 39% of Django failures are true vocabulary gaps where task
+descriptions share zero keywords with ground truth symbols; (8) all tested
+systems fail on enterprise-scale repos (>1M LOC) except knowing and codegraph.
 
 The benchmark corpus, fixtures, and evaluation harness are open-source and
 reproducible.
