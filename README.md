@@ -88,10 +88,10 @@ Symbols returned but never used by the agent get demoted on future queries. When
 
 | What | Result |
 |---|---:|
-| Cross-system retrieval | **P@10=0.278 cold start** (308 tasks, 16 repos, 8 languages) |
+| Cross-system retrieval | **P@10=0.281 cold start** (308 tasks, 16 repos, 8 languages) |
 | vs competitors | 3.20x codegraph (19K stars), 5.05x GitNexus, 5.35x Gortex, 18.5x grep |
-| Equivalence classes | 263 concepts bridging task vocabulary to code symbols (+57% P@10) |
-| Noise demotion | +5.9% P@10 after 3 rounds of implicit feedback (Django) |
+| Equivalence classes | 263 hand-curated + learned from usage, bridging vocab to symbols (+57% P@10) |
+| Noise demotion | Per-cluster implicit feedback: R@10 +5.2%, MRR +12.6% (Django 5 rounds) |
 | Tool calls saved | 47% fewer (one context call replaces repeated grep+read) |
 | Token savings | 84% fewer tokens (GCF wire format) |
 | Repeat query speed | 93x faster (Merkle-keyed subgraph cache) |
@@ -104,7 +104,7 @@ Symbols returned but never used by the agent get demoted on future queries. When
 | Language coverage | 13/15 repos pass (Go, Python, TS, Rust, Java, C#, Ruby, multi) |
 | Edge types | 38 (including supply chain: reads_env, executes_process) |
 
-All benchmarks are reproducible. The cross-system benchmark (P@10=0.278) uses 16 repos pinned to exact commits with a [corpus manifest](bench/cross-system/corpus/MANIFEST.yaml) and [setup script](bench/cross-system/corpus/corpus-setup.sh) for full from-scratch reproduction. See [METHODOLOGY.md](bench/cross-system/METHODOLOGY.md) for protocol details.
+All benchmarks are reproducible. The cross-system benchmark (P@10=0.281) uses 16 repos pinned to exact commits with a [corpus manifest](bench/cross-system/corpus/MANIFEST.yaml) and [setup script](bench/cross-system/corpus/corpus-setup.sh) for full from-scratch reproduction. See [METHODOLOGY.md](bench/cross-system/METHODOLOGY.md) for protocol details.
 
 ---
 
