@@ -665,10 +665,10 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 				if !strings.EqualFold(symName, target) {
 					continue
 				}
-				// Framework injection: always inject regardless of equivSeen.
-				// Earlier lower-weight classes may have already added this node
-				// to equivResults, but injection needs to happen separately.
-				if m.weight >= 0.9 && m.class.Source == "framework" {
+				// Forced injection: always inject regardless of equivSeen.
+				// Framework classes (high confidence) and learned vocab (proven
+				// by prior agent usage) bypass RRF to guarantee ranking.
+				if (m.weight >= 0.9 && m.class.Source == "framework") || m.class.Source == "learned" {
 					frameworkInjections = append(frameworkInjections, n)
 				}
 				if equivSeen[n.NodeHash] {
