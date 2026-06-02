@@ -57,7 +57,7 @@ func RankSymbols(symbols []ScoringInput, hitsScores ...map[types.Hash]HITSScores
 
 	results := make([]RankedSymbol, 0, len(symbols))
 	for _, s := range symbols {
-		var blastRadius, confidence, recency, distance, feedback, session, total float64
+		var blastRadius, confidence, recency, distance, feedback, session, commitRecency, total float64
 
 		// Feedback component: score is useful/(useful+not_useful), range [0,1].
 		// Values > 0.5 = net positive feedback (boost).
@@ -108,14 +108,16 @@ func RankSymbols(symbols []ScoringInput, hitsScores ...map[types.Hash]HITSScores
 			confidence = s.Confidence * wConf
 			recency = recencyFromTimestamp(s.LastObserved) * wRecency
 			distance = (1.0 / (1.0 + float64(s.DistanceFromTarget))) * wDist
-			total = blastRadius + confidence + recency + distance + authorityAdj + feedback + session
+			commitRecency = commitRecencyScore(s.Node.LastCommitAt)
+			total = blastRadius + confidence + recency + distance + authorityAdj + feedback + session + commitRecency
 		} else {
 			// Original ranking (no HITS): blast radius is the primary signal.
 			blastRadius = (float64(s.CallerCount) / float64(maxCallers)) * (wBlast + 0.05)
 			confidence = s.Confidence * (wConf + 0.05)
 			recency = recencyFromTimestamp(s.LastObserved) * (wRecency + 0.05)
 			distance = (1.0 / (1.0 + float64(s.DistanceFromTarget))) * wDist
-			total = blastRadius + confidence + recency + distance + feedback + session
+			commitRecency = commitRecencyScore(s.Node.LastCommitAt)
+			total = blastRadius + confidence + recency + distance + feedback + session + commitRecency
 		}
 
 		// Test file penalty: deprioritize symbols from test files.
@@ -174,6 +176,33 @@ func recencyFromTimestamp(ts int64) float64 {
 		return 0.5
 	default:
 		return 0.2
+	}
+}
+
+// commitRecencyScore converts a git blame timestamp into a gentle scoring boost.
+// Symbols in recently-changed code are more likely relevant to the developer's
+// current work. Weight is low (max 0.05) to avoid overriding structural signals.
+// Zero timestamp (no blame data) returns 0 (no boost, no penalty).
+func commitRecencyScore(ts int64) float64 {
+	if ts == 0 {
+		return 0
+	}
+	now := time.Now().Unix()
+	age := now - ts
+	const (
+		day   = int64(86400)
+		week  = 7 * day
+		month = 30 * day
+	)
+	switch {
+	case age <= day:
+		return 0.05
+	case age <= week:
+		return 0.03
+	case age <= month:
+		return 0.01
+	default:
+		return 0
 	}
 }
 
