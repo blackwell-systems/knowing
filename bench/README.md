@@ -14,9 +14,9 @@ and auto-generates a `FINDINGS.md` with results and interpretation.
 | Benchmark | What it proves | Key result |
 |-----------|---------------|------------|
 | [time-to-consistency](time-to-consistency/) | knowing reflects code changes faster than any competitor; query latency scales to 782K edges | Time-to-consistency: knowing 167ms vs codegraph 805ms vs Aider 3150ms. Adjacency cache: k8s queries 9.04s -> 1.9ms (4,717x speedup). 500x faster than codegraph on k8s. |
-| [cross-system](cross-system/) | Graph retrieval beats text search and all competitors across languages and scales | 15 repos, 297 tasks, 7 competitors. knowing P@10=0.278 vs codegraph 0.087 (3.20x) vs GitNexus 0.055 (5.05x) vs Gortex 0.052 (5.35x) vs grep 0.015 (18.5x). 263 framework equiv classes with forced injection + adaptive retrieval. 38 edge types. Honest measurement (no task memory, no embeddings). |
+| [cross-system](cross-system/) | Graph retrieval beats text search and all competitors across languages and scales | 16 repos, 308 tasks, 7 competitors. knowing P@10=0.282 vs codegraph 0.087 (3.24x) vs GitNexus 0.055 (5.13x) vs Gortex 0.052 (5.42x) vs grep 0.015 (18.8x). 263 framework equiv classes with forced injection + RWR proximity packing + adaptive retrieval. 38 edge types. Honest measurement (no task memory, no embeddings). |
 | [agent-efficiency](agent-efficiency/) | When knowing helps and when it doesn't | Phase 1: grep wins on known/unique targets. Phase 2: on k8s (3.5M LOC), grep returns 10,840 matches per task; knowing returns 10 ranked results with 72% ground truth hit rate (99.9% noise elimination). |
-| [feedback-loop](feedback-loop/) | Feedback compounding improves precision over time | 34% -> 44% precision (+10pp) after one round (asymmetric weighting). Weight sweep: optimal at pos=0.25/neg=0.10. |
+| [feedback-loop](feedback-loop/) | Implicit feedback (noise demotion) improves precision during sessions | Django +5.9% P@10 after 3 rounds of implicit feedback. Task memory (keyword->symbol) confirmed neutral (session 24). Implicit feedback is sole learning mechanism. |
 | [context-relevance](context-relevance/) | Each engine layer adds measurable value | Feedback adds +9pp precision over baseline |
 | [token-savings](token-savings/) | knowing reduces agent exploration cost | 55.6% fewer tokens, 52.8% fewer tool calls |
 | [edge-accuracy](edge-accuracy/) | Two-tier extraction provides meaningful signal | 53.6% import confirmation, 26.7% overall |
@@ -131,9 +131,9 @@ Merkle root based on the packages it spans. Results are written to
 
 ### cross-system
 
-Evaluates knowing's retrieval quality against 7 competitors across 15 repos spanning
-8 languages and scales from 14K to 3.5M LOC. 297 task fixtures with hand-curated
-ground truth. Measures P@10, R@10, NDCG@10, MRR, token efficiency, and latency with
+Evaluates knowing's retrieval quality against 7 competitors across 16 repos spanning
+8 languages and scales from 14K to 3.5M LOC. 308 task fixtures with hand-curated
+ground truth. Includes saleor (Django e-commerce app) as first framework-USING repo. Measures P@10, R@10, NDCG@10, MRR, token efficiency, and latency with
 full statistical testing (Wilcoxon signed-rank, Cohen's d, bootstrap confidence intervals).
 
 **Reproducibility:** The corpus is fully reproducible from pinned commits. See
