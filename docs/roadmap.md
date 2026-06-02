@@ -52,7 +52,9 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 | 10 | **AI-generated evaluation corpus** | LLM generates tasks + ground truth, DB-validated. Hybrid: hand-curated for regression, AI-generated for coverage. | Medium | Eval credibility |
 | 11 | **More equiv class coverage** | Message queues (RabbitMQ, Redis), cloud SDKs (AWS, GCP), build systems (Make, Gradle), observability (OpenTelemetry, Prometheus). | Ongoing | Incremental P@10 |
 
-| 12 | **Extract benchmark to standalone repo** | Remove "grading your own homework" objection. Harness, tasks, corpus manifest, and methodology are system-agnostic. `benchtype` package already has no knowing imports. Needs: clean adapter interface as a Go module, competitor adapters as separate packages, CI that runs without knowing source. Enables community task contributions and independent reproduction. Do before enterprise pitches or academic submissions. | Medium | Credibility |
+| 12 | **Zero-task audit cycle** | 42% of Django tasks score 0.00. Each zero cracked to 0.10 moves aggregate by 0.003. Methodology: `bench-task` per zero, categorize (vocab gap, missing edge, genuinely hard), add equiv classes or new edges, verify. Repeatable across all repos. Session 23 proved this works (+126% on Django). More zeros remain. Highest-ceiling P@10 improvement available. | Medium | +0.01-0.02 P@10 |
+| 13 | **More framework-using repos** | Saleor proved equiv classes generalize. Add a Flask app, Rails app, Spring Boot service. Each adds 10-20 tasks that score well on existing equiv classes. Improves eval credibility and may lift aggregate by representation. | Medium | Eval credibility, P@10 |
+| 14 | **Extract benchmark to standalone repo** | `blackwell-systems/context-retrieval-benchmark` created (session 24). Needs: extract harness, tasks, adapters from knowing. Clean adapter interface as Go module. Enables community contributions and independent reproduction. Do before enterprise pitches or academic submissions. | Medium | Credibility |
 
 ### Shipped (sessions 23-24)
 
