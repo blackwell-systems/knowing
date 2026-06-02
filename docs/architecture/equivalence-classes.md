@@ -61,15 +61,16 @@ Each field serves a distinct purpose:
   language-specific carry 0.8, graph-derived carry 0.7.
 - **Source**: Tracks provenance and determines injection behavior.
   Values: `"seed"`, `"framework"`, `"universal"`, `"language"`, `"graph"`,
-  `"feedback"`. Classes with `Source == "framework"` AND `Weight >= 0.9`
-  bypass RWR scoring and inject directly into ranked results.
+  `"learned"`. Classes with `Source == "framework"` AND `Weight >= 0.9`,
+  or `Source == "learned"`, bypass RWR scoring and inject directly into
+  ranked results (forced injection).
 - **Lang**: Language scope. When non-empty, the class only fires on repos
   where `detectRepoLanguage()` returns a matching language. Prevents
   cross-language false positives (Go router classes on C# repos).
 
-## Five layers
+## Six layers
 
-The equivalence class system operates in five layers, each with different
+The equivalence class system operates in six layers, each with different
 confidence levels, generation methods, and injection behaviors.
 
 ### Layer 1: Seed classes (repo-specific, weight 1.0)
@@ -486,15 +487,40 @@ This is why equivalence classes outperformed all embedding approaches tested
 and enumerable; a general model is an expensive way to approximate what a lookup
 table does exactly.
 
-**3. Compounds with feedback.** The four layers are designed to compound:
+**3. Compounds with learning.** The six layers are designed to compound:
 
 - Seed classes provide high-confidence bootstrap (weight 1.0)
 - Universal classes extend coverage to common patterns (weight 0.8)
+- Framework-specific classes bridge framework vocabulary with forced injection (weight 0.9)
 - Language-specific classes bridge non-Go vocabulary (weight 0.8)
 - Graph-derived aliases auto-generate from structure (weight 0.7)
-- Feedback (future, weight 0.5) will accumulate (task, useful_symbol) pairs
-  from real usage, reinforcing or extending existing concepts
+- Learned vocab associations accumulate from agent usage with forced injection (weight 0.5, source "learned")
 
 Each layer adds value independently, and they combine through RRF fusion without
-interfering with each other. Adding a new layer cannot degrade existing layers
-because RRF only promotes nodes that appear in multiple channels.
+interfering with each other. Learned vocab associations (Layer 6) are the active
+learning mechanism: when agents use symbols after context queries, the keyword ->
+symbol association is recorded (`vocab_associations` table, migration 021). After
+2+ observations, the association becomes a learned equivalence class with forced
+injection. Per-cluster scoping (migration 020) prevents cross-task interference.
+
+### Layer 6: Learned vocabulary associations (from usage, weight 0.5)
+
+Generated at query time from the `vocab_associations` table
+(`internal/store/vocab.go`). When an agent uses a symbol after a
+`context_for_task` query, the keyword -> symbol association is recorded.
+After 2+ observations (`count >= 2`), the association activates as a learned
+equivalence class.
+
+Learned vocab classes receive **forced injection** (same treatment as Layer 3
+framework classes): matched symbols bypass RRF and inject at `topScore + 0.1`.
+This guarantees that confirmed usage patterns appear in results.
+
+Per-cluster scoping: feedback and vocab associations are scoped to keyword
+clusters (`keyword_cluster` column on feedback table, migration 020). The
+cluster is derived from sorted primary keywords. Noise demotion for "checkout"
+queries doesn't affect "order" queries.
+
+**Measured impact (session 25):** Cross-task validation on Django: simulated
+prior usage of "inlines" -> `get_inlines`, `get_fieldsets` moved
+django-swe-003 from P@10=0.000 to P@10=0.200. Compounding test: R@10 peak
+0.378 over 5 rounds.
