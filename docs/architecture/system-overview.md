@@ -483,7 +483,7 @@ Task Description
 [6. HITS Reranking]            authority/hub scores on top-200 RWR nodes
     |
     v
-[7. Scoring]                   6-component formula with feedback boosts + session memory
+[7. Scoring]                   7-component formula (blast radius, confidence, recency, distance, feedback, session, commit recency)
     |
     v
 [7b. Embedding Re-rank]        (disabled, confirmed neutral on cold-start benchmarks)
@@ -492,7 +492,7 @@ Task Description
 [8. Budget Packing]            density-ranked greedy knapsack (score/cost ratio)
     |
     v
-[9. Task Memory Record]        persist top-5 returned symbols for future session boosts
+[9. Vocab Expansion]           record keyword->symbol associations from agent usage (learned equiv classes)
 ```
 
 **Key design choices:**
@@ -501,7 +501,7 @@ Task Description
 - **BM25 via FTS5 (6 weighted columns):** `symbol_name` (10x), `concepts` (5x), `file_path` (4x), `doc` (3x), `qualified_name` (3x), `signature` (1x). The `doc` column indexes docstrings extracted across 6 languages (Go, Python, TypeScript, Rust, Java, C#) via the shared `docextract` package, bridging the vocabulary gap between natural-language task descriptions and code documentation.
 - **Path-context seeding (Channel 5):** Extracts package/directory terms from task descriptions, finds TYPE nodes in matching packages (prioritizing types with `contains` edges), and injects them as supplemental RWR seeds. Bridges concept-to-implementation gap (e.g., "migration" finds types in migrations/ package, then RWR walks to their methods).
 - **Phantom external node filtering:** External nodes (kind="external", from unresolved LSP targets) are filtered at seed retrieval and RWR result collection. Without this, repos with many unresolved imports have phantom nodes dominating all top positions.
-- **Feedback compounding via task memory:** The MCP server records top-5 returned symbols in a `task_memory` table after each `context_for_task` call. Future queries with similar keywords recall stored symbols and boost them. Quality compounds across sessions; the system learns which symbols matter for which tasks.
+- **Vocabulary expansion from usage:** When an agent uses a symbol after a `context_for_task` query, the keyword -> symbol association is recorded in `vocab_associations` (migration 021). After 2+ observations, the association becomes a learned equivalence class with forced injection (same treatment as framework classes). Per-cluster scoping (migration 020) prevents cross-task interference. This is the primary learning mechanism; task memory (session 24) was confirmed neutral and disabled.
 - **Merkleized feedback expiration:** Feedback records store the package Merkle root. When code changes, the root changes, and stale feedback becomes invisible automatically.
 
-**Benchmark:** Cross-system benchmark (15 repos, 297 tasks, 8 languages): P@10=0.278 cold start. 3.20x vs codegraph (19K stars), 5.05x vs GitNexus, 5.35x vs Gortex, 18.5x vs grep. Query latency: 2ms on k8s with adjacency cache. Focused seed selection + 263 framework equiv classes with forced injection. Parameter sweep proved all RWR/ranking parameters are irrelevant (identical P@10 across 26 configs); P@10 is reachability-determined, not ranking-determined. See [Retrieval Pipeline](retrieval-pipeline.md) for the full architecture reference.
+**Benchmark:** Cross-system benchmark (16 repos, 308 tasks, 8 languages): P@10=0.281 cold start. 12 self-adapting mechanisms. LSP edge attenuation (0.3x for lsp_resolved). Per-cluster implicit feedback with vocabulary expansion. FTS fallback decomposition. Query latency: 2ms on k8s with adjacency cache. See [Retrieval Pipeline](retrieval-pipeline.md) for the full architecture reference.
