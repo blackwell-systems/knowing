@@ -158,6 +158,42 @@ func (a *Knowing) SimulateAgentUsage(symbolNames []string) {
 	}
 }
 
+// SimulateVocabRecording records keyword -> symbol associations as if the agent
+// used the given symbols during a task with the given keywords. This simulates
+// the MCP ObserveToolUse path in the benchmark. Call after SimulateAgentUsage
+// to also build vocabulary associations for cross-task bridging.
+func (a *Knowing) SimulateVocabRecording(repoPath string, taskKeywords []string, symbolNames []string) {
+	s, ok := a.stores[repoPath]
+	if !ok || len(taskKeywords) == 0 || len(symbolNames) == 0 {
+		return
+	}
+	ctx := stdctx.Background()
+
+	// Look up symbol hashes by name (same approach as MCP's UsedSymbolNames).
+	for _, name := range symbolNames {
+		nodes, err := s.NodesByName(ctx, "%"+name)
+		if err != nil || len(nodes) == 0 {
+			continue
+		}
+		// Use the first match (ground truth names are unique enough).
+		node := nodes[0]
+		for _, kw := range taskKeywords {
+			kw = strings.ToLower(kw)
+			if kw == "" || !knowingctx.IsVocabWorthy(kw) {
+				continue
+			}
+			_ = s.RecordVocabAssociation(ctx, kw, name, node.NodeHash)
+		}
+	}
+}
+
+// ClearAllVocab deletes all vocab associations across all indexed repos.
+func (a *Knowing) ClearAllVocab() {
+	for _, s := range a.stores {
+		s.DB().Exec("DELETE FROM vocab_associations") //nolint:errcheck
+	}
+}
+
 // repoPathList returns all indexed repo paths.
 func (a *Knowing) repoPathList() []string {
 	paths := make([]string, 0, len(a.stores))

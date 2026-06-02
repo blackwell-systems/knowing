@@ -4,20 +4,51 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"strings"
 
+	knowingctx "github.com/blackwell-systems/knowing/internal/context"
 	"github.com/blackwell-systems/knowing/internal/store"
 )
 
 // cmdDebugVocab shows learned vocabulary associations from the vocab_associations table.
-// Usage: knowing debug-vocab [-db path] [-keyword filter] [-min-count N]
+// Usage: knowing debug-vocab [-db path] [-keyword filter] [-min-count N] [-task "description"]
 func cmdDebugVocab(args []string) error {
 	fs := flag.NewFlagSet("debug-vocab", flag.ExitOnError)
 	dbPath := fs.String("db", defaultDB(), "Path to SQLite database")
 	keyword := fs.String("keyword", "", "Filter by keyword (empty = show all)")
 	minCount := fs.Int("min-count", 1, "Minimum observation count to display")
 	top := fs.Int("top", 50, "Maximum number of associations to display")
+	task := fs.String("task", "", "Preview vocab filter for a task description (shows which keywords would be recorded)")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+
+	// Task filter preview mode: show which keywords pass/fail the vocab filter.
+	if *task != "" {
+		ks := knowingctx.ExtractKeywordSet(*task)
+		all := ks.All()
+		var worthy, filtered []string
+		for _, kw := range all {
+			lkw := strings.ToLower(kw)
+			if knowingctx.IsVocabWorthy(lkw) {
+				worthy = append(worthy, kw)
+			} else {
+				filtered = append(filtered, kw)
+			}
+		}
+		fmt.Printf("=== Vocab Filter Preview ===\n")
+		fmt.Printf("Task: %s\n\n", *task)
+		fmt.Printf("Vocab-worthy (%d):\n", len(worthy))
+		for _, kw := range worthy {
+			fmt.Printf("  + %s\n", kw)
+		}
+		fmt.Printf("\nFiltered out (%d):\n", len(filtered))
+		for _, kw := range filtered {
+			fmt.Printf("  - %s\n", kw)
+		}
+		fmt.Printf("\nFilter rate: %d/%d keywords removed (%.0f%%)\n",
+			len(filtered), len(all), float64(len(filtered))/float64(len(all))*100)
+		return nil
 	}
 
 	st, err := store.NewSQLiteStore(*dbPath)

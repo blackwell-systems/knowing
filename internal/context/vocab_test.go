@@ -156,6 +156,142 @@ func TestVocabExpansion_BelowThreshold(t *testing.T) {
 	}
 }
 
+// TestVocabExpansion_CrossTask proves cross-task vocabulary bridging:
+// Task A ("payment processing") teaches vocab associations for "payment" keyword.
+// Task B ("payment refund") benefits because it shares the "payment" keyword,
+// even though its own keyword "refund" has no association.
+//
+// This validates the primary value proposition of vocab expansion: one task's
+// learning helps a DIFFERENT task via shared keywords.
+func TestVocabExpansion_CrossTask(t *testing.T) {
+	ctx := context.Background()
+	s, err := store.NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	repoURL := "test://cross-task-vocab"
+	repoHash := types.NewHash([]byte(repoURL))
+	fileHash := types.NewHash([]byte("gateway.py"))
+	contentHash := types.NewHash([]byte("content1"))
+
+	s.PutRepo(ctx, types.Repo{RepoHash: repoHash, RepoURL: repoURL})
+	s.PutFile(ctx, types.File{FileHash: fileHash, RepoHash: repoHash, Path: "gateway.py", ContentHash: contentHash})
+
+	// Target symbols: names and QN share NO keywords with "payment" or "refund".
+	// "settle_ledger" under "Ledger" type (not "PaymentGateway") is invisible to BM25
+	// for "payment refund". After Task A teaches "payment" -> settle_ledger, Task B finds it.
+	settleHash := types.ComputeNodeHash(repoURL, "gateway.py", fileHash, "settle_ledger", "function")
+	s.PutNode(ctx, types.Node{
+		NodeHash:      settleHash,
+		FileHash:      fileHash,
+		QualifiedName: repoURL + "://gateway.py.Ledger.settle_ledger",
+		Kind:          "function",
+		Signature:     "def settle_ledger(self, batch_id: str) -> bool",
+	})
+
+	reconcileHash := types.ComputeNodeHash(repoURL, "gateway.py", fileHash, "reconcile_batch", "function")
+	s.PutNode(ctx, types.Node{
+		NodeHash:      reconcileHash,
+		FileHash:      fileHash,
+		QualifiedName: repoURL + "://gateway.py.Ledger.reconcile_batch",
+		Kind:          "function",
+		Signature:     "def reconcile_batch(self) -> list",
+	})
+
+	// Noise symbols so ForTask has something to match against.
+	for _, name := range []string{"validate_input", "format_response", "log_error"} {
+		h := types.ComputeNodeHash(repoURL, "gateway.py", fileHash, name, "function")
+		s.PutNode(ctx, types.Node{
+			NodeHash:      h,
+			FileHash:      fileHash,
+			QualifiedName: repoURL + "://gateway.py." + name,
+			Kind:          "function",
+		})
+	}
+	s.RebuildFTS(ctx)
+
+	engine := NewContextEngine(s)
+	engine.DisablePersistentCache()
+
+	// Step 1: Task B ("payment refund") cannot find "settle_ledger" (no keyword overlap).
+	blockBefore, err := engine.ForTask(ctx, TaskOptions{
+		TaskDescription: "payment refund",
+		TokenBudget:     5000,
+		RepoURL:         repoURL,
+	})
+	if err != nil {
+		t.Fatalf("ForTask(before): %v", err)
+	}
+	if containsSymbol(blockBefore, "settle_ledger") {
+		t.Fatal("settle_ledger should NOT be found before cross-task vocab learning")
+	}
+
+	// Step 2: Task A ("payment processing") runs and the agent uses settle_ledger and reconcile_batch.
+	// Simulate vocab recording: keyword "payment" -> settle_ledger, reconcile_batch.
+	// Record twice each (count >= 2 threshold).
+	for i := 0; i < 2; i++ {
+		s.RecordVocabAssociation(ctx, "payment", "settle_ledger", settleHash)
+		s.RecordVocabAssociation(ctx, "payment", "reconcile_batch", reconcileHash)
+	}
+
+	// Step 3: Task B ("payment refund") now finds settle_ledger via learned vocab.
+	// Task B's keywords include "payment" (shared with Task A's vocab), so the
+	// learned association bridges the vocabulary gap.
+	engine2 := NewContextEngine(s)
+	engine2.DisablePersistentCache()
+
+	blockAfter, err := engine2.ForTask(ctx, TaskOptions{
+		TaskDescription: "payment refund",
+		TokenBudget:     5000,
+		RepoURL:         repoURL,
+	})
+	if err != nil {
+		t.Fatalf("ForTask(after): %v", err)
+	}
+
+	foundSettle := containsSymbol(blockAfter, "settle_ledger")
+	foundReconcile := containsSymbol(blockAfter, "reconcile_batch")
+
+	if !foundSettle && !foundReconcile {
+		t.Error("cross-task vocab bridging failed: neither settle_ledger nor reconcile_batch found after Task A taught 'payment' associations")
+		t.Logf("returned %d symbols:", len(blockAfter.Symbols))
+		for i, sym := range blockAfter.Symbols {
+			t.Logf("  [%d] %s (score: %.3f)", i, sym.Node.QualifiedName, sym.Score)
+		}
+		assocs, _ := s.LearnedVocabAssociations(context.Background(), []string{"payment"}, 2)
+		t.Logf("vocab associations for 'payment': %d", len(assocs))
+		for _, a := range assocs {
+			t.Logf("  %s -> %s (count=%d)", a.Keyword, a.SymbolName, a.Count)
+		}
+	}
+
+	if foundSettle {
+		t.Log("cross-task bridging confirmed: 'settle_ledger' found via 'payment' keyword learned from Task A")
+	}
+	if foundReconcile {
+		t.Log("cross-task bridging confirmed: 'reconcile_batch' found via 'payment' keyword learned from Task A")
+	}
+
+	// Step 4: Verify that a completely unrelated task does NOT benefit.
+	// "logging errors" shares no keywords with "payment".
+	engine3 := NewContextEngine(s)
+	engine3.DisablePersistentCache()
+
+	blockUnrelated, err := engine3.ForTask(ctx, TaskOptions{
+		TaskDescription: "logging errors",
+		TokenBudget:     5000,
+		RepoURL:         repoURL,
+	})
+	if err != nil {
+		t.Fatalf("ForTask(unrelated): %v", err)
+	}
+	if containsSymbol(blockUnrelated, "settle_ledger") {
+		t.Error("unrelated task 'logging errors' should NOT find settle_ledger (no keyword overlap)")
+	}
+}
+
 func containsSymbol(block *ContextBlock, name string) bool {
 	if block == nil {
 		return false

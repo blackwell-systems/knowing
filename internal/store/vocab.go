@@ -75,6 +75,24 @@ func (s *SQLiteStore) LearnedVocabAssociations(ctx context.Context, keywords []s
 	return results, rows.Err()
 }
 
+// LearnedVocabDetails returns a map of keyword -> []VocabAssocDetail for all
+// associations matching the given keywords with count >= minCount.
+// Includes observation counts for confidence-weighted scoring.
+func (s *SQLiteStore) LearnedVocabDetails(ctx context.Context, keywords []string, minCount int) (map[string][]struct{ SymbolName string; Count int }, error) {
+	assocs, err := s.LearnedVocabAssociations(ctx, keywords, minCount)
+	if err != nil {
+		return nil, err
+	}
+	if len(assocs) == 0 {
+		return nil, nil
+	}
+	result := make(map[string][]struct{ SymbolName string; Count int })
+	for _, a := range assocs {
+		result[a.Keyword] = append(result[a.Keyword], struct{ SymbolName string; Count int }{a.SymbolName, a.Count})
+	}
+	return result, nil
+}
+
 // LearnedVocabTargets returns a map of keyword -> []symbolName for all
 // associations matching the given keywords with count >= minCount.
 // This satisfies the context.VocabProvider interface.

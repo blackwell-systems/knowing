@@ -80,6 +80,14 @@ type VocabProvider interface {
 	LearnedVocabTargets(ctx stdctx.Context, keywords []string, minCount int) (map[string][]string, error)
 }
 
+// VocabProviderWithCounts extends VocabProvider with count-aware lookups.
+// When available, allows confidence-weighted scoring based on observation count.
+// Uses anonymous struct to avoid import cycles (store can't import context).
+type VocabProviderWithCounts interface {
+	VocabProvider
+	LearnedVocabDetails(ctx stdctx.Context, keywords []string, minCount int) (map[string][]struct{ SymbolName string; Count int }, error)
+}
+
 // ContextEngine queries the knowing knowledge graph to produce task-specific,
 // token-budgeted context blocks ranked by graph relationships and runtime traffic.
 type ContextEngine struct {
@@ -345,6 +353,91 @@ var stopWords = map[string]bool{
 	"modify": true, "implement": true, "create": true, "delete": true,
 	"remove": true, "move": true, "improve": true,
 	"optimize": true, "review": true,
+}
+
+// vocabNoiseWords are common English words that appear in many task descriptions
+// but carry no domain-specific signal. Recording these as vocab associations
+// creates spurious cross-task links (e.g., "use" -> every symbol ever used).
+// Separate from stopWords because some of these ARE useful for BM25 matching
+// (e.g., "query" helps find QuerySet) but are too broad for learned vocab.
+var vocabNoiseWords = map[string]bool{
+	// Common verbs that describe actions, not code identifiers
+	"use": true, "uses": true, "used": true, "using": true,
+	"find": true, "finds": true, "found": true, "finding": true,
+	"write": true, "writes": true, "written": true, "writing": true,
+	"read": true, "reads": true, "reading": true,
+	"run": true, "runs": true, "running": true,
+	"call": true, "calls": true, "called": true, "calling": true,
+	"send": true, "sends": true, "sent": true, "sending": true,
+	"take": true, "takes": true, "taken": true, "taking": true,
+	"make": true, "makes": true, "made": true, "making": true,
+	"show": true, "shows": true, "shown": true, "showing": true,
+	"check": true, "checks": true, "checked": true, "checking": true,
+	"allow": true, "allows": true, "allowed": true, "allowing": true,
+	"add": true, "adds": true, "added": true, "adding": true,
+	"handle": true, "handles": true, "handled": true, "handling": true,
+	"raise": true, "raises": true, "raised": true, "raising": true,
+	"return": true, "returns": true, "returned": true, "returning": true,
+	// Adjectives/adverbs that describe properties, not symbols
+	"not": true, "also": true, "only": true, "just": true,
+	"whether": true, "instead": true, "already": true, "still": true,
+	"properly": true, "correctly": true, "currently": true,
+	"multiple": true, "various": true, "different": true, "specific": true,
+	"certain": true, "given": true, "related": true, "similar": true,
+	"understand": true, "ensure": true, "determine": true, "support": true,
+	"supports": true, "needs": true, "works": true, "working": true,
+	// Nouns too generic to identify code
+	"value": true, "values": true, "data": true,
+	"result": true, "results": true, "output": true,
+	"input": true, "inputs": true, "argument": true, "arguments": true,
+	"case": true, "cases": true, "issue": true, "issues": true,
+	"problem": true, "way": true, "part": true, "thing": true,
+	"method": true, "methods": true, "function": true, "functions": true,
+	"class": true, "classes": true, "object": true, "objects": true,
+	"file": true, "files": true, "code": true, "test": true, "tests": true,
+	// Prepositions/conjunctions that leak through stopWords
+	"when": true, "where": true, "after": true, "before": true,
+	"between": true, "during": true, "without": true, "within": true,
+	"through": true, "against": true, "around": true,
+}
+
+// isVocabWorthy returns true if a keyword is specific enough to record as a
+// vocab association. Filters out common English words that would create
+// spurious cross-task links. Keywords must be >= 4 chars and not in the
+// noise word list.
+func isVocabWorthy(kw string) bool {
+	if len(kw) < 4 {
+		return false
+	}
+	if vocabNoiseWords[kw] {
+		return false
+	}
+	if stopWords[kw] {
+		return false
+	}
+	return true
+}
+
+// IsVocabWorthy is the exported entry point for vocab filtering.
+// Used by benchmark adapters to apply the same filtering as production.
+func IsVocabWorthy(kw string) bool {
+	return isVocabWorthy(kw)
+}
+
+// vocabCountWeight converts an observation count into an RRF weight.
+// Scales from 0.3 (count=2, minimum threshold) to 0.8 (count>=10).
+// Formula: 0.3 + 0.5 * min((count-2)/8, 1.0)
+// This rewards associations reinforced across multiple rounds/sessions
+// while keeping new associations (count=2) at lower confidence.
+func vocabCountWeight(count int) float64 {
+	if count <= 2 {
+		return 0.3
+	}
+	ratio := float64(count-2) / 8.0
+	if ratio > 1.0 {
+		ratio = 1.0
+	}
+	return 0.3 + 0.5*ratio
 }
 
 // abbreviations maps common Go/programming abbreviations to their expansions.
@@ -614,12 +707,36 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 	// Source 3: Learned vocabulary associations from prior agent usage.
 	// Keywords from this task are matched against the vocab_associations table.
 	// Only associations with count >= 2 are used (confirmed, not one-off noise).
+	// Learned vocab goes through RRF (not forced injection), so it naturally
+	// loses to better candidates on tasks with good BM25 coverage.
 	if e.vocabProv != nil && len(e.taskKeywords) > 0 {
 		lowerKeywords := make([]string, len(e.taskKeywords))
 		for i, kw := range e.taskKeywords {
 			lowerKeywords[i] = strings.ToLower(kw)
 		}
-		if byKeyword, err := e.vocabProv.LearnedVocabTargets(ctx, lowerKeywords, 2); err == nil && len(byKeyword) > 0 {
+		// Use count-aware provider if available for confidence-weighted scoring.
+		// Weight scales with observation count: min 0.3 at count=2, max 0.8 at count>=10.
+		// This rewards associations that are reinforced across multiple rounds.
+		if vpc, ok := e.vocabProv.(VocabProviderWithCounts); ok {
+			if byKeyword, err := vpc.LearnedVocabDetails(ctx, lowerKeywords, 2); err == nil && len(byKeyword) > 0 {
+				for kw, details := range byKeyword {
+					for _, d := range details {
+						w := vocabCountWeight(d.Count)
+						eqMatches = append(eqMatches, equivalenceMatch{
+							class: EquivalenceClass{
+								Concept: "learned:" + kw,
+								Phrases: []string{kw},
+								Targets: []string{d.SymbolName},
+								Weight:  w,
+								Source:  "learned",
+							},
+							targets: []string{d.SymbolName},
+							weight:  w,
+						})
+					}
+				}
+			}
+		} else if byKeyword, err := e.vocabProv.LearnedVocabTargets(ctx, lowerKeywords, 2); err == nil && len(byKeyword) > 0 {
 			for kw, targets := range byKeyword {
 				eqMatches = append(eqMatches, equivalenceMatch{
 					class: EquivalenceClass{
@@ -666,9 +783,12 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 					continue
 				}
 				// Forced injection: always inject regardless of equivSeen.
-				// Framework classes (high confidence) and learned vocab (proven
-				// by prior agent usage) bypass RRF to guarantee ranking.
-				if (m.weight >= 0.9 && m.class.Source == "framework") || m.class.Source == "learned" {
+				// Framework classes (high confidence, hand-curated) bypass RRF
+				// to guarantee ranking. Learned vocab goes through RRF as a
+				// regular equiv channel: it competes with other signals rather
+				// than overriding them. Learned associations are lower confidence
+				// (automatic, may have within-repo keyword collisions).
+				if m.weight >= 0.9 && m.class.Source == "framework" {
 					frameworkInjections = append(frameworkInjections, n)
 				}
 				if equivSeen[n.NodeHash] {
@@ -1521,10 +1641,14 @@ func (e *ContextEngine) recordImplicitFeedback(ctx stdctx.Context, block *Contex
 	}
 	// Record vocabulary associations: keyword -> used symbol.
 	// These become learned equivalence classes after count >= 2.
+	// Only record vocab-worthy keywords (domain-specific, not common English).
 	if e.vocabRec != nil && len(used) > 0 && len(e.taskKeywords) > 0 {
 		for _, sym := range used {
 			for _, kw := range e.taskKeywords {
-				_ = e.vocabRec.RecordVocabAssociation(ctx, strings.ToLower(kw), sym.Name, sym.Hash)
+				lkw := strings.ToLower(kw)
+				if isVocabWorthy(lkw) {
+					_ = e.vocabRec.RecordVocabAssociation(ctx, lkw, sym.Name, sym.Hash)
+				}
 			}
 		}
 	}

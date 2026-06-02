@@ -10,6 +10,7 @@ import (
 	"github.com/blackwell-systems/knowing/bench/cross-system/adapters"
 	"github.com/blackwell-systems/knowing/bench/cross-system/benchtype"
 	"github.com/blackwell-systems/knowing/bench/cross-system/metrics"
+	knowingctx "github.com/blackwell-systems/knowing/internal/context"
 	"gopkg.in/yaml.v3"
 )
 
@@ -71,8 +72,9 @@ func TestCompounding(t *testing.T) {
 	// Enable memory and clear for clean start.
 	adapter.EnableMemory()
 	adapter.ClearAllMemory()
+	adapter.ClearAllVocab()
 
-	t.Logf("Task memory enabled and cleared. Running %d rounds on %d tasks.", rounds, len(tasks))
+	t.Logf("Task memory + vocab enabled and cleared. Running %d rounds on %d tasks.", rounds, len(tasks))
 	if repoFilter != "" {
 		t.Logf("Repo filter: %s", repoFilter)
 	}
@@ -117,6 +119,23 @@ func TestCompounding(t *testing.T) {
 			// Without this, all returned symbols get demoted (round 5 regression).
 			// In real MCP usage, this happens when agents open files/edit code.
 			adapter.SimulateAgentUsage(task.GroundTruth)
+
+			// Record vocab associations: primary keywords -> top 3 ground truth symbols.
+			// Simulates the MCP ObserveToolUse path where agents build vocabulary
+			// from their task keywords and the symbols they actually use.
+			ks := knowingctx.ExtractKeywordSet(task.Description)
+			vocabKws := ks.Primary()
+			if len(vocabKws) == 0 {
+				vocabKws = ks.All()
+				if len(vocabKws) > 5 {
+					vocabKws = vocabKws[:5]
+				}
+			}
+			gt := task.GroundTruth
+			if len(gt) > 3 {
+				gt = gt[:3]
+			}
+			adapter.SimulateVocabRecording(rp, vocabKws, gt)
 		}
 
 		if taskCount == 0 {
