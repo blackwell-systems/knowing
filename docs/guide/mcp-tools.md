@@ -815,7 +815,7 @@ Returns a context block optimized for PR review: symbols from the changed files,
 
 ### `explain_symbol`
 
-Explain why a symbol ranked where it did for a given task. Shows the full scoring breakdown: seed channel/tier, RWR score, HITS authority/hub, blast radius, confidence, recency, distance, feedback weight, session boost, and equivalence class matches. MCP equivalent of the `knowing why` CLI command.
+Explain why a symbol ranked where it did for a given task. Shows the full scoring breakdown: seed channel/tier, RWR score, HITS authority/hub, blast radius, confidence, recency, distance, feedback weight, session boost, commit recency, and equivalence class matches (hand-curated, graph-derived, learned vocab). MCP equivalent of the `knowing why` CLI command.
 
 **Parameters:**
 
@@ -846,7 +846,7 @@ Markdown-formatted scoring breakdown including all ranking signals and the symbo
 
 ### `feedback`
 
-Record or query symbol usefulness feedback from agents. Used to improve ranking over time. As of v0.5.0, feedback records are merkleized: each stores the SubgraphRoot of the symbol's package, automatically expiring when the code changes (11% overhead).
+Record or query symbol usefulness feedback from agents. Used to improve ranking over time. Feedback records are merkleized (SubgraphRoot expiration) and cluster-scoped (keyword_cluster prevents cross-task interference). Vocabulary associations are recorded automatically when agents use symbols after context queries.
 
 **Parameters:**
 
