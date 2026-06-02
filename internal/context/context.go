@@ -458,6 +458,29 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 		if ftsQuery == "" && len(fallbackKeywords) > 0 {
 			ftsQuery = buildFTSQuery(fallbackKeywords)
 		}
+		// FTS fallback decomposition: if the primary compound query yields 0
+		// results, decompose compounds into targeted symbol_name OR terms.
+		// "ModelAdmin.get_inlines" -> symbol_name:"ModelAdmin" OR symbol_name:"get_inlines"
+		// "html.escape" -> symbol_name:"escape" (skip short/common segments)
+		// The decomposed terms still target symbol_name for precision; generic
+		// words like "django" or "utils" are filtered by length threshold.
+		if ftsQuery != "" {
+			if probe, err := e.bm25.SearchBM25Nodes(ctx, ftsQuery, 1); err == nil && len(probe) == 0 {
+				decomposed := decomposeCompoundsTargeted(keywords)
+				if decomposed == "" {
+					decomposed = decomposeCompoundsTargeted(fallbackKeywords)
+				}
+				if decomposed != "" {
+					ftsQuery = decomposed
+				}
+			}
+		} else {
+			// Primary was empty (no compounds at all). Decompose fallback.
+			decomposed := decomposeCompoundsTargeted(fallbackKeywords)
+			if decomposed != "" {
+				ftsQuery = decomposed
+			}
+		}
 		// Phrase-boost: generate adjacent-word phrases from Components for
 		// higher-precision BM25 matching on dense graphs. "code actions" as a
 		// phrase matches only symbols where those words appear adjacent (215 matches)
@@ -1831,6 +1854,103 @@ func buildFTSQuery(keywords []string) string {
 			parts = append(parts, fmt.Sprintf("symbol_name:\"%s\"", escaped))
 		} else {
 			parts = append(parts, kw)
+		}
+	}
+	return strings.Join(parts, " OR ")
+}
+
+// decomposeCompounds breaks compound keywords (dotted, snake_case, CamelCase)
+// into simple OR'd terms for FTS fallback when phrase matching yields 0 results.
+// "ModelAdmin.get_inlines" -> ["ModelAdmin", "get_inlines"]
+// "html.escape" -> ["html", "escape"]
+// "before_request" -> ["before", "request"]
+func decomposeCompounds(keywords []string) string {
+	var parts []string
+	seen := make(map[string]bool)
+	for _, kw := range keywords {
+		isCompound := strings.Contains(kw, "_") || strings.Contains(kw, ".") || hasMixedCase(kw)
+		if !isCompound {
+			if !seen[kw] {
+				seen[kw] = true
+				parts = append(parts, kw)
+			}
+			continue
+		}
+		// Split on dots first, then split each segment further.
+		segments := strings.Split(kw, ".")
+		for _, seg := range segments {
+			for _, part := range splitIdentifier(seg) {
+				lower := strings.ToLower(part)
+				if len(lower) >= 3 && !seen[lower] {
+					seen[lower] = true
+					parts = append(parts, lower)
+				}
+				// Also add original case for CamelCase symbol matching.
+				if part != lower && !seen[part] {
+					seen[part] = true
+					parts = append(parts, part)
+				}
+			}
+		}
+	}
+	return strings.Join(parts, " OR ")
+}
+
+// decomposeCompoundsTargeted breaks compound keywords into symbol_name-targeted
+// OR terms for FTS fallback. For dotted paths like "django.utils.html.escape",
+// only the last two meaningful segments are kept (the class/method names, not
+// the package path). For snake_case and CamelCase, all segments are kept.
+// All terms target the symbol_name column for precision.
+func decomposeCompoundsTargeted(keywords []string) string {
+	var parts []string
+	seen := make(map[string]bool)
+
+	addPart := func(s string) {
+		lower := strings.ToLower(s)
+		if len(lower) < 3 || seen[lower] {
+			return
+		}
+		seen[lower] = true
+		parts = append(parts, fmt.Sprintf("symbol_name:%s", lower))
+		if s != lower && !seen[s] {
+			seen[s] = true
+			parts = append(parts, fmt.Sprintf("symbol_name:%s", s))
+		}
+	}
+
+	for _, kw := range keywords {
+		isCompound := strings.Contains(kw, "_") || strings.Contains(kw, ".") || hasMixedCase(kw)
+		if !isCompound {
+			if len(kw) >= 3 && !seen[kw] {
+				seen[kw] = true
+				parts = append(parts, kw)
+			}
+			continue
+		}
+
+		if strings.Contains(kw, ".") {
+			// Dotted path: take only the last 2 segments (leaf identifiers).
+			// "django.utils.html.escape" -> ["html", "escape"] -> keep "escape"
+			// "ModelAdmin.get_inlines" -> ["ModelAdmin", "get_inlines"] -> keep both
+			dotParts := strings.Split(kw, ".")
+			start := len(dotParts) - 2
+			if start < 0 {
+				start = 0
+			}
+			for _, seg := range dotParts[start:] {
+				// Skip dunder methods: __getitem__ -> "getitem" is too generic.
+				if strings.HasPrefix(seg, "__") && strings.HasSuffix(seg, "__") {
+					continue
+				}
+				for _, part := range splitIdentifier(seg) {
+					addPart(part)
+				}
+			}
+		} else {
+			// snake_case or CamelCase: split and keep all segments.
+			for _, part := range splitIdentifier(kw) {
+				addPart(part)
+			}
 		}
 	}
 	return strings.Join(parts, " OR ")

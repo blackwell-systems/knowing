@@ -74,17 +74,38 @@ func cmdDebugSeeds(args []string) error {
 	fmt.Printf("  Terms: %v\n", pathTerms)
 	fmt.Printf("\n")
 
-	// Step 3: BM25 search.
+	// Step 3: BM25 search (mirrors ForTask production path).
 	fmt.Printf("--- Step 3: BM25 Results ---\n")
 	ftsQuery := knowingctx.BuildFTSQueryExported(ks.Primary())
 	fmt.Printf("  FTS Query: %s\n", ftsQuery)
-	if nodes, err := st.SearchBM25Nodes(ctx, ftsQuery, 15); err == nil {
-		for i, n := range nodes {
-			pkg := extractPkgFromQualified(n.QualifiedName)
-			fmt.Printf("  [%2d] %s (pkg: %s)\n", i+1, terminalSymbol(n.QualifiedName), pkg)
+	var bm25Nodes []types.Node
+	if ftsQuery != "" {
+		if nodes, err := st.SearchBM25Nodes(ctx, ftsQuery, 15); err == nil {
+			bm25Nodes = nodes
+		} else {
+			fmt.Printf("  Error: %v\n", err)
 		}
-	} else {
-		fmt.Printf("  Error: %v\n", err)
+	}
+	// Fallback decomposition: if primary query returned 0 results,
+	// decompose compound keywords and retry (mirrors ForTask).
+	if len(bm25Nodes) == 0 {
+		decomposed := knowingctx.DecomposeCompoundsTargetedExported(ks.Primary())
+		if decomposed == "" {
+			decomposed = knowingctx.DecomposeCompoundsTargetedExported(ks.All())
+		}
+		if decomposed != "" {
+			fmt.Printf("  (primary returned 0 results, decomposing compounds)\n")
+			fmt.Printf("  Decomposed Query: %s\n", decomposed)
+			if nodes, err := st.SearchBM25Nodes(ctx, decomposed, 15); err == nil {
+				bm25Nodes = nodes
+			} else {
+				fmt.Printf("  Error: %v\n", err)
+			}
+		}
+	}
+	for i, n := range bm25Nodes {
+		pkg := extractPkgFromQualified(n.QualifiedName)
+		fmt.Printf("  [%2d] %s (pkg: %s)\n", i+1, terminalSymbol(n.QualifiedName), pkg)
 	}
 	fmt.Printf("\n")
 
@@ -93,21 +114,20 @@ func cmdDebugSeeds(args []string) error {
 		fmt.Printf("--- Step 4: Path Boost Analysis ---\n")
 		fmt.Printf("  Node count vs threshold: %d vs 50000 (boost %s)\n",
 			nodeCount, map[bool]string{true: "ACTIVE", false: "INACTIVE"}[nodeCount > 50000])
-		if nodes, err := st.SearchBM25Nodes(ctx, ftsQuery, 15); err == nil {
-			for i, n := range nodes {
-				qnLower := strings.ToLower(n.QualifiedName)
-				matches := []string{}
-				for _, pt := range pathTerms {
-					if strings.Contains(qnLower, strings.ToLower(pt)) {
-						matches = append(matches, pt)
-					}
+		for i, n := range bm25Nodes {
+			qnLower := strings.ToLower(n.QualifiedName)
+			matches := []string{}
+			for _, pt := range pathTerms {
+				if strings.Contains(qnLower, strings.ToLower(pt)) {
+					matches = append(matches, pt)
 				}
-				boost := ""
-				if len(matches) > 0 {
-					boost = fmt.Sprintf(" BOOST(%s)", strings.Join(matches, ","))
-				}
-				fmt.Printf("  [%2d] %s%s\n", i+1, terminalSymbol(n.QualifiedName), boost)
 			}
+			boost := ""
+			if len(matches) > 0 {
+				boost = fmt.Sprintf(" BOOST(%s)", strings.Join(matches, ","))
+			}
+			fmt.Printf("  [%2d] %s%s\n", i+1, terminalSymbol(n.QualifiedName), boost)
+			_ = i // suppress unused warning when bm25Nodes is empty
 		}
 		fmt.Printf("\n")
 	}

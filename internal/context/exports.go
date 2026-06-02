@@ -17,3 +17,13 @@ func ExtractPathTermsExported(desc string) []string {
 func BuildFTSQueryExported(keywords []string) string {
 	return buildFTSQuery(keywords)
 }
+
+// DecomposeCompoundsExported wraps decomposeCompounds for external use.
+func DecomposeCompoundsExported(keywords []string) string {
+	return decomposeCompounds(keywords)
+}
+
+// DecomposeCompoundsTargetedExported wraps decomposeCompoundsTargeted for external use.
+func DecomposeCompoundsTargetedExported(keywords []string) string {
+	return decomposeCompoundsTargeted(keywords)
+}
