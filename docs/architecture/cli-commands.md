@@ -116,7 +116,13 @@ Runs offline enrichment passes that stamp per-symbol metadata from external data
 - **coverage**: parses a Go cover profile (`go test -coverprofile`) and stamps `coverage_pct` on each symbol. Computes the ratio of covered to total statements for overlapping coverage blocks. Symbols with no coverage data receive -1.
   - Flags: `--db`, `--url`, `--profile` (default: `cover.out`)
 
-Both passes are idempotent: re-running overwrites previous values.
+- **lsp**: runs LSP enrichment standalone on an existing DB. Upgrades call edges and discovers new edges via language servers.
+  - Flags: `--db`, `--url`
+
+- **resolver**: runs in-process resolvers retroactively on an existing DB. Adds `resolver_resolved` edges (confidence 0.9) for 7 languages without external LSP.
+  - Flags: `--db`
+
+All enrichment passes are idempotent: re-running overwrites previous values.
 
 ### `knowing ingest-scip`
 
@@ -383,6 +389,8 @@ Runs the MCP server over stdio. This is the mode used by AI agents via `.mcp.jso
 - `--repo`: repository path to watch (required with `--watch`, defaults to cwd)
 - `--url`: repository URL (auto-detected if empty)
 - `--no-enrich`: skip LSP enrichment after reindex (only with `--watch`)
+- `--no-feedback`: disable implicit feedback (noise demotion)
+- `--embeddings`: enable embedding gap-fill (off by default)
 - `--debounce` (default: 500): debounce interval in ms (only with `--watch`)
 
 With `--watch`, combines MCP serving and live graph updates in one process.
@@ -399,6 +407,56 @@ Starts the full daemon: opens the database, creates the indexer, launches the MC
 - `--trace`: enable runtime trace ingestion (OTLP gRPC)
 - `--trace-endpoint` (default: `localhost:4317`): OTLP gRPC endpoint
 - `--trace-batch-size` (default: 1000): number of spans per batch
+
+## Debugging and Diagnostics
+
+### `knowing debug-seeds`
+
+Shows the full seed selection pipeline for a task: keywords, BM25, path boost, ForTask top 10.
+
+**Usage:** `knowing debug-seeds -task "description" [-db path] [repo-path]`
+
+### `knowing debug-fts`
+
+Runs a raw FTS5 query against the node index.
+
+**Usage:** `knowing debug-fts -query "term1 OR term2" [-db path] [-limit N]`
+
+### `knowing debug-walk`
+
+Shows the RWR walk from a specific seed node: edge types, nodes reached, score distribution.
+
+**Usage:** `knowing debug-walk -seed "SymbolName" [-db path] [-top N] [-alpha 0.2]`
+
+### `knowing debug-vocab`
+
+Shows learned vocabulary associations from agent usage.
+
+**Usage:** `knowing debug-vocab [-db path] [-keyword filter] [-min-count N] [-top N]`
+
+### `knowing debug-feedback`
+
+Shows implicit feedback records per symbol with cluster breakdown.
+
+**Usage:** `knowing debug-feedback [-db path] [-symbol name] [-min-count N] [-top N]`
+
+### `knowing debug-equiv`
+
+Shows which equivalence classes match a task description from all sources.
+
+**Usage:** `knowing debug-equiv -task "description" [-db path] [repo-path]`
+
+### `knowing debug-pack`
+
+Shows packing decisions: density ranking, token cost, proximity, budget utilization.
+
+**Usage:** `knowing debug-pack -task "description" [-db path] [-budget N] [repo-path]`
+
+### `knowing bench-task`
+
+Runs a single benchmark task with P@10 and per-symbol HIT/MISS analysis.
+
+**Usage:** `knowing bench-task -task <task-id> [-corpus path] [-budget N]`
 
 ## Other
 
