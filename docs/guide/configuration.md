@@ -52,7 +52,36 @@ All environment variables, CLI flags, and MCP server options in one place.
 |----------|---------|-------------|
 | `BENCH_IMPLICIT_FEEDBACK` | off | Enable implicit feedback (noise demotion) in benchmarks. Required for compounding tests. |
 | `BENCH_COMPOUND_ROUNDS` | 5 | Number of rounds for `TestCompounding`. |
-| `BENCH_FEEDBACK_WEIGHT` | `sqrt` | Confidence weighting mode for feedback scores. Options: `none` (raw score, no weighting), `sqrt` (symmetric sqrt confidence), `linear` (steeper linear confidence), `asym` (full-strength positives, sqrt-weighted negatives only). |
+| `BENCH_FEEDBACK_WEIGHT` | `none` | Confidence weighting mode for feedback scores. Options: `none` (raw score, default), `sqrt` (symmetric sqrt confidence), `linear` (steeper linear confidence), `asym` (full-strength positives, sqrt-weighted negatives only). |
+
+### Vocabulary Expansion
+
+Vocabulary expansion learns keyword -> symbol associations from agent usage.
+When an agent asks "how does checkout work?" and then opens `Order.can_cancel`,
+the system records `checkout -> can_cancel`. After 2+ observations of the same
+association, it becomes a learned equivalence class that bridges vocabulary gaps
+on future queries.
+
+**How it works in benchmarks:**
+1. Set `BENCH_IMPLICIT_FEEDBACK=1` to enable implicit feedback
+2. The compounding test (`TestCompounding`) simulates agent usage by feeding
+   ground truth symbol names into `DetectUsed` after each task
+3. `recordImplicitFeedback` fires on the next `ForTask`, recording vocab
+   associations for positively attributed symbols
+4. Rounds 2+ benefit from learned associations
+
+**How it works in production (MCP):**
+1. Agent calls `context_for_task` (returns symbols)
+2. Agent uses some symbols (opens files, edits code)
+3. `DetectUsed` scans tool call content for symbol references
+4. On the next `context_for_task`, `FlushAll` records vocab associations
+5. Future queries benefit from learned keyword -> symbol mappings
+
+**Storage:** `vocab_associations` table with `(keyword, symbol_hash)` unique
+constraint and `count` column for reinforcement. Migration 021.
+
+**Threshold:** `count >= 2` required for a learned association to activate.
+Single observations are ignored to prevent noise.
 
 ## Index / Enrichment Flags
 
