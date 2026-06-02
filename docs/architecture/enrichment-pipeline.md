@@ -45,6 +45,20 @@ dead code detection requiring high-confidence edges, and audit workflows that ne
 `lsp_resolved` provenance. See [context-engine.md](context-engine.md) for how confidence
 is used in the scoring formula.
 
+**LSP edge weight attenuation (session 25):** Edges with `lsp_resolved` provenance receive
+0.3x weight in the RWR walk (default, override with `BENCH_LSP_EDGE_WEIGHT`). This prevents
+enrichment from inflating centrality of framework wiring symbols (webhook handlers, event
+dispatchers) above implementation symbols. Without attenuation, enriched saleor regresses
+from P@10=0.236 to 0.182 because pyright-discovered edges boost `order_cancelled` and
+`WebhookPlugin` symbols above `Order.can_cancel`. With 0.3x attenuation: 0.218 (regression
+halved). Full corpus: neutral (0.283, 0.279 across two runs).
+
+**Root cause of enrichment regression (session 25):** Not phantom probability sinks (externals
+are dead ends that redistribute to seeds). Not packing density (phantoms filtered before
+packing). The cause is enriched real nodes gaining higher centrality: LSP discovers edges
+that connect webhook/event handler symbols to many other symbols, inflating their RWR score
+above the implementation symbols that ground truth expects.
+
 ---
 
 ## Architecture
