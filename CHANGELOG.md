@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- **FTS fallback decomposition** (session 25): when compound keywords (dotted names, CamelCase) return 0 FTS results, decompose into leaf-segment symbol_name-targeted OR terms. Django P@10: 0.194 -> 0.203 (+4.6%). `django-medium-103` cracked from 0.00 to 0.40. Full corpus neutral (0.278).
+- **Per-cluster implicit feedback** (session 25): `keyword_cluster` column on feedback table scopes noise demotion to keyword clusters, preventing cross-task interference. Django 5-round compounding: R@10 +5.2%, MRR +12.6%, round 5 regression eliminated. Migration 020.
+- **Vocabulary expansion from usage** (session 25): learned keyword -> symbol associations from agent usage. When an agent uses a symbol after a `context_for_task` query, the association is recorded. After 2+ observations, becomes a learned equivalence class bridging vocabulary gaps. Both engine and MCP server paths wired. Migration 021.
+- **Change-aware scoring** (session 25): `commitRecencyScore` uses `Node.LastCommitAt` from git blame: +0.05 (day), +0.03 (week), +0.01 (month). Mechanism #12 in adaptive retrieval. Neutral on benchmark (no blame data); activates in production.
+- **Configuration reference** (session 25): `docs/guide/configuration.md` with all env vars, CLI flags, MCP server options, and vocabulary expansion documentation.
+- **debug-seeds aligned with production**: FTS fallback decomposition visible in Step 3 output.
+
+### Fixed
+
+- **Release workflow unblocked**: exclude eval/ from release test glob. Was timing out and blocking GHCR image push on every release since v0.7.0.
+- **CI short-mode failures**: added `t.Skip` for `TestCompounding` and `TestRewriteGroundTruth*` in `-short` mode.
+
+### Changed
+
+- **Feedback weight mode**: `BENCH_FEEDBACK_WEIGHT` env var for sweep testing (none/sqrt/linear/asym). Default `none` (raw scoring). 4-mode sweep confirmed cluster-only (no weighting) optimal.
+- **12 self-adapting mechanisms**: was 10. Added RWR proximity packing (#10, session 24), implicit feedback (#11, session 24), change-aware scoring (#12, session 25).
+
 ## [v0.13.0] - 2026-06-01
 
 ### Added
@@ -19,6 +40,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **All 7 in-process resolvers wired** (session 24): Python, TypeScript, Java, C#, Rust added alongside Go and Ruby. Generic `runLanguageResolver` dispatch via `resolverSpec` table. Produces `resolver_resolved` edges (confidence 0.9) without external LSP. Validated: Kafka/Java 596K edges, Django/Python 58K, Cargo/Rust 27K, VS Code/TS 19K, Ocelot/C# 1.3K.
 - **Saleor benchmark corpus** (session 24): first framework-USING repo (vs framework source code). saleor/saleor Django e-commerce app. 11 tasks. P@10=0.236 unenriched, proving equiv classes generalize to app code.
 - **Proximity-weighted BFS scoring** (session 24): actual graph distance from seeds replaces binary 0/1. BFS distances computed from RWR adjacency maps (zero extra queries). P@10 neutral on current corpus; infrastructure for handling enrichment-induced density.
+- **RWR proximity packing** (session 24): `density * rwrScore^0.3` in `packIntoBudget`. Seeds with higher RWR scores get boosted packing density, preventing distant high-centrality noise from filling budget slots. Exponent 0.3 optimal from 9-point sweep (11/15 repos improved). Enriched saleor regression halved from -23% to -11%.
+- **Implicit feedback engine** (session 24): moved from MCP-only to context engine. `FlushUnused` records negative feedback for returned-but-unused symbols. `DetectUsed` records positive for agent-referenced symbols. Django: +5.9% P@10 peak at round 3. Task memory disabled (confirmed neutral).
+- **v0.13.0 release** (session 24): tag pushed, GitHub release created. 308 tasks, 16 repos, 8 languages.
+- **context-retrieval-benchmark repo** (session 24): `blackwell-systems/context-retrieval-benchmark` created. README, MIT license, 20 topics.
 
 ### Fixed
 
