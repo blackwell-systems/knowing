@@ -179,14 +179,40 @@ CREATE TABLE feedback (
     session_id       TEXT NOT NULL,
     useful           INTEGER NOT NULL,  -- 1 = relevant, 0 = noise
     timestamp        INTEGER NOT NULL,
-    neighborhood_root BLOB              -- SubgraphRoot of symbol's package (migration 014)
+    neighborhood_root BLOB,             -- SubgraphRoot of symbol's package (migration 014)
+    keyword_cluster   BLOB              -- keyword cluster hash for scoped feedback (migration 020)
 );
 CREATE INDEX idx_feedback_neighborhood ON feedback(neighborhood_root);
+CREATE INDEX idx_feedback_cluster ON feedback(keyword_cluster);
 ```
 
-### task_memory
+The `keyword_cluster` column (migration 020) scopes feedback to keyword clusters, preventing
+cross-task interference. The cluster is derived from sorted primary keywords of the task.
+Noise demotion for "checkout" queries doesn't affect "order" queries.
 
-Passive retrieval learning. Records which symbols were returned for which keywords. Persists across process restarts, enabling quality to compound with usage. The MCP server records the top-5 symbols after each `context_for_task` call with boost score `0.5 + score * 0.4`. Future queries with matching keywords recall these symbols and boost them via the feedback channel at 0.3x scale with 7-day linear decay.
+### vocab_associations
+
+Learned keyword -> symbol associations from agent usage (migration 021). When an agent uses
+a symbol after a `context_for_task` query, the association is recorded. After 2+ observations,
+the association becomes a learned equivalence class with forced injection.
+
+```sql
+CREATE TABLE vocab_associations (
+    keyword      TEXT NOT NULL,
+    symbol_name  TEXT NOT NULL,
+    symbol_hash  BLOB NOT NULL,
+    count        INTEGER DEFAULT 1,
+    last_seen    INTEGER NOT NULL,
+    UNIQUE(keyword, symbol_hash)
+);
+CREATE INDEX idx_vocab_keyword ON vocab_associations(keyword);
+```
+
+### task_memory (disabled)
+
+Historical passive retrieval learning. Confirmed neutral in session 24 (task memory
+records keywords -> symbols that the pipeline already finds). Creation and recording
+disabled in the MCP server. Table preserved for backward compatibility.
 
 ```sql
 CREATE TABLE task_memory (
