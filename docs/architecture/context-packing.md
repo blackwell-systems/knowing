@@ -29,7 +29,7 @@ Task Description
 [5. Random Walk with Restart]  -- propagate relevance through graph structure (BFS depth limit: 4 hops)
     |
     v
-[6. Scoring]               -- weighted formula: blast_radius + confidence + recency + distance + session_boost + feedback + task_memory
+[6. Scoring]               -- 7-component formula: blast_radius + confidence + recency + distance + session_boost + feedback + commit_recency
     |
     v
 [7. HITS Reranking]        -- authority/hub scores promote structurally important nodes
@@ -195,7 +195,7 @@ After RWR produces raw relevance scores, the `RankSymbols` function computes a f
 composite score. Without HITS:
 
 ```
-score = blast_radius * 0.40 + confidence * 0.25 + recency * 0.20 + distance * 0.15 + feedback + session
+score = blast_radius * 0.40 + confidence * 0.25 + recency * 0.20 + distance * 0.15 + feedback + session + commit_recency
 ```
 
 With HITS active (applied to top-200), weights shift to accommodate authority adjustments:
@@ -300,12 +300,12 @@ future code-tuned models. Enable with `KNOWING_EMBEDDINGS=1`.
 
 ### Equivalence Class Matching (Channel 4)
 
-The equivalence class system (`internal/context/equivalence.go` + `universal_seeds.go` + `language_seeds.go`) bridges the vocabulary gap between natural-language task descriptions and code symbol names. It contains 115 equivalence classes: 21 knowing-specific (TRANSITIVE_IMPACT, SYMBOL_LOOKUP, DATAFLOW_TRACE, TEST_SELECTION, etc.), 63 universal software concepts (covering security, monitoring, scheduling, rate limiting, search, websockets, retry/circuit-breaker, health checks, feature flags, and more), and 31 language-specific classes (Python, TypeScript, Rust, Java, Kubernetes patterns). Each class has 5-10 phrases mapped to common symbol name targets across Go/TS/Python/Java/Rust. Cross-product expansion with action verbs generates additional phrase variants.
+The equivalence class system (`internal/context/equivalence.go` + 30 `equiv_*.go` files + `universal_seeds.go`) bridges the vocabulary gap between natural-language task descriptions and code symbol names. It contains 263 hand-curated equivalence classes organized by framework (Django, Flask, FastAPI, Terraform, Kubernetes, Kafka, Rails, Spring, ASP.NET, etc.) plus universal and cross-cutting patterns. Language scoping via the `Lang` field prevents cross-language false positives. Additionally, learned vocabulary associations (from agent usage, `vocab_associations` table) are injected as equivalence classes at runtime.
 
 Example: the phrase "blast radius" maps to concept TRANSITIVE_IMPACT, which targets symbols
 like `TransitiveCallers`, `handleBlastRadius`, and `BlastRadius`.
 
-This was the biggest single-feature improvement: hard tier 10% to 18% P@10 (+8pp).
+Framework equiv classes with forced injection: P@10 0.176 -> 0.278 (+57%, session 23).
 
 ## Noise Filtering
 
@@ -330,7 +330,10 @@ Together these stages prevent test infrastructure, build artifacts, and phantom 
 
 The `packIntoBudget` function implements a density-ranked greedy knapsack:
 
-1. For each ranked symbol, compute density = score / token_cost.
+1. For each ranked symbol, compute density = (score / token_cost) * proximityFactor.
+   The proximity factor is `rwrScore^exponent` where the exponent adapts to the phantom
+   ratio: `clamp(0.3 + 0.2 * phantomRatio, 0.3, 0.7)`. LSP-enriched edges receive 0.3x
+   weight in the RWR walk (attenuating enrichment centrality inflation).
 2. Sort by density descending (ties broken by raw score).
 3. Greedily pack in density order: if adding a symbol would exceed the budget, skip it and try smaller ones.
 4. Re-sort the packed symbols by score descending for output ordering.
@@ -524,35 +527,47 @@ The `pack_root` parameter on `context_for_task` enables agent-side deduplication
 
 `CompareContextPacks` accepts two PackRoots and returns the added, removed, and common symbols between them. Useful for detecting what changed between two context retrievals on the same task across different snapshots.
 
-## Task Memory Persistence
+## Vocabulary Expansion from Usage
 
-The `TaskMemory` system (`internal/context/task_memory.go`) persists which symbols were
-useful for which tasks, enabling the retrieval pipeline to learn from past agent
-interactions. Over time, the system develops per-repo vocabulary: when a developer asks
-about topic X, these symbols tend to be what they actually need.
+The vocabulary expansion system (`internal/store/vocab.go`, `vocab_associations` table,
+migration 021) learns keyword -> symbol associations from agent usage. This is the primary
+active learning mechanism, replacing the earlier task memory system (confirmed neutral in
+session 24 and disabled).
 
 ### Recording
 
-After packing completes, `ForTask` records the top-5 symbols (by final score) in the
-`task_memory` table along with the normalized keywords from the task description. This is
-passive: no explicit user action required.
+When `recordImplicitFeedback` fires (on each new `ForTask` call), it flushes the previous
+cycle's attribution results. Symbols that the agent used (detected via `DetectUsed` scanning
+tool call content) get recorded as vocab associations: each task keyword is paired with each
+used symbol name. The `vocab_associations` table uses UPSERT with a count increment, so
+repeated observations reinforce the association.
 
-### Recall and Boost Formula
+### Activation Threshold
 
-On subsequent queries, `TaskMemory.Recall` finds symbols that were useful for tasks with
-overlapping keywords. Each keyword match against stored tasks adds to the recall score,
-with linear decay after 7 days (`decay = 7.0 / age_in_days`).
+Learned associations require `count >= 2` to activate. A single observation is treated as
+noise; two or more observations from different queries confirm the association. This prevents
+one-off false matches from becoming permanent equivalence classes.
 
-The recalled score is converted to a boost via:
+### Injection
 
-```
-memoryScore = 0.5 + (recall_score * 0.4)    // range [0.5, 0.9]
-```
+Learned vocab associations enter the retrieval pipeline as equivalence classes with
+`source: "learned"`. They receive **forced injection** treatment (same as high-confidence
+framework classes): matched symbols bypass RRF and inject directly into ranked results at
+`topScore + 0.1`. This guarantees that confirmed vocab associations appear in the output.
 
-This formula ensures memory always produces a positive boost (never penalizes) without
-overwhelming explicit feedback signals (which can reach 1.0). The boost is applied through
-the FeedbackBoost channel: if the memory-derived score exceeds any existing feedback boost
-for that symbol, it replaces it.
+### Per-Cluster Scoping
+
+Feedback and vocab associations are scoped to keyword clusters (migration 020,
+`keyword_cluster` column on feedback table). The cluster is derived from sorted primary
+keywords of the task. Noise demotion for "checkout" queries doesn't affect "order" queries.
+This prevents cross-task interference that caused round 5 regression in session 24.
+
+### Historical Note
+
+The `TaskMemory` system (migration 008, `task_memory` table) recorded top-5 symbols per
+call with keyword matching and 7-day decay. Session 24 proved this mechanism redundant with
+the pipeline (BM25 and equiv classes already find the same symbols). Task memory creation
+and recording are disabled. Infrastructure preserved.
 
 ## Limitations
 
