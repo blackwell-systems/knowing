@@ -81,12 +81,12 @@ func TestFeedback_Boosts(t *testing.T) {
 		t.Fatalf("FeedbackBoosts: %v", err)
 	}
 
-	// hashA should have score 1.0.
+	// hashA: 2 useful / 2 total = 1.0.
 	if v, ok := boosts[hashA]; !ok || abs(v-1.0) > 0.001 {
 		t.Errorf("hashA boost: got %f, want 1.0", v)
 	}
 
-	// hashB should have score 0.5.
+	// hashB: 1 useful / 2 total = 0.5.
 	if v, ok := boosts[hashB]; !ok || abs(v-0.5) > 0.001 {
 		t.Errorf("hashB boost: got %f, want 0.5", v)
 	}

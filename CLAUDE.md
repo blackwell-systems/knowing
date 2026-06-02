@@ -249,6 +249,7 @@ Embeddings as Channel 3, blended re-rank, call-chain seeding, hub dampening, BFS
 - **`BENCH_FOCUSED_SEEDS=0`**: disable focused seed selection (for A/B testing).
 - **`BENCH_IMPLICIT_FEEDBACK=1`**: enable task memory + implicit feedback (noise demotion) in benchmarks. Django: +5.9% P@10 peak at round 3.
 - **`BENCH_COMPOUND_ROUNDS=5`**: number of rounds for `TestCompounding` (default 5).
+- **`BENCH_FEEDBACK_WEIGHT=sqrt`**: confidence weighting mode for feedback scores. Options: `none` (raw score), `sqrt` (symmetric sqrt confidence, default), `linear` (steeper confidence), `asym` (full-strength positives, sqrt-weighted negatives only).
 
 ### MCP server flags
 - **`--no-feedback`** or **`KNOWING_NO_FEEDBACK=1`**: disable implicit feedback (noise demotion) in MCP server. Useful for A/B testing.

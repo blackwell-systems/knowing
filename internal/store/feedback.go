@@ -3,10 +3,56 @@ package store
 import (
 	"context"
 	"database/sql"
+	"math"
+	"os"
 	"time"
 
 	"github.com/blackwell-systems/knowing/internal/types"
 )
+
+// feedbackWeightMode controls how confidence weighting is applied.
+// Configurable via BENCH_FEEDBACK_WEIGHT env var for sweep testing.
+//
+//	"none"  - raw score, no weighting (baseline)
+//	"sqrt"  - symmetric sqrt confidence (default)
+//	"linear"- symmetric linear confidence (steeper)
+//	"asym"  - asymmetric: full strength positives, sqrt-weighted negatives only
+func feedbackWeightMode() string {
+	if m := os.Getenv("BENCH_FEEDBACK_WEIGHT"); m != "" {
+		return m
+	}
+	return "none"
+}
+
+// weightedFeedbackScore computes a confidence-weighted feedback score.
+// Raw score = useful / total (range 0-1, neutral at 0.5).
+// Confidence pulls toward 0.5 (neutral) when observations are few,
+// preventing premature demotion from a single noisy miss.
+func weightedFeedbackScore(usefulCount, total int) float64 {
+	if total == 0 {
+		return 0
+	}
+	raw := float64(usefulCount) / float64(total)
+
+	mode := feedbackWeightMode()
+	switch mode {
+	case "none":
+		return raw
+	case "linear":
+		confidence := 1.0 - 1.0/(1.0+float64(total))
+		return 0.5 + (raw-0.5)*confidence
+	case "asym":
+		// Full strength for positives, sqrt-weighted for negatives.
+		if raw >= 0.5 {
+			return raw
+		}
+		confidence := 1.0 - 1.0/(1.0+math.Sqrt(float64(total)))
+		return 0.5 + (raw-0.5)*confidence
+	default: // "sqrt"
+		confidence := 1.0 - 1.0/(1.0+math.Sqrt(float64(total)))
+		return 0.5 + (raw-0.5)*confidence
+	}
+}
 
 // FeedbackStats holds aggregate feedback data for a symbol.
 type FeedbackStats struct {
@@ -118,7 +164,7 @@ func (s *SQLiteStore) FeedbackBoosts(ctx context.Context, hashes []types.Hash, n
 				return nil, err
 			}
 			if total > 0 {
-				result[h] = float64(usefulCount) / float64(total)
+				result[h] = weightedFeedbackScore(usefulCount, total)
 			}
 		}
 		return result, nil
@@ -154,7 +200,7 @@ func (s *SQLiteStore) FeedbackBoosts(ctx context.Context, hashes []types.Hash, n
 			return nil, err
 		}
 		if total > 0 {
-			result[h] = float64(usefulCount) / float64(total)
+			result[h] = weightedFeedbackScore(usefulCount, total)
 		}
 	}
 
