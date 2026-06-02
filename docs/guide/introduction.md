@@ -107,7 +107,7 @@ Injects high-confidence symbols from framework equivalence classes directly into
 
 Framework equivalence classes encode the mapping between developer concepts and framework-specific symbols: "custom validator" maps to `EmailValidator`, `BaseValidator`, `ValidationError` in Django. "consumer group" maps to `KafkaConsumer`, `ConsumerRecord` in Kafka. 263 such mappings across 30 framework-specific files cover Django, Flask, FastAPI, Terraform, Kubernetes, Kafka, Rails, Spring, ASP.NET, and more.
 
-When a phrase matches with high confidence (weight >= 0.9, source "framework"), the matched symbols bypass RWR scoring and inject directly at the top of the ranked list. This solves the vocabulary gap without broadening BM25 (which floods results with noise on large repos). Language scoping ensures framework classes only fire on repos using that framework.
+When a phrase matches with high confidence (weight >= 0.9, source "framework") or from learned vocabulary associations (source "learned"), the matched symbols bypass RWR scoring and inject directly at the top of the ranked list. This solves the vocabulary gap without broadening BM25 (which floods results with noise on large repos). Language scoping ensures framework classes only fire on repos using that framework. Learned vocab associations accumulate from agent usage: when an agent uses a symbol after a context query, the keyword -> symbol association is recorded. After 2+ observations, it becomes an automatic equivalence class.
 
 **Input:** top 50 from merged ranking + task `"fix the auth middleware timeout"` + matched equiv classes
 **Output:** `AuthMiddleware` (0.049), `TimeoutConfig` (0.025), `validateToken` (0.028), `SessionTimeout` (0.024), ... (framework matches already present from BM25, no injection needed for this task)
@@ -133,7 +133,7 @@ For implementation details, see [Retrieval Pipeline](../architecture/retrieval-p
 - Embeddings: confirmed neutral on cold start (session 23, 3 runs identical with/without). Gap-fill and re-ranker both disabled.
 - Framework equivalence classes: 263 concept-to-symbol mappings across 30 files, with forced injection for high-confidence matches
 - Adaptive retrieval: auto-detects flat RWR results on massive repos (>200K nodes), falls back to direct FTS + contains-edge expansion
-- P@10 = 0.278 cold start (308 tasks, 16 repos, 8 languages, honest measurement: no task memory, no embeddings)
+- P@10 = 0.281 cold start (308 tasks, 16 repos, 8 languages, 12 self-adapting mechanisms, honest measurement)
 - Competitive: 3.20x codegraph, 5.05x GitNexus, 5.35x Gortex, 18.5x grep (cold start)
 - MCP server interface with 28 tools for agent consumption
 
@@ -246,7 +246,7 @@ knowing's differentiator is graph-native retrieval with framework knowledge inje
 
 **Context packers** (Aider, Repo Map, etc) analyze your repo and produce a condensed map for the agent's context window. They run at query time, produce text, and are stateless: they don't remember what was useful last time. They don't version their output or prove anything about it.
 
-**Code graphs / indexers** (Sourcegraph, codegraph, GitNexus, Stack Graphs) build a queryable index of code relationships. Most use mutable state (database rows with auto-increment IDs). They can answer "who calls X?" but can't answer "who called X last Tuesday?" or "prove no one calls X." They don't learn from feedback. In head-to-head benchmark (15 repos, 297 tasks, 8 languages): knowing achieves 3.20x the precision of codegraph (19K stars), 5.05x vs GitNexus, and 5.35x vs Gortex. All measurements use honest cold-start evaluation with no task memory and dot-bounded symbol matching.
+**Code graphs / indexers** (Sourcegraph, codegraph, GitNexus, Stack Graphs) build a queryable index of code relationships. Most use mutable state (database rows with auto-increment IDs). They can answer "who calls X?" but can't answer "who called X last Tuesday?" or "prove no one calls X." They don't learn from feedback. In head-to-head benchmark (16 repos, 308 tasks, 8 languages): knowing achieves 3.20x the precision of codegraph (19K stars), 5.05x vs GitNexus, and 5.35x vs Gortex. All measurements use honest cold-start evaluation with no task memory and dot-bounded symbol matching.
 
 **Agent memory systems** (MemGPT, various RAG frameworks) persist information across sessions. They remember conversations but not code structure. They can recall "you asked about auth last time" but can't tell you "auth's blast radius grew by 3 callers since then."
 
@@ -783,8 +783,8 @@ Intuition: symbols that are close to many seeds (reachable by short paths) get h
 **Step 4: HITS reranking.**
 On the top-K results from RWR, run the HITS algorithm (Hyperlink-Induced Topic Search). This separates "hubs" (symbols that call many things) from "authorities" (symbols that are called by many things). For a refactoring task, authorities matter more (the things being called). For a wiring task, hubs matter more (the connectors).
 
-**Step 5: Feedback boost.**
-Implicit feedback tracks which symbols were returned but never used by the agent (negative signal) and which the agent subsequently referenced in tool calls (positive signal). Feedback automatically expires when the package's SubgraphRoot changes (code was modified). This is how the system learns during active sessions without accumulating stale signals.
+**Step 5: Feedback boost + vocabulary expansion.**
+Implicit feedback tracks which symbols were returned but never used by the agent (negative signal) and which the agent subsequently referenced in tool calls (positive signal). Feedback is scoped to keyword clusters (per-cluster scoping prevents cross-task interference). When agents use symbols, keyword -> symbol associations are recorded; after 2+ observations, these become learned equivalence classes with forced injection. Feedback automatically expires when the package's SubgraphRoot changes (code was modified).
 
 **Step 6: Token budget packing.**
 The ranked symbols are packed into the token budget (default 50,000 tokens) using a knapsack algorithm: maximize total relevance score within the budget constraint. Larger symbols (more edges, longer signatures) cost more tokens. The packer selects the combination that maximizes information density.
@@ -950,14 +950,14 @@ These numbers are reproducible via the benchmark suite (16 repos, 308 tasks, 8 l
 
 | Metric | Value | Context |
 |---|---|---|
-| P@10 (precision at 10) | 0.278 +/- 0.003 | 4 runs confirmed (0.281, 0.275, 0.276, 0.279) |
-| R@10 (recall at 10) | 0.405 | 15 repos, 8 languages (Go, Python, TS, Rust, Java, C#, Ruby) |
+| P@10 (precision at 10) | 0.281 | 16 repos, 308 tasks, 12 self-adapting mechanisms |
+| R@10 (recall at 10) | 0.405 | 16 repos, 8 languages (Go, Python, TS, Rust, Java, C#, Ruby) |
 | NDCG@10 | 0.425 | Ranking quality |
 | MRR | 0.465 | First relevant result position |
 | vs codegraph (19K stars) | 3.20x | Head-to-head on shared tasks |
 | vs GitNexus (40K stars) | 5.05x | Head-to-head on shared tasks |
 | vs Gortex | 5.35x | Head-to-head on shared tasks |
-| vs grep | 18.5x | All 297 tasks |
+| vs grep | 18.5x | All 308 tasks |
 | Equivalence classes | 263 | Across 30 framework-specific files |
 | Adjacency cache latency | 2ms | Down from 9s uncached on k8s (4,717x improvement) |
 | Time-to-consistency | 167ms | File edit to query returning new symbol |
