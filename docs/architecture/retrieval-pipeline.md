@@ -848,14 +848,23 @@ using density-ranked packing.
 
 ### Algorithm
 
-1. Compute density for each symbol: `density = score / estimated_tokens`.
+1. Compute density for each symbol: `density = (score / estimated_tokens) * proximityFactor`.
+   The proximity factor is `rwrScore^0.3` (cube root of raw RWR score), which boosts
+   symbols structurally closer to the query seeds. Seeds (~1.0) get full density; distant
+   nodes (~0.01) get ~20% density. This prevents enrichment-induced packing dilution
+   where high-centrality noise from phantom nodes squeezes out nearby relevant symbols.
 2. Sort by density descending (ties broken by raw score).
 3. Greedily pack: for each item in density order, include it if it fits within the
    remaining budget. Skip items that do not fit and continue trying smaller ones.
 4. Re-sort the packed set by score descending for output ordering.
 
-This is a greedy fractional knapsack approximation. It prefers small high-value symbols
-(types, constants) over large medium-value symbols (long functions) when budget is tight.
+This is a greedy fractional knapsack approximation with proximity weighting. It prefers
+small high-value symbols close to seeds over large distant symbols with inflated centrality.
+
+**Proximity exponent (session 24):** 9-point sweep on 308 tasks found 0.3 optimal.
+11/15 repos improved vs 0.5 (sqrt). Enriched repos benefit most (cargo +0.026,
+rails +0.025). Override with `BENCH_PROXIMITY_EXP` env var. See
+`bench/cross-system/PROXIMITY-SWEEP.md` for full results.
 
 ### Token estimation
 

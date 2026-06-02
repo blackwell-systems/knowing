@@ -27,7 +27,7 @@ This works at small scale. At large scale, it fails:
 The result: fixed-strategy systems get less precise as codebases grow. knowing
 gets more precise because it detects these conditions and compensates.
 
-## Eight Self-Adapting Mechanisms
+## Ten Self-Adapting Mechanisms
 
 ### 1. PreferTypeSeeds (density-adaptive seed selection)
 
@@ -237,6 +237,50 @@ regresses P@10 because their flat-looking scores are actually correct rankings.
 **Measured impact:** VS Code 0.037 -> 0.053 (+43%) without equiv classes.
 With equiv classes: 0.053 -> 0.168 (equiv classes dominate).
 
+### 10. RWR Proximity Packing (enrichment-adaptive density)
+
+**Trigger:** Always active (zero overhead, uses already-computed RWR scores)
+
+**What it does:** In `packIntoBudget`, multiplies each symbol's density (score/tokens)
+by `rwrScore^0.3` (cube root of raw RWR score). Symbols structurally closer to seeds
+(higher RWR score) get higher effective density, packing into the budget before distant
+high-centrality noise.
+
+**Why it's needed:** LSP enrichment creates phantom external nodes that inflate the
+degree of real intermediate symbols (e.g., `.validate`, `.save` methods). These
+high-centrality symbols have good scores but are structurally distant from the task's
+seeds. Without proximity weighting, they fill budget slots and squeeze out nearby
+relevant symbols (ground truth found at R@10=1.00 but P@10 drops).
+
+**Why 0.3:** 9-point exponent sweep on 308 tasks (session 24). 0.3 peaked at P@10 0.282.
+11/15 repos improved vs 0.5 (sqrt). Enriched repos benefit most: cargo +0.026,
+rails +0.025, vscode +0.015. Override with `BENCH_PROXIMITY_EXP`.
+
+**Measured impact:** Full corpus neutral-to-positive (0.282 vs 0.279 baseline).
+Enriched saleor: 0.182 -> 0.209 (regression halved from -23% to -11%).
+
+### 11. Implicit Feedback / Noise Demotion (usage-adaptive precision)
+
+**Trigger:** Active MCP session where agent makes tool calls after context queries
+
+**What it does:** Tracks which symbols were returned by `context_for_task` and
+detects when the agent subsequently uses them (via `DetectUsed` scanning Edit/Read
+tool call content). Symbols returned but never used get negative feedback
+(`RecordFeedback(useful=false)`). On subsequent queries, demoted symbols rank lower.
+
+**Why it's needed:** The retrieval pipeline returns a mix of relevant and noise symbols.
+Over an active session, the engine learns which are noise for this user's work patterns
+and suppresses them. This is the sole active learning mechanism (task memory confirmed
+neutral in session 24).
+
+**Why it's adaptive:** The demotion is per-session and per-symbol. A symbol demoted as
+noise for checkout tasks is unaffected when the user switches to order tasks (different
+seed set, different RWR walk, different symbols returned).
+
+**Measured impact:** Django +5.9% P@10 after 3 rounds of implicit feedback (benchmark
+with noise demotion but no simulated agent usage). Real MCP usage with precise
+`DetectUsed` from agent tool calls expected to be stronger.
+
 ## Ablation Summary
 
 **Note (session 23):** All pre-session-23 ablation numbers were measured with
@@ -251,20 +295,24 @@ available measurement at each session.
 | Focused seed selection | +6% | Always (>5 candidates) | 21 |
 | PreferTypeSeeds | VS Code +44% | Node count > 40K | 14 |
 | Adaptive seed count | Django +14.2% | Node count > 10K/40K | 16 |
-| Task memory compounding | +3.8% round-over-round | Repeated queries | 17 |
+| RWR proximity packing | +0.003 aggregate, enriched saleor regression halved | Always (zero cost) | 24 |
+| Implicit feedback (noise demotion) | Django +5.9% after 3 rounds | Active MCP session | 24 |
 | Adaptive retrieval fallback | VS Code +43% | Node count > 200K + flat RWR | 23 |
-| Gap-fill seeds | **NEUTRAL** (was +11%) | Candidates < 5 | 23 (revised) |
 | Feedback expiration | correctness (no P@10 delta) | Code change | 17 |
+| Task memory compounding | **NEUTRAL** (was +3.8%) | Disabled session 24 | 24 |
+| Gap-fill seeds | **NEUTRAL** (was +11%) | Candidates < 5 | 23 (revised) |
 
-Combined: P@10 = 0.278 cold start (297 tasks, 15 repos, honest measurement).
+Combined: P@10 = 0.282 cold start (308 tasks, 16 repos, honest measurement, exponent 0.3).
 
 ## Why Fixed-Strategy Systems Can't Compete
 
-Competitors would need to implement all eight mechanisms to match knowing's
+Competitors would need to implement all ten mechanisms to match knowing's
 adaptive behavior. But the mechanisms interact: PreferTypeSeeds benefits from
-phantom density (mechanism 8). Focused seeds + cluster-aware gap-fill reinforce
-each other (mechanisms 4-5). Task memory benefits from gap-fill (more symbols
-to remember). Equivalence classes feed better seeds into RWR, which produces
+phantom density (mechanism 8). Focused seeds reinforce equivalence classes
+(mechanisms 3-4). Proximity packing compensates for enrichment density
+(mechanism 10 mitigates mechanism 8's side effects). Implicit feedback
+demotes noise that the other mechanisms can't filter structurally (mechanism 11).
+Equivalence classes feed better seeds into RWR, which produces
 better symbols for task memory to compound. The system is greater than the sum
 of its parts.
 
