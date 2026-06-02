@@ -252,6 +252,7 @@ Embeddings as Channel 3, blended re-rank, call-chain seeding, hub dampening, BFS
 - **`BENCH_FOCUSED_SEEDS=0`**: disable focused seed selection (for A/B testing).
 - **`BENCH_IMPLICIT_FEEDBACK=1`**: enable task memory + implicit feedback (noise demotion) in benchmarks. Django: +5.9% P@10 peak at round 3.
 - **`BENCH_COMPOUND_ROUNDS=5`**: number of rounds for `TestCompounding` (default 5).
+- **`BENCH_LSP_EDGE_WEIGHT=0.3`**: weight multiplier for LSP-enriched edges in RWR (default 0.3). Attenuates enrichment-created edges to prevent centrality inflation of framework wiring symbols. Validated: enriched saleor 0.182->0.218, full corpus 0.280->0.281 (neutral/positive).
 - **`BENCH_FEEDBACK_WEIGHT=sqrt`**: confidence weighting mode for feedback scores. Options: `none` (raw score), `sqrt` (symmetric sqrt confidence, default), `linear` (steeper confidence), `asym` (full-strength positives, sqrt-weighted negatives only).
 
 ### MCP server flags

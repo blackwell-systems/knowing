@@ -45,6 +45,7 @@ All environment variables, CLI flags, and MCP server options in one place.
 | `BENCH_GAP_THRESHOLD` | 5 | Gap-fill activation threshold (seeds needed before gap-fill kicks in). |
 | `BENCH_FOCUSED_SEEDS` | on | Focused seed selection. Set to `0` to disable for A/B testing. |
 | `BENCH_PROXIMITY_EXP` | 0.3 | Proximity exponent for RWR packing (`density * rwrScore^exp`). Higher = stronger proximity preference. |
+| `BENCH_LSP_EDGE_WEIGHT` | 0.3 | Weight multiplier for LSP-enriched edges (`lsp_resolved` provenance) in RWR walk. Default 0.3 attenuates enrichment edges to prevent centrality inflation. Validated: enriched saleor +19.8%, full corpus neutral. |
 
 ### Implicit Feedback / Compounding
 

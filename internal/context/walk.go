@@ -186,6 +186,21 @@ var AdaptiveSeedCount bool
 // high-scoring singletons. Set via BENCH_COHERENCE_BONUS for experiments.
 var CoherenceBonus = 0.0
 
+// edgeWeight returns the RWR weight for an edge, accounting for both edge type
+// and provenance. LSP-enriched edges (provenance "lsp_resolved") are attenuated
+// by lspEdgeWeight() to prevent enrichment from inflating centrality of
+// framework wiring symbols above implementation symbols.
+func edgeWeight(e types.Edge) float64 {
+	w, ok := edgeWeights[e.EdgeType]
+	if !ok {
+		w = defaultEdgeWeight
+	}
+	if e.Provenance == "lsp_resolved" {
+		w *= lspEdgeWeight()
+	}
+	return w
+}
+
 // edgeWeights maps edge type strings to weight multipliers used during RWR iteration.
 // Higher weights cause more probability to flow along those edge types.
 var edgeWeights = map[string]float64{
@@ -533,17 +548,11 @@ func rwrIterate(seedVec map[types.Hash]float64, alpha float64, maxIter int, adjF
 			// Compute total edge weight for normalization.
 			totalWeight := 0.0
 			for _, e := range fromEdges {
-				w, ok := edgeWeights[e.EdgeType]
-				if !ok {
-					w = defaultEdgeWeight
-				}
+				w := edgeWeight(e)
 				totalWeight += w
 			}
 			for _, e := range toEdges {
-				w, ok := edgeWeights[e.EdgeType]
-				if !ok {
-					w = defaultEdgeWeight
-				}
+				w := edgeWeight(e)
 				totalWeight += w
 			}
 
@@ -555,10 +564,7 @@ func rwrIterate(seedVec map[types.Hash]float64, alpha float64, maxIter int, adjF
 				srcMod = modMap[node]
 			}
 			for _, e := range fromEdges {
-				w, ok := edgeWeights[e.EdgeType]
-				if !ok {
-					w = defaultEdgeWeight
-				}
+				w := edgeWeight(e)
 				target := e.TargetHash
 				if target == node {
 					target = e.SourceHash
@@ -569,10 +575,7 @@ func rwrIterate(seedVec map[types.Hash]float64, alpha float64, maxIter int, adjF
 				next[target] += (1 - alpha) * nodeProb * (w / totalWeight)
 			}
 			for _, e := range toEdges {
-				w, ok := edgeWeights[e.EdgeType]
-				if !ok {
-					w = defaultEdgeWeight
-				}
+				w := edgeWeight(e)
 				target := e.TargetHash
 				if target == node {
 					target = e.SourceHash

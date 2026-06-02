@@ -140,6 +140,20 @@ func proximityExponent() float64 {
 	return 0.3
 }
 
+// lspEdgeWeight returns the weight multiplier for LSP-enriched edges.
+// Default 1.0 (no attenuation). Lower values reduce the influence of
+// LSP-discovered edges in RWR, preventing enrichment from inflating
+// centrality of framework wiring symbols above implementation symbols.
+// Override with BENCH_LSP_EDGE_WEIGHT for sweep testing.
+func lspEdgeWeight() float64 {
+	if v := os.Getenv("BENCH_LSP_EDGE_WEIGHT"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 {
+			return f
+		}
+	}
+	return 0.3
+}
+
 // adaptiveProximityExponent adjusts the proximity exponent based on the
 // phantom-to-real node ratio in the packing candidates. Higher phantom ratios
 // need more aggressive proximity preference to prevent phantoms from filling
