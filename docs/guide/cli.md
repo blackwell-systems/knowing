@@ -1326,6 +1326,75 @@ Persistent cache is automatically disabled for fresh results.
 
 ---
 
+### debug-vocab
+
+Show learned vocabulary associations from agent usage.
+
+```bash
+knowing debug-vocab [-db path] [-keyword filter] [-min-count N] [-top N]
+```
+
+**Flags:**
+- `-keyword`: filter by keyword (empty = show all)
+- `-min-count`: minimum observation count to display (default 1)
+- `-top`: maximum associations to display (default 50)
+
+**Output:** keyword -> symbol mappings with observation count.
+
+---
+
+### debug-feedback
+
+Show implicit feedback records for symbols.
+
+```bash
+knowing debug-feedback [-db path] [-symbol name] [-min-count N] [-top N]
+```
+
+**Flags:**
+- `-symbol`: filter by symbol name (substring match)
+- `-min-count`: minimum total feedback count (default 1)
+- `-top`: maximum symbols to display (default 50)
+
+**Output:** per-symbol positive/negative counts, score, cluster count.
+Per-cluster breakdown when filtering a specific symbol.
+
+---
+
+### debug-equiv
+
+Show which equivalence classes match a task description.
+
+```bash
+knowing debug-equiv -task "description" [-db path] [repo-path]
+```
+
+**Flags:**
+- `-task` (required): task description to match
+
+**Output:** matched classes from all three sources (hand-curated, graph-derived,
+learned vocab), with phrases, targets, weight, and language scope. Also shows
+extracted keywords and detected repo language.
+
+---
+
+### debug-pack
+
+Show packing decisions for a task.
+
+```bash
+knowing debug-pack -task "description" [-db path] [-budget N] [repo-path]
+```
+
+**Flags:**
+- `-task` (required): task description
+- `-budget`: token budget (default 5000)
+
+**Output:** packed symbols with density ranking, token cost, RWR proximity score,
+file distribution, and budget utilization.
+
+---
+
 ### fsck
 
 Check the integrity of the knowledge graph database.

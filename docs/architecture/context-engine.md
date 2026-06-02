@@ -2,7 +2,7 @@
 
 The context packing subsystem (`internal/context/`) produces token-budgeted, graph-ranked context blocks for agent consumption. It answers: "given a task or a set of changed files, which symbols from the knowledge graph should an agent see?" Three entry points exist: task-based (`ForTask`, keyword search from a description), file-based (`ForFiles`, blast-radius expansion from changed files), and PR-based (`ForPR`, RWR from all symbols in changed files). A fourth entry point, `ExplainSymbol`, runs the full retrieval pipeline and returns a detailed scoring breakdown for a specific symbol.
 
-**Current performance:** P@10 = 0.278 cold start (15 repos, 297 tasks, 8 languages, honest: no task memory, no embeddings). 3.20x vs codegraph, 5.05x vs GitNexus, 5.35x vs Gortex, 18.5x vs grep. 263 framework equivalence classes with forced injection + adaptive retrieval for massive repos. Embeddings confirmed neutral (session 23). Task memory disabled in benchmarks (session 23, was contaminating measurements). Query latency 2ms on k8s (with adjacency cache). P@10 is reachability-determined (parameter sweep confirmed) + vocabulary-determined (framework equiv classes bridge the gap).
+**Current performance:** P@10 = 0.281 cold start (16 repos, 308 tasks, 8 languages, honest: no task memory, no embeddings). 12 self-adapting mechanisms. LSP edge attenuation (0.3x for lsp_resolved). Per-cluster implicit feedback with vocabulary expansion from usage. FTS fallback decomposition for compound keywords. Query latency 2ms on k8s (with adjacency cache). P@10 is reachability-determined (parameter sweep confirmed) + vocabulary-determined (framework equiv classes + learned vocab bridge the gap).
 
 ## Architecture
 
@@ -121,6 +121,10 @@ The universal seeds system (`internal/context/universal_seeds.go`) provides 63 d
 ## Graph-Derived Aliases
 
 The graph alias system (`internal/context/graph_aliases.go`) auto-generates equivalence classes by analyzing caller/callee symbol names in the graph. It selects the top-10 tiered candidates and assigns weight 0.7. This provides a zero-configuration fallback for repos that lack hand-curated seed mappings, deriving vocabulary from actual code relationships rather than static lists.
+
+The vocabulary expansion system (`internal/store/vocab.go`, `vocab_associations` table) learns keyword -> symbol associations from agent usage. When an agent uses a symbol after a `context_for_task` query, the association is recorded. After 2+ observations, the association becomes a learned equivalence class with forced injection (same treatment as framework classes). Per-cluster scoping (migration 020) prevents cross-task interference. The FTS fallback decomposition (session 25) decomposes compound keywords into symbol_name-targeted terms when primary FTS returns 0 results.
+
+LSP edge attenuation: edges with `lsp_resolved` provenance receive 0.3x weight in the RWR walk (default). This prevents enrichment from inflating the centrality of framework wiring symbols above implementation symbols. Override with `BENCH_LSP_EDGE_WEIGHT`.
 
 ## Implicit Feedback (Noise Demotion)
 
