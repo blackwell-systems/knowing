@@ -164,11 +164,13 @@ knowing ships **263 equivalence classes** organized across 30 per-framework file
 
 Each class has a `Lang` field that restricts it to repos of that language, preventing cross-language false positives (e.g., Go router classes won't fire on C# repos). `detectRepoLanguage()` determines the primary language from node QN patterns.
 
-At runtime, framework-specific classes with high confidence (weight >= 0.9, source "framework") bypass RWR scoring entirely and inject directly into the ranked results. This is the **forced injection** mechanism that solves the vocabulary gap: when the task says "custom validator" but the symbol is `EmailValidator`, BM25 can't bridge the gap but the equiv class maps the concept directly to the symbol. The injection happens post-RWR, pre-packing, ensuring framework-relevant symbols appear in the output regardless of graph walk results.
+At runtime, framework-specific classes with high confidence (weight >= 0.9, source "framework") and learned vocabulary associations (source "learned") bypass RWR scoring entirely and inject directly into the ranked results. This is the **forced injection** mechanism that solves the vocabulary gap: when the task says "custom validator" but the symbol is `EmailValidator`, BM25 can't bridge the gap but the equiv class maps the concept directly to the symbol. The injection happens post-RWR, pre-packing, ensuring relevant symbols appear in the output regardless of graph walk results.
 
-**Defensibility criterion:** Every framework equiv class must pass: "would this mapping appear in the framework's official documentation or tutorials?" Classes for application-specific internals are rejected as curve-fitting.
+**Learned vocabulary expansion (session 25):** When an agent uses a symbol after a `context_for_task` query, the keyword -> symbol association is recorded in `vocab_associations`. After 2+ observations, the association becomes a learned equivalence class with forced injection. Per-cluster scoping (keyword_cluster on feedback table) prevents cross-task interference. This is the primary active learning mechanism.
 
-**Measured impact (session 23):** P@10 0.176 -> 0.278 (+57%). Terraform +238%, Django +126%, Kafka +81%, VS Code +354%.
+**Defensibility criterion:** Every framework equiv class must pass: "would this mapping appear in the framework's official documentation or tutorials?" Classes for application-specific internals are rejected as curve-fitting. Learned vocab classes are validated by repeated agent usage (count >= 2 threshold).
+
+**Measured impact (session 23):** P@10 0.176 -> 0.278 (+57%). Terraform +238%, Django +126%, Kafka +81%, VS Code +354%. Session 25 added FTS fallback decomposition (+4.6% Django), LSP edge attenuation (enriched saleor +19.8%), and per-cluster feedback (R@10 +5.2%, MRR +12.6% compounding). Current: P@10 = 0.281.
 
 ## Density-Adaptive Retrieval
 
