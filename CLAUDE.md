@@ -237,6 +237,8 @@ Embeddings as Channel 3, blended re-rank, call-chain seeding, hub dampening, BFS
 - **`go run ./bench/cross-system/cmd/validate-fixtures`**: verifies ground truth symbols exist in the graph DB.
 - **`BENCH_DEBUG_ZEROS=1`**: env var for the benchmark. Logs ground truth + returned top 10 for every zero-scoring task.
 - **`knowing debug-vocab -db <path> [-keyword filter] [-min-count N] [-top N]`**: shows learned vocabulary associations from agent usage. Filter by keyword, minimum observation count. Use to inspect what the system has learned and debug false associations.
+- **`knowing debug-feedback -db <path> [-symbol name] [-min-count N] [-top N]`**: shows feedback records for symbols: positive/negative counts, per-cluster breakdown, score. Use to diagnose why a symbol is being demoted or boosted.
+- **`knowing debug-equiv -task "description" -db <path> [repo-path]`**: shows which equivalence classes match a task description: hand-curated, graph-derived, and learned vocab sources. Use to debug equiv class matching.
 
 ### Enrichment debugging
 - **`knowing enrich resolver [-db path] <repo>`**: runs in-process resolvers retroactively on an existing DB. Adds resolver_resolved edges without re-extracting.

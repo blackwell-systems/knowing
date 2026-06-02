@@ -139,3 +139,27 @@ func proximityExponent() float64 {
 	}
 	return 0.3
 }
+
+// adaptiveProximityExponent adjusts the proximity exponent based on the
+// phantom-to-real node ratio in the packing candidates. Higher phantom ratios
+// need more aggressive proximity preference to prevent phantoms from filling
+// budget slots.
+//
+// Phantom ratio 0 (no phantoms): use default 0.3
+// Phantom ratio 1 (equal phantoms): use 0.4
+// Phantom ratio 2+ (extreme, e.g. saleor): use 0.5-0.7
+//
+// Formula: clamp(0.3 + 0.2 * min(phantomRatio, 2.0), 0.3, 0.7)
+// BENCH_PROXIMITY_EXP overrides this completely when set.
+func adaptiveProximityExponent(phantomRatio float64) float64 {
+	if v := os.Getenv("BENCH_PROXIMITY_EXP"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
+			return f
+		}
+	}
+	exp := 0.3 + 0.2*phantomRatio
+	if exp > 0.7 {
+		exp = 0.7
+	}
+	return exp
+}

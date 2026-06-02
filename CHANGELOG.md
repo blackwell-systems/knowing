@@ -14,6 +14,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Change-aware scoring** (session 25): `commitRecencyScore` uses `Node.LastCommitAt` from git blame: +0.05 (day), +0.03 (week), +0.01 (month). Mechanism #12 in adaptive retrieval. Neutral on benchmark (no blame data); activates in production.
 - **Configuration reference** (session 25): `docs/guide/configuration.md` with all env vars, CLI flags, MCP server options, and vocabulary expansion documentation.
 - **debug-seeds aligned with production**: FTS fallback decomposition visible in Step 3 output.
+- **`debug-feedback` CLI** (session 25): show feedback records for symbols with positive/negative counts, per-cluster breakdown, and score.
+- **`debug-equiv` CLI** (session 25): show which equivalence classes match a task description from all three sources (hand-curated, graph-derived, learned vocab).
+- **`debug-vocab` CLI** (session 25): show learned keyword -> symbol associations with count and keyword filter.
+- **Adaptive proximity exponent** (session 25): `adaptiveProximityExponent` adjusts packing exponent based on phantom-to-real node ratio in candidates. Normal repos: 0.3. Extreme phantom ratios (>2x): up to 0.7. Zero cost (computed from packing input). Fixes enrichment regression on repos like saleor without needing per-repo configuration.
 
 ### Fixed
 

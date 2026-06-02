@@ -2258,6 +2258,19 @@ func packIntoBudget(ranked []RankedSymbol, budget int, format string) *ContextBl
 		return block
 	}
 
+	// Compute phantom ratio for adaptive proximity exponent.
+	phantomCount := 0
+	for _, sym := range ranked {
+		if sym.Node.Kind == "external" || strings.HasPrefix(sym.Node.QualifiedName, "external://") || strings.HasPrefix(sym.Node.QualifiedName, "stdlib://") {
+			phantomCount++
+		}
+	}
+	phantomRatio := 0.0
+	realCount := len(ranked) - phantomCount
+	if realCount > 0 {
+		phantomRatio = float64(phantomCount) / float64(realCount)
+	}
+
 	// Compute density (score per token) with RWR proximity boost.
 	// Symbols with higher raw RWR scores are closer to seeds in the graph.
 	// Boosting their packing density ensures structurally proximate symbols
@@ -2277,11 +2290,12 @@ func packIntoBudget(ranked []RankedSymbol, budget int, format string) *ContextBl
 		baseDensity := sym.Score / float64(cost)
 		// RWR proximity boost: rwrScore^exponent smooths the decay curve.
 		// Seeds (~1.0) get full density, distant nodes (~0.01) get reduced density.
-		// Exponent controls aggressiveness: 0.5=sqrt (default), 0.3=gentle, 0.7=aggressive, 1.0=linear.
-		// Sweep via BENCH_PROXIMITY_EXP env var.
+		// Adaptive exponent: higher phantom ratio -> higher exponent (more aggressive
+		// proximity preference to push phantoms out of budget slots).
+		// Default 0.3 for normal repos; up to 0.7 for extreme phantom ratios (>2x).
 		proximityFactor := 1.0
 		if sym.RWRScore > 0 {
-			proximityFactor = math.Pow(sym.RWRScore, proximityExponent())
+			proximityFactor = math.Pow(sym.RWRScore, adaptiveProximityExponent(phantomRatio))
 		}
 		items[i] = densityItem{
 			index:   i,

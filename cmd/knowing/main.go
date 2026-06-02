@@ -151,6 +151,10 @@ func run(args []string) error {
 		return cmdDebugWalk(args[1:])
 	case "debug-vocab":
 		return cmdDebugVocab(args[1:])
+	case "debug-feedback":
+		return cmdDebugFeedback(args[1:])
+	case "debug-equiv":
+		return cmdDebugEquiv(args[1:])
 	case "bench-task":
 		return cmdBenchTask(args[1:])
 	default:

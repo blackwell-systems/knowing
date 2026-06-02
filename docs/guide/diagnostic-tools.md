@@ -81,6 +81,56 @@ knowing bench-task -task "terraform-hard-004" [-corpus path] [-budget N]
 running the full benchmark. Essential for the zero-task audit cycle:
 audit zeros -> add equiv classes -> verify with bench-task -> run repo.
 
+### debug-feedback: implicit feedback inspector
+
+Shows feedback records for a symbol: positive/negative counts, per-cluster
+breakdown, and score. Diagnose why a symbol is being demoted or boosted.
+
+```bash
+knowing debug-feedback -db <path>                     # all feedback
+knowing debug-feedback -db <path> -symbol QuerySet     # filter by symbol name
+knowing debug-feedback -db <path> -min-count 3         # only high-activity symbols
+```
+
+**Output:**
+```
+=== Feedback Records ===
+Filter: symbol="QuerySet"  min-count=1
+
+SYMBOL                                              +     -  TOTAL  SCORE  CLUSTERS
+------                                              --    --  -----  -----  --------
+QuerySet.annotate                                    3     5      8   0.38         2
+QuerySet.filter                                      7     2      9   0.78         3
+
+=== Per-Cluster Breakdown ===
+CLUSTER                                                             +     -  TOTAL
+-------                                                             --    --  -----
+a1b2c3d4e5f6...                                                      2     3      5
+f7e8d9c0b1a2...                                                      1     2      3
+```
+
+**Use when:** Understanding why a symbol ranks differently across sessions.
+Diagnosing cross-task interference (fixed by per-cluster scoping).
+
+### debug-equiv: equivalence class inspector
+
+Shows which equivalence classes match a task description, from all three
+sources: hand-curated, graph-derived, and learned vocabulary associations.
+
+```bash
+knowing debug-equiv -task "checkout flow" -db <path> <repo>
+```
+
+**Output sections:**
+1. Source 1: Hand-curated matches (concept, phrases, targets, weight, language)
+2. Source 2: Graph-derived (info about tiered seeds feeding graph alias generation)
+3. Source 3: Learned vocab associations (keyword -> symbol with count)
+4. Keywords extracted (primary, all, repo language)
+
+**Use when:** Debugging why an equiv class did or didn't fire. Understanding
+which source (curated vs graph vs learned) contributed specific symbols.
+Essential for the zero-task audit cycle.
+
 ### debug-vocab: vocabulary association inspector
 
 Shows learned keyword -> symbol associations from the `vocab_associations`
