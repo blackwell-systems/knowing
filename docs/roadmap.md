@@ -69,7 +69,7 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 | 20 | ~~Package-path constrained seed selection~~ | **Tested session 25: Django 0.203 -> 0.197 (harmful).** Re-ranking tiered results by path-term overlap improves recall on target tasks (easy-200: 0% -> 100% recall, medium-102: 0% -> 50%) but over-promotes path-matching nodes that aren't relevant on other tasks. The existing path channel (weight 1.5) already captures path signal; adding a second path boost to tiered results is redundant and noisy. | **Tested** | Negative |
 | 21 | ~~`debug-feedback` CLI~~ | **SHIPPED session 25.** Shows feedback records per symbol: positive/negative counts, per-cluster breakdown, score. Filters by symbol name and min count. | **Shipped** | Observability |
 | 22 | ~~`debug-equiv` CLI~~ | **SHIPPED session 25.** Shows which equivalence classes match a task: hand-curated, graph-derived, learned vocab. Shows matched phrases, targets, weight, language scope, and extracted keywords. | **Shipped** | Observability |
-| 23 | **`debug-pack` CLI** | Show packing decisions: density ranking, proximity boost, budget allocation, which symbols were included/excluded and why. "Why did symbol X get packed but Y didn't?" | Low | Observability |
+| 23 | ~~`debug-pack` CLI~~ | **SHIPPED session 25.** Shows packed symbols with density ranking, token cost, RWR proximity, score, file distribution, budget utilization. | **Shipped** | Observability |
 
 ### Shipped (sessions 23-25)
 

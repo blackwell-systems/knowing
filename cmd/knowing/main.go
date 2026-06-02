@@ -155,6 +155,8 @@ func run(args []string) error {
 		return cmdDebugFeedback(args[1:])
 	case "debug-equiv":
 		return cmdDebugEquiv(args[1:])
+	case "debug-pack":
+		return cmdDebugPack(args[1:])
 	case "bench-task":
 		return cmdBenchTask(args[1:])
 	default:

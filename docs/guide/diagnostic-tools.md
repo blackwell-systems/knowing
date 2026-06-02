@@ -131,6 +131,42 @@ knowing debug-equiv -task "checkout flow" -db <path> <repo>
 which source (curated vs graph vs learned) contributed specific symbols.
 Essential for the zero-task audit cycle.
 
+### debug-pack: packing decision inspector
+
+Shows which symbols were packed into the token budget and why. Displays
+density ranking, token cost, proximity factor, and file distribution.
+
+```bash
+knowing debug-pack -task "checkout flow" -db <path> <repo>
+knowing debug-pack -task "checkout flow" -db <path> -budget 3000 <repo>
+```
+
+**Output:**
+```
+=== Packing Debug ===
+Task: "checkout flow"
+Budget: 5000 tokens
+Packed: 42 symbols, 4891 tokens
+PackRoot: a1b2c3d4e5f6...
+
+--- Packed Symbols (by density rank) ---
+RANK  SYMBOL                                         SCORE   COST  DENSTY    RWR
+----  ------                                         -----   ----  ------    ---
+   1  Order                                          0.903     85  0.0106  0.950
+   2  Order.can_cancel                               0.845     42  0.0201  0.870
+   3  CheckoutLine                                   0.761     63  0.0121  0.820
+
+Budget: 4891/5000 used (109 remaining, 98% utilization)
+
+File distribution (8 files):
+  12  order/models.py
+   8  checkout/views.py
+```
+
+**Use when:** Understanding why a specific symbol was included or excluded.
+Diagnosing budget allocation issues. Comparing packing decisions between
+enriched and unenriched DBs.
+
 ### debug-vocab: vocabulary association inspector
 
 Shows learned keyword -> symbol associations from the `vocab_associations`
