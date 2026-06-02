@@ -17,7 +17,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`debug-feedback` CLI** (session 25): show feedback records for symbols with positive/negative counts, per-cluster breakdown, and score.
 - **`debug-equiv` CLI** (session 25): show which equivalence classes match a task description from all three sources (hand-curated, graph-derived, learned vocab).
 - **`debug-vocab` CLI** (session 25): show learned keyword -> symbol associations with count and keyword filter.
-- **Adaptive proximity exponent** (session 25): `adaptiveProximityExponent` adjusts packing exponent based on phantom-to-real node ratio in candidates. Normal repos: 0.3. Extreme phantom ratios (>2x): up to 0.7. Zero cost (computed from packing input). Fixes enrichment regression on repos like saleor without needing per-repo configuration.
+- **Adaptive proximity exponent** (session 25): `adaptiveProximityExponent` adjusts packing exponent based on phantom-to-real node ratio in candidates. Normal repos: 0.3. Extreme phantom ratios (>2x): up to 0.7. Zero cost (computed from packing input).
+- **LSP edge weight attenuation** (session 25): `lsp_resolved` provenance edges attenuated to 0.3x weight in RWR walk. Prevents enrichment from inflating centrality of framework wiring symbols above implementation symbols. 4-point sweep on enriched saleor: 0.3=0.218 (+19.8%), 1.0=0.182 (baseline). Full corpus: 0.283, 0.279 (neutral). Default 0.3. Override with `BENCH_LSP_EDGE_WEIGHT`.
 
 ### Fixed
 
