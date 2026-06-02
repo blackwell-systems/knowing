@@ -43,6 +43,12 @@ participates in blast radius traversal and context ranking.
 | `co_tested_with` | Symbols referenced from the same test file | co_test_inference | 0.6 | Indexer (test file analysis) | No | 0.5 |
 | `type_hint_of` | Function parameter type annotation | ast_inferred | 0.7 | Go, Java, TypeScript, Python extractors | No | 0.5 |
 
+**Note on RWR weights:** The weights shown are base weights by edge type. Edges with
+`lsp_resolved` provenance receive an additional 0.3x multiplier (session 25), reducing
+their effective RWR weight to prevent enrichment from inflating framework wiring symbol
+centrality. `contains` and `member_of` have weight 0.0 in the walk (excluded from BFS
+frontier expansion); they are used by path seeding directly.
+
 ## Static Edge Types
 
 ### `calls`
