@@ -1,6 +1,6 @@
 # FEATURES.md -- Comprehensive Feature Dump for AI Reference
 
-Generated: 2026-05-15 (updated: 2026-05-27, features 77-152 added previously; features 153-175 added: embedding gap-fill seeds, knowing enrich embeddings, brute-force vector search from SQLite, parallel benchmark harness, GraphNodeCount per-engine field, nomic-embed-text default model, BENCH_GAP_THRESHOLD, round 2 per-task logging, spark-java fixtures expanded, two-phase gopls warmup, kubernetes/terraform enrichment results, caddy/fastapi/ocelot corpus repos, skip test/generated in edge upgrade, package-sorted edges, RealNodeCount, corpus expansion 14 repos/277 tasks/8 languages, task memory compounding, platform deployment, Makefile targets, similarity OOM fix, adaptive retrieval architecture doc)
+Generated: 2026-05-15 (updated: 2026-06-01, features 77-152 added previously; features 153-175 added session 17-24; features 176-184 added session 25: FTS fallback decomposition, per-cluster implicit feedback, vocabulary expansion from usage, change-aware scoring, LSP edge weight attenuation, adaptive proximity exponent, debug-vocab/debug-feedback/debug-equiv/debug-pack CLI tools, saleor corpus repo, corpus expansion 16 repos/308 tasks)
 Source: code inspection of all Go files across internal/, cmd/, and config
 Repo: github.com/blackwell-systems/knowing
 
@@ -811,6 +811,7 @@ Repo: github.com/blackwell-systems/knowing
 - **Entry point:** `task_memory.go` in `internal/context/`
 - **Migration:** `008_task_memory.sql` (creates `task_memory` table with columns: keywords, symbol_hash, score, timestamp)
 - **What it does:** Records the top-5 symbols from each `context_for_task` call with boost score `0.5 + score * 0.4`. On subsequent calls, recall matches keywords against stored entries with a 7-day linear decay. Matched symbols receive a boost added to the `FeedbackBoost` channel at 0.3x scale. Persists across MCP server restarts via SQLite, so quality compounds with usage over time.
+- **Status:** Currently disabled (session 24). Task memory was found to contaminate benchmark measurements (session 23: 26K accumulated entries in terraform alone inflated P@10). Replaced by vocabulary expansion (Feature 179) which learns keyword-to-symbol associations without the compounding bias. The table and infrastructure remain for future use.
 - **Why it matters:** Provides passive learning from agent behavior. Symbols that were relevant to similar tasks in the past surface higher in future queries, without requiring explicit agent feedback. Because it persists in SQLite, the system gets smarter across sessions, not just within a single process lifetime.
 
 ### 67. Universal Equivalence Classes
@@ -839,7 +840,7 @@ Repo: github.com/blackwell-systems/knowing
 
 - **Package(s):** `internal/mcp`
 - **Entry point:** `handleExplainSymbol` in `internal/mcp/context_handlers.go`
-- **What it does:** MCP equivalent of the `knowing why` CLI command. Given a task description and symbol name, runs the full retrieval pipeline and returns a Markdown-formatted scoring breakdown: seed channel/tier, RWR score, HITS authority/hub, blast radius, confidence, recency, distance, feedback weight, session boost, and equivalence class matches.
+- **What it does:** MCP equivalent of the `knowing why` CLI command. Given a task description and symbol name, runs the full retrieval pipeline and returns a Markdown-formatted scoring breakdown: seed channel/tier, RWR score, HITS authority/hub, blast radius, confidence, recency, distance, feedback weight, session boost, commit recency, and equivalence class matches.
 - **Parameters:** `task_description` (required), `symbol` (required).
 - **Why it matters:** Allows agents to programmatically inspect ranking behavior without invoking the CLI.
 
@@ -847,7 +848,7 @@ Repo: github.com/blackwell-systems/knowing
 
 - **Package(s):** `cmd/knowing`
 - **Entry point:** `knowing why -task "<task>" -symbol "<symbol>"`
-- **What it does:** Runs the full retrieval pipeline for a given task description, then isolates and displays the scoring breakdown for one symbol. Shows: whether the symbol was a seed (and which channel/tier), RWR score, HITS authority/hub scores, blast radius (caller proxy and max), confidence, recency, distance, feedback weight, session boost, and equivalence class matches.
+- **What it does:** Runs the full retrieval pipeline for a given task description, then isolates and displays the scoring breakdown for one symbol. Shows: whether the symbol was a seed (and which channel/tier), RWR score, HITS authority/hub scores, blast radius (caller proxy and max), confidence, recency, distance, feedback weight, session boost, commit recency, and equivalence class matches.
 - **Inputs:** Task description (`-task`), symbol name (`-symbol` or positional), optional database path (`-db`).
 - **Outputs:** Human-readable scoring breakdown printed to stdout.
 - **Why it matters:** Every retrieval system needs an explain mode. Without it, ranking is a black box and bad recommendations cannot be debugged. This makes the pipeline inspectable and supports iterative tuning of equivalence classes, feedback, and scoring weights.
@@ -1225,9 +1226,9 @@ Repo: github.com/blackwell-systems/knowing
 
 - **Package(s):** `internal/context`
 - **Entry point:** `NewImplicitFeedback()` in `internal/context/implicit.go`
-- **What it does:** Tracks symbols returned by `context_for_task` and detects when the agent subsequently uses them (in Edit/Write tool calls, file references). When a returned symbol is referenced within a 10-minute attribution window, positive feedback is auto-recorded. Symbols that expire without being used receive negative feedback. Uses name-based content matching: extracts identifiers from tool call content and matches against a lowercase name index of pending symbols.
+- **What it does:** Tracks symbols returned by `context_for_task` and detects when the agent subsequently uses them (in Edit/Write tool calls, file references). When a returned symbol is referenced within a 10-minute attribution window, positive feedback is auto-recorded. Symbols that expire without being used receive negative feedback. Uses name-based content matching: extracts identifiers from tool call content and matches against a lowercase name index of pending symbols. Session 25 added per-cluster scoping: feedback records include a `keyword_cluster` column so noise demotion applies only within the originating task cluster, preventing cross-task interference.
 - **Key methods:** `RegisterReturned` (record returned symbols), `DetectUsed` (scan content for references), `Expire` (negative signal for unused), `FlushUnused` (force cycle boundary).
-- **Why it matters:** Closes the feedback loop without requiring explicit agent cooperation. The agent just uses context naturally, and the system learns which symbols were actually useful. The asymmetric signal (positive for used, negative for expired) is what shifts rankings over time.
+- **Why it matters:** Closes the feedback loop without requiring explicit agent cooperation. The agent just uses context naturally, and the system learns which symbols were actually useful. The asymmetric signal (positive for used, negative for expired) is what shifts rankings over time. Per-cluster scoping (session 25) prevents a symbol demoted in one task context from being suppressed in unrelated tasks.
 
 ### 118. Zero-Config MCP Onboarding
 
@@ -1254,7 +1255,7 @@ Repo: github.com/blackwell-systems/knowing
 
 - **Package(s):** `bench/cross-system/adapters/`
 - **Entry point:** `adapters/registry.go` (adapter registration), `adapters/adapter.go` (interface definition)
-- **What it does:** Pluggable adapter interface for comparing retrieval systems on the same benchmark corpus (237 tasks, 12 repos, 7 languages). Seven adapters registered: `knowing` (primary system), `grep` (baseline), `aider` (aider-chat retrieval), `gortex` (gortex retrieval), `codegraph` (CodeGraph), `gitnexus` (GitNexus), `cgc` (Codebase Graph Context). Each adapter implements a common interface that accepts a task description and returns ranked symbol results. Supports parallel execution via `BENCH_PARALLEL=1` (4x speedup, ~5 min vs 20 min).
+- **What it does:** Pluggable adapter interface for comparing retrieval systems on the same benchmark corpus (308 tasks, 16 repos, 8 languages). Seven adapters registered: `knowing` (primary system), `grep` (baseline), `aider` (aider-chat retrieval), `gortex` (gortex retrieval), `codegraph` (CodeGraph), `gitnexus` (GitNexus), `cgc` (Codebase Graph Context). Each adapter implements a common interface that accepts a task description and returns ranked symbol results. Supports parallel execution via `BENCH_PARALLEL=1` (4x speedup, ~5 min vs 20 min).
 - **Why it matters:** Enables apples-to-apples comparison of retrieval quality (P@K, NDCG, MRR) across competing approaches using identical ground truth and normalization. The adapter pattern means adding a new system for comparison is a single file addition.
 
 ### 122. Enterprise-Scale Multi-Module LSP Enrichment
@@ -1657,16 +1658,17 @@ Repo: github.com/blackwell-systems/knowing
 - **What it does:** Returns the count of non-phantom nodes via a JOIN against the files table. Phantom nodes (created by enrichment for external/stdlib targets) are excluded. This provides the "real" graph size for density-adaptive decisions. Tested but ultimately not used for PreferTypeSeeds threshold (phantom nodes are a valid density signal because enrichment edges make the graph genuinely denser).
 - **Dependencies:** None beyond the store.
 
-### 170. Corpus Expansion (12 Repos, 237 Tasks, 7 Languages)
+### 170. Corpus Expansion (16 Repos, 308 Tasks, 8 Languages)
 
 - **Package(s):** `bench/cross-system`
-- **What it does:** Expanded the benchmark corpus from 9 repos / 167 tasks / 6 languages to 12 repos / 237 tasks / 7 languages. New repos: Caddy (Go), FastAPI (Python), Ocelot (C#). Spark-Java expanded from 5 to 20 tasks. The corpus now covers: Go (Kubernetes, Terraform, Caddy), Python (Django, Flask, FastAPI), TypeScript (VS Code), Java (Kafka, Spark-Java), Rust (Cargo), C# (Ocelot).
-- **Why it matters:** Larger, more diverse corpus reduces the chance of overfitting to a specific language or project structure. 237 tasks provides higher statistical power for detecting P@10 changes.
+- **What it does:** Expanded the benchmark corpus from 9 repos / 167 tasks / 6 languages to 16 repos / 308 tasks / 8 languages. Added repos include: Caddy (Go), FastAPI (Python), Ocelot (C#), Saleor (Python), Hugo (Go), Jekyll (Ruby), ripgrep (Rust). Spark-Java expanded from 5 to 20 tasks. The corpus now covers: Go (Kubernetes, Terraform, Caddy, Hugo), Python (Django, Flask, FastAPI, Saleor), TypeScript (VS Code), Java (Kafka, Spark-Java), Rust (Cargo, ripgrep), C# (Ocelot), Ruby (Jekyll).
+- **Why it matters:** Larger, more diverse corpus reduces the chance of overfitting to a specific language or project structure. 308 tasks provides higher statistical power for detecting P@10 changes.
 
 ### 171. Task Memory Compounding Quantified
 
 - **Package(s):** `bench/cross-system`
 - **What it does:** The benchmark harness runs two rounds: Round 1 (cold start) and Round 2 (warm, with task memory from Round 1). The difference measures passive learning from agent behavior. Results: +11.5% P@10, +15.0% R@10 from Round 1 to Round 2. This quantifies the value of Feature 66 (Passive Task Memory) on a controlled benchmark.
+- **Status:** Historical measurement. Task memory is now disabled (session 24) due to benchmark contamination (session 23). The compounding effect was real but inflated all A/B comparisons. Vocabulary expansion (Feature 179) replaces this with a more targeted learning mechanism.
 - **Why it matters:** Provides empirical evidence that the system gets smarter with use, without any explicit feedback or configuration.
 
 ### 172. Platform Deployment (DEPLOY.md, deploy.sh)
@@ -1691,8 +1693,69 @@ Repo: github.com/blackwell-systems/knowing
 ### 175. Adaptive Retrieval Architecture Doc
 
 - **Package(s):** `docs/architecture/adaptive-retrieval.md`
-- **What it does:** Documents all 8 self-adapting mechanisms in the retrieval pipeline: (1) PreferTypeSeeds on dense graphs (>40K nodes), (2) adaptive seed count (>40K: 25, >10K: 20, default 15), (3) equivalence classes (vocabulary bridging), (4) focused seed selection (package-path clustering), (5) cluster-aware gap-fill (embedding seeds filtered to dominant package), (6) passive task memory (session compounding), (7) Merkleized feedback expiration, (8) LSP enrichment interaction. Includes an ablation table showing the contribution of each mechanism.
+- **What it does:** Documents all 12 self-adapting mechanisms in the retrieval pipeline: (1) PreferTypeSeeds on dense graphs (>40K nodes), (2) adaptive seed count (>40K: 25, >10K: 20, default 15), (3) equivalence classes (vocabulary bridging), (4) focused seed selection (package-path clustering), (5) cluster-aware gap-fill (embedding seeds filtered to dominant package), (6) passive task memory (session compounding, currently disabled), (7) Merkleized feedback expiration, (8) LSP enrichment interaction, (9) FTS fallback decomposition (compound keyword splitting), (10) RWR proximity packing (adaptive exponent from phantom ratio), (11) implicit feedback with per-cluster scoping, (12) change-aware scoring (commit recency from git blame). Includes an ablation table showing the contribution of each mechanism.
 - **Why it matters:** Central reference for how the engine adapts to different graph sizes and densities without manual configuration.
+
+### 176. FTS Fallback Decomposition
+
+- **Package(s):** `internal/context`
+- **What it does:** When compound keywords (e.g., "getOrderLineDiscount") return zero FTS results, decomposes them into leaf-segment symbol_name-targeted OR terms (e.g., `symbol_name:"get" OR symbol_name:"Order" OR symbol_name:"Line" OR symbol_name:"Discount"`). This is a self-adapting mechanism: the engine first tries the precise compound, and only falls back to decomposition when the vocabulary gap is confirmed by zero results.
+- **Why it matters:** Compound identifiers that don't exist verbatim in the codebase would previously return nothing. Decomposition recovers partial matches by targeting the FTS symbol_name column, which has the highest BM25 weight (10x). Particularly effective on repos with deep class hierarchies (Django, Saleor) where task descriptions reference composite operations.
+
+### 177. Per-Cluster Implicit Feedback
+
+- **Package(s):** `internal/context`
+- **Entry point:** `keyword_cluster` column in feedback records
+- **What it does:** Extends implicit feedback (Feature 117) with a `keyword_cluster` column that scopes noise demotion to the originating task's keyword cluster. When a symbol is demoted (expired without use), the demotion only applies to future queries with overlapping keyword clusters, not globally.
+- **Why it matters:** Prevents cross-task interference. Previously, a symbol demoted during a "fix authentication" task would also be suppressed during a "review auth middleware" task, even though the symbol might be highly relevant in the second context.
+
+### 178. Change-Aware Scoring (Commit Recency)
+
+- **Package(s):** `internal/context`
+- **What it does:** Adds a `commitRecencyScore` component to the ranking formula, derived from git blame timestamps on symbol declarations. Scores: +0.05 for symbols modified today, +0.03 for within the past week, +0.01 for within the past month. Requires `knowing enrich blame` (Feature 72) to have populated `last_commit_at` on nodes. Zero-impact on repos without blame data.
+- **Why it matters:** Recently modified code is more likely to be relevant to current tasks. This is the 12th self-adapting mechanism: the engine automatically surfaces fresh code without requiring the user to filter by recency.
+
+### 179. Vocabulary Expansion from Usage
+
+- **Package(s):** `internal/context`, `internal/store`
+- **Migration:** `021_vocab_associations.sql` (creates `vocab_associations` table)
+- **What it does:** Learns keyword-to-symbol associations from retrieval usage. When a symbol is returned for a task and subsequently used by the agent, the association between the task's keywords and that symbol is recorded in the `vocab_associations` table. After 2+ observations of the same keyword-to-symbol mapping, the association becomes a learned equivalence class with forced injection into seed candidates. Replaces passive task memory (Feature 66) with a more targeted mechanism that learns vocabulary rather than caching entire result sets.
+- **Why it matters:** Addresses the vocabulary gap problem incrementally. Instead of hand-curating equivalence classes, the engine discovers them from real usage patterns. A developer who repeatedly asks about "auth" and uses `SessionMiddleware` teaches the engine that "auth" maps to `SessionMiddleware`, which generalizes to future sessions.
+
+### 180. LSP Edge Weight Attenuation
+
+- **Package(s):** `internal/context`
+- **What it does:** Applies 0.3x weight attenuation to edges with `lsp_resolved` provenance during the RWR walk. LSP enrichment (Feature 122) discovers many edges (e.g., 192K in Kubernetes) but these include noisy cross-module references that dilute walk precision. Attenuating their weight preserves reachability (the edges still exist) while reducing their influence on score distribution.
+- **Why it matters:** LSP enrichment is strongly positive for retrieval (+0.232 on Kubernetes), but the sheer volume of discovered edges can dominate the walk. Attenuation balances the contribution of high-confidence AST edges with the broader but noisier LSP edges.
+
+### 181. Adaptive Proximity Exponent
+
+- **Package(s):** `internal/context`
+- **Entry point:** `packIntoBudget` in `internal/context/context.go`
+- **What it does:** During context packing, applies a proximity bonus to symbols near other selected symbols, with an exponent that adapts to graph composition: `clamp(0.3 + 0.2 * phantomRatio, 0.3, 0.7)`. Repos with many phantom nodes (external dependencies, LSP-discovered types) get stronger proximity clustering to keep packing focused on the project's own code. This is the 10th self-adapting mechanism.
+- **Why it matters:** Phantom-heavy repos (e.g., Kubernetes with 169K phantom nodes) benefit from tighter packing around selected symbols. Low-phantom repos (e.g., Flask) keep the default loose packing. The exponent self-tunes without configuration.
+
+### 182. Debug CLI: `debug-vocab`
+
+- **Package(s):** `cmd/knowing`
+- **What it does:** Displays learned vocabulary associations from the `vocab_associations` table. Shows keyword-to-symbol mappings, observation counts, and which associations have graduated to learned equivalence classes (2+ observations). Use to inspect what the engine has learned from usage.
+- **Usage:** `knowing debug-vocab -db <path>`
+
+### 183. Debug CLI: `debug-feedback`, `debug-equiv`, `debug-pack`
+
+- **Package(s):** `cmd/knowing`
+- **What it does:** Three additional debug commands for retrieval pipeline inspection:
+  - **`debug-feedback`**: shows implicit feedback records with per-cluster scoping, positive/negative counts, and active demotions.
+  - **`debug-equiv`**: displays all active equivalence classes (hand-curated, language-specific, graph-derived, and learned from vocabulary expansion) with their weights and source.
+  - **`debug-pack`**: shows the packing decision for a given task: which symbols were selected, their scores, token costs, proximity bonuses, and the adaptive exponent used.
+- **Usage:** `knowing debug-feedback -db <path>`, `knowing debug-equiv -db <path>`, `knowing debug-pack -task "<task>" -db <path>`
+- **Why it matters:** Together with the existing `debug-seeds` (CLAUDE.md) and `debug-fts`/`debug-walk` commands, these five tools make every stage of the retrieval pipeline inspectable: keyword extraction, FTS lookup, seed selection, equivalence matching, RWR walk, feedback application, and packing.
+
+### 184. Saleor Benchmark Corpus
+
+- **Package(s):** `bench/cross-system`
+- **What it does:** Added Saleor (Python e-commerce platform) as a new benchmark corpus repo. Contributes to the expansion from 15 to 16 repos and from 297 to 308 tasks.
+- **Why it matters:** Saleor is a large Django-based application with deep model hierarchies and GraphQL APIs, exercising the Python extractor and FTS fallback decomposition on complex compound identifiers.
 
 ### GraphStore (`internal/types/interfaces.go`)
 
