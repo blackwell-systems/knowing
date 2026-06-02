@@ -261,6 +261,22 @@ func (f *ImplicitFeedback) FlushAll() (unused []types.Hash, used []UsedSymbol) {
 	return unused, used
 }
 
+// UsedSymbolNames returns the short names for a set of symbol hashes
+// by looking up their pending attributions. Used by MCP server to record
+// vocab associations without needing to re-resolve hashes to names.
+func (f *ImplicitFeedback) UsedSymbolNames(hashes []types.Hash) []UsedSymbol {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	var result []UsedSymbol
+	for _, h := range hashes {
+		if attr, ok := f.pending[h]; ok {
+			result = append(result, UsedSymbol{Hash: h, Name: attr.Name})
+		}
+	}
+	return result
+}
+
 // Reset clears all pending attributions and the attributed set.
 // Call when the session context shifts significantly.
 func (f *ImplicitFeedback) Reset() {

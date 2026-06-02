@@ -24,6 +24,9 @@ func (s *Server) handleContextForTask(ctx context.Context, req mcp.CallToolReque
 	format := getStringArg(req, "format")
 	priorPackRoot := getStringArg(req, "pack_root")
 
+	// Store task keywords for vocab association recording in ObserveToolUse.
+	s.lastTaskKeywords = knowingctx.ExtractKeywordSetExported(taskDesc).All()
+
 	engine := knowingctx.NewContextEngine(s.store)
 	engine.SetSession(s.ctxSession)
 	if s.vecSearch != nil {

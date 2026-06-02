@@ -84,6 +84,7 @@ type Server struct {
 	snapMgr     *snapshot.SnapshotManager  // nil if no snapshot manager is wired in
 	resultCache *cache.SubgraphCache       // nil if caching is disabled
 	startTime   time.Time                  // server creation time for uptime tracking
+	lastTaskKeywords []string              // keywords from most recent context_for_task (for vocab recording)
 
 	// Session counters for the knowing://session resource.
 	contextCalls  atomic.Int64 // incremented on each context_for_task / context_for_files call
@@ -304,10 +305,19 @@ func (s *Server) ObserveToolUse(ctx context.Context, content string) int {
 		return 0
 	}
 
-	// Record positive feedback for each implicitly used symbol.
+	// Record positive feedback and vocab associations for each used symbol.
 	if s.sqlStore != nil {
 		for _, h := range used {
 			_ = s.sqlStore.RecordFeedback(ctx, h, "implicit", true, types.EmptyHash, types.EmptyHash)
+		}
+		// Record vocab associations: keyword -> used symbol.
+		// Uses lastTaskKeywords from the most recent context_for_task call.
+		if len(s.lastTaskKeywords) > 0 {
+			for _, u := range s.implicit.UsedSymbolNames(used) {
+				for _, kw := range s.lastTaskKeywords {
+					_ = s.sqlStore.RecordVocabAssociation(ctx, strings.ToLower(kw), u.Name, u.Hash)
+				}
+			}
 		}
 	}
 
