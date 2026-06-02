@@ -28,7 +28,7 @@ quality. SWE-bench evaluates agent task completion; CRET evaluates the retrieval
 that feeds agents context. These are different things.
 
 **Key contributions:**
-1. 297 task fixtures across 15 repos, 8 languages, 3 difficulty tiers
+1. 308 task fixtures across 16 repos, 8 languages, 3 difficulty tiers
 2. Ground truth at symbol level (not file level), validated against actual DB contents
 3. Statistical methodology: Wilcoxon signed-rank, Cohen's d, bootstrap CI
 4. 7 systems benchmarked with fairness controls (same input, cold start, no tuning)
