@@ -127,12 +127,15 @@ func sweepTestPenalty() float64 {
 }
 
 // proximityExponent returns the exponent for RWR proximity packing.
-// Default 0.5 (sqrt). Override with BENCH_PROXIMITY_EXP for sweep.
+// Default 0.3 (cube root). Validated by 9-point sweep on 308 tasks:
+// 0.3 = 0.282 P@10 (peak), 11/15 repos improved vs 0.5. Enriched
+// repos benefit most (cargo +0.026, rails +0.025, vscode +0.015).
+// Override with BENCH_PROXIMITY_EXP for sweep.
 func proximityExponent() float64 {
 	if v := os.Getenv("BENCH_PROXIMITY_EXP"); v != "" {
 		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
 			return f
 		}
 	}
-	return 0.5
+	return 0.3
 }
