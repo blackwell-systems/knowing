@@ -149,9 +149,13 @@ cmd_index() {
         log "Indexing $name..."
         mkdir -p "$repo_dir/.knowing"
         if "$KNOWING_BIN" index -no-enrich -db "$db_path" "$repo_dir" 2>/dev/null; then
+            # Run in-process resolvers (7 languages, no external dependencies)
+            "$KNOWING_BIN" enrich resolver -db "$db_path" "$repo_dir" 2>/dev/null || true
             local nodes
             nodes=$(sqlite3 "$db_path" "SELECT COUNT(*) FROM nodes" 2>/dev/null || echo "?")
-            ok "$name: indexed ($nodes nodes)"
+            local resolver_edges
+            resolver_edges=$(sqlite3 "$db_path" "SELECT COUNT(*) FROM edges WHERE provenance='resolver_resolved'" 2>/dev/null || echo "0")
+            ok "$name: indexed ($nodes nodes, $resolver_edges resolver edges)"
             indexed=$((indexed + 1))
         else
             fail "$name: indexing failed"

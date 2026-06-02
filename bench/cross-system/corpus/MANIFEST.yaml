@@ -9,10 +9,10 @@
 #   ./corpus-setup.sh verify
 #
 # To rebuild from scratch:
-#   ./corpus-setup.sh clone     # clone all repos at pinned commits
-#   ./corpus-setup.sh index     # build graph databases (tree-sitter only, ~5 min)
-#   ./corpus-setup.sh enrich    # LSP enrichment (requires language servers, ~2 hours)
-#   ./corpus-setup.sh embed     # pre-embed vectors (requires ONNX model, ~30 min)
+#   ./corpus-setup.sh clone     # clone all repos at pinned commits (~5 min)
+#   ./corpus-setup.sh index     # tree-sitter + in-process resolvers (~5 min)
+#   ./corpus-setup.sh enrich    # LSP enrichment (requires language servers, ~2 hours, optional)
+#   # Embeddings are off by default (confirmed neutral). Embed step unnecessary.
 
 format_version: 1
 last_updated: "2026-06-01"

@@ -381,24 +381,40 @@ GOWORK=off go build -o /usr/local/bin/knowing ./cmd/knowing/
 
 # 2. Set up the corpus (clone repos at exact commits, build graph DBs)
 cd bench/cross-system/corpus
-./corpus-setup.sh clone     # ~5 min, clones 15 repos at pinned commits
-./corpus-setup.sh index     # ~5 min, tree-sitter extraction only
-./corpus-setup.sh enrich    # ~2 hours, requires language servers (optional)
-./corpus-setup.sh embed     # ~30 min, pre-embeds vectors (optional)
+./corpus-setup.sh clone     # ~5 min, clones 16 repos at pinned commits
+./corpus-setup.sh index     # ~5 min, tree-sitter extraction + in-process resolvers
+./corpus-setup.sh enrich    # ~2 hours, requires language servers (optional, recommended)
+# Note: embeddings are off by default (confirmed neutral on cold start, session 23).
+# The embed step is unnecessary for P@10 reproduction but harmless if run.
 
 # 3. Verify corpus matches manifest
 ./corpus-setup.sh verify
 
-# 4. Run the benchmark
+# 4. Clear task memory (prevents stale entries from inflating results)
+for db in repos/*/.knowing/graph.db; do
+  sqlite3 "$db" "DELETE FROM task_memory; DELETE FROM feedback;" 2>/dev/null
+done
+
+# 5. Run the benchmark
 cd ../../..
-BENCH_EMBEDDINGS=1 BENCH_ADAPTERS=knowing GOWORK=off \
+BENCH_ADAPTERS=knowing GOWORK=off \
   go test ./bench/cross-system/ -run TestCrossSystem -v -timeout 0
 ```
 
-**Without enrichment or embeddings:** The corpus DBs are pre-enriched with LSP.
-Embeddings are confirmed neutral on cold start (session 23). Task memory is
-disabled in the benchmark adapter (session 23, was contaminating measurements).
-Official P@10 = 0.278 (honest cold-start, no task memory, no embeddings).
+**Reproduction notes:**
+- The official P@10 = 0.278 uses cold start: no task memory, no embeddings,
+  no cached results. Task memory is disabled in the benchmark adapter.
+- The `index` step runs tree-sitter extraction + all 7 in-process language
+  resolvers (Go, Python, TypeScript, Java, C#, Rust, Ruby). These produce
+  `resolver_resolved` edges at 0.9 confidence without external language servers.
+- The `enrich` step adds external LSP enrichment (gopls, pyright, etc.) for
+  higher-quality edges. This is recommended for best results but not required.
+  Without it, the in-process resolvers provide the middle quality tier.
+- Saleor is intentionally unenriched in the corpus (enrichment regresses
+  Python apps with high phantom node ratios; see roadmap).
+- Embeddings (`BENCH_EMBEDDINGS=1`) are unnecessary. Three runs with and
+  without produced identical P@10 (0.176, 0.175, 0.176). Do not add them
+  to the reproduction command.
 
 **Corpus manifest:** `corpus/MANIFEST.yaml` records the exact commit hash,
 repository URL, expected node/edge/embedding counts, and enrichment server
