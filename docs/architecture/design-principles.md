@@ -152,13 +152,15 @@ The context engine (`internal/context/`) implements task-based retrieval: given 
 
 After seed retrieval, Random Walk with Restart (RWR) expands the seed set through the graph, HITS reranking promotes authorities, and community-aware scoring prevents single-cluster dominance.
 
-**Framework equivalence classes with forced injection (session 23):** 263 concept-to-symbol mappings across 30 per-framework files. High-confidence matches (weight >= 0.9, source "framework") bypass RWR scoring and inject directly into ranked results. Language-scoped via `Lang` field to prevent cross-language false positives. This is the primary mechanism for bridging the vocabulary gap (+57% P@10).
+**Framework equivalence classes with forced injection (session 23):** 263 concept-to-symbol mappings across 30 per-framework files. High-confidence matches (weight >= 0.9, source "framework") and learned vocabulary associations (source "learned") bypass RWR scoring and inject directly into ranked results. Language-scoped via `Lang` field to prevent cross-language false positives. This is the primary mechanism for bridging the vocabulary gap (+57% P@10). Learned vocab associations from agent usage (session 25) add automatic equivalence classes after 2+ observations.
+
+**LSP edge attenuation (session 25):** Edges with `lsp_resolved` provenance receive 0.3x weight in RWR, preventing enrichment from inflating centrality of framework wiring symbols. FTS fallback decomposition decomposes compound keywords on 0 results. Per-cluster implicit feedback scopes noise demotion by keyword cluster.
 
 **Embedding gap-fill and re-ranker:** Both confirmed neutral on honest cold-start measurement (session 23, 3 runs identical with/without). Previous "+11% gap-fill" was task memory contamination. Infrastructure preserved but not used.
 
 **Benchmark results (honest measurement, no task memory, no embeddings):**
 
-- P@10 = 0.278 +/- 0.003 cold start across 297 tasks, 15 repos, 8 languages (Go, Python, TypeScript, Rust, Java, C#, Ruby), 14K to 3.5M LOC
+- P@10 = 0.281 cold start across 308 tasks, 16 repos, 8 languages (Go, Python, TypeScript, Rust, Java, C#, Ruby), 14K to 3.5M LOC. 12 self-adapting mechanisms.
 - Competitive advantage (cold): vs codegraph 2.17x, vs GitNexus 3.44x, vs Gortex 3.63x, vs grep 12.6x
 - Self-adapting type-seed preference: on dense graphs (>40K nodes), automatically prefers type/interface/class nodes as RWR seeds
 - Embedding re-ranker: REVERTED (session 19). Gap-fill seeds: NEUTRAL (session 23, task memory contamination).
