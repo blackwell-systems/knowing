@@ -3,10 +3,12 @@ package context
 import (
 	"bytes"
 	stdctx "context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"time"
 
@@ -396,10 +398,178 @@ func RandomWalkWithRestart(ctx stdctx.Context, store types.GraphStore, seeds []t
 	return scores, err
 }
 
+// rwrCacheKey is the note key prefix for cached RWR results.
+const rwrCacheKey = "rwr_cache"
+
+// RWRCacheEnabled controls whether RWR result caching is active.
+// Disable for benchmarks that need fresh walks every time.
+var RWRCacheEnabled = true
+
+// computeRWRCacheHash produces a content-addressed key for an RWR result.
+// The key captures: sorted seed hashes + seed weights + alpha + the latest
+// snapshot hash (entire graph state). When ANY edge changes, the snapshot
+// hash changes and the cache misses structurally (Merkle guarantee).
+func computeRWRCacheHash(seeds []types.Hash, seedWeights map[types.Hash]float64, alpha float64, snapshotHash types.Hash) types.Hash {
+	sorted := make([]types.Hash, len(seeds))
+	copy(sorted, seeds)
+	sort.Slice(sorted, func(i, j int) bool {
+		return bytes.Compare(sorted[i][:], sorted[j][:]) < 0
+	})
+
+	h := sha256.New()
+	h.Write([]byte("rwr\x00"))
+	for _, s := range sorted {
+		h.Write(s[:])
+		// Include weight in the hash so different weight distributions cache separately.
+		var wb [8]byte
+		binary.LittleEndian.PutUint64(wb[:], math.Float64bits(seedWeights[s]))
+		h.Write(wb[:])
+	}
+	// Include alpha.
+	var ab [8]byte
+	binary.LittleEndian.PutUint64(ab[:], math.Float64bits(alpha))
+	h.Write(ab[:])
+	// Include snapshot hash (captures entire graph state).
+	h.Write(snapshotHash[:])
+
+	var result types.Hash
+	copy(result[:], h.Sum(nil))
+	return result
+}
+
+// cachedRWRResult holds serialized RWR scores and BFS distances.
+type cachedRWRResult struct {
+	Scores    map[types.Hash]float64
+	Distances map[types.Hash]int
+}
+
+// serializeRWRResult encodes scores and distances into a compact binary format.
+// Format: [4 bytes: entry count] [per entry: 32 bytes hash + 8 bytes score + 4 bytes distance]
+func serializeRWRResult(scores map[types.Hash]float64, distances map[types.Hash]int) []byte {
+	n := len(scores)
+	buf := make([]byte, 4+n*44)
+	binary.LittleEndian.PutUint32(buf[:4], uint32(n))
+	off := 4
+	for h, s := range scores {
+		copy(buf[off:off+32], h[:])
+		binary.LittleEndian.PutUint64(buf[off+32:off+40], math.Float64bits(s))
+		d := distances[h]
+		binary.LittleEndian.PutUint32(buf[off+40:off+44], uint32(d))
+		off += 44
+	}
+	return buf
+}
+
+// deserializeRWRResult decodes the binary format back into scores and distances.
+func deserializeRWRResult(data []byte) (*cachedRWRResult, error) {
+	if len(data) < 4 {
+		return nil, fmt.Errorf("rwr cache too short: %d bytes", len(data))
+	}
+	n := int(binary.LittleEndian.Uint32(data[:4]))
+	expected := 4 + n*44
+	if len(data) < expected {
+		return nil, fmt.Errorf("rwr cache truncated: have %d bytes, need %d", len(data), expected)
+	}
+
+	scores := make(map[types.Hash]float64, n)
+	distances := make(map[types.Hash]int, n)
+	off := 4
+	for i := 0; i < n; i++ {
+		var h types.Hash
+		copy(h[:], data[off:off+32])
+		s := math.Float64frombits(binary.LittleEndian.Uint64(data[off+32 : off+40]))
+		d := int(binary.LittleEndian.Uint32(data[off+40 : off+44]))
+		scores[h] = s
+		distances[h] = d
+		off += 44
+	}
+	return &cachedRWRResult{Scores: scores, Distances: distances}, nil
+}
+
+// getLatestSnapshotHash retrieves the most recent snapshot hash for the store.
+// Returns EmptyHash if no snapshot exists (disables cache keying by graph state).
+func getLatestSnapshotHash(ctx stdctx.Context, store types.GraphStore) types.Hash {
+	type snapshotQuerier interface {
+		AllRepos(ctx stdctx.Context) ([]types.Repo, error)
+		LatestSnapshot(ctx stdctx.Context, repoHash types.Hash) (*types.Snapshot, error)
+	}
+	sq, ok := store.(snapshotQuerier)
+	if !ok {
+		return types.EmptyHash
+	}
+	repos, err := sq.AllRepos(ctx)
+	if err != nil || len(repos) == 0 {
+		return types.EmptyHash
+	}
+	snap, err := sq.LatestSnapshot(ctx, repos[0].RepoHash)
+	if err != nil || snap == nil {
+		return types.EmptyHash
+	}
+	return snap.SnapshotHash
+}
+
+// getRWRCache attempts to load a cached RWR result from the notes table.
+func getRWRCache(ctx stdctx.Context, store types.GraphStore, cacheKey types.Hash) *cachedRWRResult {
+	type noteReader interface {
+		GetNote(ctx stdctx.Context, objectHash types.Hash, key string) (*types.Note, error)
+	}
+	nr, ok := store.(noteReader)
+	if !ok {
+		return nil
+	}
+	note, err := nr.GetNote(ctx, cacheKey, rwrCacheKey)
+	if err != nil || note == nil || len(note.Value) < 4 {
+		return nil
+	}
+	// Decode from base64 (notes store string values).
+	raw, err := base64.StdEncoding.DecodeString(note.Value)
+	if err != nil {
+		return nil
+	}
+	result, err := deserializeRWRResult(raw)
+	if err != nil {
+		return nil
+	}
+	return result
+}
+
+// putRWRCache stores a computed RWR result in the notes table.
+func putRWRCache(ctx stdctx.Context, store types.GraphStore, cacheKey types.Hash, scores map[types.Hash]float64, distances map[types.Hash]int) {
+	type noteWriter interface {
+		PutNote(ctx stdctx.Context, note types.Note) error
+	}
+	nw, ok := store.(noteWriter)
+	if !ok {
+		return
+	}
+	raw := serializeRWRResult(scores, distances)
+	encoded := base64.StdEncoding.EncodeToString(raw)
+	_ = nw.PutNote(ctx, types.Note{
+		ObjectHash: cacheKey,
+		Key:        rwrCacheKey,
+		Value:      encoded,
+	})
+}
+
+// rwrCacheHits and rwrCacheMisses track cache performance for diagnostics.
+var (
+	rwrCacheHits   int64
+	rwrCacheMisses int64
+)
+
+// RWRCacheStats returns the current hit/miss counts.
+func RWRCacheStats() (hits, misses int64) {
+	return rwrCacheHits, rwrCacheMisses
+}
+
 // RandomWalkWithRestartWeighted runs RWR with per-seed restart weights.
 // Seeds with higher weights receive more probability mass on restart, causing
 // the walk to spend more time in their neighborhood. This differentiates
 // specific seeds (high weight) from generic ones (low weight).
+//
+// Results are cached in the notes table keyed by (sorted seeds + weights + alpha
+// + snapshot hash). On cache hit, the BFS, adjacency load, and iteration are
+// skipped entirely. Cache misses compute fresh results and store them.
 //
 // Weights are normalized to sum to 1.0 internally.
 func RandomWalkWithRestartWeighted(ctx stdctx.Context, store types.GraphStore, seeds []types.Hash, seedWeights map[types.Hash]float64, alpha float64, maxIter int) (map[types.Hash]float64, map[types.Hash]int, error) {
@@ -411,6 +581,21 @@ func RandomWalkWithRestartWeighted(ctx stdctx.Context, store types.GraphStore, s
 	}
 	if maxIter <= 0 {
 		maxIter = 20
+	}
+
+	// Check RWR result cache. The cache key includes the snapshot hash so any
+	// edge change invalidates structurally (Merkle guarantee).
+	var cacheKey types.Hash
+	if RWRCacheEnabled {
+		snapHash := getLatestSnapshotHash(ctx, store)
+		if snapHash != types.EmptyHash {
+			cacheKey = computeRWRCacheHash(seeds, seedWeights, alpha, snapHash)
+			if cached := getRWRCache(ctx, store, cacheKey); cached != nil {
+				rwrCacheHits++
+				return cached.Scores, cached.Distances, nil
+			}
+			rwrCacheMisses++
+		}
 	}
 
 	// Pre-load edges for the reachable subgraph (BFS from seeds, depth-limited)
@@ -446,6 +631,12 @@ func RandomWalkWithRestartWeighted(ctx stdctx.Context, store types.GraphStore, s
 	}
 
 	scores := rwrIterate(seedVec, alpha, maxIter, adjFrom, adjTo, modMap)
+
+	// Store result in cache for future queries with the same seeds + graph state.
+	if RWRCacheEnabled && cacheKey != types.EmptyHash {
+		putRWRCache(ctx, store, cacheKey, scores, bfsDistances)
+	}
+
 	return scores, bfsDistances, nil
 }
 

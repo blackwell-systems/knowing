@@ -82,6 +82,12 @@ func init() {
 		}
 	}
 
+	// Disable RWR result caching in benchmarks by default (need fresh walks for
+	// honest measurement). Enable with BENCH_RWR_CACHE=1 for latency experiments.
+	if os.Getenv("BENCH_RWR_CACHE") != "1" {
+		knowingctx.RWRCacheEnabled = false
+	}
+
 }
 
 // Knowing implements benchtype.Adapter for knowing's context engine.

@@ -157,6 +157,8 @@ func run(args []string) error {
 		return cmdDebugEquiv(args[1:])
 	case "debug-pack":
 		return cmdDebugPack(args[1:])
+	case "debug-rwr-cache":
+		return cmdDebugRWRCache(args[1:])
 	case "bench-task":
 		return cmdBenchTask(args[1:])
 	default:
