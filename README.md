@@ -100,8 +100,8 @@ Symbols returned but never used by the agent get demoted on future queries. When
 | Graph integrity check | 98ms (24,936 edges) |
 | Proof generation | 72us generate, 1.2us verify |
 | Feedback expiration | 100% expire on code change, 11% overhead |
-| Indexing throughput | 15 repos (8 languages) in ~54s |
-| Language coverage | 13/15 repos pass (Go, Python, TS, Rust, Java, C#, Ruby, multi) |
+| Indexing throughput | 16 repos (8 languages) in ~60s |
+| Language coverage | 16/16 repos pass (Go, Python, TS, Rust, Java, C#, Ruby, multi) |
 | Edge types | 38 (including supply chain: reads_env, executes_process) |
 
 All benchmarks are reproducible. The cross-system benchmark (P@10=0.281) uses 16 repos pinned to exact commits with a [corpus manifest](bench/cross-system/corpus/MANIFEST.yaml) and [setup script](bench/cross-system/corpus/corpus-setup.sh) for full from-scratch reproduction. See [METHODOLOGY.md](bench/cross-system/METHODOLOGY.md) for protocol details.
