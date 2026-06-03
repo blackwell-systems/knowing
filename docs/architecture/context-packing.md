@@ -539,8 +539,10 @@ session 24 and disabled).
 When `recordImplicitFeedback` fires (on each new `ForTask` call), it flushes the previous
 cycle's attribution results. Symbols that the agent used (detected via `DetectUsed` scanning
 tool call content) get recorded as vocab associations: each task keyword is paired with each
-used symbol name. The `vocab_associations` table uses UPSERT with a count increment, so
-repeated observations reinforce the association.
+used symbol name, filtered by `isVocabWorthy` (removes ~80 common English words like "use",
+"not", "find", "whether" that create spurious cross-task associations). The
+`vocab_associations` table uses UPSERT with a count increment, so repeated observations
+reinforce the association.
 
 ### Activation Threshold
 
@@ -551,9 +553,19 @@ one-off false matches from becoming permanent equivalence classes.
 ### Injection
 
 Learned vocab associations enter the retrieval pipeline as equivalence classes with
-`source: "learned"`. They receive **forced injection** treatment (same as high-confidence
-framework classes): matched symbols bypass RRF and inject directly into ranked results at
-`topScore + 0.1`. This guarantees that confirmed vocab associations appear in the output.
+`source: "learned"`. They compete through **RRF** (soft injection), unlike hand-curated
+framework classes which use forced injection. This prevents learned associations from
+displacing correct results on tasks with good BM25 coverage. Confidence weighting scales
+the RRF weight from 0.3 (count=2, new) to 0.8 (count>=10, well-reinforced), rewarding
+associations that are confirmed across multiple sessions.
+
+### Cross-Task Bridging
+
+Validated in session 26: vocab learned from task A helps task B via shared keywords.
+Django +41.4% in isolation, full corpus 0.0% aggregate (safe). 100% of improvements
+are cross-task (never self-reinforcement). 10-round compounding on 308 tasks:
+P@10 peak +2.2%, MRR peak +8.1%. Preview filter decisions with
+`knowing debug-vocab -task "description"`.
 
 ### Per-Cluster Scoping
 
