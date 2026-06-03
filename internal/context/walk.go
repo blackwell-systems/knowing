@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	snap "github.com/blackwell-systems/knowing/internal/snapshot"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
@@ -406,10 +407,12 @@ const rwrCacheKey = "rwr_cache"
 var RWRCacheEnabled = true
 
 // computeRWRCacheHash produces a content-addressed key for an RWR result.
-// The key captures: sorted seed hashes + seed weights + alpha + the latest
-// snapshot hash (entire graph state). When ANY edge changes, the snapshot
-// hash changes and the cache misses structurally (Merkle guarantee).
-func computeRWRCacheHash(seeds []types.Hash, seedWeights map[types.Hash]float64, alpha float64, snapshotHash types.Hash) types.Hash {
+// The key captures: sorted seed hashes + seed weights + alpha + per-package
+// Merkle roots for the packages containing the seeds. When a seed's package
+// changes, only walks involving that package miss. Unchanged packages keep
+// their cached walks (per-package precision via hierarchical Merkle tree).
+// Falls back to snapshot hash when package roots are unavailable.
+func computeRWRCacheHash(seeds []types.Hash, seedWeights map[types.Hash]float64, alpha float64, packageRoots []types.Hash) types.Hash {
 	sorted := make([]types.Hash, len(seeds))
 	copy(sorted, seeds)
 	sort.Slice(sorted, func(i, j int) bool {
@@ -429,8 +432,15 @@ func computeRWRCacheHash(seeds []types.Hash, seedWeights map[types.Hash]float64,
 	var ab [8]byte
 	binary.LittleEndian.PutUint64(ab[:], math.Float64bits(alpha))
 	h.Write(ab[:])
-	// Include snapshot hash (captures entire graph state).
-	h.Write(snapshotHash[:])
+	// Include per-package roots (sorted for determinism).
+	sortedRoots := make([]types.Hash, len(packageRoots))
+	copy(sortedRoots, packageRoots)
+	sort.Slice(sortedRoots, func(i, j int) bool {
+		return bytes.Compare(sortedRoots[i][:], sortedRoots[j][:]) < 0
+	})
+	for _, r := range sortedRoots {
+		h.Write(r[:])
+	}
 
 	var result types.Hash
 	copy(result[:], h.Sum(nil))
@@ -551,6 +561,62 @@ func putRWRCache(ctx stdctx.Context, store types.GraphStore, cacheKey types.Hash
 	})
 }
 
+// collectSeedPackageRoots resolves each seed to its package's Merkle root.
+// Uses persisted package roots from the latest snapshot. Returns a deduplicated
+// list of roots for the packages that contain the seeds. Falls back to the
+// snapshot hash if package roots aren't available (pre-existing DB).
+func collectSeedPackageRoots(ctx stdctx.Context, store types.GraphStore, seeds []types.Hash) []types.Hash {
+	pkgRoots := snap.LoadPackageRoots(ctx, store)
+
+	// Fallback: if no package roots persisted, use snapshot hash.
+	if pkgRoots == nil {
+		snapHash := getLatestSnapshotHash(ctx, store)
+		if snapHash == types.EmptyHash {
+			return nil
+		}
+		return []types.Hash{snapHash}
+	}
+
+	// Look up each seed's node QN to extract its package path.
+	type nodeGetter interface {
+		GetNode(ctx stdctx.Context, hash types.Hash) (*types.Node, error)
+	}
+	ng, ok := store.(nodeGetter)
+	if !ok {
+		// Can't look up nodes, fall back to snapshot hash.
+		snapHash := getLatestSnapshotHash(ctx, store)
+		if snapHash == types.EmptyHash {
+			return nil
+		}
+		return []types.Hash{snapHash}
+	}
+
+	seen := make(map[types.Hash]bool)
+	var roots []types.Hash
+	for _, s := range seeds {
+		node, err := ng.GetNode(ctx, s)
+		if err != nil || node == nil {
+			continue
+		}
+		root := snap.PackageRootForSymbol(node.QualifiedName, pkgRoots)
+		if root != types.EmptyHash && !seen[root] {
+			seen[root] = true
+			roots = append(roots, root)
+		}
+	}
+
+	// If no roots resolved (seeds not in any known package), fall back.
+	if len(roots) == 0 {
+		snapHash := getLatestSnapshotHash(ctx, store)
+		if snapHash == types.EmptyHash {
+			return nil
+		}
+		return []types.Hash{snapHash}
+	}
+
+	return roots
+}
+
 // rwrCacheHits and rwrCacheMisses track cache performance for diagnostics.
 var (
 	rwrCacheHits   int64
@@ -583,13 +649,16 @@ func RandomWalkWithRestartWeighted(ctx stdctx.Context, store types.GraphStore, s
 		maxIter = 20
 	}
 
-	// Check RWR result cache. The cache key includes the snapshot hash so any
-	// edge change invalidates structurally (Merkle guarantee).
+	// Check RWR result cache. The cache key includes per-package Merkle roots
+	// for the packages containing the seeds. When a seed's package changes,
+	// only walks involving that package miss. Unchanged packages keep their
+	// cached walks (per-package precision via hierarchical Merkle tree).
+	// Falls back to snapshot hash when package roots are unavailable.
 	var cacheKey types.Hash
 	if RWRCacheEnabled {
-		snapHash := getLatestSnapshotHash(ctx, store)
-		if snapHash != types.EmptyHash {
-			cacheKey = computeRWRCacheHash(seeds, seedWeights, alpha, snapHash)
+		seedPkgRoots := collectSeedPackageRoots(ctx, store, seeds)
+		if len(seedPkgRoots) > 0 {
+			cacheKey = computeRWRCacheHash(seeds, seedWeights, alpha, seedPkgRoots)
 			if cached := getRWRCache(ctx, store, cacheKey); cached != nil {
 				rwrCacheHits++
 				return cached.Scores, cached.Distances, nil
