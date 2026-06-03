@@ -14,7 +14,7 @@ the precision degradation that affects every static retrieval system at scale.
 This document is the authoritative reference for how the context engine finds and ranks
 symbols. It supersedes `context-packing.md`.
 
-**Current eval baseline:** Cross-system benchmark (308 tasks, 16 repos, 8 languages): P@10=0.281 cold start. 12 self-adapting mechanisms. LSP edge attenuation (0.3x for lsp_resolved). Per-cluster implicit feedback with vocabulary expansion from usage. FTS fallback decomposition for compound keywords. Adaptive proximity exponent. Change-aware scoring via git blame.
+**Current eval baseline:** Cross-system benchmark (308 tasks, 16 repos, 8 languages): P@10=0.281 cold start. 13 self-adapting mechanisms. LSP edge attenuation (0.3x for lsp_resolved). Per-cluster implicit feedback with vocabulary expansion from usage. FTS fallback decomposition for compound keywords. Adaptive proximity exponent. Change-aware scoring via git blame.
 
 ## Pipeline Overview
 
@@ -571,6 +571,14 @@ natural language to symbol names. 263 classes across 30 per-framework files.
 Impact: P@10 0.176 -> 0.278 (+57%).
 On by default; disable with `BENCH_FOCUSED_SEEDS=0`.
 
+**Session 26 addition: learned vocab with soft injection.** Vocabulary associations
+learned from agent usage (keyword -> symbol, count >= 2) go through RRF competition
+(not forced injection). A noise filter (`isVocabWorthy`) removes ~80 common English
+words from recording. Confidence weighting scales RRF weight from 0.3 (count=2) to
+0.8 (count>=10). Cross-task bridging validated: task A's vocab helps task B via
+shared keywords. Django +41.4% in isolation, full corpus 0.0% aggregate (safe).
+10-round compounding: P@10 peak +2.2%, MRR peak +8.1%.
+
 ### Critical finding: RWR is the primary differentiator
 
 Cross-system benchmark Runs 7-10 demonstrated that RWR (graph traversal) is the
@@ -1050,10 +1058,16 @@ to prevent cross-language false positives. This is the primary vocabulary bridgi
 **Seed + universal equivalence classes** (seed selection, step 2): broader concept
 classes that enter the RRF pipeline as a normal channel. Local, inspectable, zero-cost.
 
+**Learned vocabulary** (session 25-26): keyword -> symbol associations accumulated
+from agent usage. Goes through RRF (soft injection), not forced to top. Noise-filtered
+(`isVocabWorthy`), confidence-weighted by observation count. Cross-task bridging
+validated: 100% of improvements come from different tasks' vocab. Compounds with
+framework classes and implicit feedback over time.
+
 **Embeddings** (confirmed neutral, session 23): both gap-fill seeds and re-ranker
 produce identical P@10 to no-embeddings. The vocabulary gap is now solved by
-framework equiv classes, making embeddings redundant. Previous "+11% gap-fill"
-was task memory contamination. Infrastructure preserved.
+framework equiv classes + learned vocab, making embeddings redundant. Previous
+"+11% gap-fill" was task memory contamination. Infrastructure preserved.
 
 **What this means for the architecture:** equivalence classes remain the core seed
 strategy (deterministic, inspectable, compounds with curation). The re-ranker is an
