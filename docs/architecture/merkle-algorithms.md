@@ -623,9 +623,11 @@ These algorithms build on each other. The hierarchical tree structure (Phase 1) 
 |---|---|
 | Snapshot hash | Extended by hierarchical `repo_root` (Phase 1); flat tree dropped |
 | Computation cache | SubgraphCache keyed by Merkle package roots (Phase 2); three-layer cache with notes persistence (Phase 3) |
+| RWR walk cache | **Shipped session 26.** Per-package Merkle roots in RWR cache keys. Unchanged packages keep cached walks even when other packages change. `persistPackageRoots` stores htree.PackageRoots to notes table during indexing; `collectSeedPackageRoots` resolves seeds to their package roots at query time. |
 | Community detection | Modular algorithm registry (Phase 2); incremental detection with delta-save (Phase 3, 6.9x/5.0x) |
 | Context retrieval | PackRoot dedup (Phase 3 P5, 99% savings); persistent packs (Phase 3 P2); pack comparison (Phase 3 P6) |
 | FTS/BM25 index | Scoped FTS rebuild for changed packages (Phase 3 F3, 2.9x) |
 | Semantic PR Diff | `ClassifyChanges` returns Behavioral/Structural/RuntimeDrift/MetadataOnly (Phase 3 P7) |
 | Feedback scoring | Merkleized feedback validity with `neighborhood_root` (Phase 4, shipped v0.5.0) |
+| Vocab expiration | **Shipped session 26.** Per-package Merkle roots anchored to vocab associations. When a package changes, only that package's learned associations expire. Same `PackageRoots` infrastructure as RWR cache. |
 | Retrieval pipeline | Stability + activity signals (Phase 4, planned) |
