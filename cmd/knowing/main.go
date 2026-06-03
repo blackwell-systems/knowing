@@ -1033,6 +1033,7 @@ func cmdReindex(args []string) error {
 	repoURL := fs.String("url", "", "Repository URL (e.g. github.com/org/repo)")
 	commitHash := fs.String("commit", "HEAD", "Commit hash to record")
 	full := fs.Bool("full", false, "Use full type resolution (go/packages) instead of fast tree-sitter extraction")
+	noEnrich := fs.Bool("no-enrich", false, "Skip LSP enrichment after reindex (tree-sitter edges only)")
 	reindexEnrichConcurrency := fs.Int("enrich-concurrency", 8, "Number of parallel LSP requests during enrichment")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -1094,7 +1095,7 @@ func cmdReindex(args []string) error {
 
 	fmt.Printf("Reindexed: %d nodes, %d edges (previous data cleared)\n", snap.NodeCount, snap.EdgeCount)
 
-	if !*full {
+	if !*full && !*noEnrich {
 		fmt.Println("Running LSP enrichment...")
 		enricher := enrichment.NewEnricher(st, repoPath)
 		enricher.SetConcurrency(*reindexEnrichConcurrency)

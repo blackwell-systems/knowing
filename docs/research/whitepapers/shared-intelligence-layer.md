@@ -155,7 +155,19 @@ Each layer depends on the one below:
 
 ---
 
-## 8. Comparison with Existing Approaches
+## 8. Related Work
+
+**Graph-based code retrieval.** Personalized PageRank and Random Walk with Restart have been applied to information retrieval [Haveliwala 2002, Tong et al. 2006] and social network analysis, but not to code retrieval with typed multi-relational edges. Aider uses tree-sitter extraction with PageRank scoring but does not support feedback, community detection, or cross-session learning. codegraph (19K GitHub stars) uses BM25 with heuristic scoring but no graph walks. Neither system learns from agent usage or expires cached knowledge structurally.
+
+**Retrieval-augmented generation for code.** RAG approaches for code (CodeBERT, UniXcoder, RepoCoder) embed code snippets and retrieve by cosine similarity. These are effective for semantic matching but do not model structural relationships (caller/callee, implements, extends). They cannot answer "what breaks if I change X?" because they lack edge-typed graphs. Embeddings are also stateless: each query starts fresh with no memory of prior sessions. Our evaluation confirmed that embedding-based retrieval is neutral on cold start (P@10 identical with and without, 3 runs), while graph structure and BM25 carry all precision.
+
+**Benchmark methodology.** SWE-bench [Jimenez et al. 2024] evaluates agent task completion but not the retrieval layer that feeds agents context. CrossCodeEval evaluates cross-file completion but at the token level, not the symbol level. Our benchmark (308 tasks, 16 repos, 8 languages) evaluates symbol-level retrieval precision with statistical methodology (Wilcoxon signed-rank, Cohen's d, bootstrap CI) and cold-start enforcement (task memory contamination discovered and eliminated in session 23).
+
+**Community detection on code.** Louvain clustering has been applied to software architecture recovery [Garcia et al. 2013], but prior work uses it for visualization, not as a runtime primitive for feedback scoping and cache invalidation. Our contribution is using community-discovered boundaries as the organizational unit for agent learning: feedback compounds by keyword cluster within community boundaries, and Merkle roots provide structural expiration when communities' code changes.
+
+---
+
+## 9. Comparison with Existing Approaches
 
 | Approach | Scope of learning | Persistence | Architectural awareness | Cross-task transfer |
 |----------|------------------|-------------|------------------------|-------------------|
@@ -169,7 +181,7 @@ The unique combination: learning that is **persistent** (survives across session
 
 ---
 
-## 9. What This Enables
+## 10. What This Enables
 
 ### For individual developers:
 "The system knows what I usually need when I work on the context engine. It stops showing me daemon code. And when I switch to a related task, my previous work's vocabulary helps immediately."
@@ -185,7 +197,7 @@ The unique combination: learning that is **persistent** (survives across session
 
 ---
 
-## 10. Empirical Evidence
+## 11. Empirical Evidence
 
 | Metric | Value | Source |
 |--------|-------|--------|
@@ -202,7 +214,7 @@ All measurements: cold start, no task memory, no embeddings, honest methodology.
 
 ---
 
-## 11. Conclusion
+## 12. Conclusion
 
 The progression from "code graph" to "shared intelligence layer" requires four primitives:
 
@@ -216,3 +228,44 @@ Git proved that content-addressing makes source code trustworthy. Communities pr
 The hidden insight: the graph is not a database to query. It is a substrate that agents collectively improve by using it. Each session deposits feedback and vocabulary. Each record is anchored to content-addressed symbols with per-package Merkle expiration. Each community is discovered from the graph itself. The system teaches itself which code matters for which work, organized by boundaries no human declared.
 
 Content-addressing solves the trust problem. Communities solve the scoping problem. Cross-task vocabulary solves the transfer problem. Together, they form a shared intelligence layer for software development.
+
+---
+
+## 13. Limitations
+
+1. **Per-package Merkle expiration is validated by unit test, not by compounding benchmark.** The benchmark runs 10 rounds against a static graph (no code changes between rounds), so expiration never triggers. Production validation requires repos with active development where packages change between agent sessions.
+
+2. **Multi-agent coordination (Section 5) is designed but not shipped.** Community-based conflict avoidance and pending-mutation broadcasting are planned via Polywave. The learning loop (Sections 3-4) is fully operational; the coordination layer is not.
+
+3. **Community-constrained RWR walks are not yet implemented.** The current RWR walks the full reachable subgraph. Constraining walks to the relevant community's symbols would produce tighter score distributions on large graphs. Focused seed selection (mechanism #4) partially addresses this by concentrating seeds in the dominant package cluster.
+
+4. **Django compounding variance.** The 10-round Django compounding curve oscillates (band [0.200, 0.219] on 36 tasks). The full corpus (308 tasks) produces a tighter band ([0.276, 0.283]) with near-monotonic MRR. Django's 36-task sample size is insufficient for statistical significance on per-round deltas.
+
+5. **Single-system evaluation.** The cross-task vocabulary bridging and compounding results are measured on knowing's own benchmark corpus. Independent replication on external corpora (e.g., SWE-bench repos) would strengthen the claims.
+
+---
+
+## 14. Reproducibility
+
+All code, benchmarks, and task fixtures are open source under MIT license.
+
+```bash
+# Clone and build
+git clone https://github.com/blackwell-systems/knowing.git
+cd knowing && GOWORK=off go build ./...
+
+# Set up benchmark corpus (16 repos, pinned commits)
+cd bench/cross-system/corpus && bash corpus-setup.sh
+
+# Cold-start P@10 (308 tasks, ~20 min)
+BENCH_ADAPTERS=knowing GOWORK=off go test ./bench/cross-system/ -run TestCrossSystem -v -timeout 0
+
+# Cross-task vocabulary validation (~35 min)
+BENCH_ADAPTERS=knowing GOWORK=off go test ./bench/cross-system/ -run TestCrossTaskVocab -v -timeout 0
+
+# 10-round compounding (Django, ~90 min)
+BENCH_REPOS=django BENCH_COMPOUND_ROUNDS=10 BENCH_ADAPTERS=knowing GOWORK=off go test ./bench/cross-system/ -run TestCompounding -v -timeout 0
+```
+
+Corpus manifest: [`bench/cross-system/corpus/MANIFEST.yaml`](https://github.com/blackwell-systems/knowing/blob/main/bench/cross-system/corpus/MANIFEST.yaml)
+Methodology: [`bench/cross-system/METHODOLOGY.md`](https://github.com/blackwell-systems/knowing/blob/main/bench/cross-system/METHODOLOGY.md)
