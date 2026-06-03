@@ -430,9 +430,18 @@ Shows the RWR walk from a specific seed node: edge types, nodes reached, score d
 
 ### `knowing debug-vocab`
 
-Shows learned vocabulary associations from agent usage.
+Shows learned vocabulary associations from agent usage. With `-task`, previews
+which keywords pass the noise filter without needing a database.
 
-**Usage:** `knowing debug-vocab [-db path] [-keyword filter] [-min-count N] [-top N]`
+**Usage:** `knowing debug-vocab [-db path] [-keyword filter] [-min-count N] [-top N] [-task "description"]`
+
+### `knowing debug-rwr-cache`
+
+Tests RWR cache behavior: runs ForTask cold (populates cache), then warm (tests
+cache hit). Reports latency speedup, cache hit/miss stats, result correctness,
+and cache storage size.
+
+**Usage:** `knowing debug-rwr-cache -task "description" [-db path] [-stats]`
 
 ### `knowing debug-feedback`
 
