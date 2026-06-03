@@ -46,11 +46,14 @@ After: "Did package X change?" (compare one package root). "Did call edges chang
 - Merkle proofs (shipped): `knowing prove` (72us), `knowing verify` (1.2us), `knowing prove-absent`. Offline verifiable.
 - Merkleized feedback validity (v0.5.0): feedback records store SubgraphRoot; expires automatically when code changes.
 - Generation numbers on snapshots: O(1) ancestry checks without chain walking.
+- Incremental RWR cache (session 26): per-package Merkle roots in RWR cache keys. Unchanged packages keep cached walks. Django cold 3.9s -> warm 1.9s (2x). Package roots persisted to notes table during indexing.
+- Vocab association expiration (session 26): per-package roots anchored to learned vocab associations. When a package changes, only that package's associations expire. Same `PackageRoots` infrastructure.
 
 **Remaining (planned):**
 - Federated sync: exchange roots, descend only differing branches.
 - EWAH bitmaps for reachability (from git deep dive).
 - Bloom filters for per-snapshot package changes.
+- Delta context packing: Merkle diff of two context packs (80-90% token savings on subsequent queries).
 
 **What changed about knowing's identity:**
 
@@ -63,7 +66,7 @@ No competitor uses hierarchical Merkle trees over code relationship graphs. Most
 - `internal/snapshot/hierarchical.go`: `HierarchicalTree`, `BuildHierarchicalTree` (delegates to `github.com/blackwell-systems/merkle-strata` v0.4.0 via `strata.BuildMultiLevel` with `WithPrefix([]byte("merkle\x00"))`), `DiffHierarchicalTrees`, `DiffHierarchicalTreesWithOptions` (with `DiffOptions`: `PackageFilter`, `MaxChanges`), `SubgraphRoot`, `EdgeTypeRoot`, `ContextPackRoot`
 - `internal/snapshot/merkle.go`: `BuildMerkleTree` delegates to `strata.Build`; `combineHashes` retained for proof.go compatibility
 - `internal/snapshot/proof.go`: `binaryProofTree` generates self-paired proof steps for single-element top-level roots (matching `computeTreeRoot` domain separation in merkle-strata v0.4.0)
-- `internal/snapshot/manager.go`: `ComputeSnapshot` builds the hierarchical tree (flat tree was dropped); `extractPackagePath` now returns an error on malformed names; sets `Snapshot.Generation` for O(1) ancestry
+- `internal/snapshot/manager.go`: `ComputeSnapshot` builds the hierarchical tree (flat tree was dropped); `extractPackagePath` now returns an error on malformed names; sets `Snapshot.Generation` for O(1) ancestry; `persistPackageRoots` stores htree.PackageRoots to notes table; `LoadPackageRoots` reads them back; `PackageRootForSymbol` extracts package from QN
 - `internal/snapshot/gc.go`: `GarbageCollectFull` with reachability sweep and `GCStats` return type
 - `internal/snapshot/verify.go`: integrity verification functions used by `knowing fsck`
 - `internal/store/sqlite.go`: in-process LRU cache (50K entries) on `GetNode`/`GetEdge`; `IntegrityCheck` method for `PRAGMA integrity_check`
