@@ -1,4 +1,4 @@
-# Shared Intelligence Layer: Communities as Multi-Agent Infrastructure
+# Shared Intelligence Layer: Cross-Task Vocabulary Learning on Community-Partitioned Code Graphs
 
 **Dayna Blackwell, Blackwell Systems**
 
