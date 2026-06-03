@@ -59,7 +59,7 @@ This paper introduces that primitive.
 
 ### 2.1 Content-Addressed Relationship Graphs
 
-Brief summary of the Hierarchical Identity Architecture [Blackwell 2026]:
+This work builds on the Hierarchical Identity Architecture [Blackwell 2026], which established content-addressed code relationship graphs with hierarchical Merkle trees over semantic boundaries. We summarize the relevant properties:
 - Nodes: `sha256("node\0" || repo || package || name || kind)`
 - Edges: `sha256("edge\0" || source || target || type || provenance)`
 - Snapshots: hierarchical Merkle root over edges grouped by package and type
@@ -215,32 +215,41 @@ verify(proof, root_hash):
 
 ---
 
-## 5. Case Study: event-stream Attack
+## 5. Case Studies
 
-### 5.1 Setup
+**Note on reproducibility:** The compromised versions of both event-stream (v3.3.6)
+and TanStack packages have been scrubbed from npm and GitHub registries. The
+structural analysis below is based on reconstructed attack patterns from published
+incident reports and deobfuscated payload analysis, not the original compromised
+artifacts. The detection methodology (graph isolation scoring, capability path
+analysis) is validated on the 200-package false positive corpus (Section 7.1)
+using current, publicly available packages.
 
-- Clone event-stream v3.3.3 (clean) and v3.3.6 (compromised)
-- Index both with knowing
-- Define sink set: `{http.request, https.request, net.Socket.write}`
-- Define module: `flatmap-stream` (the injected dependency)
+### 5.1 event-stream Attack (npm, 2018)
 
-### 5.2 Clean Version (v3.3.3)
+#### 5.1.1 Setup (reconstructed)
+
+- Attack pattern: injected `flatmap-stream` dependency with obfuscated payload
+- Sink set: `{http.request, https.request, net.Socket.write}`
+- Module boundary: `flatmap-stream` (the injected dependency)
+
+#### 5.1.2 Clean Version (v3.3.3)
 
 - `flatmap-stream` does not exist as a dependency
 - `prove-absent("event-stream", sinks, snapshot_clean)` succeeds
 - Proof: event-stream's reachable set contains only stream manipulation functions
 - No path to any network API
 
-### 5.3 Compromised Version (v3.3.6)
+#### 5.1.3 Compromised Version (v3.3.6, reconstructed)
 
 - `flatmap-stream` exists, contains obfuscated code
-- After deobfuscation/execution, creates path:
+- After deobfuscation, creates path:
   `flatmap-stream.process -> crypto.createDecipher -> http.request`
 - `prove-absent("flatmap-stream", sinks, snapshot_compromised)` FAILS
 - `prove("flatmap-stream", sinks, snapshot_compromised)` returns the exact path
-- `knowing diff snapshot_clean snapshot_compromised` shows: 1 new edge added
+- Snapshot diff shows: 1 new capability edge added
 
-### 5.4 Detection Timeline Comparison
+#### 5.1.4 Detection Timeline Comparison
 
 | Method | Detection delay | False positive rate | Proof? |
 |--------|---------------|--------------------| -------|
@@ -249,7 +258,7 @@ verify(proof, root_hash):
 | Manual code review | 2 months (discovered by community) | N/A | No |
 | **prove-absent CI gate** | **0 days (fails on publish)** | **Zero (cryptographic)** | **Yes** |
 
-### 5.5 What This Demonstrates
+#### 5.1.5 What This Demonstrates
 
 1. The proof fails STRUCTURALLY when the attack is introduced (not heuristically)
 2. The diff identifies the EXACT edge that enables the attack
@@ -258,9 +267,9 @@ verify(proof, root_hash):
 
 ---
 
-## 5b. Case Study: TanStack / Mini Shai-Hulud (2026)
+### 5.2 TanStack / Mini Shai-Hulud (npm, 2026)
 
-### 5b.1 Attack Description
+#### 5.2.1 Attack Description
 
 84 npm package artifacts in the @tanstack namespace were compromised via a chained
 exploit: `pull_request_target` Pwn Request pattern, GitHub Actions cache poisoning
@@ -275,7 +284,7 @@ account tokens. Exfiltration via `filev2.getsession[.]org`.
 Socket.dev detected the attack within 6 minutes via pattern matching on the
 obfuscation style (javascript-obfuscator signatures).
 
-### 5b.2 Structural Detection Results
+#### 5.2.2 Structural Detection Results (reconstructed)
 
 We reconstructed the TanStack payload pattern (deobfuscated) and indexed with knowing.
 The malicious file produced the following structural signals:
@@ -292,7 +301,7 @@ The malicious file produced the following structural signals:
 - `env://GITHUB_TOKEN -> process://curl` (credential theft -> exfiltration)
 - `env://NPM_TOKEN -> process://curl` (credential theft -> exfiltration)
 
-### 5b.3 Comparison: Pattern Matching vs Structural Analysis
+#### 5.2.3 Comparison: Pattern Matching vs Structural Analysis
 
 | Dimension | Socket.dev (pattern) | knowing (structural) |
 |-----------|---------------------|---------------------|
@@ -303,7 +312,7 @@ The malicious file produced the following structural signals:
 | Offline verification | No (requires Socket API) | Yes (SHA-256 only) |
 | False positive rate | Medium (heuristic) | 1.0% on 200 clean packages (package-level verdict) |
 
-### 5b.4 Key Difference from event-stream
+#### 5.2.4 Key Difference from event-stream
 
 | Aspect | event-stream (2018) | TanStack (2026) |
 |--------|-------------------|-----------------|
