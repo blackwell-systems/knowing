@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/blackwell-systems/knowing/internal/cache"
+	snap "github.com/blackwell-systems/knowing/internal/snapshot"
 	"github.com/blackwell-systems/knowing/internal/types"
 )
 
@@ -1645,15 +1646,20 @@ func (e *ContextEngine) recordImplicitFeedback(ctx stdctx.Context, block *Contex
 	// Record vocabulary associations: keyword -> used symbol.
 	// These become learned equivalence classes after count >= 2.
 	// Only record vocab-worthy keywords (domain-specific, not common English).
-	// Associations are anchored to the current snapshot hash so they expire
-	// when the graph changes (Merkle guarantee).
+	// Associations are anchored to per-package Merkle roots so they expire
+	// only when their specific package changes (not the entire graph).
 	if e.vocabRec != nil && len(used) > 0 && len(e.taskKeywords) > 0 {
-		snapRoot := getLatestSnapshotHash(ctx, e.store)
+		pkgRoots := snap.LoadPackageRoots(ctx, e.store)
 		for _, sym := range used {
+			// Look up the symbol's node to get its QN for package extraction.
+			var pkgRoot types.Hash
+			if node, err := e.store.GetNode(ctx, sym.Hash); err == nil && node != nil {
+				pkgRoot = snap.PackageRootForSymbol(node.QualifiedName, pkgRoots)
+			}
 			for _, kw := range e.taskKeywords {
 				lkw := strings.ToLower(kw)
 				if isVocabWorthy(lkw) {
-					_ = e.vocabRec.RecordVocabAssociation(ctx, lkw, sym.Name, sym.Hash, snapRoot)
+					_ = e.vocabRec.RecordVocabAssociation(ctx, lkw, sym.Name, sym.Hash, pkgRoot)
 				}
 			}
 		}

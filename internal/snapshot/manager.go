@@ -14,12 +14,20 @@ package snapshot
 
 import (
 	"context"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/blackwell-systems/knowing/internal/types"
 )
+
+// packageRootsNoteKey is the note key for persisted package roots.
+const packageRootsNoteKey = "package_roots"
+
+// packageRootsObjectHash is the fixed object hash for the package roots note.
+var packageRootsObjectHash = types.NewHash([]byte("package_roots_v1"))
 
 // SnapshotManager manages Merkle root computation, snapshot chain
 // maintenance, diff operations, and garbage collection of old snapshots.
@@ -91,6 +99,7 @@ func (sm *SnapshotManager) ComputeSnapshot(ctx context.Context, repoHash types.H
 		return nil, fmt.Errorf("creating snapshot: %w", err)
 	}
 
+	sm.persistPackageRoots(ctx, htree)
 	return &snap, nil
 }
 
@@ -130,6 +139,7 @@ func (sm *SnapshotManager) ComputeSnapshotFromEdges(ctx context.Context, repoHas
 		return nil, fmt.Errorf("creating snapshot: %w", err)
 	}
 
+	sm.persistPackageRoots(ctx, htree)
 	return &snap, nil
 }
 
@@ -337,4 +347,97 @@ func (sm *SnapshotManager) walkChain(ctx context.Context, repoHash types.Hash) (
 	}
 
 	return chain, nil
+}
+
+// persistPackageRoots serializes the hierarchical tree's PackageRoots to the
+// notes table. This enables per-package Merkle expiration for vocab associations
+// and other cached data: when a specific package changes, only that package's
+// root changes, leaving other packages' cached data valid.
+func (sm *SnapshotManager) persistPackageRoots(ctx context.Context, htree *HierarchicalTree) {
+	if htree == nil || len(htree.PackageRoots) == 0 {
+		return
+	}
+	type noteWriter interface {
+		PutNote(ctx context.Context, note types.Note) error
+	}
+	nw, ok := sm.store.(noteWriter)
+	if !ok {
+		return
+	}
+
+	// Serialize as JSON: {"pkg/path": "hex-root", ...}
+	m := make(map[string]string, len(htree.PackageRoots))
+	for pkg, root := range htree.PackageRoots {
+		m[pkg] = hex.EncodeToString(root[:])
+	}
+	data, err := json.Marshal(m)
+	if err != nil {
+		return
+	}
+	_ = nw.PutNote(ctx, types.Note{
+		ObjectHash: packageRootsObjectHash,
+		Key:        packageRootsNoteKey,
+		Value:      string(data),
+	})
+}
+
+// LoadPackageRoots reads the persisted package roots from the notes table.
+// Returns a map of package path -> Merkle root hash. Returns nil if no roots
+// are stored (pre-existing DB without this feature).
+func LoadPackageRoots(ctx context.Context, store types.GraphStore) map[string]types.Hash {
+	type noteReader interface {
+		GetNote(ctx context.Context, objectHash types.Hash, key string) (*types.Note, error)
+	}
+	nr, ok := store.(noteReader)
+	if !ok {
+		return nil
+	}
+	note, err := nr.GetNote(ctx, packageRootsObjectHash, packageRootsNoteKey)
+	if err != nil || note == nil || note.Value == "" {
+		return nil
+	}
+
+	var m map[string]string
+	if err := json.Unmarshal([]byte(note.Value), &m); err != nil {
+		return nil
+	}
+
+	roots := make(map[string]types.Hash, len(m))
+	for pkg, hexRoot := range m {
+		b, err := hex.DecodeString(hexRoot)
+		if err != nil || len(b) != 32 {
+			continue
+		}
+		var h types.Hash
+		copy(h[:], b)
+		roots[pkg] = h
+	}
+	return roots
+}
+
+// PackageRootForSymbol looks up the package root for a symbol given its
+// qualified name and the persisted package roots map. Extracts the package
+// path from the QN (everything between "://" and the last "/").
+func PackageRootForSymbol(qn string, packageRoots map[string]types.Hash) types.Hash {
+	if packageRoots == nil {
+		return types.EmptyHash
+	}
+	// QN format: "repoURL://path/to/package/file.ext.SymbolName"
+	// Package path: "path/to/package"
+	idx := strings.Index(qn, "://")
+	if idx < 0 {
+		return types.EmptyHash
+	}
+	path := qn[idx+3:]
+	// Strip file + symbol: find the last "/" to get directory.
+	lastSlash := strings.LastIndex(path, "/")
+	if lastSlash < 0 {
+		return types.EmptyHash
+	}
+	pkgPath := path[:lastSlash]
+
+	if root, ok := packageRoots[pkgPath]; ok {
+		return root
+	}
+	return types.EmptyHash
 }
