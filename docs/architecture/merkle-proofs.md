@@ -181,3 +181,6 @@ See [`knowing prove-absent`](../guide/cli.md#prove-absent) in the CLI reference 
 | Federated sync | Proofs are the trust primitive: "prove your graph includes this edge." |
 | Bisection | Binary search uses proof verification at each step. |
 | Context pack dedup | PackRoot is a different kind of proof: "this context selection is identical." |
+| Incremental RWR cache | Per-package Merkle roots in cache keys. When a package changes, only walks seeded from that package miss. Same hierarchical tree, different consumer. |
+| Vocab association expiration | Per-package roots anchored to vocab associations at recording time. When a package changes, only that package's learned associations expire. |
+| Feedback expiration | `neighborhood_root` on feedback records. Same Merkle-based expiration pattern applied to implicit feedback. |
