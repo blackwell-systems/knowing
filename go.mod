@@ -1,6 +1,6 @@
 module github.com/blackwell-systems/knowing
 
-go 1.26.0
+go 1.26.1
 
 require (
 	github.com/blackwell-systems/agent-lsp v0.11.2-0.20260518143556-2469d52998d6
@@ -23,6 +23,7 @@ require (
 )
 
 require (
+	github.com/blackwell-systems/gcf-go v0.0.0-20260603210758-19ccf8e071de // indirect
 	github.com/chewxy/math32 v1.11.1 // indirect
 	github.com/daulet/tokenizers v1.27.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
