@@ -140,7 +140,7 @@ The indexer uses a producer-consumer pipeline (configurable via `--workers` flag
 
 Progress output to stderr every 2 seconds shows files processed and extraction rate. On the knowing codebase (84K LOC, 429 source files, 62 packages), the parallel indexer produces 7,224 nodes and ~24.9K edges in 1.8 seconds (1,451 files/sec throughput).
 
-The worker pool handles tree-sitter extraction only; LSP enrichment uses its own concurrency model (64 concurrent workers post-warmup for edge upgrades, 8 concurrent for discovery batches). Language servers handle concurrent requests well once warmed up.
+The worker pool handles tree-sitter extraction only; LSP enrichment uses its own concurrency model (128 concurrent workers post-warmup for edge upgrades, 8 concurrent for discovery batches). Language servers handle concurrent requests well once warmed up.
 
 **Call-site positions:**
 
@@ -162,7 +162,7 @@ LSP servers require files to be opened via `textDocument/didOpen` before they ca
 
 These limitations exist only between Tier 1 and Tier 2 completion. After enrichment, all limitations are resolved.
 
-**Extractors (24 registered: 12 language + 11 infrastructure/cloud + CODEOWNERS):**
+**Extractors (23 registered via extractor registry + CODEOWNERS inline):**
 
 | Language / Format | Tier 1 (fast) | Tier 2 (enrichment) | LSP server |
 |----------|--------------|--------------------|-----------| 
@@ -189,7 +189,7 @@ These limitations exist only between Tier 1 and Tier 2 completion. After enrichm
 | package.json/npm | `packagejsonextractor` (JSON parser) | n/a | n/a |
 | Event/Message Queue | `eventextractor` (cross-language producer/consumer detection) | n/a | n/a |
 | .env files | `envextractor` (line parser) | n/a | n/a |
-| CODEOWNERS | `ownership` (CODEOWNERS parser, emits `owned_by` edges with confidence 1.0) | n/a | n/a |
+| CODEOWNERS | `ownership` (inline in indexer, not via registry; emits `owned_by` edges with confidence 1.0) | n/a | n/a |
 
 **Cross-file import resolution (5 OOP languages):**
 
@@ -429,7 +429,7 @@ The graph connects symbols with typed, provenance-annotated edges:
 | Category | Edge types |
 |----------|-----------|
 | Code | `calls`, `imports`, `implements`, `references`, `extends`, `overrides`, `decorates`, `throws` |
-| Structural | `contains` (type -> method, weight 0.8), `member_of` (method -> type, weight 0.6) |
+| Structural | `contains` (type -> method, weight 0.0 in RWR walk, used by path seeding directly), `member_of` (method -> type, weight 0.0 in RWR walk) |
 | Route | `handles_route` (route handler node to handler function, from static extraction) |
 | Infrastructure | `depends_on` (Terraform, SQL, CSS), `deploys` (K8s Service to Deployment), `exposes` (K8s Ingress to Service), `configures` (K8s ConfigMap/Secret to Deployment) |
 | Messaging | `publishes`, `subscribes`, `connects_to` |
@@ -445,15 +445,18 @@ The graph connects symbols with typed, provenance-annotated edges:
 
 ## Wire Formats
 
-The system supports three serialization formats for graph output:
+Four codecs registered in `internal/wire/registry.go`, plus two legacy formats:
 
 | Format | Purpose | Savings vs JSON |
 |--------|---------|-----------------|
-| **GCF** (Graph Compact Format) | LLM consumption: line-oriented, positional fields, `|`-separated with local IDs (`$1 -> $3`) | 84% fewer tokens |
+| **GCF** (Graph Compact Format) | LLM consumption: line-oriented, positional fields, local IDs (`@0`, `@1`), edges as `@target<@source type` | 84% fewer tokens |
 | **GCB** (Graph Compact Binary) | Service transport and caching: varint-encoded, length-prefixed | 74% fewer bytes |
+| **TOON** (Token-Oriented Object Notation) | External interchange: open standard, tabular arrays | ~60% fewer tokens |
 | **JSON** | Human debugging, generic consumers | Baseline |
+| **XML** (legacy) | Human-readable MCP default (does not include edges) | ~0% |
+| **Markdown** (legacy) | Human consumption, documentation | ~10% |
 
-GCF is the default output format for MCP context tools. Session-stateful deduplication reduces repeated symbols by 47% across consecutive calls. See [Wire Formats](wire-formats.md) for encoding details and benchmarks.
+GCF is the recommended format for all agent workflows. LLM comprehension eval (session 27, `eval/TestLLMFormatComprehension`) proved GCF achieves 100% accuracy on structured extraction tasks, outperforming JSON (66.7%) at 16% of the token cost. Session-stateful deduplication (`EncodeWithSession`) reduces repeated symbols by ~47% across consecutive calls. Delta encoding (`EncodeDelta`) saves 81% on re-queries where the pack changed slightly. See [Wire Formats](wire-formats.md) and [Wire Formats Guide](wire-formats-guide.md) for encoding details, benchmarks, and LLM comprehension results.
 
 ## Retrieval Pipeline
 

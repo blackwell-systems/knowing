@@ -3,7 +3,7 @@
 ## Design Goals
 
 - **Content-addressed**: every graph state is a hash; history, staleness, and integrity are structural properties, not bolted-on features. All hash inputs carry domain-type prefixes (`node\0`, `edge\0`, `snapshot\0`, `merkle\0`) so hashes from different entity types are structurally distinguishable, making cross-type hash collisions structurally impossible (same approach as git's `"blob <size>\0"` header)
-- **Two-tier extraction**: 24 extractors across 12 languages + infrastructure; tree-sitter for fast AST parsing (seconds), LSP enrichment for type-resolved confidence (seconds more); graph is queryable after Tier 1
+- **Two-tier extraction**: 23 extractors across 12 languages + infrastructure (+ CODEOWNERS inline); tree-sitter for fast AST parsing (seconds), LSP enrichment for type-resolved confidence (seconds more); graph is queryable after Tier 1
 - **Git-driven incremental**: commits are the unit of change; git diff provides the exact changed file set; no filesystem walking or content hashing for change detection
 - **Language-aware at boundaries**: Go calling Go is straightforward; Go calling a Python service via HTTP needs route mapping
 - **MCP-native**: exposed as MCP tools, consumed by agents directly
@@ -21,7 +21,7 @@ knowing decomposes into three planes separated by an artifact boundary. This sep
 
 ```
 Execution Plane (produces the artifact)
-├── Indexer (24 extractors across 12 languages + infrastructure)
+├── Indexer (23 registered extractors + CODEOWNERS inline)
 │   ├── Go extractor (go/packages, full type resolution, `--full` flag)
 │   ├── tree-sitter extractors (Go, Python, Ruby, TypeScript/JS, Rust, Java, C#, CSS, Protocol Buffers, GraphQL, SQL, OpenAPI/Swagger)
 │   ├── Infrastructure extractors (Terraform HCL, Kubernetes YAML, Cloud YAML, Dockerfile, Makefile, Helm, GitLab CI, package.json/npm, .env, Event/MQ, CODEOWNERS)
@@ -118,6 +118,7 @@ The intelligence plane does not need the same trust. It interprets the graph but
 | `prove` | Audit | Generate Merkle inclusion proof for a relationship |
 | `prove_absent` | Audit | Generate Merkle absence proof (relationship does NOT exist) |
 | `fsck` | Audit | Verify graph integrity (hashes, referential integrity, snapshot chain) |
+| `untrack_repo` | Management | Remove a repo and all its data from the graph store |
 
 Basic graph reads (`cross_repo_callers`, `graph_query`, `repo_graph`) are execution-plane operations: they return what the graph contains without interpretation. Intelligence-plane tools compute, classify, compare, or aggregate, and they produce derived results that are themselves content-addressed artifacts. Context-plane tools (`context_for_task`, `context_for_files`, `context_for_pr`) are a specialized form of intelligence: they score and rank symbols from the graph, then pack them into a token budget for agent consumption.
 
@@ -161,7 +162,7 @@ After seed retrieval, Random Walk with Restart (RWR) expands the seed set throug
 **Benchmark results (honest measurement, no task memory, no embeddings):**
 
 - P@10 = 0.281 cold start across 308 tasks, 16 repos, 8 languages (Go, Python, TypeScript, Rust, Java, C#, Ruby), 14K to 3.5M LOC. 13 self-adapting mechanisms.
-- Competitive advantage (cold): vs codegraph 2.17x, vs GitNexus 3.44x, vs Gortex 3.63x, vs grep 12.6x
+- Competitive advantage (cold): vs codegraph 3.23x, vs GitNexus 5.11x, vs Gortex 5.40x, vs Aider 12.2x, vs grep 18.7x
 - Self-adapting type-seed preference: on dense graphs (>40K nodes), automatically prefers type/interface/class nodes as RWR seeds
 - Embedding re-ranker: REVERTED (session 19). Gap-fill seeds: NEUTRAL (session 23, task memory contamination).
 - Concept thesaurus: ~80 domain clusters expand BM25 queries with related code vocabulary.

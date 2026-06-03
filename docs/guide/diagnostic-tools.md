@@ -338,7 +338,7 @@ Force type/interface/class nodes to be preferred as RWR seeds, regardless of
 graph density. Useful for testing whether seed kind matters on a specific repo.
 
 ```bash
-# Manual type-seed preference (auto-enables on >50K nodes)
+# Manual type-seed preference (auto-enables on >40K nodes)
 BENCH_PREFER_TYPE_SEEDS=1 BENCH_ADAPTERS=knowing \
   go test ./bench/cross-system/ -run TestCrossSystem -timeout 30m -v
 ```
@@ -351,7 +351,7 @@ Types make better seeds because their `contains` edges reach all their methods.
 **Use cases:**
 - Verify that dense-graph dilution is from seed kind (methods competing with types)
 - Compare type-seeded vs method-seeded results on any graph density
-- Confirm whether auto-detection threshold (50K nodes) is appropriate for a repo
+- Confirm whether auto-detection threshold (40K nodes) is appropriate for a repo
 
 ## Combining Tools
 
@@ -366,6 +366,23 @@ knowing index --no-enrich --skip-blame /path/to/repo
 BENCH_EXCLUDE_EDGES=similar_to BENCH_BFS_DEPTH=3 BENCH_ADAPTERS=knowing \
   go test ./bench/cross-system/ -run TestCrossSystem -timeout 30m -v
 ```
+
+## Session 24-27 Diagnostic Env Vars
+
+Env vars added in sessions 24-27 for specific ablation and feature testing:
+
+| Env Var | Default | What it controls |
+|---------|---------|-----------------|
+| `BENCH_LSP_EDGE_WEIGHT` | `0.3` | Weight multiplier for LSP-enriched edges in RWR. Attenuates enrichment centrality inflation. Sweep: 0.1-1.0. |
+| `BENCH_PROXIMITY_EXP` | `0.3` | Proximity exponent for packing density. Higher = more aggressive proximity preference. Sweep: 0.1-0.9. |
+| `BENCH_FEEDBACK_WEIGHT` | `none` | Feedback confidence weighting mode: `none` (raw), `sqrt` (symmetric), `linear` (steep), `asym` (full positives, sqrt negatives). |
+| `BENCH_IMPLICIT_FEEDBACK` | `0` | Enable implicit feedback (noise demotion) in benchmarks. Set to `1` to activate. |
+| `BENCH_COMPOUND_ROUNDS` | `5` | Number of rounds for `TestCompounding`. |
+| `BENCH_FOCUSED_SEEDS` | `1` | Enable focused seed selection (cluster by package path). Set to `0` to disable for A/B testing. |
+| `BENCH_PACK_STRATEGY` | `density` | Packing algorithm: `density` (default), `file-grouped`, `top-k`. |
+| `BENCH_RWR_CACHE` | `0` | Enable RWR result caching in benchmarks. Off by default for honest measurement. |
+
+These compose with the existing `BENCH_EXCLUDE_EDGES`, `BENCH_BFS_DEPTH`, `BENCH_PREFER_TYPE_SEEDS`, `BENCH_REPOS`, and `BENCH_ADAPTERS` env vars.
 
 ## Repo-Specific Benchmarking
 
@@ -444,7 +461,7 @@ RRF fusion picks different (worse) seeds. RWR then walks from wrong starting poi
 - LSP enrichment: adds 42K edges from pyright (session 13)
 
 **Fix approaches (shipped):**
-- **Self-adapting type-seed preference** (PreferTypeSeeds): on dense graphs (>50K nodes), automatically prefer type/interface/class nodes as RWR seeds. VS Code +44%. Available as `BENCH_PREFER_TYPE_SEEDS=1` manual override.
+- **Self-adapting type-seed preference** (PreferTypeSeeds): on dense graphs (>40K nodes), automatically prefer type/interface/class nodes as RWR seeds. VS Code +44%. Available as `BENCH_PREFER_TYPE_SEEDS=1` manual override.
 - **Phrase-boosted BM25**: adjacent word bigrams as FTS5 phrase queries ("code actions" as quoted phrase).
 - **Concept thesaurus**: ~80 domain clusters expand BM25 queries with related code vocabulary.
 
@@ -452,19 +469,26 @@ RRF fusion picks different (worse) seeds. RWR then walks from wrong starting poi
 - Per-package BM25: smaller FTS index per scope restores IDF discrimination
 - Local embeddings: vector similarity is density-independent (see `docs/proposals/pure-go-embeddings.md`)
 
-### Enrichment Dilution (session 12-13)
+### Enrichment Dilution (sessions 12-13, resolved session 25)
 
-**Symptom:** LSP enrichment adds correct edges but P@10 drops.
+**Symptom:** LSP enrichment adds correct edges but P@10 drops on some repos.
 
-**Root cause:** Enrichment adds edges to already-well-connected nodes (pyright resolves
-every call). These extra edges don't create new reachability; they just spread probability
-mass further along existing paths.
+**Root cause (session 25):** Not phantom probability sinks. Not packing density. The cause
+is enriched real nodes gaining inflated centrality: LSP discovers edges that connect
+webhook/event handler symbols to many other symbols, inflating their RWR score above the
+implementation symbols that ground truth expects.
 
-**Diagnostic:** Compare P@10 with `--no-enrich` vs enriched. If unenriched is better,
-enrichment is diluting.
+**Diagnostic:** Compare P@10 with `-no-enrich` vs enriched. If unenriched is better,
+enrichment is diluting. Check which symbols gained the most centrality.
 
-**Fix:** Don't use enrichment for retrieval quality. Enrichment is for audit/confidence
-(provenance upgrade 0.7 -> 0.9), not for retrieval.
+**Fix (shipped session 25):** LSP edge weight attenuation. Edges with `lsp_resolved`
+provenance receive 0.3x weight in the RWR walk (override with `BENCH_LSP_EDGE_WEIGHT`).
+This prevents enrichment from inflating centrality of framework wiring symbols.
+Enriched saleor regression halved (from -23% to -11%). Full corpus: neutral.
+
+**Current state:** Enrichment is strongly positive for retrieval when attenuated.
+Go: k8s 0.000 -> 0.232, terraform ~0.095 -> 0.275. Python: +0.040.
+The value comes from phantom nodes + type_hint_of edges creating new reachability paths.
 
 ### Feedback BFS Flooding (session 13)
 

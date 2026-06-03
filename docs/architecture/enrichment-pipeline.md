@@ -270,7 +270,7 @@ Enrichment time varies widely by language server performance and repo size:
 | cargo | Rust | 950 | ~1 min | - | - | 72K | rust-analyzer, fast |
 | ocelot | C# | 768 | ~6 min | - | - | 10K | csharp-ls |
 | terraform | Go | 2,242 | 12 min | 5,850 | 82,721 | 73K | gopls, two-phase warmup |
-| kubernetes | Go | 2,956 | 58 min | 39,678 | 192,271 | 169K | gopls, 64 concurrent post-warmup. Root module covers all 30 sub-modules. |
+| kubernetes | Go | 2,956 | 58 min | 39,678 | 192,271 | 169K | gopls, 128 concurrent post-warmup. Root module covers all 30 sub-modules. |
 
 ---
 
@@ -403,7 +403,7 @@ For repos with very large dependency trees, consider running enrichment on a mac
 
 Use `-no-enrich` for fast iteration during development or supply chain scanning.
 Enrichment is strongly positive for retrieval: +0.040 P@10 on Python repos, and
-dramatically larger on Go repos (kubernetes 0.000 -> 0.159, terraform ~0.095 -> 0.265).
+dramatically larger on Go repos (kubernetes 0.000 -> 0.232, terraform ~0.095 -> 0.275).
 The tree-sitter extraction pipeline is self-sufficient for basic retrieval, but enrichment
 creates phantom nodes and cross-package edges that significantly expand RWR reachability.
 See [retrieval-pipeline.md](retrieval-pipeline.md) for measured impact.

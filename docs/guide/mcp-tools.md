@@ -689,6 +689,48 @@ Array of objects pairing each `File` with its `Node` list. Files with no extract
 }
 ```
 
+### `ownership_query`
+
+Query code ownership: find owners (from CODEOWNERS) and authors (from git blame) for a file or symbol. Unlike `ownership` (which lists files and symbols), this tool queries `owned_by` and `authored_by` edges to answer "who owns this code?" questions.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `repo_hash` | string | yes | Hash of the repository (64-char hex) |
+| `file_path` | string | no | File path relative to repo root |
+| `symbol` | string | no | Qualified symbol name to query authorship for |
+
+At least one of `file_path` or `symbol` should be provided.
+
+**Return format:**
+
+```json
+{
+  "file_path": "internal/store/sqlite.go",
+  "codeowners": [
+    { "name": "@backend-team", "kind": "team" }
+  ],
+  "authors": [
+    { "name": "developer@example.com", "kind": "author", "symbol": "SQLiteStore.GetNode" }
+  ]
+}
+```
+
+Returns owners from CODEOWNERS-derived `owned_by` edges and authors from git blame-derived `authored_by` edges.
+
+**Example:**
+
+```json
+{
+  "tool": "ownership_query",
+  "arguments": {
+    "repo_hash": "abcdef01...",
+    "file_path": "internal/store/sqlite.go"
+  }
+}
+```
+
 ---
 
 ## Context
@@ -704,7 +746,7 @@ Generate graph-ranked, token-budgeted context for a task description.
 | `task_description` | string | yes | Natural language description of the task |
 | `token_budget` | integer | no | Token budget (default 50000) |
 | `format` | string | no | Output format: `gcf`, `gcb`, `toon`, `json`, `xml` (default), or `markdown` |
-| `pack_root` | string | no | PackRoot from a prior `context_for_task` call (64-char hex). If the current result has the same PackRoot, returns `"unchanged"` instead of resending context. Enables 93-99% byte savings on repeated calls when the graph has not changed. |
+| `pack_root` | string | no | PackRoot from a prior `context_for_task` call (64-char hex). Three outcomes: (1) same PackRoot: returns `"unchanged"` (zero retransmission); (2) different PackRoot, prior pack known: returns **delta encoding** with only added/removed symbols (81% token savings); (3) different PackRoot, prior pack unknown: full retransmission. |
 
 **Return format:**
 

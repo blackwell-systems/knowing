@@ -13,7 +13,7 @@ See [distribution.md](distribution.md) for installation instructions.
 knowing <subcommand> [flags]
 ```
 
-Subcommands: `serve`, `daemon`, `index`, `query`, `export`, `diff`, `context`, `why`, `mcp`, `watch`, `reindex`, `init`, `add`, `remove`, `list`, `stats`, `stale`, `reset`, `vacuum`, `test-scope`, `ingest-scip`, `enrich`, `fsck`, `prove`, `verify`, `prove-absent`, `audit`, `audit-diff`, `audit-supply-chain`, `version`.
+Subcommands: `serve`, `daemon`, `index`, `query`, `export`, `diff`, `context`, `why`, `mcp`, `watch`, `reindex`, `init`, `add`, `remove`, `list`, `stats`, `stale`, `reset`, `vacuum`, `test-scope`, `ingest-scip`, `enrich`, `enrich-similarity`, `rebuild-fts`, `fsck`, `prove`, `verify`, `prove-absent`, `audit`, `audit-diff`, `audit-supply-chain`, `debug-seeds`, `debug-fts`, `debug-walk`, `debug-vocab`, `debug-feedback`, `debug-equiv`, `debug-pack`, `debug-rwr-cache`, `bench-task`, `version`.
 
 ## Environment
 
@@ -1171,7 +1171,7 @@ knowing enrich lsp -url https://github.com/org/repo ./my-repo
 - For Go workspaces with `go.work`, spawns one gopls per module. Progress persisted
   in `.knowing/enrich-progress.json` for crash recovery.
 - Enrichment is strongly positive for retrieval: +0.040 P@10 on Python repos,
-  kubernetes 0.000 -> 0.159. See [enrichment-pipeline.md](../architecture/enrichment-pipeline.md).
+  kubernetes 0.000 -> 0.232. See [enrichment-pipeline.md](../architecture/enrichment-pipeline.md).
 
 ---
 
@@ -1392,6 +1392,26 @@ knowing debug-pack -task "description" [-db path] [-budget N] [repo-path]
 
 **Output:** packed symbols with density ranking, token cost, RWR proximity score,
 file distribution, and budget utilization.
+
+### debug-rwr-cache
+
+Verify RWR cache correctness and measure latency improvement.
+
+```bash
+knowing debug-rwr-cache [-db path] <repo-path>
+```
+
+Runs a cold query (cache disabled), then a warm query (cache enabled) for the
+same task, and compares results. Reports:
+
+- Cold vs warm latency (expected ~2x improvement)
+- Cache hit/miss counts
+- Result correctness (delta between cold and warm P@10, should be within run variance)
+
+Use this to verify that incremental RWR caching (Merkle-keyed, session 26) is
+producing correct results and the expected speedup. The cache stores walk results
+in the notes table keyed by `hash(sorted seeds + weights + alpha + per-package
+Merkle roots)`.
 
 ---
 

@@ -37,7 +37,7 @@ repo_root
 
 Structure: repo root -> package roots -> edge-type roots -> edge leaves. The hierarchical root IS the canonical snapshot identity. No separate flat tree is maintained; the flat tree was dropped after the hash domain prefix change made backward compatibility moot. `types.ComputeSnapshotHash` wraps the hierarchical root with a `"snapshot\0"` domain prefix to produce the snapshot hash stored in the database.
 
-`DiffHierarchicalTrees` compares package roots instead of all edges: 281x faster on the knowing repo (13K edges), 517x on 100K synthetic edges. `SubgraphRoot` computes O(1) cache keys for any set of packages. `EdgeTypeRoot` answers "did call edges change?" in one lookup. See `docs/architecture/merkle-algorithms.md` for the full algorithm specification and `bench/merkle-diff/` for benchmark results.
+`DiffHierarchicalTrees` compares package roots instead of all edges: ~213x faster on the knowing repo (~24.9K edges), 517x on 100K synthetic edges. `SubgraphRoot` computes O(1) cache keys for any set of packages. `EdgeTypeRoot` answers "did call edges change?" in one lookup. See `docs/architecture/merkle-algorithms.md` for the full algorithm specification and `bench/merkle-diff/` for benchmark results.
 
 ## Knowledge Graph vs. Tree vs. Table
 
@@ -144,7 +144,7 @@ This property enables:
 
 knowing decomposes into two planes separated by an artifact boundary:
 
-- The **execution plane** produces the graph (24 extractors, daemon, trace ingestion, graph store).
+- The **execution plane** produces the graph (23 registered extractors + CODEOWNERS inline, daemon, trace ingestion, graph store).
 - The **intelligence plane** interprets the graph (semantic diff, blast radius, staleness analysis, ownership routing).
 
 The **artifact** is the content-addressed graph itself: a SQLite file containing nodes, edges, snapshots, and edge events. It is portable (copy one file), self-contained, and queryable by any tool that understands the schema.
@@ -202,7 +202,7 @@ A `ContextBlock` (the result returned by `context.ForTask` and `context.ForFiles
 
 Two identical queries against the same graph state produce the same `PackRoot`. This has three consequences:
 
-1. **Session deduplication.** The GCF wire format can skip retransmitting symbols whose `PackRoot` was already sent in the current session. The daemon compares `PackRoot` hashes instead of diffing symbol lists.
+1. **Session deduplication.** When an agent passes a `PackRoot` from a prior call and the result is identical, the server returns "unchanged" (zero retransmission). When the result differs, **delta encoding** (`internal/context/delta.go`, `internal/wire/delta.go`) sends only added/removed symbols instead of the full pack (81.2% token savings at 96.6% symbol overlap on re-query scenarios).
 2. **Cross-team sharing.** If two agents have the same `PackRoot`, they have the same context. Precomputed summaries or annotations can be shared by hash without re-running the retrieval pipeline.
 3. **Cache key.** The `SubgraphCache` can use `PackRoot` as a secondary key alongside the Merkle subgraph root, ensuring results are evicted only when the underlying graph changes.
 

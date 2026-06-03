@@ -158,20 +158,29 @@ connected) score higher because the walker passes through them more often.
 ### Edge weights by type
 
 The walk is not uniform across edges. Each edge type has a weight that determines the
-fraction of probability mass that flows through it:
+fraction of probability mass that flows through it. The full weight map
+(`edgeWeights` in `walk.go`):
 
-| Edge Type | Weight | Rationale |
-|---|---|---|
-| `calls` | 1.0 | Direct call relationships are the strongest structural signal |
-| `implements` | 0.8 | Interface implementations create tight coupling |
-| `handles_route` | 0.7 | Route bindings connect HTTP surface to handlers |
-| `imports` | 0.5 | Package-level dependency (weaker than function-level) |
-| `references` | 0.4 | Type/constant usage (weakest static signal) |
-| unknown/runtime | 0.3 | Default for any edge type not in the weight map |
+| Weight | Edge Types |
+|--------|-----------|
+| 1.0 | `calls` |
+| 0.8 | `implements`, `implements_rpc`, `overrides` |
+| 0.7 | `handles_route`, `extends` |
+| 0.6 | `tests`, `consumes_rpc`, `accesses_field` |
+| 0.5 | `imports`, `depends_on`, `consumes_endpoint`, `tested_by`, `co_tested_with`, `type_hint_of`, `executes_process` |
+| 0.4 | `reads_env`, `references`, `throws`, `deployed_by` |
+| 0.3 | `gated_by_flag`, `decorates` |
+| 0.2 | `documents` |
+| 0.15 | `similar_to` |
+| 0.0 | `contains`, `member_of`, `owned_by`, `authored_by` (structural, excluded from walk) |
 
-When a node has multiple outgoing edges, probability is distributed proportionally to edge
-weight. A node with one `calls` edge (weight 1.0) and one `imports` edge (weight 0.5) sends
-2/3 of its flow along the calls edge and 1/3 along the imports edge.
+LSP-enriched edges (`lsp_resolved` provenance) receive an additional 0.3x attenuation
+(`lspEdgeWeight()` in `sweep.go`) to prevent enrichment from inflating centrality of
+framework wiring symbols. Override with `BENCH_LSP_EDGE_WEIGHT`.
+
+Unknown edge types default to 0.3. When a node has multiple outgoing edges, probability
+is distributed proportionally to edge weight. A node with one `calls` edge (1.0) and one
+`imports` edge (0.5) sends 2/3 of its flow along the calls edge and 1/3 along imports.
 
 ### Convergence
 
@@ -192,17 +201,19 @@ effectively acting as an implicit restart.
 ## The Scoring Formula
 
 After RWR produces raw relevance scores, the `RankSymbols` function computes a final
-composite score. Without HITS:
+composite score. With HITS active (the primary path, applied to top-200):
+
+```
+score = blast_radius * 0.35 + confidence * 0.20 + recency * 0.15 + distance * 0.15 + authorityAdj + feedback + session + commit_recency
+```
+
+Without HITS (fallback), weights shift slightly to compensate for the missing authority signal:
 
 ```
 score = blast_radius * 0.40 + confidence * 0.25 + recency * 0.20 + distance * 0.15 + feedback + session + commit_recency
 ```
 
-With HITS active (applied to top-200), weights shift to accommodate authority adjustments:
-
-```
-score = blast_radius * 0.35 + confidence * 0.20 + recency * 0.15 + distance * 0.15 + authorityAdj + feedback + session
-```
+Base weights are sweep-tunable via `internal/context/sweep.go` (`sweepBlastW`, `sweepConfW`, `sweepRecencyW`, `sweepDistanceW`). The non-HITS path adds +0.05 to blast, confidence, and recency.
 
 Feedback weight is asymmetric: pos=0.25, neg=0.05 (centered around 0). Session weight is 0.20 (normalized from [0, 2.0] cap).
 
@@ -359,9 +370,12 @@ to avoid under-filling the budget.
 
 ## Output Formats
 
-The `FormatContextBlock` function renders the packed symbols into one of three formats.
+Six output formats are available, split across two rendering paths:
 
-### XML (default)
+- **Legacy path** (`FormatContextBlock` in `internal/context/format.go`): `xml` (default), `markdown`, `json`. Renders symbols only; does not include edges.
+- **Wire codec path** (`formatBlock` in `internal/mcp/context_handlers.go`): `gcf`, `gcb`, `toon`. Uses `wire.FromContextBlock` to discover edges between included symbols, then encodes via the codec registry. GCF is the recommended format for agent workflows (100% LLM comprehension accuracy at 84% token savings vs JSON; see `eval/TestLLMFormatComprehension`).
+
+### XML (legacy default)
 
 Symbols are grouped by distance from the task target:
 
@@ -519,6 +533,14 @@ Flat scores across the result set indicate one of:
 
 Context packs are persisted to the `graph_notes` table keyed by task hash (`types.NewHash([]byte("context_pack\x00" + normalized_task))`). On process restart, the notes table provides cached results validated against the current snapshot hash. If the snapshot has changed since the pack was stored, the cache entry is stale and cold retrieval runs.
 
+### Incremental RWR Cache
+
+RWR results are cached in the notes table keyed by `computeRWRCacheHash(sorted seeds + weights + alpha + per-package Merkle roots)` (`internal/context/walk.go`). On cache hit, the entire BFS adjacency load and iteration pass is skipped. Django cold 3.9s to warm 1.9s (2x speedup).
+
+Cache invalidation is structural: when a package's Merkle root changes (code edited, new commit), only walks involving that package's seeds are recomputed. The cache key includes `collectSeedPackageRoots` output, which resolves each seed to its package's Merkle root via `snapshot.PackageRootForSymbol`. RWR cache is cleared alongside context packs when feedback is recorded (`internal/store/feedback.go`).
+
+Diagnostic: `knowing debug-rwr-cache -db <path> <repo>` runs cold and warm queries, verifies result correctness, and reports hit/miss stats. Enable in benchmarks with `BENCH_RWR_CACHE=1` (off by default for honest measurement). Toggle via `RWRCacheEnabled` flag.
+
 ### Deduplication via `pack_root` (P5)
 
 The `pack_root` parameter on `context_for_task` enables agent-side deduplication. Agents pass the PackRoot from the previous response; if the current result has the same PackRoot, the server returns `"unchanged"` instead of resending the full context. Benchmarked at 93-99% byte savings (557-7,661 tokens reduced to 26 tokens on repeated calls).
@@ -635,14 +657,6 @@ and recording are disabled. Infrastructure preserved.
    cross-service call chains visible only in traces do not expand the blast radius. They
    influence the recency component of scoring but not the structural component.
 
-6. **Incremental RWR (shipped session 26).** RWR results are cached in the notes table keyed
-   by `hash(sorted seeds + weights + alpha + per-package Merkle roots)`. On cache hit, the
-   entire BFS adjacency load and iteration pass is skipped (Django cold 3.9s to warm 1.9s,
-   2x speedup). Cache invalidation is structural: when a package's Merkle root changes, only
-   walks involving that package's seeds are recomputed. The `debug-rwr-cache` CLI verifies
-   correctness (cold vs warm results match). RWR cache is cleared alongside context packs
-   when feedback is recorded.
-
-7. **Token estimation is approximate.** The 4-characters-per-token heuristic works reasonably
+6. **Token estimation is approximate.** The 4-characters-per-token heuristic works reasonably
    for code but can over- or under-estimate for heavily symbolic code (operators, brackets)
    versus prose-like identifiers.

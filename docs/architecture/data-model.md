@@ -17,7 +17,8 @@ SQLite database (one per repo, at ~/.knowing/repos/<safe-name>.db)
 ├── Metadata layer (never affects Merkle tree)
 │   ├── graph_notes    general-purpose key/value annotations
 │   ├── feedback       symbol usefulness signals
-│   ├── task_memory    passive retrieval learning
+│   ├── task_memory    passive retrieval learning (disabled)
+│   ├── vocab_associations  learned keyword -> symbol mappings
 │   ├── route_symbols  runtime route-to-symbol mappings
 │   └── schema_version migration tracking
 │
@@ -101,7 +102,7 @@ CREATE TABLE edges (
 );
 ```
 
-Edge types (30 total): `calls`, `imports`, `implements`, `references`, `handles_route`, `depends_on`, `deploys`, `exposes`, `configures`, `publishes`, `subscribes`, `connects_to`, `throws`, `extends`, `overrides`, `decorates`, `owned_by`, `tests`, `authored_by`, `documents`, `consumes_endpoint`, `implements_rpc`, `consumes_rpc`, `gated_by_flag`, `deployed_by`, `tested_by`, `runtime_calls`, `runtime_rpc`, `runtime_produces`, `runtime_consumes`.
+Edge types (38 total): `calls`, `imports`, `implements`, `references`, `handles_route`, `depends_on`, `deploys`, `exposes`, `configures`, `publishes`, `subscribes`, `connects_to`, `throws`, `extends`, `overrides`, `decorates`, `owned_by`, `tests`, `authored_by`, `documents`, `consumes_endpoint`, `implements_rpc`, `consumes_rpc`, `gated_by_flag`, `deployed_by`, `tested_by`, `runtime_calls`, `runtime_rpc`, `runtime_produces`, `runtime_consumes`, `contains`, `member_of`, `similar_to`, `co_tested_with`, `type_hint_of`, `accesses_field`, `reads_env`, `executes_process`.
 
 Provenance tiers (ordered by confidence): `ast_resolved` (1.0), `scip_resolved` (0.95), `lsp_resolved` (0.9), `runtime_observed` (0.8), `ast_inferred` (0.7), `otel_trace` (0.2-0.95 based on observation count).
 
@@ -164,6 +165,8 @@ CREATE TABLE graph_notes (
 Current uses:
 - `community_id`: persisted community assignments for incremental detection
 - `context_pack`: persisted context blocks for cross-session replay
+- `rwr_cache`: cached RWR walk results keyed by seed+weight+Merkle root hash (incremental RWR, session 26)
+- `package_roots`: per-package Merkle roots persisted during indexing for vocab/feedback expiration (session 26)
 - `quality_score`: node quality annotations for ranking calibration
 
 `BatchPutNotes` wraps multiple inserts in a single prepared-statement transaction (21x faster than individual PutNote calls). `SaveChangedAssignments` writes only the delta (5.0x e2e speedup).
@@ -198,15 +201,21 @@ the association becomes a learned equivalence class with soft RRF injection (con
 
 ```sql
 CREATE TABLE vocab_associations (
-    keyword      TEXT NOT NULL,
-    symbol_name  TEXT NOT NULL,
-    symbol_hash  BLOB NOT NULL,
-    count        INTEGER DEFAULT 1,
-    last_seen    INTEGER NOT NULL,
+    keyword        TEXT NOT NULL,
+    symbol_name    TEXT NOT NULL,
+    symbol_hash    BLOB NOT NULL,
+    count          INTEGER DEFAULT 1,
+    last_seen      INTEGER NOT NULL,
+    subgraph_root  BLOB,              -- per-package Merkle root at recording time (migration 022)
     UNIQUE(keyword, symbol_hash)
 );
 CREATE INDEX idx_vocab_keyword ON vocab_associations(keyword);
 ```
+
+The `subgraph_root` column (migration 022) ties each association to the symbol's package
+state at recording time. When querying, associations where `subgraph_root` doesn't match
+the current package Merkle root are filtered out. This provides per-package expiration:
+when package A changes, only associations for symbols in package A expire.
 
 ### task_memory (disabled)
 
@@ -226,11 +235,11 @@ CREATE TABLE task_memory (
 
 ### nodes_fts
 
-FTS5 full-text index for BM25 search over symbol names and signatures. BM25 weights: symbol_name=10x, concepts=5x, qualified_name=3x, signature=1x, file_path=1x.
+FTS5 full-text index for BM25 search over symbol names, docstrings, and signatures. BM25 weights: symbol_name=10x, concepts=5x, file_path=4x, qualified_name=3x, doc=3x, signature=1x.
 
 ```sql
 CREATE VIRTUAL TABLE nodes_fts USING fts5(
-    symbol_name, concepts, qualified_name, signature, file_path,
+    symbol_name, concepts, qualified_name, signature, file_path, doc,
     content='nodes_fts_content',
     content_rowid='rowid',
     tokenize="unicode61 tokenchars '_' remove_diacritics 2"
@@ -308,9 +317,14 @@ When the tree needs to be larger than memory (lazy materialization), the roots a
 | 014 | add_neighborhood_root.sql | neighborhood_root on feedback (merkleized expiration) |
 | 015 | snapshot_generation.sql | generation column on snapshots (O(1) ancestry checks) |
 | 016 | fts_symbol_name.sql | Adds symbol_name column to FTS content table; recreates FTS5 virtual table with 4 columns (symbol_name, qualified_name, signature, file_path) |
-| 017 | fts_concepts_column.sql | Adds concepts column to FTS content table; stores CamelCase-split file/module names as searchable concepts; recreates FTS5 virtual table with 5 columns (symbol_name, concepts, qualified_name, signature, file_path) |
+| 017 | fts_concepts_column.sql | Adds concepts column to FTS content table; stores CamelCase-split file/module names as searchable concepts; recreates FTS5 virtual table with 5 columns |
+| 018 | fts_doc_column.sql | Adds doc column to FTS content/virtual table for docstring-based BM25 retrieval; recreates FTS5 with 6 columns (symbol_name, concepts, qualified_name, signature, file_path, doc) |
+| 019 | add_embeddings.sql | Embeddings table for vector cache (keyed by node_hash + model) |
+| 020 | add_feedback_cluster.sql | keyword_cluster column on feedback table for per-cluster scoping; prevents cross-task interference |
+| 021 | add_vocab_associations.sql | vocab_associations table for learned keyword -> symbol mappings |
+| 022 | add_vocab_subgraph_root.sql | subgraph_root column on vocab_associations for per-package Merkle expiration |
 
-Migrations run automatically on `NewSQLiteStore`. Each runs in its own transaction. Schema version is tracked in `schema_version` table (current version: 17). No rollback/down migrations.
+Migrations run automatically on `NewSQLiteStore`. Each runs in its own transaction. Schema version is tracked in `schema_version` table (current version: 22). No rollback/down migrations.
 
 ## Per-Repo Isolation
 

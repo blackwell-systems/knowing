@@ -134,7 +134,7 @@ For implementation details, see [Retrieval Pipeline](../architecture/retrieval-p
 - Framework equivalence classes: 263 concept-to-symbol mappings across 30 files, with forced injection for high-confidence matches
 - Adaptive retrieval: auto-detects flat RWR results on massive repos (>200K nodes), falls back to direct FTS + contains-edge expansion
 - P@10 = 0.281 cold start (308 tasks, 16 repos, 8 languages, 13 self-adapting mechanisms, honest measurement)
-- Competitive: 3.20x codegraph, 5.05x GitNexus, 5.35x Gortex, 18.5x grep (cold start)
+- Competitive: 3.23x codegraph, 5.11x GitNexus, 5.40x Gortex, 12.2x Aider, 18.7x grep (cold start)
 - MCP server interface with 28 tools for agent consumption
 
 ## The Problem
@@ -204,27 +204,27 @@ The AI coding agent era has produced several categories of tools trying to solve
 
 #### Text search (grep/ripgrep)
 
-The baseline. Agents grep for symbol names and read the matching files. ripgrep is extremely fast (sub-second on million-line codebases) and requires no indexing. The limitation is purely semantic: text search cannot distinguish "functions that call this handler" from "comments mentioning the word handle." Searching for "Handle" in a Go codebase returns 10,000+ matches spanning HTTP handlers, file handles, error handling, and variables. The agent burns its context window sorting signal from noise, misses relationships that don't share string literals, and cannot answer structural questions ("what implements this interface?"). Measured: P@10 = 0.013 across 222 tasks.
+The baseline. Agents grep for symbol names and read the matching files. ripgrep is extremely fast (sub-second on million-line codebases) and requires no indexing. The limitation is purely semantic: text search cannot distinguish "functions that call this handler" from "comments mentioning the word handle." Searching for "Handle" in a Go codebase returns 10,000+ matches spanning HTTP handlers, file handles, error handling, and variables. The agent burns its context window sorting signal from noise, misses relationships that don't share string literals, and cannot answer structural questions ("what implements this interface?"). Measured: P@10 = 0.015 across 297 tasks (honest dot-bounded matching).
 
 #### codegraph (21.9K stars, colbymchenry/codegraph)
 
-Builds a code graph using tree-sitter AST parsing across 19+ languages, stored in SQLite with FTS5 full-text search. Exposes MCP tools for symbol search, call tracing, impact analysis, and context retrieval. Uses heuristic scoring (co-location, multi-term matching, CamelCase boundary awareness) rather than graph-theoretic ranking (no RWR, no HITS, no PageRank). Supports incremental auto-sync via native OS file events with 2-second debounce. Deterministic (same output every run). Measured: P@10 = 0.135 (knowing 1.53x better, p=0.0006), but first-result accuracy (MRR 0.459) slightly exceeds knowing's (0.411). Fills positions 2-10 with loosely related symbols via BFS expansion from entry points, producing high recall but low precision. No versioning, no temporal queries, no feedback mechanism.
+Builds a code graph using tree-sitter AST parsing across 19+ languages, stored in SQLite with FTS5 full-text search. Exposes MCP tools for symbol search, call tracing, impact analysis, and context retrieval. Uses heuristic scoring (co-location, multi-term matching, CamelCase boundary awareness) rather than graph-theoretic ranking (no RWR, no HITS, no PageRank). Supports incremental auto-sync via native OS file events with 2-second debounce. Deterministic (same output every run). Measured: P@10 = 0.087 (knowing 3.23x better, honest dot-bounded matching). Fills positions 2-10 with loosely related symbols via BFS expansion from entry points, producing high recall but low precision. No versioning, no temporal queries, no feedback mechanism.
 
 #### codebase-memory-mcp (2.7K stars, DeusData)
 
-Single-binary MCP server using 155 vendored tree-sitter grammars, BM25 via SQLite FTS5 (with camelCase/snake_case-aware tokenization), and semantic similarity edges computed via bundled nomic-embed-code embeddings (768-dim, int8 quantized). Uses an 11-signal combined scoring system (TF-IDF, reciprocal rank, API/type/decorator signatures, AST profiles, data flow). Deterministic. Works well on small repos (Flask: 285ms/query). Breaks at scale: hangs at 100% CPU on repos exceeding ~22K-46K nodes (Django 300K LOC hangs at >10s/query, VS Code and Kubernetes killed after minutes). No graph walk beyond single-hop neighbor lookup, so transitive relationships (A calls B calls C) are invisible. Measured: P@10 = 0.137 on the repos it can handle (knowing 1.51x better).
+Single-binary MCP server using 155 vendored tree-sitter grammars, BM25 via SQLite FTS5 (with camelCase/snake_case-aware tokenization), and semantic similarity edges computed via bundled nomic-embed-code embeddings (768-dim, int8 quantized). Uses an 11-signal combined scoring system (TF-IDF, reciprocal rank, API/type/decorator signatures, AST profiles, data flow). Deterministic. Works well on small repos (Flask: 285ms/query). Breaks at scale: hangs at 100% CPU on repos exceeding ~22K-46K nodes (Django 300K LOC hangs at >10s/query, VS Code and Kubernetes killed after minutes). No graph walk beyond single-hop neighbor lookup, so transitive relationships (A calls B calls C) are invisible. Measured: timed out on full corpus (completed only 22 of 308 tasks in 60 min).
 
 #### Aider (~20K stars, paul-gauthier/aider)
 
-Two-phase architecture: a deterministic component builds the "repo map" using tree-sitter to extract symbol definitions and their cross-file references into a dependency graph, then ranks files using a PageRank-like graph algorithm weighted by reference frequency. The map is a concise summary (default 1K tokens) of the most highly-connected symbols. The LLM then uses this map to decide which files to open in full. Non-determinism is moderate (3 unique outputs per 10 runs, likely from PageRank tie-breaking on equi-ranked files). Returns file-level context rather than symbol-level, so even correct selections include irrelevant code within those files. Measured: P@10 = 0.050 (knowing 4.1x better). Cannot find newly added symbols because PageRank requires inbound references; a function with zero callers gets zero weight regardless of name match. Time-to-consistency: 3,150ms (every query rebuilds the map).
+Two-phase architecture: a deterministic component builds the "repo map" using tree-sitter to extract symbol definitions and their cross-file references into a dependency graph, then ranks files using a PageRank-like graph algorithm weighted by reference frequency. The map is a concise summary (default 1K tokens) of the most highly-connected symbols. The LLM then uses this map to decide which files to open in full. Non-determinism is moderate (3 unique outputs per 10 runs, likely from PageRank tie-breaking on equi-ranked files). Returns file-level context rather than symbol-level, so even correct selections include irrelevant code within those files. Measured: P@10 = 0.023 (knowing 12.2x better, honest dot-bounded matching). Cannot find newly added symbols because PageRank requires inbound references; a function with zero callers gets zero weight regardless of name match. Time-to-consistency: 3,150ms (every query rebuilds the map).
 
 #### GitNexus (~40K stars, abhigyanpatwari/GitNexus)
 
-Client-side knowledge graph that indexes codebases using tree-sitter, then runs community detection (clustering related symbols) and execution flow tracing at index time. Exposes 16 MCP tools including hybrid BM25 + semantic search. Does not use LLM calls for core indexing or queries. Non-determinism (7-9 unique outputs per 10 runs of the same query, measured) likely stems from randomized community detection and flow analysis algorithms whose output order varies between runs. All-in-memory JavaScript architecture (single-threaded V8) with no streaming writes: 5.7GB RAM on Kubernetes, killed after 60+ minutes without producing results. On repos it can handle: P@10 = 0.075 (knowing 2.76x better, p=0.0003).
+Client-side knowledge graph that indexes codebases using tree-sitter, then runs community detection (clustering related symbols) and execution flow tracing at index time. Exposes 16 MCP tools including hybrid BM25 + semantic search. Does not use LLM calls for core indexing or queries. Non-determinism (7-9 unique outputs per 10 runs of the same query, measured) likely stems from randomized community detection and flow analysis algorithms whose output order varies between runs. All-in-memory JavaScript architecture (single-threaded V8) with no streaming writes: 5.7GB RAM on Kubernetes, killed after 60+ minutes without producing results. On repos it can handle: P@10 = 0.055 (knowing 5.11x better, honest dot-bounded matching).
 
 #### Gortex (zzet/gortex)
 
-Go-based in-memory code graph supporting 257 languages via three extraction tiers (bespoke tree-sitter parsers, regex extraction, forest-backed signatures). Parallel indexing. Precomputes depth-3 reach indices for impact analysis and uses hybrid search (BM25 + embeddings + reciprocal rank fusion). Architecturally the most similar competitor to knowing (same stack: Go, tree-sitter, parallel, graph-based). Deterministic. Limitations: re-indexes the graph on every context query (no persistent cache), consumes 14GB RAM on Kubernetes-scale repos, and indexes all files indiscriminately (including tests), which pollutes retrieval results. Measured: P@10 = 0.063 (knowing 3.29x better), 46x slower indexing, and 70x more RAM at enterprise scale.
+Go-based in-memory code graph supporting 257 languages via three extraction tiers (bespoke tree-sitter parsers, regex extraction, forest-backed signatures). Parallel indexing. Precomputes depth-3 reach indices for impact analysis and uses hybrid search (BM25 + embeddings + reciprocal rank fusion). Architecturally the most similar competitor to knowing (same stack: Go, tree-sitter, parallel, graph-based). Deterministic. Limitations: re-indexes the graph on every context query (no persistent cache), consumes 14GB RAM on Kubernetes-scale repos, and indexes all files indiscriminately (including tests), which pollutes retrieval results. Measured: P@10 = 0.052 (knowing 5.40x better, honest dot-bounded matching), 46x slower indexing, and 70x more RAM at enterprise scale.
 
 #### CGC (CodeGraphContext, codegraphcontext)
 
@@ -246,7 +246,7 @@ knowing's differentiator is graph-native retrieval with framework knowledge inje
 
 **Context packers** (Aider, Repo Map, etc) analyze your repo and produce a condensed map for the agent's context window. They run at query time, produce text, and are stateless: they don't remember what was useful last time. They don't version their output or prove anything about it.
 
-**Code graphs / indexers** (Sourcegraph, codegraph, GitNexus, Stack Graphs) build a queryable index of code relationships. Most use mutable state (database rows with auto-increment IDs). They can answer "who calls X?" but can't answer "who called X last Tuesday?" or "prove no one calls X." They don't learn from feedback. In head-to-head benchmark (16 repos, 308 tasks, 8 languages): knowing achieves 3.20x the precision of codegraph (19K stars), 5.05x vs GitNexus, and 5.35x vs Gortex. All measurements use honest cold-start evaluation with no task memory and dot-bounded symbol matching.
+**Code graphs / indexers** (Sourcegraph, codegraph, GitNexus, Stack Graphs) build a queryable index of code relationships. Most use mutable state (database rows with auto-increment IDs). They can answer "who calls X?" but can't answer "who called X last Tuesday?" or "prove no one calls X." They don't learn from feedback. In head-to-head benchmark (16 repos, 308 tasks, 8 languages): knowing achieves 3.23x the precision of codegraph (19K stars), 5.11x vs GitNexus, 5.40x vs Gortex, and 12.2x vs Aider. All measurements use honest cold-start evaluation with no task memory and dot-bounded symbol matching.
 
 **Agent memory systems** (MemGPT, various RAG frameworks) persist information across sessions. They remember conversations but not code structure. They can recall "you asked about auth last time" but can't tell you "auth's blast radius grew by 3 callers since then."
 
@@ -270,53 +270,53 @@ The retrieval-to-output pipeline transforms a natural language task description 
 **Step 1: Keyword extraction.**
 The task string is parsed into structured keywords. CamelCase and snake_case identifiers are split into components ("rateLimit" becomes ["rate", "limit", "rateLimit"]). Verb synonyms are expanded ("add" includes "create", "insert"). Stop words are removed. The result is a `KeywordSet` with three tiers: Exact (backtick-quoted identifiers), Compounds (multi-word identifiers preserved whole), and Components (individual words, used only as fallback). This tiered structure ensures that "rateLimit" is searched as a whole identifier before "rate" and "limit" are searched independently.
 
-**Step 2: Tiered search.**
-The keywords are matched against the graph's node index using a priority cascade:
+**Step 2: Seed selection (5-channel RRF fusion).**
+The keywords are matched against the graph using five independent channels, fused with Reciprocal Rank Fusion:
 
-1. Exact qualified name match (highest priority): the full identifier matches a node's `qualified_name` field directly.
-2. BM25 full-text search: compound keywords are run through the FTS5 index, scoring by term frequency and document length normalization.
-3. Equivalence class expansion (lowest priority): if a matched symbol has `similar_to` edges (embedding-based similarity), those neighbors are included as additional candidates.
+1. **Tiered keyword matching** (weight 2.0): compound-first exact > prefix > substring > path matching on qualified names. Components used as fallback only when compounds yield fewer than 5 results.
+2. **BM25 full-text search** (weight 2.0): compound keywords run through the FTS5 index (6 weighted columns: symbol_name 10x, concepts 5x, file_path 4x, qualified_name 3x, doc 3x, signature 1x). FTS fallback decomposition breaks compound keywords into leaf segments when BM25 returns 0 results.
+3. **Equivalence class matching** (weight 2.0): 263 framework concept-to-symbol mappings plus learned vocabulary associations from agent usage. High-confidence matches (weight >= 0.9) use forced injection; learned vocab uses soft RRF injection with confidence weighting (0.3-0.8).
+4. **Path-context seeding** (weight 1.5): extracts package/directory terms from the task, finds type nodes in matching packages, injects as supplemental seeds.
+5. **Vector/embedding search** (weight 0.0, disabled): confirmed neutral on cold start.
 
-Each tier runs only if the previous tier produced fewer than the minimum seed count. This prevents low-specificity component words from flooding results when high-specificity compound matches exist.
+RRF merges all channels by rank position: `score = sum(1/(k+rank))` across lists. Symbols appearing in multiple channels get promoted. The top 15-25 candidates become seeds for the graph walk.
 
-**Step 3: Seed selection.**
-The top-K candidates from tiered search (typically 5-15 symbols) become the "seeds" for the graph walk. Seeds are weighted by which tier matched them: exact matches get weight 1.0, BM25 matches get weight proportional to their FTS score, equivalence expansions get weight 0.5. These weights become the restart distribution for the random walk.
+**Step 3: Random Walk with Restart (RWR).**
+Starting from the seed set, simulate a random walk across the graph. At each step:
+- With probability (1 - alpha), follow a random outgoing edge to a neighbor. Edge types are weighted: `calls` edges (1.0) have higher transition probability than `similar_to` edges (0.15). LSP-enriched edges receive 0.3x attenuation to prevent centrality inflation.
+- With probability alpha (default 0.2), restart by jumping back to a seed.
 
-**Step 4: Random Walk with Restart (RWR).**
-Starting from the weighted seed set, simulate a random walk across the graph. At each step:
-- With probability (1 - alpha), follow a random outgoing edge to a neighbor. Edge types are weighted: `calls` edges have higher transition probability than `similar_to` edges.
-- With probability alpha (default 0.2), restart by jumping back to a seed (chosen proportional to seed weights).
+The walk converges to a stationary distribution where each node's probability reflects its structural relevance to the seeds. Nodes reachable by short paths from many seeds accumulate high probability. Focused seed selection clusters candidates by package path and promotes the largest cluster, concentrating the walk in the dominant neighborhood.
 
-The walk converges to a stationary distribution where each node's probability reflects its structural relevance to the seeds. Nodes reachable by short paths from many seeds accumulate high probability. Nodes far from seeds or reachable only through long chains get negligible probability. Community-aware constraint: when all seeds cluster in a single detected community, the walk is restricted to that community's subgraph, preventing drift into unrelated code.
-
-**Step 5: HITS authority/hub scoring.**
-On the top-K nodes from RWR (typically top 50-100), run the HITS algorithm. This separates nodes into two roles:
+**Step 4: HITS authority/hub scoring.**
+On the top-200 nodes from RWR, run the HITS algorithm. This separates nodes into two roles:
 - Authorities: nodes pointed to by many other nodes (heavily-called functions, core types). High authority score means "this symbol is important to the task."
 - Hubs: nodes that point to many other nodes (orchestrators, routers, main functions). High hub score means "this symbol connects task-relevant code."
 
-The authority score is used for ranking in most retrieval scenarios (agents typically need the called code, not the callers).
+Authority and hub scores feed into the composite scoring formula as adjustments.
 
-**Step 6: RRF fusion (Reciprocal Rank Fusion).**
-Three ranked lists now exist: (1) tiered search ranking, (2) RWR stationary distribution ranking, (3) HITS authority ranking. RRF merges them into one final ranking using the formula:
+**Step 5: Scoring.**
+The 7-component composite formula produces the final ranking:
 
 ```
-score(symbol) = sum over all lists L of: 1 / (k + rank_in_L(symbol))
+score = blast_radius * 0.35 + confidence * 0.20 + recency * 0.15 + distance * 0.15
+        + authorityAdj + feedback + session + commit_recency
 ```
 
-where k=60 (standard RRF constant). This fusion is robust to outliers in any single ranker: a symbol must rank well in multiple signals to reach the top. The result is a single ordered list of symbols sorted by combined relevance.
+Feedback is asymmetric (pos=0.25, neg=0.05), scoped by keyword cluster. Session boost uses 3-minute half-life decay. Implicit feedback demotes symbols returned but never used; vocab bridging promotes symbols learned from prior agent sessions.
 
-**Step 7: Budget-constrained packing.**
-The final ranked list is packed into a token budget (default 50,000 tokens) using a knapsack algorithm. For each symbol, the cost is estimated by its source snippet length (lines of code at definition site). The packer walks the ranked list top-to-bottom, including each symbol if it fits within the remaining budget, skipping symbols that would exceed the ceiling. The result is the maximum-relevance subset that fits within the agent's context window.
+**Step 6: Budget-constrained packing.**
+The ranked symbols are packed into a token budget (default 50,000 tokens) using a density-ranked greedy knapsack: each symbol's density = (score / token_cost) * rwrScore^0.3 (proximity weighting). Small high-value symbols (types, constants) are preferred over large medium-value symbols. The packer fills the budget by density order, skipping symbols that would overflow.
 
-**Output:** A context block in GCF (Graph Context Format) wire format containing:
-- Ranked symbols with their qualified names, file paths, line numbers, and relevance scores
-- Source code snippets for each included symbol
+**Output:** A context block in GCF (Graph Compact Format) wire format containing:
+- Ranked symbols with their qualified names, kinds, relevance scores, and provenance
 - Edge metadata showing relationships between included symbols
-- Total token count and budget utilization percentage
+- A content-addressed `pack_root` for deduplication and delta encoding
+- Total token count and budget utilization
 
-This block is ready for direct injection into an agent's context window.
+GCF achieves 84% token savings vs JSON with 100% LLM comprehension accuracy (validated in session 27 eval). Delta encoding saves an additional 81% on re-queries where the pack changed slightly.
 
-**Key performance characteristic:** On a warm graph with the adjacency cache populated, the entire pipeline (steps 1-7) completes in 2ms. The adjacency cache precomputes neighbor lookups for all nodes, eliminating random I/O during the graph walk. This makes it practical to run the pipeline on every agent turn without adding perceptible latency.
+**Key performance characteristic:** On a warm graph with the adjacency cache populated, the entire pipeline (steps 1-6) completes in 2ms. Incremental RWR caching (Merkle-keyed, session 26) provides 2x latency improvement on cache hits. This makes it practical to run the pipeline on every agent turn without adding perceptible latency.
 
 ## What a Code Graph Is
 
@@ -392,15 +392,17 @@ The call site location (file, line, col) lets consumers jump directly to where t
 
 Provenance is not just a label; it implies a confidence floor:
 
-| Provenance | Confidence floor | Meaning |
+| Provenance | Confidence | Meaning |
 |---|---|---|
 | `ast_inferred` | 0.7 | Tree-sitter parsed the syntax and inferred a relationship. No type resolution. May be wrong if a local variable shadows a package name. |
+| `ast_resolved` | 0.85 | Import-map resolution (Python, TypeScript, Rust, Java, C#) confirmed the cross-file target without requiring an external language server. |
 | `lsp_resolved` | 0.9 | A language server (gopls, pyright, rust-analyzer) resolved the call site to a concrete symbol with full type information. Nearly certain. |
-| `runtime` | 1.0 | Observed in production via OpenTelemetry trace or runtime instrumentation. The relationship definitely exists at runtime. |
-| `git_blame` | 0.8 | Derived from git history (authored_by edges, temporal co-change). Reliable but reflects past state. |
-| `similarity` | 0.6 | Embedding-based similarity detected structural resemblance. Useful for discovery, not proof. |
+| `scip_resolved` | 0.95 | SCIP index (external dependency surface) confirmed the relationship. |
+| `runtime_observed` | 0.8 | Observed in production via OpenTelemetry trace or runtime instrumentation. |
+| `otel_trace` | 0.2-0.95 | Confidence scales with observation count (more observations = higher confidence). |
+| `structural` | 1.0 | Structural edges (`contains`, `member_of`) derived from qualified name hierarchy. Always correct by construction. |
 
-When a higher-tier extractor confirms a relationship already found by a lower-tier extractor, the confidence is upgraded in place. The edge hash remains the same (same source, target, type, provenance), but the mutable confidence field reflects the stronger signal. Consumers can filter by confidence threshold to control precision vs. recall.
+When a higher-tier extractor confirms a relationship already found by a lower-tier extractor, the edge is replaced: the old `ast_inferred` edge is deleted and a new `lsp_resolved` edge is inserted. Provenance is part of the edge hash, so different provenance tiers for the same relationship produce distinct edges.
 
 ### Snapshots and the snapshot chain
 
@@ -681,7 +683,7 @@ Steps 1-3 are O(packages). Step 4 is O(edges in that one edge-type). Total work:
 ### What this enables
 
 **O(packages) diff instead of O(edges):**
-"What changed?" Compare package roots. Only packages with different roots need investigation. For a 100,000-edge graph with 500 packages where 3 changed, that's 500 comparisons instead of 100,000. Benchmarked: 565x faster at 100K edges.
+"What changed?" Compare package roots. Only packages with different roots need investigation. For a 100,000-edge graph with 500 packages where 3 changed, that's 500 comparisons instead of 100,000. Benchmarked: 517x faster at 100K edges.
 
 **Semantically meaningful output:**
 The diff doesn't say "edge at position 47,832 changed." It says "package `internal/auth` changed, specifically the `calls` edges." That's actionable information. You can route it to the auth team. You can scope your cache invalidation to auth callers only.
@@ -767,13 +769,15 @@ knowing context -task "refactor auth middleware" -format gcf
 **Step 1: Keyword extraction.**
 Parse the task description into a `KeywordSet` with three tiers: Exact (backtick-quoted identifiers like `before_request`), Compounds (snake_case, CamelCase, dotted identifiers found in the text), and Components (individual split words, used as fallback). Expand abbreviations ("auth" -> "authentication", "authorize"). Filter stop words. Generate bigram compounds from adjacent words (e.g., "auth" + "middleware" -> "auth_middleware"). The structured set ensures compound identifiers are queried first, preventing split fragments from drowning out the actual symbol names.
 
-**Step 2: Seed selection (compound-first tiered search).**
-Find symbols in the graph using a tiered search strategy that respects the KeywordSet structure:
-1. Tier 1: Exact match on Exact + Compound keywords (full identifier match)
-2. Tier 2: Prefix match on Exact + Compound keywords (symbol name starts with compound)
-3. Fallback to Components only when Tiers 1-2 yield fewer than 5 results
+**Step 2: Seed selection (5-channel RRF fusion).**
+Find symbols in the graph using five independent channels fused with Reciprocal Rank Fusion:
+1. **Tiered keyword matching**: compound-first exact > prefix > substring > path matching. Components used as fallback only when compounds yield fewer than 5 results.
+2. **BM25 full-text search**: 6-column FTS5 index (symbol_name 10x, concepts 5x, file_path 4x, doc 3x, qualified_name 3x, signature 1x). FTS fallback decomposes compound keywords when BM25 returns 0 results.
+3. **Equivalence class matching**: 263 framework concept-to-symbol mappings + learned vocabulary from agent usage. High-confidence matches use forced injection.
+4. **Path-context seeding**: extracts package/directory terms from the task, finds type nodes in matching packages.
+5. **Vector search**: disabled (confirmed neutral).
 
-This prevents "before" and "request" from filling results before "before_request" is found. Each matched symbol becomes a "seed" for the graph walk, weighted by which tier matched it.
+RRF merges by rank position across channels. Focused seed selection then clusters candidates by package path and promotes the dominant neighborhood.
 
 **Step 3: Random Walk with Restart (RWR).**
 Starting from the seeds, simulate a random walk on the graph. At each step, either follow an edge to a neighbor (probability 0.8) or "restart" by jumping back to a seed (probability 0.2, i.e., alpha=0.2). Repeat for many steps. The probability of landing on each node after convergence is its "relevance score." Community-aware filtering: when all seeds cluster in a single community, the walk is constrained to that community, producing more focused results.
@@ -876,9 +880,9 @@ Since the initial architecture, knowing has added cross-repo awareness (external
 
 The diagram above shows "Extractors" as a single box, but this is where the bulk of the intelligence originates. Three technologies power the extraction pipeline: tree-sitter for parsing, AST traversal for structure discovery, and LSP enrichment for type resolution.
 
-### Tree-sitter: incremental parsing across 24 languages
+### Tree-sitter: incremental parsing across 7 languages
 
-[Tree-sitter](https://tree-sitter.github.io/) is an incremental parsing library that produces concrete syntax trees from source code. knowing embeds 24 tree-sitter grammars (Go, TypeScript, Python, Rust, Java, C#, Ruby, PHP, Swift, Kotlin, Scala, C, C++, Zig, Elixir, Haskell, Lua, SQL, Proto, GraphQL, HCL, Dockerfile, Makefile, and Bash). Each grammar defines the syntax rules for its language and can parse a file in under 1ms.
+[Tree-sitter](https://tree-sitter.github.io/) is an incremental parsing library that produces concrete syntax trees from source code. knowing uses tree-sitter grammars for 7 programming languages (Go, TypeScript/JavaScript, Python, Rust, Java, C#, Ruby), plus tree-sitter grammars for CSS, Protocol Buffers, GraphQL, and SQL. Each grammar defines the syntax rules for its language and can parse a file in under 1ms. Infrastructure formats (Terraform HCL, Kubernetes YAML, Dockerfile, Makefile, Helm, GitLab CI, package.json, .env) use their own parsers (YAML, HCL, line-oriented) rather than tree-sitter.
 
 The key property is *incremental*: when a file changes, tree-sitter re-parses only the changed region, not the entire file. This is what enables 167ms time-to-consistency. A developer saves a file, the daemon detects the change, tree-sitter re-parses the modified spans, and the extractors walk the updated tree to find new or changed relationships.
 
@@ -916,8 +920,8 @@ The language server has full type information. It resolves `foo.Bar()` to the co
 2. For each `ast_inferred` edge with confidence below 0.9, knowing sends a "go to definition" request at the call site's position (file, line, column).
 3. The language server responds with the resolved target location.
 4. knowing matches this location to a node in the graph.
-5. If the resolved target matches the inferred target, the edge confidence is upgraded from 0.7 (`ast_inferred`) to 0.9 (`lsp_resolved`).
-6. If the resolved target differs from the inferred target, the old edge is replaced with a corrected edge pointing to the actual target, at confidence 0.9.
+5. If the resolved target matches the inferred target, the old `ast_inferred` edge is deleted and a new `lsp_resolved` edge is inserted (provenance is part of the edge hash, so different provenance = different edge).
+6. If the resolved target differs from the inferred target, the old edge is deleted and a corrected `lsp_resolved` edge is inserted pointing to the actual target.
 
 **Confidence upgrade in practice:**
 
@@ -926,7 +930,7 @@ The language server has full type information. It resolves `foo.Bar()` to the co
 | After tree-sitter | `ast_inferred` | 0.7 | Syntax says `auth.Login()` exists at line 42 |
 | After LSP | `lsp_resolved` | 0.9 | Type system confirms this calls `pkg/auth.Login` at `auth.go:15` |
 
-The 0.2 confidence gap (0.7 to 0.9) matters for downstream ranking. In the RWR graph walk, edge weights are multiplied by confidence. An `lsp_resolved` edge carries 28% more weight than an `ast_inferred` edge, meaning LSP-confirmed relationships pull more strongly during retrieval. Consumers can also filter by confidence threshold: setting a minimum of 0.85 excludes all unconfirmed tree-sitter guesses while retaining LSP-verified relationships.
+The confidence gap matters for the scoring formula (confidence component = 25% of the base score). RWR itself weights transitions by edge type (calls=1.0, imports=0.5), not by confidence. But LSP-enriched edges receive 0.3x attenuation in RWR to prevent centrality inflation of framework wiring symbols. The primary retrieval value of enrichment is creating phantom external nodes and cross-package edges that establish new reachability paths (kubernetes 0.000 -> 0.232 after enrichment).
 
 LSP enrichment is optional because language servers require project setup (installed dependencies, build configuration). For repositories without a working language server, tree-sitter extraction at 0.7 confidence still produces a useful graph. LSP adds precision, not coverage.
 
@@ -954,10 +958,11 @@ These numbers are reproducible via the benchmark suite (16 repos, 308 tasks, 8 l
 | R@10 (recall at 10) | 0.405 | 16 repos, 8 languages (Go, Python, TS, Rust, Java, C#, Ruby) |
 | NDCG@10 | 0.425 | Ranking quality |
 | MRR | 0.465 | First relevant result position |
-| vs codegraph (19K stars) | 3.20x | Head-to-head on shared tasks |
-| vs GitNexus (40K stars) | 5.05x | Head-to-head on shared tasks |
-| vs Gortex | 5.35x | Head-to-head on shared tasks |
-| vs grep | 18.5x | All 308 tasks |
+| vs codegraph (19K stars) | 3.23x | Head-to-head on shared tasks |
+| vs GitNexus (40K stars) | 5.11x | Head-to-head on shared tasks |
+| vs Gortex | 5.40x | Head-to-head on shared tasks |
+| vs Aider (~20K stars) | 12.2x | Head-to-head on shared tasks |
+| vs grep | 18.7x | All 308 tasks |
 | Equivalence classes | 263 | Across 30 framework-specific files |
 | Adjacency cache latency | 2ms | Down from 9s uncached on k8s (4,717x improvement) |
 | Time-to-consistency | 167ms | File edit to query returning new symbol |
