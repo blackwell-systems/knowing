@@ -177,3 +177,20 @@ func adaptiveProximityExponent(phantomRatio float64) float64 {
 	}
 	return exp
 }
+
+// PackStrategy controls the packing algorithm used by packIntoBudget.
+// "density" (default): density-ranked with RWR proximity weighting.
+// "file-grouped": group symbols by file, pack densest files first.
+// "top-k": take highest-scored symbols until budget exhausted.
+// Override with BENCH_PACK_STRATEGY env var.
+var PackStrategy string
+
+func packStrategy() string {
+	if PackStrategy != "" {
+		return PackStrategy
+	}
+	if v := os.Getenv("BENCH_PACK_STRATEGY"); v != "" {
+		return v
+	}
+	return "density"
+}

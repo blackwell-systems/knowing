@@ -2382,6 +2382,16 @@ func packIntoBudget(ranked []RankedSymbol, budget int, format string) *ContextBl
 		return block
 	}
 
+	// Dispatch to strategy.
+	switch packStrategy() {
+	case "file-grouped":
+		return packFileGrouped(ranked, budget, format)
+	case "top-k":
+		return packTopK(ranked, budget, format)
+	}
+
+	// Default: density-ranked with proximity weighting.
+
 	// Compute phantom ratio for adaptive proximity exponent.
 	phantomCount := 0
 	for _, sym := range ranked {
@@ -2484,6 +2494,99 @@ func packIntoBudget(ranked []RankedSymbol, budget int, format string) *ContextBl
 	sort.Slice(block.Symbols, func(i, j int) bool {
 		return block.Symbols[i].Score > block.Symbols[j].Score
 	})
+
+	block.TokensUsed = tokensUsed
+	return block
+}
+
+// packFileGrouped groups symbols by file, ranks files by density (total score / total cost),
+// and packs the densest files first. When a file doesn't fit, falls back to individual symbols.
+// Produces higher file coherence (more symbols from fewer files) which can help agents
+// understand context better.
+func packFileGrouped(ranked []RankedSymbol, budget int, format string) *ContextBlock {
+	block := &ContextBlock{
+		Format:      format,
+		TokenBudget: budget,
+	}
+
+	type fileGroup struct {
+		symbols    []RankedSymbol
+		totalScore float64
+		totalCost  int
+	}
+	groups := make(map[types.Hash]*fileGroup)
+	var order []types.Hash
+	for _, sym := range ranked {
+		fh := sym.Node.FileHash
+		g, ok := groups[fh]
+		if !ok {
+			g = &fileGroup{}
+			groups[fh] = g
+			order = append(order, fh)
+		}
+		cost := EstimateNodeTokensForFormat(sym.Node, format)
+		if cost < 1 {
+			cost = 1
+		}
+		g.symbols = append(g.symbols, sym)
+		g.totalScore += sym.Score
+		g.totalCost += cost
+	}
+
+	// Sort files by density (score/cost) descending.
+	sort.Slice(order, func(i, j int) bool {
+		gi, gj := groups[order[i]], groups[order[j]]
+		return gi.totalScore/float64(gi.totalCost) > gj.totalScore/float64(gj.totalCost)
+	})
+
+	// Pack whole files greedily. Fall back to individual symbols when a file doesn't fit.
+	tokensUsed := 0
+	for _, fh := range order {
+		g := groups[fh]
+		if tokensUsed+g.totalCost <= budget {
+			tokensUsed += g.totalCost
+			block.Symbols = append(block.Symbols, g.symbols...)
+		} else {
+			for _, sym := range g.symbols {
+				cost := EstimateNodeTokensForFormat(sym.Node, format)
+				if cost < 1 {
+					cost = 1
+				}
+				if tokensUsed+cost <= budget {
+					tokensUsed += cost
+					block.Symbols = append(block.Symbols, sym)
+				}
+			}
+		}
+	}
+
+	sort.Slice(block.Symbols, func(i, j int) bool {
+		return block.Symbols[i].Score > block.Symbols[j].Score
+	})
+	block.TokensUsed = tokensUsed
+	return block
+}
+
+// packTopK takes symbols in score order until the budget is exhausted.
+// Simplest possible packing: highest score wins, no density or proximity weighting.
+func packTopK(ranked []RankedSymbol, budget int, format string) *ContextBlock {
+	block := &ContextBlock{
+		Format:      format,
+		TokenBudget: budget,
+	}
+
+	tokensUsed := 0
+	for _, sym := range ranked {
+		cost := EstimateNodeTokensForFormat(sym.Node, format)
+		if cost < 1 {
+			cost = 1
+		}
+		if tokensUsed+cost > budget {
+			continue
+		}
+		tokensUsed += cost
+		block.Symbols = append(block.Symbols, sym)
+	}
 
 	block.TokensUsed = tokensUsed
 	return block

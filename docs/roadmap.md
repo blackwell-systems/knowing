@@ -126,7 +126,7 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 
 ### Closed Paths (session 23, honest measurement)
 
-**Not re-testing:** Embeddings (dead neutral, 3 runs confirmed), keyword extraction (net negative on large repos), path boost (5 variants all harmful), BM25 query broadening (floods results with noise). These were rejected with clean measurement (no task memory contamination).
+**Not re-testing:** Embeddings (dead neutral, 3 runs confirmed), keyword extraction (net negative on large repos), path boost (5 variants all harmful), BM25 query broadening (floods results with noise), file-grouped packing (session 26: packing benchmark showed +15% GT coverage but P@10 dropped -10.8% on Django; budget wasted on low-value siblings from same file). These were rejected with clean measurement (no task memory contamination).
 
 ## Enrichment Performance
 

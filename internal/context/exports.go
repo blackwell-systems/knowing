@@ -70,3 +70,9 @@ type EquivMatchExported struct {
 func DetectRepoLanguageExported(ctx stdctx.Context, store types.GraphStore) string {
 	return detectRepoLanguage(ctx, store)
 }
+
+// PackIntoBudget is the exported entry point for the packing algorithm.
+// Used by the context packing benchmark to compare strategies.
+func PackIntoBudget(ranked []RankedSymbol, budget int, format string) *ContextBlock {
+	return packIntoBudget(ranked, budget, format)
+}

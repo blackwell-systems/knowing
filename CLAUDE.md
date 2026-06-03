@@ -86,7 +86,7 @@ After any P@10 improvement, these files ALL need updating with the new aggregate
 per-repo breakdown, and competitive ratios. This is a standard procedure:
 
 1. **bench/cross-system/FINDINGS.md** — executive summary, per-repo table, competitive advantages
-2. **bench/CONTEXT-PACKING-STUDY.md** — Dimension 1, competitive summary, run history
+2. **bench/EVALUATION-OVERVIEW.md** — Dimension 1, competitive summary, run history
 3. **bench/README.md** — cross-system row in summary table
 4. **docs/guide/introduction.md** — operational characteristics, measured performance table
 5. **docs/architecture/retrieval-pipeline.md** — eval baseline line
@@ -255,6 +255,7 @@ Embeddings as Channel 3, blended re-rank, call-chain seeding, hub dampening, BFS
 - **`BENCH_COMPOUND_ROUNDS=5`**: number of rounds for `TestCompounding` (default 5).
 - **`BENCH_LSP_EDGE_WEIGHT=0.3`**: weight multiplier for LSP-enriched edges in RWR (default 0.3). Attenuates enrichment-created edges to prevent centrality inflation of framework wiring symbols. Validated: enriched saleor 0.182->0.218, full corpus 0.280->0.281 (neutral/positive).
 - **`BENCH_FEEDBACK_WEIGHT=sqrt`**: confidence weighting mode for feedback scores. Options: `none` (raw score), `sqrt` (symmetric sqrt confidence, default), `linear` (steeper confidence), `asym` (full-strength positives, sqrt-weighted negatives only).
+- **`BENCH_PACK_STRATEGY=density`**: packing algorithm for context assembly. Options: `density` (default, score/tokens * proximity), `file-grouped` (pack densest files first), `top-k` (highest score first). Use for A/B testing packing strategies on P@10.
 
 ### MCP server flags
 - **`--no-feedback`** or **`KNOWING_NO_FEEDBACK=1`**: disable implicit feedback (noise demotion) in MCP server. Useful for A/B testing.

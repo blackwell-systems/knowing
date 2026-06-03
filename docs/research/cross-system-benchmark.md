@@ -7,7 +7,7 @@
 # Cross-System Context Retrieval Benchmark
 
 **Running results:** [bench/cross-system/FINDINGS.md](../../bench/cross-system/FINDINGS.md)
-**Study overview:** [bench/CONTEXT-PACKING-STUDY.md](../../bench/CONTEXT-PACKING-STUDY.md)
+**Study overview:** [bench/EVALUATION-OVERVIEW.md](../../bench/EVALUATION-OVERVIEW.md)
 **Implementation:** [bench/cross-system/](../../bench/cross-system/)
 
 ## Current Status (2026-05-31)

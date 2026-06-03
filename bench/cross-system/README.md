@@ -6,7 +6,7 @@ Rigorous comparison of context retrieval systems on identical tasks across 14 pu
 **Run history:** [RUN-HISTORY.md](RUN-HISTORY.md)
 **Methodology:** [METHODOLOGY.md](METHODOLOGY.md) (metrics, fixture design, statistical methods, limitations)
 **Full specification:** [docs/research/cross-system-benchmark.md](../../docs/research/cross-system-benchmark.md)
-**Study overview:** [bench/CONTEXT-PACKING-STUDY.md](../CONTEXT-PACKING-STUDY.md)
+**Study overview:** [bench/EVALUATION-OVERVIEW.md](../EVALUATION-OVERVIEW.md)
 
 ## Quick Start
 

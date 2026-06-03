@@ -2,7 +2,7 @@
 
 **Methodology:** [METHODOLOGY.md](METHODOLOGY.md)
 **Run history:** [RUN-HISTORY.md](RUN-HISTORY.md)
-**Study overview:** [bench/CONTEXT-PACKING-STUDY.md](../CONTEXT-PACKING-STUDY.md)
+**Study overview:** [bench/EVALUATION-OVERVIEW.md](../EVALUATION-OVERVIEW.md)
 
 ## How We Tested
 

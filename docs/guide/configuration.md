@@ -54,6 +54,7 @@ All environment variables, CLI flags, and MCP server options in one place.
 | `BENCH_IMPLICIT_FEEDBACK` | off | Enable implicit feedback (noise demotion) in benchmarks. Required for compounding tests. |
 | `BENCH_COMPOUND_ROUNDS` | 5 | Number of rounds for `TestCompounding`. |
 | `BENCH_FEEDBACK_WEIGHT` | `none` | Confidence weighting mode for feedback scores. Options: `none` (raw score, default), `sqrt` (symmetric sqrt confidence), `linear` (steeper linear confidence), `asym` (full-strength positives, sqrt-weighted negatives only). |
+| `BENCH_PACK_STRATEGY` | `density` | Packing algorithm for context assembly. Options: `density` (score/tokens * RWR proximity, default), `file-grouped` (pack densest files first), `top-k` (highest score first). |
 
 ### Vocabulary Expansion
 

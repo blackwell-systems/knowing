@@ -19,6 +19,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`debug-vocab` CLI** (session 25): show learned keyword -> symbol associations with count and keyword filter.
 - **Adaptive proximity exponent** (session 25): `adaptiveProximityExponent` adjusts packing exponent based on phantom-to-real node ratio in candidates. Normal repos: 0.3. Extreme phantom ratios (>2x): up to 0.7. Zero cost (computed from packing input).
 - **LSP edge weight attenuation** (session 25): `lsp_resolved` provenance edges attenuated to 0.3x weight in RWR walk. Prevents enrichment from inflating centrality of framework wiring symbols above implementation symbols. 4-point sweep on enriched saleor: 0.3=0.218 (+19.8%), 1.0=0.182 (baseline). Full corpus: 0.283, 0.279 (neutral). Default 0.3. Override with `BENCH_LSP_EDGE_WEIGHT`.
+- **Cross-task vocab validation** (session 26): proves vocabulary bridging across tasks. Task A's learned associations help task B via shared keywords. Django +41.4% in isolation, full corpus 0.0% aggregate (safe). 100% of improvements are cross-task. `TestCrossTaskVocab` benchmark with per-task attribution.
+- **Vocab noise keyword filter** (session 26): `isVocabWorthy` filters ~80 common English words (use, not, find, whether, etc.) from vocab recording. Prevents spurious cross-task associations.
+- **Confidence-weighted vocab injection** (session 26): observation count scales RRF weight from 0.3 (count=2) to 0.8 (count>=10). Reinforced associations get stronger each round. `VocabProviderWithCounts` interface.
+- **Context packing benchmark** (session 26): `bench/context-packing/` compares 4 strategies (density-ranked, top-K, file-grouped, random) on GT coverage, token utilization, file coherence. 308 tasks, 16 repos. Extractable as standalone benchmark.
+- **`debug-vocab -task` flag** (session 26): preview which keywords pass/fail the vocab filter for a task description.
+- **`BENCH_PACK_STRATEGY` env var** (session 26): A/B test packing strategies (density/file-grouped/top-k) on the cross-system benchmark.
 
 ### Fixed
 
@@ -27,8 +33,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **Soft vocab injection** (session 26): learned vocab now goes through RRF competition instead of forced injection. Prevents displacement of correct results on tasks with good BM25 coverage. Forced injection retained only for hand-curated framework classes.
 - **Feedback weight mode**: `BENCH_FEEDBACK_WEIGHT` env var for sweep testing (none/sqrt/linear/asym). Default `none` (raw scoring). 4-mode sweep confirmed cluster-only (no weighting) optimal.
 - **12 self-adapting mechanisms**: was 10. Added RWR proximity packing (#10, session 24), implicit feedback (#11, session 24), change-aware scoring (#12, session 25).
+- **Renamed `CONTEXT-PACKING-STUDY.md` to `EVALUATION-OVERVIEW.md`**: clearer name for the umbrella evaluation document.
+- **Deleted `AGENT-EFFICIENCY-STUDY.md`**: superseded by cross-system benchmark (308 tasks, 16 repos) and EVALUATION-OVERVIEW.
+
+### Tested negative (session 26)
+
+- **File-grouped packing**: packing benchmark showed +15% GT coverage via substring matching, but P@10 dropped -10.8% on Django. Budget wasted on low-value siblings from same file. Density-ranked remains optimal.
 
 ## [v0.13.0] - 2026-06-01
 
