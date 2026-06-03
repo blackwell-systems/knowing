@@ -35,7 +35,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **Soft vocab injection** (session 26): learned vocab now goes through RRF competition instead of forced injection. Prevents displacement of correct results on tasks with good BM25 coverage. Forced injection retained only for hand-curated framework classes.
 - **Feedback weight mode**: `BENCH_FEEDBACK_WEIGHT` env var for sweep testing (none/sqrt/linear/asym). Default `none` (raw scoring). 4-mode sweep confirmed cluster-only (no weighting) optimal.
-- **12 self-adapting mechanisms**: was 10. Added RWR proximity packing (#10, session 24), implicit feedback (#11, session 24), change-aware scoring (#12, session 25).
+- **13 self-adapting mechanisms**: was 10. Added RWR proximity packing (#10, session 24), implicit feedback (#11, session 24), change-aware scoring (#12, session 25).
 - **Renamed `CONTEXT-PACKING-STUDY.md` to `EVALUATION-OVERVIEW.md`**: clearer name for the umbrella evaluation document.
 - **Deleted `AGENT-EFFICIENCY-STUDY.md`**: superseded by cross-system benchmark (308 tasks, 16 repos) and EVALUATION-OVERVIEW.
 

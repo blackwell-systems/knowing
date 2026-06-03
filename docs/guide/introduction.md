@@ -133,7 +133,7 @@ For implementation details, see [Retrieval Pipeline](../architecture/retrieval-p
 - Embeddings: confirmed neutral on cold start (session 23, 3 runs identical with/without). Gap-fill and re-ranker both disabled.
 - Framework equivalence classes: 263 concept-to-symbol mappings across 30 files, with forced injection for high-confidence matches
 - Adaptive retrieval: auto-detects flat RWR results on massive repos (>200K nodes), falls back to direct FTS + contains-edge expansion
-- P@10 = 0.281 cold start (308 tasks, 16 repos, 8 languages, 12 self-adapting mechanisms, honest measurement)
+- P@10 = 0.281 cold start (308 tasks, 16 repos, 8 languages, 13 self-adapting mechanisms, honest measurement)
 - Competitive: 3.20x codegraph, 5.05x GitNexus, 5.35x Gortex, 18.5x grep (cold start)
 - MCP server interface with 28 tools for agent consumption
 
@@ -950,7 +950,7 @@ These numbers are reproducible via the benchmark suite (16 repos, 308 tasks, 8 l
 
 | Metric | Value | Context |
 |---|---|---|
-| P@10 (precision at 10) | 0.281 | 16 repos, 308 tasks, 12 self-adapting mechanisms |
+| P@10 (precision at 10) | 0.281 | 16 repos, 308 tasks, 13 self-adapting mechanisms |
 | R@10 (recall at 10) | 0.405 | 16 repos, 8 languages (Go, Python, TS, Rust, Java, C#, Ruby) |
 | NDCG@10 | 0.425 | Ranking quality |
 | MRR | 0.465 | First relevant result position |

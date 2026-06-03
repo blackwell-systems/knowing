@@ -7,9 +7,9 @@ automatically. This is the project's central thesis: a code retrieval system tha
 adapts to its graph outperforms any fixed-strategy system, and the gap widens with
 scale.
 
-**Current result:** P@10 = 0.278 cold start (297 tasks, 15 repos, 8 languages,
-honest measurement: no task memory, no embeddings). 3.20x codegraph, 5.05x
-GitNexus, 5.35x Gortex.
+**Current result:** P@10 = 0.281 cold start (308 tasks, 16 repos, 8 languages,
+honest measurement: no task memory, no embeddings). 3.23x codegraph, 5.11x
+GitNexus, 5.40x Gortex, 12.2x Aider, 18.7x grep.
 
 ## The Problem with Fixed-Strategy Retrieval
 
@@ -27,7 +27,7 @@ This works at small scale. At large scale, it fails:
 The result: fixed-strategy systems get less precise as codebases grow. knowing
 gets more precise because it detects these conditions and compensates.
 
-## Twelve Self-Adapting Mechanisms
+## Thirteen Self-Adapting Mechanisms
 
 ### 1. PreferTypeSeeds (density-adaptive seed selection)
 
@@ -78,8 +78,11 @@ across 263 equivalence classes in 30 per-framework files. When a task says
 `KafkaConsumer`, `ConsumerRecord` in Kafka.
 
 High-confidence matches (weight >= 0.9, source "framework") bypass RWR
-scoring and inject directly at the top of the ranked results. This solves
-the vocabulary gap for framework concepts where BM25 and graph walks fail.
+scoring and inject directly at the top of the ranked results (forced injection).
+Learned vocab (source "learned") goes through RRF competition instead (soft
+injection). This solves the vocabulary gap for framework concepts where BM25
+and graph walks fail, while preventing learned associations from displacing
+correct results on tasks with good BM25 coverage.
 
 **Coverage:** Django, Flask, FastAPI, Terraform, Kubernetes, Kafka, Rails,
 Spring, ASP.NET, Ocelot, Caddy, Cargo, Spark-Java, VS Code, NestJS, Next.js,
@@ -273,14 +276,16 @@ Over an active session, the engine learns which are noise for this user's work p
 and suppresses them. This is the sole active learning mechanism (task memory confirmed
 neutral in session 24).
 
-**Why it's adaptive:** The demotion is per-session and per-symbol. A symbol demoted as
-noise for checkout tasks is unaffected when the user switches to order tasks (different
-seed set, different RWR walk, different symbols returned).
+**Why it's adaptive:** The demotion is per-session and per-symbol, scoped by keyword
+cluster (session 25). A symbol demoted as noise for checkout tasks is unaffected when
+the user switches to order tasks (different cluster hash). Per-cluster scoping prevents
+the cross-task interference that degraded early compounding experiments.
 
 **Measured impact:** Django +5.9% P@10 after 3 rounds of implicit feedback (benchmark
-with noise demotion but no simulated agent usage). Real MCP usage with precise
-`DetectUsed` from agent tool calls expected to be stronger. Per-cluster scoping
-(session 25) improved compounding: R@10 +5.2%, MRR +12.6% over 5 rounds.
+with noise demotion but no simulated agent usage). Per-cluster scoping (session 25)
+improved compounding: R@10 +5.2%, MRR +12.6% over 5 rounds. Full corpus 10-round
+compounding (session 26): P@10 0.277 -> 0.283 peak (+2.2%), MRR 0.459 -> 0.497 peak
+(+8.1%). Never regresses below baseline.
 
 ### 12. Change-Aware Scoring (commit recency boost)
 
@@ -303,6 +308,40 @@ automatically when `knowing enrich blame` populates the `last_commit_at` field.
 **Measured impact:** Neutral on benchmark (corpus repos have no blame data). Expected
 positive in production where repos have recent commit history.
 
+### 13. Cross-Task Vocabulary Bridging (usage-adaptive knowledge transfer)
+
+**Trigger:** Agent usage records vocab associations (`count >= 2`) + shared keywords between tasks
+
+**What it does:** When an agent works on task A ("payment processing") and uses
+symbols like `settle_ledger`, the system records `payment -> settle_ledger`. When
+a different task B ("payment refund") shares the keyword "payment", the learned
+association surfaces `settle_ledger` for task B via RRF competition.
+
+Three safeguards prevent noise:
+1. **Noise keyword filter** (`isVocabWorthy`): filters ~80 common English words
+   (use, not, find, whether, etc.) from recording. Only domain-specific keywords
+   create associations.
+2. **Soft RRF injection**: learned vocab competes through RRF, not forced to the
+   top. Naturally loses to better candidates on well-covered tasks.
+3. **Confidence weighting** (`vocabCountWeight`): observation count scales RRF
+   weight from 0.3 (count=2) to 0.8 (count>=10). Reinforced associations get
+   stronger each round.
+
+**Why it's adaptive:** The system learns different vocabulary for different
+codebases based on actual agent usage patterns. Django agents teach Django
+vocabulary; Kafka agents teach Kafka vocabulary. No manual curation needed.
+
+**Measured impact (session 26):**
+- Cross-task validation: Django +41.4% in isolation, full corpus 0.0% aggregate (safe)
+- 100% of improvements are cross-task (never self-reinforcement)
+- 10-round full corpus compounding: P@10 peak +2.2%, MRR peak +8.1%
+- 10-round Django compounding with confidence weighting: band [0.203, 0.217] (36% tighter than unweighted)
+
+**Interaction with mechanism 11:** Implicit feedback demotes noise, vocab bridging
+promotes knowledge. Together they create a self-correcting learning loop: bad
+associations get demoted by feedback, good associations get reinforced by vocab
+count growth.
+
 ## Ablation Summary
 
 **Note (session 23):** All pre-session-23 ablation numbers were measured with
@@ -322,14 +361,16 @@ available measurement at each session.
 | Adaptive retrieval fallback | VS Code +43% | Node count > 200K + flat RWR | 23 |
 | Feedback expiration | correctness (no P@10 delta) | Code change | 17 |
 | Change-aware scoring (commit recency) | Neutral (no blame data in corpus) | Blame data present | 25 |
+| Cross-task vocab bridging | Django +41.4%, corpus 0.0% (safe); 10-round MRR +8.1% | Vocab count >= 2 + shared keywords | 26 |
 | Task memory compounding | **NEUTRAL** (was +3.8%) | Disabled session 24 | 24 |
 | Gap-fill seeds | **NEUTRAL** (was +11%) | Candidates < 5 | 23 (revised) |
 
-Combined: P@10 = 0.282 cold start (308 tasks, 16 repos, honest measurement, exponent 0.3).
+Combined: P@10 = 0.281 cold start (308 tasks, 16 repos, honest measurement, exponent 0.3).
+With compounding (10 rounds): P@10 = 0.283 peak, MRR = 0.497 peak.
 
 ## Why Fixed-Strategy Systems Can't Compete
 
-Competitors would need to implement all twelve mechanisms to match knowing's
+Competitors would need to implement all thirteen mechanisms to match knowing's
 adaptive behavior. But the mechanisms interact: PreferTypeSeeds benefits from
 phantom density (mechanism 8). Focused seeds reinforce equivalence classes
 (mechanisms 3-4). Proximity packing compensates for enrichment density
@@ -362,6 +403,12 @@ the architecture, not an ad-hoc heuristic bolted on.
 | `cmd/knowing/debug_fts.go` | FTS5 query probe tool |
 | `cmd/knowing/debug_walk.go` | RWR walk visualization tool |
 | `cmd/knowing/bench_task.go` | Single-task benchmark tool |
+| `cmd/knowing/debug_vocab.go` | Vocabulary association inspector + filter preview |
+| `cmd/knowing/debug_feedback.go` | Feedback record inspector |
+| `internal/context/sweep.go` | PackStrategy, adaptive exponents, LSP edge weight |
+| `internal/store/vocab.go` | Vocab association storage (RecordVocabAssociation, LearnedVocabDetails) |
+| `bench/cross-system/cross_task_vocab_test.go` | Cross-task vocabulary bridging validation |
+| `bench/context-packing/bench_test.go` | Packing strategy comparison (4 strategies) |
 
 ## Related Documents
 
