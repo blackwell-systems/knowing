@@ -64,7 +64,7 @@ import (
 	"github.com/blackwell-systems/knowing/internal/snapshot"
 	knowingstore "github.com/blackwell-systems/knowing/internal/store"
 	"github.com/blackwell-systems/knowing/internal/types"
-	"github.com/blackwell-systems/knowing/internal/wire"
+	gcf "github.com/blackwell-systems/gcf-go"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
@@ -76,7 +76,7 @@ type Server struct {
 	store       types.GraphStore
 	mcpServer   *mcpserver.MCPServer
 	sqlStore    *knowingstore.SQLiteStore  // populated via type assertion for runtime queries
-	session     *wire.Session             // GCF session state for cross-call deduplication
+	session     *gcf.Session              // GCF session state for cross-call deduplication
 	ctxSession  *knowingctx.SessionTracker // session-aware retrieval boosts
 	vecSearch   *embedding.Searcher        // semantic vector search (nil if model unavailable)
 	taskMemory  *knowingctx.TaskMemory     // passive task-symbol learning (nil if no SQLite)
@@ -97,7 +97,7 @@ type Server struct {
 func NewServer(store types.GraphStore) *Server {
 	s := &Server{
 		store:      store,
-		session:    wire.NewSession(),
+		session:    gcf.NewSession(),
 		ctxSession: knowingctx.NewSessionTracker(),
 		implicit:   knowingctx.NewImplicitFeedback(),
 		startTime:  time.Now(),

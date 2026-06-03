@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 
+	gcf "github.com/blackwell-systems/gcf-go"
 	knowingctx "github.com/blackwell-systems/knowing/internal/context"
 	"github.com/blackwell-systems/knowing/internal/wire"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -76,7 +77,7 @@ func (s *Server) handleContextForTask(ctx context.Context, req mcp.CallToolReque
 				s.contextCalls.Add(1)
 				s.symbolsServed.Add(int64(len(delta.Added)))
 
-				deltaPayload := &wire.DeltaPayload{
+				deltaPayload := &gcf.DeltaPayload{
 					Tool:        "context_for_task",
 					BaseRoot:    priorPackRoot,
 					NewRoot:     block.PackRoot.String(),
@@ -85,7 +86,7 @@ func (s *Server) handleContextForTask(ctx context.Context, req mcp.CallToolReque
 				}
 				// Convert removed symbols to wire format.
 				for _, sym := range delta.Removed {
-					deltaPayload.Removed = append(deltaPayload.Removed, wire.Symbol{
+					deltaPayload.Removed = append(deltaPayload.Removed, gcf.Symbol{
 						QualifiedName: sym.Node.QualifiedName,
 						Kind:          sym.Node.Kind,
 						Score:         sym.Score,
@@ -93,7 +94,7 @@ func (s *Server) handleContextForTask(ctx context.Context, req mcp.CallToolReque
 				}
 				// Convert added symbols to wire format.
 				for _, sym := range delta.Added {
-					deltaPayload.Added = append(deltaPayload.Added, wire.Symbol{
+					deltaPayload.Added = append(deltaPayload.Added, gcf.Symbol{
 						QualifiedName: sym.Node.QualifiedName,
 						Kind:          sym.Node.Kind,
 						Score:         sym.Score,
@@ -103,12 +104,12 @@ func (s *Server) handleContextForTask(ctx context.Context, req mcp.CallToolReque
 				}
 				// Convert edge diffs.
 				for _, e := range delta.RemovedEdges {
-					deltaPayload.RemovedEdges = append(deltaPayload.RemovedEdges, wire.Edge{
+					deltaPayload.RemovedEdges = append(deltaPayload.RemovedEdges, gcf.Edge{
 						Source: e.Source, Target: e.Target, EdgeType: e.EdgeType,
 					})
 				}
 				for _, e := range delta.AddedEdges {
-					deltaPayload.AddedEdges = append(deltaPayload.AddedEdges, wire.Edge{
+					deltaPayload.AddedEdges = append(deltaPayload.AddedEdges, gcf.Edge{
 						Source: e.Source, Target: e.Target, EdgeType: e.EdgeType,
 					})
 				}

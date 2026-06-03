@@ -1,15 +1,16 @@
 // Package wire provides graph payload encoding for knowing's MCP server.
 //
 // Core GCF types and encoding are provided by github.com/blackwell-systems/gcf-go.
-// This package re-exports them as type aliases for backward compatibility and adds
-// knowing-specific codecs (binary, JSON, TOON) via the pluggable registry.
+// This package adds knowing-specific codecs (binary, JSON, TOON) via the pluggable
+// registry and provides FromContextBlock for converting internal types to GCF payloads.
 package wire
 
 import (
 	gcf "github.com/blackwell-systems/gcf-go"
 )
 
-// Core GCF types, re-exported from github.com/blackwell-systems/gcf-go.
+// Re-export core GCF types so existing internal/wire consumers compile without
+// changing their imports. New code should import gcf-go directly.
 type Symbol = gcf.Symbol
 type Components = gcf.Components
 type Edge = gcf.Edge
@@ -17,37 +18,15 @@ type Payload = gcf.Payload
 type Session = gcf.Session
 type DeltaPayload = gcf.DeltaPayload
 
-// KindAbbrev and KindExpand are the kind abbreviation maps from gcf-go.
+// Re-export kind maps.
 var KindAbbrev = gcf.KindAbbrev
 var KindExpand = gcf.KindExpand
 
-// Encode serializes a Payload into GCF text format.
-// Delegates to gcf-go.
-func Encode(p *Payload) string {
-	return gcf.Encode(p)
-}
+// Delegating functions for the codec registry adapters and consumers that
+// import wire but need GCF encoding. New code should use gcf.Encode directly.
 
-// Decode parses GCF text back into a Payload.
-// Delegates to gcf-go.
-func Decode(input string) (*Payload, error) {
-	return gcf.Decode(input)
-}
-
-// NewSession creates a new session tracker for cross-call symbol deduplication.
-// Delegates to gcf-go.
-func NewSession() *Session {
-	return gcf.NewSession()
-}
-
-// EncodeWithSession encodes a payload with session deduplication.
-// Previously-transmitted symbols are emitted as bare references.
-// Delegates to gcf-go.
-func EncodeWithSession(p *Payload, sess *Session) string {
-	return gcf.EncodeWithSession(p, sess)
-}
-
-// EncodeDelta serializes a DeltaPayload into GCF delta format.
-// Delegates to gcf-go.
-func EncodeDelta(d *DeltaPayload) string {
-	return gcf.EncodeDelta(d)
-}
+func Encode(p *Payload) string                         { return gcf.Encode(p) }
+func Decode(input string) (*Payload, error)            { return gcf.Decode(input) }
+func NewSession() *Session                             { return gcf.NewSession() }
+func EncodeWithSession(p *Payload, s *Session) string  { return gcf.EncodeWithSession(p, s) }
+func EncodeDelta(d *DeltaPayload) string               { return gcf.EncodeDelta(d) }

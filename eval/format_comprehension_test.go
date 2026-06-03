@@ -29,6 +29,7 @@ import (
 	"strings"
 	"testing"
 
+	gcf "github.com/blackwell-systems/gcf-go"
 	knowingctx "github.com/blackwell-systems/knowing/internal/context"
 	"github.com/blackwell-systems/knowing/internal/store"
 	"github.com/blackwell-systems/knowing/internal/wire"
@@ -270,11 +271,11 @@ func verifyInfoPresent(format string, block *knowingctx.ContextBlock, expectedAn
 	}
 }
 
-// blockToPayload converts a ContextBlock to a wire.Payload for GCF encoding.
-func blockToPayload(block *knowingctx.ContextBlock) *wire.Payload {
-	syms := make([]wire.Symbol, len(block.Symbols))
+// blockToPayload converts a ContextBlock to a gcf.Payload for GCF encoding.
+func blockToPayload(block *knowingctx.ContextBlock) *gcf.Payload {
+	syms := make([]gcf.Symbol, len(block.Symbols))
 	for i, s := range block.Symbols {
-		syms[i] = wire.Symbol{
+		syms[i] = gcf.Symbol{
 			QualifiedName: s.Node.QualifiedName,
 			Kind:          s.Node.Kind,
 			Score:         s.Score,
@@ -284,13 +285,13 @@ func blockToPayload(block *knowingctx.ContextBlock) *wire.Payload {
 	}
 	edges := make([]wire.Edge, len(block.Edges))
 	for i, e := range block.Edges {
-		edges[i] = wire.Edge{
+		edges[i] = gcf.Edge{
 			Source:   e.Source,
 			Target:   e.Target,
 			EdgeType: e.EdgeType,
 		}
 	}
-	return &wire.Payload{
+	return &gcf.Payload{
 		Tool:        "format_comprehension_eval",
 		TokenBudget: block.TokenBudget,
 		TokensUsed:  block.TokensUsed,

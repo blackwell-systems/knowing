@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	gcf "github.com/blackwell-systems/gcf-go"
 	"github.com/blackwell-systems/knowing/internal/wire"
 	"gopkg.in/yaml.v3"
 )
@@ -84,7 +85,7 @@ type jsonComponents struct {
 
 func loadFixtures(t *testing.T) []struct {
 	name    string
-	payload *wire.Payload
+	payload *gcf.Payload
 	fixture fixtureCase
 } {
 	t.Helper()
@@ -96,7 +97,7 @@ func loadFixtures(t *testing.T) []struct {
 
 	var cases []struct {
 		name    string
-		payload *wire.Payload
+		payload *gcf.Payload
 		fixture fixtureCase
 	}
 
@@ -117,7 +118,7 @@ func loadFixtures(t *testing.T) []struct {
 		p := fixtureToPayload(fc)
 		cases = append(cases, struct {
 			name    string
-			payload *wire.Payload
+			payload *gcf.Payload
 			fixture fixtureCase
 		}{
 			name:    strings.TrimSuffix(entry.Name(), ".yaml"),
@@ -128,8 +129,8 @@ func loadFixtures(t *testing.T) []struct {
 	return cases
 }
 
-func fixtureToPayload(fc fixtureCase) *wire.Payload {
-	p := &wire.Payload{
+func fixtureToPayload(fc fixtureCase) *gcf.Payload {
+	p := &gcf.Payload{
 		Tool:        fc.Tool,
 		TokensUsed:  fc.TokensUsed,
 		TokenBudget: fc.TokenBudget,
@@ -444,7 +445,7 @@ func BenchmarkLatencyP99(b *testing.B) {
 
 func loadFixturesB(b *testing.B) []struct {
 	name    string
-	payload *wire.Payload
+	payload *gcf.Payload
 } {
 	b.Helper()
 	casesDir := filepath.Join("cases")
@@ -455,7 +456,7 @@ func loadFixturesB(b *testing.B) []struct {
 
 	var cases []struct {
 		name    string
-		payload *wire.Payload
+		payload *gcf.Payload
 	}
 
 	for _, entry := range entries {
@@ -475,7 +476,7 @@ func loadFixturesB(b *testing.B) []struct {
 		p := fixtureToPayload(fc)
 		cases = append(cases, struct {
 			name    string
-			payload *wire.Payload
+			payload *gcf.Payload
 		}{
 			name:    strings.TrimSuffix(entry.Name(), ".yaml"),
 			payload: p,
