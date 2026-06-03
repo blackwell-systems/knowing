@@ -85,6 +85,23 @@ constraint and `count` column for reinforcement. Migration 021.
 **Threshold:** `count >= 2` required for a learned association to activate.
 Single observations are ignored to prevent noise.
 
+**Noise filter:** Common English words (~80 words like "use", "not", "find",
+"whether") are filtered from recording via `isVocabWorthy`. Only domain-specific
+keywords (>= 4 chars, not in noise/stop word lists) create associations. Preview
+with `knowing debug-vocab -task "description"`.
+
+**Soft injection:** Learned vocab competes through RRF scoring, not forced to the
+top of results. This prevents displacement of correct results on tasks with good
+BM25 coverage. Only hand-curated framework classes get forced injection.
+
+**Confidence weighting:** Observation count scales the RRF weight from 0.3
+(count=2, new association) to 0.8 (count>=10, well-reinforced). Associations that
+are confirmed across multiple sessions get stronger positioning.
+
+**Cross-task bridging:** Validated on 308 tasks: vocab learned from task A helps
+task B via shared keywords. Django +41.4% in isolation, full corpus 0.0% aggregate
+(safe). 10-round compounding: +2.2% P@10 peak, +8.1% MRR peak (round 7).
+
 ## Index / Enrichment Flags
 
 | Flag | Description |

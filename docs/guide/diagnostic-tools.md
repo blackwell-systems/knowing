@@ -178,7 +178,12 @@ knowing debug-vocab -db <path>                    # show all associations
 knowing debug-vocab -db <path> -keyword checkout   # filter by keyword
 knowing debug-vocab -db <path> -min-count 2        # only confirmed (count >= 2)
 knowing debug-vocab -db <path> -top 100            # show more results
+knowing debug-vocab -task "fix email validation"   # preview vocab filter (no DB needed)
 ```
+
+**Vocab filter preview** (`-task` flag): shows which keywords from a task
+description would pass the noise filter and be recorded as vocab associations.
+Useful for debugging why a keyword isn't creating learned associations.
 
 **Output:**
 ```

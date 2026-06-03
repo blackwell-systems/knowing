@@ -62,8 +62,8 @@ Each field serves a distinct purpose:
 - **Source**: Tracks provenance and determines injection behavior.
   Values: `"seed"`, `"framework"`, `"universal"`, `"language"`, `"graph"`,
   `"learned"`. Classes with `Source == "framework"` AND `Weight >= 0.9`,
-  or `Source == "learned"`, bypass RWR scoring and inject directly into
-  ranked results (forced injection).
+  
+  bypass RWR scoring and inject directly into ranked results (forced injection). Learned vocab goes through RRF competition (soft injection).
 - **Lang**: Language scope. When non-empty, the class only fires on repos
   where `detectRepoLanguage()` returns a matching language. Prevents
   cross-language false positives (Go router classes on C# repos).
@@ -494,13 +494,13 @@ table does exactly.
 - Framework-specific classes bridge framework vocabulary with forced injection (weight 0.9)
 - Language-specific classes bridge non-Go vocabulary (weight 0.8)
 - Graph-derived aliases auto-generate from structure (weight 0.7)
-- Learned vocab associations accumulate from agent usage with forced injection (weight 0.5, source "learned")
+- Learned vocab associations accumulate from agent usage via RRF (confidence-weighted 0.3-0.8, source "learned")
 
 Each layer adds value independently, and they combine through RRF fusion without
 interfering with each other. Learned vocab associations (Layer 6) are the active
 learning mechanism: when agents use symbols after context queries, the keyword ->
 symbol association is recorded (`vocab_associations` table, migration 021). After
-2+ observations, the association becomes a learned equivalence class with forced
+2+ observations, the association becomes a learned equivalence class with soft
 injection. Per-cluster scoping (migration 020) prevents cross-task interference.
 
 ### Layer 6: Learned vocabulary associations (from usage, weight 0.5)
@@ -511,9 +511,9 @@ Generated at query time from the `vocab_associations` table
 After 2+ observations (`count >= 2`), the association activates as a learned
 equivalence class.
 
-Learned vocab classes receive **forced injection** (same treatment as Layer 3
-framework classes): matched symbols bypass RRF and inject at `topScore + 0.1`.
-This guarantees that confirmed usage patterns appear in results.
+Learned vocab classes go through **RRF competition** (soft injection, unlike Layer 3
+framework classes which use forced injection). This prevents displacement of correct results on tasks with good BM25 coverage.
+Confidence weighting scales RRF weight from 0.3 (count=2) to 0.8 (count>=10), rewarding reinforced associations.
 
 Per-cluster scoping: feedback and vocab associations are scoped to keyword
 clusters (`keyword_cluster` column on feedback table, migration 020). The
