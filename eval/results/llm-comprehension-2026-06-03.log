@@ -1,0 +1,43 @@
+=== RUN   TestLLMFormatComprehension
+    format_llm_comprehension_test.go:322: 
+    format_llm_comprehension_test.go:323: === LLM Format Comprehension Eval ===
+    format_llm_comprehension_test.go:324: Backend: cli (claude -c)
+    format_llm_comprehension_test.go:325: 
+    format_llm_comprehension_test.go:396:   PASS top_symbol    json   [exact match] expected="github.com/blackwell-systems/knowing://github.com/blackwell-systems/knowing/internal/context.ContextBlock" got="github.com/blackwell-systems/knowing://github.com/blackwell-systems/knowing/internal/context.ContextBlock" (13786 tok)
+    format_llm_comprehension_test.go:396:   PASS top_symbol    xml    [exact match] expected="github.com/blackwell-systems/knowing://github.com/blackwell-systems/knowing/internal/context.ContextBlock" got="github.com/blackwell-systems/knowing://github.com/blackwell-systems/knowing/internal/context.ContextBlock" (4609 tok)
+    format_llm_comprehension_test.go:396:   PASS top_symbol    toon   [exact match] expected="github.com/blackwell-systems/knowing://github.com/blackwell-systems/knowing/internal/context.ContextBlock" got="github.com/blackwell-systems/knowing://github.com/blackwell-systems/knowing/internal/context.ContextBlock" (7644 tok)
+    format_llm_comprehension_test.go:396:   PASS top_symbol    gcf    [short name match] expected="github.com/blackwell-systems/knowing://github.com/blackwell-systems/knowing/internal/context.ContextBlock" got="github.com/blackwell-systems/knowing/internal/context.ContextBlock" (2405 tok)
+    format_llm_comprehension_test.go:396:   FAIL symbol_count  json   [expected 133, got "111"] expected="133" got="111" (36258 tok)
+    format_llm_comprehension_test.go:396:   PASS symbol_count  xml    [exact] expected="133" got="133" (9405 tok)
+    format_llm_comprehension_test.go:396:   PASS symbol_count  toon   [exact] expected="133" got="133" (22077 tok)
+    format_llm_comprehension_test.go:396:   PASS symbol_count  gcf    [exact] expected="133" got="133" (5252 tok)
+    format_llm_comprehension_test.go:396:   FAIL edge_count    json   [expected 131, got "121"] expected="131" got="121" (16591 tok)
+    format_llm_comprehension_test.go:396:   FAIL edge_count    xml    [expected 131, got "0"] expected="131" got="0" (4144 tok)
+    format_llm_comprehension_test.go:396:   PASS edge_count    toon   [exact] expected="131" got="131" (10134 tok)
+    format_llm_comprehension_test.go:396:   PASS edge_count    gcf    [exact] expected="131" got="131" (2341 tok)
+    format_llm_comprehension_test.go:396:   PASS top_kind      json   [exact] expected="type" got="type" (13786 tok)
+    format_llm_comprehension_test.go:396:   PASS top_kind      xml    [exact] expected="type" got="type" (4609 tok)
+    format_llm_comprehension_test.go:396:   PASS top_kind      toon   [exact] expected="type" got="type" (7644 tok)
+    format_llm_comprehension_test.go:396:   PASS top_kind      gcf    [exact] expected="type" got="type" (2405 tok)
+    format_llm_comprehension_test.go:396:   PASS seed_count    json   [exact] expected="15" got="15" (1849 tok)
+    format_llm_comprehension_test.go:396:   PASS seed_count    xml    [exact] expected="15" got="15" (1182 tok)
+    format_llm_comprehension_test.go:396:   PASS seed_count    toon   [exact] expected="15" got="15" (711 tok)
+    format_llm_comprehension_test.go:396:   PASS seed_count    gcf    [exact] expected="15" got="15" (575 tok)
+    format_llm_comprehension_test.go:396:   PASS edge_type_list json   [exact] expected="calls" got="calls" (16127 tok)
+    format_llm_comprehension_test.go:396:   FAIL edge_type_list xml    [expected "calls", got "function, interface, method, type"] expected="calls" got="function, interface, method, type" (6298 tok)
+    format_llm_comprehension_test.go:396:   PASS edge_type_list toon   [exact] expected="calls" got="calls" (8421 tok)
+    format_llm_comprehension_test.go:396:   PASS edge_type_list gcf    [exact] expected="calls" got="calls" (3186 tok)
+    format_llm_comprehension_test.go:402: 
+    format_llm_comprehension_test.go:403: === Summary ===
+    format_llm_comprehension_test.go:404: 
+    format_llm_comprehension_test.go:418: Format   Accuracy Avg Tokens      vs JSON
+    format_llm_comprehension_test.go:419: ------   -------- ----------      -------
+    format_llm_comprehension_test.go:440: json        66.7%      16399     baseline
+    format_llm_comprehension_test.go:440: xml         66.7%       5041          31%
+    format_llm_comprehension_test.go:440: toon       100.0%       9438          58%
+    format_llm_comprehension_test.go:440: gcf        100.0%       2694          16%
+    format_llm_comprehension_test.go:443: 
+    format_llm_comprehension_test.go:444: If GCF accuracy >= JSON accuracy, GCF can be the default format.
+--- PASS: TestLLMFormatComprehension (149.84s)
+PASS
+ok  	github.com/blackwell-systems/knowing/eval	150.512s
