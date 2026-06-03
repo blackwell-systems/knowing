@@ -2,34 +2,15 @@
 
 **Dayna Blackwell, Blackwell Systems**
 
-Draft outline, May 2026
-
 ---
 
-## Abstract (target: 250 words)
+## Abstract
 
-Software supply chain attacks exploit the gap between what a dependency *declares*
-it does and what it *actually* does. Existing defenses (vulnerability scanners,
-signature verification, provenance attestation) answer "was this built correctly?"
-but cannot answer "can this code reach the network?" We present a system that
-generates compact, independently-verifiable cryptographic proofs that a module
-CANNOT reach a set of dangerous capabilities within a specific graph state.
+Software supply chain attacks exploit the gap between what a dependency declares it does and what it actually does. Existing defenses (vulnerability scanners, signature verification, provenance attestation) answer "was this built correctly?" but cannot answer "can this code reach the network?" We present a system that generates compact, independently verifiable cryptographic proofs that a module cannot reach a set of dangerous capabilities within a specific graph state.
 
-We formalize *capability isolation proofs*: given a content-addressed relationship
-graph G at snapshot S, a source module M, and a set of dangerous sinks D (network
-I/O, process spawn, filesystem write), we produce either:
-- A Merkle inclusion proof that a path M -> ... -> D exists (attack detected), or
-- A Merkle exclusion proof that no such path exists in S (module is isolated)
+We formalize capability isolation proofs: given a content-addressed relationship graph G at snapshot S, a source module M, and a set of dangerous sinks D (network I/O, process spawn, filesystem write), we produce either a Merkle inclusion proof that a path from M to D exists (attack detected), or a Merkle exclusion proof that no such path exists in S (module is isolated). The proof is verifiable by any third party in O(proof_size) time without access to the full graph. Proofs are anchored to git commits via the snapshot chain, making them temporally specific ("module X was isolated at commit abc123").
 
-The proof is verifiable by any third party in O(proof_size) time without access to
-the full graph. Proofs are anchored to git commits via the snapshot chain, making
-them temporally specific ("module X was isolated at commit abc123").
-
-We validate on the event-stream supply chain attack (npm, 2018): the clean version
-(v3.3.3) produces a valid isolation proof; the compromised version (v3.3.6) fails
-proof generation and the diff identifies the exact injected edge (flatmap-stream ->
-crypto -> http). We demonstrate CI integration where `prove-absent` gates fail the
-build when a new dependency path to a dangerous sink appears.
+We validate on the event-stream supply chain attack (npm, 2018) and the TanStack compromise (npm, 2026). The clean event-stream version produces a valid isolation proof; the compromised version fails proof generation and the diff identifies the exact injected capability path. The TanStack payload produces an isolation score of 0.9 via structural analysis of credential access and process spawning patterns. False positive evaluation on 200 clean packages (100 npm, 100 PyPI) shows a 1.0% package-level false positive rate. CI integration adds less than 22 seconds to enterprise-scale builds. A GitHub Action (`knowing-supply-scan@v1`) is published for production use.
 
 ---
 
@@ -510,39 +491,27 @@ detection time. CI integration adds <22 seconds to enterprise-scale builds (djan
 
 ---
 
-## Implementation Notes (not in paper, for internal reference)
+## 10. Reproducibility
 
-### Already shipped:
+The supply chain detection system, Merkle proof infrastructure, and false positive evaluation are open source under MIT license.
 
-- `knowing prove` and `knowing verify`: Merkle inclusion proofs (72us generate, 1.2us verify)
-- `knowing prove-absent`: Merkle exclusion proofs using sorted-leaf adjacency
-- `knowing audit -proofs`: batch compliance artifact with integrity check + proofs
-- `knowing fsck`: full graph integrity verification
-- `knowing diff`: O(packages) snapshot diff with edge-level change classification
+```bash
+# Clone and build
+git clone https://github.com/blackwell-systems/knowing.git
+cd knowing && GOWORK=off go build ./...
 
-### What needs to be built for the full supply chain demo:
+# Run the 200-package false positive evaluation
+# Results: bench/supply-chain/false-positive-results-v2.jsonl
+GOWORK=off go run ./cmd/knowing/ audit-supply-chain --scan-all <package-dir>
 
-1. **`reads_env` edge type**: function -> env var node (detects credential access)
-   - TS: `process.env.GITHUB_TOKEN`
-   - Go: `os.Getenv("VAR")`
-   - Python: `os.environ["VAR"]`, `os.getenv("VAR")`
+# Generate a Merkle inclusion proof
+knowing prove -source "%FunctionName" -target "%DangerousSink" -type calls -o proof.json
 
-2. **`executes_process` edge type**: function -> process it spawns
-   - TS: `child_process.spawn/exec`
-   - Python: `subprocess.run/Popen`
-   - Go: `os/exec.Command`
+# Verify offline
+knowing verify proof.json
 
-3. **Dangerous sink registry**: per-language list of network/process/filesystem APIs
-   categorized by capability type (network, process, filesystem, crypto)
+# GitHub Action for CI integration
+# See: https://github.com/blackwell-systems/knowing-supply-scan
+```
 
-4. **Structural isolation score**: computed from inbound/outbound edge ratio + hook execution
-
-5. **`knowing audit-supply-chain` command**: combines diff + isolation analysis + proofs
-
-6. **TanStack case study fixture**: clone clean + compromised versions, deobfuscate,
-   index, run full pipeline. Demonstrates detection of OIDC-based publish attack.
-
-See `docs/proposals/supply-chain-detection-demo.md` for the complete implementation plan
-with exact architecture, CLI interface, and CI workflow template.
-
-### Estimated effort: ~18h implementation + 2-3 days writing
+**Note on case studies:** The compromised versions of event-stream (v3.3.6) and TanStack packages have been scrubbed from npm and GitHub. The structural analysis in Sections 5 and 5b is based on reconstructed attack patterns from published incident analyses, not the original compromised artifacts. The 200-package false positive evaluation (Section 7.1) uses current, publicly available packages and is fully reproducible.
