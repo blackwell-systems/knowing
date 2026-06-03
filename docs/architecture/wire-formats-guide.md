@@ -373,10 +373,13 @@ Encode p99 latency: 64 microseconds (30-symbol payload, Apple M4 Pro).
 
 ## Codec Registry
 
-The `internal/wire` package provides a pluggable codec registry. Formats are selected by name at runtime:
+The `internal/wire` package provides a pluggable codec registry. Core GCF types and encoding come from the standalone [`gcf-go`](https://github.com/blackwell-systems/gcf-go) library ([spec](https://github.com/blackwell-systems/gcf)); the wire package re-exports them and adds knowing-specific codecs. Formats are selected by name at runtime:
 
 ```go
-import "github.com/blackwell-systems/knowing/internal/wire"
+import (
+    gcf "github.com/blackwell-systems/gcf-go"              // GCF types and encoding
+    "github.com/blackwell-systems/knowing/internal/wire"    // registry, binary, json, toon, bridge
+)
 
 // Encode with a named codec.
 output, err := wire.EncodeWith("gcf", payload)
@@ -539,17 +542,16 @@ Delta is only used when it saves more than 40% over full retransmission (60% thr
 
 | File | Purpose |
 |------|---------|
+| [`gcf-go`](https://github.com/blackwell-systems/gcf-go) | Standalone GCF library: `Payload`/`Symbol`/`Edge`/`Components` types, `Encode`, `Decode`, `Session`, `EncodeWithSession`, `DeltaPayload`, `EncodeDelta` |
+| [`gcf` spec](https://github.com/blackwell-systems/gcf) | GCF specification v1.0: grammar, encoding rules, session statefulness, delta extension |
+| `internal/wire/gcf.go` | Type aliases and delegating wrappers re-exporting gcf-go |
 | `internal/wire/registry.go` | Codec registry (Register, Get, List, EncodeWith, DecodeWith) |
-| `internal/wire/gcf.go` | GCF text encoder, `Payload`/`Symbol`/`Edge`/`Components` types |
-| `internal/wire/gcf_decode.go` | GCF text decoder |
-| `internal/wire/session.go` | `Session` type for cross-call symbol deduplication, `EncodeWithSession` |
-| `internal/wire/delta.go` | `DeltaPayload` type, `EncodeDelta` for incremental context delivery |
 | `internal/wire/bridge.go` | `FromContextBlock`: converts `ContextBlock` to wire `Payload` with edge discovery |
 | `internal/wire/json.go` | JSON codec (encode/decode via standard library) |
 | `internal/wire/toon.go` | TOON codec (official toon-format/toon-go library) |
 | `internal/wire/binary.go` | GCB binary codec (varint + length-prefixed, 38 edge type enums) |
 | `internal/context/delta.go` | `DiffPacks`: structural diff between two `ContextBlock` values |
-| `internal/wire/gcf_test.go` | GCF unit tests |
+| `internal/wire/gcf_test.go` | GCF round-trip and encoding tests |
 | `internal/wire/session_test.go` | Session deduplication tests |
 | `internal/wire/delta_test.go` | Delta encoding tests |
 | `internal/wire/registry_test.go` | Registry and JSON codec tests |

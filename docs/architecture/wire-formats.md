@@ -1,6 +1,6 @@
 # Wire Format and Codec System
 
-The wire package (`internal/wire/`) provides a pluggable codec registry that encodes and decodes the graph payloads produced by context packing, MCP tools, and the export CLI. Four built-in codecs serve different layers of the system; additional codecs can be registered at runtime.
+The wire package (`internal/wire/`) provides a pluggable codec registry that encodes and decodes the graph payloads produced by context packing, MCP tools, and the export CLI. Core GCF types and encoding are provided by the standalone [`gcf-go`](https://github.com/blackwell-systems/gcf-go) library; the wire package re-exports them and adds knowing-specific codecs (binary, JSON, TOON) via the registry. Four built-in codecs serve different layers of the system; additional codecs can be registered at runtime.
 
 ## Codec Registry
 
@@ -51,11 +51,11 @@ The four codecs map to distinct system layers:
 
 ### GCF Session Deduplication
 
-The MCP server maintains a per-connection `wire.Session` (`internal/wire/session.go`) that tracks which symbols have already been transmitted to the client. On subsequent GCF responses within the same connection, previously-sent nodes are emitted as bare references (`@N  # previously transmitted`) rather than complete symbol records. `EncodeWithSession` partitions symbols into new (full declaration) and known (bare reference) before encoding.
+The MCP server maintains a per-connection `gcf.Session` (from [`gcf-go`](https://github.com/blackwell-systems/gcf-go)) that tracks which symbols have already been transmitted to the client. On subsequent GCF responses within the same connection, previously-sent nodes are emitted as bare references (`@N  # previously transmitted`) rather than complete symbol records. `gcf.EncodeWithSession` partitions symbols into new (full declaration) and known (bare reference) before encoding.
 
 ### GCF Delta Encoding
 
-When the agent sends a `pack_root` from a prior call and the current result differs, the server computes a structural diff (`internal/context/delta.go`) and returns only what changed via `EncodeDelta` (`internal/wire/delta.go`). The delta format uses `## removed`, `## added`, `## edges_removed`, `## edges_added` sections. A 60% threshold ensures delta is only used when it saves meaningfully over full retransmission.
+When the agent sends a `pack_root` from a prior call and the current result differs, the server computes a structural diff (`internal/context/delta.go`) and returns only what changed via `gcf.EncodeDelta` (from [`gcf-go`](https://github.com/blackwell-systems/gcf-go)). The delta format uses `## removed`, `## added`, `## edges_removed`, `## edges_added` sections. A 60% threshold ensures delta is only used when it saves meaningfully over full retransmission.
 
 **Benchmark (session 27, `bench/delta-packing/`):** 81.2% token savings at 96.6% symbol overlap on re-query scenarios. See `docs/architecture/context-packing.md` for full protocol.
 
@@ -83,7 +83,7 @@ Symbols are indexed by position; edges reference symbols by their zero-based ind
 
 ### Payload
 
-The `Payload` struct (`internal/wire/gcf.go`) is the universal input/output for all codecs:
+The `Payload` struct (defined in [`gcf-go`](https://github.com/blackwell-systems/gcf-go), re-exported by `internal/wire/gcf.go`) is the universal input/output for all codecs:
 
 ```go
 type Payload struct {
@@ -172,10 +172,9 @@ Latest results: GCF 84.0% median token savings, GCB 74.1% median byte savings.
 
 | File | Purpose |
 |------|---------|
-| `internal/wire/gcf.go` | GCF encoder (`Encode`), `Payload`/`Symbol`/`Edge`/`Components` types, kind abbreviations |
-| `internal/wire/gcf_decode.go` | GCF decoder (`Decode`) |
-| `internal/wire/session.go` | `Session` type for cross-call symbol deduplication, `EncodeWithSession` |
-| `internal/wire/delta.go` | `DeltaPayload` type, `EncodeDelta` for incremental context delivery |
+| [`gcf-go`](https://github.com/blackwell-systems/gcf-go) | Standalone GCF library: `Payload`/`Symbol`/`Edge`/`Components` types, `Encode`, `Decode`, `Session`, `EncodeWithSession`, `DeltaPayload`, `EncodeDelta` |
+| [`gcf` spec](https://github.com/blackwell-systems/gcf) | GCF specification v1.0: grammar, encoding rules, session statefulness, delta extension |
+| `internal/wire/gcf.go` | Type aliases and delegating wrappers re-exporting gcf-go for backward compatibility |
 | `internal/wire/binary.go` | GCB binary encoder/decoder, varint layout, kind/provenance/edge-type ID maps |
 | `internal/wire/json.go` | JSON encoder/decoder (compatibility baseline) |
 | `internal/wire/toon.go` | TOON encoder using `toon-format/toon-go` library |
