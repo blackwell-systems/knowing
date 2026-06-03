@@ -55,6 +55,7 @@ All environment variables, CLI flags, and MCP server options in one place.
 | `BENCH_COMPOUND_ROUNDS` | 5 | Number of rounds for `TestCompounding`. |
 | `BENCH_FEEDBACK_WEIGHT` | `none` | Confidence weighting mode for feedback scores. Options: `none` (raw score, default), `sqrt` (symmetric sqrt confidence), `linear` (steeper linear confidence), `asym` (full-strength positives, sqrt-weighted negatives only). |
 | `BENCH_PACK_STRATEGY` | `density` | Packing algorithm for context assembly. Options: `density` (score/tokens * RWR proximity, default), `file-grouped` (pack densest files first), `top-k` (highest score first). |
+| `BENCH_RWR_CACHE` | off | Enable RWR result caching in benchmarks. Default off (fresh walks for honest measurement). Set to `1` for latency experiments. |
 
 ### Vocabulary Expansion
 
