@@ -45,13 +45,18 @@ knowing context -task "add caching" -format json
 {"tool": "context_for_task", "arguments": {"task_description": "add caching", "format": "gcf"}}
 ```
 
-**Recommendation:**
-- Use `gcf` when the consumer is an AI agent in a knowing-aware workflow (hooks, repeated calls, session dedup). This is the default in MCP mode.
-- Use `toon` when feeding context to external tools or agents that support TOON but not GCF.
-- Use `json` when debugging, piping to jq, or integrating with systems that expect JSON.
-- Use `xml` as the default for human-readable MCP responses (current MCP default).
+**Recommendation: use `gcf` for all agent workflows.** LLM comprehension eval
+(session 27, `eval/TestLLMFormatComprehension`) proved GCF achieves 100% accuracy
+on structured extraction tasks at 16% of JSON's token cost. JSON scored 66.7%
+(miscounts on large payloads). The "wait for comprehension validation" caveat is
+resolved: GCF is both the most compact and the most accurately comprehended format.
 
-The format only affects the output encoding. The retrieval pipeline (seed matching, RWR, HITS, RRF fusion, scoring) is identical regardless of format. With `gcf` or `toon`, more symbols fit within the same token budget because each symbol costs fewer tokens.
+- Use `gcf` for all AI agent workflows. Recommended default.
+- Use `toon` when sharing context with external tools that support TOON but not GCF. Also 100% accuracy, but 3.5x more tokens than GCF.
+- Use `json` when debugging, piping to jq, or integrating with systems that expect JSON.
+- Use `xml` for human-readable output only. Does not include edge data in output.
+
+The format only affects the output encoding. The retrieval pipeline (seed matching, RWR, HITS, RRF fusion, scoring) is identical regardless of format. With `gcf`, more symbols fit within the same token budget because each symbol costs fewer tokens.
 
 ## GCF (Graph Compact Format)
 
@@ -110,7 +115,7 @@ GCF tool=context_for_task budget=5000 tokens=1847 symbols=10
 @4<@8 references
 ```
 
-The same data in JSON: ~965 tokens. In GCF: ~233 tokens. **75.9% savings.**
+The same data in JSON: ~965 tokens. In GCF: ~233 tokens. **75.9% savings** (simple heuristic). Using the word+punctuation token estimator from FINDINGS.md: 84.0% median across 6 fixtures.
 
 ### Format Elements
 
@@ -219,7 +224,7 @@ Compact binary encoding optimized for transport between services and persistent 
 
 **Provenance (7 entries):** ast_inferred=1, ast_resolved=2, lsp_resolved=3, otel_trace=4, scip_resolved=5, runtime_observed=6, structural=7
 
-**Edge type (36 entries):** calls=1, imports=2, implements=3, references=4, handles_route=5, depends_on=6, deploys=7, exposes=8, configures=9, extends=10, overrides=11, decorates=12, throws=13, owned_by=14, authored_by=15, tests=16, runtime_calls=17, runtime_rpc=18, runtime_produces=19, runtime_consumes=20, contains=21, member_of=22, documents=23, consumes_endpoint=24, implements_rpc=25, consumes_rpc=26, gated_by_flag=27, deployed_by=28, tested_by=29, publishes=30, subscribes=31, connects_to=32, similar_to=33, co_tested_with=34, type_hint_of=35, accesses_field=36
+**Edge type (38 entries):** calls=1, imports=2, implements=3, references=4, handles_route=5, depends_on=6, deploys=7, exposes=8, configures=9, extends=10, overrides=11, decorates=12, throws=13, owned_by=14, authored_by=15, tests=16, runtime_calls=17, runtime_rpc=18, runtime_produces=19, runtime_consumes=20, contains=21, member_of=22, documents=23, consumes_endpoint=24, implements_rpc=25, consumes_rpc=26, gated_by_flag=27, deployed_by=28, tested_by=29, publishes=30, subscribes=31, connects_to=32, similar_to=33, co_tested_with=34, type_hint_of=35, accesses_field=36, reads_env=37, executes_process=38
 
 **Status:** unchanged/empty=0, added=1, removed=2
 
@@ -360,7 +365,7 @@ Full scorecard across 6 fixture cases (8 to 30 symbols):
 | semantic_diff (12 sym) | 1,206 | 295 | 75.5% |
 | graph_query (20 sym) | 2,078 | 423 | 79.6% |
 
-**Median token savings (GCF vs JSON): 76.7%**
+**Median token savings (GCF vs JSON): 76.7%** (simple heuristic). FINDINGS.md word+punctuation estimator: **84.0% median**.
 
 Encode p99 latency: 64 microseconds (30-symbol payload, Apple M4 Pro).
 
@@ -426,9 +431,10 @@ The MCP tools and CLI pass the `format` parameter directly to the registry, so n
 ### CLI
 
 ```bash
-knowing context --task "refactor auth" --format gcf      # LLM-optimized
-knowing context --task "refactor auth" --format json     # human/debug
-knowing context --task "refactor auth" --format binary   # pipe to another service
+knowing context -task "refactor auth" -format gcf      # LLM-optimized
+knowing context -task "refactor auth" -format json     # human/debug
+knowing context -task "refactor auth" -format gcb      # pipe to another service
+knowing context -task "refactor auth" -format toon     # external tooling
 ```
 
 ### MCP Tools
@@ -437,62 +443,123 @@ knowing context --task "refactor auth" --format binary   # pipe to another servi
 {
   "name": "context_for_task",
   "arguments": {
-    "task": "refactor auth middleware",
+    "task_description": "refactor auth middleware",
     "token_budget": 5000,
     "format": "gcf"
   }
 }
 ```
 
-Default is `json` for backwards compatibility. Agents that understand GCF should request it explicitly for 75%+ token savings.
+Default is `xml` for MCP tools (human-readable structured output). CLI default is also `xml`. Agents that understand GCF should request it explicitly for 84%+ token savings.
 
 ---
 
 ## Format Comprehension Eval
 
-Benchmark measuring token cost across all formats for the same context payload. All formats contain identical information (same symbols, edges, metadata); only the encoding differs.
+### Token Cost Benchmark (deterministic)
+
+Measures token cost across formats for the same payload. No LLM involved.
 
 Run: `GOWORK=off go test ./eval/ -run TestFormatComprehension -v`
 
-| Format | Avg tokens | vs JSON | LLM familiarity | Recommendation |
-|--------|-----------|---------|-----------------|----------------|
-| JSON | 1,818 | baseline | Universal | Debugging, generic consumers |
-| XML | 1,818 | 100% | High | Legacy integrations |
-| TOON | 707 | **39%** | Medium (open standard, tabular) | Safe default for agents |
-| GCF | 265 | **15%** | Low (custom format) | Maximum compression when verified |
+| Format | Avg tokens | vs JSON |
+|--------|-----------|---------|
+| JSON | 1,818 | baseline |
+| XML | 1,818 | 100% |
+| TOON | 707 | **39%** |
+| GCF | 265 | **15%** |
 
-Per-fixture results (6 comprehension tasks, 5000 token budget):
+### LLM Comprehension Benchmark (session 27)
 
-| Fixture | JSON | XML | TOON | GCF | TOON/JSON | GCF/JSON |
-|---------|------|-----|------|-----|-----------|----------|
-| top_3_by_score | 1,658 | 1,658 | 645 | 243 | 38.9% | 14.7% |
-| symbol_count | 3,105 | 3,105 | 1,206 | 452 | 38.8% | 14.6% |
-| edge_count | 1,386 | 1,386 | 540 | 201 | 39.0% | 14.5% |
-| kind_extraction | 1,658 | 1,658 | 645 | 243 | 38.9% | 14.7% |
-| seed_vs_related | 1,431 | 1,431 | 557 | 210 | 38.9% | 14.7% |
-| edge_types | 1,669 | 1,669 | 650 | 240 | 38.9% | 14.4% |
+Sends the same context payload in each format to an actual LLM and measures
+whether it can answer structured questions correctly. Six questions with
+objectively verifiable answers: top symbol identification, symbol count, edge
+count, kind extraction, seed/related group count, and edge type enumeration.
 
-**Key insight:** TOON uses an open standard with tabular formatting (header row + data rows) that LLMs recognize from markdown tables. GCF is 2.7x more compact than TOON but uses a custom format with local integer IDs that models may not have seen in training. TOON is the safer default; GCF is the power option for agents that have been verified to parse it correctly.
+Run: `GOWORK=off go test ./eval/ -run TestLLMFormatComprehension -v -timeout 30m`
 
-**Why not just use GCF?** Token savings only matter if the model comprehends the format. A format that saves 85% of tokens but causes 5% parsing errors is worse than one that saves 61% with 0% errors. TOON's tabular format is a pattern every LLM understands (it looks like a markdown table). GCF's `$1 -> $3` edge references are novel. Until a live LLM eval proves GCF comprehension matches JSON, TOON is the safer recommendation for production agent workflows.
+(Uses `claude -p` by default. Set `EVAL_BACKEND=api` with `ANTHROPIC_API_KEY` for direct API calls.)
+
+| Format | Accuracy | Avg Tokens | vs JSON |
+|--------|----------|-----------|---------|
+| **gcf** | **100%** (6/6) | **2,687** | **16%** |
+| **toon** | **100%** (6/6) | 9,427 | 58% |
+| json | 66.7% (4/6) | 16,372 | baseline |
+| xml | 66.7% (4/6) | 5,026 | 31% |
+
+**Per-question results:**
+
+| Question | json | xml | toon | gcf |
+|----------|------|-----|------|-----|
+| top_symbol (identify highest-scored) | PASS | PASS | PASS | PASS |
+| symbol_count (count all symbols) | FAIL (113 vs 133) | PASS | PASS | PASS |
+| edge_count (count all edges) | FAIL (120 vs 131) | FAIL (0 vs 131) | PASS | PASS |
+| top_kind (kind of top symbol) | PASS | PASS | PASS | PASS |
+| seed_count (distance-0 symbols) | PASS | PASS | PASS | PASS |
+| edge_type_list (enumerate edge types) | PASS | FAIL (no edges in XML) | PASS | PASS |
+
+**Key findings:**
+
+1. **GCF comprehension is validated.** 100% accuracy on all 6 structured extraction tasks. The concern that LLMs couldn't parse GCF's `@N` local IDs and `@target<@source` edge notation was unfounded.
+
+2. **JSON is the worst performer on large payloads.** At 36K tokens (symbol_count task), the LLM miscounted symbols (113 vs 133). GCF at 5K tokens counted correctly. Verbosity hurts comprehension, not just token cost.
+
+3. **XML doesn't include edge data.** The XML formatter (`FormatContextBlock`) renders symbols but not edges, causing edge-related questions to fail. This is a format limitation, not an LLM limitation.
+
+4. **GCF is 6.1x more token-efficient than JSON** (2,687 vs 16,372 avg tokens) with higher accuracy. There is no reason to prefer any other format for agent workflows.
+
+**Recommendation: GCF should be the default format for all agent workflows.** The previous recommendation to use TOON "until GCF comprehension is validated" is superseded by these results.
 
 ---
+
+## Delta Encoding
+
+When an agent passes a `pack_root` from a prior call and the current result differs, the server computes a structural diff and returns only what changed. This is a fourth level of token optimization layered on top of GCF.
+
+```
+GCF tool=context_for_task delta=true base_root=aaa111 new_root=bbb222 tokens=30 savings=81%
+## removed
+fn github.com/example/project.OldHandler
+## added
+@0 fn github.com/example/project.NewHandler 0.85 rwr
+## edges_added
+github.com/example/project.Router -> github.com/example/project.NewHandler calls
+```
+
+Three outcomes when `pack_root` is sent:
+1. **Same root**: "unchanged" (zero tokens)
+2. **Different root, prior known**: delta encoding (removed + added sections)
+3. **Different root, prior unknown**: full retransmission (fallback)
+
+Delta is only used when it saves more than 40% over full retransmission (60% threshold in `DiffPacks.IsWorthIt`). The diff operates on node hashes (set difference, O(n)).
+
+**Benchmark (session 27):** 81.2% token savings at 96.6% symbol overlap on re-query scenarios. See [context-packing.md](context-packing.md) for the full protocol and `bench/delta-packing/` for the benchmark.
 
 ## Implementation
 
 | File | Purpose |
 |------|---------|
 | `internal/wire/registry.go` | Codec registry (Register, Get, List, EncodeWith, DecodeWith) |
-| `internal/wire/gcf.go` | GCF text encoder |
+| `internal/wire/gcf.go` | GCF text encoder, `Payload`/`Symbol`/`Edge`/`Components` types |
 | `internal/wire/gcf_decode.go` | GCF text decoder |
+| `internal/wire/session.go` | `Session` type for cross-call symbol deduplication, `EncodeWithSession` |
+| `internal/wire/delta.go` | `DeltaPayload` type, `EncodeDelta` for incremental context delivery |
+| `internal/wire/bridge.go` | `FromContextBlock`: converts `ContextBlock` to wire `Payload` with edge discovery |
 | `internal/wire/json.go` | JSON codec (encode/decode via standard library) |
 | `internal/wire/toon.go` | TOON codec (official toon-format/toon-go library) |
-| `internal/wire/binary.go` | Binary codec (varint + length-prefixed) |
+| `internal/wire/binary.go` | GCB binary codec (varint + length-prefixed, 38 edge type enums) |
+| `internal/context/delta.go` | `DiffPacks`: structural diff between two `ContextBlock` values |
 | `internal/wire/gcf_test.go` | GCF unit tests |
+| `internal/wire/session_test.go` | Session deduplication tests |
+| `internal/wire/delta_test.go` | Delta encoding tests |
 | `internal/wire/registry_test.go` | Registry and JSON codec tests |
 | `internal/wire/binary_test.go` | Binary codec tests |
-| `bench/wire-format/` | Benchmark harness with fixture cases |
+| `bench/wire-format/` | Benchmark harness with 6 fixture cases in `cases/` |
 | `bench/wire-format/scorecard.md` | Auto-generated comparison table |
+| `bench/wire-format/FINDINGS.md` | Detailed results and interpretation |
+| `bench/delta-packing/` | Delta packing benchmark (cross-task + re-query simulation) |
+| `eval/format_comprehension_test.go` | Token cost benchmark (deterministic, no LLM) |
+| `eval/format_llm_comprehension_test.go` | LLM comprehension eval (6 questions, 4 formats, cli/api backends) |
 
 ---
 

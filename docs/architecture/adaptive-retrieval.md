@@ -156,42 +156,54 @@ has nothing left to contribute.
 discovered 26,096 stale task memory entries in terraform alone. After disabling
 task memory in the benchmark adapter, gap-fill measured dead neutral.
 
-### 6. Task Memory Compounding (learning-adaptive boosting)
+### 6. Task Memory Compounding (learning-adaptive boosting) [DISABLED]
 
-**Trigger:** Any repeated or similar query within or across sessions
+**Status:** Disabled in the MCP server since session 24 (confirmed neutral on
+honest measurement). The `SetTaskMemory` call is commented out in
+`internal/mcp/context_handlers.go`. Infrastructure preserved in
+`internal/context/task_memory.go` for potential future redesign.
 
-**What it does:** Records the top-5 symbols returned by each `context_for_task`
-call. On future queries with similar keywords, recalls stored symbols and boosts
+**What it did:** Recorded the top-5 symbols returned by each `context_for_task`
+call. On future queries with similar keywords, recalled stored symbols and boosted
 them via the feedback channel. Boost formula: `0.5 + recall_score * 0.4`
 (range [0.5, 0.9]), with 7-day linear decay.
 
-**Why it's needed:** Real agent sessions repeat similar queries. An agent
-investigating "auth middleware" today should benefit from what worked yesterday.
-The system gets smarter with use without any explicit feedback mechanism.
+**Why it was disabled:** Session 24 proved this mechanism redundant with the
+pipeline (BM25 and equiv classes already find the same symbols). The positive
+measurements from sessions 17-22 were inflated by task memory contamination
+(stale entries accumulated across benchmark runs, creating a feedback loop).
 
-**Measured impact:** +3.8% to +11.5% P@10 from round 1 to round 2 (varies by
-how much gap-fill already recovered). R@10 improves more (+7.9% to +15.0%)
-because memory expands the set of reachable symbols.
+**Superseded by:** Mechanism 13 (cross-task vocabulary bridging) provides the
+learning-over-time capability that task memory was designed for, with better
+precision (domain-specific keywords only, confidence weighting, Merkle expiration).
 
-**Interaction with gap-fill:** Gap-fill introduces new symbols that were
-previously unreachable (recovered zeros). These symbols enter task memory.
-On round 2, they get boosted alongside BM25-found symbols. The compounding
-surface area grows because there's more to compound. Gap-fill + compounding
-interact multiplicatively: neither achieves the combined effect alone.
-
-### 7. Merkleized Feedback Expiration (staleness-adaptive validity)
+### 7. Merkleized Expiration (staleness-adaptive validity)
 
 **Trigger:** Code change in the symbol's package (SubgraphRoot mismatch)
 
-**What it does:** Each feedback record stores the Merkle root of the symbol's
-package at recording time. When querying feedback, only records where
-`neighborhood_root` matches the current SubgraphRoot are counted. Feedback
-automatically becomes invisible when the code it references changes.
+**What it does:** Two data types use per-package Merkle roots for automatic
+expiration:
 
-**Why it's needed:** Stale feedback is worse than no feedback. A symbol that was
-useful yesterday but was refactored today should not receive a boost. Traditional
-feedback systems require explicit expiration policies or manual cleanup.
-Content-addressed Merkle roots provide structural expiration: the feedback is
+1. **Feedback records** (`internal/store/feedback.go`): each record stores the
+   Merkle root of the symbol's package via `neighborhood_root`. When querying
+   feedback, only records where `neighborhood_root` matches the current
+   SubgraphRoot are counted.
+
+2. **Vocab associations** (`internal/store/vocab.go`, migration 022, session 26):
+   each association stores the package Merkle root via `subgraph_root`. At query
+   time, `LearnedVocabAssociations` filters associations where the root doesn't
+   match the current package state. This provides per-package precision: when
+   package A changes, only associations for symbols in package A expire; package B's
+   associations remain valid.
+
+Both use the same infrastructure: `persistPackageRoots` stores htree.PackageRoots
+to the notes table during indexing; `LoadPackageRoots` + `PackageRootForSymbol`
+look them up at query time. Both the context engine and MCP server paths are wired.
+
+**Why it's needed:** Stale feedback and stale vocab associations are worse than
+none. A symbol that was useful yesterday but was refactored today should not
+receive a boost. Traditional systems require explicit TTL policies or manual
+cleanup. Content-addressed Merkle roots provide structural expiration: data is
 valid if and only if the code hasn't changed.
 
 **Measured overhead:** 11% (255us -> 284us for 100 symbols). The Merkle root
@@ -376,9 +388,10 @@ phantom density (mechanism 8). Focused seeds reinforce equivalence classes
 (mechanisms 3-4). Proximity packing compensates for enrichment density
 (mechanism 10 mitigates mechanism 8's side effects). Implicit feedback
 demotes noise that the other mechanisms can't filter structurally (mechanism 11).
-Equivalence classes feed better seeds into RWR, which produces
-better symbols for task memory to compound. The system is greater than the sum
-of its parts.
+Cross-task vocabulary bridging (mechanism 13) learns from implicit feedback's
+usage signals, and Merkle expiration (mechanism 7) keeps both feedback and vocab
+associations honest as code evolves. The system is greater than the sum of its
+parts.
 
 More importantly, the adaptive approach is structural: it follows from
 content-addressed storage (feedback expiration via Merkle roots), graph-native
@@ -393,22 +406,36 @@ the architecture, not an ad-hoc heuristic bolted on.
 | `internal/context/equiv_*.go` (30 files) | Framework equivalence classes (263 concepts) |
 | `internal/context/language_seeds.go` | Aggregator that collects all equiv class files |
 | `internal/context/equivalence.go` | EquivalenceClass type, matching logic, language scoping |
-| `internal/context/context.go` | Framework injection, adaptive retrieval fallback, focused seed selection, detectRepoLanguage, resultConfidence, directFTSExpansion |
-| `internal/context/walk.go` | GraphNodeCount, adaptive seed count, PreferTypeSeeds flag |
-| `internal/context/task_memory.go` | Task memory recording and recall |
-| `internal/context/ranking.go` | Feedback boost integration |
+| `internal/context/context.go` | Framework injection, adaptive retrieval fallback, focused seed selection, detectRepoLanguage, resultConfidence, directFTSExpansion, FTS fallback decomposition, isVocabWorthy, vocabCountWeight |
+| `internal/context/walk.go` | GraphNodeCount, adaptive seed count, PreferTypeSeeds flag, RWR cache infrastructure (computeRWRCacheHash, getRWRCache, putRWRCache, collectSeedPackageRoots) |
+| `internal/context/task_memory.go` | Task memory recording and recall (DISABLED in MCP server, session 24) |
+| `internal/context/implicit.go` | Implicit feedback engine (FlushUnused, DetectUsed, RegisterReturned) |
+| `internal/context/session.go` | Session tracker (RecordBatch, SessionBoosts, 3-minute half-life decay) |
+| `internal/context/ranking.go` | Feedback boost integration, commitRecencyScore |
+| `internal/context/delta.go` | Delta context packing (DiffPacks, IsWorthIt, SavingsPercent) |
+| `internal/context/sweep.go` | PackStrategy, adaptiveProximityExponent, lspEdgeWeight, BENCH_PACK_STRATEGY |
 | `internal/store/sqlite.go` | Merkleized feedback (neighborhood_root) |
+| `internal/store/feedback.go` | Feedback storage, RWR cache invalidation on feedback recording, BENCH_FEEDBACK_WEIGHT |
+| `internal/store/vocab.go` | Vocab association storage with per-package Merkle expiration (subgraph_root) |
+| `internal/store/migrations/020_*.sql` | Per-cluster feedback (keyword_cluster column) |
+| `internal/store/migrations/021_*.sql` | Vocab associations table |
+| `internal/store/migrations/022_*.sql` | Vocab subgraph_root column for Merkle expiration |
+| `internal/snapshot/manager.go` | persistPackageRoots, LoadPackageRoots, PackageRootForSymbol |
 | `internal/enrichment/enricher.go` | LSP enrichment (phantom nodes, edge discovery) |
+| `internal/wire/delta.go` | Delta GCF encoding (EncodeDelta) |
 | `cmd/knowing/debug_seeds.go` | Seed pipeline diagnostic tool |
 | `cmd/knowing/debug_fts.go` | FTS5 query probe tool |
 | `cmd/knowing/debug_walk.go` | RWR walk visualization tool |
 | `cmd/knowing/bench_task.go` | Single-task benchmark tool |
 | `cmd/knowing/debug_vocab.go` | Vocabulary association inspector + filter preview |
 | `cmd/knowing/debug_feedback.go` | Feedback record inspector |
-| `internal/context/sweep.go` | PackStrategy, adaptive exponents, LSP edge weight |
-| `internal/store/vocab.go` | Vocab association storage (RecordVocabAssociation, LearnedVocabDetails) |
+| `cmd/knowing/debug_equiv.go` | Equivalence class match diagnostic |
+| `cmd/knowing/debug_pack.go` | Packing decisions diagnostic |
+| `cmd/knowing/debug_rwr_cache.go` | RWR cache correctness and latency diagnostic |
 | `bench/cross-system/cross_task_vocab_test.go` | Cross-task vocabulary bridging validation |
+| `bench/cross-system/compounding_test.go` | 10-round compounding with vocab + feedback + task memory |
 | `bench/context-packing/bench_test.go` | Packing strategy comparison (4 strategies) |
+| `bench/delta-packing/bench_test.go` | Delta packing benchmark (cross-task + re-query simulation) |
 
 ## Related Documents
 

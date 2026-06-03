@@ -85,6 +85,7 @@ type Server struct {
 	resultCache *cache.SubgraphCache       // nil if caching is disabled
 	startTime   time.Time                  // server creation time for uptime tracking
 	lastTaskKeywords []string              // keywords from most recent context_for_task (for vocab recording)
+	lastPacks        map[string]*knowingctx.ContextBlock // pack_root hex -> last returned ContextBlock (for delta encoding)
 
 	// Session counters for the knowing://session resource.
 	contextCalls  atomic.Int64 // incremented on each context_for_task / context_for_files call
@@ -100,6 +101,7 @@ func NewServer(store types.GraphStore) *Server {
 		ctxSession: knowingctx.NewSessionTracker(),
 		implicit:   knowingctx.NewImplicitFeedback(),
 		startTime:  time.Now(),
+		lastPacks:  make(map[string]*knowingctx.ContextBlock),
 	}
 	// Initialize embedding-based gap-fill seeds (off by default).
 	// Enable with: knowing mcp --embeddings (or KNOWING_EMBEDDINGS=1)

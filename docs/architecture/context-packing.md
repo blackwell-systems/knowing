@@ -523,9 +523,35 @@ Context packs are persisted to the `graph_notes` table keyed by task hash (`type
 
 The `pack_root` parameter on `context_for_task` enables agent-side deduplication. Agents pass the PackRoot from the previous response; if the current result has the same PackRoot, the server returns `"unchanged"` instead of resending the full context. Benchmarked at 93-99% byte savings (557-7,661 tokens reduced to 26 tokens on repeated calls).
 
-### Context Pack Comparison (P6)
+### Delta Context Packing (P6)
 
-`CompareContextPacks` accepts two PackRoots and returns the added, removed, and common symbols between them. Useful for detecting what changed between two context retrievals on the same task across different snapshots.
+When the agent sends a `pack_root` that doesn't match the current result (the pack changed), the server computes a structural diff between the prior and current packs instead of retransmitting the full context. The diff uses set difference on node hashes (O(n) with hash maps) and produces a `DeltaPack` with removed symbols, added symbols, removed edges, and added edges.
+
+The delta is encoded in GCF delta format:
+
+```
+GCF tool=context_for_task delta=true base_root=<prior> new_root=<current> tokens=30 savings=81%
+## removed
+fn github.com/example/project.OldHandler
+## added
+@0 fn github.com/example/project.NewHandler 0.85 rwr
+## edges_added
+github.com/example/project.Router -> github.com/example/project.NewHandler calls
+```
+
+Three outcomes for `pack_root`:
+- **Same root**: "unchanged" (zero tokens, existing P5 behavior)
+- **Different root, prior pack known**: delta encoding (removed + added sections only)
+- **Different root, prior pack unknown**: full retransmission (fallback)
+
+A 60% threshold prevents delta from being used when it would be larger than full retransmission (complete pack replacement). The server stores the last returned `ContextBlock` per pack_root in memory for the session lifetime.
+
+**Benchmark results (session 27, `bench/delta-packing/`):**
+- Re-query with 10% budget shift: **81.2% token savings**, 96.6% symbol overlap, 58% delta frequency
+- Re-query with 20% budget shift: 69.7% savings, 98.1% overlap
+- Cross-task (different tasks, same repo): 9% delta frequency (floor case; different tasks produce different symbol sets)
+
+Implementation: `internal/context/delta.go` (DiffPacks), `internal/wire/delta.go` (EncodeDelta), `internal/mcp/context_handlers.go` (wiring).
 
 ## Vocabulary Expansion from Usage
 
@@ -609,11 +635,13 @@ and recording are disabled. Infrastructure preserved.
    cross-service call chains visible only in traces do not expand the blast radius. They
    influence the recency component of scoring but not the structural component.
 
-6. **No incremental RWR.** The entire reachable subgraph is loaded and walked on every cache miss.
-   For very large graphs (thousands of nodes in the BFS frontier), this could become slow.
-   In practice, the 100-candidate cap on seed nodes limits the reachable subgraph size.
-   The subgraph cache (`internal/cache/subgraph.go`) eliminates this cost for repeat queries:
-   identical tasks against unchanged code return cached results instantly.
+6. **Incremental RWR (shipped session 26).** RWR results are cached in the notes table keyed
+   by `hash(sorted seeds + weights + alpha + per-package Merkle roots)`. On cache hit, the
+   entire BFS adjacency load and iteration pass is skipped (Django cold 3.9s to warm 1.9s,
+   2x speedup). Cache invalidation is structural: when a package's Merkle root changes, only
+   walks involving that package's seeds are recomputed. The `debug-rwr-cache` CLI verifies
+   correctness (cold vs warm results match). RWR cache is cleared alongside context packs
+   when feedback is recorded.
 
 7. **Token estimation is approximate.** The 4-characters-per-token heuristic works reasonably
    for code but can over- or under-estimate for heavily symbolic code (operators, brackets)

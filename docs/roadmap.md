@@ -41,7 +41,7 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 | # | Item | Why | Effort | Expected Impact |
 |---|------|-----|--------|-----------------|
 | 5b | **Incremental RWR phase 2: per-package cache keys** | Phase 1 shipped (session 26). Phase 2: use per-package SubgraphRoots in cache keys so unchanged packages keep cached walks even when other packages change. Package roots already persisted (session 26). | Low | Latency refinement |
-| 6 | **Delta context packing** | Send Merkle diff instead of full pack: "remove X, Y; add Z." 80-90% token savings on subsequent queries. **Architectural moat: string-matching systems can't diff results structurally.** | Medium | Token efficiency, moat |
+| 6 | ~~**Delta context packing**~~ | **SHIPPED (session 27).** See Shipped table below. | - | - |
 | 10 | **AI-generated evaluation corpus** | LLM generates tasks + ground truth, DB-validated. Hybrid: hand-curated for regression, AI-generated for coverage. | Medium | Eval credibility |
 | 11 | **More equiv class coverage** | Message queues (RabbitMQ, Redis), cloud SDKs (AWS, GCP), build systems (Make, Gradle), observability (OpenTelemetry, Prometheus). | Ongoing | Incremental P@10 |
 | 12 | **Zero-task audit cycle** | 14/36 Django tasks score 0.00 (39%). 4 patterns: empty FTS, wrong seeds, vocab gap, disambiguation. | Medium | +0.01-0.02 P@10 |
@@ -52,6 +52,7 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 
 | Item | Session | Result |
 |------|---------|--------|
+| Delta context packing (#6) | 27 | Structural diff on pack_root mismatch. 81.2% token savings at 96.6% symbol overlap (re-query benchmark). `DiffPacks` + `EncodeDelta` + MCP wiring. `bench/delta-packing/` proves it. |
 | Cross-task vocab validation (#3a) | 26 | Django +41.4%, corpus 0.0% (safe). Noise filter, soft RRF, confidence weighting. Mechanism #13. |
 | Incremental RWR (#5) | 26 | Merkle-cached walks. Django cold 3.9s -> warm 1.9s (2x). Snapshot-hash cache keys, structural invalidation. P@10 correctness verified. `debug-rwr-cache` CLI. |
 | Vocab association expiration (#3c) | 26 | Per-package Merkle roots. `persistPackageRoots` at index time, `LoadPackageRoots` + `PackageRootForSymbol` at query time. Both engine and MCP wired. Migration 022. |

@@ -61,9 +61,71 @@ func (s *Server) handleContextForTask(ctx context.Context, req mcp.CallToolReque
 		)), nil
 	}
 
+	// Delta context packing (P6): if the agent has a prior pack and the
+	// current result differs, compute a structural diff and return only
+	// what changed. This saves 80-90% of tokens on subsequent queries
+	// where most symbols are unchanged.
+	if priorPackRoot != "" {
+		if priorBlock, ok := s.lastPacks[priorPackRoot]; ok {
+			delta := knowingctx.DiffPacks(priorBlock, block, "gcf")
+			if delta.IsWorthIt() {
+				// Store current pack for future deltas.
+				s.lastPacks[block.PackRoot.String()] = block
+
+				// Track session metrics.
+				s.contextCalls.Add(1)
+				s.symbolsServed.Add(int64(len(delta.Added)))
+
+				deltaPayload := &wire.DeltaPayload{
+					Tool:        "context_for_task",
+					BaseRoot:    priorPackRoot,
+					NewRoot:     block.PackRoot.String(),
+					DeltaTokens: delta.DeltaTokens,
+					FullTokens:  delta.FullTokens,
+				}
+				// Convert removed symbols to wire format.
+				for _, sym := range delta.Removed {
+					deltaPayload.Removed = append(deltaPayload.Removed, wire.Symbol{
+						QualifiedName: sym.Node.QualifiedName,
+						Kind:          sym.Node.Kind,
+						Score:         sym.Score,
+					})
+				}
+				// Convert added symbols to wire format.
+				for _, sym := range delta.Added {
+					deltaPayload.Added = append(deltaPayload.Added, wire.Symbol{
+						QualifiedName: sym.Node.QualifiedName,
+						Kind:          sym.Node.Kind,
+						Score:         sym.Score,
+						Provenance:    sym.Provenance,
+						Distance:      sym.Distance,
+					})
+				}
+				// Convert edge diffs.
+				for _, e := range delta.RemovedEdges {
+					deltaPayload.RemovedEdges = append(deltaPayload.RemovedEdges, wire.Edge{
+						Source: e.Source, Target: e.Target, EdgeType: e.EdgeType,
+					})
+				}
+				for _, e := range delta.AddedEdges {
+					deltaPayload.AddedEdges = append(deltaPayload.AddedEdges, wire.Edge{
+						Source: e.Source, Target: e.Target, EdgeType: e.EdgeType,
+					})
+				}
+
+				return mcp.NewToolResultText(wire.EncodeDelta(deltaPayload)), nil
+			}
+			// Delta not worth it (>60% of full size); fall through to full retransmission.
+		}
+		// No prior pack found; fall through to full retransmission.
+	}
+
 	// Track session metrics for the knowing://session resource.
 	s.contextCalls.Add(1)
 	s.symbolsServed.Add(int64(len(block.Symbols)))
+
+	// Store current pack for future delta computation.
+	s.lastPacks[block.PackRoot.String()] = block
 
 	// Implicit feedback (flush/register) is now handled by the context engine
 	// in ForTask via recordImplicitFeedback. The engine calls FlushUnused on

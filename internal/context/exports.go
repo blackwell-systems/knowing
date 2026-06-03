@@ -76,3 +76,8 @@ func DetectRepoLanguageExported(ctx stdctx.Context, store types.GraphStore) stri
 func PackIntoBudget(ranked []RankedSymbol, budget int, format string) *ContextBlock {
 	return packIntoBudget(ranked, budget, format)
 }
+
+// ComputePackRootExported wraps computePackRoot for benchmark use.
+func ComputePackRootExported(task string, symbols []RankedSymbol) types.Hash {
+	return computePackRoot(task, symbols)
+}
