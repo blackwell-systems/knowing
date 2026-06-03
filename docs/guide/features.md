@@ -1719,7 +1719,7 @@ Repo: github.com/blackwell-systems/knowing
 
 - **Package(s):** `internal/context`, `internal/store`
 - **Migration:** `021_vocab_associations.sql` (creates `vocab_associations` table)
-- **What it does:** Learns keyword-to-symbol associations from retrieval usage. When a symbol is returned for a task and subsequently used by the agent, the association between the task's keywords and that symbol is recorded in the `vocab_associations` table. After 2+ observations of the same keyword-to-symbol mapping, the association becomes a learned equivalence class with forced injection into seed candidates. Replaces passive task memory (Feature 66) with a more targeted mechanism that learns vocabulary rather than caching entire result sets.
+- **What it does:** Learns keyword-to-symbol associations from retrieval usage. When a symbol is returned for a task and subsequently used by the agent, the association between the task's keywords and that symbol is recorded in the `vocab_associations` table. After 2+ observations of the same keyword-to-symbol mapping, the association becomes a learned equivalence class with confidence-weighted RRF injection (soft injection, not forced). Replaces passive task memory (Feature 66) with a more targeted mechanism that learns vocabulary rather than caching entire result sets.
 - **Why it matters:** Addresses the vocabulary gap problem incrementally. Instead of hand-curating equivalence classes, the engine discovers them from real usage patterns. A developer who repeatedly asks about "auth" and uses `SessionMiddleware` teaches the engine that "auth" maps to `SessionMiddleware`, which generalizes to future sessions.
 
 ### 180. LSP Edge Weight Attenuation

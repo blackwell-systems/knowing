@@ -194,7 +194,7 @@ Noise demotion for "checkout" queries doesn't affect "order" queries.
 
 Learned keyword -> symbol associations from agent usage (migration 021). When an agent uses
 a symbol after a `context_for_task` query, the association is recorded. After 2+ observations,
-the association becomes a learned equivalence class with forced injection.
+the association becomes a learned equivalence class with soft RRF injection (confidence-weighted, not forced).
 
 ```sql
 CREATE TABLE vocab_associations (
