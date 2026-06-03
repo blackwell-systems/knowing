@@ -17,6 +17,9 @@ import (
 )
 
 func TestScopedFTSBenchmark(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping scoped FTS benchmark in short mode (latency contracts don't hold on CI)")
+	}
 	repoPath, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
