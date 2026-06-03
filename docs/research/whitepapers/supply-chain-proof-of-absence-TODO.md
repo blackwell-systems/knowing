@@ -59,13 +59,9 @@ Estimated effort: 0.5 session (if Socket.dev API is accessible)
 
 Estimated effort: 0.5 session
 
-### 7. Formal proof of soundness
-- Prove that if the graph is complete (all edges extracted), the exclusion proof
-  is sound (no false negatives)
-- This is a one-paragraph theorem with a one-paragraph proof (BFS + Merkle
-  non-membership is complete for the extracted graph)
-
-Estimated effort: writing only, 1 hour
+### 7. ~~Formal proof of soundness~~ DONE
+Added Section 3.5: Exclusion Soundness theorem with proof and corollary on
+extraction completeness degradation.
 
 ## Target venues
 

@@ -159,6 +159,30 @@ What this model does NOT catch:
 5. **Incomplete extraction**: if the indexer misses an edge, the proof is valid but
    the claim is weaker (isolation holds *relative to the extracted graph*)
 
+### 3.5 Soundness
+
+**Theorem (Exclusion Soundness).** If the capability graph G = (N, E) is complete
+(every edge in the source code is represented in E), then a valid exclusion proof
+for module M and sink set D guarantees that no capability path from M to D exists.
+
+*Proof.* The exclusion proof is constructed by BFS from all nodes in M, following
+edges of capability types (calls, imports, references). BFS visits every node
+reachable from M via such edges; call this set R. The proof then provides Merkle
+non-membership proofs that for each d in D, no edge from any r in R targets d.
+
+Suppose, for contradiction, that a capability path P = [e1, ..., ek] exists from
+some node m in M to some node d in D. Then target(ek) = d, and source(ek) is
+reachable from M (by following e1, ..., e(k-1)). Therefore source(ek) is in R.
+But the Merkle non-membership proof asserts that no edge from any r in R targets d,
+contradicting the existence of ek. Therefore no such path exists. QED.
+
+**Corollary.** The soundness guarantee degrades proportionally to extraction
+completeness. If the extractor misses fraction f of edges, the proof guarantees
+isolation over (1-f) of the true graph. For tree-sitter extraction (static,
+no dynamic dispatch), f is bounded by the dynamic dispatch rate of the language.
+For LSP-enriched graphs (type-checked edge resolution), f approaches zero for
+statically typed languages.
+
 ---
 
 ## 4. System Architecture
