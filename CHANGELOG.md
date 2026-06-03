@@ -25,6 +25,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Context packing benchmark** (session 26): `bench/context-packing/` compares 4 strategies (density-ranked, top-K, file-grouped, random) on GT coverage, token utilization, file coherence. 308 tasks, 16 repos. Extractable as standalone benchmark.
 - **`debug-vocab -task` flag** (session 26): preview which keywords pass/fail the vocab filter for a task description.
 - **`BENCH_PACK_STRATEGY` env var** (session 26): A/B test packing strategies (density/file-grouped/top-k) on the cross-system benchmark.
+- **Mechanism #13: cross-task vocabulary bridging** (session 26): 13th self-adapting mechanism. Noise filter + soft RRF injection + confidence weighting. Added to `docs/architecture/adaptive-retrieval.md`.
+- **Compounding test wired with vocab** (session 26): `TestCompounding` now records vocab associations alongside task memory and implicit feedback. 10-round full corpus (308 tasks): P@10 0.277 -> 0.283 peak (+2.2%), MRR 0.459 -> 0.497 peak (+8.1%). Never regresses below baseline.
+- **CRET extraction audit** (session 26): 18 files extractable as-is, 5 trivial decouples, ~2 hours estimated. Documented in `docs/proposals/code-retrieval-eval-toolkit.md`.
 
 ### Fixed
 
@@ -35,7 +38,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **Soft vocab injection** (session 26): learned vocab now goes through RRF competition instead of forced injection. Prevents displacement of correct results on tasks with good BM25 coverage. Forced injection retained only for hand-curated framework classes.
 - **Feedback weight mode**: `BENCH_FEEDBACK_WEIGHT` env var for sweep testing (none/sqrt/linear/asym). Default `none` (raw scoring). 4-mode sweep confirmed cluster-only (no weighting) optimal.
-- **13 self-adapting mechanisms**: was 10. Added RWR proximity packing (#10, session 24), implicit feedback (#11, session 24), change-aware scoring (#12, session 25).
+- **13 self-adapting mechanisms**: was 10. Added RWR proximity packing (#10, session 24), implicit feedback (#11, session 24), change-aware scoring (#12, session 25), cross-task vocab bridging (#13, session 26).
 - **Renamed `CONTEXT-PACKING-STUDY.md` to `EVALUATION-OVERVIEW.md`**: clearer name for the umbrella evaluation document.
 - **Deleted `AGENT-EFFICIENCY-STUDY.md`**: superseded by cross-system benchmark (308 tasks, 16 repos) and EVALUATION-OVERVIEW.
 

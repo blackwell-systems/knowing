@@ -25,6 +25,9 @@ import (
 )
 
 func TestContextPackDedup(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping context pack dedup test in short mode")
+	}
 	repoPath, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)

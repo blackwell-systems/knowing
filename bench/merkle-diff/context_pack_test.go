@@ -17,6 +17,9 @@ import (
 )
 
 func TestContextPackAndCommunityRoots(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping context pack test in short mode (indexes live repo, non-deterministic in CI)")
+	}
 	repoPath, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
@@ -267,6 +270,9 @@ Community roots enable:
 // TestContextPackPersistence benchmarks the three-layer cache: in-memory SubgraphCache,
 // persistent notes table, and cold retrieval. Proves cross-session replay works.
 func TestContextPackPersistence(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping context pack persistence test in short mode")
+	}
 	repoPath, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
