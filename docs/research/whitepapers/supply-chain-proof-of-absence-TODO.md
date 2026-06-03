@@ -1,37 +1,11 @@
 # Supply Chain Proof of Absence: Publication Readiness
 
-## Status: Near Zenodo-ready
+## Status: Zenodo-ready
 
-The paper has formal model, two case studies, 200-package FP evaluation,
-CI integration protocol, threats to validity, and reproducibility section.
-
-## What's ready
-
-- Full formal model (Section 3): capability graphs, isolation claims, proof construction, trust model, limitations
-- Algorithm pseudocode (Section 4): prove, prove-absent, verify
-- Two case studies (Sections 5, 5b): event-stream (2018) + TanStack (2026)
-- 200-package FP evaluation (Section 7.1): 1.0% package-level FP rate, real data
-- CI integration protocol (Section 6): GHA action shipped (`knowing-supply-scan@v1`)
-- Threats to validity (Section 7.4): 5 items, honest
-- Comparison table with existing frameworks (sigstore, SLSA, in-toto, npm provenance)
-- Reproducibility section with exact commands
-- Real abstract (250 words)
-
-## What's needed before Zenodo
-
-### 1. Clarify measured vs reconstructed results
-Sections 5 and 5b describe case studies as if they were run end-to-end, but the
-compromised artifacts are scrubbed from npm/GitHub. Need to clearly mark which
-results are from actual pipeline runs vs reconstructed attack patterns. The
-reproducibility section notes this but the case study text should too.
-
-### 2. Add reference to published prior work
-Add citation to "The Hierarchical Identity Architecture" [Blackwell 2026] in
-Section 2.1 (Background), same as the shared intelligence layer paper.
-
-### 3. Section numbering consistency
-Verify section numbers are sequential after all edits (5, 5b is unusual for
-a formal paper; consider renaming to 5.1 and 5.2).
+The paper has formal model, soundness theorem, two case studies (clearly marked
+as reconstructed), 200-package FP evaluation, CI integration protocol, threats
+to validity, reproducibility section, prior work citation, and consistent
+section numbering.
 
 ## What's needed for peer review (beyond Zenodo)
 
@@ -59,9 +33,7 @@ Estimated effort: 0.5 session (if Socket.dev API is accessible)
 
 Estimated effort: 0.5 session
 
-### 7. ~~Formal proof of soundness~~ DONE
-Added Section 3.5: Exclusion Soundness theorem with proof and corollary on
-extraction completeness degradation.
+### 7. Formal proof of soundness -- DONE (Section 3.5)
 
 ## Target venues
 
