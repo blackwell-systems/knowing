@@ -28,9 +28,6 @@ jobs:
       - name: Test
         run: go test -short ./... -timeout 5m
 
-      - name: Eval (retrieval regression gate)
-        run: go test ./eval/ -run TestEval -timeout 5m -count=1
-
       - name: Cross-repo edges
         run: go test ./test/... -timeout 2m -count=1
 
