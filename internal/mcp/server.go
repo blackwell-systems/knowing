@@ -312,10 +312,17 @@ func (s *Server) ObserveToolUse(ctx context.Context, content string) int {
 		}
 		// Record vocab associations: keyword -> used symbol.
 		// Uses lastTaskKeywords from the most recent context_for_task call.
+		// Associations are anchored to the current snapshot hash for Merkle expiration.
 		if len(s.lastTaskKeywords) > 0 {
+			var snapRoot types.Hash
+			if repos, err := s.sqlStore.AllRepos(ctx); err == nil && len(repos) > 0 {
+				if snap, err := s.sqlStore.LatestSnapshot(ctx, repos[0].RepoHash); err == nil && snap != nil {
+					snapRoot = snap.SnapshotHash
+				}
+			}
 			for _, u := range s.implicit.UsedSymbolNames(used) {
 				for _, kw := range s.lastTaskKeywords {
-					_ = s.sqlStore.RecordVocabAssociation(ctx, strings.ToLower(kw), u.Name, u.Hash)
+					_ = s.sqlStore.RecordVocabAssociation(ctx, strings.ToLower(kw), u.Name, u.Hash, snapRoot)
 				}
 			}
 		}

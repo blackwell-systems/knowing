@@ -1645,12 +1645,15 @@ func (e *ContextEngine) recordImplicitFeedback(ctx stdctx.Context, block *Contex
 	// Record vocabulary associations: keyword -> used symbol.
 	// These become learned equivalence classes after count >= 2.
 	// Only record vocab-worthy keywords (domain-specific, not common English).
+	// Associations are anchored to the current snapshot hash so they expire
+	// when the graph changes (Merkle guarantee).
 	if e.vocabRec != nil && len(used) > 0 && len(e.taskKeywords) > 0 {
+		snapRoot := getLatestSnapshotHash(ctx, e.store)
 		for _, sym := range used {
 			for _, kw := range e.taskKeywords {
 				lkw := strings.ToLower(kw)
 				if isVocabWorthy(lkw) {
-					_ = e.vocabRec.RecordVocabAssociation(ctx, lkw, sym.Name, sym.Hash)
+					_ = e.vocabRec.RecordVocabAssociation(ctx, lkw, sym.Name, sym.Hash, snapRoot)
 				}
 			}
 		}
