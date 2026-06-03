@@ -108,3 +108,59 @@ func TestVocabAssociation_UnrelatedKeyword(t *testing.T) {
 		t.Errorf("expected 0 for unrelated keyword, got %d", len(assocs))
 	}
 }
+
+func TestVocabAssociation_MerkleExpiration(t *testing.T) {
+	s := tempDB(t)
+	ctx := context.Background()
+
+	hash := types.NewHash([]byte("Order.can_cancel"))
+	rootV1 := types.NewHash([]byte("package-root-v1"))
+	rootV2 := types.NewHash([]byte("package-root-v2"))
+
+	// Record association with subgraph root v1 (twice to meet threshold).
+	s.RecordVocabAssociation(ctx, "checkout", "can_cancel", hash, rootV1)
+	s.RecordVocabAssociation(ctx, "checkout", "can_cancel", hash, rootV1)
+
+	// Query without roots: association visible (backward compatible).
+	assocs, err := s.LearnedVocabAssociations(ctx, []string{"checkout"}, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(assocs) != 1 {
+		t.Fatalf("expected 1 association without roots filter, got %d", len(assocs))
+	}
+	if assocs[0].SubgraphRoot != rootV1 {
+		t.Error("stored subgraph root doesn't match v1")
+	}
+
+	// Query with matching root: association visible.
+	currentRoots := map[types.Hash]types.Hash{hash: rootV1}
+	assocs, err = s.LearnedVocabAssociations(ctx, []string{"checkout"}, 2, currentRoots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(assocs) != 1 {
+		t.Fatalf("expected 1 association with matching root, got %d", len(assocs))
+	}
+
+	// Query with changed root (v2): association EXPIRED (invisible).
+	changedRoots := map[types.Hash]types.Hash{hash: rootV2}
+	assocs, err = s.LearnedVocabAssociations(ctx, []string{"checkout"}, 2, changedRoots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(assocs) != 0 {
+		t.Errorf("expected 0 associations after root change (Merkle expiration), got %d", len(assocs))
+	}
+
+	// Query with unknown symbol hash (not in roots map): association visible
+	// (we don't filter symbols we don't have roots for).
+	partialRoots := map[types.Hash]types.Hash{types.NewHash([]byte("other")): rootV2}
+	assocs, err = s.LearnedVocabAssociations(ctx, []string{"checkout"}, 2, partialRoots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(assocs) != 1 {
+		t.Fatalf("expected 1 association when symbol not in roots map, got %d", len(assocs))
+	}
+}

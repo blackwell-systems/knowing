@@ -68,8 +68,11 @@ type FeedbackRecorder interface {
 }
 
 // VocabRecorder writes learned keyword -> symbol associations.
+// The optional subgraphRoot ties the association to the symbol's package state
+// at recording time. When the package changes (Merkle root differs), the
+// association expires automatically.
 type VocabRecorder interface {
-	RecordVocabAssociation(ctx stdctx.Context, keyword string, symbolName string, symbolHash types.Hash) error
+	RecordVocabAssociation(ctx stdctx.Context, keyword string, symbolName string, symbolHash types.Hash, subgraphRoot ...types.Hash) error
 }
 
 // VocabProvider reads learned keyword -> symbol associations.
@@ -85,7 +88,7 @@ type VocabProvider interface {
 // Uses anonymous struct to avoid import cycles (store can't import context).
 type VocabProviderWithCounts interface {
 	VocabProvider
-	LearnedVocabDetails(ctx stdctx.Context, keywords []string, minCount int) (map[string][]struct{ SymbolName string; Count int }, error)
+	LearnedVocabDetails(ctx stdctx.Context, keywords []string, minCount int, subgraphRoots ...map[types.Hash]types.Hash) (map[string][]struct{ SymbolName string; Count int }, error)
 }
 
 // ContextEngine queries the knowing knowledge graph to produce task-specific,
