@@ -49,7 +49,8 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 | 6 | ~~**Delta context packing**~~ | **SHIPPED (session 27).** See Shipped table below. | - | - |
 | 10 | **AI-generated evaluation corpus** | LLM generates tasks + ground truth, DB-validated. Hybrid: hand-curated for regression, AI-generated for coverage. | Medium | Eval credibility |
 | 11 | **More equiv class coverage** | Message queues (RabbitMQ, Redis), cloud SDKs (AWS, GCP), build systems (Make, Gradle), observability (OpenTelemetry, Prometheus). | Ongoing | Incremental P@10 |
-| 12 | **Zero-task audit cycle** | 14/36 Django tasks score 0.00 (39%). 4 patterns: empty FTS, wrong seeds, vocab gap, disambiguation. | Medium | +0.01-0.02 P@10 |
+| 12 | **Zero-task audit cycle** | 57 zero-scoring tasks (19.6%). 80% noise (wrong neighborhood), 10.5% related_name (right concept, wrong sibling), 8.6% test symbols. Django 13 zeros, Rails 6, VS Code 5. Each cracked zero adds ~0.003 to aggregate. | Medium | +0.01-0.02 P@10 |
+| 13 | **Sibling ranking by blast radius** | 54 related_name misses across zeros: right concept area, wrong sibling (e.g., `NullPool.checkin` instead of `ConnectionPool.checkin`). When multiple symbols from the same class/module match, prefer the one with more callers. | Low | Flips some related_name misses |
 | 15 | **More framework-using repos** | Add a Flask app, Rails app, Spring Boot service. Improves eval credibility. | Medium | Eval credibility |
 | 16 | **Extract benchmark to standalone repo (CRET)** | Session 26 audit: 18 files clean, 5 trivial decouples, ~2 hours. Context packing benchmark also extractable. | Low | Credibility |
 
