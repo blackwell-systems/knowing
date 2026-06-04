@@ -1,6 +1,6 @@
 # Wire Format and Codec System
 
-The wire package (`internal/wire/`) provides a pluggable codec registry that encodes and decodes the graph payloads produced by context packing, MCP tools, and the export CLI. Core GCF types and encoding are provided by the standalone [`gcf-go`](https://github.com/blackwell-systems/gcf-go) library; the wire package re-exports them and adds knowing-specific codecs (binary, JSON, TOON) via the registry. Four built-in codecs serve different layers of the system; additional codecs can be registered at runtime.
+The wire package (`internal/wire/`) provides a pluggable codec registry that encodes and decodes the graph payloads produced by context packing, MCP tools, and the export CLI. Core GCF types and encoding are provided by the standalone [`gcf-go`](https://github.com/blackwell-systems/gcf-go) library; the wire package re-exports them and adds knowing-specific codecs (binary, JSON) via the registry. Three built-in codecs serve different layers of the system; additional codecs can be registered at runtime.
 
 ## Codec Registry
 
@@ -22,19 +22,15 @@ The registry is a thread-safe map of named codecs. Each codec implements an `Enc
 | **gcf** (Graph Compact Format) | Text, graph-native line protocol | Agent/LLM consumption. Token-optimized with structured delimiters. | 84.0% token savings vs JSON (median) |
 | **gcb** (Graph Compact Binary) | Varint + length-prefixed binary | Daemon IPC, caching, transport between services. Magic header `GCB1`, version byte, packed symbols and edges. | 74.1% byte savings vs JSON (median) |
 | **json** | Standard JSON | Human/debug use, compatibility baseline. Maximum readability, verbose. | (baseline) |
-| **toon** | TOON (Token-Oriented Object Notation) | Structured interchange with external tooling. Uses the official `toon-format/toon-go` library (`internal/wire/toon.go`). Tabular arrays for uniform symbol collections. | Comparable to GCF |
 
 ## Layered Architecture
 
-The four codecs map to distinct system layers:
+The three codecs map to distinct system layers:
 
 ```
 ┌──────────────────────────────────────────────────────┐
 │  Agent / LLM Context Window                          │
 │  Format: GCF (text, token-efficient, 84% savings)    │
-├──────────────────────────────────────────────────────┤
-│  Structured External Interchange                     │
-│  Format: TOON (human-readable, tabular arrays)       │
 ├──────────────────────────────────────────────────────┤
 │  Daemon IPC / Computation Cache / Storage            │
 │  Format: GCB (compact binary, fast parse, 74%)       │
@@ -45,7 +41,6 @@ The four codecs map to distinct system layers:
 ```
 
 - **GCF** is the default for MCP tool responses and context packing output. It minimizes token consumption inside LLM context windows while remaining plain-text parseable.
-- **TOON** uses tabular arrays (header row + data rows) for uniform symbol collections. Useful for structured interchange with external tooling that benefits from a schema-visible format.
 - **GCB** is used for daemon-to-daemon communication and the content-addressed computation cache. Its varint+length-prefixed layout avoids parsing overhead and produces compact byte streams.
 - **JSON** serves as the compatibility baseline for `knowing export`, debugging, and integration with external systems that expect standard serialization.
 
@@ -177,7 +172,6 @@ Latest results: GCF 84.0% median token savings, GCB 74.1% median byte savings.
 | `internal/wire/gcf.go` | Type aliases and delegating wrappers re-exporting gcf-go for backward compatibility |
 | `internal/wire/binary.go` | GCB binary encoder/decoder, varint layout, kind/provenance/edge-type ID maps |
 | `internal/wire/json.go` | JSON encoder/decoder (compatibility baseline) |
-| `internal/wire/toon.go` | TOON encoder using `toon-format/toon-go` library |
 | `internal/wire/registry.go` | Codec registry (`Register`, `Get`, `List`, `EncodeWith`, `DecodeWith`) |
 | `internal/wire/bridge.go` | `FromContextBlock`: converts `ContextBlock` to wire `Payload` with edge discovery |
 | `bench/wire-format/bench_test.go` | Encoding size, token count, and round-trip benchmarks |

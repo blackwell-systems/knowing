@@ -25,7 +25,6 @@ knowing supports multiple wire format encodings for graph data, each optimized f
 | Codec | Optimizes for | Consumer | Token savings vs JSON | When to use |
 |-------|---------------|----------|----------------------|-------------|
 | `gcf` | Maximum compression | AI agents in tight-budget workflows | **84%** | Default for MCP tools, session dedup, repeated calls |
-| `toon` | Open standard + compression | External tools, interop, any TOON consumer | **~60%** | When sharing context outside knowing's ecosystem |
 | `binary` | Bytes on wire, speed | Services, caches, daemon IPC | N/A (not text) | Internal transport between knowing processes |
 | `json` | Compatibility | Humans, generic API consumers, debugging | 0% (baseline) | When downstream consumers need standard JSON |
 | `xml` | Structured markup | XML-based toolchains | ~-20% (larger) | Legacy integrations |
@@ -36,7 +35,6 @@ knowing supports multiple wire format encodings for graph data, each optimized f
 **CLI:**
 ```bash
 knowing context -task "add caching" -format gcf
-knowing context -task "add caching" -format toon
 knowing context -task "add caching" -format json
 ```
 
@@ -52,7 +50,6 @@ on structured extraction tasks at 16% of JSON's token cost. JSON scored 66.7%
 resolved: GCF is both the most compact and the most accurately comprehended format.
 
 - Use `gcf` for all AI agent workflows. Recommended default.
-- Use `toon` when sharing context with external tools that support TOON but not GCF. Also 100% accuracy, but 3.5x more tokens than GCF.
 - Use `json` when debugging, piping to jq, or integrating with systems that expect JSON.
 - Use `xml` for human-readable output only. Does not include edge data in output.
 
@@ -289,61 +286,6 @@ Use JSON when: debugging, piping to `jq`, integrating with tools that expect JSO
 
 ---
 
-## TOON (Token-Oriented Object Notation)
-
-Structured text format using the open [TOON v3.0 spec](https://github.com/toon-format/spec). TOON sits between JSON (maximum compatibility, verbose) and GCF (maximum compression, custom). Its defining feature is tabular encoding: uniform object collections are written as a header row plus data rows, a pattern every LLM recognizes from markdown tables.
-
-**Implementation:** `internal/wire/toon.go` uses the official `toon-format/toon-go` library.
-
-### Format Characteristics
-
-- **Token efficiency:** 39% of JSON token cost at the same payload size. Approximately 2.7x more tokens than GCF.
-- **LLM familiarity:** Medium-high. The tabular header-row-plus-data-rows structure is a pattern every model has seen. No custom ID references.
-- **Human readability:** Yes. The format is structured text, legible without tooling.
-- **Open standard:** Interoperable with any consumer that supports TOON, not just knowing tools.
-
-### When to Use TOON
-
-- When feeding context to external tools or agents that support TOON but not GCF.
-- When sharing context outside knowing's ecosystem and you need better compression than JSON without committing to a knowing-specific format.
-- As the default format for agent workflows where GCF comprehension has not been verified. TOON's tabular structure is safe; GCF's integer ID references are novel to most models.
-
-### Example
-
-A TOON-encoded payload for the same 10-symbol, 8-edge context used in the GCF example:
-
-```
-tool: context_for_task
-tokens_used: 1847
-token_budget: 5000
-symbols:
-  name | kind | score | signature | provenance | distance
-  github.com/blackwell-systems/knowing/internal/mcp.requireHash | fn | 0.78 | func requireHash(args map[string]any, key string) (types.Hash, error) | lsp_resolved | 0
-  github.com/blackwell-systems/knowing/internal/mcp.Server.registerTools | method | 0.74 | func (s *Server) registerTools() | lsp_resolved | 0
-  ...
-edges:
-  source | target | type
-  github.com/blackwell-systems/knowing/internal/mcp.NewServer | github.com/blackwell-systems/knowing/internal/mcp.requireHash | calls
-  ...
-```
-
-The tabular layout eliminates field name repetition for each row (same saving mechanism as TSV), while the TOON spec adds nested object support and a standardized schema declaration.
-
-### Format Comprehension Eval Results
-
-From `eval/TestFormatComprehension` (6 fixture tasks, 5000 token budget):
-
-| Format | Avg tokens | vs JSON |
-|--------|-----------|---------|
-| JSON | 1,818 | baseline |
-| XML | 1,818 | 100% |
-| TOON | 707 | **39%** |
-| GCF | 265 | **15%** |
-
-TOON at 39% of JSON token cost is the recommended default for production agent workflows until GCF comprehension is validated by a live LLM eval. See the [Format Comprehension Eval](#format-comprehension-eval) section below for per-fixture results.
-
----
-
 ## Benchmark Comparison
 
 All three codecs encoding the same 10-symbol, 8-edge payload:
@@ -378,7 +320,7 @@ The `internal/wire` package provides a pluggable codec registry. Core GCF types 
 ```go
 import (
     gcf "github.com/blackwell-systems/gcf-go"              // GCF types and encoding
-    "github.com/blackwell-systems/knowing/internal/wire"    // registry, binary, json, toon, bridge
+    "github.com/blackwell-systems/knowing/internal/wire"    // registry, binary, json, bridge
 )
 
 // Encode with a named codec.
@@ -437,7 +379,6 @@ The MCP tools and CLI pass the `format` parameter directly to the registry, so n
 knowing context -task "refactor auth" -format gcf      # LLM-optimized
 knowing context -task "refactor auth" -format json     # human/debug
 knowing context -task "refactor auth" -format gcb      # pipe to another service
-knowing context -task "refactor auth" -format toon     # external tooling
 ```
 
 ### MCP Tools
@@ -469,7 +410,6 @@ Run: `GOWORK=off go test ./eval/ -run TestFormatComprehension -v`
 |--------|-----------|---------|
 | JSON | 1,818 | baseline |
 | XML | 1,818 | 100% |
-| TOON | 707 | **39%** |
 | GCF | 265 | **15%** |
 
 ### LLM Comprehension Benchmark (session 27)
@@ -486,20 +426,21 @@ Run: `GOWORK=off go test ./eval/ -run TestLLMFormatComprehension -v -timeout 30m
 | Format | Accuracy | Avg Tokens | vs JSON |
 |--------|----------|-----------|---------|
 | **gcf** | **100%** (6/6) | **2,687** | **16%** |
-| **toon** | **100%** (6/6) | 9,427 | 58% |
 | json | 66.7% (4/6) | 16,372 | baseline |
 | xml | 66.7% (4/6) | 5,026 | 31% |
 
+> Note: TOON was also evaluated (100% accuracy, 9,427 tokens, 58% of JSON) but was removed in v0.15.0. GCF provides better compression at the same accuracy.
+
 **Per-question results:**
 
-| Question | json | xml | toon | gcf |
-|----------|------|-----|------|-----|
-| top_symbol (identify highest-scored) | PASS | PASS | PASS | PASS |
-| symbol_count (count all symbols) | FAIL (113 vs 133) | PASS | PASS | PASS |
-| edge_count (count all edges) | FAIL (120 vs 131) | FAIL (0 vs 131) | PASS | PASS |
-| top_kind (kind of top symbol) | PASS | PASS | PASS | PASS |
-| seed_count (distance-0 symbols) | PASS | PASS | PASS | PASS |
-| edge_type_list (enumerate edge types) | PASS | FAIL (no edges in XML) | PASS | PASS |
+| Question | json | xml | gcf |
+|----------|------|-----|-----|
+| top_symbol (identify highest-scored) | PASS | PASS | PASS |
+| symbol_count (count all symbols) | FAIL (113 vs 133) | PASS | PASS |
+| edge_count (count all edges) | FAIL (120 vs 131) | FAIL (0 vs 131) | PASS |
+| top_kind (kind of top symbol) | PASS | PASS | PASS |
+| seed_count (distance-0 symbols) | PASS | PASS | PASS |
+| edge_type_list (enumerate edge types) | PASS | FAIL (no edges in XML) | PASS |
 
 **Key findings:**
 
@@ -511,7 +452,7 @@ Run: `GOWORK=off go test ./eval/ -run TestLLMFormatComprehension -v -timeout 30m
 
 4. **GCF is 6.1x more token-efficient than JSON** (2,687 vs 16,372 avg tokens) with higher accuracy. There is no reason to prefer any other format for agent workflows.
 
-**Recommendation: GCF should be the default format for all agent workflows.** The previous recommendation to use TOON "until GCF comprehension is validated" is superseded by these results.
+**Recommendation: GCF should be the default format for all agent workflows.**
 
 ---
 
@@ -548,7 +489,6 @@ Delta is only used when it saves more than 40% over full retransmission (60% thr
 | `internal/wire/registry.go` | Codec registry (Register, Get, List, EncodeWith, DecodeWith) |
 | `internal/wire/bridge.go` | `FromContextBlock`: converts `ContextBlock` to wire `Payload` with edge discovery |
 | `internal/wire/json.go` | JSON codec (encode/decode via standard library) |
-| `internal/wire/toon.go` | TOON codec (official toon-format/toon-go library) |
 | `internal/wire/binary.go` | GCB binary codec (varint + length-prefixed, 38 edge type enums) |
 | `internal/context/delta.go` | `DiffPacks`: structural diff between two `ContextBlock` values |
 | `internal/wire/gcf_test.go` | GCF round-trip and encoding tests |

@@ -9,11 +9,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - **GCF as default output format** (session 27): all MCP context tools (`context_for_task`, `context_for_files`, `context_for_pr`, `explain_symbol`, etc.) now emit GCF (Graph Compact Format) by default. 84% fewer tokens than JSON, 100% LLM comprehension accuracy at 500 symbols. Wire format selection via `KNOWING_FORMAT` env var or `--format` flag.
-- **GCF extracted to standalone library**: `github.com/blackwell-systems/gcf-go` (zero dependencies). All knowing consumers import gcf-go directly for types (`gcf.Symbol`, `gcf.Edge`, `gcf.Payload`, `gcf.Session`, `gcf.DeltaPayload`). The internal `wire` package retains knowing-specific functions (`FromContextBlock`, `EncodeWith`, registry, binary/json/toon encoders).
+- **GCF extracted to standalone library**: `github.com/blackwell-systems/gcf-go` (zero dependencies). All knowing consumers import gcf-go directly for types (`gcf.Symbol`, `gcf.Edge`, `gcf.Payload`, `gcf.Session`, `gcf.DeltaPayload`). The internal `wire` package retains knowing-specific functions (`FromContextBlock`, `EncodeWith`, registry, binary/json encoders).
 - **Delta context packing** (session 27): structural diff on `pack_root` mismatch. When consecutive queries return overlapping context, only the delta is transmitted. 81.2% token savings on re-queries. Session statefulness: previously-transmitted symbols sent as bare references, 92.7% savings by 5th call.
-- **LLM format comprehension eval** (session 27): 3-way evaluation (GCF vs TOON vs JSON) at 500 symbols, 200 edges. GCF 100%, TOON 100%, JSON 66.7%. Eval in `gcf-go/eval/` as separate Go module (isolates toon-go dependency from library consumers). Results stored in `eval/results/`.
+- **LLM format comprehension eval** (session 27): evaluation of GCF vs JSON at 500 symbols, 200 edges. GCF 100% accuracy, JSON 66.7%. Eval in `gcf-go/eval/` as separate Go module. Results stored in `eval/results/`.
 - **Code pattern keyword extraction** (session 27): extracts structural patterns from task descriptions (e.g., "error handling", "retry logic") as additional seed terms. Improves seed quality for tasks describing patterns rather than naming symbols.
 - **Multi-phrase equiv class gate**: `isStrongEquivMatch` requires either >= 2 phrases matched or a multi-word phrase before framework injection fires. Prevents single generic words (e.g., "command") from triggering VS Code framework injection that floods top-10 with infrastructure symbols. New `equivalenceMatch.phrases` and `phraseCount` fields track all matched phrases per class.
+- **Ruby/Java/C# test file detection** (session 28): `isTestFilePath` now covers Ruby (`/test/` excluding `/lib/`), Java (`src/test/java/`), and C# (`*.UnitTests/`, `*.AcceptanceTests/`, `*.IntegrationTests/`). Previously only Go, Python, TypeScript, and Rust test files were penalized. Rails: 0.325 -> 0.360 (+10.8%).
 - **Supply chain held-out validation** (session 27): 100 additional packages as independent validation corpus. 1.0% FP rate confirmed independently of the primary 200-package corpus.
 - **Manual npm publish workflow**: `workflow_dispatch` trigger for npm publishing.
 
@@ -26,6 +27,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Removed
 
+- **TOON format support**: removed `internal/wire/toon.go`, `toon-go` dependency, and TOON cases from eval tests. GCF is the only compact format. One fewer third-party dependency.
 - **17 invalid benchmark fixtures**: 8 fixtures with unresolvable ground truth + 9 ripgrep fixtures with ground truth from dependency crates (not the repo itself). Task count: 308 -> 291.
 
 ### Changed

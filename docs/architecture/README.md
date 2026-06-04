@@ -33,7 +33,7 @@ If you are new to knowing, read these in order:
 | [concurrency.md](concurrency.md) | Daemon goroutine architecture, RWMutex coordination, channel buffer sizes, SQLite WAL mode |
 | [runtime-traces.md](runtime-traces.md) | OTLP trace ingestion, span-to-edge mapping, confidence scoring, production observability edges |
 | [context-engine.md](context-engine.md) | Retrieval pipeline: 5-channel seed fusion, RWR, HITS, BM25, knapsack packing, 115 equivalence classes, concept thesaurus |
-| [wire-formats.md](wire-formats.md) | GCF (84% token savings), binary, JSON codec, TOON, format comprehension eval |
+| [wire-formats.md](wire-formats.md) | GCF (84% token savings), binary, JSON codec, format comprehension eval |
 | [cli-commands.md](cli-commands.md) | All CLI commands: index, export (with --algorithm flag), watch, why, enrich (blame, coverage), mcp, init, fsck |
 | [data-model.md](data-model.md) | SQLite schema, 17 migrations, identity vs metadata layers, cross-repo edges, Merkle tree storage, per-repo isolation, GraphStore interface, why SQLite. |
 | [design-principles.md](design-principles.md) | Nine design goals, three architectural planes, MCP tool split, artifact boundary |

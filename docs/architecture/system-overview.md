@@ -451,7 +451,6 @@ Four codecs registered in `internal/wire/registry.go`, plus two legacy formats:
 |--------|---------|-----------------|
 | **GCF** (Graph Compact Format) | LLM consumption: line-oriented, positional fields, local IDs (`@0`, `@1`), edges as `@target<@source type` | 84% fewer tokens |
 | **GCB** (Graph Compact Binary) | Service transport and caching: varint-encoded, length-prefixed | 74% fewer bytes |
-| **TOON** (Token-Oriented Object Notation) | External interchange: open standard, tabular arrays | ~60% fewer tokens |
 | **JSON** | Human debugging, generic consumers | Baseline |
 | **XML** (legacy) | Human-readable MCP default (does not include edges) | ~0% |
 | **Markdown** (legacy) | Human consumption, documentation | ~10% |

@@ -745,7 +745,7 @@ Generate graph-ranked, token-budgeted context for a task description.
 |------|------|----------|-------------|
 | `task_description` | string | yes | Natural language description of the task |
 | `token_budget` | integer | no | Token budget (default 50000) |
-| `format` | string | no | Output format: `gcf`, `gcb`, `toon`, `json`, `xml` (default), or `markdown` |
+| `format` | string | no | Output format: `gcf`, `gcb`, `json`, `xml` (default), or `markdown` |
 | `pack_root` | string | no | PackRoot from a prior `context_for_task` call (64-char hex). Three outcomes: (1) same PackRoot: returns `"unchanged"` (zero retransmission); (2) different PackRoot, prior pack known: returns **delta encoding** with only added/removed symbols (81% token savings); (3) different PackRoot, prior pack unknown: full retransmission. |
 
 **Return format:**
@@ -786,7 +786,7 @@ Generate blast-radius context weighted by runtime observations for a set of chan
 | `files` | string | yes | Comma-separated list of changed file paths relative to repo root |
 | `repo_url` | string | no | Repository URL for resolving file hashes |
 | `token_budget` | integer | no | Token budget (default 50000) |
-| `format` | string | no | Output format: `gcf`, `gcb`, `toon`, `json`, `xml` (default), or `markdown` |
+| `format` | string | no | Output format: `gcf`, `gcb`, `json`, `xml` (default), or `markdown` |
 
 **Return format:**
 
@@ -826,7 +826,7 @@ Generate relationship-aware context for a pull request. Identifies all symbols i
 | `files` | string | yes | Comma-separated list of changed file paths relative to repo root (from the PR diff) |
 | `repo_url` | string | no | Repository URL for resolving file hashes |
 | `token_budget` | integer | no | Maximum token budget (default 8000, larger than per-edit calls) |
-| `format` | string | no | Output format: `gcf`, `gcb`, `toon`, `json`, `xml` (default), or `markdown` |
+| `format` | string | no | Output format: `gcf`, `gcb`, `json`, `xml` (default), or `markdown` |
 
 **Return format:**
 

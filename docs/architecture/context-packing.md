@@ -383,7 +383,7 @@ to avoid under-filling the budget.
 Six output formats are available, split across two rendering paths:
 
 - **Legacy path** (`FormatContextBlock` in `internal/context/format.go`): `xml` (default), `markdown`, `json`. Renders symbols only; does not include edges.
-- **Wire codec path** (`formatBlock` in `internal/mcp/context_handlers.go`): `gcf`, `gcb`, `toon`. Uses `wire.FromContextBlock` to discover edges between included symbols, then encodes via the codec registry. GCF is the recommended format for agent workflows (100% LLM comprehension accuracy at 84% token savings vs JSON; see `eval/TestLLMFormatComprehension`).
+- **Wire codec path** (`formatBlock` in `internal/mcp/context_handlers.go`): `gcf`, `gcb`. Uses `wire.FromContextBlock` to discover edges between included symbols, then encodes via the codec registry. GCF is the recommended format for agent workflows (100% LLM comprehension accuracy at 84% token savings vs JSON; see `eval/TestLLMFormatComprehension`).
 
 ### XML (legacy default)
 

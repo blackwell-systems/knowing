@@ -430,7 +430,7 @@ blast radius context. Exactly one of the two must be specified.
 | `-task` | string | *(empty)* | Task description for context generation |
 | `-files` | string | *(empty)* | Comma-separated list of changed file paths |
 | `-budget` | int | `50000` | Token budget |
-| `-format` | string | `xml` | Output format: `xml`, `markdown`, `json`, `gcf`, `gcb`, or `toon` |
+| `-format` | string | `xml` | Output format: `xml`, `markdown`, `json`, `gcf`, or `gcb` |
 | `-repo` | string | *(empty)* | Repository URL for file resolution (used with `-files`) |
 
 **Examples:**
@@ -455,7 +455,6 @@ knowing context -task "add caching to user lookup" -budget 20000 -format json
 | `json` | Programmatic use | Full metadata including scores, hashes, file paths |
 | `markdown` | Documentation | Readable Markdown with code blocks |
 | `gcb` | Service transport | Binary format for caching and inter-service use |
-| `toon` | Debugging | Minimal cartoon format |
 
 For agent integrations, `gcf` is recommended: it packs the most context into the
 fewest tokens. For human debugging, use the default `xml` or `json` to see

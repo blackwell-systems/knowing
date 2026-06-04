@@ -23,7 +23,7 @@ internal/context/
 ├── sweep.go            SweepParams: sweepable RWR/ranking parameters (alpha, maxIter, scoreCutoff, maxSeeds, RRFk, ranking weights)
 ├── walk.go             RandomWalkWithRestart (alpha=0.2, 20 iterations, community-aware, rank-weighted seeds)
 ├── tokens.go           EstimateNodeTokens: per-symbol token cost estimation with format-aware scaling
-└── format.go           FormatContextBlock: XML, Markdown, JSON output (GCF/GCB/TOON via internal/wire/)
+└── format.go           FormatContextBlock: XML, Markdown, JSON output (GCF/GCB via internal/wire/)
 ```
 
 ## Scoring Formula
@@ -86,7 +86,7 @@ The asymmetric treatment of authority is the key insight: authority alone is not
 
 **Algorithm.** Candidates are sorted by density (score/tokens) in descending order, then greedily packed until the budget is exhausted. This is the fractional knapsack greedy approximation: sorting by value-density and taking greedily is provably optimal for the fractional variant, and near-optimal for the 0/1 variant when item sizes are small relative to the budget (which holds here, since most symbols are 50-200 tokens against a 4000+ token budget).
 
-**Token estimation.** Symbol token cost is estimated at source line count multiplied by approximately 4 tokens per line (a heuristic calibrated against GPT-family tokenizers). This avoids requiring a tokenizer dependency at query time. The actual context output formats (XML, JSON, GCF, TOON) add per-symbol overhead from tags, delimiters, and metadata fields; format-aware scaling factors (see Token Estimation section below) adjust the budget accounting so packing decisions reflect the true rendered cost.
+**Token estimation.** Symbol token cost is estimated at source line count multiplied by approximately 4 tokens per line (a heuristic calibrated against GPT-family tokenizers). This avoids requiring a tokenizer dependency at query time. The actual context output formats (XML, JSON, GCF) add per-symbol overhead from tags, delimiters, and metadata fields; format-aware scaling factors (see Token Estimation section below) adjust the budget accounting so packing decisions reflect the true rendered cost.
 
 **Edge inclusion.** After selecting symbols via the knapsack, edges between selected symbols are included in the context pack. This gives the consuming agent structural context (who calls whom, who implements what) without spending budget on unreachable symbols. Only edges where both endpoints are in the selected set are included; edges pointing to symbols outside the pack are omitted.
 
@@ -242,7 +242,7 @@ Bigram generation joins adjacent non-stop-words into both CamelCase and snake_ca
 16. Pack into token budget via density-ranked knapsack (score/cost ratio ordering).
 17. Record returned symbols in session tracker; flush unused symbols from previous call as negative implicit feedback; register new returned symbols for attribution tracking.
 18. Compute content-addressed PackRoot; persist to both in-memory SubgraphCache and persistent notes table (with snapshot hash for staleness detection).
-19. Format output as GCF, GCB, TOON, JSON, XML, or Markdown.
+19. Format output as GCF, GCB, JSON, XML, or Markdown.
 
 ## ForFiles Flow
 
@@ -370,7 +370,6 @@ The path-context seeding channel (Channel 5) leverages these edges directly: it 
 |--------|----------------------|-------|
 | GCF | 16% | Local IDs and positional encoding; ~84% savings |
 | GCB | 26% | Binary wire format; LLM never sees it directly |
-| TOON | 40% | Token-Oriented Object Notation; tabular arrays (header + rows) |
 | JSON/XML/Markdown | 100% | Full text representation |
 
 The format parameter selects the scaling factor so that knapsack packing uses accurate budgets for the chosen output format.
@@ -379,6 +378,6 @@ The format parameter selects the scaling factor so that knapsack packing uses ac
 
 Format rendering is split between two layers:
 - `internal/context/format.go`: handles XML, Markdown, JSON via `FormatContextBlock`.
-- `internal/wire/`: handles GCF, GCB, TOON, JSON (structured) via the codec registry. Routed through `formatBlock` in `internal/mcp/context_handlers.go`.
+- `internal/wire/`: handles GCF, GCB, JSON (structured) via the codec registry. Routed through `formatBlock` in `internal/mcp/context_handlers.go`.
 
-GCF output uses `wire.EncodeWithSession` for cross-call deduplication (the MCP server's session state tracks previously sent symbols). GCB and JSON (structured) use `wire.EncodeWith`. TOON uses the `toon-format/toon-go` library for spec-conformant encoding (`internal/wire/toon.go`).
+GCF output uses `wire.EncodeWithSession` for cross-call deduplication (the MCP server's session state tracks previously sent symbols). GCB and JSON (structured) use `wire.EncodeWith`.
