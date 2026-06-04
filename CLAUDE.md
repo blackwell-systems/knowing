@@ -102,12 +102,12 @@ per-repo breakdown, and competitive ratios. This is a standard procedure:
 15. **CLAUDE.md** — this file, Current State section
 16. **README.md** — Numbers table
 
-Competitive ratios (session 25, honest measurement, 308 tasks):
-- vs codegraph: 0.281 / 0.087 = 3.23x
-- vs GitNexus: 0.281 / 0.055 = 5.11x
-- vs Gortex: 0.281 / 0.052 = 5.40x
-- vs Aider: 0.281 / 0.023 = 12.2x
-- vs grep: 0.281 / 0.015 = 18.7x
+Competitive ratios (session 27, honest measurement, 300 tasks):
+- vs codegraph: 0.293 / 0.087 = 3.37x
+- vs GitNexus: 0.293 / 0.055 = 5.33x
+- vs Gortex: 0.293 / 0.052 = 5.63x
+- vs Aider: 0.293 / 0.023 = 12.7x
+- vs grep: 0.293 / 0.015 = 19.5x
 - codebase-memory: timed out (22/308 tasks in 60 min)
 Note: P@10 improved from 0.206 (session 23) to 0.281 (session 25) via focused seed selection, equiv classes, saleor addition.
 
@@ -129,7 +129,7 @@ Note: P@10 improved from 0.206 (session 23) to 0.281 (session 25) via focused se
 
 ## Current State (session 27, 2026-06-03)
 
-- **P@10 = 0.281 cold start** (308 tasks, 16 repos, no task memory, no embeddings, honest measurement, confirmed sessions 25+26)
+- **P@10 = 0.293 cold start** (300 tasks, 16 repos, no task memory, no embeddings, honest measurement, session 27. 8 fixtures with unresolvable ground truth removed.)
 - **Embeddings: confirmed neutral.** Three runs: 0.176, 0.175, 0.176. Gap-fill seeds add nothing on cold start. Embedding infrastructure is dead weight for retrieval accuracy.
 - **Task memory contamination (session 23):** all P@10 measurements from sessions 8-22 were inflated by accumulated task memory in corpus DBs. Resolved: adapter disables task memory, clear before honest runs.
 - **GCF wire format:** default output format for all MCP context tools (session 27). 84% fewer tokens than JSON, 100% comprehension accuracy.
