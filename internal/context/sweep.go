@@ -118,12 +118,17 @@ func sweepDistanceW() float64 {
 func sweepTestPenalty() float64 {
 	p := getSweepParams()
 	if p.TestPenalty < 0 {
-		return 0.3 // -1 sentinel means use default
+		return 0.15 // -1 sentinel means use default
 	}
 	if p.TestPenalty > 0 {
 		return p.TestPenalty
 	}
-	return 0.3
+	if v := os.Getenv("BENCH_TEST_PENALTY"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
+			return f
+		}
+	}
+	return 0.15
 }
 
 // proximityExponent returns the exponent for RWR proximity packing.
