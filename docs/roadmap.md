@@ -2,39 +2,44 @@
 
 What's shipped is in the [changelog](CHANGELOG.md). This document covers what's next.
 
-## Current State (v0.13.0-dev, 2026-05-31)
+## Current State (v0.15.0, 2026-06-04)
 
-**P@10 = ~0.275 cold start** (estimated from per-repo audits, full corpus confirmation pending). 297 tasks, 15 repos, 8 languages. Honest measurement: no task memory, no embeddings. 38 edge types. 23 extractors. 263 equivalence classes across 30 files. 70+ experiments across 23 sessions.
+**P@10 = 0.321 cold start** (291 tasks, 16 repos, 8 languages). Honest measurement: no task memory, no embeddings. 38 edge types. 23 extractors. 263 equivalence classes across 30 files with multi-phrase gate. GCF default output format. 70+ experiments across 28 sessions.
 
-**Session 23 results (per-repo, all honest):**
-| Repo | Baseline | Final | Change |
-|------|----------|-------|--------|
-| Caddy | 0.270 | 0.440 | +63% |
-| Kafka | 0.232 | 0.421 | +81% |
-| Terraform | 0.120 | 0.405 | +238% |
-| Jekyll | 0.430 | 0.430 | stable |
-| Rails | 0.200 | 0.340 | +70% |
-| Flask | 0.242 | 0.321 | +33% |
-| Ocelot | 0.150 | 0.285 | +90% |
-| FastAPI | 0.195 | 0.275 | +41% |
-| Spark-Java | 0.168 | 0.235 | +40% |
-| Ripgrep | 0.195 | 0.195 | stable |
-| Cargo | 0.168 | 0.186 | +11% |
-| Django | 0.081 | 0.183 | +126% |
-| Kubernetes | 0.100 | 0.168 | +68% |
-| VS Code | 0.037 | 0.168 | +354% |
+**Session 28 results (per-repo, all honest, 291 tasks):**
+| Repo | P@10 | Tasks |
+|------|------|-------|
+| Ripgrep | 0.464 | 11 |
+| Terraform | 0.440 | 20 |
+| Kafka | 0.437 | 19 |
+| Jekyll | 0.425 | 20 |
+| Kubernetes | 0.423 | 13 |
+| Caddy | 0.410 | 20 |
+| Flask | 0.328 | 18 |
+| Rails | 0.325 | 20 |
+| FastAPI | 0.315 | 20 |
+| Ocelot | 0.280 | 20 |
+| Saleor | 0.264 | 11 |
+| Cross-cutting | 0.263 | 8 |
+| Cargo | 0.263 | 19 |
+| Spark-Java | 0.250 | 20 |
+| VS Code | 0.200 | 19 |
+| Django | 0.176 | 33 |
 
-**Session 23 breakthroughs:**
-1. Framework equivalence classes with forced injection. 263 classes across 30 files covering Django, Flask, FastAPI, Terraform, Kubernetes, Kafka, Rails, Caddy, Ocelot, Cargo, Spark-Java, VS Code, Spring, ASP.NET, NestJS, Next.js, Angular, React + cross-cutting (testing, ORM, auth, CLI, config, errors, web, containers, crypto).
-2. Zero-task audit cycle: use `bench-task` to diagnose each zero, add defensible equiv classes, verify per-repo before full corpus.
-3. Adaptive retrieval for massive repos (>200K nodes): falls back to direct FTS + contains-edge expansion when RWR produces flat results.
-4. Language scoping: `Lang` field restricts framework classes to matching repos. `detectRepoLanguage()` from node QN patterns.
+**Key breakthroughs (sessions 23-28):**
+1. Framework equivalence classes with forced injection (session 23, +57%). 263 classes across 30 files. Multi-phrase gate added session 28 (+9.6%): `isStrongEquivMatch` prevents single-word flooding.
+2. Code pattern keyword extraction (session 28): `extractCodePatterns` detects method calls, Class.method paths in task descriptions.
+3. GCF default output format (session 27): 84% fewer tokens than JSON, 100% LLM comprehension at 500 symbols. Standalone gcf-go library.
+4. Zero-task audit cycle: use `bench-task` to diagnose each zero, add defensible equiv classes, verify per-repo before full corpus.
+5. Adaptive retrieval for massive repos (>200K nodes): falls back to direct FTS + contains-edge expansion when RWR produces flat results.
+6. Language scoping: `Lang` field restricts framework classes to matching repos. `detectRepoLanguage()` from node QN patterns.
 
-**Session 23 critical findings:**
+**Critical findings (sessions 23-28):**
 1. Task memory contaminated all prior measurements (26K stale entries). Disabled in adapter.
 2. Embeddings confirmed dead neutral (3 runs: 0.176/0.175/0.176).
 3. Re-indexing without LSP produces fewer edges than original (tree-sitter only). Corpus DBs already fully enriched, re-indexing provides no benefit.
 4. Keyword extraction fix and path boost are dead ends (both net negative).
+5. Single-word equiv phrases (e.g., "command") can trigger framework injection that floods top-10 with infrastructure symbols. Fixed by multi-phrase gate (session 28).
 
 ## Immediate Priorities
 
@@ -48,10 +53,14 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 | 15 | **More framework-using repos** | Add a Flask app, Rails app, Spring Boot service. Improves eval credibility. | Medium | Eval credibility |
 | 16 | **Extract benchmark to standalone repo (CRET)** | Session 26 audit: 18 files clean, 5 trivial decouples, ~2 hours. Context packing benchmark also extractable. | Low | Credibility |
 
-### Shipped (sessions 23-26)
+### Shipped (sessions 23-28)
 
 | Item | Session | Result |
 |------|---------|--------|
+| Multi-phrase equiv gate | 28 | `isStrongEquivMatch`: require >= 2 phrases or multi-word phrase for framework injection. Fixes VSCODE_COMMAND flooding. P@10 0.293 -> 0.321 (+9.6%). |
+| Code pattern keyword extraction | 28 | `extractCodePatterns` detects method calls, Class.method paths, dotted paths with underscores in task descriptions. Injected as Compounds before standard extraction. |
+| GCF default format | 27 | All MCP context tools emit GCF by default. 84% fewer tokens than JSON, 100% LLM comprehension at 500 symbols. gcf-go extracted as standalone library. |
+| Fixture cleanup (17 removed) | 27-28 | 8 unresolvable ground truth + 9 ripgrep dependency crate fixtures. 308 -> 291 tasks. |
 | Delta context packing (#6) | 27 | Structural diff on pack_root mismatch. 81.2% token savings at 96.6% symbol overlap (re-query benchmark). `DiffPacks` + `EncodeDelta` + MCP wiring. `bench/delta-packing/` proves it. |
 | Cross-task vocab validation (#3a) | 26 | Django +41.4%, corpus 0.0% (safe). Noise filter, soft RRF, confidence weighting. Mechanism #13. |
 | Incremental RWR (#5) | 26 | Merkle-cached walks. Django cold 3.9s -> warm 1.9s (2x). Snapshot-hash cache keys, structural invalidation. P@10 correctness verified. `debug-rwr-cache` CLI. |
@@ -106,7 +115,9 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 
 | Approach | Result | Session | Details |
 |----------|--------|---------|---------|
-| **Framework equiv classes + forced injection** | +16% aggregate | 23 | 189 classes across 25 files. High-confidence framework matches (weight >= 0.9) bypass RWR and inject directly into ranked results. Django +99%, Terraform +133%. |
+| **Framework equiv classes + forced injection** | +57% (0.176 -> 0.278) | 23 | 263 classes across 30 files. High-confidence framework matches (weight >= 0.9) bypass RWR and inject directly into ranked results. Django +126%, Terraform +238%. |
+| **Multi-phrase equiv gate** | +9.6% (0.293 -> 0.321) | 28 | `isStrongEquivMatch` requires >= 2 phrases matched or multi-word phrase. Prevents single generic words (e.g., "command") from flooding top-10 with framework hub symbols. |
+| **Code pattern keyword extraction** | Contributes to 0.321 | 28 | `extractCodePatterns` detects method calls, Class.method paths, dotted paths with underscores. Fires before standard word extraction as Phase 1.5 in `extractKeywordSet`. |
 | **Language scoping** | Prevents regressions | 23 | `Lang` field restricts framework classes to matching repos. `detectRepoLanguage()` from node QN file extensions. |
 | **Adaptive retrieval (>200K nodes)** | VS Code +43% | 23 | When RWR produces flat results on massive repos, falls back to direct FTS + contains-edge expansion. |
 | **equivSeen injection bypass** | Fixes silent failures | 23 | Framework injection checks happen before dedup, so lower-weight classes can't block framework targets. |
