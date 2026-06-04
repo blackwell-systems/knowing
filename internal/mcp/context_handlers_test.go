@@ -68,8 +68,8 @@ func TestHandleContextForTask_Valid(t *testing.T) {
 	}
 
 	text := result.Content[0].(mcp.TextContent).Text
-	if !strings.Contains(text, "<context") {
-		t.Errorf("expected XML context output, got: %s", text)
+	if !strings.Contains(text, "GCF tool=") {
+		t.Errorf("expected GCF context output, got: %s", text)
 	}
 }
 
@@ -150,8 +150,8 @@ func TestHandleContextForFiles_Valid(t *testing.T) {
 	}
 
 	text := result.Content[0].(mcp.TextContent).Text
-	if !strings.Contains(text, "<context") {
-		t.Errorf("expected XML context output, got: %s", text)
+	if !strings.Contains(text, "GCF tool=") {
+		t.Errorf("expected GCF context output, got: %s", text)
 	}
 }
 

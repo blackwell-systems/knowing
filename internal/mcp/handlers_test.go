@@ -2504,9 +2504,9 @@ func TestHandleContextForTask_WithSQLiteStore_MultipleNodes(t *testing.T) {
 	if text == "" {
 		t.Fatal("expected non-empty context output")
 	}
-	// Should be well-formed XML context.
-	if !strings.Contains(text, "<context") {
-		t.Errorf("expected XML context block, got: %.100s", text)
+	// Should be GCF format (default since session 27).
+	if !strings.Contains(text, "GCF tool=") {
+		t.Errorf("expected GCF context block, got: %.100s", text)
 	}
 }
 
@@ -2574,8 +2574,9 @@ func TestHandleContextForFiles_WithSQLiteStore_MultipleFiles(t *testing.T) {
 	}
 
 	text := result.Content[0].(mcp.TextContent).Text
-	if !strings.Contains(text, "<context") {
-		t.Errorf("expected XML context block, got: %.100s", text)
+	// GCF is default format since session 27.
+	if !strings.Contains(text, "GCF tool=") {
+		t.Errorf("expected GCF context block, got: %.100s", text)
 	}
 }
 
