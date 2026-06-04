@@ -2,7 +2,7 @@
 
 The context packing subsystem (`internal/context/`) produces token-budgeted, graph-ranked context blocks for agent consumption. It answers: "given a task or a set of changed files, which symbols from the knowledge graph should an agent see?" Three entry points exist: task-based (`ForTask`, keyword search from a description), file-based (`ForFiles`, blast-radius expansion from changed files), and PR-based (`ForPR`, RWR from all symbols in changed files). A fourth entry point, `ExplainSymbol`, runs the full retrieval pipeline and returns a detailed scoring breakdown for a specific symbol.
 
-**Current performance:** P@10 = 0.281 cold start (16 repos, 308 tasks, 8 languages, honest: no task memory, no embeddings). 13 self-adapting mechanisms. LSP edge attenuation (0.3x for lsp_resolved). Per-cluster implicit feedback with vocabulary expansion from usage. FTS fallback decomposition for compound keywords. Query latency 2ms on k8s (with adjacency cache). P@10 is reachability-determined (parameter sweep confirmed) + vocabulary-determined (framework equiv classes + learned vocab bridge the gap).
+**Current performance:** P@10 = 0.293 cold start (16 repos, 300 tasks, 8 languages, honest: no task memory, no embeddings). 13 self-adapting mechanisms. LSP edge attenuation (0.3x for lsp_resolved). Per-cluster implicit feedback with vocabulary expansion from usage. FTS fallback decomposition for compound keywords. Query latency 2ms on k8s (with adjacency cache). P@10 is reachability-determined (parameter sweep confirmed) + vocabulary-determined (framework equiv classes + learned vocab bridge the gap).
 
 ## Architecture
 

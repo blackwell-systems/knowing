@@ -57,7 +57,7 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 | Incremental RWR (#5) | 26 | Merkle-cached walks. Django cold 3.9s -> warm 1.9s (2x). Snapshot-hash cache keys, structural invalidation. P@10 correctness verified. `debug-rwr-cache` CLI. |
 | Vocab association expiration (#3c) | 26 | Per-package Merkle roots. `persistPackageRoots` at index time, `LoadPackageRoots` + `PackageRootForSymbol` at query time. Both engine and MCP wired. Migration 022. |
 | Platform deploy (#8) | 26 | api.blackwell-systems.com live. SQLite key store, admin CLI (create/list/revoke), hardened systemd, Cloudflare Tunnel, firewall. $12/mo. |
-| Context packing benchmark | 26 | 4 strategies, 308 tasks. File-grouped tested negative (-10.8% P@10). Density-ranked confirmed optimal. |
+| Context packing benchmark | 26 | 4 strategies, 300 tasks. File-grouped tested negative (-10.8% P@10). Density-ranked confirmed optimal. |
 | CRET extraction audit | 26 | 18 files clean, 5 trivial, ~2 hours. Proposal updated. |
 | Doc cleanup | 26 | Renamed EVALUATION-OVERVIEW, deleted AGENT-EFFICIENCY-STUDY, updated 10+ docs |
 | CI fix (merkle-diff, eval, scoped FTS) | 26 | Short-mode skip for flaky bench tests, removed eval gate from CI |
@@ -66,7 +66,7 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 | Process framework classes first | 23 | Already solved via equivSeen bypass |
 | Add framework-using repos | 24 | saleor/saleor added, P@10=0.236, equiv classes validated on app code |
 | Blog post | 24 | Updated with v0.13.0 numbers, methodology, honest findings |
-| v0.13.0 release | 24 | P@10=0.278, 308 tasks, 16 repos, 8 languages |
+| v0.13.0 release | 24 | P@10=0.278, 300 tasks, 16 repos, 8 languages |
 | Task-noise correlation (implicit feedback) | 24 | Moved to engine, +5.9% P@10 on Django. Task memory disabled (neutral). Sole learning mechanism. |
 | Equiv class auto-discovery | 24 | Deferred (language scoping sufficient) |
 

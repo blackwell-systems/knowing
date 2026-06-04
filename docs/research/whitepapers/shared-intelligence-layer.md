@@ -8,7 +8,7 @@
 
 AI coding agents operate on code but learn nothing from each other. Each session starts cold, explores the same codebase from scratch, and discards its discoveries at the end. We describe an architecture where a content-addressed code graph, partitioned into emergent communities via Louvain clustering, becomes a shared learning substrate for multi-agent coordination. Agents contribute feedback about which symbols were useful for which tasks; that feedback compounds by keyword cluster, making subsequent sessions progressively sharper. Learned vocabulary associations bridge across tasks: one agent's discoveries help different agents working on related problems. The result is implicit specialization without configuration: the system learns which parts of the codebase matter for which types of work, organized by boundaries it discovers rather than boundaries humans declare.
 
-**Empirical validation (session 26, 308 tasks, 16 repos):** Cross-task vocabulary bridging produces +41.4% precision on Django. 10-round compounding on the full corpus: MRR climbs from 0.459 to 0.497 (+8.1%). The system never regresses below its cold-start baseline. All learning is Merkle-anchored: associations expire per-package when code changes.
+**Empirical validation (session 26, 300 tasks, 16 repos):** Cross-task vocabulary bridging produces +41.4% precision on Django. 10-round compounding on the full corpus: MRR climbs from 0.459 to 0.497 (+8.1%). The system never regresses below its cold-start baseline. All learning is Merkle-anchored: associations expire per-package when code changes.
 
 ---
 
@@ -46,7 +46,7 @@ The learning loop is fully operational. Five components form a self-reinforcing 
 
 An agent receives a task: "fix the bug in context ranking." The `context_for_task` MCP tool runs the full retrieval pipeline: 5-channel RRF seed fusion, Random Walk with Restart, HITS reranking, 13 self-adapting mechanisms. Returns ranked, token-budgeted context.
 
-P@10 = 0.281 cold start (308 tasks, 16 repos). 3.23x more precise than codegraph, 18.7x more precise than grep.
+P@10 = 0.293 cold start (300 tasks, 16 repos). 3.23x more precise than codegraph, 18.7x more precise than grep.
 
 ### 3.2 Work (agent uses context, modifies code)
 
@@ -163,7 +163,7 @@ Each layer depends on the one below:
 
 **Retrieval-augmented generation for code.** RAG approaches for code (CodeBERT, UniXcoder, RepoCoder) embed code snippets and retrieve by cosine similarity. These are effective for semantic matching but do not model structural relationships (caller/callee, implements, extends). They cannot answer "what breaks if I change X?" because they lack edge-typed graphs. Embeddings are also stateless: each query starts fresh with no memory of prior sessions. Our evaluation confirmed that embedding-based retrieval is neutral on cold start (P@10 identical with and without, 3 runs), while graph structure and BM25 carry all precision.
 
-**Benchmark methodology.** SWE-bench [Jimenez et al. 2024] evaluates agent task completion but not the retrieval layer that feeds agents context. CrossCodeEval evaluates cross-file completion but at the token level, not the symbol level. Our benchmark (308 tasks, 16 repos, 8 languages) evaluates symbol-level retrieval precision with statistical methodology (Wilcoxon signed-rank, Cohen's d, bootstrap CI) and cold-start enforcement (task memory contamination discovered and eliminated in session 23).
+**Benchmark methodology.** SWE-bench [Jimenez et al. 2024] evaluates agent task completion but not the retrieval layer that feeds agents context. CrossCodeEval evaluates cross-file completion but at the token level, not the symbol level. Our benchmark (300 tasks, 16 repos, 8 languages) evaluates symbol-level retrieval precision with statistical methodology (Wilcoxon signed-rank, Cohen's d, bootstrap CI) and cold-start enforcement (task memory contamination discovered and eliminated in session 23).
 
 **Community detection on code.** Louvain clustering has been applied to software architecture recovery [Garcia et al. 2013], but prior work uses it for visualization, not as a runtime primitive for feedback scoping and cache invalidation. Our contribution is using community-discovered boundaries as the organizational unit for agent learning: feedback compounds by keyword cluster within community boundaries, and Merkle roots provide structural expiration when communities' code changes.
 
@@ -203,11 +203,11 @@ The unique combination: learning that is **persistent** (survives across session
 
 | Metric | Value | Source |
 |--------|-------|--------|
-| Cold-start P@10 | 0.281 (308 tasks, 16 repos, 8 languages) | Cross-system benchmark |
+| Cold-start P@10 | 0.293 (300 tasks, 16 repos, 8 languages) | Cross-system benchmark |
 | Cross-task vocab lift (Django) | +41.4% | TestCrossTaskVocab |
 | Cross-task vocab lift (full corpus) | 0.0% aggregate (safe) | TestCrossTaskVocab |
-| 10-round P@10 compounding | 0.277 -> 0.283 peak (+2.2%) | TestCompounding (308 tasks) |
-| 10-round MRR compounding | 0.459 -> 0.497 peak (+8.1%) | TestCompounding (308 tasks) |
+| 10-round P@10 compounding | 0.277 -> 0.283 peak (+2.2%) | TestCompounding (300 tasks) |
+| 10-round MRR compounding | 0.459 -> 0.497 peak (+8.1%) | TestCompounding (300 tasks) |
 | Cross-task percentage | 100% (all improvements are cross-task) | TestCrossTaskVocab |
 | RWR cache speedup | 2x (Django cold 3.9s -> warm 1.9s) | debug-rwr-cache |
 | Competitive advantage | 3.23x codegraph, 18.7x grep | Cross-system benchmark |
@@ -241,7 +241,7 @@ Content-addressing solves the trust problem. Communities solve the scoping probl
 
 3. **Community-constrained RWR walks are not yet implemented.** The current RWR walks the full reachable subgraph. Constraining walks to the relevant community's symbols would produce tighter score distributions on large graphs. Focused seed selection (mechanism #4) partially addresses this by concentrating seeds in the dominant package cluster.
 
-4. **Django compounding variance.** The 10-round Django compounding curve oscillates (band [0.200, 0.219] on 36 tasks). The full corpus (308 tasks) produces a tighter band ([0.276, 0.283]) with near-monotonic MRR. Django's 36-task sample size is insufficient for statistical significance on per-round deltas.
+4. **Django compounding variance.** The 10-round Django compounding curve oscillates (band [0.200, 0.219] on 36 tasks). The full corpus (300 tasks) produces a tighter band ([0.276, 0.283]) with near-monotonic MRR. Django's 36-task sample size is insufficient for statistical significance on per-round deltas.
 
 5. **Single-system evaluation.** The cross-task vocabulary bridging and compounding results are measured on knowing's own benchmark corpus. Independent replication on external corpora (e.g., SWE-bench repos) would strengthen the claims.
 
@@ -259,7 +259,7 @@ cd knowing && GOWORK=off go build ./...
 # Set up benchmark corpus (16 repos, pinned commits)
 cd bench/cross-system/corpus && bash corpus-setup.sh
 
-# Cold-start P@10 (308 tasks, ~20 min)
+# Cold-start P@10 (300 tasks, ~20 min)
 BENCH_ADAPTERS=knowing GOWORK=off go test ./bench/cross-system/ -run TestCrossSystem -v -timeout 0
 
 # Cross-task vocabulary validation (~35 min)

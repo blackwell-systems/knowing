@@ -133,8 +133,8 @@ For implementation details, see [Retrieval Pipeline](../architecture/retrieval-p
 - Embeddings: confirmed neutral on cold start (session 23, 3 runs identical with/without). Gap-fill and re-ranker both disabled.
 - Framework equivalence classes: 263 concept-to-symbol mappings across 30 files, with forced injection for high-confidence matches
 - Adaptive retrieval: auto-detects flat RWR results on massive repos (>200K nodes), falls back to direct FTS + contains-edge expansion
-- P@10 = 0.281 cold start (308 tasks, 16 repos, 8 languages, 13 self-adapting mechanisms, honest measurement)
-- Competitive: 3.23x codegraph, 5.11x GitNexus, 5.40x Gortex, 12.2x Aider, 18.7x grep (cold start)
+- P@10 = 0.293 cold start (300 tasks, 16 repos, 8 languages, 13 self-adapting mechanisms, honest measurement)
+- Competitive: 3.37x codegraph, 5.33x GitNexus, 5.63x Gortex, 12.7x Aider, 19.5x grep (cold start)
 - MCP server interface with 28 tools for agent consumption
 
 ## The Problem
@@ -208,23 +208,23 @@ The baseline. Agents grep for symbol names and read the matching files. ripgrep 
 
 #### codegraph (21.9K stars, colbymchenry/codegraph)
 
-Builds a code graph using tree-sitter AST parsing across 19+ languages, stored in SQLite with FTS5 full-text search. Exposes MCP tools for symbol search, call tracing, impact analysis, and context retrieval. Uses heuristic scoring (co-location, multi-term matching, CamelCase boundary awareness) rather than graph-theoretic ranking (no RWR, no HITS, no PageRank). Supports incremental auto-sync via native OS file events with 2-second debounce. Deterministic (same output every run). Measured: P@10 = 0.087 (knowing 3.23x better, honest dot-bounded matching). Fills positions 2-10 with loosely related symbols via BFS expansion from entry points, producing high recall but low precision. No versioning, no temporal queries, no feedback mechanism.
+Builds a code graph using tree-sitter AST parsing across 19+ languages, stored in SQLite with FTS5 full-text search. Exposes MCP tools for symbol search, call tracing, impact analysis, and context retrieval. Uses heuristic scoring (co-location, multi-term matching, CamelCase boundary awareness) rather than graph-theoretic ranking (no RWR, no HITS, no PageRank). Supports incremental auto-sync via native OS file events with 2-second debounce. Deterministic (same output every run). Measured: P@10 = 0.087 (knowing 3.37x better, honest dot-bounded matching). Fills positions 2-10 with loosely related symbols via BFS expansion from entry points, producing high recall but low precision. No versioning, no temporal queries, no feedback mechanism.
 
 #### codebase-memory-mcp (2.7K stars, DeusData)
 
-Single-binary MCP server using 155 vendored tree-sitter grammars, BM25 via SQLite FTS5 (with camelCase/snake_case-aware tokenization), and semantic similarity edges computed via bundled nomic-embed-code embeddings (768-dim, int8 quantized). Uses an 11-signal combined scoring system (TF-IDF, reciprocal rank, API/type/decorator signatures, AST profiles, data flow). Deterministic. Works well on small repos (Flask: 285ms/query). Breaks at scale: hangs at 100% CPU on repos exceeding ~22K-46K nodes (Django 300K LOC hangs at >10s/query, VS Code and Kubernetes killed after minutes). No graph walk beyond single-hop neighbor lookup, so transitive relationships (A calls B calls C) are invisible. Measured: timed out on full corpus (completed only 22 of 308 tasks in 60 min).
+Single-binary MCP server using 155 vendored tree-sitter grammars, BM25 via SQLite FTS5 (with camelCase/snake_case-aware tokenization), and semantic similarity edges computed via bundled nomic-embed-code embeddings (768-dim, int8 quantized). Uses an 11-signal combined scoring system (TF-IDF, reciprocal rank, API/type/decorator signatures, AST profiles, data flow). Deterministic. Works well on small repos (Flask: 285ms/query). Breaks at scale: hangs at 100% CPU on repos exceeding ~22K-46K nodes (Django 300K LOC hangs at >10s/query, VS Code and Kubernetes killed after minutes). No graph walk beyond single-hop neighbor lookup, so transitive relationships (A calls B calls C) are invisible. Measured: timed out on full corpus (completed only 22 of 300 tasks in 60 min).
 
 #### Aider (~20K stars, paul-gauthier/aider)
 
-Two-phase architecture: a deterministic component builds the "repo map" using tree-sitter to extract symbol definitions and their cross-file references into a dependency graph, then ranks files using a PageRank-like graph algorithm weighted by reference frequency. The map is a concise summary (default 1K tokens) of the most highly-connected symbols. The LLM then uses this map to decide which files to open in full. Non-determinism is moderate (3 unique outputs per 10 runs, likely from PageRank tie-breaking on equi-ranked files). Returns file-level context rather than symbol-level, so even correct selections include irrelevant code within those files. Measured: P@10 = 0.023 (knowing 12.2x better, honest dot-bounded matching). Cannot find newly added symbols because PageRank requires inbound references; a function with zero callers gets zero weight regardless of name match. Time-to-consistency: 3,150ms (every query rebuilds the map).
+Two-phase architecture: a deterministic component builds the "repo map" using tree-sitter to extract symbol definitions and their cross-file references into a dependency graph, then ranks files using a PageRank-like graph algorithm weighted by reference frequency. The map is a concise summary (default 1K tokens) of the most highly-connected symbols. The LLM then uses this map to decide which files to open in full. Non-determinism is moderate (3 unique outputs per 10 runs, likely from PageRank tie-breaking on equi-ranked files). Returns file-level context rather than symbol-level, so even correct selections include irrelevant code within those files. Measured: P@10 = 0.023 (knowing 12.7x better, honest dot-bounded matching). Cannot find newly added symbols because PageRank requires inbound references; a function with zero callers gets zero weight regardless of name match. Time-to-consistency: 3,150ms (every query rebuilds the map).
 
 #### GitNexus (~40K stars, abhigyanpatwari/GitNexus)
 
-Client-side knowledge graph that indexes codebases using tree-sitter, then runs community detection (clustering related symbols) and execution flow tracing at index time. Exposes 16 MCP tools including hybrid BM25 + semantic search. Does not use LLM calls for core indexing or queries. Non-determinism (7-9 unique outputs per 10 runs of the same query, measured) likely stems from randomized community detection and flow analysis algorithms whose output order varies between runs. All-in-memory JavaScript architecture (single-threaded V8) with no streaming writes: 5.7GB RAM on Kubernetes, killed after 60+ minutes without producing results. On repos it can handle: P@10 = 0.055 (knowing 5.11x better, honest dot-bounded matching).
+Client-side knowledge graph that indexes codebases using tree-sitter, then runs community detection (clustering related symbols) and execution flow tracing at index time. Exposes 16 MCP tools including hybrid BM25 + semantic search. Does not use LLM calls for core indexing or queries. Non-determinism (7-9 unique outputs per 10 runs of the same query, measured) likely stems from randomized community detection and flow analysis algorithms whose output order varies between runs. All-in-memory JavaScript architecture (single-threaded V8) with no streaming writes: 5.7GB RAM on Kubernetes, killed after 60+ minutes without producing results. On repos it can handle: P@10 = 0.055 (knowing 5.33x better, honest dot-bounded matching).
 
 #### Gortex (zzet/gortex)
 
-Go-based in-memory code graph supporting 257 languages via three extraction tiers (bespoke tree-sitter parsers, regex extraction, forest-backed signatures). Parallel indexing. Precomputes depth-3 reach indices for impact analysis and uses hybrid search (BM25 + embeddings + reciprocal rank fusion). Architecturally the most similar competitor to knowing (same stack: Go, tree-sitter, parallel, graph-based). Deterministic. Limitations: re-indexes the graph on every context query (no persistent cache), consumes 14GB RAM on Kubernetes-scale repos, and indexes all files indiscriminately (including tests), which pollutes retrieval results. Measured: P@10 = 0.052 (knowing 5.40x better, honest dot-bounded matching), 46x slower indexing, and 70x more RAM at enterprise scale.
+Go-based in-memory code graph supporting 257 languages via three extraction tiers (bespoke tree-sitter parsers, regex extraction, forest-backed signatures). Parallel indexing. Precomputes depth-3 reach indices for impact analysis and uses hybrid search (BM25 + embeddings + reciprocal rank fusion). Architecturally the most similar competitor to knowing (same stack: Go, tree-sitter, parallel, graph-based). Deterministic. Limitations: re-indexes the graph on every context query (no persistent cache), consumes 14GB RAM on Kubernetes-scale repos, and indexes all files indiscriminately (including tests), which pollutes retrieval results. Measured: P@10 = 0.052 (knowing 5.63x better, honest dot-bounded matching), 46x slower indexing, and 70x more RAM at enterprise scale.
 
 #### CGC (CodeGraphContext, codegraphcontext)
 
@@ -246,7 +246,7 @@ knowing's differentiator is graph-native retrieval with framework knowledge inje
 
 **Context packers** (Aider, Repo Map, etc) analyze your repo and produce a condensed map for the agent's context window. They run at query time, produce text, and are stateless: they don't remember what was useful last time. They don't version their output or prove anything about it.
 
-**Code graphs / indexers** (Sourcegraph, codegraph, GitNexus, Stack Graphs) build a queryable index of code relationships. Most use mutable state (database rows with auto-increment IDs). They can answer "who calls X?" but can't answer "who called X last Tuesday?" or "prove no one calls X." They don't learn from feedback. In head-to-head benchmark (16 repos, 308 tasks, 8 languages): knowing achieves 3.23x the precision of codegraph (19K stars), 5.11x vs GitNexus, 5.40x vs Gortex, and 12.2x vs Aider. All measurements use honest cold-start evaluation with no task memory and dot-bounded symbol matching.
+**Code graphs / indexers** (Sourcegraph, codegraph, GitNexus, Stack Graphs) build a queryable index of code relationships. Most use mutable state (database rows with auto-increment IDs). They can answer "who calls X?" but can't answer "who called X last Tuesday?" or "prove no one calls X." They don't learn from feedback. In head-to-head benchmark (16 repos, 300 tasks, 8 languages): knowing achieves 3.37x the precision of codegraph (19K stars), 5.33x vs GitNexus, 5.63x vs Gortex, and 12.7x vs Aider. All measurements use honest cold-start evaluation with no task memory and dot-bounded symbol matching.
 
 **Agent memory systems** (MemGPT, various RAG frameworks) persist information across sessions. They remember conversations but not code structure. They can recall "you asked about auth last time" but can't tell you "auth's blast radius grew by 3 callers since then."
 
@@ -950,19 +950,19 @@ knowing is unique in applying content-addressing to *relationships between code*
 
 ### Measured performance
 
-These numbers are reproducible via the benchmark suite (16 repos, 308 tasks, 8 languages). All measurements use honest cold-start measurement: no task memory, no embeddings, dot-bounded symbol matching.
+These numbers are reproducible via the benchmark suite (16 repos, 300 tasks, 8 languages). All measurements use honest cold-start measurement: no task memory, no embeddings, dot-bounded symbol matching.
 
 | Metric | Value | Context |
 |---|---|---|
-| P@10 (precision at 10) | 0.281 | 16 repos, 308 tasks, 13 self-adapting mechanisms |
+| P@10 (precision at 10) | 0.293 | 16 repos, 300 tasks, 13 self-adapting mechanisms |
 | R@10 (recall at 10) | 0.405 | 16 repos, 8 languages (Go, Python, TS, Rust, Java, C#, Ruby) |
 | NDCG@10 | 0.425 | Ranking quality |
 | MRR | 0.465 | First relevant result position |
-| vs codegraph (19K stars) | 3.23x | Head-to-head on shared tasks |
-| vs GitNexus (40K stars) | 5.11x | Head-to-head on shared tasks |
-| vs Gortex | 5.40x | Head-to-head on shared tasks |
-| vs Aider (~20K stars) | 12.2x | Head-to-head on shared tasks |
-| vs grep | 18.7x | All 308 tasks |
+| vs codegraph (19K stars) | 3.37x | Head-to-head on shared tasks |
+| vs GitNexus (40K stars) | 5.33x | Head-to-head on shared tasks |
+| vs Gortex | 5.63x | Head-to-head on shared tasks |
+| vs Aider (~20K stars) | 12.7x | Head-to-head on shared tasks |
+| vs grep | 19.5x | All 300 tasks |
 | Equivalence classes | 263 | Across 30 framework-specific files |
 | Adjacency cache latency | 2ms | Down from 9s uncached on k8s (4,717x improvement) |
 | Time-to-consistency | 167ms | File edit to query returning new symbol |

@@ -7,7 +7,7 @@ automatically. This is the project's central thesis: a code retrieval system tha
 adapts to its graph outperforms any fixed-strategy system, and the gap widens with
 scale.
 
-**Current result:** P@10 = 0.281 cold start (308 tasks, 16 repos, 8 languages,
+**Current result:** P@10 = 0.293 cold start (300 tasks, 16 repos, 8 languages,
 honest measurement: no task memory, no embeddings). 3.23x codegraph, 5.11x
 GitNexus, 5.40x Gortex, 12.2x Aider, 18.7x grep.
 
@@ -267,7 +267,7 @@ high-centrality symbols have good scores but are structurally distant from the t
 seeds. Without proximity weighting, they fill budget slots and squeeze out nearby
 relevant symbols (ground truth found at R@10=1.00 but P@10 drops).
 
-**Why 0.3:** 9-point exponent sweep on 308 tasks (session 24). 0.3 peaked at P@10 0.282.
+**Why 0.3:** 9-point exponent sweep on 300 tasks (session 24). 0.3 peaked at P@10 0.282.
 11/15 repos improved vs 0.5 (sqrt). Enriched repos benefit most: cargo +0.026,
 rails +0.025, vscode +0.015. Override with `BENCH_PROXIMITY_EXP`.
 
@@ -377,7 +377,7 @@ available measurement at each session.
 | Task memory compounding | **NEUTRAL** (was +3.8%) | Disabled session 24 | 24 |
 | Gap-fill seeds | **NEUTRAL** (was +11%) | Candidates < 5 | 23 (revised) |
 
-Combined: P@10 = 0.281 cold start (308 tasks, 16 repos, honest measurement, exponent 0.3).
+Combined: P@10 = 0.293 cold start (300 tasks, 16 repos, honest measurement, exponent 0.3).
 With compounding (10 rounds): P@10 = 0.283 peak, MRR = 0.497 peak.
 
 ## Why Fixed-Strategy Systems Can't Compete

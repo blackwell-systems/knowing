@@ -20,7 +20,7 @@ context retrieval (which systems return the most relevant symbols for a task?).
 
 | Component | Location | What it does |
 |-----------|----------|-------------|
-| Cross-system harness | `bench/cross-system/` | 16 repos, 308 tasks, statistical testing |
+| Cross-system harness | `bench/cross-system/` | 16 repos, 300 tasks, statistical testing |
 | Ground truth fixtures | `bench/cross-system/corpus/tasks/` | Hand-curated, DB-validated, 3 difficulty tiers + SWE-bench + cross-cutting |
 | Corpus repos | `bench/cross-system/corpus/repos/` | 16 repos across 8 languages (Go, Python, Rust, Java, TypeScript, C#, Ruby, TOML/HCL) |
 | Corpus manifest | `bench/cross-system/corpus/MANIFEST.yaml` | Reproducible corpus definition with git SHAs |
@@ -55,7 +55,7 @@ context retrieval (which systems return the most relevant symbols for a task?).
 | saleor | Python | ~20K | 20 | pyright |
 | hugo | Go | ~20K | 12 | gopls |
 
-**308 tasks** across 3 difficulty tiers (easy, medium, hard), SWE-bench derived tasks,
+**300 tasks** across 3 difficulty tiers (easy, medium, hard), SWE-bench derived tasks,
 and cross-cutting tasks that span multiple packages or concern architectural patterns.
 
 ## What CRET Would Be
@@ -156,7 +156,7 @@ Critical methodology that distinguishes CRET from ad-hoc benchmarks:
 4. **Citability.** With a Zenodo DOI, researchers can cite CRET when evaluating code
    intelligence systems. Becomes the reference benchmark for the field.
 
-5. **Moat.** The ground truth fixtures (308 tasks, 16 repos, hand-curated and validated)
+5. **Moat.** The ground truth fixtures (300 tasks, 16 repos, hand-curated and validated)
    took significant effort. Competitors can use the framework but can't easily replicate
    the fixture quality.
 
@@ -164,7 +164,7 @@ Critical methodology that distinguishes CRET from ad-hoc benchmarks:
 
 | System | P@10 | vs knowing |
 |--------|------|------------|
-| **knowing** | **0.281** | baseline |
+| **knowing** | **0.293** | baseline |
 | codegraph (19K stars) | 0.087 | 3.23x behind |
 | GitNexus | 0.055 | 5.11x behind |
 | Gortex | 0.052 | 5.40x behind |
@@ -200,7 +200,7 @@ Medium (2-3 days to extract, clean, and package). The hard work (308 fixtures,
   knowing's retrieval patterns. Mitigation: independent validation by users, diverse
   fixture sources (SWE-bench derived, manual, cross-cutting)
 - Maintenance burden: keeping adapters working as competitors update their APIs
-- Corpus size: 308 tasks may be insufficient for statistical power on per-repo
+- Corpus size: 300 tasks may be insufficient for statistical power on per-repo
   comparisons. AI-generated evaluation corpus (roadmap item) would address this.
 
 ## Timeline

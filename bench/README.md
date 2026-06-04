@@ -11,7 +11,7 @@ is a standalone Go test package that runs measurements and produces findings.
 
 | Benchmark | What it proves | Key result |
 |-----------|---------------|------------|
-| [cross-system](cross-system/) | Graph retrieval beats all competitors across languages and scales | 16 repos, 308 tasks, 7 competitors. P@10=0.281 vs codegraph 0.087 (3.23x) vs grep 0.015 (18.7x). Cold start, honest measurement. |
+| [cross-system](cross-system/) | Graph retrieval beats all competitors across languages and scales | 16 repos, 300 tasks, 7 competitors. P@10=0.293 vs codegraph 0.087 (3.37x) vs grep 0.015 (19.5x). Cold start, honest measurement. |
 | [context-packing](context-packing/) | Density-ranked packing produces better context than naive strategies | Compares 4 strategies: density-ranked, top-K score, file-grouped, random |
 | [feedback-loop](feedback-loop/) | Implicit feedback improves precision during sessions | Django +5.9% P@10 after 3 rounds. Per-cluster scoping prevents cross-task interference. |
 | [context-relevance](context-relevance/) | Each engine layer adds measurable value | Feedback adds +9pp precision over baseline |

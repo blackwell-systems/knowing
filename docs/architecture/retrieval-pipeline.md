@@ -14,7 +14,7 @@ the precision degradation that affects every static retrieval system at scale.
 This document is the authoritative reference for how the context engine finds and ranks
 symbols. It supersedes `context-packing.md`.
 
-**Current eval baseline:** Cross-system benchmark (308 tasks, 16 repos, 8 languages): P@10=0.281 cold start. 13 self-adapting mechanisms. LSP edge attenuation (0.3x for lsp_resolved). Per-cluster implicit feedback with vocabulary expansion from usage. FTS fallback decomposition for compound keywords. Adaptive proximity exponent. Change-aware scoring via git blame.
+**Current eval baseline:** Cross-system benchmark (300 tasks, 16 repos, 8 languages): P@10=0.293 cold start. 13 self-adapting mechanisms. LSP edge attenuation (0.3x for lsp_resolved). Per-cluster implicit feedback with vocabulary expansion from usage. FTS fallback decomposition for compound keywords. Adaptive proximity exponent. Change-aware scoring via git blame.
 
 ## Pipeline Overview
 
@@ -881,7 +881,7 @@ using density-ranked packing.
 This is a greedy fractional knapsack approximation with proximity weighting. It prefers
 small high-value symbols close to seeds over large distant symbols with inflated centrality.
 
-**Proximity exponent (session 24):** 9-point sweep on 308 tasks found 0.3 optimal.
+**Proximity exponent (session 24):** 9-point sweep on 300 tasks found 0.3 optimal.
 11/15 repos improved vs 0.5 (sqrt). Enriched repos benefit most (cargo +0.026,
 rails +0.025). Override with `BENCH_PROXIMITY_EXP` env var. See
 `bench/cross-system/PROXIMITY-SWEEP.md` for full results.

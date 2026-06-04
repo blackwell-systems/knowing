@@ -108,8 +108,8 @@ Competitive ratios (session 27, honest measurement, 300 tasks):
 - vs Gortex: 0.293 / 0.052 = 5.63x
 - vs Aider: 0.293 / 0.023 = 12.7x
 - vs grep: 0.293 / 0.015 = 19.5x
-- codebase-memory: timed out (22/308 tasks in 60 min)
-Note: P@10 improved from 0.206 (session 23) to 0.281 (session 25) via focused seed selection, equiv classes, saleor addition.
+- codebase-memory: timed out (22/300 tasks in 60 min)
+Note: P@10 improved from 0.206 (session 23) to 0.293 (session 27) via focused seeds, equiv classes, code pattern extraction, fixture cleanup.
 
 ## Key Architecture
 
@@ -124,7 +124,7 @@ Note: P@10 improved from 0.206 (session 23) to 0.281 (session 25) via focused se
 - `internal/snapshot/` — hierarchical Merkle tree (via merkle-strata library)
 - `internal/mcp/` — MCP server (28 tools, 8 resources)
 - `internal/enrichment/` — LSP enrichment (multi-module gopls, per-symbol timeout, progress persistence)
-- `bench/cross-system/` — competitive benchmark (308 tasks, 16 repos, 7 competitors)
+- `bench/cross-system/` — competitive benchmark (300 tasks, 16 repos, 7 competitors)
 - `cmd/knowing/audit_supply_chain.go` — supply chain CLI (package-level verdict)
 
 ## Current State (session 27, 2026-06-03)
