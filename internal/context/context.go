@@ -2819,8 +2819,10 @@ func isTestFilePath(qualifiedName string) bool {
 		return true
 	}
 	// Python test files and directories.
-	if strings.Contains(lower, "/tests/") || strings.Contains(lower, "/test_") ||
-		strings.Contains(lower, "tests/test_") {
+	// /tests/ directory is a strong signal. /test_ prefix requires .py to avoid
+	// matching Ruby files like active_record/test_case.rb.
+	if strings.Contains(lower, "/tests/") ||
+		(strings.Contains(lower, "/test_") && strings.Contains(lower, ".py")) {
 		return true
 	}
 	// TypeScript/JavaScript test files and directories.
@@ -2830,6 +2832,22 @@ func isTestFilePath(qualifiedName string) bool {
 	}
 	// Rust test modules (tests/ directory at crate root).
 	if strings.Contains(lower, "/tests/") {
+		return true
+	}
+	// Ruby test files and directories (Rails convention: test/ at component root).
+	// Match /test/ in path when the file part ends in .rb, but not lib files
+	// named test_*.rb (e.g., test_case.rb, test_helper.rb in lib/).
+	if strings.Contains(lower, "/test/") && !strings.Contains(lower, "/lib/") {
+		return true
+	}
+	// Java test files (Maven/Gradle convention: src/test/java/).
+	if strings.Contains(lower, "/src/test/") {
+		return true
+	}
+	// C# test projects (convention: test/ directory, *Tests/ project names).
+	if strings.Contains(lower, "tests/") && (strings.Contains(lower, "unittests/") ||
+		strings.Contains(lower, "acceptancetests/") || strings.Contains(lower, "integrationtests/") ||
+		strings.Contains(lower, ".tests/")) {
 		return true
 	}
 	return false

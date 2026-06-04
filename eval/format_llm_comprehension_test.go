@@ -308,7 +308,7 @@ func TestLLMFormatComprehension(t *testing.T) {
 	}
 	defer st.Close()
 
-	formats := []string{"json", "xml", "toon", "gcf"}
+	formats := []string{"json", "xml", "gcf"}
 
 	type result struct {
 		Question string
@@ -453,7 +453,7 @@ func renderContext(block *knowingctx.ContextBlock, format string, st *store.SQLi
 			return "", err
 		}
 		return wire.Encode(payload), nil
-	case "toon", "json":
+	case "json":
 		payload, err := wire.FromContextBlock(context.Background(), block, "format_comprehension_eval", st)
 		if err != nil {
 			return "", err

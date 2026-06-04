@@ -25,9 +25,6 @@ func EstimateNodeTokensForFormat(n types.Node, format string) int {
 		// GCF is ~84% smaller than JSON. Scale cost down so more symbols
 		// fit within the same token budget.
 		return max(1, base*16/100) // 16% of JSON cost
-	case "toon":
-		// TOON uses tabular arrays (header + rows), roughly 40% of JSON cost.
-		return max(1, base*40/100)
 	case "gcb":
 		// GCB is binary, ~74% byte savings. Token cost is similar to GCF
 		// since the LLM never sees the binary directly.

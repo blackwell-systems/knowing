@@ -1,7 +1,7 @@
 // Package wire provides graph payload encoding for knowing's MCP server.
 //
 // Core GCF types and encoding are provided by github.com/blackwell-systems/gcf-go.
-// This package adds knowing-specific codecs (binary, JSON, TOON) via the pluggable
+// This package adds knowing-specific codecs (binary, JSON) via the pluggable
 // registry and provides FromContextBlock for converting internal types to GCF payloads.
 package wire
 

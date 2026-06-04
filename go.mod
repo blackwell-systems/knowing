@@ -4,6 +4,7 @@ go 1.26.1
 
 require (
 	github.com/blackwell-systems/agent-lsp v0.11.2-0.20260518143556-2469d52998d6
+	github.com/blackwell-systems/gcf-go v0.0.0-20260603210758-19ccf8e071de
 	github.com/blackwell-systems/merkle-strata v0.4.0
 	github.com/coder/hnsw v0.6.1
 	github.com/fsnotify/fsnotify v1.10.1
@@ -12,7 +13,6 @@ require (
 	github.com/scip-code/scip/bindings/go/scip v0.7.1
 	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82
 	github.com/stretchr/testify v1.11.1
-	github.com/toon-format/toon-go v0.0.0-20251202084852-7ca0e27c4e8c
 	go.opentelemetry.io/proto/otlp v1.10.0
 	golang.org/x/mod v0.36.0
 	golang.org/x/tools v0.45.0
@@ -23,7 +23,6 @@ require (
 )
 
 require (
-	github.com/blackwell-systems/gcf-go v0.0.0-20260603210758-19ccf8e071de // indirect
 	github.com/chewxy/math32 v1.11.1 // indirect
 	github.com/daulet/tokenizers v1.27.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect

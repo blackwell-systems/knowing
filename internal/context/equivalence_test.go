@@ -128,3 +128,54 @@ func TestMatchEquivalenceClasses_PhraseCount(t *testing.T) {
 		t.Error("'command' + 'keybinding' (2 phrases) should be a strong match")
 	}
 }
+
+func TestIsTestFilePath(t *testing.T) {
+	tests := []struct {
+		qn   string
+		want bool
+	}{
+		// Go
+		{"repo://internal/context/context_test.go.TestFoo", true},
+		{"repo://internal/context/context.go.ForTask", false},
+
+		// Python
+		{"repo://django/tests/test_models.py.TestModel", true},
+		{"repo://tests/test_admin.py.TestAdmin", true},
+		{"repo://django/contrib/auth/models.py.User", false},
+
+		// TypeScript/JavaScript
+		{"repo://src/components/Button.test.tsx.ButtonTest", true},
+		{"repo://src/components/Button.spec.ts.describe", true},
+		{"repo://src/__tests__/utils.ts.TestUtil", true},
+		{"repo://src/components/Button.tsx.Button", false},
+
+		// Rust
+		{"repo://src/tests/integration.rs.test_foo", true},
+
+		// Ruby (Rails convention: test/ directory with .rb files)
+		{"repo://activerecord/test/models/developer.ThreadsafeDeveloper", true},
+		{"repo://activerecord/test/cases/scoping/named_scoping_test.rb.ScopeTest", true},
+		{"repo://actioncable/test/channel/base_test.rb.BaseTest", true},
+		{"repo://activerecord/lib/active_record/scoping/named.rb.scope", false},
+		{"repo://activerecord/lib/active_record/test_case.rb.TestCase", false},    // lib file named test_case, not in test/
+		{"repo://activerecord/lib/active_record/test_fixtures.rb.TestFixtures", false}, // lib file with "test" in name
+
+		// Java (Maven/Gradle: src/test/java/)
+		{"repo://streams/src/test/java/org/apache/kafka/streams/KafkaStreamsTest.java.KafkaStreamsTest", true},
+		{"repo://clients/src/main/java/org/apache/kafka/clients/consumer/Consumer.java.Consumer", false},
+
+		// C# (*.Tests/ project directories)
+		{"repo://test/Ocelot.UnitTests/Configuration/ConfigurationTest.cs.ConfigTest", true},
+		{"repo://src/Ocelot.AcceptanceTests/Steps.cs.Steps", true},
+		{"repo://src/Ocelot/Configuration/Creator.cs.Creator", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.qn, func(t *testing.T) {
+			got := isTestFilePath(tt.qn)
+			if got != tt.want {
+				t.Errorf("isTestFilePath(%q) = %v, want %v", tt.qn, got, tt.want)
+			}
+		})
+	}
+}
