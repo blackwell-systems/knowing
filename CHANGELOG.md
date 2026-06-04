@@ -32,7 +32,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- **P@10 = 0.321** (291 tasks, 16 repos, cold start, honest measurement). Up from 0.293 (300 tasks). Multi-phrase equiv gate fixed VSCODE_COMMAND flooding, fixture cleanup removed noise, code pattern extraction improved seed quality.
+- **P@10 = 0.320** (291 tasks, 16 repos, cold start, honest measurement, 3 runs: 0.321/0.318/0.320). Up from 0.293 (300 tasks). Multi-phrase equiv gate fixed VSCODE_COMMAND flooding, test file detection for Ruby/Java/C# (Rails +10.8%), fixture cleanup, code pattern extraction.
 - **Competitive ratios updated**: 3.69x codegraph, 5.84x GitNexus, 6.17x Gortex, 13.96x Aider, 21.4x grep.
 - **14 architecture docs audited and updated** (session 27): wire-formats.md, wire-formats-guide.md, context-packing.md, system-overview.md, introduction.md, retrieval-pipeline.md, design-principles.md, context-engine.md, embedding-reranker.md, adaptive-retrieval.md, data-flow.md, and guide docs. All verified against current codebase.
 
