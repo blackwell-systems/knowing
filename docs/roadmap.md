@@ -45,7 +45,7 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 
 | # | Item | Why | Effort | Expected Impact |
 |---|------|-----|--------|-----------------|
-| 5b | **Incremental RWR phase 2: per-package cache keys** | Phase 1 shipped (session 26). Phase 2: use per-package SubgraphRoots in cache keys so unchanged packages keep cached walks even when other packages change. Package roots already persisted (session 26). | Low | Latency refinement |
+| 5b | ~~**Incremental RWR phase 2: per-package cache keys**~~ | **SHIPPED (session 26).** `computeRWRCacheHash` includes per-package Merkle roots. Unchanged packages keep cached walks. See Shipped table. | - | - |
 | 6 | ~~**Delta context packing**~~ | **SHIPPED (session 27).** See Shipped table below. | - | - |
 | 10 | **AI-generated evaluation corpus** | LLM generates tasks + ground truth, DB-validated. Hybrid: hand-curated for regression, AI-generated for coverage. | Medium | Eval credibility |
 | 11 | **More equiv class coverage** | Message queues (RabbitMQ, Redis), cloud SDKs (AWS, GCP), build systems (Make, Gradle), observability (OpenTelemetry, Prometheus). | Ongoing | Incremental P@10 |
@@ -63,7 +63,7 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 | Fixture cleanup (17 removed) | 27-28 | 8 unresolvable ground truth + 9 ripgrep dependency crate fixtures. 308 -> 291 tasks. |
 | Delta context packing (#6) | 27 | Structural diff on pack_root mismatch. 81.2% token savings at 96.6% symbol overlap (re-query benchmark). `DiffPacks` + `EncodeDelta` + MCP wiring. `bench/delta-packing/` proves it. |
 | Cross-task vocab validation (#3a) | 26 | Django +41.4%, corpus 0.0% (safe). Noise filter, soft RRF, confidence weighting. Mechanism #13. |
-| Incremental RWR (#5) | 26 | Merkle-cached walks. Django cold 3.9s -> warm 1.9s (2x). Snapshot-hash cache keys, structural invalidation. P@10 correctness verified. `debug-rwr-cache` CLI. |
+| Incremental RWR (#5 + #5b) | 26 | Merkle-cached walks with per-package cache keys. `computeRWRCacheHash` includes per-package Merkle roots; unchanged packages keep cached walks. Django cold 3.9s -> warm 1.9s (2x). P@10 correctness verified. `debug-rwr-cache` CLI. |
 | Vocab association expiration (#3c) | 26 | Per-package Merkle roots. `persistPackageRoots` at index time, `LoadPackageRoots` + `PackageRootForSymbol` at query time. Both engine and MCP wired. Migration 022. |
 | Platform deploy (#8) | 26 | api.blackwell-systems.com live. SQLite key store, admin CLI (create/list/revoke), hardened systemd, Cloudflare Tunnel, firewall. $12/mo. |
 | Context packing benchmark | 26 | 4 strategies, 300 tasks. File-grouped tested negative (-10.8% P@10). Density-ranked confirmed optimal. |
