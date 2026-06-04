@@ -48,7 +48,17 @@ func main() {
 
 	// Open all DBs.
 	dbs := map[string]*sql.DB{}
-	repos := []string{"flask", "django", "cargo", "kubernetes", "vscode", "ocelot", "spark-java"}
+	// Auto-discover repos from corpus directory.
+	repoEntries, _ := os.ReadDir(filepath.Join(corpusDir, "repos"))
+	var repos []string
+	for _, entry := range repoEntries {
+		if entry.IsDir() {
+			dbPath := filepath.Join(corpusDir, "repos", entry.Name(), ".knowing", "graph.db")
+			if _, err := os.Stat(dbPath); err == nil {
+				repos = append(repos, entry.Name())
+			}
+		}
+	}
 	for _, repo := range repos {
 		dbPath := filepath.Join(corpusDir, "repos", repo, ".knowing", "graph.db")
 		db, err := sql.Open("sqlite", dbPath)
