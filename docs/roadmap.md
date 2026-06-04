@@ -50,7 +50,7 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 | 10 | **AI-generated evaluation corpus** | LLM generates tasks + ground truth, DB-validated. Hybrid: hand-curated for regression, AI-generated for coverage. | Medium | Eval credibility |
 | 11 | **More equiv class coverage** | Message queues (RabbitMQ, Redis), cloud SDKs (AWS, GCP), build systems (Make, Gradle), observability (OpenTelemetry, Prometheus). | Ongoing | Incremental P@10 |
 | 12 | **Zero-task audit cycle** | 57 zero-scoring tasks (19.6%). 80% noise (wrong neighborhood), 10.5% related_name (right concept, wrong sibling), 8.6% test symbols. Django 13 zeros, Rails 6, VS Code 5. Each cracked zero adds ~0.003 to aggregate. | Medium | +0.01-0.02 P@10 |
-| 13 | **Sibling ranking by blast radius** | 54 related_name misses across zeros: right concept area, wrong sibling (e.g., `NullPool.checkin` instead of `ConnectionPool.checkin`). When multiple symbols from the same class/module match, prefer the one with more callers. | Low | Flips some related_name misses |
+| 13 | ~~**Sibling ranking by blast radius**~~ | **TESTED HARMFUL (session 28).** Both global and package-scoped leaf-name dedup regressed aggregate (-0.009 and -0.006). Common names too frequent within packages. See Tested Neutral/Harmful table. | - | - |
 | 15 | **More framework-using repos** | Add a Flask app, Rails app, Spring Boot service. Improves eval credibility. | Medium | Eval credibility |
 | 16 | **Extract benchmark to standalone repo (CRET)** | Session 26 audit: 18 files clean, 5 trivial decouples, ~2 hours. Context packing benchmark also extractable. | Low | Credibility |
 
@@ -84,6 +84,7 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 
 | Approach | Result | Session | Details |
 |----------|--------|---------|---------|
+| **Sibling dedup by leaf name** (global and package-scoped) | Harmful | 28 | Penalize duplicate method/field names in ranked results. Global: -0.009 (0.311 vs 0.320). Package-scoped (same directory): -0.006 (0.314 vs 0.320). Common names (Close, String, Error, Init) appear legitimately across unrelated types within the same package. Rails improved (+10.8%) but other repos regressed more. The 54 related_name misses are too rare to justify a universal penalty. |
 | **File-grouped packing** | Harmful | 26 | Packing benchmark showed +15% GT coverage via substring matching, but P@10 dropped -10.8% on Django. Budget wasted on low-value siblings from same file. Density-ranked remains optimal. |
 | **Proximity-weighted scoring** (BFS distance in ranking) | Neutral/Harmful | 24 | BFS hop distance from seeds as ranking component. P@10 0.278 on full corpus (neutral). On enriched saleor: 0.182 vs 0.200 without (slightly harmful). Problem is packing, not scoring. |
 | **Task memory compounding** (keyword -> symbol recall) | Neutral | 24 | Django 5 rounds: P@10 0.194, 0.189, 0.197, 0.194, 0.192 (-0.3%). Previous "+11.5% round-over-round" was stale accumulated entries. Memory records (keywords -> top-5 symbols) but pipeline already finds those symbols. Boost is redundant. |
