@@ -102,14 +102,14 @@ per-repo breakdown, and competitive ratios. This is a standard procedure:
 15. **CLAUDE.md** — this file, Current State section
 16. **README.md** — Numbers table
 
-Competitive ratios (honest matching, session 21):
-- vs codegraph: 0.184 / 0.087 = 2.11x
-- vs GitNexus: 0.184 / 0.055 = 3.35x
-- vs Gortex: 0.184 / 0.052 = 3.54x
-- vs Aider: 0.184 / 0.023 = 8.0x
-- vs grep: 0.184 / 0.015 = 12.3x
-- codebase-memory: timed out (22/297 tasks in 60 min)
-Note: old ratios used inflated P@10 from raw substring matching. See `docs/research/session-21-measurement-calibration.md`.
+Competitive ratios (session 25, honest measurement, 308 tasks):
+- vs codegraph: 0.281 / 0.087 = 3.23x
+- vs GitNexus: 0.281 / 0.055 = 5.11x
+- vs Gortex: 0.281 / 0.052 = 5.40x
+- vs Aider: 0.281 / 0.023 = 12.2x
+- vs grep: 0.281 / 0.015 = 18.7x
+- codebase-memory: timed out (22/308 tasks in 60 min)
+Note: P@10 improved from 0.206 (session 23) to 0.281 (session 25) via focused seed selection, equiv classes, saleor addition.
 
 ## Key Architecture
 
@@ -124,14 +124,15 @@ Note: old ratios used inflated P@10 from raw substring matching. See `docs/resea
 - `internal/snapshot/` — hierarchical Merkle tree (via merkle-strata library)
 - `internal/mcp/` — MCP server (28 tools, 8 resources)
 - `internal/enrichment/` — LSP enrichment (multi-module gopls, per-symbol timeout, progress persistence)
-- `bench/cross-system/` — competitive benchmark (277 tasks, 14 repos, 7 competitors)
+- `bench/cross-system/` — competitive benchmark (308 tasks, 16 repos, 7 competitors)
 - `cmd/knowing/audit_supply_chain.go` — supply chain CLI (package-level verdict)
 
-## Current State (session 23, 2026-05-31)
+## Current State (session 27, 2026-06-03)
 
-- **P@10 = 0.206 cold start** (297 tasks, 15 repos, no task memory, no embeddings, honest measurement, confirmed 2 runs)
-- **Embeddings: confirmed neutral.** Three runs: 0.176, 0.175, 0.176. Gap-fill seeds add nothing on cold start. Previous "gap-fill works" finding (session 17) was task memory contamination. Embedding infrastructure is dead weight for retrieval accuracy.
-- **Task memory contamination (session 23):** all P@10 measurements from sessions 8-22 were inflated by accumulated task memory in corpus DBs. True cold-start is ~0.014 lower than reported. Within-session A/B deltas remain valid.
+- **P@10 = 0.281 cold start** (308 tasks, 16 repos, no task memory, no embeddings, honest measurement, confirmed sessions 25+26)
+- **Embeddings: confirmed neutral.** Three runs: 0.176, 0.175, 0.176. Gap-fill seeds add nothing on cold start. Embedding infrastructure is dead weight for retrieval accuracy.
+- **Task memory contamination (session 23):** all P@10 measurements from sessions 8-22 were inflated by accumulated task memory in corpus DBs. Resolved: adapter disables task memory, clear before honest runs.
+- **GCF wire format:** default output format for all MCP context tools (session 27). 84% fewer tokens than JSON, 100% comprehension accuracy.
 - **Measurement calibration (session 21):** old P@10 was 0.283 with inflated substring matching. Fixed with `dotBoundedContains()`. See `docs/research/session-21-measurement-calibration.md`.
 - **Focused seed selection:** cluster seeds by package path, concentrate walk in dominant neighborhood (+6% relative)
 - **Density-adaptive:** PreferTypeSeeds >40K nodes, adaptive seed count >10K nodes

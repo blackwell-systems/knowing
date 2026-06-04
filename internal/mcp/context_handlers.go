@@ -246,11 +246,15 @@ func formatBlock(ctx context.Context, block *knowingctx.ContextBlock, format, to
 			return "", fmt.Errorf("building wire payload: %w", err)
 		}
 		return wire.EncodeWith(format, payload)
-	case "xml", "markdown", "":
-		if format == "" {
-			format = "xml"
-		}
+	case "xml", "markdown":
 		return knowingctx.FormatContextBlock(block, format)
+	case "":
+		// Default to GCF (84% fewer tokens, 100% comprehension accuracy)
+		payload, err := wire.FromContextBlock(ctx, block, tool, s.store)
+		if err != nil {
+			return "", fmt.Errorf("building wire payload: %w", err)
+		}
+		return wire.EncodeWithSession(payload, s.session), nil
 	default:
 		return "", fmt.Errorf("unknown format %q (available: gcf, gcb, json, xml, markdown)", format)
 	}
@@ -371,7 +375,7 @@ func contextForTaskTool() mcp.Tool {
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithString("task_description", mcp.Required(), mcp.Description("Description of the task to generate context for (e.g. add caching to the user lookup endpoint)"), Examples("add caching to the user lookup endpoint")),
 		mcp.WithInteger("token_budget", mcp.Description("Maximum token budget for the context block (default 50000)")),
-		mcp.WithString("format", mcp.Description("Output format: gcf (compact graph-native, 75%+ token savings), gcb (binary), json, xml (default), markdown"), Examples("gcf")),
+		mcp.WithString("format", mcp.Description("Output format: gcf (default, compact graph-native, 84% token savings), gcb (binary), json, xml, markdown"), Examples("gcf")),
 		mcp.WithString("pack_root", mcp.Description("PackRoot from a prior context_for_task call (64-char hex). If the current result has the same PackRoot, returns 'unchanged' instead of resending context."), Examples("a1b2c3d4e5f6...")),
 	)
 }
@@ -403,6 +407,6 @@ func contextForFilesTool() mcp.Tool {
 		mcp.WithString("files", mcp.Required(), mcp.Description("Comma-separated list of changed file paths relative to repo root (e.g. internal/mcp/handlers.go,internal/store/sqlite.go)"), Examples("internal/mcp/handlers.go,internal/store/sqlite.go")),
 		mcp.WithString("repo_url", mcp.Description("Repository URL for resolving file hashes (e.g. https://github.com/org/repo)"), Examples("https://github.com/org/repo")),
 		mcp.WithInteger("token_budget", mcp.Description("Maximum token budget for the context block (default 50000)")),
-		mcp.WithString("format", mcp.Description("Output format: gcf (compact graph-native, 75%+ token savings), gcb (binary), json, xml (default), markdown"), Examples("gcf")),
+		mcp.WithString("format", mcp.Description("Output format: gcf (default, compact graph-native, 84% token savings), gcb (binary), json, xml, markdown"), Examples("gcf")),
 	)
 }

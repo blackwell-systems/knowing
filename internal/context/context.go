@@ -1882,6 +1882,22 @@ func extractKeywordSet(desc string) KeywordSet {
 		}
 	}
 
+	// Phase 1.5: Code pattern extraction (conservative).
+	// Only fires on unambiguous code references to avoid injecting noise.
+	// Requires: parens (method call) OR uppercase.lowercase_or_camel (class ref).
+	codePatterns := extractCodePatterns(desc)
+	for _, cp := range codePatterns {
+		if !seen[cp] {
+			seen[cp] = true
+			ks.Compounds = append(ks.Compounds, cp)
+		}
+		lower := strings.ToLower(cp)
+		if lower != cp && !seen[lower] {
+			seen[lower] = true
+			ks.Compounds = append(ks.Compounds, lower)
+		}
+	}
+
 	// Phase 2: Standard word extraction.
 	words := strings.Fields(desc)
 	var priorityTerms []string
@@ -2348,6 +2364,113 @@ func hasMixedCase(s string) bool {
 }
 
 // splitIdentifier splits a CamelCase or snake_case identifier into component words.
+// extractCodePatterns detects unambiguous code references in task descriptions.
+// Conservative: only fires when the pattern is clearly code, not prose.
+//
+// Fires on:
+//   - Method calls with parens: .delete(), get_inlines(), QuerySet.annotate()
+//   - Class.method dotted paths where left side starts uppercase: ModelAdmin.get_inlines
+//   - Dotted paths with underscore on either side: django.utils.html.escape
+//
+// Does NOT fire on:
+//   - Prose abbreviations: e.g., i.e., etc.
+//   - Version numbers: 3.9, 2.0
+//   - Generic lowercase dotted words without underscore: foo.bar
+func extractCodePatterns(desc string) []string {
+	var results []string
+	seen := make(map[string]bool)
+
+	add := func(s string) {
+		if s != "" && !seen[s] && len(s) >= 3 && len(s) <= 100 {
+			seen[s] = true
+			results = append(results, s)
+		}
+	}
+
+	words := strings.Fields(desc)
+	for _, w := range words {
+		// Strip trailing punctuation but preserve dots and parens initially.
+		w = strings.TrimRight(w, ",;:!?\"'`]}")
+		w = strings.TrimLeft(w, "\"'`([{")
+
+		// Detect method call: word ends with ()
+		hasParens := strings.HasSuffix(w, "()")
+		if hasParens {
+			w = w[:len(w)-2]
+		}
+
+		// Strip leading dot (e.g., ".delete()")
+		w = strings.TrimLeft(w, ".")
+
+		if w == "" || len(w) < 3 {
+			continue
+		}
+
+		// Reject version numbers and prose abbreviations.
+		// Version numbers: all digits and dots (e.g., "3.9", "10.15.4")
+		if isVersionOrAbbrev(w) {
+			continue
+		}
+
+		hasDot := strings.Contains(w, ".")
+		hasUnderscore := strings.Contains(w, "_")
+
+		// Rule 1: Has parentheses → definitely a method/function call.
+		if hasParens {
+			add(w)
+			if hasDot {
+				parts := strings.Split(w, ".")
+				add(parts[len(parts)-1]) // method name
+			}
+			continue
+		}
+
+		// Rule 2: Dotted path where left side starts with uppercase (Class.method pattern).
+		// e.g., "ModelAdmin.get_inlines", "Collector.can_fast_delete", "QuerySet.annotate"
+		if hasDot {
+			parts := strings.Split(w, ".")
+			if len(parts) >= 2 && len(parts[0]) > 0 && parts[0][0] >= 'A' && parts[0][0] <= 'Z' {
+				add(w)
+				last := parts[len(parts)-1]
+				add(last)
+				continue
+			}
+			// Rule 3: Dotted path with underscore on either side (module.snake_case).
+			// e.g., "django.utils.html.escape" (has dot + meaningful structure)
+			if hasUnderscore {
+				add(w)
+				parts := strings.Split(w, ".")
+				add(parts[len(parts)-1])
+				continue
+			}
+			// Skip generic dotted words (e.g., "foo.bar", "i.e", "e.g")
+			continue
+		}
+
+		// No dot, no parens: skip. The standard Phase 2 word extraction handles these.
+	}
+
+	return results
+}
+
+// isVersionOrAbbrev returns true if the string looks like a version number (3.9, 10.15)
+// or a common prose abbreviation (e.g, i.e, etc, vs).
+func isVersionOrAbbrev(s string) bool {
+	// Common abbreviations
+	lower := strings.ToLower(s)
+	switch lower {
+	case "e.g", "i.e", "etc", "vs", "eg", "ie":
+		return true
+	}
+	// Version numbers: only digits and dots
+	for _, c := range s {
+		if c != '.' && (c < '0' || c > '9') {
+			return false
+		}
+	}
+	return true
+}
+
 func splitIdentifier(s string) []string {
 	// Handle snake_case.
 	if strings.Contains(s, "_") {
