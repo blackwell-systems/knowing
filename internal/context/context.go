@@ -792,7 +792,14 @@ func (e *ContextEngine) ForTask(ctx stdctx.Context, opts TaskOptions) (*ContextB
 				// regular equiv channel: it competes with other signals rather
 				// than overriding them. Learned associations are lower confidence
 				// (automatic, may have within-repo keyword collisions).
-				if m.weight >= 0.9 && m.class.Source == "framework" {
+				//
+				// Multi-phrase gate: require either >= 2 phrases matched from the
+				// class, or the matched phrase is multi-word. This prevents single
+				// generic words (e.g., "command") from triggering framework injection
+				// that floods the top-10 with framework hubs. Multi-word phrases
+				// ("command palette") or co-occurring phrases ("command" + "keybinding")
+				// still trigger injection as intended.
+				if m.weight >= 0.9 && m.class.Source == "framework" && isStrongEquivMatch(m) {
 					frameworkInjections = append(frameworkInjections, n)
 				}
 				if equivSeen[n.NodeHash] {

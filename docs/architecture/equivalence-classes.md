@@ -61,9 +61,14 @@ Each field serves a distinct purpose:
   language-specific carry 0.8, graph-derived carry 0.7.
 - **Source**: Tracks provenance and determines injection behavior.
   Values: `"seed"`, `"framework"`, `"universal"`, `"language"`, `"graph"`,
-  `"learned"`. Classes with `Source == "framework"` AND `Weight >= 0.9`,
-  
-  bypass RWR scoring and inject directly into ranked results (forced injection). Learned vocab goes through RRF competition (soft injection).
+  `"learned"`. Classes with `Source == "framework"` AND `Weight >= 0.9`
+  AND passing the multi-phrase gate (`isStrongEquivMatch`) bypass RWR
+  scoring and inject directly into ranked results (forced injection).
+  The multi-phrase gate requires either >= 2 phrases matched from the class,
+  or the single matched phrase is multi-word. This prevents single generic
+  words (e.g., "command") from triggering framework injection that floods
+  results with framework hub symbols. Learned vocab goes through RRF
+  competition (soft injection).
 - **Lang**: Language scope. When non-empty, the class only fires on repos
   where `detectRepoLanguage()` returns a matching language. Prevents
   cross-language false positives (Go router classes on C# repos).
@@ -146,9 +151,17 @@ There are currently **263 framework-specific classes** covering:
 
 Framework classes carry weight 0.9 and source `"framework"`. This triggers
 **forced injection**: matched symbols bypass RWR scoring and inject directly
-at the top of the ranked results. This is the mechanism that solves the
-vocabulary gap: when the task says "custom validator" but the symbol is
-`EmailValidator`, BM25 can't find it, but the equiv class maps directly.
+at the top of the ranked results, subject to the **multi-phrase gate**
+(`isStrongEquivMatch` in `equivalence.go`). The gate requires either >= 2
+phrases matched from the class, or the single matched phrase is multi-word.
+This prevents single generic words (e.g., "command" triggering
+VSCODE_COMMAND) from flooding the top-10 with framework infrastructure
+symbols. Multi-word phrases ("command palette") or co-occurring phrases
+("command" + "keybinding") still trigger injection as intended.
+
+This is the mechanism that solves the vocabulary gap: when the task says
+"custom validator" but the symbol is `EmailValidator`, BM25 can't find it,
+but the equiv class maps directly.
 
 Each class has a `Lang` field restricting it to matching repos.
 `detectRepoLanguage()` samples node QNs to determine the primary language.
@@ -158,7 +171,9 @@ This prevents Go router classes from firing on C# repos.
 mapping appear in the framework's official documentation or tutorials?"
 Application-specific internals are rejected as curve-fitting.
 
-**Measured impact (session 23):** P@10 0.176 -> 0.278 (+57%).
+**Measured impact:** P@10 0.176 -> 0.278 (+57%, session 23). Multi-phrase
+gate: P@10 0.293 -> 0.321 (+9.6%, session 28; VS Code tasks were the
+primary beneficiary).
 
 ### Layer 4: Language-specific classes (vocabulary bridging, weight 0.8)
 

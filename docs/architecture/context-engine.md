@@ -2,7 +2,7 @@
 
 The context packing subsystem (`internal/context/`) produces token-budgeted, graph-ranked context blocks for agent consumption. It answers: "given a task or a set of changed files, which symbols from the knowledge graph should an agent see?" Three entry points exist: task-based (`ForTask`, keyword search from a description), file-based (`ForFiles`, blast-radius expansion from changed files), and PR-based (`ForPR`, RWR from all symbols in changed files). A fourth entry point, `ExplainSymbol`, runs the full retrieval pipeline and returns a detailed scoring breakdown for a specific symbol.
 
-**Current performance:** P@10 = 0.293 cold start (16 repos, 300 tasks, 8 languages, honest: no task memory, no embeddings). 13 self-adapting mechanisms. LSP edge attenuation (0.3x for lsp_resolved). Per-cluster implicit feedback with vocabulary expansion from usage. FTS fallback decomposition for compound keywords. Query latency 2ms on k8s (with adjacency cache). P@10 is reachability-determined (parameter sweep confirmed) + vocabulary-determined (framework equiv classes + learned vocab bridge the gap).
+**Current performance:** P@10 = 0.321 cold start (16 repos, 291 tasks, 8 languages, honest: no task memory, no embeddings). 13 self-adapting mechanisms. LSP edge attenuation (0.3x for lsp_resolved). Per-cluster implicit feedback with vocabulary expansion from usage. FTS fallback decomposition for compound keywords. Multi-phrase equiv gate. Code pattern keyword extraction. Query latency 2ms on k8s (with adjacency cache). P@10 is reachability-determined (parameter sweep confirmed) + vocabulary-determined (framework equiv classes + learned vocab bridge the gap).
 
 ## Architecture
 
@@ -103,7 +103,7 @@ Seed selection uses Reciprocal Rank Fusion (`rrfFuseMulti`) across five channels
 | 1. Tiered keyword matching | 2.0 | 4-tier compound-first: exact > prefix > substring > path (interface seeding is a separate post-RRF step) |
 | 2. BM25 FTS5 | 2.0 | SQLite FTS5 over 6 columns: symbol_name (10x), concepts (5x), file_path (4x), qualified_name (3x), doc (3x), signature (1x) |
 | 3. Vector/embedding search | 0.0 | Confirmed neutral on cold start (session 23, 3 runs identical). Disabled. |
-| 4. Equivalence class matching | 2.0 | 263 equivalence classes (30 framework files + universal + seed). Framework classes (weight 0.9) also trigger forced injection post-RWR. |
+| 4. Equivalence class matching | 2.0 | 263 equivalence classes (30 framework files + universal + seed). Framework classes (weight 0.9) trigger forced injection post-RWR, gated by `isStrongEquivMatch` (multi-phrase or multi-word phrase required). |
 | 5. Path-context seeding | 1.5 | Extracts package/directory terms from task, finds type nodes in matching packages, injects as supplemental RWR seeds at weight 0.3 |
 
 The `rrfFuseMulti` function handles N channels with per-channel weights, producing a single ranked seed set. When the fused set contains fewer than 5 candidates (threshold configurable via `BENCH_GAP_THRESHOLD`), gap-fill seeds supplement the channels by querying the embedding vector store for semantically similar symbols. This targets vocabulary gaps where ground truth shares no keywords with the task description. Impact: Django +43%, flask +22%, zero regressions. After RRF fusion (and gap-fill if triggered), interface-aware seeding adds all implementors of any interface/type in the candidate set as additional seeds. The path channel receives lower weight (1.5x) because it is valuable for bridging concepts to packages but less precise than name-matching channels.
@@ -208,7 +208,7 @@ After scoring, symbols from test files receive a 0.3x penalty via `isTestFilePat
 | Field | Source | Purpose |
 |-------|--------|---------|
 | `Exact` | Backtick-quoted identifiers (e.g., `` `before_request` ``) | Explicit symbol references; highest specificity |
-| `Compounds` | Multi-part identifiers detected by structure (snake_case, CamelCase, dotted), verb-pattern targets, and bigram joins from adjacent words | Preserve compound semantics; prevent component drowning |
+| `Compounds` | Multi-part identifiers detected by structure (snake_case, CamelCase, dotted), code patterns from `extractCodePatterns` (method calls, Class.method paths, dotted paths with underscores), verb-pattern targets, and bigram joins from adjacent words | Preserve compound semantics; prevent component drowning |
 | `Components` | Individual words from identifier splitting, abbreviation expansions, priority terms | Fallback when compounds yield insufficient results |
 
 The `Primary()` method returns `Exact + Compounds`; `All()` returns all three tiers in priority order. `tieredSearchSet` queries primary keywords first through exact/prefix tiers, only falling back to components when fewer than 5 results are found from compounds.
@@ -217,7 +217,7 @@ Bigram generation joins adjacent non-stop-words into both CamelCase and snake_ca
 
 ## ForTask Flow
 
-1. Extract structured keywords via `extractKeywordSet` (backtick detection, stop-word filtering, CamelCase split, compound preservation, bigram generation).
+1. Extract structured keywords via `extractKeywordSet` (backtick detection, code pattern detection, stop-word filtering, CamelCase split, compound preservation, bigram generation).
 2. Check caches: first the in-memory SubgraphCache, then the persistent `notes` table (migration 012) keyed by task hash; return immediately if snapshot hash matches (staleness detection).
 3. Run 5-channel RRF seed fusion:
    - Channel 1 (weight 2.0): 4-tier compound-first keyword matching (exact > prefix > substring > path)

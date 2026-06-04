@@ -14,7 +14,7 @@ the precision degradation that affects every static retrieval system at scale.
 This document is the authoritative reference for how the context engine finds and ranks
 symbols. It supersedes `context-packing.md`.
 
-**Current eval baseline:** Cross-system benchmark (300 tasks, 16 repos, 8 languages): P@10=0.293 cold start. 13 self-adapting mechanisms. LSP edge attenuation (0.3x for lsp_resolved). Per-cluster implicit feedback with vocabulary expansion from usage. FTS fallback decomposition for compound keywords. Adaptive proximity exponent. Change-aware scoring via git blame.
+**Current eval baseline:** Cross-system benchmark (291 tasks, 16 repos, 8 languages): P@10=0.321 cold start. 13 self-adapting mechanisms. LSP edge attenuation (0.3x for lsp_resolved). Per-cluster implicit feedback with vocabulary expansion from usage. FTS fallback decomposition for compound keywords. Multi-phrase equiv gate. Code pattern keyword extraction. Adaptive proximity exponent. Change-aware scoring via git blame.
 
 ## Pipeline Overview
 
@@ -79,7 +79,7 @@ retrieval: higher-specificity keywords are queried before lower-specificity fall
 | Tier | Source | Purpose |
 |------|--------|---------|
 | **Exact** | Backtick-quoted identifiers (e.g., `` `before_request` ``) | Explicit symbol references from the user |
-| **Compounds** | snake_case, CamelCase, dotted identifiers + bigram-generated compounds | Multi-part identifiers with high specificity |
+| **Compounds** | snake_case, CamelCase, dotted identifiers, code patterns, bigram-generated compounds | Multi-part identifiers with high specificity |
 | **Components** | Individual words split from identifiers, abbreviation expansions, priority terms | Fallback when compounds yield insufficient results |
 
 ### Extraction steps
@@ -89,6 +89,24 @@ retrieval: higher-specificity keywords are queried before lower-specificity fall
 Backtick-delimited text (e.g., `` `before_request` ``) is extracted as explicit symbol
 references. Only valid identifiers are accepted (no spaces, <= 100 chars). Both original
 case and lowercase variant are added.
+
+**Phase 1.5: Code pattern detection (Compounds tier)**
+
+`extractCodePatterns` (`context.go`) detects unambiguous code references in the task
+description and adds them to Compounds before standard word extraction. Conservative:
+only fires on patterns that are clearly code, not prose.
+
+Fires on:
+- Method calls with parens: `.delete()`, `get_inlines()`, `QuerySet.annotate()`
+- Class.method dotted paths where left side starts uppercase: `ModelAdmin.get_inlines`
+- Dotted paths with underscore on either side: `django.utils.html.escape`
+
+Does NOT fire on:
+- Prose abbreviations: e.g., i.e., etc.
+- Version numbers: 3.9, 2.0
+- Generic lowercase dotted words without underscore: `foo.bar`
+
+Both original case and lowercase variants are added.
 
 **Phase 2: Standard word extraction (Compounds + Components)**
 
@@ -570,6 +588,13 @@ vocabulary gap for framework concepts where BM25 and graph walks can't bridge
 natural language to symbol names. 263 classes across 30 per-framework files.
 Impact: P@10 0.176 -> 0.278 (+57%).
 On by default; disable with `BENCH_FOCUSED_SEEDS=0`.
+
+**Session 28 addition: multi-phrase gate.** Framework injection now requires
+`isStrongEquivMatch`: either >= 2 phrases matched from the class, or the single
+matched phrase is multi-word. This prevents single generic words (e.g., "command"
+triggering VSCODE_COMMAND) from flooding the top-10 with framework hub symbols.
+The `equivalenceMatch` struct tracks all matched phrases (`phrases []string`) and
+count (`phraseCount int`). Impact: P@10 0.293 -> 0.321 (+9.6%).
 
 **Session 26 addition: learned vocab with soft injection.** Vocabulary associations
 learned from agent usage (keyword -> symbol, count >= 2) go through RRF competition

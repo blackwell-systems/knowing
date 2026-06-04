@@ -46,7 +46,7 @@ The learning loop is fully operational. Five components form a self-reinforcing 
 
 An agent receives a task: "fix the bug in context ranking." The `context_for_task` MCP tool runs the full retrieval pipeline: 5-channel RRF seed fusion, Random Walk with Restart, HITS reranking, 13 self-adapting mechanisms. Returns ranked, token-budgeted context.
 
-P@10 = 0.293 cold start (300 tasks, 16 repos). 3.23x more precise than codegraph, 18.7x more precise than grep.
+P@10 = 0.321 cold start (291 tasks, 16 repos). 3.69x more precise than codegraph, 21.4x more precise than grep.
 
 ### 3.2 Work (agent uses context, modifies code)
 
@@ -203,7 +203,7 @@ The unique combination: learning that is **persistent** (survives across session
 
 | Metric | Value | Source |
 |--------|-------|--------|
-| Cold-start P@10 | 0.293 (300 tasks, 16 repos, 8 languages) | Cross-system benchmark |
+| Cold-start P@10 | 0.321 (291 tasks, 16 repos, 8 languages) | Cross-system benchmark |
 | Cross-task vocab lift (Django) | +41.4% | TestCrossTaskVocab |
 | Cross-task vocab lift (full corpus) | 0.0% aggregate (safe) | TestCrossTaskVocab |
 | 10-round P@10 compounding | 0.277 -> 0.283 peak (+2.2%) | TestCompounding (300 tasks) |

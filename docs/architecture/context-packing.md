@@ -56,7 +56,7 @@ Three entry points exist:
 ## The Keyword Extraction Pipeline
 
 The `extractKeywordSet` function (`context.go`) converts a free-text task description into
-a structured `KeywordSet`. The pipeline has three phases:
+a structured `KeywordSet`. The pipeline has four phases:
 
 **Phase 1: Backtick-quoted identifiers (Exact tier)**
 
@@ -64,6 +64,16 @@ Scan the description for backtick-quoted spans (e.g., `` `buildPythonImportMap` 
 are extracted verbatim as Exact keywords without splitting, filtering, or expansion. They
 receive the highest search priority. A lowercase variant is also added when different from
 the original.
+
+**Phase 1.5: Code pattern detection (Compounds tier)**
+
+`extractCodePatterns` detects unambiguous code references in the task description before
+standard word extraction. Conservative: only fires on patterns that are clearly code.
+Fires on method calls with parens (`.delete()`, `QuerySet.annotate()`), Class.method
+dotted paths where the left side starts uppercase (`ModelAdmin.get_inlines`), and dotted
+paths with underscores on either side (`django.utils.html.escape`). Does not fire on
+prose abbreviations (e.g., i.e.), version numbers (3.9), or generic lowercase dotted
+words without underscores. Both original case and lowercase variants are added to Compounds.
 
 **Phase 2: Standard word extraction (Compounds and Components tiers)**
 
@@ -280,7 +290,7 @@ merges ranked lists from all channels into a single seed set:
 | 1. Tiered keyword matching | 2.0 | 4-tier exact/prefix/substring/path matching (compound-first) |
 | 2. BM25 FTS5 | 2.0 | SQLite FTS5 over 6 columns: symbol_name (10x), concepts (5x), file_path (4x), qualified_name (3x), doc (3x), signature (1x). Includes concept thesaurus expansion (~80 domain clusters) for keyword broadening. |
 | 3. Vector/embedding search | 0.0 | BGE-small-en-v1.5 via HNSW (disabled pending code-tuned model) |
-| 4. Equivalence class matching | 2.0 | 263 equivalence classes (30 framework files + universal + seed) with forced injection for high-confidence framework matches |
+| 4. Equivalence class matching | 2.0 | 263 equivalence classes (30 framework files + universal + seed) with forced injection for high-confidence framework matches (gated by `isStrongEquivMatch`: multi-phrase or multi-word phrase required) |
 | 5. Path-context seeding | 1.5 | Extracts package/directory terms from task, finds type nodes in matching packages, injects as supplemental RWR seeds at weight 0.3 |
 
 ### BM25 Full-Text Search (Channel 2)

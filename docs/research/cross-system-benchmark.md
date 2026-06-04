@@ -20,7 +20,7 @@
 | Evaluation corpus (15 repos) | Done | kubernetes, VS Code, flask, cargo, django, spark-java, ocelot, kafka, caddy, fastapi, ripgrep, jekyll, terraform, homebrew, rails |
 | Task fixtures (297 total) | Done | 8 languages (Go, Python, TypeScript, Rust, Java, C#, Ruby, TOML) |
 | Ground truth validation | Done | 99% match rate, validate-fixtures tool |
-| knowing adapter | Done | P@10=0.278 (session 23, honest: no task memory, no embeddings), 263 framework equiv classes with forced injection |
+| knowing adapter | Done | P@10=0.321 (session 28, honest: no task memory, no embeddings), 263 framework equiv classes with multi-phrase gate |
 | grep adapter | Done | P@10=0.015 (baseline, honest matching) |
 | codegraph adapter | Done | P@10=0.087 (honest matching), 118/297 tasks |
 | GitNexus adapter | Done | P@10=0.055 (honest matching), 77/297 tasks |

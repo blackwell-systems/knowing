@@ -170,7 +170,7 @@ At runtime, framework-specific classes with high confidence (weight >= 0.9, sour
 
 **Defensibility criterion:** Every framework equiv class must pass: "would this mapping appear in the framework's official documentation or tutorials?" Classes for application-specific internals are rejected as curve-fitting. Learned vocab classes are validated by repeated agent usage (count >= 2 threshold).
 
-**Measured impact (session 23):** P@10 0.176 -> 0.278 (+57%). Terraform +238%, Django +126%, Kafka +81%, VS Code +354%. Session 25 added FTS fallback decomposition (+4.6% Django), LSP edge attenuation (enriched saleor +19.8%), and per-cluster feedback (R@10 +5.2%, MRR +12.6% compounding). Current: P@10 = 0.293.
+**Measured impact (session 23):** P@10 0.176 -> 0.278 (+57%). Terraform +238%, Django +126%, Kafka +81%, VS Code +354%. Session 25 added FTS fallback decomposition (+4.6% Django), LSP edge attenuation (enriched saleor +19.8%), and per-cluster feedback (R@10 +5.2%, MRR +12.6% compounding). Session 28 added multi-phrase equiv gate (preventing single-word framework injection flooding) and code pattern keyword extraction. Current: P@10 = 0.321.
 
 ## Density-Adaptive Retrieval
 
@@ -190,7 +190,7 @@ The retrieval pipeline uses 5 independent seed channels fused with Reciprocal Ra
 
 After RRF fusion, **focused seed selection** clusters candidates by package path and promotes the largest cluster to the front (+6.0% P@10).
 
-After RWR scoring, **framework injection** inserts high-confidence equivalence class matches directly into the ranked results, bypassing RWR scores. This solves the vocabulary gap where BM25 and graph walks can't bridge natural language to symbol names.
+After RWR scoring, **framework injection** inserts high-confidence equivalence class matches directly into the ranked results, bypassing RWR scores. Injection is gated by `isStrongEquivMatch`: either >= 2 phrases matched from the class, or the single matched phrase is multi-word. This prevents single generic words (e.g., "command") from flooding results with framework infrastructure symbols. This solves the vocabulary gap where BM25 and graph walks can't bridge natural language to symbol names.
 
 On massive repos (>200K nodes), **adaptive retrieval** detects flat RWR results and falls back to direct FTS + contains-edge expansion.
 

@@ -7,9 +7,9 @@ automatically. This is the project's central thesis: a code retrieval system tha
 adapts to its graph outperforms any fixed-strategy system, and the gap widens with
 scale.
 
-**Current result:** P@10 = 0.293 cold start (300 tasks, 16 repos, 8 languages,
-honest measurement: no task memory, no embeddings). 3.23x codegraph, 5.11x
-GitNexus, 5.40x Gortex, 12.2x Aider, 18.7x grep.
+**Current result:** P@10 = 0.321 cold start (291 tasks, 16 repos, 8 languages,
+honest measurement: no task memory, no embeddings). 3.69x codegraph, 5.84x
+GitNexus, 6.17x Gortex, 13.96x Aider, 21.4x grep.
 
 ## The Problem with Fixed-Strategy Retrieval
 
@@ -78,11 +78,14 @@ across 263 equivalence classes in 30 per-framework files. When a task says
 `KafkaConsumer`, `ConsumerRecord` in Kafka.
 
 High-confidence matches (weight >= 0.9, source "framework") bypass RWR
-scoring and inject directly at the top of the ranked results (forced injection).
-Learned vocab (source "learned") goes through RRF competition instead (soft
-injection). This solves the vocabulary gap for framework concepts where BM25
-and graph walks fail, while preventing learned associations from displacing
-correct results on tasks with good BM25 coverage.
+scoring and inject directly at the top of the ranked results (forced injection),
+subject to the multi-phrase gate (`isStrongEquivMatch`): either >= 2 phrases
+matched or the single phrase is multi-word. This prevents single generic words
+(e.g., "command" triggering VSCODE_COMMAND) from flooding the top-10 with
+framework hub symbols. Learned vocab (source "learned") goes through RRF
+competition instead (soft injection). This solves the vocabulary gap for
+framework concepts where BM25 and graph walks fail, while preventing learned
+associations from displacing correct results on tasks with good BM25 coverage.
 
 **Coverage:** Django, Flask, FastAPI, Terraform, Kubernetes, Kafka, Rails,
 Spring, ASP.NET, Ocelot, Caddy, Cargo, Spark-Java, VS Code, NestJS, Next.js,
@@ -364,6 +367,8 @@ available measurement at each session.
 | Mechanism | Impact | Trigger | Session |
 |-----------|--------|---------|---------|
 | Framework equiv classes + forced injection | +57% (0.176 -> 0.278) | Language/framework detected | 23 |
+| Multi-phrase equiv gate | +9.6% (0.293 -> 0.321) | Framework injection candidates | 28 |
+| Code pattern keyword extraction | Contributes to 0.321 | Task contains code-like patterns | 28 |
 | Enrichment + type_hint | +24% estimated | LSP available | 17 |
 | Focused seed selection | +6% | Always (>5 candidates) | 21 |
 | PreferTypeSeeds | VS Code +44% | Node count > 40K | 14 |
@@ -377,7 +382,7 @@ available measurement at each session.
 | Task memory compounding | **NEUTRAL** (was +3.8%) | Disabled session 24 | 24 |
 | Gap-fill seeds | **NEUTRAL** (was +11%) | Candidates < 5 | 23 (revised) |
 
-Combined: P@10 = 0.293 cold start (300 tasks, 16 repos, honest measurement, exponent 0.3).
+Combined: P@10 = 0.321 cold start (291 tasks, 16 repos, honest measurement, exponent 0.3).
 With compounding (10 rounds): P@10 = 0.283 peak, MRR = 0.497 peak.
 
 ## Why Fixed-Strategy Systems Can't Compete

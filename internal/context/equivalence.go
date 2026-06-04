@@ -256,16 +256,25 @@ func matchEquivalenceClassesLang(query string, classes []EquivalenceClass, lang 
 		if cls.Lang != "" && lang != "" && cls.Lang != lang {
 			continue
 		}
+		var matchedPhrases []string
+		var firstPhrase string
 		for _, phrase := range cls.Phrases {
 			if strings.Contains(queryLower, strings.ToLower(phrase)) {
-				matches = append(matches, equivalenceMatch{
-					class:   cls,
-					phrase:  phrase,
-					targets: cls.Targets,
-					weight:  cls.Weight,
-				})
-				break // one match per class is enough
+				if firstPhrase == "" {
+					firstPhrase = phrase
+				}
+				matchedPhrases = append(matchedPhrases, phrase)
 			}
+		}
+		if len(matchedPhrases) > 0 {
+			matches = append(matches, equivalenceMatch{
+				class:       cls,
+				phrase:      firstPhrase,
+				phrases:     matchedPhrases,
+				phraseCount: len(matchedPhrases),
+				targets:     cls.Targets,
+				weight:      cls.Weight,
+			})
 		}
 	}
 
@@ -273,8 +282,23 @@ func matchEquivalenceClassesLang(query string, classes []EquivalenceClass, lang 
 }
 
 type equivalenceMatch struct {
-	class   EquivalenceClass
-	phrase  string
-	targets []string
-	weight  float64
+	class       EquivalenceClass
+	phrase      string   // first matching phrase
+	phrases     []string // all matching phrases
+	phraseCount int      // number of phrases that matched
+	targets     []string
+	weight      float64
+}
+
+// isStrongEquivMatch returns true if the match is strong enough for framework
+// injection. Requires either >= 2 phrases matched from the class, or the single
+// matched phrase contains multiple words. This prevents generic single-word matches
+// (e.g., "command" triggering VSCODE_COMMAND) from flooding the top-10 with
+// framework infrastructure symbols.
+func isStrongEquivMatch(m equivalenceMatch) bool {
+	if m.phraseCount >= 2 {
+		return true
+	}
+	// Single phrase matched: allow only if it's multi-word.
+	return strings.Contains(m.phrase, " ")
 }

@@ -38,7 +38,7 @@ with the others.
 
 | System | P@10 | Ratio vs knowing |
 |--------|------|------------------|
-| **knowing** | **0.293** | **1.00x** |
+| **knowing** | **0.321** | **1.00x** |
 | codegraph (19K stars) | 0.087 | 3.23x less precise |
 | GitNexus | 0.055 | 5.11x less precise |
 | Gortex | 0.052 | 5.40x less precise |
@@ -85,7 +85,7 @@ Three compounding mechanisms work together:
 2. **Per-cluster implicit feedback:** noise demotion scoped by keyword cluster prevents cross-task interference
 3. **Learned vocabulary:** cross-task bridging (task A's vocab helps task B via shared keywords, +41.4% on Django in isolation)
 
-**Verdict:** Quality compounds with usage. Cold-start floor is 0.293, compounded with
+**Verdict:** Quality compounds with usage. Cold-start floor is 0.321, compounded with
 vocab and memory the system improves across sessions. Every round beats baseline.
 
 ### Dimension 4: Determinism
@@ -163,7 +163,7 @@ vocab and memory the system improves across sessions. Every round beats baseline
 
 1. **Absolute precision is 28.1%.** knowing beats grep 18.7x but ~72% of returned symbols still don't match ground truth. Remaining miss rate is primarily vocabulary gaps (42% of Django tasks score zero due to no keyword overlap with ground truth).
 
-2. **Cold-start floor.** Feedback compounding requires usage. First-run precision is 0.293. Compounding improves this over time but requires similar queries.
+2. **Cold-start floor.** Feedback compounding requires usage. First-run precision is 0.321. Compounding improves this over time but requires similar queries.
 
 3. **Language coverage.** 8 languages covered (Go, Python, Rust, Java, TypeScript, C#, Ruby, HCL/TOML). Missing: Zig, Swift, Kotlin, Scala.
 
@@ -186,6 +186,7 @@ vocab and memory the system improves across sessions. Every round beats baseline
 | 30 | 2026-05-31 | Cold-start protocol, task memory purge | 0.206 | Session 23 (true cold) |
 | 31 | 2026-06-01 | FTS decomposition, per-cluster feedback, LSP attenuation | 0.293 | Session 25 (16 repos, 300 tasks) |
 | 32 | 2026-06-02 | Cross-task vocab validation, confidence weighting | 0.293 | Session 26 (vocab neutral on aggregate, +41% Django) |
+| 33 | 2026-06-04 | Multi-phrase equiv gate, code pattern extraction, fixture cleanup | 0.321 | Session 28 (291 tasks, multi-phrase gate fixes VSCODE_COMMAND) |
 
 ## Reproducing
 

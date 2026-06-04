@@ -4,6 +4,36 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.15.0] - 2026-06-04
+
+### Added
+
+- **GCF as default output format** (session 27): all MCP context tools (`context_for_task`, `context_for_files`, `context_for_pr`, `explain_symbol`, etc.) now emit GCF (Graph Compact Format) by default. 84% fewer tokens than JSON, 100% LLM comprehension accuracy at 500 symbols. Wire format selection via `KNOWING_FORMAT` env var or `--format` flag.
+- **GCF extracted to standalone library**: `github.com/blackwell-systems/gcf-go` (zero dependencies). All knowing consumers import gcf-go directly for types (`gcf.Symbol`, `gcf.Edge`, `gcf.Payload`, `gcf.Session`, `gcf.DeltaPayload`). The internal `wire` package retains knowing-specific functions (`FromContextBlock`, `EncodeWith`, registry, binary/json/toon encoders).
+- **Delta context packing** (session 27): structural diff on `pack_root` mismatch. When consecutive queries return overlapping context, only the delta is transmitted. 81.2% token savings on re-queries. Session statefulness: previously-transmitted symbols sent as bare references, 92.7% savings by 5th call.
+- **LLM format comprehension eval** (session 27): 3-way evaluation (GCF vs TOON vs JSON) at 500 symbols, 200 edges. GCF 100%, TOON 100%, JSON 66.7%. Eval in `gcf-go/eval/` as separate Go module (isolates toon-go dependency from library consumers). Results stored in `eval/results/`.
+- **Code pattern keyword extraction** (session 27): extracts structural patterns from task descriptions (e.g., "error handling", "retry logic") as additional seed terms. Improves seed quality for tasks describing patterns rather than naming symbols.
+- **Multi-phrase equiv class gate**: `isStrongEquivMatch` requires either >= 2 phrases matched or a multi-word phrase before framework injection fires. Prevents single generic words (e.g., "command") from triggering VS Code framework injection that floods top-10 with infrastructure symbols. New `equivalenceMatch.phrases` and `phraseCount` fields track all matched phrases per class.
+- **Supply chain held-out validation** (session 27): 100 additional packages as independent validation corpus. 1.0% FP rate confirmed independently of the primary 200-package corpus.
+- **Manual npm publish workflow**: `workflow_dispatch` trigger for npm publishing.
+
+### Fixed
+
+- **VSCODE_COMMAND equiv class regression**: bare word "command" was triggering forced injection, overriding correct BM25 results. Fixed by multi-phrase gate (see above).
+- **validate-fixtures auto-discovery**: was hardcoded to 7 repos, now auto-discovers all repos in corpus directory.
+- **npm publish CI**: removed `|| true` that was silently swallowing publish failures.
+- **MCP handler tests**: updated to expect GCF default output format.
+
+### Removed
+
+- **17 invalid benchmark fixtures**: 8 fixtures with unresolvable ground truth + 9 ripgrep fixtures with ground truth from dependency crates (not the repo itself). Task count: 308 -> 291.
+
+### Changed
+
+- **P@10 = 0.321** (291 tasks, 16 repos, cold start, honest measurement). Up from 0.293 (300 tasks). Multi-phrase equiv gate fixed VSCODE_COMMAND flooding, fixture cleanup removed noise, code pattern extraction improved seed quality.
+- **Competitive ratios updated**: 3.69x codegraph, 5.84x GitNexus, 6.17x Gortex, 13.96x Aider, 21.4x grep.
+- **14 architecture docs audited and updated** (session 27): wire-formats.md, wire-formats-guide.md, context-packing.md, system-overview.md, introduction.md, retrieval-pipeline.md, design-principles.md, context-engine.md, embedding-reranker.md, adaptive-retrieval.md, data-flow.md, and guide docs. All verified against current codebase.
+
 ## [v0.14.0] - 2026-06-03
 
 ### Added
