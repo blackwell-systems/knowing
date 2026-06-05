@@ -17,6 +17,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Ruby/Java/C# test file detection** (session 28): `isTestFilePath` now covers Ruby (`/test/` excluding `/lib/`), Java (`src/test/java/`), and C# (`*.UnitTests/`, `*.AcceptanceTests/`, `*.IntegrationTests/`). Previously only Go, Python, TypeScript, and Rust test files were penalized. Rails: 0.325 -> 0.360 (+10.8%).
 - **E-commerce equiv classes** (session 28): 5 generalizable e-commerce pattern classes (`equiv_saleor.go`): checkout flow, shipping zones, account management, auth backends, async tasks. Saleor P@10: 0.264 -> 0.527 (+99.6%). 4/5 zeros cracked, `saleor-hard-002` hit perfect 1.00. Aggregate P@10: 0.320 -> 0.335 (+4.7%). Crosses 0.333 for the first time.
 - **Test penalty tuned to 0.15** (session 28): swept 12 values (0.01-0.50) on Rails. Rails variance (+-0.030) dominates signal; 0.15 is a reasonable default. `BENCH_TEST_PENALTY` env var for future sweeps.
+- **Cal.com benchmark corpus** (session 28): 17th repo, TypeScript/Next.js scheduling platform. 11 tasks across easy/medium/hard tiers. Enriched with tsserver (80K nodes, 246K edges, 137K LSP-resolved). First typical TypeScript app repo. Calcom P@10 = 0.409.
+- **Scheduling equiv classes** (session 28): 9 generalizable scheduling pattern classes (`equiv_scheduling.go`): booking creation, cancellation, availability, calendar integration, recurring events, webhooks, attendees, booking limits, seat-based booking. Calcom: 0.064 -> 0.409 (+497%).
+- **Corpus DB package/restore** (session 28): `corpus-setup.sh package` creates per-repo compressed tarballs with SHA256 manifest for GitHub release assets. `corpus-setup.sh restore` extracts them. Each DB under 2GB limit (largest: vscode 849MB). Total compressed: ~2.8GB.
 - **Supply chain held-out validation** (session 27): 100 additional packages as independent validation corpus. 1.0% FP rate confirmed independently of the primary 200-package corpus.
 - **Manual npm publish workflow**: `workflow_dispatch` trigger for npm publishing.
 
@@ -34,8 +37,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- **P@10 = 0.335** (291 tasks, 16 repos, cold start, honest measurement). Up from 0.293 (300 tasks, session 27). Multi-phrase equiv gate (+9.6%), e-commerce equiv classes (+4.7%), test file detection for Ruby/Java/C# (Rails +10.8%), fixture cleanup, code pattern extraction.
-- **Competitive ratios updated**: 3.85x codegraph, 6.09x GitNexus, 6.44x Gortex, 14.6x Aider, 22.3x grep.
+- **P@10 = 0.330** (302 tasks, 17 repos, cold start, honest measurement, 3 runs: 0.328/0.331/0.330). Up from 0.293 (300 tasks, session 27). Multi-phrase equiv gate (+9.6%), e-commerce equiv classes (saleor +99.6%), scheduling equiv classes (calcom +497%), test file detection for Ruby/Java/C# (Rails +10.8%), calcom corpus addition, fixture cleanup, code pattern extraction.
+- **Competitive ratios updated**: 3.79x codegraph, 6.00x GitNexus, 6.35x Gortex, 14.3x Aider, 22.0x grep.
 - **14 architecture docs audited and updated** (session 27): wire-formats.md, wire-formats-guide.md, context-packing.md, system-overview.md, introduction.md, retrieval-pipeline.md, design-principles.md, context-engine.md, embedding-reranker.md, adaptive-retrieval.md, data-flow.md, and guide docs. All verified against current codebase.
 
 ### Tested negative (session 28)
