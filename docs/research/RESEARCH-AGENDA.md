@@ -28,7 +28,7 @@ quality. SWE-bench evaluates agent task completion; CRET evaluates the retrieval
 that feeds agents context. These are different things.
 
 **Key contributions:**
-1. 308 task fixtures across 16 repos, 8 languages, 3 difficulty tiers
+1. 302 task fixtures across 17 repos, 8 languages, 3 difficulty tiers
 2. Ground truth at symbol level (not file level), validated against actual DB contents
 3. Statistical methodology: Wilcoxon signed-rank, Cohen's d, bootstrap CI
 4. 7 systems benchmarked with fairness controls (same input, cold start, no tuning)
@@ -56,7 +56,7 @@ outperforms BM25, PageRank, and heuristic scoring for task-specific code retriev
 The key insight: precision is entirely reachability-determined, not parameter-sensitive.
 
 **Key contributions:**
-1. 3.20x more precise than codegraph (19K stars), 5.35x vs Gortex, 18.5x vs grep
+1. 3.79x more precise than codegraph (19K stars), 6.35x vs Gortex, 22.0x vs grep
 2. 32-config parameter sweep proving P@10 is structurally determined (zero variance)
 3. Multi-channel fusion (RRF): tiered keyword + BM25 + equivalence + path-context + vector
 4. Edge-type-weighted walk: `calls` 1.0, `implements` 0.8, `extends` 0.7, `imports` 0.5
@@ -165,15 +165,15 @@ natural-language task descriptions and framework API surfaces. +57% P@10 from
 a pure knowledge engineering approach, no ML required.
 
 **Key contributions:**
-1. 263 framework-specific equivalence classes across 30 files covering 18 frameworks
-2. Forced injection mechanism: high-confidence matches bypass RWR scoring
+1. 277 framework and domain equivalence classes across 32 files covering 18 frameworks + 2 domains (e-commerce, scheduling)
+2. Forced injection mechanism with multi-phrase gate: high-confidence matches bypass RWR scoring, gated by `isStrongEquivMatch` (requires >= 2 phrases or multi-word phrase)
 3. Language scoping: `Lang` field + `detectRepoLanguage()` prevents cross-language contamination
 4. Zero-task audit methodology: systematic diagnosis of every zero-scoring task using
    `bench-task`, categorization (vocab gap vs missing edge vs genuinely hard), targeted fix
-5. Defensibility criterion: every class must map to documented framework conventions
-6. Measured impact: Django +126%, Terraform +238%, Kafka +81%, VS Code +354%
-7. **Discovery:** task memory contaminates benchmarks. 26K stale entries in terraform.
-   All prior measurements inflated. Embeddings confirmed neutral (3 runs identical).
+5. Defensibility criterion: every class must map to documented framework or domain conventions
+6. Measured impact: Django +126%, Terraform +238%, Kafka +81%, VS Code +354%, Saleor +99.6%, Calcom +497%
+7. **Domain equiv classes** (session 28): e-commerce (checkout, shipping, auth backend, async tasks) and scheduling (booking, availability, calendar, webhook, attendee, limits, seats) proved the highest-leverage move
+8. **Discovery:** task memory contaminates benchmarks. 26K stale entries in terraform. Embeddings confirmed neutral (3 runs identical).
 
 **What's novel:** The idea that a curated dictionary of framework conventions with
 deterministic injection outperforms learned embeddings, graph walks, and BM25 for
@@ -181,12 +181,12 @@ bridging the vocabulary gap. The defensibility criterion (must appear in officia
 prevents overfitting while allowing comprehensive coverage. The zero-task audit cycle
 is a general methodology for iterative benchmark improvement.
 
-**Existing material:** `internal/context/equiv_*.go` (30 files), session 23 per-repo
+**Existing material:** `internal/context/equiv_*.go` (32 files), sessions 23-28 per-repo
 data, `docs/research/session-21-measurement-calibration.md` (full narrative)
 
 **What's needed:**
 - Ablation: measure each framework's contribution independently
-- Generalization test: add repos that USE frameworks (not just framework source code)
+- ~~Generalization test: add repos that USE frameworks~~ **DONE (session 28):** saleor (Django e-commerce, +99.6%), calcom (Next.js scheduling, +497%). Domain equiv classes generalize to application code.
 - Compare against learned approaches (CodeBERT fine-tuned concept mapping)
 - Formalize the "defensibility criterion" as a methodology
 
@@ -200,4 +200,4 @@ data, `docs/research/session-21-measurement-calibration.md` (full narrative)
 | 3 | `cross-system-benchmark.md` + METHODOLOGY | ~40% | Package as toolkit, write paper framing |
 | 4 | No draft | 0% | Write from scratch using FINDINGS data |
 | 5 | `dense-graph-dilution-analysis.md` | ~30% | Formalize model, add additional repos |
-| 6 | `equiv_*.go` (30 files) + session 23 narrative | ~25% | Ablation study, generalization test |
+| 6 | `equiv_*.go` (32 files) + sessions 23-28 narrative | ~40% | Ablation study, generalization DONE (saleor+calcom) |
