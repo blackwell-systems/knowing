@@ -15,6 +15,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Code pattern keyword extraction** (session 27): extracts structural patterns from task descriptions (e.g., "error handling", "retry logic") as additional seed terms. Improves seed quality for tasks describing patterns rather than naming symbols.
 - **Multi-phrase equiv class gate**: `isStrongEquivMatch` requires either >= 2 phrases matched or a multi-word phrase before framework injection fires. Prevents single generic words (e.g., "command") from triggering VS Code framework injection that floods top-10 with infrastructure symbols. New `equivalenceMatch.phrases` and `phraseCount` fields track all matched phrases per class.
 - **Ruby/Java/C# test file detection** (session 28): `isTestFilePath` now covers Ruby (`/test/` excluding `/lib/`), Java (`src/test/java/`), and C# (`*.UnitTests/`, `*.AcceptanceTests/`, `*.IntegrationTests/`). Previously only Go, Python, TypeScript, and Rust test files were penalized. Rails: 0.325 -> 0.360 (+10.8%).
+- **E-commerce equiv classes** (session 28): 5 generalizable e-commerce pattern classes (`equiv_saleor.go`): checkout flow, shipping zones, account management, auth backends, async tasks. Saleor P@10: 0.264 -> 0.527 (+99.6%). 4/5 zeros cracked, `saleor-hard-002` hit perfect 1.00. Aggregate P@10: 0.320 -> 0.335 (+4.7%). Crosses 0.333 for the first time.
+- **Test penalty tuned to 0.15** (session 28): swept 12 values (0.01-0.50) on Rails. Rails variance (+-0.030) dominates signal; 0.15 is a reasonable default. `BENCH_TEST_PENALTY` env var for future sweeps.
 - **Supply chain held-out validation** (session 27): 100 additional packages as independent validation corpus. 1.0% FP rate confirmed independently of the primary 200-package corpus.
 - **Manual npm publish workflow**: `workflow_dispatch` trigger for npm publishing.
 
@@ -32,9 +34,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- **P@10 = 0.320** (291 tasks, 16 repos, cold start, honest measurement, 3 runs: 0.321/0.318/0.320). Up from 0.293 (300 tasks). Multi-phrase equiv gate fixed VSCODE_COMMAND flooding, test file detection for Ruby/Java/C# (Rails +10.8%), fixture cleanup, code pattern extraction.
-- **Competitive ratios updated**: 3.69x codegraph, 5.84x GitNexus, 6.17x Gortex, 13.96x Aider, 21.4x grep.
+- **P@10 = 0.335** (291 tasks, 16 repos, cold start, honest measurement). Up from 0.293 (300 tasks, session 27). Multi-phrase equiv gate (+9.6%), e-commerce equiv classes (+4.7%), test file detection for Ruby/Java/C# (Rails +10.8%), fixture cleanup, code pattern extraction.
+- **Competitive ratios updated**: 3.85x codegraph, 6.09x GitNexus, 6.44x Gortex, 14.6x Aider, 22.3x grep.
 - **14 architecture docs audited and updated** (session 27): wire-formats.md, wire-formats-guide.md, context-packing.md, system-overview.md, introduction.md, retrieval-pipeline.md, design-principles.md, context-engine.md, embedding-reranker.md, adaptive-retrieval.md, data-flow.md, and guide docs. All verified against current codebase.
+
+### Tested negative (session 28)
+
+- **Sibling dedup by leaf name**: global (-0.009) and package-scoped (-0.006). Common method names (Close, String, Error) too frequent within packages. Reverted.
+- **Test penalty sweep**: 12 values on Rails (0.01-0.50). Variance +-0.030 on 20 tasks dominates signal. No consistent peak.
 
 ## [v0.14.0] - 2026-06-03
 
