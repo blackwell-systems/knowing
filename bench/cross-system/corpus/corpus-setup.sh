@@ -335,6 +335,97 @@ cmd_status() {
     log "Total task fixtures on disk: $total_tasks"
 }
 
+cmd_package() {
+    local version="${2:-$(date +%Y%m%d)}"
+    local outdir="$SCRIPT_DIR/release"
+    mkdir -p "$outdir"
+
+    log "Packaging corpus DBs (per-repo tarballs, version=$version)..."
+
+    local total=0 packaged=0 skipped=0
+    local manifest_file="$outdir/corpus-manifest-${version}.txt"
+    echo "# knowing corpus DB manifest ($version)" > "$manifest_file"
+    echo "# sha256  size_mb  repo" >> "$manifest_file"
+
+    while IFS='|' read -r name url commit; do
+        total=$((total + 1))
+        local db_path="$REPOS_DIR/$name/.knowing/graph.db"
+        local tarball="$outdir/corpus-db-${name}-${version}.tar.gz"
+
+        if [ ! -f "$db_path" ]; then
+            warn "$name: no graph.db, skipping"
+            skipped=$((skipped + 1))
+            continue
+        fi
+
+        # Checkpoint WAL before packaging
+        sqlite3 "$db_path" "PRAGMA wal_checkpoint(TRUNCATE)" >/dev/null 2>&1
+
+        # Create compressed tarball with just the DB file
+        tar -czf "$tarball" -C "$REPOS_DIR/$name/.knowing" graph.db
+
+        local size_mb sha256
+        size_mb=$(echo "scale=1; $(stat -f%z "$tarball" 2>/dev/null || stat -c%s "$tarball" 2>/dev/null)/1048576" | bc)
+        sha256=$(shasum -a 256 "$tarball" | awk '{print $1}')
+
+        echo "$sha256  ${size_mb}MB  $name" >> "$manifest_file"
+        ok "$name: ${size_mb}MB -> $(basename "$tarball")"
+        packaged=$((packaged + 1))
+    done < <(parse_manifest)
+
+    echo ""
+    log "Packaged $packaged of $total repos ($skipped skipped)"
+    log "Manifest: $manifest_file"
+    log "Upload these files as GitHub release assets:"
+    ls -lh "$outdir"/corpus-db-*-${version}.tar.gz 2>/dev/null
+    echo ""
+    log "Total: $(du -sh "$outdir"/corpus-db-*-${version}.tar.gz 2>/dev/null | tail -1 | awk '{print $1}')"
+}
+
+cmd_restore() {
+    local source_dir="${2:-.}"
+    log "Restoring corpus DBs from tarballs in $source_dir..."
+
+    local total=0 restored=0 skipped=0
+
+    while IFS='|' read -r name url commit; do
+        total=$((total + 1))
+        local repo_dir="$REPOS_DIR/$name"
+        local db_dir="$repo_dir/.knowing"
+
+        # Find matching tarball (any version)
+        local tarball
+        tarball=$(ls "$source_dir"/corpus-db-${name}-*.tar.gz 2>/dev/null | sort -r | head -1)
+
+        if [ -z "$tarball" ]; then
+            warn "$name: no tarball found in $source_dir"
+            skipped=$((skipped + 1))
+            continue
+        fi
+
+        if [ -f "$db_dir/graph.db" ]; then
+            local existing_size
+            existing_size=$(stat -f%z "$db_dir/graph.db" 2>/dev/null || stat -c%s "$db_dir/graph.db" 2>/dev/null)
+            if [ "$existing_size" -gt 0 ]; then
+                warn "$name: graph.db already exists (${existing_size} bytes), skipping. Delete first to force restore."
+                skipped=$((skipped + 1))
+                continue
+            fi
+        fi
+
+        mkdir -p "$db_dir"
+        tar -xzf "$tarball" -C "$db_dir"
+        # Remove stale WAL/SHM files
+        rm -f "$db_dir/graph.db-shm" "$db_dir/graph.db-wal"
+
+        ok "$name: restored from $(basename "$tarball")"
+        restored=$((restored + 1))
+    done < <(parse_manifest)
+
+    echo ""
+    log "Restored $restored of $total repos ($skipped skipped)"
+}
+
 # Main dispatch
 case "${1:-help}" in
     clone)   cmd_clone ;;
@@ -344,8 +435,10 @@ case "${1:-help}" in
     all)     cmd_clone && cmd_index && cmd_enrich && cmd_embed ;;
     verify)  cmd_verify ;;
     status)  cmd_status ;;
+    package) cmd_package "$@" ;;
+    restore) cmd_restore "$@" ;;
     help|*)
-        echo "Usage: $0 {clone|index|enrich|embed|all|verify|status}"
+        echo "Usage: $0 {clone|index|enrich|embed|all|verify|status|package|restore}"
         echo ""
         echo "Reproducible benchmark corpus setup for the knowing cross-system benchmark."
         echo "See MANIFEST.yaml for pinned repository versions and expected graph statistics."
@@ -357,6 +450,8 @@ case "${1:-help}" in
         echo "  embed    Pre-embed vectors (ONNX model, ~30 min)"
         echo "  all      Run clone + index + enrich + embed"
         echo "  verify   Verify local corpus matches MANIFEST.yaml"
+        echo "  package  Create per-repo DB tarballs for release (optional version arg)"
+        echo "  restore  Restore DBs from tarballs (optional source dir arg)"
         echo "  status   Show current state of each repo"
         ;;
 esac

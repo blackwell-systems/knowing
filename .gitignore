@@ -7,3 +7,4 @@ test/cross-repo/module-a/.git
 test/cross-repo/module-b/.git
 test/cross-repo/module-c/.git
 corpus-dbs-*.tar.gz
+bench/cross-system/corpus/release/
