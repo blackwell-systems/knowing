@@ -187,6 +187,18 @@ repos:
     embeddings: 0
     note: "First framework-USING repo (Django e-commerce app). Validates equiv classes generalize to application code."
 
+  - name: calcom
+    url: https://github.com/calcom/cal.com.git
+    commit: d1ad4ea
+    commit_date: "2026-06-04"
+    language: TypeScript
+    tasks: 11
+    enrichment: tsserver
+    nodes: 80443
+    edges: 245889
+    embeddings: 0
+    note: "Scheduling platform (Next.js/tRPC/Prisma). First typical TypeScript app repo. Domain equiv classes: booking, availability, calendar, webhook, attendee, limits, seats."
+
 # Cross-cutting tasks (multi-repo) use symbols from multiple repos above.
 # No separate repo entry needed.
 cross_cutting:

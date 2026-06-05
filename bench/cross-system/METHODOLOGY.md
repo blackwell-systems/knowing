@@ -79,7 +79,7 @@ added in v0.13.0 to validate that equivalence classes generalize to application 
 - No knowing's own repository (avoids self-measurement bias)
 - No exclusions based on performance (all attempted repos are included)
 
-### Current Corpus (16 repos, 308 tasks, 8 languages)
+### Current Corpus (17 repos, 302 tasks, 8 languages)
 
 | Repo | Language | LOC | Nodes | Edges | Tasks | Why |
 |------|----------|-----|-------|-------|-------|-----|
@@ -98,7 +98,8 @@ added in v0.13.0 to validate that equivalence classes generalize to application 
 | Ripgrep | Rust | 50K | ~15K | ~40K | 20 | Rust CLI tool, regex engine |
 | Spark Java | Java | 14K | ~1.4K | ~1.4K | 20 | Small Java web framework |
 | Jekyll | Ruby | 30K | ~14K | ~35K | 20 | Ruby static site generator |
-| Cross-cutting | Mixed | - | - | - | 9 | Multi-repo/multi-language tasks |
+| Cal.com | TypeScript | 200K | 80K | 246K | 11 | TS scheduling platform (Next.js/tRPC), enriched with tsserver |
+| Cross-cutting | Mixed | - | - | - | 8 | Multi-repo/multi-language tasks |
 
 ## Adapter Interface
 
@@ -381,7 +382,7 @@ GOWORK=off go build -o /usr/local/bin/knowing ./cmd/knowing/
 
 # 2. Set up the corpus (clone repos at exact commits, build graph DBs)
 cd bench/cross-system/corpus
-./corpus-setup.sh clone     # ~5 min, clones 16 repos at pinned commits
+./corpus-setup.sh clone     # ~5 min, clones 17 repos at pinned commits
 ./corpus-setup.sh index     # ~5 min, tree-sitter extraction + in-process resolvers
 ./corpus-setup.sh enrich    # ~2 hours, requires language servers (optional, recommended)
 # Note: embeddings are off by default (confirmed neutral on cold start, session 23).
