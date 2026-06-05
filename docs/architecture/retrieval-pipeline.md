@@ -14,7 +14,7 @@ the precision degradation that affects every static retrieval system at scale.
 This document is the authoritative reference for how the context engine finds and ranks
 symbols. It supersedes `context-packing.md`.
 
-**Current eval baseline:** Cross-system benchmark (291 tasks, 16 repos, 8 languages): P@10=0.321 cold start. 13 self-adapting mechanisms. LSP edge attenuation (0.3x for lsp_resolved). Per-cluster implicit feedback with vocabulary expansion from usage. FTS fallback decomposition for compound keywords. Multi-phrase equiv gate. Code pattern keyword extraction. Adaptive proximity exponent. Change-aware scoring via git blame.
+**Current eval baseline:** Cross-system benchmark (302 tasks, 17 repos, 8 languages): P@10=0.330 cold start. 13 self-adapting mechanisms. LSP edge attenuation (0.3x for lsp_resolved). Per-cluster implicit feedback with vocabulary expansion from usage. FTS fallback decomposition for compound keywords. Multi-phrase equiv gate. Code pattern keyword extraction. Adaptive proximity exponent. Change-aware scoring via git blame.
 
 ## Pipeline Overview
 

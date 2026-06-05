@@ -4,7 +4,7 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 
 ## Current State (v0.15.0, 2026-06-04)
 
-**P@10 = 0.321 cold start** (291 tasks, 16 repos, 8 languages). Honest measurement: no task memory, no embeddings. 38 edge types. 23 extractors. 263 equivalence classes across 30 files with multi-phrase gate. GCF default output format. 70+ experiments across 28 sessions.
+**P@10 = 0.330 cold start** (302 tasks, 17 repos, 8 languages). Honest measurement: no task memory, no embeddings. 38 edge types. 23 extractors. 263 equivalence classes across 30 files with multi-phrase gate. GCF default output format. 70+ experiments across 28 sessions.
 
 **Session 28 results (per-repo, all honest, 291 tasks):**
 | Repo | P@10 | Tasks |
@@ -121,7 +121,7 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 |----------|--------|---------|---------|
 | **Framework equiv classes + forced injection** | +57% (0.176 -> 0.278) | 23 | 263 classes across 30 files. High-confidence framework matches (weight >= 0.9) bypass RWR and inject directly into ranked results. Django +126%, Terraform +238%. |
 | **Multi-phrase equiv gate** | +9.6% (0.293 -> 0.321) | 28 | `isStrongEquivMatch` requires >= 2 phrases matched or multi-word phrase. Prevents single generic words (e.g., "command") from flooding top-10 with framework hub symbols. |
-| **Code pattern keyword extraction** | Contributes to 0.321 | 28 | `extractCodePatterns` detects method calls, Class.method paths, dotted paths with underscores. Fires before standard word extraction as Phase 1.5 in `extractKeywordSet`. |
+| **Code pattern keyword extraction** | Contributes to 0.330 | 28 | `extractCodePatterns` detects method calls, Class.method paths, dotted paths with underscores. Fires before standard word extraction as Phase 1.5 in `extractKeywordSet`. |
 | **Language scoping** | Prevents regressions | 23 | `Lang` field restricts framework classes to matching repos. `detectRepoLanguage()` from node QN file extensions. |
 | **Adaptive retrieval (>200K nodes)** | VS Code +43% | 23 | When RWR produces flat results on massive repos, falls back to direct FTS + contains-edge expansion. |
 | **equivSeen injection bypass** | Fixes silent failures | 23 | Framework injection checks happen before dedup, so lower-weight classes can't block framework targets. |

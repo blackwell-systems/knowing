@@ -1,4 +1,4 @@
-> **Note (session 28, 2026-06-04):** Numbers updated to reflect current state. P@10 = 0.321 (291 tasks, 16 repos, 8 languages, 13 self-adapting mechanisms). Key changes since initial draft: framework equivalence classes with forced injection (+57% P@10), multi-phrase equiv gate (prevents single-word framework flooding), per-cluster implicit feedback (R@10 +5.2%, MRR +12.6% compounding), vocabulary expansion from agent usage, FTS fallback decomposition, LSP edge attenuation (0.3x for lsp_resolved), code pattern keyword extraction, change-aware scoring, adaptive proximity exponent. Corpus reduced from 300 to 291 tasks (17 invalid fixtures removed). Embeddings confirmed neutral. Task memory disabled (contamination found session 23).
+> **Note (session 28, 2026-06-04):** Numbers updated to reflect current state. P@10 = 0.330 (302 tasks, 17 repos, 8 languages, 13 self-adapting mechanisms). Key changes since initial draft: framework equivalence classes with forced injection (+57% P@10), multi-phrase equiv gate (prevents single-word framework flooding), per-cluster implicit feedback (R@10 +5.2%, MRR +12.6% compounding), vocabulary expansion from agent usage, FTS fallback decomposition, LSP edge attenuation (0.3x for lsp_resolved), code pattern keyword extraction, change-aware scoring, adaptive proximity exponent. Corpus reduced from 300 to 291 tasks (17 invalid fixtures removed). Embeddings confirmed neutral. Task memory disabled (contamination found session 23).
 
 # Evaluating Code Context Retrieval for AI Agents: A Multi-Language Benchmark
 
@@ -23,7 +23,7 @@ Ground truth is derived from actual code changes (PR diffs, SWE-bench instances)
 not synthetic queries. We measure P@10, R@10, NDCG@10, and MRR with statistical
 significance via Wilcoxon signed-rank tests.
 
-Key findings: (1) graph-based retrieval (knowing) achieves P@10=0.321, 3.69x
+Key findings: (1) graph-based retrieval (knowing) achieves P@10=0.330, 3.79x
 the nearest competitor (codegraph, 19K GitHub stars); (2) P@10 is
 reachability-determined: a 32-configuration parameter sweep produces zero
 variance, proving only new edges or new candidate sources move the metric;

@@ -170,7 +170,7 @@ At runtime, framework-specific classes with high confidence (weight >= 0.9, sour
 
 **Defensibility criterion:** Every framework equiv class must pass: "would this mapping appear in the framework's official documentation or tutorials?" Classes for application-specific internals are rejected as curve-fitting. Learned vocab classes are validated by repeated agent usage (count >= 2 threshold).
 
-**Measured impact (session 23):** P@10 0.176 -> 0.278 (+57%). Terraform +238%, Django +126%, Kafka +81%, VS Code +354%. Session 25 added FTS fallback decomposition (+4.6% Django), LSP edge attenuation (enriched saleor +19.8%), and per-cluster feedback (R@10 +5.2%, MRR +12.6% compounding). Session 28 added multi-phrase equiv gate (preventing single-word framework injection flooding) and code pattern keyword extraction. Current: P@10 = 0.321.
+**Measured impact (session 23):** P@10 0.176 -> 0.278 (+57%). Terraform +238%, Django +126%, Kafka +81%, VS Code +354%. Session 25 added FTS fallback decomposition (+4.6% Django), LSP edge attenuation (enriched saleor +19.8%), and per-cluster feedback (R@10 +5.2%, MRR +12.6% compounding). Session 28 added multi-phrase equiv gate (preventing single-word framework injection flooding) and code pattern keyword extraction. Current: P@10 = 0.330.
 
 ## Density-Adaptive Retrieval
 

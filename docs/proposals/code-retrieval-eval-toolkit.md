@@ -164,7 +164,7 @@ Critical methodology that distinguishes CRET from ad-hoc benchmarks:
 
 | System | P@10 | vs knowing |
 |--------|------|------------|
-| **knowing** | **0.321** | baseline |
+| **knowing** | **0.330** | baseline |
 | codegraph (19K stars) | 0.087 | 3.23x behind |
 | GitNexus | 0.055 | 5.11x behind |
 | Gortex | 0.052 | 5.40x behind |
