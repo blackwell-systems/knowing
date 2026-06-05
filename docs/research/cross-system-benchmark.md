@@ -1,8 +1,9 @@
-> **Note (session 23):** Embeddings (both re-ranker and gap-fill) confirmed dead neutral
-> on honest cold-start measurement (3 runs identical with/without). Previous "+11% gap-fill"
-> was task memory contamination. Task memory disabled in benchmark adapter. Framework
-> equivalence classes (263 classes, forced injection) now solve the vocabulary gap: +57% P@10.
-> See `docs/research/session-21-measurement-calibration.md` for full narrative.
+> **Note (session 28, 2026-06-04):** P@10 = 0.330 (302 tasks, 17 repos, 8 languages).
+> Corpus expanded with saleor (e-commerce) and calcom (scheduling). 277 equiv classes
+> across 32 files with multi-phrase gate. Domain equiv classes (e-commerce, scheduling)
+> proved the highest-leverage move: saleor +99.6%, calcom +497%. Embeddings confirmed
+> dead neutral (session 23). See `docs/research/session-21-measurement-calibration.md`
+> for the measurement calibration narrative.
 
 # Cross-System Context Retrieval Benchmark
 
@@ -10,85 +11,87 @@
 **Study overview:** [bench/EVALUATION-OVERVIEW.md](../../bench/EVALUATION-OVERVIEW.md)
 **Implementation:** [bench/cross-system/](../../bench/cross-system/)
 
-## Current Status (2026-05-31)
+## Current Status (2026-06-04)
 
 ### Implementation Progress
 
 | Component | Status | Notes |
 |-----------|--------|-------|
 | Benchmark harness | Done | `harness_test.go`, metrics, normalization, dot-bounded matching (session 21), task memory disabled (session 23) |
-| Evaluation corpus (15 repos) | Done | kubernetes, VS Code, flask, cargo, django, spark-java, ocelot, kafka, caddy, fastapi, ripgrep, jekyll, terraform, homebrew, rails |
-| Task fixtures (297 total) | Done | 8 languages (Go, Python, TypeScript, Rust, Java, C#, Ruby, TOML) |
-| Ground truth validation | Done | 99% match rate, validate-fixtures tool |
-| knowing adapter | Done | P@10=0.330 (session 28, honest: no task memory, no embeddings), 263 framework equiv classes with multi-phrase gate |
+| Evaluation corpus (17 repos) | Done | kubernetes, VS Code, flask, cargo, django, spark-java, ocelot, kafka, caddy, fastapi, ripgrep, jekyll, terraform, rails, saleor, calcom, cross-cutting |
+| Task fixtures (302 total) | Done | 8 languages (Go, Python, TypeScript, Rust, Java, C#, Ruby, TOML) |
+| Ground truth validation | Done | 98% match rate, validate-fixtures tool |
+| knowing adapter | Done | P@10=0.330 (session 28, honest: no task memory, no embeddings), 277 equiv classes with multi-phrase gate |
 | grep adapter | Done | P@10=0.015 (baseline, honest matching) |
-| codegraph adapter | Done | P@10=0.087 (honest matching), 118/297 tasks |
-| GitNexus adapter | Done | P@10=0.055 (honest matching), 77/297 tasks |
-| Gortex adapter | Done | P@10=0.052 (honest matching), 246/297 tasks |
-| Aider adapter | Done | P@10=0.023 (honest matching), 278/297 tasks |
-| codebase-memory adapter | Evaluated | Timed out on large repos (22/297 tasks) |
-| Diagnostic tools | Done | debug-seeds, debug-fts, debug-walk, bench-task (session 23) |
-| SCIP adapter | Not built | Requires per-language SCIP index generation |
-| Statistical analysis | Done | Wilcoxon, Cohen's d, bootstrap CI, 58 experiments |
+| codegraph adapter | Done | P@10=0.087 (honest matching) |
+| GitNexus adapter | Done | P@10=0.055 (honest matching) |
+| Gortex adapter | Done | P@10=0.052 (honest matching) |
+| Aider adapter | Done | P@10=0.023 (honest matching) |
+| codebase-memory adapter | Evaluated | Timed out on large repos |
+| Diagnostic tools | Done | debug-seeds, debug-fts, debug-walk, bench-task, failure-analysis |
+| Statistical analysis | Done | Wilcoxon, Cohen's d, bootstrap CI, 70+ experiments |
 | SWE-bench integration | Done | 10 fixtures; finding: fault localization != context retrieval |
 | Embedding re-ranker | Disabled | Net negative (session 19). Gap-fill also neutral (session 23). |
-| Failure analysis | Done | 56% noise, 36% test symbols; vocabulary gap is the bottleneck |
+| Failure analysis | Done | 80% noise, 10.5% related_name, 8.6% test symbols (session 28 zero-task audit) |
+| Corpus DB packaging | Done | Per-repo tarballs for release assets (`corpus-setup.sh package/restore`) |
 
-### Key Results (Session 23, honest cold-start, 297 tasks, 15 repos)
+### Key Results (Session 28, honest cold-start, 302 tasks, 17 repos)
 
 | System | P@10 | R@10 | NDCG@10 | MRR | vs knowing |
 |--------|------|------|---------|-----|------------|
-| **knowing** | **0.278** | **0.405** | **0.425** | **0.465** | baseline |
-| codegraph (19K stars) | 0.087 | - | - | - | 0.31x |
-| GitNexus (40K stars) | 0.055 | - | - | - | 0.20x |
-| Gortex | 0.052 | - | - | - | 0.19x |
-| Aider (~20K stars) | 0.023 | - | - | - | 0.08x |
+| **knowing** | **0.330** | **0.460** | **0.526** | **0.568** | baseline |
+| codegraph (19K stars) | 0.087 | - | - | - | 0.26x |
+| GitNexus (40K stars) | 0.055 | - | - | - | 0.17x |
+| Gortex | 0.052 | - | - | - | 0.16x |
+| Aider (~20K stars) | 0.023 | - | - | - | 0.07x |
 | grep | 0.015 | - | - | - | 0.05x |
 
-**Competitive ratios:** 3.20x codegraph, 5.05x GitNexus, 5.35x Gortex, 12.1x Aider, 18.5x grep.
-All measurements use honest matching (dot-bounded, session 21) with task memory disabled (session 23).
+**Competitive ratios:** 3.79x codegraph, 6.00x GitNexus, 6.35x Gortex, 14.3x Aider, 22.0x grep.
+All measurements use honest matching (dot-bounded, session 21) with task memory disabled (session 23). 4 runs: 0.328, 0.331, 0.330, 0.330.
 
-### Per-Repo Performance (Session 23, honest cold-start)
+### Per-Repo Performance (Session 28, honest cold-start, 302 tasks)
 
 | Repo | Language | P@10 | Tasks | Key mechanism |
 |------|----------|------|-------|---------------|
-| Caddy | Go | 0.440 | 20 | Caddy framework equiv classes |
-| Jekyll | Ruby | 0.430 | 20 | Jekyll + Ruby enrichment |
-| Kafka | Java | 0.421 | 19 | Kafka equiv classes + Java lang detection fix |
-| Terraform | Go | 0.405 | 20 | Terraform equiv classes (+238%) |
-| Rails | Ruby | 0.340 | 20 | Rails equiv classes |
-| Flask | Python | 0.321 | 19 | Flask equiv classes |
-| Ocelot | C# | 0.285 | 20 | Ocelot equiv classes |
-| FastAPI | Python | 0.275 | 20 | FastAPI equiv classes |
-| Spark-Java | Java | 0.235 | 20 | Spark-Java equiv classes |
-| Ripgrep | Rust | 0.195 | 20 | No framework classes (defensibility) |
-| Cargo | Rust | 0.186 | 22 | Cargo equiv classes |
-| Django | Python | 0.183 | 33 | Django equiv classes (+126%) |
-| Kubernetes | Go | 0.168 | 19 | K8S equiv classes |
-| VS Code | TypeScript | 0.168 | 19 | VS Code equiv classes + adaptive retrieval |
+| Ripgrep | Rust | 0.464 | 11 | No framework classes (defensibility) |
+| Terraform | Go | 0.440 | 20 | Terraform equiv classes |
+| Kafka | Java | 0.437 | 19 | Kafka equiv classes |
+| Jekyll | Ruby | 0.425 | 20 | Jekyll + Ruby enrichment |
+| Kubernetes | Go | 0.423 | 13 | K8S equiv classes |
+| Caddy | Go | 0.410 | 20 | Caddy equiv classes |
+| Calcom | TypeScript | 0.409 | 11 | Scheduling equiv classes (+497% from baseline) |
+| Saleor | Python | 0.527 | 11 | E-commerce equiv classes (+99.6%) |
+| Flask | Python | 0.328 | 18 | Flask equiv classes |
+| Rails | Ruby | 0.325 | 20 | Rails equiv classes |
+| FastAPI | Python | 0.315 | 20 | FastAPI equiv classes |
+| Ocelot | C# | 0.280 | 20 | Ocelot equiv classes |
+| Cross-cutting | Multi | 0.263 | 8 | Multi-repo tasks |
+| Cargo | Rust | 0.263 | 19 | Cargo equiv classes |
+| Spark-Java | Java | 0.250 | 20 | Spark-Java equiv classes |
+| VS Code | TypeScript | 0.200 | 19 | VS Code equiv classes + adaptive retrieval |
+| Django | Python | 0.176 | 33 | Django equiv classes (+126%), 13 zeros (SWE-bench vocab gaps) |
 
 ### Key Findings
 
-1. **Framework equivalence classes are the breakthrough** (+57% P@10, session 23). 263 concept-to-symbol mappings with forced injection solve the vocabulary gap that embeddings, keyword extraction, and path boosting all failed to solve.
-2. **RWR (graph traversal) is the structural foundation**, providing reachability-based ranking.
-3. **Inheritance propagation was the first major gain** (+29% in session 13).
-4. **Embeddings are dead neutral on cold start** (session 23, 3 runs confirmed). Previous "+11% gap-fill" was task memory contamination.
-5. **Task memory contaminates benchmarks.** 26K stale entries discovered in session 23. Must be disabled for honest A/B measurement.
-6. **Density-adaptive seeding** auto-enables PreferTypeSeeds on graphs >40K nodes.
-7. **Adaptive retrieval** falls back to direct FTS on massive repos (>200K nodes) where RWR produces flat results.
+1. **Framework equivalence classes are the breakthrough** (+57% P@10, session 23). 277 concept-to-symbol mappings with forced injection solve the vocabulary gap.
+2. **Domain equiv classes are the highest-leverage move** (session 28). E-commerce (saleor +99.6%) and scheduling (calcom +497%) both cracked most zeros on first try. 14 new classes across 2 domain files.
+3. **Multi-phrase gate prevents single-word flooding** (session 28, +9.6%). `isStrongEquivMatch` requires >= 2 phrases or multi-word phrase.
+4. **RWR (graph traversal) is the structural foundation**, providing reachability-based ranking.
+5. **Inheritance propagation was the first major gain** (+29% in session 13).
+6. **Embeddings are dead neutral on cold start** (session 23, 3 runs confirmed).
+7. **Task memory contaminates benchmarks.** 26K stale entries discovered in session 23. Must be disabled for honest A/B measurement.
 8. **P@10 is reachability + vocabulary determined.** Graph structure provides reachability; equiv classes provide vocabulary bridging. Both are necessary.
-9. **38 edge types** including accesses_field, reads_env, executes_process (supply chain detection).
-10. **Zero-task audit cycle** is the methodology: diagnose each zero with `bench-task`, categorize, add defensible equiv classes, verify per-repo, run full corpus.
+9. **Zero-task audit** (session 28): 80% noise (wrong neighborhood), 10.5% related_name, 8.6% test symbols. Sibling dedup tested harmful (global -0.009, pkg-scoped -0.006). Test penalty sweep: noise (+-0.030 on 20 tasks).
+10. **Test file detection for all 7 corpus languages** (session 28). Ruby/Java/C# added. Rails +10.8%.
 
 ### Remaining Work
 
 | Item | Priority | Effort | Impact |
 |------|----------|--------|--------|
-| Fix dangling Python extends edges | High | 1 session | 5,581 broken inheritance edges on Django |
-| Wire remaining 5 resolvers | Medium | 1 session | Adds edges without external LSP |
-| Blog post update | Medium | 2 hours | Public credibility with honest numbers |
-| Add framework-using repos to corpus | Medium | 1 session | Validate equiv classes generalize |
-| Equiv class auto-discovery | Low | 1 session | Performance + precision |
+| More domain repos | Medium | 1 session each | Redash (BI), Discourse (forums). Each adds ~0.003-0.005 aggregate. |
+| AI-generated evaluation corpus | Medium | 1 session | LLM-generated tasks for statistical coverage |
+| Equiv class auto-discovery | Low | 1 session | Automatic extraction from graph structure |
+| Enricher repo hash mismatch | Low | 1 session | Bug: `enrich lsp` computes different repo hash than `index` |
 
 ---
 
