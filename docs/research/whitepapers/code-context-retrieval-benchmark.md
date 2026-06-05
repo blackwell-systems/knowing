@@ -1,10 +1,8 @@
-> **Note (session 28, 2026-06-04):** Numbers updated to reflect current state. P@10 = 0.330 (302 tasks, 17 repos, 8 languages, 13 self-adapting mechanisms). Key changes since initial draft: framework equivalence classes with forced injection (+57% P@10), multi-phrase equiv gate (prevents single-word framework flooding), domain equiv classes for e-commerce and scheduling (+99.6% saleor, +497% calcom), per-cluster implicit feedback (R@10 +5.2%, MRR +12.6% compounding), vocabulary expansion from agent usage, FTS fallback decomposition, LSP edge attenuation (0.3x for lsp_resolved), code pattern keyword extraction, change-aware scoring, adaptive proximity exponent. Corpus expanded from 10 repos/277 tasks to 17 repos/302 tasks. Embeddings confirmed neutral. Re-ranker finding invalidated (task memory contamination). Task memory disabled (session 23).
-
 # Evaluating Code Context Retrieval for AI Agents: A Multi-Language Benchmark
 
 **Dayna Blackwell, Blackwell Systems**
 
-May 2026
+June 2026
 
 ---
 
@@ -33,7 +31,7 @@ the vocabulary gap between task descriptions and code symbols (+57% P@10);
 (saleor +99.6%, calcom +497%); (5) per-cluster implicit feedback with
 vocabulary expansion from agent usage improves R@10 +5.2% and MRR +12.6%
 over 5 rounds without regression; (6) embeddings confirmed neutral on cold
-start (session 23), and the re-ranker finding (+17%) was invalidated by task
+start, and the re-ranker finding (+17%) was invalidated by task
 memory contamination; (7) at least 39% of Django failures are true vocabulary
 gaps where task descriptions share zero keywords with ground truth symbols;
 (8) all tested systems fail on enterprise-scale repos (>1M LOC) except knowing
@@ -378,13 +376,13 @@ independent retrieval channel (Channel 3: embed query, HNSW search, RRF-fuse
 with graph results). All produced identical P@10 to baseline.
 
 The same jina-code model used as a post-scoring re-ranker initially appeared to
-produce +17% P@10. **This finding was later invalidated (session 23):** the
+produce +17% P@10. **This finding was later invalidated:** the
 improvement was caused by task memory contamination. Accumulated task memory
 entries in corpus DBs created a feedback loop where the re-ranker kept injecting
 the same symbols that stale task memory was boosting. Three clean runs with empty
 task memory produced identical P@10 with and without embeddings (0.176, 0.175,
-0.176). The re-ranker was disabled as net negative on honest measurement (session
-19: 9/13 repos hurt).
+0.176). The re-ranker was disabled as net negative on honest measurement (9/13
+repos hurt when tested in isolation).
 
 **Revised conclusion:** embeddings are dead weight for cold-start retrieval
 accuracy. The graph structure, BM25, and equivalence classes carry everything.
@@ -527,7 +525,7 @@ outperforming all competitors (3.79x codegraph, 6.00x GitNexus, 6.35x Gortex,
    +497% on calcom. Generalizable domain concepts (checkout, booking, availability)
    bridge vocabulary gaps that BM25 and graph walks cannot cross.
 3. **Embeddings are dead weight for cold-start retrieval.** The initial +17%
-   re-ranker finding was invalidated by task memory contamination (session 23).
+   re-ranker finding was invalidated by task memory contamination.
    Three clean runs confirmed identical P@10 with and without embeddings.
 3. **Scale separates the field.** Most systems fail on enterprise-scale repos.
    Only knowing and codegraph handle 3.5M LOC without degradation.
