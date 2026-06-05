@@ -51,7 +51,8 @@ What's shipped is in the [changelog](CHANGELOG.md). This document covers what's 
 | 11 | **More equiv class coverage** | Message queues (RabbitMQ, Redis), cloud SDKs (AWS, GCP), build systems (Make, Gradle), observability (OpenTelemetry, Prometheus). | Ongoing | Incremental P@10 |
 | 12 | **Zero-task audit cycle** | 57 zero-scoring tasks (19.6%). 80% noise (wrong neighborhood), 10.5% related_name (right concept, wrong sibling), 8.6% test symbols. Django 13 zeros, Rails 6, VS Code 5. Each cracked zero adds ~0.003 to aggregate. | Medium | +0.01-0.02 P@10 |
 | 13 | ~~**Sibling ranking by blast radius**~~ | **TESTED HARMFUL (session 28).** Both global and package-scoped leaf-name dedup regressed aggregate (-0.009 and -0.006). Common names too frequent within packages. See Tested Neutral/Harmful table. | - | - |
-| 15 | **More framework-using repos** | Add a Flask app, Rails app, Spring Boot service. Improves eval credibility. | Medium | Eval credibility |
+| 14 | **Enricher repo hash mismatch** | `enrich lsp` computes a different repo hash than `index`, causing "no snapshot found" when enriching a previously indexed DB. Workaround: run `index` without `-no-enrich` (single pass). Root cause: enricher and indexer use different inputs to hash the repo identity. | Low | Bug fix |
+| 15 | **More framework-using repos** | Cal.com (TypeScript scheduling, indexed session 28), Redash (Python BI), Discourse (Ruby forum). Domain equiv classes generalize. | Medium | Eval credibility + P@10 |
 | 16 | **Extract benchmark to standalone repo (CRET)** | Session 26 audit: 18 files clean, 5 trivial decouples, ~2 hours. Context packing benchmark also extractable. | Low | Credibility |
 
 ### Shipped (sessions 23-28)
