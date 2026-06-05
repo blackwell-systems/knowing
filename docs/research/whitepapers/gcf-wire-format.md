@@ -198,8 +198,7 @@ This is not a speculative format proposal. GCF is implemented in a production MC
 
 The implementation includes:
 
-- **Text encoder** for GCF payloads (`internal/wire/gcf.go`)
-- **Parser/decoder** for round-tripping GCF back into the internal graph response model (`internal/wire/gcf_decode.go`)
+- **Standalone GCF library** (`github.com/blackwell-systems/gcf-go`): encoder, decoder, session state, delta encoding. Zero dependencies.
 - **Binary encoder/decoder** for GCB (`internal/wire/binary.go`)
 - **Pluggable codec registry** allowing runtime format selection across all MCP tools and CLI commands
 - **Benchmark harness** comparing token count, byte size, and encode latency across 6 fixture cases (`bench/wire-format/`)
@@ -385,25 +384,23 @@ The token savings are too large to ignore. A 76.7% reduction in tool response to
 
 ## 10.1 LLM Comprehension: GCF Validated as Default
 
-The original concern was that GCF's novel notation (`@0`, `@0<@4 calls`) might cause LLM parsing errors, making TOON (a tabular format resembling markdown tables) the safer default despite using 2.7x more tokens.
+The original concern was that GCF's novel notation (`@0`, `@0<@4 calls`) might cause LLM parsing errors, making a tabular format the safer default despite using more tokens.
 
 An LLM comprehension eval (`eval/TestLLMFormatComprehension`, session 27) resolved this. The eval sends the same context payload in each format to an actual LLM and measures accuracy on 6 structured extraction questions (symbol identification, counting, kind extraction, group counting, edge enumeration):
 
 | Format | Accuracy | Avg Tokens | vs JSON |
 |--------|----------|-----------|---------|
 | **GCF** | **100%** (6/6) | **2,687** | **16%** |
-| **TOON** | **100%** (6/6) | 9,427 | 58% |
 | JSON | 66.7% (4/6) | 16,372 | baseline |
 | XML | 66.7% (4/6) | 5,026 | 31% |
 
-GCF and TOON both achieve perfect accuracy. JSON performed worst: it miscounted symbols on a 36K-token payload and miscounted edges on a 16K-token payload. The verbosity that was supposed to aid comprehension actually degrades it on large payloads by giving the model more noise to parse.
+GCF achieves perfect accuracy. JSON performed worst: it miscounted symbols on a 36K-token payload and miscounted edges on a 16K-token payload. The verbosity that was supposed to aid comprehension actually degrades it on large payloads by giving the model more noise to parse.
 
-TOON (Token-Oriented Object Notation) remains available as a first-class codec (`internal/wire/toon.go`, using `github.com/toon-format/toon-go`) for external interchange with tools that support the open TOON standard but not GCF.
+> Note: TOON was also evaluated (100% accuracy, 9,427 tokens, 58% of JSON) but was subsequently removed from knowing (v0.15.0). GCF provides better compression at the same accuracy, making TOON redundant.
 
-**Updated practical guidance:**
+**Practical guidance:**
 
-- **Use GCF as the default for all agent workflows.** 100% comprehension accuracy at 16% of JSON's token cost. The comprehension concern is resolved.
-- Use TOON when sharing context outside knowing's ecosystem with tools that support the TOON standard.
+- **Use GCF as the default for all agent workflows.** 100% comprehension accuracy at 16% of JSON's token cost.
 - Use JSON or XML for debugging, human inspection, or fallback on legacy systems.
 
 ### Delta Encoding Extension (Session 27)
@@ -428,7 +425,8 @@ The broader point: as AI agents become the primary consumers of tool output, wir
 
 ## Reference Implementation
 
-- **Encoder/decoder:** `github.com/blackwell-systems/knowing/internal/wire` (Go): gcf.go, gcf_decode.go, session.go, delta.go
+- **Standalone library:** `github.com/blackwell-systems/gcf-go` (Go, zero dependencies): encoder, decoder, session state, delta encoding
+- **Knowing wire bridge:** `github.com/blackwell-systems/knowing/internal/wire` (Go): codec registry, binary, JSON, bridge to context engine
 - **Benchmark harness:** `github.com/blackwell-systems/knowing/bench/wire-format` (token cost, byte size, latency)
 - **Delta packing benchmark:** `github.com/blackwell-systems/knowing/bench/delta-packing` (cross-task + re-query simulation)
 - **LLM comprehension eval:** `github.com/blackwell-systems/knowing/eval/format_llm_comprehension_test.go` (6 questions, 4 formats, cli/api backends)
