@@ -1,4 +1,4 @@
-> **Note (session 28, 2026-06-04):** Numbers updated to reflect current state. P@10 = 0.330 (302 tasks, 17 repos, 8 languages, 13 self-adapting mechanisms). Key changes since initial draft: framework equivalence classes with forced injection (+57% P@10), multi-phrase equiv gate (prevents single-word framework flooding), per-cluster implicit feedback (R@10 +5.2%, MRR +12.6% compounding), vocabulary expansion from agent usage, FTS fallback decomposition, LSP edge attenuation (0.3x for lsp_resolved), code pattern keyword extraction, change-aware scoring, adaptive proximity exponent. Corpus reduced from 300 to 291 tasks (17 invalid fixtures removed). Embeddings confirmed neutral. Task memory disabled (contamination found session 23).
+> **Note (session 28, 2026-06-04):** Numbers updated to reflect current state. P@10 = 0.330 (302 tasks, 17 repos, 8 languages, 13 self-adapting mechanisms). Key changes since initial draft: framework equivalence classes with forced injection (+57% P@10), multi-phrase equiv gate (prevents single-word framework flooding), domain equiv classes for e-commerce and scheduling (+99.6% saleor, +497% calcom), per-cluster implicit feedback (R@10 +5.2%, MRR +12.6% compounding), vocabulary expansion from agent usage, FTS fallback decomposition, LSP edge attenuation (0.3x for lsp_resolved), code pattern keyword extraction, change-aware scoring, adaptive proximity exponent. Corpus expanded from 10 repos/277 tasks to 17 repos/302 tasks. Embeddings confirmed neutral. Re-ranker finding invalidated (task memory contamination). Task memory disabled (session 23).
 
 # Evaluating Code Context Retrieval for AI Agents: A Multi-Language Benchmark
 
@@ -17,7 +17,7 @@ case. We present the first multi-language, multi-repository evaluation of code
 context retrieval systems, measuring whether a system surfaces the specific
 symbols a developer needs for a given task.
 
-We evaluate 7 systems across 308 hand-curated tasks spanning 16 repositories
+We evaluate 7 systems across 302 hand-curated tasks spanning 17 repositories
 in 8 languages (Go, Python, TypeScript, Rust, Java, C#, Ruby, TOML), from 14K to 3.5M LOC.
 Ground truth is derived from actual code changes (PR diffs, SWE-bench instances),
 not synthetic queries. We measure P@10, R@10, NDCG@10, and MRR with statistical
@@ -27,15 +27,17 @@ Key findings: (1) graph-based retrieval (knowing) achieves P@10=0.330, 3.79x
 the nearest competitor (codegraph, 19K GitHub stars); (2) P@10 is
 reachability-determined: a 32-configuration parameter sweep produces zero
 variance, proving only new edges or new candidate sources move the metric;
-(3) 263 framework equivalence classes with forced injection bridge the vocabulary
-gap between task descriptions and code symbols (+57% P@10); (4) per-cluster
-implicit feedback with vocabulary expansion from agent usage improves R@10 +5.2%
-and MRR +12.6% over 5 rounds without regression; (5) LSP edge attenuation (0.3x
-for lsp_resolved provenance) prevents enrichment from inflating framework wiring
-symbol centrality; (6) embeddings confirmed neutral on cold start (session 23);
-(7) at least 39% of Django failures are true vocabulary gaps where task
-descriptions share zero keywords with ground truth symbols; (8) all tested
-systems fail on enterprise-scale repos (>1M LOC) except knowing and codegraph.
+(3) 277 framework and domain equivalence classes with forced injection bridge
+the vocabulary gap between task descriptions and code symbols (+57% P@10);
+(4) domain equiv classes for app repos produce the largest per-repo gains
+(saleor +99.6%, calcom +497%); (5) per-cluster implicit feedback with
+vocabulary expansion from agent usage improves R@10 +5.2% and MRR +12.6%
+over 5 rounds without regression; (6) embeddings confirmed neutral on cold
+start (session 23), and the re-ranker finding (+17%) was invalidated by task
+memory contamination; (7) at least 39% of Django failures are true vocabulary
+gaps where task descriptions share zero keywords with ground truth symbols;
+(8) all tested systems fail on enterprise-scale repos (>1M LOC) except knowing
+and codegraph.
 
 The benchmark corpus, fixtures, and evaluation harness are open-source and
 reproducible.
@@ -64,16 +66,17 @@ pairs.
 
 ### 1.1 Contributions
 
-1. **A reproducible benchmark** with 277 tasks across 14 repositories in 8
-   languages, with ground truth derived from PR diffs and SWE-bench instances.
+1. **A reproducible benchmark** with 302 tasks across 17 repositories in 8
+   languages, with ground truth derived from PR diffs, SWE-bench instances,
+   and manual expert labeling.
 2. **Head-to-head evaluation** of 7 systems spanning four architectural approaches:
    knowledge graphs, PageRank-based repo maps, hybrid search, and text search.
 3. **The reachability finding**: P@10 is determined by whether relevant symbols
    are structurally reachable from keyword seeds, not by how they are ranked.
    This has direct implications for system design.
-4. **The re-ranker finding**: embedding models are neutral as independent
-   retrieval channels but produce +17% P@10 when used to re-rank graph walk output.
-   Architecture matters more than model quality.
+4. **The vocabulary bridging finding**: domain equiv classes (e-commerce, scheduling)
+   produce the largest per-repo gains by mapping documented domain concepts to
+   code symbols. saleor +99.6%, calcom +497%.
 5. **Failure analysis**: 42% of failures on Django are unreachable symbols,
    establishing a lower bound on what graph-based retrieval can achieve without
    supplemental candidate sources.
@@ -128,28 +131,38 @@ embedding-based semantic search and BM25 text search.
 
 ### 3.1 Corpus
 
-10 public repositories selected for language diversity, scale diversity, and
+17 public repositories selected for language diversity, scale diversity, and
 architectural diversity:
 
 | Repository | Language | LOC | Nodes | Edges | Tasks |
 |------------|----------|-----|-------|-------|-------|
-| Flask | Python | 15K | 1.4K | 6K | 19 |
-| Django | Python | 300K | 57K | 376K | 33 |
-| Cargo | Rust | 150K | 3K | 10K | 19 |
-| Kubernetes | Go | 3.5M | 30K | 100K | 19 |
-| VS Code | TypeScript | 1M | 87K | 50K | 19 |
-| Kafka | Java | 800K | 8K | 20K | 19 |
-| Terraform | Go | 500K | 10K | 30K | 20 |
-| Spark Java | Java | 14K | 366 | 1.4K | 5 |
-| Ocelot | C# | 50K | 2K | 5K | 5 |
-| Cross-cutting | Mixed | - | - | - | 9 |
+| Kubernetes | Go | 3.5M | 242K | 706K | 13 |
+| VS Code | TypeScript | 1M | 552K | 4.4M | 19 |
+| Kafka | Java | 800K | 105K | 957K | 19 |
+| Terraform | Go | 500K | 99K | 332K | 20 |
+| Django | Python | 300K | 128K | 370K | 33 |
+| Rails | Ruby | 200K | 386K | 2.4M | 20 |
+| Saleor | Python | 180K | 34K | 285K | 11 |
+| Calcom | TypeScript | 200K | 80K | 246K | 11 |
+| Cargo | Rust | 150K | 81K | 137K | 19 |
+| Ocelot | C# | 50K | 17K | 53K | 20 |
+| Ripgrep | Rust | 50K | 11K | 22K | 11 |
+| Caddy | Go | 75K | 18K | 46K | 20 |
+| FastAPI | Python | 30K | 18K | 39K | 20 |
+| Jekyll | Ruby | 30K | 15K | 34K | 20 |
+| Flask | Python | 15K | 5K | 11K | 18 |
+| Spark Java | Java | 14K | 1.4K | 1.4K | 20 |
+| Cross-cutting | Mixed | - | - | - | 8 |
 
-All repositories are pinned to specific commits for reproducibility. The knowing
-repository is excluded to prevent self-measurement bias.
+All repositories are pinned to specific commits for reproducibility (see
+`bench/cross-system/corpus/MANIFEST.yaml`). The knowing repository is excluded
+to prevent self-measurement bias. Saleor and Calcom are framework-USING
+application repos, validating that domain equiv classes generalize beyond
+framework source code.
 
 ### 3.2 Task Fixtures
 
-277 tasks distributed across three difficulty tiers:
+302 tasks distributed across three difficulty tiers:
 
 - **Easy** (single-package): all relevant symbols in one package/module
 - **Medium** (cross-package): symbols span 2-4 packages
@@ -250,13 +263,13 @@ no semantic understanding. Universal baseline.
 
 | System | P@10 | R@10 | NDCG@10 | MRR | Tasks | Notes |
 |--------|------|------|---------|-----|-------|-------|
-| **knowing** | **0.283** | **0.414** | **0.426** | **0.446** | 277 | Focused seed selection + cluster-aware gap-fill, 38 edge types, 164 equivalence classes |
-| codebase-memory | 0.137 | 0.145 | n/a | n/a | ~50 | Hangs on repos >22K nodes. Scored on repos it could handle. |
-| codegraph | 0.135 | 0.366 | n/a | 0.459 | 107 | 170 tasks failed (unsupported repos). |
-| GitNexus | 0.075 | 0.159 | n/a | n/a | 66 | Killed on k8s (>60 min, 5.7GB RAM). Non-deterministic. |
-| Gortex | 0.063 | n/a | n/a | n/a | 66 | 14GB RAM on k8s. Re-indexes per query. |
-| Aider | 0.050 | n/a | n/a | n/a | 98 | File-level context (not symbol-level). 79 failures. Timed out on large repos. |
-| grep | 0.013 | 0.035 | 0.037 | 0.072 | 277 | Universal baseline. |
+| **knowing** | **0.330** | **0.460** | **0.526** | **0.568** | 302 | 277 equiv classes, 38 edge types, multi-phrase gate, 13 self-adapting mechanisms |
+| codegraph | 0.087 | - | - | - | 118 | Honest matching (dot-bounded). |
+| GitNexus | 0.055 | - | - | - | 77 | Killed on k8s (>60 min, 5.7GB RAM). Non-deterministic. |
+| Gortex | 0.052 | - | - | - | 246 | 14GB RAM on k8s. Re-indexes per query. |
+| Aider | 0.023 | - | - | - | 278 | File-level context (not symbol-level). Timed out on large repos. |
+| grep | 0.015 | - | - | - | 302 | Universal baseline. |
+| codebase-memory | timeout | - | - | - | 22 | Hangs on repos >22K nodes (22/302 tasks in 60 min). |
 
 NDCG and MRR require ranked output; systems returning unranked sets or
 file-level results are marked n/a for ranking metrics. R@10 requires
@@ -265,8 +278,8 @@ incomplete R@10 data.
 
 knowing vs codegraph: p < 0.0001 (Wilcoxon), Cohen's d = 0.92 (very large effect).
 
-Competitive ratios: knowing is 2.17x codegraph, codebase-memory timed out, 3.44x GitNexus,
-3.63x Gortex, 12.6x grep.
+Competitive ratios: knowing is 3.79x codegraph, 6.00x GitNexus,
+6.35x Gortex, 14.3x Aider, 22.0x grep. codebase-memory timed out.
 
 ### 5.2 Per-Tier Performance (knowing)
 
@@ -285,20 +298,23 @@ gap is most severe.
 
 | Repository | Language | knowing P@10 | Tasks | Notes |
 |------------|----------|-------------|-------|-------|
-| Jekyll | Ruby | 0.500 | 20 | Best in corpus, tree-sitter only |
-| Kafka | Java | 0.358 | 19 | Deep class hierarchies, enriched with jdtls |
-| Caddy | Go | 0.340 | 20 | Enriched with gopls |
-| Flask | Python | 0.305 | 19 | Small, well-connected, enriched with pyright |
-| Cargo | Rust | 0.300 | 19 | Enriched with rust-analyzer |
-| Cross-cutting | Mixed | 0.278 | 9 | Multi-repo tasks |
-| Kubernetes | Go | 0.274 | 19 | Adaptive seeds help at scale, enriched with gopls |
-| FastAPI | Python | 0.270 | 20 | Enriched with pyright |
-| Django | Python | 0.258 | 33 | 42% zero-rate (vocabulary gaps) |
-| Terraform | Go | 0.245 | 20 | Enriched with gopls |
-| Ocelot | C# | 0.235 | 20 | Enriched with csharp-ls |
-| Ripgrep | Rust | 0.230 | 20 | Enriched with rust-analyzer |
-| Spark Java | Java | 0.215 | 20 | Enriched with jdtls |
-| VS Code | TypeScript | 0.163 | 19 | Dense graph, seed competition, enriched with tsserver |
+| Saleor | Python | 0.527 | 11 | E-commerce equiv classes (+99.6%) |
+| Ripgrep | Rust | 0.464 | 11 | No framework classes (defensibility) |
+| Terraform | Go | 0.440 | 20 | Terraform equiv classes |
+| Kafka | Java | 0.437 | 19 | Kafka equiv classes, enriched with jdtls |
+| Jekyll | Ruby | 0.425 | 20 | Jekyll + Ruby enrichment |
+| Kubernetes | Go | 0.423 | 13 | K8S equiv classes, enriched with gopls |
+| Caddy | Go | 0.410 | 20 | Caddy equiv classes, enriched with gopls |
+| Calcom | TypeScript | 0.409 | 11 | Scheduling equiv classes (+497%) |
+| Flask | Python | 0.328 | 18 | Flask equiv classes, enriched with pyright |
+| Rails | Ruby | 0.325 | 20 | Rails equiv classes, enriched with ruby-lsp |
+| FastAPI | Python | 0.315 | 20 | FastAPI equiv classes, enriched with pyright |
+| Ocelot | C# | 0.280 | 20 | Ocelot equiv classes, enriched with csharp-ls |
+| Cross-cutting | Multi | 0.263 | 8 | Multi-repo tasks |
+| Cargo | Rust | 0.263 | 19 | Cargo equiv classes, enriched with rust-analyzer |
+| Spark Java | Java | 0.250 | 20 | Spark-Java equiv classes, enriched with jdtls |
+| VS Code | TypeScript | 0.200 | 19 | VS Code equiv classes + adaptive retrieval, enriched with tsserver |
+| Django | Python | 0.176 | 33 | Django equiv classes, 39% zero-rate (SWE-bench vocab gaps) |
 
 ### 5.4 Scale Tolerance
 
@@ -355,19 +371,24 @@ structural changes (new edge types, new seed sources, new candidate channels),
 not parameter optimization. Every P@10 improvement in knowing's history came
 from a structural change, never from tuning.
 
-### 6.2 The Re-ranker Finding
+### 6.2 The Embedding Finding (Revised)
 
 Three embedding models (BGE-small, jina-code, nomic) were tested as an
 independent retrieval channel (Channel 3: embed query, HNSW search, RRF-fuse
 with graph results). All produced identical P@10 to baseline.
 
-The same jina-code model used as a post-scoring re-ranker (re-order top-50 RWR
-candidates by cosine similarity to the task description) produced +17% P@10.
+The same jina-code model used as a post-scoring re-ranker initially appeared to
+produce +17% P@10. **This finding was later invalidated (session 23):** the
+improvement was caused by task memory contamination. Accumulated task memory
+entries in corpus DBs created a feedback loop where the re-ranker kept injecting
+the same symbols that stale task memory was boosting. Three clean runs with empty
+task memory produced identical P@10 with and without embeddings (0.176, 0.175,
+0.176). The re-ranker was disabled as net negative on honest measurement (session
+19: 9/13 repos hurt).
 
-**Explanation:** as an independent channel, embeddings find the same symbols as
-BM25 (vocabulary overlap). As a re-ranker, they promote symbols the graph
-surfaced but scored too low. The graph provides structural reach; the embedding
-provides semantic ranking. Neither alone achieves what the combination does.
+**Revised conclusion:** embeddings are dead weight for cold-start retrieval
+accuracy. The graph structure, BM25, and equivalence classes carry everything.
+Embedding infrastructure was removed from the default configuration.
 
 ### 6.3 Failure Analysis
 
@@ -392,8 +413,8 @@ Knowing automatically adjusts its strategy based on observed graph properties:
 |---------------|-----------|------------|
 | Node count > 40K | Auto | Prefer type/interface seeds over methods |
 | Node count > 10K | Auto | Increase seed count (15 -> 20-25) |
-| Embedding available | Opt-in | Re-rank top-50 by cosine similarity |
-| Node count > 10K + embeddings | Auto | Inject embedding-filtered gap candidates |
+| Framework detected | Auto | 277 equiv classes with multi-phrase gate inject domain vocabulary |
+| Test file detected | Auto | 0.15x penalty for test symbols (Ruby/Java/C#/Go/Python/TS/Rust) |
 
 This self-adaptation is a key architectural difference: the system observes its
 own operating regime and adjusts, rather than requiring manual configuration.
@@ -409,7 +430,7 @@ a single parameter adaptation. The aggregate corpus improved from 0.207 to 0.242
 
 ### 7.1 Why Graph Beats Text
 
-The 12.6x advantage over grep and 2.17x over codegraph comes from structural
+The 22.0x advantage over grep and 3.79x over codegraph comes from structural
 traversal: RWR discovers symbols connected to the task through call chains,
 inheritance hierarchies, and type relationships that text search cannot see.
 A developer asking about "auth middleware" needs `SessionHandler`, `TokenValidator`,
@@ -464,7 +485,7 @@ community to contribute task fixtures and system adapters.
 
 ### 7.5 Limitations
 
-- **Single-labeler ground truth.** All 277 task fixtures were created by the
+- **Single-labeler ground truth.** All 302 task fixtures were created by the
   first author. Inter-rater agreement has not been measured. Ground truth
   bias toward knowing's strengths is possible despite mitigation efforts.
   Community-contributed fixtures would address this.
@@ -484,7 +505,7 @@ community to contribute task fixtures and system adapters.
 - **Fixed token budget.** All measurements use a 5000-token budget (benchmark
   default). The product default is 50,000 tokens. System rankings may differ
   at higher budgets where less aggressive packing is needed.
-- **Iterative development.** The benchmark was developed over 26 iterative runs.
+- **Iterative development.** The benchmark was developed over 70+ iterative runs.
   Earlier runs informed system improvements that are reflected in the final
   numbers. This is standard for system papers but differs from blind evaluation.
   The iterative history is published at `bench/cross-system/RUN-HISTORY.md`.
@@ -494,19 +515,20 @@ community to contribute task fixtures and system adapters.
 ## 8. Conclusion
 
 We present the first multi-language benchmark for code context retrieval,
-evaluating 7 systems across 277 tasks in 14 repositories. Graph-based retrieval
-with density-adaptive strategy (knowing) achieves P@10=0.189, significantly
-outperforming all competitors (2.17x codegraph, 3.44x GitNexus, 3.63x Gortex).
-The key findings are:
+evaluating 7 systems across 302 tasks in 17 repositories. Graph-based retrieval
+with density-adaptive strategy (knowing) achieves P@10=0.330, significantly
+outperforming all competitors (3.79x codegraph, 6.00x GitNexus, 6.35x Gortex,
+14.3x Aider, 22.0x grep). The key findings are:
 
 1. **Reachability determines precision.** Parameter tuning is futile; only
    structural changes (new edges, new candidate sources) improve results.
-2. **Seed cohesion outperforms seed diversity.** Clustering seeds by package
-   path and concentrating the walk in the dominant neighborhood produces +6.0%
-   P@10. 57 experiments varying seed count showed zero effect. This challenges
-   the common assumption that more diverse seeds improve recall.
-3. **Embedding architecture matters more than model quality.** The same model
-   is neutral as a search channel and +17% as a re-ranker.
+2. **Domain vocabulary bridging is the highest-leverage move.** E-commerce
+   equiv classes produced +99.6% on saleor; scheduling equiv classes produced
+   +497% on calcom. Generalizable domain concepts (checkout, booking, availability)
+   bridge vocabulary gaps that BM25 and graph walks cannot cross.
+3. **Embeddings are dead weight for cold-start retrieval.** The initial +17%
+   re-ranker finding was invalidated by task memory contamination (session 23).
+   Three clean runs confirmed identical P@10 with and without embeddings.
 3. **Scale separates the field.** Most systems fail on enterprise-scale repos.
    Only knowing and codegraph handle 3.5M LOC without degradation.
 4. **The vocabulary gap is the remaining bottleneck.** 42% of failures on
