@@ -11,6 +11,13 @@ May 2026, v1.1
 > (fixed by disabling in benchmark adapter). Corpus expanded from 5 repos/107
 > tasks to 15 repos/297 tasks. Competitor coverage expanded from 2 to 5
 > systems. All architectural contributions unchanged.
+>
+> **Post-publication note (2026-06-04):** The benchmark corpus has since expanded
+> to 17 repos/302 tasks with P@10 = 0.330 (3.79x codegraph, 22.0x grep). Key
+> additions: saleor (e-commerce), calcom (scheduling), 277 equiv classes with
+> multi-phrase gate. See `bench/cross-system/FINDINGS.md` for current numbers.
+> The architectural contributions in this paper are unchanged; only the retrieval
+> measurements have improved.
 
 ---
 
