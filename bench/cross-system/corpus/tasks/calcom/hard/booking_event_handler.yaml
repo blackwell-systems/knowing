@@ -1,0 +1,12 @@
+id: calcom-hard-003
+repo: calcom
+tier: hard
+description: "Trace the full booking event pipeline from request validation through calendar sync, payment processing, and email notification"
+source: manual
+ground_truth:
+  - BookingEventHandlerService
+  - onBookingCreated
+  - handleBookingRequested
+  - BookingEmailSmsService
+tags: [booking, event-pipeline, cross-cutting]
+notes: "End-to-end booking event handling. Tests cross-concern tracing: validation, calendar, payment, notification."

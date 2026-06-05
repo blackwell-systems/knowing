@@ -1,0 +1,12 @@
+id: calcom-medium-004
+repo: calcom
+tier: medium
+description: "Add and remove attendees from a booking, updating the calendar event and sending notification emails"
+source: manual
+ground_truth:
+  - BookingAttendeesService
+  - BookingAttendeesRemoveService
+  - BookingAttendeesModule
+  - createAttendee
+tags: [booking, attendees, notification]
+notes: "Attendee management. Standard for any multi-participant scheduling system."

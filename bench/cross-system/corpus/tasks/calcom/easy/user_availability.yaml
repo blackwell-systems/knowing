@@ -1,0 +1,11 @@
+id: calcom-easy-003
+repo: calcom
+tier: easy
+description: "Fetch a user's availability for a given date range to display open time slots"
+source: manual
+ground_truth:
+  - UserAvailabilityService
+  - getUserAvailability
+  - getAvailabilityLoadedEventPayload
+tags: [availability, scheduling]
+notes: "Availability lookup. Core to any scheduling system."

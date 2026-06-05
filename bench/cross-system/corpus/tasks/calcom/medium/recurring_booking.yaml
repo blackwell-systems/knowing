@@ -1,0 +1,11 @@
+id: calcom-medium-002
+repo: calcom
+tier: medium
+description: "Create a recurring booking that repeats weekly and handles individual occurrence cancellations"
+source: manual
+ground_truth:
+  - RecurringBookingService
+  - RecurringBookingModule
+  - BookingCancelService
+tags: [booking, recurring, scheduling]
+notes: "Recurring event handling. Common in appointment and meeting scheduling."

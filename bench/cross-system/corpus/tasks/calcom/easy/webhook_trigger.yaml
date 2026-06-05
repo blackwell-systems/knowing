@@ -1,0 +1,12 @@
+id: calcom-easy-004
+repo: calcom
+tier: easy
+description: "Send a webhook notification when a booking is created or cancelled"
+source: manual
+ground_truth:
+  - WebhookService
+  - sendPayload
+  - _handleWebhookTrigger
+  - getWebhooks
+tags: [webhook, notification]
+notes: "Webhook dispatch on booking events. Standard integration pattern."

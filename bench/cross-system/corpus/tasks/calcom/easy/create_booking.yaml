@@ -1,0 +1,12 @@
+id: calcom-easy-001
+repo: calcom
+tier: easy
+description: "Create a new booking for an event type, validating the selected time slot and sending confirmation emails"
+source: manual
+ground_truth:
+  - _createBooking
+  - saveBooking
+  - RegularBookingService
+  - checkIfBookerEmailIsBlocked
+tags: [booking, creation, single-package]
+notes: "Core booking flow. Every scheduling platform has a create-booking entry point."

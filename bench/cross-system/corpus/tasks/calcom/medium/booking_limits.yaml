@@ -1,0 +1,11 @@
+id: calcom-medium-003
+repo: calcom
+tier: medium
+description: "Enforce booking limits and duration limits so a host cannot be overbooked beyond their configured maximum"
+source: manual
+ground_truth:
+  - CheckBookingLimitsService
+  - CheckBookingAndDurationLimitsService
+  - checkActiveBookingsLimitForBooker
+tags: [booking, limits, validation]
+notes: "Rate limiting for bookings. Generalizes to any resource scheduling with capacity constraints."

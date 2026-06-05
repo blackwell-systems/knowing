@@ -1,0 +1,11 @@
+id: calcom-hard-001
+repo: calcom
+tier: hard
+description: "Implement seat-based bookings where multiple attendees can book into the same time slot up to a seat limit"
+source: manual
+ground_truth:
+  - BookingSeatModule
+  - BookingSeatRepository
+  - SlotsRepository_2024_09_04
+tags: [booking, seats, capacity]
+notes: "Seat-based scheduling. Generalizes to class bookings, group events, capacity management."

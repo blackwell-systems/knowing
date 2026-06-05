@@ -1,0 +1,12 @@
+id: calcom-hard-002
+repo: calcom
+tier: hard
+description: "Configure scheduled webhook triggers that fire before a booking starts, with retry logic for failed deliveries"
+source: manual
+ground_truth:
+  - handleWebhookScheduledTriggers
+  - WebhookService
+  - OOOWebhookService
+  - sendPayload
+tags: [webhook, scheduling, retry]
+notes: "Scheduled webhook triggers with delivery guarantees. Common integration pattern."

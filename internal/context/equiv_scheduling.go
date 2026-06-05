@@ -1,0 +1,90 @@
+package context
+
+// schedulingEquivalenceClasses returns equivalence classes for scheduling/booking
+// platforms. These are generalizable patterns across Cal.com, Calendly, Acuity,
+// Doodle, and any appointment scheduling system.
+func schedulingEquivalenceClasses() []EquivalenceClass {
+	return []EquivalenceClass{
+		{
+		Concept:    "SCHEDULING_BOOKING",
+		Phrases:    []string{"create booking", "new booking", "booking flow", "handle booking", "booking request", "booking event"},
+		Targets:    []string{"_createBooking", "saveBooking", "RegularBookingService", "handleBookingRequested", "BookingEventHandlerService", "onBookingCreated"},
+		TargetType: "symbol",
+		Weight:     0.9,
+		Source:     "framework",
+		Lang:       "typescript",
+		},
+		{
+		Concept:    "SCHEDULING_CANCEL",
+		Phrases:    []string{"cancel booking", "booking cancellation", "cancel appointment"},
+		Targets:    []string{"BookingCancelService", "cancelBooking", "BookingCancelModule"},
+		TargetType: "symbol",
+		Weight:     0.9,
+		Source:     "framework",
+		Lang:       "typescript",
+		},
+		{
+		Concept:    "SCHEDULING_AVAILABILITY",
+		Phrases:    []string{"user availability", "available time slots", "check availability", "schedule availability", "open slots"},
+		Targets:    []string{"UserAvailabilityService", "getAvailability", "getUserAvailability"},
+		TargetType: "symbol",
+		Weight:     0.9,
+		Source:     "framework",
+		Lang:       "typescript",
+		},
+		{
+		Concept:    "SCHEDULING_CALENDAR",
+		Phrases:    []string{"calendar integration", "calendar provider", "calendar sync", "google calendar", "outlook calendar"},
+		Targets:    []string{"GoogleCalendarService", "Office365CalendarService", "CalendarService", "getAvailability"},
+		TargetType: "symbol",
+		Weight:     0.9,
+		Source:     "framework",
+		Lang:       "typescript",
+		},
+		{
+		Concept:    "SCHEDULING_RECURRING",
+		Phrases:    []string{"recurring booking", "recurring event", "repeating appointment", "recurring schedule"},
+		Targets:    []string{"RecurringBookingService", "RecurringBookingModule"},
+		TargetType: "symbol",
+		Weight:     0.9,
+		Source:     "framework",
+		Lang:       "typescript",
+		},
+		{
+		Concept:    "SCHEDULING_WEBHOOK",
+		Phrases:    []string{"webhook trigger", "webhook notification", "booking webhook", "scheduled webhook"},
+		Targets:    []string{"WebhookService", "sendPayload", "handleWebhookScheduledTriggers", "OOOWebhookService"},
+		TargetType: "symbol",
+		Weight:     0.9,
+		Source:     "framework",
+		Lang:       "typescript",
+		},
+		{
+		Concept:    "SCHEDULING_ATTENDEE",
+		Phrases:    []string{"booking attendee", "add attendee", "remove attendee", "attendee management"},
+		Targets:    []string{"BookingAttendeesService", "BookingAttendeesRemoveService", "BookingAttendeesModule"},
+		TargetType: "symbol",
+		Weight:     0.9,
+		Source:     "framework",
+		Lang:       "typescript",
+		},
+		{
+		Concept:    "SCHEDULING_LIMITS",
+		Phrases:    []string{"booking limit", "duration limit", "overbooking", "booking capacity"},
+		Targets:    []string{"CheckBookingLimitsService", "CheckBookingAndDurationLimitsService", "checkActiveBookingsLimitForBooker"},
+		TargetType: "symbol",
+		Weight:     0.9,
+		Source:     "framework",
+		Lang:       "typescript",
+		},
+		{
+		Concept:    "SCHEDULING_SEATS",
+		Phrases:    []string{"seat booking", "seat-based booking", "group booking", "booking seats", "seat limit"},
+		Targets:    []string{"BookingSeatModule", "BookingSeatRepository"},
+		TargetType: "symbol",
+		Weight:     0.9,
+		Source:     "framework",
+		Lang:       "typescript",
+		},
+	}
+}

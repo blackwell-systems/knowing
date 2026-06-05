@@ -1,0 +1,12 @@
+id: calcom-medium-001
+repo: calcom
+tier: medium
+description: "Integrate a third-party calendar provider that syncs events and checks availability across Google Calendar and Outlook"
+source: manual
+ground_truth:
+  - GoogleCalendarService
+  - Office365CalendarService
+  - getAvailability
+  - CalendarService
+tags: [calendar, integration, multi-provider]
+notes: "Calendar provider abstraction. Generalizes to any multi-provider scheduling system."

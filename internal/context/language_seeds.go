@@ -25,6 +25,7 @@ func languageEquivalenceClasses() []EquivalenceClass {
 	all = append(all, caddyEquivalenceClasses()...)
 	all = append(all, cargoEquivalenceClasses()...)
 	all = append(all, saleorEquivalenceClasses()...)
+	all = append(all, schedulingEquivalenceClasses()...)
 	all = append(all, sparkjavaEquivalenceClasses()...)
 	// Cross-cutting patterns (framework-agnostic).
 	all = append(all, containersEquivalenceClasses()...)

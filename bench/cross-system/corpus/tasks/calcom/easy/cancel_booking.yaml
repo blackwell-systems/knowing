@@ -1,0 +1,11 @@
+id: calcom-easy-002
+repo: calcom
+tier: easy
+description: "Cancel an existing booking and notify all attendees about the cancellation"
+source: manual
+ground_truth:
+  - BookingCancelService
+  - cancelBooking
+  - transformInputCancelBooking
+tags: [booking, cancellation]
+notes: "Booking cancellation flow. Universal scheduling concept."
