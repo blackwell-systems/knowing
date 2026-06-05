@@ -46,7 +46,7 @@ The learning loop is fully operational. Five components form a self-reinforcing 
 
 An agent receives a task: "fix the bug in context ranking." The `context_for_task` MCP tool runs the full retrieval pipeline: 5-channel RRF seed fusion, Random Walk with Restart, HITS reranking, 13 self-adapting mechanisms. Returns ranked, token-budgeted context.
 
-P@10 = 0.330 cold start (302 tasks, 16 repos). 3.69x more precise than codegraph, 21.4x more precise than grep.
+P@10 = 0.330 cold start (302 tasks, 17 repos). 3.79x more precise than codegraph, 22.0x more precise than grep.
 
 ### 3.2 Work (agent uses context, modifies code)
 
@@ -163,7 +163,7 @@ Each layer depends on the one below:
 
 **Retrieval-augmented generation for code.** RAG approaches for code (CodeBERT, UniXcoder, RepoCoder) embed code snippets and retrieve by cosine similarity. These are effective for semantic matching but do not model structural relationships (caller/callee, implements, extends). They cannot answer "what breaks if I change X?" because they lack edge-typed graphs. Embeddings are also stateless: each query starts fresh with no memory of prior sessions. Our evaluation confirmed that embedding-based retrieval is neutral on cold start (P@10 identical with and without, 3 runs), while graph structure and BM25 carry all precision.
 
-**Benchmark methodology.** SWE-bench [Jimenez et al. 2024] evaluates agent task completion but not the retrieval layer that feeds agents context. CrossCodeEval evaluates cross-file completion but at the token level, not the symbol level. Our benchmark (300 tasks, 16 repos, 8 languages) evaluates symbol-level retrieval precision with statistical methodology (Wilcoxon signed-rank, Cohen's d, bootstrap CI) and cold-start enforcement (task memory contamination discovered and eliminated in session 23).
+**Benchmark methodology.** SWE-bench [Jimenez et al. 2024] evaluates agent task completion but not the retrieval layer that feeds agents context. CrossCodeEval evaluates cross-file completion but at the token level, not the symbol level. Our benchmark (302 tasks, 17 repos, 8 languages) evaluates symbol-level retrieval precision with statistical methodology (Wilcoxon signed-rank, Cohen's d, bootstrap CI) and cold-start enforcement (task memory contamination discovered and eliminated in session 23).
 
 **Community detection on code.** Louvain clustering has been applied to software architecture recovery [Garcia et al. 2013], but prior work uses it for visualization, not as a runtime primitive for feedback scoping and cache invalidation. Our contribution is using community-discovered boundaries as the organizational unit for agent learning: feedback compounds by keyword cluster within community boundaries, and Merkle roots provide structural expiration when communities' code changes.
 
@@ -210,7 +210,7 @@ The unique combination: learning that is **persistent** (survives across session
 | 10-round MRR compounding | 0.459 -> 0.497 peak (+8.1%) | TestCompounding (300 tasks) |
 | Cross-task percentage | 100% (all improvements are cross-task) | TestCrossTaskVocab |
 | RWR cache speedup | 2x (Django cold 3.9s -> warm 1.9s) | debug-rwr-cache |
-| Competitive advantage | 3.23x codegraph, 18.7x grep | Cross-system benchmark |
+| Competitive advantage | 3.79x codegraph, 22.0x grep | Cross-system benchmark |
 
 All measurements: cold start, no task memory, no embeddings, honest methodology.
 
