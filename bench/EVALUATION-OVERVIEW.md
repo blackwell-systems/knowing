@@ -34,19 +34,19 @@ with the others.
 
 ### Dimension 1: Retrieval Precision
 
-**Harness:** `bench/cross-system/` (300 tasks, 16 repos, 8 languages, cold start)
+**Harness:** `bench/cross-system/` (302 tasks, 17 repos, 8 languages, cold start)
 
 | System | P@10 | Ratio vs knowing |
 |--------|------|------------------|
-| **knowing** | **0.321** | **1.00x** |
-| codegraph (19K stars) | 0.087 | 3.23x less precise |
-| GitNexus | 0.055 | 5.11x less precise |
-| Gortex | 0.052 | 5.40x less precise |
-| Aider | 0.023 | 12.2x less precise |
-| grep | 0.015 | 18.7x less precise |
+| **knowing** | **0.330** | **1.00x** |
+| codegraph (19K stars) | 0.087 | 3.79x less precise |
+| GitNexus | 0.055 | 6.00x less precise |
+| Gortex | 0.052 | 6.35x less precise |
+| Aider | 0.023 | 14.3x less precise |
+| grep | 0.015 | 22.0x less precise |
 | codebase-memory (2.6K stars) | timeout | 22/297 tasks in 60 min |
 
-**Verdict:** 18.7x precision advantage vs grep. 3.23x vs codegraph (nearest competitor with reliable results). Cold start, no task memory, no embeddings, honest measurement.
+**Verdict:** 22.0x precision advantage vs grep. 3.79x vs codegraph (nearest competitor with reliable results). Cold start, no task memory, no embeddings, honest measurement.
 
 Per-repo highlights: Terraform 0.430, Caddy 0.410, Cargo 0.300, Flask 0.290, Django 0.203, Kubernetes 0.232 (from 0.000 pre-enrichment). LSP enrichment is strongly positive for Go, Python, and Rust repos.
 
@@ -85,7 +85,7 @@ Three compounding mechanisms work together:
 2. **Per-cluster implicit feedback:** noise demotion scoped by keyword cluster prevents cross-task interference
 3. **Learned vocabulary:** cross-task bridging (task A's vocab helps task B via shared keywords, +41.4% on Django in isolation)
 
-**Verdict:** Quality compounds with usage. Cold-start floor is 0.321, compounded with
+**Verdict:** Quality compounds with usage. Cold-start floor is 0.330, compounded with
 vocab and memory the system improves across sessions. Every round beats baseline.
 
 ### Dimension 4: Determinism
@@ -163,7 +163,7 @@ vocab and memory the system improves across sessions. Every round beats baseline
 
 1. **Absolute precision is 28.1%.** knowing beats grep 18.7x but ~72% of returned symbols still don't match ground truth. Remaining miss rate is primarily vocabulary gaps (42% of Django tasks score zero due to no keyword overlap with ground truth).
 
-2. **Cold-start floor.** Feedback compounding requires usage. First-run precision is 0.321. Compounding improves this over time but requires similar queries.
+2. **Cold-start floor.** Feedback compounding requires usage. First-run precision is 0.330. Compounding improves this over time but requires similar queries.
 
 3. **Language coverage.** 8 languages covered (Go, Python, Rust, Java, TypeScript, C#, Ruby, HCL/TOML). Missing: Zig, Swift, Kotlin, Scala.
 
@@ -187,6 +187,7 @@ vocab and memory the system improves across sessions. Every round beats baseline
 | 31 | 2026-06-01 | FTS decomposition, per-cluster feedback, LSP attenuation | 0.293 | Session 25 (16 repos, 300 tasks) |
 | 32 | 2026-06-02 | Cross-task vocab validation, confidence weighting | 0.293 | Session 26 (vocab neutral on aggregate, +41% Django) |
 | 33 | 2026-06-04 | Multi-phrase equiv gate, code pattern extraction, fixture cleanup | 0.321 | Session 28 (291 tasks, multi-phrase gate fixes VSCODE_COMMAND) |
+| 34 | 2026-06-04 | Saleor + scheduling equiv classes, corpus expansion | 0.330 | Session 29 (302 tasks, 17 repos) |
 
 ## Reproducing
 

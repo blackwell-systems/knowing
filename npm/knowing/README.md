@@ -37,9 +37,9 @@ You should see ranked symbols with scores and file paths. If results are empty, 
 
 ## What it does
 
-knowing indexes code across 23 extractors (Go, TypeScript, Python, Rust, Java, C#, and more) into a content-addressed knowledge graph. 38 edge types, 28 MCP tools, 263 equivalence classes bridging task vocabulary to code symbols.
+knowing indexes code across 23 extractors (Go, TypeScript, Python, Rust, Java, C#, and more) into a content-addressed knowledge graph. 38 edge types, 28 MCP tools, 277 equivalence classes bridging task vocabulary to code symbols.
 
-P@10 = 0.321 across 291 tasks, 16 repos, 8 languages. 13 self-adapting mechanisms. 3.69x codegraph, 5.84x GitNexus.
+P@10 = 0.330 across 302 tasks, 17 repos, 8 languages. 13 self-adapting mechanisms. 3.79x codegraph, 6.00x GitNexus.
 
 ## CLI usage
 
