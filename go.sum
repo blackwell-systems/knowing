@@ -12,8 +12,8 @@ github.com/aymanbagabas/go-osc52/v2 v2.0.1 h1:HwpRHbFMcZLEVr42D4p7XBqjyuxQH5SMiE
 github.com/aymanbagabas/go-osc52/v2 v2.0.1/go.mod h1:uYgXzlJ7ZpABp8OJ+exZzJJhRNQ2ASbcXHWsFqH8hp8=
 github.com/blackwell-systems/agent-lsp v0.11.2-0.20260518143556-2469d52998d6 h1:vOOOy3J7abKtZwJI8TEkCkd2Q4apCYexL3W5iBLl4NI=
 github.com/blackwell-systems/agent-lsp v0.11.2-0.20260518143556-2469d52998d6/go.mod h1:Zdvy/1wP4wHxU6n/FFy/lgWmBF4wINItNcYdPEY1/mg=
-github.com/blackwell-systems/gcf-go v0.0.0-20260603210758-19ccf8e071de h1:WtJt+Ayd1luiRQ61z1N+9nsTSryb6w8li4Xy7b76bAc=
-github.com/blackwell-systems/gcf-go v0.0.0-20260603210758-19ccf8e071de/go.mod h1:ST507JbYTlVUXZMEmlOJgI5+6svK1UImNVqNCf1X/Sk=
+github.com/blackwell-systems/gcf-go v0.4.0 h1:MUnjc+m2aAHU9FXWENmbvTQVlq2/HQ4kD1o5zd9VwpU=
+github.com/blackwell-systems/gcf-go v0.4.0/go.mod h1:ST507JbYTlVUXZMEmlOJgI5+6svK1UImNVqNCf1X/Sk=
 github.com/blackwell-systems/merkle-strata v0.4.0 h1:wygXyMXwcUxO9bSyMOL1n9kF+BWzvyXJOF62r5WpFx0=
 github.com/blackwell-systems/merkle-strata v0.4.0/go.mod h1:SCzFGWM2aYZL9u1AfV3NqZwpw06noNtR0DlYe8a09jM=
 github.com/campoy/embedmd v1.0.0 h1:V4kI2qTJJLf4J29RzI/MAt2c3Bl4dQSYPuflzwFH2hY=
