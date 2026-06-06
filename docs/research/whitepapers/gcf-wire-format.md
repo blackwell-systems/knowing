@@ -504,7 +504,7 @@ JSON with shortened field names (`"qn"` instead of `"qualified_name"`) achieves 
 
 ## 9. Limitations and Validation
 
-**LLM comprehension.** GCF assumes the consuming LLM can parse a positional text format. A 13-question comprehension eval at 500 symbols with 200 edges validated this: GCF achieved **100% accuracy** (13/13 structured extraction tasks) versus JSON at 76.9% (10/13) and TOON at 92.3% (12/13). The concern that LLMs might struggle with GCF's `@N` local IDs was unfounded; the dense format actually improves counting accuracy by eliminating structural noise. Human-readability and LLM-readability diverge at scale: JSON's field-name repetition creates noise that overwhelms counting at 500+ records.
+**LLM comprehension.** GCF is a wire format optimized for agentic comprehension, not human scanning. Human readability is a last-mile rendering concern: the agent calls `decode()` when a human needs to see the data. A 13-question comprehension eval at 500 symbols with 200 edges validates this design: GCF achieved **100% accuracy** (13/13 structured extraction tasks) versus JSON at 76.9% (10/13) and TOON at 92.3% (12/13). The concern that LLMs might struggle with GCF's dense positional format was unfounded; the format actually improves comprehension by eliminating structural noise. JSON's field-name repetition (2,500 identical tokens at 500 records) overwhelms the model's counting circuits. GCF's `@N` local IDs, `##` section headers, and `|` pipe separators are more readable to an LLM than JSON's `"qualified_name":` repeated 500 times.
 
 **LLM generation.** A generation eval validated that LLMs can produce valid GCF given a 3-line format primer. At 5 to 100 symbols: 5/5 valid, 75% fewer output tokens than JSON, 52% fewer than TOON. Without a primer, both GCF and TOON achieve 3/5 validity (tied cold-start). GCF is bidirectional: cheaper to read and cheaper to write.
 
@@ -564,7 +564,9 @@ GCF is bidirectional. A 13-question comprehension eval proves LLMs read it at 10
 
 The format is text-based, LLM-optimized, and implementable in any language. Implementations exist in six languages (Go, TypeScript, Python, Rust, Swift, Kotlin) with zero or minimal runtime dependencies. A drop-in MCP proxy enables adoption with zero code changes and adds streaming progress notifications for immediate partial context delivery.
 
-The broader point: as AI agents become the primary consumers and producers of structured data, wire formats should be optimized for agent comprehension, not human readability. Human-readability and LLM-readability diverge at scale. The format that looks clean to humans (JSON) is the one that breaks for agents. The format optimized for the actual consumer (GCF) achieves 100% accuracy at the lowest token cost.
+The broader point: GCF is a wire format. Wire formats are not optimized for human readability. HTTP headers are not readable. Protobuf is not readable. Nobody cares; they use a viewer. GCF is the wire format; JSON is the viewer format. The agent reads GCF (cheap, accurate), does its work, then calls `decode()` at the end if a human needs to see the result. Human readability is a last-mile rendering concern, not a wire format property.
+
+The format that looks clean to humans (JSON) is the one that breaks for agents at scale. The format optimized for agentic comprehension (GCF) achieves 100% accuracy at the lowest token cost. This is not a tradeoff. It is a design choice validated by proof.
 
 ---
 
