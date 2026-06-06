@@ -528,6 +528,22 @@ The token savings are too large to ignore. A 79% reduction in tool response toke
 
 GCF is bidirectional: LLMs can produce it, not just consume it. A generation eval tested whether LLMs produce valid, parseable GCF at scale. Same model (Claude via `claude -p`, zero prior context), same data, validated through the real Go decoder.
 
+**The primer.** For reading, no primer is needed (the comprehension eval uses zero format instructions). For generation, a 3-line primer is sufficient:
+
+Graph profile primer:
+```
+GCF format: Symbols are @id kind qualified_name score provenance.
+Edges are @target<@source type. Sections marked with ##.
+```
+
+Tabular profile primer:
+```
+GCF format: Arrays use ## name [count]{field1,field2} headers with pipe-separated rows.
+Key-value pairs use key=value. Primitive arrays use name[count]: val1,val2,val3.
+```
+
+The model does not need to be fine-tuned on GCF. The format's regularity (positional fields, consistent prefixes, line-oriented structure) maps directly to how transformers process patterns. The primer tells the model how to write the format; the model already knows how to read it.
+
 **With a 3-line format primer:**
 
 | Symbols | Edges | GCF Valid | GCF Savings vs JSON | TOON Valid | TOON Savings vs JSON | GCF vs TOON |
@@ -541,6 +557,8 @@ GCF is bidirectional: LLMs can produce it, not just consume it. A generation eva
 Both formats achieve 5/5 validity with a primer. GCF output is 52% smaller than TOON output at every scale.
 
 **Without a primer (cold-start):** Both formats achieve 3/5 validity. Neither has a zero-shot generation advantage.
+
+**Implications.** The primer enables three use cases beyond tool responses: (1) agent-to-agent communication at 75% fewer tokens per handoff, (2) structured output mode as an alternative to JSON mode (cheaper, validated), and (3) system prompt encoding where tool documentation, API schemas, and context packs are encoded as GCF to maximize context window utilization.
 
 ### 10.2 Streaming: Progressive Context Delivery
 
