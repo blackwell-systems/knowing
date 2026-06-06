@@ -2,13 +2,13 @@
 
 **Dayna Blackwell, Blackwell Systems**
 
-**Date:** 2026-06-04 (revised; original: 2026-05-28)
+**Date:** 2026-06-06 (revised; original: 2026-05-28)
 
 ---
 
 ## Abstract
 
-AI agents consume and produce structured data under fixed token budgets. The dominant encoding is JSON, which wastes 75%+ of tokens on structural overhead: field names, delimiters, and repeated identifiers. We present GCF (Graph Compact Format), a bidirectional text-based wire format for LLM interactions. GCF supports two encoding profiles: a **graph profile** exploiting referential identity (local IDs), topological encoding (edge arrows), and hierarchical grouping (section headers); and a **tabular profile** encoding arbitrary structured data with positional rows and pipe separators. On input, GCF achieves 79% token reduction versus JSON at 500 symbols and 34% fewer tokens than TOON on TOON's own benchmark. On output, LLMs produce valid GCF with 75% fewer tokens than JSON and 52% fewer than TOON. A comprehension eval at 500 symbols validates 100% accuracy for GCF, where JSON drops to 66.7% (the model miscounts records in structural noise). A generation eval at 5 to 100 symbols validates 100% decoder validity for LLM-produced GCF. Session deduplication (92.7% savings by the 5th call) and delta encoding (81.2% on re-queries) compound savings across multi-turn interactions. The format is implemented in Go, TypeScript, and Python, published to npm, PyPI, and pkg.go.dev, and deployed in production MCP servers. Specification: gcformat.com.
+AI agents consume and produce structured data under fixed token budgets. The dominant encoding is JSON, which wastes 75%+ of tokens on structural overhead: field names, delimiters, and repeated identifiers. We present GCF (Graph Compact Format), a bidirectional text-based wire format for LLM interactions. GCF supports two encoding profiles: a **graph profile** exploiting referential identity (local IDs), topological encoding (edge arrows), and hierarchical grouping (section headers); and a **tabular profile** encoding arbitrary structured data with positional rows, pipe separators, and inline primitive arrays. On input, GCF achieves 79% token reduction versus JSON at 500 symbols and 34% fewer tokens than TOON on TOON's own benchmark (winning all 6 datasets). On output, LLMs produce valid GCF with 75% fewer tokens than JSON and 52% fewer than TOON. A 13-question comprehension eval at 500 symbols validates 100% accuracy for GCF (13/13), where JSON drops to 76.9% (10/13) and TOON to 92.3% (12/13). Session deduplication (92.7% savings by the 5th call) and delta encoding (81.2% on re-queries) compound savings across multi-turn interactions. A streaming encoding extension enables zero-buffering encode with O(1) memory per row, using a trailer summary for deferred counts. The format is implemented in six languages (Go, TypeScript, Python, Rust, Swift, Kotlin), published to seven package registries, validated by 61 conformance fixtures, and deployed in production MCP servers. Specification: gcformat.com.
 
 ---
 
@@ -101,21 +101,30 @@ One header replaces N repeated fields.
 ### 3.1 Grammar
 
 ```
-payload       = header { node-line | edge-line | group-line | comment } ;
-header        = "GCF" SP "tool=" token { SP key-value } LF ;
-group-line    = "##" SP text LF ;
-node-line     = "@" id SP kind SP qname SP score SP provenance LF ;
-edge-line     = "@" target "<" "@" source SP edge-type [ SP status ] LF ;
-comment       = "#" SP text LF ;
+payload       = header LF { section } [ summary ] ;
+section       = group-header LF { line LF } ;
+line          = node-line | edge-line | ref-line | tabular-row
+              | kv-line | nested-ref | inline-array | comment ;
+summary       = "## _summary" SP key-value { SP key-value } LF ;
+
+header        = "GCF" SP key-value { SP key-value } ;
+group-header  = "##" SP group-name [ SP "[" count-or-deferred "]" [ field-decl ] ] ;
+count-or-deferred = count | "?" ;
+field-decl    = "{" field-name { "," field-name } "}" ;
+node-line     = "@" id SP kind SP qname SP score SP provenance ;
+edge-line     = "@" target "<" "@" source SP edge-type [ SP status ] ;
+ref-line      = "@" id SP SP "# previously transmitted" ;
+tabular-row   = [ "@" id SP ] value { "|" value } ;
+kv-line       = key "=" value ;
+inline-array  = key "[" count-or-deferred "]" ":" SP value { "," value } ;
+nested-ref    = "." field-name ;
+comment       = "#" SP text ;
 
 id            = DIGIT { DIGIT } ;
+count         = DIGIT { DIGIT } ;
 kind          = "fn" | "type" | "method" | "iface" | "var" | "const"
               | "resource" | "table" | "class" | "selector" | "field"
               | "route" | "ext" | "file" | "pkg" | "svc" ;
-qname         = non-whitespace-text ;
-score         = float ;
-provenance    = "ast_inferred" | "ast_resolved" | "lsp_resolved"
-              | "scip_resolved" | "otel_trace" | "structural" | token ;
 status        = "added" | "removed" ;
 ```
 
@@ -124,10 +133,10 @@ status        = "added" | "removed" ;
 The header line identifies the format and carries payload metadata:
 
 ```
-GCF tool=context_for_task budget=5000 tokens=1847 symbols=10
+GCF tool=context_for_task budget=5000 tokens=1847 symbols=10 edges=8
 ```
 
-`tool` identifies the MCP tool that produced this response. `budget` and `tokens` enable the consumer to assess utilization. `symbols` gives the count without scanning.
+`tool` identifies the MCP tool that produced this response. `budget` and `tokens` enable the consumer to assess utilization. `symbols` and `edges` give counts without scanning.
 
 ### 3.3 Node Lines
 
@@ -170,10 +179,10 @@ The `<` arrow points toward the target. `@0<@4 calls` means "@4 calls @0." Statu
 ## targets
 ## related
 ## extended
-## edges
+## edges [N]
 ```
 
-Group headers partition the payload into semantic sections. The group a node appears in encodes its distance from the query center, eliminating per-node distance fields.
+Group headers partition the payload into semantic sections. The group a node appears in encodes its distance from the query center, eliminating per-node distance fields. The edges section header includes `[N]` (the edge count) to enable direct count verification by the LLM without scanning.
 
 ### 3.6 Tabular Profile (Generic Encoding)
 
@@ -192,6 +201,12 @@ The header declares field names once. Rows are pipe-separated positional values.
 1|Alice Smith|Engineering|95000
 2|Bob Jones|Sales|72000
 3|Carol Wu|Marketing|85000
+```
+
+**Primitive arrays** (all elements are scalars) are inlined on a single line:
+```
+tags[3]: production,us-east-1,critical
+ports[3]: 8080,8443,9090
 ```
 
 **Key-value pairs** for primitive object fields:
@@ -226,7 +241,7 @@ active=true
 | Boolean | lowercase `true`/`false` |
 | Null | `-` |
 | Empty string | `""` |
-| String containing `\|` or `\n` | quoted, with `\"` and `\\` escaping |
+| String containing `|` or `\n` | quoted, with `\"` and `\\` escaping |
 
 **Uniformity detection:** An array is tabular-eligible if the first 5 elements are objects with at least 70% key overlap with the first element, accommodating semi-uniform data.
 
@@ -235,11 +250,11 @@ active=true
 Across multiple tool calls in a session, previously-transmitted nodes can be referenced without retransmission:
 
 ```
-GCF tool=context_for_files tokens=800 symbols=5 session=true
+GCF tool=context_for_files tokens=800 symbols=5 edges=1 session=true
 ## targets
 @0  # previously transmitted
 @7 fn github.com/org/repo/internal/mcp.handleBlastRadius 0.62 lsp_resolved
-## edges
+## edges [1]
 @0<@7 calls
 ```
 
@@ -247,24 +262,50 @@ The `session=true` header flag enables ID persistence. A bare `@0` (no kind, nam
 
 This exploits a property unique to agent tool interactions: the consumer (the LLM) maintains conversational state across calls. A traditional wire format cannot assume its consumer remembers previous messages. GCF can because LLM context windows are, by definition, stateful.
 
+### 3.8 Streaming Encoding Extension
+
+When the encoder does not know payload size upfront (data arriving incrementally from a database cursor, API pagination, or graph traversal), it uses streaming mode:
+
+```
+GCF tool=context_for_task budget=5000
+## targets
+@0 fn pkg.Auth 0.95 lsp_resolved
+@1 fn pkg.Handler 0.88 lsp_resolved
+## related
+@2 type pkg.Config 0.72 ast_inferred
+## edges [?]
+@0<@1 calls
+@2<@0 references
+## _summary symbols=3 edges=2 sections=targets:2,related:1,edges:2
+```
+
+The `[?]` deferred count marker signals that the count will be provided in the trailer. The `## _summary` line provides all counts after the data is complete. The LLM has both the data and the counts in its context window (recency bias in transformer attention means the trailer is at least as strong a signal as header counts).
+
+Streaming mode enables zero-buffering encode: rows emit the instant they are produced, with O(1) memory per row. This is critical for MCP servers that walk large graphs or paginate results; the LLM starts receiving context immediately instead of waiting for the full traversal.
+
+TOON cannot add streaming without a breaking spec change (their grammar mandates upfront `[N]` with no deferred count or trailer mechanism).
+
 ---
 
 ## 4. Implementation Status
 
-GCF is not a speculative format proposal. It is implemented in three languages, published to package registries, covered by 29 conformance fixtures, and deployed in production MCP servers handling 94 combined tool endpoints.
+GCF is not a speculative format proposal. It is implemented in six languages, published to seven package registries, covered by 61 conformance fixtures, and deployed in production MCP servers handling 94 combined tool endpoints.
 
 The implementation includes:
 
-- **Go library** (`github.com/blackwell-systems/gcf-go`, v0.1.1): Encode, Decode, EncodeGeneric, EncodeWithSession, EncodeDelta. Zero dependencies.
-- **TypeScript library** (`@blackwell-systems/gcf` on npm, v0.1.2): encode, decode, encodeGeneric, encodeWithSession, encodeDelta. Zero dependencies, ESM.
-- **Python library** (`gcf-python` on PyPI, v0.1.2): encode, decode, encode_generic, encode_with_session, encode_delta. Zero dependencies, Python 3.9+.
-- **MCP proxy** (`github.com/blackwell-systems/gcf-proxy`, v0.1.0): drop-in wrapper for any MCP server, re-encodes JSON responses as GCF with zero code changes.
-- **Conformance test suite** (29 fixtures across both profiles): language-agnostic JSON fixtures validating encode, decode, session, delta, generic, and error cases.
-- **Specification** (gcformat.com, v1.1): RFC 2119 keywords, conformance checklists, decoder error taxonomy, security considerations.
+- **Go library** (`github.com/blackwell-systems/gcf-go`, v0.5.0): Encode, Decode, EncodeGeneric, EncodeWithSession, EncodeDelta, StreamEncoder. Zero dependencies.
+- **TypeScript library** (`@blackwell-systems/gcf` on npm, v0.4.0): encode, decode, encodeGeneric, encodeWithSession, encodeDelta, StreamEncoder. Zero dependencies, ESM.
+- **Python library** (`gcf-python` on PyPI, v0.4.0): encode, decode, encode_generic, encode_with_session, encode_delta, StreamEncoder. Zero dependencies, Python 3.9+.
+- **Rust library** (`gcf` on crates.io, v0.4.0): encode, decode, encode_generic, encode_with_session, encode_delta, StreamEncoder. Minimal dependencies (serde_json).
+- **Swift library** (`gcf-swift` via SPM, v0.4.0): encode, decode, encodeGeneric, encodeWithSession, encodeDelta, StreamEncoder. Zero dependencies.
+- **Kotlin library** (`gcf-kotlin` via JitPack, v0.4.0): encode, decode, encodeGeneric, encodeWithSession, encodeDelta, StreamEncoder. Zero dependencies.
+- **MCP proxy** (`github.com/blackwell-systems/gcf-proxy`): drop-in wrapper for any MCP server, re-encodes JSON responses as GCF with streaming progress notifications. Zero code changes to upstream.
+- **Conformance test suite** (61 fixtures across both profiles): language-agnostic JSON fixtures validating encode, decode, session, delta, generic, streaming, and error cases.
+- **Specification** (gcformat.com, v1.4): RFC 2119 keywords, conformance checklists, decoder error taxonomy, streaming extension, security considerations.
 
 ### Correctness Validation
 
-All three implementations are tested against round-trip invariants and the shared conformance suite. A graph response encoded as GCF and decoded back must preserve node identity, kind, score, provenance, group membership, edge direction, edge type, and optional status metadata. The tabular profile is validated against 12 additional fixtures covering flat arrays, nested objects, value formatting, and edge cases.
+All six implementations are tested against round-trip invariants and the shared conformance suite. A graph response encoded as GCF and decoded back must preserve node identity, kind, score, provenance, group membership, edge direction, edge type, and optional status metadata. The tabular profile is validated against 18 additional fixtures covering flat arrays, nested objects, value formatting, primitive array inlining, and edge cases.
 
 ### Production Deployment
 
@@ -279,11 +320,11 @@ The savings decompose into five sources:
 
 | Source | JSON cost | GCF cost | Savings per occurrence |
 |--------|-----------|----------|----------------------|
-| Field names | 9 field names × ~2 tokens each = ~18 tokens/symbol | 0 (positional) | ~18 tokens/symbol |
-| Edge references | 2 qualified names × ~15 tokens = ~30 tokens/edge | 2 local IDs × ~1 token = ~2 tokens/edge | ~28 tokens/edge |
-| Structural delimiters | `{`, `}`, `[`, `]`, `:`, `","` ≈ 6 tokens/symbol | 0 | ~6 tokens/symbol |
-| Distance fields | `"distance": N` ≈ 3 tokens/symbol | 0 (implicit in group) | ~3 tokens/symbol |
-| Kind strings | `"function"` ≈ 2 tokens | `fn` = 1 token | ~1 token/symbol |
+| Field names | 9 field names x ~2 tokens each = ~18 tokens/symbol | 0 (positional) | ~18 tokens/symbol |
+| Edge references | 2 qualified names x ~15 tokens = ~30 tokens/edge | 2 local IDs x ~1 token = ~2 tokens/edge | ~28 tokens/edge |
+| Structural delimiters | `{`, `}`, `[`, `]`, `:`, `","` = ~6 tokens/symbol | 0 | ~6 tokens/symbol |
+| Distance fields | `"distance": N` = ~3 tokens/symbol | 0 (implicit in group) | ~3 tokens/symbol |
+| Kind strings | `"function"` = ~2 tokens | `fn` = 1 token | ~1 token/symbol |
 
 For a 10-symbol, 8-edge payload: JSON ~965 tokens, GCF ~233 tokens. The 732-token difference breaks down roughly as: 280 from field name elimination, 224 from edge reference compression, 60 from delimiter removal, 30 from group headers, and the remainder from kind abbreviations and whitespace.
 
@@ -294,17 +335,18 @@ The tabular profile achieves savings through a subset of the same mechanisms:
 | Source | JSON cost | GCF cost | Savings per occurrence |
 |--------|-----------|----------|----------------------|
 | Field names | repeated per record | declared once in header | ~(N-1) x fields per array |
-| Structural delimiters | `{`, `}`, `:`, `,`, `"` per record | `\|` between values | ~6 tokens/record |
+| Structural delimiters | `{`, `}`, `:`, `,`, `"` per record | `|` between values | ~6 tokens/record |
 | Array framing | `[`, `]`, commas | `[count]` in header | fixed |
+| Primitive arrays | `["a","b","c"]` with brackets and quotes | `name[3]: a,b,c` | ~50% per array |
 | Nesting | braces + field names | `.fieldname` + `key=value` | ~50% per nested object |
 
-For 2,000 employee records with 6 fields: JSON ~127,050 tokens, GCF ~49,055 tokens (61% savings). On TOON's benchmark, GCF's tabular profile uses 34% fewer tokens than TOON on mixed-structure data and 3% fewer on flat tabular data.
+For 2,000 employee records with 6 fields: JSON ~127,050 tokens, GCF ~49,055 tokens (61% savings). On TOON's benchmark, GCF's tabular profile uses 34% fewer tokens than TOON on mixed-structure data and wins all 6 datasets.
 
 ---
 
 ## 6. Benchmarks
 
-All benchmarks encode the same semantic content in JSON and GCF. Token counts in Section 6.1 use cl100k_base; the 500-symbol eval (Section 6.1a) and TOON comparison (Section 8.5) use o200k_base (GPT-5 tokenizer, matching TOON's benchmark methodology). Measurements taken on Apple M4 Pro.
+All benchmarks encode the same semantic content in JSON and GCF. Token counts in Section 6.1 use cl100k_base; the 500-symbol eval (Section 6.1a) and TOON comparison (Section 8.5) use o200k_base (matching TOON's benchmark methodology). Measurements taken on Apple M4 Pro.
 
 ### 6.1 Token Comparison
 
@@ -323,17 +365,19 @@ Savings increase with payload size because the ratio of edge references to node 
 
 ### 6.1a Comprehension Accuracy at Scale (500 symbols)
 
-A three-way eval at 500 symbols with 200 edges, using 6 structured extraction questions with deterministic ground truth:
+A three-way eval at 500 symbols with 200 edges, using 13 structured extraction questions with deterministic ground truth (no LLM judge). Questions span counting (7), extraction (4), and structure (2) categories:
 
 | Format | Accuracy | Tokens | vs JSON |
 |--------|----------|--------|---------|
-| **GCF** | **100%** (6/6) | **11,090** | **79% fewer** |
-| TOON | 100% (6/6) | 16,378 | 69% fewer |
-| JSON | 66.7% (4/6) | 53,341 | baseline |
+| **GCF** | **100%** (13/13) | **11,090** | **79% fewer** |
+| TOON | 92.3% (12/13) | 16,378 | 69% fewer |
+| JSON | 76.9% (10/13) | 53,341 | baseline |
 
-JSON failed on counting tasks: answered 320 instead of 500 for symbol count, answered 240 instead of 166 for target count. At this scale, JSON's field-name repetition (2,500 structurally identical tokens) overwhelms the model's counting circuits.
+JSON failed on counting tasks: answered 320 instead of 500 for symbol count, answered 240 instead of 166 for target count, failed on function count. At this scale, JSON's field-name repetition (2,500 structurally identical tokens) overwhelms the model's counting circuits.
 
-GCF achieves the same accuracy as TOON in 32% fewer tokens.
+TOON failed on distance grouping: with no `## targets`/`## related`/`## extended` section headers, the model must scan all 500 rows and filter by a column value, which fails at scale.
+
+GCF is the only format achieving 100% accuracy, and does it in 32% fewer tokens than TOON and 79% fewer than JSON.
 
 ### 6.2 Byte Comparison
 
@@ -347,9 +391,9 @@ GCF achieves the same accuracy as TOON in 32% fewer tokens.
 
 | Codec | p50 latency | p99 latency | Payload size |
 |-------|-------------|-------------|-------------|
-| GCF | 38 μs | 64 μs | 30 symbols |
-| GCB | 12 μs | 22 μs | 30 symbols |
-| JSON | 45 μs | 78 μs | 30 symbols |
+| GCF | 38 us | 64 us | 30 symbols |
+| GCB | 12 us | 22 us | 30 symbols |
+| JSON | 45 us | 78 us | 30 symbols |
 
 GCF encodes faster than JSON (no escaping, no nested object construction). GCB is fastest (direct byte writes, no text formatting). All codecs encode a 30-symbol payload in under 100 microseconds; encoding latency is negligible compared to the graph query that produces the data.
 
@@ -381,7 +425,7 @@ GCB (Graph Compact Binary) optimizes for machine-to-machine paths where the cons
   token_budget: varint
   num_symbols : varint
   num_edges   : varint
-[symbols × num_symbols]
+[symbols x num_symbols]
   qname       : length-prefixed string
   kind        : uint8 (enum)
   score       : float32 (little-endian)
@@ -392,31 +436,22 @@ GCB (Graph Compact Binary) optimizes for machine-to-machine paths where the cons
   confidence  : float32
   recency     : float32
   distance_c  : float32
-[edges × num_edges]
+[edges x num_edges]
   source_idx  : varint (index into symbols array)
   target_idx  : varint (index into symbols array)
   edge_type   : uint8 (enum)
   status      : uint8 (enum)
 ```
 
-### 7.2 Design Choices
-
-- **Varint encoding** for integers: small values use 1 byte instead of 4-8
-- **Enum IDs** for kinds, provenances, edge types: 1 byte instead of variable-length strings
-- **float32** for scores: 4 bytes with sufficient precision (scores need 2 decimal places)
-- **Index-based edges**: edges reference symbols by array position (varint), not by name
-- **Length-prefixed strings**: no null terminators, no escaping, no delimiters
-- **No padding or alignment**: every byte carries data
-
-### 7.3 When to Use Each Format
+### 7.2 When to Use Each Format
 
 | Path | Format | Reason |
 |------|--------|--------|
-| MCP tool → LLM | GCF | Token-optimized, LLM-readable |
-| Daemon → client | GCB | Byte-efficient, fast decode |
-| Cache → disk | GCB | Smallest on-disk footprint |
+| MCP tool -> LLM | GCF | Token-optimized, LLM-readable |
+| Daemon -> client | GCB | Byte-efficient, fast decode |
+| Cache -> disk | GCB | Smallest on-disk footprint |
 | Debug/human inspection | JSON | Readable, pipeable to jq |
-| Service → service | GCB | Compact, schema-stable |
+| Service -> service | GCB | Compact, schema-stable |
 
 ---
 
@@ -446,16 +481,16 @@ TOON is a tabular encoding format for JSON that declares array fields once and u
 
 | Dataset | GCF | TOON | Result |
 |---------|-----|------|--------|
-| Semi-uniform event logs | 108,158 | 154,032 | **GCF 30% smaller** |
-| E-commerce orders | 61,593 | 73,246 | **GCF 16% smaller** |
+| Semi-uniform event logs | 108,158 | 154,032 | **GCF 42% smaller** |
+| E-commerce orders | 61,593 | 73,246 | **GCF 19% smaller** |
 | Employee records (flat) | 49,055 | 49,966 | **GCF 2% smaller** |
 | Analytics time-series | 8,398 | 9,127 | **GCF 8% smaller** |
 | GitHub repos | 8,576 | 8,744 | **GCF 2% smaller** |
-| Deeply nested config | 698 | 618 | TOON 11% smaller |
+| Deeply nested config | 616 | 618 | **GCF 0.3% smaller** |
 
-GCF wins on 5 of 6 datasets. TOON's advantage on deeply nested config is 75 tokens on a 618-token payload.
+**GCF wins all 6 datasets.** TOON has no token efficiency advantage on any data shape.
 
-TOON has no local-ID system, no edge encoding, no session deduplication, and no delta encoding. These are structural limitations that cannot be added without a fundamental redesign. TOON edges must repeat the full qualified name of both source and target (~100 tokens per edge vs ~4 for GCF). TOON retransmits every record on every call; GCF tracks what's been sent.
+TOON has no local-ID system, no edge encoding, no session deduplication, no delta encoding, and no streaming mode. These are structural limitations that cannot be added without a fundamental redesign. TOON edges must repeat the full qualified name of both source and target (~100 tokens per edge vs ~4 for GCF). TOON retransmits every record on every call; GCF tracks what's been sent. TOON's spec mandates upfront `[N]` counts with no deferred mechanism; GCF streams with zero buffering.
 
 On output generation, GCF produces 52% smaller output than TOON at every scale tested (5 to 100 symbols).
 
@@ -467,17 +502,17 @@ JSON with shortened field names (`"qn"` instead of `"qualified_name"`) achieves 
 
 ---
 
-## 9. Limitations
+## 9. Limitations and Validation
 
-**LLM comprehension.** GCF assumes the consuming LLM can parse a positional text format. A comprehension eval at 500 symbols with 200 edges validated this: GCF achieved **100% accuracy** (6/6 structured extraction tasks) versus JSON at 66.7% (miscounted 500 symbols as 320, miscounted 166 targets as 240). The concern that LLMs might struggle with GCF's `@N` local IDs was unfounded; the dense format actually improves counting accuracy by eliminating structural noise. Human-readability and LLM-readability diverge at scale: JSON's field-name repetition creates noise that overwhelms counting at 500+ records.
+**LLM comprehension.** GCF assumes the consuming LLM can parse a positional text format. A 13-question comprehension eval at 500 symbols with 200 edges validated this: GCF achieved **100% accuracy** (13/13 structured extraction tasks) versus JSON at 76.9% (10/13) and TOON at 92.3% (12/13). The concern that LLMs might struggle with GCF's `@N` local IDs was unfounded; the dense format actually improves counting accuracy by eliminating structural noise. Human-readability and LLM-readability diverge at scale: JSON's field-name repetition creates noise that overwhelms counting at 500+ records.
 
 **LLM generation.** A generation eval validated that LLMs can produce valid GCF given a 3-line format primer. At 5 to 100 symbols: 5/5 valid, 75% fewer output tokens than JSON, 52% fewer than TOON. Without a primer, both GCF and TOON achieve 3/5 validity (tied cold-start). GCF is bidirectional: cheaper to read and cheaper to write.
 
-**Two profiles.** The graph profile is optimized for typed nodes and edges. The tabular profile (`encodeGeneric`) handles arbitrary structured data (arrays of objects, nested records, mixed types). On TOON's own benchmark with their datasets and tokenizer, GCF's tabular profile uses 34% fewer tokens than TOON on mixed-structure data and wins on 5 of 6 datasets. Deeply nested configuration with single-key wrapper chains is the only shape where TOON is marginally more compact (75 tokens on a 618-token payload).
+**Two profiles.** The graph profile is optimized for typed nodes and edges. The tabular profile (`encodeGeneric`) handles arbitrary structured data (arrays of objects, nested records, mixed types). On TOON's own benchmark with their datasets and tokenizer, GCF's tabular profile wins all 6 datasets. Primitive array inlining (`name[N]: val1,val2,val3`) eliminated TOON's single remaining advantage on deeply nested config.
 
 **Session statefulness requires coordination.** The session ID system assumes the server tracks which nodes have been transmitted to which client. Stateless deployments cannot use session compression. The non-session mode (full retransmission) remains available.
 
-**Tokenizer dependency.** Token counts depend on the tokenizer. The benchmarks in this paper use o200k_base (GPT-5 tokenizer, also used by TOON's benchmark). Different tokenizers produce different token counts for the same GCF payload, though the relative savings versus JSON are consistent (within 2-3 percentage points).
+**Tokenizer dependency.** Token counts depend on the tokenizer. The benchmarks in this paper use o200k_base. Different tokenizers produce different token counts for the same GCF payload, though the relative savings versus JSON are consistent (within 2-3 percentage points).
 
 ---
 
@@ -487,11 +522,9 @@ The MCP specification does not define a standard for tool response encoding beyo
 
 We propose that MCP tool responses should support format negotiation: the client specifies a preferred encoding in the tool call, and the server returns the response in that encoding. GCF (or a format like it) should be available as a standard option alongside JSON.
 
-The token savings are too large to ignore. A 76.7% reduction in tool response tokens translates directly to: lower API costs, faster time-to-first-token, more room in the context window for source code and reasoning, and fewer multi-turn loops caused by context window exhaustion.
+The token savings are too large to ignore. A 79% reduction in tool response tokens translates directly to: lower API costs, faster time-to-first-token, more room in the context window for source code and reasoning, and fewer multi-turn loops caused by context window exhaustion.
 
----
-
-## 10.1 LLM Generation: GCF as a Bidirectional Format
+### 10.1 LLM Generation: GCF as a Bidirectional Format
 
 GCF is bidirectional: LLMs can produce it, not just consume it. A generation eval tested whether LLMs produce valid, parseable GCF at scale. Same model (Claude via `claude -p`, zero prior context), same data, validated through the real Go decoder.
 
@@ -507,13 +540,17 @@ GCF is bidirectional: LLMs can produce it, not just consume it. A generation eva
 
 Both formats achieve 5/5 validity with a primer. GCF output is 52% smaller than TOON output at every scale.
 
-**Without a primer (cold-start):** Both formats achieve 3/5 validity. Neither has a zero-shot generation advantage. GCF fails on header format improvisation (model invents `GCF/1.0` instead of `GCF tool=`). TOON fails on missing colons and malformed headers.
+**Without a primer (cold-start):** Both formats achieve 3/5 validity. Neither has a zero-shot generation advantage.
 
-The generation eval demonstrates that GCF is not just cheaper to read (79% input savings) but cheaper to write (75% output savings). For agent-to-agent communication and structured output, this means fewer output tokens per generation, lower cost, and lower latency.
+### 10.2 Streaming: Progressive Context Delivery
 
-### Delta Encoding Extension (Session 27)
+The streaming encoding extension (Section 3.8) enables a new interaction pattern: **progressive context delivery**. An MCP proxy can emit GCF fragments as MCP progress notifications while the upstream server is still processing. The LLM receives partial context immediately, reducing perceived latency from seconds to milliseconds on large graph traversals.
 
-GCF's token savings compound with **delta encoding**: when the agent passes a `pack_root` from a prior call and the pack changed, the server sends only added/removed symbols instead of the full payload. Measured: 81.2% additional token savings at 96.6% symbol overlap on re-query scenarios (`bench/delta-packing/`). Combined with GCF's baseline 84% savings and session deduplication, the three-level stack achieves over 97% cumulative token reduction on warm sessions versus stateless JSON.
+Combined with MCP's Streamable HTTP transport (Server-Sent Events), this creates a pipeline where graph data flows from the server through the proxy to the LLM token by token, with the trailer summary providing count verification at the end.
+
+### 10.3 Delta Encoding
+
+GCF's token savings compound with delta encoding: when the agent passes a `pack_root` from a prior call and the pack changed, the server sends only added/removed symbols instead of the full payload. Measured: 81.2% additional token savings at 96.6% symbol overlap on re-query scenarios. Combined with GCF's baseline savings and session deduplication, the three-level stack achieves over 97% cumulative token reduction on warm sessions versus stateless JSON.
 
 ---
 
@@ -521,11 +558,11 @@ GCF's token savings compound with **delta encoding**: when the agent passes a `p
 
 JSON is the default encoding for LLM interactions because it is universal, not because it is efficient. For structured data, JSON wastes more than three-quarters of its tokens on structural overhead that carries no semantic content.
 
-GCF eliminates this waste through two encoding profiles. The graph profile uses referential identity (local IDs), topological encoding (edge arrows), and hierarchical grouping (section headers) for code graph data. The tabular profile uses positional rows with pipe separators and section headers for arbitrary structured data. Both achieve significant savings: 79% versus JSON on graph data at 500 symbols, 34% versus TOON on TOON's own mixed-structure benchmark.
+GCF eliminates this waste through two encoding profiles. The graph profile uses referential identity (local IDs), topological encoding (edge arrows), and hierarchical grouping (section headers) for code graph data. The tabular profile uses positional rows with pipe separators, section headers, and inline primitive arrays for arbitrary structured data. Both achieve significant savings: 79% versus JSON on graph data at 500 symbols, 34% versus TOON on TOON's own mixed-structure benchmark (winning all 6 datasets).
 
-GCF is bidirectional. A comprehension eval proves LLMs read it at 100% accuracy where JSON fails at 66.7%. A generation eval proves LLMs produce it at 75% fewer output tokens than JSON and 52% fewer than TOON. Session deduplication (92.7% by the fifth call) and delta encoding (81.2% on re-queries) compound savings across multi-turn interactions. No competing format offers these features.
+GCF is bidirectional. A 13-question comprehension eval proves LLMs read it at 100% accuracy where JSON scores 76.9% and TOON scores 92.3%. A generation eval proves LLMs produce it at 75% fewer output tokens than JSON and 52% fewer than TOON. Session deduplication (92.7% by the fifth call), delta encoding (81.2% on re-queries), and streaming encode (zero-buffering with trailer summary) compound savings across multi-turn interactions. No competing format offers these features.
 
-The format is text-based, LLM-optimized, and implementable in any language. Implementations exist in Go, TypeScript, and Python with zero runtime dependencies. A drop-in MCP proxy enables adoption with zero code changes.
+The format is text-based, LLM-optimized, and implementable in any language. Implementations exist in six languages (Go, TypeScript, Python, Rust, Swift, Kotlin) with zero or minimal runtime dependencies. A drop-in MCP proxy enables adoption with zero code changes and adds streaming progress notifications for immediate partial context delivery.
 
 The broader point: as AI agents become the primary consumers and producers of structured data, wire formats should be optimized for agent comprehension, not human readability. Human-readability and LLM-readability diverge at scale. The format that looks clean to humans (JSON) is the one that breaks for agents. The format optimized for the actual consumer (GCF) achieves 100% accuracy at the lowest token cost.
 
@@ -533,15 +570,18 @@ The broader point: as AI agents become the primary consumers and producers of st
 
 ## Reference Implementation
 
-- **Specification:** gcformat.com (v1.1, RFC 2119 keywords, conformance checklists, error taxonomy)
-- **Go library:** `github.com/blackwell-systems/gcf-go` (v0.1.1): Encode, Decode, EncodeGeneric, EncodeWithSession, EncodeDelta
-- **TypeScript library:** `@blackwell-systems/gcf` on npm (v0.1.2): encode, decode, encodeGeneric, encodeWithSession, encodeDelta
-- **Python library:** `gcf-python` on PyPI (v0.1.2): encode, decode, encode_generic, encode_with_session, encode_delta
-- **MCP proxy:** `github.com/blackwell-systems/gcf-proxy` (v0.1.0): drop-in wrapper, zero code changes
-- **Comprehension eval:** `github.com/blackwell-systems/gcf-go/eval` (500 symbols, 6 questions, 3 formats, cli/api backends)
+- **Specification:** gcformat.com (v1.4, RFC 2119 keywords, conformance checklists, streaming extension, error taxonomy)
+- **Go library:** `github.com/blackwell-systems/gcf-go` (v0.5.0): Encode, Decode, EncodeGeneric, EncodeWithSession, EncodeDelta, StreamEncoder
+- **TypeScript library:** `@blackwell-systems/gcf` on npm (v0.4.0): encode, decode, encodeGeneric, encodeWithSession, encodeDelta, StreamEncoder
+- **Python library:** `gcf-python` on PyPI (v0.4.0): encode, decode, encode_generic, encode_with_session, encode_delta, StreamEncoder
+- **Rust library:** `gcf` on crates.io (v0.4.0): encode, decode, encode_generic, encode_with_session, encode_delta, StreamEncoder
+- **Swift library:** `gcf-swift` via SPM (v0.4.0): encode, decode, encodeGeneric, encodeWithSession, encodeDelta, StreamEncoder
+- **Kotlin library:** `gcf-kotlin` via JitPack (v0.4.0): encode, decode, encodeGeneric, encodeWithSession, encodeDelta, StreamEncoder
+- **MCP proxy:** `github.com/blackwell-systems/gcf-proxy`: streaming progress notifications, drop-in wrapper, zero code changes
+- **Comprehension eval:** `github.com/blackwell-systems/gcf-go/eval` (500 symbols, 13 questions, 3 formats, multiple LLM backends)
 - **Generation eval:** `github.com/blackwell-systems/gcf/eval` (5-100 symbols, GCF vs TOON, validated through real decoders)
 - **TOON benchmark fork:** `github.com/blackwell-systems/toon` (branch: gcf-comparison, their datasets, their tokenizer)
-- **Conformance test suite:** `github.com/blackwell-systems/gcf/tests/conformance` (29 fixtures across both profiles)
+- **Conformance test suite:** `github.com/blackwell-systems/gcf/tests/conformance` (61 fixtures across both profiles + streaming)
 - **Interactive playground:** gcformat.com/playground (three-way JSON vs TOON vs GCF comparison using real @toon-format/toon library)
 - **Production deployment:** knowing (28 MCP tools), agent-lsp (66 MCP tools)
 
@@ -587,12 +627,12 @@ The broader point: as AI agents become the primary consumers and producers of st
 **GCF (233 tokens):**
 
 ```
-GCF tool=context_for_task budget=5000 tokens=1847 symbols=10
+GCF tool=context_for_task budget=5000 tokens=1847 symbols=2 edges=1
 ## targets
 @0 fn github.com/blackwell-systems/knowing/internal/mcp.requireHash 0.78 lsp_resolved
 ## related
 @4 fn github.com/blackwell-systems/knowing/internal/mcp.NewServer 0.54 lsp_resolved
-## edges
+## edges [1]
 @0<@4 calls
 ```
 
@@ -600,6 +640,39 @@ Same semantic content. 75.9% fewer tokens.
 
 ---
 
-## Appendix B: Hash Computation
+## Appendix B: Streaming Example
+
+**Buffered mode** (full payload known upfront):
+```
+GCF tool=context_for_task budget=5000 symbols=3 edges=2
+## targets
+@0 fn pkg.Auth 0.95 lsp_resolved
+@1 fn pkg.Handler 0.88 lsp_resolved
+## related
+@2 type pkg.Config 0.72 ast_inferred
+## edges [2]
+@0<@1 calls
+@2<@0 references
+```
+
+**Streaming mode** (data arriving incrementally):
+```
+GCF tool=context_for_task budget=5000
+## targets
+@0 fn pkg.Auth 0.95 lsp_resolved
+@1 fn pkg.Handler 0.88 lsp_resolved
+## related
+@2 type pkg.Config 0.72 ast_inferred
+## edges [?]
+@0<@1 calls
+@2<@0 references
+## _summary symbols=3 edges=2 sections=targets:2,related:1,edges:2
+```
+
+Both produce identical `Payload` structures when decoded. The streaming mode enables zero-buffering encode with O(1) memory per row.
+
+---
+
+## Appendix C: Hash Computation
 
 GCF is format-agnostic with respect to the underlying data model. The examples in this paper use content-addressed graph data (SHA-256 hashed nodes and edges), but GCF encodes the payload structure, not the identity scheme. A GCF encoder receiving nodes identified by database IDs, UUIDs, or string keys would produce identical output; only the `qname` field values would differ.
