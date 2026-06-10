@@ -4,7 +4,7 @@ go 1.26.1
 
 require (
 	github.com/blackwell-systems/agent-lsp v0.11.2-0.20260518143556-2469d52998d6
-	github.com/blackwell-systems/gcf-go v0.4.0
+	github.com/blackwell-systems/gcf-go v1.0.0
 	github.com/blackwell-systems/merkle-strata v0.4.0
 	github.com/coder/hnsw v0.6.1
 	github.com/fsnotify/fsnotify v1.10.1
