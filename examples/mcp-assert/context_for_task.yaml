@@ -1,4 +1,4 @@
-name: context_for_task returns XML context
+name: context_for_task returns GCF context
 server:
   command: ./knowing
   args: [mcp, -db, knowing.db]
@@ -9,5 +9,5 @@ assert:
     token_budget: 2000
   expect:
     not_error: true
-    contains: ["<context"]
+    contains: ["GCF profile=graph"]
 timeout: 30s

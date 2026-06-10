@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.15.1] - 2026-06-10
+
+### Changed
+
+- **GCF v2.0 Stable**: bumped gcf-go to v1.0.0. Mandatory `profile=graph` header, `edges=N` in header, `## edges [N]` section headers with count. Streaming support available (not yet used by knowing).
+- **Cal.com corpus**: 17th benchmark repo (TypeScript/Next.js scheduling platform, 11 tasks, enriched with tsserver). Scheduling equiv classes: booking, availability, calendar, webhook, attendee, limits, seats. Calcom P@10 = 0.409.
+- **E-commerce equiv classes**: 5 domain classes for saleor (checkout, shipping, account, auth backend, async tasks). Saleor P@10: 0.264 -> 0.527 (+99.6%).
+- **Corpus DB packaging**: `corpus-setup.sh package/restore` for per-repo tarballs as GitHub release assets.
+- **Benchmark whitepaper**: prepared for publication (dev notes removed, session refs cleaned, all numbers current).
+
+### Fixed
+
+- **GCF test assertions**: updated to expect `GCF profile=graph` header (was `GCF tool=`).
+
 ## [v0.15.0] - 2026-06-04
 
 ### Added
