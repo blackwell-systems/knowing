@@ -77,8 +77,8 @@ ocelot 8.3, spark-java 7.7, kubernetes 6.2, flask 5.9, vscode 4.7, django 2.8.
 If the experiment only affects dense graphs (like adaptive alpha), test on dense repos
 (flask, cargo, kafka) instead of Django.
 
-**Output capture:** Always capture full output to a file (`2>&1 | tee /tmp/file.log`
-or `> /tmp/file.log 2>&1`). Never pipe through `tail` as it loses early output.
+**Output capture:** Always capture full output to a file (`2>&1 | stdbuf -oL tee /tmp/file.log`
+or `> /tmp/file.log 2>&1`). Use `stdbuf -oL` with `tee` to force line buffering so output appears in the log immediately (without it, pipe buffering delays output until ~4KB accumulates). Never pipe through `tail` as it loses early output.
 
 ## When Benchmark Numbers Change
 
@@ -102,14 +102,14 @@ per-repo breakdown, and competitive ratios. This is a standard procedure:
 15. **CLAUDE.md** — this file, Current State section
 16. **README.md** — Numbers table
 
-Competitive ratios (session 27, honest measurement, 300 tasks):
-- vs codegraph: 0.293 / 0.087 = 3.37x
-- vs GitNexus: 0.293 / 0.055 = 5.33x
-- vs Gortex: 0.293 / 0.052 = 5.63x
-- vs Aider: 0.293 / 0.023 = 12.7x
-- vs grep: 0.293 / 0.015 = 19.5x
+Competitive ratios (session 29, honest measurement, 302 tasks):
+- vs codegraph: 0.330 / 0.087 = 3.79x
+- vs GitNexus: 0.330 / 0.055 = 6.00x
+- vs Gortex: 0.330 / 0.052 = 6.35x
+- vs Aider: 0.330 / 0.023 = 14.3x
+- vs grep: 0.330 / 0.015 = 22.0x
 - codebase-memory: timed out (22/300 tasks in 60 min)
-Note: P@10 improved from 0.206 (session 23) to 0.293 (session 27) via focused seeds, equiv classes, code pattern extraction, fixture cleanup.
+Note: P@10 improved from 0.321 (session 28) to 0.330 (session 29) via saleor + scheduling equiv classes, expanded corpus (302 tasks, 17 repos).
 
 ## Key Architecture
 
@@ -124,12 +124,12 @@ Note: P@10 improved from 0.206 (session 23) to 0.293 (session 27) via focused se
 - `internal/snapshot/` — hierarchical Merkle tree (via merkle-strata library)
 - `internal/mcp/` — MCP server (28 tools, 8 resources)
 - `internal/enrichment/` — LSP enrichment (multi-module gopls, per-symbol timeout, progress persistence)
-- `bench/cross-system/` — competitive benchmark (300 tasks, 16 repos, 7 competitors)
+- `bench/cross-system/` — competitive benchmark (302 tasks, 17 repos, 7 competitors)
 - `cmd/knowing/audit_supply_chain.go` — supply chain CLI (package-level verdict)
 
-## Current State (session 27, 2026-06-03)
+## Current State (session 29, 2026-06-04)
 
-- **P@10 = 0.293 cold start** (300 tasks, 16 repos, no task memory, no embeddings, honest measurement, session 27. 8 fixtures with unresolvable ground truth removed.)
+- **P@10 = 0.330 cold start** (302 tasks, 17 repos, no task memory, no embeddings, honest measurement, session 29. Saleor + scheduling equiv classes, expanded corpus.)
 - **Embeddings: confirmed neutral.** Three runs: 0.176, 0.175, 0.176. Gap-fill seeds add nothing on cold start. Embedding infrastructure is dead weight for retrieval accuracy.
 - **Task memory contamination (session 23):** all P@10 measurements from sessions 8-22 were inflated by accumulated task memory in corpus DBs. Resolved: adapter disables task memory, clear before honest runs.
 - **GCF wire format:** default output format for all MCP context tools (session 27). 84% fewer tokens than JSON, 100% comprehension accuracy.
@@ -137,7 +137,7 @@ Note: P@10 improved from 0.206 (session 23) to 0.293 (session 27) via focused se
 - **Focused seed selection:** cluster seeds by package path, concentrate walk in dominant neighborhood (+6% relative)
 - **Density-adaptive:** PreferTypeSeeds >40K nodes, adaptive seed count >10K nodes
 - **LSP enrichment:** strongly positive. Go: k8s 0.000->0.232, terraform ~0.095->0.275. Python: +0.040
-- **Competitive (cold, honest):** 2.37x codegraph, 3.75x GitNexus, 3.96x Gortex, 8.96x Aider, 13.7x grep. codebase-memory timed out.
+- **Competitive (cold, honest):** 3.79x codegraph, 6.00x GitNexus, 6.35x Gortex, 14.3x Aider, 22.0x grep. codebase-memory timed out.
 - **Supply chain:** 1.0% FP on 200 clean packages (package-level verdict)
 - **Identity:** "self-adapting code intelligence engine that gets smarter with scale"
 
