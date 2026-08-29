@@ -27,6 +27,12 @@ const (
 	RuntimeProduces = "runtime_produces"
 	RuntimeConsumes = "runtime_consumes"
 
+	// C/C++ specific
+	Includes      = "includes"       // C/C++ #include directive -> included file
+	Specializes   = "specializes"    // template specialization -> primary template
+	Instantiates  = "instantiates"   // usage site -> template (type/function instantiation)
+	Requires      = "requires"       // template with requires clause -> concept
+
 	// Structural edges (derived from QN hierarchy)
 	Contains  = "contains"   // type/class -> method/field
 	MemberOf  = "member_of"  // method/field -> type/class (reverse of contains)
@@ -69,6 +75,8 @@ func RWRWeight(edgeType string) float64 {
 		return 0.5
 	case DependsOn:
 		return 0.5
+	case Includes:
+		return 0.5
 	case Tests:
 		return 0.6
 	case References:
@@ -93,6 +101,12 @@ func RWRWeight(edgeType string) float64 {
 		return 0.4
 	case TestedBy:
 		return 0.5
+	case Specializes:
+		return 0.6
+	case Instantiates:
+		return 0.5
+	case Requires:
+		return 0.4
 	case AccessesField:
 		return 0.6
 	case ReadsEnv:
