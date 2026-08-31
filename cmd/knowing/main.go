@@ -49,6 +49,7 @@ import (
 	"github.com/blackwell-systems/knowing/internal/indexer/terraformextractor"
 	"github.com/blackwell-systems/knowing/internal/indexer/treesitter"
 	"github.com/blackwell-systems/knowing/internal/indexer/tsextractor"
+	"github.com/blackwell-systems/knowing/internal/indexer/cppextractor"
 	"github.com/blackwell-systems/knowing/internal/community"
 	knowingctx "github.com/blackwell-systems/knowing/internal/context"
 	knowingmcp "github.com/blackwell-systems/knowing/internal/mcp"
@@ -1301,6 +1302,9 @@ func registerAllExtractors(idx *indexer.Indexer, fullGo bool) {
 
 	// TypeScript/JavaScript.
 	idx.Register(tsextractor.NewTypeScriptExtractor())
+
+	// C/C++ (tree-sitter).
+	idx.Register(cppextractor.NewCppExtractor())
 
 	// Rust.
 	idx.Register(rustextractor.NewRustExtractor())
