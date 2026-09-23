@@ -95,6 +95,8 @@ func run(args []string) error {
 		return cmdContext(args[1:])
 	case "mcp":
 		return cmdMCP(args[1:])
+	case "hook":
+		return cmdHook(args[1:])
 	case "reindex":
 		return cmdReindex(args[1:])
 	case "init":
@@ -205,7 +207,8 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  audit-supply-chain  Detect suspicious supply chain patterns in new code")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Server:")
-	fmt.Fprintln(os.Stderr, "  mcp         Run MCP server over stdio")
+	fmt.Fprintln(os.Stderr, "  mcp         Run MCP server over stdio (or --http for a shared/remote instance)")
+	fmt.Fprintln(os.Stderr, "  hook        Harness-agnostic context hook (event+payload in, context out)")
 	fmt.Fprintln(os.Stderr, "  serve       Start daemon with MCP server and file watching")
 	fmt.Fprintln(os.Stderr, "  daemon      Manage daemon lifecycle (start/stop/status/restart)")
 	fmt.Fprintln(os.Stderr, "")

@@ -1,8 +1,84 @@
-# Claude Code Hooks Integration
+# Hooks Integration
 
-knowing ships five hooks that integrate its graph intelligence into the Claude Code agent lifecycle. Each hook runs as a shell script invoked by Claude Code at a specific event, queries the knowing graph, and returns a JSON message that Claude Code injects into the agent's context.
+knowing pushes graph-ranked context into an agent's context window at lifecycle events (session start, before an edit, before spawning a subagent), so the agent gets relevant symbols without having to decide to pull them.
 
-## How Hooks Work
+There are two layers:
+
+1. **`knowing hook <event>` (harness-agnostic core).** A single command with a documented, transport-neutral stdin/stdout contract: event + payload in, context out. This is the recommended integration path for *any* harness (Hermes, OpenCode, Codex, custom loops).
+2. **Claude Code hook scripts (reference adapter).** The five shell scripts in `hooks/` that predate the neutral command. They remain for backward compatibility, but new Claude Code setups can point directly at `knowing hook <event> --emit claude-code`, which folds the Claude Code payload in and emits its native envelope with no wrapper script.
+
+## Harness-Agnostic Contract (A1)
+
+`knowing hook <event>` reads an optional JSON payload on stdin and writes a result on stdout. The event is the positional argument (or `--event`, or a stdin `event` field, in that precedence).
+
+**Events:** `session-start`, `pre-edit`, `pre-task`, `pre-files`, `pre-compact`, `post-task`.
+
+**Input (stdin, JSON; all fields optional):**
+
+```json
+{
+  "event":   "pre-edit",
+  "file":    "path/to/file.go",
+  "content": "<code being edited>",
+  "task":    "<task or prompt text>",
+  "files":   ["a.go", "b.go"]
+}
+```
+
+The parser is liberal: it also accepts the common Claude Code keys (`hook_event_name`, `tool_name`, `tool_input.{file_path,old_string,prompt,description}`, `prompt`) and folds them into the neutral fields, so a raw Claude Code payload works unmodified.
+
+**Query derivation** (ported from the benchmarked pre-edit logic, so behaviour matches):
+- `pre-edit`: extract symbol names from `content` (func/type/var declarations, method and package calls, CamelCase fallback), filter generic-noise identifiers, take the top 5. Falls back to the file's basename when no symbols are found.
+- `pre-task`: the `task` text verbatim.
+- `pre-files`: `ForFiles` blast radius over `files`.
+- `session-start` / `pre-compact`: an ambient capability blurb with graph node/edge counts.
+- `post-task`: no injectable context (feedback attribution lives in the MCP feedback layer).
+
+**Output with `--emit neutral` (default):**
+
+```json
+{
+  "event":      "pre-edit",
+  "query":      "QuerySet",
+  "context":    "GCF profile=graph tool=context_for_task ...",
+  "symbols":    57,
+  "tokens":     397,
+  "latency_ms": 42,
+  "source":     "knowing"
+}
+```
+
+`--emit claude-code` instead produces Claude Code's native `hookSpecificOutput.additionalContext` envelope (with `permissionDecision: allow` for `PreToolUse`). Empty context yields empty output, which every harness treats as a no-op.
+
+**Flags:** `--db`, `--budget` (default 400), `--format` (default `gcf`), `--emit` (`neutral`|`claude-code`), `--repo`, `--event`. A missing database is not an error: the hook emits empty context so the harness proceeds cleanly on an unindexed repo.
+
+### Wiring examples
+
+Claude Code (`.claude/settings.json`), no wrapper script:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "Edit|Write", "command": "knowing hook pre-edit --emit claude-code" }
+    ],
+    "SessionStart": [
+      { "command": "knowing hook session-start --emit claude-code" }
+    ]
+  }
+}
+```
+
+Generic harness (pseudocode):
+
+```
+out = run("knowing hook pre-task", stdin={"task": prompt})
+if out.context: inject(out.context)
+```
+
+More adapter examples live in `hooks/adapters/`.
+
+## How the Claude Code Shell Hooks Work
 
 Claude Code supports lifecycle hooks: shell commands triggered at defined moments (session start, before a tool runs, before compaction, on stop). Each hook receives JSON on stdin describing the event, and may output a JSON object with a `message` field. Claude Code prepends that message to the agent's context for the current operation.
 

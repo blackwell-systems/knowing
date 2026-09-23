@@ -31,6 +31,9 @@ import (
 func cmdMCP(args []string) error {
 	fs := flag.NewFlagSet("mcp", flag.ExitOnError)
 	dbPath := fs.String("db", defaultDB(), "Path to the SQLite database (env: KNOWING_DB)")
+	httpMode := fs.Bool("http", false, "Serve over streamable-http instead of stdio (shared/remote instance)")
+	addr := fs.String("addr", ":8080", "HTTP listen address (only with --http)")
+	port := fs.Int("port", 0, "HTTP listen port (only with --http; shorthand for --addr :<port>)")
 	watch := fs.Bool("watch", false, "Watch repo for file changes and re-index on save")
 	repoPath := fs.String("repo", "", "Repository path to watch (required with --watch, defaults to cwd)")
 	repoURL := fs.String("url", "", "Repository URL (auto-detected if empty)")
@@ -165,6 +168,17 @@ func cmdMCP(args []string) error {
 		}()
 
 		log.Printf("Watching %s for changes (debounce %dms)", absRepo, *debounceMs)
+	}
+
+	// HTTP transport: one warm instance shared across subagents/harnesses, or
+	// reachable remotely. stdio remains the default (one client per process).
+	if *httpMode {
+		listenAddr := *addr
+		if *port != 0 {
+			listenAddr = fmt.Sprintf(":%d", *port)
+		}
+		log.Printf("[knowing] MCP server listening on http://%s (streamable-http)", listenAddr)
+		return mcpServer.ServeHTTP(ctx, listenAddr)
 	}
 
 	return mcpServer.ServeStdio(ctx)
