@@ -229,23 +229,34 @@ jobs:
   npm-publish:
     needs: release
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # OIDC trusted publishing (npm classic tokens revoked 2025-12-09)
+      contents: read
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           registry-url: 'https://registry.npmjs.org'
 
+      # Trusted publishing needs npm >= 11.5.1; node 22's bundled npm may be older.
+      - name: Ensure npm supports OIDC trusted publishing
+        run: npm install -g npm@latest
+
+      # No NODE_AUTH_TOKEN: the npm CLI performs the OIDC token exchange itself,
+      # and generates provenance automatically. Each of the 5 packages must have
+      # a trusted publisher configured on npmjs.com (owner/repo/workflow filename).
       - name: Publish npm packages
         run: bash scripts/npm-publish.sh "${{ github.ref_name }}"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   pypi-publish:
     needs: release
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # OIDC trusted publishing (PyPI Trusted Publisher)
+      contents: read
 
     steps:
       - uses: actions/checkout@v4
@@ -255,15 +266,17 @@ jobs:
           python-version: '3.12'
 
       - name: Install build tools
-        run: pip install wheel setuptools twine
+        run: pip install wheel setuptools
 
-      - name: Build and publish wheels
-        run: |
-          bash scripts/pypi-build-wheels.sh "${{ github.ref_name }}"
-          twine upload pypi/dist/*.whl
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+      - name: Build wheels
+        run: bash scripts/pypi-build-wheels.sh "${{ github.ref_name }}"
+
+      # No API token: OIDC trusted publishing. Requires a Trusted Publisher
+      # configured for the project on pypi.org (owner/repo/workflow filename).
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: pypi/dist
 
   mcp-registry-publish:
     needs: npm-publish

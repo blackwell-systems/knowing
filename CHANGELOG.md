@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **Release publishing migrated to OIDC trusted publishing.** npm permanently revoked classic tokens (2025-12-09) and caps granular tokens at 90 days, so the token-based release workflow was broken/expiring. The npm jobs (`release.yml` + manual `npm-publish.yml`) and the PyPI job now publish via OIDC (`id-token: write`, no `NODE_AUTH_TOKEN`/`TWINE_PASSWORD`), on Node 22 with npm upgraded to >= 11.5.1; npm provenance is now automatic. **Requires one-time setup:** a Trusted Publisher configured on npmjs.com for each of the 5 packages (and on pypi.org for the PyPI project), keyed on owner/repo/workflow-filename. See release notes / `docs`.
 - **gcf-go v1.1.0 -> v1.7.1**: no source changes required (knowing is a graph-profile consumer; all breaking changes in that range are in the generic profile). Graph-profile changes (mandatory `profile=graph` on streaming/delta headers, canonical edge/symbol ordering, stricter decode) are decode-invariant and `pack_root`-invariant, so content addresses are unchanged. Measured GCF token savings 84.0% -> 83.6%.
 - **Relicense MIT -> Apache-2.0**: added explicit patent grant, trademark carve-out, `LICENSE`/`NOTICE`, and `CLA.md`/`CONTRIBUTING.md`. Updated license declarations across README, npm/pypi/glama manifests, goreleaser, and the release workflow.
 

@@ -10,15 +10,24 @@ on:
 jobs:
   npm-publish:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # OIDC trusted publishing (npm classic tokens revoked 2025-12-09)
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           registry-url: 'https://registry.npmjs.org'
 
+      # Trusted publishing needs npm >= 11.5.1.
+      - name: Ensure npm supports OIDC trusted publishing
+        run: npm install -g npm@latest
+
+      # No NODE_AUTH_TOKEN: OIDC token exchange. NOTE: trusted publishers are keyed
+      # on the workflow filename, so each package on npmjs.com must list BOTH
+      # release.yml and npm-publish.yml for this manual path to work (or drop this
+      # workflow and publish only via release.yml).
       - name: Publish npm packages
         run: bash scripts/npm-publish.sh "${{ github.event.inputs.version }}"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
