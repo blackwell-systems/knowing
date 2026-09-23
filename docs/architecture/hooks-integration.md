@@ -78,6 +78,37 @@ if out.context: inject(out.context)
 
 More adapter examples live in `hooks/adapters/`.
 
+## Keeping the graph current (git auto-sync, A3)
+
+Context injection is only useful if the graph reflects the current code. `knowing
+sync` keeps a tracked repo's graph fresh with zero agent action:
+
+```
+knowing sync            # reindex the repo at the cwd
+knowing sync --roster   # reindex every repo in the roster
+knowing sync install    # write git post-merge + post-checkout hooks
+knowing sync uninstall  # remove them
+```
+
+`sync` reindexes the repo (content-addressing keeps unchanged files cheap) and
+scopes LSP enrichment to the files that changed since the last indexed commit:
+it reads the previous commit from the latest snapshot and diffs it against HEAD,
+so a routine `git pull` refreshes in seconds rather than re-enriching the whole
+tree. With no prior snapshot it does a full index + enrich; with no changes it
+skips enrichment entirely.
+
+`sync install` registers the repo in the roster (so `sync` can resolve its DB)
+and writes two hooks non-destructively (marker-delimited, appended after any
+pre-existing hook body):
+
+- **post-merge** — fires after `git pull` / `git merge`.
+- **post-checkout** — fires on branch switch only (`$3 == 1`), not file checkouts.
+
+Both invoke `knowing sync --quiet` in the background and never fail the git
+operation (they no-op if `knowing` is not on `PATH`). This replaces the
+long-lived `mcp --watch` fs-watcher for the common "reindex on pull" case with a
+turnkey per-repo hook.
+
 ## How the Claude Code Shell Hooks Work
 
 Claude Code supports lifecycle hooks: shell commands triggered at defined moments (session start, before a tool runs, before compaction, on stop). Each hook receives JSON on stdin describing the event, and may output a JSON object with a `message` field. Claude Code prepends that message to the agent's context for the current operation.

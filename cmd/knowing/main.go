@@ -99,6 +99,8 @@ func run(args []string) error {
 		return cmdHook(args[1:])
 	case "reindex":
 		return cmdReindex(args[1:])
+	case "sync":
+		return cmdSync(args[1:])
 	case "init":
 		return cmdSetup(args[1:])
 	case "test-scope":
@@ -183,6 +185,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "Indexing:")
 	fmt.Fprintln(os.Stderr, "  index       Index a repository")
 	fmt.Fprintln(os.Stderr, "  reindex     Clear and re-index from scratch")
+	fmt.Fprintln(os.Stderr, "  sync        Reindex tracked repos on git pull (install: knowing sync install)")
 	fmt.Fprintln(os.Stderr, "  enrich      Run LSP enrichment on indexed symbols")
 	fmt.Fprintln(os.Stderr, "  ingest-scip Import a SCIP index for external dependencies")
 	fmt.Fprintln(os.Stderr, "  watch       Watch for file changes and re-index on save")
