@@ -19,16 +19,16 @@ measured directly.
 
 | Case | JSON (bytes) | GCF (bytes) | Binary (bytes) | JSON (tokens) | GCF (tokens) | GCF Savings | Binary Savings |
 |------|-------------|-------------|----------------|---------------|--------------|-------------|----------------|
-| 01_context_for_task_small | 5823 | 1079 | 1354 | 1347 | 233 | 82.7% | 76.7% |
-| 02_context_for_task_medium | 18780 | 3299 | 4902 | 4132 | 649 | 84.3% | 73.9% |
-| 03_context_for_files | 9205 | 1701 | 2412 | 2056 | 334 | 83.8% | 73.8% |
-| 04_blast_radius | 5447 | 983 | 1395 | 1223 | 208 | 83.0% | 74.4% |
-| 05_semantic_diff | 8406 | 1445 | 2039 | 1868 | 295 | 84.2% | 75.7% |
-| 06_graph_query | 12814 | 2318 | 3828 | 2782 | 423 | 84.8% | 70.1% |
+| 01_context_for_task_small | 5823 | 1105 | 1354 | 1347 | 242 | 82.0% | 76.7% |
+| 02_context_for_task_medium | 18780 | 3327 | 4902 | 4132 | 658 | 84.1% | 73.9% |
+| 03_context_for_files | 9205 | 1729 | 2412 | 2056 | 343 | 83.3% | 73.8% |
+| 04_blast_radius | 5447 | 998 | 1395 | 1223 | 214 | 82.5% | 74.4% |
+| 05_semantic_diff | 8406 | 1473 | 2039 | 1868 | 304 | 83.7% | 75.7% |
+| 06_graph_query | 12814 | 2346 | 3828 | 2782 | 432 | 84.5% | 70.1% |
 
-**Overall GCF token savings:** 84.0%
+**Overall GCF token savings:** 83.6%
 **Overall binary byte savings:** 73.7%
-**Median GCF token savings:** 84.0% (target: >= 35%)
+**Median GCF token savings:** 83.5% (target: >= 35%)
 **Median binary byte savings:** 74.1% (target: >= 70%)
 
 ## Interpretation
