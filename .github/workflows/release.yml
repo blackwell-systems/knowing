@@ -315,6 +315,20 @@ jobs:
             fs.writeFileSync('server.json', JSON.stringify(s, null, 2) + '\n');
           "
 
+      # The MCP registry validates that the npm package version exists on the
+      # public registry. npm read-propagation lags a publish by up to a few
+      # minutes, so wait for the version to be visible before registering.
+      - name: Wait for npm to propagate
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          for i in $(seq 1 30); do
+            if curl -fsS "https://registry.npmjs.org/@blackwell-systems%2fknowing/${VERSION}" >/dev/null 2>&1; then
+              echo "npm @blackwell-systems/knowing@${VERSION} is visible"; exit 0
+            fi
+            echo "waiting for npm propagation (attempt $i)..."; sleep 20
+          done
+          echo "npm version ${VERSION} still not visible after 10 minutes"; exit 1
+
       - name: Login to MCP Registry (GitHub OIDC)
         run: mcp-publisher login github-oidc
 

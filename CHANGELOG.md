@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- **Release: wait for npm propagation before MCP registry publish.** The `mcp-registry-publish` job validated the npm version immediately after publish and could 404 on npm's read-propagation lag; it now polls until the version is visible (up to 10 min).
+
 ## [v0.16.0] - 2026-09-23
 
 ### Added
