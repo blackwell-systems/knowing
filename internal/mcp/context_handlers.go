@@ -25,11 +25,17 @@ func (s *Server) handleContextForTask(ctx context.Context, req mcp.CallToolReque
 	format := getStringArg(req, "format")
 	priorPackRoot := getStringArg(req, "pack_root")
 
+	// Per-connection state: keeps this client's keywords, packs, session boosts,
+	// and implicit-feedback attribution separate from other concurrent clients.
+	st := s.sessionFor(ctx)
+
 	// Store task keywords for vocab association recording in ObserveToolUse.
-	s.lastTaskKeywords = knowingctx.ExtractKeywordSetExported(taskDesc).All()
+	st.mu.Lock()
+	st.lastTaskKeywords = knowingctx.ExtractKeywordSetExported(taskDesc).All()
+	st.mu.Unlock()
 
 	engine := knowingctx.NewContextEngine(s.store)
-	engine.SetSession(s.ctxSession)
+	engine.SetSession(st.ctxSession)
 	if s.vecSearch != nil {
 		engine.SetVector(s.vecSearch)
 	}
@@ -40,8 +46,8 @@ func (s *Server) handleContextForTask(ctx context.Context, req mcp.CallToolReque
 	if s.resultCache != nil {
 		engine.SetCache(s.resultCache)
 	}
-	if s.implicit != nil {
-		engine.SetImplicitFeedback(s.implicit)
+	if st.implicit != nil {
+		engine.SetImplicitFeedback(st.implicit)
 	}
 	block, err := engine.ForTask(ctx, knowingctx.TaskOptions{
 		TaskDescription: taskDesc,
@@ -67,11 +73,16 @@ func (s *Server) handleContextForTask(ctx context.Context, req mcp.CallToolReque
 	// what changed. This saves 80-90% of tokens on subsequent queries
 	// where most symbols are unchanged.
 	if priorPackRoot != "" {
-		if priorBlock, ok := s.lastPacks[priorPackRoot]; ok {
+		st.mu.Lock()
+		priorBlock, ok := st.lastPacks[priorPackRoot]
+		st.mu.Unlock()
+		if ok {
 			delta := knowingctx.DiffPacks(priorBlock, block, "gcf")
 			if delta.IsWorthIt() {
 				// Store current pack for future deltas.
-				s.lastPacks[block.PackRoot.String()] = block
+				st.mu.Lock()
+				st.lastPacks[block.PackRoot.String()] = block
+				st.mu.Unlock()
 
 				// Track session metrics.
 				s.contextCalls.Add(1)
@@ -126,7 +137,9 @@ func (s *Server) handleContextForTask(ctx context.Context, req mcp.CallToolReque
 	s.symbolsServed.Add(int64(len(block.Symbols)))
 
 	// Store current pack for future delta computation.
-	s.lastPacks[block.PackRoot.String()] = block
+	st.mu.Lock()
+	st.lastPacks[block.PackRoot.String()] = block
+	st.mu.Unlock()
 
 	// Implicit feedback (flush/register) is now handled by the context engine
 	// in ForTask via recordImplicitFeedback. The engine calls FlushUnused on
@@ -234,12 +247,19 @@ func (s *Server) handleContextForPR(ctx context.Context, req mcp.CallToolRequest
 // For GCF, uses the server's session state for cross-call deduplication.
 func formatBlock(ctx context.Context, block *knowingctx.ContextBlock, format, tool string, s *Server) (string, error) {
 	switch format {
-	case "gcf":
+	case "gcf", "":
+		// Default to GCF (84% fewer tokens, 100% comprehension accuracy).
+		// Cross-call dedup uses the calling client's own GCF session so one
+		// client's transmitted symbols never suppress another client's output.
 		payload, err := wire.FromContextBlock(ctx, block, tool, s.store)
 		if err != nil {
 			return "", fmt.Errorf("building wire payload: %w", err)
 		}
-		return wire.EncodeWithSession(payload, s.session), nil
+		st := s.sessionFor(ctx)
+		st.mu.Lock()
+		out := wire.EncodeWithSession(payload, st.gcfSession)
+		st.mu.Unlock()
+		return out, nil
 	case "gcb", "json":
 		payload, err := wire.FromContextBlock(ctx, block, tool, s.store)
 		if err != nil {
@@ -248,13 +268,6 @@ func formatBlock(ctx context.Context, block *knowingctx.ContextBlock, format, to
 		return wire.EncodeWith(format, payload)
 	case "xml", "markdown":
 		return knowingctx.FormatContextBlock(block, format)
-	case "":
-		// Default to GCF (84% fewer tokens, 100% comprehension accuracy)
-		payload, err := wire.FromContextBlock(ctx, block, tool, s.store)
-		if err != nil {
-			return "", fmt.Errorf("building wire payload: %w", err)
-		}
-		return wire.EncodeWithSession(payload, s.session), nil
 	default:
 		return "", fmt.Errorf("unknown format %q (available: gcf, gcb, json, xml, markdown)", format)
 	}
@@ -275,8 +288,9 @@ func (s *Server) handleExplainSymbol(ctx context.Context, req mcp.CallToolReques
 	// the agent is actively using it.
 	s.ObserveToolUse(ctx, symbol)
 
+	st := s.sessionFor(ctx)
 	engine := knowingctx.NewContextEngine(s.store)
-	engine.SetSession(s.ctxSession)
+	engine.SetSession(st.ctxSession)
 	if s.vecSearch != nil {
 		engine.SetVector(s.vecSearch)
 	}

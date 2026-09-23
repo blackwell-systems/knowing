@@ -55,6 +55,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -76,32 +77,102 @@ type Server struct {
 	store       types.GraphStore
 	mcpServer   *mcpserver.MCPServer
 	sqlStore    *knowingstore.SQLiteStore  // populated via type assertion for runtime queries
-	session     *gcf.Session              // GCF session state for cross-call deduplication
-	ctxSession  *knowingctx.SessionTracker // session-aware retrieval boosts
-	vecSearch   *embedding.Searcher        // semantic vector search (nil if model unavailable)
+	vecSearch   *embedding.Searcher        // semantic vector search (nil if model unavailable); read-only, safe to share
 	taskMemory  *knowingctx.TaskMemory     // passive task-symbol learning (nil if no SQLite)
-	implicit    *knowingctx.ImplicitFeedback // implicit feedback detection from tool usage
 	snapMgr     *snapshot.SnapshotManager  // nil if no snapshot manager is wired in
 	resultCache *cache.SubgraphCache       // nil if caching is disabled
 	startTime   time.Time                  // server creation time for uptime tracking
-	lastTaskKeywords []string              // keywords from most recent context_for_task (for vocab recording)
-	lastPacks        map[string]*knowingctx.ContextBlock // pack_root hex -> last returned ContextBlock (for delta encoding)
 
-	// Session counters for the knowing://session resource.
+	// Per-connection state. The MCP Server object is process-global and, under
+	// `knowing mcp --http`, serves many clients concurrently. Attribution state
+	// (which symbols were shown to WHICH agent, under WHICH task keywords) is
+	// inherently per-connection: sharing it across clients races (a concurrent
+	// map write panics the process) and mis-attributes one agent's usage to
+	// another, silently corrupting the learned feedback signal. Each MCP
+	// session (mcp-go SessionID) therefore gets its own sessionState. See
+	// docs/architecture/multi-agent-feedback.md.
+	feedbackEnabled bool // whether implicit feedback is recorded (toggled by DisableImplicitFeedback)
+	sessionsMu      sync.Mutex
+	sessions        map[string]*sessionState
+
+	// Session counters for the knowing://session resource (process-global aggregate).
 	contextCalls  atomic.Int64 // incremented on each context_for_task / context_for_files call
 	symbolsServed atomic.Int64 // incremented by the number of symbols returned per context call
+}
+
+// sessionState is the per-connection ephemeral state for one MCP client. Its
+// own trackers (ctxSession, implicit) carry internal locks; mu guards the
+// plain fields (lastTaskKeywords, lastPacks) and serializes use of gcfSession,
+// whose encoder mutates dedup state.
+type sessionState struct {
+	mu               sync.Mutex
+	lastTaskKeywords []string                            // keywords from this client's most recent context_for_task
+	lastPacks        map[string]*knowingctx.ContextBlock // pack_root hex -> last returned block (for delta encoding)
+	ctxSession       *knowingctx.SessionTracker          // session-aware retrieval boosts (self-locked)
+	implicit         *knowingctx.ImplicitFeedback        // implicit feedback detection (self-locked); nil if feedback disabled
+	gcfSession       *gcf.Session                        // GCF cross-call dedup for this client
+	clientName       string                              // harness/client identity from initialize; feedback provenance
+}
+
+// newSessionState builds per-connection state, honoring the server's feedback toggle.
+func (s *Server) newSessionState(clientName string) *sessionState {
+	st := &sessionState{
+		lastPacks:  make(map[string]*knowingctx.ContextBlock),
+		ctxSession: knowingctx.NewSessionTracker(),
+		gcfSession: gcf.NewSession(),
+		clientName: clientName,
+	}
+	if s.feedbackEnabled {
+		st.implicit = knowingctx.NewImplicitFeedback()
+	}
+	return st
+}
+
+// sessionFor returns the per-connection state for the client behind ctx,
+// creating it on first use. Calls without an MCP session in context (e.g.
+// direct tests) share the "" default state, matching single-client behavior.
+func (s *Server) sessionFor(ctx context.Context) *sessionState {
+	id, clientName := sessionIdentity(ctx)
+	s.sessionsMu.Lock()
+	defer s.sessionsMu.Unlock()
+	st, ok := s.sessions[id]
+	if !ok {
+		st = s.newSessionState(clientName)
+		s.sessions[id] = st
+	}
+	return st
+}
+
+// evictSession drops per-connection state when a client disconnects
+// (wired to mcp-go's OnUnregisterSession hook) so state does not accumulate.
+func (s *Server) evictSession(id string) {
+	s.sessionsMu.Lock()
+	delete(s.sessions, id)
+	s.sessionsMu.Unlock()
+}
+
+// sessionIdentity extracts the connection id and declared client/harness name
+// from the MCP session in ctx. Returns empty strings when there is no session.
+func sessionIdentity(ctx context.Context) (id, clientName string) {
+	cs := mcpserver.ClientSessionFromContext(ctx)
+	if cs == nil {
+		return "", ""
+	}
+	id = cs.SessionID()
+	if ci, ok := cs.(mcpserver.SessionWithClientInfo); ok {
+		clientName = ci.GetClientInfo().Name
+	}
+	return id, clientName
 }
 
 // NewServer creates a new MCP server backed by the given GraphStore.
 // It registers all tools, prompts, and resources.
 func NewServer(store types.GraphStore) *Server {
 	s := &Server{
-		store:      store,
-		session:    gcf.NewSession(),
-		ctxSession: knowingctx.NewSessionTracker(),
-		implicit:   knowingctx.NewImplicitFeedback(),
-		startTime:  time.Now(),
-		lastPacks:  make(map[string]*knowingctx.ContextBlock),
+		store:           store,
+		startTime:       time.Now(),
+		feedbackEnabled: true,
+		sessions:        make(map[string]*sessionState),
 	}
 	// Initialize embedding-based gap-fill seeds (off by default).
 	// Enable with: knowing mcp --embeddings (or KNOWING_EMBEDDINGS=1)
@@ -143,9 +214,17 @@ func NewServer(store types.GraphStore) *Server {
 	// Startup summary: show the user what features are active.
 	s.logStartupSummary(store)
 
+	// Evict per-connection state when a client disconnects so it does not
+	// accumulate on a long-lived shared (HTTP) instance.
+	hooks := &mcpserver.Hooks{}
+	hooks.AddOnUnregisterSession(func(_ context.Context, sess mcpserver.ClientSession) {
+		s.evictSession(sess.SessionID())
+	})
+
 	s.mcpServer = mcpserver.NewMCPServer(
 		"knowing",
 		"0.1.0",
+		mcpserver.WithHooks(hooks),
 	)
 	s.registerTools()
 	s.registerPrompts()
@@ -197,7 +276,12 @@ func (s *Server) SetSnapshotManager(sm *snapshot.SnapshotManager) {
 // DisableImplicitFeedback turns off the implicit feedback tracker (noise demotion).
 // Use --no-feedback flag or KNOWING_NO_FEEDBACK=1 for A/B testing.
 func (s *Server) DisableImplicitFeedback() {
-	s.implicit = nil
+	s.sessionsMu.Lock()
+	s.feedbackEnabled = false
+	for _, st := range s.sessions {
+		st.implicit = nil
+	}
+	s.sessionsMu.Unlock()
 }
 
 // SetResultCache attaches a SubgraphCache for memoizing blast_radius and
@@ -296,33 +380,50 @@ func (s *Server) ToolNames() []string {
 // tool explicitly. Using a symbol after receiving it in context is sufficient
 // signal that it was useful.
 //
+// Attribution is scoped to the calling client's session: it detects usage
+// against the symbols WE returned to THIS client and records vocab associations
+// under THIS client's most recent task keywords. Feedback provenance is the
+// client/harness name (e.g. "claude-code"), so a shared graph records who
+// contributed each signal while the read path still pools across all agents.
+//
 // Returns the number of symbols attributed.
 func (s *Server) ObserveToolUse(ctx context.Context, content string) int {
-	if s.implicit == nil || content == "" {
+	if content == "" {
+		return 0
+	}
+	st := s.sessionFor(ctx)
+	if st.implicit == nil {
 		return 0
 	}
 
-	used := s.implicit.DetectUsed(content)
+	used := st.implicit.DetectUsed(content)
 	if len(used) == 0 {
 		return 0
 	}
 
 	// Record positive feedback and vocab associations for each used symbol.
 	if s.sqlStore != nil {
+		provenance := st.clientName
+		if provenance == "" {
+			provenance = "implicit"
+		}
 		for _, h := range used {
-			_ = s.sqlStore.RecordFeedback(ctx, h, "implicit", true, types.EmptyHash, types.EmptyHash)
+			_ = s.sqlStore.RecordFeedback(ctx, h, provenance, true, types.EmptyHash, types.EmptyHash)
 		}
 		// Record vocab associations: keyword -> used symbol.
-		// Uses lastTaskKeywords from the most recent context_for_task call.
+		// Uses THIS session's lastTaskKeywords from its most recent context_for_task.
 		// Associations are anchored to per-package Merkle roots for precise expiration.
-		if len(s.lastTaskKeywords) > 0 {
+		st.mu.Lock()
+		keywords := append([]string(nil), st.lastTaskKeywords...)
+		st.mu.Unlock()
+		if len(keywords) > 0 {
 			pkgRoots := snapshot.LoadPackageRoots(ctx, s.sqlStore)
-			for _, u := range s.implicit.UsedSymbolNames(used) {
+			for _, u := range st.implicit.UsedSymbolNames(used) {
 				var pkgRoot types.Hash
 				if node, err := s.sqlStore.GetNode(ctx, u.Hash); err == nil && node != nil {
 					pkgRoot = snapshot.PackageRootForSymbol(node.QualifiedName, pkgRoots)
 				}
-				for _, kw := range s.lastTaskKeywords {
+				for _, kw := range keywords {
 					_ = s.sqlStore.RecordVocabAssociation(ctx, strings.ToLower(kw), u.Name, u.Hash, pkgRoot)
 				}
 			}
