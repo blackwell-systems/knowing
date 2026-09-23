@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- **Harness-agnostic hook contract** (roadmap A1): `knowing hook <event>` with a transport-neutral stdin/stdout contract (event + payload in, context out) for wiring knowing into any agentic harness (Hermes, OpenCode, Codex, custom loops) as a config task, not a code task. Events: `session-start`, `pre-edit`, `pre-task`, `pre-files`, `pre-compact`, `post-task`. The input parser also folds raw Claude Code keys (`hook_event_name`, `tool_input.*`, `prompt`), and `--emit claude-code` produces Claude Code's native `hookSpecificOutput` envelope, so Claude Code needs no wrapper script. The edit-symbol extraction from the benchmarked pre-edit shell hook is ported to Go. Adapter examples in `hooks/adapters/`.
+- **HTTP / streamable-http MCP transport** (roadmap A2): `knowing mcp --http [--port <p> | --addr <a>]` serves MCP over streamable-http alongside the default stdio transport, so subagents/harnesses can share one warm instance or reach it remotely.
+- **Git-native auto-sync** (roadmap A3): `knowing sync` reindexes a tracked repo after a `git pull` / branch switch with zero agent action, scoping LSP enrichment to files changed since the last indexed commit (distinguishing "no changes" from "couldn't resolve the range" and falling back to a full enrich in the latter case). `knowing sync --roster` syncs every tracked repo; `knowing sync install` writes non-destructive git post-merge + post-checkout (branch-switch only) hooks; `knowing sync uninstall` removes them.
+
+### Changed
+
+- **gcf-go v1.1.0 -> v1.7.1**: no source changes required (knowing is a graph-profile consumer; all breaking changes in that range are in the generic profile). Graph-profile changes (mandatory `profile=graph` on streaming/delta headers, canonical edge/symbol ordering, stricter decode) are decode-invariant and `pack_root`-invariant, so content addresses are unchanged. Measured GCF token savings 84.0% -> 83.6%.
+- **Relicense MIT -> Apache-2.0**: added explicit patent grant, trademark carve-out, `LICENSE`/`NOTICE`, and `CLA.md`/`CONTRIBUTING.md`. Updated license declarations across README, npm/pypi/glama manifests, goreleaser, and the release workflow.
+
 ## [v0.15.1] - 2026-06-10
 
 ### Changed
