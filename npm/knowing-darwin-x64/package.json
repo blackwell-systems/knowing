@@ -2,7 +2,15 @@
   "name": "@blackwell-systems/knowing-darwin-x64",
   "version": "0.1.0",
   "description": "knowing binary for darwin-x64",
-  "os": ["darwin"],
-  "cpu": ["x64"],
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/blackwell-systems/knowing.git"
+  },
   "license": "Apache-2.0"
 }
