@@ -98,20 +98,33 @@ jobs:
           find dist/ -name '*.tar.gz' -exec mv {} release/ \;
           cd release && sha256sum *.tar.gz > checksums.txt
 
+      - name: Assemble release notes from CHANGELOG
+        run: |
+          # Extract this tag's section from CHANGELOG.md (between its header and
+          # the next version header). Fall back to a pointer if it is missing so
+          # the notes are never empty.
+          awk -v ver="$GITHUB_REF_NAME" '
+            $0 ~ "^## \\[" ver "\\]" { grab=1; next }
+            grab && /^## \[/ { exit }
+            grab { print }
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "See [CHANGELOG.md](https://github.com/blackwell-systems/knowing/blob/main/CHANGELOG.md) for details." > notes.md
+          fi
+          {
+            printf '\n## Install\n\n'
+            printf '```bash\n'
+            printf 'brew install blackwell-systems/tap/knowing\n'
+            printf 'go install github.com/blackwell-systems/knowing/cmd/knowing@%s\n' "$GITHUB_REF_NAME"
+            printf '```\n'
+          } >> notes.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: release/*
           generate_release_notes: false
-          body: |
-            See [CHANGELOG.md](https://github.com/blackwell-systems/knowing/blob/main/CHANGELOG.md) for details.
-
-            ## Install
-
-            ```bash
-            brew install blackwell-systems/tap/knowing
-            go install github.com/blackwell-systems/knowing/cmd/knowing@${{ github.ref_name }}
-            ```
+          body_path: notes.md
 
       - uses: actions/setup-go@v5
         with:
@@ -254,9 +267,6 @@ jobs:
   pypi-publish:
     needs: release
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write   # OIDC trusted publishing (PyPI Trusted Publisher)
-      contents: read
 
     steps:
       - uses: actions/checkout@v4
@@ -266,17 +276,18 @@ jobs:
           python-version: '3.12'
 
       - name: Install build tools
-        run: pip install wheel setuptools
+        run: pip install wheel setuptools twine
 
-      - name: Build wheels
-        run: bash scripts/pypi-build-wheels.sh "${{ github.ref_name }}"
-
-      # No API token: OIDC trusted publishing. Requires a Trusted Publisher
-      # configured for the project on pypi.org (owner/repo/workflow filename).
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          packages-dir: pypi/dist
+      # Token-based publish. PyPI classic tokens are still valid (unlike npm);
+      # move this to OIDC trusted publishing once a Trusted Publisher is
+      # configured for the project on pypi.org.
+      - name: Build and publish wheels
+        run: |
+          bash scripts/pypi-build-wheels.sh "${{ github.ref_name }}"
+          twine upload pypi/dist/*.whl
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
 
   mcp-registry-publish:
     needs: npm-publish
