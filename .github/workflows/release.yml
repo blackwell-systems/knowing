@@ -133,7 +133,7 @@ jobs:
           class Knowing < Formula
             desc "Content-addressed graph artifact for software systems"
             homepage "https://github.com/blackwell-systems/knowing"
-            license "MIT"
+            license "Apache-2.0"
             version "VERSION_PLACEHOLDER"
 
             on_macos do

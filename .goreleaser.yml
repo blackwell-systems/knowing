@@ -53,7 +53,7 @@ brews:
     directory: Formula
     homepage: "https://github.com/blackwell-systems/knowing"
     description: "Content-addressed knowledge graph daemon for software systems"
-    license: "MIT"
+    license: "Apache-2.0"
     install: |
       bin.install "knowing"
     caveats: |

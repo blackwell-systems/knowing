@@ -4,5 +4,5 @@
   "description": "knowing binary for darwin-x64",
   "os": ["darwin"],
   "cpu": ["x64"],
-  "license": "MIT"
+  "license": "Apache-2.0"
 }

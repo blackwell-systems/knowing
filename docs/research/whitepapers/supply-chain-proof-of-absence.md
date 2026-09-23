@@ -534,7 +534,7 @@ detection time. CI integration adds <22 seconds to enterprise-scale builds (djan
 
 ## 10. Reproducibility
 
-The supply chain detection system, Merkle proof infrastructure, and false positive evaluation are open source under MIT license.
+The supply chain detection system, Merkle proof infrastructure, and false positive evaluation are open source under the Apache-2.0 license.
 
 ```bash
 # Clone and build

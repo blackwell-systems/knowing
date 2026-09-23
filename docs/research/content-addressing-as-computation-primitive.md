@@ -742,7 +742,7 @@ Implementation: `internal/snapshot/hierarchical.go`.
 
 ## License
 
-This document is licensed under [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/). The knowing software is licensed under MIT.
+This document is licensed under [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/). The knowing software is licensed under Apache-2.0.
 
 ---
 

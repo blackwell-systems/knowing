@@ -249,7 +249,7 @@ Content-addressing solves the trust problem. Communities solve the scoping probl
 
 ## 14. Reproducibility
 
-All code, benchmarks, and task fixtures are open source under MIT license.
+All code, benchmarks, and task fixtures are open source under the Apache-2.0 license.
 
 ```bash
 # Clone and build

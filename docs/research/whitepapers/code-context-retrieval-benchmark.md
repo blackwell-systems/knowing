@@ -458,7 +458,7 @@ GOWORK=off BENCH_ADAPTERS=knowing go test ./bench/cross-system/ \
 ```
 
 All fixtures, ground truth, normalization code, and metric computation are
-open-source under MIT license.
+open-source under the Apache-2.0 license.
 
 ### 7.4 Conflict of Interest and Bias Mitigation
 

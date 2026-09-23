@@ -4,5 +4,5 @@
   "description": "knowing binary for linux-arm64",
   "os": ["linux"],
   "cpu": ["arm64"],
-  "license": "MIT"
+  "license": "Apache-2.0"
 }

@@ -7,7 +7,7 @@
   <a href="https://zenodo.org/records/20342255"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.20342255.svg" alt="DOI"></a>
   <a href="#mcp-tools"><img src="https://img.shields.io/badge/MCP_tools-28%20tools%20%2B%208%20resources-brightgreen.svg" alt="MCP Tools"></a>
   <a href="#languages-and-formats"><img src="https://img.shields.io/badge/languages_and_formats-26-blue.svg" alt="Languages and Formats"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-blue.svg" alt="License"></a>
 </p>
 
 ---
@@ -416,4 +416,4 @@ GCF uses `|`-separated fields and local IDs (`$1 -> $3`) instead of repeated qua
 
 ## License
 
-MIT
+Apache-2.0 (c) 2026 Dayna Blackwell / Blackwell Systems. See LICENSE and NOTICE.

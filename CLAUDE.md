@@ -175,7 +175,7 @@ Embeddings as Channel 3, blended re-rank, call-chain seeding, hub dampening, BFS
 
 ## Repos
 
-- `blackwell-systems/knowing` — OSS engine (MIT, public)
+- `blackwell-systems/knowing` — OSS engine (Apache-2.0, public)
 - `blackwell-systems/knowing-supply-scan` — GHA action (MIT, public, v1.0.0)
 - `blackwell-systems/platform` — API server (private, scaffold)
 
