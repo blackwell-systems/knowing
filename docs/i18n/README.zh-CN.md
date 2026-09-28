@@ -1,4 +1,4 @@
-[English](../../README.md) · **简体中文** · [Русский](README.ru.md) · [हिन्दी](README.hi.md)
+[English](../../README.md) · **简体中文** · [Русский](README.ru.md) · [हिन्दी](README.hi.md) · [العربية](README.ar.md)
 
 <p align="center">
   <img src="assets/knowing-banner.png" alt="knowing" width="600">
