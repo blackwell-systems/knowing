@@ -1,3 +1,5 @@
+**English** · [简体中文](docs/i18n/README.zh-CN.md) · [Русский](docs/i18n/README.ru.md) · [हिन्दी](docs/i18n/README.hi.md)
+
 <p align="center">
   <img src="assets/knowing-banner.png" alt="knowing" width="600">
 </p>
