@@ -1,7 +1,7 @@
 [English](../../README.md) · [简体中文](README.zh-CN.md) · **Русский** · [हिन्दी](README.hi.md) · [العربية](README.ar.md)
 
 <p align="center">
-  <img src="assets/knowing-banner.png" alt="knowing" width="600">
+  <img src="../../assets/knowing-banner.png" alt="knowing" width="600">
 </p>
 
 <p align="center">
@@ -9,7 +9,7 @@
   <a href="https://zenodo.org/records/20342255"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.20342255.svg" alt="DOI"></a>
   <a href="#mcp-tools"><img src="https://img.shields.io/badge/MCP_tools-28%20tools%20%2B%208%20resources-brightgreen.svg" alt="MCP Tools"></a>
   <a href="#languages-and-formats"><img src="https://img.shields.io/badge/languages_and_formats-26-blue.svg" alt="Languages and Formats"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-blue.svg" alt="License"></a>
+  <a href="../../LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-blue.svg" alt="License"></a>
 </p>
 
 ---
@@ -37,7 +37,7 @@ brew install blackwell-systems/tap/knowing
 
 Вот и всё. Сервер MCP автоматически индексирует ваш репозиторий при первом запуске. Ни загрузки моделей, ни API-ключей. Ваш агент теперь получает ранжированный контекст, радиус поражения (blast radius), охват тестов и неявное подавление шума, которое улучшает результаты в ходе активных сессий.
 
-**Проверьте, что это работает:** Попросите вашего агента: *«Используй инструмент context_for_task, чтобы найти символы, связанные с [чем-то, что точно есть в вашем коде].»* Вы должны увидеть ранжированные символы с оценками и путями к файлам из вашей кодовой базы. Если результаты пусты, репозиторий ещё индексируется (10-30 секунд при первом запуске). Если результаты кажутся нерелевантными, см. [Устранение неполадок](docs/guide/cli.md#troubleshooting).
+**Проверьте, что это работает:** Попросите вашего агента: *«Используй инструмент context_for_task, чтобы найти символы, связанные с [чем-то, что точно есть в вашем коде].»* Вы должны увидеть ранжированные символы с оценками и путями к файлам из вашей кодовой базы. Если результаты пусты, репозиторий ещё индексируется (10-30 секунд при первом запуске). Если результаты кажутся нерелевантными, см. [Устранение неполадок](../../docs/guide/cli.md#troubleshooting).
 
 > **Не используете AI-агента?** Переходите к [Использованию CLI](#path-b-cli-usage-explore-the-graph-yourself) ниже.
 
@@ -45,8 +45,8 @@ brew install blackwell-systems/tap/knowing
 |---|---|
 | Дать вашему AI-агенту контекст, ранжированный по графу | [Настройка MCP](#mcp-integration) |
 | Исследовать граф из CLI | [Использование CLI](#path-b-cli-usage-explore-the-graph-yourself) |
-| Понять, как работает поиск | [Введение](docs/guide/introduction.md) |
-| Проводить аудит с криптографическими доказательствами | [Аудит и соответствие](docs/guide/audit-compliance.md) |
+| Понять, как работает поиск | [Введение](../../docs/guide/introduction.md) |
+| Проводить аудит с криптографическими доказательствами | [Аудит и соответствие](../../docs/guide/audit-compliance.md) |
 
 ---
 
@@ -106,7 +106,7 @@ knowing — это три продукта, построенные на одно
 | Покрытие языков | 16/16 репозиториев проходят (Go, Python, TS, Rust, Java, C#, Ruby, мультиязычные) |
 | Типы рёбер | 38 (включая цепочку поставок: reads_env, executes_process) |
 
-Все бенчмарки воспроизводимы. Межсистемный бенчмарк (P@10=0.330) использует 17 репозиториев, закреплённых на точных коммитах, с [манифестом корпуса](bench/cross-system/corpus/MANIFEST.yaml) и [скриптом настройки](bench/cross-system/corpus/corpus-setup.sh) для полного воспроизведения с нуля. Детали протокола см. в [METHODOLOGY.md](bench/cross-system/METHODOLOGY.md).
+Все бенчмарки воспроизводимы. Межсистемный бенчмарк (P@10=0.330) использует 17 репозиториев, закреплённых на точных коммитах, с [манифестом корпуса](../../bench/cross-system/corpus/MANIFEST.yaml) и [скриптом настройки](../../bench/cross-system/corpus/corpus-setup.sh) для полного воспроизведения с нуля. Детали протокола см. в [METHODOLOGY.md](../../bench/cross-system/METHODOLOGY.md).
 
 ---
 
@@ -167,7 +167,7 @@ knowing stale
 ```
 
 Если `knowing stats` показывает ноль узлов или очень мало рёбер, см.
-[Устранение неполадок](docs/guide/cli.md#troubleshooting) ниже.
+[Устранение неполадок](../../docs/guide/cli.md#troubleshooting) ниже.
 
 ### Дополнительные команды CLI
 
@@ -194,7 +194,7 @@ knowing audit-supply-chain --scan-all
 knowing remove ./path/to/repo
 ```
 
-Полный справочник команд см. в [Справочнике CLI](docs/guide/cli.md).
+Полный справочник команд см. в [Справочнике CLI](../../docs/guide/cli.md).
 
 ### Интеграция MCP
 
@@ -226,7 +226,7 @@ knowing remove ./path/to/repo
 
 Эмбеддинги отключены по умолчанию (подтверждено как нейтральное на бенчмарках холодного старта). Используйте `--embeddings`, чтобы включить их для экспериментов. Качество поиска обеспечивают структура графа и классы эквивалентности.
 
-**Что получает ваш агент:** Ключевой инструмент — `context_for_task`. Когда ваш агент вызывает его с описанием задачи, knowing возвращает ранжированные, релевантные символы кода, упакованные в бюджет токенов. Это заменяет циклы grep-read. Другие полезные инструменты: `blast_radius` (что сломается, если я это изменю?), `test_scope` (какие тесты запускать?), `explain_symbol` (почему он оказался здесь в ранжировании?). Все 28 инструментов см. в [Справочнике инструментов MCP](docs/guide/mcp-tools.md).
+**Что получает ваш агент:** Ключевой инструмент — `context_for_task`. Когда ваш агент вызывает его с описанием задачи, knowing возвращает ранжированные, релевантные символы кода, упакованные в бюджет токенов. Это заменяет циклы grep-read. Другие полезные инструменты: `blast_radius` (что сломается, если я это изменю?), `test_scope` (какие тесты запускать?), `explain_symbol` (почему он оказался здесь в ранжировании?). Все 28 инструментов см. в [Справочнике инструментов MCP](../../docs/guide/mcp-tools.md).
 
 **Проверьте, что это работает:**
 
@@ -400,21 +400,21 @@ GCF использует поля, разделённые `|`, и локальн
 
 | Документ | Содержание |
 |---|---|
-| [Введение](docs/guide/introduction.md) | Как это работает, разбор конвейера поиска, 5-минутное знакомство |
-| [Архитектура](docs/architecture/) | Дизайн системы, схемы, контентная адресация, модель демона |
-| [Функции](docs/guide/features.md) | Инвентарь реализации, точки входа, ограничения |
-| [Аудит и соответствие](docs/guide/audit-compliance.md) | Доказательства Меркла, fsck, цепочка снимков, гейты CI |
-| [Справочник CLI](docs/guide/cli.md) | Команды, флаги, примеры, [устранение неполадок](docs/guide/cli.md#troubleshooting) |
-| [Инструменты MCP](docs/guide/mcp-tools.md) | Схемы инструментов, параметры, форматы возврата |
-| [Типы рёбер](docs/architecture/edge-types.md) | Семантика связей и происхождение |
-| [Упаковка контекста](docs/architecture/context-packing.md) | RWR, HITS, ранжирование, бюджетирование токенов |
-| [Ре-ранкер эмбеддингов](docs/architecture/embedding-reranker.md) | Локальный инференс, кеш векторов, профиль задержки |
-| [Рантайм-трейсы](docs/operations/runtime-traces.md) | Приём OTel и рантайм-уверенность |
-| [Проводные форматы](docs/architecture/wire-formats.md) | Форматы GCF, GCB, JSON и бенчмарки |
-| [Дорожная карта](docs/roadmap.md) | Завершённые рабочие потоки и следующие приоритеты |
-| [Бенчмарки](bench/README.md) | Воспроизводимые бенчмарки ценности с контрактами производительности |
-| [Исследование](docs/research/content-addressing-as-computation-primitive.md) | Тезис, на котором построен knowing: контентная адресация как примитив вычислений ([DOI: 10.5281/zenodo.20342255](https://zenodo.org/records/20342255)) |
-| [Hooks](hooks/README.md) | Интеграция хуков Claude Code |
+| [Введение](../../docs/guide/introduction.md) | Как это работает, разбор конвейера поиска, 5-минутное знакомство |
+| [Архитектура](../../docs/architecture/) | Дизайн системы, схемы, контентная адресация, модель демона |
+| [Функции](../../docs/guide/features.md) | Инвентарь реализации, точки входа, ограничения |
+| [Аудит и соответствие](../../docs/guide/audit-compliance.md) | Доказательства Меркла, fsck, цепочка снимков, гейты CI |
+| [Справочник CLI](../../docs/guide/cli.md) | Команды, флаги, примеры, [устранение неполадок](../../docs/guide/cli.md#troubleshooting) |
+| [Инструменты MCP](../../docs/guide/mcp-tools.md) | Схемы инструментов, параметры, форматы возврата |
+| [Типы рёбер](../../docs/architecture/edge-types.md) | Семантика связей и происхождение |
+| [Упаковка контекста](../../docs/architecture/context-packing.md) | RWR, HITS, ранжирование, бюджетирование токенов |
+| [Ре-ранкер эмбеддингов](../../docs/architecture/embedding-reranker.md) | Локальный инференс, кеш векторов, профиль задержки |
+| [Рантайм-трейсы](../../docs/operations/runtime-traces.md) | Приём OTel и рантайм-уверенность |
+| [Проводные форматы](../../docs/architecture/wire-formats.md) | Форматы GCF, GCB, JSON и бенчмарки |
+| [Дорожная карта](../../docs/roadmap.md) | Завершённые рабочие потоки и следующие приоритеты |
+| [Бенчмарки](../../bench/README.md) | Воспроизводимые бенчмарки ценности с контрактами производительности |
+| [Исследование](../../docs/research/content-addressing-as-computation-primitive.md) | Тезис, на котором построен knowing: контентная адресация как примитив вычислений ([DOI: 10.5281/zenodo.20342255](https://zenodo.org/records/20342255)) |
+| [Hooks](../../hooks/README.md) | Интеграция хуков Claude Code |
 
 ## Лицензия
 

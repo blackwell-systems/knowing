@@ -1,7 +1,7 @@
 [English](../../README.md) · **简体中文** · [Русский](README.ru.md) · [हिन्दी](README.hi.md) · [العربية](README.ar.md)
 
 <p align="center">
-  <img src="assets/knowing-banner.png" alt="knowing" width="600">
+  <img src="../../assets/knowing-banner.png" alt="knowing" width="600">
 </p>
 
 <p align="center">
@@ -9,7 +9,7 @@
   <a href="https://zenodo.org/records/20342255"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.20342255.svg" alt="DOI"></a>
   <a href="#mcp-tools"><img src="https://img.shields.io/badge/MCP_tools-28%20tools%20%2B%208%20resources-brightgreen.svg" alt="MCP Tools"></a>
   <a href="#languages-and-formats"><img src="https://img.shields.io/badge/languages_and_formats-26-blue.svg" alt="Languages and Formats"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-blue.svg" alt="License"></a>
+  <a href="../../LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-blue.svg" alt="License"></a>
 </p>
 
 ---
@@ -37,7 +37,7 @@ brew install blackwell-systems/tap/knowing
 
 就这么简单。MCP 服务器在首次启动时会自动索引你的仓库。无需下载模型，无需 API key。你的 agent 现在就拥有了排序后的上下文、影响范围（blast radius）、测试范围，以及在活动会话期间不断改进结果的隐式噪声降权。
 
-**验证它是否生效：** 询问你的 agent：*"使用 context_for_task 工具查找与 [你知道存在于代码中的某个东西] 相关的符号。"* 你应当看到带有分数和文件路径、来自你代码库的排序符号。如果结果为空，说明仓库仍在索引中（首次启动需 10-30 秒）。如果结果看起来不相关，请参阅 [故障排查](docs/guide/cli.md#troubleshooting)。
+**验证它是否生效：** 询问你的 agent：*"使用 context_for_task 工具查找与 [你知道存在于代码中的某个东西] 相关的符号。"* 你应当看到带有分数和文件路径、来自你代码库的排序符号。如果结果为空，说明仓库仍在索引中（首次启动需 10-30 秒）。如果结果看起来不相关，请参阅 [故障排查](../../docs/guide/cli.md#troubleshooting)。
 
 > **没有使用 AI agent？** 直接跳到下方的 [CLI 用法](#path-b-cli-usage-explore-the-graph-yourself)。
 
@@ -45,8 +45,8 @@ brew install blackwell-systems/tap/knowing
 |---|---|
 | 为你的 AI agent 提供图排序上下文 | [MCP 配置](#mcp-integration) |
 | 从 CLI 探索图 | [CLI 用法](#path-b-cli-usage-explore-the-graph-yourself) |
-| 理解检索的工作原理 | [简介](docs/guide/introduction.md) |
-| 用密码学证明进行审计 | [审计与合规](docs/guide/audit-compliance.md) |
+| 理解检索的工作原理 | [简介](../../docs/guide/introduction.md) |
+| 用密码学证明进行审计 | [审计与合规](../../docs/guide/audit-compliance.md) |
 
 ---
 
@@ -106,7 +106,7 @@ knowing 是构建在同一个基础（带有分层 Merkle 树的内容寻址图�
 | 语言覆盖 | 16/16 仓库通过（Go、Python、TS、Rust、Java、C#、Ruby、多语言） |
 | 边类型 | 38（含供应链：reads_env、executes_process） |
 
-所有基准测试均可复现。跨系统基准（P@10=0.330）使用固定到精确 commit 的 17 个仓库，并附有 [语料清单](bench/cross-system/corpus/MANIFEST.yaml) 和 [配置脚本](bench/cross-system/corpus/corpus-setup.sh) 以支持完整的从零复现。协议细节参见 [METHODOLOGY.md](bench/cross-system/METHODOLOGY.md)。
+所有基准测试均可复现。跨系统基准（P@10=0.330）使用固定到精确 commit 的 17 个仓库，并附有 [语料清单](../../bench/cross-system/corpus/MANIFEST.yaml) 和 [配置脚本](../../bench/cross-system/corpus/corpus-setup.sh) 以支持完整的从零复现。协议细节参见 [METHODOLOGY.md](../../bench/cross-system/METHODOLOGY.md)。
 
 ---
 
@@ -167,7 +167,7 @@ knowing stale
 ```
 
 如果 `knowing stats` 显示零个节点或极少的边，请参阅下方的
-[故障排查](docs/guide/cli.md#troubleshooting)。
+[故障排查](../../docs/guide/cli.md#troubleshooting)。
 
 ### 更多 CLI 命令
 
@@ -194,7 +194,7 @@ knowing audit-supply-chain --scan-all
 knowing remove ./path/to/repo
 ```
 
-完整的命令参考请见 [CLI 参考](docs/guide/cli.md)。
+完整的命令参考请见 [CLI 参考](../../docs/guide/cli.md)。
 
 ### MCP 集成
 
@@ -226,7 +226,7 @@ knowing remove ./path/to/repo
 
 Embedding 默认关闭（在冷启动基准上确认为中性影响）。如需试验，使用 `--embeddings` 启用。图结构和等价类承载检索质量。
 
-**你的 agent 会获得什么：** 关键工具是 `context_for_task`。当你的 agent 用一段任务描述调用它时，knowing 会返回打包进 token 预算的、经过排序的相关代码符号。这替代了 grep-read 循环。其他有用的工具：`blast_radius`（如果我改动这个，什么会被破坏？）、`test_scope`（该运行哪些测试？）、`explain_symbol`（为什么它排在这里？）。全部 28 个工具参见 [MCP 工具参考](docs/guide/mcp-tools.md)。
+**你的 agent 会获得什么：** 关键工具是 `context_for_task`。当你的 agent 用一段任务描述调用它时，knowing 会返回打包进 token 预算的、经过排序的相关代码符号。这替代了 grep-read 循环。其他有用的工具：`blast_radius`（如果我改动这个，什么会被破坏？）、`test_scope`（该运行哪些测试？）、`explain_symbol`（为什么它排在这里？）。全部 28 个工具参见 [MCP 工具参考](../../docs/guide/mcp-tools.md)。
 
 **验证它是否生效：**
 
@@ -400,21 +400,21 @@ GCF 使用 `|` 分隔的字段和本地 ID（`$1 -> $3`）来替代重复的限�
 
 | 文档 | 内容 |
 |---|---|
-| [简介](docs/guide/introduction.md) | 工作原理、检索流水线详解、5 分钟上手 |
-| [架构](docs/architecture/) | 系统设计、schema、内容寻址、守护进程模型 |
-| [功能](docs/guide/features.md) | 实现清单、入口点、限制 |
-| [审计与合规](docs/guide/audit-compliance.md) | Merkle 证明、fsck、快照链、CI 门禁 |
-| [CLI 参考](docs/guide/cli.md) | 命令、标志、示例、[故障排查](docs/guide/cli.md#troubleshooting) |
-| [MCP 工具](docs/guide/mcp-tools.md) | 工具 schema、参数、返回格式 |
-| [边类型](docs/architecture/edge-types.md) | 关系语义与来源 |
-| [上下文打包](docs/architecture/context-packing.md) | RWR、HITS、排序、token 预算 |
-| [Embedding 重排器](docs/architecture/embedding-reranker.md) | 本地推理、向量缓存、延迟画像 |
-| [运行时 Trace](docs/operations/runtime-traces.md) | OTel 摄入与运行时置信度 |
-| [线格式](docs/architecture/wire-formats.md) | GCF、GCB、JSON 格式与基准 |
-| [路线图](docs/roadmap.md) | 已完成的工作流与下一步优先事项 |
-| [基准测试](bench/README.md) | 带性能契约的可复现价值基准 |
-| [研究](docs/research/content-addressing-as-computation-primitive.md) | knowing 所依据的论点：内容寻址作为一种计算原语（[DOI: 10.5281/zenodo.20342255](https://zenodo.org/records/20342255)） |
-| [Hooks](hooks/README.md) | Claude Code hook 集成 |
+| [简介](../../docs/guide/introduction.md) | 工作原理、检索流水线详解、5 分钟上手 |
+| [架构](../../docs/architecture/) | 系统设计、schema、内容寻址、守护进程模型 |
+| [功能](../../docs/guide/features.md) | 实现清单、入口点、限制 |
+| [审计与合规](../../docs/guide/audit-compliance.md) | Merkle 证明、fsck、快照链、CI 门禁 |
+| [CLI 参考](../../docs/guide/cli.md) | 命令、标志、示例、[故障排查](../../docs/guide/cli.md#troubleshooting) |
+| [MCP 工具](../../docs/guide/mcp-tools.md) | 工具 schema、参数、返回格式 |
+| [边类型](../../docs/architecture/edge-types.md) | 关系语义与来源 |
+| [上下文打包](../../docs/architecture/context-packing.md) | RWR、HITS、排序、token 预算 |
+| [Embedding 重排器](../../docs/architecture/embedding-reranker.md) | 本地推理、向量缓存、延迟画像 |
+| [运行时 Trace](../../docs/operations/runtime-traces.md) | OTel 摄入与运行时置信度 |
+| [线格式](../../docs/architecture/wire-formats.md) | GCF、GCB、JSON 格式与基准 |
+| [路线图](../../docs/roadmap.md) | 已完成的工作流与下一步优先事项 |
+| [基准测试](../../bench/README.md) | 带性能契约的可复现价值基准 |
+| [研究](../../docs/research/content-addressing-as-computation-primitive.md) | knowing 所依据的论点：内容寻址作为一种计算原语（[DOI: 10.5281/zenodo.20342255](https://zenodo.org/records/20342255)） |
+| [Hooks](../../hooks/README.md) | Claude Code hook 集成 |
 
 ## 许可
 

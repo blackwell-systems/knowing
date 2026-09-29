@@ -1,7 +1,7 @@
 [English](../../README.md) · [简体中文](README.zh-CN.md) · [Русский](README.ru.md) · [हिन्दी](README.hi.md) · **العربية**
 
 <p align="center">
-  <img src="assets/knowing-banner.png" alt="knowing" width="600">
+  <img src="../../assets/knowing-banner.png" alt="knowing" width="600">
 </p>
 
 <p align="center">
@@ -9,7 +9,7 @@
   <a href="https://zenodo.org/records/20342255"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.20342255.svg" alt="DOI"></a>
   <a href="#mcp-tools"><img src="https://img.shields.io/badge/MCP_tools-28%20tools%20%2B%208%20resources-brightgreen.svg" alt="MCP Tools"></a>
   <a href="#languages-and-formats"><img src="https://img.shields.io/badge/languages_and_formats-26-blue.svg" alt="Languages and Formats"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-blue.svg" alt="License"></a>
+  <a href="../../LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-blue.svg" alt="License"></a>
 </p>
 
 ---
@@ -37,7 +37,7 @@ brew install blackwell-systems/tap/knowing
 
 هذا كل شيء. يفهرس خادم MCP مستودعك تلقائيًا عند أول تشغيل. لا تنزيلات لنماذج، ولا مفاتيح API. أصبح لدى وكيلك الآن سياق مرتّب، ونطاق تأثير (blast radius)، ونطاق اختبار، وخفضٌ ضمني للضوضاء يحسّن النتائج أثناء الجلسات النشطة.
 
-**تحقّق من أنه يعمل:** اطلب من وكيلك: *"استخدم أداة context_for_task للعثور على الرموز المرتبطة بـ [شيء تعرف أنه موجود في شيفرتك]."* ينبغي أن ترى رموزًا مرتّبة مع درجات ومسارات ملفات من قاعدة شيفرتك. إذا كانت النتائج فارغة، فإن المستودع لا يزال قيد الفهرسة (10-30 ثانية عند أول تشغيل). وإذا بدت النتائج غير ذات صلة، فراجع [استكشاف الأخطاء وإصلاحها](docs/guide/cli.md#troubleshooting).
+**تحقّق من أنه يعمل:** اطلب من وكيلك: *"استخدم أداة context_for_task للعثور على الرموز المرتبطة بـ [شيء تعرف أنه موجود في شيفرتك]."* ينبغي أن ترى رموزًا مرتّبة مع درجات ومسارات ملفات من قاعدة شيفرتك. إذا كانت النتائج فارغة، فإن المستودع لا يزال قيد الفهرسة (10-30 ثانية عند أول تشغيل). وإذا بدت النتائج غير ذات صلة، فراجع [استكشاف الأخطاء وإصلاحها](../../docs/guide/cli.md#troubleshooting).
 
 > **لا تستخدم وكيل ذكاء اصطناعي؟** انتقل إلى [استخدام CLI](#path-b-cli-usage-explore-the-graph-yourself) أدناه.
 
@@ -45,8 +45,8 @@ brew install blackwell-systems/tap/knowing
 |---|---|
 | تمنح وكيل الذكاء الاصطناعي سياقًا مرتّبًا بالرسم البياني | [إعداد MCP](#mcp-integration) |
 | تستكشف الرسم البياني من CLI | [استخدام CLI](#path-b-cli-usage-explore-the-graph-yourself) |
-| تفهم كيف يعمل الاسترجاع | [مقدمة](docs/guide/introduction.md) |
-| تُدقّق بإثباتات تشفيرية | [التدقيق والامتثال](docs/guide/audit-compliance.md) |
+| تفهم كيف يعمل الاسترجاع | [مقدمة](../../docs/guide/introduction.md) |
+| تُدقّق بإثباتات تشفيرية | [التدقيق والامتثال](../../docs/guide/audit-compliance.md) |
 
 ---
 
@@ -106,7 +106,7 @@ knowing هو ثلاثة منتجات مبنية على أساس واحد (رسم
 | تغطية اللغات | 16/16 مستودعًا تنجح (Go، Python، TS، Rust، Java، C#، Ruby، متعدد) |
 | أنواع الحواف | 38 (بما في ذلك سلسلة التوريد: reads_env، executes_process) |
 
-جميع القياسات المرجعية قابلة لإعادة الإنتاج. يستخدم القياس المرجعي عبر الأنظمة (P@10=0.330) عددًا قدره 17 مستودعًا مثبّتة على commits دقيقة، مع [بيان جسم البيانات (corpus manifest)](bench/cross-system/corpus/MANIFEST.yaml) و[سكربت الإعداد](bench/cross-system/corpus/corpus-setup.sh) لإعادة إنتاج كاملة من الصفر. راجع [METHODOLOGY.md](bench/cross-system/METHODOLOGY.md) لتفاصيل البروتوكول.
+جميع القياسات المرجعية قابلة لإعادة الإنتاج. يستخدم القياس المرجعي عبر الأنظمة (P@10=0.330) عددًا قدره 17 مستودعًا مثبّتة على commits دقيقة، مع [بيان جسم البيانات (corpus manifest)](../../bench/cross-system/corpus/MANIFEST.yaml) و[سكربت الإعداد](../../bench/cross-system/corpus/corpus-setup.sh) لإعادة إنتاج كاملة من الصفر. راجع [METHODOLOGY.md](../../bench/cross-system/METHODOLOGY.md) لتفاصيل البروتوكول.
 
 ---
 
@@ -167,7 +167,7 @@ knowing stale
 ```
 
 إذا أظهر `knowing stats` صفر عُقد أو عددًا قليلًا جدًا من الحواف، فراجع
-[استكشاف الأخطاء وإصلاحها](docs/guide/cli.md#troubleshooting) أدناه.
+[استكشاف الأخطاء وإصلاحها](../../docs/guide/cli.md#troubleshooting) أدناه.
 
 ### مزيد من أوامر CLI
 
@@ -194,7 +194,7 @@ knowing audit-supply-chain --scan-all
 knowing remove ./path/to/repo
 ```
 
-للاطلاع على المرجع الكامل للأوامر، راجع [مرجع CLI](docs/guide/cli.md).
+للاطلاع على المرجع الكامل للأوامر، راجع [مرجع CLI](../../docs/guide/cli.md).
 
 ### تكامل MCP
 
@@ -226,7 +226,7 @@ knowing remove ./path/to/repo
 
 التضمينات (Embeddings) مُعطّلة افتراضيًا (تأكّد حيادها في قياسات البداية الباردة). استخدم `--embeddings` لتمكينها عند التجربة. تحمل بنية الرسم البياني وفئات التكافؤ جودة الاسترجاع.
 
-**ما الذي يحصل عليه وكيلك:** الأداة الأساسية هي `context_for_task`. عندما يستدعيها وكيلك بوصف مهمة، يُرجع knowing رموز شيفرة مرتّبة وذات صلة مُحزَّمة في ميزانية رموز. وهذا يحل محل حلقات grep-read. أدوات مفيدة أخرى: `blast_radius` (ما الذي يتعطّل إن غيّرت هذا؟)، و`test_scope` (أي اختبارات أُشغّل؟)، و`explain_symbol` (لماذا احتلّ هذا هذه المرتبة؟). راجع [مرجع أدوات MCP](docs/guide/mcp-tools.md) لجميع الأدوات الـ 28.
+**ما الذي يحصل عليه وكيلك:** الأداة الأساسية هي `context_for_task`. عندما يستدعيها وكيلك بوصف مهمة، يُرجع knowing رموز شيفرة مرتّبة وذات صلة مُحزَّمة في ميزانية رموز. وهذا يحل محل حلقات grep-read. أدوات مفيدة أخرى: `blast_radius` (ما الذي يتعطّل إن غيّرت هذا؟)، و`test_scope` (أي اختبارات أُشغّل؟)، و`explain_symbol` (لماذا احتلّ هذا هذه المرتبة؟). راجع [مرجع أدوات MCP](../../docs/guide/mcp-tools.md) لجميع الأدوات الـ 28.
 
 **تحقّق من أنه يعمل:**
 
@@ -400,21 +400,21 @@ knowing serve -addr :8100 .
 
 | الوثيقة | المحتويات |
 |---|---|
-| [مقدمة](docs/guide/introduction.md) | كيف يعمل، شرح خط أنابيب الاسترجاع، جولة في 5 دقائق |
-| [البنية المعمارية](docs/architecture/) | تصميم النظام، والمخططات (schemas)، والعَنْوَنة بالمحتوى، ونموذج الخدمة الخفية |
-| [الميزات](docs/guide/features.md) | جرد التنفيذ، ونقاط الدخول، والقيود |
-| [التدقيق والامتثال](docs/guide/audit-compliance.md) | إثباتات Merkle، وfsck، وسلسلة اللقطات، وبوابات CI |
-| [مرجع CLI](docs/guide/cli.md) | الأوامر، والرايات، والأمثلة، و[استكشاف الأخطاء وإصلاحها](docs/guide/cli.md#troubleshooting) |
-| [أدوات MCP](docs/guide/mcp-tools.md) | مخططات الأدوات، والمعاملات، وتنسيقات الإرجاع |
-| [أنواع الحواف](docs/architecture/edge-types.md) | دلالات العلاقات والمنشأ |
-| [تحزيم السياق](docs/architecture/context-packing.md) | RWR، وHITS، والترتيب، وميزنة الرموز |
-| [مُعيد ترتيب التضمينات](docs/architecture/embedding-reranker.md) | الاستدلال المحلي، وذاكرة المتّجهات المؤقتة، وملف الكمون |
-| [آثار وقت التشغيل](docs/operations/runtime-traces.md) | استيعاب OTel وثقة وقت التشغيل |
-| [تنسيقات الشبكة](docs/architecture/wire-formats.md) | تنسيقات GCF، وGCB، وJSON والقياسات المرجعية |
-| [خارطة الطريق](docs/roadmap.md) | مسارات العمل المكتملة والأولويات التالية |
-| [القياسات المرجعية](bench/README.md) | قياسات قيمة قابلة لإعادة الإنتاج مع عقود أداء |
-| [البحث](docs/research/content-addressing-as-computation-primitive.md) | الأطروحة التي بُني عليها knowing: العَنْوَنة بالمحتوى كبدائية حوسبة ([DOI: 10.5281/zenodo.20342255](https://zenodo.org/records/20342255)) |
-| [Hooks](hooks/README.md) | تكامل خطّافات Claude Code |
+| [مقدمة](../../docs/guide/introduction.md) | كيف يعمل، شرح خط أنابيب الاسترجاع، جولة في 5 دقائق |
+| [البنية المعمارية](../../docs/architecture/) | تصميم النظام، والمخططات (schemas)، والعَنْوَنة بالمحتوى، ونموذج الخدمة الخفية |
+| [الميزات](../../docs/guide/features.md) | جرد التنفيذ، ونقاط الدخول، والقيود |
+| [التدقيق والامتثال](../../docs/guide/audit-compliance.md) | إثباتات Merkle، وfsck، وسلسلة اللقطات، وبوابات CI |
+| [مرجع CLI](../../docs/guide/cli.md) | الأوامر، والرايات، والأمثلة، و[استكشاف الأخطاء وإصلاحها](../../docs/guide/cli.md#troubleshooting) |
+| [أدوات MCP](../../docs/guide/mcp-tools.md) | مخططات الأدوات، والمعاملات، وتنسيقات الإرجاع |
+| [أنواع الحواف](../../docs/architecture/edge-types.md) | دلالات العلاقات والمنشأ |
+| [تحزيم السياق](../../docs/architecture/context-packing.md) | RWR، وHITS، والترتيب، وميزنة الرموز |
+| [مُعيد ترتيب التضمينات](../../docs/architecture/embedding-reranker.md) | الاستدلال المحلي، وذاكرة المتّجهات المؤقتة، وملف الكمون |
+| [آثار وقت التشغيل](../../docs/operations/runtime-traces.md) | استيعاب OTel وثقة وقت التشغيل |
+| [تنسيقات الشبكة](../../docs/architecture/wire-formats.md) | تنسيقات GCF، وGCB، وJSON والقياسات المرجعية |
+| [خارطة الطريق](../../docs/roadmap.md) | مسارات العمل المكتملة والأولويات التالية |
+| [القياسات المرجعية](../../bench/README.md) | قياسات قيمة قابلة لإعادة الإنتاج مع عقود أداء |
+| [البحث](../../docs/research/content-addressing-as-computation-primitive.md) | الأطروحة التي بُني عليها knowing: العَنْوَنة بالمحتوى كبدائية حوسبة ([DOI: 10.5281/zenodo.20342255](https://zenodo.org/records/20342255)) |
+| [Hooks](../../hooks/README.md) | تكامل خطّافات Claude Code |
 
 ## الترخيص
 

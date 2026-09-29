@@ -1,7 +1,7 @@
 [English](../../README.md) · [简体中文](README.zh-CN.md) · [Русский](README.ru.md) · **हिन्दी** · [العربية](README.ar.md)
 
 <p align="center">
-  <img src="assets/knowing-banner.png" alt="knowing" width="600">
+  <img src="../../assets/knowing-banner.png" alt="knowing" width="600">
 </p>
 
 <p align="center">
@@ -9,7 +9,7 @@
   <a href="https://zenodo.org/records/20342255"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.20342255.svg" alt="DOI"></a>
   <a href="#mcp-tools"><img src="https://img.shields.io/badge/MCP_tools-28%20tools%20%2B%208%20resources-brightgreen.svg" alt="MCP Tools"></a>
   <a href="#languages-and-formats"><img src="https://img.shields.io/badge/languages_and_formats-26-blue.svg" alt="Languages and Formats"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-blue.svg" alt="License"></a>
+  <a href="../../LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-blue.svg" alt="License"></a>
 </p>
 
 ---
@@ -37,7 +37,7 @@ brew install blackwell-systems/tap/knowing
 
 बस इतना ही। MCP server पहली बार लॉन्च होने पर आपके repo को स्वचालित रूप से इंडेक्स करता है। न मॉडल डाउनलोड, न API keys। आपके agent के पास अब रैंक किया गया संदर्भ, blast radius, टेस्ट स्कोप, और अंतर्निहित नॉइज़ डिमोशन है जो सक्रिय सत्रों के दौरान परिणामों को बेहतर बनाता है।
 
-**सत्यापित करें कि यह काम करता है:** अपने agent से पूछें: *"context_for_task tool का उपयोग करके [कोई ऐसी चीज़ जो आप जानते हैं कि आपके कोड में मौजूद है] से संबंधित symbols खोजें।"* आपको अपने कोडबेस से स्कोर और फ़ाइल पथ के साथ रैंक किए गए symbols दिखने चाहिए। यदि परिणाम खाली हैं, तो repo अभी भी इंडेक्स हो रहा है (पहली बार लॉन्च पर 10-30 सेकंड)। यदि परिणाम असंबंधित लगते हैं, तो [समस्या निवारण](docs/guide/cli.md#troubleshooting) देखें।
+**सत्यापित करें कि यह काम करता है:** अपने agent से पूछें: *"context_for_task tool का उपयोग करके [कोई ऐसी चीज़ जो आप जानते हैं कि आपके कोड में मौजूद है] से संबंधित symbols खोजें।"* आपको अपने कोडबेस से स्कोर और फ़ाइल पथ के साथ रैंक किए गए symbols दिखने चाहिए। यदि परिणाम खाली हैं, तो repo अभी भी इंडेक्स हो रहा है (पहली बार लॉन्च पर 10-30 सेकंड)। यदि परिणाम असंबंधित लगते हैं, तो [समस्या निवारण](../../docs/guide/cli.md#troubleshooting) देखें।
 
 > **AI agent का उपयोग नहीं कर रहे?** नीचे [CLI उपयोग](#path-b-cli-usage-explore-the-graph-yourself) पर जाएँ।
 
@@ -45,8 +45,8 @@ brew install blackwell-systems/tap/knowing
 |---|---|
 | अपने AI agent को ग्राफ़-रैंक किया गया संदर्भ दें | [MCP सेटअप](#mcp-integration) |
 | CLI से ग्राफ़ का अन्वेषण करें | [CLI उपयोग](#path-b-cli-usage-explore-the-graph-yourself) |
-| समझें कि रिट्रीवल कैसे काम करता है | [परिचय](docs/guide/introduction.md) |
-| क्रिप्टोग्राफ़िक प्रमाणों के साथ ऑडिट करें | [ऑडिट और अनुपालन](docs/guide/audit-compliance.md) |
+| समझें कि रिट्रीवल कैसे काम करता है | [परिचय](../../docs/guide/introduction.md) |
+| क्रिप्टोग्राफ़िक प्रमाणों के साथ ऑडिट करें | [ऑडिट और अनुपालन](../../docs/guide/audit-compliance.md) |
 
 ---
 
@@ -106,7 +106,7 @@ knowing एक ही आधार (श्रेणीबद्ध Merkle trees 
 | भाषा कवरेज | 16/16 repos पास (Go, Python, TS, Rust, Java, C#, Ruby, multi) |
 | एज प्रकार | 38 (सप्लाई चेन सहित: reads_env, executes_process) |
 
-सभी benchmarks पुनरुत्पादनीय हैं। क्रॉस-सिस्टम benchmark (P@10=0.330) सटीक commits पर पिन किए गए 17 repos का उपयोग करता है, जिसमें पूर्ण रूप से नए सिरे से पुनरुत्पादन के लिए एक [corpus manifest](bench/cross-system/corpus/MANIFEST.yaml) और [setup script](bench/cross-system/corpus/corpus-setup.sh) शामिल है। प्रोटोकॉल विवरण के लिए [METHODOLOGY.md](bench/cross-system/METHODOLOGY.md) देखें।
+सभी benchmarks पुनरुत्पादनीय हैं। क्रॉस-सिस्टम benchmark (P@10=0.330) सटीक commits पर पिन किए गए 17 repos का उपयोग करता है, जिसमें पूर्ण रूप से नए सिरे से पुनरुत्पादन के लिए एक [corpus manifest](../../bench/cross-system/corpus/MANIFEST.yaml) और [setup script](../../bench/cross-system/corpus/corpus-setup.sh) शामिल है। प्रोटोकॉल विवरण के लिए [METHODOLOGY.md](../../bench/cross-system/METHODOLOGY.md) देखें।
 
 ---
 
@@ -167,7 +167,7 @@ knowing stale
 ```
 
 यदि `knowing stats` शून्य nodes या बहुत कम एजेस दिखाता है, तो नीचे
-[समस्या निवारण](docs/guide/cli.md#troubleshooting) देखें।
+[समस्या निवारण](../../docs/guide/cli.md#troubleshooting) देखें।
 
 ### अधिक CLI कमांड
 
@@ -194,7 +194,7 @@ knowing audit-supply-chain --scan-all
 knowing remove ./path/to/repo
 ```
 
-पूर्ण कमांड संदर्भ के लिए, [CLI संदर्भ](docs/guide/cli.md) देखें।
+पूर्ण कमांड संदर्भ के लिए, [CLI संदर्भ](../../docs/guide/cli.md) देखें।
 
 ### MCP एकीकरण
 
@@ -226,7 +226,7 @@ MCP server को अपने agent में जोड़ें। कॉन�
 
 Embeddings डिफ़ॉल्ट रूप से बंद हैं (कोल्ड-स्टार्ट benchmarks पर तटस्थ के रूप में पुष्ट)। प्रयोग करने के लिए सक्षम करने हेतु `--embeddings` का उपयोग करें। ग्राफ़ संरचना और समतुल्यता वर्ग रिट्रीवल गुणवत्ता को वहन करते हैं।
 
-**आपके agent को क्या मिलता है:** मुख्य tool `context_for_task` है। जब आपका agent किसी कार्य विवरण के साथ इसे कॉल करता है, तो knowing token बजट में पैक किए गए रैंक किए गए, प्रासंगिक कोड symbols लौटाता है। यह grep-read लूप्स को प्रतिस्थापित करता है। अन्य उपयोगी tools: `blast_radius` (यदि मैं इसे बदलूँ तो क्या टूटेगा?), `test_scope` (कौन से टेस्ट चलाने हैं?), `explain_symbol` (यह यहाँ क्यों रैंक हुआ?)। सभी 28 tools के लिए [MCP Tools संदर्भ](docs/guide/mcp-tools.md) देखें।
+**आपके agent को क्या मिलता है:** मुख्य tool `context_for_task` है। जब आपका agent किसी कार्य विवरण के साथ इसे कॉल करता है, तो knowing token बजट में पैक किए गए रैंक किए गए, प्रासंगिक कोड symbols लौटाता है। यह grep-read लूप्स को प्रतिस्थापित करता है। अन्य उपयोगी tools: `blast_radius` (यदि मैं इसे बदलूँ तो क्या टूटेगा?), `test_scope` (कौन से टेस्ट चलाने हैं?), `explain_symbol` (यह यहाँ क्यों रैंक हुआ?)। सभी 28 tools के लिए [MCP Tools संदर्भ](../../docs/guide/mcp-tools.md) देखें।
 
 **सत्यापित करें कि यह काम करता है:**
 
@@ -400,21 +400,21 @@ GCF दोहराए गए योग्य नामों के बजा�
 
 | दस्तावेज़ | विषय-वस्तु |
 |---|---|
-| [परिचय](docs/guide/introduction.md) | यह कैसे काम करता है, रिट्रीवल पाइपलाइन समझाई गई, 5-मिनट का वॉकथ्रू |
-| [आर्किटेक्चर](docs/architecture/) | सिस्टम डिज़ाइन, schemas, content addressing, daemon मॉडल |
-| [फ़ीचर](docs/guide/features.md) | कार्यान्वयन सूची, entry points, सीमाएँ |
-| [ऑडिट और अनुपालन](docs/guide/audit-compliance.md) | Merkle प्रमाण, fsck, स्नैपशॉट श्रृंखला, CI gates |
-| [CLI संदर्भ](docs/guide/cli.md) | कमांड, फ़्लैग, उदाहरण, [समस्या निवारण](docs/guide/cli.md#troubleshooting) |
-| [MCP Tools](docs/guide/mcp-tools.md) | Tool schemas, पैरामीटर, रिटर्न प्रारूप |
-| [Edge Types](docs/architecture/edge-types.md) | संबंध शब्दार्थ और provenance |
-| [Context Packing](docs/architecture/context-packing.md) | RWR, HITS, रैंकिंग, token बजटिंग |
-| [Embedding Re-ranker](docs/architecture/embedding-reranker.md) | स्थानीय inference, vector cache, latency प्रोफ़ाइल |
-| [Runtime Traces](docs/operations/runtime-traces.md) | OTel इंजेशन और रनटाइम confidence |
-| [Wire Formats](docs/architecture/wire-formats.md) | GCF, GCB, JSON प्रारूप और benchmarks |
-| [Roadmap](docs/roadmap.md) | पूर्ण किए गए workstreams और अगली प्राथमिकताएँ |
-| [Benchmarks](bench/README.md) | प्रदर्शन contracts के साथ पुनरुत्पादनीय मूल्य benchmarks |
-| [Research](docs/research/content-addressing-as-computation-primitive.md) | वह थीसिस जिस पर knowing बना है: content-addressing एक computation primitive के रूप में ([DOI: 10.5281/zenodo.20342255](https://zenodo.org/records/20342255)) |
-| [Hooks](hooks/README.md) | Claude Code hook एकीकरण |
+| [परिचय](../../docs/guide/introduction.md) | यह कैसे काम करता है, रिट्रीवल पाइपलाइन समझाई गई, 5-मिनट का वॉकथ्रू |
+| [आर्किटेक्चर](../../docs/architecture/) | सिस्टम डिज़ाइन, schemas, content addressing, daemon मॉडल |
+| [फ़ीचर](../../docs/guide/features.md) | कार्यान्वयन सूची, entry points, सीमाएँ |
+| [ऑडिट और अनुपालन](../../docs/guide/audit-compliance.md) | Merkle प्रमाण, fsck, स्नैपशॉट श्रृंखला, CI gates |
+| [CLI संदर्भ](../../docs/guide/cli.md) | कमांड, फ़्लैग, उदाहरण, [समस्या निवारण](../../docs/guide/cli.md#troubleshooting) |
+| [MCP Tools](../../docs/guide/mcp-tools.md) | Tool schemas, पैरामीटर, रिटर्न प्रारूप |
+| [Edge Types](../../docs/architecture/edge-types.md) | संबंध शब्दार्थ और provenance |
+| [Context Packing](../../docs/architecture/context-packing.md) | RWR, HITS, रैंकिंग, token बजटिंग |
+| [Embedding Re-ranker](../../docs/architecture/embedding-reranker.md) | स्थानीय inference, vector cache, latency प्रोफ़ाइल |
+| [Runtime Traces](../../docs/operations/runtime-traces.md) | OTel इंजेशन और रनटाइम confidence |
+| [Wire Formats](../../docs/architecture/wire-formats.md) | GCF, GCB, JSON प्रारूप और benchmarks |
+| [Roadmap](../../docs/roadmap.md) | पूर्ण किए गए workstreams और अगली प्राथमिकताएँ |
+| [Benchmarks](../../bench/README.md) | प्रदर्शन contracts के साथ पुनरुत्पादनीय मूल्य benchmarks |
+| [Research](../../docs/research/content-addressing-as-computation-primitive.md) | वह थीसिस जिस पर knowing बना है: content-addressing एक computation primitive के रूप में ([DOI: 10.5281/zenodo.20342255](https://zenodo.org/records/20342255)) |
+| [Hooks](../../hooks/README.md) | Claude Code hook एकीकरण |
 
 ## लाइसेंस
 
